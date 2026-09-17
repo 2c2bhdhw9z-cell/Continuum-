@@ -16,7 +16,15 @@
  * Later launches of the same system skip everything: the registry keeps the core
  * resident, and even after `unloadCore` the bytes are served from the Cache API
  * rather than the network.
+ *
+ * Two kinds of entry exist. `kind: "libretro"` is a real core, instantiated here as
+ * its own wasm module and handed to Rust as a runtime handle. Anything else is a
+ * placeholder whose bytes go to Rust, which substitutes its diagnostic core. The
+ * registry treats both identically, which is what made adding real cores a
+ * one-file change.
  */
+
+import { LibretroRuntime } from './core-runtime.js';
 
 /** Cache bucket for core binaries. Versioned so a format change can invalidate it. */
 const CORE_CACHE = 'continuum-cores-v1';
@@ -31,6 +39,19 @@ export class CoreLoader {
     this.systemToCore = new Map();
     /** @type {Map<string, Promise<void>>} In-flight fetches, deduped by core id. */
     this.inFlight = new Map();
+
+    /**
+     * Cached typed-array views into *Rust* memory for the frame hand-off.
+     *
+     * The staging pointer is stable for a session and the core's framebuffer pointer
+     * rarely moves, so these are built once and reused. Allocating a view per frame
+     * would put 60 short-lived objects a second in front of the collector for no
+     * reason.
+     */
+    this._videoDst = null;
+    this._videoDstKey = '';
+    this._audioDst = null;
+    this._audioDstKey = '';
   }
 
   /**
@@ -114,9 +135,23 @@ export class CoreLoader {
       const bytes = await this._fetchModule(entry, onProgress);
 
       onProgress({ received: bytes.length, total: bytes.length, phase: 'instantiate' });
-      // Hands the bytes to Rust, which validates and instantiates. Throws with a
-      // legible reason if the download was an error page or a truncated file.
-      bridge.attachCoreModule(coreId, bytes);
+
+      if (entry.kind === 'libretro') {
+        // A real core is its own wasm module with its own memory and imports, which
+        // only JS can wire up — so instantiation happens here and Rust receives a
+        // handle. Everything after this line (pacing, input, audio, presentation) is
+        // Rust's.
+        const runtime = await LibretroRuntime.instantiate(bytes, this._coreHooks());
+        bridge.attachCoreRuntime(coreId, runtime);
+        console.info(
+          `[cores] '${coreId}' instantiated: ${runtime.systemInfo.name} ` +
+            `${runtime.systemInfo.version} (${runtime.systemInfo.validExtensions.join('/')})`,
+        );
+      } else {
+        // Placeholder entries: Rust validates the module and substitutes its
+        // diagnostic core. Same registry, same session lifecycle.
+        bridge.attachCoreModule(coreId, bytes);
+      }
 
       console.info(
         `[cores] '${coreId}' attached (${bytes.length} bytes); resident: ${bridge.residentCoreCount}`,
@@ -129,6 +164,75 @@ export class CoreLoader {
     } finally {
       this.inFlight.delete(coreId);
     }
+  }
+
+  /**
+   * Hooks handed to a `LibretroRuntime`, wiring the core's callbacks to Rust.
+   *
+   * This is the whole JS contribution to a running frame: copy the core's framebuffer
+   * and PCM into the staging buffers Rust published, then tell Rust what arrived. No
+   * decisions are made here — not the pixel format, not the geometry, not the input
+   * mapping — because every one of those would then have to be re-made in Swift for
+   * Phase 2.
+   */
+  _coreHooks() {
+    const CoreHost = this.host.wasm.CoreHost;
+
+    return {
+      video: ({ data, width, height, pitch, format }) => {
+        const ptr = CoreHost.videoStagingPtr();
+        // Zero means no frame window is open, which happens if a core calls
+        // video_refresh outside retro_run. Rust logs it; dropping is correct.
+        if (!ptr) return;
+
+        const needed = pitch * height;
+        const capacity = CoreHost.videoStagingLen();
+        if (needed > capacity) {
+          // Report it anyway so Rust counts the drop and warns once with real numbers.
+          CoreHost.videoReady(width, height, pitch, format);
+          return;
+        }
+
+        const key = `${ptr}:${capacity}:${this.host.memory.buffer.byteLength}`;
+        if (key !== this._videoDstKey) {
+          this._videoDst = new Uint8Array(this.host.memory.buffer, ptr, capacity);
+          this._videoDstKey = key;
+        }
+        this._videoDst.set(data.subarray(0, needed));
+        CoreHost.videoReady(width, height, pitch, format);
+      },
+
+      audio: (samples, frames) => {
+        const ptr = CoreHost.audioStagingPtr();
+        if (!ptr) return;
+
+        const capacity = CoreHost.audioStagingLen();
+        const key = `${ptr}:${capacity}:${this.host.memory.buffer.byteLength}`;
+        if (key !== this._audioDstKey) {
+          this._audioDst = new Int16Array(this.host.memory.buffer, ptr, capacity);
+          this._audioDstKey = key;
+        }
+
+        const count = Math.min(samples.length, capacity);
+        this._audioDst.set(count === samples.length ? samples : samples.subarray(0, count));
+        CoreHost.audioReady(count >> 1);
+      },
+
+      // Rust owns the input state, so the core's query goes straight to it.
+      inputState: (port, device, index, id) => CoreHost.inputState(port, device, index, id),
+
+      systemChanged: ({ geometry }) => {
+        if (geometry) {
+          CoreHost.geometryChanged(
+            geometry.baseWidth,
+            geometry.baseHeight,
+            geometry.aspectRatio,
+          );
+        }
+      },
+
+      log: (message) => console.debug(message),
+    };
   }
 
   /**
@@ -158,7 +262,16 @@ export class CoreLoader {
 
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`core download failed: ${response.status} ${response.statusText}`);
+      // Core binaries are build outputs, not repository contents (they are large, and
+      // third-party GPL code we do not vendor). A 404 almost always means "not built
+      // yet", so say so instead of reporting a bare status code.
+      const hint =
+        response.status === 404 && entry.kind === 'libretro'
+          ? ` — build it with: scripts/build-core.sh ${entry.id}`
+          : '';
+      throw new Error(
+        `core download failed: ${response.status} ${response.statusText}${hint}`,
+      );
     }
 
     if (cache) {

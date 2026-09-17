@@ -137,8 +137,9 @@ impl CoreRegistry {
 
     /// Instantiates a fetched core module.
     ///
-    /// The *only* transition from declared to runnable. Called from the game-launch
-    /// path after the host has fetched the bytes.
+    /// One of two transitions from declared to runnable, used for cores the engine
+    /// instantiates itself (the diagnostic stand-in). Real libretro cores are
+    /// instantiated by the platform layer and arrive via [`Self::attach_core`].
     pub fn attach_module(&mut self, core_id: &str, bytes: &[u8]) -> Result<(), BridgeError> {
         let entry = self
             .entries
@@ -166,6 +167,36 @@ impl CoreRegistry {
                 Err(err)
             }
         }
+    }
+
+    /// Installs a core the platform layer already built.
+    ///
+    /// This is how a real libretro core enters the registry: the host instantiates the
+    /// core's wasm module (its own memory, its own imports) and hands over an
+    /// [`EmulatorCore`] wrapper. The registry does not care which of the two paths a
+    /// core arrived by — which is exactly why nothing else in the engine changed when
+    /// real cores landed.
+    pub fn attach_core(
+        &mut self,
+        core_id: &str,
+        core: Box<dyn EmulatorCore>,
+    ) -> Result<(), BridgeError> {
+        let entry = self
+            .entries
+            .get_mut(core_id)
+            .ok_or_else(|| BridgeError::UnknownCore(core_id.to_string()))?;
+
+        if matches!(entry.slot, Slot::Bound) {
+            return Err(BridgeError::CoreBusy(core_id.to_string()));
+        }
+
+        // The core's own descriptor supersedes the manifest declaration: it knows its
+        // real geometry, refresh rate and sample rate, and the manifest was only ever a
+        // hint for the loading UI.
+        entry.descriptor = core.descriptor().clone();
+        entry.slot = Slot::Loaded(core);
+        log::info!("core '{core_id}' attached from the platform layer");
+        Ok(())
     }
 
     /// Moves a loaded core out of the registry and into a session.

@@ -1,44 +1,54 @@
 {
   "$comment": [
-    "Core declarations. Read at boot; the binaries are NOT. Each entry is metadata",
-    "the Rust registry stores as a CoreDescriptor so the UI can decide which core a",
-    "game needs without loading anything.",
+    "Core declarations. Read at boot; the binaries are NOT. Each entry is metadata the",
+    "Rust registry stores as a CoreDescriptor so the UI can decide which core a game",
+    "needs without loading anything.",
     "",
-    "Every entry currently points at cores/diagnostic-core.wasm — a valid but empty",
-    "module. Phase 1b replaces `module` per entry with the real libretro core built",
-    "to wasm32, and drops the `placeholder` flag. Nothing else here changes: the",
-    "geometry, refresh and audio values below are the real values for each system,",
-    "and they are what the pacer and renderer are already configured from.",
+    "`kind` decides how a fetched module is instantiated:",
+    "  libretro    - a real core built by scripts/build-core.sh. The JS runtime",
+    "                instantiates it as its own wasm module (see core-runtime.js) and",
+    "                hands Rust a handle.",
+    "  placeholder - bytes go to Rust, which substitutes its diagnostic pattern core.",
+    "                Geometry and timing below are the real values for the system, so",
+    "                the pacer and renderer are already configured correctly.",
     "",
-    "`targetFps` values are the true hardware refresh rates, not rounded to 60. A",
-    "core running at 60.0988 against a 60.000 display is why the frame pacer exists."
+    "The values here are a hint for the loading UI. Once content is loaded, whatever the",
+    "core reports through retro_get_system_av_info supersedes them.",
+    "",
+    "`targetFps` values are true hardware refresh rates, not rounded to 60. A core",
+    "running at 60.0988 against a 60.000 Hz display is why the frame pacer exists."
   ],
   "version": 1,
   "cores": [
     {
-      "id": "nestopia",
-      "name": "Nestopia UE",
-      "systems": ["nes"],
-      "module": "./cores/diagnostic-core.wasm",
-      "placeholder": true,
-      "sizeBytes": 8,
+      "id": "fceumm",
+      "name": "FCEUmm",
+      "kind": "libretro",
+      "systems": [
+        "nes"
+      ],
+      "module": "./cores/fceumm.wasm",
+      "sizeBytes": 2089396,
       "targetFps": 60.0988,
-      "audioSampleRate": 44100,
-      "pixelFormat": "xrgb8888",
+      "audioSampleRate": 48000,
+      "pixelFormat": "rgb565",
       "geometry": {
         "baseWidth": 256,
         "baseHeight": 240,
         "maxWidth": 256,
         "maxHeight": 240,
-        "aspectRatio": 1.3333333
-      }
+        "aspectRatio": 1.2195
+      },
+      "notes": "Built from libretro/libretro-fceumm against wasi-libc. Real emulation."
     },
     {
       "id": "snes9x",
       "name": "Snes9x",
-      "systems": ["snes"],
+      "kind": "placeholder",
+      "systems": [
+        "snes"
+      ],
       "module": "./cores/diagnostic-core.wasm",
-      "placeholder": true,
       "sizeBytes": 8,
       "targetFps": 60.0988,
       "audioSampleRate": 32040,
@@ -54,9 +64,12 @@
     {
       "id": "gambatte",
       "name": "Gambatte",
-      "systems": ["gb", "gbc"],
+      "kind": "placeholder",
+      "systems": [
+        "gb",
+        "gbc"
+      ],
       "module": "./cores/diagnostic-core.wasm",
-      "placeholder": true,
       "sizeBytes": 8,
       "targetFps": 59.7275,
       "audioSampleRate": 32768,
@@ -72,9 +85,11 @@
     {
       "id": "mgba",
       "name": "mGBA",
-      "systems": ["gba"],
+      "kind": "placeholder",
+      "systems": [
+        "gba"
+      ],
       "module": "./cores/diagnostic-core.wasm",
-      "placeholder": true,
       "sizeBytes": 8,
       "targetFps": 59.7275,
       "audioSampleRate": 32768,
@@ -90,9 +105,12 @@
     {
       "id": "genesis_plus",
       "name": "Genesis Plus GX",
-      "systems": ["genesis", "sms"],
+      "kind": "placeholder",
+      "systems": [
+        "genesis",
+        "sms"
+      ],
       "module": "./cores/diagnostic-core.wasm",
-      "placeholder": true,
       "sizeBytes": 8,
       "targetFps": 59.9227,
       "audioSampleRate": 44100,
@@ -108,9 +126,11 @@
     {
       "id": "mupen64plus",
       "name": "Mupen64Plus-Next",
-      "systems": ["n64"],
+      "kind": "placeholder",
+      "systems": [
+        "n64"
+      ],
       "module": "./cores/diagnostic-core.wasm",
-      "placeholder": true,
       "sizeBytes": 8,
       "targetFps": 60.0,
       "audioSampleRate": 44100,
@@ -126,9 +146,11 @@
     {
       "id": "yabause",
       "name": "Yabause",
-      "systems": ["saturn"],
+      "kind": "placeholder",
+      "systems": [
+        "saturn"
+      ],
       "module": "./cores/diagnostic-core.wasm",
-      "placeholder": true,
       "sizeBytes": 8,
       "targetFps": 59.8261,
       "audioSampleRate": 44100,
@@ -144,9 +166,11 @@
     {
       "id": "mednafen_psx",
       "name": "Beetle PSX",
-      "systems": ["ps1"],
+      "kind": "placeholder",
+      "systems": [
+        "ps1"
+      ],
       "module": "./cores/diagnostic-core.wasm",
-      "placeholder": true,
       "sizeBytes": 8,
       "targetFps": 59.9407,
       "audioSampleRate": 44100,
@@ -163,9 +187,11 @@
       "$comment": "Phase 2 only. Declared so the library can show them; the UI refuses to launch them in the browser because they need JIT.",
       "id": "citra",
       "name": "Citra",
-      "systems": ["3ds"],
+      "kind": "placeholder",
+      "systems": [
+        "3ds"
+      ],
       "module": "./cores/diagnostic-core.wasm",
-      "placeholder": true,
       "phase": 2,
       "sizeBytes": 8,
       "targetFps": 59.8261,
@@ -182,9 +208,11 @@
     {
       "id": "yuzu",
       "name": "Yuzu",
-      "systems": ["switch"],
+      "kind": "placeholder",
+      "systems": [
+        "switch"
+      ],
       "module": "./cores/diagnostic-core.wasm",
-      "placeholder": true,
       "phase": 2,
       "sizeBytes": 8,
       "targetFps": 60.0,

@@ -1,48 +1,83 @@
 /**
- * ROM/disc content provider.
+ * Content provider: hands the engine the bytes for a library entry.
  *
- * Phase 1 has no real ROMs to ship — nobody can legally bundle them — so this
- * synthesises deterministic placeholder content. The placeholder deliberately
- * satisfies the same contract the real store will: async, returns a `Uint8Array`,
- * may reject. Every caller is therefore already written against the real shape.
+ * Three kinds of entry, and the difference matters:
  *
- * TODO(phase1b): replace `getContent` with an IndexedDB (or OPFS, for the multi-GB
- * disc images Phase 2 needs) lookup, plus a file-import flow:
+ *   - **imported** — a file the user chose. Bytes come from IndexedDB. Plays.
+ *   - **builtin** — content shipped with the app (the NES test cart). Fetched once
+ *     and cached. Plays.
+ *   - **synthetic** — a catalogue placeholder generated to exercise the UI at scale.
+ *     There is no ROM behind it, so a real core will reject it, and
+ *     [`isPlayable`] returns false so the launch path can say why instead of
+ *     surfacing "content rejected" from deep inside a core.
  *
- *   1. `showOpenFilePicker` / `<input type=file>` → `File` handles;
- *   2. hash the header to identify the system and pick a core;
- *   3. store the blob under its content id, keep metadata in the catalogue;
- *   4. `getContent` streams it back out.
- *
- * Nothing above this module changes when that lands.
+ * ROMs cannot be bundled with an emulator, so an empty library is the honest default
+ * and importing is the primary path. The test cart exists so the pipeline can be
+ * demonstrated without one.
  */
 
-/** Placeholder payload size. Small — it exists to be non-empty, not to be read. */
+import { getRomBytes } from './rom-store.js';
+import { defaultExtension } from './systems.js';
+
+/** Placeholder payload size for synthetic entries. Non-empty, and nothing more. */
 const PLACEHOLDER_BYTES = 64 * 1024;
 
+/** Fetched built-ins and synthesised buffers, keyed by entry id. */
 const cache = new Map();
 
 /**
- * @param {{ id: string, title: string }} entry
+ * @param {import('./catalog.js').CatalogEntry} entry
  * @returns {Promise<Uint8Array>}
  */
 export async function getContent(entry) {
   const cached = cache.get(entry.id);
   if (cached) return cached;
 
+  if (entry.source === 'imported') {
+    const bytes = await getRomBytes(entry.id);
+    if (!bytes) {
+      throw new Error(
+        `"${entry.title}" is in the library but its data is missing from storage; re-import the file`,
+      );
+    }
+    // Deliberately not cached: imported ROMs can be large and IndexedDB is fast
+    // enough, so holding every launched ROM in memory would only grow the heap.
+    return bytes;
+  }
+
+  if (entry.source === 'builtin') {
+    const response = await fetch(entry.url, { cache: 'force-cache' });
+    if (!response.ok) {
+      throw new Error(`could not load ${entry.url}: ${response.status} ${response.statusText}`);
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    cache.set(entry.id, bytes);
+    return bytes;
+  }
+
   const bytes = synthesise(entry.id, PLACEHOLDER_BYTES);
   cache.set(entry.id, bytes);
   return bytes;
 }
 
-/** True once real content exists for this entry. Always false in Phase 1. */
-export function hasRealContent(_entry) {
-  return false;
+/** Whether this entry has content a real core could actually run. */
+export function isPlayable(entry) {
+  return Boolean(entry?.real);
 }
 
 /**
- * Deterministic pseudo-random bytes derived from the content id, so the same game
- * always produces the same "ROM" and any content-dependent bug is reproducible.
+ * Filename to report to the core. Real cores resolve their content-info overrides
+ * from the extension, so this is functional, not cosmetic.
+ */
+export function contentFilename(entry) {
+  if (entry.filename) return entry.filename;
+  const slug = entry.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return `${slug || 'content'}.${defaultExtension(entry.systemId)}`;
+}
+
+/**
+ * Deterministic pseudo-random bytes for a synthetic entry, derived from its id so the
+ * same placeholder always produces the same buffer.
  */
 function synthesise(seedText, length) {
   let state = 0x811c9dc5;

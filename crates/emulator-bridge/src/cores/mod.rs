@@ -14,8 +14,52 @@
 mod diagnostic;
 mod registry;
 
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod host;
+#[cfg(target_arch = "wasm32")]
+mod wasm_core;
+
 pub use diagnostic::DiagnosticCore;
 pub use registry::{CoreRegistry, CoreState};
+
+#[cfg(target_arch = "wasm32")]
+pub use host::CoreHost;
+#[cfg(target_arch = "wasm32")]
+pub use wasm_core::{LibretroRuntimeHandle, WasmCore};
+
+/// What the frontend knows about the content being loaded.
+///
+/// Real libretro cores need more than bytes. Modern cores declare
+/// `need_fullpath = true` globally and then *override* it per file extension, and
+/// they discover which override applies by asking the frontend for extended game
+/// info — which includes the extension and a display name. Without this, fceumm
+/// rejects a perfectly valid `.nes` file.
+#[derive(Debug, Clone, Default)]
+pub struct ContentHint {
+    /// Lower-case, no leading dot, e.g. `"nes"`.
+    pub extension: String,
+    /// Display name, usually the file stem. Cores may use it for save file naming.
+    pub name: String,
+}
+
+impl ContentHint {
+    pub fn new(extension: impl Into<String>, name: impl Into<String>) -> Self {
+        let extension = extension.into();
+        Self {
+            extension: extension.trim_start_matches('.').to_ascii_lowercase(),
+            name: name.into(),
+        }
+    }
+
+    /// Derives the hint from a file name.
+    pub fn from_filename(filename: &str) -> Self {
+        let name = filename.rsplit('/').next().unwrap_or(filename);
+        match name.rsplit_once('.') {
+            Some((stem, extension)) => Self::new(extension, stem),
+            None => Self::new("", name),
+        }
+    }
+}
 
 use crate::audio::AudioSink;
 use crate::error::BridgeError;
@@ -51,7 +95,10 @@ pub trait EmulatorCore {
     fn descriptor(&self) -> &CoreDescriptor;
 
     /// Hands ROM/disc content to the core (`retro_load_game`).
-    fn load_content(&mut self, content: &[u8]) -> Result<(), BridgeError>;
+    ///
+    /// `hint` carries the file extension and name, which real cores require to
+    /// resolve their content-info overrides.
+    fn load_content(&mut self, content: &[u8], hint: &ContentHint) -> Result<(), BridgeError>;
 
     /// Advances emulation by exactly one frame (`retro_run`).
     fn run_frame(&mut self, input: &InputSnapshot) -> Result<(), BridgeError>;

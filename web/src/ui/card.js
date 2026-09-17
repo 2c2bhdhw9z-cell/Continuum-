@@ -45,13 +45,20 @@ export function createCard() {
   fav.appendChild(favPath);
   fav.style.display = 'none';
 
+  // Marks content that actually exists, as opposed to the synthetic catalogue used
+  // to prove the virtualisation at scale.
+  const real = document.createElement('span');
+  real.className = 'card__real';
+  real.textContent = 'ROM';
+  real.hidden = true;
+
   const progress = document.createElement('span');
   progress.className = 'card__progress';
   const progressBar = document.createElement('i');
   progress.appendChild(progressBar);
   progress.hidden = true;
 
-  art.append(badge, glyph, fav, progress);
+  art.append(badge, glyph, fav, real, progress);
 
   const label = document.createElement('span');
   label.className = 'card__label';
@@ -65,7 +72,7 @@ export function createCard() {
 
   // Cached references: `bindCard` runs on the scroll path, and querySelector
   // there would be a per-frame DOM walk for no reason.
-  card._refs = { art, badge, glyph, fav, progress, progressBar, title, sub };
+  card._refs = { art, badge, glyph, fav, real, progress, progressBar, title, sub };
   return card;
 }
 
@@ -96,6 +103,7 @@ export function bindCard(card, catalogIndex) {
 
   // `hidden` is unreliable on SVG elements in some engines; toggle display.
   r.fav.style.display = entry.favorite ? 'block' : 'none';
+  r.real.hidden = !entry.real;
 
   if (entry.progress > 0) {
     r.progress.hidden = false;

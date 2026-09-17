@@ -163,7 +163,24 @@ check(
   boot.status === 'uninitialised',
   `status = ${boot.status}`,
 );
-check('catalogue indexed', /4,800 titles/.test(boot.catalog), boot.catalog);
+check(
+  'catalogue indexed',
+  /4,80\d titles/.test(boot.catalog),
+  boot.catalog,
+);
+
+// The built-in test cart must be present and marked as real content, because it is
+// what makes the real core demonstrable without shipping someone else's ROM.
+const builtin = await page.evaluate(async () => {
+  const { entryById } = await import('./src/data/catalog.js');
+  const entry = entryById('builtin-nes-testcart');
+  return entry ? { title: entry.title, real: entry.real, source: entry.source } : null;
+});
+check(
+  'built-in NES test cart is registered as real content',
+  builtin?.real === true && builtin.source === 'builtin',
+  builtin ? `${builtin.title} (${builtin.source})` : 'missing',
+);
 
 // ------------------------------------------------- 2. virtualisation, shelves
 
@@ -323,12 +340,18 @@ if (stateProbe) {
 // --------------------------------------------------------------- 5. launch path
 
 if (webgpu) {
+  // A synthetic entry on a placeholder-core system: exercises the GPU path without
+  // needing real content. NES is deliberately avoided here — it now runs a real core,
+  // which rightly refuses a catalogue placeholder.
   const target = await page.evaluate(async () => {
     const { entryAt, catalogSize } = await import('./src/data/catalog.js');
     const { getSystem } = await import('./src/data/systems.js');
     for (let i = 0; i < catalogSize; i++) {
       const entry = entryAt(i);
-      if (getSystem(entry.systemId)?.phase === 1) return { id: entry.id, title: entry.title };
+      const system = getSystem(entry.systemId);
+      if (system?.phase === 1 && entry.systemId !== 'nes' && !entry.real) {
+        return { id: entry.id, title: entry.title, systemId: entry.systemId };
+      }
     }
     return null;
   });
@@ -354,7 +377,8 @@ if (webgpu) {
     await host.initGpu(document.getElementById('gpu-canvas'));
     const coreId = loader.coreIdFor(entry.systemId);
     await loader.ensureCore(coreId, () => {});
-    host.bridge.launch(coreId, entry.id, await getContent(entry));
+    const { contentFilename } = await import('./src/data/content-store.js');
+    host.bridge.launch(coreId, entry.id, await getContent(entry), contentFilename(entry));
 
     const summarise = (rgba, w, h) => {
       const at = (x, y) => {
@@ -574,6 +598,115 @@ if (webgpu) {
       'exit stops the engine and keeps the core warm',
       afterExit.status === 'idle' && afterExit.resident === 1 && !afterExit.engineActive,
       `status = ${afterExit.status}, resident = ${afterExit.resident}`,
+    );
+  }
+}
+
+// ------------------------------------------- 5b. the real libretro core (fceumm)
+//
+// The headline of Phase 1b: a genuine NES core, compiled from C to wasm, running the
+// project's own test ROM through the same bridge, pacer, sink and renderer as
+// everything else. `scripts/core-abi-test.mjs` verifies the emulation itself
+// (pixels, input, scrolling, audio) headlessly; what matters here is that the
+// browser path — fetch, instantiate, attach, launch, tick — works end to end.
+if (webgpu) {
+  await page.evaluate(() => window.__continuum.player.launch('builtin-nes-testcart'));
+  const running = await page
+    .waitForFunction(() => window.__continuum.host.bridge?.status === 'running', {
+      timeout: 40_000,
+    })
+    .then(() => true)
+    .catch(() => false);
+
+  check('real NES core reaches "running" with the test cart', running);
+
+  if (running) {
+    const info = await page.evaluate(() => ({
+      avInfo: Array.from(window.__continuum.host.bridge.sessionAvInfo() ?? []),
+      coreName: window.__continuum.host.bridge.sessionCoreName,
+      coreId: window.__continuum.coreLoader.coreIdFor('nes'),
+      kind: window.__continuum.coreLoader.entryFor('fceumm')?.kind,
+    }));
+
+    check(
+      'core module is a real libretro build, not a placeholder',
+      info.kind === 'libretro' && info.coreId === 'fceumm' && info.coreName === 'FCEUmm',
+      `${info.coreName} via '${info.coreId}' (kind: ${info.kind})`,
+    );
+
+    // These values come from the core's own retro_get_system_av_info, so matching them
+    // proves the descriptor was refreshed from the core rather than trusted from the
+    // manifest — 48000 Hz in particular is a value the manifest could not know.
+    const [width, height, aspect, fps, sampleRate] = info.avInfo;
+    check(
+      'core reports NES geometry and timing to the bridge',
+      width === 256 &&
+        height === 240 &&
+        Math.abs(fps - 60.0998) < 0.01 &&
+        sampleRate === 48000,
+      `${width}x${height}, aspect ${aspect.toFixed(4)}, ${fps.toFixed(4)} fps, ${sampleRate} Hz`,
+    );
+
+    // Let the new session's first ticks land before sampling. `host.stats` still holds
+    // the *previous* session's counters until a tick of this one overwrites them, and
+    // every counter (frame count, audio frames) restarts at zero for a new core — so
+    // sampling too early produces a negative delta.
+    await page.waitForTimeout(250);
+    const before = await page.evaluate(() => ({ ...window.__continuum.host.stats }));
+    await page.waitForTimeout(1500);
+    const after = await page.evaluate(() => ({ ...window.__continuum.host.stats }));
+
+    const frames = after.frameCount - before.frameCount;
+    check(
+      'real emulation advances at NES speed',
+      frames > 45 && frames < 110,
+      `${frames} frames in ~1.5 s`,
+    );
+
+    // fceumm emits 48 kHz; the test ROM drives pulse channel 1, so this is real APU
+    // output crossing core → JS → Rust sink → host.
+    const audioFrames = after.audioFramesSubmitted - before.audioFramesSubmitted;
+    // Counted after resampling, so the rate matches the *device* (typically 44.1 kHz),
+    // not the core's 48 kHz — which is itself evidence the resampler ran.
+    check(
+      'real APU audio flows through the Rust sink',
+      audioFrames > 50_000 && audioFrames < 90_000,
+      `${audioFrames} frames in ~1.5 s (~${Math.round(audioFrames / 1.5)} Hz at the device rate, ` +
+        'resampled from the core\'s 48 kHz)',
+    );
+
+    // Input through the full stack: JS → GamepadBridge → snapshot → CoreHost →
+    // core's input_state callback. The ROM turns the screen red while A is held; the
+    // pixel proof of that is in the headless ABI test, so here we assert the plumbing
+    // survives a press without disturbing emulation.
+    const withInput = await page.evaluate(async () => {
+      const bridge = window.__continuum.host.bridge;
+      bridge.setButton(0, 8, true, 'keyboard'); // A
+      const start = window.__continuum.host.stats.frameCount;
+      await new Promise((r) => setTimeout(r, 400));
+      const held = window.__continuum.host.stats.frameCount;
+      bridge.setButton(0, 8, false, 'keyboard');
+      // A virtual pad, to prove the gamepad path is wired too.
+      bridge.connectPad(1, 'gamepad', 'Smoke Test Pad');
+      bridge.applyGamepad(1, new Uint8Array([0, 1, 0, 0]), new Float32Array([0, 0, 0, 0]));
+      return { advanced: held - start, pads: bridge.connectedPads };
+    });
+    check(
+      'input reaches the running core without stalling it',
+      withInput.advanced > 10 && withInput.pads >= 1,
+      `${withInput.advanced} frames while A held, ${withInput.pads} pad(s) registered`,
+    );
+
+    await page.evaluate(() => window.__continuum.player.exit());
+    await page.waitForTimeout(300);
+    const afterExit = await page.evaluate(() => ({
+      status: window.__continuum.host.bridge.status,
+      resident: window.__continuum.host.bridge.residentCoreCount,
+    }));
+    check(
+      'real core survives session teardown',
+      afterExit.status === 'idle' && afterExit.resident >= 1,
+      `status ${afterExit.status}, ${afterExit.resident} core(s) resident`,
     );
   }
 }

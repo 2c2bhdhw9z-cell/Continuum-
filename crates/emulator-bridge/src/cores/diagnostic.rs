@@ -16,7 +16,7 @@
 //! libretro instance. Nothing outside that function needs to change, because both
 //! are just `EmulatorCore` implementations.
 
-use super::{CoreDescriptor, EmulatorCore};
+use super::{ContentHint, CoreDescriptor, EmulatorCore};
 use crate::audio::{AudioSink, CHANNELS};
 use crate::error::BridgeError;
 use crate::frame::{FrameView, PixelFormat};
@@ -149,14 +149,21 @@ impl EmulatorCore for DiagnosticCore {
         &self.descriptor
     }
 
-    fn load_content(&mut self, content: &[u8]) -> Result<(), BridgeError> {
+    fn load_content(&mut self, content: &[u8], hint: &ContentHint) -> Result<(), BridgeError> {
         if content.is_empty() {
             return Err(BridgeError::InvalidContent {
                 core_id: self.descriptor.id.clone(),
                 reason: "content is empty".into(),
             });
         }
-        self.content_label = Some(format!("{} bytes", content.len()));
+        // The hint is irrelevant to a pattern generator, but recorded so the HUD can
+        // show what was "loaded".
+        self.content_label = Some(format!(
+            "{}.{} ({} bytes)",
+            hint.name,
+            hint.extension,
+            content.len()
+        ));
         self.frame_count = 0;
         // Paint an initial frame so the framebuffer is meaningful the moment content
         // is loaded, rather than a black flash until the first `run_frame`. Real
@@ -345,6 +352,8 @@ mod tests {
     #[test]
     fn rejects_empty_content() {
         let mut core = DiagnosticCore::new(descriptor());
-        assert!(core.load_content(&[]).is_err());
+        assert!(core
+            .load_content(&[], &ContentHint::from_filename("empty.nes"))
+            .is_err());
     }
 }

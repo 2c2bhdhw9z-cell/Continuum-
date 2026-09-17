@@ -40,6 +40,24 @@ impl PixelFormat {
             _ => None,
         }
     }
+
+    /// Maps `retro_pixel_format` to this enum.
+    ///
+    /// Note libretro's numbering is *not* [`PixelFormat::as_u32`]'s: libretro uses
+    /// 0 = 0RGB1555, 1 = XRGB8888, 2 = RGB565. Two encodings for the same concept is
+    /// unfortunate, but silently conflating them would mean a core's frames get
+    /// decoded with the wrong channel layout — which looks like a broken emulator
+    /// rather than a broken constant.
+    ///
+    /// 0RGB1555 is intentionally rejected: it is obsolete, no core in this project
+    /// requests it, and the environment handler refuses it up front.
+    pub const fn from_libretro(v: u32) -> Option<Self> {
+        match v {
+            1 => Some(PixelFormat::Xrgb8888),
+            2 => Some(PixelFormat::Rgb565),
+            _ => None,
+        }
+    }
 }
 
 /// Static video characteristics a core reports up front (`retro_get_system_av_info`).

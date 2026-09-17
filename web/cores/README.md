@@ -1,50 +1,75 @@
 # Core binaries
 
-This directory holds emulator cores, fetched on demand by `src/engine/core-loader.js`.
-**Nothing here is loaded at boot** — only `manifest.json` is, and that is metadata.
+Emulator cores, fetched on demand by `src/engine/core-loader.js`. **Nothing here is
+loaded at boot** — only `manifest.json` is, and that is metadata.
 
-## What is here now
+Binaries are *not* committed: they are build outputs from third-party GPL/LGPL
+sources. Build them with `scripts/build-core.sh <name>`.
 
-`diagnostic-core.wasm` is a valid but empty WebAssembly module (the 8-byte header
-and no sections). Every entry in `manifest.json` points at it, which is what lets the
-entire pipeline run today:
+## What is real, and what is a placeholder
 
-```
-manifest → declare → fetch (with progress) → Cache API → magic-byte validation
-→ attachCoreModule → registry → session → paced ticks → WebGPU present
-```
+`manifest.json` marks each entry with a `kind`:
 
-The Rust registry accepts it, then instantiates a `DiagnosticCore`
-(`crates/emulator-bridge/src/cores/diagnostic.rs`) with the descriptor from the
-manifest. That stand-in renders a test pattern at the system's real geometry and
-refresh rate, responds to input, and produces audio — so the launch path, frame
-pacing, renderer, audio graph and HUD are all exercised against real values before
-any emulator exists.
+| kind | Meaning |
+| --- | --- |
+| `libretro` | A real core, built by `scripts/build-core.sh`. The JS runtime instantiates it as its own wasm module and hands Rust a handle. |
+| `placeholder` | Bytes go to Rust, which substitutes its diagnostic pattern core. Geometry and timing in the manifest are still the system's real values, so the pacer and renderer are configured correctly. |
 
-## What replaces it
+Today `fceumm` (NES) is `libretro`; the rest are placeholders awaiting the same
+treatment.
 
-Phase 1b builds actual libretro cores to `wasm32-unknown-unknown` and drops them
-here, one file per core id:
-
-```
-nestopia.wasm  snes9x.wasm  gambatte.wasm  mgba.wasm
-genesis_plus.wasm  mupen64plus.wasm  yabause.wasm  mednafen_psx.wasm
+```bash
+scripts/build-core.sh fceumm    # → web/cores/fceumm.wasm (~2 MB)
 ```
 
-Then, per entry in `manifest.json`:
+## How a core is built
 
-1. point `module` at the real file;
-2. set `sizeBytes` to the real size (drives the download progress bar);
-3. remove `"placeholder": true`.
+Not with Emscripten. Emscripten's libretro builds are whole-RetroArch bundles that own
+the canvas, the audio graph and the main loop — the three things this architecture
+keeps in Rust. Instead:
 
-The geometry, `targetFps`, `audioSampleRate` and `pixelFormat` values in the manifest
-are already the correct ones for each system, so they need no revisiting.
+1. The core's C sources are compiled against **wasi-libc** (wasi-sdk clang) as a
+   *reactor* module that exports the libretro C API.
+2. `core-shim/libretro_wasm_shim.c` is compiled in alongside it. A libretro core calls
+   the frontend through function *pointers*, and a host cannot manufacture a function
+   pointer inside another wasm module — so the shim provides real in-module functions
+   that forward to imports. It also flattens the two structs whose C layout a host
+   would otherwise have to hard-code.
+3. The result imports only `host.*` (six callbacks) and a dozen WASI file syscalls,
+   which `core-runtime.js` stubs.
 
-The Rust side changes in exactly one place: `instantiate()` in
-`crates/emulator-bridge/src/cores/registry.rs`.
+```
+fceumm.wasm
+  imports  host.{environment,video_refresh,audio_batch,input_poll,input_state}
+           wasi_snapshot_preview1.{fd_*,path_*,proc_exit}
+  exports  retro_* (17), shim_* (5), memory, malloc, free, _initialize
+```
 
-## Licensing
+## Adding another core
 
-Cores are third-party GPL/LGPL software and are not vendored into this repository.
-The build script that fetches and compiles them is Phase 1b work; keep the licence
-text alongside each binary when it lands.
+1. Add a case block to `scripts/build-core.sh` with the repository, source list and
+   compile flags. (`mgba` is already stubbed there.)
+2. Build it, then set the manifest entry's `module`, `sizeBytes` and
+   `"kind": "libretro"`.
+3. Nothing in Rust changes. `WasmCore` is core-agnostic, and the core's own
+   `retro_get_system_av_info` supersedes whatever the manifest claimed.
+
+Watch for two things that vary by core:
+
+- **`need_fullpath`.** Cores that require a file path cannot run here. Most modern
+  cores declare `need_fullpath = true` globally and then *override* it per extension
+  (`SET_CONTENT_INFO_OVERRIDE` + `GET_GAME_INFO_EXT`), both of which the runtime
+  implements. fceumm does exactly this.
+- **Hardware rendering.** `SET_HW_RENDER` is refused: the renderer owns the GPU.
+  Software-rendered cores only.
+
+## Testing a core without a browser
+
+```bash
+python3 scripts/make-test-rom.py          # writes web/roms/nes-testcart.nes
+node scripts/core-abi-test.mjs            # runs the core headlessly
+```
+
+That harness loads a ROM, runs frames, and asserts on the actual pixels, audio,
+input and save states — in under a second, with no GPU involved. It is the fast loop
+for core work; the browser suite is the slow one.

@@ -21,6 +21,8 @@ import { CoreLoader } from './engine/core-loader.js';
 import { InputManager } from './engine/input.js';
 import { AudioOutput } from './audio/audio-output.js';
 import { LibraryView } from './ui/library-view.js';
+import { RomImporter } from './ui/rom-import.js';
+import { registerBuiltins } from './data/builtins.js';
 import { DetailSheet } from './ui/detail-sheet.js';
 import { PlayerView } from './ui/player-view.js';
 import { toast } from './ui/toast.js';
@@ -44,6 +46,12 @@ const detail = new DetailSheet({
   },
   onLoadState: (gameId, slot) => player.loadState(gameId, slot),
   onDataChanged: () => library.refreshData(),
+  onRemoveRom: (entryId) => importer.remove(entryId),
+});
+
+const importer = new RomImporter({
+  onLibraryChanged: () => library.refreshData(),
+  onPlay: (entryId) => void launch(entryId),
 });
 
 const player = new PlayerView({
@@ -52,6 +60,7 @@ const player = new PlayerView({
   audio,
   input,
   loop: frameLoop,
+  onRequestImport: () => importer.openPicker(),
   onExit: () => {
     // "Continue playing" and the hero reflect what was just played.
     library.refreshData();
@@ -67,6 +76,10 @@ async function launch(entryId) {
 
 // ---------------------------------------------------------------------- wiring
 
+// Content that actually exists is registered before the UI mounts, so the hero and
+// the first shelf show something playable rather than a placeholder.
+registerBuiltins();
+
 library.mount();
 input.attach();
 audio.installGestureUnlock();
@@ -76,6 +89,10 @@ frameLoop.addFlushTask(library.flush);
 frameLoop.addFlushTask(detail.flush);
 frameLoop.onError = (err) => host.reportError('Frame error', err);
 frameLoop.wake(4);
+
+// Previously imported ROMs are restored asynchronously; the library refreshes when
+// they arrive rather than blocking first paint on IndexedDB.
+void importer.restoreLibrary();
 
 // ------------------------------------------------------------------- GPU badge
 
@@ -153,4 +170,14 @@ if ('serviceWorker' in navigator) {
 
 // Exposed for console-driven debugging and for the smoke test in
 // `scripts/smoke-test.mjs`, which drives these directly.
-window.__continuum = { host, coreLoader, audio, input, library, detail, player, frameLoop };
+window.__continuum = {
+  host,
+  coreLoader,
+  audio,
+  input,
+  library,
+  detail,
+  player,
+  importer,
+  frameLoop,
+};

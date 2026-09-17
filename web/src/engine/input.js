@@ -1,15 +1,24 @@
 /**
- * Input plumbing: keyboard, gamepad and on-screen pad → the bridge.
+ * Input plumbing: keyboard, gamepad and on-screen pad → the Rust `GamepadBridge`.
  *
- * This module translates events into `setButton(port, buttonId, pressed)` and
- * nothing else. It holds no state the core cares about — latching, per-frame
- * snapshots and port routing all live in Rust, so Phase 2's Swift front end
- * reproduces the behaviour by making the same calls rather than reimplementing the
- * logic.
+ * This module forwards events and nothing more. It does not decide what a button
+ * *means*: the W3C standard-gamepad layout, the deadzone, the stick-to-D-pad
+ * synthesis, the merge across sources — all of that lives in Rust, so Phase 2's
+ * `GameController` code reaches the same behaviour by calling the same functions.
  *
- * Gamepads are *polled*, not evented (the Gamepad API has no button events), and
- * that poll happens inside the shared frame loop's engine tick — the "Input" stage
- * of input → core → audio → GPU. No separate timer.
+ * ## Sources are separate on purpose
+ *
+ * Every call names its source (`keyboard`, `touch`, `gamepad`). The Gamepad API has no
+ * events, so a connected pad is polled every frame and each poll states the complete
+ * condition of that pad — including "D-pad released". Merged into one layer, that
+ * would cancel a keyboard press 60 times a second, and the keyboard would appear to
+ * break whenever a controller was plugged in.
+ *
+ * ## Gamepads are polled inside the engine tick
+ *
+ * Not on a timer of their own. `pollGamepads()` runs as the Input stage of
+ * input → core → audio → GPU, so a press made this frame is visible to the emulation
+ * this frame, and there is still exactly one loop in the application.
  */
 
 /** `RETRO_DEVICE_ID_JOYPAD_*`. Mirrors `input::Button` in Rust. */
@@ -33,8 +42,8 @@ export const BUTTON = {
 };
 
 /**
- * Default keyboard layout. Z/X as B/A is the convention every browser emulator
- * uses, so it is what people will try first.
+ * Default keyboard layout. Z/X as B/A is what every browser emulator uses, so it is
+ * what people will try first.
  */
 const KEY_MAP = new Map(
   Object.entries({
@@ -55,43 +64,35 @@ const KEY_MAP = new Map(
   }),
 );
 
-/**
- * Standard-gamepad button index → retropad id.
- * Note the deliberate swap: the physical bottom face button (index 0) maps to
- * retro **B**, matching how a SNES pad's B sits under A.
- */
-const PAD_MAP = new Map(
-  Object.entries({
-    0: BUTTON.B,
-    1: BUTTON.A,
-    2: BUTTON.Y,
-    3: BUTTON.X,
-    4: BUTTON.L,
-    5: BUTTON.R,
-    6: BUTTON.L2,
-    7: BUTTON.R2,
-    8: BUTTON.SELECT,
-    9: BUTTON.START,
-    10: BUTTON.L3,
-    11: BUTTON.R3,
-    12: BUTTON.UP,
-    13: BUTTON.DOWN,
-    14: BUTTON.LEFT,
-    15: BUTTON.RIGHT,
-  }).map(([k, v]) => [Number(k), v]),
-);
-
-/** Below this, a stick is treated as centred. Cheap drift rejection. */
-const AXIS_DEADZONE = 0.18;
+/** Buttons whose default browser action must be suppressed while playing. */
+const SWALLOW_DEFAULT = new Set([
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Space',
+  'Backspace',
+  'Enter',
+]);
 
 export class InputManager {
   /** @param {import('./bridge-host.js').BridgeHost} host */
   constructor(host) {
     this.host = host;
     this.enabled = false;
-    /** Per-pad memo of last sent button states, to avoid redundant FFI calls. */
-    this._padState = new Map();
-    this._touchTargets = new Map();
+
+    /** Gamepad index → assigned port. */
+    this.padPorts = new Map();
+    /**
+     * Reused scratch buffers for the per-frame poll. Allocating a `Uint8Array` per pad
+     * per frame would be 60 allocations a second for no reason.
+     * @type {Map<number, {buttons: Uint8Array, axes: Float32Array}>}
+     */
+    this.padScratch = new Map();
+
+    this.touchTargets = new Map();
+    /** @type {(summary: {pads: number, labels: string[]}) => void} */
+    this.onPadsChanged = () => {};
   }
 
   get bridge() {
@@ -109,7 +110,18 @@ export class InputManager {
       if (document.hidden) this.releaseAll();
     });
 
+    // The Gamepad API only gives us these two events; button state must be polled.
+    window.addEventListener('gamepadconnected', (event) => this._onPadConnected(event.gamepad));
+    window.addEventListener('gamepaddisconnected', (event) =>
+      this._onPadDisconnected(event.gamepad),
+    );
+
     this._attachTouchPad();
+
+    // Pads already connected before load do not fire `gamepadconnected`.
+    for (const pad of navigator.getGamepads?.() ?? []) {
+      if (pad) this._onPadConnected(pad);
+    }
   }
 
   /** Input is forwarded only while a session is running. */
@@ -120,93 +132,226 @@ export class InputManager {
 
   releaseAll() {
     this.bridge?.releaseAllInput();
-    for (const el of this._touchTargets.keys()) el.classList.remove('is-pressed');
-    this._padState.clear();
+    for (const el of this.touchTargets.keys()) el.classList.remove('is-pressed');
   }
+
+  // ------------------------------------------------------------------ keyboard
 
   _onKey(event, pressed) {
     if (!this.enabled || !this.bridge) return;
     if (event.repeat) return;
-    // Let the user keep browser shortcuts.
+    // Leave browser shortcuts alone.
     if (event.metaKey || event.ctrlKey || event.altKey) return;
 
     const button = KEY_MAP.get(event.code);
     if (button === undefined) return;
 
-    // Arrows and Space would scroll the page underneath the canvas.
-    event.preventDefault();
-    this.bridge.setButton(0, button, pressed);
+    if (SWALLOW_DEFAULT.has(event.code)) event.preventDefault();
+    this.bridge.setButton(0, button, pressed, 'keyboard');
   }
 
-  _attachTouchPad() {
-    const pad = document.getElementById('touchpad');
-    if (!pad) return;
+  // ------------------------------------------------------------------ gamepads
 
-    for (const el of pad.querySelectorAll('.tp[data-button]')) {
-      const button = Number(el.dataset.button);
-      this._touchTargets.set(el, button);
+  _onPadConnected(pad) {
+    if (!this.bridge) return;
+    if (this.padPorts.has(pad.index)) return;
 
-      const press = (event) => {
-        if (!this.enabled || !this.bridge) return;
-        event.preventDefault();
-        // Capture so sliding off the button still delivers the release.
-        el.setPointerCapture?.(event.pointerId);
-        el.classList.add('is-pressed');
-        this.bridge.setButton(0, button, true);
-      };
-      const release = (event) => {
-        if (!this.bridge) return;
-        event.preventDefault();
-        el.classList.remove('is-pressed');
-        this.bridge.setButton(0, button, false);
-      };
+    const port = this.bridge.firstFreePadPort() ?? 0;
+    this.padPorts.set(pad.index, port);
+    // "standard" is the W3C mapping; anything else gets index pass-through, which is
+    // honest rather than silently wrong.
+    const kind = pad.mapping === 'standard' ? 'gamepad' : 'gamepad-unmapped';
+    this.bridge.connectPad(port, kind, pad.id ?? `Gamepad ${pad.index}`);
+    console.info(
+      `[input] gamepad ${pad.index} → port ${port}: ${pad.id} (mapping: ${pad.mapping || 'none'})`,
+    );
+    this._notifyPads();
+  }
 
-      el.addEventListener('pointerdown', press);
-      el.addEventListener('pointerup', release);
-      el.addEventListener('pointercancel', release);
+  _onPadDisconnected(pad) {
+    const port = this.padPorts.get(pad.index);
+    if (port === undefined) return;
+    this.padPorts.delete(pad.index);
+    this.padScratch.delete(pad.index);
+    this.bridge?.disconnectPad(port);
+    this._notifyPads();
+  }
+
+  _notifyPads() {
+    if (!this.bridge) return;
+    const labels = [];
+    for (const port of this.padPorts.values()) {
+      const label = this.bridge.padLabel(port);
+      if (label) labels.push(label);
     }
+    this.onPadsChanged({ pads: this.padPorts.size, labels });
   }
 
   /**
-   * Samples connected gamepads. Called from the engine tick, before the core step,
-   * so a press made this frame is visible to this frame's emulation.
+   * Samples every connected gamepad. Called from the engine tick, before the core
+   * step, so a press lands in the frame it was made.
    */
   pollGamepads() {
     if (!this.enabled || !this.bridge) return;
     const pads = navigator.getGamepads?.();
     if (!pads) return;
 
-    for (let padIndex = 0; padIndex < pads.length; padIndex++) {
-      const pad = pads[padIndex];
+    for (const pad of pads) {
       if (!pad || !pad.connected) continue;
-      // Ports beyond the bridge's four are ignored rather than wrapped.
-      const port = Math.min(padIndex, 3);
 
-      let memo = this._padState.get(pad.index);
-      if (!memo) {
-        memo = { buttons: new Uint8Array(20), axes: new Float32Array(4) };
-        this._padState.set(pad.index, memo);
+      let port = this.padPorts.get(pad.index);
+      if (port === undefined) {
+        // A pad can appear without an event if it was connected while the tab was
+        // hidden, or if the browser needed a button press to reveal it.
+        this._onPadConnected(pad);
+        port = this.padPorts.get(pad.index) ?? 0;
       }
 
-      for (let b = 0; b < pad.buttons.length && b < memo.buttons.length; b++) {
-        const mapped = PAD_MAP.get(b);
-        if (mapped === undefined) continue;
-        const pressed = pad.buttons[b].pressed ? 1 : 0;
-        if (memo.buttons[b] !== pressed) {
-          memo.buttons[b] = pressed;
-          this.bridge.setButton(port, mapped, pressed === 1);
-        }
+      let scratch = this.padScratch.get(pad.index);
+      if (!scratch || scratch.buttons.length !== pad.buttons.length) {
+        scratch = {
+          buttons: new Uint8Array(pad.buttons.length),
+          axes: new Float32Array(Math.max(4, pad.axes.length)),
+        };
+        this.padScratch.set(pad.index, scratch);
       }
 
-      for (let a = 0; a < 4 && a < pad.axes.length; a++) {
-        const raw = pad.axes[a];
-        const value = Math.abs(raw) < AXIS_DEADZONE ? 0 : raw;
-        // Only forward meaningful movement: sticks jitter constantly.
-        if (Math.abs(value - memo.axes[a]) > 0.02) {
-          memo.axes[a] = value;
-          this.bridge.setAxis(port, a, value);
-        }
+      for (let i = 0; i < pad.buttons.length; i++) {
+        // Analog triggers report `value`; treat anything past half-travel as pressed.
+        const button = pad.buttons[i];
+        scratch.buttons[i] = button.pressed || button.value > 0.5 ? 1 : 0;
       }
+      for (let i = 0; i < scratch.axes.length; i++) {
+        scratch.axes[i] = pad.axes[i] ?? 0;
+      }
+
+      // One call per pad per frame; Rust does the mapping and the merge.
+      this.bridge.applyGamepad(port, scratch.buttons, scratch.axes);
     }
+  }
+
+  // --------------------------------------------------------------- touch pad
+
+  _attachTouchPad() {
+    const pad = document.getElementById('touchpad');
+    if (!pad) return;
+
+    // The four D-pad directions are handled by the surface tracker below, not as
+    // individual buttons — otherwise both handlers would fight over the same press
+    // and diagonals would flicker.
+    const individual = pad.querySelectorAll(
+      '.tp[data-button]:not(.tp--up):not(.tp--down):not(.tp--left):not(.tp--right)',
+    );
+    for (const el of individual) {
+      const button = Number(el.dataset.button);
+      this.touchTargets.set(el, button);
+
+      const press = (event) => {
+        if (!this.enabled || !this.bridge) return;
+        event.preventDefault();
+        // Capture so sliding off the button still delivers its release.
+        el.setPointerCapture?.(event.pointerId);
+        el.classList.add('is-pressed');
+        this.bridge.setButton(0, button, true, 'touch');
+        // Haptics where available; ignored elsewhere.
+        navigator.vibrate?.(8);
+      };
+      const release = (event) => {
+        if (!this.bridge) return;
+        event.preventDefault();
+        el.classList.remove('is-pressed');
+        this.bridge.setButton(0, button, false, 'touch');
+      };
+
+      el.addEventListener('pointerdown', press);
+      el.addEventListener('pointerup', release);
+      el.addEventListener('pointercancel', release);
+      // Losing capture (a system gesture, a call) must not leave the button stuck.
+      el.addEventListener('lostpointercapture', release);
+    }
+
+    // Diagonals: dragging across the D-pad should hit two directions at once, which a
+    // per-button pointerdown cannot express. Tracking pointer position over the pad
+    // area gives real diagonal movement.
+    const dpad = pad.querySelector('.touchpad__dpad');
+    if (dpad) this._attachDpadSurface(dpad);
+  }
+
+  /**
+   * Treats the D-pad as one surface rather than four buttons, so a thumb between Up
+   * and Right presses both. Without this, diagonal movement is impossible on touch —
+   * which makes most action games unplayable.
+   */
+  _attachDpadSurface(dpad) {
+    const directions = [
+      ['.tp--up', BUTTON.UP],
+      ['.tp--down', BUTTON.DOWN],
+      ['.tp--left', BUTTON.LEFT],
+      ['.tp--right', BUTTON.RIGHT],
+    ].map(([selector, button]) => ({ el: dpad.querySelector(selector), button }));
+
+    /** Deadzone as a fraction of the pad's radius; below it, nothing is pressed. */
+    const DEADZONE = 0.22;
+    /** How far off-axis a press still counts as including that direction. */
+    const DIAGONAL_RATIO = 0.42;
+
+    const apply = (event) => {
+      if (!this.enabled || !this.bridge) return;
+      const rect = dpad.getBoundingClientRect();
+      const x = (event.clientX - (rect.left + rect.width / 2)) / (rect.width / 2);
+      const y = (event.clientY - (rect.top + rect.height / 2)) / (rect.height / 2);
+      const magnitude = Math.hypot(x, y);
+
+      let up = false;
+      let down = false;
+      let left = false;
+      let right = false;
+      if (magnitude > DEADZONE) {
+        // A direction counts when its component dominates, or when the other
+        // component is large enough to make the press a genuine diagonal.
+        if (y < 0 && Math.abs(y) > Math.abs(x) * DIAGONAL_RATIO) up = true;
+        if (y > 0 && Math.abs(y) > Math.abs(x) * DIAGONAL_RATIO) down = true;
+        if (x < 0 && Math.abs(x) > Math.abs(y) * DIAGONAL_RATIO) left = true;
+        if (x > 0 && Math.abs(x) > Math.abs(y) * DIAGONAL_RATIO) right = true;
+      }
+
+      const pressed = { [BUTTON.UP]: up, [BUTTON.DOWN]: down, [BUTTON.LEFT]: left, [BUTTON.RIGHT]: right };
+      for (const { el, button } of directions) {
+        const isPressed = pressed[button];
+        this.bridge.setButton(0, button, isPressed, 'touch');
+        el?.classList.toggle('is-pressed', isPressed);
+      }
+    };
+
+    const clear = () => {
+      if (!this.bridge) return;
+      for (const { el, button } of directions) {
+        this.bridge.setButton(0, button, false, 'touch');
+        el?.classList.remove('is-pressed');
+      }
+    };
+
+    dpad.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      dpad.setPointerCapture?.(event.pointerId);
+      apply(event);
+    });
+    dpad.addEventListener('pointermove', (event) => {
+      if (event.buttons === 0 && event.pointerType === 'mouse') return;
+      event.preventDefault();
+      apply(event);
+    });
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+      dpad.addEventListener(type, (event) => {
+        event.preventDefault();
+        clear();
+      });
+    }
+  }
+
+  /** Releases the touch layer, e.g. when the overlay is hidden. */
+  releaseTouch() {
+    this.bridge?.releaseInputSource('touch');
+    for (const el of this.touchTargets.keys()) el.classList.remove('is-pressed');
   }
 }

@@ -16,10 +16,10 @@
 //! thread, a worker or a timer.
 
 use crate::audio::{AudioSink, AudioSpec, AudioStats, NullAudioSink, RingAudioSink};
-use crate::cores::{CoreDescriptor, CoreRegistry, CoreState, EmulatorCore};
+use crate::cores::{ContentHint, CoreDescriptor, CoreRegistry, CoreState, EmulatorCore};
 use crate::error::BridgeError;
 use crate::gfx::{Renderer, ScaleFilter, ScaleMode};
-use crate::input::{Button, InputState};
+use crate::input::{Button, GamepadBridge, PadKind, PadSource};
 use crate::timing::FramePacer;
 
 /// Video frames of audio to buffer. Three is the usual compromise between
@@ -75,7 +75,7 @@ pub struct EmulatorBridge {
     registry: CoreRegistry,
     renderer: Option<Renderer>,
     session: Option<Session>,
-    input: InputState,
+    gamepads: GamepadBridge,
     sink: Box<dyn AudioSink>,
     pacer: FramePacer,
     /// Device sample rate, learned from the host once `AudioContext` exists.
@@ -97,7 +97,7 @@ impl EmulatorBridge {
             registry: CoreRegistry::new(),
             renderer: None,
             session: None,
-            input: InputState::default(),
+            gamepads: GamepadBridge::new(),
             // Until a session starts there is nothing to buffer; a null sink keeps
             // the tick shape identical rather than making audio conditional.
             sink: Box::new(NullAudioSink::new()),
@@ -150,6 +150,11 @@ impl EmulatorBridge {
         self.registry.state(core_id)
     }
 
+    /// The declaration (or, once loaded, the core's own) descriptor.
+    pub fn core_descriptor(&self, core_id: &str) -> Option<&CoreDescriptor> {
+        self.registry.descriptor(core_id)
+    }
+
     pub fn core_for_system(&self, system_id: &str) -> Option<&CoreDescriptor> {
         self.registry.core_for_system(system_id)
     }
@@ -161,6 +166,15 @@ impl EmulatorBridge {
     /// Instantiates a fetched core module. Called from the launch path only.
     pub fn attach_core_module(&mut self, core_id: &str, bytes: &[u8]) -> Result<(), BridgeError> {
         self.registry.attach_module(core_id, bytes)
+    }
+
+    /// Installs a core built by the platform layer (a real libretro instance).
+    pub fn attach_core(
+        &mut self,
+        core_id: &str,
+        core: Box<dyn EmulatorCore>,
+    ) -> Result<(), BridgeError> {
+        self.registry.attach_core(core_id, core)
     }
 
     pub fn unload_core(&mut self, core_id: &str) -> Result<(), BridgeError> {
@@ -178,6 +192,7 @@ impl EmulatorBridge {
         core_id: &str,
         content_id: &str,
         content: &[u8],
+        hint: &ContentHint,
     ) -> Result<(), BridgeError> {
         if self.renderer.is_none() {
             return Err(BridgeError::NoRenderer);
@@ -188,12 +203,14 @@ impl EmulatorBridge {
         self.stop();
 
         let mut core = self.registry.take_for_session(core_id)?;
-        if let Err(err) = core.load_content(content) {
+        if let Err(err) = core.load_content(content, hint) {
             // Hand the core back; a rejected ROM must not cost us the loaded core.
             self.registry.return_from_session(core_id, core);
             return Err(err);
         }
 
+        // Read *after* load_content: a real libretro core only reports its final
+        // geometry, refresh rate and sample rate once content is loaded.
         let descriptor = core.descriptor().clone();
         self.pacer = FramePacer::new(descriptor.target_fps);
         self.sink = Box::new(RingAudioSink::new(
@@ -205,7 +222,7 @@ impl EmulatorBridge {
         if let Some(renderer) = &mut self.renderer {
             renderer.set_aspect_ratio(descriptor.geometry.aspect_ratio);
         }
-        self.input.release_all();
+        self.gamepads.release_all();
         self.state_scratch = Vec::with_capacity(core.state_size());
 
         log::info!(
@@ -237,7 +254,7 @@ impl EmulatorBridge {
                 .return_from_session(&session.core_id, session.core);
         }
         self.sink = Box::new(NullAudioSink::new());
-        self.input.release_all();
+        self.gamepads.release_all();
         if let Some(renderer) = &mut self.renderer {
             renderer.release_frame_target();
         }
@@ -267,7 +284,7 @@ impl EmulatorBridge {
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
         session.core.reset()?;
         self.sink.flush();
-        self.input.release_all();
+        self.gamepads.release_all();
         Ok(())
     }
 
@@ -283,6 +300,31 @@ impl EmulatorBridge {
         self.session.as_ref().map_or(0, |s| s.core.frame_count())
     }
 
+    /// The running core's own reported characteristics, not the manifest's.
+    ///
+    /// Worth distinguishing: the manifest is a hint written by hand, while this is
+    /// what the core said through `retro_get_system_av_info` after loading content. If
+    /// they disagree, this is the truth — the pacer and the renderer are configured
+    /// from these values.
+    pub fn session_av_info(&self) -> Option<[f64; 5]> {
+        let session = self.session.as_ref()?;
+        let descriptor = session.core.descriptor();
+        Some([
+            descriptor.geometry.base_width as f64,
+            descriptor.geometry.base_height as f64,
+            descriptor.geometry.aspect_ratio as f64,
+            descriptor.target_fps,
+            descriptor.audio_sample_rate as f64,
+        ])
+    }
+
+    /// Id of the core backing the running session, if any.
+    pub fn session_core_name(&self) -> Option<&str> {
+        self.session
+            .as_ref()
+            .map(|s| s.core.descriptor().display_name.as_str())
+    }
+
     // --------------------------------------------------------------------- tick
 
     /// The unified step: input → core → audio → GPU. Called once per
@@ -295,7 +337,7 @@ impl EmulatorBridge {
             renderer,
             sink,
             pacer,
-            input,
+            gamepads,
             ..
         } = self;
 
@@ -335,8 +377,9 @@ impl EmulatorBridge {
         }
 
         // 1. Input — snapshot once so every catch-up step of this tick sees a
-        //    coherent controller state.
-        let snapshot = input.snapshot();
+        //    coherent controller state, and so a real core querying `input_state`
+        //    mid-frame cannot observe a button changing underneath it.
+        let snapshot = gamepads.snapshot();
 
         // 2. Core steps (0..=4, decided by the pacer).
         let plan = pacer.plan(now_ms);
@@ -373,18 +416,55 @@ impl EmulatorBridge {
 
     // -------------------------------------------------------------------- input
 
-    pub fn set_button(&mut self, port: usize, button: Button, pressed: bool) {
-        self.input.set_button(port, button, pressed);
+    /// Sets a button for one input source. Sources are independent layers, merged at
+    /// snapshot time, so the keyboard and an idle controller cannot fight.
+    pub fn set_button(&mut self, port: usize, source: PadSource, button: Button, pressed: bool) {
+        self.gamepads.set_button(port, source, button, pressed);
     }
 
-    pub fn set_axis(&mut self, port: usize, axis: usize, value: f32) {
-        self.input.set_axis(port, axis, value);
+    pub fn set_axis(&mut self, port: usize, source: PadSource, axis: usize, value: f32) {
+        self.gamepads.set_axis(port, source, axis, value);
+    }
+
+    /// Releases one source, e.g. when the touch overlay is dismissed.
+    pub fn release_input_source(&mut self, source: PadSource) {
+        self.gamepads.release_source(source);
+    }
+
+    /// Applies one poll of a W3C standard gamepad. See
+    /// [`GamepadBridge::apply_standard_gamepad`].
+    pub fn apply_gamepad(&mut self, port: usize, buttons: &[bool], axes: &[f32]) {
+        self.gamepads.apply_standard_gamepad(port, buttons, axes);
+    }
+
+    pub fn connect_pad(&mut self, port: usize, kind: PadKind, label: &str) -> bool {
+        self.gamepads.connect(port, kind, label)
+    }
+
+    pub fn disconnect_pad(&mut self, port: usize) {
+        self.gamepads.disconnect(port);
+    }
+
+    pub fn connected_pads(&self) -> usize {
+        self.gamepads.connected_count()
+    }
+
+    pub fn pad_label(&self, port: usize) -> Option<&str> {
+        self.gamepads.pad_label(port)
+    }
+
+    pub fn pad_kind(&self, port: usize) -> Option<PadKind> {
+        self.gamepads.pad_kind(port)
+    }
+
+    pub fn first_free_pad_port(&self) -> Option<usize> {
+        self.gamepads.first_free_port()
     }
 
     /// Releases everything. Call on blur / visibility change so a held key cannot
     /// stick down while the tab is in the background.
     pub fn release_all_input(&mut self) {
-        self.input.release_all();
+        self.gamepads.release_all();
     }
 
     // -------------------------------------------------------------------- audio
@@ -554,7 +634,14 @@ mod tests {
         let mut bridge = EmulatorBridge::new();
         bridge.declare_core(descriptor("nestopia", "nes"));
         bridge.attach_core_module("nestopia", MODULE).unwrap();
-        let err = bridge.launch("nestopia", "smb.nes", b"rom").unwrap_err();
+        let err = bridge
+            .launch(
+                "nestopia",
+                "smb.nes",
+                b"rom",
+                &ContentHint::from_filename("smb.nes"),
+            )
+            .unwrap_err();
         assert!(matches!(err, BridgeError::NoRenderer));
     }
 

@@ -19,10 +19,10 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
 use crate::bridge::{EmulatorBridge, TickReport};
-use crate::cores::CoreDescriptor;
+use crate::cores::{ContentHint, CoreDescriptor, LibretroRuntimeHandle, WasmCore};
 use crate::frame::{FrameGeometry, PixelFormat};
 use crate::gfx::{Renderer, ScaleFilter, ScaleMode};
-use crate::input::Button;
+use crate::input::{Button, PadKind, PadSource};
 
 /// Installs a panic hook that prints Rust panics to the browser console, plus a
 /// logger. Without the hook a panic surfaces as `unreachable executed`, which is
@@ -295,13 +295,110 @@ impl WasmEmulatorBridge {
         self.inner.borrow().resident_core_count()
     }
 
-    // ------------------------------------------------------------------ session
+    /// Installs an instantiated libretro core.
+    ///
+    /// The platform layer owns instantiation because the core is a *separate* wasm
+    /// module with its own memory and imports, which only JS can wire up (see
+    /// `web/src/engine/core-runtime.js`). What crosses this boundary is a handle to
+    /// that runtime; everything after — pacing, input, audio, presentation — is Rust.
+    ///
+    /// The manifest's geometry is passed as a starting point and is superseded by
+    /// whatever the core reports once content is loaded.
+    #[wasm_bindgen(js_name = attachCoreRuntime)]
+    pub fn attach_core_runtime(
+        &self,
+        core_id: &str,
+        runtime: LibretroRuntimeHandle,
+    ) -> Result<(), JsError> {
+        let mut bridge = self.inner.borrow_mut();
+        let descriptor = bridge
+            .core_descriptor(core_id)
+            .ok_or_else(|| JsError::new(&format!("core '{core_id}' was never declared")))?
+            .clone();
+        let core = WasmCore::new(descriptor, runtime);
+        bridge
+            .attach_core(core_id, Box::new(core))
+            .map_err(to_js_error)
+    }
 
-    /// Starts emulating. The core module must already be attached.
-    pub fn launch(&self, core_id: &str, content_id: &str, content: &[u8]) -> Result<(), JsError> {
+    // -------------------------------------------------------------- gamepads
+
+    /// Applies one poll of a W3C standard gamepad.
+    ///
+    /// `buttons` is `navigator.getGamepads()[i].buttons.map(b => b.pressed)` and
+    /// `axes` is that pad's `axes` array. The button *layout* mapping lives in Rust
+    /// (see `GamepadBridge`), so Phase 2's `GameController` code maps the same way
+    /// instead of reinventing it in Swift.
+    #[wasm_bindgen(js_name = applyGamepad)]
+    pub fn apply_gamepad(&self, port: u32, buttons: &[u8], axes: &[f32]) {
+        // `&[u8]` rather than `&[bool]`: wasm-bindgen has no bool-slice ABI, and a
+        // Uint8Array is what JS can hand over without a per-element conversion.
+        let pressed: Vec<bool> = buttons.iter().map(|b| *b != 0).collect();
         self.inner
             .borrow_mut()
-            .launch(core_id, content_id, content)
+            .apply_gamepad(port as usize, &pressed, axes);
+    }
+
+    /// Registers a controller on a port. `kind` is `"gamepad"`, `"keyboard"` or
+    /// `"touch"`.
+    #[wasm_bindgen(js_name = connectPad)]
+    pub fn connect_pad(&self, port: u32, kind: &str, label: &str) -> bool {
+        let kind = match kind {
+            "keyboard" => PadKind::Keyboard,
+            "touch" => PadKind::Touch,
+            "gamepad-unmapped" => PadKind::UnmappedGamepad,
+            _ => PadKind::StandardGamepad,
+        };
+        self.inner
+            .borrow_mut()
+            .connect_pad(port as usize, kind, label)
+    }
+
+    #[wasm_bindgen(js_name = disconnectPad)]
+    pub fn disconnect_pad(&self, port: u32) {
+        self.inner.borrow_mut().disconnect_pad(port as usize);
+    }
+
+    #[wasm_bindgen(getter, js_name = connectedPads)]
+    pub fn connected_pads(&self) -> usize {
+        self.inner.borrow().connected_pads()
+    }
+
+    #[wasm_bindgen(js_name = padLabel)]
+    pub fn pad_label(&self, port: u32) -> Option<String> {
+        self.inner
+            .borrow()
+            .pad_label(port as usize)
+            .map(str::to_string)
+    }
+
+    /// First unoccupied port, for auto-assigning a newly connected controller.
+    #[wasm_bindgen(js_name = firstFreePadPort)]
+    pub fn first_free_pad_port(&self) -> Option<u32> {
+        self.inner
+            .borrow()
+            .first_free_pad_port()
+            .map(|port| port as u32)
+    }
+
+    // ------------------------------------------------------------------ session
+
+    /// Starts emulating. The core must already be attached.
+    ///
+    /// `filename` is the content's original name (e.g. `"smb.nes"`). It is not
+    /// cosmetic: real cores resolve their `need_fullpath` content-info overrides from
+    /// the extension, and reject content whose extension they cannot see.
+    pub fn launch(
+        &self,
+        core_id: &str,
+        content_id: &str,
+        content: &[u8],
+        filename: &str,
+    ) -> Result<(), JsError> {
+        let hint = ContentHint::from_filename(filename);
+        self.inner
+            .borrow_mut()
+            .launch(core_id, content_id, content, &hint)
             .map_err(to_js_error)
     }
 
@@ -321,6 +418,25 @@ impl WasmEmulatorBridge {
 
     pub fn reset(&self) -> Result<(), JsError> {
         self.inner.borrow_mut().reset().map_err(to_js_error)
+    }
+
+    /// `[baseWidth, baseHeight, aspectRatio, fps, sampleRate]` as reported by the
+    /// running core, or `undefined` when idle.
+    ///
+    /// These are the core's numbers, not the manifest's: a real core only knows its
+    /// geometry and timing once content is loaded, and what it says wins.
+    #[wasm_bindgen(js_name = sessionAvInfo)]
+    pub fn session_av_info(&self) -> Option<Vec<f64>> {
+        self.inner
+            .borrow()
+            .session_av_info()
+            .map(|info| info.to_vec())
+    }
+
+    /// Display name of the core running the session, e.g. `"FCEUmm"`.
+    #[wasm_bindgen(getter, js_name = sessionCoreName)]
+    pub fn session_core_name(&self) -> Option<String> {
+        self.inner.borrow().session_core_name().map(str::to_string)
     }
 
     #[wasm_bindgen(getter, js_name = currentContentId)]
@@ -346,22 +462,41 @@ impl WasmEmulatorBridge {
 
     // -------------------------------------------------------------------- input
 
-    /// `button` is a `RETRO_DEVICE_ID_JOYPAD_*` index (0–15).
+    /// `button` is a `RETRO_DEVICE_ID_JOYPAD_*` index (0–15). `source` is
+    /// `"keyboard"`, `"touch"` or `"gamepad"`; it selects which input layer to write,
+    /// so an idle controller poll cannot clear a held key.
     #[wasm_bindgen(js_name = setButton)]
-    pub fn set_button(&self, port: u32, button: u32, pressed: bool) {
+    pub fn set_button(&self, port: u32, button: u32, pressed: bool, source: Option<String>) {
+        let source = source
+            .as_deref()
+            .map(PadSource::from_str_or_keyboard)
+            .unwrap_or(PadSource::Keyboard);
         if let Some(button) = Button::from_u32(button) {
             self.inner
                 .borrow_mut()
-                .set_button(port as usize, button, pressed);
+                .set_button(port as usize, source, button, pressed);
         }
     }
 
     /// `axis`: 0 = left X, 1 = left Y, 2 = right X, 3 = right Y. Range -1..=1.
     #[wasm_bindgen(js_name = setAxis)]
-    pub fn set_axis(&self, port: u32, axis: u32, value: f32) {
+    pub fn set_axis(&self, port: u32, axis: u32, value: f32, source: Option<String>) {
+        let source = source
+            .as_deref()
+            .map(PadSource::from_str_or_keyboard)
+            .unwrap_or(PadSource::Keyboard);
         self.inner
             .borrow_mut()
-            .set_axis(port as usize, axis as usize, value);
+            .set_axis(port as usize, source, axis as usize, value);
+    }
+
+    /// Releases everything one source was holding. Used when the touch overlay is
+    /// hidden, or when a keyboard loses focus while a controller keeps playing.
+    #[wasm_bindgen(js_name = releaseInputSource)]
+    pub fn release_input_source(&self, source: &str) {
+        self.inner
+            .borrow_mut()
+            .release_input_source(PadSource::from_str_or_keyboard(source));
     }
 
     /// Releases every button on every port. Call on blur / `visibilitychange`.

@@ -52,6 +52,13 @@
           <input id="search-input" class="search__input" type="search" placeholder="Search 4,800 titles…"
                  autocomplete="off" spellcheck="false" aria-label="Search titles" />
         </div>
+        <button class="btn btn--ghost btn--compact" data-action="import-rom" type="button"
+                title="Add a ROM from this device">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
+          Add ROM
+        </button>
+        <!-- Kept out of the layout; opened by the button and by drag-and-drop. -->
+        <input type="file" id="rom-file-input" multiple hidden />
         <button class="pill" id="gpu-pill" type="button" title="Graphics backend status">
           <span class="pill__dot" data-state="unknown"></span>
           <span class="pill__label" id="gpu-pill-label">WebGPU</span>
@@ -128,6 +135,7 @@
           <span class="hud__stat"><b id="hud-fps">—</b> fps</span>
           <span class="hud__stat"><b id="hud-frames">0</b> frames</span>
           <span class="hud__stat"><b id="hud-audio">0</b> ms audio</span>
+          <span class="hud__stat" id="hud-pads" title="Connected controllers">⌨</span>
         </div>
       </div>
 
@@ -195,6 +203,10 @@
         <button class="tp tp--select" data-button="2">SELECT</button>
         <button class="tp tp--start"  data-button="3">START</button>
       </div>
+      <div class="touchpad__shoulders">
+        <button class="tp tp--l" data-button="10">L</button>
+        <button class="tp tp--r" data-button="11">R</button>
+      </div>
     </div>
 
     <div class="loading" id="player-loading" hidden>
@@ -223,10 +235,12 @@
         <div class="detail__body">
           <h2 class="detail__title" id="detail-title">—</h2>
           <p class="detail__meta" id="detail-meta"></p>
+          <p class="detail__provenance" id="detail-provenance" hidden></p>
           <p class="detail__blurb" id="detail-blurb"></p>
           <div class="detail__actions">
             <button class="btn btn--primary" id="detail-play" type="button">Play</button>
             <button class="btn btn--ghost" id="detail-favorite" type="button">Add to favorites</button>
+            <button class="btn btn--ghost" id="detail-remove" type="button" hidden>Remove ROM</button>
           </div>
           <div class="detail__states">
             <div class="detail__states-head">
@@ -239,6 +253,14 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div class="drop-hint" id="drop-hint" hidden>
+    <div class="drop-hint__panel">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l5 5h-3v6h-4V8H7zM5 18h14v2H5z"/></svg>
+      <p class="drop-hint__title">Drop ROMs to add them</p>
+      <p class="drop-hint__body">NES, SNES, Game Boy, GBA, Mega Drive, Master System, N64</p>
     </div>
   </div>
 

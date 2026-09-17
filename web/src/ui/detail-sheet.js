@@ -24,10 +24,11 @@ export class DetailSheet {
    * @param {() => void} opts.onDataChanged
    * @param {{ wake: (frames?: number) => void }} opts.scheduler
    */
-  constructor({ onLaunch, onLoadState, onDataChanged, scheduler }) {
+  constructor({ onLaunch, onLoadState, onDataChanged, onRemoveRom, scheduler }) {
     this.onLaunch = onLaunch;
     this.onLoadState = onLoadState;
     this.onDataChanged = onDataChanged;
+    this.onRemoveRom = onRemoveRom;
     this.scheduler = scheduler;
 
     this.root = document.getElementById('detail-sheet');
@@ -37,6 +38,7 @@ export class DetailSheet {
     this.blurbEl = document.getElementById('detail-blurb');
     this.playBtn = document.getElementById('detail-play');
     this.favBtn = document.getElementById('detail-favorite');
+    this.removeBtn = document.getElementById('detail-remove');
     this.statesEl = document.getElementById('detail-states');
     this.statesCountEl = document.getElementById('detail-states-count');
 
@@ -76,6 +78,13 @@ export class DetailSheet {
 
     this.playBtn.addEventListener('click', () => {
       if (this.entry) this.onLaunch(this.entry.id);
+    });
+
+    this.removeBtn?.addEventListener('click', async () => {
+      if (!this.entry || this.entry.source !== 'imported') return;
+      const id = this.entry.id;
+      this.close();
+      await this.onRemoveRom?.(id);
     });
 
     this.favBtn.addEventListener('click', () => {
@@ -158,6 +167,24 @@ export class DetailSheet {
 
     this.playBtn.disabled = locked;
     this.playBtn.textContent = locked ? 'Phase 2 only' : 'Play';
+    // Only imported ROMs can be removed; built-ins ship with the app and synthetic
+    // entries have nothing to delete.
+    if (this.removeBtn) this.removeBtn.hidden = entry.source !== 'imported';
+
+    const provenance = document.getElementById('detail-provenance');
+    if (provenance) {
+      if (entry.real) {
+        provenance.hidden = false;
+        provenance.textContent =
+          entry.source === 'builtin'
+            ? `Ships with the app · ${entry.filename} · runs on the real core`
+            : `Imported · ${entry.filename} · ${(entry.sizeMb * 1024).toFixed(0)} KB in local storage`;
+      } else {
+        provenance.hidden = false;
+        provenance.textContent =
+          'Catalogue placeholder — no ROM data. Add your own file to play this system.';
+      }
+    }
     this._syncFavButton();
 
     this.statesCountEl.textContent =

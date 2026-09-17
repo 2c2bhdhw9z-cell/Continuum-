@@ -81,7 +81,13 @@ const BLURB_OPENERS = [
  *   region: string, players: number, rating: number, sizeMb: number,
  *   favorite: boolean, progress: number, lastPlayed: number | null, blurb: string,
  *   sortKey: string,
- * }} CatalogEntry */
+ *   real: boolean, source: 'synthetic'|'imported'|'builtin', filename: string,
+ *   url?: string,
+ * }} CatalogEntry
+ *
+ * `real` is the important flag: synthetic entries exist to exercise the UI and have
+ * no ROM behind them, so launching one into a real core would hand it noise. Imported
+ * and built-in entries have actual content and are the ones that play. */
 
 /** @type {CatalogEntry[]} */
 const entries = [];
@@ -130,6 +136,9 @@ function generate() {
         played < 0.55 ? null : now - Math.floor(random() * 90 * 86400_000),
       blurb: BLURB_OPENERS[Math.floor(random() * BLURB_OPENERS.length)],
       sortKey: '',
+      real: false,
+      source: 'synthetic',
+      filename: '',
     };
     entry.sortKey = `${title.toLowerCase()}|${entry.id}`;
 
@@ -167,7 +176,7 @@ export function indexOfId(id) {
 }
 
 /** Every index, title-sorted. Backing array for the all-games grid. */
-const allSorted = (() => {
+let allSorted = (() => {
   const idx = new Uint32Array(entries.length);
   for (let i = 0; i < entries.length; i++) idx[i] = i;
   const arr = Array.from(idx);
@@ -177,6 +186,107 @@ const allSorted = (() => {
 
 export function allIndices() {
   return allSorted;
+}
+
+/**
+ * Recomputes the derived index arrays after entries are added.
+ *
+ * Sorting 4,800 short strings costs about a millisecond, and this only runs on
+ * import — not on scroll — so a full rebuild is simpler and safer than trying to
+ * splice into typed arrays in place.
+ */
+function rebuildDerivedIndexes() {
+  const perSystem = new Map(SYSTEMS.map((s) => [s.id, []]));
+  for (let i = 0; i < entries.length; i++) {
+    const list = perSystem.get(entries[i].systemId);
+    if (list) list.push(i);
+  }
+  for (const [systemId, list] of perSystem) {
+    list.sort((x, y) => entries[x].sortKey.localeCompare(entries[y].sortKey));
+    bySystem.set(systemId, Uint32Array.from(list));
+  }
+
+  const all = Array.from({ length: entries.length }, (_, i) => i);
+  all.sort((x, y) => entries[x].sortKey.localeCompare(entries[y].sortKey));
+  allSorted = Uint32Array.from(all);
+}
+
+/**
+ * Registers content that actually exists: an imported file, or a ROM shipped with the
+ * app. Re-registering the same id updates it rather than duplicating, so importing a
+ * file twice is a no-op.
+ *
+ * @param {{id: string, title: string, systemId: string, sizeBytes: number,
+ *          filename: string, source: 'imported'|'builtin', url?: string,
+ *          blurb?: string, addedAt?: number}} rom
+ * @returns {CatalogEntry}
+ */
+export function addRealEntry(rom) {
+  const existing = byId.get(rom.id);
+  const system = getSystem(rom.systemId);
+  const entry = {
+    id: rom.id,
+    title: rom.title,
+    systemId: rom.systemId,
+    genre: rom.source === 'builtin' ? 'Test' : 'Imported',
+    year: system?.year ?? new Date().getFullYear(),
+    region: 'Unknown',
+    players: 1,
+    rating: 0,
+    sizeMb: Math.round((rom.sizeBytes / (1024 * 1024)) * 1000) / 1000,
+    favorite: existing !== undefined ? entries[existing].favorite : false,
+    progress: existing !== undefined ? entries[existing].progress : 0,
+    lastPlayed: existing !== undefined ? entries[existing].lastPlayed : rom.addedAt ?? null,
+    blurb:
+      rom.blurb ??
+      `Imported from ${rom.filename}. Runs on the real core for ${system?.name ?? rom.systemId}.`,
+    sortKey: `${rom.title.toLowerCase()}|${rom.id}`,
+    real: true,
+    source: rom.source,
+    filename: rom.filename,
+    url: rom.url,
+  };
+
+  if (existing !== undefined) {
+    entries[existing] = entry;
+    searchHaystack[existing] =
+      `${rom.title} ${system?.short ?? ''} ${system?.name ?? ''} ${entry.genre}`.toLowerCase();
+  } else {
+    const index = entries.length;
+    entries.push(entry);
+    searchHaystack.push(
+      `${rom.title} ${system?.short ?? ''} ${system?.name ?? ''} ${entry.genre}`.toLowerCase(),
+    );
+    byId.set(rom.id, index);
+  }
+
+  rebuildDerivedIndexes();
+  return entry;
+}
+
+/** Removes an imported entry (the ROM itself is deleted by the caller). */
+export function removeEntry(id) {
+  const index = byId.get(id);
+  if (index === undefined) return false;
+  entries.splice(index, 1);
+  searchHaystack.splice(index, 1);
+  byId.clear();
+  for (let i = 0; i < entries.length; i++) byId.set(entries[i].id, i);
+  rebuildDerivedIndexes();
+  return true;
+}
+
+/** Indices of entries with real content, newest first. */
+export function realIndices() {
+  const out = [];
+  for (let i = 0; i < entries.length; i++) if (entries[i].real) out.push(i);
+  out.sort((x, y) => {
+    // Built-ins last: a user's own imports are what they came for.
+    const rank = (e) => (e.source === 'builtin' ? 1 : 0);
+    const byRank = rank(entries[x]) - rank(entries[y]);
+    return byRank !== 0 ? byRank : (entries[y].lastPlayed ?? 0) - (entries[x].lastPlayed ?? 0);
+  });
+  return Uint32Array.from(out);
 }
 
 export function systemIndices(systemId) {
@@ -247,6 +357,13 @@ export function search(query, limit = 600) {
 export function buildShelves() {
   const shelves = [];
 
+  // Playable content first: it is the only part of this library that is not a
+  // placeholder, so burying it under synthetic shelves would be perverse.
+  const real = realIndices();
+  if (real.length) {
+    shelves.push({ id: 'your-roms', title: 'Your ROMs', indices: real });
+  }
+
   const continuing = [];
   for (let i = 0; i < entries.length; i++) {
     if (entries[i].lastPlayed !== null && entries[i].progress > 0) continuing.push(i);
@@ -293,6 +410,10 @@ export function buildShelves() {
 
 /** Picks the hero title. Deterministic, so the banner does not flicker between reloads. */
 export function featuredIndex() {
+  // A real, playable ROM makes a far better hero than a placeholder.
+  const real = realIndices();
+  if (real.length) return real[0];
+
   let best = 0;
   let bestScore = -Infinity;
   for (let i = 0; i < entries.length; i++) {

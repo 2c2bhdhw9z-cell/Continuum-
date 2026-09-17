@@ -412,3 +412,96 @@
 .state-row__load {
   flex: 0 0 auto;
 }
+
+
+/* --------------------------------------------------------------- ROM import */
+
+.btn--compact {
+  padding: 8px 12px;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+.btn--compact svg {
+  width: 1em;
+  height: 1em;
+}
+
+/* Full-window drop target. Shown only while files are being dragged, so it never
+   intercepts pointer events during normal use. */
+.drop-hint {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: rgba(4, 4, 8, 0.72);
+  backdrop-filter: blur(4px);
+  animation: fade-in var(--dur-fast) var(--ease);
+}
+
+.drop-hint[hidden] {
+  display: none;
+}
+
+.drop-hint__panel {
+  padding: var(--sp-6) var(--sp-7);
+  border-radius: var(--radius-lg);
+  border: 2px dashed var(--accent);
+  background: rgba(21, 21, 30, 0.92);
+  text-align: center;
+  box-shadow: var(--shadow-pop);
+}
+
+.drop-hint__panel svg {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto var(--sp-3);
+  fill: var(--accent);
+}
+
+.drop-hint__title {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-lg);
+  font-weight: 700;
+}
+
+.drop-hint__body {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+/* Badge marking entries that have real content behind them, as opposed to the
+   synthetic catalogue used to exercise the UI at scale. */
+.card__real {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 2;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--cyan);
+  color: #04211f;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.detail__provenance {
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: rgba(55, 226, 213, 0.1);
+  border-left: 2px solid var(--cyan);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+.detail__provenance[hidden] {
+  display: none;
+}

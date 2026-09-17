@@ -299,3 +299,30 @@
   padding: 8px 14px;
   border-radius: 999px;
 }
+
+
+/* Shoulder buttons sit above the face buttons on the touch overlay. */
+.touchpad__shoulders {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -14px;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 var(--sp-5);
+  pointer-events: none;
+}
+
+.touchpad__shoulders .tp {
+  position: relative;
+  pointer-events: auto;
+  width: 66px;
+  height: 34px;
+  border-radius: 8px;
+}
+
+/* Controller indicator in the HUD: monospace so it does not reflow as pads connect. */
+#hud-pads {
+  min-width: 3ch;
+  text-align: center;
+}

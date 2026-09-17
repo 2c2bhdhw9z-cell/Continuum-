@@ -5,8 +5,13 @@
 # source; run the script after cloning.
 /web/vendor/
 
-# Core binaries are third-party GPL/LGPL builds fetched by the Phase 1b build
-# script, not vendored here. The placeholder module is kept deliberately.
+# Toolchains and core sources fetched by scripts/build-core.sh (wasi-sdk is ~1 GB
+# extracted, core checkouts are tens of MB). Both are reproducible from the script.
+/.tools/
+/.work/
+
+# Core binaries are build outputs from third-party GPL/LGPL sources, not vendored
+# here: run scripts/build-core.sh <name>. The placeholder module is ours and is kept.
 /web/cores/*.wasm
 !/web/cores/diagnostic-core.wasm
 

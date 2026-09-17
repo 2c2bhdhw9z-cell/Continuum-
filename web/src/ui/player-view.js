@@ -26,7 +26,7 @@
  *   - The core is fetched only now — never at boot — and only if not already resident.
  */
 
-import { getContent } from '../data/content-store.js';
+import { getContent, contentFilename, isPlayable } from '../data/content-store.js';
 import { entryById, markPlayed } from '../data/catalog.js';
 import { getSystem } from '../data/systems.js';
 import * as saveStates from '../data/save-states.js';
@@ -48,13 +48,15 @@ export class PlayerView {
    * @param {import('../engine/loop.js').FrameLoop} opts.loop
    * @param {() => void} opts.onExit
    */
-  constructor({ host, coreLoader, audio, input, loop, onExit }) {
+  constructor({ host, coreLoader, audio, input, loop, onExit, onRequestImport }) {
     this.host = host;
     this.coreLoader = coreLoader;
     this.audio = audio;
     this.input = input;
     this.loop = loop;
     this.onExit = onExit;
+    /** Called when a launch fails because the entry has no real ROM. */
+    this.onRequestImport = onRequestImport;
 
     this.root = document.getElementById('view-player');
     this.canvas = document.getElementById('gpu-canvas');
@@ -163,6 +165,23 @@ export class PlayerView {
       return;
     }
 
+    // A synthetic catalogue entry has no ROM behind it. Real cores reject noise — as
+    // they should — so say why here rather than surfacing "content rejected" from
+    // deep inside emulation.
+    const coreEntryForSystem = this.coreLoader.entryFor(
+      this.coreLoader.coreIdFor(entry.systemId) ?? '',
+    );
+    if (!isPlayable(entry) && coreEntryForSystem?.kind === 'libretro') {
+      toast(
+        'No ROM for this title',
+        `"${entry.title}" is a catalogue placeholder. Add your own ${system?.short ?? ''} ROM, ` +
+          'or open the Continuum Test Cart to see the real core run.',
+        { kind: 'warn', ms: 8000 },
+      );
+      this.onRequestImport?.();
+      return;
+    }
+
     // Start the audio graph while the launching gesture is still "live". Awaiting
     // anything before this is what leaves iOS silent.
     const audioStart = this.audio.ensureStarted();
@@ -205,7 +224,9 @@ export class PlayerView {
       const content = await getContent(entry);
       if (token !== this._launchToken) return;
 
-      this.host.bridge.launch(coreId, entry.id, content);
+      // The filename matters: real cores resolve their content-info overrides from
+      // the extension and reject content whose extension they cannot see.
+      this.host.bridge.launch(coreId, entry.id, content, contentFilename(entry));
 
       // Apply the current control settings to the fresh session.
       this.host.bridge.setScaleMode(document.getElementById('ctl-scale').value);
@@ -221,10 +242,10 @@ export class PlayerView {
       this._setLoading(false);
       this._startLoop();
 
-      if (coreEntry?.placeholder) {
-        this.subtitleEl.textContent =
-          `${system?.name ?? entry.systemId} · placeholder core (diagnostic pattern)`;
-      }
+      this.subtitleEl.textContent = coreEntry?.placeholder
+        ? `${system?.name ?? entry.systemId} · placeholder core (diagnostic pattern)`
+        : `${system?.name ?? entry.systemId} · ${coreEntry?.name ?? coreId}` +
+          (entry.source === 'builtin' ? ' · test cart' : '');
       this._syncAudioUi();
       this._showChrome();
     } catch (err) {
@@ -237,6 +258,8 @@ export class PlayerView {
   _startLoop() {
     this.active = true;
     this.input.setEnabled(true);
+    this.input.onPadsChanged = (summary) => this._syncPadIndicator(summary);
+    this._syncPadIndicator({ pads: this.host.bridge?.connectedPads ?? 0, labels: [] });
     this.loop.setEngineTick(this.tick);
     this.loop.setEngineActive(true);
     this.pauseBtn.classList.remove('is-active');
@@ -384,6 +407,7 @@ export class PlayerView {
     this.active = false;
     this.paused = false;
     this.input.setEnabled(false);
+    this.input.releaseTouch();
     this.loop.setEngineActive(false);
     this.host.bridge?.stop();
     this.audio.flush();
@@ -409,6 +433,19 @@ export class PlayerView {
     this._chromeTimer = setTimeout(() => {
       if (this.active && !this.paused) this.chrome.classList.add('is-idle');
     }, CHROME_IDLE_MS);
+  }
+
+  /** Shows how input is reaching the core: keyboard glyph, or the pad count. */
+  _syncPadIndicator({ pads, labels }) {
+    const el = document.getElementById('hud-pads');
+    if (!el) return;
+    if (pads > 0) {
+      el.textContent = pads === 1 ? '🎮' : `🎮×${pads}`;
+      el.title = labels.length ? labels.join(', ') : `${pads} controller(s) connected`;
+    } else {
+      el.textContent = '⌨';
+      el.title = 'Keyboard: arrows, Z/X, Enter, Shift';
+    }
   }
 
   _syncAudioUi() {
