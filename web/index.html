@@ -53,9 +53,11 @@
                  autocomplete="off" spellcheck="false" aria-label="Search titles" />
         </div>
         <button class="btn btn--ghost btn--compact" data-action="import-rom" type="button"
-                title="Add a ROM from this device">
+                title="Add a ROM from this device" aria-label="Add a ROM from this device">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
-          Add ROM
+          <!-- Wrapped so the label can be dropped on narrow screens, leaving the
+               icon. aria-label above keeps the button named either way. -->
+          <span class="btn__label">Add ROM</span>
         </button>
         <!-- Kept out of the layout; opened by the button and by drag-and-drop. -->
         <input type="file" id="rom-file-input" multiple hidden />

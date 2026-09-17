@@ -281,7 +281,7 @@ cargo test                                  # 70 unit tests: pacing, ring buffer
                                             # gamepad mapping, pixel conversion, scaling
 node scripts/core-abi-test.mjs              # 64 checks across all four cores, headless
 node scripts/serve.mjs 8123 &
-PLAYWRIGHT_CORE=<path> node scripts/smoke-test.mjs http://localhost:8123/   # 67 checks
+PLAYWRIGHT_CORE=<path> node scripts/smoke-test.mjs http://localhost:8123/   # 73 checks
 ```
 
 **`core-abi-test.mjs`** runs each core with its own test ROM in plain Node — no browser,
@@ -373,6 +373,29 @@ version of what remains:
   and probably compression, not just a deeper buffer.
 
 ## Next: native iOS
+
+**Audited, and the answer is yes.** `cargo check --target aarch64-apple-ios` and
+`--target aarch64-apple-darwin` are both clean, as is `cargo clippy --all-targets`
+against them — so the 70 unit tests type-check for the device too. `bridge.rs` mentions
+`wasm_bindgen` exactly once, in a doc comment claiming it does not use it; that claim is
+now compiler-checked.
+
+**4,896 of 6,308 lines — 77% — compile unchanged for iOS.** The web-only 23% is exactly
+the platform boundary: the `wasm.rs` facade (769 lines), the core loader
+(`cores/wasm_core.rs`, 380), the callback bridge (`cores/host.rs`, 263) and one
+canvas-specific constructor in the renderer. Nothing else is gated.
+
+Two properties are doing the work, and neither should be given up: the engine never
+reads a clock (`FramePacer::plan()` takes a timestamp, so there is no platform shim to
+write), and the unit tests already run in the `not(target_arch = "wasm32")`
+configuration — the same one iOS uses — so every `cargo test` is a regression test for
+the native build.
+
+One concrete gap: `crate-type` needs `staticlib` added to link into a Swift app. It is
+left undone on purpose, because `cargo check` does not link and so the change would be
+unverifiable from here. See `SESSION_HANDOFF.md` §9.
+
+
 
 The engine is already interface-agnostic: `bridge.rs` has no `wasm_bindgen`, no
 `web_sys`, no JS types, and the renderer's `from_surface` takes any wgpu surface —

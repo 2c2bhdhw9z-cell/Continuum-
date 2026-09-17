@@ -1,6 +1,6 @@
 # Continuum — Session Handoff
 
-State of the project at tag `v0.4.0-persistence`, written to be the only document a new session
+State of the project at tag `v0.5.0-mobile`, written to be the only document a new session
 needs to read before changing anything.
 
 Continuum is an all-in-one emulator PWA. Four real libretro cores run as standalone
@@ -537,7 +537,7 @@ cargo clippy --all-targets           # zero warnings
 node scripts/core-abi-test.mjs       # 64 checks, 4 cores, no browser
 node scripts/capture-frames.mjs      # docs/frame-{nes,gba,sms,snes}[-a].png
 
-# Browser suite (67 checks). One shell invocation: /tmp and background jobs
+# Browser suite (73 checks). One shell invocation: /tmp and background jobs
 # do not survive between tool calls.
 node scripts/serve.mjs 8123 &
 PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core \
@@ -677,11 +677,11 @@ Nothing is blocked. In rough order of value:
 2. **A Mega Drive test cart.** Genesis Plus GX is verified in Master System mode only.
    A 68000 cart would cover the other half of the core, and the extension-driven system
    switch in both directions.
-3. **Native ARM64.** `EmulatorCore` is the seam: implement it over `dlopen`ed or
-   statically linked cores, swap `AudioSink` for CoreAudio, point `wgpu` at a
-   `CAMetalLayer`. `timing.rs`, `input/`, `audio/` and `cores/registry.rs` should need no
-   changes. The tokens in `styles/tokens.css` are meant to become a Swift `Theme`
-   struct.
+3. **Native ARM64.** Audited — see §9 below. The engine type-checks for
+   `aarch64-apple-ios` today; what remains is a `LibretroRuntimeHandle` over
+   `dlopen`ed or statically linked cores, a CoreAudio `AudioSink`, a `CAMetalLayer`
+   surface, and a UniFFI facade beside `wasm.rs`. The tokens in `styles/tokens.css`
+   are meant to become a Swift `Theme` struct.
 4. **Core options.** `HAVE_NO_LANGEXTRA` is set and `GET_VARIABLE` returns nothing, so
    every core runs on defaults. Exposing options means a UI, persistence, and deciding
    which of the dozens per core are worth showing.
@@ -709,3 +709,72 @@ Nothing is blocked. In rough order of value:
   core is gone and there is nothing left to serialise.
 - The single IndexedDB opener in `idb.js` (§5b) — a second module opening the same
   database at its own version deadlocks both.
+
+
+---
+
+## 9. Native ARM64 audit
+
+Run at `v0.5.0-mobile`. The claim being tested: that the engine is genuinely
+interface-agnostic, and that the case for keeping so much logic in Rust was not
+self-deception.
+
+```bash
+rustup target add aarch64-apple-darwin aarch64-apple-ios
+cargo check   --target aarch64-apple-darwin        # clean
+cargo check   --target aarch64-apple-ios           # clean — the .ipa target
+cargo clippy  --target aarch64-apple-darwin --all-targets   # clean, incl. the 70 tests
+```
+
+All clean, first run, no warnings. wgpu's Metal backend compiles for both
+(`objc2-metal`, `objc2-quartz-core`, `raw-window-metal`, `wgpu-core-deps-apple`).
+
+### No web types have leaked
+
+`bridge.rs` mentions `wasm_bindgen` exactly once — in a doc comment claiming it does
+not use it. That claim is now compiler-checked rather than aspirational: `bridge.rs`
+is compiled for both Apple targets, so any web type in it would be a hard error.
+
+Web-only code is confined to three files and five `cfg` gates:
+
+| File | Lines | What a native build needs instead |
+|---|---:|---|
+| `wasm.rs` | 769 | A UniFFI facade with the same methods |
+| `cores/wasm_core.rs` | 380 | `EmulatorCore` over `dlopen`ed or static cores |
+| `cores/host.rs` | 263 | The same five callbacks, called from C rather than JS |
+| `gfx/renderer.rs` (one fn) | ~24 | `from_surface` with a `CAMetalLayer` — already shared |
+
+**4,896 of 6,308 lines — 77% — compile unchanged for iOS.** The gated 23% is exactly
+the platform boundary and nothing more: a facade, a core loader, a callback bridge and
+one surface constructor.
+
+### Two properties that make it portable, worth not breaking
+
+- **The engine never reads a clock.** `FramePacer::plan()` takes a timestamp as an
+  argument. There is no `Instant::now()` or `performance.now()` anywhere in the shared
+  code, which is why `timing.rs` needs no platform shim at all.
+- **The 70 unit tests are not just tests.** They compile and run in the
+  `not(target_arch = "wasm32")` configuration — the *same* configuration iOS uses. So
+  every `cargo test` on a dev machine is already a regression test for the native
+  build's pacing, ring buffer, resampler, registry, gamepad mapping and pixel
+  conversion. `cargo clippy --target aarch64-apple-ios --all-targets` confirms they
+  type-check for the device too.
+
+### One concrete thing the `.ipa` will need
+
+`Cargo.toml` declares `crate-type = ["cdylib", "rlib"]`. Linking into a Swift app
+wants **`staticlib`**, and the comment above that line already says "iOS staticlib"
+while the list does not contain it.
+
+It is deliberately not changed here. `cargo check` does not link, so adding it would
+be an unverifiable edit — and this sandbox can no longer build for `wasm32` (the target
+and `wasm-bindgen` are both absent), so the change could break the web build with no
+way to notice before it reached CI and the deploy the phone testing depends on. Add it
+when someone is in a position to link an actual binary.
+
+### What the audit does *not* prove
+
+That it links, or runs. No Apple linker or SDK is available here, so this establishes
+that the code is *type-correct* for the target and that the module boundaries are in
+the right places — not that a binary works. The first real test is a `staticlib` linked
+into a SwiftUI shell calling `EmulatorBridge` directly.

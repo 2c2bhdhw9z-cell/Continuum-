@@ -6,7 +6,10 @@
   position: absolute;
   inset: 0 0 auto 0;
   z-index: 30;
-  height: var(--topbar-h);
+  /* The inset is added to the height, not just padded into it. With border-box a
+     bare `padding-top` would eat 47px of a 60px bar on a notched iPhone and push
+     its own contents out of the bottom. */
+  height: calc(var(--topbar-h) + env(safe-area-inset-top));
   display: flex;
   align-items: center;
   gap: var(--sp-5);
@@ -677,4 +680,177 @@
 
 .detail__resume .textbtn {
   flex: 0 0 auto;
+}
+
+
+/* ============================================================================
+   Mobile portrait
+   ============================================================================
+
+   The desktop header is one row of five things: wordmark, three nav links, a
+   240px search field, an Add ROM button and a status pill. On a 393px phone that
+   is roughly 865px of content in 393px of space, and the result is not merely
+   cramped — the nav labels wrap to two lines, and everything from the search
+   field rightwards is laid out past the right edge where it cannot be reached at
+   all. Adding a ROM was impossible on a phone.
+
+   So on narrow screens the nav leaves the header and becomes a bottom tab bar.
+   That is a pure CSS move: the buttons stay exactly where they are in the DOM, so
+   the listeners `library-view.js` attaches to `.navlink` are untouched, and
+   because the library view is hidden with `visibility` during play (see base.css)
+   a fixed-position child inherits that and disappears with it.
+
+   Everything is keyed to `env(safe-area-inset-*)`. `viewport-fit=cover` is set in
+   index.html, without which those all resolve to zero and the inset handling
+   below would be dead code. */
+
+@media (max-width: 768px) {
+  /* ---------------------------------------------------------------- header */
+
+  .topbar {
+    gap: var(--sp-2);
+    /* max() rather than a plain value: in landscape the inset is the notch, and
+       in portrait it is zero, so this is the larger of "my padding" and "the
+       area the system has claimed". */
+    padding-left: max(var(--sp-3), env(safe-area-inset-left));
+    padding-right: max(var(--sp-3), env(safe-area-inset-right));
+  }
+
+  /* The wordmark is what wraps first: 0.22em of tracking on nine capitals is
+     wide, and when the flex line overflows it breaks between letters and reads
+     as a vertical strip down the left edge. */
+  .brand__name {
+    white-space: nowrap;
+    letter-spacing: 0.14em;
+    font-size: var(--fs-xs);
+  }
+
+  .brand__mark {
+    width: 11px;
+    height: 18px;
+  }
+
+  /* The search field is the only thing here that should absorb slack, so it is
+     the only flexible item. `min-width: 0` is required — a flex item's automatic
+     minimum size is its content, which would otherwise keep it from shrinking. */
+  .topbar__actions {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: var(--sp-2);
+    justify-content: flex-end;
+  }
+
+  .search {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .search__input,
+  .search__input:focus {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Icon-only: the labels are what make these too wide to fit. Both keep an
+     accessible name — an aria-label on the button, and the pill's title. */
+  .btn__label,
+  .pill__label {
+    display: none;
+  }
+
+  .btn--compact {
+    padding: 8px;
+  }
+
+  .pill {
+    padding: 7px 9px;
+  }
+
+  /* ------------------------------------------------------ bottom tab bar */
+
+  .topbar__nav {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 40;
+    gap: 0;
+    /* Height carries the inset so the bar's own background fills the home-
+       indicator area, while padding keeps the labels above it. */
+    height: calc(var(--bottomnav-h) + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+    background: rgba(8, 8, 12, 0.94);
+    backdrop-filter: blur(14px) saturate(140%);
+    border-top: 1px solid var(--border);
+  }
+
+  .navlink {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    border-radius: 0;
+    /* The desktop rule lets these wrap; here it is what turned "All Games" into
+       two lines and doubled the header's height. */
+    white-space: nowrap;
+    font-size: var(--fs-xs);
+  }
+
+  /* A filled pill reads as a button in a row of buttons. In a tab bar the
+     convention is a coloured label with a rule against the bar's edge. */
+  .navlink.is-active {
+    background: transparent;
+    color: var(--accent);
+    box-shadow: inset 0 2px 0 var(--accent);
+  }
+
+  .navlink:hover {
+    background: transparent;
+  }
+
+  /* --------------------------------------------------- library + statusbar */
+
+  /* The scroll container has to clear both pieces of bottom chrome, or the last
+     shelf sits underneath them. */
+  .library {
+    inset: 0 0 calc(var(--statusbar-h) + var(--bottomnav-h) + env(safe-area-inset-bottom)) 0;
+  }
+
+  .statusbar {
+    bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom));
+    padding: 0 max(var(--sp-3), env(safe-area-inset-left));
+    /* Telemetry is worth keeping on a phone — it is how the memory policy gets
+       watched — but it must not wrap into the shelf above it. One line, and
+       swipeable if it does not fit. */
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .statusbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .statusbar > span {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  /* ------------------------------------------------------------- detail sheet */
+
+  /* Full-height sheet on a phone rather than a centred dialog, and its own
+     bottom inset: it is `position: fixed`, so it covers the tab bar rather than
+     sitting above it. */
+  .sheet__panel {
+    padding-bottom: max(var(--sp-5), env(safe-area-inset-bottom));
+  }
+}
+
+/* Very narrow only — an old 320pt phone, or a split view. The wordmark is the first
+   thing that can go, since the mark alone still identifies the app.
+   Deliberately below 375 so every current iPhone keeps it: at 393pt the header
+   needs about 290px of its 369px, so there is room to spare. */
+@media (max-width: 359px) {
+  .brand__name {
+    display: none;
+  }
 }

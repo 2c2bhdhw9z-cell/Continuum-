@@ -1633,6 +1633,103 @@ check(
   consoleErrors.slice(0, 3).join(' | ') || 'clean',
 );
 
+// ------------------------------------------------------------- 7. mobile layout
+//
+// Added because a real bug shipped here and no automated check could have caught it:
+// the desktop header is one row of five things, which on a 393pt phone laid out to
+// about 865px inside 393px. The nav labels wrapped, the wordmark broke between letters
+// into a vertical strip, and everything from the search field rightwards was positioned
+// past the right edge — where it could not be tapped. Adding a ROM was impossible on a
+// phone, and the suite was entirely happy.
+//
+// So: load the same page at phone sizes and assert that nothing is laid out outside the
+// viewport, that nothing wraps that should not, and that the nav really has become a
+// bottom bar clear of the scroll container.
+
+const PHONES = [
+  { label: 'iPhone SE / mini', width: 375, height: 667 },
+  { label: 'iPhone 14 Pro', width: 393, height: 852 },
+  { label: 'iPhone Pro Max', width: 430, height: 932 },
+];
+
+for (const phone of PHONES) {
+  const mobile = await browser.newContext({
+    viewport: { width: phone.width, height: phone.height },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+  });
+  const mp = await mobile.newPage();
+  await mp.goto(BASE_URL, { waitUntil: 'load' });
+  await mp
+    .waitForFunction(() => document.querySelectorAll('.card').length > 0, { timeout: 20_000 })
+    .catch(() => {});
+  await mp.waitForTimeout(600);
+
+  const layout = await mp.evaluate(() => {
+    const vw = window.innerWidth;
+    // Every interactive thing in the chrome. If one of these is off-screen it is not
+    // "ugly", it is unreachable.
+    const required = [
+      '.topbar__brand',
+      '.search__input',
+      '[data-action="import-rom"]',
+      '#gpu-pill',
+      '.statusbar',
+    ];
+    const offscreen = [];
+    for (const selector of required) {
+      const el = document.querySelector(selector);
+      if (!el) continue;
+      const b = el.getBoundingClientRect();
+      if (b.right > vw + 1 || b.left < -1) {
+        offscreen.push(`${selector} spans ${Math.round(b.left)}..${Math.round(b.right)}`);
+      }
+    }
+
+    const wrapped = [];
+    for (const selector of ['.brand__name', '.navlink', '.statusbar']) {
+      for (const el of document.querySelectorAll(selector)) {
+        if (el.scrollHeight > el.clientHeight + 2) wrapped.push(selector);
+      }
+    }
+
+    const nav = document.querySelector('.topbar__nav').getBoundingClientRect();
+    const library = document.querySelector('.library').getBoundingClientRect();
+    const status = document.querySelector('.statusbar').getBoundingClientRect();
+    return {
+      vw,
+      offscreen,
+      wrapped: [...new Set(wrapped)],
+      // A bottom tab bar: full width, sitting on the bottom edge.
+      navIsBottomBar: Math.round(nav.width) === vw && Math.round(nav.bottom) >= window.innerHeight - 1,
+      // Nothing hidden behind it.
+      libraryClearsNav: library.bottom <= nav.top + 1,
+      statusClearsNav: status.bottom <= nav.top + 1,
+      horizontalScroll: document.documentElement.scrollWidth > vw + 1,
+    };
+  });
+
+  check(
+    `${phone.label} (${phone.width}px): all chrome is on-screen and nothing wraps`,
+    layout.offscreen.length === 0 && layout.wrapped.length === 0 && !layout.horizontalScroll,
+    layout.offscreen.length || layout.wrapped.length
+      ? `off-screen: ${layout.offscreen.join('; ') || 'none'} · wrapping: ${layout.wrapped.join(', ') || 'none'}`
+      : 'no overflow, no wrapping, no horizontal scroll',
+  );
+  check(
+    `${phone.label} (${phone.width}px): nav is a bottom bar and the library clears it`,
+    layout.navIsBottomBar && layout.libraryClearsNav && layout.statusClearsNav,
+    `bottom bar: ${layout.navIsBottomBar}, library clears: ${layout.libraryClearsNav}, ` +
+      `status clears: ${layout.statusClearsNav}`,
+  );
+
+  if (phone.width === 393) {
+    await mp.screenshot({ path: 'docs/mobile-after.png' });
+  }
+  await mobile.close();
+}
+
 // ------------------------------------------------------------------- reporting
 
 await page.screenshot({ path: '/tmp/continuum-library.png', fullPage: false });
