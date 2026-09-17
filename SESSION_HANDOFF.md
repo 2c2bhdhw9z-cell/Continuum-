@@ -538,18 +538,29 @@ python3 scripts/make-sms-rom.py      # sms-testcart.sms  (32768 B)
 python3 scripts/make-snes-rom.py     # snes-testcart.sfc (32768 B)
 
 # Verification, fastest first
-cargo test                           # 70 unit tests
+cargo test                           # 74 unit tests
 cargo fmt --all --check
-cargo clippy --all-targets           # zero warnings
+cargo clippy --all-targets -- -D warnings          # what CI runs; zero warnings
 node scripts/core-abi-test.mjs       # 64 checks, 4 cores, no browser
 node scripts/capture-frames.mjs      # docs/frame-{nes,gba,sms,snes}[-a].png
 
-# Browser suite (95 checks). One shell invocation: /tmp and background jobs
+# Phase 5 native (§15). Neither is part of the web deploy; both run in CI.
+./native/switch-wrapper/build.sh host               # 15 checks
+cargo check --target aarch64-apple-ios --features native-core,uniffi-bindings
+
+# Browser suite (108 checks). One shell invocation: /tmp and background jobs
 # do not survive between tool calls.
 node scripts/serve.mjs 8123 &
 PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core \
   node scripts/smoke-test.mjs http://localhost:8123/
 ```
+
+Pass `-- -D warnings` to clippy, because that is what the workflow does. The toolchain is
+pinned in `rust-toolchain.toml` specifically so that these commands produce the same output
+here as on the runner; the reasoning is in that file. Two traps if a clippy result looks
+wrong: it caches, so a second run prints `Finished` without re-emitting the warnings it
+found the first time (`touch` a source file to force it), and without `-D warnings` a
+lint that fails CI is only a warning locally.
 
 `core-abi-test.mjs` is the loop to live in: ~1 second, no browser, no GPU, no Rust, and
 it only fails when a core contract is genuinely broken. The browser suite takes ~40 s
