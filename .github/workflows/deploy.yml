@@ -181,13 +181,21 @@ jobs:
             exit 1
           }
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-        with:
-          # Turns Pages on for the repository if it has never been enabled, so the
-          # first run of this workflow does not fail on a settings toggle.
-          enablement: true
-
+      # No `actions/configure-pages` step on purpose.
+      #
+      # Its only outputs are a base URL and origin, which nothing here uses — this is a
+      # plain static upload, not a site generator that needs to bake in a path. What it
+      # *did* do was fail the build: creating a Pages site needs a permission the
+      # workflow token does not have, and it errors rather than warning when the site
+      # does not exist yet.
+      #
+      #   Create Pages site failed. Error: Resource not accessible by integration
+      #
+      # Enabling Pages is therefore a one-time manual step, in
+      # Settings → Pages → Build and deployment → Source: "GitHub Actions".
+      # Until that is done the deploy job below fails while everything above it
+      # succeeds, so the artifact is still built and the caches are still warm — a
+      # re-run after flipping the setting takes a minute rather than ten.
       - name: Upload the web directory
         uses: actions/upload-pages-artifact@v3
         with:
