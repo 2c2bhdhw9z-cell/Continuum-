@@ -141,7 +141,10 @@ export class CoreLoader {
         // only JS can wire up — so instantiation happens here and Rust receives a
         // handle. Everything after this line (pacing, input, audio, presentation) is
         // Rust's.
-        const runtime = await LibretroRuntime.instantiate(bytes, this._coreHooks());
+        // Note what is *not* kept: this loader holds no reference to the runtime after
+        // handing it to Rust. Rust owns its lifetime, and a stray reference here would
+        // keep a core's linear memory alive across a system switch.
+        const runtime = await LibretroRuntime.instantiate(bytes, this._coreHooks(), coreId);
         bridge.attachCoreRuntime(coreId, runtime);
         console.info(
           `[cores] '${coreId}' instantiated: ${runtime.systemInfo.name} ` +

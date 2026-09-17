@@ -71,6 +71,7 @@ export class PlayerView {
     this.touchpad = document.getElementById('touchpad');
 
     this.hudFps = document.getElementById('hud-fps');
+    this.hudMem = document.getElementById('hud-mem');
     this.hudFrames = document.getElementById('hud-frames');
     this.hudAudio = document.getElementById('hud-audio');
     this.pauseBtn = document.getElementById('ctl-pause');
@@ -187,6 +188,19 @@ export class PlayerView {
     const audioStart = this.audio.ensureStarted();
 
     const token = ++this._launchToken;
+
+    // Free the previous session's core *before* fetching or instantiating the next one.
+    // Launching straight from one game into another would otherwise hold two cores in
+    // memory at the same time — an NES core plus a GBA core is ~40 MB, and on iOS that
+    // spike is exactly what gets a process killed.
+    if (this.active || this.host.bridge?.status === 'running' || this.host.bridge?.status === 'paused') {
+      this.loop.setEngineActive(false);
+      this.input.setEnabled(false);
+      this.host.bridge.stop();
+      this.audio.flush();
+      this.active = false;
+    }
+
     this.entry = entry;
     this.paused = false;
 
@@ -296,6 +310,13 @@ export class PlayerView {
     const ringMs = (stats.audioQueuedFrames / rate) * 1000;
     const bufferedMs = ringMs + this.audio.bufferedMs;
     this.hudAudio.textContent = bufferedMs.toFixed(0);
+
+    // Memory held by the running core: module plus its staging buffers. Worth showing
+    // because it is the number the multi-core retention policy exists to bound.
+    if (this.hudMem) {
+      const bytes = this.host.bridge?.sessionCoreMemoryBytes;
+      this.hudMem.textContent = bytes ? (bytes / 1024 / 1024).toFixed(1) : '—';
+    }
 
     // Amber when the frame budget is being missed or audio is starving — the two
     // things worth noticing at a glance.
@@ -410,6 +431,7 @@ export class PlayerView {
     this.input.releaseTouch();
     this.loop.setEngineActive(false);
     this.host.bridge?.stop();
+    this.host.resetStats();
     this.audio.flush();
     void this.audio.suspend();
     this._setLoading(false);

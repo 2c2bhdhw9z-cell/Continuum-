@@ -236,6 +236,12 @@ impl CoreRegistry {
 
     /// Frees a core's memory, dropping back to declared. The registry keeps the
     /// declaration so the same core can be re-fetched later.
+    ///
+    /// Dropping the `Box<dyn EmulatorCore>` is what actually releases the memory: for a
+    /// real core that runs `WasmCore::drop`, which calls `retro_unload_game`,
+    /// `retro_deinit` and frees the core's allocations, then releases the last handle to
+    /// the core's wasm module so the host can collect its entire linear memory
+    /// (16–32 MB for a GBA core).
     pub fn unload(&mut self, core_id: &str) -> Result<(), BridgeError> {
         let entry = self
             .entries
@@ -244,9 +250,40 @@ impl CoreRegistry {
         if matches!(entry.slot, Slot::Bound) {
             return Err(BridgeError::CoreBusy(core_id.to_string()));
         }
+        if matches!(entry.slot, Slot::Loaded(_)) {
+            log::info!("unloading core '{core_id}'");
+        }
         entry.slot = Slot::Declared;
         entry.module_bytes = 0;
         Ok(())
+    }
+
+    /// Unloads every resident core except `keep`, returning how many were freed.
+    ///
+    /// Called before a launch so that switching systems never holds two cores in memory
+    /// at once. On a phone that matters: an NES core and a GBA core resident together is
+    /// tens of megabytes of wasm memory doing nothing, and iOS terminates on memory
+    /// pressure rather than paging.
+    ///
+    /// A bound core (one in an active session) is skipped rather than treated as an
+    /// error, since the caller may be mid-teardown.
+    pub fn unload_all_except(&mut self, keep: Option<&str>) -> usize {
+        let victims: Vec<String> = self
+            .entries
+            .iter()
+            .filter(|(id, entry)| {
+                matches!(entry.slot, Slot::Loaded(_)) && Some(id.as_str()) != keep
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        let mut freed = 0;
+        for id in victims {
+            if self.unload(&id).is_ok() {
+                freed += 1;
+            }
+        }
+        freed
     }
 }
 

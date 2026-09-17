@@ -23,6 +23,7 @@ import { AudioOutput } from './audio/audio-output.js';
 import { LibraryView } from './ui/library-view.js';
 import { RomImporter } from './ui/rom-import.js';
 import { registerBuiltins } from './data/builtins.js';
+import { runtimeStats } from './engine/core-runtime.js';
 import { DetailSheet } from './ui/detail-sheet.js';
 import { PlayerView } from './ui/player-view.js';
 import { toast } from './ui/toast.js';
@@ -54,6 +55,31 @@ const importer = new RomImporter({
   onPlay: (entryId) => void launch(entryId),
 });
 
+/**
+ * Reports core residency in the status bar.
+ *
+ * Worth showing rather than hiding: this is the number that proves the multi-core
+ * memory policy is working. Browsing the library should read "0 resident · 0.0 MB",
+ * and swapping systems should never show two cores at once.
+ */
+function updateCoreStatus() {
+  const el = document.getElementById('status-cores');
+  if (!el) return;
+  const bridge = host.bridge;
+  const resident = bridge?.residentCoreCount ?? 0;
+  const ids = bridge ? bridge.residentCoreIds() : [];
+  // While a session runs, report the core's *live* footprint (it grows as the core
+  // allocates); otherwise report what the lifecycle tracker still considers live, which
+  // should be zero when browsing.
+  const sessionBytes = bridge?.sessionCoreMemoryBytes ?? 0;
+  const liveMb = ((sessionBytes || runtimeStats.liveBytes) / 1024 / 1024).toFixed(1);
+  el.textContent =
+    `Cores: ${coreLoader.manifest.size} declared · ${resident} resident · ${liveMb} MB live`;
+  el.title = ids.length
+    ? `Resident: ${ids.join(', ')} (retention: ${bridge?.coreRetention})`
+    : 'No core is loaded while browsing the library';
+}
+
 const player = new PlayerView({
   host,
   coreLoader,
@@ -64,12 +90,14 @@ const player = new PlayerView({
   onExit: () => {
     // "Continue playing" and the hero reflect what was just played.
     library.refreshData();
+    updateCoreStatus();
     frameLoop.wake(4);
   },
 });
 
 async function launch(entryId) {
   await player.launch(entryId);
+  updateCoreStatus();
   // A state saved during play should appear if the sheet is reopened.
   if (detail.isOpen) detail.reloadStates();
 }
@@ -140,8 +168,7 @@ async function warmEngine() {
   try {
     await host.load();
     await coreLoader.loadManifest();
-    document.getElementById('status-cores').textContent =
-      `Cores declared: ${coreLoader.manifest.size} · resident: ${host.bridge.residentCoreCount}`;
+    updateCoreStatus();
     if (BridgeHost.webgpuAvailable) {
       setGpuBadge('ok', 'WebGPU ready', 'Engine loaded. Adapter is created on first launch.');
     }
@@ -172,6 +199,7 @@ if ('serviceWorker' in navigator) {
 // `scripts/smoke-test.mjs`, which drives these directly.
 window.__continuum = {
   host,
+  runtimeStats,
   coreLoader,
   audio,
   input,

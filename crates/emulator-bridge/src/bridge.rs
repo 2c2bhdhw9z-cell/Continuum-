@@ -26,6 +26,32 @@ use crate::timing::FramePacer;
 /// robustness against a slow tick and audible input-to-sound latency.
 const AUDIO_LATENCY_FRAMES: usize = 3;
 
+/// What happens to a core when its session ends.
+///
+/// The default is [`CoreRetention::Drop`], which is the right default for an
+/// all-in-one emulator: cores are large (2 MB of module plus 16–32 MB of working
+/// memory), a user browsing their library is not using any of it, and Phase 2's iOS
+/// target kills processes on memory pressure rather than paging. Re-instantiating on
+/// the next launch costs a few hundred milliseconds and the module itself comes from
+/// the Cache API, not the network.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoreRetention {
+    /// Free the core when the session ends.
+    Drop,
+    /// Keep it instantiated for a fast relaunch. Only sensible for a single-system
+    /// build, or a desktop with memory to spare.
+    KeepWarm,
+}
+
+impl CoreRetention {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            CoreRetention::Drop => "drop",
+            CoreRetention::KeepWarm => "warm",
+        }
+    }
+}
+
 /// Coarse engine state, mirrored in the UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BridgeStatus {
@@ -83,6 +109,7 @@ pub struct EmulatorBridge {
     muted: bool,
     /// Reused across `save_state` calls so snapshotting does not allocate.
     state_scratch: Vec<u8>,
+    retention: CoreRetention,
 }
 
 impl Default for EmulatorBridge {
@@ -105,6 +132,7 @@ impl EmulatorBridge {
             output_sample_rate: 48_000,
             muted: false,
             state_scratch: Vec::new(),
+            retention: CoreRetention::Drop,
         }
     }
 
@@ -198,9 +226,16 @@ impl EmulatorBridge {
             return Err(BridgeError::NoRenderer);
         }
 
-        // End any existing session first so its core returns to the registry
-        // instead of leaking.
+        // End any existing session first, which also frees its core under the default
+        // retention policy.
         self.stop();
+
+        // Free every other resident core *before* instantiating this one, so peak
+        // memory during a system switch is one core, not two.
+        let freed = self.registry.unload_all_except(Some(core_id));
+        if freed > 0 {
+            log::info!("freed {freed} resident core(s) before launching '{core_id}'");
+        }
 
         let mut core = self.registry.take_for_session(core_id)?;
         if let Err(err) = core.load_content(content, hint) {
@@ -249,15 +284,59 @@ impl EmulatorBridge {
     /// relaunching the same system does not re-fetch the module.
     pub fn stop(&mut self) {
         if let Some(session) = self.session.take() {
-            log::info!("session ended: '{}'", session.content_id);
-            self.registry
-                .return_from_session(&session.core_id, session.core);
+            let core_id = session.core_id.clone();
+            log::info!(
+                "session ended: '{}' after {} frames",
+                session.content_id,
+                session.core.frame_count()
+            );
+
+            // The core goes back to the registry first so the slot is never left
+            // `Bound`, then the retention policy decides whether it survives. Dropping
+            // it here runs `WasmCore::drop` → retro_unload_game → retro_deinit → the
+            // core module's last handle released.
+            self.registry.return_from_session(&core_id, session.core);
+            if self.retention == CoreRetention::Drop {
+                if let Err(err) = self.registry.unload(&core_id) {
+                    log::warn!("could not unload core '{core_id}': {err}");
+                }
+            }
         }
+
+        // Teardown order matters: audio first (so nothing is still being pumped), then
+        // input, then GPU resources.
         self.sink = Box::new(NullAudioSink::new());
         self.gamepads.release_all();
         if let Some(renderer) = &mut self.renderer {
             renderer.release_frame_target();
         }
+        // A GBA save state is ~500 KB; keeping that buffer alive while the user browses
+        // their library is pure waste.
+        self.state_scratch = Vec::new();
+        self.pacer = FramePacer::new(60.0);
+    }
+
+    /// Sets what happens to a core when its session ends. See [`CoreRetention`].
+    pub fn set_core_retention(&mut self, retention: CoreRetention) {
+        log::info!("core retention: {}", retention.as_str());
+        self.retention = retention;
+    }
+
+    pub fn core_retention(&self) -> CoreRetention {
+        self.retention
+    }
+
+    /// Frees every resident core. Nothing may be running.
+    pub fn unload_all_cores(&mut self) -> usize {
+        if self.session.is_some() {
+            return 0;
+        }
+        self.registry.unload_all_except(None)
+    }
+
+    /// Ids of cores currently holding memory. Diagnostics for the leak checks.
+    pub fn resident_core_ids(&self) -> Vec<String> {
+        self.registry.resident_ids().map(str::to_string).collect()
     }
 
     pub fn pause(&mut self) {
@@ -316,6 +395,11 @@ impl EmulatorBridge {
             descriptor.target_fps,
             descriptor.audio_sample_rate as f64,
         ])
+    }
+
+    /// Memory held by the running core, if measurable.
+    pub fn session_core_memory_bytes(&self) -> Option<u64> {
+        self.session.as_ref()?.core.memory_bytes()
     }
 
     /// Id of the core backing the running session, if any.

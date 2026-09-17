@@ -18,7 +18,7 @@ use std::rc::Rc;
 
 use wasm_bindgen::prelude::*;
 
-use crate::bridge::{EmulatorBridge, TickReport};
+use crate::bridge::{CoreRetention, EmulatorBridge, TickReport};
 use crate::cores::{ContentHint, CoreDescriptor, LibretroRuntimeHandle, WasmCore};
 use crate::frame::{FrameGeometry, PixelFormat};
 use crate::gfx::{Renderer, ScaleFilter, ScaleMode};
@@ -295,6 +295,35 @@ impl WasmEmulatorBridge {
         self.inner.borrow().resident_core_count()
     }
 
+    /// Ids of cores currently holding memory. Empty while browsing, under the default
+    /// retention policy.
+    #[wasm_bindgen(js_name = residentCoreIds)]
+    pub fn resident_core_ids(&self) -> Vec<String> {
+        self.inner.borrow().resident_core_ids()
+    }
+
+    /// `"drop"` (default) frees a core when its session ends; `"warm"` keeps it
+    /// instantiated for a faster relaunch at the cost of tens of megabytes.
+    #[wasm_bindgen(js_name = setCoreRetention)]
+    pub fn set_core_retention(&self, retention: &str) {
+        let retention = match retention {
+            "warm" | "keep" => CoreRetention::KeepWarm,
+            _ => CoreRetention::Drop,
+        };
+        self.inner.borrow_mut().set_core_retention(retention);
+    }
+
+    #[wasm_bindgen(getter, js_name = coreRetention)]
+    pub fn core_retention(&self) -> String {
+        self.inner.borrow().core_retention().as_str().to_string()
+    }
+
+    /// Frees every resident core. No-op while a session is running.
+    #[wasm_bindgen(js_name = unloadAllCores)]
+    pub fn unload_all_cores(&self) -> usize {
+        self.inner.borrow_mut().unload_all_cores()
+    }
+
     /// Installs an instantiated libretro core.
     ///
     /// The platform layer owns instantiation because the core is a *separate* wasm
@@ -404,6 +433,10 @@ impl WasmEmulatorBridge {
 
     pub fn stop(&self) {
         self.inner.borrow_mut().stop();
+        // Zero the shared telemetry block. Otherwise it keeps reporting the finished
+        // session's frame count and audio queue, and any reader — the HUD, a test —
+        // sees numbers for a game that is no longer running.
+        self.write_telemetry(&TickReport::default());
     }
 
     pub fn pause(&self) {
@@ -431,6 +464,15 @@ impl WasmEmulatorBridge {
             .borrow()
             .session_av_info()
             .map(|info| info.to_vec())
+    }
+
+    /// Memory held by the running core in bytes (module + staging), or `undefined`.
+    #[wasm_bindgen(getter, js_name = sessionCoreMemoryBytes)]
+    pub fn session_core_memory_bytes(&self) -> Option<f64> {
+        self.inner
+            .borrow()
+            .session_core_memory_bytes()
+            .map(|bytes| bytes as f64)
     }
 
     /// Display name of the core running the session, e.g. `"FCEUmm"`.
@@ -529,6 +571,13 @@ impl WasmEmulatorBridge {
         let mut staging = self.audio_staging.borrow_mut();
         let limit = max_samples.min(staging.len());
         self.inner.borrow_mut().drain_audio(&mut staging[..limit])
+    }
+
+    /// Frames currently queued in the Rust audio ring, read live rather than from the
+    /// per-tick telemetry mirror — which is only refreshed while the loop runs.
+    #[wasm_bindgen(getter, js_name = audioQueuedFrames)]
+    pub fn audio_queued_frames(&self) -> u32 {
+        self.inner.borrow().audio_stats().queued_frames
     }
 
     #[wasm_bindgen(js_name = setMuted)]

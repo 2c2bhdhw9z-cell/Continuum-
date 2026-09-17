@@ -195,6 +195,19 @@ export class BridgeHost {
   }
 
   /**
+   * Clears the cached telemetry mirror.
+   *
+   * `stats` is only refreshed by `tick()`, so after a session ends it would otherwise
+   * keep reporting the last frame of a game that is no longer running — a stale HUD, and
+   * a misleading value for anything else that reads it.
+   */
+  resetStats() {
+    for (const key of Object.keys(this.stats)) {
+      this.stats[key] = typeof this.stats[key] === 'boolean' ? false : 0;
+    }
+  }
+
+  /**
    * Reads the presented image back from the GPU as tightly packed RGBA8.
    *
    * Zero dimensions mean the current canvas size. Costs a texture, a staging

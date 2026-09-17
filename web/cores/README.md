@@ -15,11 +15,13 @@ sources. Build them with `scripts/build-core.sh <name>`.
 | `libretro` | A real core, built by `scripts/build-core.sh`. The JS runtime instantiates it as its own wasm module and hands Rust a handle. |
 | `placeholder` | Bytes go to Rust, which substitutes its diagnostic pattern core. Geometry and timing in the manifest are still the system's real values, so the pacer and renderer are configured correctly. |
 
-Today `fceumm` (NES) is `libretro`; the rest are placeholders awaiting the same
-treatment.
+Today `fceumm` (NES) and `mgba` (GBA, GB, GBC) are `libretro`; the rest are placeholders
+awaiting the same treatment.
 
 ```bash
+scripts/build-core.sh all       # both real cores
 scripts/build-core.sh fceumm    # → web/cores/fceumm.wasm (~2 MB)
+scripts/build-core.sh mgba      # → web/cores/mgba.wasm  (~1.9 MB)
 ```
 
 ## How a core is built
@@ -45,10 +47,25 @@ fceumm.wasm
   exports  retro_* (17), shim_* (5), memory, malloc, free, _initialize
 ```
 
+## Two build strategies
+
+Libretro cores do not agree on a build system, so `build-core.sh` has two paths:
+
+| Strategy | Used by | How |
+| --- | --- | --- |
+| `sources` | fceumm | The core ships a libretro makefile listing `SOURCES_C`; ask it for the list and compile those files directly. |
+| `cmake` | mGBA | Configure with wasi-sdk's toolchain file and build the static library target. CMake also generates files the build needs — mGBA's `version.c`, for one. |
+
+Both then link against `core-shim/` and export the same surface.
+
+mGBA additionally needs wasi-libc's opt-in POSIX emulation (`_WASI_EMULATED_SIGNAL`,
+`_WASI_EMULATED_MMAN`, process clocks, getpid) — `src/core/thread.c` includes
+`signal.h` even with threading disabled — and it imports 19 WASI functions to fceumm's
+12, adding clocks, `environ` and directory calls.
+
 ## Adding another core
 
-1. Add a case block to `scripts/build-core.sh` with the repository, source list and
-   compile flags. (`mgba` is already stubbed there.)
+1. Add a case block to `scripts/build-core.sh` with the repository, strategy and flags.
 2. Build it, then set the manifest entry's `module`, `sizeBytes` and
    `"kind": "libretro"`.
 3. Nothing in Rust changes. `WasmCore` is core-agnostic, and the core's own

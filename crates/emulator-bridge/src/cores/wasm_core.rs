@@ -81,6 +81,10 @@ extern "C" {
 
     #[wasm_bindgen(method, js_name = destroy)]
     fn js_destroy(this: &LibretroRuntimeHandle);
+
+    /// Linear memory the core module currently occupies.
+    #[wasm_bindgen(method, getter, js_name = memoryBytes)]
+    fn js_memory_bytes(this: &LibretroRuntimeHandle) -> f64;
 }
 
 pub struct WasmCore {
@@ -336,6 +340,16 @@ impl EmulatorCore for WasmCore {
 
     fn frame_count(&self) -> u64 {
         self.frame_count
+    }
+
+    fn memory_bytes(&self) -> Option<u64> {
+        // Includes the core's own heap, so it grows once content is loaded. This is the
+        // number that matters for a memory budget, and the one the status bar shows.
+        Some(
+            self.runtime.js_memory_bytes() as u64
+                + self.video_staging.len() as u64
+                + (self.audio_staging.len() * 2) as u64,
+        )
     }
 }
 

@@ -106,6 +106,54 @@ const ERRNO = { SUCCESS: 0, BADF: 8, NOENT: 44, NOSYS: 52 };
 /** ABI version the shim must report; guards against a stale core build. */
 const REQUIRED_SHIM_ABI = 1;
 
+/**
+ * Lifecycle counters for every core instantiated in this page.
+ *
+ * A multi-core emulator lives or dies on teardown: each core is a wasm module with
+ * 16–32 MB of linear memory, so one leaked instance per system switch exhausts a phone
+ * in a handful of swaps. "We call destroy()" is not evidence — the module is only
+ * actually freed when the host garbage-collects it, which cannot happen while any
+ * reference survives.
+ *
+ * So this tracks three separate things:
+ *
+ *   - `instantiated` / `destroyed` — did teardown run at all?
+ *   - `collected` — did the module's memory actually get reclaimed? Reported by a
+ *     `FinalizationRegistry`, i.e. by the collector itself rather than by our
+ *     bookkeeping.
+ *   - `liveBytes` — linear memory currently held by cores that have not been destroyed.
+ *
+ * `scripts/smoke-test.mjs` asserts on all of them after repeated NES↔GBA swaps.
+ */
+export const runtimeStats = {
+  instantiated: 0,
+  destroyed: 0,
+  collected: 0,
+  liveBytes: 0,
+  peakLiveBytes: 0,
+  /**
+   * Most cores alive at any one moment. The multi-core memory policy's core claim is
+   * that this never exceeds 1 — proving it needs a high-water mark, because a
+   * momentary overlap during a switch would be invisible to a check made afterwards.
+   */
+  maxLive: 0,
+  /** @type {string[]} ids of runtimes created but not yet destroyed */
+  live: [],
+};
+
+/**
+ * Observes actual collection of core modules. The callback fires only after the host
+ * has genuinely reclaimed the object, which is the one signal that cannot be faked by
+ * careful bookkeeping.
+ */
+const collectionWatcher =
+  typeof FinalizationRegistry === 'undefined'
+    ? null
+    : new FinalizationRegistry((id) => {
+        runtimeStats.collected++;
+        console.debug(`[core] runtime '${id}' collected`);
+      });
+
 export class LibretroRuntime {
   /**
    * @param {object} hooks
@@ -119,8 +167,11 @@ export class LibretroRuntime {
    * @param {(info: {pixelFormat?: number, geometry?: object, timing?: object}) => void} [hooks.systemChanged]
    * @param {(message: string) => void} [hooks.log]
    */
-  constructor(hooks) {
+  constructor(hooks, id = 'core') {
     this.hooks = hooks;
+    /** Identifier used in lifecycle logging and leak accounting. */
+    this.id = id;
+    this.destroyed = false;
     this.instance = null;
     this.exports = null;
     /** @type {WebAssembly.Memory|null} */
@@ -169,8 +220,8 @@ export class LibretroRuntime {
    * @param {object} hooks see the constructor
    * @returns {Promise<LibretroRuntime>}
    */
-  static async instantiate(moduleBytes, hooks) {
-    const runtime = new LibretroRuntime(hooks);
+  static async instantiate(moduleBytes, hooks, id = 'core') {
+    const runtime = new LibretroRuntime(hooks, id);
     const imports = {
       host: runtime._hostImports(),
       wasi_snapshot_preview1: runtime._wasiImports(),
@@ -209,7 +260,33 @@ export class LibretroRuntime {
     runtime.exports.retro_init();
 
     runtime.systemInfo = runtime._readSystemInfo();
+
+    // Leak accounting. `collectionWatcher` reports the module's *actual* collection
+    // later, once nothing references it.
+    runtime._bytes = runtime.memory.buffer.byteLength;
+    runtimeStats.instantiated++;
+    runtimeStats.liveBytes += runtime._bytes;
+    runtimeStats.peakLiveBytes = Math.max(runtimeStats.peakLiveBytes, runtimeStats.liveBytes);
+    runtimeStats.live.push(id);
+    runtimeStats.maxLive = Math.max(runtimeStats.maxLive, runtimeStats.live.length);
+    collectionWatcher?.register(runtime, id);
+    console.info(
+      `[core] '${id}' instantiated: ${runtime.systemInfo.name} ${runtime.systemInfo.version}, ` +
+        `${(runtime._bytes / 1024 / 1024).toFixed(1)} MB linear memory`,
+    );
+
     return runtime;
+  }
+
+  /**
+   * Linear memory the core currently occupies.
+   *
+   * Measured live rather than at instantiation: a core grows its heap as it runs (mGBA
+   * allocates ROM and save buffers on load), so the figure taken at startup understates
+   * the real footprint by an order of magnitude.
+   */
+  get memoryBytes() {
+    return this.memory ? this.memory.buffer.byteLength : 0;
   }
 
   /** Rebuilds cached views. Required after any core memory growth. */
@@ -469,7 +546,49 @@ export class LibretroRuntime {
    */
   _wasiImports() {
     const notSupported = () => ERRNO.BADF;
+    const noSuchFile = () => ERRNO.NOENT;
     return {
+      // --- clocks: mgba reads the wall clock for the GBA's RTC ---
+      clock_time_get: (_id, _precision, resultPtr) => {
+        if (this._viewsStale()) this._refreshViews();
+        // WASI wants nanoseconds in a 64-bit value; write it as two 32-bit halves to
+        // avoid requiring BigInt support in the import signature.
+        const nanos = BigInt(Math.round(Date.now() * 1e6));
+        const u32 = this._u32;
+        u32[resultPtr >> 2] = Number(nanos & 0xffffffffn);
+        u32[(resultPtr >> 2) + 1] = Number((nanos >> 32n) & 0xffffffffn);
+        return ERRNO.SUCCESS;
+      },
+      clock_res_get: (_id, resultPtr) => {
+        if (this._viewsStale()) this._refreshViews();
+        this._u32[resultPtr >> 2] = 1_000_000; // 1 ms, honestly reported
+        this._u32[(resultPtr >> 2) + 1] = 0;
+        return ERRNO.SUCCESS;
+      },
+
+      // --- environment: empty, but the query must succeed ---
+      environ_sizes_get: (countPtr, sizePtr) => {
+        if (this._viewsStale()) this._refreshViews();
+        this._u32[countPtr >> 2] = 0;
+        this._u32[sizePtr >> 2] = 0;
+        return ERRNO.SUCCESS;
+      },
+      environ_get: () => ERRNO.SUCCESS,
+
+      // --- directories: nothing exists, and nothing may be created ---
+      fd_readdir: () => ERRNO.BADF,
+      path_create_directory: noSuchFile,
+      path_remove_directory: noSuchFile,
+      path_unlink_file: noSuchFile,
+      path_readlink: noSuchFile,
+      path_rename: noSuchFile,
+      random_get: (bufferPtr, length) => {
+        if (this._viewsStale()) this._refreshViews();
+        // Real entropy: a core seeding an RNG from this deserves better than zeros.
+        crypto.getRandomValues(this._u8.subarray(bufferPtr, bufferPtr + length));
+        return ERRNO.SUCCESS;
+      },
+
       fd_write: (fd, iovsPtr, iovsLen, writtenPtr) => {
         if (this._viewsStale()) this._refreshViews();
         const u32 = this._u32;
@@ -750,18 +869,67 @@ export class LibretroRuntime {
     }
   }
 
-  /** Frees core-side resources. The module itself is dropped by the GC. */
+  /**
+   * Tears the core down and drops every reference to its module.
+   *
+   * Two distinct jobs, and both matter:
+   *
+   * 1. Tell the core to clean up — `retro_unload_game`, `retro_deinit`, free our own
+   *    allocations inside its heap. Skipping this leaks the core's *internal* state
+   *    (save RAM, audio buffers) and can leave hardware-ish state initialised.
+   * 2. Release every JS reference into the module: exports, memory, cached typed-array
+   *    views. This is what actually allows the host to reclaim 16–32 MB of linear
+   *    memory. A single retained `Uint8Array` view keeps the whole `ArrayBuffer` — and
+   *    therefore the whole core — alive, which is exactly how a swap-per-session leak
+   *    happens.
+   *
+   * Idempotent, and never throws: it runs during teardown, where a second failure would
+   * mask the first.
+   */
   destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
+
     try {
       this.unloadGame();
       this.exports?.retro_deinit?.();
+      if (this._scratchPtr) {
+        this.exports.free(this._scratchPtr);
+        this._scratchPtr = 0;
+      }
     } catch (err) {
-      // Teardown must not throw: it runs while a session is already ending.
       this.hooks.log?.(`[core] error during teardown: ${err}`);
     }
-    if (this._scratchPtr) {
-      this.exports.free(this._scratchPtr);
-      this._scratchPtr = 0;
-    }
+
+    // Account for the size the core actually reached, not the size it started at.
+    const finalBytes = this.memoryBytes || this._bytes || 0;
+    runtimeStats.peakLiveBytes = Math.max(
+      runtimeStats.peakLiveBytes,
+      runtimeStats.liveBytes - (this._bytes ?? 0) + finalBytes,
+    );
+    runtimeStats.destroyed++;
+    runtimeStats.liveBytes = Math.max(0, runtimeStats.liveBytes - (this._bytes ?? 0));
+    const index = runtimeStats.live.indexOf(this.id);
+    if (index >= 0) runtimeStats.live.splice(index, 1);
+    console.info(
+      `[core] '${this.id}' destroyed; ${runtimeStats.live.length} runtime(s) still live`,
+    );
+
+    // Drop everything pointing into the module's memory. Any of these left behind would
+    // pin the entire linear memory.
+    this._u8 = null;
+    this._i16 = null;
+    this._u32 = null;
+    this._f64 = null;
+    this._videoView = null;
+    this._videoViewKey = '';
+    this._audioView = null;
+    this._audioViewKey = '';
+    this.exports = null;
+    this.instance = null;
+    this.memory = null;
+    // Hooks close over the host's staging buffers; releasing them breaks the last
+    // reference cycle between the core and the frontend.
+    this.hooks = { video() {}, audio() {}, inputState: () => 0 };
   }
 }

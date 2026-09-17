@@ -131,6 +131,16 @@ pub trait EmulatorCore {
 
     /// Frames emulated since load. Used for the HUD and state metadata.
     fn frame_count(&self) -> u64;
+
+    /// Bytes of memory this core holds, if it can be measured.
+    ///
+    /// `None` for cores whose footprint is not separable from the engine's (the
+    /// diagnostic stand-in lives in the engine's own memory). A real core reports its
+    /// wasm module's linear memory plus the staging buffers dedicated to it, which is
+    /// what a multi-core memory budget actually needs to track.
+    fn memory_bytes(&self) -> Option<u64> {
+        None
+    }
 }
 
 /// Verifies a fetched module looks like a WebAssembly binary before instantiating.

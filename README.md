@@ -1,21 +1,26 @@
-# Continuum — first playable core
+# Continuum — multi-system emulator
 
-A WebGPU emulator front end whose engine is a Rust crate, so that Phase 2 (a
-sideloaded iOS app with JIT-capable cores) is a UI port rather than a rewrite.
+A WebGPU emulator front end whose engine is a Rust crate, so that the native iOS phase
+(sideloaded, JIT-capable cores) is a UI port rather than a rewrite.
 
-**Phase 1b is in: a real NES core runs real ROMs.** `fceumm` is compiled from C to
-standalone WebAssembly, driven by the Rust bridge, presented through `wgpu`, with input
-from keyboard, gamepad or touch. The Phase 1 scaffold is unchanged underneath — the
-tag `v0.1.0-scaffold` marks that restore point.
+**Two real cores now hot-swap cleanly.** `fceumm` (NES) and `mGBA` (GBA, plus GB/GBC)
+are compiled from C to standalone WebAssembly, routed by ROM header, and swapped with
+one core in memory at a time — verified by the collector, not by bookkeeping. The
+Phase 1 scaffold is unchanged underneath; `v0.1.0-scaffold` marks that restore point.
 
 ![Library](docs/shot-library.png)
 
 ## What runs today
 
-- **Real emulation.** NES via `fceumm`, built by `scripts/build-core.sh` against
-  wasi-libc as a standalone wasm module (no Emscripten, no RetroArch bundle). It
-  reports its own geometry (256x240), refresh (60.0998 Hz) and sample rate (48 kHz),
-  and those values — not the manifest's — configure the pacer and renderer.
+- **Two real cores.** NES via `fceumm`, GBA/GB/GBC via `mGBA` — both built by
+  `scripts/build-core.sh` against wasi-libc as standalone wasm modules (no Emscripten,
+  no RetroArch bundle). Each reports its own geometry, refresh and sample rate
+  (256x240 / 60.0998 Hz / 48 kHz and 240x160 / 59.7275 Hz / 65536 Hz respectively), and
+  those values — not the manifest's — configure the pacer, renderer and resampler.
+- **Dynamic routing and clean swaps.** A `.nes` file gets fceumm, a `.gba` file gets
+  mGBA, decided by header. Switching systems frees the previous core *before*
+  instantiating the next: at no point are two cores alive, and the modules are actually
+  reclaimed by the host.
 - **Real content.** Import your own ROMs by picker or drag-and-drop; they are
   identified by header, stored in IndexedDB and restored on reload. The library ships
   one ROM of its own, the *Continuum Test Cart*, written from scratch in
@@ -39,6 +44,42 @@ tag `v0.1.0-scaffold` marks that restore point.
 | 3. One unified `rAF` loop | `web/src/engine/loop.js` — the only `requestAnimationFrame` in the app; it also flushes the UI, after the engine tick | smoke test counts rAF registrations and asserts the loop idles |
 | 4. Strict virtualisation, no O(n) DOM | `web/src/ui/virtual-scroller.js`, used four times: shelf list, cards within each shelf, all-games grid, save states | smoke test scrolls 4,800 entries and asserts node counts do not change |
 | 5. No core loaded at boot | `web/src/engine/core-loader.js` declares metadata only; `CoreRegistry::attach_module` / `attach_core` are the only paths to a runnable core | smoke test asserts `residentCoreCount === 0` at boot, `1` after launch |
+
+## Multi-core memory discipline
+
+The failure mode this design exists to prevent: each core is a wasm module with its own
+linear memory — 5 MB for fceumm with a ROM loaded, **35 MB for mGBA** — so leaking one
+per system switch exhausts a phone in a handful of swaps, and iOS kills processes on
+memory pressure rather than paging.
+
+Three mechanisms, and then three independent checks that they work.
+
+**Mechanism.** `CoreRetention::Drop` is the default: ending a session frees its core
+rather than keeping it warm. `CoreRegistry::unload_all_except` runs before a launch, so a
+switch cannot leave a previous core resident. And `PlayerView.launch` tears down the
+running session *before* fetching or instantiating the next core — otherwise launching
+game B from inside game A would briefly hold both.
+
+Teardown, in order: audio sink replaced (freeing the ring), input released, GPU
+framebuffer texture dropped, save-state scratch freed, then the core itself. Dropping
+`WasmCore` runs `retro_unload_game` → `retro_deinit` → frees the core's own allocations →
+releases the last handle to its module. On the JS side `LibretroRuntime.destroy()` nulls
+every cached typed-array view, because a single retained `Uint8Array` pins the whole
+`ArrayBuffer` and therefore the whole core.
+
+**Proof.** Bookkeeping alone would not be convincing, so `smoke-test.mjs` swaps NES↔GBA
+three times, switches game-to-game without returning to the library, and then asserts:
+
+| Question | How it is answered |
+| --- | --- |
+| Was every runtime torn down? | `instantiated === destroyed`, zero live |
+| Were the modules *actually freed*? | `FinalizationRegistry` after a forced GC — the collector attests, not us |
+| Were two ever alive at once? | `maxLive` high-water mark, which a post-hoc check would miss |
+| Did the engine's own memory grow? | Rust wasm memory before vs after six sessions |
+
+Current numbers: 9 runtimes instantiated, 9 destroyed, **9/9 collected**, high-water mark
+1, peak 35.4 MB, engine memory 2.1 MB → 2.1 MB (+0.0). The status bar shows the same
+figures live: browsing the library reads `0 resident · 0.0 MB live`.
 
 ## How a libretro core is embedded
 
@@ -80,8 +121,14 @@ Notes on the seams that were not obvious going in:
   globally, then overrides it per extension via `SET_CONTENT_INFO_OVERRIDE` and
   discovers the content through `GET_GAME_INFO_EXT`. Both are implemented; without them
   a valid `.nes` file is rejected.
-- **Only 12 WASI imports**, all file syscalls, all stubbed. The core never touches a
-  filesystem because it is never given a path.
+- **WASI imports are few and stubbed.** fceumm needs 12 (all file syscalls); mGBA needs
+  19, adding clocks, `environ` and directory calls. `clock_time_get` returns real time
+  because mGBA drives the GBA's RTC from it; the rest fail cleanly, since the core is
+  never given a path to open.
+- **Cores need different build strategies.** fceumm exposes a libretro makefile listing
+  its sources; mGBA is CMake-based, so `build-core.sh` configures it with wasi-sdk's
+  toolchain file and links the resulting static archive. Adding a core is a case block in
+  that script — nothing in Rust changes, because `WasmCore` is core-agnostic.
 
 ## Layout
 
@@ -108,11 +155,14 @@ web/
   src/data/                     catalogue, systems, save states, ROM store/detect
   cores/manifest.json           core declarations (metadata only)
   roms/nes-testcart.nes         our own NES ROM, generated by make-test-rom.py
+  roms/gba-testcart.gba         our own GBA ROM, built from roms/src/ by make-gba-rom.sh
+  roms/src/                     GBA cart source: C, entry stub, linker script
   vendor/bridge/                build output of scripts/build-wasm.sh (gitignored)
 scripts/
   build-wasm.sh                 cargo build + wasm-bindgen
-  build-core.sh                 libretro core → standalone wasm (wasi-sdk)
+  build-core.sh                 libretro core → standalone wasm (wasi-sdk); fceumm, mgba
   make-test-rom.py              6502 assembler + NES test ROM generator
+  make-gba-rom.sh               ARM/C → GBA test ROM, header and checksum patched
   core-abi-test.mjs             headless core/ABI verification (no browser, no GPU)
   serve.mjs                     static server with correct wasm/ESM MIME types
   smoke-test.mjs                headless browser verification of the rules above
@@ -125,14 +175,17 @@ rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.128   # must match the Cargo.lock version
 
 ./scripts/build-wasm.sh          # engine → web/vendor/bridge/
-./scripts/build-core.sh fceumm   # NES core → web/cores/fceumm.wasm (fetches wasi-sdk)
-python3 scripts/make-test-rom.py # test ROM → web/roms/nes-testcart.nes
+./scripts/build-core.sh all      # fceumm + mgba → web/cores/ (fetches wasi-sdk, ~1 GB)
+python3 scripts/make-test-rom.py # NES test ROM → web/roms/nes-testcart.nes
+./scripts/make-gba-rom.sh        # GBA test ROM → web/roms/gba-testcart.gba
 node scripts/serve.mjs 8123      # → http://localhost:8123/
 ```
 
-Then open the library and press **Play** on *Continuum Test Cart*, or drop your own
-ROM anywhere on the page. Without `build-core.sh`, NES launches fail with a message
-telling you to run it; every other system falls back to the placeholder core.
+Then open the library and press **Play** on either *Continuum Test Cart* — the NES one
+idles green, the GBA one blue — or drop your own `.nes`, `.gba`, `.gb` or `.gbc` file
+anywhere on the page. Systems without a real core yet (SNES, Mega Drive, N64, PS1) fall
+back to the placeholder core; a launch that needs an unbuilt core says which script to
+run.
 
 Needs a WebGPU browser: Chrome/Edge 113+, Safari 18+, Firefox 141+. There is
 deliberately no fallback renderer; without WebGPU the UI says so and refuses to
@@ -154,32 +207,32 @@ Three layers, fastest first.
 cargo test                                  # 65 unit tests: pacing, ring buffer,
                                             # resampler, registry, gamepad mapping,
                                             # pixel conversion, scaling
-node scripts/core-abi-test.mjs              # 17 checks: the real core, headless
+node scripts/core-abi-test.mjs              # 32 checks across both real cores, headless
 node scripts/serve.mjs 8123 &
-PLAYWRIGHT_CORE=<path> node scripts/smoke-test.mjs http://localhost:8123/   # 40 checks
+PLAYWRIGHT_CORE=<path> node scripts/smoke-test.mjs http://localhost:8123/   # 49 checks
 ```
 
-**`core-abi-test.mjs`** runs fceumm with the test ROM in plain Node — no browser, no
-GPU, no Rust — and asserts on what actually came out:
+**`core-abi-test.mjs`** runs each core with its own test ROM in plain Node — no browser,
+no GPU, no Rust — and asserts on what actually came out. Per core:
 
-- 256x240 at 60.0998 fps, 48 kHz, RGB565, negotiated through the environment protocol;
-- 799 audio frames per video frame (48000/60.0998) with a non-zero peak, which is the
-  ROM's 440 Hz square wave surviving the batch callback;
-- the frame is green *and* has both dark and bright pixels — a flat fill would mean the
-  pattern tables were ignored;
-- holding A turns the average pixel red, releasing it turns it back: input reaching the
-  CPU and changing the picture;
-- holding Right shifts 112 pixels along scanline 124: per-frame register writes landing
-  (sampled off the tile border, which is invariant under horizontal scroll);
+- geometry, refresh and sample rate as the core reports them, and the pixel format it
+  negotiated through the environment protocol;
+- audio frames per video frame matching `sampleRate / fps`, with a non-zero peak — the
+  ROM's 440 Hz tone surviving the batch callback;
+- the idle frame is the expected colour *and* contains both dark and bright pixels, so a
+  flat fill cannot pass;
+- holding A changes the colour and releasing restores it: input reaching the CPU and
+  changing the picture;
+- a held direction moves the picture, proving per-frame register writes land;
 - save state diverges then restores.
 
-It takes under a second, which is what makes core work tractable.
+The two ROMs idle in **different colours on purpose** — NES green, GBA blue — so a frame
+identifies which core drew it. That is what makes the hot-swap checks meaningful instead
+of a matter of trusting counters.
 
-**`smoke-test.mjs`** then checks the browser path, including that the real core reaches
-`running`, reports its own A/V info to the bridge, advances ~90 frames per 1.5 s, pushes
-~66,000 resampled audio frames through the Rust sink, and survives input and teardown —
-plus every Phase 1 invariant (node counts, single loop, no 2D context, lazy cores) and
-offscreen pixel verification of the GPU path.
+**`smoke-test.mjs`** covers the browser path: every Phase 1 invariant (node counts,
+single loop, no 2D context, lazy cores), offscreen GPU pixel verification, the real NES
+core end to end, and the multi-core swap and leak checks described above.
 
 ### Known environment limitation
 
@@ -189,14 +242,15 @@ silently no-ops and the canvas reads back empty. Reproduced with hand-written JS
 independent of this codebase, so it is not a bug here — but it is why the browser suite
 verifies pixels through `captureFrame` (an offscreen render plus buffer readback) and
 reports canvas compositing as an observation rather than a failure. It is also why the
-core's *emulated* pixels are asserted in the Node harness instead. On real hardware the
+cores' *emulated* pixels are asserted in the Node harness instead. On real hardware the
 same pipeline presents to the canvas.
 
 ## What's next
 
-- **More cores.** `scripts/build-core.sh` already has an `mgba` stub; each additional
-  core is a case block plus a manifest line. `WasmCore` is core-agnostic, so no Rust
-  changes.
+- **More cores.** snes9x, Genesis Plus GX, Mupen64Plus and Beetle PSX are still
+  placeholders. Each is a case block in `scripts/build-core.sh` plus a manifest line;
+  `WasmCore` is core-agnostic, so no Rust changes. Expect the same two questions per
+  core: which build system, and does it need `need_fullpath`.
 - **Core options.** `GET_VARIABLE` currently returns "unset", so cores use their
   defaults. Wiring `SET_VARIABLES` to a settings UI unlocks per-core configuration
   (region, overscan, palette).
@@ -204,15 +258,24 @@ same pipeline presents to the canvas.
   the metadata store in `save-states.js` needs an IndexedDB payload store beside it.
 - **Audio quality.** The resampler is linear; a windowed-sinc belongs there before
   anyone judges the sound.
-- **Rewind and fast-forward.** The pacer already supports a speed multiplier, and
-  save states are cheap (13 KB for NES) — a ring of them is most of a rewind feature.
+- **Rewind and fast-forward.** The pacer already supports a speed multiplier. NES states
+  are 13 KB, but GBA states are 516 KB — a rewind ring needs a memory budget and probably
+  compression, not just a deeper buffer.
+- **Core options.** `GET_VARIABLE` returns "unset", so every core runs on defaults. mGBA
+  in particular exposes useful ones (frameskip, colour correction, GB model).
 
-## Phase 2: native iOS
+## Next: native iOS
 
 The engine is already interface-agnostic: `bridge.rs` has no `wasm_bindgen`, no
 `web_sys`, no JS types, and the renderer's `from_surface` takes any wgpu surface —
-a `CAMetalLayer` works where a canvas does today. Phase 2 adds a UniFFI facade
-beside `wasm.rs` (same methods, same error type) and a SwiftUI front end that makes
-the same calls this JS does. What it must *not* do is reimplement pacing, input
+a `CAMetalLayer` works where a canvas does today. The native build adds a UniFFI facade
+beside `wasm.rs` (same methods, same error type) and a SwiftUI front end that makes the
+same calls this JS does.
+
+One thing that will differ: cores are instantiated by the platform layer, because only
+JS can wire up another wasm module's imports. Natively they are `dlopen`'d or statically
+linked instead, so `LibretroRuntimeHandle` gains a second implementation — while
+`WasmCore`'s logic, the frame exchange in `cores/host.rs` and everything above the
+`EmulatorCore` trait stay as they are. What it must *not* do is reimplement pacing, input
 mapping, audio buffering or session lifecycle — those live in Rust precisely so the
 two platforms cannot drift.

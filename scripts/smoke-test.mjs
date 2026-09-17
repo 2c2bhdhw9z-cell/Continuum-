@@ -64,6 +64,10 @@ const browser = await chromium.launch({
     // Audio: no gesture in an automated run, and no device to play to.
     '--autoplay-policy=no-user-gesture-required',
     '--mute-audio',
+    // Exposes `globalThis.gc()`, which the core-swap leak check needs: whether a core
+    // module was *freed* can only be observed after a real collection, and waiting for
+    // one to happen by chance would make the test flaky.
+    '--js-flags=--expose-gc',
     '--no-sandbox',
   ],
 });
@@ -146,13 +150,28 @@ await page
 
 const boot = await page.evaluate(() => ({
   declared: window.__continuum.coreLoader.manifest.size,
+  libretroCores: [...window.__continuum.coreLoader.manifest.values()]
+    .filter((core) => core.kind === 'libretro')
+    .map((core) => core.id),
+  systemsWithRealCores: [...window.__continuum.coreLoader.systemToCore.entries()]
+    .filter(([, coreId]) => window.__continuum.coreLoader.entryFor(coreId)?.kind === 'libretro')
+    .map(([system]) => system),
   resident: window.__continuum.host.bridge?.residentCoreCount ?? -1,
   status: window.__continuum.host.bridge?.status ?? 'not-loaded',
   cardCount: document.querySelectorAll('.card').length,
   catalog: document.getElementById('status-catalog').textContent,
 }));
 
-check('core manifest declared', boot.declared === 10, `${boot.declared} cores declared`);
+// Counted, not hard-coded: the point is that real cores are declared alongside the
+// placeholders and that they claim the systems they can actually run.
+check(
+  'manifest declares both real cores plus placeholders',
+  boot.declared >= 8 &&
+    boot.libretroCores.includes('fceumm') &&
+    boot.libretroCores.includes('mgba'),
+  `${boot.declared} declared; real: ${boot.libretroCores.join(', ')}; ` +
+    `systems with real cores: ${boot.systemsWithRealCores.join(', ')}`,
+);
 check(
   'no cores loaded at boot (rule 5)',
   boot.resident === 0,
@@ -606,9 +625,11 @@ if (webgpu) {
       resident: window.__continuum.host.bridge.residentCoreCount,
       engineActive: window.__continuum.frameLoop.engineActive,
     }));
+    // Under the default retention policy, exiting frees the core rather than keeping it
+    // warm: on a multi-system emulator, an idle core is tens of megabytes doing nothing.
     check(
-      'exit stops the engine and keeps the core warm',
-      afterExit.status === 'idle' && afterExit.resident === 1 && !afterExit.engineActive,
+      'exit stops the engine and frees the core',
+      afterExit.status === 'idle' && afterExit.resident === 0 && !afterExit.engineActive,
       `status = ${afterExit.status}, resident = ${afterExit.resident}`,
     );
   }
@@ -716,11 +737,296 @@ if (webgpu) {
       resident: window.__continuum.host.bridge.residentCoreCount,
     }));
     check(
-      'real core survives session teardown',
-      afterExit.status === 'idle' && afterExit.resident >= 1,
+      'real core is released on teardown',
+      afterExit.status === 'idle' && afterExit.resident === 0,
       `status ${afterExit.status}, ${afterExit.resident} core(s) resident`,
     );
   }
+}
+
+// ------------------------------------------- 5c. multi-core hot swapping
+//
+// The Phase 2 question: can we switch systems repeatedly without leaking a core?
+//
+// Each core is a wasm module with its own linear memory — 2 MB of code plus 16–32 MB of
+// working memory for mGBA. Leaking one per swap exhausts a phone in a handful of
+// switches, and "we called destroy()" is not evidence. So this swaps NES↔GBA several
+// times and then asks three independent questions:
+//
+//   1. Did every runtime get torn down?          instantiated === destroyed
+//   2. Did the host actually reclaim them?       FinalizationRegistry, after a real GC
+//   3. Did the *engine's* memory stay flat?      Rust wasm memory before vs after
+//
+// It also checks the picture: the two test ROMs idle in different colours, so the core
+// that produced a frame is identifiable from pixels rather than from bookkeeping.
+if (webgpu) {
+  const SWAPS = 3;
+  const swapLog = [];
+  let swapFailure = null;
+  let peakCoreMb = 0;
+
+  const beforeSwaps = await page.evaluate(() => ({
+    engineMemory: window.__continuum.host.memory.buffer.byteLength,
+    instantiated: window.__continuum.runtimeStats.instantiated,
+  }));
+
+  for (let round = 0; round < SWAPS; round++) {
+    for (const [entryId, expectedCore, expectedSystem] of [
+      ['builtin-nes-testcart', 'FCEUmm', 'nes'],
+      ['builtin-gba-testcart', 'mGBA', 'gba'],
+    ]) {
+      const result = await page.evaluate(
+        async ([id, core]) => {
+          const { player, host, runtimeStats } = window.__continuum;
+          await player.launch(id);
+
+          // Wait for the session to be genuinely running before measuring.
+          const deadline = Date.now() + 30_000;
+          while (host.bridge.status !== 'running' && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 50));
+          }
+          if (host.bridge.status !== 'running') return { ok: false, reason: `${id} never ran` };
+
+          await new Promise((r) => setTimeout(r, 400));
+          const framesAtStart = host.stats.frameCount;
+          await new Promise((r) => setTimeout(r, 350));
+
+          const running = {
+            core: host.bridge.sessionCoreName,
+            avInfo: Array.from(host.bridge.sessionAvInfo() ?? []),
+            resident: host.bridge.residentCoreCount,
+            residentIds: host.bridge.residentCoreIds(),
+            advanced: host.stats.frameCount - framesAtStart,
+            audioQueued: host.stats.audioQueuedFrames,
+            liveRuntimes: runtimeStats.live.length,
+            // The core's own reported footprint while running, which includes the heap
+            // it grew after loading content.
+            coreMb: +((host.bridge.sessionCoreMemoryBytes ?? 0) / 1024 / 1024).toFixed(1),
+          };
+
+          player.exit();
+          await new Promise((r) => setTimeout(r, 300));
+
+          const idle = {
+            coreMemoryAfterExit: host.bridge.sessionCoreMemoryBytes ?? 0,
+            status: host.bridge.status,
+            resident: host.bridge.residentCoreCount,
+            liveRuntimes: runtimeStats.live.length,
+            liveBytes: runtimeStats.liveBytes,
+            engineActive: window.__continuum.frameLoop.engineActive,
+            audioQueued: host.stats.audioQueuedFrames,
+            workletQueued: window.__continuum.audio.workletStats.queuedFrames,
+          };
+
+          return { ok: true, expectedCore: core, running, idle };
+        },
+        [entryId, expectedCore],
+      );
+
+      if (!result.ok) {
+        swapFailure ??= result.reason;
+        continue;
+      }
+
+      const { running, idle } = result;
+      // While running: the right core, alone in memory, and actually emulating.
+      if (running.core !== expectedCore) {
+        swapFailure ??= `expected ${expectedCore}, got ${running.core}`;
+      }
+      if (running.resident !== 1) {
+        swapFailure ??= `${running.resident} cores resident during ${expectedCore} (expected 1): ${running.residentIds}`;
+      }
+      if (running.advanced < 10) {
+        swapFailure ??= `${expectedCore} advanced only ${running.advanced} frames`;
+      }
+      // After exit: nothing resident, nothing running, nothing queued.
+      if (idle.resident !== 0) {
+        swapFailure ??= `${idle.resident} cores still resident after exiting ${expectedCore}`;
+      }
+      if (idle.liveRuntimes !== 0) {
+        swapFailure ??= `${idle.liveRuntimes} runtime(s) not destroyed after exiting ${expectedCore}`;
+      }
+      if (idle.engineActive) {
+        swapFailure ??= `frame loop still active after exiting ${expectedCore}`;
+      }
+      if (idle.status !== 'idle') {
+        swapFailure ??= `status '${idle.status}' after exiting ${expectedCore}`;
+      }
+
+      if (idle.coreMemoryAfterExit !== 0) {
+        swapFailure ??= `core memory still reported after exiting ${expectedCore}`;
+      }
+      peakCoreMb = Math.max(peakCoreMb, running.coreMb);
+
+      swapLog.push(
+        `${expectedSystem}:${running.core} ${running.avInfo[0]}x${running.avInfo[1]}` +
+          `@${running.avInfo[3].toFixed(2)} ${running.coreMb}MB ${running.advanced}f`,
+      );
+    }
+  }
+
+  check(
+    `hot-swapped NES↔GBA ${SWAPS}x with one core resident at a time`,
+    swapFailure === null,
+    swapFailure ?? swapLog.join(' | '),
+  );
+
+  // Switching straight from one game to another, with no trip back to the library. This
+  // is the path that would hold two cores at once if teardown were ordered wrongly:
+  // fetch-and-instantiate B, *then* free A.
+  const directSwitch = await page.evaluate(async () => {
+    const { player, host, runtimeStats, audio } = window.__continuum;
+    const waitForRunning = async () => {
+      const deadline = Date.now() + 30_000;
+      while (host.bridge.status !== 'running' && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return host.bridge.status === 'running';
+    };
+
+    await player.launch('builtin-nes-testcart');
+    if (!(await waitForRunning())) return { ok: false, reason: 'NES never ran' };
+    const first = { core: host.bridge.sessionCoreName, live: runtimeStats.live.length };
+
+    // Straight into the GBA cart without exiting.
+    await player.launch('builtin-gba-testcart');
+    if (!(await waitForRunning())) return { ok: false, reason: 'GBA never ran' };
+    await new Promise((r) => setTimeout(r, 400));
+    const second = {
+      core: host.bridge.sessionCoreName,
+      live: runtimeStats.live.length,
+      resident: host.bridge.residentCoreCount,
+      avInfo: Array.from(host.bridge.sessionAvInfo() ?? []),
+    };
+
+    player.exit();
+    await new Promise((r) => setTimeout(r, 500));
+    return {
+      ok: true,
+      first,
+      second,
+      maxLive: runtimeStats.maxLive,
+      afterExit: {
+        live: runtimeStats.live.length,
+        resident: host.bridge.residentCoreCount,
+        // Producer side, and the authoritative one: read live from the Rust sink, which
+        // is replaced on stop. A non-zero queue here would mean stale audio could still
+        // be delivered into the next session.
+        sinkQueued: host.bridge.audioQueuedFrames,
+        // The cached mirror must be cleared too, or the HUD keeps showing the finished
+        // session's numbers.
+        mirrorFrameCount: host.stats.frameCount,
+        audioState: audio.state,
+        // Reported for context only. The worklet's stats freeze when the context
+        // suspends (no `process()` calls), so this figure is last-known, not current.
+        workletQueued: audio.workletStats.queuedFrames,
+        engineActive: window.__continuum.frameLoop.engineActive,
+      },
+    };
+  });
+
+  check(
+    'switching game-to-game replaces the core without stacking',
+    directSwitch.ok &&
+      directSwitch.first.core === 'FCEUmm' &&
+      directSwitch.second.core === 'mGBA' &&
+      directSwitch.second.resident === 1 &&
+      directSwitch.second.avInfo[0] === 240,
+    directSwitch.ok
+      ? `${directSwitch.first.core} → ${directSwitch.second.core} ` +
+        `(${directSwitch.second.avInfo[0]}x${directSwitch.second.avInfo[1]}), ` +
+        `${directSwitch.second.resident} resident`
+      : directSwitch.reason,
+  );
+
+  // The high-water mark is the real proof: a momentary overlap during a switch would be
+  // invisible to any check made after the fact.
+  check(
+    'never more than one core alive at any instant',
+    directSwitch.maxLive === 1,
+    `high-water mark: ${directSwitch.maxLive} simultaneous core runtime(s)`,
+  );
+
+  check(
+    'teardown drains audio, stops the loop and frees the core',
+    directSwitch.ok &&
+      directSwitch.afterExit.live === 0 &&
+      directSwitch.afterExit.resident === 0 &&
+      directSwitch.afterExit.sinkQueued === 0 &&
+      directSwitch.afterExit.mirrorFrameCount === 0 &&
+      directSwitch.afterExit.audioState === 'suspended' &&
+      !directSwitch.afterExit.engineActive,
+    directSwitch.ok
+      ? `${directSwitch.afterExit.live} live cores, sink queue ` +
+        `${directSwitch.afterExit.sinkQueued}, audio ${directSwitch.afterExit.audioState}, ` +
+        `engine ${directSwitch.afterExit.engineActive ? 'active' : 'stopped'} ` +
+        `(worklet last reported ${directSwitch.afterExit.workletQueued} frames before suspending)`
+      : directSwitch.reason,
+  );
+
+  // Force a collection and let the FinalizationRegistry callbacks run. Without
+  // `--expose-gc` this is skipped rather than guessed at.
+  const leaks = await page.evaluate(async () => {
+    const stats = window.__continuum.runtimeStats;
+    const canGc = typeof globalThis.gc === 'function';
+    if (canGc) {
+      // Twice, with a turn of the event loop between: the first pass drops the objects,
+      // the second lets finalizers be scheduled.
+      globalThis.gc();
+      await new Promise((r) => setTimeout(r, 100));
+      globalThis.gc();
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return {
+      canGc,
+      instantiated: stats.instantiated,
+      destroyed: stats.destroyed,
+      collected: stats.collected,
+      live: stats.live.length,
+      liveBytes: stats.liveBytes,
+      peakLiveMb: +(stats.peakLiveBytes / 1024 / 1024).toFixed(1),
+      engineMemory: window.__continuum.host.memory.buffer.byteLength,
+    };
+  });
+
+  check(
+    'every core runtime was torn down',
+    leaks.instantiated === leaks.destroyed && leaks.live === 0 && leaks.liveBytes === 0,
+    `${leaks.instantiated} instantiated, ${leaks.destroyed} destroyed, ${leaks.live} live, ` +
+      `peak ${leaks.peakLiveMb} MB held at once`,
+  );
+
+  // The strong claim: the host reclaimed the modules. Only the collector can attest to
+  // this, which is why it is measured separately from our own counters.
+  if (leaks.canGc) {
+    check(
+      'core wasm modules were garbage collected (no retained references)',
+      leaks.collected >= leaks.instantiated - 1,
+      `${leaks.collected}/${leaks.instantiated} collected after forced GC`,
+    );
+  } else {
+    info('core module collection', 'skipped: --expose-gc not available');
+  }
+
+  // Peak memory is the multi-core policy's whole point: one core at a time. The bound is
+  // generous (a GBA core with a loaded ROM is tens of MB); what matters is that it does
+  // not scale with the number of swaps.
+  check(
+    'never held more than one core in memory',
+    peakCoreMb > 0 && peakCoreMb < 96,
+    `largest running core measured at ${peakCoreMb} MB over ${SWAPS * 2} sessions`,
+  );
+
+  // The engine's own memory cannot shrink (wasm memory never does), so the test is that
+  // it stops growing: staging buffers are per-session and must be released, not stacked.
+  const growthMb = (leaks.engineMemory - beforeSwaps.engineMemory) / 1024 / 1024;
+  check(
+    'engine memory does not grow across swaps',
+    growthMb < 8,
+    `${(beforeSwaps.engineMemory / 1024 / 1024).toFixed(1)} MB → ` +
+      `${(leaks.engineMemory / 1024 / 1024).toFixed(1)} MB over ${SWAPS * 2} sessions ` +
+      `(+${growthMb.toFixed(1)} MB)`,
+  );
 }
 
 // ---------------------------------------------------- 6. rendering + loop rules
