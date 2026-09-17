@@ -79,6 +79,11 @@ idle colours are deliberate — they let a test identify which core drew a frame
 - **A Settings sheet** with a counted storage breakdown, per-system default cores, and
   toggles for the performance HUD (off on phones), the art lookup, and auto-capture.
 
+**Next: native iOS.** The engine already type-checks and lints clean for
+`aarch64-apple-ios`; [docs/NATIVE_IOS_BLUEPRINT.md](docs/NATIVE_IOS_BLUEPRINT.md) is the
+plan for wrapping it in a SwiftUI app over a UniFFI boundary, and what PS1, N64, PSP, DS
+and 3DS each demand of the renderer and the memory model.
+
 ## The five architectural rules, and where they are enforced
 
 | Rule | Enforced by | Verified by |
