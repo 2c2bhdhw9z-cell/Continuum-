@@ -80,9 +80,12 @@ idle colours are deliberate — they let a test identify which core drew a frame
   toggles for the performance HUD (off on phones), the art lookup, and auto-capture.
 
 **Next: native iOS.** The engine already type-checks and lints clean for
-`aarch64-apple-ios`; [docs/NATIVE_IOS_BLUEPRINT.md](docs/NATIVE_IOS_BLUEPRINT.md) is the
-plan for wrapping it in a SwiftUI app over a UniFFI boundary, and what PS1, N64, PSP, DS
-and 3DS each demand of the renderer and the memory model.
+`aarch64-apple-ios`. [docs/NATIVE_IOS_BLUEPRINT.md](docs/NATIVE_IOS_BLUEPRINT.md) is the plan
+for wrapping it in a SwiftUI app over a UniFFI boundary;
+[docs/SET_HW_RENDER_DESIGN.md](docs/SET_HW_RENDER_DESIGN.md) is the graphics design for
+hardware-rendered cores — MoltenVK and ANGLE into a zero-copy `MTLTexture`, dual-screen
+mapping for DS and 3DS, and a custom C++ libretro wrapper that brings a standalone ARM64
+Switch engine into the same pipeline.
 
 ## The five architectural rules, and where they are enforced
 

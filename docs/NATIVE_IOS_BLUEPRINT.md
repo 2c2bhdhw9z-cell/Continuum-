@@ -209,8 +209,10 @@ work in Phase 5. Three options, in ascending order of effort and quality:
 | GL → Metal translation | Ship an ANGLE-style GLES→Metal layer, or MoltenVK for Vulkan cores | One large dependency; well-trodden (Dolphin, PPSSPP, DuckStation all did it) |
 | Native Metal backends | Use cores' own Metal paths where they exist (PPSSPP), write one where they do not | Best result, most work, per-core |
 
-The pragmatic sequence: **software first for PS1 and N64** to get the tier running and the
-memory model proven, then MoltenVK for the cores that speak Vulkan, then per-core Metal.
+**Superseded by [`SET_HW_RENDER_DESIGN.md`](SET_HW_RENDER_DESIGN.md)**, which takes the
+Vulkan-first route instead: MoltenVK as the primary path, because paraLLEl-RDP is Vulkan
+compute and has no GL equivalent; ANGLE for the three GL-only cores; and a zero-copy
+`MTLTexture` handover into wgpu.
 Whichever path, `Renderer` needs a second input mode — "the core owns a texture, present
 it" — beside today's "here are pixels, upload them". That is a new `enum FrameSource
 { Software(FrameView), Texture(wgpu::Texture) }`, and it is a change to the *engine*, not
@@ -340,26 +342,18 @@ Non-obvious, in rough order of how much time each will cost you:
 
 ### Who can actually ship this
 
-| Distribution | JIT | Notes |
-| --- | --- | --- |
-| Xcode / free dev cert | Yes | 7-day expiry, re-sign weekly. The realistic path here |
-| Apple Developer Program ($99) | Yes | 1-year, up to 100 devices |
-| AltStore / SideStore | Yes | Same signing, refreshed over the network |
-| TestFlight | Yes | Entitlement is accepted |
-| App Store | **Effectively no** | The entitlement is not granted for general apps. Since 2024 the EU-only "retro game emulator" rule permits emulators, but not the JIT entitlement |
-| EU alternative marketplaces | Yes | Notarisation, not review |
+**Distribution is sideloading with custom signing, and that is settled.** App Store review is
+out of scope, so the entitlement is simply present and JIT is always on. There is **no
+interpreter fallback and no runtime capability probe** — a build that cannot map JIT pages is
+a misconfigured build, and it should fail loudly at startup rather than degrade silently into
+an unplayable interpreter.
 
-So the honest framing: **this is a sideload-first product.** That should be stated in the
-app, not discovered by a user whose build stops launching after seven days. The web PWA
-remains the zero-friction path for the 2D tier — which is exactly why the two share an
-engine, and why the PWA is worth having kept working.
+The consequence to design for is that signing identity governs *installation*, not capability:
+a lapsed profile stops the app launching at all, which is a signing problem with a signing
+fix, not something the engine should work around.
 
-### An interpreter fallback is not optional
-
-Every heavy core needs a non-JIT path, because the same binary will run on a device whose
-provisioning has lapsed. `beetle-psx` interprets; `mupen64plus` has `cached_interp`; DS and
-PSP cores have interpreter modes. Detect at startup — attempt one `MAP_JIT` mapping and
-fall back — rather than trusting the entitlement to be honoured.
+The web PWA remains the zero-friction path for the 2D tier — which is why the two share an
+engine, and why the PWA was worth keeping working.
 
 ---
 
@@ -375,7 +369,7 @@ imposes a different requirement on the engine, and they are not interchangeable.
 | **PSP** | 32/64 MB | HW | 32-bit MIPS with a real MMU; VFPU SIMD maps well to NEON. Encrypted EBOOTs need decryption before load | Moderate |
 | **DS** | 4 MB | 2D + 3D | **Two CPUs** (ARM9 + ARM7) sharing RAM, plus a cache coherency problem between them. Dual screen | Moderate, awkward |
 | **3DS** | 128 MB | HW (PICA200) | 64-bit-ish address space, ASLR, per-process page tables. Very JIT-dependent | Hard |
-| **Switch** | 4 GB | HW (Maxwell) | **Needs more RAM than any iPhone will give one app.** Full 64-bit ARM with a real MMU. NVN→Metal shader translation | Not viable |
+| **Switch** | 4 GB | HW (Maxwell) | Full 64-bit ARM with a real MMU. NVN→Metal shader translation. Fits on 12 GB hardware with the memory entitlements — see [`SET_HW_RENDER_DESIGN.md`](SET_HW_RENDER_DESIGN.md) §11 | In scope, heaviest |
 
 ### The one mechanism they all share: fast-mem
 
@@ -409,9 +403,11 @@ Consequences for this engine specifically:
   biggest reason N64 is harder than PS1 despite being a similar era.
 - **DS needs two guest address spaces**, one per CPU, with shared regions aliased into both
   and a cache-coherency story where the ARM9's data cache is not visible to the ARM7.
-- **Switch is out.** A 4 GB guest on a device that will kill an app for using 3 GB is not an
-  optimisation problem. Keep it listed as unsupported rather than "planned", and say why —
-  the honest answer is more useful than a roadmap entry that will not happen.
+- **Switch is provisioned rather than avoided.** `increased-memory-limit` raises the jetsam
+  cap; `extended-virtual-addressing` raises the virtual address space. The two do different
+  jobs and both are needed — the sparse guest reservation costs address space, not resident
+  pages, which is exactly what the second entitlement exists for. Budget in
+  [`SET_HW_RENDER_DESIGN.md`](SET_HW_RENDER_DESIGN.md) §11.
 
 ### `SystemTier`, and why it belongs in the engine
 
@@ -420,12 +416,18 @@ decides what a device can attempt:
 
 ```rust
 pub enum SystemTier {
-    Interpreted,          // NES, SNES, GB/GBA, MD/SMS — the web tier, runs anywhere
-    JitRecommended,       // PS1, DS         — interpretable, slowly
-    JitRequired,          // N64, PSP, 3DS   — unplayable without a dynarec
-    Unsupported,          // Switch          — with a reason string
+    /// NES, SNES, GB/GBA, MD/SMS — the web tier, runs anywhere.
+    Interpreted,
+    /// PS1, N64, PSP, DS, 3DS — JIT plus a hardware-rendered core.
+    Recompiled,
+    /// Switch — additionally gated on available memory, not on a device allowlist.
+    Recompiled64 { min_available_bytes: u64 },
 }
 ```
+
+The memory gate is a runtime check against `os_proc_available_memory()` rather than a device
+list, so a title that will not fit is reported before it is attempted rather than the app
+being killed mid-boot.
 
 The PWA already reserves `phase: 2` systems in `web/src/data/systems.js` and refuses to
 launch them, with the launch path saying why. That mechanism generalises directly: the same
@@ -473,9 +475,11 @@ Ordered so that each step is verifiable before the next depends on it.
    pipeline for disc images (which is also the first time `need_fullpath` matters, and the
    PWA's content-override plumbing already documents that trap).
 7. **JIT.** Entitlement, `MAP_JIT`, `pthread_jit_write_protect_np`, icache invalidation, and
-   the interpreter fallback. Measure PS1 before and after.
+   Measure PS1 before and after.
 8. **`SET_HW_RENDER`.** The large one. Unblocks N64 and PSP properly.
 9. **Dual screen.** `ScreenLayout` plus touch mapping. Unblocks DS, then 3DS.
 
-Steps 1–5 are a port of proven code. Steps 6–9 are new engineering, and step 8 is the one
-that deserves its own design document before anyone starts.
+Steps 1–5 are a port of proven code. Steps 6–9 are new engineering, and step 8 now has its
+own design document: [`SET_HW_RENDER_DESIGN.md`](SET_HW_RENDER_DESIGN.md), which also
+specifies the custom C++ libretro wrapper that brings a standalone ARM64 Switch engine into
+this pipeline (§12).
