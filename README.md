@@ -10,6 +10,17 @@ Phase 1 scaffold is unchanged underneath; `v0.1.0-scaffold` marks that restore p
 
 ![Library](docs/shot-library.png)
 
+Both cores, rendering their own test ROMs — idle, and with A held:
+
+| NES · fceumm | NES · A held | GBA · mGBA | GBA · A held |
+| --- | --- | --- | --- |
+| ![NES](docs/frame-nes.png) | ![NES with A](docs/frame-nes-a.png) | ![GBA](docs/frame-gba.png) | ![GBA with A](docs/frame-gba-a.png) |
+
+Captured from the cores' own framebuffers by `scripts/capture-frames.mjs`, not from a
+screenshot: headless Chromium cannot composite a WebGPU canvas (see *Known environment
+limitation*), and a blank canvas would misrepresent a working pipeline. The differing
+idle colours are deliberate — they let a test identify which core drew a frame.
+
 ## What runs today
 
 - **Two real cores.** NES via `fceumm`, GBA/GB/GBC via `mGBA` — both built by
@@ -164,6 +175,7 @@ scripts/
   make-test-rom.py              6502 assembler + NES test ROM generator
   make-gba-rom.sh               ARM/C → GBA test ROM, header and checksum patched
   core-abi-test.mjs             headless core/ABI verification (no browser, no GPU)
+  capture-frames.mjs            PNGs of each core's output, straight from its framebuffer
   serve.mjs                     static server with correct wasm/ESM MIME types
   smoke-test.mjs                headless browser verification of the rules above
 ```
@@ -229,6 +241,10 @@ no GPU, no Rust — and asserts on what actually came out. Per core:
 The two ROMs idle in **different colours on purpose** — NES green, GBA blue — so a frame
 identifies which core drew it. That is what makes the hot-swap checks meaningful instead
 of a matter of trusting counters.
+
+`scripts/capture-frames.mjs` writes the images above from the same bytes the renderer
+uploads, which is the honest way to show emulated output from a machine whose GPU stack
+cannot present a canvas.
 
 **`smoke-test.mjs`** covers the browser path: every Phase 1 invariant (node counts,
 single loop, no 2D context, lazy cores), offscreen GPU pixel verification, the real NES
