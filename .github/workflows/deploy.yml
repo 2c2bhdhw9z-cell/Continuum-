@@ -84,29 +84,54 @@ jobs:
         run: ./scripts/build-core.sh all
 
       # --- The test carts -----------------------------------------------------
-      # These are committed, so regenerating them changes nothing in the artifact.
-      # It is worth doing anyway as a check that the generators still run on a clean
-      # machine, and that each committed cart still matches the source that claims to
-      # produce it. Drift is reported as a warning, not a failure: a cosmetic
-      # byte-difference should not stop a deploy the whole point of which is to let
-      # someone test on a phone.
-      #
-      # The GBA cart needs clang, ld.lld and llvm-objcopy. Rather than apt-install a
-      # second LLVM, borrow the one wasi-sdk just unpacked — same compiler that built
-      # the cores, and no guessing about which Ubuntu package ships an unversioned
-      # `llvm-objcopy`.
+      # The carts are committed, so regenerating them changes nothing in the artifact.
+      # It is worth doing as a check that the generators still run on a clean machine
+      # and that each committed cart still matches the source that claims to produce
+      # it. Drift is a warning, not a failure: a cosmetic byte-difference should not
+      # stop a deploy whose whole purpose is letting someone test on a phone.
       - name: Regenerate the test carts and verify they match the repository
         run: |
-          export PATH="$(echo "$PWD"/.tools/wasi-sdk-*/bin):$PATH"
+          # Three of the four are pure Python with no toolchain at all, so a failure
+          # here is a real regression and should fail the build.
           python3 scripts/make-test-rom.py
-          ./scripts/make-gba-rom.sh
           python3 scripts/make-sms-rom.py
           python3 scripts/make-snes-rom.py
+
+          # The GBA cart compiles C and ARM assembly, so it needs an ARM-capable clang
+          # plus ld.lld and llvm-objcopy.
+          #
+          # It must NOT use the wasi-sdk clang unpacked above. That LLVM is built with
+          # the WebAssembly backend only and rejects the ARM codegen flags outright
+          # ("Unknown command line argument '-arm-add-build-attributes'"), which is
+          # what failed the first run of this workflow. Ubuntu's own clang has every
+          # target; only the binutils replacements need locating, and Ubuntu ships
+          # those under versioned names that the script does not know about.
+          sudo apt-get update -qq && sudo apt-get install -y -qq lld llvm || true
+          mkdir -p "$RUNNER_TEMP/bin"
+          for tool in ld.lld llvm-objcopy; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              versioned=$(ls /usr/bin/"$tool"-* 2>/dev/null | sort -V | tail -1 || true)
+              if [ -n "$versioned" ]; then
+                ln -sf "$versioned" "$RUNNER_TEMP/bin/$tool"
+                echo "aliased $tool -> $versioned"
+              fi
+            fi
+          done
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+
+          # Tolerated rather than required: the committed cart is what ships either
+          # way, and a missing host binutils should not block the deploy.
+          if ./scripts/make-gba-rom.sh; then
+            echo "GBA cart regenerated"
+          else
+            echo "::warning::could not regenerate the GBA cart; using the committed one"
+          fi
+
           if ! git diff --quiet -- web/roms/; then
             echo "::warning::a regenerated test cart differs from the committed one"
             git diff --stat -- web/roms/
           else
-            echo "all four carts regenerate byte-identical to the repository"
+            echo "all regenerated carts are byte-identical to the repository"
           fi
 
       # --- Sanity check before publishing -------------------------------------
