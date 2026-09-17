@@ -49,6 +49,38 @@ pub mod gfx;
 pub mod input;
 pub mod timing;
 
+/// `Send` on native targets, and nothing on wasm.
+///
+/// The engine holds `Box<dyn EmulatorCore>` and `Box<dyn AudioSink>`. Natively those must
+/// be `Send`, because the Swift layer holds the bridge behind a `Mutex` and UniFFI requires
+/// an exported object to be `Send + Sync`. On wasm they cannot be: `WasmCore` holds a
+/// `LibretroRuntimeHandle`, which is a `JsValue`, and `JsValue` is deliberately not `Send`
+/// because a JS value belongs to one agent.
+///
+/// So the bound is conditional rather than absent, and expressed once here rather than by
+/// duplicating two trait definitions per target.
+#[cfg(target_arch = "wasm32")]
+pub trait MaybeSend {}
+#[cfg(target_arch = "wasm32")]
+impl<T: ?Sized> MaybeSend for T {}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub trait MaybeSend: Send {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: ?Sized + Send> MaybeSend for T {}
+
+// Phase 5: the Swift-facing facade. Feature-gated so neither the web build nor the host
+// test suite acquires a uniffi dependency for a module they never use.
+//
+// `setup_scaffolding!` has to be at the crate root rather than beside the exported types:
+// it defines the `UniFfiTag` the derive macros reference, and that name is resolved from
+// the crate root regardless of where the deriving type lives.
+#[cfg(all(not(target_arch = "wasm32"), feature = "uniffi-bindings"))]
+uniffi::setup_scaffolding!();
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "uniffi-bindings"))]
+pub mod uniffi_api;
+
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 

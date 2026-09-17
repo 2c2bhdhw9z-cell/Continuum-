@@ -16,3 +16,8 @@
 !/web/cores/diagnostic-core.wasm
 
 .DS_Store
+
+# Phase 5 native build output. The wrapper is built from source by CI and by
+# native/switch-wrapper/build.sh; the artefacts are not committed.
+native/switch-wrapper/build/
+native/ios/build/

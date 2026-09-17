@@ -959,10 +959,23 @@ static void ContextReset(void) {
 }
 ```
 
-> The `retro_hw_render_interface_vulkan` layout above is shape-accurate but should be taken
-> from `libretro_vulkan.h` in libretro-common when the code is written; only the software
-> cores are vendored under `.work/` today, so the exact field order is not verifiable in this
-> repository.
+> **Verified against the real header.** `libretro_vulkan.h` is now fetched into `.work/hdr/`
+> and the wrapper compiles against it, so the accesses above are checked rather than assumed.
+> Two things that a from-memory transcription gets wrong, and which are load-bearing:
+>
+> - `void *handle` is the **third** field, immediately after `interface_type` and
+>   `interface_version` — not a trailing addition. It is the frontend's opaque backend pointer
+>   and every function pointer on the interface takes it as its first argument, which is why
+>   the `lock_queue`/`unlock_queue` lambdas above must capture and pass
+>   `g_vulkan_iface->handle`. Calling them with anything else is a wild pointer dereference
+>   inside the frontend.
+> - The order is `queue` **then** `queue_index`, and `get_device_proc_addr` comes **before**
+>   `get_instance_proc_addr` — the reverse of the conventional instance-then-device idiom.
+>
+> Both only matter if you ever build this struct positionally; reading fields by name, as
+> above, is order-independent and is the pattern the wrapper actually uses.
+> `RETRO_HW_RENDER_INTERFACE_VULKAN_VERSION` is `5`, and the negotiation interface version
+> is `2`.
 
 #### `lock_queue` is not optional
 

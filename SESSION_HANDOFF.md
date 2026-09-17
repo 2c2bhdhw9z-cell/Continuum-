@@ -1011,3 +1011,158 @@ It now reads the stored bytes back with `payloadFor(GAME, manual.slot)`. Determi
 and actually testing the round trip.
 
 If a check in this suite fails intermittently, look for this shape before re-running it.
+
+
+---
+
+## 15. Step 10: the stub engine is built
+
+`docs/SET_HW_RENDER_DESIGN.md` describes the hardware-render path; this section is what
+happened when it was actually built. A dummy frame — a colour that rotates once every 120
+frames — now travels from a C++ libretro core, through the Rust bridge, across a UniFFI
+boundary, to a Swift Metal view. Everything in this section compiles; the C++ half also
+*runs*, here, with 15 passing checks.
+
+### The layout
+
+```
+native/switch-wrapper/
+  switch_engine.h              ISwitchEngine + the injected-Vulkan-context types
+  frame_gate.h                 the retro_run ↔ engine-thread handshake
+  stub_engine.h/.cpp           StubEngine, HostStubRenderer, StubExpectedColour
+  vulkan_stub_renderer.h/.cpp  the real vkCmdClearColorImage path
+  continuum_switch_libretro.cpp  the libretro surface
+  test_harness.cpp             dlopens the .so and drives it like a frontend
+  build.sh                     host | vulkan | ios
+native/ios/
+  MetalCanvas.swift            CAMetalLayer + CADisplayLink
+  ContinuumApp.swift           SwiftUI harness, EngineHost, lifecycle
+  Continuum.entitlements       JIT + the 12 GB memory keys
+  build-engine.sh              macOS-only
+crates/emulator-bridge/src/
+  gfx/hw.rs                    the hardware-frame seam
+  cores/native_core.rs         dlopen-based libretro host
+  uniffi_api.rs                the Swift-facing facade
+```
+
+### Two renderers, one interface — and why that is not gold-plating
+
+`StubEngine` renders through an `IStubRenderer`, and there are two implementations:
+`HostStubRenderer`, which computes the colour and reports it as plain pixels, and
+`VulkanStubRenderer`, which does a real `vkCmdClearColorImage` into double-buffered
+`VkImage` targets and is compiled only under `CONTINUUM_HAVE_VULKAN`.
+
+This was not the obvious design — Vulkan-only is fewer moving parts. But the things most
+likely to be *wrong* in this wrapper are the frame gate, the threading, and the libretro
+contract, and none of those are Vulkan-specific. Splitting the renderer out means all three
+are exercisable on a build host with no GPU and no Vulkan loader, which is exactly what this
+sandbox is. That is where the 15 checks come from. A Vulkan-only wrapper would have been
+committed entirely untested.
+
+`build.sh vulkan` still compiles the Vulkan path against real headers, so the injected-context
+code is at least type-checked against the true ABI.
+
+### The frame gate bug worth knowing about
+
+`retro_run` runs on the frontend's thread; the engine runs its own loop. The gate between
+them uses **two monotonic counters**, not a semaphore:
+
+```cpp
+uint64_t requested_;   // frames the frontend has asked for
+uint64_t completed_;   // frames the engine has finished
+```
+
+`PumpFrame` sets `target = completed_ + 1` and waits for `completed_ >= target`.
+
+The natural way to write this is `++requested_` and wait for the engine to catch up. That is
+wrong, and the failure is subtle enough to survive casual testing: when a frame misses its
+deadline, `PumpFrame` returns a duped frame but the request it banked is still outstanding.
+The engine works through the backlog, and afterwards every `retro_run` finds an
+already-completed frame waiting and immediately requests another — the game runs at double
+speed while the frontend displays half its frames. Games would feel fast and look fine in a
+screenshot.
+
+`completed_ + 1` is idempotent: a timed-out request leaves nothing behind. The harness check
+named *"no frames are banked after a timeout"* stalls the engine deliberately, then verifies
+the engine advanced 11 frames across 10 subsequent runs while the frontend served 10. Do not
+"simplify" this into a semaphore.
+
+### The headers are fetched, and they corrected the design doc
+
+`libretro.h`, `libretro_vulkan.h`, and the Vulkan headers now land in `.work/hdr/`
+(gitignored) rather than being hand-declared. This immediately caught two mistakes in my own
+design document: `retro_hw_render_interface_vulkan` has `void *handle` as its **third** field
+(and every function pointer on the interface takes it as the first argument), and the order
+is `queue` then `queue_index`, with `get_device_proc_addr` before `get_instance_proc_addr`.
+§12.5 of the design doc now records this.
+
+Useful constants, since they are easy to get wrong: `RETRO_HW_FRAME_BUFFER_VALID` is
+`((void*)-1)`, the Vulkan render interface version is `5`, the negotiation interface version
+is `2`, and the environment callbacks are `41` (GET_HW_RENDER_INTERFACE), `43`
+(SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE) and `56` (GET_PREFERRED_HW_RENDER).
+
+### `MaybeSend`, because `JsValue` is not `Send`
+
+`NativeLibretroCore` is driven from a Swift thread and wants `Send`. `WasmCore` holds a
+`JsValue`, which is deliberately not `Send` and never will be. So `EmulatorCore` and
+`AudioSink` now sit on a conditional supertrait in `lib.rs`:
+
+```rust
+#[cfg(target_arch = "wasm32")]        pub trait MaybeSend {}
+#[cfg(not(target_arch = "wasm32"))]   pub trait MaybeSend: Send {}
+```
+
+The alternatives were adding plain `Send` (breaks the web build outright) or duplicating both
+trait definitions per target (two definitions to keep in sync forever).
+
+### `DIRECTORIES` is global, `EXCHANGE` is thread-local
+
+Deliberate asymmetry in `native_core.rs`. `EXCHANGE` — the input/video/audio hand-off — is
+populated and consumed inside a single `run_frame` call, so thread-locality is exactly right
+and costs no synchronisation. `DIRECTORIES` is written when the core is loaded and read later
+during `retro_load_game`, potentially on a different thread, so it is a process-global
+`Mutex`. Making EXCHANGE global would add a lock to the hot path; making DIRECTORIES
+thread-local would silently lose the save/system paths.
+
+### Feature-gated so the web build cannot notice
+
+`libloading` and `uniffi` are optional and native-only; `native-core` and `uniffi-bindings`
+are off by default. The wasm dependency graph is unchanged and the wasm binary is still
+440 KB. `uniffi::setup_scaffolding!()` has to live in `lib.rs`, not in `uniffi_api.rs` — it
+defines `UniFfiTag`, which the macros resolve from the crate root.
+
+One thing left undone on purpose: `crate-type` does **not** include `staticlib`. `cargo check`
+does not link, so adding it here would be an unverifiable change to the build; instead
+`native/ios/build-engine.sh` fails with the exact line to add when someone runs it on a Mac.
+
+### What compiling found that review had not
+
+Seven API mismatches, all mine, all caught by the compiler rather than by reading:
+`InputSnapshot` has no `Default` (so `Exchange` holds `Option<InputSnapshot>`) and no
+`is_pressed` (use `libretro_state(port, device, index, id) -> i16`); `target_fps` is `f64`;
+`FrameView::stride_bytes` is `usize`; the variant is `PixelFormat::Rgba8888`;
+`BridgeError::CoreNotLoaded` is a *struct* variant and `CoreBusy` carries a core id;
+`pause()` returns `()` while `resume` takes `now_ms`; `AudioStats::queued_frames` is already
+`u32` but `underruns` is `u64`.
+
+### Verifying it
+
+```bash
+./native/switch-wrapper/build.sh host      # 15/15 checks — the real test
+./native/switch-wrapper/build.sh vulkan    # compiles against real Vulkan headers
+cargo test                                 # 74 (70 + 4 in gfx/hw.rs)
+cargo clippy --features native-core,uniffi-bindings --all-targets
+cargo check --target aarch64-apple-ios --features native-core,uniffi-bindings
+swiftc -frontend -parse native/ios/*.swift # syntax only; no UIKit/Metal on Linux
+```
+
+Swift 6.3 is present on this box, but without the iOS SDK, so the Swift is parse-checked
+only — it has never been type-checked against UIKit or Metal. Treat it as a first draft.
+
+### The one real gap
+
+`attach_metal` returns `EngineError::Graphics`. Adopting a wgpu device from an injected
+`MTLDevice` is Phase 5 **step 1**, and it is the single graphics unknown in the whole plan;
+`release_graphics` and `restore_graphics` are stubs waiting on it. Everything else in the
+chain — gate, wrapper, ABI, bridge seam, UniFFI surface, Metal view — is written. Do step 1
+next, and this becomes a frame on a screen instead of a frame in a buffer.

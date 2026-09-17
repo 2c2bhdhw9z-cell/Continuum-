@@ -40,7 +40,14 @@ wgpu = { workspace = true, features = [
   "wgsl",
   "parking_lot",
 ] }
+# Phase 5. Both optional and native-only, so the wasm build's dependency graph and the
+# web CI are completely untouched by their presence.
+libloading = { version = "0.8", optional = true }
+uniffi = { version = "0.28", optional = true }
 
 [features]
 default = []
-# Phase 2 will add: uniffi = ["dep:uniffi"] for the Swift facade.
+# Phase 5: load a libretro core from a shared library (`cores/native_core.rs`).
+native-core = ["dep:libloading"]
+# Phase 5: the Swift-facing facade (`uniffi.rs`), peer of `wasm.rs`.
+uniffi-bindings = ["dep:uniffi"]

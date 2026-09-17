@@ -188,6 +188,20 @@ jobs:
       # core, load its cart, and assert on the pixels, audio, input and save states that
       # come out. About a second, no browser and no GPU, and it is the difference between
       # deploying four cores and deploying four files.
+      # Phase 5. The Switch wrapper and the Rust hardware-render seam are not part of the
+      # web deploy, but they share this repository and would otherwise rot unnoticed: the
+      # C++ needs the same libretro.h the cores use, and the Rust must keep compiling for
+      # aarch64-apple-ios. Both are cheap and neither touches the packaged output.
+      - name: Build and test the native Switch wrapper
+        run: |
+          ./native/switch-wrapper/build.sh host
+
+      - name: Check the engine still compiles for iOS
+        run: |
+          rustup target add aarch64-apple-ios
+          cargo check --target aarch64-apple-ios --features native-core,uniffi-bindings
+          cargo clippy --features native-core,uniffi-bindings --all-targets -- -D warnings
+
       - name: Verify the built cores actually emulate
         run: node scripts/core-abi-test.mjs
 

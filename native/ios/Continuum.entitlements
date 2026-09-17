@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Continuum — entitlements for the sideloaded build.
+
+  Distribution is sideloading with custom signing, so these are simply present rather than
+  requested: App Store review is out of scope and JIT is unconditional.
+
+  The two memory entitlements do different jobs and both are needed:
+
+    increased-memory-limit        raises the jetsam cap — resident, dirty pages. This is
+                                 what stops the app being killed for the memory it
+                                 actually touches.
+    extended-virtual-addressing  raises the virtual address space beyond 4 GB. This is
+                                 what allows the large sparse reservation every dynarec
+                                 wants for fast-mem: a PROT_NONE reservation has no
+                                 resident pages, so it costs address space and nothing
+                                 else, and does not affect jetsam risk at all.
+
+  Conflating them is the easy mistake. Without the first, a Switch title is killed for
+  using 6 GB. Without the second, the reservation fails before it starts.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- JIT. mmap with MAP_JIT, then pthread_jit_write_protect_np per thread, then
+	     sys_icache_invalidate — which is NOT optional on arm64: omitting it works in the
+	     simulator and crashes on device, intermittently. -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+
+	<!-- Some recompilers map a page W and X simultaneously rather than toggling. -->
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+
+	<key>com.apple.developer.kernel.increased-memory-limit</key>
+	<true/>
+
+	<key>com.apple.developer.kernel.extended-virtual-addressing</key>
+	<true/>
+
+	<!-- Debug builds get a further raise, which is worth having while measuring a Switch
+	     title's real footprint before deciding what to gate on. -->
+	<key>com.apple.developer.kernel.increased-debugging-memory-limit</key>
+	<true/>
+</dict>
+</plist>

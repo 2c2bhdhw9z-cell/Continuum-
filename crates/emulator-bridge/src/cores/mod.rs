@@ -19,6 +19,12 @@ pub(crate) mod host;
 #[cfg(target_arch = "wasm32")]
 mod wasm_core;
 
+// Phase 5: a libretro core from a shared library. Feature-gated rather than merely
+// target-gated, because the web build must not acquire a `libloading` dependency for a
+// module it can never use.
+#[cfg(all(not(target_arch = "wasm32"), feature = "native-core"))]
+pub mod native_core;
+
 pub use diagnostic::DiagnosticCore;
 pub use registry::{CoreRegistry, CoreState};
 
@@ -119,7 +125,7 @@ pub struct CoreDescriptor {
 /// Deliberately synchronous and single-threaded: `run_frame` is called from the
 /// unified tick, so anything that blocks here stalls the frame. Implementations
 /// own their framebuffer and audio scratch space to keep the tick allocation-free.
-pub trait EmulatorCore {
+pub trait EmulatorCore: crate::MaybeSend {
     fn descriptor(&self) -> &CoreDescriptor;
 
     /// Hands ROM/disc content to the core (`retro_load_game`).

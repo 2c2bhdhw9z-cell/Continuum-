@@ -64,7 +64,7 @@ pub struct AudioStats {
 /// hold onto the sink or hand it to another thread — which keeps the
 /// single-writer invariant of the ring buffer structurally true rather than
 /// merely documented.
-pub trait AudioSink {
+pub trait AudioSink: crate::MaybeSend {
     fn spec(&self) -> AudioSpec;
 
     /// Submits interleaved stereo `f32` in `-1.0..=1.0`.
