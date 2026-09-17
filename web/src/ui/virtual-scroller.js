@@ -40,6 +40,22 @@
 /** Reasonable ceiling so a bug in size maths cannot allocate thousands of nodes. */
 const MAX_POOL = 96;
 
+/**
+ * Where an unused pooled node is put: far enough off-axis to be outside any viewport,
+ * without removing it from the DOM.
+ */
+const PARK_TRANSFORM = 'translate3d(0, -99999px, 0)';
+
+/**
+ * Sentinel written to `slotOffset` for a parked slot.
+ *
+ * `slotOffset` records the last transform written, so an identical write can be
+ * skipped. Parking needs its own value in that record — `NaN` was used before and
+ * never compares equal to itself, so every flush re-wrote the same transform for
+ * every idle node.
+ */
+const PARKED_OFFSET = Number.NEGATIVE_INFINITY;
+
 export class VirtualScroller {
   /**
    * @param {object} opts
@@ -191,10 +207,10 @@ export class VirtualScroller {
       node.dataset.slot = String(slot);
       // Parked outside the viewport until first bound, so an unused pool node
       // is never visible.
-      node.style.transform = 'translate3d(0, -99999px, 0)';
+      node.style.transform = PARK_TRANSFORM;
       this.slots[slot] = node;
       this.slotIndex[slot] = -1;
-      this.slotOffset[slot] = NaN;
+      this.slotOffset[slot] = PARKED_OFFSET;
       this.content.appendChild(node);
     }
     this.poolSize = size;
@@ -284,22 +300,37 @@ export class VirtualScroller {
       }
     }
 
-    // Park slots that fell outside the window. Keeping them in the DOM is the
-    // whole point; they are just moved out of sight until reused.
+    // Park every slot that is not in the window. Keeping them in the DOM is the whole
+    // point; they are just moved out of sight until reused.
+    //
+    // The test is "is this slot inside the window", *not* "was this slot bound to
+    // something else". That distinction was a real bug. `setCount` and `refresh` both
+    // invalidate every binding by filling `slotIndex` with -1, and this loop used to
+    // skip -1 slots on the assumption they were already parked — which is only true of
+    // a freshly created node. A slot that was showing item 0 and then had its binding
+    // invalidated read as -1 here, got skipped, and kept both its stale content and its
+    // on-screen position.
+    //
+    // The visible symptom was save states from the last game you played appearing under
+    // a game you had never launched: opening the sheet for a game with no history calls
+    // `setCount(0)`, nothing is re-bound, and the previous game's row was simply left
+    // where it was. The same fault showed as stale cards under a search that matched
+    // fewer results than the pool.
     for (let slot = 0; slot < this.poolSize; slot++) {
       const index = this.slotIndex[slot];
-      if (index === -1) continue;
-      if (index < first || index > last) {
-        this.slotIndex[slot] = -1;
-        this.slotOffset[slot] = NaN;
-        // A recycled node must not keep focus: the element the user was on is
-        // about to represent a different item.
-        if (this.slots[slot].contains(document.activeElement)) {
-          this.viewport.focus({ preventScroll: true });
-        }
-        if (this.unbindNode) this.unbindNode(this.slots[slot]);
-        this.slots[slot].style.transform = 'translate3d(0, -99999px, 0)';
+      if (index >= first && index <= last) continue;
+      // Already off-screen: skip the DOM write rather than re-parking every frame.
+      if (this.slotOffset[slot] === PARKED_OFFSET) continue;
+
+      this.slotIndex[slot] = -1;
+      this.slotOffset[slot] = PARKED_OFFSET;
+      // A recycled node must not keep focus: the element the user was on is
+      // about to represent a different item.
+      if (this.slots[slot].contains(document.activeElement)) {
+        this.viewport.focus({ preventScroll: true });
       }
+      if (this.unbindNode) this.unbindNode(this.slots[slot]);
+      this.slots[slot].style.transform = PARK_TRANSFORM;
     }
 
     if (this.onRange) this.onRange({ first, last });

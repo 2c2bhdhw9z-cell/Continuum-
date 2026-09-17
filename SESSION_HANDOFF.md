@@ -944,3 +944,70 @@ scrollers are also sized *eagerly*, before any count is known, for the same reas
 
 This was caught by the suite — `card node count constant while scrolling` went 60 → 105 —
 which is exactly what that check is for.
+
+
+## 13. The state-bleed bug, and why it was in the scroller
+
+Reported as: play an SNES game, then open the sheet for a GBA game you have never
+launched, and the SNES auto-save is listed under it.
+
+Nothing was wrong with the data. `listFor` is keyed by game id and always was. The fault
+was in `virtual-scroller.js`, in the pass that parks nodes leaving the window:
+
+```js
+const index = this.slotIndex[slot];
+if (index === -1) continue;        // ← the bug
+```
+
+`setCount` and `refresh` both invalidate every binding with `slotIndex.fill(-1)`. This
+loop read that `-1` and skipped the slot, on the assumption that a slot with no binding
+must already be parked — true of a node fresh out of `_growPool`, false of one whose
+binding had just been thrown away. Opening a sheet for a game with no history calls
+`setCount(0)`, the bind loop has nothing to bind, and the previous game's row was simply
+left where it was, content and position intact.
+
+The test is now "is this slot inside the window", and `slotOffset` carries a
+`PARKED_OFFSET` sentinel so an already-parked node is not re-written every frame. (It was
+`NaN` before, which never compares equal to itself, so idle nodes were being re-parked on
+every flush.)
+
+**The same fault had a second symptom**: a search matching fewer results than the card
+pool left the previous results on screen underneath. One fix, both gone, and there is a
+check for each.
+
+### The sheet also blanks itself now
+
+`DetailSheet.close()` calls `_blank()`, which zeroes every field the panel renders —
+title, metadata, badge, glyph, artwork and its provenance line, the core picker's options,
+the resume block, the states count — and empties the list through the scroller with a
+*synchronous* flush. `open()` flushes synchronously too, before returning, so no frame is
+ever painted with the pool's previous contents.
+
+All three exits — close button, backdrop scrim, Escape — share one handler, so this is
+the only place the reset lives.
+
+The state rows also get an `unbindNode`, which wipes a row's slot/when/detail text as it
+leaves the window. That is not what stops it being *seen* — parking does — it is so the
+DOM holds no copy of a game's save history once its sheet is closed.
+
+## 14. A test that was racing the frame loop
+
+The byte-exactness check in §5f compared a re-serialised state against `savedPayload`,
+which was built like this:
+
+```js
+const manual = await player.saveState();
+const savedPayload = Array.from(host.bridge.saveState());   // ← wrong
+```
+
+That second `saveState()` runs *after* the await on the IndexedDB transaction, by which
+point emulation has moved on several frames. So the comparison was against a snapshot a
+few frames newer than the record on disk — and one that had never been through IndexedDB,
+which is the only thing the check claims to prove. It passed most of the time because the
+NES test cart's state barely changes frame to frame, and failed with a few dozen differing
+bytes whenever a counter happened to tick in between.
+
+It now reads the stored bytes back with `payloadFor(GAME, manual.slot)`. Deterministic,
+and actually testing the round trip.
+
+If a check in this suite fails intermittently, look for this shape before re-running it.

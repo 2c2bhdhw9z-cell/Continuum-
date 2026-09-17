@@ -616,6 +616,163 @@ check(
     `cores named: ${realStates.everyRecordNamesItsCore}`,
 );
 
+// ------------------------------------------- 4b. no state bleeds between games
+//
+// A shipped bug, and a nastier one than it looked. Playing an SNES game created an
+// auto-save; opening the sheet for a GBA game that had never been launched showed that
+// same SNES auto-save.
+//
+// The cause was in the virtual scroller, not the sheet. `setCount` and `refresh`
+// invalidate every binding by filling `slotIndex` with -1, and the cleanup pass skipped
+// -1 slots on the assumption that they were already parked off-screen — true of a
+// freshly created node, false of one whose binding had just been invalidated. Opening a
+// game with no history calls `setCount(0)`, nothing is re-bound, and the previous game's
+// row was left exactly where it was, content and position intact.
+//
+// So this checks the symptom the user saw *and* the general property: after any change
+// that shrinks a list, no node outside the window may remain on screen.
+
+const bleed = await page.evaluate(async () => {
+  const states = await import('./src/data/save-states.js');
+  const withHistory = 'builtin-snes-testcart';
+  const neverPlayed = 'builtin-gba-testcart';
+
+  // A realistically large auto-save, like the one that exposed this.
+  await states.put({
+    gameId: withHistory,
+    bytes: new Uint8Array(823_296).fill(7),
+    frame: 5000,
+    auto: true,
+    core: { id: 'snes9x', name: 'Snes9x', version: '1.63' },
+  });
+
+  const detail = window.__continuum.detail;
+  const read = () => {
+    const box = document.getElementById('detail-states').getBoundingClientRect();
+    const onScreen = [...document.querySelectorAll('.state-row')].filter((row) => {
+      if (row.hidden) return false;
+      const b = row.getBoundingClientRect();
+      return b.height > 0 && b.bottom > box.top - 1 && b.top < box.bottom + 1;
+    });
+    return {
+      rows: onScreen.length,
+      text: onScreen.map((r) => r.querySelector('.state-row__detail').textContent).join(' | '),
+      resumeShown: !document.getElementById('detail-resume').hidden,
+      resumeText: document.getElementById('detail-resume-detail').textContent.trim(),
+      countLabel: document.getElementById('detail-states-count').textContent.trim(),
+    };
+  };
+
+  detail.open(withHistory);
+  await new Promise((r) => setTimeout(r, 250));
+  const played = read();
+
+  detail.close();
+  // Closing must leave the sheet blank, not merely hidden — including the pooled rows,
+  // so nothing in the DOM still holds the last game's history.
+  const closed = {
+    title: document.getElementById('detail-title').textContent,
+    meta: document.getElementById('detail-meta').textContent,
+    badge: document.getElementById('detail-badge').textContent,
+    provenance: document.getElementById('detail-provenance').textContent,
+    resumeText: document.getElementById('detail-resume-detail').textContent,
+    countLabel: document.getElementById('detail-states-count').textContent,
+    artSrc: document.getElementById('detail-art-img').getAttribute('src'),
+    // The three fields that carry game data. Deliberately not `row.textContent`,
+    // which also picks up the static "Load" button label — that is chrome, restored on
+    // rebind, and counting it would make this assert something it does not mean.
+    poolRowsWithData: [...document.querySelectorAll('.state-row')].filter((row) =>
+      ['.state-row__slot', '.state-row__when', '.state-row__detail'].some(
+        (sel) => (row.querySelector(sel)?.textContent ?? '') !== '',
+      ),
+    ).length,
+    poolRowsShown: [...document.querySelectorAll('.state-row')].filter((row) => !row.hidden)
+      .length,
+  };
+
+  detail.open(neverPlayed);
+  // Read in the same tick, before the frame loop gets a chance to tidy up: a stale
+  // frame is still a visible bug on a phone.
+  const sameTick = read();
+  await new Promise((r) => setTimeout(r, 250));
+  const settled = read();
+  detail.close();
+
+  return { played, closed, sameTick, settled, counts: {
+    withHistory: states.countFor(withHistory),
+    neverPlayed: states.countFor(neverPlayed),
+  } };
+});
+
+check(
+  'a game with an auto-save shows it, and reports the right count',
+  bleed.counts.withHistory === 1 &&
+    bleed.counts.neverPlayed === 0 &&
+    bleed.played.rows === 1 &&
+    bleed.played.resumeShown &&
+    /804\.0 KB · Snes9x 1\.63/.test(bleed.played.text),
+  `${bleed.played.rows} row · ${bleed.played.text} · resume shown: ${bleed.played.resumeShown}`,
+);
+check(
+  'closing the sheet blanks it completely, pooled rows included',
+  bleed.closed.title === '' &&
+    bleed.closed.meta === '' &&
+    bleed.closed.badge === '' &&
+    bleed.closed.provenance === '' &&
+    bleed.closed.resumeText === '' &&
+    bleed.closed.countLabel === '' &&
+    bleed.closed.artSrc === null &&
+    bleed.closed.poolRowsWithData === 0 &&
+    bleed.closed.poolRowsShown === 0,
+  `title/meta/badge/provenance/resume/count all empty: ` +
+    `${[bleed.closed.title, bleed.closed.meta, bleed.closed.badge, bleed.closed.provenance,
+        bleed.closed.resumeText, bleed.closed.countLabel].every((v) => v === '')}, ` +
+    `artwork src: ${bleed.closed.artSrc}, ` +
+    `pooled rows still holding save data: ${bleed.closed.poolRowsWithData}, ` +
+    `rows left un-hidden: ${bleed.closed.poolRowsShown}`,
+);
+check(
+  "an unplayed game's sheet shows nothing from the last game — not even for one frame",
+  bleed.sameTick.rows === 0 &&
+    bleed.settled.rows === 0 &&
+    !bleed.sameTick.resumeShown &&
+    !bleed.settled.resumeShown &&
+    bleed.sameTick.resumeText === '' &&
+    bleed.settled.countLabel === 'none yet',
+  `same tick: ${bleed.sameTick.rows} rows, resume "${bleed.sameTick.resumeText}"; ` +
+    `settled: ${bleed.settled.rows} rows, count "${bleed.settled.countLabel}"`,
+);
+
+// The same fault, in the place it would show next: a search matching fewer results than
+// the card pool used to leave the previous results on screen underneath.
+const staleGrid = await page.evaluate(async () => {
+  const library = window.__continuum.library;
+  library.setMode('grid');
+  await new Promise((r) => setTimeout(r, 300));
+  const before = library.gridIndices.length;
+
+  library.setQuery('Continuum Test Cart (SNES)');
+  await new Promise((r) => setTimeout(r, 400));
+
+  const viewport = document.getElementById('library-scroll').getBoundingClientRect();
+  const visible = [...document.querySelectorAll('.card')].filter((card) => {
+    if (card.hidden) return false;
+    const b = card.getBoundingClientRect();
+    return b.height > 0 && b.bottom > viewport.top && b.top < viewport.bottom;
+  });
+  const matches = library.gridIndices.length;
+
+  library.setQuery('');
+  library.setMode('shelves');
+  await new Promise((r) => setTimeout(r, 200));
+  return { before, matches, visible: visible.length };
+});
+check(
+  'narrowing a search leaves no stale cards on screen',
+  staleGrid.before > staleGrid.matches && staleGrid.visible === staleGrid.matches,
+  `${staleGrid.before} titles → ${staleGrid.matches} match(es), ${staleGrid.visible} card(s) on screen`,
+);
+
 // --------------------------------------------------------------- 5. launch path
 
 if (webgpu) {
@@ -1618,9 +1775,16 @@ if (webgpu) {
 
     const manual = await player.saveState();
     const frameAtSave = Math.round(host.stats.frameCount);
-    // Kept for the byte-exactness comparison further down. This is the payload as it
-    // existed in memory; everything after the rehydrate step has been through disk.
-    const savedPayload = Array.from(host.bridge.saveState());
+    // The bytes that were actually written, read back out of IndexedDB.
+    //
+    // This used to be a second `host.bridge.saveState()` call. That was a race, and it
+    // also quietly undermined the check it feeds: the snapshot was taken *after* the
+    // await on the storage transaction, by which point emulation had run on a few
+    // frames, so it was a few frames newer than the record on disk — and it had never
+    // been through IndexedDB, which is the entire thing the comparison claims to prove.
+    // Identical most of the time on a cart this simple, and a few dozen bytes out
+    // whenever the cart's counters happened to tick in between.
+    const savedPayload = Array.from((await states.payloadFor(GAME, manual.slot)) ?? []);
 
     // Let emulation move well past the save point, so a resume is distinguishable
     // from simply having started the game again.

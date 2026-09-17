@@ -95,6 +95,18 @@ export class DetailSheet {
       capPoolToCount: true,
       createNode: () => this._createRow(),
       bindNode: (row, index) => this._bindRow(row, index),
+      // Wipes a row's text as it leaves the window. The scroller already moves it far
+      // off-screen, so this is not what stops it being seen — it is so that the pool
+      // holds no copy of a game's save history once that game's sheet has closed.
+      // Anyone inspecting the DOM, and anything reading it, sees empty rows.
+      unbindNode: (row) => {
+        row.hidden = true;
+        row._refs.slot.textContent = '';
+        row._refs.when.textContent = '';
+        row._refs.detail.textContent = '';
+        row._refs.load.hidden = true;
+        delete row._refs.load.dataset.slot;
+      },
     });
 
     this.flush = this.flush.bind(this);
@@ -270,8 +282,17 @@ export class DetailSheet {
   _bindRow(row, index) {
     const state = this.states[index];
     const r = row._refs;
-    if (!state) {
+    // A row may only ever show a state belonging to the game currently on screen.
+    // `listFor` is keyed by game id so this should be unreachable, but it is the last
+    // point before someone else's save history reaches a pixel, and that is exactly
+    // where an invariant is worth restating rather than assuming.
+    if (!state || !this.entry || state.gameId !== this.entry.id) {
       row.hidden = true;
+      if (state && this.entry) {
+        console.warn(
+          `[detail] refused to render state for ${state.gameId} under ${this.entry.id}`,
+        );
+      }
       return;
     }
     row.hidden = false;
@@ -337,14 +358,88 @@ export class DetailSheet {
     this.statesEl.scrollTop = 0;
     this.scroller.setCount(this.states.length);
     this.scroller.refresh();
+    // Flushed synchronously, before this function returns and the browser paints.
+    // Leaving it to the frame loop would show one frame of whatever the pool happened
+    // to be holding, which for a list keyed by game is one frame of the wrong game.
+    this.scroller.flush();
     this.scheduler.wake(3);
 
     this.playBtn.focus({ preventScroll: true });
   }
 
+  /**
+   * Closes the sheet and blanks it completely.
+   *
+   * Every route out of the sheet lands here — the close button, the backdrop scrim and
+   * the Escape key all share the one handler — so this is the only place the reset needs
+   * to live.
+   *
+   * The reset is not housekeeping. `flush()` deliberately does nothing while the sheet is
+   * hidden, so anything left behind sits in the DOM until the next flush and is visible
+   * for a frame when the sheet reopens for a *different* game. Blanking on the way out
+   * means the worst case a user can ever see is an empty sheet, rather than a flash of
+   * someone else's title, cover and save history.
+   */
   close() {
     this.root.hidden = true;
+    this._blank();
+  }
+
+  /**
+   * Zeroes every field the sheet renders.
+   *
+   * Ordered the way the panel reads, so it is obvious at a glance whether something has
+   * been missed — and if a field is added to `open()` without being added here, the
+   * browser suite's state-bleed checks are what catch it.
+   */
+  _blank() {
     this.entry = null;
+    this.states = [];
+
+    // Artwork: both layers, plus its provenance line and the reset affordance.
+    this.artEl.style.background = '';
+    this.artImgEl?.removeAttribute('src');
+    if (this.artImgEl) this.artImgEl.hidden = true;
+    if (this.artNoteEl) this.artNoteEl.textContent = '';
+    if (this.artResetBtn) this.artResetBtn.hidden = true;
+    const badge = document.getElementById('detail-badge');
+    const glyph = document.getElementById('detail-glyph');
+    if (badge) badge.textContent = '';
+    if (glyph) glyph.textContent = '';
+
+    // Identity and metadata.
+    this.titleEl.textContent = '';
+    this.metaEl.textContent = '';
+    this.blurbEl.textContent = '';
+    const provenance = document.getElementById('detail-provenance');
+    if (provenance) {
+      provenance.hidden = true;
+      provenance.textContent = '';
+    }
+
+    // Actions: back to their default state, not the last game's.
+    this.playBtn.disabled = false;
+    this.playBtn.textContent = 'Play';
+    this.favBtn.textContent = 'Add to favorites';
+    if (this.removeBtn) this.removeBtn.hidden = true;
+
+    // Core picker. Emptied as well as hidden: a stale <option> list would otherwise be
+    // the next game's picker for a frame.
+    if (this.coreRow) this.coreRow.hidden = true;
+    if (this.coreSelect) this.coreSelect.textContent = '';
+    if (this.coreNote) this.coreNote.textContent = '';
+
+    // Resume block.
+    if (this.resumeRow) this.resumeRow.hidden = true;
+    if (this.resumeDetail) this.resumeDetail.textContent = '';
+
+    // Save-state list. Emptied through the scroller and flushed synchronously, so the
+    // rows are parked now rather than on some later frame that only arrives if the sheet
+    // is reopened.
+    if (this.statesCountEl) this.statesCountEl.textContent = '';
+    this.statesEl.scrollTop = 0;
+    this.scroller.setCount(0);
+    this.scroller.flush();
   }
 
   get isOpen() {
@@ -388,6 +483,10 @@ export class DetailSheet {
     const record = this.entry ? autoStateFor(this.entry.id) : null;
     if (!record) {
       this.resumeRow.hidden = true;
+      // Emptied, not just hidden. A hidden element still holds its text, and text that
+      // describes another game's checkpoint is one stray `hidden = false` away from
+      // being wrong on screen — and it reads as a leak to anyone inspecting the DOM.
+      this.resumeDetail.textContent = '';
       return;
     }
     this.resumeRow.hidden = false;
@@ -404,9 +503,11 @@ export class DetailSheet {
     if (!this.entry) return;
     this._syncResume();
     this.states = listFor(this.entry.id);
-    this.statesCountEl.textContent = `${this.states.length.toLocaleString()} saved`;
+    this.statesCountEl.textContent =
+      this.states.length === 0 ? 'none yet' : `${this.states.length.toLocaleString()} saved`;
     this.scroller.setCount(this.states.length);
     this.scroller.refresh();
+    if (this.isOpen) this.scroller.flush();
     this.scheduler.wake(2);
   }
 
