@@ -217,11 +217,41 @@ if ('requestIdleCallback' in window) {
 // ---------------------------------------------------------------------- PWA
 
 if ('serviceWorker' in navigator) {
+  // Whether a worker was already in charge when this page loaded. On a first-ever
+  // visit the worker claims the page a moment later and `controllerchange` fires
+  // once — that is not an update, and reloading for it would be a pointless flash.
+  const hadController = Boolean(navigator.serviceWorker.controller);
+
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch((err) => {
       // Offline support is a bonus; the app works fine without it.
       console.warn('[pwa] service worker registration failed', err);
     });
+  });
+
+  // A new deploy means a new worker, which purges the old shell cache on activate.
+  // The page you are looking at, though, was already built from the *previous*
+  // cache — so without this you would see stale code on the first reload after a
+  // deploy and the new code only on the second. That is a genuinely confusing way
+  // to test a change.
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return;
+    // Never yank the page out from under a running game.
+    if (player?.active || host.bridge?.status === 'running') {
+      toast('Update installed', 'Exit to the library and reload to pick it up.', {
+        kind: 'info',
+        ms: 10000,
+      });
+      return;
+    }
+    // Guard against a reload loop if a worker ever activates repeatedly.
+    if (sessionStorage.getItem('continuum:reloading-for-update')) return;
+    sessionStorage.setItem('continuum:reloading-for-update', '1');
+    location.reload();
+  });
+
+  window.addEventListener('load', () => {
+    sessionStorage.removeItem('continuum:reloading-for-update');
   });
 }
 

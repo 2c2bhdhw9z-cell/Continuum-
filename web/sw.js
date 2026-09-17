@@ -12,7 +12,15 @@
  *     surfaces much later, when large content streaming lands in Phase 2.
  */
 
-const VERSION = 'v1';
+// Replaced with the commit SHA by .github/workflows/deploy.yml. The literal below is
+// what local development uses.
+//
+// This has to change on every deploy. Assets are served cache-first (see the fetch
+// handler), so a shell cache that outlives a deploy keeps serving the previous
+// build's JavaScript until something happens to evict it. Keying the cache to the
+// build means `activate` deletes the old one, which is what makes a reload show new
+// code rather than old.
+const VERSION = 'dev';
 const SHELL_CACHE = `continuum-shell-${VERSION}`;
 
 /** The minimum needed for a cold offline start. */
@@ -48,8 +56,15 @@ const SHELL_ASSETS = [
   './src/data/rom-store.js',
   './src/data/rom-detect.js',
   './src/data/builtins.js',
+  './src/data/core-prefs.js',
   './src/ui/rom-import.js',
+  './src/ui/core-menu.js',
+  // All four built-in carts: an offline cold start should be able to launch any of
+  // them, not just the NES one.
   './roms/nes-testcart.nes',
+  './roms/gba-testcart.gba',
+  './roms/sms-testcart.sms',
+  './roms/snes-testcart.sfc',
   './vendor/bridge/emulator_bridge.js',
   './vendor/bridge/emulator_bridge_bg.wasm',
   './cores/manifest.json',

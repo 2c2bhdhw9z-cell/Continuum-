@@ -1,0 +1,180 @@
+name: Deploy PWA to GitHub Pages
+
+# Everything the app needs is built here rather than committed: the Rust bridge is
+# generated from the crate, and the four core binaries are build outputs from
+# third-party GPL/LGPL sources that this repository deliberately does not vendor.
+# A checkout on its own is therefore not deployable — this workflow is the only
+# thing that produces a complete `web/`.
+
+on:
+  push:
+    branches: [master]
+  # Lets a deploy be re-run from the Actions tab without needing a commit, which
+  # matters when the only device to hand is a phone.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and never cancel one in flight: a half-finished Pages
+# deployment is worse than a queued one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Rust toolchain -----------------------------------------------------
+      - name: Install Rust and the wasm target
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add wasm32-unknown-unknown
+          rustc --version
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      # wasm-bindgen-cli must match the wasm-bindgen version in Cargo.lock exactly
+      # or the generated glue will not load. Cached because building it from source
+      # takes minutes and it only changes when the lockfile does.
+      - name: Cache wasm-bindgen-cli
+        id: cache-bindgen
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/wasm-bindgen
+          key: wasm-bindgen-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install wasm-bindgen-cli
+        if: steps.cache-bindgen.outputs.cache-hit != 'true'
+        run: |
+          VERSION=$(sed -n '/^name = "wasm-bindgen"$/,/^version/ s/^version = "\(.*\)"/\1/p' Cargo.lock | head -1)
+          echo "Cargo.lock wants wasm-bindgen $VERSION"
+          cargo install wasm-bindgen-cli --version "$VERSION" --locked
+
+      # --- The engine ---------------------------------------------------------
+      - name: Build the Rust bridge
+        run: ./scripts/build-wasm.sh
+
+      # --- The cores ----------------------------------------------------------
+      # build-core.sh fetches wasi-sdk into .tools/ on first run (~150 MB
+      # compressed). Cached on the script's own hash, so changing a compiler flag
+      # re-fetches rather than silently reusing a toolchain the flags no longer suit.
+      - name: Cache wasi-sdk
+        uses: actions/cache@v4
+        with:
+          path: .tools
+          key: wasi-sdk-${{ runner.os }}-${{ hashFiles('scripts/build-core.sh') }}
+          restore-keys: wasi-sdk-${{ runner.os }}-
+
+      - name: Build all four libretro cores
+        run: ./scripts/build-core.sh all
+
+      # --- The test carts -----------------------------------------------------
+      # These are committed, so regenerating them changes nothing in the artifact.
+      # It is worth doing anyway as a check that the generators still run on a clean
+      # machine, and that each committed cart still matches the source that claims to
+      # produce it. Drift is reported as a warning, not a failure: a cosmetic
+      # byte-difference should not stop a deploy the whole point of which is to let
+      # someone test on a phone.
+      #
+      # The GBA cart needs clang, ld.lld and llvm-objcopy. Rather than apt-install a
+      # second LLVM, borrow the one wasi-sdk just unpacked — same compiler that built
+      # the cores, and no guessing about which Ubuntu package ships an unversioned
+      # `llvm-objcopy`.
+      - name: Regenerate the test carts and verify they match the repository
+        run: |
+          export PATH="$(echo "$PWD"/.tools/wasi-sdk-*/bin):$PATH"
+          python3 scripts/make-test-rom.py
+          ./scripts/make-gba-rom.sh
+          python3 scripts/make-sms-rom.py
+          python3 scripts/make-snes-rom.py
+          if ! git diff --quiet -- web/roms/; then
+            echo "::warning::a regenerated test cart differs from the committed one"
+            git diff --stat -- web/roms/
+          else
+            echo "all four carts regenerate byte-identical to the repository"
+          fi
+
+      # --- Sanity check before publishing -------------------------------------
+      # Pages will happily deploy a half-built directory. This is the difference
+      # between a failed build and a site that loads and then cannot launch anything.
+      - name: Verify the build is complete
+        run: |
+          fail=0
+          for f in web/vendor/bridge/emulator_bridge.js \
+                   web/vendor/bridge/emulator_bridge_bg.wasm \
+                   web/cores/fceumm.wasm \
+                   web/cores/mgba.wasm \
+                   web/cores/genesis_plus_gx.wasm \
+                   web/cores/snes9x.wasm; do
+            if [ -s "$f" ]; then
+              printf '  ok    %-48s %s\n' "$f" "$(du -h "$f" | cut -f1)"
+            else
+              printf '  MISSING %s\n' "$f"; fail=1
+            fi
+          done
+          # The manifest's sizeBytes drives the download progress bar, so a stale
+          # value is a visibly wrong UI rather than a broken one — warn, do not fail.
+          node -e '
+            const fs = require("fs");
+            const m = JSON.parse(fs.readFileSync("web/cores/manifest.json", "utf8"));
+            for (const c of m.cores.filter((c) => c.kind === "libretro")) {
+              const actual = fs.statSync("web/cores/" + c.id + ".wasm").size;
+              if (actual !== c.sizeBytes) {
+                console.log(`::warning::manifest sizeBytes for ${c.id} is ${c.sizeBytes}, built ${actual}`);
+              }
+            }
+          '
+          exit $fail
+
+      # --- Cache busting ------------------------------------------------------
+      # The service worker serves assets cache-first, so the shell cache has to be
+      # keyed to the build or a reload after a deploy keeps serving the previous
+      # build's JavaScript. Stamping the commit SHA makes `activate` drop the old
+      # cache, and main.js reloads once when the new worker takes over.
+      - name: Stamp the service worker cache version with the commit SHA
+        run: |
+          SHA="${GITHUB_SHA::12}"
+          sed -i "s/^const VERSION = 'dev';/const VERSION = '${SHA}';/" web/sw.js
+          grep -n "^const VERSION" web/sw.js
+          grep -q "const VERSION = '${SHA}';" web/sw.js || {
+            echo "::error::failed to stamp the service worker version"
+            exit 1
+          }
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          # Turns Pages on for the repository if it has never been enabled, so the
+          # first run of this workflow does not fail on a settings toggle.
+          enablement: true
+
+      - name: Upload the web directory
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
