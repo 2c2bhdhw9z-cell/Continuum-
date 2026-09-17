@@ -31,12 +31,18 @@ jobs:
       - uses: actions/checkout@v4
 
       # --- Rust toolchain -----------------------------------------------------
-      - name: Install Rust and the wasm target
+      # The version comes from rust-toolchain.toml, not from this file — see the comment
+      # there for why it is pinned rather than floating on `stable`. rustup reads that
+      # file for every cargo invocation in the repository, so nothing below needs to name
+      # a toolchain. The `target add` calls are redundant with the file's `targets` key
+      # and kept anyway: they are idempotent, and they mean the build does not depend on
+      # which rustup version the runner happens to ship.
+      - name: Install the pinned Rust toolchain
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install
           rustup target add wasm32-unknown-unknown
           rustc --version
+          cargo clippy --version
 
       - name: Cache cargo registry and build artifacts
         uses: actions/cache@v4
@@ -196,6 +202,12 @@ jobs:
         run: |
           ./native/switch-wrapper/build.sh host
 
+      # `cargo check` for the iOS target is the gate that matters here: it catches real
+      # breakage, and compile errors do not drift between compiler releases. The clippy
+      # line is a style gate, and `-D warnings` is only defensible because the toolchain
+      # is pinned — on a floating `stable` it fails the deploy whenever upstream adds a
+      # lint. If this ever fails on code the commit did not touch, fix the pin or the
+      # lint deliberately; do not reach for `--no-verify`.
       - name: Check the engine still compiles for iOS
         run: |
           rustup target add aarch64-apple-ios

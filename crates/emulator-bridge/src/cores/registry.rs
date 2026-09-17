@@ -139,8 +139,9 @@ impl CoreRegistry {
             .filter(|d| d.systems.iter().any(|s| s == system_id))
             .collect();
         // `entries` is a BTreeMap, so this starts in id order; a stable sort by
-        // descending priority therefore leaves ties in id order.
-        candidates.sort_by(|a, b| b.priority.cmp(&a.priority));
+        // descending priority therefore leaves ties in id order. `sort_by_key` is
+        // stable too, so `Reverse` preserves that tie-break exactly.
+        candidates.sort_by_key(|d| std::cmp::Reverse(d.priority));
         candidates
     }
 

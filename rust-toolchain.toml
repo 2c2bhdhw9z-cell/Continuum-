@@ -1,0 +1,21 @@
+# The Rust toolchain is pinned, and the pin is load-bearing.
+#
+# Two things in this repository are strict about compiler output: the deploy workflow
+# runs `cargo clippy -- -D warnings`, and the wasm artefact it publishes is produced by
+# `wasm-bindgen` whose CLI version must match the `wasm-bindgen` crate in Cargo.lock.
+# With a floating `stable`, both of those move on someone else's schedule:
+#
+#   - A new clippy release adds a lint, and the deploy fails on code nobody touched.
+#     That happened: `unnecessary_sort_by` started firing on a pre-existing `sort_by`
+#     in cores/registry.rs and blocked a web deploy that had nothing to do with it.
+#   - The published wasm is then built by a compiler no one tested against locally.
+#
+# Pinning makes `cargo clippy` on a dev machine produce the same output as CI, which is
+# the only way the checks are verifiable before pushing. Raising the version is a
+# deliberate one-line change here, done together with re-running the suite in §6 of
+# SESSION_HANDOFF.md — not something that happens on a Thursday because upstream shipped.
+[toolchain]
+channel    = "1.92.0"
+profile    = "minimal"
+components = ["clippy", "rustfmt"]
+targets    = ["wasm32-unknown-unknown", "aarch64-apple-ios"]
