@@ -110,6 +110,35 @@ pub struct TickTelemetry {
     pub hardware_frame: bool,
 }
 
+/// A core the app knows about but has not loaded.
+///
+/// Peer of `wasm::CoreDeclaration`, and a plain record rather than a constructed object
+/// because UniFFI generates a Swift struct. Note `systems` is a real `Vec<String>`: the wasm
+/// facade takes a comma-separated string only because wasm-bindgen would otherwise emit a
+/// wrapper class per element, and that workaround should not be copied here.
+///
+/// Declaring is not loading. It costs a few hundred bytes and touches no filesystem, which
+/// is what lets rule 5 hold — nothing is resident until something asks for it.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct CoreDeclaration {
+    pub id: String,
+    pub display_name: String,
+    pub systems: Vec<String>,
+    /// Path within the app bundle. Native cores are `dlopen`ed from here.
+    pub module_path: String,
+    pub base_width: u32,
+    pub base_height: u32,
+    pub max_width: u32,
+    pub max_height: u32,
+    pub aspect_ratio: f32,
+    pub target_fps: f64,
+    pub audio_sample_rate: u32,
+    /// `0` = RGB565, `1` = XRGB8888, `2` = RGBA8888. Matches `PixelFormat::as_u32`.
+    pub pixel_format: u32,
+    /// Higher wins when several cores can run the same system.
+    pub priority: i32,
+}
+
 /// One core option, as the core itself declared it.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct CoreOptionRecord {
@@ -134,30 +163,97 @@ impl ContinuumEngine {
         })
     }
 
-    /// Adopts the Metal objects Swift created.
+    /// Builds the renderer against Swift's `CAMetalLayer`.
     ///
-    /// Three opaque handles rather than typed pointers, because UniFFI has no pointer type
-    /// and these cross exactly once at startup. The important half is the contract, not the
-    /// signature: **Swift creates one `MTLDevice` and one `MTLCommandQueue` and passes them
-    /// here.** Nothing in this process calls `MTLCreateSystemDefaultDevice()` for itself,
-    /// because an iPhone has one GPU and every layer — wgpu, MoltenVK, ANGLE — must share
-    /// the same device for a texture to be shareable at all.
-    pub fn attach_metal(
-        &self,
-        device: u64,
-        queue: u64,
-        layer: u64,
-        width: u32,
-        height: u32,
-    ) -> Result<(), EngineError> {
-        let _ = (device, queue, layer, width, height);
-        // Step 1 of the Phase 5 sequence is what fills this in: building a wgpu device from
-        // an injected MTLDevice is the one unknown in the graphics plan, and it is
-        // deliberately answered before anything depends on the answer.
-        let _guard = self.lock();
-        Err(EngineError::Graphics {
-            reason: "attach_metal is implemented by Phase 5 step 1 (wgpu device adoption)".into(),
-        })
+    /// **The device travels the other way.** The blueprint had Swift create the `MTLDevice`
+    /// and pass it in; that is not implementable on `wgpu` 30 and, worse, would have looked
+    /// like it worked. `wgpu`'s Metal backend exposes no public constructor taking an
+    /// existing device, and `Surface::configure` reassigns `CAMetalLayer.device` to its own
+    /// device regardless — so an injected device ends up owning nothing the layer draws. The
+    /// reasoning, with source references, is in [`crate::gfx::metal`].
+    ///
+    /// The invariant is unchanged: one `MTLDevice` for wgpu, Swift and later MoltenVK, so
+    /// every texture is shareable by construction. Swift reads it back with
+    /// [`Self::metal_device_handle`] instead of supplying it. Nothing else in the process
+    /// calls `MTLCreateSystemDefaultDevice()`.
+    ///
+    /// `layer` is the address of a live `CAMetalLayer`; `width`/`height` are its
+    /// `drawableSize` in device pixels, not points.
+    ///
+    /// The platform split is inside the body rather than on the method, because
+    /// `#[uniffi::export]` generates scaffolding for every method in the block without
+    /// honouring `#[cfg]` on them — a `cfg`-gated method here fails to compile off-Apple
+    /// with "method not found". Keeping the signature unconditional also guarantees the
+    /// generated Swift is identical no matter which target's library the generator read.
+    pub fn attach_metal(&self, layer: u64, width: u32, height: u32) -> Result<(), EngineError> {
+        #[cfg(target_vendor = "apple")]
+        {
+            // SAFETY: Swift passes the backing layer of a live UIView, which outlives the
+            // renderer. Checked for null inside.
+            let renderer = unsafe {
+                crate::gfx::metal::renderer_from_metal_layer(
+                    layer as *mut core::ffi::c_void,
+                    width,
+                    height,
+                )
+            }
+            .map_err(|error| EngineError::Graphics {
+                reason: error.to_string(),
+            })?;
+
+            let mut guard = self.lock();
+            guard.attach_renderer(renderer);
+            Ok(())
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            let _ = (layer, width, height);
+            Err(EngineError::Graphics {
+                reason: "Metal is only available on Apple targets".into(),
+            })
+        }
+    }
+
+    /// The `MTLDevice` the renderer created, as an `id<MTLDevice>` address, or 0.
+    ///
+    /// Swift uses this instead of `MTLCreateSystemDefaultDevice()`; MoltenVK will be
+    /// initialised on it when the Vulkan core path lands. Zero means `attach_metal` has not
+    /// run or did not land on the Metal backend, and a caller must treat it as a failure
+    /// rather than a default.
+    pub fn metal_device_handle(&self) -> u64 {
+        #[cfg(target_vendor = "apple")]
+        {
+            self.metal_handles().map(|h| h.device).unwrap_or(0)
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            0
+        }
+    }
+
+    /// The `MTLCommandQueue` the renderer created, or 0.
+    pub fn metal_queue_handle(&self) -> u64 {
+        #[cfg(target_vendor = "apple")]
+        {
+            self.metal_handles().map(|h| h.queue).unwrap_or(0)
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            0
+        }
+    }
+
+    /// A human-readable description of the adapter, for a HUD.
+    ///
+    /// Exists because the only way to observe this build is on a phone: "Apple A19 Pro,
+    /// Metal" on screen is the difference between a working graphics path and a black view
+    /// that might be a black frame.
+    pub fn renderer_summary(&self) -> Option<String> {
+        self.lock().renderer().map(|r| r.adapter_summary())
+    }
+
+    pub fn has_renderer(&self) -> bool {
+        self.lock().has_renderer()
     }
 
     /// Reports a drawable size change. Called from `layoutSubviews`.
@@ -217,12 +313,26 @@ impl ContinuumEngine {
     pub fn release_graphics(&self) {
         let mut guard = self.lock();
         guard.pause();
-        // Phase 5 step 1 attaches the renderer, and this is where its teardown goes.
+        if let Some(renderer) = guard.renderer_mut() {
+            // The framebuffer texture is the large allocation and the one the system is
+            // most likely to want back; the device, instance and pipelines survive, because
+            // rebuilding those on every foreground transition would cost a visible stall.
+            renderer.release_frame_target();
+            renderer.invalidate_surface();
+        }
         log::info!("graphics released for backgrounding");
     }
 
     pub fn restore_graphics(&self) {
-        log::info!("graphics restored");
+        let mut guard = self.lock();
+        if let Some(renderer) = guard.renderer_mut() {
+            // Reconfigure before the next present rather than after the first one fails.
+            // `resize` alone would not do it: the drawable size is usually unchanged across
+            // a background/foreground cycle, so `resize` returns early while the drawables
+            // behind the layer are gone.
+            renderer.invalidate_surface();
+        }
+        log::info!("graphics restored; swapchain reconfigures on the next frame");
     }
 
     /// Frames emulated in the current session.
@@ -240,6 +350,47 @@ impl ContinuumEngine {
 
     pub fn resident_core_count(&self) -> u32 {
         self.lock().resident_core_count() as u32
+    }
+
+    // -------------------------------------------------------------- declaration
+
+    /// Registers a core the app can later load.
+    ///
+    /// Required before [`Self::load_native_core`], which refuses anything undeclared rather
+    /// than inventing a descriptor — the declaration is the authority on geometry, and a
+    /// session started against invented numbers would silently correct itself one frame in.
+    pub fn declare_core(&self, declaration: CoreDeclaration) -> Result<(), EngineError> {
+        let pixel_format = crate::frame::PixelFormat::from_u32(declaration.pixel_format)
+            .ok_or_else(|| EngineError::Other {
+                reason: format!("unknown pixel format {}", declaration.pixel_format),
+            })?;
+
+        let descriptor = crate::cores::CoreDescriptor {
+            id: declaration.id,
+            display_name: declaration.display_name,
+            systems: declaration.systems,
+            geometry: crate::frame::FrameGeometry::new(
+                declaration.base_width,
+                declaration.base_height,
+                declaration.aspect_ratio,
+            )
+            .with_max(declaration.max_width, declaration.max_height),
+            target_fps: declaration.target_fps,
+            audio_sample_rate: declaration.audio_sample_rate,
+            pixel_format,
+            module_url: declaration.module_path,
+            priority: declaration.priority,
+        };
+
+        self.lock().declare_core(descriptor);
+        Ok(())
+    }
+
+    /// `"declared" | "loaded" | "bound" | "failed"`, or `None` if the id is unknown.
+    pub fn core_state(&self, core_id: String) -> Option<String> {
+        self.lock()
+            .core_state(&core_id)
+            .map(|state| state.as_str().to_string())
     }
 
     // ------------------------------------------------------------- native cores
@@ -404,6 +555,17 @@ impl ContinuumEngine {
 }
 
 impl ContinuumEngine {
+    /// Reads the backend handles out of the attached renderer.
+    ///
+    /// Not exported: `MetalHandles` is a graphics-layer type, and UniFFI would need a record
+    /// for it. Swift wants two integers, so it gets two accessors.
+    #[cfg(target_vendor = "apple")]
+    fn metal_handles(&self) -> Option<crate::gfx::metal::MetalHandles> {
+        self.lock()
+            .renderer()
+            .and_then(crate::gfx::metal::metal_handles)
+    }
+
     /// One place that decides what a poisoned lock means.
     ///
     /// Recovered rather than propagated: a panic in one call must not make the engine

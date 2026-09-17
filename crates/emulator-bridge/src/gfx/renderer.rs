@@ -381,6 +381,30 @@ impl Renderer {
         self.convert_scratch = Vec::new();
     }
 
+    /// Forces a swapchain reconfigure before the next present.
+    ///
+    /// The iOS foreground transition needs this. `resize` returns early when the size has
+    /// not changed, and coming back from the background it usually has not — but the
+    /// drawables behind the layer are gone regardless, so without this the first present
+    /// after resuming reconfigures only because it happens to fail first.
+    pub fn invalidate_surface(&mut self) {
+        self.needs_reconfigure = true;
+    }
+
+    /// The wgpu device, for the platform layer that needs the backend object underneath.
+    ///
+    /// `pub(crate)` and deliberately not part of the public surface: `gfx::metal` uses these
+    /// to read the `MTLDevice` back out, and nothing else should reach past the renderer.
+    #[cfg(target_vendor = "apple")]
+    pub(crate) fn wgpu_device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    #[cfg(target_vendor = "apple")]
+    pub(crate) fn wgpu_queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
     /// Presents one frame.
     ///
     /// `frame: None` re-presents the existing texture, which is both the "core

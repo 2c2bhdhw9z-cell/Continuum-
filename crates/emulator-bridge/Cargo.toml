@@ -7,8 +7,11 @@ license.workspace = true
 rust-version.workspace = true
 
 [lib]
-# cdylib -> wasm32 / iOS staticlib. rlib -> host unit tests.
-crate-type = ["cdylib", "rlib"]
+# cdylib -> wasm32, and the dylib UniFFI reads metadata out of (its library mode accepts
+#           only .so/.dll/.dylib — never .a — so the staticlib cannot serve that purpose).
+# staticlib -> what Xcode links into the .app.
+# rlib -> host unit tests.
+crate-type = ["cdylib", "rlib", "staticlib"]
 
 [dependencies]
 bytemuck = { workspace = true }
@@ -44,6 +47,14 @@ wgpu = { workspace = true, features = [
 # web CI are completely untouched by their presence.
 libloading = { version = "0.8", optional = true }
 uniffi = { version = "0.28", optional = true }
+
+# --- Phase 5: Apple targets (iOS device, and macOS for binding generation). ---
+[target.'cfg(target_vendor = "apple")'.dependencies]
+# `Renderer::from_surface` is async because `request_adapter`/`request_device` are. On Metal
+# they resolve without pending, and `attach_metal` is called synchronously from
+# `layoutSubviews`, so the future is driven here rather than making the whole UniFFI surface
+# async. pollster is the smallest correct way to do that: no dependencies of its own.
+pollster = "0.4"
 
 [features]
 default = []

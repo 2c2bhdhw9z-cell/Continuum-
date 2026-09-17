@@ -59,12 +59,25 @@ case "$MODE" in
     SHARED=(-shared)
     ;;
   ios)
-    # Requires a macOS host: MoltenVK supplies both the Vulkan headers and the loader.
-    : "${MOLTENVK:?set MOLTENVK to the MoltenVK.xcframework path}"
+    # Vulkan is *optional* here, and that is deliberate.
+    #
+    # The rotating colour reaches the screen through the software path —
+    # HostStubRenderer writes pixels, the engine uploads them, wgpu composites. That is
+    # the whole of what Phase 5 step 1 completes, and it needs no Vulkan, no MoltenVK and
+    # no ICD. Requiring MoltenVK to build the .ipa would block a working app on a
+    # dependency nothing in it uses yet.
+    #
+    # Set MOLTENVK to also compile VulkanStubRenderer, for when the hardware path lands.
     SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
-    CXXFLAGS+=(-DCONTINUUM_HAVE_VULKAN -isysroot "$SDK"
-               -target arm64-apple-ios16.0 -I"$MOLTENVK/include")
-    SOURCES+=("$HERE/vulkan_stub_renderer.cpp")
+    IOS_MIN="${IOS_MIN:-16.0}"
+    CXXFLAGS+=(-isysroot "$SDK" -target "arm64-apple-ios$IOS_MIN")
+    if [ -n "${MOLTENVK:-}" ] && [ -d "${MOLTENVK}/include" ]; then
+      echo "==> MoltenVK headers from $MOLTENVK/include"
+      CXXFLAGS+=(-DCONTINUUM_HAVE_VULKAN -I"$MOLTENVK/include")
+      SOURCES+=("$HERE/vulkan_stub_renderer.cpp")
+    else
+      echo "==> no MOLTENVK set; software renderer only (this is what step 1 needs)"
+    fi
     LIB="$OUT/libcontinuum_switch.dylib"
     # @rpath, so dlopen resolves inside the bundle. Without this it works in the
     # simulator and fails on device.
@@ -76,8 +89,13 @@ case "$MODE" in
     ;;
 esac
 
+# pthread is part of libSystem on Apple platforms, and `-lpthread` is not reliably
+# resolvable against the iPhoneOS SDK. Elsewhere it has to be named explicitly.
+LINK_LIBS=(-lpthread)
+if [ "$MODE" = "ios" ]; then LINK_LIBS=(); fi
+
 echo "==> building $MODE"
-"$CXX" "${CXXFLAGS[@]}" "${SHARED[@]}" -o "$LIB" "${SOURCES[@]}" -lpthread
+"$CXX" "${CXXFLAGS[@]}" "${SHARED[@]}" -o "$LIB" "${SOURCES[@]}" "${LINK_LIBS[@]}"
 echo "==> $LIB ($(du -h "$LIB" | cut -f1))"
 
 # The harness only makes sense against a loadable library, so it is built for host builds.

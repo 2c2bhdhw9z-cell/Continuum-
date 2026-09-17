@@ -1,5 +1,10 @@
 [workspace]
-members = ["crates/emulator-bridge"]
+members = ["crates/emulator-bridge", "crates/uniffi-bindgen"]
+# The engine is what `cargo build`/`cargo test` with no `-p` should mean. The binding
+# generator is a build-time tool for the iOS pipeline, built explicitly by
+# `native/ios/build-engine.sh`, and keeping it out of the default set means the web CI does
+# not compile clap to deploy a PWA.
+default-members = ["crates/emulator-bridge"]
 resolver = "2"
 
 [workspace.package]

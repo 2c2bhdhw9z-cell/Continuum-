@@ -1,0 +1,140 @@
+name: iOS
+
+# Builds the sideloadable .ipa. Separate from deploy.yml on purpose: that workflow ships the
+# web app and must stay fast, and macOS runners cost ten times what Linux ones do.
+#
+# `workflow_dispatch` is the important trigger here, not `push`. The only machine this
+# project is developed from is a phone, so being able to start a build from the Actions tab
+# and come back to a downloadable artefact *is* the build system.
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - "native/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "scripts/fetch-libretro-headers.sh"
+      - ".github/workflows/ios.yml"
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Everything about the runner that could explain a failure, printed before anything
+      # can fail. Nobody on this project can reproduce a macOS build locally, so the log is
+      # the only diagnostic that exists.
+      - name: Runner and toolchain versions
+        run: |
+          sw_vers
+          echo "--- selected Xcode ---"
+          xcode-select -p
+          xcodebuild -version
+          echo "--- available SDKs ---"
+          xcodebuild -showsdks | sed -n '/iOS/,/^$/p' || true
+          echo "--- clang ---"
+          clang++ --version | head -2
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          # Version, components and targets all come from rust-toolchain.toml — the same
+          # pin the Linux workflow uses, so the engine in the .ipa is built by the compiler
+          # everything else was verified with.
+          rustup toolchain install
+          rustup target add aarch64-apple-ios
+          rustc --version
+          cargo --version
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ios-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: ios-cargo-${{ runner.os }}-
+
+      - name: Install XcodeGen
+        run: |
+          # The .xcodeproj is generated from native/ios/project.yml rather than committed,
+          # because a UUID-keyed pbxproj cannot be reviewed in a diff — and this project has
+          # no Xcode to edit one with.
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Fetch the libretro headers
+        run: |
+          # build.sh normally takes libretro.h from the libretro-common vendored inside the
+          # core sources, which only exist after a wasi-sdk core build. This runner does not
+          # do that, so the headers are fetched. Hand-declaring them is what put two errors
+          # in the design document last time.
+          ./scripts/fetch-libretro-headers.sh
+
+      - name: Build the engine, the wrapper and the UniFFI bindings
+        run: ./native/ios/build-engine.sh
+
+      - name: Show the generated Swift interface
+        run: |
+          # The generated facade is not committed, so this is the only place its shape is
+          # visible. Worth having in the log when a Swift call site disagrees with Rust.
+          echo "--- files ---"
+          ls -la native/ios/build/Generated
+          echo "--- public API surface ---"
+          grep -hE "^\s*(public func|public class|public struct|public enum|open func)" \
+            native/ios/build/Generated/*.swift | sed 's/^\s*/  /' | sort -u || true
+
+      - name: Package the unsigned .ipa
+        run: ./native/ios/package-ipa.sh
+
+      # Fails the job rather than uploading nothing, so a green tick always means there is
+      # an installable file at the end of it.
+      - name: Verify the .ipa
+        run: |
+          IPA=native/ios/build/Continuum.ipa
+          [ -f "$IPA" ] || { echo "::error::no .ipa was produced"; exit 1; }
+
+          SIZE=$(stat -f%z "$IPA")
+          echo "size: $SIZE bytes"
+          [ "$SIZE" -gt 100000 ] || { echo "::error::.ipa is implausibly small ($SIZE bytes)"; exit 1; }
+
+          # The three things that make it installable and useful, checked individually.
+          unzip -l "$IPA" | grep -q "Payload/Continuum.app/Continuum" \
+            || { echo "::error::no executable at Payload/Continuum.app/Continuum"; exit 1; }
+          unzip -l "$IPA" | grep -q "Payload/Continuum.app/Info.plist" \
+            || { echo "::error::no Info.plist in the bundle"; exit 1; }
+          unzip -l "$IPA" | grep -q "libcontinuum_switch.dylib" \
+            || { echo "::error::the libretro wrapper is not embedded; the app would launch and fail to load a core"; exit 1; }
+          echo "ipa verified"
+
+      - name: Upload the .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: Continuum-ipa-${{ github.sha }}
+          path: native/ios/build/Continuum.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      # Uploaded separately because when something *does* go wrong on device, this is what
+      # says why: the entitlements that were embedded and the generated Swift that was
+      # compiled. Both are build outputs that exist nowhere else.
+      - name: Upload build metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-metadata-${{ github.sha }}
+          path: |
+            native/ios/build/Generated/
+            native/ios/project.yml
+          if-no-files-found: warn
+          retention-days: 14

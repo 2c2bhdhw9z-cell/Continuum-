@@ -1,0 +1,25 @@
+[package]
+name = "continuum-uniffi-bindgen"
+description = "The UniFFI binding generator, as its own crate so the iOS build does not compile the engine twice."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+# A separate crate rather than a `[[bin]]` inside emulator-bridge, for two reasons:
+#
+#  - The generator has to run on the *build host* (macOS), while the library it reads is
+#    built for the *device* (aarch64-apple-ios). A bin inside emulator-bridge would make the
+#    host build compile the whole engine — wgpu, Metal backend and all — to produce a tool
+#    that only parses a file.
+#  - `uniffi`'s `cli` feature pulls in clap. Cargo features are additive per crate, so
+#    enabling it on emulator-bridge's dependency would link clap into the iOS staticlib too.
+#
+# This is also the layout UniFFI's own documentation recommends.
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/main.rs"
+
+[dependencies]
+uniffi = { version = "0.28", features = ["cli"] }

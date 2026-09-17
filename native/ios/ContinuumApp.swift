@@ -36,21 +36,50 @@ final class EngineHost: ObservableObject {
     @Published var frameCount: UInt64 = 0
     @Published var displayFps: Double = 0
     @Published var dropped: UInt32 = 0
-    @Published var status: String = "starting"
+    @Published var status: String = "waiting for the surface"
+    @Published var gpu: String = ""
+
+    private var started = false
+
+    /// The stub wrapper's own numbers, from `native/switch-wrapper/stub_engine.h` and the
+    /// `ScreenInfo` the C++ reports through `retro_get_system_av_info`. They have to agree:
+    /// the declaration sizes the GPU texture, and the engine trusts it over the core.
+    private enum Stub {
+        static let coreId = "switch-stub"
+        static let library = "libcontinuum_switch.dylib"
+        static let width: UInt32 = 1280
+        static let height: UInt32 = 720
+        static let maxWidth: UInt32 = 1920
+        static let maxHeight: UInt32 = 1080
+        static let fps = 60.0
+        static let sampleRate: UInt32 = 48000
+        // The stub's software renderer writes bytes in R,G,B,A order, so it is declared
+        // RGBA8888 (2) and uploaded without conversion. Worth knowing that this is *not* one
+        // of libretro's three software formats — a real core would use XRGB8888, which is
+        // byte order B,G,R,X. The stub gets away with it because the same code produces and
+        // checks the colour, and because its real purpose is the hardware path.
+        static let pixelFormat: UInt32 = 2
+    }
 
     init() {
         engine = ContinuumEngine()
     }
 
-    /// Loads the stub wrapper and starts a session.
+    /// Starts the session. Called only once the renderer exists.
     ///
-    /// The wrapper is `dlopen`ed from the bundle's Frameworks directory. Its `RPATH` must be
-    /// `@executable_path/Frameworks` or this resolves in the simulator and fails on device —
-    /// which is a confusing way to lose an afternoon.
-    func launchStub() {
+    /// Ordering is not cosmetic: `launch` fails with `NoRenderer` if the surface has not been
+    /// attached yet, and the attach happens in `layoutSubviews`. Kicking this off from
+    /// `.task` — as this file used to — races that and loses roughly whenever layout is slow.
+    func startSession() {
+        guard !started else { return }
+
         guard let core = Bundle.main.privateFrameworksURL?
-            .appendingPathComponent("libcontinuum_switch.dylib") else {
-            status = "wrapper not found in the bundle"
+            .appendingPathComponent(Stub.library) else {
+            status = "no Frameworks directory in the bundle"
+            return
+        }
+        guard FileManager.default.fileExists(atPath: core.path) else {
+            status = "\(Stub.library) is missing from the bundle"
             return
         }
 
@@ -62,22 +91,54 @@ final class EngineHost: ObservableObject {
 
         let systemDir = FileManager.default.urls(for: .applicationSupportDirectory,
                                                  in: .userDomainMask).first
+
         do {
+            // Declared before loaded, always: `loadNativeCore` refuses an undeclared id
+            // rather than inventing geometry for it.
+            try engine.declareCore(
+                declaration: CoreDeclaration(
+                    id: Stub.coreId,
+                    displayName: "Continuum Switch (stub)",
+                    systems: ["switch"],
+                    modulePath: core.path,
+                    baseWidth: Stub.width,
+                    baseHeight: Stub.height,
+                    maxWidth: Stub.maxWidth,
+                    maxHeight: Stub.maxHeight,
+                    aspectRatio: 16.0 / 9.0,
+                    targetFps: Stub.fps,
+                    audioSampleRate: Stub.sampleRate,
+                    pixelFormat: Stub.pixelFormat,
+                    priority: 0
+                )
+            )
             try engine.loadNativeCore(
-                coreId: "switch-stub",
+                coreId: Stub.coreId,
                 libraryPath: core.path,
                 systemDir: systemDir?.path,
                 saveDir: systemDir?.path
             )
             try engine.launch(
-                coreId: "switch-stub",
+                coreId: Stub.coreId,
                 contentId: "stub",
                 rom: Data(),
                 filename: content.path
             )
+            started = true
             status = "running"
         } catch {
             status = "\(error)"
+        }
+    }
+
+    func surfaceAttached(_ result: Result<String, Error>) {
+        switch result {
+        case .success(let summary):
+            gpu = summary
+            status = "surface ready"
+            startSession()
+        case .failure(let error):
+            status = "attach failed: \(error)"
         }
     }
 }
@@ -97,20 +158,30 @@ struct StubHarnessView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            MetalCanvasView(engine: host.engine) { telemetry in
-                host.frameCount = telemetry.frameCount
-                host.displayFps = telemetry.displayFps
-                host.dropped = telemetry.dropped
-            }
+            MetalCanvasView(
+                engine: host.engine,
+                onAttach: { host.surfaceAttached($0) },
+                onTelemetry: { telemetry in
+                    host.frameCount = telemetry.frameCount
+                    host.displayFps = telemetry.displayFps
+                    host.dropped = telemetry.dropped
+                }
+            )
             .ignoresSafeArea()
 
-            // The HUD is the actual test result: a rotating colour with a frozen frame
-            // counter means the compositor is fine and the gate is not releasing, which is
-            // a different bug from a black screen.
+            // The HUD is the actual test result, and on a sideloaded build with no debugger
+            // it is the only one. Each line distinguishes a different failure:
+            //   - no GPU line          → attachMetal failed; the reason is in `status`
+            //   - GPU but 0 frames     → renderer up, core or gate not producing
+            //   - frames but no colour → compositor or pixel-format problem
+            //   - frozen counter       → the frame gate is not releasing
             VStack(alignment: .leading, spacing: 4) {
-                Text("Continuum · Phase 5 step 10")
+                Text("Continuum · Phase 5 step 1 + 10")
                     .font(.system(.caption, design: .monospaced)).bold()
                 Text(host.status)
+                if !host.gpu.isEmpty {
+                    Text(host.gpu)
+                }
                 Text("\(host.frameCount) frames · \(host.displayFps, specifier: "%.0f") fps"
                      + " · \(host.dropped) dropped")
             }
@@ -121,17 +192,18 @@ struct StubHarnessView: View {
             .padding()
         }
         .background(.black)
-        .task { host.launchStub() }
     }
 }
 
 /// Bridges `MetalCanvas` into SwiftUI, and wires the app lifecycle to it.
 struct MetalCanvasView: UIViewRepresentable {
     let engine: ContinuumEngine
+    let onAttach: (Result<String, Error>) -> Void
     let onTelemetry: (TickTelemetry) -> Void
 
     func makeUIView(context: Context) -> MetalCanvas {
         let canvas = MetalCanvas(engine: engine)
+        canvas.onAttach = onAttach
         canvas.onTelemetry = onTelemetry
         canvas.start()
         context.coordinator.observe(canvas)

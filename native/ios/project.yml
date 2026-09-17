@@ -1,0 +1,79 @@
+# XcodeGen input. `xcodegen generate` turns this into Continuum.xcodeproj.
+#
+# Generated rather than committed, because a .xcodeproj is a UUID-keyed property list that
+# cannot be reviewed in a diff or edited safely without Xcode — and nobody on this project
+# has Xcode. Forty lines of YAML that a tool expands is auditable; 400 lines of pbxproj is
+# not. The generated project is gitignored.
+#
+# Paths are relative to this file (native/ios).
+
+name: Continuum
+options:
+  bundleIdPrefix: dev.continuum
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  # Nothing here is signed by Xcode. The .ipa is signed ad-hoc afterwards and then again by
+  # TrollStore on the device; see package-ipa.sh.
+  defaultConfig: Release
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    ONLY_ACTIVE_ARCH: NO
+    ARCHS: arm64
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGN_ENTITLEMENTS: Continuum.entitlements
+    ENABLE_BITCODE: NO
+    # dlopen of Frameworks/libcontinuum_switch.dylib resolves through this. Without it the
+    # load works in the simulator (which searches differently) and fails on device.
+    LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+
+targets:
+  Continuum:
+    type: application
+    platform: iOS
+    info:
+      path: Info.plist
+    sources:
+      - path: ContinuumApp.swift
+      - path: MetalCanvas.swift
+      # The UniFFI-generated Swift facade. Written by build-engine.sh, never committed: a
+      # stale checked-in binding that disagrees with the Rust compiles, links, and then
+      # corrupts arguments at runtime, which is the worst failure mode in this stack.
+      - path: build/Generated
+        includes:
+          - "*.swift"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.continuum.app
+        PRODUCT_NAME: Continuum
+        # The C header + modulemap UniFFI generated next to the Swift. The modulemap is
+        # renamed to module.modulemap by build-engine.sh so clang finds it by directory.
+        SWIFT_INCLUDE_PATHS: "$(SRCROOT)/build/Generated"
+        HEADER_SEARCH_PATHS: "$(inherited) $(SRCROOT)/build/Generated"
+        LIBRARY_SEARCH_PATHS: "$(inherited) $(SRCROOT)/build/lib"
+        OTHER_LDFLAGS: "$(inherited) -lemulator_bridge -lc++"
+    dependencies:
+      # The C++ libretro wrapper, dlopened at runtime rather than linked. `embed` puts it in
+      # Frameworks/; `codeSign: false` because package-ipa.sh signs everything in one pass
+      # after the fact, and letting Xcode try would fail with signing disabled.
+      - framework: build/lib/libcontinuum_switch.dylib
+        embed: true
+        codeSign: false
+
+# Declared explicitly. XcodeGen only emits a *shared* scheme when one is defined here, and
+# `xcodebuild -scheme` cannot see the non-shared schemes Xcode would otherwise invent on
+# first open — which fails on a CI runner that never opens the project.
+schemes:
+  Continuum:
+    build:
+      targets:
+        Continuum: all
+    run:
+      config: Release
+    archive:
+      config: Release

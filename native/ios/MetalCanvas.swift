@@ -1,13 +1,29 @@
 // Continuum — the one drawing surface, and the one MTLDevice.
 //
-// The architectural rule this file exists to enforce: **Swift creates exactly one
-// MTLDevice and one MTLCommandQueue, and hands them to the engine.** Nothing else in the
-// process calls MTLCreateSystemDefaultDevice(). An iPhone has exactly one GPU, and Metal
-// resources belong to the MTLDevice that created them — so if wgpu, MoltenVK and ANGLE are
-// each handed *this* device rather than making their own, every texture is shareable by
-// construction and the core's frame reaches the compositor with no copy.
+// The architectural rule is unchanged from the design document: **there is exactly one
+// MTLDevice in this process.** An iPhone has one GPU, Metal resources belong to the device
+// that created them, and if wgpu, MoltenVK and ANGLE each made their own, no texture would
+// be shareable and every frame would need a copy.
 //
-// See docs/SET_HW_RENDER_DESIGN.md §2 and §3.
+// What changed is *who creates it*. The blueprint had this file create the device and hand
+// it to the engine. That is not implementable on wgpu 30, and — worse — it would have
+// looked like it worked:
+//
+//   - wgpu's Metal backend has no public constructor that accepts an existing MTLDevice.
+//     The only path from a device to an adapter is private.
+//   - wgpu's `Surface::configure` calls `CAMetalLayer.setDevice` with *its own* device. So
+//     a device assigned here is replaced the moment the engine configures the surface, and
+//     this file would be left holding a device that owns nothing the layer draws.
+//
+// So the device travels the other way: the engine creates it, and this file reads it back
+// with `metalDeviceHandle()`. Nothing here calls MTLCreateSystemDefaultDevice(). The
+// reasoning, with source references, is in crates/emulator-bridge/src/gfx/metal.rs.
+//
+// Because the engine owns the surface, it also owns almost all of the layer's
+// configuration: device, pixelFormat, framebufferOnly, colorspace, maximumDrawableCount,
+// opacity and drawableSize are all set by `configure`. Setting them here would be
+// misleading — they would be overwritten on the first frame. Only the properties wgpu
+// leaves alone are set below.
 
 import Metal
 import QuartzCore
@@ -15,9 +31,16 @@ import UIKit
 
 /// A UIView backed by CAMetalLayer, plus the display link that drives the engine.
 final class MetalCanvas: UIView {
-    // The single device and queue for the whole process.
-    let device: MTLDevice
-    let commandQueue: MTLCommandQueue
+    /// The process's MTLDevice, read back from the engine after `attachMetal`.
+    ///
+    /// Not used for drawing — the engine composites — but it is the handle MoltenVK will be
+    /// initialised on when the Vulkan core path lands, and its `name` is the cheapest proof
+    /// that the graphics chain came up on a real GPU.
+    private(set) var device: MTLDevice?
+
+    /// The engine's MTLCommandQueue. Anything Swift ever submits must use this one, so that
+    /// submissions are ordered against the compositor's rather than racing it.
+    private(set) var commandQueue: MTLCommandQueue?
 
     private var displayLink: CADisplayLink?
     private let engine: ContinuumEngine
@@ -26,19 +49,14 @@ final class MetalCanvas: UIView {
     /// Called once per presented frame with the engine's telemetry, for the HUD.
     var onTelemetry: ((TickTelemetry) -> Void)?
 
+    /// Reports how attaching went, so the harness can show it instead of a black screen.
+    var onAttach: ((Result<String, Error>) -> Void)?
+
     override class var layerClass: AnyClass { CAMetalLayer.self }
 
     private var metalLayer: CAMetalLayer { layer as! CAMetalLayer }
 
     init(engine: ContinuumEngine) {
-        guard let device = MTLCreateSystemDefaultDevice() else {
-            fatalError("Metal is unavailable on this device")
-        }
-        guard let queue = device.makeCommandQueue() else {
-            fatalError("could not create a Metal command queue")
-        }
-        self.device = device
-        self.commandQueue = queue
         self.engine = engine
         super.init(frame: .zero)
         configureLayer()
@@ -48,26 +66,20 @@ final class MetalCanvas: UIView {
     required init?(coder: NSCoder) { fatalError("not supported") }
 
     private func configureLayer() {
-        metalLayer.device = device
-        // BGRA8 to match what the cores render and what the layer wants natively.
-        // Mismatching them costs a conversion pass on every frame.
-        metalLayer.pixelFormat = .bgra8Unorm
-        metalLayer.framebufferOnly = false
-
-        // Two, not the default three. The third buffers throughput we do not need and
-        // costs a frame of latency, which for an emulator is the wrong trade.
-        metalLayer.maximumDrawableCount = 2
-
-        // Pinned to sRGB rather than following the display. Emulated output predates
-        // colour management entirely, and left alone the same ROM looks different on an
-        // XDR panel than on an LCD — a saturated NES red rendered through P3 is not what
-        // the hardware produced.
-        metalLayer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
-        metalLayer.wantsExtendedDynamicRangeContent = false
-
-        // Presented as soon as the frame is ready rather than waiting for the next
-        // Core Animation transaction.
+        // Presented as soon as the frame is ready rather than waiting for the next Core
+        // Animation transaction. wgpu does not touch this.
         metalLayer.presentsWithTransaction = false
+
+        // Everything else that used to be set here — device, pixelFormat, framebufferOnly,
+        // colorspace, maximumDrawableCount — is set by the engine's `Surface::configure`.
+        //
+        // One intent was lost in the move and is worth naming rather than pretending
+        // otherwise: this file used to pin `maximumDrawableCount = 2`, on the argument that
+        // a third drawable buys throughput an emulator does not need at the cost of a frame
+        // of latency. wgpu derives it as `desired_maximum_frame_latency + 1`, and the
+        // renderer asks for 2, so the layer ends up with 3. Changing that means changing
+        // the shared renderer's configuration for the browser too, so it is a measurement
+        // to make on a device rather than a guess to encode here.
     }
 
     // MARK: - Sizing
@@ -84,16 +96,20 @@ final class MetalCanvas: UIView {
 
     /// Keeps the drawable in device pixels rather than points.
     ///
-    /// Without `nativeScale` the image is soft on every device since the 6 Plus, because
-    /// the layer would be rendered at point resolution and then upscaled by the compositor.
+    /// Without `nativeScale` the image is soft on every device since the 6 Plus, because the
+    /// layer would be rendered at point resolution and then upscaled by the compositor.
     private func syncDrawableSize() {
         let scale = window?.screen.nativeScale ?? UIScreen.main.nativeScale
         metalLayer.contentsScale = scale
 
         let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
         guard size.width > 0, size.height > 0 else { return }
-        guard size != metalLayer.drawableSize else { return }
-        metalLayer.drawableSize = size
+
+        // Set before attaching so the first `configure` sees a sane extent. The engine sets
+        // it again from the width/height passed below, to the same values.
+        if size != metalLayer.drawableSize {
+            metalLayer.drawableSize = size
+        }
 
         let width = UInt32(size.width)
         let height = UInt32(size.height)
@@ -105,30 +121,49 @@ final class MetalCanvas: UIView {
         }
     }
 
-    /// Hands the engine the three Metal handles it adopts.
+    /// Hands the engine the layer, then reads the Metal objects it created.
     ///
-    /// `Unmanaged.passUnretained` because these are owned here for the lifetime of the
-    /// view, which outlives the engine's use of them. Passing retained would leak; passing
-    /// a copy is not possible, since the whole point is that there is one device.
+    /// `passUnretained` is correct for the layer: it is owned by this view as its backing
+    /// layer, which outlives the engine's use of it. Passing retained would leak it.
     private func attachEngine(width: UInt32, height: UInt32) {
-        let devicePointer = UInt64(UInt(bitPattern: Unmanaged.passUnretained(device).toOpaque()))
-        let queuePointer = UInt64(UInt(bitPattern: Unmanaged.passUnretained(commandQueue).toOpaque()))
         let layerPointer = UInt64(UInt(bitPattern: Unmanaged.passUnretained(metalLayer).toOpaque()))
 
         do {
-            try engine.attachMetal(
-                device: devicePointer,
-                queue: queuePointer,
-                layer: layerPointer,
-                width: width,
-                height: height
-            )
+            try engine.attachMetal(layer: layerPointer, width: width, height: height)
             attached = true
+            adoptEngineMetalObjects()
+
+            let summary = engine.rendererSummary() ?? "renderer attached"
+            NSLog("[continuum] %@", summary)
+            onAttach?(.success(summary))
         } catch {
-            // Reported rather than fatal: the engine says which stage failed, and a
-            // crash here would hide it behind a stack trace in Metal.
+            // Reported rather than fatal: the engine names the stage that failed, and a
+            // crash here would bury it under a stack trace inside Metal. On a sideloaded
+            // build with no debugger attached, that message is the only diagnostic there is.
             NSLog("[continuum] attachMetal failed: \(error)")
+            onAttach?(.failure(error))
         }
+    }
+
+    /// Reads the engine's MTLDevice and MTLCommandQueue back across the boundary.
+    ///
+    /// `takeUnretainedValue` because Rust owns both for the renderer's lifetime; Swift's own
+    /// strong reference from here is an extra retain, which is harmless and makes the
+    /// ordering between the two sides one less thing to get wrong.
+    private func adoptEngineMetalObjects() {
+        device = Self.object(from: engine.metalDeviceHandle()) as? MTLDevice
+        commandQueue = Self.object(from: engine.metalQueueHandle()) as? MTLCommandQueue
+
+        if device == nil {
+            // Not fatal, but it means the invariant this file exists to enforce is broken:
+            // the engine did not land on the Metal backend, or handed back a null.
+            NSLog("[continuum] warning: engine reported no MTLDevice")
+        }
+    }
+
+    private static func object(from handle: UInt64) -> AnyObject? {
+        guard handle != 0, let raw = UnsafeRawPointer(bitPattern: UInt(handle)) else { return nil }
+        return Unmanaged<AnyObject>.fromOpaque(raw).takeUnretainedValue()
     }
 
     // MARK: - The frame loop
@@ -139,8 +174,8 @@ final class MetalCanvas: UIView {
         guard displayLink == nil else { return }
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
         // Let the system choose within a range rather than pinning 60: a ProMotion display
-        // can run 120 and a thermally throttled device cannot hold 60, and the pacer
-        // handles a variable interval already because it takes a timestamp.
+        // can run 120 and a thermally throttled device cannot hold 60, and the pacer handles
+        // a variable interval already because it takes a timestamp.
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 60)
         link.add(to: .main, forMode: .common)
         displayLink = link
@@ -154,8 +189,8 @@ final class MetalCanvas: UIView {
     @objc private func tick(_ link: CADisplayLink) {
         guard attached else { return }
         // targetTimestamp, not timestamp: the pacer wants when this frame will be *shown*,
-        // not when the callback fired. FramePacer::plan() takes a timestamp for exactly
-        // this reason — it never reads a clock of its own.
+        // not when the callback fired. FramePacer::plan() takes a timestamp for exactly this
+        // reason — it never reads a clock of its own.
         let telemetry = engine.tick(nowMillis: link.targetTimestamp * 1000.0)
         onTelemetry?(telemetry)
     }
