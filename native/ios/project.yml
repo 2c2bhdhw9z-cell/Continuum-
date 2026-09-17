@@ -26,8 +26,11 @@ settings:
     CODE_SIGNING_REQUIRED: NO
     CODE_SIGNING_ALLOWED: NO
     CODE_SIGN_IDENTITY: ""
-    CODE_SIGN_ENTITLEMENTS: Continuum.entitlements
     ENABLE_BITCODE: NO
+    # CODE_SIGN_ENTITLEMENTS is deliberately *not* set. Signing is disabled for this build,
+    # so Xcode would either ignore the key or fail on it; package-ipa.sh attaches
+    # Continuum.entitlements with `codesign --entitlements` afterwards, which is the step
+    # that actually has to embed them for TrollStore to preserve.
     # dlopen of Frameworks/libcontinuum_switch.dylib resolves through this. Without it the
     # load works in the simulator (which searches differently) and fails on device.
     LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
@@ -63,6 +66,11 @@ targets:
       # after the fact, and letting Xcode try would fail with signing disabled.
       - framework: build/lib/libcontinuum_switch.dylib
         embed: true
+        # Copied into Frameworks/ but *not* linked. The engine reaches it through dlopen in
+        # load_native_core, which is the whole point of a core being loadable at runtime. If
+        # it were linked as well, a wrong rpath would stop the app launching at all instead
+        # of surfacing "libcontinuum_switch.dylib is missing" in the HUD.
+        link: false
         codeSign: false
 
 # Declared explicitly. XcodeGen only emits a *shared* scheme when one is defined here, and

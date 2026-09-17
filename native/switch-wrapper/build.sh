@@ -91,11 +91,17 @@ esac
 
 # pthread is part of libSystem on Apple platforms, and `-lpthread` is not reliably
 # resolvable against the iPhoneOS SDK. Elsewhere it has to be named explicitly.
-LINK_LIBS=(-lpthread)
-if [ "$MODE" = "ios" ]; then LINK_LIBS=(); fi
+#
+# Appended to CXXFLAGS rather than kept in a list of its own, because macOS ships bash 3.2,
+# where expanding an empty array under `set -u` is an "unbound variable" error rather than
+# nothing. A `LINK_LIBS=()` that is empty on exactly one platform is a script that works
+# everywhere except the platform it was added for.
+if [ "$MODE" != "ios" ]; then
+  CXXFLAGS+=(-lpthread)
+fi
 
 echo "==> building $MODE"
-"$CXX" "${CXXFLAGS[@]}" "${SHARED[@]}" -o "$LIB" "${SOURCES[@]}" "${LINK_LIBS[@]}"
+"$CXX" "${CXXFLAGS[@]}" "${SHARED[@]}" -o "$LIB" "${SOURCES[@]}"
 echo "==> $LIB ($(du -h "$LIB" | cut -f1))"
 
 # The harness only makes sense against a loadable library, so it is built for host builds.

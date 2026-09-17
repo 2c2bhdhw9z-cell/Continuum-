@@ -35,10 +35,7 @@
 	<!-- A storyboard-free launch screen. Without a UILaunchScreen key iOS falls back to
 	     legacy behaviour and can letterbox the app on modern displays. -->
 	<key>UILaunchScreen</key>
-	<dict>
-		<key>UIColorName</key>
-		<string></string>
-	</dict>
+	<dict/>
 
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
