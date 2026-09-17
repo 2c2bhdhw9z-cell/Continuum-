@@ -1,13 +1,13 @@
 # Continuum — Session Handoff
 
-State of the project at tag `v0.2.0-multicore`, written to be the only document a new
-session needs to read before changing anything.
+State of the project at tag `v0.3.0-snes`, written to be the only document a new session
+needs to read before changing anything.
 
-Continuum is an all-in-one emulator PWA. Three real libretro cores run as standalone
-WebAssembly modules; a Rust engine owns pacing, input, audio and presentation; the
-front end is a strictly virtualised Netflix-style library. The same Rust crate is
-intended to compile for native ARM64 later, which is why so much logic that could have
-lived in JavaScript does not.
+Continuum is an all-in-one emulator PWA. Four real libretro cores run as standalone
+WebAssembly modules — three C, one C++; a Rust engine owns pacing, input, audio and
+presentation; the front end is a strictly virtualised Netflix-style library. The same
+Rust crate is intended to compile for native ARM64 later, which is why so much logic
+that could have lived in JavaScript does not.
 
 ## The five rules everything is built around
 
@@ -77,25 +77,47 @@ layout changes between libretro API revisions (`retro_game_info`,
 `retro_system_av_info`) into plain arrays, keeping the offset arithmetic on the side
 where the compiler checks it. `shim_abi_version` guards against a stale core binary.
 
-Rejected alternatives: patching each core's source (unmaintainable across three cores
-and their upstreams), and building a JS-side function table (does not exist as a
-mechanism).
+Rejected alternatives: patching each core's source (unmaintainable across four cores and
+their upstreams), and building a JS-side function table (does not exist as a mechanism).
 
-### The three cores
+### The four cores
 
-| Core | Systems | Size | Real A/V |
-|---|---|---|---|
-| `fceumm` | nes | 1.68 MB | 256×240, 60.0988 fps, 48000 Hz, RGB565 |
-| `mgba` | gba, gb, gbc | 1.52 MB | 240×160, 59.7275 fps, 65536 Hz, RGB565 |
-| `genesis_plus_gx` | genesis, sms | 2.79 MB | 256×192 (SMS), 59.9227 fps, 44100 Hz, RGB565 |
+| Core | Systems | Lang | Size | Real A/V |
+|---|---|---|---|---|
+| `fceumm` | nes | C | 1.68 MB | 256×240, 60.0988 fps, 48000 Hz, RGB565 |
+| `mgba` | gba, gb, gbc | C | 1.52 MB | 240×160, 59.7275 fps, 65536 Hz, RGB565 |
+| `genesis_plus_gx` | genesis, sms | C | 2.79 MB | 256×192 (SMS), 59.9227 fps, 44100 Hz, RGB565 |
+| `snes9x` | snes | C++ | 3.14 MB | 256×224, 60.0988 fps, 32040 Hz, RGB565 |
 
 `build-core.sh` has two strategies, because libretro cores do not agree on a build
 system:
 
-- **`sources`** — ask the core's own makefile for `SOURCES_C` and compile the list
-  directly (fceumm: 488 objects, genesis_plus_gx: 115).
+- **`sources`** — ask the core's own makefile for `SOURCES_C` *and* `SOURCES_CXX` and
+  compile the lists directly (fceumm: 488 objects, genesis_plus_gx: 115, snes9x: 31 C +
+  24 C++).
 - **`cmake`** — configure with wasi-sdk's toolchain file and build the static library
   target (mgba, which also generates files the build needs).
+
+### C++ cores
+
+Each source is compiled by the driver for its own language, and a core with any C++ is
+*linked* by `clang++` — that is what pulls in `libc++` and `libc++abi`. Object files keep
+their source extension (`cpu.cpp` → `cpu.cpp.o`) so a core carrying both `dsp.c` and
+`dsp.cpp` cannot have one silently overwrite the other.
+
+**Exceptions and RTTI are off and cannot be turned on.** wasi-sdk 25 ships `libc++` and
+`libc++abi` built without the unwinder: `__cxa_throw`, `__cxa_allocate_exception`,
+`__cxa_begin_catch`, `__cxa_end_catch`, `_Unwind_CallPersonality` and
+`__wasm_lpad_context` are all absent from the sysroot. A translation unit containing a
+`throw` or a `try` compiles cleanly and then fails to link, and `-fwasm-exceptions` fails
+identically because it needs the same runtime. This is a property of the SDK rather than
+of wasm — the Exception Handling proposal exists, nobody has built this libc++ against
+it. Enabling them would mean rebuilding libc++ from source.
+
+It has cost nothing so far. Emulator cores are written for consoles where exceptions are
+equally unavailable, and snes9x's own libretro makefile already passes `-fno-rtti
+-fno-exceptions`. The STL itself is fine: `<string>`, `<vector>` and friends link and
+work, they just abort instead of throwing.
 
 ### Per-core traps already paid for
 
@@ -127,6 +149,13 @@ knowing before adding a fourth core:
   Mega Drive, running Z80 bytes on the 68000. The runtime now passes
   `"<name>.<ext>"`, deliberately with no directory component, and `dir` is `""` rather
   than NULL because cores `strncpy` it unconditionally.
+- **`CXX_STD="c++14"` for snes9x.** Its blargg APU code uses C++98 dynamic exception
+  specifications (`throw()` on `operator new`), deprecated in C++17 and removed in
+  C++20. Pin whatever standard the core's own makefile uses rather than inheriting the
+  driver default.
+- **snes9x refuses to load if the host rejects RGB565.** It calls `SET_PIXEL_FORMAT`
+  inside `retro_load_game` and returns `false` on failure, so a host that only accepted
+  XRGB8888 would see "content rejected" with no further explanation.
 
 ### Environment protocol
 
@@ -305,7 +334,7 @@ Measured: 4,800 titles → 105 card nodes and 7 shelf nodes, constant while scro
 ## 4. Memory: `CoreRetention::Drop`
 
 A core is not small. mGBA with a ROM loaded measures **35.4 MB** of linear memory;
-Genesis Plus GX **14.8 MB**; fceumm **5 MB**. Leaking one per system switch exhausts a
+Snes9x **22.2 MB**; Genesis Plus GX **14.8 MB**; fceumm **5 MB**. Leaking one per system switch exhausts a
 phone in a handful of swaps, and iOS terminates on memory pressure rather than paging.
 
 ```rust
@@ -333,14 +362,14 @@ Two mechanisms enforce one-core-at-a-time:
 Because "we called `destroy()`" is not evidence of anything, `core-runtime.js` keeps a
 `FinalizationRegistry` and a `runtimeStats` ledger (`instantiated`, `destroyed`,
 `collected`, `liveBytes`, `peakLiveBytes`, `maxLive`, `live`). The browser test cycles
-NES → GBA → Master System three times and then asserts:
+NES → GBA → Master System → SNES three times and then asserts:
 
-- 12 instantiated, 12 destroyed, 0 live
-- **12 of 12 collected** after a forced GC (`--js-flags=--expose-gc`)
+- 16 instantiated, 16 destroyed, 0 live
+- **16 of 16 collected** after a forced GC (`--js-flags=--expose-gc`)
 - `maxLive === 1` — never two cores alive at any instant
-- engine memory 2.1 MB → 3.1 MB across 9 sessions (wasm memory never shrinks, so the
-  test is that it stops growing; the one-time +1.0 MB is the third core's staging
-  buffer, not per-swap growth)
+- engine memory 4.6 MB → 4.6 MB across 12 sessions. Wasm memory never shrinks, so the
+  test is that growth *stops*; per-session staging buffers are released rather than
+  stacked.
 
 ---
 
@@ -392,21 +421,22 @@ Both write the same preference and then launch, so there is only ever one answer
 ./scripts/build-wasm.sh
 
 # Cores → web/cores/*.wasm   (fetches wasi-sdk 25 into .tools/ on first run)
-./scripts/build-core.sh fceumm | mgba | genesis_plus_gx | all
+./scripts/build-core.sh fceumm | mgba | genesis_plus_gx | snes9x | all
 
 # Test ROMs → web/roms/
 python3 scripts/make-test-rom.py     # nes-testcart.nes  (24592 B)
 ./scripts/make-gba-rom.sh            # gba-testcart.gba  (1144 B)
 python3 scripts/make-sms-rom.py      # sms-testcart.sms  (32768 B)
+python3 scripts/make-snes-rom.py     # snes-testcart.sfc (32768 B)
 
 # Verification, fastest first
 cargo test                           # 70 unit tests
 cargo fmt --all --check
 cargo clippy --all-targets           # zero warnings
-node scripts/core-abi-test.mjs       # 48 checks, 3 cores, no browser
-node scripts/capture-frames.mjs      # docs/frame-{nes,gba,sms}[-a].png
+node scripts/core-abi-test.mjs       # 64 checks, 4 cores, no browser
+node scripts/capture-frames.mjs      # docs/frame-{nes,gba,sms,snes}[-a].png
 
-# Browser suite (58 checks). One shell invocation: /tmp and background jobs
+# Browser suite (60 checks). One shell invocation: /tmp and background jobs
 # do not survive between tool calls.
 node scripts/serve.mjs 8123 &
 PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core \
@@ -428,13 +458,39 @@ from pixels alone:
 | `nes-testcart.nes` | green | red | scroll on Left/Right, 440 Hz APU tone |
 | `gba-testcart.gba` | blue | yellow | marker slides, 440 Hz tone |
 | `sms-testcart.sms` | magenta | cyan | scroll on Right, 440 Hz PSG tone |
+| `snes-testcart.sfc` | white | red | scroll on Right, 440 Hz DSP tone via SPC700 |
 
 That is what makes the hot-swap checks meaningful rather than a matter of trusting
-bookkeeping. The SMS cart is hand-assembled by a small Z80 assembler inside
-`make-sms-rom.py`; note `PROGRAM_ORIGIN = 0x0070`, because the first version laid code
-across `0x0000` and then wrote the NMI handler at `0x0066` on top of its own
-tile-upload loop — the PSG still played, so the cart looked alive while rendering a
-black screen.
+bookkeeping. Each cart is hand-assembled by a small assembler inside its generator
+script — 6502, ARM, Z80 and 65816 respectively. Two traps already paid for:
+
+- **SMS:** `PROGRAM_ORIGIN = 0x0070`, because the first version laid code across
+  `0x0000` and then wrote the NMI handler at `0x0066` on top of its own tile-upload
+  loop. The PSG still played, so the cart looked alive while rendering a black screen.
+- **SNES:** `$2122` (CGDATA) is *one* register written twice, unlike `$2116`/`$2117` and
+  `$2118`/`$2119` which are genuine low/high pairs. A 16-bit store puts the high byte in
+  `$2123`, the window-mask register — half a colour written and the window settings
+  corrupted. Separately, VRAM uploads must be 16-bit stores: with `VMAIN = 0x80` the
+  address increments after the *high* byte write, so a run of 8-bit stores to `$2118`
+  rewrites word zero forever.
+
+### The SNES cart needs two programs
+
+Worth knowing because it is unlike the others: the SNES gives the main CPU no way to
+reach the DSP's registers — they live behind the SPC700's own address space. So the
+cartridge uploads a second program through the APU boot ROM and jumps to it.
+
+`spc_payload()` builds a 269-byte ARAM image: seventeen DSP register writes (each one
+`mov $F2,#reg` then `mov $F3,#val`), a sample directory at a page boundary because the
+`DIR` register is a page *number*, and one looping BRR block holding a 16-sample square
+wave. `emit_apu_upload()` drives the handshake, which is a lockstep mailbox: every byte
+written to `$2141` is acknowledged by the boot ROM echoing a counter back through
+`$2140`, and each stage spins until it sees that echo.
+
+A single wrong constant therefore *hangs* rather than misbehaving, which is why each
+stage records how far it got in direct-page `$10`. A test reads that byte out of work RAM
+via `retro_get_memory_data(RETRO_MEMORY_SYSTEM_RAM)`; `5` means the whole upload
+completed. If SNES audio ever goes silent, read that byte first.
 
 ### Known environment limitation
 
@@ -471,7 +527,7 @@ core-shim/libretro_wasm_shim.c   callback trampolines, compiled into every core
 web/
   index.html  sw.js  manifest.webmanifest
   cores/      manifest.json + the built .wasm cores
-  roms/       the three test carts (+ src/ for the GBA cart)
+  roms/       the four test carts (+ src/ for the GBA cart)
   styles/     tokens.css base.css shell.css library.css player.css
   vendor/     bridge/  ← wasm-bindgen output, generated
   src/
@@ -514,10 +570,9 @@ Worth internalising, because it is the seam every future change crosses:
 
 Nothing is blocked. In rough order of value:
 
-1. **A fourth real core.** `snes9x` is the obvious gap. It is C++, so it needs
-   `libc++`/`libc++abi` from wasi-sdk and exception handling — a new axis for
-   `build-core.sh`, which currently only builds C. `gambatte` is C++ too, and promoting
-   it from placeholder to real would make the `gb` subcore choice a genuine one.
+1. **Promote Gambatte to a real core.** It is C++, and the C++ path exists now, so this
+   is mostly a matter of its flags — and it would turn the `gb`/`gbc` subcore choice from
+   a demonstration into a genuine one. `smsplus` is the same story for `sms`.
 2. **A Mega Drive test cart.** Genesis Plus GX is verified in Master System mode only.
    A 68000 cart would cover the other half of the core, and the extension-driven system
    switch in both directions.
@@ -544,3 +599,6 @@ Nothing is blocked. In rough order of value:
   misidentify the system.
 - Starting the audio graph before the first `await` in the launch path (§2) — moving it
   later leaves iOS silent.
+- The placeholder-core predicate in `smoke-test.mjs`'s offscreen GPU section (§6) — it
+  asks the registry which core would run an entry rather than naming systems to skip. An
+  earlier version excluded `nes` by hand and broke the day SNES got a real core.

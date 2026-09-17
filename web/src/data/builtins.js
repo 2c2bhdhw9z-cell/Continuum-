@@ -10,6 +10,7 @@
  *   NES (fceumm)                  green, red while A is held
  *   GBA (mGBA)                    blue, yellow while A is held
  *   Master System (Genesis Plus)  magenta, cyan while a button is held
+ *   SNES (Snes9x)                 white, red while a button is held
  *
  * These are also what the browser smoke test launches, which means CI exercises the
  * real cores rather than a stand-in.
@@ -47,6 +48,22 @@ const GBA_TEST_CART = {
     'colour is blue where the NES cart is green, so a frame identifies which core drew it.',
 };
 
+const SNES_TEST_CART = {
+  id: 'builtin-snes-testcart',
+  title: 'Continuum Test Cart (SNES)',
+  systemId: 'snes',
+  sizeBytes: 32768,
+  filename: 'snes-testcart.sfc',
+  source: 'builtin',
+  url: './roms/snes-testcart.sfc',
+  blurb:
+    'An original Super Nintendo ROM written for this project, hand-assembled by ' +
+    'scripts/make-snes-rom.py. Runs on the real Snes9x core: hold A or B to repaint the ' +
+    'playfield red, Right to scroll it, and listen for the 440 Hz tone — which the SNES ' +
+    'only makes after the cartridge uploads a program to the sound chip through its boot ' +
+    'ROM, so hearing it means the SPC700 and the DSP are both running.',
+};
+
 const SMS_TEST_CART = {
   id: 'builtin-sms-testcart',
   title: 'Continuum Test Cart (Master System)',
@@ -65,9 +82,15 @@ const SMS_TEST_CART = {
 
 /** Registers built-in content. Idempotent. */
 export function registerBuiltins() {
-  return [addRealEntry(NES_TEST_CART), addRealEntry(GBA_TEST_CART), addRealEntry(SMS_TEST_CART)];
+  return [
+    addRealEntry(NES_TEST_CART),
+    addRealEntry(GBA_TEST_CART),
+    addRealEntry(SMS_TEST_CART),
+    addRealEntry(SNES_TEST_CART),
+  ];
 }
 
 export const TEST_CART_ID = NES_TEST_CART.id;
 export const GBA_TEST_CART_ID = GBA_TEST_CART.id;
 export const SMS_TEST_CART_ID = SMS_TEST_CART.id;
+export const SNES_TEST_CART_ID = SNES_TEST_CART.id;

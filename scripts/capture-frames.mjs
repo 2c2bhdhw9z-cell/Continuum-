@@ -52,6 +52,14 @@ const TARGETS = [
     extension: 'sms',
     scale: 2,
   },
+  {
+    name: 'frame-snes',
+    label: 'SNES / Snes9x',
+    module: 'web/cores/snes9x.wasm',
+    rom: 'web/roms/snes-testcart.sfc',
+    extension: 'sfc',
+    scale: 2,
+  },
 ];
 
 // ------------------------------------------------------------------ PNG writing

@@ -15,7 +15,12 @@
 #   scripts/build-core.sh fceumm           # NES (~1.7 MB)
 #   scripts/build-core.sh mgba             # GBA + GB/GBC (~1.5 MB)
 #   scripts/build-core.sh genesis_plus_gx  # Mega Drive + Master System (~2.8 MB)
+#   scripts/build-core.sh snes9x           # SNES, C++ (~2.5 MB)
 #   scripts/build-core.sh all
+#
+# C and C++ cores are both supported: each source is compiled by the driver for its own
+# language, and a core with any C++ is linked by clang++ so libc++ comes in. See
+# CXX_BASE_FLAGS below for the one real constraint (no exceptions, no RTTI).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -25,6 +30,22 @@ OUT_DIR="$ROOT/web/cores"
 
 WASI_SDK_VERSION="25.0"
 WASI_SDK="$TOOLS/wasi-sdk-${WASI_SDK_VERSION}-x86_64-linux"
+
+# C++ cores compile against wasi-sdk's libc++, with two hard constraints.
+#
+# No exceptions, no RTTI. wasi-sdk 25 ships libc++ and libc++abi built without the
+# unwinder: `__cxa_throw`, `__cxa_allocate_exception`, `__cxa_begin_catch` and
+# `_Unwind_CallPersonality` are all absent from the sysroot, so a translation unit
+# containing a `throw` or a `try` block compiles and then fails to link. `-fwasm-exceptions`
+# does not help — it needs the same missing runtime. This is a property of the SDK, not of
+# wasm: the Exception Handling proposal is available, but nobody has built this libc++
+# against it.
+#
+# In practice that costs nothing here. Emulator cores are written to run on consoles
+# where exceptions are equally unavailable, and snes9x's own libretro makefile already
+# passes -fno-rtti -fno-exceptions. A core that genuinely needed them would need a
+# libc++ rebuilt from source, which is a bigger decision than adding a core.
+CXX_BASE_FLAGS="-fno-exceptions -fno-rtti"
 
 # wasi-libc ships opt-in emulation for the POSIX corners wasm lacks. Cores reach for all
 # of these somewhere, usually in code that DISABLE_THREADING should have removed.
@@ -47,8 +68,10 @@ RETRO_EXPORTS=(
 #
 # Two build strategies, because libretro cores do not agree on a build system:
 #
-#   sources  the core ships a libretro makefile listing SOURCES_C; ask it for the list
-#            and compile the files directly (fceumm and most classic cores).
+#   sources  the core ships a libretro makefile listing its sources; ask it for the
+#            lists and compile the files directly. Both SOURCES_C and SOURCES_CXX are
+#            read, so a mixed C/C++ core (snes9x) needs no special case — each file is
+#            compiled by the driver for its own language.
 #   cmake    the core is CMake-based; configure it with wasi-sdk's toolchain file and
 #            build its static library target, which also generates files the build
 #            needs (mgba's version.c, for instance).
@@ -56,12 +79,15 @@ core_config() {
   # Cleared per core: `build-core.sh all` runs these in one shell, and a stale flag from
   # the previous core is a genuinely confusing failure.
   EXTRA_CFLAGS=""
+  EXTRA_CXXFLAGS=""
   EXTRA_LDFLAGS=""
   EXTRA_LIBS=""
   SOURCE_EXCLUDE=""
   FORCED_HEADER_CONTENT=""
   INCLUDES_FROM_MAKEFILE=0
   LIST_PREAMBLE=""
+  # Language standard for C++ sources. Empty means the driver's default (gnu++17).
+  CXX_STD=""
   case "$1" in
     fceumm)
       REPO="https://github.com/libretro/libretro-fceumm.git"
@@ -125,6 +151,28 @@ core_config() {
       INCLUDES="-I./libretro/deps/libchdr/include -I./libretro/deps/lzma-19.00/include -I./libretro/deps/zlib-1.2.11 -I./libretro/deps/zstd/lib -I./core -I./core/z80 -I./core/m68k -I./core/ntsc -I./core/sound -I./core/sound/minimp3 -I./core/input_hw -I./core/cd_hw -I./core/cart_hw -I./core/cart_hw/svp -I./libretro -I./libretro/libretro-common/include"
       SHIM_INCLUDES="-Ilibretro -Ilibretro/libretro-common/include"
       ;;
+    snes9x)
+      # Mainline snes9x, not snes9x2010. The 2010 fork was converted to C, so it would
+      # not exercise the C++ path at all — and a build strategy no core uses is a
+      # strategy nobody knows is broken. Mainline is also the more accurate emulator.
+      REPO="https://github.com/libretro/snes9x.git"
+      STRATEGY="sources"
+      # Both SOURCES_C (15 files) and SOURCES_CXX (37 files) come from here.
+      LIST_MAKEFILE="libretro/Makefile.common"
+      LIST_PREAMBLE="CORE_DIR := ."
+      # Mirrors the core's own libretro build. STATIC_LINKING keeps it from expecting
+      # to be a shared object; HAVE_STRINGS_H is needed because wasi-libc has it.
+      DEFINES="-D__LIBRETRO__ -DALLOW_CPU_OVERCLOCK -DHAVE_STRINGS_H -DSTATIC_LINKING"
+      INCLUDES="-I. -Ilibretro -Ilibretro/libretro-common/include -Iapu -Iapu/bapu"
+      SHIM_INCLUDES="-Ilibretro -Ilibretro/libretro-common/include"
+      # The blargg APU code uses C++98 dynamic exception specifications (`throw()` on
+      # operator new). Those are deprecated in C++17 and removed in C++20, so pin the
+      # standard the core's own makefile uses rather than inheriting the driver default.
+      CXX_STD="c++14"
+      # GIT_VERSION again: a string literal that does not survive the shell → make →
+      # xargs → clang fan-out. Force-include it instead.
+      FORCED_HEADER_CONTENT='#define GIT_VERSION ""'
+      ;;
     mgba)
       REPO="https://github.com/libretro/mgba.git"
       STRATEGY="cmake"
@@ -162,7 +210,9 @@ ensure_toolchain() {
     rm -f "$TOOLS/wasi-sdk.tar.gz"
   fi
   CC="$WASI_SDK/bin/clang"
+  CXX="$WASI_SDK/bin/clang++"
   [[ -x "$CC" ]] || { echo "error: wasi-sdk clang missing at $CC" >&2; exit 1; }
+  [[ -x "$CXX" ]] || { echo "error: wasi-sdk clang++ missing at $CXX" >&2; exit 1; }
 }
 
 clone_core() {
@@ -186,18 +236,26 @@ $LIST_PREAMBLE
 include $LIST_MAKEFILE
 print:
 	@echo \$(SOURCES_C)
+print-cxx:
+	@echo \$(SOURCES_CXX)
 print-includes:
 	@echo \$(INCFLAGS)
 EOF
-  local sources
+  local sources sources_cxx
   sources=$(make -f "$WORK/list-$core.mk" print 2>/dev/null)
-  [[ -n "$sources" ]] || { echo "error: could not extract SOURCES_C from $LIST_MAKEFILE" >&2; exit 1; }
+  # A core with no C++ leaves SOURCES_CXX undefined, which is not an error.
+  sources_cxx=$(make -f "$WORK/list-$core.mk" print-cxx 2>/dev/null)
+  [[ -n "$sources$sources_cxx" ]] || {
+    echo "error: could not extract SOURCES_C or SOURCES_CXX from $LIST_MAKEFILE" >&2
+    exit 1
+  }
 
   if [[ -n "${SOURCE_EXCLUDE:-}" ]]; then
     local before after
-    before=$(echo "$sources" | wc -w)
+    before=$(( $(echo "$sources" | wc -w) + $(echo "$sources_cxx" | wc -w) ))
     sources=$(printf '%s\n' $sources | grep -Ev "$SOURCE_EXCLUDE" | tr '\n' ' ')
-    after=$(echo "$sources" | wc -w)
+    sources_cxx=$(printf '%s\n' $sources_cxx | grep -Ev "$SOURCE_EXCLUDE" | tr '\n' ' ')
+    after=$(( $(echo "$sources" | wc -w) + $(echo "$sources_cxx" | wc -w) ))
     echo "==> excluded $((before - after)) source(s) matching /$SOURCE_EXCLUDE/"
   fi
 
@@ -217,34 +275,56 @@ EOF
     printf '%s\n' "$FORCED_HEADER_CONTENT" > "$WORK/forced-$core.h"
     forced="-include $WORK/forced-$core.h"
   fi
-  local cflags="--target=wasm32-wasi -O2 -DNDEBUG -fno-strict-aliasing -Wno-everything $WASI_EMULATED_DEFINES $DEFINES $INCLUDES $forced ${EXTRA_CFLAGS:-}"
+  local common="--target=wasm32-wasi -O2 -DNDEBUG -fno-strict-aliasing -Wno-everything $WASI_EMULATED_DEFINES $DEFINES $INCLUDES $forced"
+  local cflags="$common ${EXTRA_CFLAGS:-}"
+  local cxxflags="$common $CXX_BASE_FLAGS ${CXX_STD:+-std=$CXX_STD} ${EXTRA_CXXFLAGS:-}"
 
-  echo "==> compiling $(echo "$sources" | wc -w) core sources"
+  local n_c n_cxx
+  n_c=$(echo "$sources" | wc -w)
+  n_cxx=$(echo "$sources_cxx" | wc -w)
+  if [[ "$n_cxx" -gt 0 ]]; then
+    echo "==> compiling $n_c C + $n_cxx C++ core sources"
+  else
+    echo "==> compiling $n_c core sources"
+  fi
 
-  # Compiled through an exported function rather than by interpolating $cflags into an
+  # Compiled through an exported function rather than by interpolating the flags into an
   # `sh -c` string. That construct silently ran zero commands once the flags grew to
   # include `-mllvm -wasm-enable-sjlj` and a pinned include list — no errors, no objects,
   # and the failure only surfaced at link time. A function takes its arguments as
   # arguments, so nothing depends on quoting surviving three levels of shell.
   export CORE_CC="$CC"
+  export CORE_CXX="$CXX"
   export CORE_CFLAGS="$cflags"
+  export CORE_CXXFLAGS="$cxxflags"
   export CORE_OBJ_DIR="$obj_dir"
   compile_one() {
     local src="$1"
-    local obj
+    local obj driver flags
     # Strip any leading `./` before flattening the path. Genesis-Plus-GX lists its
     # sources as `./core/vdp_ctrl.c`; without this the flattened name is
     # `._core_vdp_ctrl.o`, a dotfile, and every object silently disappears from the
     # link (bash globs do not match leading dots).
-    obj=$(printf '%s' "$src" | sed 's#^\./##' | tr '/' '_' | sed 's/\.c$/.o/')
+    #
+    # The source extension is kept in the object name (`cpu.cpp` → `cpu.cpp.o`) so a
+    # core carrying both `dsp.c` and `dsp.cpp` cannot have one overwrite the other.
+    obj="$(printf '%s' "$src" | sed 's#^\./##' | tr '/' '_').o"
+    case "$src" in
+      *.cpp | *.cc | *.cxx) driver="$CORE_CXX"; flags="$CORE_CXXFLAGS" ;;
+      *) driver="$CORE_CC"; flags="$CORE_CFLAGS" ;;
+    esac
     # shellcheck disable=SC2086
-    "$CORE_CC" $CORE_CFLAGS -c "$src" -o "$CORE_OBJ_DIR/$obj"
+    "$driver" $flags -c "$src" -o "$CORE_OBJ_DIR/$obj"
   }
   export -f compile_one
 
-  printf '%s\n' $sources \
+  printf '%s\n' $sources $sources_cxx \
     | xargs -P "$(nproc)" -I{} bash -c 'compile_one "$@"' _ {} \
     || { echo "error: core compilation failed" >&2; exit 1; }
+
+  # Recorded for the link step: a core with C++ objects must be linked by the C++
+  # driver so that libc++ and libc++abi come in.
+  CORE_HAS_CXX=$([[ "$n_cxx" -gt 0 ]] && echo 1 || echo 0)
 
   # Collected with find rather than a glob so the link list can never be quietly
   # truncated by shell expansion rules. Sorted for a deterministic link order.
@@ -256,10 +336,9 @@ EOF
   # A source list that produced fewer objects than it had entries means some files
   # failed in a way xargs did not propagate. Fail loudly instead of linking a
   # half-built core and debugging it at runtime.
-  local expected
-  expected=$(echo "$sources" | wc -w)
+  local expected=$((n_c + n_cxx))
   if [[ "$built" -ne "$expected" ]]; then
-    echo "error: expected $expected objects from the source list, got $built" >&2
+    echo "error: expected $expected objects from the source lists, got $built" >&2
     exit 1
   fi
 }
@@ -290,10 +369,12 @@ build_cmake_strategy() {
   # The archive alone is enough: the shim references the libretro entry points, which
   # pulls in the object defining them and transitively the rest of the core.
   CORE_OBJECTS=("$build_dir/$CMAKE_ARCHIVE")
+  CORE_HAS_CXX=0
 }
 
 build_core() {
   local core="$1"
+  CORE_HAS_CXX=0
   core_config "$core"
   clone_core "$core"
 
@@ -312,14 +393,25 @@ build_core() {
   local exports=()
   for sym in "${RETRO_EXPORTS[@]}"; do exports+=("-Wl,--export=$sym"); done
 
-  echo "==> linking"
+  # A C++ core is linked by the C++ driver, which is what pulls in libc++ and
+  # libc++abi. Linking C++ objects with plain `clang` produces a wall of undefined
+  # std:: symbols, so this is not a stylistic choice.
+  local link_driver="$CC"
+  local link_lang="C"
+  if [[ "${CORE_HAS_CXX:-0}" == "1" ]]; then
+    link_driver="$CXX"
+    link_lang="C++ (libc++)"
+  fi
+
+  echo "==> linking [$link_lang]"
   # Reactor model: no `main`. The host calls `_initialize` once, then drives the
   # libretro entry points.
   # --strip-debug, not --strip-all: DWARF is a few hundred KB the browser would
   # download and never read, but the `name` section stays so a core that traps
   # produces a readable stack in devtools.
   # shellcheck disable=SC2086
-  $CC --target=wasm32-wasi -mexec-model=reactor -O2 -Wl,--strip-debug ${EXTRA_LDFLAGS:-} \
+  $link_driver --target=wasm32-wasi -mexec-model=reactor -O2 -Wl,--strip-debug \
+    ${EXTRA_LDFLAGS:-} \
     -o "$WORK/$core.wasm" "$shim_obj" "${CORE_OBJECTS[@]}" \
     $WASI_EMULATED_LIBS ${EXTRA_LIBS:-} "${exports[@]}"
 
@@ -353,7 +445,7 @@ build_core() {
 ensure_toolchain
 
 if [[ "${1:-fceumm}" == "all" ]]; then
-  for core in fceumm mgba genesis_plus_gx; do build_core "$core"; done
+  for core in fceumm mgba genesis_plus_gx snes9x; do build_core "$core"; done
 else
   build_core "${1:-fceumm}"
 fi

@@ -36,7 +36,7 @@
       ],
       "priority": 100,
       "module": "./cores/fceumm.wasm",
-      "sizeBytes": 1761665,
+      "sizeBytes": 1761681,
       "targetFps": 60.0988,
       "audioSampleRate": 48000,
       "pixelFormat": "rgb565",
@@ -83,7 +83,7 @@
       ],
       "priority": 100,
       "module": "./cores/genesis_plus_gx.wasm",
-      "sizeBytes": 2920710,
+      "sizeBytes": 2920694,
       "targetFps": 59.9227,
       "audioSampleRate": 44100,
       "pixelFormat": "rgb565",
@@ -144,23 +144,24 @@
     {
       "id": "snes9x",
       "name": "Snes9x",
-      "kind": "placeholder",
+      "kind": "libretro",
       "systems": [
         "snes"
       ],
-      "priority": 10,
-      "module": "./cores/diagnostic-core.wasm",
-      "sizeBytes": 8,
+      "priority": 100,
+      "module": "./cores/snes9x.wasm",
+      "sizeBytes": 3288824,
       "targetFps": 60.0988,
       "audioSampleRate": 32040,
-      "pixelFormat": "xrgb8888",
+      "pixelFormat": "rgb565",
       "geometry": {
         "baseWidth": 256,
         "baseHeight": 224,
-        "maxWidth": 512,
-        "maxHeight": 480,
+        "maxWidth": 1024,
+        "maxHeight": 478,
         "aspectRatio": 1.3333333
-      }
+      },
+      "notes": "Built from libretro/snes9x — the first C++ core, compiled with clang++ against wasi-sdk's libc++ and linked by the C++ driver. Real emulation. The max geometry is the core's own: 1024x478 covers hi-res and interlaced modes, so the video staging buffer is sized for them once rather than being resized mid-session."
     },
     {
       "id": "mupen64plus",

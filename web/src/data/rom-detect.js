@@ -18,6 +18,7 @@ const EXTENSION_MAP = {
   sfc: 'snes',
   smc: 'snes',
   fig: 'snes',
+  swc: 'snes',
   gb: 'gb',
   gbc: 'gbc',
   gba: 'gba',

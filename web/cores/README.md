@@ -15,14 +15,16 @@ sources. Build them with `scripts/build-core.sh <name>`.
 | `libretro` | A real core, built by `scripts/build-core.sh`. The JS runtime instantiates it as its own wasm module and hands Rust a handle. |
 | `placeholder` | Bytes go to Rust, which substitutes its diagnostic pattern core. Geometry and timing in the manifest are still the system's real values, so the pacer and renderer are configured correctly. |
 
-Today `fceumm` (NES), `mgba` (GBA, GB, GBC) and `genesis_plus_gx` (Mega Drive, Master
-System) are `libretro`; the rest are placeholders awaiting the same treatment.
+Today `fceumm` (NES), `mgba` (GBA, GB, GBC), `genesis_plus_gx` (Mega Drive, Master
+System) and `snes9x` (SNES) are `libretro`; the rest are placeholders awaiting the same
+treatment.
 
 ```bash
-scripts/build-core.sh all              # all three real cores
+scripts/build-core.sh all              # all four real cores
 scripts/build-core.sh fceumm           # → web/cores/fceumm.wasm          (1.7 MB)
 scripts/build-core.sh mgba             # → web/cores/mgba.wasm            (1.5 MB)
 scripts/build-core.sh genesis_plus_gx  # → web/cores/genesis_plus_gx.wasm (2.8 MB)
+scripts/build-core.sh snes9x           # → web/cores/snes9x.wasm          (3.1 MB, C++)
 ```
 
 A system may be served by more than one core. `manifest.json` gives each entry a
@@ -55,23 +57,45 @@ fceumm.wasm
   exports  retro_* (17), shim_* (5), memory, malloc, free, _initialize
 ```
 
+Every core has exactly this shape, C or C++.
+
 ## Two build strategies
 
 Libretro cores do not agree on a build system, so `build-core.sh` has two paths:
 
 | Strategy | Used by | How |
 | --- | --- | --- |
-| `sources` | fceumm, Genesis Plus GX | The core ships a libretro makefile listing `SOURCES_C`; ask it for the list and compile those files directly. |
+| `sources` | fceumm, Genesis Plus GX, Snes9x | The core ships a libretro makefile listing `SOURCES_C` and sometimes `SOURCES_CXX`; ask it for both lists and compile those files directly. |
 | `cmake` | mGBA | Configure with wasi-sdk's toolchain file and build the static library target. CMake also generates files the build needs — mGBA's `version.c`, for one. |
 
 Both then link against `core-shim/` and export the same surface.
 
+## C and C++
+
+Each source is compiled by the driver for its own language — `clang` for `.c`,
+`clang++` for `.cpp`/`.cc`/`.cxx` — and a core with any C++ in it is *linked* by
+`clang++`, which is what pulls in `libc++` and `libc++abi`. Nothing else distinguishes a
+C++ core; snes9x needed no special case beyond its flags.
+
+One constraint is worth knowing before adding a C++ core: **exceptions and RTTI are
+off, and cannot be turned on.** wasi-sdk 25 ships `libc++` without the unwinder, so a
+translation unit containing a `throw` or a `try` compiles and then fails to link on
+`__cxa_throw`, `__cxa_begin_catch` and `_Unwind_CallPersonality`. `-fwasm-exceptions`
+needs the same missing runtime. Turning them on would mean rebuilding libc++ from
+source, which is a bigger decision than adding a core — and in practice it has not come
+up, because emulator cores target consoles where exceptions are equally unavailable.
+snes9x's own libretro makefile already passes `-fno-rtti -fno-exceptions`.
+
+If a core uses C++98 dynamic exception specifications (`throw()` on `operator new`,
+which the blargg APU code in snes9x does), pin `CXX_STD` to the standard its own build
+uses: those were deprecated in C++17 and removed in C++20.
+
 mGBA additionally needs wasi-libc's opt-in POSIX emulation (`_WASI_EMULATED_SIGNAL`,
 `_WASI_EMULATED_MMAN`, process clocks, getpid) — `src/core/thread.c` includes
 `signal.h` even with threading disabled — and it imports 19 WASI functions to fceumm's
-12, adding clocks, `environ` and directory calls. Genesis Plus GX imports 14 and needs
-wasm `setjmp`/`longjmp` (`-mllvm -wasm-enable-sjlj` plus `-lsetjmp`) for the Musashi
-68000's address-error traps.
+12, adding clocks, `environ` and directory calls. Genesis Plus GX and Snes9x import 14
+each; Genesis Plus GX also needs wasm `setjmp`/`longjmp` (`-mllvm -wasm-enable-sjlj` plus
+`-lsetjmp`) for the Musashi 68000's address-error traps.
 
 After linking, the script rejects any import outside `host.*` and
 `wasi_snapshot_preview1.*`. A core that reaches for something else is then a build
@@ -108,6 +132,7 @@ of the failures are silent.
 python3 scripts/make-test-rom.py          # web/roms/nes-testcart.nes
 ./scripts/make-gba-rom.sh                 # web/roms/gba-testcart.gba
 python3 scripts/make-sms-rom.py           # web/roms/sms-testcart.sms
+python3 scripts/make-snes-rom.py          # web/roms/snes-testcart.sfc
 node scripts/core-abi-test.mjs            # runs every built core headlessly
 node scripts/core-abi-test.mjs mgba       # or just one
 ```

@@ -192,14 +192,64 @@ const boot = await page.evaluate(() => ({
 // Counted, not hard-coded: the point is that real cores are declared alongside the
 // placeholders and that they claim the systems they can actually run.
 check(
-  'manifest declares all three real cores plus placeholders',
+  'manifest declares all four real cores plus placeholders',
   boot.declared >= 8 &&
-    boot.libretroCores.includes('fceumm') &&
-    boot.libretroCores.includes('mgba') &&
-    boot.libretroCores.includes('genesis_plus_gx'),
+    ['fceumm', 'mgba', 'genesis_plus_gx', 'snes9x'].every((id) =>
+      boot.libretroCores.includes(id),
+    ),
   `${boot.declared} declared; real: ${boot.libretroCores.join(', ')}; ` +
     `systems with real cores: ${boot.systemsWithRealCores.join(', ')}`,
 );
+// The chain a dropped file actually travels: bytes → system → core. Worth asserting
+// end to end, because each link lives somewhere different (header sniffing in
+// rom-detect.js, the system→core mapping in the Rust registry) and nothing else proves
+// they agree.
+const routing = await page.evaluate(async () => {
+  const { detectSystem } = await import('./src/data/rom-detect.js');
+  const loader = window.__continuum.coreLoader;
+  const probe = async (url, filename) => {
+    const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+    const detected = detectSystem(bytes, filename);
+    return {
+      filename,
+      systemId: detected.systemId,
+      confidence: detected.confidence,
+      coreId: detected.systemId ? loader.coreIdFor(detected.systemId) : null,
+    };
+  };
+  return {
+    carts: [
+      await probe('./roms/nes-testcart.nes', 'nes-testcart.nes'),
+      await probe('./roms/gba-testcart.gba', 'gba-testcart.gba'),
+      await probe('./roms/sms-testcart.sms', 'sms-testcart.sms'),
+      await probe('./roms/snes-testcart.sfc', 'snes-testcart.sfc'),
+    ],
+    // Headerless files under the other SNES extensions a real dump might carry.
+    aliases: ['dump.smc', 'dump.swc', 'dump.fig'].map((name) => {
+      const detected = detectSystem(new Uint8Array(64), name);
+      return {
+        name,
+        systemId: detected.systemId,
+        coreId: detected.systemId ? loader.coreIdFor(detected.systemId) : null,
+      };
+    }),
+  };
+});
+
+const expectedRouting = { nes: 'fceumm', gba: 'mgba', sms: 'genesis_plus_gx', snes: 'snes9x' };
+check(
+  'each test cart routes from its bytes to the right real core',
+  routing.carts.every((c) => c.coreId === expectedRouting[c.systemId]),
+  routing.carts
+    .map((c) => `${c.filename} → ${c.systemId} (${c.confidence}) → ${c.coreId}`)
+    .join('; '),
+);
+check(
+  '.smc / .swc / .fig all resolve to the SNES core by extension',
+  routing.aliases.every((a) => a.systemId === 'snes' && a.coreId === 'snes9x'),
+  routing.aliases.map((a) => `${a.name} → ${a.systemId}/${a.coreId}`).join(', '),
+);
+
 check(
   'a system with two cores resolves to the higher priority one, keeping the other available',
   boot.multiCoreSystems.gb?.length === 2 &&
@@ -408,21 +458,38 @@ check(
 // --------------------------------------------------------------- 5. launch path
 
 if (webgpu) {
-  // A synthetic entry on a placeholder-core system: exercises the GPU path without
-  // needing real content. NES is deliberately avoided here — it now runs a real core,
-  // which rightly refuses a catalogue placeholder.
+  // A synthetic entry whose system is served by a *placeholder* core: that exercises
+  // the GPU path without needing real content, because the diagnostic core draws its
+  // pattern from nothing while a real core rightly refuses catalogue noise.
+  //
+  // The predicate asks the registry which core would run the entry rather than naming
+  // systems to avoid. An earlier version excluded 'nes' by hand and then broke the day
+  // SNES got a real core — the property that matters is "is this core a placeholder",
+  // so that is what gets tested.
   const target = await page.evaluate(async () => {
     const { entryAt, catalogSize } = await import('./src/data/catalog.js');
     const { getSystem } = await import('./src/data/systems.js');
+    const loader = window.__continuum.coreLoader;
     for (let i = 0; i < catalogSize; i++) {
       const entry = entryAt(i);
       const system = getSystem(entry.systemId);
-      if (system?.phase === 1 && entry.systemId !== 'nes' && !entry.real) {
-        return { id: entry.id, title: entry.title, systemId: entry.systemId };
-      }
+      if (system?.phase !== 1 || entry.real) continue;
+      const coreId = loader.coreIdFor(entry.systemId);
+      if (!coreId || loader.entryFor(coreId)?.kind === 'libretro') continue;
+      return { id: entry.id, title: entry.title, systemId: entry.systemId, coreId };
     }
     return null;
   });
+  if (!target) {
+    // Cannot happen while any phase-1 system is still served by a placeholder. If it
+    // ever does, these checks need to be repointed at a real cart — they verify blit
+    // orientation, letterbox maths and the whole upload path, so quietly skipping
+    // them would be much worse than stopping here.
+    throw new Error(
+      'no synthetic entry is left on a placeholder core: every phase-1 system now has ' +
+        'a real core, so the offscreen GPU checks need a real cart as their subject',
+    );
+  }
 
   // ---- Pixel pipeline, verified offscreen ------------------------------------
   //
@@ -798,11 +865,12 @@ if (webgpu) {
 // that produced a frame is identifiable from pixels rather than from bookkeeping.
 if (webgpu) {
   const SWAPS = 3;
-  /** One built-in cart per real core, so a round exercises all three. */
+  /** One built-in cart per real core, so a round exercises all four. */
   const SWAP_TARGETS = [
     ['builtin-nes-testcart', 'FCEUmm', 'nes'],
     ['builtin-gba-testcart', 'mGBA', 'gba'],
     ['builtin-sms-testcart', 'Genesis Plus GX', 'sms'],
+    ['builtin-snes-testcart', 'Snes9x', 'snes'],
   ];
   const SESSIONS = SWAPS * SWAP_TARGETS.length;
   const swapLog = [];
@@ -907,7 +975,7 @@ if (webgpu) {
   }
 
   check(
-    `cycled NES → GBA → Master System ${SWAPS}x with one core resident at a time`,
+    `cycled NES → GBA → Master System → SNES ${SWAPS}x with one core resident at a time`,
     swapFailure === null,
     swapFailure ?? swapLog.join(' | '),
   );

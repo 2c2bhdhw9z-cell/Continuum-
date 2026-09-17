@@ -99,6 +99,27 @@ const CORES = [
     buildHint: 'scripts/build-core.sh genesis_plus_gx',
     romHint: 'python3 scripts/make-sms-rom.py',
   },
+  {
+    id: 'snes9x',
+    label: 'SNES',
+    module: 'web/cores/snes9x.wasm',
+    rom: 'web/roms/snes-testcart.sfc',
+    extension: 'sfc',
+    // The first C++ core in the set, so this entry is also the regression test for the
+    // clang++ / libc++ path in build-core.sh: a core whose static constructors never
+    // ran would not get as far as reporting its name.
+    geometry: { width: 256, height: 224 },
+    fps: [59, 61],
+    idle: 'white',
+    pressed: 'red',
+    // Tile rows 0 and 7 are the dark border and survive a horizontal scroll unchanged;
+    // 100 lands on row 4, which has vertical edges to shift.
+    motionScanline: 100,
+    motionButton: BUTTON.RIGHT,
+    motionFrames: 4,
+    buildHint: 'scripts/build-core.sh snes9x',
+    romHint: 'python3 scripts/make-snes-rom.py',
+  },
 ];
 
 let failures = 0;
@@ -158,6 +179,9 @@ function describeColour([r, g, b]) {
   if (r > b + margin && g > b + margin) return 'yellow';
   if (r > g + margin && b > g + margin) return 'magenta';
   if (g > r + margin && b > r + margin) return 'cyan';
+  // Bright with no channel dominating — how the SNES cart idles. Checked last, since
+  // every named hue above is a stronger claim than "no hue".
+  if (r > 90 && g > 90 && b > 90 && Math.max(r, g, b) - Math.min(r, g, b) < 40) return 'white';
   return `mixed(${r},${g},${b})`;
 }
 
