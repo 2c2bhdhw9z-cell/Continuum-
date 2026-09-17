@@ -1,15 +1,24 @@
 /**
  * Save-state index.
  *
- * In-memory for Phase 1, and deliberately generous with counts: a game the user
- * has been savescumming accumulates hundreds of states, which is exactly the case
- * that makes an unvirtualised list collapse. The detail sheet's list is therefore
- * built on the same `VirtualScroller` as the shelves.
+ * Synthetic histories are generated **only for synthetic catalogue entries**, and
+ * deliberately generous with counts: a game someone has been savescumming
+ * accumulates hundreds of states, which is exactly the case that makes an
+ * unvirtualised list collapse. The detail sheet's list is built on the same
+ * `VirtualScroller` as the shelves so that case costs nothing.
  *
- * TODO(phase1b): persist to IndexedDB — metadata in an object store keyed by
- * `[gameId, slot]`, payloads as separate blobs so listing states never
- * deserialises megabytes of state data.
+ * Real content — an imported ROM, or the built-in test cart — starts empty. Showing
+ * invented save states for a ROM the user actually owns would be a lie the UI tells
+ * about their data, and the "Load" button would then fail on states that never
+ * existed.
+ *
+ * TODO(phase1c): persist real states to IndexedDB — metadata in one object store,
+ * payloads in another, so listing never deserialises megabytes of state data. The
+ * in-memory payloads `player-view.js` keeps for the current session are the shape
+ * that store needs.
  */
+
+import { entryById } from './catalog.js';
 
 /** @typedef {{ slot: number, createdAt: number, frame: number, sizeKb: number, auto: boolean }} SaveState */
 
@@ -30,8 +39,17 @@ function makeRandom(seedText) {
   };
 }
 
-/** Synthesises a plausible state history the first time a game is inspected. */
+/**
+ * Builds the initial history the first time a game is inspected: empty for real
+ * content, a plausible synthetic history for catalogue placeholders.
+ */
 function seed(gameId) {
+  if (entryById(gameId)?.real) {
+    const states = [];
+    byGame.set(gameId, states);
+    return states;
+  }
+
   const random = makeRandom(gameId);
   // Most games have none; a few have a lot. That distribution is the point.
   const count =

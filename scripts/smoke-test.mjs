@@ -337,6 +337,18 @@ if (stateProbe) {
   check('save-state list is virtualised', false, 'no game with >120 states found');
 }
 
+// Synthetic histories are a UI fixture. Inventing them for a ROM the user actually
+// owns would be the UI lying about their data — and every "Load" button would fail.
+const realStates = await page.evaluate(async () => {
+  const states = await import('./src/data/save-states.js');
+  return states.countFor('builtin-nes-testcart');
+});
+check(
+  'real content starts with no invented save states',
+  realStates === 0,
+  `${realStates} states for the built-in cart`,
+);
+
 // --------------------------------------------------------------- 5. launch path
 
 if (webgpu) {

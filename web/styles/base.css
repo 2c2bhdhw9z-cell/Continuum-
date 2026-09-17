@@ -35,6 +35,18 @@ select {
   color: inherit;
 }
 
+/*
+ * `[hidden]` must win.
+ *
+ * The UA stylesheet's `[hidden] { display: none }` is a type-less attribute selector,
+ * so any class that sets `display` outranks it — `.btn { display: inline-flex }` alone
+ * is enough to make a hidden button visible. Since half the components here set
+ * `display`, the attribute is only trustworthy with `!important`.
+ */
+[hidden] {
+  display: none !important;
+}
+
 button {
   cursor: pointer;
   border: 0;
