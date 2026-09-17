@@ -128,11 +128,19 @@ jobs:
           fi
 
           if ! git diff --quiet -- web/roms/; then
-            echo "::warning::a regenerated test cart differs from the committed one"
+            echo "::warning::a regenerated cart differs from the committed one (see below)"
             git diff --stat -- web/roms/
           else
             echo "all regenerated carts are byte-identical to the repository"
           fi
+
+          # Restore the committed carts before anything is packaged.
+          #
+          # This step is a check, not a build, and its output must not be what ships:
+          # the GBA cart is compiled, so a different clang version produces different
+          # bytes, and this runner's are bytes no test has ever run. The committed
+          # carts are the ones scripts/core-abi-test.mjs verifies.
+          git checkout -- web/roms/
 
       # --- Sanity check before publishing -------------------------------------
       # Pages will happily deploy a half-built directory. This is the difference
@@ -152,19 +160,36 @@ jobs:
               printf '  MISSING %s\n' "$f"; fail=1
             fi
           done
-          # The manifest's sizeBytes drives the download progress bar, so a stale
-          # value is a visibly wrong UI rather than a broken one — warn, do not fail.
+          # The manifest's sizeBytes only drives the download progress bar, and
+          # core-loader prefers the response's content-length when there is one — so a
+          # stale value is a slightly wrong progress bar, not a broken app.
+          #
+          # Exact equality is not expected and never will be: some cores embed __FILE__
+          # in assertion strings, so the absolute build path ends up in the binary and a
+          # different machine produces a different length. Observed drift between this
+          # runner and a dev sandbox is a few tens of bytes. Only a real change in
+          # magnitude is worth reporting.
           node -e '
             const fs = require("fs");
             const m = JSON.parse(fs.readFileSync("web/cores/manifest.json", "utf8"));
             for (const c of m.cores.filter((c) => c.kind === "libretro")) {
               const actual = fs.statSync("web/cores/" + c.id + ".wasm").size;
-              if (actual !== c.sizeBytes) {
-                console.log(`::warning::manifest sizeBytes for ${c.id} is ${c.sizeBytes}, built ${actual}`);
+              const drift = Math.abs(actual - c.sizeBytes) / c.sizeBytes;
+              if (drift > 0.01) {
+                console.log(`::warning::manifest sizeBytes for ${c.id} is ${c.sizeBytes} but the build is ${actual} (${(drift * 100).toFixed(1)}% off)`);
               }
             }
           '
           exit $fail
+
+      # The cores this runner just built are not the ones tested on a dev machine — they
+      # are compiled by a different toolchain install, and at least two of them embed the
+      # build path. So run the contract suite against these binaries: instantiate each
+      # core, load its cart, and assert on the pixels, audio, input and save states that
+      # come out. About a second, no browser and no GPU, and it is the difference between
+      # deploying four cores and deploying four files.
+      - name: Verify the built cores actually emulate
+        run: node scripts/core-abi-test.mjs
 
       # --- Cache busting ------------------------------------------------------
       # The service worker serves assets cache-first, so the shell cache has to be
