@@ -35,6 +35,19 @@ export class CoreLoader {
     this.host = host;
     /** @type {Map<string, any>} coreId -> manifest entry */
     this.manifest = new Map();
+
+    /**
+     * What each loaded core says it *is*: `coreId -> {id, name, version}`.
+     *
+     * Recorded here because this is the only place it exists. A core reports its own
+     * name and version through `retro_get_system_info`, which the JS runtime reads at
+     * instantiation; Rust keeps the descriptor from the manifest instead, so the
+     * version string would otherwise be logged once and thrown away. Save states are
+     * tagged with it — a state is only meaningful to the build that wrote it.
+     *
+     * @type {Map<string, {id: string, name: string, version: string}>}
+     */
+    this.coreIdentity = new Map();
     /** @type {Map<string, Promise<void>>} In-flight fetches, deduped by core id. */
     this.inFlight = new Map();
 
@@ -135,6 +148,27 @@ export class CoreLoader {
     return this.manifest.get(coreId) ?? null;
   }
 
+  /**
+   * What a core reported about itself, once it has been loaded at least once.
+   *
+   * Falls back to the manifest name and an empty version before first load, so a
+   * caller never has to special-case "not loaded yet" — an empty version simply means
+   * there is nothing to compare against, which `compatibility()` treats as "no
+   * objection from this field".
+   *
+   * @param {string} coreId
+   * @returns {{id: string, name: string, version: string}}
+   */
+  identityFor(coreId) {
+    return (
+      this.coreIdentity.get(coreId) ?? {
+        id: coreId,
+        name: this.manifest.get(coreId)?.name ?? coreId,
+        version: '',
+      }
+    );
+  }
+
   /** Whether a core's module is already instantiated in the registry. */
   isResident(coreId) {
     const state = this.host.bridge?.coreState(coreId);
@@ -175,6 +209,13 @@ export class CoreLoader {
         // handing it to Rust. Rust owns its lifetime, and a stray reference here would
         // keep a core's linear memory alive across a system switch.
         const runtime = await LibretroRuntime.instantiate(bytes, this._coreHooks(), coreId);
+        // Copied out, not held: two short strings, so nothing of the runtime is
+        // retained and a core's memory can still be collected on teardown.
+        this.coreIdentity.set(coreId, {
+          id: coreId,
+          name: runtime.systemInfo.name,
+          version: runtime.systemInfo.version,
+        });
         bridge.attachCoreRuntime(coreId, runtime);
         console.info(
           `[cores] '${coreId}' instantiated: ${runtime.systemInfo.name} ` +
@@ -183,6 +224,15 @@ export class CoreLoader {
       } else {
         // Placeholder entries: Rust validates the module and substitutes its
         // diagnostic core. Same registry, same session lifecycle.
+        //
+        // Tagged 'placeholder' rather than left blank so that a state written against
+        // the diagnostic core can never be mistaken for one from the real core that
+        // eventually replaces it.
+        this.coreIdentity.set(coreId, {
+          id: coreId,
+          name: entry.name ?? coreId,
+          version: 'placeholder',
+        });
         bridge.attachCoreModule(coreId, bytes);
       }
 

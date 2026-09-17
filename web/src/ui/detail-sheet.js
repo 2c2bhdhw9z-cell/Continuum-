@@ -12,7 +12,7 @@ import { artFor, glyphFor, metaLineFor } from '../ui/art.js';
 import { entryById, toggleFavorite } from '../data/catalog.js';
 import { getSystem } from '../data/systems.js';
 import { getCorePreference, setCorePreference } from '../data/core-prefs.js';
-import { formatAge, listFor } from '../data/save-states.js';
+import { formatAge, listFor, autoStateFor } from '../data/save-states.js';
 
 /** Matches `.state-row { height: 52px }`. */
 const ROW_HEIGHT = 52;
@@ -30,9 +30,11 @@ export class DetailSheet {
     onLoadState,
     onDataChanged,
     onRemoveRom,
+    onClearResume,
     scheduler,
     coresForSystem = () => [],
   }) {
+    this.onClearResume = onClearResume;
     this.onLaunch = onLaunch;
     this.onLoadState = onLoadState;
     this.onDataChanged = onDataChanged;
@@ -53,6 +55,9 @@ export class DetailSheet {
     this.coreRow = document.getElementById('detail-core-row');
     this.coreSelect = document.getElementById('detail-core');
     this.coreNote = document.getElementById('detail-core-note');
+    this.resumeRow = document.getElementById('detail-resume');
+    this.resumeDetail = document.getElementById('detail-resume-detail');
+    this.resumeClearBtn = document.getElementById('detail-resume-clear');
 
     /** @type {import('../data/catalog.js').CatalogEntry|null} */
     this.entry = null;
@@ -112,6 +117,12 @@ export class DetailSheet {
       if (!button || !this.entry) return;
       const slot = Number(button.dataset.slot);
       if (Number.isFinite(slot)) this.onLoadState(this.entry.id, slot);
+    });
+
+    this.resumeClearBtn?.addEventListener('click', async () => {
+      if (!this.entry) return;
+      await this.onClearResume?.(this.entry.id);
+      this._syncResume();
     });
 
     this.coreSelect?.addEventListener('change', () => {
@@ -207,8 +218,20 @@ export class DetailSheet {
     row.hidden = false;
     r.slot.textContent = String(state.slot);
     r.when.textContent = `${state.auto ? 'Auto save' : 'Manual save'} · ${formatAge(state.createdAt)}`;
-    r.detail.textContent = `frame ${state.frame.toLocaleString()} · ${state.sizeKb.toFixed(1)} KB`;
+    // Naming the core that wrote it is what lets someone understand a refusal to
+    // load: a state is only meaningful to the build that produced it, and seeing
+    // "Snes9x 1.63" next to a state explains why 1.64 will not take it.
+    const core = state.coreVersion
+      ? ` · ${state.coreName} ${state.coreVersion}`
+      : state.synthetic
+        ? ' · catalogue placeholder'
+        : '';
+    r.detail.textContent =
+      `frame ${state.frame.toLocaleString()} · ${state.sizeKb.toFixed(1)} KB${core}`;
     r.load.dataset.slot = String(state.slot);
+    // An auto-save is restored by launching, so offering "Load" for it inside the
+    // same sheet is a button that duplicates the Play button above it.
+    r.load.hidden = state.auto && !state.synthetic;
   }
 
   // --------------------------------------------------------------- open / close
@@ -253,6 +276,7 @@ export class DetailSheet {
     }
     this._syncFavButton();
     this._syncCorePicker();
+    this._syncResume();
 
     this.statesCountEl.textContent =
       this.states.length === 0 ? 'none yet' : `${this.states.length.toLocaleString()} saved`;
@@ -283,9 +307,34 @@ export class DetailSheet {
     this.favBtn.textContent = fav ? 'Remove from favorites' : 'Add to favorites';
   }
 
+  /**
+   * Shows the resume point, if there is one.
+   *
+   * This row is the only escape from automatic resuming. Launching a game always
+   * restores its checkpoint, so without a way to discard it there would be no way to
+   * start a game over — which is a reasonable thing to want and an unreasonable thing
+   * to make someone clear their browser storage for.
+   */
+  _syncResume() {
+    if (!this.resumeRow) return;
+    const record = this.entry ? autoStateFor(this.entry.id) : null;
+    if (!record) {
+      this.resumeRow.hidden = true;
+      return;
+    }
+    this.resumeRow.hidden = false;
+    const core = record.coreVersion
+      ? `${record.coreName} ${record.coreVersion}`
+      : (record.coreName ?? record.coreId ?? 'unknown core');
+    this.resumeDetail.textContent =
+      `frame ${record.frame.toLocaleString()} · ${record.sizeKb.toFixed(1)} KB · ` +
+      `${formatAge(record.createdAt)} · ${core}`;
+  }
+
   /** Refreshes the list after a new state is written while the sheet is open. */
   reloadStates() {
     if (!this.entry) return;
+    this._syncResume();
     this.states = listFor(this.entry.id);
     this.statesCountEl.textContent = `${this.states.length.toLocaleString()} saved`;
     this.scroller.setCount(this.states.length);

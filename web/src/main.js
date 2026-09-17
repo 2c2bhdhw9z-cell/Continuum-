@@ -23,6 +23,8 @@ import { AudioOutput } from './audio/audio-output.js';
 import { LibraryView } from './ui/library-view.js';
 import { RomImporter } from './ui/rom-import.js';
 import { registerBuiltins } from './data/builtins.js';
+import * as saveStates from './data/save-states.js';
+import { requestPersistentStorage, storageEstimate } from './data/idb.js';
 import { runtimeStats } from './engine/core-runtime.js';
 import { DetailSheet } from './ui/detail-sheet.js';
 import { PlayerView } from './ui/player-view.js';
@@ -74,9 +76,14 @@ const detail = new DetailSheet({
     detail.close();
     void launch(entryId);
   },
-  onLoadState: (gameId, slot) => player.loadState(gameId, slot),
+  onLoadState: (gameId, slot) => void player.loadState(gameId, slot),
   onDataChanged: () => library.refreshData(),
   onRemoveRom: (entryId) => importer.remove(entryId),
+  onClearResume: async (entryId) => {
+    await saveStates.clearAuto(entryId);
+    detail.reloadStates();
+    toast('Resume point cleared', 'This game will start from the beginning.');
+  },
   coresForSystem: (systemId) => coreLoader.coresForSystem(systemId),
 });
 
@@ -117,6 +124,11 @@ const player = new PlayerView({
   input,
   loop: frameLoop,
   onRequestImport: () => importer.openPicker(),
+  onStatesChanged: () => {
+    // The detail sheet is usually closed during play, but if it is open behind the
+    // player its list is now out of date.
+    if (detail.isOpen) detail.reloadStates();
+  },
   onExit: () => {
     // "Continue playing" and the hero reflect what was just played.
     library.refreshData();
@@ -151,6 +163,42 @@ frameLoop.wake(4);
 // Previously imported ROMs are restored asynchronously; the library refreshes when
 // they arrive rather than blocking first paint on IndexedDB.
 void importer.restoreLibrary();
+
+// The save-state index is hydrated the same way: metadata only, so this reads a few
+// kilobytes rather than the megabytes of payload sitting behind it. Once it resolves,
+// `listFor()` answers synchronously, which is what lets the virtualised state list
+// bind rows on the scroll path.
+void (async () => {
+  const { states, games } = await saveStates.hydrate();
+  if (states > 0) {
+    console.info(`[states] ${states} saved state(s) across ${games} game(s) restored`);
+    library.refreshData();
+    if (detail.isOpen) detail.reloadStates();
+  }
+
+  // Asked for once, and only informational: iOS clears non-persistent storage for
+  // sites left unvisited, which for save states means losing progress to inactivity.
+  // Granted silently for installed PWAs, usually refused for a plain tab.
+  const persistent = await requestPersistentStorage();
+  const estimate = await storageEstimate();
+  console.info(
+    `[storage] persistent: ${persistent}` +
+      (estimate
+        ? ` · using ${(estimate.usage / 1048576).toFixed(1)} MB of ` +
+          `${(estimate.quota / 1048576).toFixed(0)} MB`
+        : ''),
+  );
+})();
+
+// Checkpointing the running game. `visibilitychange → hidden` is the load-bearing one
+// on iOS: `pagehide` and `beforeunload` are unreliable there, and a storage write
+// started during teardown may never commit. Backgrounding fires while the page is
+// still alive, so the transaction has time to finish.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') void player.autoSave('hidden', { force: true });
+});
+// Belt and braces for desktop browsers, where this does fire.
+window.addEventListener('pagehide', () => void player.autoSave('pagehide', { force: true }));
 
 // ------------------------------------------------------------------- GPU badge
 

@@ -1,6 +1,6 @@
 # Continuum — Session Handoff
 
-State of the project at tag `v0.3.0-snes`, written to be the only document a new session
+State of the project at tag `v0.4.0-persistence`, written to be the only document a new session
 needs to read before changing anything.
 
 Continuum is an all-in-one emulator PWA. Four real libretro cores run as standalone
@@ -414,6 +414,107 @@ Both write the same preference and then launch, so there is only ever one answer
 
 ---
 
+## 5b. Save states that survive
+
+Persistence is pure JavaScript — no Rust change was needed, because the bridge already
+exposed `saveState()`/`loadState()` and the core's own version string was already read
+by `core-runtime.js` at instantiation.
+
+### Where things live
+
+`idb.js` owns the single IndexedDB connection and the whole schema. That matters: two
+modules opening the same database at different versions is not a subtle bug, it is a
+deadlock, and whichever module loads second stops working. `rom-store.js` and
+`save-states.js` both import from it.
+
+```text
+rom-meta    { id, name, systemId, extension, size, addedAt }
+rom-data    { id, bytes }
+state-meta  { id, gameId, slot, auto, createdAt, frame, sizeKb,
+              coreId, coreName, coreVersion, stateSize, contentId }
+state-data  { id, bytes }
+```
+
+Metadata and payloads are separate stores throughout, and the *metadata* is hydrated
+into memory once at boot while payloads stay on disk. That is what lets `listFor()` be
+synchronous, which it has to be: the state list is a `VirtualScroller` and `bindNode`
+runs on the scroll path, where nothing can be awaited. Metadata is a few dozen bytes per
+state; payloads are 13 KB for the NES and a megabyte for the Mega Drive.
+
+Sharing one database also makes `deleteRom()` able to remove a ROM and its states in a
+single transaction, rather than orphaning megabytes nothing in the UI can reach.
+
+### Why every state is tagged
+
+A libretro save state is an opaque dump of a core's internal structs, meaningful only to
+the same build of the same core. `retro_unserialize` is not versioned and does **not**
+reliably reject a foreign blob — it can succeed into a corrupted machine that breaks
+minutes later somewhere unrelated. So each record carries `coreId`, the core's
+self-reported `coreVersion` and the exact `stateSize`, and `compatibility()` refuses on
+any mismatch instead of hoping the core notices. `describeIncompatibility()` turns each
+refusal into a sentence that says what happened rather than "unknown error".
+
+Placeholder cores are tagged `version: 'placeholder'` so a state written against the
+diagnostic core can never be mistaken for one from the real core that replaces it.
+
+### Never having to press Save
+
+One auto-save per game, keyed `<gameId>:auto`, overwritten in place — a separate key
+namespace from numbered manual slots, so it can never consume a slot the user was using
+and the resume path never has to guess which record is newest.
+
+It is written on three triggers, and the reason there are three is that none of them is
+reliable alone:
+
+| Trigger | Why |
+|---|---|
+| `exit()` | Captures *before* `bridge.stop()`, which frees the core. The capture is synchronous for exactly this reason; only the write is deferred. |
+| `visibilitychange → hidden` | The load-bearing one on iOS, where `pagehide` and `beforeunload` are unreliable. Backgrounding fires while the page is still alive, so the transaction has time to commit. |
+| every 30 s while running | The honest answer to "never lose progress": shutdown hooks cannot be trusted, so the worst case is bounded regardless of how the app goes away. Piggy-backed on the HUD's slow tick, so it cannot fire while the loop is idle or paused. |
+
+Launching restores the checkpoint before the loop starts, so the first frame presented is
+the restored one — restoring a few frames later shows a flash of the game's boot screen,
+which reads as a bug. The detail sheet's resume row is the only way to discard a
+checkpoint, and it exists because otherwise there would be no way to start a game over.
+
+Quota is handled by evicting the oldest *manual* states and retrying once. Auto-saves are
+never evicted: they are the thing standing between the user and lost progress.
+`requestPersistentStorage()` is asked for once at boot, because iOS clears
+non-persistent storage for sites left unvisited — granted silently for installed PWAs,
+usually refused for a plain tab.
+
+---
+
+## 5c. Deployment
+
+`.github/workflows/deploy.yml` builds and publishes to GitHub Pages on every push to
+`master`, plus `workflow_dispatch` so a deploy can be re-run from the Actions tab without
+a commit — which matters when the only device to hand is a phone.
+
+A checkout is **not** deployable on its own: the bridge is generated from the crate and
+the four cores are build outputs this repository does not vendor. The workflow is the
+only thing that produces a complete `web/`.
+
+Three things it gets right that are easy to get wrong:
+
+- **wasm-bindgen-cli is installed at the version read out of `Cargo.lock`**, not
+  hard-coded. A mismatch there produces glue that silently will not load.
+- **The GBA cart must not use the wasi-sdk clang.** That LLVM is built with the
+  WebAssembly backend only and rejects ARM codegen flags outright
+  (`Unknown command line argument '-arm-add-build-attributes'`) — this failed the first
+  run. Ubuntu's clang has every target; only `ld.lld` and `llvm-objcopy` need locating,
+  under the versioned names Ubuntu actually ships.
+- **The service worker cache is keyed to the commit SHA.** Assets are served
+  cache-first, so a shell cache outliving a deploy keeps serving the previous build's
+  JavaScript. CI stamps `VERSION`, and `main.js` reloads once when the new worker takes
+  over — guarded against firing on a first visit, during a running game, or twice.
+
+**Enabling Pages is a one-time manual step** and no token in CI can do it:
+Settings → Pages → Build and deployment → Source: *GitHub Actions*. Until then the build
+succeeds and only the deploy job fails, so the caches stay warm and a re-run is quick.
+
+---
+
 ## 6. Building and verifying
 
 ```bash
@@ -436,7 +537,7 @@ cargo clippy --all-targets           # zero warnings
 node scripts/core-abi-test.mjs       # 64 checks, 4 cores, no browser
 node scripts/capture-frames.mjs      # docs/frame-{nes,gba,sms,snes}[-a].png
 
-# Browser suite (60 checks). One shell invocation: /tmp and background jobs
+# Browser suite (67 checks). One shell invocation: /tmp and background jobs
 # do not survive between tool calls.
 node scripts/serve.mjs 8123 &
 PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core \
@@ -576,17 +677,17 @@ Nothing is blocked. In rough order of value:
 2. **A Mega Drive test cart.** Genesis Plus GX is verified in Master System mode only.
    A 68000 cart would cover the other half of the core, and the extension-driven system
    switch in both directions.
-3. **Save-state persistence to IndexedDB.** States round-trip through the core today
-   but do not survive a reload; `data/save-states.js` and `data/rom-store.js` already
-   have the shape for it.
-4. **Native ARM64.** `EmulatorCore` is the seam: implement it over `dlopen`ed or
+3. **Native ARM64.** `EmulatorCore` is the seam: implement it over `dlopen`ed or
    statically linked cores, swap `AudioSink` for CoreAudio, point `wgpu` at a
    `CAMetalLayer`. `timing.rs`, `input/`, `audio/` and `cores/registry.rs` should need no
    changes. The tokens in `styles/tokens.css` are meant to become a Swift `Theme`
    struct.
-5. **Core options.** `HAVE_NO_LANGEXTRA` is set and `GET_VARIABLE` returns nothing, so
+4. **Core options.** `HAVE_NO_LANGEXTRA` is set and `GET_VARIABLE` returns nothing, so
    every core runs on defaults. Exposing options means a UI, persistence, and deciding
    which of the dozens per core are worth showing.
+5. **A save-state UI beyond the per-game list.** No way to browse states across games,
+   export one, or see what they are costing in storage. `usedBytes()` and
+   `storageEstimate()` are already there for it.
 
 ### Things not to undo
 
@@ -602,3 +703,9 @@ Nothing is blocked. In rough order of value:
 - The placeholder-core predicate in `smoke-test.mjs`'s offscreen GPU section (§6) — it
   asks the registry which core would run an entry rather than naming systems to skip. An
   earlier version excluded `nes` by hand and broke the day SNES got a real core.
+- The synchronous `listFor()` in `save-states.js` (§5b) — making it async would break
+  the virtualised state list, whose `bindNode` cannot await.
+- Capturing the state *before* `bridge.stop()` in `exit()` (§5b) — after `stop()` the
+  core is gone and there is nothing left to serialise.
+- The single IndexedDB opener in `idb.js` (§5b) — a second module opening the same
+  database at its own version deadlocks both.

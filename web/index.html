@@ -250,6 +250,15 @@
             <select id="detail-core"></select>
             <p class="detail__core-note" id="detail-core-note"></p>
           </div>
+          <!-- Shown only when this game has an auto-save, which is also the only
+               way to get rid of one: launching always resumes from it. -->
+          <div class="detail__resume" id="detail-resume" hidden>
+            <div class="detail__resume-text">
+              <p class="detail__resume-title">Resumes automatically</p>
+              <p class="detail__resume-detail" id="detail-resume-detail"></p>
+            </div>
+            <button class="textbtn" id="detail-resume-clear" type="button">Start fresh</button>
+          </div>
           <div class="detail__states">
             <div class="detail__states-head">
               <h3>Save states</h3>

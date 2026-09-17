@@ -1,13 +1,12 @@
 /**
  * Persistent ROM storage, on IndexedDB.
  *
- * Metadata and payloads live in separate object stores on purpose. Listing the
- * library must not deserialise megabytes of ROM data, and Phase 2's disc images are
- * hundreds of megabytes — a single-store design would make opening the library
- * proportional to the size of the collection rather than its length.
+ * The connection, the schema and the version live in `idb.js`, shared with
+ * `save-states.js`: two modules opening the same database at different versions
+ * deadlock, so there is exactly one opener.
  *
  * ```text
- *   rom-meta : { id, name, systemId, extension, size, addedAt, sha1Prefix }
+ *   rom-meta : { id, name, systemId, extension, size, addedAt }
  *   rom-data : { id, bytes }
  * ```
  *
@@ -16,57 +15,16 @@
  * already async and returns `Uint8Array`, so that swap does not reach callers.
  */
 
-const DB_NAME = 'continuum';
-const DB_VERSION = 1;
-const META_STORE = 'rom-meta';
-const DATA_STORE = 'rom-data';
-
-/** @type {Promise<IDBDatabase>|null} */
-let dbPromise = null;
-
-function openDatabase() {
-  if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
-    if (!('indexedDB' in globalThis)) {
-      reject(new Error('IndexedDB is unavailable, so imported ROMs cannot be saved'));
-      return;
-    }
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(META_STORE)) {
-        const meta = db.createObjectStore(META_STORE, { keyPath: 'id' });
-        meta.createIndex('systemId', 'systemId', { unique: false });
-        meta.createIndex('addedAt', 'addedAt', { unique: false });
-      }
-      if (!db.objectStoreNames.contains(DATA_STORE)) {
-        db.createObjectStore(DATA_STORE, { keyPath: 'id' });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('could not open IndexedDB'));
-  });
-  return dbPromise;
-}
-
-/** Wraps a transaction in a promise that settles when it commits. */
-function runTransaction(db, storeNames, mode, work) {
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction(storeNames, mode);
-    let result;
-    transaction.oncomplete = () => resolve(result);
-    transaction.onerror = () => reject(transaction.error);
-    transaction.onabort = () => reject(transaction.error ?? new Error('transaction aborted'));
-    result = work(transaction);
-  });
-}
-
-function requestToPromise(request) {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
+import {
+  ROM_META as META_STORE,
+  ROM_DATA as DATA_STORE,
+  STATE_META,
+  STATE_DATA,
+  openDatabase,
+  runTransaction,
+  requestToPromise,
+  toBytes,
+} from './idb.js';
 
 /**
  * Stores a ROM. Metadata and payload are written in one transaction, so a failure
@@ -102,8 +60,7 @@ export async function getRomBytes(id) {
     db.transaction(DATA_STORE, 'readonly').objectStore(DATA_STORE).get(id),
   );
   if (!record) return null;
-  // Records round-trip as ArrayBuffer in some engines and Uint8Array in others.
-  return record.bytes instanceof Uint8Array ? record.bytes : new Uint8Array(record.bytes);
+  return toBytes(record.bytes);
 }
 
 /** @returns {Promise<object[]>} metadata only, newest first. */
@@ -115,12 +72,36 @@ export async function listRoms() {
   return (all ?? []).sort((a, b) => b.addedAt - a.addedAt);
 }
 
+/**
+ * Deletes a ROM and everything saved against it.
+ *
+ * The save states go in the same transaction. Sharing one database is what makes
+ * that possible: deleting a ROM but leaving its states behind would orphan megabytes
+ * that nothing in the UI can ever reach or remove.
+ */
 export async function deleteRom(id) {
   const db = await openDatabase();
-  await runTransaction(db, [META_STORE, DATA_STORE], 'readwrite', (transaction) => {
-    transaction.objectStore(META_STORE).delete(id);
-    transaction.objectStore(DATA_STORE).delete(id);
-  });
+  const stateIds = await requestToPromise(
+    db
+      .transaction(STATE_META, 'readonly')
+      .objectStore(STATE_META)
+      .index('gameId')
+      .getAllKeys(id),
+  );
+  await runTransaction(
+    db,
+    [META_STORE, DATA_STORE, STATE_META, STATE_DATA],
+    'readwrite',
+    (transaction) => {
+      transaction.objectStore(META_STORE).delete(id);
+      transaction.objectStore(DATA_STORE).delete(id);
+      for (const stateId of stateIds ?? []) {
+        transaction.objectStore(STATE_META).delete(stateId);
+        transaction.objectStore(STATE_DATA).delete(stateId);
+      }
+    },
+  );
+  return (stateIds ?? []).length;
 }
 
 /** Total bytes stored, for a settings screen. */

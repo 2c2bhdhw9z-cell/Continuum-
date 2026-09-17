@@ -701,13 +701,16 @@ if (webgpu) {
     const stateRoundTrip = await page.evaluate(async () => {
       const player = window.__continuum.player;
       const host = window.__continuum.host;
-      const record = player.saveState();
+      // Saving and loading are asynchronous now that states are persisted, so both
+      // have to be awaited — a floating promise here would compare a frame counter
+      // against a state that had not been written yet.
+      const record = await player.saveState();
       if (!record) return { ok: false, reason: 'save returned nothing' };
       await new Promise((r) => setTimeout(r, 60));
       const savedAt = host.stats.frameCount;
       await new Promise((r) => setTimeout(r, 300));
       const advanced = host.stats.frameCount;
-      player.loadState(player.entry.id, record.slot);
+      await player.loadState(player.entry.id, record.slot);
       await new Promise((r) => setTimeout(r, 100));
       return { ok: true, slot: record.slot, savedAt, advanced, restored: host.stats.frameCount };
     });
@@ -1393,6 +1396,207 @@ if (webgpu) {
     `${override.instantiated} instantiated, ${override.destroyed} destroyed, ` +
       `${override.live} live, high-water mark ${override.maxLive}`,
   );
+}
+
+// ------------------------------------------------- 5f. save-state persistence
+//
+// The claim is that progress survives closing the app. Testing that properly means
+// proving the bytes reached IndexedDB, not that a Map in memory has an entry — so the
+// index is thrown away and rehydrated from disk through the same code path boot uses,
+// and only then are the records inspected.
+//
+// A page reload would be the most faithful test of all, but it would also reset the
+// runtime counters the leak checks above depend on. Discarding and rehydrating the
+// index exercises everything except `window.load`.
+
+if (webgpu) {
+  const persistence = await page.evaluate(async () => {
+    const states = await import('./src/data/save-states.js');
+    const { player, host } = window.__continuum;
+    const GAME = 'builtin-nes-testcart';
+
+    const waitForRunning = async () => {
+      const deadline = Date.now() + 30_000;
+      while (host.bridge.status !== 'running' && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return host.bridge.status === 'running';
+    };
+
+    // --- write a manual state and an auto state -----------------------------
+    await player.launch(GAME);
+    if (!(await waitForRunning())) return { ok: false, reason: 'first launch never ran' };
+    await new Promise((r) => setTimeout(r, 700));
+
+    const manual = await player.saveState();
+    const frameAtSave = Math.round(host.stats.frameCount);
+    // Kept for the byte-exactness comparison further down. This is the payload as it
+    // existed in memory; everything after the rehydrate step has been through disk.
+    const savedPayload = Array.from(host.bridge.saveState());
+
+    // Let emulation move well past the save point, so a resume is distinguishable
+    // from simply having started the game again.
+    await new Promise((r) => setTimeout(r, 700));
+    const frameAtExit = Math.round(host.stats.frameCount);
+
+    player.exit();
+    // exit() captures synchronously but writes asynchronously; give the transaction
+    // a moment to commit, which is the same race a real app close has.
+    await new Promise((r) => setTimeout(r, 600));
+
+    // --- forget everything, then read it back off disk ----------------------
+    states.__resetIndexForTests();
+    const hydrateResult = await states.hydrate();
+    const rehydrated = states.listFor(GAME);
+    const auto = states.autoStateFor(GAME);
+    const manualAfter = states.manualStatesFor(GAME).filter((s) => !s.synthetic);
+
+    // --- payload really is on disk -----------------------------------------
+    const payload = auto ? await states.payloadFor(GAME, states.AUTO_SLOT) : null;
+
+    // --- compatibility gate -------------------------------------------------
+    const sameCore = auto
+      ? states.compatibility(auto, {
+          coreId: auto.coreId,
+          coreVersion: auto.coreVersion,
+          stateSize: auto.stateSize,
+        })
+      : null;
+    const wrongCore = auto
+      ? states.compatibility(auto, { coreId: 'mgba', coreVersion: '0.11' })
+      : null;
+    const wrongVersion = auto
+      ? states.compatibility(auto, { coreId: auto.coreId, coreVersion: 'not-the-same' })
+      : null;
+    const wrongSize = auto
+      ? states.compatibility(auto, {
+          coreId: auto.coreId,
+          coreVersion: auto.coreVersion,
+          stateSize: (auto.stateSize ?? 0) + 1,
+        })
+      : null;
+
+    // --- resume on launch ---------------------------------------------------
+    await player.launch(GAME);
+    if (!(await waitForRunning())) return { ok: false, reason: 'relaunch never ran' };
+    await new Promise((r) => setTimeout(r, 400));
+    const subtitle = document.getElementById('player-subtitle').textContent;
+    const frameAfterResume = Math.round(host.stats.frameCount);
+    await new Promise((r) => setTimeout(r, 300));
+    const frameStillAdvancing = Math.round(host.stats.frameCount);
+
+    // --- restoring a disk payload is byte-exact -----------------------------
+    //
+    // The strongest available proof that persistence works: pause first, so no frames
+    // run between the load and the capture, then load the manual slot — whose bytes
+    // have been through IndexedDB and back — and re-serialise. A correct restore
+    // reproduces the payload exactly.
+    //
+    // This is what the resume path cannot prove on its own. The NES test cart is so
+    // simple that a fresh boot and an 84-frame-old checkpoint differ by only ~46 of
+    // 13758 bytes, so no byte comparison can distinguish "resumed" from "started
+    // again" — but it can prove that stored bytes land in the core untouched.
+    player.togglePause();
+    await new Promise((r) => setTimeout(r, 120));
+    await player.loadState(GAME, 0);
+    await new Promise((r) => setTimeout(r, 60));
+    const afterLoad = Array.from(host.bridge.saveState());
+    let differingBytes = 0;
+    for (let i = 0; i < Math.max(afterLoad.length, savedPayload.length); i++) {
+      if (afterLoad[i] !== savedPayload[i]) differingBytes++;
+    }
+    player.togglePause();
+
+    player.exit();
+    await new Promise((r) => setTimeout(r, 600));
+
+    return {
+      ok: true,
+      manualSlot: manual?.slot ?? null,
+      frameAtSave,
+      frameAtExit,
+      hydrateResult,
+      rehydratedCount: rehydrated.length,
+      manualCount: manualAfter.length,
+      auto: auto
+        ? {
+            slot: auto.slot,
+            frame: auto.frame,
+            coreId: auto.coreId,
+            coreName: auto.coreName,
+            coreVersion: auto.coreVersion,
+            stateSize: auto.stateSize,
+          }
+        : null,
+      payloadLength: payload?.length ?? 0,
+      gate: {
+        same: sameCore?.ok,
+        wrongCore: wrongCore?.ok,
+        wrongVersion: wrongVersion?.ok,
+        wrongSize: wrongSize?.ok,
+        wrongCoreReason: wrongCore?.reason,
+        wrongVersionReason: wrongVersion?.reason,
+        wrongSizeReason: wrongSize?.reason,
+      },
+      subtitle,
+      frameAfterResume,
+      frameStillAdvancing,
+      differingBytes,
+      payloadBytes: savedPayload.length,
+    };
+  });
+
+  if (!persistence.ok) {
+    check('save states persist to IndexedDB', false, persistence.reason);
+  } else {
+    const p = persistence;
+    check(
+      'a manual save survives the index being discarded and rehydrated from disk',
+      p.manualSlot !== null && p.manualCount >= 1 && p.hydrateResult.states >= 2,
+      `slot ${p.manualSlot} written; after rehydrate: ${p.hydrateResult.states} state(s) ` +
+        `across ${p.hydrateResult.games} game(s), ${p.manualCount} manual`,
+    );
+    check(
+      'exiting auto-saves without anyone pressing Save',
+      p.auto !== null && p.auto.frame >= p.frameAtSave,
+      p.auto
+        ? `auto state at frame ${p.auto.frame} (saved manually at ${p.frameAtSave}, ` +
+            `exited at ${p.frameAtExit})`
+        : 'no auto state was written',
+    );
+    check(
+      'the payload is really on disk, not just its metadata',
+      p.payloadLength > 0 && p.payloadLength === p.auto?.stateSize,
+      `${p.payloadLength} bytes read back, metadata says ${p.auto?.stateSize}`,
+    );
+    check(
+      'states are tagged with the core that wrote them',
+      Boolean(p.auto?.coreId && p.auto?.coreVersion),
+      p.auto ? `${p.auto.coreId} / ${p.auto.coreName} ${p.auto.coreVersion}` : 'untagged',
+    );
+    check(
+      'the compatibility gate accepts its own core and refuses everything else',
+      p.gate.same === true &&
+        p.gate.wrongCore === false &&
+        p.gate.wrongVersion === false &&
+        p.gate.wrongSize === false,
+      `same core ok=${p.gate.same}; different core → ${p.gate.wrongCoreReason}; ` +
+        `different version → ${p.gate.wrongVersionReason}; ` +
+        `different size → ${p.gate.wrongSizeReason}`,
+    );
+    check(
+      'relaunching restores the checkpoint and keeps running',
+      p.subtitle.includes('resumed') && p.frameStillAdvancing > p.frameAfterResume,
+      `subtitle "${p.subtitle}"; emulation advanced ${p.frameAfterResume} → ` +
+        `${p.frameStillAdvancing} frames after resuming`,
+    );
+    check(
+      'a state that has been through IndexedDB restores byte-for-byte',
+      p.differingBytes === 0 && p.payloadBytes > 0,
+      `${p.differingBytes} of ${p.payloadBytes} bytes differ after loading the stored ` +
+        'payload into a paused core',
+    );
+  }
 }
 
 // ---------------------------------------------------- 6. rendering + loop rules

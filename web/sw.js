@@ -57,6 +57,7 @@ const SHELL_ASSETS = [
   './src/data/rom-detect.js',
   './src/data/builtins.js',
   './src/data/core-prefs.js',
+  './src/data/idb.js',
   './src/ui/rom-import.js',
   './src/ui/core-menu.js',
   // All four built-in carts: an offline cold start should be able to launch any of

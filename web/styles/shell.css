@@ -631,3 +631,50 @@
   font-size: var(--fs-xs);
   color: var(--text-faint);
 }
+
+
+/* ------------------------------------------------------ resume point (detail sheet)
+
+   Present only when a game has an auto-save. Launching always restores it, so this
+   row doubles as the only way to discard one and start over. */
+
+.detail__resume {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-4);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--cyan);
+  border-radius: var(--radius-sm);
+  background: rgba(55, 226, 213, 0.07);
+}
+
+.detail__resume[hidden] {
+  display: none !important;
+}
+
+.detail__resume-text {
+  min-width: 0; /* lets the detail line ellipsise instead of stretching the row */
+}
+
+.detail__resume-title {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.detail__resume-detail {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail__resume .textbtn {
+  flex: 0 0 auto;
+}

@@ -49,7 +49,16 @@ export class PlayerView {
    * @param {import('../engine/loop.js').FrameLoop} opts.loop
    * @param {() => void} opts.onExit
    */
-  constructor({ host, coreLoader, audio, input, loop, onExit, onRequestImport }) {
+  constructor({
+    host,
+    coreLoader,
+    audio,
+    input,
+    loop,
+    onExit,
+    onRequestImport,
+    onStatesChanged,
+  }) {
     this.host = host;
     this.coreLoader = coreLoader;
     this.audio = audio;
@@ -58,6 +67,8 @@ export class PlayerView {
     this.onExit = onExit;
     /** Called when a launch fails because the entry has no real ROM. */
     this.onRequestImport = onRequestImport;
+    /** Called after a state is written, so an open detail sheet can refresh. */
+    this.onStatesChanged = onStatesChanged;
 
     this.root = document.getElementById('view-player');
     this.canvas = document.getElementById('gpu-canvas');
@@ -86,18 +97,35 @@ export class PlayerView {
     this._chromeTimer = 0;
     this._launchToken = 0;
 
+    /** Which core is driving the current session, for tagging states. */
+    this._sessionCore = null;
+
+    /** Wall-clock time of the last automatic save, for throttling. */
+    this._lastAutoSave = 0;
+
     /**
-     * Save-state payloads written this session: gameId -> slot -> bytes.
-     *
-     * Phase 1 keeps them in memory so save → load genuinely round-trips through
-     * the Rust core. TODO(phase1b): persist to IndexedDB alongside the metadata in
-     * `save-states.js`, at which point states survive a reload.
+     * Set while an auto-save is in flight so two triggers cannot race into the same
+     * record — `visibilitychange` and `exit` fire together when a PWA is closed.
      */
-    this._statePayloads = new Map();
+    this._autoSaveInFlight = false;
 
     this.tick = this.tick.bind(this);
     this._wire();
   }
+
+  /**
+   * How often emulation is checkpointed while a game runs.
+   *
+   * The promise is that progress is never lost to closing the app, and the honest way
+   * to keep it is not to rely on shutdown hooks: iOS can drop a backgrounded tab
+   * without firing anything reliable, and an IndexedDB write started during teardown
+   * may not commit. A periodic checkpoint makes the worst case bounded — at most this
+   * many seconds — regardless of how the app goes away.
+   *
+   * Thirty seconds is a compromise: a Mega Drive state is a megabyte, and structured-
+   * cloning that has a cost, so this is deliberately not every frame or every second.
+   */
+  static AUTO_SAVE_INTERVAL_MS = 30_000;
 
   _wire() {
     document.getElementById('player-back').addEventListener('click', () => this.exit());
@@ -250,6 +278,11 @@ export class PlayerView {
       // the extension and reject content whose extension they cannot see.
       this.host.bridge.launch(coreId, entry.id, content, contentFilename(entry));
 
+      // Recorded now, while the core that will run this session is known. Save states
+      // are tagged with it, and a state is only meaningful to the build that wrote it.
+      this._sessionCore = this.coreLoader.identityFor(coreId);
+      this._lastAutoSave = Date.now();
+
       // Apply the current control settings to the fresh session.
       this.host.bridge.setScaleMode(document.getElementById('ctl-scale').value);
       this.host.bridge.setFilter(document.getElementById('ctl-filter').value);
@@ -260,6 +293,13 @@ export class PlayerView {
       if (token !== this._launchToken) return;
       this.audio.flush();
 
+      // Resume before the loop starts, so the first frame presented is already the
+      // restored one — restoring after a few frames have run shows a flash of the
+      // game's boot screen, which reads as a bug.
+      this._setLoading(true, 'Restoring…', 'Reading your last checkpoint');
+      const resumed = await this._resumeIfPossible(token);
+      if (token !== this._launchToken) return;
+
       markPlayed(entry.id);
       this._setLoading(false);
       this._startLoop();
@@ -267,7 +307,8 @@ export class PlayerView {
       this.subtitleEl.textContent = coreEntry?.placeholder
         ? `${system?.name ?? entry.systemId} · placeholder core (diagnostic pattern)`
         : `${system?.name ?? entry.systemId} · ${coreEntry?.name ?? coreId}` +
-          (entry.source === 'builtin' ? ' · test cart' : '');
+          (entry.source === 'builtin' ? ' · test cart' : '') +
+          (resumed ? ' · resumed' : '');
       this._syncAudioUi();
       this._showChrome();
     } catch (err) {
@@ -306,6 +347,11 @@ export class PlayerView {
     if (++this._hudTick >= HUD_INTERVAL) {
       this._hudTick = 0;
       this._updateHud(stats);
+      // 5. Periodic checkpoint. Piggy-backed on the HUD's slow tick rather than given
+      // its own timer, so it cannot fire while the loop is idle or a game is paused —
+      // and `autoSave` throttles it to AUTO_SAVE_INTERVAL_MS regardless of how often
+      // it is called. Not awaited: a frame must never wait on storage.
+      if (this.active && !this.paused) void this.autoSave('periodic');
     }
   }
 
@@ -374,23 +420,45 @@ export class PlayerView {
     this.muteBtn.setAttribute('aria-label', muted ? 'Unmute' : 'Mute');
   }
 
-  saveState() {
-    if (!this.active || !this.entry || !this.host.bridge) return;
+  /**
+   * Captures the core's state. Synchronous on purpose: everything asynchronous
+   * happens afterwards, because by the time a teardown path has awaited anything the
+   * core may already have been freed.
+   *
+   * @returns {Uint8Array|null}
+   */
+  _captureState() {
+    if (!this.entry || !this.host.bridge) return null;
+    if (this.host.bridge.status !== 'running' && this.host.bridge.status !== 'paused') {
+      return null;
+    }
     try {
-      const bytes = this.host.bridge.saveState();
-      const record = saveStates.add(this.entry.id, {
-        frame: Math.round(this.host.stats.frameCount),
-        sizeKb: bytes.length / 1024,
+      return this.host.bridge.saveState();
+    } catch (err) {
+      // A core that does not support states is not an error worth interrupting play
+      // for; it just means there is nothing to checkpoint.
+      console.warn('[states] core could not produce a state:', err.message ?? err);
+      return null;
+    }
+  }
+
+  /** Manual save, from the Save state button. */
+  async saveState() {
+    if (!this.active || !this.entry) return null;
+    const bytes = this._captureState();
+    if (!bytes) {
+      toast('Nothing to save', 'This core does not support save states.', { kind: 'warn' });
+      return null;
+    }
+    try {
+      const record = await saveStates.put({
+        gameId: this.entry.id,
+        bytes,
+        frame: this.host.stats.frameCount,
+        core: this._sessionCore ?? { id: 'unknown' },
       });
-
-      let perGame = this._statePayloads.get(this.entry.id);
-      if (!perGame) {
-        perGame = new Map();
-        this._statePayloads.set(this.entry.id, perGame);
-      }
-      perGame.set(record.slot, bytes);
-
-      toast('State saved', `Slot ${record.slot} · ${(bytes.length / 1024).toFixed(1)} KB`);
+      toast('State saved', `Slot ${record.slot} · ${record.sizeKb.toFixed(1)} KB · kept on device`);
+      this.onStatesChanged?.(this.entry.id);
       return record;
     } catch (err) {
       this.host.reportError('Save state failed', err);
@@ -399,23 +467,123 @@ export class PlayerView {
   }
 
   /**
-   * Loads a state written earlier in this session.
+   * Checkpoints the running game into its single auto-save slot.
+   *
+   * @param {string} why for the log, so a lost-progress report can be traced
+   * @param {{force?: boolean}} [options] force skips the interval throttle
+   */
+  async autoSave(why, { force = false } = {}) {
+    if (!this.entry || !this.entry.real) return null;
+    if (this._autoSaveInFlight) return null;
+    const now = Date.now();
+    if (!force && now - this._lastAutoSave < PlayerView.AUTO_SAVE_INTERVAL_MS) return null;
+
+    const bytes = this._captureState();
+    if (!bytes) return null;
+
+    // Claimed before awaiting: `exit()` and `visibilitychange` fire together when a
+    // PWA closes, and two writes to one record is a corrupt record.
+    this._autoSaveInFlight = true;
+    this._lastAutoSave = now;
+    const gameId = this.entry.id;
+    try {
+      const record = await saveStates.put({
+        gameId,
+        bytes,
+        frame: this.host.stats.frameCount,
+        auto: true,
+        core: this._sessionCore ?? { id: 'unknown' },
+      });
+      console.info(`[states] auto-saved ${gameId} at frame ${record.frame} (${why})`);
+      this.onStatesChanged?.(gameId);
+      return record;
+    } catch (err) {
+      // Never interrupt play for this. A failed checkpoint is worth a log and, if
+      // storage is full, one toast — not a modal in the middle of a game.
+      console.warn(`[states] auto-save failed (${why}):`, err.message ?? err);
+      if (String(err?.message ?? '').includes('storage is full')) {
+        toast('Could not auto-save', 'Device storage is full.', { kind: 'warn' });
+      }
+      return null;
+    } finally {
+      this._autoSaveInFlight = false;
+    }
+  }
+
+  /**
+   * Restores the auto-save for the game that just launched, if there is one and it
+   * still matches the core.
+   *
+   * @returns {Promise<boolean>} whether the session was resumed
+   */
+  async _resumeIfPossible(token) {
+    if (!this.entry?.real) return false;
+    const record = saveStates.autoStateFor(this.entry.id);
+    if (!record) return false;
+
+    const verdict = saveStates.compatibility(record, {
+      coreId: this._sessionCore?.id,
+      coreVersion: this._sessionCore?.version,
+      // The length the running core would produce now: the strongest available
+      // check, and the one that catches a layout change with no version bump.
+      stateSize: this._captureState()?.length,
+    });
+    if (!verdict.ok) {
+      toast('Could not resume', saveStates.describeIncompatibility(verdict), {
+        kind: 'warn',
+        ms: 9000,
+      });
+      return false;
+    }
+
+    const bytes = await saveStates.payloadFor(this.entry.id, saveStates.AUTO_SLOT);
+    if (!bytes || token !== this._launchToken) return false;
+    try {
+      this.host.bridge.loadState(bytes);
+      this.audio.flush();
+      toast('Resumed', `Picked up where you left off · frame ${record.frame.toLocaleString()}`);
+      return true;
+    } catch (err) {
+      // The gate passed but the core still refused: report it and carry on from the
+      // start rather than leaving the user on a black screen.
+      console.warn('[states] resume rejected by the core:', err.message ?? err);
+      toast('Could not resume', 'The core rejected the saved state; starting fresh.', {
+        kind: 'warn',
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Loads a stored state into the running session.
    * @param {string} gameId
    * @param {number} slot
    */
-  loadState(gameId, slot) {
-    const bytes = this._statePayloads.get(gameId)?.get(slot);
-    if (!bytes) {
-      // Honest about the Phase 1 limitation rather than failing mysteriously.
-      toast(
-        'State not available',
-        'Only states saved during this session can be loaded; persistence lands with the real cores.',
-        { kind: 'warn' },
-      );
-      return;
-    }
+  async loadState(gameId, slot) {
     if (this.host.bridge?.currentContentId !== gameId) {
       toast('Load that game first', 'States can only be loaded into a running session.', {
+        kind: 'warn',
+      });
+      return;
+    }
+
+    const record = saveStates.listFor(gameId).find((s) => s.slot === slot);
+    const verdict = saveStates.compatibility(record, {
+      coreId: this._sessionCore?.id,
+      coreVersion: this._sessionCore?.version,
+      stateSize: this._captureState()?.length,
+    });
+    if (!verdict.ok) {
+      toast('State not loaded', saveStates.describeIncompatibility(verdict), {
+        kind: 'warn',
+        ms: 9000,
+      });
+      return;
+    }
+
+    const bytes = await saveStates.payloadFor(gameId, slot);
+    if (!bytes) {
+      toast('State not available', 'Its data is no longer stored on this device.', {
         kind: 'warn',
       });
       return;
@@ -423,7 +591,7 @@ export class PlayerView {
     try {
       this.host.bridge.loadState(bytes);
       this.audio.flush();
-      toast('State loaded', `Slot ${slot}`);
+      toast('State loaded', `Slot ${slot} · frame ${record.frame.toLocaleString()}`);
     } catch (err) {
       this.host.reportError('Load state failed', err);
     }
@@ -432,6 +600,11 @@ export class PlayerView {
   // ---------------------------------------------------------------- visibility
 
   exit() {
+    // Checkpoint first. `stop()` ends the session and, under the default retention
+    // policy, frees the core — after that there is nothing left to serialise. The
+    // capture is synchronous for exactly this reason; only the write is deferred.
+    void this.autoSave('exit', { force: true });
+
     this._launchToken++; // Cancels any in-flight launch.
     this.active = false;
     this.paused = false;
@@ -439,6 +612,7 @@ export class PlayerView {
     this.input.releaseTouch();
     this.loop.setEngineActive(false);
     this.host.bridge?.stop();
+    this._sessionCore = null;
     this.host.resetStats();
     this.audio.flush();
     void this.audio.suspend();
