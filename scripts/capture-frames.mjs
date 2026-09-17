@@ -42,6 +42,16 @@ const TARGETS = [
     extension: 'gba',
     scale: 2,
   },
+  {
+    name: 'frame-sms',
+    label: 'Master System / Genesis Plus GX',
+    module: 'web/cores/genesis_plus_gx.wasm',
+    rom: 'web/roms/sms-testcart.sms',
+    // The extension is load-bearing for this core: it is how Genesis Plus GX decides
+    // to be a Master System rather than a Mega Drive.
+    extension: 'sms',
+    scale: 2,
+  },
 ];
 
 // ------------------------------------------------------------------ PNG writing

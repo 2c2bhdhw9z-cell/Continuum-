@@ -84,6 +84,16 @@ pub struct CoreDescriptor {
     pub pixel_format: PixelFormat,
     /// Relative URL / bundle path of the module. Fetched lazily, never at boot.
     pub module_url: String,
+    /// Which core wins when several can run the same system. **Higher wins.**
+    ///
+    /// The relationship between a system and a core is one-to-many: `gb` can be run
+    /// by mGBA or by a dedicated Game Boy core, and neither answer is wrong. Priority
+    /// picks the default without hiding the alternatives, so the UI can offer them and
+    /// the user can override per system.
+    ///
+    /// Ties are broken by core id so the ordering is stable — a list that reshuffles
+    /// between loads is worse than one in a slightly arbitrary order.
+    pub priority: i32,
 }
 
 /// The one seam between the engine and an actual emulator.

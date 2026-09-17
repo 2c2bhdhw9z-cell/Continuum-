@@ -243,6 +243,13 @@
             <button class="btn btn--ghost" id="detail-favorite" type="button">Add to favorites</button>
             <button class="btn btn--ghost" id="detail-remove" type="button" hidden>Remove ROM</button>
           </div>
+          <!-- Shown only when more than one core declares this system. The choice is
+               stored per system, not per game. -->
+          <div class="detail__core" id="detail-core-row" hidden>
+            <label class="detail__core-label" for="detail-core">Core</label>
+            <select id="detail-core"></select>
+            <p class="detail__core-note" id="detail-core-note"></p>
+          </div>
           <div class="detail__states">
             <div class="detail__states-head">
               <h3>Save states</h3>

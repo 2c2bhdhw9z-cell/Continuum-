@@ -187,6 +187,21 @@ impl EmulatorBridge {
         self.registry.core_for_system(system_id)
     }
 
+    /// Every core that can run `system_id`, best first. What the UI offers as
+    /// alternatives when a system has more than one option.
+    pub fn cores_for_system(&self, system_id: &str) -> Vec<&CoreDescriptor> {
+        self.registry.cores_for_system(system_id)
+    }
+
+    /// The core to launch for `system_id`, honouring a user preference if it applies.
+    pub fn resolve_core_for_system(
+        &self,
+        system_id: &str,
+        preferred: Option<&str>,
+    ) -> Option<&CoreDescriptor> {
+        self.registry.resolve_core_for_system(system_id, preferred)
+    }
+
     pub fn resident_core_count(&self) -> usize {
         self.registry.resident_ids().count()
     }
@@ -700,6 +715,7 @@ mod tests {
             audio_sample_rate: 48_000,
             pixel_format: PixelFormat::Rgba8888,
             module_url: format!("/cores/{id}.wasm"),
+            priority: 0,
         }
     }
 

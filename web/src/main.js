@@ -26,6 +26,9 @@ import { registerBuiltins } from './data/builtins.js';
 import { runtimeStats } from './engine/core-runtime.js';
 import { DetailSheet } from './ui/detail-sheet.js';
 import { PlayerView } from './ui/player-view.js';
+import { CoreMenu } from './ui/core-menu.js';
+import { entryById } from './data/catalog.js';
+import { getCorePreference, setCorePreference } from './data/core-prefs.js';
 import { toast } from './ui/toast.js';
 
 const host = new BridgeHost();
@@ -37,6 +40,32 @@ const library = new LibraryView({
   scheduler: frameLoop,
   onOpenDetails: (entryId) => detail.open(entryId),
   onLaunch: (entryId) => launch(entryId),
+  onCoreMenu: (entryId, x, y) => {
+    const entry = entryById(entryId);
+    if (!entry) return false;
+    return coreMenu.open({
+      entryId,
+      systemId: entry.systemId,
+      title: entry.title,
+      x,
+      y,
+    });
+  },
+});
+
+/**
+ * The subcore picker. Choosing a core records the preference for that system and
+ * launches immediately — one stored choice per system, whether it was made here or in
+ * the detail sheet, so there is only ever one answer to "which core will this use".
+ */
+const coreMenu = new CoreMenu({
+  coresForSystem: (systemId) => coreLoader.coresForSystem(systemId),
+  currentCoreId: (systemId) => coreLoader.coreIdFor(systemId, getCorePreference(systemId)),
+  onChoose: (entryId, coreId) => {
+    const entry = entryById(entryId);
+    if (entry) setCorePreference(entry.systemId, coreId);
+    void launch(entryId, { coreId });
+  },
 });
 
 const detail = new DetailSheet({
@@ -48,6 +77,7 @@ const detail = new DetailSheet({
   onLoadState: (gameId, slot) => player.loadState(gameId, slot),
   onDataChanged: () => library.refreshData(),
   onRemoveRom: (entryId) => importer.remove(entryId),
+  coresForSystem: (systemId) => coreLoader.coresForSystem(systemId),
 });
 
 const importer = new RomImporter({
@@ -95,8 +125,8 @@ const player = new PlayerView({
   },
 });
 
-async function launch(entryId) {
-  await player.launch(entryId);
+async function launch(entryId, options) {
+  await player.launch(entryId, options);
   updateCoreStatus();
   // A state saved during play should appear if the sheet is reopened.
   if (detail.isOpen) detail.reloadStates();
@@ -207,5 +237,8 @@ window.__continuum = {
   detail,
   player,
   importer,
+  coreMenu,
   frameLoop,
+  launch,
+  corePrefs: { get: getCorePreference, set: setCorePreference },
 };

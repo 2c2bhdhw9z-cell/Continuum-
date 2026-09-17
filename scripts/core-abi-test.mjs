@@ -11,11 +11,12 @@
  * This is the fast loop. A browser run takes ~25 s and can fail for a dozen unrelated
  * reasons; this takes about a second and only fails when a core contract is broken.
  *
- * The two test ROMs are ours (`scripts/make-test-rom.py`, `scripts/make-gba-rom.sh`) and
- * are written to be asserted against. Crucially they use *different* idle colours —
- * NES green, GBA blue — so a test can identify which core produced a frame from the
- * pixels alone. That is what makes the hot-swap checks in `smoke-test.mjs` meaningful
- * rather than a matter of trusting bookkeeping.
+ * The test ROMs are ours (`scripts/make-test-rom.py`, `scripts/make-gba-rom.sh`,
+ * `scripts/make-sms-rom.py`) and are written to be asserted against. Crucially each
+ * uses a *different* idle colour — NES green, GBA blue, Master System magenta — so a
+ * test can identify which core produced a frame from the pixels alone. That is what
+ * makes the hot-swap checks in `smoke-test.mjs` meaningful rather than a matter of
+ * trusting bookkeeping.
  *
  * Usage:
  *   node scripts/core-abi-test.mjs            # every core with a built module
@@ -76,6 +77,28 @@ const CORES = [
     buildHint: 'scripts/build-core.sh mgba',
     romHint: 'scripts/make-gba-rom.sh',
   },
+  {
+    id: 'genesis_plus_gx',
+    label: 'Master System',
+    module: 'web/cores/genesis_plus_gx.wasm',
+    rom: 'web/roms/sms-testcart.sms',
+    extension: 'sms',
+    // Genesis Plus GX picks its system from the content extension, so this entry is
+    // also the regression test for `full_path` being populated in retro_game_info_ext:
+    // a 256x192 frame means Master System, a 320x224 one means it fell back to Mega
+    // Drive and is running Z80 code on the 68000.
+    geometry: { width: 256, height: 192 },
+    fps: [59, 61],
+    idle: 'magenta',
+    pressed: 'cyan',
+    // Tile rows 0 and 7 are the dark border and are invariant under a horizontal
+    // scroll; 100 lands on row 4, which has vertical edges to shift.
+    motionScanline: 100,
+    motionButton: BUTTON.RIGHT,
+    motionFrames: 4,
+    buildHint: 'scripts/build-core.sh genesis_plus_gx',
+    romHint: 'python3 scripts/make-sms-rom.py',
+  },
 ];
 
 let failures = 0;
@@ -133,6 +156,8 @@ function describeColour([r, g, b]) {
   if (g > r + margin && g > b + margin) return 'green';
   if (b > r + margin && b > g + margin) return 'blue';
   if (r > b + margin && g > b + margin) return 'yellow';
+  if (r > g + margin && b > g + margin) return 'magenta';
+  if (g > r + margin && b > r + margin) return 'cyan';
   return `mixed(${r},${g},${b})`;
 }
 

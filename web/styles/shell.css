@@ -505,3 +505,129 @@
 .detail__provenance[hidden] {
   display: none;
 }
+
+
+/* ------------------------------------------------- subcore picker (detail sheet)
+
+   Shown only when more than one core declares the game's system, so on most
+   systems this row does not exist at all. */
+
+.detail__core {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  margin: 0 0 var(--sp-4);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.detail__core[hidden] {
+  display: none !important;
+}
+
+.detail__core-label {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+
+.detail__core select {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.detail__core-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+/* --------------------------------------------------------- "Play with…" menu
+
+   One element for the page, positioned on open. Fixed rather than absolute so it
+   is unaffected by the scroll container it was summoned from. */
+
+.coremenu {
+  position: fixed;
+  z-index: 60;
+  min-width: 232px;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: var(--sp-2);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-pop);
+}
+
+.coremenu[hidden] {
+  display: none !important;
+}
+
+.coremenu__label {
+  margin: 0;
+  padding: var(--sp-1) var(--sp-2) 0;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+
+.coremenu__title {
+  margin: 0 0 var(--sp-2);
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  /* A long game title must not stretch the menu past its max-width. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coremenu__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.coremenu__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.coremenu__item:hover,
+.coremenu__item:focus-visible {
+  background: var(--surface-hi);
+  outline: none;
+}
+
+.coremenu__item[data-active='true'] {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.coremenu__name {
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.coremenu__note {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}

@@ -12,8 +12,9 @@
 #   wasi_snapshot_preview1.*  file/clock syscalls, stubbed by the JS runtime
 #
 # Usage:
-#   scripts/build-core.sh fceumm     # NES  (~2 MB)
-#   scripts/build-core.sh mgba       # GBA + GB/GBC (~1.9 MB)
+#   scripts/build-core.sh fceumm           # NES (~1.7 MB)
+#   scripts/build-core.sh mgba             # GBA + GB/GBC (~1.5 MB)
+#   scripts/build-core.sh genesis_plus_gx  # Mega Drive + Master System (~2.8 MB)
 #   scripts/build-core.sh all
 set -euo pipefail
 
@@ -52,16 +53,77 @@ RETRO_EXPORTS=(
 #            build its static library target, which also generates files the build
 #            needs (mgba's version.c, for instance).
 core_config() {
+  # Cleared per core: `build-core.sh all` runs these in one shell, and a stale flag from
+  # the previous core is a genuinely confusing failure.
+  EXTRA_CFLAGS=""
+  EXTRA_LDFLAGS=""
+  EXTRA_LIBS=""
+  SOURCE_EXCLUDE=""
+  FORCED_HEADER_CONTENT=""
+  INCLUDES_FROM_MAKEFILE=0
+  LIST_PREAMBLE=""
   case "$1" in
     fceumm)
       REPO="https://github.com/libretro/libretro-fceumm.git"
       STRATEGY="sources"
       SRC_SUBDIR="src"
       LIST_MAKEFILE="Makefile.common"
+      LIST_PREAMBLE="CORE_DIR := src"
       # RGB565 halves upload bandwidth versus XRGB8888; the renderer converts either.
       DEFINES="-D__LIBRETRO__ -DPATH_MAX=1024 -DFCEU_VERSION_NUMERIC=9900 -DFRONTEND_SUPPORTS_RGB565"
       INCLUDES="-Isrc/drivers/libretro -Isrc/drivers/libretro/libretro-common/include -Isrc -Isrc/input -Isrc/boards"
       SHIM_INCLUDES="-Isrc/drivers/libretro/libretro-common/include"
+      ;;
+    genesis_plus_gx)
+      REPO="https://github.com/libretro/Genesis-Plus-GX.git"
+      STRATEGY="sources"
+      # Sources and includes live in Makefile.libretro, which needs `platform` preset.
+      LIST_MAKEFILE="Makefile.libretro"
+      LIST_PREAMBLE="platform := unix"
+      # LSB_FIRST/BYTE_ORDER: wasm is little-endian. USE_16BPP_RENDERING selects RGB565,
+      # halving upload bandwidth versus the 32bpp default. The rest mirror the core's
+      # own unix build.
+      # HAVE_NO_LANGEXTRA drops the core-options tables translated into ~28 languages.
+      # This frontend never surfaces libretro core options, so they were ~1.7 MB of
+      # initialised data in a module the browser downloads on demand.
+      # USE_16BPP_RENDERING makes the core *render* 16bpp; FRONTEND_SUPPORTS_RGB565 is
+      # the separate flag that makes it negotiate RGB565 with the frontend. Without the
+      # second one the core never calls SET_PIXEL_FORMAT and the host is left assuming
+      # libretro's 0RGB1555 default, which is not what the framebuffer contains.
+      DEFINES="-D__LIBRETRO__ -DLSB_FIRST -DBYTE_ORDER=LITTLE_ENDIAN -DUSE_16BPP_RENDERING -DFRONTEND_SUPPORTS_RGB565 -DHAVE_ZLIB -DUSE_LIBTREMOR -DUSE_LIBCHDR -DUSE_PER_SOUND_CHANNELS_CONFIG -D_7ZIP_ST -DZSTD_DISABLE_ASM -DHAVE_NO_LANGEXTRA"
+      # GIT_VERSION must expand to a string literal, and quotes do not survive the
+      # shell → make → xargs → clang fan-out. Force-include it as a header instead.
+      #
+      # INLINE is the same story and a more interesting bug. libretro-common's
+      # retro_inline.h is reached before core/macros.h, and because clang reports
+      # C17 it picks the bare `inline` branch. A C99 `inline` definition with no
+      # `extern` is only an *inline definition*: no external symbol is emitted, so
+      # every call the optimiser declined to inline became an undefined symbol at
+      # link (gfx_render, chan_calc, word_ram_switch...). The core's own macros.h
+      # documents this override — "set to your compiler's static inline keyword" —
+      # and both headers guard on #ifndef INLINE, so defining it first wins.
+      FORCED_HEADER_CONTENT='#define GIT_VERSION "wasi"
+#define INLINE static inline'
+      # The Musashi 68000 core uses setjmp/longjmp for address-error traps, and its
+      # <setjmp.h> include is unconditional. On wasm that needs the Exception Handling
+      # proposal, which every browser this project targets already supports (the WebGPU
+      # floor is far newer than EH). Enabling it keeps address-error emulation intact
+      # rather than patching accuracy out of the core.
+      # A browser has no CD-ROM device, and libretro-common's cdrom backend only
+      # compiles when HAVE_CDROM adds fields to its file struct. Excluding it is
+      # correct rather than expedient: physical-disc access cannot exist here.
+      SOURCE_EXCLUDE='vfs_implementation_cdrom|libretro-common/cdrom'
+      EXTRA_CFLAGS="-mllvm -wasm-enable-sjlj"
+      # The lowering rewrites setjmp/longjmp into calls to __wasm_setjmp,
+      # __wasm_setjmp_test and __wasm_longjmp, which wasi-sdk ships in libsetjmp.a.
+      # Without it those arrive as `env.*` imports and the host would have to fake
+      # a control-flow primitive in JS.
+      EXTRA_LIBS="-lsetjmp"
+      # Taken from the core's own INCFLAGS. Pinned rather than scraped from the
+      # makefile: the scrape silently produced nothing, and every file then failed
+      # on a missing header, which is a slow way to learn that.
+      INCLUDES="-I./libretro/deps/libchdr/include -I./libretro/deps/lzma-19.00/include -I./libretro/deps/zlib-1.2.11 -I./libretro/deps/zstd/lib -I./core -I./core/z80 -I./core/m68k -I./core/ntsc -I./core/sound -I./core/sound/minimp3 -I./core/input_hw -I./core/cd_hw -I./core/cart_hw -I./core/cart_hw/svp -I./libretro -I./libretro/libretro-common/include"
+      SHIM_INCLUDES="-Ilibretro -Ilibretro/libretro-common/include"
       ;;
     mgba)
       REPO="https://github.com/libretro/mgba.git"
@@ -120,14 +182,24 @@ build_sources_strategy() {
   # Ask the core's own makefile for its sources: the list runs to hundreds of mapper
   # files and changes between releases.
   cat > "$WORK/list-$core.mk" <<EOF
-CORE_DIR := $SRC_SUBDIR
+$LIST_PREAMBLE
 include $LIST_MAKEFILE
 print:
 	@echo \$(SOURCES_C)
+print-includes:
+	@echo \$(INCFLAGS)
 EOF
   local sources
   sources=$(make -f "$WORK/list-$core.mk" print 2>/dev/null)
   [[ -n "$sources" ]] || { echo "error: could not extract SOURCES_C from $LIST_MAKEFILE" >&2; exit 1; }
+
+  if [[ -n "${SOURCE_EXCLUDE:-}" ]]; then
+    local before after
+    before=$(echo "$sources" | wc -w)
+    sources=$(printf '%s\n' $sources | grep -Ev "$SOURCE_EXCLUDE" | tr '\n' ' ')
+    after=$(echo "$sources" | wc -w)
+    echo "==> excluded $((before - after)) source(s) matching /$SOURCE_EXCLUDE/"
+  fi
 
   local obj_dir="$WORK/obj-$core"
   rm -rf "$obj_dir"
@@ -135,14 +207,61 @@ EOF
 
   # -Wno-everything: large third-party C we are not going to fix, and the noise hides
   # our own problems.
-  local cflags="--target=wasm32-wasi -O2 -DNDEBUG -fno-strict-aliasing -Wno-everything $WASI_EMULATED_DEFINES $DEFINES $INCLUDES"
+  # Some cores keep a long, changing include list in their makefile; ask for it rather
+  # than duplicating a dozen -I paths here and watching them rot.
+  if [[ "${INCLUDES_FROM_MAKEFILE:-0}" == "1" ]]; then
+    INCLUDES=$(make -f "$WORK/list-$core.mk" print-includes 2>/dev/null)
+  fi
+  local forced=""
+  if [[ -n "${FORCED_HEADER_CONTENT:-}" ]]; then
+    printf '%s\n' "$FORCED_HEADER_CONTENT" > "$WORK/forced-$core.h"
+    forced="-include $WORK/forced-$core.h"
+  fi
+  local cflags="--target=wasm32-wasi -O2 -DNDEBUG -fno-strict-aliasing -Wno-everything $WASI_EMULATED_DEFINES $DEFINES $INCLUDES $forced ${EXTRA_CFLAGS:-}"
 
   echo "==> compiling $(echo "$sources" | wc -w) core sources"
-  printf '%s\n' $sources | xargs -P "$(nproc)" -I{} sh -c \
-    'o=$(echo "{}" | tr "/" "_" | sed "s/\.c$/.o/"); '"$CC $cflags"' -c "{}" -o '"$obj_dir"'/$o' \
+
+  # Compiled through an exported function rather than by interpolating $cflags into an
+  # `sh -c` string. That construct silently ran zero commands once the flags grew to
+  # include `-mllvm -wasm-enable-sjlj` and a pinned include list — no errors, no objects,
+  # and the failure only surfaced at link time. A function takes its arguments as
+  # arguments, so nothing depends on quoting surviving three levels of shell.
+  export CORE_CC="$CC"
+  export CORE_CFLAGS="$cflags"
+  export CORE_OBJ_DIR="$obj_dir"
+  compile_one() {
+    local src="$1"
+    local obj
+    # Strip any leading `./` before flattening the path. Genesis-Plus-GX lists its
+    # sources as `./core/vdp_ctrl.c`; without this the flattened name is
+    # `._core_vdp_ctrl.o`, a dotfile, and every object silently disappears from the
+    # link (bash globs do not match leading dots).
+    obj=$(printf '%s' "$src" | sed 's#^\./##' | tr '/' '_' | sed 's/\.c$/.o/')
+    # shellcheck disable=SC2086
+    "$CORE_CC" $CORE_CFLAGS -c "$src" -o "$CORE_OBJ_DIR/$obj"
+  }
+  export -f compile_one
+
+  printf '%s\n' $sources \
+    | xargs -P "$(nproc)" -I{} bash -c 'compile_one "$@"' _ {} \
     || { echo "error: core compilation failed" >&2; exit 1; }
 
-  CORE_OBJECTS=("$obj_dir"/*.o)
+  # Collected with find rather than a glob so the link list can never be quietly
+  # truncated by shell expansion rules. Sorted for a deterministic link order.
+  mapfile -t CORE_OBJECTS < <(find "$obj_dir" -name '*.o' -type f | sort)
+  local built=${#CORE_OBJECTS[@]}
+  [[ "$built" -gt 0 ]] || { echo "error: no objects were produced" >&2; exit 1; }
+  echo "==> compiled $built objects"
+
+  # A source list that produced fewer objects than it had entries means some files
+  # failed in a way xargs did not propagate. Fail loudly instead of linking a
+  # half-built core and debugging it at runtime.
+  local expected
+  expected=$(echo "$sources" | wc -w)
+  if [[ "$built" -ne "$expected" ]]; then
+    echo "error: expected $expected objects from the source list, got $built" >&2
+    exit 1
+  fi
 }
 
 # --- strategy: cmake + wasi toolchain ---------------------------------------------
@@ -187,7 +306,7 @@ build_core() {
   echo "==> compiling shim"
   local shim_obj="$WORK/shim-$core.o"
   # shellcheck disable=SC2086
-  $CC --target=wasm32-wasi -O2 -Wno-everything $WASI_EMULATED_DEFINES $SHIM_INCLUDES \
+  $CC --target=wasm32-wasi -O2 -Wno-everything $WASI_EMULATED_DEFINES $SHIM_INCLUDES ${EXTRA_CFLAGS:-} \
     -c "$ROOT/core-shim/libretro_wasm_shim.c" -o "$shim_obj"
 
   local exports=()
@@ -196,10 +315,30 @@ build_core() {
   echo "==> linking"
   # Reactor model: no `main`. The host calls `_initialize` once, then drives the
   # libretro entry points.
+  # --strip-debug, not --strip-all: DWARF is a few hundred KB the browser would
+  # download and never read, but the `name` section stays so a core that traps
+  # produces a readable stack in devtools.
   # shellcheck disable=SC2086
-  $CC --target=wasm32-wasi -mexec-model=reactor -O2 \
+  $CC --target=wasm32-wasi -mexec-model=reactor -O2 -Wl,--strip-debug ${EXTRA_LDFLAGS:-} \
     -o "$WORK/$core.wasm" "$shim_obj" "${CORE_OBJECTS[@]}" \
-    $WASI_EMULATED_LIBS "${exports[@]}"
+    $WASI_EMULATED_LIBS ${EXTRA_LIBS:-} "${exports[@]}"
+
+  # A core that imports anything beyond the five host callbacks and WASI cannot be
+  # instantiated by the runtime in web/src/engine/core-runtime.js. Catching it here
+  # is the difference between a build error and a blank screen.
+  local stray
+  stray=$("$WASI_SDK/bin/llvm-objdump" --headers "$WORK/$core.wasm" >/dev/null 2>&1; node -e '
+    const fs = require("fs");
+    const m = new WebAssembly.Module(fs.readFileSync(process.argv[1]));
+    const bad = [...new Set(WebAssembly.Module.imports(m)
+      .filter(i => i.module !== "host" && i.module !== "wasi_snapshot_preview1")
+      .map(i => i.module + "." + i.name))];
+    if (bad.length) console.log(bad.join(" "));
+  ' "$WORK/$core.wasm" 2>/dev/null || true)
+  if [[ -n "$stray" ]]; then
+    echo "error: $core imports symbols the host does not provide: $stray" >&2
+    exit 1
+  fi
 
   if command -v wasm-opt >/dev/null 2>&1; then
     echo "==> wasm-opt -O3"
@@ -214,7 +353,7 @@ build_core() {
 ensure_toolchain
 
 if [[ "${1:-fceumm}" == "all" ]]; then
-  for core in fceumm mgba; do build_core "$core"; done
+  for core in fceumm mgba genesis_plus_gx; do build_core "$core"; done
 else
   build_core "${1:-fceumm}"
 fi

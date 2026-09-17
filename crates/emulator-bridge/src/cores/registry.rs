@@ -127,12 +127,51 @@ impl CoreRegistry {
             .map(|(k, _)| k.as_str())
     }
 
-    /// Finds a declared core able to run `system_id`.
-    pub fn core_for_system(&self, system_id: &str) -> Option<&CoreDescriptor> {
-        self.entries
+    /// Every declared core able to run `system_id`, best candidate first.
+    ///
+    /// Ordered by [`CoreDescriptor::priority`] descending, then by id, so the head of
+    /// the list is the default and the tail is what the UI offers as alternatives.
+    pub fn cores_for_system(&self, system_id: &str) -> Vec<&CoreDescriptor> {
+        let mut candidates: Vec<&CoreDescriptor> = self
+            .entries
             .values()
-            .find(|e| e.descriptor.systems.iter().any(|s| s == system_id))
             .map(|e| &e.descriptor)
+            .filter(|d| d.systems.iter().any(|s| s == system_id))
+            .collect();
+        // `entries` is a BTreeMap, so this starts in id order; a stable sort by
+        // descending priority therefore leaves ties in id order.
+        candidates.sort_by(|a, b| b.priority.cmp(&a.priority));
+        candidates
+    }
+
+    /// The default core for `system_id`.
+    pub fn core_for_system(&self, system_id: &str) -> Option<&CoreDescriptor> {
+        self.cores_for_system(system_id).into_iter().next()
+    }
+
+    /// Picks the core to launch for `system_id`, honouring an explicit choice.
+    ///
+    /// `preferred` comes from persisted UI state, so it is treated as a hint rather
+    /// than an instruction: an id that is unknown, or that belongs to a core which
+    /// does not declare `system_id`, falls back to the default. A stale preference —
+    /// left behind by a renamed core, or by a user who picked a Game Boy core and then
+    /// opened a Mega Drive ROM — must not make a game unlaunchable, and must never
+    /// hand content to a core that cannot run it.
+    pub fn resolve_core_for_system(
+        &self,
+        system_id: &str,
+        preferred: Option<&str>,
+    ) -> Option<&CoreDescriptor> {
+        let candidates = self.cores_for_system(system_id);
+        if let Some(id) = preferred {
+            if let Some(found) = candidates.iter().find(|d| d.id == id) {
+                return Some(found);
+            }
+            log::debug!(
+                "core preference '{id}' does not apply to system '{system_id}'; using the default"
+            );
+        }
+        candidates.into_iter().next()
     }
 
     /// Instantiates a fetched core module.
@@ -322,6 +361,15 @@ mod tests {
             audio_sample_rate: 48_000,
             pixel_format: PixelFormat::Xrgb8888,
             module_url: format!("/cores/{id}.wasm"),
+            priority: 0,
+        }
+    }
+
+    fn descriptor_with(id: &str, systems: &[&str], priority: i32) -> CoreDescriptor {
+        CoreDescriptor {
+            systems: systems.iter().map(|s| String::from(*s)).collect(),
+            priority,
+            ..descriptor(id, "unused")
         }
     }
 
@@ -396,6 +444,107 @@ mod tests {
             Some("snes9x")
         );
         assert!(reg.core_for_system("n64").is_none());
+    }
+
+    /// A system maps to *every* core that declares it, highest priority first.
+    #[test]
+    fn one_system_lists_every_capable_core_by_priority() {
+        let mut reg = CoreRegistry::new();
+        reg.declare(descriptor_with("mgba", &["gba", "gb", "gbc"], 10));
+        reg.declare(descriptor_with("gambatte", &["gb", "gbc"], 20));
+        reg.declare(descriptor_with("fceumm", &["nes"], 10));
+
+        let ids: Vec<&str> = reg
+            .cores_for_system("gb")
+            .iter()
+            .map(|d| d.id.as_str())
+            .collect();
+        assert_eq!(ids, ["gambatte", "mgba"]);
+        // The head of the list is the default.
+        assert_eq!(
+            reg.core_for_system("gb").map(|d| d.id.as_str()),
+            Some("gambatte")
+        );
+        // A system only one core claims still resolves, and the GBA-only system is
+        // unaffected by the Game Boy specialist.
+        assert_eq!(reg.cores_for_system("gba").len(), 1);
+        assert_eq!(reg.cores_for_system("nes").len(), 1);
+        assert!(reg.cores_for_system("saturn").is_empty());
+    }
+
+    #[test]
+    fn equal_priority_orders_deterministically() {
+        let mut reg = CoreRegistry::new();
+        reg.declare(descriptor_with("zeta", &["gb"], 5));
+        reg.declare(descriptor_with("alpha", &["gb"], 5));
+        let ids: Vec<&str> = reg
+            .cores_for_system("gb")
+            .iter()
+            .map(|d| d.id.as_str())
+            .collect();
+        assert_eq!(ids, ["alpha", "zeta"]);
+    }
+
+    #[test]
+    fn preference_selects_an_alternative_core() {
+        let mut reg = CoreRegistry::new();
+        reg.declare(descriptor_with("mgba", &["gb"], 20));
+        reg.declare(descriptor_with("gambatte", &["gb"], 10));
+
+        assert_eq!(
+            reg.resolve_core_for_system("gb", None)
+                .map(|d| d.id.as_str()),
+            Some("mgba"),
+        );
+        assert_eq!(
+            reg.resolve_core_for_system("gb", Some("gambatte"))
+                .map(|d| d.id.as_str()),
+            Some("gambatte"),
+        );
+    }
+
+    /// The override arrives from persisted UI state, so every way it can be wrong has
+    /// to degrade to the default rather than fail or — much worse — launch a core that
+    /// cannot run the content.
+    #[test]
+    fn stale_preferences_fall_back_to_the_default() {
+        let mut reg = CoreRegistry::new();
+        reg.declare(descriptor_with("mgba", &["gb"], 20));
+        reg.declare(descriptor_with("fceumm", &["nes"], 10));
+
+        // Names a core that was never declared.
+        assert_eq!(
+            reg.resolve_core_for_system("gb", Some("gambatte"))
+                .map(|d| d.id.as_str()),
+            Some("mgba"),
+        );
+        // Names a real core that does not run this system.
+        assert_eq!(
+            reg.resolve_core_for_system("gb", Some("fceumm"))
+                .map(|d| d.id.as_str()),
+            Some("mgba"),
+        );
+        // No core at all for the system: still None, not a panic.
+        assert!(reg
+            .resolve_core_for_system("saturn", Some("mgba"))
+            .is_none());
+    }
+
+    #[test]
+    fn redeclaring_a_core_updates_its_priority() {
+        let mut reg = CoreRegistry::new();
+        reg.declare(descriptor_with("mgba", &["gb"], 10));
+        reg.declare(descriptor_with("gambatte", &["gb"], 20));
+        assert_eq!(
+            reg.core_for_system("gb").map(|d| d.id.as_str()),
+            Some("gambatte")
+        );
+
+        reg.declare(descriptor_with("mgba", &["gb"], 30));
+        assert_eq!(
+            reg.core_for_system("gb").map(|d| d.id.as_str()),
+            Some("mgba")
+        );
     }
 
     #[test]

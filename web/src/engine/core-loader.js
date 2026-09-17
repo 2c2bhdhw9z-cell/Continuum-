@@ -35,8 +35,6 @@ export class CoreLoader {
     this.host = host;
     /** @type {Map<string, any>} coreId -> manifest entry */
     this.manifest = new Map();
-    /** @type {Map<string, string>} systemId -> coreId */
-    this.systemToCore = new Map();
     /** @type {Map<string, Promise<void>>} In-flight fetches, deduped by core id. */
     this.inFlight = new Map();
 
@@ -68,10 +66,6 @@ export class CoreLoader {
 
     for (const core of data.cores ?? []) {
       this.manifest.set(core.id, core);
-      for (const systemId of core.systems ?? []) {
-        // First core wins; a future settings screen can override per system.
-        if (!this.systemToCore.has(systemId)) this.systemToCore.set(systemId, core.id);
-      }
 
       // Metadata only. This is the line that keeps boot cheap.
       const declaration = new this.host.wasm.CoreDeclaration(
@@ -88,7 +82,9 @@ export class CoreLoader {
       );
       const maxW = core.geometry.maxWidth ?? core.geometry.baseWidth;
       const maxH = core.geometry.maxHeight ?? core.geometry.baseHeight;
-      bridge.declareCore(declaration.withMaxGeometry(maxW, maxH));
+      bridge.declareCore(
+        declaration.withMaxGeometry(maxW, maxH).withPriority(core.priority ?? 0),
+      );
     }
 
     console.info(
@@ -97,8 +93,42 @@ export class CoreLoader {
     return this.manifest;
   }
 
-  coreIdFor(systemId) {
-    return this.systemToCore.get(systemId) ?? null;
+  /**
+   * The core to launch for a system, honouring a stored preference.
+   *
+   * The mapping lives in the Rust registry, not here. That is not ceremony: the
+   * registry already holds every declaration and is the only place that knows the
+   * priority order, so a second copy in JS would be a second thing to keep correct.
+   * It is also what makes a stale preference safe — Rust drops one that names a core
+   * which cannot run the system, rather than handing content to the wrong emulator.
+   *
+   * @param {string} systemId
+   * @param {string|null} [preferred] core id the user chose for this system
+   * @returns {string|null}
+   */
+  coreIdFor(systemId, preferred = null) {
+    const bridge = this.host.bridge;
+    if (!bridge) return null;
+    return bridge.resolveCoreForSystem(systemId, preferred ?? undefined) ?? null;
+  }
+
+  /**
+   * Every core that can run `systemId`, best first, as manifest entries.
+   *
+   * Returns manifest entries rather than ids because a picker needs the display name
+   * and `kind` to label the options. Cores with no manifest entry are skipped: the
+   * registry could in principle hold a declaration the manifest does not describe.
+   *
+   * @param {string} systemId
+   * @returns {Array<any>}
+   */
+  coresForSystem(systemId) {
+    const bridge = this.host.bridge;
+    if (!bridge) return [];
+    return bridge
+      .coresForSystem(systemId)
+      .map((id) => this.manifest.get(id))
+      .filter(Boolean);
   }
 
   entryFor(coreId) {

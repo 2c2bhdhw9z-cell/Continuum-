@@ -1,15 +1,18 @@
 /**
  * Content shipped with the app.
  *
- * Exactly one entry: the NES test cart built by `scripts/make-test-rom.py`. It exists
- * because an emulator with an empty library cannot demonstrate that it works, and
- * commercial ROMs cannot be bundled. This one is written from scratch in this
- * repository, so it is ours to distribute — and it is built to be verified against:
- * a green tile pattern, red while A is held, scrolling on Left/Right, and a 440 Hz
- * tone.
+ * One cart per real core, because an emulator with an empty library cannot demonstrate
+ * that it works and commercial ROMs cannot be bundled. All three are written from
+ * scratch in this repository, so they are ours to distribute — and they are built to be
+ * verified against, each with a deliberately different idle colour so that a captured
+ * frame identifies which core produced it:
  *
- * It is also what the browser smoke test launches, which means CI exercises the real
- * fceumm core rather than a stand-in.
+ *   NES (fceumm)                  green, red while A is held
+ *   GBA (mGBA)                    blue, yellow while A is held
+ *   Master System (Genesis Plus)  magenta, cyan while a button is held
+ *
+ * These are also what the browser smoke test launches, which means CI exercises the
+ * real cores rather than a stand-in.
  */
 
 import { addRealEntry } from './catalog.js';
@@ -44,10 +47,27 @@ const GBA_TEST_CART = {
     'colour is blue where the NES cart is green, so a frame identifies which core drew it.',
 };
 
+const SMS_TEST_CART = {
+  id: 'builtin-sms-testcart',
+  title: 'Continuum Test Cart (Master System)',
+  systemId: 'sms',
+  sizeBytes: 32768,
+  filename: 'sms-testcart.sms',
+  source: 'builtin',
+  url: './roms/sms-testcart.sms',
+  blurb:
+    'An original Master System ROM written for this project, hand-assembled by ' +
+    'scripts/make-sms-rom.py. Runs on the real Genesis Plus GX core: hold either button ' +
+    'to flip the playfield from magenta to cyan, Right to scroll it, and listen for the ' +
+    '440 Hz PSG tone. The .sms extension is what tells the core to be a Master System ' +
+    'rather than a Mega Drive.',
+};
+
 /** Registers built-in content. Idempotent. */
 export function registerBuiltins() {
-  return [addRealEntry(NES_TEST_CART), addRealEntry(GBA_TEST_CART)];
+  return [addRealEntry(NES_TEST_CART), addRealEntry(GBA_TEST_CART), addRealEntry(SMS_TEST_CART)];
 }
 
 export const TEST_CART_ID = NES_TEST_CART.id;
 export const GBA_TEST_CART_ID = GBA_TEST_CART.id;
+export const SMS_TEST_CART_ID = SMS_TEST_CART.id;

@@ -296,6 +296,7 @@ mod tests {
             audio_sample_rate: 48_000,
             pixel_format: PixelFormat::Rgba8888,
             module_url: String::new(),
+            priority: 0,
         }
     }
 

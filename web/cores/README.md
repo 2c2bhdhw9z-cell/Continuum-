@@ -15,14 +15,22 @@ sources. Build them with `scripts/build-core.sh <name>`.
 | `libretro` | A real core, built by `scripts/build-core.sh`. The JS runtime instantiates it as its own wasm module and hands Rust a handle. |
 | `placeholder` | Bytes go to Rust, which substitutes its diagnostic pattern core. Geometry and timing in the manifest are still the system's real values, so the pacer and renderer are configured correctly. |
 
-Today `fceumm` (NES) and `mgba` (GBA, GB, GBC) are `libretro`; the rest are placeholders
-awaiting the same treatment.
+Today `fceumm` (NES), `mgba` (GBA, GB, GBC) and `genesis_plus_gx` (Mega Drive, Master
+System) are `libretro`; the rest are placeholders awaiting the same treatment.
 
 ```bash
-scripts/build-core.sh all       # both real cores
-scripts/build-core.sh fceumm    # → web/cores/fceumm.wasm (~2 MB)
-scripts/build-core.sh mgba      # → web/cores/mgba.wasm  (~1.9 MB)
+scripts/build-core.sh all              # all three real cores
+scripts/build-core.sh fceumm           # → web/cores/fceumm.wasm          (1.7 MB)
+scripts/build-core.sh mgba             # → web/cores/mgba.wasm            (1.5 MB)
+scripts/build-core.sh genesis_plus_gx  # → web/cores/genesis_plus_gx.wasm (2.8 MB)
 ```
+
+A system may be served by more than one core. `manifest.json` gives each entry a
+`priority` (higher wins, real cores 100 and placeholders 10), the registry ranks the
+candidates, and the user can override per system from the UI. That is why `gambatte`
+and `smsplus` are declared even though they are still placeholders: they make `gb`,
+`gbc` and `sms` one-to-many, which is what the subcore path needs in order to be
+exercised at all.
 
 ## How a core is built
 
@@ -53,7 +61,7 @@ Libretro cores do not agree on a build system, so `build-core.sh` has two paths:
 
 | Strategy | Used by | How |
 | --- | --- | --- |
-| `sources` | fceumm | The core ships a libretro makefile listing `SOURCES_C`; ask it for the list and compile those files directly. |
+| `sources` | fceumm, Genesis Plus GX | The core ships a libretro makefile listing `SOURCES_C`; ask it for the list and compile those files directly. |
 | `cmake` | mGBA | Configure with wasi-sdk's toolchain file and build the static library target. CMake also generates files the build needs — mGBA's `version.c`, for one. |
 
 Both then link against `core-shim/` and export the same surface.
@@ -61,7 +69,13 @@ Both then link against `core-shim/` and export the same surface.
 mGBA additionally needs wasi-libc's opt-in POSIX emulation (`_WASI_EMULATED_SIGNAL`,
 `_WASI_EMULATED_MMAN`, process clocks, getpid) — `src/core/thread.c` includes
 `signal.h` even with threading disabled — and it imports 19 WASI functions to fceumm's
-12, adding clocks, `environ` and directory calls.
+12, adding clocks, `environ` and directory calls. Genesis Plus GX imports 14 and needs
+wasm `setjmp`/`longjmp` (`-mllvm -wasm-enable-sjlj` plus `-lsetjmp`) for the Musashi
+68000's address-error traps.
+
+After linking, the script rejects any import outside `host.*` and
+`wasi_snapshot_preview1.*`. A core that reaches for something else is then a build
+failure rather than a blank screen at runtime.
 
 ## Adding another core
 
@@ -71,7 +85,7 @@ mGBA additionally needs wasi-libc's opt-in POSIX emulation (`_WASI_EMULATED_SIGN
 3. Nothing in Rust changes. `WasmCore` is core-agnostic, and the core's own
    `retro_get_system_av_info` supersedes whatever the manifest claimed.
 
-Watch for two things that vary by core:
+Watch for three things that vary by core:
 
 - **`need_fullpath`.** Cores that require a file path cannot run here. Most modern
   cores declare `need_fullpath = true` globally and then *override* it per extension
@@ -79,14 +93,30 @@ Watch for two things that vary by core:
   implements. fceumm does exactly this.
 - **Hardware rendering.** `SET_HW_RENDER` is refused: the renderer owns the GPU.
   Software-rendered cores only.
+- **How the core decides which system it is.** Multi-system cores generally sniff the
+  content's file extension, not its header. Genesis Plus GX reads the last three
+  characters of `retro_game_info_ext.full_path`, so the launch path must pass a
+  filename with the right extension — the ROM header alone is not enough.
+
+`SESSION_HANDOFF.md` §1 lists every per-core compiler flag currently in use and the
+symptom that made each one necessary. Worth reading before debugging a new core; several
+of the failures are silent.
 
 ## Testing a core without a browser
 
 ```bash
-python3 scripts/make-test-rom.py          # writes web/roms/nes-testcart.nes
-node scripts/core-abi-test.mjs            # runs the core headlessly
+python3 scripts/make-test-rom.py          # web/roms/nes-testcart.nes
+./scripts/make-gba-rom.sh                 # web/roms/gba-testcart.gba
+python3 scripts/make-sms-rom.py           # web/roms/sms-testcart.sms
+node scripts/core-abi-test.mjs            # runs every built core headlessly
+node scripts/core-abi-test.mjs mgba       # or just one
 ```
 
 That harness loads a ROM, runs frames, and asserts on the actual pixels, audio,
 input and save states — in under a second, with no GPU involved. It is the fast loop
 for core work; the browser suite is the slow one.
+
+Adding a core means adding a test ROM for it and an entry to the harness's `CORES`
+table. Give it an idle colour no other cart uses: that is what lets a test say *which*
+core drew a frame from the pixels alone, which is what makes the hot-swap checks in
+`smoke-test.mjs` mean anything.

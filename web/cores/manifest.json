@@ -12,6 +12,13 @@
     "                Geometry and timing below are the real values for the system, so",
     "                the pacer and renderer are already configured correctly.",
     "",
+    "`systems` is many-to-many with cores: mGBA and Gambatte both declare `gb`, and",
+    "Genesis Plus GX declares `genesis` and `sms`. `priority` breaks the tie — higher",
+    "wins, and the losers become the alternatives the UI offers on a ROM card. The",
+    "convention here is 100 for a real core and 10 for a placeholder, so a diagnostic",
+    "stand-in can never become the default for a system a real core already covers.",
+    "Ties are broken by core id, so ordering never reshuffles between loads.",
+    "",
     "The values here are a hint for the loading UI. Once content is loaded, whatever the",
     "core reports through retro_get_system_av_info supersedes them.",
     "",
@@ -27,8 +34,9 @@
       "systems": [
         "nes"
       ],
+      "priority": 100,
       "module": "./cores/fceumm.wasm",
-      "sizeBytes": 2089396,
+      "sizeBytes": 1761665,
       "targetFps": 60.0988,
       "audioSampleRate": 48000,
       "pixelFormat": "rgb565",
@@ -50,8 +58,9 @@
         "gb",
         "gbc"
       ],
+      "priority": 100,
       "module": "./cores/mgba.wasm",
-      "sizeBytes": 1928433,
+      "sizeBytes": 1593879,
       "targetFps": 59.7275,
       "audioSampleRate": 65536,
       "pixelFormat": "rgb565",
@@ -62,7 +71,75 @@
         "maxHeight": 160,
         "aspectRatio": 1.5
       },
-      "notes": "Built from libretro/mgba via CMake + wasi-sdk. Real emulation; also runs GB/GBC."
+      "notes": "Built from libretro/mgba via CMake + wasi-sdk. Real emulation; also runs GB/GBC, which is why Gambatte is declared alongside it as an alternative."
+    },
+    {
+      "id": "genesis_plus_gx",
+      "name": "Genesis Plus GX",
+      "kind": "libretro",
+      "systems": [
+        "genesis",
+        "sms"
+      ],
+      "priority": 100,
+      "module": "./cores/genesis_plus_gx.wasm",
+      "sizeBytes": 2920710,
+      "targetFps": 59.9227,
+      "audioSampleRate": 44100,
+      "pixelFormat": "rgb565",
+      "geometry": {
+        "baseWidth": 320,
+        "baseHeight": 224,
+        "maxWidth": 348,
+        "maxHeight": 240,
+        "aspectRatio": 1.3333333
+      },
+      "notes": "Built from libretro/Genesis-Plus-GX against wasi-libc, with wasm setjmp/longjmp for the Musashi 68000 address-error traps. Real emulation of Mega Drive, Master System, Game Gear and SG-1000; it picks which from the content extension, so the launch path must pass a filename. Base geometry here is the Mega Drive's; Master System content reports 256x192 once loaded."
+    },
+    {
+      "id": "smsplus",
+      "name": "SMS Plus GX",
+      "kind": "placeholder",
+      "systems": [
+        "sms"
+      ],
+      "priority": 10,
+      "module": "./cores/diagnostic-core.wasm",
+      "sizeBytes": 8,
+      "targetFps": 59.9227,
+      "audioSampleRate": 44100,
+      "pixelFormat": "rgb565",
+      "geometry": {
+        "baseWidth": 256,
+        "baseHeight": 192,
+        "maxWidth": 256,
+        "maxHeight": 192,
+        "aspectRatio": 1.3333333
+      },
+      "notes": "The Master System specialist, declared as the alternative to Genesis Plus GX. Still a placeholder, which makes it the useful case to test with: launching the built-in Master System cart on it produces the diagnostic pattern instead of the cart's magenta playfield, so the pixels prove which core the override actually selected."
+    },
+    {
+      "id": "gambatte",
+      "name": "Gambatte",
+      "kind": "placeholder",
+      "systems": [
+        "gb",
+        "gbc"
+      ],
+      "priority": 10,
+      "module": "./cores/diagnostic-core.wasm",
+      "sizeBytes": 8,
+      "targetFps": 59.7275,
+      "audioSampleRate": 32768,
+      "pixelFormat": "xrgb8888",
+      "geometry": {
+        "baseWidth": 160,
+        "baseHeight": 144,
+        "maxWidth": 160,
+        "maxHeight": 144,
+        "aspectRatio": 1.1111111
+      },
+      "notes": "Declared to exercise the subcore path: gb and gbc resolve to mGBA by default and to this entry when the user picks it. Still a placeholder, so choosing it runs the diagnostic pattern core — which is exactly what makes the switch visible."
     },
     {
       "id": "snes9x",
@@ -71,6 +148,7 @@
       "systems": [
         "snes"
       ],
+      "priority": 10,
       "module": "./cores/diagnostic-core.wasm",
       "sizeBytes": 8,
       "targetFps": 60.0988,
@@ -85,33 +163,13 @@
       }
     },
     {
-      "id": "genesis_plus",
-      "name": "Genesis Plus GX",
-      "kind": "placeholder",
-      "systems": [
-        "genesis",
-        "sms"
-      ],
-      "module": "./cores/diagnostic-core.wasm",
-      "sizeBytes": 8,
-      "targetFps": 59.9227,
-      "audioSampleRate": 44100,
-      "pixelFormat": "rgb565",
-      "geometry": {
-        "baseWidth": 320,
-        "baseHeight": 224,
-        "maxWidth": 320,
-        "maxHeight": 240,
-        "aspectRatio": 1.3333333
-      }
-    },
-    {
       "id": "mupen64plus",
       "name": "Mupen64Plus-Next",
       "kind": "placeholder",
       "systems": [
         "n64"
       ],
+      "priority": 10,
       "module": "./cores/diagnostic-core.wasm",
       "sizeBytes": 8,
       "targetFps": 60.0,
@@ -132,6 +190,7 @@
       "systems": [
         "saturn"
       ],
+      "priority": 10,
       "module": "./cores/diagnostic-core.wasm",
       "sizeBytes": 8,
       "targetFps": 59.8261,
@@ -152,6 +211,7 @@
       "systems": [
         "ps1"
       ],
+      "priority": 10,
       "module": "./cores/diagnostic-core.wasm",
       "sizeBytes": 8,
       "targetFps": 59.9407,
@@ -173,6 +233,7 @@
       "systems": [
         "3ds"
       ],
+      "priority": 10,
       "module": "./cores/diagnostic-core.wasm",
       "phase": 2,
       "sizeBytes": 8,
@@ -194,6 +255,7 @@
       "systems": [
         "switch"
       ],
+      "priority": 10,
       "module": "./cores/diagnostic-core.wasm",
       "phase": 2,
       "sizeBytes": 8,

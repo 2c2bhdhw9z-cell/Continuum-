@@ -80,6 +80,7 @@ impl CoreDeclaration {
                 audio_sample_rate,
                 pixel_format: format,
                 module_url,
+                priority: 0,
             },
         })
     }
@@ -89,6 +90,14 @@ impl CoreDeclaration {
     #[wasm_bindgen(js_name = withMaxGeometry)]
     pub fn with_max_geometry(mut self, max_width: u32, max_height: u32) -> CoreDeclaration {
         self.inner.geometry = self.inner.geometry.with_max(max_width, max_height);
+        self
+    }
+
+    /// Sets which core wins when several declare the same system. Higher wins;
+    /// the default is 0.
+    #[wasm_bindgen(js_name = withPriority)]
+    pub fn with_priority(mut self, priority: i32) -> CoreDeclaration {
+        self.inner.priority = priority;
         self
     }
 }
@@ -270,6 +279,48 @@ impl WasmEmulatorBridge {
             .borrow()
             .core_for_system(system_id)
             .map(|d| d.id.clone())
+    }
+
+    /// Ids of every core that can run `system_id`, best first.
+    ///
+    /// The subcore relationship is one-to-many, and the registry is the only thing
+    /// that knows the mapping — so the UI asks rather than duplicating the rule. An
+    /// empty result means no declared core handles the system; a single entry means
+    /// there is nothing to choose between and the UI should not offer a picker.
+    #[wasm_bindgen(js_name = coresForSystem)]
+    pub fn cores_for_system(&self, system_id: &str) -> Vec<String> {
+        self.inner
+            .borrow()
+            .cores_for_system(system_id)
+            .iter()
+            .map(|d| d.id.clone())
+            .collect()
+    }
+
+    /// Resolves the core to launch, given an optional stored preference.
+    ///
+    /// Pass the user's choice for the system; a preference that no longer applies is
+    /// ignored in favour of the default rather than raising, because it comes from
+    /// persisted UI state that can outlive a manifest change.
+    #[wasm_bindgen(js_name = resolveCoreForSystem)]
+    pub fn resolve_core_for_system(
+        &self,
+        system_id: &str,
+        preferred: Option<String>,
+    ) -> Option<String> {
+        self.inner
+            .borrow()
+            .resolve_core_for_system(system_id, preferred.as_deref())
+            .map(|d| d.id.clone())
+    }
+
+    /// Human-readable name for a declared core, for labelling a picker.
+    #[wasm_bindgen(js_name = coreDisplayName)]
+    pub fn core_display_name(&self, core_id: &str) -> Option<String> {
+        self.inner
+            .borrow()
+            .core_descriptor(core_id)
+            .map(|d| d.display_name.clone())
     }
 
     /// Hands fetched module bytes to the registry, making the core runnable.

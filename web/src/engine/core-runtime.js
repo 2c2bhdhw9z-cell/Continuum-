@@ -62,17 +62,21 @@ const ENV = {
   SET_SYSTEM_AV_INFO: 32,
   SET_SUBSYSTEM_INFO: 34,
   SET_CONTROLLER_INFO: 35,
-  SET_MEMORY_MAPS: 36,
+  SET_MEMORY_MAPS: 36 | 0x10000, // EXPERIMENTAL
   SET_GEOMETRY: 37,
   GET_USERNAME: 38,
   GET_LANGUAGE: 39,
-  GET_AUDIO_VIDEO_ENABLE: 47,
+  SET_AUDIO_BUFFER_STATUS_CALLBACK: 62,
+  GET_AUDIO_VIDEO_ENABLE: 47 | 0x10000, // EXPERIMENTAL
   GET_INPUT_BITMASKS: 51 | 0x10000, // EXPERIMENTAL
   GET_CORE_OPTIONS_VERSION: 52,
   SET_CORE_OPTIONS: 53,
   SET_CORE_OPTIONS_INTL: 54,
   SET_CORE_OPTIONS_DISPLAY: 55,
-  SET_SERIALIZATION_QUIRKS: 62,
+  SET_SERIALIZATION_QUIRKS: 44,
+  SET_MINIMUM_AUDIO_LATENCY: 63,
+  GET_CURRENT_SOFTWARE_FRAMEBUFFER: 40 | 0x10000, // EXPERIMENTAL
+  SET_SUPPORT_ACHIEVEMENTS: 42 | 0x10000, // EXPERIMENTAL
   SET_CONTENT_INFO_OVERRIDE: 65,
   GET_GAME_INFO_EXT: 66,
   GET_THROTTLE_STATE: 71 | 0x10000,
@@ -496,7 +500,31 @@ export class LibretroRuntime {
       case ENV.SET_SERIALIZATION_QUIRKS:
       case ENV.SET_SUPPORT_NO_GAME:
       case ENV.SET_SUBSYSTEM_INFO:
+      case ENV.SET_SUPPORT_ACHIEVEMENTS:
         return true;
+
+      // Refused, but named rather than left to fall through: fceumm asks for a
+      // software framebuffer *every frame*, so an unnamed command here is 60 log lines
+      // a second that bury real ones.
+      //
+      // GET_CURRENT_SOFTWARE_FRAMEBUFFER offers zero-copy rendering: the core would
+      // draw straight into a buffer we own. Tempting, but the buffer it wants must
+      // stay valid across `retro_run`, and ours lives in Rust behind a staging copy
+      // that the renderer converts pixel formats through. Refusing means the core
+      // uses its own framebuffer and hands it to `video_refresh`, which is the path
+      // everything else here is built on.
+      case ENV.GET_CURRENT_SOFTWARE_FRAMEBUFFER:
+      // Audio latency is the ring buffer's business, and it is sized in Rust.
+      case ENV.SET_MINIMUM_AUDIO_LATENCY:
+        return false;
+
+      // Refused deliberately, and not merely unimplemented: this one asks us to call
+      // the core back whenever the audio buffer runs low, so that it can drop frames
+      // to catch up. Returning true would promise a callback that never comes; the
+      // core would then never adapt, having been told it did not need to. Frame
+      // pacing is the Rust FramePacer's job anyway.
+      case ENV.SET_AUDIO_BUFFER_STATUS_CALLBACK:
+        return false;
 
       // Refused: unimplemented interfaces, and paths that do not exist in a browser.
       case ENV.GET_SYSTEM_DIRECTORY:
@@ -794,11 +822,28 @@ export class LibretroRuntime {
     const namePtr = name ? this._allocCString(name) : 0;
     const ptr = this._alloc(GAME_INFO_EXT.SIZEOF);
 
+    // A synthetic filename, not a real one. Cores are entitled to read the content's
+    // *name* even when `need_fullpath` is false — several decide which system they are
+    // emulating from the extension, and Genesis Plus GX is one: it copies `full_path`
+    // into a buffer and then reads the last three characters to pick between Mega
+    // Drive, Master System, Game Gear and SG-1000. Passing NULL there is what made a
+    // Master System cart boot as a Mega Drive one, running Z80 code on the 68000.
+    //
+    // The path deliberately has no directory component, so a core that ignored
+    // `need_fullpath` and tried to open it would fail immediately rather than reach
+    // for something outside the sandbox.
+    const fullPath = extension ? `${name || 'content'}.${extension}` : name || 'content';
+    const fullPathPtr = this._allocCString(fullPath);
+    // Empty string rather than NULL: cores `strncpy` this field unconditionally.
+    const dirPtr = this._allocCString('');
+
     if (this._viewsStale()) this._refreshViews();
     this._u8.fill(0, ptr, ptr + GAME_INFO_EXT.SIZEOF);
     const u32 = this._u32;
-    // full_path / archive_path / archive_file / dir / meta stay NULL: content came
-    // from memory, and claiming a path we do not have invites the core to open it.
+    u32[(ptr + GAME_INFO_EXT.FULL_PATH) >> 2] = fullPathPtr;
+    u32[(ptr + GAME_INFO_EXT.DIR) >> 2] = dirPtr;
+    // archive_path / archive_file stay NULL: `file_in_archive` is false, which makes
+    // them meaningless by contract. `meta` is explicitly allowed to be NULL.
     u32[(ptr + GAME_INFO_EXT.NAME) >> 2] = namePtr;
     u32[(ptr + GAME_INFO_EXT.EXT) >> 2] = extPtr;
     u32[(ptr + GAME_INFO_EXT.DATA) >> 2] = dataPtr;

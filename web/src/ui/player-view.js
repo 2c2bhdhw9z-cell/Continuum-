@@ -29,6 +29,7 @@
 import { getContent, contentFilename, isPlayable } from '../data/content-store.js';
 import { entryById, markPlayed } from '../data/catalog.js';
 import { getSystem } from '../data/systems.js';
+import { getCorePreference } from '../data/core-prefs.js';
 import * as saveStates from '../data/save-states.js';
 import { toast } from './toast.js';
 
@@ -151,10 +152,17 @@ export class PlayerView {
   /**
    * Boots a game. Rejections are reported and leave the UI back in the library.
    * @param {string} entryId
+   * @param {{coreId?: string|null}} [options] `coreId` overrides the core for this
+   *   launch. An id that cannot run the game's system is ignored by the registry, so
+   *   passing a stale one is safe.
    */
-  async launch(entryId) {
+  async launch(entryId, options = {}) {
     const entry = entryById(entryId);
     if (!entry) return;
+
+    // An explicit choice for this launch beats the stored preference, which beats the
+    // manifest default. All three go through the same registry call.
+    const preferredCore = options.coreId ?? getCorePreference(entry.systemId);
 
     const system = getSystem(entry.systemId);
     if (system?.phase === 2) {
@@ -170,7 +178,7 @@ export class PlayerView {
     // they should — so say why here rather than surfacing "content rejected" from
     // deep inside emulation.
     const coreEntryForSystem = this.coreLoader.entryFor(
-      this.coreLoader.coreIdFor(entry.systemId) ?? '',
+      this.coreLoader.coreIdFor(entry.systemId, preferredCore) ?? '',
     );
     if (!isPlayable(entry) && coreEntryForSystem?.kind === 'libretro') {
       toast(
@@ -217,7 +225,7 @@ export class PlayerView {
       await this.host.initGpu(this.canvas);
       if (token !== this._launchToken) return;
 
-      const coreId = this.coreLoader.coreIdFor(entry.systemId);
+      const coreId = this.coreLoader.coreIdFor(entry.systemId, preferredCore);
       if (!coreId) throw new Error(`no core is declared for system '${entry.systemId}'`);
 
       const coreEntry = this.coreLoader.entryFor(coreId);

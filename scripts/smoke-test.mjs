@@ -153,9 +153,36 @@ const boot = await page.evaluate(() => ({
   libretroCores: [...window.__continuum.coreLoader.manifest.values()]
     .filter((core) => core.kind === 'libretro')
     .map((core) => core.id),
-  systemsWithRealCores: [...window.__continuum.coreLoader.systemToCore.entries()]
-    .filter(([, coreId]) => window.__continuum.coreLoader.entryFor(coreId)?.kind === 'libretro')
-    .map(([system]) => system),
+  // Asked of the registry rather than of a JS-side map: the system -> cores mapping
+  // lives in Rust, and that is the thing worth asserting on.
+  systemsWithRealCores: [
+    ...new Set(
+      [...window.__continuum.coreLoader.manifest.values()]
+        .filter((core) => core.kind === 'libretro')
+        .flatMap((core) => core.systems ?? []),
+    ),
+  ].filter(
+    (system) =>
+      window.__continuum.coreLoader.entryFor(
+        window.__continuum.coreLoader.coreIdFor(system),
+      )?.kind === 'libretro',
+  ),
+  // Systems more than one core declares. This is the subcore relationship, read
+  // straight out of the registry.
+  multiCoreSystems: Object.fromEntries(
+    [
+      ...new Set(
+        [...window.__continuum.coreLoader.manifest.values()].flatMap(
+          (core) => core.systems ?? [],
+        ),
+      ),
+    ]
+      .map((system) => [
+        system,
+        window.__continuum.host.bridge.coresForSystem(system),
+      ])
+      .filter(([, ids]) => ids.length > 1),
+  ),
   resident: window.__continuum.host.bridge?.residentCoreCount ?? -1,
   status: window.__continuum.host.bridge?.status ?? 'not-loaded',
   cardCount: document.querySelectorAll('.card').length,
@@ -165,12 +192,22 @@ const boot = await page.evaluate(() => ({
 // Counted, not hard-coded: the point is that real cores are declared alongside the
 // placeholders and that they claim the systems they can actually run.
 check(
-  'manifest declares both real cores plus placeholders',
+  'manifest declares all three real cores plus placeholders',
   boot.declared >= 8 &&
     boot.libretroCores.includes('fceumm') &&
-    boot.libretroCores.includes('mgba'),
+    boot.libretroCores.includes('mgba') &&
+    boot.libretroCores.includes('genesis_plus_gx'),
   `${boot.declared} declared; real: ${boot.libretroCores.join(', ')}; ` +
     `systems with real cores: ${boot.systemsWithRealCores.join(', ')}`,
+);
+check(
+  'a system with two cores resolves to the higher priority one, keeping the other available',
+  boot.multiCoreSystems.gb?.length === 2 &&
+    boot.multiCoreSystems.gb[0] === 'mgba' &&
+    boot.multiCoreSystems.gb.includes('gambatte'),
+  Object.entries(boot.multiCoreSystems)
+    .map(([system, ids]) => `${system}: ${ids.join(' > ')}`)
+    .join('; ') || 'no system has more than one core',
 );
 check(
   'no cores loaded at boot (rule 5)',
@@ -761,6 +798,13 @@ if (webgpu) {
 // that produced a frame is identifiable from pixels rather than from bookkeeping.
 if (webgpu) {
   const SWAPS = 3;
+  /** One built-in cart per real core, so a round exercises all three. */
+  const SWAP_TARGETS = [
+    ['builtin-nes-testcart', 'FCEUmm', 'nes'],
+    ['builtin-gba-testcart', 'mGBA', 'gba'],
+    ['builtin-sms-testcart', 'Genesis Plus GX', 'sms'],
+  ];
+  const SESSIONS = SWAPS * SWAP_TARGETS.length;
   const swapLog = [];
   let swapFailure = null;
   let peakCoreMb = 0;
@@ -771,10 +815,7 @@ if (webgpu) {
   }));
 
   for (let round = 0; round < SWAPS; round++) {
-    for (const [entryId, expectedCore, expectedSystem] of [
-      ['builtin-nes-testcart', 'FCEUmm', 'nes'],
-      ['builtin-gba-testcart', 'mGBA', 'gba'],
-    ]) {
+    for (const [entryId, expectedCore, expectedSystem] of SWAP_TARGETS) {
       const result = await page.evaluate(
         async ([id, core]) => {
           const { player, host, runtimeStats } = window.__continuum;
@@ -866,7 +907,7 @@ if (webgpu) {
   }
 
   check(
-    `hot-swapped NES↔GBA ${SWAPS}x with one core resident at a time`,
+    `cycled NES → GBA → Master System ${SWAPS}x with one core resident at a time`,
     swapFailure === null,
     swapFailure ?? swapLog.join(' | '),
   );
@@ -1014,7 +1055,7 @@ if (webgpu) {
   check(
     'never held more than one core in memory',
     peakCoreMb > 0 && peakCoreMb < 96,
-    `largest running core measured at ${peakCoreMb} MB over ${SWAPS * 2} sessions`,
+    `largest running core measured at ${peakCoreMb} MB over ${SESSIONS} sessions`,
   );
 
   // The engine's own memory cannot shrink (wasm memory never does), so the test is that
@@ -1024,8 +1065,265 @@ if (webgpu) {
     'engine memory does not grow across swaps',
     growthMb < 8,
     `${(beforeSwaps.engineMemory / 1024 / 1024).toFixed(1)} MB → ` +
-      `${(leaks.engineMemory / 1024 / 1024).toFixed(1)} MB over ${SWAPS * 2} sessions ` +
+      `${(leaks.engineMemory / 1024 / 1024).toFixed(1)} MB over ${SESSIONS} sessions ` +
       `(+${growthMb.toFixed(1)} MB)`,
+  );
+}
+
+// ------------------------------------------------------- 5e. subcore selection
+//
+// A system maps to many cores, and the user can override which one runs. Three things
+// have to hold, and only the third needs a browser:
+//
+//   1. Resolution: a preference selects an alternative, and a preference that cannot
+//      apply is ignored rather than obeyed. (Also unit-tested in Rust; asserted here
+//      to prove the facade is wired to the same logic.)
+//   2. UI: the picker appears only where there is a choice to make.
+//   3. Launch: the override actually changes which core runs — proved from the
+//      framebuffer, because the built-in Master System cart draws a magenta playfield
+//      on the real core and the placeholder draws the diagnostic pattern instead.
+
+const resolution = await page.evaluate(() => {
+  const { host, coreLoader, corePrefs } = window.__continuum;
+  const bridge = host.bridge;
+  const before = corePrefs.get('sms');
+  corePrefs.set('sms', null);
+
+  const out = {
+    smsCandidates: bridge.coresForSystem('sms'),
+    gbCandidates: bridge.coresForSystem('gb'),
+    nesCandidates: bridge.coresForSystem('nes'),
+    defaultSms: coreLoader.coreIdFor('sms'),
+    overriddenSms: coreLoader.coreIdFor('sms', 'smsplus'),
+    // A core that exists but cannot run this system.
+    wrongCore: coreLoader.coreIdFor('sms', 'fceumm'),
+    // A core that is not declared at all.
+    unknownCore: coreLoader.coreIdFor('sms', 'no-such-core'),
+    // Stored preference, read back through the same path the launcher uses.
+    storedTakesEffect: null,
+    storedCleared: null,
+  };
+
+  corePrefs.set('sms', 'smsplus');
+  out.storedTakesEffect = coreLoader.coreIdFor('sms', corePrefs.get('sms'));
+  corePrefs.set('sms', null);
+  out.storedCleared = coreLoader.coreIdFor('sms', corePrefs.get('sms'));
+
+  corePrefs.set('sms', before);
+  return out;
+});
+
+check(
+  'a system lists every core that can run it, best first',
+  resolution.smsCandidates.length === 2 &&
+    resolution.smsCandidates[0] === 'genesis_plus_gx' &&
+    resolution.gbCandidates.length === 2 &&
+    resolution.nesCandidates.length === 1,
+  `sms: ${resolution.smsCandidates.join(' > ')} · gb: ${resolution.gbCandidates.join(' > ')} · ` +
+    `nes: ${resolution.nesCandidates.join(' > ')}`,
+);
+check(
+  'a preference selects an alternative core',
+  resolution.defaultSms === 'genesis_plus_gx' &&
+    resolution.overriddenSms === 'smsplus' &&
+    resolution.storedTakesEffect === 'smsplus' &&
+    resolution.storedCleared === 'genesis_plus_gx',
+  `default ${resolution.defaultSms}, explicit ${resolution.overriddenSms}, ` +
+    `stored ${resolution.storedTakesEffect}, cleared ${resolution.storedCleared}`,
+);
+check(
+  'a preference that cannot apply is ignored, not obeyed',
+  resolution.wrongCore === 'genesis_plus_gx' && resolution.unknownCore === 'genesis_plus_gx',
+  `core for another system → ${resolution.wrongCore}; undeclared core → ${resolution.unknownCore}`,
+);
+
+// The picker is a choice, so it must not appear where there is nothing to choose.
+const picker = await page.evaluate(() => {
+  const { detail } = window.__continuum;
+  const read = (entryId) => {
+    detail.open(entryId);
+    const row = document.getElementById('detail-core-row');
+    const select = document.getElementById('detail-core');
+    const result = {
+      shown: !row.hidden,
+      options: [...select.options].map((o) => o.textContent),
+      value: select.value,
+    };
+    detail.close();
+    return result;
+  };
+  return { sms: read('builtin-sms-testcart'), nes: read('builtin-nes-testcart') };
+});
+
+check(
+  'detail sheet offers a core picker only when the system has more than one core',
+  picker.sms.shown &&
+    picker.sms.options.length === 3 &&
+    picker.sms.value === '' &&
+    !picker.nes.shown,
+  `Master System: ${picker.sms.options.join(' / ')} · NES picker shown: ${picker.nes.shown}`,
+);
+
+// The gesture itself, not just the menu component: right-click is delegated from the
+// scroll container because cards are recycled, and that wiring is easy to break.
+const gesture = await page.evaluate(() => {
+  const { coreMenu, detail } = window.__continuum;
+  const fire = (entryId) => {
+    coreMenu.close();
+    const card = [...document.querySelectorAll('.card')].find(
+      (c) => c.dataset.entryId === entryId,
+    );
+    if (!card) return { error: `no card for ${entryId}` };
+    const rect = card.getBoundingClientRect();
+    const event = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: Math.round(rect.left + 20),
+      clientY: Math.round(rect.top + 20),
+    });
+    card.dispatchEvent(event);
+    return {
+      open: coreMenu.isOpen,
+      // A menu that opened must claim the event; one that did not must let the
+      // browser show its own.
+      defaultPrevented: event.defaultPrevented,
+      items: [...document.querySelectorAll('.coremenu__item')].map((i) => i.dataset.coreId),
+    };
+  };
+  const multi = fire('builtin-sms-testcart');
+  const single = fire('builtin-nes-testcart');
+  coreMenu.close();
+  detail.close();
+  return { multi, single };
+});
+
+check(
+  'right-clicking a card opens the subcore menu, and only where there is a choice',
+  gesture.multi.open &&
+    gesture.multi.defaultPrevented &&
+    gesture.multi.items.join() === 'genesis_plus_gx,smsplus' &&
+    !gesture.single.open &&
+    !gesture.single.defaultPrevented,
+  `Master System card → ${gesture.multi.items.join(', ')} (browser menu suppressed: ` +
+    `${gesture.multi.defaultPrevented}) · NES card → menu ${gesture.single.open ? 'opened' : 'not opened'}`,
+);
+
+if (webgpu) {
+  // The end-to-end check. Same ROM, same content path, two different cores — and the
+  // difference is read off the framebuffer rather than from what the UI claims.
+  const override = await page.evaluate(async () => {
+    const { player, host, runtimeStats, corePrefs } = window.__continuum;
+    const before = corePrefs.get('sms');
+
+    const runWith = async (coreId) => {
+      await player.launch('builtin-sms-testcart', coreId ? { coreId } : {});
+      const deadline = Date.now() + 30_000;
+      while (host.bridge.status !== 'running' && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (host.bridge.status !== 'running') return { ok: false, reason: 'never ran' };
+      await new Promise((r) => setTimeout(r, 500));
+
+      // Best-effort. By this point in the run the earlier compositing probe has
+      // usually destroyed the WebGPU device (SwiftShader tears it down on
+      // getCurrentTexture), and a GPU readback cannot be mapped afterwards. The core
+      // identity below does not depend on the GPU, so a failed capture downgrades the
+      // pixel evidence rather than the check.
+      let rgb = null;
+      let captureError = null;
+      try {
+        const rgba = await host.captureFrame(256, 192);
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let n = 0;
+        // Inset to skip any letterbox the fit introduces at the edges.
+        for (let y = 24; y < 168; y += 3) {
+          for (let x = 32; x < 224; x += 3) {
+            const o = (y * 256 + x) * 4;
+            r += rgba[o];
+            g += rgba[o + 1];
+            b += rgba[o + 2];
+            n++;
+          }
+        }
+        rgb = [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
+      } catch (err) {
+        captureError = err.message;
+      }
+
+      const out = {
+        ok: true,
+        core: host.bridge.sessionCoreName,
+        resident: host.bridge.residentCoreIds(),
+        // Geometry comes from the core that is actually loaded, so it is independent
+        // evidence of which one answered.
+        avInfo: Array.from(host.bridge.sessionAvInfo() ?? []),
+        rgb,
+        captureError,
+      };
+      player.exit();
+      await new Promise((r2) => setTimeout(r2, 300));
+      return out;
+    };
+
+    const real = await runWith(null);
+    const alternative = await runWith('smsplus');
+
+    corePrefs.set('sms', before);
+    return {
+      real,
+      alternative,
+      instantiated: runtimeStats.instantiated,
+      destroyed: runtimeStats.destroyed,
+      maxLive: runtimeStats.maxLive,
+      live: runtimeStats.live.length,
+    };
+  });
+
+  const { real, alternative } = override;
+  // Magenta: red and blue clearly above green. This is the cart's own palette, so it
+  // can only appear if Genesis Plus GX actually emulated it.
+  const isMagenta = (rgb) => rgb[0] > rgb[1] + 20 && rgb[2] > rgb[1] + 20;
+
+  check(
+    'default core runs the Master System cart',
+    real.ok && real.core === 'Genesis Plus GX' && real.resident.join() === 'genesis_plus_gx',
+    real.ok ? `${real.core} (resident: ${real.resident.join(', ')})` : real.reason,
+  );
+  check(
+    'overriding the core changes which one actually runs',
+    alternative.ok &&
+      alternative.core === 'SMS Plus GX' &&
+      alternative.resident.join() === 'smsplus',
+    alternative.ok
+      ? `same ROM, same launch path: ${real.core} → ${alternative.core} ` +
+          `(resident: ${alternative.resident.join(', ')})`
+      : alternative.reason,
+  );
+
+  // Pixel confirmation when the environment allows a readback. The Node ABI harness
+  // asserts the cart's colours unconditionally, so this is corroboration rather than
+  // the only evidence.
+  if (real.rgb && alternative.rgb) {
+    check(
+      'the two cores draw different pictures from the same ROM',
+      isMagenta(real.rgb) && !isMagenta(alternative.rgb),
+      `real core rgb ${real.rgb.join(',')} (magenta) vs placeholder rgb ` +
+        `${alternative.rgb.join(',')}`,
+    );
+  } else {
+    info(
+      'pixel comparison of the two cores (environment, not asserted)',
+      `GPU readback unavailable: ${real.captureError ?? alternative.captureError} — ` +
+        'the cart colours are asserted in scripts/core-abi-test.mjs instead',
+    );
+  }
+  check(
+    'switching cores for one system still holds only one core at a time',
+    override.live === 0 && override.instantiated === override.destroyed && override.maxLive === 1,
+    `${override.instantiated} instantiated, ${override.destroyed} destroyed, ` +
+      `${override.live} live, high-water mark ${override.maxLive}`,
   );
 }
 

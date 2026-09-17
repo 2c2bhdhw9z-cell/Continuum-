@@ -31,6 +31,7 @@
 
 import { VirtualScroller } from './virtual-scroller.js';
 import { createCard, bindCard } from './card.js';
+import { attachCoreMenuGestures } from './core-menu.js';
 import { artFor, metaLineFor } from './art.js';
 import {
   allIndices,
@@ -56,9 +57,14 @@ export class LibraryView {
    * @param {(entryId: string) => void} opts.onLaunch
    * @param {{ wake: (frames?: number) => void }} opts.scheduler
    */
-  constructor({ onOpenDetails, onLaunch, scheduler }) {
+  constructor({ onOpenDetails, onLaunch, onCoreMenu, scheduler }) {
     this.onOpenDetails = onOpenDetails;
     this.onLaunch = onLaunch;
+    /**
+     * Asked to open the subcore picker for a card. Returns whether it opened, so the
+     * gesture layer knows whether to swallow the browser's own context menu.
+     */
+    this.onCoreMenu = onCoreMenu ?? (() => false);
     this.scheduler = scheduler;
 
     this.root = document.getElementById('view-library');
@@ -139,6 +145,13 @@ export class LibraryView {
       event.preventDefault();
       const id = card.dataset.entryId;
       if (id) this.onOpenDetails(id);
+    });
+
+    // Right-click / long-press: launch with an alternative core. Delegated, because
+    // cards are recycled and per-card listeners would churn on every scroll frame.
+    attachCoreMenuGestures(this.scrollEl, ({ card, x, y }) => {
+      const id = card.dataset.entryId;
+      return id ? this.onCoreMenu(id, x, y) : false;
     });
 
     // Solid top bar once the hero has scrolled away.

@@ -11,6 +11,7 @@ import { VirtualScroller } from './virtual-scroller.js';
 import { artFor, glyphFor, metaLineFor } from '../ui/art.js';
 import { entryById, toggleFavorite } from '../data/catalog.js';
 import { getSystem } from '../data/systems.js';
+import { getCorePreference, setCorePreference } from '../data/core-prefs.js';
 import { formatAge, listFor } from '../data/save-states.js';
 
 /** Matches `.state-row { height: 52px }`. */
@@ -24,12 +25,20 @@ export class DetailSheet {
    * @param {() => void} opts.onDataChanged
    * @param {{ wake: (frames?: number) => void }} opts.scheduler
    */
-  constructor({ onLaunch, onLoadState, onDataChanged, onRemoveRom, scheduler }) {
+  constructor({
+    onLaunch,
+    onLoadState,
+    onDataChanged,
+    onRemoveRom,
+    scheduler,
+    coresForSystem = () => [],
+  }) {
     this.onLaunch = onLaunch;
     this.onLoadState = onLoadState;
     this.onDataChanged = onDataChanged;
     this.onRemoveRom = onRemoveRom;
     this.scheduler = scheduler;
+    this.coresForSystem = coresForSystem;
 
     this.root = document.getElementById('detail-sheet');
     this.artEl = document.getElementById('detail-art');
@@ -41,6 +50,9 @@ export class DetailSheet {
     this.removeBtn = document.getElementById('detail-remove');
     this.statesEl = document.getElementById('detail-states');
     this.statesCountEl = document.getElementById('detail-states-count');
+    this.coreRow = document.getElementById('detail-core-row');
+    this.coreSelect = document.getElementById('detail-core');
+    this.coreNote = document.getElementById('detail-core-note');
 
     /** @type {import('../data/catalog.js').CatalogEntry|null} */
     this.entry = null;
@@ -101,6 +113,60 @@ export class DetailSheet {
       const slot = Number(button.dataset.slot);
       if (Number.isFinite(slot)) this.onLoadState(this.entry.id, slot);
     });
+
+    this.coreSelect?.addEventListener('change', () => {
+      if (!this.entry) return;
+      // Stored against the system, so it applies to the whole library for that
+      // system rather than to this one game.
+      setCorePreference(this.entry.systemId, this.coreSelect.value || null);
+      this._syncCorePicker();
+    });
+  }
+
+  /**
+   * Fills the core picker, or hides it when the system has only one option.
+   *
+   * The list comes from the registry, so a system whose second core is removed from
+   * the manifest quietly loses its picker instead of offering something that no
+   * longer exists.
+   */
+  _syncCorePicker() {
+    if (!this.coreRow || !this.coreSelect) return;
+    const entry = this.entry;
+    const candidates = entry ? this.coresForSystem(entry.systemId) : [];
+
+    if (!entry || candidates.length < 2) {
+      this.coreRow.hidden = true;
+      return;
+    }
+    this.coreRow.hidden = false;
+
+    const stored = getCorePreference(entry.systemId);
+    const defaultCore = candidates[0];
+
+    // Rebuilt on open rather than recycled: the option count is the number of cores
+    // for one system, and the sheet shows one game at a time.
+    this.coreSelect.textContent = '';
+    const auto = document.createElement('option');
+    auto.value = '';
+    auto.textContent = `Default (${defaultCore.name})`;
+    this.coreSelect.appendChild(auto);
+    for (const core of candidates) {
+      const option = document.createElement('option');
+      option.value = core.id;
+      option.textContent =
+        core.kind === 'libretro' ? core.name : `${core.name} (diagnostic stand-in)`;
+      this.coreSelect.appendChild(option);
+    }
+    // A stored id that is no longer offered falls back to the default entry, which
+    // matches what the registry will actually do at launch.
+    this.coreSelect.value = candidates.some((c) => c.id === stored) ? stored : '';
+
+    const chosen = candidates.find((c) => c.id === this.coreSelect.value) ?? defaultCore;
+    this.coreNote.textContent =
+      chosen.kind === 'libretro'
+        ? `${candidates.length} cores can run this system. Using ${chosen.name}.`
+        : `${chosen.name} is still a placeholder — it renders the diagnostic pattern, not the game.`;
   }
 
   // ----------------------------------------------------------------- state rows
@@ -186,6 +252,7 @@ export class DetailSheet {
       }
     }
     this._syncFavButton();
+    this._syncCorePicker();
 
     this.statesCountEl.textContent =
       this.states.length === 0 ? 'none yet' : `${this.states.length.toLocaleString()} saved`;
