@@ -509,9 +509,16 @@ Three things it gets right that are easy to get wrong:
   JavaScript. CI stamps `VERSION`, and `main.js` reloads once when the new worker takes
   over — guarded against firing on a first visit, during a running game, or twice.
 
-**Enabling Pages is a one-time manual step** and no token in CI can do it:
-Settings → Pages → Build and deployment → Source: *GitHub Actions*. Until then the build
-succeeds and only the deploy job fails, so the caches stay warm and a re-run is quick.
+**Enabling Pages was a one-time manual step** that no token in CI can do — Settings →
+Pages → Source: *GitHub Actions*. It is done, and the site is live at
+<https://2c2bhdhw9z-cell.github.io/Continuum-/>. If a future deploy job 404s with
+"Ensure GitHub Pages has been enabled", that setting has been reverted; the build job is
+unaffected, so the caches stay warm and a re-run is quick.
+
+The browser suite takes a URL, so it runs against the deployment as-is and not only
+against localhost — `node scripts/smoke-test.mjs https://2c2bhdhw9z-cell.github.io/Continuum-/`
+was 73/73 on `v0.5.0-mobile`. Worth doing after any change to the service worker or to
+core loading, because both behave differently on a real origin.
 
 ---
 
