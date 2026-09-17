@@ -9,10 +9,18 @@
 
 import { VirtualScroller } from './virtual-scroller.js';
 import { artFor, glyphFor, metaLineFor } from '../ui/art.js';
-import { entryById, toggleFavorite } from '../data/catalog.js';
+import { entryById, toggleFavorite, formatBytes } from '../data/catalog.js';
+import {
+  displayUrlFor,
+  storeManualArtwork,
+  clearArtwork,
+  scrapeArtwork,
+  describeTier,
+} from '../data/artwork.js';
 import { getSystem } from '../data/systems.js';
 import { getCorePreference, setCorePreference } from '../data/core-prefs.js';
 import { formatAge, listFor, autoStateFor } from '../data/save-states.js';
+import { toast } from './toast.js';
 
 /** Matches `.state-row { height: 52px }`. */
 const ROW_HEIGHT = 52;
@@ -44,6 +52,11 @@ export class DetailSheet {
 
     this.root = document.getElementById('detail-sheet');
     this.artEl = document.getElementById('detail-art');
+    this.artImgEl = document.getElementById('detail-art-img');
+    this.artNoteEl = document.getElementById('detail-art-note');
+    this.artChangeBtn = document.getElementById('detail-art-change');
+    this.artResetBtn = document.getElementById('detail-art-reset');
+    this.artInput = document.getElementById('detail-art-input');
     this.titleEl = document.getElementById('detail-title');
     this.metaEl = document.getElementById('detail-meta');
     this.blurbEl = document.getElementById('detail-blurb');
@@ -77,6 +90,9 @@ export class DetailSheet {
       itemSize: ROW_HEIGHT,
       overscan: 2,
       scheduler: this.scheduler,
+      // A game with two save states gets two rows, not ten. The count changes when a
+      // different game is opened, never while this list is being scrolled.
+      capPoolToCount: true,
       createNode: () => this._createRow(),
       bindNode: (row, index) => this._bindRow(row, index),
     });
@@ -123,6 +139,49 @@ export class DetailSheet {
       if (!this.entry) return;
       await this.onClearResume?.(this.entry.id);
       this._syncResume();
+    });
+
+    // ---- Tier 5: artwork the user picks themselves ----
+    this.artChangeBtn?.addEventListener('click', () => this.artInput?.click());
+
+    this.artInput?.addEventListener('change', async () => {
+      const file = this.artInput.files?.[0];
+      // Cleared first, so choosing the same file twice fires `change` again.
+      this.artInput.value = '';
+      if (!file || !this.entry) return;
+      const entryId = this.entry.id;
+      try {
+        await storeManualArtwork(entryId, file);
+        this._syncArtwork();
+        this.onDataChanged();
+        toast('Artwork updated', file.name);
+      } catch (err) {
+        toast('Could not use that image', String(err?.message ?? err), { kind: 'warn' });
+      }
+    });
+
+    // Reverting has to be possible, and it has to mean "try again" rather than "be
+    // blank forever": clearing drops the stored image *and* the negative cache, so a
+    // scrape can find something that was not there when the ROM was first imported.
+    this.artResetBtn?.addEventListener('click', async () => {
+      if (!this.entry) return;
+      const entry = this.entry;
+      try {
+        await clearArtwork(entry.id);
+        this._syncArtwork();
+        this.onDataChanged();
+        const found = await scrapeArtwork(entry);
+        if (this.entry?.id === entry.id) this._syncArtwork();
+        this.onDataChanged();
+        toast(
+          found ? 'Artwork restored' : 'Artwork cleared',
+          found
+            ? 'Found cover art in the libretro archive.'
+            : 'Showing the generated console plate. A thumbnail will be captured next time you play.',
+        );
+      } catch (err) {
+        toast('Could not clear artwork', String(err?.message ?? err), { kind: 'warn' });
+      }
     });
 
     this.coreSelect?.addEventListener('change', () => {
@@ -221,17 +280,13 @@ export class DetailSheet {
     // Naming the core that wrote it is what lets someone understand a refusal to
     // load: a state is only meaningful to the build that produced it, and seeing
     // "Snes9x 1.63" next to a state explains why 1.64 will not take it.
-    const core = state.coreVersion
-      ? ` · ${state.coreName} ${state.coreVersion}`
-      : state.synthetic
-        ? ' · catalogue placeholder'
-        : '';
+    const core = state.coreVersion ? ` · ${state.coreName} ${state.coreVersion}` : '';
     r.detail.textContent =
       `frame ${state.frame.toLocaleString()} · ${state.sizeKb.toFixed(1)} KB${core}`;
     r.load.dataset.slot = String(state.slot);
     // An auto-save is restored by launching, so offering "Load" for it inside the
     // same sheet is a button that duplicates the Play button above it.
-    r.load.hidden = state.auto && !state.synthetic;
+    r.load.hidden = state.auto;
   }
 
   // --------------------------------------------------------------- open / close
@@ -256,24 +311,18 @@ export class DetailSheet {
 
     this.playBtn.disabled = locked;
     this.playBtn.textContent = locked ? 'Phase 2 only' : 'Play';
-    // Only imported ROMs can be removed; built-ins ship with the app and synthetic
-    // entries have nothing to delete.
+    // Only imported ROMs can be removed; built-in carts ship with the app.
     if (this.removeBtn) this.removeBtn.hidden = entry.source !== 'imported';
 
     const provenance = document.getElementById('detail-provenance');
     if (provenance) {
-      if (entry.real) {
-        provenance.hidden = false;
-        provenance.textContent =
-          entry.source === 'builtin'
-            ? `Ships with the app · ${entry.filename} · runs on the real core`
-            : `Imported · ${entry.filename} · ${(entry.sizeMb * 1024).toFixed(0)} KB in local storage`;
-      } else {
-        provenance.hidden = false;
-        provenance.textContent =
-          'Catalogue placeholder — no ROM data. Add your own file to play this system.';
-      }
+      provenance.hidden = false;
+      provenance.textContent =
+        entry.source === 'builtin'
+          ? `Ships with the app · ${entry.filename} · runs on the real core`
+          : `Imported · ${entry.filename} · ${formatBytes(entry.sizeBytes)} held in this browser`;
     }
+    this._syncArtwork();
     this._syncFavButton();
     this._syncCorePicker();
     this._syncResume();
@@ -305,6 +354,25 @@ export class DetailSheet {
   _syncFavButton() {
     const fav = this.entry?.favorite;
     this.favBtn.textContent = fav ? 'Remove from favorites' : 'Add to favorites';
+  }
+
+  /** Shows whatever tier resolved this entry's cover, and where it came from. */
+  _syncArtwork() {
+    const entry = this.entry;
+    if (!this.artImgEl) return;
+
+    const url = entry ? displayUrlFor(entry) : null;
+    if (url) {
+      this.artImgEl.src = url;
+      this.artImgEl.hidden = false;
+    } else {
+      this.artImgEl.removeAttribute('src');
+      this.artImgEl.hidden = true;
+    }
+
+    if (this.artNoteEl) this.artNoteEl.textContent = describeTier(entry?.art);
+    // Nothing to reset when the plate is already what is showing.
+    if (this.artResetBtn) this.artResetBtn.hidden = !entry?.art;
   }
 
   /**

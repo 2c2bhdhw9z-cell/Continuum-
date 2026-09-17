@@ -80,13 +80,22 @@ const SMS_TEST_CART = {
     'rather than a Mega Drive.',
 };
 
-/** Registers built-in content. Idempotent. */
+/**
+ * Registers built-in content. Idempotent.
+ *
+ * `addedAt: 0` is deliberate. These four are part of the build, not something the user
+ * acquired, so they have no meaningful acquisition time — and defaulting it to
+ * `Date.now()` made "which cart is newest" depend on whether the clock ticked between
+ * two function calls, which in turn decided the hero banner. Pinning it to zero means
+ * any imported ROM is unambiguously newer, and the carts order among themselves by
+ * title.
+ */
 export function registerBuiltins() {
   return [
-    addRealEntry(NES_TEST_CART),
-    addRealEntry(GBA_TEST_CART),
-    addRealEntry(SMS_TEST_CART),
-    addRealEntry(SNES_TEST_CART),
+    addRealEntry({ ...NES_TEST_CART, addedAt: 0 }),
+    addRealEntry({ ...GBA_TEST_CART, addedAt: 0 }),
+    addRealEntry({ ...SMS_TEST_CART, addedAt: 0 }),
+    addRealEntry({ ...SNES_TEST_CART, addedAt: 0 }),
   ];
 }
 

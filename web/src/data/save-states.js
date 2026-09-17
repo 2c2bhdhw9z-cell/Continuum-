@@ -27,15 +27,16 @@
  * means an auto-save can never consume a slot number the user was using, and the
  * resume path never has to guess which of several records is the newest.
  *
- * ## Synthetic histories
+ * ## Every record here is real
  *
- * Catalogue placeholders still get a fabricated history, because a game with 200
- * states is the case that proves the list virtualisation and no real library reaches
- * it on demand. Those records are tagged `synthetic` and are never written to disk;
- * asking to load one says so plainly instead of failing as a missing payload.
+ * An earlier build fabricated a plausible save history for catalogue placeholders, so
+ * that a game with 200 states existed to prove the list virtualisation against. The
+ * placeholders are gone and so is the generator: every record in this index was
+ * written by a core, has a payload on disk, and can be loaded. The virtualised list
+ * still handles 200 states — it is the same code — but it now has to be reached by
+ * actually saving 200 times, which is the honest version of that claim.
  */
 
-import { entryById } from './catalog.js';
 import {
   STATE_META,
   STATE_DATA,
@@ -58,7 +59,6 @@ import {
  * @property {string} [coreName]
  * @property {string} [coreVersion]
  * @property {number} [stateSize]  payload length in bytes
- * @property {boolean} [synthetic] fabricated for a catalogue placeholder
  */
 
 /** Auto-saves are not in the numbered sequence, so they get a slot outside it. */
@@ -114,7 +114,7 @@ export async function hydrate() {
 
 function summary() {
   let states = 0;
-  for (const list of byGame.values()) states += list.filter((s) => !s.synthetic).length;
+  for (const list of byGame.values()) states += list.length;
   return { states, games: byGame.size };
 }
 
@@ -122,57 +122,15 @@ export function isHydrated() {
   return hydrated;
 }
 
-// ------------------------------------------------------------------- synthetic
-
-function makeRandom(seedText) {
-  let state = 0x2545f491;
-  for (let i = 0; i < seedText.length; i++) {
-    state = (state ^ seedText.charCodeAt(i)) >>> 0;
-    state = (state * 0x01000193) >>> 0;
-  }
-  return function random() {
-    state ^= state << 13;
-    state ^= state >>> 17;
-    state ^= state << 5;
-    return (state >>> 0) / 4294967296;
-  };
-}
-
-/**
- * Builds a plausible history for a catalogue placeholder. Real content never gets
- * one: inventing save states for a ROM someone owns would be the UI lying about
- * their data, and every "Load" would then fail on a state that never existed.
- */
-function seedSynthetic(gameId) {
-  const states = [];
-  byGame.set(gameId, states);
-  if (entryById(gameId)?.real) return states;
-
-  const random = makeRandom(gameId);
-  // Most games have none; a few have a lot. That distribution is the point.
-  const count = random() < 0.45 ? 0 : Math.floor(random() * random() * 220) + 1;
-  const now = Date.now();
-  for (let i = 0; i < count; i++) {
-    states.push({
-      id: stateId(gameId, i),
-      gameId,
-      slot: i,
-      auto: random() < 0.3,
-      createdAt: now - Math.floor(random() * 45 * 86400_000),
-      frame: Math.floor(random() * 900_000),
-      sizeKb: Math.round((8 + random() * 3200) * 10) / 10,
-      synthetic: true,
-    });
-  }
-  return sortNewestFirst(states);
-}
-
 // ------------------------------------------------------------------- reading
 
 /** @returns {SaveState[]} newest first. Synchronous by design — see the module note. */
 export function listFor(gameId) {
-  return byGame.get(gameId) ?? seedSynthetic(gameId);
+  return byGame.get(gameId) ?? EMPTY;
 }
+
+/** Shared empty result, so a miss allocates nothing on the scroll path. */
+const EMPTY = Object.freeze([]);
 
 export function countFor(gameId) {
   return listFor(gameId).length;
@@ -180,7 +138,7 @@ export function countFor(gameId) {
 
 /** The auto-save for a game, if it has one. */
 export function autoStateFor(gameId) {
-  return listFor(gameId).find((s) => s.auto && !s.synthetic) ?? null;
+  return listFor(gameId).find((s) => s.auto) ?? null;
 }
 
 /** Manual saves only, newest first. */
@@ -190,12 +148,12 @@ export function manualStatesFor(gameId) {
 
 /**
  * Reads a payload back off disk.
- * @returns {Promise<Uint8Array|null>} null when the record is synthetic or the
- *   payload is missing, which the caller must treat as "cannot load", not as empty.
+ * @returns {Promise<Uint8Array|null>} null when the payload is missing, which the
+ *   caller must treat as "cannot load", not as empty.
  */
 export async function payloadFor(gameId, slot) {
   const record = listFor(gameId).find((s) => s.slot === slot);
-  if (!record || record.synthetic) return null;
+  if (!record) return null;
   try {
     const db = await openDatabase();
     const row = await requestToPromise(
@@ -224,8 +182,6 @@ export async function payloadFor(gameId, slot) {
  */
 export function compatibility(record, current) {
   if (!record) return { ok: false, reason: 'missing' };
-  if (record.synthetic) return { ok: false, reason: 'synthetic' };
-
   if (record.coreId && current.coreId && record.coreId !== current.coreId) {
     return {
       ok: false,
@@ -260,8 +216,6 @@ export function compatibility(record, current) {
 /** A sentence to show the user. Never blames them, and never says "unknown error". */
 export function describeIncompatibility(result) {
   switch (result.reason) {
-    case 'synthetic':
-      return 'This is a catalogue placeholder with no real state behind it.';
     case 'missing':
       return 'That state is no longer stored.';
     case 'core':
@@ -291,13 +245,13 @@ export function describeIncompatibility(result) {
  * @returns {Promise<SaveState>}
  */
 export async function put({ gameId, bytes, frame, auto = false, core, contentId }) {
-  const states = listFor(gameId);
-  // Synthetic records are display-only; the moment a game gets a real state, the
-  // fabricated history is no longer an honest thing to show alongside it.
-  if (states.some((s) => s.synthetic)) {
-    byGame.set(gameId, []);
+  // `listFor` returns a shared frozen empty array for a game with no history, so the
+  // mutable list has to be materialised before anything is appended to it.
+  let list = byGame.get(gameId);
+  if (!list) {
+    list = [];
+    byGame.set(gameId, list);
   }
-  const list = listFor(gameId);
 
   const slot = auto ? AUTO_SLOT : nextSlot(list);
   const record = {
@@ -363,7 +317,7 @@ async function evictOldest(needed) {
   const candidates = [];
   for (const list of byGame.values()) {
     for (const record of list) {
-      if (!record.synthetic && !record.auto) candidates.push(record);
+      if (!record.auto) candidates.push(record);
     }
   }
   candidates.sort((a, b) => a.createdAt - b.createdAt);
@@ -383,13 +337,11 @@ export async function remove(gameId, slot) {
   const index = list.findIndex((s) => s.slot === slot);
   if (index < 0) return false;
   const record = list[index];
-  if (!record.synthetic) {
-    const db = await openDatabase();
-    await runTransaction(db, [STATE_META, STATE_DATA], 'readwrite', (transaction) => {
-      transaction.objectStore(STATE_META).delete(record.id);
-      transaction.objectStore(STATE_DATA).delete(record.id);
-    });
-  }
+  const db = await openDatabase();
+  await runTransaction(db, [STATE_META, STATE_DATA], 'readwrite', (transaction) => {
+    transaction.objectStore(STATE_META).delete(record.id);
+    transaction.objectStore(STATE_DATA).delete(record.id);
+  });
   list.splice(index, 1);
   return true;
 }
@@ -399,13 +351,11 @@ export async function clearAuto(gameId) {
   return remove(gameId, AUTO_SLOT);
 }
 
-/** Total real state bytes held, for a settings screen or the HUD. */
+/** Total state bytes held, for the Settings screen and the HUD. */
 export function usedBytes() {
   let total = 0;
   for (const list of byGame.values()) {
-    for (const record of list) {
-      if (!record.synthetic) total += record.stateSize ?? 0;
-    }
+    for (const record of list) total += record.stateSize ?? 0;
   }
   return total;
 }
@@ -426,7 +376,19 @@ export function formatAge(timestamp) {
 }
 
 /** Test seam: forget everything without touching disk. */
-export function __resetIndexForTests() {
+/**
+ * Drops the in-memory index.
+ *
+ * Two real callers: the smoke test, which discards it to prove the index rehydrates
+ * from disk, and "clear all storage" in Settings, which has just emptied the object
+ * stores this index describes. Leaving it populated after that would have the UI
+ * listing save states whose payloads no longer exist.
+ *
+ * `hydrated` is reset too, so the next read re-reads the database rather than trusting
+ * an index built from data that is gone.
+ */
+export function resetIndex() {
   byGame.clear();
   hydrated = false;
 }
+

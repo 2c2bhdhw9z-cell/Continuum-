@@ -269,23 +269,154 @@ check(
   boot.status === 'uninitialised',
   `status = ${boot.status}`,
 );
+// A fresh install shows the four bundled carts and nothing else. This is the check
+// that would have failed loudly against the old build, which shipped a 4,800-entry
+// synthetic catalogue and reported it as though the user owned it.
+const freshLibrary = await page.evaluate(async () => {
+  const { allIndices, entryAt, buildShelves } = await import('./src/data/catalog.js');
+  const entries = Array.from(allIndices(), (i) => entryAt(i));
+  return {
+    total: entries.length,
+    sources: [...new Set(entries.map((e) => e.source))].sort(),
+    shelves: buildShelves().map((shelf) => `${shelf.title} (${shelf.indices.length})`),
+    hasInventedFields: entries.some(
+      (e) => 'rating' in e || 'genre' in e || 'players' in e || 'progress' in e,
+    ),
+  };
+});
 check(
-  'catalogue indexed',
-  /4,80\d titles/.test(boot.catalog),
-  boot.catalog,
+  'out of the box the library is exactly the four test carts',
+  freshLibrary.total === 4 &&
+    freshLibrary.sources.length === 1 &&
+    freshLibrary.sources[0] === 'builtin',
+  `${freshLibrary.total} entries, sources: ${freshLibrary.sources.join('/')}`,
+);
+check(
+  'only one shelf exists, and no empty system shelves are rendered',
+  freshLibrary.shelves.length === 1 && freshLibrary.shelves[0].startsWith('Continuum Test Carts'),
+  freshLibrary.shelves.join(' · ') || 'no shelves',
+);
+check(
+  'entries carry no invented metadata',
+  freshLibrary.hasInventedFields === false,
+  freshLibrary.hasInventedFields
+    ? 'an entry still has rating/genre/players/progress'
+    : 'no rating, genre, player count or progress fields',
 );
 
-// The built-in test cart must be present and marked as real content, because it is
-// what makes the real core demonstrable without shipping someone else's ROM.
+// The built-in test cart must be present, because it is what makes the real core
+// demonstrable without shipping someone else's ROM.
 const builtin = await page.evaluate(async () => {
   const { entryById } = await import('./src/data/catalog.js');
   const entry = entryById('builtin-nes-testcart');
-  return entry ? { title: entry.title, real: entry.real, source: entry.source } : null;
+  return entry ? { title: entry.title, source: entry.source, url: entry.url } : null;
+});
+// A small library must not build a pool sized for a large one. The shelf-list pool is
+// capped by the number of shelves, so four carts produce one shelf node — where before
+// this release the viewport alone decided, giving seven shelf nodes and 98 card nodes to
+// display four games. The cap is deliberately *not* applied to a shelf's own horizontal
+// scroller, because one pooled shelf node is rebound from a small shelf to a large one
+// as the user scrolls, and growing the pool then would break rule 4.
+const freshPools = await page.evaluate(() => ({
+  shelfNodes: window.__continuum.library.shelfScroller.nodeCount,
+  shelfCount: window.__continuum.library.shelfScroller.count,
+  cards: document.querySelectorAll('.card').length,
+}));
+check(
+  'a four-title library does not build a pool sized for a large one',
+  freshPools.shelfNodes === freshPools.shelfCount && freshPools.cards <= 16,
+  `${freshPools.shelfCount} shelf → ${freshPools.shelfNodes} shelf node(s), ${freshPools.cards} cards`,
+);
+
+check(
+  'built-in NES test cart is registered and ships its own bytes',
+  builtin?.source === 'builtin' && typeof builtin.url === 'string',
+  builtin ? `${builtin.title} (${builtin.source}, ${builtin.url})` : 'missing',
+);
+
+// ------------------------------------------- 1b. a large library, made of real ROMs
+//
+// The virtualisation checks below need a library big enough that O(n) DOM work would
+// be obvious. That used to come free, from a synthetic catalogue the *application*
+// generated — which is exactly what this release removes. So the fixture moves into
+// the test, where a fixture belongs: real ROM records are written to IndexedDB, the
+// page is reloaded, and the library is rebuilt from storage the same way it is on a
+// user's phone.
+//
+// Two things are proven that could not be before: that restore handles a large
+// collection, and that scrolling one is bounded when every entry is genuinely stored.
+
+const SEEDED = 320;
+const seedReport = await page.evaluate(async (count) => {
+  const { putRom, romId } = await import('./src/data/rom-store.js');
+  const { setSetting } = await import('./src/data/settings.js');
+
+  // Off before the reload: 320 entries with no cover art would otherwise trigger a
+  // backfill of up to nine cross-origin probes each against a third-party server.
+  setSetting('fetchBoxart', false);
+
+  const base = new Uint8Array(await (await fetch('./roms/nes-testcart.nes')).arrayBuffer());
+  const A = ['Astro', 'Blaster', 'Chrono', 'Dragon', 'Echo', 'Frost', 'Galaxy', 'Hyper'];
+  const B = ['Knight', 'Racer', 'Legend', 'Quest', 'Force', 'Saga', 'Strike', 'Runner'];
+  const systems = ['nes', 'snes', 'gba', 'sms', 'genesis', 'gb'];
+  const exts = { nes: 'nes', snes: 'sfc', gba: 'gba', sms: 'sms', genesis: 'md', gb: 'gb' };
+
+  const names = [];
+  for (let i = 0; i < count; i++) {
+    // Distinct bytes give distinct content hashes and therefore distinct entries.
+    //
+    // The counter has to land inside the first 8 KB, because that is the window
+    // `romId` hashes — an earlier version of this fixture appended it past the end of
+    // a 24 KB cart, so all 320 ROMs hashed identically and six entries appeared
+    // instead of 320. Offset 512 is inside PRG data and clear of the 16-byte header.
+    const bytes = new Uint8Array(base.length + (i % 7));
+    bytes.set(base);
+    new DataView(bytes.buffer).setUint32(512, i);
+
+    const systemId = systems[i % systems.length];
+    const extension = exts[systemId];
+    const name = `${A[i % A.length]} ${B[(i * 7) % B.length]} ${i} (USA).${extension}`;
+    names.push(name);
+    await putRom({ id: romId(bytes, extension), name, systemId, extension, bytes });
+  }
+  return { written: names.length, sample: names.slice(0, 2) };
+}, SEEDED);
+
+await page.reload({ waitUntil: 'load' });
+await page.waitForFunction(() => document.querySelectorAll('.card').length > 0, {
+  timeout: 20_000,
+});
+// Restoration is asynchronous; wait for the library to actually report the seeded rows.
+await page
+  .waitForFunction(
+    (expected) => (window.__continuum?.library?.shelves?.length ?? 0) > 1 &&
+      document.getElementById('status-catalog').textContent.includes(expected),
+    String((SEEDED + 4).toLocaleString()),
+    { timeout: 30_000 },
+  )
+  .catch(() => {});
+
+const restored = await page.evaluate(async () => {
+  const { allIndices, entryAt, buildShelves } = await import('./src/data/catalog.js');
+  const entries = Array.from(allIndices(), (i) => entryAt(i));
+  return {
+    total: entries.length,
+    imported: entries.filter((e) => e.source === 'imported').length,
+    shelves: buildShelves().map((shelf) => shelf.title),
+    status: document.getElementById('status-catalog').textContent,
+  };
 });
 check(
-  'built-in NES test cart is registered as real content',
-  builtin?.real === true && builtin.source === 'builtin',
-  builtin ? `${builtin.title} (${builtin.source})` : 'missing',
+  'a large library is restored from IndexedDB at boot, not regenerated',
+  restored.imported === SEEDED && restored.total === SEEDED + 4,
+  `${seedReport.written} stored → ${restored.imported} restored (+4 bundled) · e.g. ${seedReport.sample[0]}`,
+);
+check(
+  'shelves appear only for systems that now have content',
+  restored.shelves.includes('Continuum Test Carts') &&
+    restored.shelves.at(-1) === 'Continuum Test Carts' &&
+    !restored.shelves.some((title) => /Saturn|PlayStation|Nintendo 64/.test(title)),
+  restored.shelves.join(' · '),
 );
 
 // ------------------------------------------------- 2. virtualisation, shelves
@@ -338,7 +469,7 @@ check(
 check(
   'card node count constant while scrolling (rule 4)',
   shelvesAfter.cards === shelvesBefore.cards,
-  `${shelvesBefore.cards} → ${shelvesAfter.cards} cards for 4,800 titles`,
+  `${shelvesBefore.cards} → ${shelvesAfter.cards} cards for ${SEEDED + 4} stored titles`,
 );
 check('vertical scroller pool within viewport bound', shelvesAfter.bounded === true);
 
@@ -347,10 +478,11 @@ const biggestShelf = shelvesAfter.rowStats.reduce(
   { nodes: 0, count: 0 },
 );
 check(
-  'shelf holding hundreds of titles uses a small pool',
-  biggestShelf.count > 100 && biggestShelf.nodes < 40,
+  'a shelf holding dozens of titles uses a small pool',
+  biggestShelf.count > 40 && biggestShelf.nodes < 40 && biggestShelf.nodes < biggestShelf.count,
   `${biggestShelf.count} titles → ${biggestShelf.nodes} nodes`,
 );
+
 
 // -------------------------------------------------------- 3. grid + search modes
 
@@ -373,8 +505,8 @@ const gridAfter = await page.evaluate(() => ({
 }));
 
 check(
-  'grid virtualises 4,800 titles',
-  gridAfter.cards === gridBefore && gridAfter.rows < 12,
+  'grid virtualises the whole library',
+  gridAfter.cards === gridBefore && gridAfter.rows < 12 && gridAfter.rowCount > 20,
   `${gridAfter.rows} row nodes / ${gridAfter.rowCount} rows, ${gridAfter.cards} cards`,
 );
 check(
@@ -395,7 +527,7 @@ const searchResults = await page.evaluate(() => ({
 check(
   'search filters the index without growing the DOM',
   searchResults.count > 0 &&
-    searchResults.count < 4800 &&
+    searchResults.count < SEEDED &&
     searchResults.cards === gridAfter.cards,
   `${searchResults.count} matches, ${searchResults.cards} card nodes (unchanged)`,
 );
@@ -405,17 +537,31 @@ await page.waitForTimeout(300);
 
 // ------------------------------------------------ 4. detail sheet + state list
 
-// Find a game with a long save-state history: that is the case worth testing.
+// A long save-state history is the case worth testing, and it now has to be *earned*.
+// The old suite went looking for a game that already had 200 states, which worked only
+// because the application fabricated them for placeholder entries. Nothing invents save
+// states any more, so the test writes 130 real ones — each with a payload on disk and a
+// core recorded against it — and then asserts the list still binds a handful of rows.
 const stateProbe = await page.evaluate(async () => {
-  const { entryAt, catalogSize } = await import('./src/data/catalog.js');
+  const { allIndices, entryAt } = await import('./src/data/catalog.js');
   const states = await import('./src/data/save-states.js');
-  for (let i = 0; i < catalogSize; i++) {
-    const entry = entryAt(i);
-    if (states.countFor(entry.id) > 120) {
-      return { id: entry.id, count: states.countFor(entry.id) };
-    }
+
+  const entry = Array.from(allIndices(), (i) => entryAt(i)).find((e) => e.source === 'imported');
+  if (!entry) return null;
+
+  const bytes = new Uint8Array(512);
+  for (let i = 0; i < 130; i++) {
+    bytes[0] = i & 0xff;
+    bytes[1] = (i >> 8) & 0xff;
+    await states.put({
+      gameId: entry.id,
+      bytes,
+      frame: i * 1000,
+      auto: false,
+      core: { id: 'fceumm', name: 'FCEUmm', version: 'test' },
+    });
   }
-  return null;
+  return { id: entry.id, count: states.countFor(entry.id) };
 });
 
 if (stateProbe) {
@@ -436,58 +582,86 @@ if (stateProbe) {
   check(
     'save-state list is virtualised',
     sheet.open && sheet.rows < 15 && sheet.total > 120,
-    `${sheet.total} states → ${sheet.rows} row nodes`,
+    `${sheet.total} real states → ${sheet.rows} row nodes`,
   );
   await page.evaluate(() => window.__continuum.detail.close());
 } else {
-  check('save-state list is virtualised', false, 'no game with >120 states found');
+  check('save-state list is virtualised', false, 'could not write a state history');
 }
 
-// Synthetic histories are a UI fixture. Inventing them for a ROM the user actually
-// owns would be the UI lying about their data — and every "Load" button would fail.
-const realStates = await page.evaluate(async () => {
+// Nothing invents save states. A game that has never been played has none, and every
+// row in the list has a payload behind it — so no "Load" button can fail on a record
+// that was only ever decoration.
+const realStates = await page.evaluate(async (probedId) => {
   const states = await import('./src/data/save-states.js');
-  return states.countFor('builtin-nes-testcart');
-});
+  const list = probedId ? states.listFor(probedId) : [];
+  return {
+    builtin: states.countFor('builtin-nes-testcart'),
+    listed: list.length,
+    everyRecordHasAPayload: list.every((s) => typeof s.stateSize === 'number' && s.stateSize > 0),
+    everyRecordNamesItsCore: list.every((s) => Boolean(s.coreId)),
+  };
+}, stateProbe?.id ?? null);
 check(
-  'real content starts with no invented save states',
-  realStates === 0,
-  `${realStates} states for the built-in cart`,
+  'an unplayed game has no save states at all',
+  realStates.builtin === 0,
+  `${realStates.builtin} states for the never-launched built-in cart`,
+);
+check(
+  'every state in the index has a payload and a core recorded',
+  realStates.listed > 0 &&
+    realStates.everyRecordHasAPayload &&
+    realStates.everyRecordNamesItsCore,
+  `${realStates.listed} records · payloads: ${realStates.everyRecordHasAPayload}, ` +
+    `cores named: ${realStates.everyRecordNamesItsCore}`,
 );
 
 // --------------------------------------------------------------- 5. launch path
 
 if (webgpu) {
-  // A synthetic entry whose system is served by a *placeholder* core: that exercises
-  // the GPU path without needing real content, because the diagnostic core draws its
-  // pattern from nothing while a real core rightly refuses catalogue noise.
+  // A real cart, deliberately launched on a *placeholder* core.
   //
-  // The predicate asks the registry which core would run the entry rather than naming
-  // systems to avoid. An earlier version excluded 'nes' by hand and then broke the day
-  // SNES got a real core — the property that matters is "is this core a placeholder",
-  // so that is what gets tested.
+  // The subject used to be a synthetic catalogue entry, because a diagnostic core draws
+  // its pattern from nothing while a real core rightly refuses noise. There are no
+  // synthetic entries any more, so the subject is now a bundled cart with an explicit
+  // core override — which is a better test of the same thing: the diagnostic core still
+  // produces a known pattern, and the content going in is real.
+  //
+  // The predicate asks the registry which cores can run the system and picks one whose
+  // kind is not `libretro`, rather than naming cores by hand.
   const target = await page.evaluate(async () => {
-    const { entryAt, catalogSize } = await import('./src/data/catalog.js');
+    const { allIndices, entryAt } = await import('./src/data/catalog.js');
     const { getSystem } = await import('./src/data/systems.js');
     const loader = window.__continuum.coreLoader;
-    for (let i = 0; i < catalogSize; i++) {
-      const entry = entryAt(i);
-      const system = getSystem(entry.systemId);
-      if (system?.phase !== 1 || entry.real) continue;
-      const coreId = loader.coreIdFor(entry.systemId);
-      if (!coreId || loader.entryFor(coreId)?.kind === 'libretro') continue;
-      return { id: entry.id, title: entry.title, systemId: entry.systemId, coreId };
+    // Bundled carts only. They are the entries whose bytes are known-good for their
+    // system, which matters because this subject is also launched through the full
+    // player below — handing a real core content that is not really its format would
+    // be testing nothing but the core's tolerance for garbage.
+    for (const index of allIndices()) {
+      const entry = entryAt(index);
+      if (entry.source !== 'builtin') continue;
+      if (getSystem(entry.systemId)?.phase !== 1) continue;
+      const placeholder = loader
+        .coresForSystem(entry.systemId)
+        .find((core) => core.kind !== 'libretro');
+      if (!placeholder) continue;
+      return {
+        id: entry.id,
+        title: entry.title,
+        systemId: entry.systemId,
+        coreId: placeholder.id,
+      };
     }
     return null;
   });
   if (!target) {
-    // Cannot happen while any phase-1 system is still served by a placeholder. If it
-    // ever does, these checks need to be repointed at a real cart — they verify blit
-    // orientation, letterbox maths and the whole upload path, so quietly skipping
-    // them would be much worse than stopping here.
+    // Only reachable once every core in the manifest is a real libretro core. If that
+    // happens these checks need repointing at a real core — they verify blit
+    // orientation, letterbox maths and the whole upload path, so quietly skipping them
+    // would be much worse than stopping here.
     throw new Error(
-      'no synthetic entry is left on a placeholder core: every phase-1 system now has ' +
-        'a real core, so the offscreen GPU checks need a real cart as their subject',
+      'no placeholder core is left in the manifest, so the offscreen GPU checks need ' +
+        'to be repointed at a real core',
     );
   }
 
@@ -497,7 +671,7 @@ if (webgpu) {
   // init GPU → attach core → launch → capture. No present happens, so this measures
   // upload → shader → scaling → readback in isolation, and it is the check that
   // would catch a flipped blit, a channel-order mistake, or broken letterbox maths.
-  const pixels = await page.evaluate(async (entryId) => {
+  const pixels = await page.evaluate(async ({ entryId, coreId }) => {
     const { entryById } = await import('./src/data/catalog.js');
     const { getContent } = await import('./src/data/content-store.js');
     const host = window.__continuum.host;
@@ -510,7 +684,7 @@ if (webgpu) {
 
     await host.load();
     await host.initGpu(document.getElementById('gpu-canvas'));
-    const coreId = loader.coreIdFor(entry.systemId);
+    // The placeholder core chosen above, not whatever the registry would prefer.
     await loader.ensureCore(coreId, () => {});
     const { contentFilename } = await import('./src/data/content-store.js');
     host.bridge.launch(coreId, entry.id, await getContent(entry), contentFilename(entry));
@@ -542,7 +716,7 @@ if (webgpu) {
     document.getElementById('view-player').hidden = true;
     document.getElementById('app').dataset.view = 'library';
     return { fitted, wide, deviceLost: window.__deviceLost };
-  }, target.id);
+  }, { entryId: target.id, coreId: target.coreId });
 
   check(
     'GPU device survives init and offscreen rendering',
@@ -578,7 +752,16 @@ if (webgpu) {
   );
 
   // ---- Full session through the player and the shared loop -------------------
-  await page.evaluate((id) => window.__continuum.player.launch(id), target.id);
+  //
+  // The same placeholder core the pixel checks used, passed explicitly. Without the
+  // override the registry would pick the *real* core for this system, which is a
+  // different subject than the one measured above — and the save-state round trip below
+  // depends on the diagnostic core's 24-byte state, whose first field is its frame
+  // counter, to prove that loading actually rewinds emulation.
+  await page.evaluate(
+    ({ id, coreId }) => window.__continuum.player.launch(id, { coreId }),
+    { id: target.id, coreId: target.coreId },
+  );
 
   // Wait for the session to actually be emulating, not merely requested.
   const launched = await page
@@ -592,19 +775,24 @@ if (webgpu) {
   check('session reaches "running"', launched, launched ? target.title : 'timed out');
 
   if (launched) {
-    const afterLaunch = await page.evaluate(() => ({
+    const afterLaunch = await page.evaluate((coreId) => ({
       resident: window.__continuum.host.bridge.residentCoreCount,
       adapter: window.__continuum.host.bridge.adapterInfo,
-      coreState: window.__continuum.host.bridge.coreState(
-        window.__continuum.coreLoader.coreIdFor(
-          window.__continuum.player.entry.systemId,
-        ),
-      ),
-    }));
+      residentIds: window.__continuum.host.bridge.residentCoreIds(),
+      // The core that was actually launched. Asking `coreIdFor` would name the
+      // registry's *preferred* core for this system, which is not the one this session
+      // was told to use — and a core that was never asked for is correctly "declared",
+      // so the check would fail while the behaviour was right.
+      coreState: window.__continuum.host.bridge.coreState(coreId),
+    }), target.coreId);
     check(
       'core loaded only on launch (rule 5)',
-      afterLaunch.resident === 1 && afterLaunch.coreState === 'bound',
-      `resident = ${afterLaunch.resident}, state = ${afterLaunch.coreState}`,
+      afterLaunch.resident === 1 &&
+        afterLaunch.coreState === 'bound' &&
+        afterLaunch.residentIds.length === 1 &&
+        afterLaunch.residentIds[0] === target.coreId,
+      `resident = ${afterLaunch.resident} (${afterLaunch.residentIds.join(', ')}), ` +
+        `state = ${afterLaunch.coreState}`,
     );
     check(
       'WebGPU adapter acquired through wgpu',
@@ -1445,7 +1633,7 @@ if (webgpu) {
     await new Promise((r) => setTimeout(r, 600));
 
     // --- forget everything, then read it back off disk ----------------------
-    states.__resetIndexForTests();
+    states.resetIndex();
     const hydrateResult = await states.hydrate();
     const rehydrated = states.listFor(GAME);
     const auto = states.autoStateFor(GAME);
@@ -1647,6 +1835,9 @@ check(
 // bottom bar clear of the scroll container.
 
 const PHONES = [
+  // 320 is the narrowest iPhone ever shipped, and the case that matters most now that
+  // the tab bar holds four items rather than three: 80px per tab with nothing to spare.
+  { label: 'iPhone SE (1st gen)', width: 320, height: 568 },
   { label: 'iPhone SE / mini', width: 375, height: 667 },
   { label: 'iPhone 14 Pro', width: 393, height: 852 },
   { label: 'iPhone Pro Max', width: 430, height: 932 },
@@ -1729,6 +1920,284 @@ for (const phone of PHONES) {
   }
   await mobile.close();
 }
+
+// ------------------------------------------------------- 8. cover art pipeline
+//
+// The five tiers, and the constraint that shapes all of them: `thumbnails.libretro.com`
+// sends no `Access-Control-Allow-Origin` header, so script cannot read those bytes.
+// Tiers 1–3 therefore resolve a *URL* by probing with an `Image`, and only tiers 4 and 5
+// — our own capture and the user's own file — produce blobs. Anything asserting that art
+// was "downloaded" would be asserting something the browser forbids.
+
+const naming = await page.evaluate(async () => {
+  const m = await import('./src/data/boxart.js');
+  const last = (url) => decodeURIComponent(url.split('/').pop());
+  return {
+    // The official substitution set, spelled out: & * / : ` < > ? \\ | "
+    sanitised: m.sanitizeForLibretro('Ratchet & Clank: Up/Down?'),
+    dumpTagsOnly: m.stripDumpTags('Super Mario World (USA) [!]'),
+    allTags: m.stripTags('Sonic The Hedgehog (USA, Europe) (Rev 1)'),
+    ladder: m.candidates('snes', 'Super Mario World (USA) [!].sfc').map((c) => `${c.tier}:${last(c.url)}`),
+    deduped: m.candidates('gb', 'Tetris (World) (Rev 1).gb').length,
+    unsupported: m.candidates('switch', 'game.nsp').length,
+    directory: m.LIBRETRO_DIRS.sms,
+  };
+});
+check(
+  'filenames are sanitised to libretro rules by substitution, not deletion',
+  naming.sanitised === 'Ratchet _ Clank_ Up_Down_',
+  `"Ratchet & Clank: Up/Down?" → "${naming.sanitised}"`,
+);
+check(
+  'the fallback ladder drops dump tags before it drops the region',
+  naming.dumpTagsOnly === 'Super Mario World (USA)' &&
+    naming.allTags === 'Sonic The Hedgehog' &&
+    naming.ladder[3] === 'boxart-relaxed:Super Mario World (USA).png' &&
+    naming.ladder[6] === 'boxart-untagged:Super Mario World.png',
+  // This ordering is not cosmetic: "Super Mario World (USA) [!]" is a 404 on the
+  // server and "Super Mario World" is too, while "Super Mario World (USA)" is a 200.
+  // Stripping everything at the first retry would miss the only name that exists.
+  `relaxed → "${naming.dumpTagsOnly}", untagged → "${naming.allTags}"`,
+);
+check(
+  'candidate lists are deduplicated and skip unsupported systems',
+  naming.deduped === 6 && naming.unsupported === 0 && naming.ladder.length === 9,
+  `9 candidates with dump tags, ${naming.deduped} without, ${naming.unsupported} for a Phase 2 system`,
+);
+check(
+  'system directories use the real libretro playlist names',
+  naming.directory === 'Sega - Master System - Mark III',
+  `sms → "${naming.directory}"`,
+);
+
+// Live, against the real server: a hit and a miss must be distinguishable despite the
+// response being opaque to script.
+const probes = await page.evaluate(async () => {
+  const { probe } = await import('./src/data/boxart.js');
+  const host = 'https://thumbnails.libretro.com';
+  const dir = 'Nintendo%20-%20Super%20Nintendo%20Entertainment%20System';
+  return {
+    hit: await probe(`${host}/${dir}/Named_Boxarts/Super%20Mario%20World%20(USA).png`),
+    miss: await probe(`${host}/${dir}/Named_Boxarts/Continuum%20No%20Such%20Game.png`),
+  };
+});
+if (probes.hit) {
+  check(
+    'a cover that exists is found and one that does not is rejected',
+    probes.hit === true && probes.miss === false,
+    'cross-origin 200 → true, 404 → false',
+  );
+} else {
+  info(
+    'libretro thumbnail probing (network, not asserted)',
+    'the thumbnail server was unreachable from this runner, so tiers 1-3 could not be exercised',
+  );
+}
+
+// Tier 4's encoder. Verified as a PNG rather than trusted: signature, chunk order, both
+// CRCs, and a real decode through `createImageBitmap` — which needs no canvas, and so
+// does not violate the rule this encoder exists to respect.
+const png = await page.evaluate(async () => {
+  const { encodePng } = await import('./src/data/png.js');
+  const w = 4;
+  const h = 3;
+  const rgba = new Uint8Array(w * h * 4);
+  for (let i = 0; i < w * h; i++) {
+    rgba[i * 4] = (i * 20) & 0xff;
+    rgba[i * 4 + 1] = 255 - ((i * 20) & 0xff);
+    rgba[i * 4 + 2] = 128;
+    rgba[i * 4 + 3] = 255;
+  }
+  const blob = await encodePng(rgba, w, h);
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const view = new DataView(bytes.buffer);
+  const bitmap = await createImageBitmap(blob);
+  return {
+    type: blob.type,
+    signature: [...bytes.slice(0, 8)].join(','),
+    ihdr: String.fromCharCode(...bytes.slice(12, 16)),
+    width: view.getUint32(16),
+    height: view.getUint32(20),
+    colourType: bytes[25],
+    iend: String.fromCharCode(...bytes.slice(bytes.length - 8, bytes.length - 4)),
+    decoded: `${bitmap.width}x${bitmap.height}`,
+  };
+});
+check(
+  'the canvas-free PNG encoder produces an image the browser can decode',
+  png.type === 'image/png' &&
+    png.signature === '137,80,78,71,13,10,26,10' &&
+    png.ihdr === 'IHDR' &&
+    png.iend === 'IEND' &&
+    png.width === 4 &&
+    png.height === 3 &&
+    png.colourType === 6 &&
+    png.decoded === '4x3',
+  `${png.ihdr}/${png.iend}, ${png.width}x${png.height} RGBA, decoded to ${png.decoded}`,
+);
+
+// Tier 5, and the fallback below it.
+const manual = await page.evaluate(async () => {
+  const { storeManualArtwork, clearArtwork, displayUrlFor, describeTier } =
+    await import('./src/data/artwork.js');
+  const { encodePng } = await import('./src/data/png.js');
+  const { entryById } = await import('./src/data/catalog.js');
+  const id = 'builtin-nes-testcart';
+
+  const rgba = new Uint8Array(8 * 8 * 4).fill(200);
+  const blob = await encodePng(rgba, 8, 8);
+
+  await storeManualArtwork(id, new File([blob], 'cover.png', { type: 'image/png' }));
+  const entry = entryById(id);
+  const applied = { url: displayUrlFor(entry), tier: entry.art?.tier, note: describeTier(entry.art) };
+
+  let rejected = null;
+  try {
+    await storeManualArtwork(id, new File([new Uint8Array([1, 2, 3])], 'x.txt', { type: 'text/plain' }));
+  } catch (err) {
+    rejected = err.message;
+  }
+
+  await clearArtwork(id);
+  return { applied, rejected, clearedTo: displayUrlFor(entryById(id)) };
+});
+check(
+  'artwork chosen by the user is stored as a blob and shown',
+  manual.applied.tier === 'manual' &&
+    typeof manual.applied.url === 'string' &&
+    manual.applied.url.startsWith('blob:'),
+  `${manual.applied.tier} → ${manual.applied.url?.slice(0, 24)}… (“${manual.applied.note}”)`,
+);
+check(
+  'a non-image file is refused, and clearing restores the generated plate',
+  typeof manual.rejected === 'string' && manual.rejected.includes('not an image') &&
+    manual.clearedTo === null,
+  `rejected with "${manual.rejected}"; after clearing, art = ${manual.clearedTo}`,
+);
+
+// Tier 4 end to end needs a GPU that can map a buffer back, which headless SwiftShader
+// cannot — the same limitation that makes the pixel comparison above informational.
+const captureAttempt = await page.evaluate(async () => {
+  try {
+    const rgba = await window.__continuum.host.captureFrame(64, 48);
+    return { ok: true, bytes: rgba.length };
+  } catch (err) {
+    return { ok: false, why: String(err?.message ?? err) };
+  }
+});
+if (captureAttempt.ok) {
+  check(
+    'a frame can be read back for an in-game thumbnail',
+    captureAttempt.bytes === 64 * 48 * 4,
+    `${captureAttempt.bytes} bytes of RGBA for 64x48`,
+  );
+} else {
+  info(
+    'in-game thumbnail capture (environment, not asserted)',
+    `GPU readback unavailable here: ${captureAttempt.why} — the encoder itself is asserted above`,
+  );
+}
+
+// ---------------------------------------------------------------- 9. settings
+
+const settingsState = await page.evaluate(async () => {
+  const { getSetting, setSetting } = await import('./src/data/settings.js');
+  await window.__continuum.settings.open();
+  const text = (id) => document.getElementById(id)?.textContent?.trim() ?? '';
+
+  // Round-trip through localStorage, which is what makes a setting outlive a reload.
+  const before = getSetting('showHud');
+  setSetting('showHud', !before);
+  const stored = JSON.parse(localStorage.getItem('continuum:settings:v1') ?? '{}');
+  setSetting('showHud', before);
+
+  return {
+    open: !document.getElementById('settings-sheet').hidden,
+    romCount: text('settings-rom-count'),
+    romBytes: text('settings-rom-bytes'),
+    stateCount: text('settings-state-count'),
+    stateBytes: text('settings-state-bytes'),
+    quota: text('settings-quota'),
+    corePickers: [...document.querySelectorAll('#settings-cores select')].map((s) => s.id),
+    toggles: ['settings-hud', 'settings-boxart', 'settings-capture'].filter((id) =>
+      document.getElementById(id),
+    ).length,
+    persisted: stored.showHud === !before,
+    clearLabel: text('settings-clear'),
+  };
+});
+check(
+  'settings reports the real storage footprint, counted from the stores',
+  settingsState.open &&
+    settingsState.romCount === `${SEEDED} ROMs` &&
+    /MB|KB/.test(settingsState.romBytes) &&
+    /save states?/.test(settingsState.stateCount) &&
+    /MB|KB/.test(settingsState.stateBytes),
+  `${settingsState.romCount} / ${settingsState.romBytes} · ` +
+    `${settingsState.stateCount} / ${settingsState.stateBytes}`,
+);
+check(
+  'the quota line is labelled as covering the whole origin, not just ROMs',
+  /includes the app/.test(settingsState.quota),
+  settingsState.quota,
+);
+check(
+  'settings offers a default-core picker for every system with a choice',
+  settingsState.corePickers.length === 3 &&
+    settingsState.corePickers.includes('settings-core-gb') &&
+    settingsState.corePickers.includes('settings-core-sms'),
+  settingsState.corePickers.join(', ') || 'none',
+);
+check(
+  'the three interface toggles exist and persist to storage',
+  settingsState.toggles === 3 && settingsState.persisted,
+  `${settingsState.toggles} toggles, persisted: ${settingsState.persisted}`,
+);
+
+// Destructive, so it must arm before it fires.
+const clearFlow = await page.evaluate(async () => {
+  const button = document.getElementById('settings-clear');
+  button.click();
+  await new Promise((r) => setTimeout(r, 60));
+  const armed = {
+    label: button.textContent.trim(),
+    note: document.getElementById('settings-clear-note').textContent.trim(),
+    classed: button.classList.contains('is-armed'),
+  };
+
+  button.click();
+  await new Promise((r) => setTimeout(r, 900));
+
+  const { allIndices, entryAt } = await import('./src/data/catalog.js');
+  const { storageBreakdown } = await import('./src/data/rom-store.js');
+  const entries = Array.from(allIndices(), (i) => entryAt(i));
+  return {
+    armed,
+    after: await storageBreakdown(),
+    remaining: entries.length,
+    remainingSources: [...new Set(entries.map((e) => e.source))],
+  };
+});
+check(
+  'the clear button arms first and names what it will destroy',
+  clearFlow.armed.classed &&
+    /again/i.test(clearFlow.armed.label) &&
+    new RegExp(`${SEEDED} ROMs`).test(clearFlow.armed.note) &&
+    /cannot be undone/.test(clearFlow.armed.note),
+  `"${clearFlow.armed.label}" — ${clearFlow.armed.note}`,
+);
+check(
+  'confirming empties every store and leaves only the bundled carts',
+  clearFlow.after.romCount === 0 &&
+    clearFlow.after.stateCount === 0 &&
+    clearFlow.after.artCount === 0 &&
+    clearFlow.remaining === 4 &&
+    clearFlow.remainingSources.length === 1 &&
+    clearFlow.remainingSources[0] === 'builtin',
+  `stores emptied; ${clearFlow.remaining} entries left (${clearFlow.remainingSources.join('/')})`,
+);
+
+await page.evaluate(() => window.__continuum.settings.close());
 
 // ------------------------------------------------------------------- reporting
 

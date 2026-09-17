@@ -58,6 +58,10 @@ export class VirtualScroller {
    * @param {(range: {first:number,last:number}) => void} [opts.onRange]
    * @param {{wake: (frames?: number) => void}} [opts.scheduler]
    *        The frame loop. Omitted only in tests.
+   * @param {boolean} [opts.capPoolToCount]
+   *        Limit the pool to `count` nodes as well as to the viewport. Only valid when
+   *        `count` is a property of the data rather than of scroll position — see
+   *        `_wantedPool`.
    */
   constructor(opts) {
     this.viewport = opts.viewport;
@@ -72,6 +76,7 @@ export class VirtualScroller {
     this.unbindNode = opts.unbindNode ?? null;
     this.onRange = opts.onRange ?? null;
     this.scheduler = opts.scheduler ?? null;
+    this.capPoolToCount = opts.capPoolToCount === true;
 
     this.count = 0;
     this.stride = this.itemSize + this.gap;
@@ -115,9 +120,41 @@ export class VirtualScroller {
       this.axis === 'y' ? this.viewport.clientHeight : this.viewport.clientWidth;
 
     this._syncContentOffset();
+    this._ensurePool();
+  }
 
+  /**
+   * How many nodes this scroller should own: enough to fill the viewport, and — when
+   * `capPoolToCount` is set — never more than there are items to put in them.
+   *
+   * The cap matters for small collections. Sized from the viewport alone, a library of
+   * four test carts still builds seven shelf nodes holding ninety-eight cards, which was
+   * invisible while a synthetic catalogue guaranteed fifteen full shelves and is pure
+   * waste for a real library that starts at four titles.
+   *
+   * **The cap is opt-in, and that is the important part.** It may only be used where
+   * `count` is a property of the data rather than of scroll position. The shelf list and
+   * the grid qualify: their counts change when the library changes. A shelf's *own*
+   * horizontal scroller does not — one pooled shelf node is rebound from a 4-item shelf
+   * to a 54-item one as the user scrolls, so capping it there would grow the pool
+   * mid-scroll and break the invariant this whole class exists to provide: that
+   * scrolling adds no DOM nodes, ever.
+   */
+  _wantedPool() {
     const visible = Math.ceil(this.viewportSize / this.stride) + 1;
-    const wanted = Math.min(visible + this.overscan * 2 + 1, MAX_POOL);
+    const forViewport = Math.min(visible + this.overscan * 2 + 1, MAX_POOL);
+    // Uncapped scrollers are sized from the viewport alone, and *eagerly* — before any
+    // count is known. That matters: a shelf's horizontal scroller is built with its
+    // shelf node, long before it is bound to a shelf, and deferring its pool until the
+    // first bind would mean scrolling new shelves into view added card nodes as it went.
+    // Rule 4 says scrolling adds no nodes, so the nodes must already exist.
+    if (!this.capPoolToCount) return forViewport;
+    return this.count <= 0 ? 0 : Math.min(forViewport, this.count);
+  }
+
+  /** Grows the pool toward what is currently needed. Never shrinks — see `_growPool`. */
+  _ensurePool() {
+    const wanted = this._wantedPool();
     if (wanted > this.poolSize) this._growPool(wanted);
   }
 
@@ -175,6 +212,10 @@ export class VirtualScroller {
     }
     // Every slot's binding is now suspect (item 5 may be a different game).
     this.slotIndex.fill(-1);
+    // The pool is capped by the item count, so a list that just grew may now need
+    // more nodes than it has. Growing here rather than waiting for a resize is what
+    // makes importing the fifth game into a four-game shelf actually show it.
+    this._ensurePool();
     this.markDirty();
   }
 

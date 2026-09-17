@@ -31,6 +31,15 @@
   transition: background var(--dur-slow) var(--ease);
 }
 
+/* When real cover art exists it becomes the hero's backdrop, over the plate.
+   `background-image` rather than an <img>: the hero is a single element that is
+   never recycled, so there is no node pool to keep uniform. */
+.hero__art.has-art {
+  background-size: cover;
+  background-position: center 20%;
+  background-repeat: no-repeat;
+}
+
 .hero__art::after {
   /* Faint scanlines: reads as "console" without an asset. */
   content: "";
@@ -137,6 +146,19 @@
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   color: var(--text-faint);
+}
+
+/* Only the test-cart shelf uses this, to say what those carts are for. Truncated
+   rather than wrapped: the shelf list is virtualised on a fixed row height, so a
+   heading that can grow to two lines would desynchronise the scroller. */
+.shelf__subtitle {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .shelf__body {
@@ -271,22 +293,60 @@
   letter-spacing: -0.04em;
 }
 
-.card__progress {
+/* Cover art, over the generated plate.
+   Absolutely positioned with a fixed box and object-fit: cover, because the
+   virtualiser's one hard requirement is that binding a card never changes its
+   size. A 512x512 boxart, a 512x384 screenshot and an image that has not
+   finished decoding all occupy exactly this rectangle. */
+.card__img {
   position: absolute;
-  left: 8px;
-  right: 8px;
-  bottom: 8px;
-  z-index: 2;
-  height: 3px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.25);
-  overflow: hidden;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  /* `contain`, not `cover`. Box art aspect ratios are all over the place — a NES box
+     is portrait, a US SNES box is nearly square — and cropping a nearly-square cover
+     into a 3:4 card cut the logo off the top of Super Mario World. Containing it shows
+     the whole cover every time, and the generated plate behind fills whatever is left,
+     so the letterbox reads as part of the design rather than as a gap. */
+  object-fit: contain;
+  /* Fades in as each cover decodes, so a shelf gaining art looks deliberate
+     rather than like a series of flashes. */
+  animation: art-in var(--dur) var(--ease);
 }
 
-.card__progress i {
-  display: block;
-  height: 100%;
-  background: var(--accent);
+@keyframes art-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Real art earns a plain frame: the plate's scanline overlay and giant glyph are
+   there to make a generated card look intentional, and over a photograph they
+   just look like dirt. */
+.card[data-art] .card__glyph {
+  display: none;
+}
+
+.card[data-art] .card__art::after {
+  opacity: 0.25;
+}
+
+/* "RESUME": this game has an auto-save, so launching continues it. Replaced a
+   percentage progress bar, which reported a number no emulator can know. */
+.card__resume {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 3;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(6, 6, 10, 0.82);
+  backdrop-filter: blur(4px);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .card__fav {

@@ -8,32 +8,46 @@
  * upgrade path live here, and both stores import them.
  *
  * ```text
- *   rom-meta    { id, name, systemId, extension, size, addedAt }
- *   rom-data    { id, bytes }
- *   state-meta  { id, gameId, slot, auto, createdAt, frame, sizeKb,
- *                 coreId, coreName, coreVersion, stateSize, contentId }
- *   state-data  { id, bytes }
+ *   rom-meta     { id, name, systemId, extension, size, addedAt }
+ *   rom-data     { id, bytes }
+ *   state-meta   { id, gameId, slot, auto, createdAt, frame, sizeKb,
+ *                  coreId, coreName, coreVersion, stateSize, contentId }
+ *   state-data   { id, bytes }
+ *   rom-art      { id, kind: 'url'|'blob', url, blob, tier, updatedAt }
+ *   entry-flags  { id, favorite, lastPlayed, playCount }
  * ```
  *
  * Metadata and payloads are separate stores throughout. Listing a library, or a
  * game's save history, must not deserialise the payloads: a Mega Drive state is a
  * megabyte and a disc image is hundreds, so a single-store design makes opening a
  * list proportional to the *size* of the collection rather than its length.
+ *
+ * `entry-flags` is deliberately not folded into `rom-meta`. Favourites and
+ * last-played apply to built-in carts too, and those have no `rom-meta` row because
+ * their bytes ship with the app rather than living in `rom-data`. Writing a fake ROM
+ * record just to hold a boolean would make "what is in my library" and "what is in
+ * my storage" two different questions with one answer.
  */
 
 const DB_NAME = 'continuum';
 
 /**
- * Bumped from 1 to 2 to add the save-state stores. Upgrades are additive and each
- * store creation is guarded, so an existing database with only the ROM stores gains
- * the new ones without touching what is already there.
+ * Version history. Upgrades are additive and every store creation is guarded, so a
+ * database from any earlier version gains the new stores without touching what is
+ * already there — an existing ROM collection survives the upgrade untouched.
+ *
+ *   1 → ROM stores
+ *   2 → save-state stores
+ *   3 → cover art (`rom-art`) and durable library flags (`entry-flags`)
  */
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export const ROM_META = 'rom-meta';
 export const ROM_DATA = 'rom-data';
 export const STATE_META = 'state-meta';
 export const STATE_DATA = 'state-data';
+export const ROM_ART = 'rom-art';
+export const ENTRY_FLAGS = 'entry-flags';
 
 /** @type {Promise<IDBDatabase>|null} */
 let dbPromise = null;
@@ -68,6 +82,13 @@ export function openDatabase() {
       }
       if (!db.objectStoreNames.contains(STATE_DATA)) {
         db.createObjectStore(STATE_DATA, { keyPath: 'id' });
+      }
+
+      if (!db.objectStoreNames.contains(ROM_ART)) {
+        db.createObjectStore(ROM_ART, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(ENTRY_FLAGS)) {
+        db.createObjectStore(ENTRY_FLAGS, { keyPath: 'id' });
       }
     };
 

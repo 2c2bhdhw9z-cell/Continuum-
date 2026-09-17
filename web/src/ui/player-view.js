@@ -26,7 +26,14 @@
  *   - The core is fetched only now — never at boot — and only if not already resident.
  */
 
-import { getContent, contentFilename, isPlayable } from '../data/content-store.js';
+import { getContent, contentFilename } from '../data/content-store.js';
+import {
+  storeCapture,
+  CAPTURE_AFTER_FRAME,
+  CAPTURE_WIDTH,
+  CAPTURE_HEIGHT,
+} from '../data/artwork.js';
+import { getSetting } from '../data/settings.js';
 import { entryById, markPlayed } from '../data/catalog.js';
 import { getSystem } from '../data/systems.js';
 import { getCorePreference } from '../data/core-prefs.js';
@@ -58,6 +65,7 @@ export class PlayerView {
     onExit,
     onRequestImport,
     onStatesChanged,
+    onArtworkCaptured,
   }) {
     this.host = host;
     this.coreLoader = coreLoader;
@@ -65,10 +73,12 @@ export class PlayerView {
     this.input = input;
     this.loop = loop;
     this.onExit = onExit;
-    /** Called when a launch fails because the entry has no real ROM. */
+    /** Called when the user asks to add a ROM from inside the player. */
     this.onRequestImport = onRequestImport;
     /** Called after a state is written, so an open detail sheet can refresh. */
     this.onStatesChanged = onStatesChanged;
+    /** Called once a thumbnail has been captured, so the library can redraw the card. */
+    this.onArtworkCaptured = onArtworkCaptured;
 
     this.root = document.getElementById('view-player');
     this.canvas = document.getElementById('gpu-canvas');
@@ -82,6 +92,7 @@ export class PlayerView {
     this.unlockBtn = document.getElementById('audio-unlock');
     this.touchpad = document.getElementById('touchpad');
 
+    this.hudEl = document.getElementById('player-hud');
     this.hudFps = document.getElementById('hud-fps');
     this.hudMem = document.getElementById('hud-mem');
     this.hudFrames = document.getElementById('hud-frames');
@@ -94,6 +105,8 @@ export class PlayerView {
     this.paused = false;
     this.active = false;
     this._hudTick = 0;
+    /** One artwork capture attempt per launch, whether it succeeds or not. */
+    this._captureAttempted = false;
     this._chromeTimer = 0;
     this._launchToken = 0;
 
@@ -202,23 +215,6 @@ export class PlayerView {
       return;
     }
 
-    // A synthetic catalogue entry has no ROM behind it. Real cores reject noise — as
-    // they should — so say why here rather than surfacing "content rejected" from
-    // deep inside emulation.
-    const coreEntryForSystem = this.coreLoader.entryFor(
-      this.coreLoader.coreIdFor(entry.systemId, preferredCore) ?? '',
-    );
-    if (!isPlayable(entry) && coreEntryForSystem?.kind === 'libretro') {
-      toast(
-        'No ROM for this title',
-        `"${entry.title}" is a catalogue placeholder. Add your own ${system?.short ?? ''} ROM, ` +
-          'or open the Continuum Test Cart to see the real core run.',
-        { kind: 'warn', ms: 8000 },
-      );
-      this.onRequestImport?.();
-      return;
-    }
-
     // Start the audio graph while the launching gesture is still "live". Awaiting
     // anything before this is what leaves iOS silent.
     const audioStart = this.audio.ensureStarted();
@@ -239,8 +235,12 @@ export class PlayerView {
 
     this.entry = entry;
     this.paused = false;
+    // Per-launch, not per-entry: relaunching a game whose capture failed (a GPU that
+    // cannot map a buffer, a black title screen) is a fair reason to try once more.
+    this._captureAttempted = false;
 
     this._show();
+    this.syncHudVisibility();
     this._setLoading(true, 'Preparing engine…', 'Loading WebAssembly bridge');
     this.titleEl.textContent = entry.title;
     this.subtitleEl.textContent = system ? system.name : entry.systemId;
@@ -352,7 +352,57 @@ export class PlayerView {
       // and `autoSave` throttles it to AUTO_SAVE_INTERVAL_MS regardless of how often
       // it is called. Not awaited: a frame must never wait on storage.
       if (this.active && !this.paused) void this.autoSave('periodic');
+      // 6. Cover art, once, for a game that has none. Same reasoning: on the slow
+      // tick, never awaited, and guarded so it cannot run twice.
+      if (this.active && !this.paused) this._maybeCaptureArtwork(stats);
     }
+  }
+
+  /**
+   * Tier 4 of the cover-art ladder: keep a thumbnail of what the game actually draws.
+   *
+   * Frame 60 is the threshold because the first frames of a console are not the game.
+   * A cold boot shows a blank screen, then a logo, then usually a black fade — capturing
+   * at frame 1 reliably produces a black square. One second in, a title screen or the
+   * first room is on screen, which is a recognisable thumbnail.
+   *
+   * The capture costs a texture, a staging buffer and a GPU buffer map, so it happens
+   * exactly once per game and only when there is no artwork already. It is also
+   * completely optional: a failure is logged and forgotten, because a missing thumbnail
+   * is not worth interrupting a game for. Headless and software GPU stacks often cannot
+   * map a buffer at all, which is precisely such a failure.
+   */
+  _maybeCaptureArtwork(stats) {
+    if (this._captureAttempted) return;
+    if (!this.entry || this.entry.art) return;
+    if (!getSetting('captureArtwork')) return;
+    if (stats.frameCount < CAPTURE_AFTER_FRAME) return;
+
+    this._captureAttempted = true;
+    const entryId = this.entry.id;
+
+    void (async () => {
+      try {
+        // Asked for at thumbnail size, so Rust scales the frame on the GPU and no
+        // resampling happens in JavaScript.
+        const rgba = await this.host.captureFrame(CAPTURE_WIDTH, CAPTURE_HEIGHT);
+        // The user may have exited, or picked their own image, while this was in
+        // flight — either way, do not overwrite what is there now.
+        const entry = entryById(entryId);
+        if (!entry || entry.art) return;
+        await storeCapture(entryId, rgba, CAPTURE_WIDTH, CAPTURE_HEIGHT);
+        this.onArtworkCaptured?.(entryId);
+        console.info(`[artwork] captured a thumbnail for ${entryId} at frame ${stats.frameCount}`);
+      } catch (err) {
+        console.info('[artwork] frame capture unavailable, keeping the generated plate:', err);
+      }
+    })();
+  }
+
+  /** Applies the performance-HUD setting. Off by default on phones. */
+  syncHudVisibility() {
+    const show = getSetting('showHud');
+    if (this.hudEl) this.hudEl.hidden = !show;
   }
 
   _updateHud(stats) {
@@ -473,7 +523,7 @@ export class PlayerView {
    * @param {{force?: boolean}} [options] force skips the interval throttle
    */
   async autoSave(why, { force = false } = {}) {
-    if (!this.entry || !this.entry.real) return null;
+    if (!this.entry) return null;
     if (this._autoSaveInFlight) return null;
     const now = Date.now();
     if (!force && now - this._lastAutoSave < PlayerView.AUTO_SAVE_INTERVAL_MS) return null;
@@ -517,7 +567,7 @@ export class PlayerView {
    * @returns {Promise<boolean>} whether the session was resumed
    */
   async _resumeIfPossible(token) {
-    if (!this.entry?.real) return false;
+    if (!this.entry) return false;
     const record = saveStates.autoStateFor(this.entry.id);
     if (!record) return false;
 

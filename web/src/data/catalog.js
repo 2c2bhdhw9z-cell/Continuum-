@@ -1,166 +1,99 @@
 /**
- * The ROM catalogue.
+ * The library index.
  *
- * Phase 1 generates a large synthetic library — the UI has to be proven against
- * thousands of entries, and waiting for a user to import 4,000 ROMs before finding
- * out the list janks is not a plan. Generation is deterministic (seeded PRNG), so
- * every reload produces the identical library and a rendering bug is reproducible.
+ * Every entry here corresponds to real content: a cart that ships with the app, or a
+ * file the user imported. There is no synthetic data and no placeholder rows — if a
+ * title is on screen, its bytes are on disk and pressing Play runs it.
  *
  * ## Shape of the data, and why
  *
  * Entries live in one flat array. Every view then works with `Uint32Array`s of
  * *indices* into it — shelves, search results, filters. No view ever copies entry
- * objects, so switching from a 4,800-item grid to a 30-item search result allocates
- * one small typed array rather than rebuilding a list of objects.
+ * objects, so switching from a shelf to a search result allocates one small typed
+ * array rather than rebuilding a list of objects.
  *
  * That is also what lets the virtual scrollers stay honest: `bindNode(node, i)`
  * resolves `indices[i]` and reads one object. O(1) per visible row, regardless of
- * catalogue size.
+ * library size. The interface survived the removal of the 4,800-entry synthetic
+ * catalogue unchanged, which is the whole reason the views needed no rewrite: a real
+ * collection of a few thousand imported ROMs windows exactly the same way.
  *
- * TODO(phase1b): back this with IndexedDB + a file-import flow, keeping the same
- * index-array interface so the views need no changes. `entries` becomes a paged
- * window over the store; `shelves` and `search` become index queries.
+ * ## Where the data comes from
+ *
+ * This module is an in-memory *index*, not the store. It is populated at boot by
+ * `builtins.js` (four carts) and by `rom-import.js` reading IndexedDB. Mutations that
+ * belong to the user rather than to the ROM — favourite, last played — are written
+ * back through `rom-store.js` so they survive the app being closed.
+ *
+ * ## What is deliberately absent
+ *
+ * No rating, no genre, no player count, no review blurb. An emulator front end
+ * cannot know any of that about a file it was handed, and inventing it produces a
+ * library that looks informative and misleads. Fields here are either read out of the
+ * file, parsed from its name, or recorded from what the user did.
  */
 
 import { SYSTEMS, getSystem } from './systems.js';
-
-/** Total synthetic entries. Large enough that O(n) DOM work would be obvious. */
-const CATALOG_SIZE = 4800;
-
-/** xorshift32 — small, fast, and reproducible across engines (unlike Math.random). */
-function makeRandom(seed) {
-  let state = seed | 0 || 0x9e3779b9;
-  return function random() {
-    state ^= state << 13;
-    state ^= state >>> 17;
-    state ^= state << 5;
-    // >>> 0 keeps it unsigned; /2^32 maps to [0, 1).
-    return (state >>> 0) / 4294967296;
-  };
-}
-
-const TITLE_A = [
-  'Astro', 'Blaster', 'Chrono', 'Dragon', 'Echo', 'Frost', 'Galaxy', 'Hyper',
-  'Iron', 'Jade', 'Kaiju', 'Lunar', 'Mecha', 'Neon', 'Omega', 'Phantom',
-  'Quantum', 'Rogue', 'Solar', 'Turbo', 'Umbra', 'Vector', 'Warp', 'Xeno',
-  'Zenith', 'Crystal', 'Shadow', 'Thunder', 'Cobalt', 'Crimson',
-];
-
-const TITLE_B = [
-  'Knight', 'Racer', 'Legend', 'Quest', 'Force', 'Saga', 'Strike', 'Runner',
-  'Empire', 'Warrior', 'Circuit', 'Odyssey', 'Rebellion', 'Chronicle', 'Fighter',
-  'Command', 'Frontier', 'Requiem', 'Protocol', 'Arena', 'Dungeon', 'Tactics',
-  'Adventure', 'Brigade', 'Horizon', 'Genesis', 'Reckoning', 'Dawn',
-];
-
-const TITLE_C = [
-  '', '', '', '', ' II', ' III', ' IV', ' DX', ' Turbo', ' Advance', ' Zero',
-  ' Deluxe', ' Remix', ' 2000', ' X', ' Gold', ': Reloaded', ': Rebirth',
-];
-
-const GENRES = [
-  'Platformer', 'Shoot-em-up', 'JRPG', 'Racing', 'Fighting', 'Puzzle',
-  'Action-adventure', 'Beat-em-up', 'Metroidvania', 'Strategy', 'Sports',
-];
-
-const REGIONS = ['NTSC-U', 'NTSC-J', 'PAL'];
-
-const BLURB_OPENERS = [
-  'A cult classic remembered for its soundtrack and punishing final act.',
-  'Notorious for a difficulty curve that flattens the moment you learn to parry.',
-  'Shipped late, sold poorly, and became a collector favourite a decade later.',
-  'The sequel that quietly rebuilt every system from the first game.',
-  'Held the speedrun record for a route its developers never intended.',
-  'Beloved for its art direction and forgiven for its load times.',
-  'A launch title that still shows off what the hardware could do.',
-  'Localised twice, both times with a different ending.',
-];
+import { putFlags } from './rom-store.js';
 
 /** @typedef {{
- *   id: string, title: string, systemId: string, genre: string, year: number,
- *   region: string, players: number, rating: number, sizeMb: number,
- *   favorite: boolean, progress: number, lastPlayed: number | null, blurb: string,
+ *   id: string, title: string, systemId: string, filename: string,
+ *   sizeBytes: number, addedAt: number, source: 'imported'|'builtin',
+ *   url?: string, region: string|null, tags: string[], blurb: string,
+ *   favorite: boolean, lastPlayed: number|null, playCount: number,
+ *   art: {kind: 'url'|'blob', url?: string, blob?: Blob, tier: string}|null,
  *   sortKey: string,
- *   real: boolean, source: 'synthetic'|'imported'|'builtin', filename: string,
- *   url?: string,
- * }} CatalogEntry
- *
- * `real` is the important flag: synthetic entries exist to exercise the UI and have
- * no ROM behind them, so launching one into a real core would hand it noise. Imported
- * and built-in entries have actual content and are the ones that play. */
+ * }} CatalogEntry */
 
 /** @type {CatalogEntry[]} */
 const entries = [];
-/** Lowercased "title system genre year" haystack, parallel to `entries`. */
+/** Lowercased "title system" haystack, parallel to `entries`. */
 const searchHaystack = [];
 const byId = new Map();
 /** systemId -> Uint32Array of entry indices. */
 const bySystem = new Map();
+/** @type {Uint32Array} */
+let allSorted = new Uint32Array(0);
 
-function generate() {
-  const random = makeRandom(0x5eed1234);
-  const phase1 = SYSTEMS.filter((s) => s.phase === 1);
-  const now = Date.now();
-  const perSystem = new Map(SYSTEMS.map((s) => [s.id, []]));
+/** Region words that appear in No-Intro / GoodTools style filename tags. */
+const REGION_WORDS = [
+  'USA', 'Europe', 'Japan', 'World', 'Korea', 'China', 'Taiwan', 'Brazil',
+  'Australia', 'Canada', 'France', 'Germany', 'Italy', 'Spain', 'Netherlands',
+  'Sweden', 'Asia', 'PAL', 'NTSC',
+];
 
-  for (let i = 0; i < CATALOG_SIZE; i++) {
-    // Phase 2 systems get a thin presence: enough to show they exist in the UI,
-    // not enough to dominate shelves the user cannot play yet.
-    const usePhase2 = random() < 0.04;
-    const pool = usePhase2 ? SYSTEMS.filter((s) => s.phase === 2) : phase1;
-    const system = pool[Math.floor(random() * pool.length)];
-
-    const a = TITLE_A[Math.floor(random() * TITLE_A.length)];
-    const b = TITLE_B[Math.floor(random() * TITLE_B.length)];
-    const c = TITLE_C[Math.floor(random() * TITLE_C.length)];
-    const title = `${a} ${b}${c}`;
-
-    const yearSpan = 8;
-    const year = system.year + Math.floor(random() * yearSpan);
-    const played = random();
-
-    const entry = {
-      id: `${system.id}-${i.toString(36)}`,
-      title,
-      systemId: system.id,
-      genre: GENRES[Math.floor(random() * GENRES.length)],
-      year,
-      region: REGIONS[Math.floor(random() * REGIONS.length)],
-      players: 1 + Math.floor(random() * 4),
-      rating: Math.round((6 + random() * 4) * 10) / 10,
-      sizeMb: Math.round((0.03 + random() * random() * 640) * 100) / 100,
-      favorite: random() < 0.08,
-      // 0 for never-started, otherwise partial progress.
-      progress: played < 0.55 ? 0 : Math.round(random() * 100) / 100,
-      lastPlayed:
-        played < 0.55 ? null : now - Math.floor(random() * 90 * 86400_000),
-      blurb: BLURB_OPENERS[Math.floor(random() * BLURB_OPENERS.length)],
-      sortKey: '',
-      real: false,
-      source: 'synthetic',
-      filename: '',
-    };
-    entry.sortKey = `${title.toLowerCase()}|${entry.id}`;
-
-    entries.push(entry);
-    searchHaystack.push(
-      `${title} ${system.short} ${system.name} ${entry.genre} ${entry.year}`.toLowerCase(),
-    );
-    byId.set(entry.id, i);
-    perSystem.get(system.id).push(i);
+/**
+ * Pulls the parenthesised tags out of a filename-derived title.
+ *
+ * "Sonic The Hedgehog (USA, Europe) (Rev 1)" yields `['USA, Europe', 'Rev 1']`, from
+ * which the region is whichever tag is made of region words. This is real information
+ * that happens to be encoded in the name, so reading it is fair; guessing when it is
+ * absent is not, and then `region` stays null and the UI omits the field.
+ *
+ * @param {string} title
+ * @returns {{tags: string[], region: string|null}}
+ */
+export function parseTags(title) {
+  const tags = [];
+  for (const match of title.matchAll(/[([]([^)\]]+)[)\]]/g)) {
+    const tag = match[1].trim();
+    if (tag) tags.push(tag);
   }
-
-  for (const [systemId, list] of perSystem) {
-    list.sort((x, y) => entries[x].sortKey.localeCompare(entries[y].sortKey));
-    bySystem.set(systemId, Uint32Array.from(list));
-  }
+  const region =
+    tags.find((tag) =>
+      tag
+        .split(',')
+        .map((part) => part.trim())
+        .every((part) => REGION_WORDS.some((word) => word.toLowerCase() === part.toLowerCase())),
+    ) ?? null;
+  return { tags, region };
 }
-
-generate();
 
 // ------------------------------------------------------------------ accessors
 
-export const catalogSize = entries.length;
+export function librarySize() {
+  return entries.length;
+}
 
 export function entryAt(index) {
   return entries[index];
@@ -176,24 +109,34 @@ export function indexOfId(id) {
 }
 
 /** Every index, title-sorted. Backing array for the all-games grid. */
-let allSorted = (() => {
-  const idx = new Uint32Array(entries.length);
-  for (let i = 0; i < entries.length; i++) idx[i] = i;
-  const arr = Array.from(idx);
-  arr.sort((x, y) => entries[x].sortKey.localeCompare(entries[y].sortKey));
-  return Uint32Array.from(arr);
-})();
-
 export function allIndices() {
   return allSorted;
 }
 
+export function systemIndices(systemId) {
+  return bySystem.get(systemId) ?? new Uint32Array(0);
+}
+
+export function favoriteIndices() {
+  const out = [];
+  for (let i = 0; i < entries.length; i++) if (entries[i].favorite) out.push(i);
+  out.sort((x, y) => entries[x].sortKey.localeCompare(entries[y].sortKey));
+  return Uint32Array.from(out);
+}
+
+/** Systems that have at least one entry. Drives which shelves exist at all. */
+export function systemsWithContent() {
+  return SYSTEMS.filter((system) => (bySystem.get(system.id)?.length ?? 0) > 0);
+}
+
+// -------------------------------------------------------------------- mutation
+
 /**
- * Recomputes the derived index arrays after entries are added.
+ * Recomputes the derived index arrays after entries change.
  *
- * Sorting 4,800 short strings costs about a millisecond, and this only runs on
- * import — not on scroll — so a full rebuild is simpler and safer than trying to
- * splice into typed arrays in place.
+ * A full rebuild rather than an in-place splice: this runs on import and on delete,
+ * never on the scroll path, and sorting a few thousand short strings costs about a
+ * millisecond. Correctness is worth more than the microseconds here.
  */
 function rebuildDerivedIndexes() {
   const perSystem = new Map(SYSTEMS.map((s) => [s.id, []]));
@@ -212,9 +155,9 @@ function rebuildDerivedIndexes() {
 }
 
 /**
- * Registers content that actually exists: an imported file, or a ROM shipped with the
- * app. Re-registering the same id updates it rather than duplicating, so importing a
- * file twice is a no-op.
+ * Registers content. Re-registering the same id updates it in place rather than
+ * duplicating, so importing a file twice is a no-op and restoring from storage over
+ * an already-populated index is safe.
  *
  * @param {{id: string, title: string, systemId: string, sizeBytes: number,
  *          filename: string, source: 'imported'|'builtin', url?: string,
@@ -223,48 +166,53 @@ function rebuildDerivedIndexes() {
  */
 export function addRealEntry(rom) {
   const existing = byId.get(rom.id);
+  const previous = existing !== undefined ? entries[existing] : null;
   const system = getSystem(rom.systemId);
+  const { tags, region } = parseTags(rom.title);
+
   const entry = {
     id: rom.id,
     title: rom.title,
     systemId: rom.systemId,
-    genre: rom.source === 'builtin' ? 'Test' : 'Imported',
-    year: system?.year ?? new Date().getFullYear(),
-    region: 'Unknown',
-    players: 1,
-    rating: 0,
-    sizeMb: Math.round((rom.sizeBytes / (1024 * 1024)) * 1000) / 1000,
-    favorite: existing !== undefined ? entries[existing].favorite : false,
-    progress: existing !== undefined ? entries[existing].progress : 0,
-    lastPlayed: existing !== undefined ? entries[existing].lastPlayed : rom.addedAt ?? null,
+    filename: rom.filename,
+    sizeBytes: rom.sizeBytes,
+    addedAt: rom.addedAt ?? previous?.addedAt ?? Date.now(),
+    source: rom.source,
+    url: rom.url,
+    region,
+    tags,
     blurb:
       rom.blurb ??
-      `Imported from ${rom.filename}. Runs on the real core for ${system?.name ?? rom.systemId}.`,
+      previous?.blurb ??
+      `${rom.filename} · ${formatBytes(rom.sizeBytes)} · runs on the real ` +
+        `${system?.name ?? rom.systemId} core.`,
+    // User state is preserved across a re-register: re-importing a file must not
+    // silently un-favourite it or forget that it was played.
+    favorite: previous?.favorite ?? false,
+    lastPlayed: previous?.lastPlayed ?? null,
+    playCount: previous?.playCount ?? 0,
+    art: previous?.art ?? null,
     sortKey: `${rom.title.toLowerCase()}|${rom.id}`,
-    real: true,
-    source: rom.source,
-    filename: rom.filename,
-    url: rom.url,
   };
+
+  const haystack = `${rom.title} ${system?.short ?? ''} ${system?.name ?? ''} ${
+    region ?? ''
+  }`.toLowerCase();
 
   if (existing !== undefined) {
     entries[existing] = entry;
-    searchHaystack[existing] =
-      `${rom.title} ${system?.short ?? ''} ${system?.name ?? ''} ${entry.genre}`.toLowerCase();
+    searchHaystack[existing] = haystack;
   } else {
-    const index = entries.length;
+    byId.set(rom.id, entries.length);
     entries.push(entry);
-    searchHaystack.push(
-      `${rom.title} ${system?.short ?? ''} ${system?.name ?? ''} ${entry.genre}`.toLowerCase(),
-    );
-    byId.set(rom.id, index);
+    searchHaystack.push(haystack);
   }
 
   rebuildDerivedIndexes();
   return entry;
 }
 
-/** Removes an imported entry (the ROM itself is deleted by the caller). */
+/** Removes an entry (the ROM itself is deleted by the caller). */
 export function removeEntry(id) {
   const index = byId.get(id);
   if (index === undefined) return false;
@@ -276,52 +224,79 @@ export function removeEntry(id) {
   return true;
 }
 
-/** Indices of entries with real content, newest first. */
-export function realIndices() {
-  const out = [];
-  for (let i = 0; i < entries.length; i++) if (entries[i].real) out.push(i);
-  out.sort((x, y) => {
-    // Built-ins last: a user's own imports are what they came for.
-    const rank = (e) => (e.source === 'builtin' ? 1 : 0);
-    const byRank = rank(entries[x]) - rank(entries[y]);
-    return byRank !== 0 ? byRank : (entries[y].lastPlayed ?? 0) - (entries[x].lastPlayed ?? 0);
-  });
-  return Uint32Array.from(out);
+/** Drops every entry. Used by "clear all storage", which also empties the database. */
+export function removeAllEntries() {
+  entries.length = 0;
+  searchHaystack.length = 0;
+  byId.clear();
+  rebuildDerivedIndexes();
 }
 
-export function systemIndices(systemId) {
-  return bySystem.get(systemId) ?? new Uint32Array(0);
+/**
+ * Applies flags read back from storage, without marking them dirty again.
+ * @param {{id: string, favorite?: boolean, lastPlayed?: number|null, playCount?: number}} flags
+ */
+export function applyStoredFlags(flags) {
+  const entry = entryById(flags.id);
+  if (!entry) return false;
+  entry.favorite = Boolean(flags.favorite);
+  entry.lastPlayed = flags.lastPlayed ?? null;
+  entry.playCount = flags.playCount ?? 0;
+  return true;
 }
 
-export function favoriteIndices() {
-  const out = [];
-  for (let i = 0; i < entries.length; i++) if (entries[i].favorite) out.push(i);
-  return Uint32Array.from(out);
+/** Attaches artwork resolved by the scraper, a capture, or the user. */
+export function setArtwork(id, art) {
+  const entry = entryById(id);
+  if (!entry) return false;
+  entry.art = art;
+  return true;
+}
+
+export function artworkFor(id) {
+  return entryById(id)?.art ?? null;
+}
+
+/**
+ * Flushes an entry's user state to IndexedDB.
+ *
+ * Fire-and-forget on purpose: a favourite toggle must feel instant, and the write is
+ * a few bytes. A failure is logged rather than surfaced — losing a favourite is a
+ * nuisance, and a modal about it would be worse than the problem.
+ */
+function persistFlags(entry) {
+  void putFlags({
+    id: entry.id,
+    favorite: entry.favorite,
+    lastPlayed: entry.lastPlayed,
+    playCount: entry.playCount,
+  }).catch((err) => console.warn('[library] could not persist flags', entry.id, err));
 }
 
 export function toggleFavorite(id) {
-  const index = byId.get(id);
-  if (index === undefined) return false;
-  entries[index].favorite = !entries[index].favorite;
-  return entries[index].favorite;
+  const entry = entryById(id);
+  if (!entry) return false;
+  entry.favorite = !entry.favorite;
+  persistFlags(entry);
+  return entry.favorite;
 }
 
-/** Records a launch so "Continue playing" reflects reality. */
+/** Records a launch, so "Recently played" reflects reality across restarts. */
 export function markPlayed(id) {
-  const index = byId.get(id);
-  if (index === undefined) return;
-  const entry = entries[index];
+  const entry = entryById(id);
+  if (!entry) return;
   entry.lastPlayed = Date.now();
-  if (entry.progress === 0) entry.progress = 0.01;
+  entry.playCount += 1;
+  persistFlags(entry);
 }
+
+// ---------------------------------------------------------------------- search
 
 /**
  * Substring search over the prebuilt haystack.
  *
- * Linear over 4,800 short strings is well under a millisecond, and being an index
- * scan it produces a `Uint32Array` the scroller can consume directly. A trie or
- * inverted index only becomes worthwhile once this data lives in IndexedDB, at
- * which point the query moves into the store anyway.
+ * Linear over a few thousand short strings is well under a millisecond, and being an
+ * index scan it produces a `Uint32Array` the scroller can consume directly.
  */
 export function search(query, limit = 600) {
   const q = query.trim().toLowerCase();
@@ -346,34 +321,31 @@ export function search(query, limit = 600) {
 // --------------------------------------------------------------------- shelves
 
 /**
- * Builds the Netflix-style rows.
+ * Builds the rows for the home view.
  *
- * Recomputed on demand (after a launch, say) because "Continue playing" and
- * "Recently added" are time-dependent. Each shelf is metadata plus an index array;
- * the shelf itself renders lazily when it scrolls into view.
+ * **Shelves are strictly dynamic.** A shelf exists only when it has content, so a
+ * fresh install shows exactly one row — the test carts — and a user who owns only
+ * Game Boy games never sees an empty Mega Drive shelf. There is no scrolling past
+ * rows of nothing to reach your own library.
  *
- * @returns {{ id: string, title: string, indices: Uint32Array }[]}
+ * Recomputed on demand because "Recently played" is time-dependent. Each shelf is
+ * metadata plus an index array; the shelf itself renders lazily when it scrolls into
+ * view.
+ *
+ * @returns {{ id: string, title: string, subtitle?: string, indices: Uint32Array }[]}
  */
 export function buildShelves() {
   const shelves = [];
 
-  // Playable content first: it is the only part of this library that is not a
-  // placeholder, so burying it under synthetic shelves would be perverse.
-  const real = realIndices();
-  if (real.length) {
-    shelves.push({ id: 'your-roms', title: 'Your ROMs', indices: real });
-  }
-
-  const continuing = [];
-  for (let i = 0; i < entries.length; i++) {
-    if (entries[i].lastPlayed !== null && entries[i].progress > 0) continuing.push(i);
-  }
-  continuing.sort((x, y) => entries[y].lastPlayed - entries[x].lastPlayed);
-  if (continuing.length) {
+  // Recently played first: for anyone with a library, this is the row they came for.
+  const recent = [];
+  for (let i = 0; i < entries.length; i++) if (entries[i].lastPlayed !== null) recent.push(i);
+  recent.sort((x, y) => entries[y].lastPlayed - entries[x].lastPlayed);
+  if (recent.length) {
     shelves.push({
-      id: 'continue',
-      title: 'Continue playing',
-      indices: Uint32Array.from(continuing.slice(0, 40)),
+      id: 'recent',
+      title: 'Recently played',
+      indices: Uint32Array.from(recent.slice(0, 40)),
     });
   }
 
@@ -382,49 +354,92 @@ export function buildShelves() {
     shelves.push({ id: 'favorites', title: 'Your favorites', indices: favorites });
   }
 
-  const topRated = Array.from(allSorted);
-  topRated.sort((x, y) => entries[y].rating - entries[x].rating);
-  shelves.push({
-    id: 'top-rated',
-    title: 'Highest rated',
-    indices: Uint32Array.from(topRated.slice(0, 60)),
-  });
+  // Newly imported, so a batch of files just added is immediately reachable without
+  // hunting through per-system rows.
+  const imported = [];
+  for (let i = 0; i < entries.length; i++) if (entries[i].source === 'imported') imported.push(i);
+  if (imported.length) {
+    imported.sort((x, y) => entries[y].addedAt - entries[x].addedAt);
+    shelves.push({
+      id: 'recently-added',
+      title: 'Recently added',
+      indices: Uint32Array.from(imported.slice(0, 40)),
+    });
+  }
 
-  // One shelf per system, biggest libraries first — mirrors how people browse.
-  const systemsByCount = [...bySystem.entries()]
+  // One shelf per system that actually has games, largest first — mirrors how people
+  // browse, and a system with nothing in it contributes no row at all.
+  const populated = [...bySystem.entries()]
     .filter(([, list]) => list.length > 0)
     .sort((a, b) => b[1].length - a[1].length);
 
-  for (const [systemId, indices] of systemsByCount) {
+  for (const [systemId, indices] of populated) {
     const system = getSystem(systemId);
     if (!system) continue;
+    // Built-ins are collected into their own shelf below; a system whose only content
+    // is its test cart would otherwise get a one-item row duplicating it.
+    const hasImports = Array.from(indices).some((i) => entries[i].source === 'imported');
+    if (!hasImports) continue;
+    shelves.push({ id: `system-${systemId}`, title: system.name, indices });
+  }
+
+  // The carts that ship with the app, last: they are a demonstration, not a library.
+  const builtins = [];
+  for (let i = 0; i < entries.length; i++) if (entries[i].source === 'builtin') builtins.push(i);
+  if (builtins.length) {
+    builtins.sort((x, y) => entries[x].sortKey.localeCompare(entries[y].sortKey));
     shelves.push({
-      id: `system-${systemId}`,
-      title: system.phase === 2 ? `${system.name} (Phase 2)` : system.name,
-      indices,
+      id: 'test-carts',
+      title: 'Continuum Test Carts',
+      subtitle: 'Written for this project — one per core, each provably different',
+      indices: Uint32Array.from(builtins),
     });
   }
 
   return shelves;
 }
 
-/** Picks the hero title. Deterministic, so the banner does not flicker between reloads. */
+/**
+ * Picks the hero title, or nothing when the library is empty.
+ *
+ * Prefers the most recently played, then the most recently added, then the
+ * alphabetically first built-in.
+ *
+ * That last tie-break is load-bearing, not decoration. The four bundled carts are all
+ * registered in the same tick, so their `addedAt` values differ by zero or one
+ * millisecond depending on where the clock happens to tick — which meant the hero on a
+ * fresh install was whichever cart won a race, and changed between reloads. Falling
+ * back to `sortKey` makes the choice a property of the data rather than of the timing.
+ *
+ * @returns {number} an entry index, or -1 when there is nothing to feature
+ */
 export function featuredIndex() {
-  // A real, playable ROM makes a far better hero than a placeholder.
-  const real = realIndices();
-  if (real.length) return real[0];
+  if (!entries.length) return -1;
 
-  let best = 0;
-  let bestScore = -Infinity;
+  let best = -1;
   for (let i = 0; i < entries.length; i++) {
-    const e = entries[i];
-    if (getSystem(e.systemId)?.phase !== 1) continue;
-    // Favour a highly rated, unfinished game: the most plausible thing to feature.
-    const score = e.rating * 2 + (e.progress > 0 ? 1 : 0) - e.year / 1000;
-    if (score > bestScore) {
-      bestScore = score;
-      best = i;
-    }
+    if (best === -1 || outranks(entries[i], entries[best])) best = i;
   }
   return best;
+}
+
+/** Strict "should `a` be the hero instead of `b`". */
+function outranks(a, b) {
+  // Tiers, so a played game always beats an unplayed one and an import always beats a
+  // bundled test cart, regardless of timestamps.
+  const tier = (e) => (e.lastPlayed !== null ? 3 : e.source === 'imported' ? 2 : 1);
+  if (tier(a) !== tier(b)) return tier(a) > tier(b);
+
+  const recency = (e) => e.lastPlayed ?? e.addedAt ?? 0;
+  if (recency(a) !== recency(b)) return recency(a) > recency(b);
+
+  return a.sortKey.localeCompare(b.sortKey) < 0;
+}
+
+/** "24.0 KB" / "4.2 MB". Shared by blurbs and the metadata line. */
+export function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }

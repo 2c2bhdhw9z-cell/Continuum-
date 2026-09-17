@@ -27,9 +27,10 @@ import * as saveStates from './data/save-states.js';
 import { requestPersistentStorage, storageEstimate } from './data/idb.js';
 import { runtimeStats } from './engine/core-runtime.js';
 import { DetailSheet } from './ui/detail-sheet.js';
+import { SettingsSheet } from './ui/settings-sheet.js';
 import { PlayerView } from './ui/player-view.js';
 import { CoreMenu } from './ui/core-menu.js';
-import { entryById } from './data/catalog.js';
+import { allIndices, entryAt, entryById } from './data/catalog.js';
 import { getCorePreference, setCorePreference } from './data/core-prefs.js';
 import { toast } from './ui/toast.js';
 
@@ -42,6 +43,8 @@ const library = new LibraryView({
   scheduler: frameLoop,
   onOpenDetails: (entryId) => detail.open(entryId),
   onLaunch: (entryId) => launch(entryId),
+  onOpenSettings: () => void settings.open(),
+  onRequestImport: () => importer.openPicker(),
   onCoreMenu: (entryId, x, y) => {
     const entry = entryById(entryId);
     if (!entry) return false;
@@ -93,6 +96,24 @@ const importer = new RomImporter({
 });
 
 /**
+ * Settings. Reached from the fourth nav tab, which opens it as a sheet rather than
+ * switching the library into a fourth mode.
+ */
+const settings = new SettingsSheet({
+  coresForSystem: (systemId) => coreLoader.coresForSystem(systemId),
+  coresReady: coreLoader.manifestReady,
+  onSettingChanged: () => player.syncHudVisibility(),
+  onLibraryCleared: () => {
+    // The store is empty, so the in-memory library is too. Re-registering the built-in
+    // carts immediately is what keeps "clear everything" from leaving a dead app: the
+    // four test carts are part of the build, not part of the user's data.
+    registerBuiltins();
+    library.refreshData();
+    if (detail.isOpen) detail.close();
+  },
+});
+
+/**
  * Reports core residency in the status bar.
  *
  * Worth showing rather than hiding: this is the number that proves the multi-core
@@ -124,6 +145,12 @@ const player = new PlayerView({
   input,
   loop: frameLoop,
   onRequestImport: () => importer.openPicker(),
+  // A captured thumbnail has to reach the shelves: the card the user is about to
+  // return to is the one that was blank when they launched it.
+  onArtworkCaptured: () => {
+    library.refreshData();
+    if (detail.isOpen) detail.reloadStates();
+  },
   onStatesChanged: () => {
     // The detail sheet is usually closed during play, but if it is open behind the
     // player its list is now out of date.
@@ -160,9 +187,25 @@ frameLoop.addFlushTask(detail.flush);
 frameLoop.onError = (err) => host.reportError('Frame error', err);
 frameLoop.wake(4);
 
-// Previously imported ROMs are restored asynchronously; the library refreshes when
-// they arrive rather than blocking first paint on IndexedDB.
-void importer.restoreLibrary();
+// The user's ROMs, their favourites and their artwork all come back from IndexedDB.
+// Asynchronously, so first paint is never blocked on a database transaction: the four
+// bundled carts are already on screen and imports appear a moment later.
+void (async () => {
+  await importer.restoreLibrary();
+
+  // Anything still without a cover gets one lookup, on idle, well after the library is
+  // interactive. `boxart.js` remembers misses for a week, so this is silent and free on
+  // every subsequent boot rather than a burst of 404s each time the app opens.
+  const idle = (fn) =>
+    'requestIdleCallback' in window
+      ? requestIdleCallback(fn, { timeout: 4000 })
+      : setTimeout(fn, 2000);
+  idle(() => {
+    const indices = allIndices();
+    const entries = Array.from(indices, (index) => entryAt(index));
+    void importer.backfillArtwork(entries);
+  });
+})();
 
 // The save-state index is hydrated the same way: metadata only, so this reads a few
 // kilobytes rather than the megabytes of payload sitting behind it. Once it resolves,
@@ -313,6 +356,7 @@ window.__continuum = {
   input,
   library,
   detail,
+  settings,
   player,
   importer,
   coreMenu,

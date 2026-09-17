@@ -35,6 +35,17 @@ export class CoreLoader {
     this.host = host;
     /** @type {Map<string, any>} coreId -> manifest entry */
     this.manifest = new Map();
+    /**
+     * Resolves once the manifest has been declared.
+     *
+     * The engine is warmed on idle, so anything that wants to *list* cores — the
+     * Settings sheet's default-core pickers — can open before a single core has been
+     * declared and would otherwise render "there is nothing to choose" for a build
+     * with two Game Boy cores. Exposing readiness lets that UI wait rather than guess.
+     */
+    this.manifestReady = new Promise((resolve) => {
+      this._resolveManifestReady = resolve;
+    });
 
     /**
      * What each loaded core says it *is*: `coreId -> {id, name, version}`.
@@ -103,6 +114,8 @@ export class CoreLoader {
     console.info(
       `[cores] declared ${this.manifest.size} cores, 0 loaded (${bridge.residentCoreCount} resident)`,
     );
+    this._resolveManifestReady?.(this.manifest);
+    this._resolveManifestReady = null;
     return this.manifest;
   }
 

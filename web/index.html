@@ -42,6 +42,9 @@
         <button class="navlink is-active" data-mode="shelves" type="button">Home</button>
         <button class="navlink" data-mode="grid" type="button">All Games</button>
         <button class="navlink" data-mode="favorites" type="button">Favorites</button>
+        <!-- Settings opens a sheet rather than switching the library's mode, so it
+             never takes the "is-active" class off the tab you are actually on. -->
+        <button class="navlink" data-mode="settings" type="button">Settings</button>
       </nav>
 
       <div class="topbar__actions">
@@ -49,7 +52,9 @@
           <svg class="search__icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M10 4a6 6 0 104 10.5l4.3 4.3 1.4-1.4-4.3-4.3A6 6 0 0010 4zm0 2a4 4 0 110 8 4 4 0 010-8z"/>
           </svg>
-          <input id="search-input" class="search__input" type="search" placeholder="Search 4,800 titles…"
+          <!-- Placeholder is rewritten from the real library count on every change;
+               the literal here is only what shows before the first paint. -->
+          <input id="search-input" class="search__input" type="search" placeholder="Search your library…"
                  autocomplete="off" spellcheck="false" aria-label="Search titles" />
         </div>
         <button class="btn btn--ghost btn--compact" data-action="import-rom" type="button"
@@ -100,9 +105,16 @@
       <!-- Grid mode target. Same virtualiser primitive, row-of-columns renderer. -->
       <div class="grid-wrap" id="grid-viewport" role="region" aria-label="All games" hidden></div>
 
+      <!-- One element, three messages: empty library, empty favorites, no search hits.
+           The text and the import button are set by library-view.js, because only the
+           first of those three is a dead end that needs a way out. -->
       <div class="empty" id="library-empty" hidden>
-        <p class="empty__title">No titles match that search.</p>
-        <p class="empty__hint">Try a system name, a year, or part of a title.</p>
+        <p class="empty__title" id="library-empty-title">Your library is empty.</p>
+        <p class="empty__hint" id="library-empty-hint">Add a ROM from this device to get started.</p>
+        <button class="btn btn--primary" id="library-empty-import" data-action="import-rom" type="button" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
+          Add a ROM
+        </button>
       </div>
     </main>
 
@@ -231,9 +243,21 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.3 5.7L12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></svg>
       </button>
       <div class="detail">
-        <div class="detail__art" id="detail-art" aria-hidden="true">
-          <span class="detail__badge" id="detail-badge"></span>
-          <span class="detail__glyph" id="detail-glyph"></span>
+        <div class="detail__artwrap">
+          <div class="detail__art" id="detail-art" aria-hidden="true">
+            <!-- Cover art over the generated plate. Absolutely positioned and
+                 object-fit: cover, so it cannot change the panel's layout. -->
+            <img class="detail__img" id="detail-art-img" alt="" decoding="async" hidden />
+            <span class="detail__badge" id="detail-badge"></span>
+            <span class="detail__glyph" id="detail-glyph"></span>
+          </div>
+          <p class="detail__art-note" id="detail-art-note"></p>
+          <div class="detail__art-actions">
+            <button class="textbtn" id="detail-art-change" type="button">Change artwork</button>
+            <button class="textbtn" id="detail-art-reset" type="button" hidden>Reset</button>
+          </div>
+          <!-- Images only: this overwrites the stored cover blob. -->
+          <input type="file" id="detail-art-input" accept="image/*" hidden />
         </div>
         <div class="detail__body">
           <h2 class="detail__title" id="detail-title">—</h2>
@@ -271,6 +295,93 @@
             <div class="states" id="detail-states" role="list"></div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────────── Settings ─────────────────────────── -->
+  <div class="sheet" id="settings-sheet" hidden>
+    <div class="sheet__backdrop" data-close></div>
+    <div class="sheet__panel sheet__panel--narrow" role="dialog" aria-modal="true"
+         aria-labelledby="settings-title">
+      <button class="sheet__close" data-close type="button" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.3 5.7L12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></svg>
+      </button>
+
+      <div class="settings">
+        <h2 class="settings__title" id="settings-title">Settings</h2>
+
+        <!-- Storage. Every figure is summed from the metadata stores, not estimated;
+             the quota line is the only one from navigator.storage, and it says so
+             because it counts the app and the cores too. -->
+        <section class="settings__group">
+          <h3 class="settings__heading">Storage</h3>
+          <div class="settings__stat">
+            <span class="settings__stat-key" id="settings-rom-count">—</span>
+            <span class="settings__stat-val" id="settings-rom-bytes">—</span>
+          </div>
+          <div class="settings__stat">
+            <span class="settings__stat-key" id="settings-state-count">—</span>
+            <span class="settings__stat-val" id="settings-state-bytes">—</span>
+          </div>
+          <div class="settings__stat">
+            <span class="settings__stat-key">Cover art</span>
+            <span class="settings__stat-val" id="settings-art">—</span>
+          </div>
+          <p class="settings__note" id="settings-quota">—</p>
+
+          <button class="btn btn--danger settings__danger" id="settings-clear" type="button">
+            Clear all stored ROMs and saves
+          </button>
+          <p class="settings__note" id="settings-clear-note"></p>
+        </section>
+
+        <!-- Default core per system. Only systems with a real choice appear. -->
+        <section class="settings__group">
+          <h3 class="settings__heading">Default cores</h3>
+          <p class="settings__note">
+            Applies to every game for that system. A single game can still be launched
+            with another core by long-pressing its card.
+          </p>
+          <div id="settings-cores"></div>
+        </section>
+
+        <section class="settings__group">
+          <h3 class="settings__heading">Interface</h3>
+
+          <label class="settings__toggle">
+            <input type="checkbox" id="settings-hud" />
+            <span class="settings__toggle-body">
+              <span class="settings__toggle-title">Performance HUD</span>
+              <span class="settings__toggle-note">
+                Frame rate, audio buffer and core memory over the game. Off by default on
+                phones, where it covers the picture.
+              </span>
+            </span>
+          </label>
+
+          <label class="settings__toggle">
+            <input type="checkbox" id="settings-boxart" />
+            <span class="settings__toggle-body">
+              <span class="settings__toggle-title">Fetch cover art</span>
+              <span class="settings__toggle-note">
+                Looks up covers on thumbnails.libretro.com. This sends the ROM's filename
+                to that server. Turn it off to keep every lookup local.
+              </span>
+            </span>
+          </label>
+
+          <label class="settings__toggle">
+            <input type="checkbox" id="settings-capture" />
+            <span class="settings__toggle-body">
+              <span class="settings__toggle-title">Capture artwork while playing</span>
+              <span class="settings__toggle-note">
+                When a game has no cover, keep a thumbnail of it once it has been running
+                for a second. Never leaves the device.
+              </span>
+            </span>
+          </label>
+        </section>
       </div>
     </div>
   </div>

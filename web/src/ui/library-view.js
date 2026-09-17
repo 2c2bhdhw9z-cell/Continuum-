@@ -36,12 +36,13 @@ import { artFor, metaLineFor } from './art.js';
 import {
   allIndices,
   buildShelves,
-  catalogSize,
+  librarySize,
   entryAt,
   favoriteIndices,
   featuredIndex,
   search,
 } from '../data/catalog.js';
+import { displayUrlFor } from '../data/artwork.js';
 
 /** Reads a numeric CSS custom property so JS and CSS cannot disagree on sizes. */
 function cssPx(name, fallback) {
@@ -57,7 +58,7 @@ export class LibraryView {
    * @param {(entryId: string) => void} opts.onLaunch
    * @param {{ wake: (frames?: number) => void }} opts.scheduler
    */
-  constructor({ onOpenDetails, onLaunch, onCoreMenu, scheduler }) {
+  constructor({ onOpenDetails, onLaunch, onCoreMenu, onOpenSettings, onRequestImport, scheduler }) {
     this.onOpenDetails = onOpenDetails;
     this.onLaunch = onLaunch;
     /**
@@ -65,6 +66,8 @@ export class LibraryView {
      * gesture layer knows whether to swallow the browser's own context menu.
      */
     this.onCoreMenu = onCoreMenu ?? (() => false);
+    this.onOpenSettings = onOpenSettings ?? (() => {});
+    this.onRequestImport = onRequestImport ?? (() => {});
     this.scheduler = scheduler;
 
     this.root = document.getElementById('view-library');
@@ -73,6 +76,10 @@ export class LibraryView {
     this.shelvesEl = document.getElementById('shelves-viewport');
     this.gridWrapEl = document.getElementById('grid-viewport');
     this.emptyEl = document.getElementById('library-empty');
+    this.emptyTitleEl = document.getElementById('library-empty-title');
+    this.emptyHintEl = document.getElementById('library-empty-hint');
+    this.emptyImportBtn = document.getElementById('library-empty-import');
+    this.heroEl = document.getElementById('hero');
     this.searchInput = document.getElementById('search-input');
 
     /** 'shelves' | 'grid' | 'favorites' */
@@ -167,11 +174,20 @@ export class LibraryView {
 
     for (const link of document.querySelectorAll('.navlink')) {
       link.addEventListener('click', () => {
+        // Settings is a sheet, not a view. Treating it as a fourth mode would blank
+        // the library behind it and leave the tab strip claiming you had navigated
+        // away from a list that is still right there when the sheet closes.
+        if (link.dataset.mode === 'settings') {
+          this.onOpenSettings();
+          return;
+        }
         this.searchInput.value = '';
         this.query = '';
         this.setMode(link.dataset.mode);
       });
     }
+
+    this.emptyImportBtn?.addEventListener('click', () => this.onRequestImport());
 
     let searchTimer = 0;
     this.searchInput.addEventListener('input', () => {
@@ -198,13 +214,33 @@ export class LibraryView {
 
   // ---------------------------------------------------------------------- hero
 
+  /**
+   * Binds the hero, or hides it.
+   *
+   * With no synthetic catalogue there is a state that could not previously exist: an
+   * empty library. A hero banner featuring nothing is worse than no banner, so it is
+   * removed from the layout entirely and the empty state does the talking.
+   */
   _bindHero() {
-    const entry = entryAt(featuredIndex());
+    const index = featuredIndex();
+    const entry = index >= 0 ? entryAt(index) : null;
     this.featured = entry;
+    if (this.heroEl) this.heroEl.hidden = !entry || this.mode !== 'shelves';
     if (!entry) return;
-    document.getElementById('hero-art').style.setProperty('--art', artFor(entry));
+
+    const artEl = document.getElementById('hero-art');
+    artEl.style.setProperty('--art', artFor(entry));
+    // The hero uses a background image rather than an <img>: it is one element that
+    // never recycles, so there is no pool to keep uniform and no decode to sequence.
+    const url = displayUrlFor(entry);
+    // `JSON.stringify` gives a correctly quoted and backslash-escaped CSS string.
+    // `CSS.escape` would be wrong here: it escapes identifiers, not string literals,
+    // and would mangle the slashes in a URL.
+    artEl.style.backgroundImage = url ? `url(${JSON.stringify(url)})` : '';
+    artEl.classList.toggle('has-art', Boolean(url));
+
     document.getElementById('hero-eyebrow').textContent =
-      entry.progress > 0 ? 'Continue playing' : 'Featured';
+      entry.lastPlayed !== null ? 'Continue playing' : 'Featured';
     document.getElementById('hero-title').textContent = entry.title;
     document.getElementById('hero-meta').textContent = metaLineFor(entry);
     document.getElementById('hero-blurb').textContent = entry.blurb;
@@ -220,6 +256,9 @@ export class LibraryView {
       itemSize: this.geom.shelfH,
       overscan: 1,
       scheduler: this.scheduler,
+      // The number of shelves is a property of the library, so the pool may be capped
+      // to it: a four-cart library builds one shelf node rather than seven.
+      capPoolToCount: true,
       createNode: () => this._createShelfNode(),
       bindNode: (node, index) => this._bindShelfNode(node, index),
       onRange: () => this._updateStatus(),
@@ -237,7 +276,10 @@ export class LibraryView {
     title.className = 'shelf__title';
     const count = document.createElement('span');
     count.className = 'shelf__count';
-    head.append(title, count);
+    const subtitle = document.createElement('span');
+    subtitle.className = 'shelf__subtitle';
+    subtitle.hidden = true;
+    head.append(title, count, subtitle);
 
     const body = document.createElement('div');
     body.className = 'shelf__body';
@@ -306,7 +348,11 @@ export class LibraryView {
     node.hidden = false;
     node.dataset.shelfId = shelf.id;
     node.querySelector('.shelf__title').textContent = shelf.title;
-    node.querySelector('.shelf__count').textContent = `${shelf.indices.length} titles`;
+    node.querySelector('.shelf__count').textContent =
+      shelf.indices.length === 1 ? '1 title' : `${shelf.indices.length} titles`;
+    const subtitle = node.querySelector('.shelf__subtitle');
+    subtitle.hidden = !shelf.subtitle;
+    subtitle.textContent = shelf.subtitle ?? '';
 
     node._indices = shelf.indices;
     const scroller = node._scroller;
@@ -362,6 +408,7 @@ export class LibraryView {
       itemSize: this.geom.gridRowH,
       overscan: 1,
       scheduler: this.scheduler,
+      capPoolToCount: true,
       createNode: () => {
         const row = document.createElement('div');
         row.className = 'grid__row';
@@ -397,9 +444,53 @@ export class LibraryView {
     const rows = Math.ceil(indices.length / this.gridColumns);
     this.gridScroller.setCount(rows);
     this.gridScroller.refresh();
-    this.gridCountEl.textContent = `${indices.length.toLocaleString()} titles`;
-    this.emptyEl.hidden = indices.length > 0;
+    this.gridCountEl.textContent =
+      indices.length === 1 ? '1 title' : `${indices.length.toLocaleString()} titles`;
+    this._syncEmptyState(indices.length);
     this._updateStatus();
+  }
+
+  /**
+   * Chooses which "nothing here" message to show, if any.
+   *
+   * Three genuinely different situations, and one message for all of them would be
+   * wrong in two: an empty library needs an import button, an empty Favorites shelf
+   * needs to explain what favourites are, and a search with no hits needs to suggest a
+   * different query. Only the first is a dead end.
+   */
+  _syncEmptyState(visibleCount) {
+    const total = librarySize();
+    const count = visibleCount ?? (this.mode === 'shelves' ? total : this.gridIndices.length);
+
+    if (total === 0) {
+      this.emptyEl.hidden = false;
+      this.emptyTitleEl.textContent = 'Your library is empty.';
+      this.emptyHintEl.textContent =
+        'Add a ROM from this device to get started. Nothing is uploaded — files are stored ' +
+        'locally in your browser and stay on your device.';
+      if (this.emptyImportBtn) this.emptyImportBtn.hidden = false;
+      return;
+    }
+
+    if (count > 0) {
+      this.emptyEl.hidden = true;
+      return;
+    }
+
+    this.emptyEl.hidden = false;
+    if (this.emptyImportBtn) this.emptyImportBtn.hidden = true;
+    if (this.mode === 'favorites') {
+      this.emptyTitleEl.textContent = 'No favorites yet.';
+      this.emptyHintEl.textContent =
+        'Open any game and choose “Add to favorites” to collect it here.';
+    } else if (this.query) {
+      this.emptyTitleEl.textContent = 'No titles match that search.';
+      this.emptyHintEl.textContent = 'Try a system name, a region tag, or part of a title.';
+    } else {
+      this.emptyTitleEl.textContent = 'Nothing to show.';
+      this.emptyHintEl.textContent = 'Add a ROM from this device to fill your library.';
+      if (this.emptyImportBtn) this.emptyImportBtn.hidden = false;
+    }
   }
 
   // -------------------------------------------------------------- mode / query
@@ -407,11 +498,12 @@ export class LibraryView {
   setMode(mode) {
     this.mode = mode;
     for (const link of document.querySelectorAll('.navlink')) {
+      if (link.dataset.mode === 'settings') continue;
       link.classList.toggle('is-active', link.dataset.mode === mode);
     }
 
     const showShelves = mode === 'shelves';
-    document.getElementById('hero').hidden = !showShelves;
+    this.heroEl.hidden = !showShelves || !this.featured;
     this.shelvesEl.hidden = !showShelves;
     this.gridWrapEl.hidden = showShelves;
     this.emptyEl.hidden = true;
@@ -420,6 +512,7 @@ export class LibraryView {
     if (showShelves) {
       this.shelfScroller.measure();
       this.shelfScroller.refresh();
+      this._syncEmptyState();
     } else {
       this._ensureGrid();
       const indices =
@@ -449,13 +542,22 @@ export class LibraryView {
     }
   }
 
-  /** Recomputes shelves after data changes (a launch updates "Continue playing"). */
+  /**
+   * Recomputes everything derived from the library after it changes.
+   *
+   * Called on import, on delete, after a launch (which reorders "Recently played") and
+   * when artwork resolves. Shelves are rebuilt rather than patched because the *set* of
+   * shelves is itself data now: importing the first Mega Drive ROM creates a shelf that
+   * did not exist a moment ago, and deleting the last one removes it.
+   */
   refreshData() {
     this.shelves = buildShelves();
     this.shelfScroller.setCount(this.shelves.length);
     this.shelfScroller.refresh();
     this._bindHero();
-    if (this.mode !== 'shelves' && this.gridScroller) {
+    if (this.mode === 'shelves') {
+      this._syncEmptyState();
+    } else if (this.gridScroller) {
       this._applyGridIndices(
         this.mode === 'favorites'
           ? favoriteIndices()
@@ -464,6 +566,7 @@ export class LibraryView {
             : allIndices(),
       );
     }
+    this._updateSearchPlaceholder();
     this.scheduler.wake(2);
   }
 
@@ -484,7 +587,14 @@ export class LibraryView {
   // -------------------------------------------------------------------- status
 
   _updateSearchPlaceholder() {
-    this.searchInput.placeholder = `Search ${catalogSize.toLocaleString()} titles…`;
+    const total = librarySize();
+    // Recomputed on every library change: this used to be a constant read once at
+    // module load, which was fine for a fixed 4,800-entry catalogue and would now
+    // permanently advertise whatever the count happened to be at boot.
+    this.searchInput.placeholder =
+      total === 0
+        ? 'Search your library…'
+        : `Search ${total.toLocaleString()} ${total === 1 ? 'title' : 'titles'}…`;
   }
 
   _updateStatus() {
@@ -494,7 +604,8 @@ export class LibraryView {
 
     const cards = document.querySelectorAll('.card').length;
     const shelfNodes = this.shelfScroller?.nodeCount ?? 0;
-    catalogEl.textContent = `${catalogSize.toLocaleString()} titles indexed`;
+    const total = librarySize();
+    catalogEl.textContent = `${total.toLocaleString()} ${total === 1 ? 'title' : 'titles'} in library`;
     domEl.textContent =
       this.mode === 'shelves'
         ? `DOM: ${cards} cards in ${shelfNodes} shelf nodes`

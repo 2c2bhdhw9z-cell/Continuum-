@@ -1,6 +1,6 @@
 # Continuum — Session Handoff
 
-State of the project at tag `v0.5.0-mobile`, written to be the only document a new session
+State of the project at tag `v0.6.0-library`, written to be the only document a new session
 needs to read before changing anything.
 
 Continuum is an all-in-one emulator PWA. Four real libretro cores run as standalone
@@ -19,7 +19,7 @@ that could have lived in JavaScript does not.
 3. **One loop.** A single `requestAnimationFrame` drives input → core step → audio →
    GPU present, on the main thread.
 4. **DOM virtualisation.** Node count is a function of viewport size, never of item
-   count. 4,800 catalogue titles and 12 titles allocate the same DOM.
+   count. A library of 12 titles and one of 4,000 allocate the same DOM.
 5. **Dynamic core loading.** No core binary is fetched or instantiated at boot.
 
 Rules 2, 3, 4 and 5 each have a browser assertion, so breaking one fails CI rather than
@@ -326,7 +326,7 @@ push a row taller and desynchronise the scroller's arithmetic.
 `scroll` events fire faster than frames, so the scroller only marks itself dirty and
 lets the shared loop call `flush()`.
 
-Measured: 4,800 titles → 105 card nodes and 7 shelf nodes, constant while scrolling. A
+Measured: 324 stored titles → 105 card nodes and 7 shelf nodes, constant while scrolling. A
 471-title shelf uses 15 nodes. A 129-state save list uses 10 rows.
 
 ---
@@ -544,7 +544,7 @@ cargo clippy --all-targets           # zero warnings
 node scripts/core-abi-test.mjs       # 64 checks, 4 cores, no browser
 node scripts/capture-frames.mjs      # docs/frame-{nes,gba,sms,snes}[-a].png
 
-# Browser suite (73 checks). One shell invocation: /tmp and background jobs
+# Browser suite (95 checks). One shell invocation: /tmp and background jobs
 # do not survive between tool calls.
 node scripts/serve.mjs 8123 &
 PLAYWRIGHT_CORE=/tmp/pw/node_modules/playwright-core \
@@ -625,7 +625,7 @@ crates/emulator-bridge/src/
     registry.rs   CoreRegistry: declare / attach / take / unload, subcore resolution
     wasm_core.rs  real libretro core behind the trait
     host.rs       CoreHost — the five host.* callbacks, thread-local frame exchange
-    diagnostic.rs pattern-generating stand-in for placeholder entries
+    diagnostic.rs pattern-generating stand-in for systems with no real core yet
   gfx/            renderer.rs (wgpu), convert.rs, frame_blit.wgsl
   audio/          mod.rs (AudioSink), ring.rs, resample.rs
   input/          mod.rs (Button, InputSnapshot), gamepad.rs (GamepadBridge)
@@ -692,11 +692,24 @@ Nothing is blocked. In rough order of value:
 4. **Core options.** `HAVE_NO_LANGEXTRA` is set and `GET_VARIABLE` returns nothing, so
    every core runs on defaults. Exposing options means a UI, persistence, and deciding
    which of the dozens per core are worth showing.
-5. **A save-state UI beyond the per-game list.** No way to browse states across games,
-   export one, or see what they are costing in storage. `usedBytes()` and
-   `storageEstimate()` are already there for it.
+5. **A save-state UI beyond the per-game list.** No way to browse states across games or
+   export one. Settings now reports what they cost in storage (§10), so the numbers are
+   there; the browsing is not.
+6. **Offline cover art.** Tiers 1–3 store a URL because the thumbnail server sends no CORS
+   header (§11), so scraped covers depend on the HTTP cache. A tiny same-origin proxy, or
+   accepting a capture as the durable copy, would close that gap.
+7. **Bulk import.** Files go in one at a time through the picker. A directory picker
+   (`showDirectoryPicker`) plus a progress sheet would make a real collection practical;
+   the store and the artwork queue already handle batches.
 
 ### Things not to undo
+
+**Do not reintroduce generated library data.** The suite asserts a fresh install holds
+exactly four entries, that no entry carries a rating/genre/player-count/progress field, and
+that an unplayed game has no save states. Those checks exist because all three used to be
+false. If the virtualisation needs a large library to test against, seed real ROM records
+into IndexedDB from the test — `smoke-test.mjs` §1b does exactly that, and its fixture
+counter has to land inside the first 8 KB or every ROM hashes identically.
 
 - `_instance` / `_adapter` in `Renderer` (§2) — deleting them blanks the canvas.
 - Per-source input layers in `GamepadBridge` (§3) — merging them breaks the keyboard
@@ -785,3 +798,149 @@ That it links, or runs. No Apple linker or SDK is available here, so this establ
 that the code is *type-correct* for the target and that the module boundaries are in
 the right places — not that a binary works. The first real test is a `staticlib` linked
 into a SwiftUI shell calling `EmulatorBridge` directly.
+
+
+---
+
+## 10. The library is real data now
+
+Until `v0.5.0` the front end generated a 4,800-entry catalogue at boot. It existed for a
+good reason — the virtualisation had to be provable before there was anything to browse —
+and it had earned its retirement: every launch path carried a "does this entry actually
+have bytes" branch, `save-states.js` fabricated histories so the state list had something
+long to render, and the shelves were mostly rows of things nobody could play.
+
+All of it is gone. `web/src/data/catalog.js` is now an index over real content only.
+
+### What an entry is
+
+```text
+  id          content hash (FNV-1a over the first 8 KB + length), or builtin-*
+  title       from the filename, with [dump tags] removed and (Region) kept
+  systemId    from rom-detect.js, which reads headers rather than trusting extensions
+  filename    the original name, unmodified — cover art lookup depends on it
+  sizeBytes   real
+  region      parsed from the filename's tags, or null. Never guessed.
+  source      'imported' | 'builtin'
+  favorite / lastPlayed / playCount      the user's, persisted in `entry-flags`
+  art         {kind: 'url'|'blob', url, tier} or null
+```
+
+**There is no rating, genre, year, player count or progress percentage.** A front end
+cannot know any of them about a file it was handed, and the browser suite asserts their
+absence (`entries carry no invented metadata`) so they cannot creep back.
+
+`progress` is worth a specific note: cards used to show a percentage bar, which is
+unknowable — no emulator can tell how far through a game a save state is. It was replaced
+with a "RESUME" pip driven by `autoStateFor()`, which is both knowable and useful.
+
+### Shelves are dynamic, and that is a rule
+
+`buildShelves()` emits a shelf only when it has content. A fresh install produces exactly
+one row, *Continuum Test Carts*. A system with no imports produces nothing — not an empty
+row, not a "0 titles" heading. `featuredIndex()` returns `-1` for an empty library and the
+hero is removed from the layout rather than featuring nothing.
+
+`featuredIndex` had a real bug when written: the four bundled carts register in the same
+tick, so their `addedAt` differed by zero or one millisecond depending on where the clock
+ticked, and the hero changed between reloads while the docstring claimed determinism. Now
+built-ins register with `addedAt: 0` and ties break on `sortKey`.
+
+### Import once
+
+`rom-import.js` writes bytes to `rom-data` and metadata to `rom-meta`;
+`restoreLibrary()` reads them back at every boot along with `entry-flags` and `rom-art`.
+Three `getAll()` calls, no payloads — restoring a hundred games costs kilobytes, because a
+ROM's bytes are only fetched when it is launched.
+
+Database is at **v3**; v3 added `rom-art` and `entry-flags`. Upgrades are additive and
+guarded, so an existing collection survives.
+
+`entry-flags` is deliberately separate from `rom-meta`. Favourites apply to built-in carts
+too, and those have no `rom-meta` row because their bytes ship with the app — writing a
+fake ROM record to hold a boolean would make "what is in my library" and "what is in my
+storage" two different questions with one answer.
+
+## 11. Cover art, and the CORS wall
+
+Five tiers, in `web/src/data/artwork.js`:
+
+| Tier | Source | Stored as |
+| --- | --- | --- |
+| 1 | libretro `Named_Boxarts` | URL |
+| 2 | `Named_Titles`, then `Named_Snaps` | URL |
+| 3 | the same three with tags dropped | URL |
+| 4 | captured from the game past frame 60 | blob |
+| 5 | an image the user picks | blob |
+| — | generated console plate (`ui/art.js`) | nothing |
+
+**`thumbnails.libretro.com` sends no `Access-Control-Allow-Origin` header.** Verified, not
+assumed: a `GET` with an `Origin` returns 200 with no CORS header, and `OPTIONS` answers
+without one either. So script cannot read those bytes — `fetch` in `cors` mode is refused,
+`no-cors` yields an opaque response whose `status` is always 0, and drawing the image to a
+canvas taints it. What *does* work is an `<img>`, so `boxart.js` probes with `Image`
+load/error events and persists the resolved **URL**. A 404 there returns `text/html`, so
+`onerror` fires reliably.
+
+The consequence to remember: **scraped art is not guaranteed offline.** It lives in the
+HTTP cache. Tiers 4 and 5 are real blobs and work with no network at all.
+
+### Naming
+
+Libretro requires `& * / : ` < > ? \ | "` to be replaced with `_` — a substitution, not a
+strip, so "Ratchet & Clank" becomes "Ratchet _ Clank" with both spaces intact.
+
+The fallback ladder is **graduated**, and the ordering was measured rather than guessed:
+
+```text
+  Super Mario World (USA) [!]   404
+  Super Mario World (USA)       200   ← stripDumpTags: square brackets only
+  Super Mario World             404   ← stripTags: everything
+```
+
+Stripping everything on the first retry throws away the region and misses the only name
+that exists. So `stripDumpTags` (tier `-relaxed`) comes before `stripTags` (tier
+`-untagged`). Nine candidates worst case, deduplicated, then remembered as a miss for a
+week in `localStorage`.
+
+Built-in carts are **never** probed: they are original ROMs written for this project, so
+no thumbnail server has heard of them, and asking would be six guaranteed 404s per cart on
+every fresh install.
+
+### The PNG encoder
+
+`web/src/data/png.js` encodes captured frames with **no canvas of any kind** —
+`CompressionStream('deflate')` supplies the zlib-wrapped DEFLATE that a PNG `IDAT`
+requires, with stored (uncompressed) blocks as a fallback. This is not pedantry: rule 2
+says a 2D context is never created, the suite's hook only watches `HTMLCanvasElement`, and
+an `OffscreenCanvas` would have slipped past it. An invariant that holds only where it is
+measured is not an invariant.
+
+`captureFrame(w, h)` renders into an offscreen texture at *any* requested size, so
+thumbnails are asked for at 512×384 and nothing is resampled in JavaScript.
+
+**Headless GPUs cannot map a buffer back**, so tier 4 end-to-end is reported as `INFO` in
+the suite, not asserted. The encoder itself is asserted: signature, chunk order, both CRCs
+and a real decode through `createImageBitmap`.
+
+### Object URLs
+
+A blob needs an object URL, and an object URL is a leak until revoked. Cards recycle
+constantly, so `artwork.js` mints **at most one URL per entry**, created when its blob is
+attached and revoked when replaced or deleted. Binding a card is then a property read.
+Never call `createObjectURL` in `bindCard`.
+
+## 12. Virtual scroller: `capPoolToCount`
+
+New option, and it has a rule attached. It caps the pool at the item count as well as at
+the viewport, which is what stops a four-cart library from building seven shelf nodes
+holding 98 cards.
+
+**It may only be used where `count` is a property of the data, not of scroll position.**
+The shelf list, the grid and the save-state list qualify. A shelf's *own* horizontal
+scroller does not: one pooled shelf node is rebound from a 4-item shelf to a 54-item one as
+the user scrolls, so capping there grows the pool mid-scroll and breaks rule 4. Uncapped
+scrollers are also sized *eagerly*, before any count is known, for the same reason.
+
+This was caught by the suite — `card node count constant while scrolling` went 60 → 105 —
+which is exactly what that check is for.

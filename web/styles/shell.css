@@ -476,24 +476,6 @@
   color: var(--text-dim);
 }
 
-/* Badge marking entries that have real content behind them, as opposed to the
-   synthetic catalogue used to exercise the UI at scale. */
-.card__real {
-  position: absolute;
-  left: 8px;
-  bottom: 8px;
-  z-index: 2;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: var(--cyan);
-  color: #04211f;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .detail__provenance {
   margin: 0 0 var(--sp-3);
   padding: var(--sp-2) var(--sp-3);
@@ -853,4 +835,190 @@
   .brand__name {
     display: none;
   }
+}
+
+
+/* ═══════════════════════════════ Cover art ═══════════════════════════════ */
+
+/* The detail sheet's copy of the art layer. Same rule as the card: absolute and
+   object-fit: cover, so a cover of any aspect ratio leaves the 3:4 panel column
+   exactly where the grid put it. */
+.detail__img {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  /* Contained for the same reason as the card: show the whole cover, never crop it. */
+  object-fit: contain;
+}
+
+.detail__art:has(.detail__img:not([hidden])) .detail__glyph {
+  display: none;
+}
+
+.detail__art-note {
+  margin: var(--sp-2) 0 0;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+}
+
+.detail__art-actions {
+  display: flex;
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
+}
+
+/* ═══════════════════════════════ Settings ════════════════════════════════ */
+
+/* Narrower than the detail sheet: this is a single column of rows, and stretching
+   it to 900px would leave every label marooned from its control. */
+.sheet__panel--narrow {
+  max-width: 560px;
+}
+
+.settings {
+  padding: var(--sp-5);
+}
+
+.settings__title {
+  margin: 0 0 var(--sp-4);
+  font-size: var(--fs-xl);
+  letter-spacing: -0.02em;
+}
+
+.settings__group {
+  padding: var(--sp-4) 0;
+  border-top: 1px solid var(--line);
+}
+
+.settings__group:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.settings__heading {
+  margin: 0 0 var(--sp-3);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.settings__stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.settings__stat-key {
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.settings__stat-val {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  text-align: right;
+}
+
+.settings__note {
+  margin: var(--sp-3) 0 0;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+
+.settings__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 7px 0;
+}
+
+.settings__label {
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.settings__select {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 55%;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--fs-xs);
+}
+
+/* Whole row is the label, so the tap target is the row and not a 16px box —
+   which matters far more on a phone than in a desktop browser. */
+.settings__toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0;
+  cursor: pointer;
+}
+
+.settings__toggle input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.settings__toggle-body {
+  display: block;
+}
+
+.settings__toggle-title {
+  display: block;
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.settings__toggle-note {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+}
+
+/* Destructive, and dressed as destructive only once it is armed. An unarmed
+   button that is already red teaches people to ignore red. */
+.btn--danger {
+  border: 1px solid rgba(255, 92, 92, 0.4);
+  background: rgba(255, 92, 92, 0.08);
+  color: #ff9a9a;
+}
+
+.btn--danger:hover {
+  background: rgba(255, 92, 92, 0.16);
+}
+
+.btn--danger.is-armed {
+  border-color: #ff5c5c;
+  background: #ff5c5c;
+  color: #2a0505;
+  font-weight: 700;
+}
+
+.settings__danger {
+  width: 100%;
+  margin-top: var(--sp-4);
+  justify-content: center;
 }
