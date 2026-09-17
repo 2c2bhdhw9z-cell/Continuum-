@@ -92,16 +92,34 @@ compositor samples directly.
 
 ### The single fact that makes it tractable
 
-An iPhone has exactly one GPU, and `MTLCreateSystemDefaultDevice()` returns the same device
-object every time it is called. Metal resources are tied to the `MTLDevice` that created
-them — but if every layer in the process is *handed* one device rather than creating its own,
+An iPhone has exactly one GPU. Metal resources are tied to the `MTLDevice` that created
+them — but if every layer in the process shares one device rather than creating its own,
 there is only one, and every texture is shared by construction.
 
 So the architectural rule, from which everything else follows:
 
-> **Swift creates exactly one `MTLDevice` and one `MTLCommandQueue`, and injects them into
-> all three consumers: wgpu, MoltenVK, and ANGLE. No component in this system ever calls
-> `MTLCreateSystemDefaultDevice()` for itself.**
+> **There is exactly one `MTLDevice` and one `MTLCommandQueue` in the process, shared by
+> wgpu, MoltenVK and ANGLE. Only one component ever creates them.**
+
+> **Correction, from building it (step 1).** This section originally said *Swift* creates the
+> device and injects it. That is not implementable on `wgpu` 30, and it would have failed
+> silently rather than loudly:
+>
+> - `wgpu-hal`'s Metal backend has no public constructor accepting an existing `MTLDevice`.
+>   `AdapterShared::expose` is private (`src/metal/mod.rs:428`), so
+>   `Instance::create_adapter_from_hal` is unreachable with a foreign device. Only the queue
+>   half is public (`Queue::queue_from_raw`).
+> - `Surface::configure` calls `CAMetalLayer::setDevice` with wgpu's *own* device
+>   (`src/metal/surface.rs:276`). An injected device is therefore replaced one call later,
+>   leaving Swift holding a device that owns nothing the layer draws — and the first attempt
+>   to share a texture between core and compositor would fail with no obvious cause.
+>
+> So the arrow is reversed: **the engine creates the device, and Swift adopts it** via
+> `metalDeviceHandle()`. The invariant above is unchanged — one device, shared — and on iOS
+> the device is the same one either way, because `wgpu-hal` enumerates through
+> `objc2_metal::MTLCopyAllDevices`, which on iOS is a shim over
+> `MTLCreateSystemDefaultDevice()` (`objc2-metal-0.3.2/src/device.rs`). See
+> `crates/emulator-bridge/src/gfx/metal.rs`.
 
 ---
 
@@ -109,17 +127,18 @@ So the architectural rule, from which everything else follows:
 
 ```text
 ┌─ Swift ──────────────────────────────────────────────────────────────────────┐
-│  let device = MTLCreateSystemDefaultDevice()!        ← the only call, ever    │
-│  let queue  = device.makeCommandQueue()!                                     │
-│  metalLayer.device = device                                                  │
+│  layerClass = CAMetalLayer            ← Swift owns the layer, not the device  │
 │                                                                              │
-│  engine.attachMetal(device: ptr(device), queue: ptr(queue), layer: ptr(layer))│
+│  engine.attachMetal(layer: ptr(metalLayer), width: w, height: h)             │
+│  let device = engine.metalDeviceHandle()   ← reads the one device back out    │
+│  let queue  = engine.metalQueueHandle()                                      │
 └───────────────────────────────┬──────────────────────────────────────────────┘
-                                │ UniFFI: three opaque u64 handles (§7)
+                                │ UniFFI: opaque u64 handles (§7)
 ┌───────────────────────────────┴──────────────────────────────────────────────┐
 │ libcontinuum.a                                                               │
 │                                                                              │
-│  gfx/renderer.rs        wgpu device built *from* the injected MTLDevice       │
+│  gfx/metal.rs           creates the MTLDevice; hands it back to Swift         │
+│  gfx/renderer.rs        wgpu device + surface on the CAMetalLayer             │
 │      └── composite pass: N source rects → N dest rects (§9)                   │
 │                                                                              │
 │  gfx/hw/mod.rs          trait HwContext  { begin_frame, end_frame, … }        │
@@ -294,13 +313,19 @@ Two consequences worth flagging before anyone starts:
 - **This adds `wgpu-hal` and `metal` as direct dependencies** of `emulator-bridge`, native
   targets only, and introduces the first genuinely `unsafe` block in the graphics path. Both
   belong behind a `hw-render` feature so the web build's dependency graph is untouched.
-- **Building a wgpu `Device` *from* an injected `MTLDevice` is the part to prototype first.**
-  wgpu's importing of textures is stable and documented; adopting a pre-existing device is
-  thinner ground. If it turns out not to be expressible through the public API, the options
-  are a small patch to `wgpu-hal` or dropping wgpu for the composite pass and writing that
-  one pass in raw Metal — it is a textured quad, so this is a contained fallback rather than
-  a redesign. **Step 1 of §13 exists specifically to answer this question before anything
-  depends on the answer.**
+- ~~**Building a wgpu `Device` *from* an injected `MTLDevice` is the part to prototype
+  first.**~~ **Answered by step 1: it is not expressible through the public API.** The
+  constructor is private and `configure` overwrites the layer's device anyway (§2). Neither
+  contingency named here was needed, though: the composite pass did *not* have to be
+  rewritten in raw Metal and `wgpu-hal` did *not* have to be patched, because reversing the
+  direction — engine creates, Swift adopts — satisfies the same one-device invariant using
+  only public API. The prototype-first instinct was right; the predicted failure mode was
+  wrong.
+- Consequently `wgpu-hal` is **not** a direct dependency. `wgpu` re-exports it as
+  `wgpu::hal` (gated on `wgpu_core`), which is enough to read the backend objects back out
+  through `Device::as_hal`, and no `metal`/`objc2` crate is needed directly either — the
+  pointer casts infer their types. The only new dependency is `pollster`, to drive
+  `request_adapter`/`request_device` to completion from a synchronous `attach_metal`.
 
 ---
 
@@ -310,8 +335,9 @@ Three parties now touch the same texture: the translation layer writes it, our c
 reads it, Core Animation presents the result.
 
 **Share the command queue.** If MoltenVK, ANGLE and wgpu all submit to the one
-`MTLCommandQueue` injected from Swift, Metal's own in-order guarantee per queue does the work
-and no explicit fence is needed between the core's render and our composite.
+`MTLCommandQueue` — the one wgpu created and `metal_queue_handle()` hands out (§2) — Metal's
+own in-order guarantee per queue does the work and no explicit fence is needed between the
+core's render and our composite.
 
 Where a layer insists on its own queue — MoltenVK can be configured either way — the fallback
 is an `MTLSharedEvent`: the core's submission signals value *n*, our composite pass waits on
@@ -357,10 +383,15 @@ Only one new call, plus one changed one:
 ```rust
 #[uniffi::export]
 impl ContinuumEngine {
-    /// Replaces `attach_surface`. Swift passes its single MTLDevice, MTLCommandQueue and
-    /// CAMetalLayer as opaque pointers; Rust adopts them rather than creating its own.
-    pub fn attach_metal(&self, device: u64, queue: u64, layer: u64,
-                        width: u32, height: u32) -> Result<(), EngineError>;
+    /// Replaces `attach_surface`. Swift passes only its CAMetalLayer: the device and queue
+    /// are *created here* and read back by Swift, for the reasons in §2.
+    pub fn attach_metal(&self, layer: u64, width: u32, height: u32)
+                        -> Result<(), EngineError>;
+
+    /// The one MTLDevice / MTLCommandQueue, as `id<...>` addresses. Zero before
+    /// `attach_metal` succeeds, and a caller must treat zero as a failure.
+    pub fn metal_device_handle(&self) -> u64;
+    pub fn metal_queue_handle(&self) -> u64;
 
     /// The screen arrangement for dual-screen systems (§9). Also drives touch mapping.
     pub fn set_screen_layout(&self, layout: ScreenLayout) -> Result<(), EngineError>;
@@ -1217,7 +1248,7 @@ Each step is verifiable on its own, and the risky question is answered first.
 
 | # | Step | Proves | Risk |
 | --- | --- | --- | --- |
-| 1 | wgpu device adopted from an injected `MTLDevice`; present the `DiagnosticCore` pattern | The §5 unknown, before anything depends on it | **High** — the one item that could force raw Metal for the composite pass |
+| 1 | ~~wgpu device adopted from an injected `MTLDevice`~~ → **done**, inverted: wgpu creates the device, Swift adopts it (§2) | The §5 unknown, before anything depends on it | ~~High~~ — resolved without raw Metal and without patching `wgpu-hal` |
 | 2 | Instanced composite pass; one screen, then two with a hardcoded split | Rendering generalises before any HW core exists | Low |
 | 3 | MoltenVK in-process, sharing device and queue; render a triangle into an `MTLTexture` and composite it | The whole zero-copy path, with no core involved | Medium |
 | 4 | `SET_HW_RENDER` accepted for Vulkan; `GET_HW_RENDER_INTERFACE`; **Beetle PSX HW** | The full contract against the simplest real core | Medium |

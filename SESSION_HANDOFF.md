@@ -1172,8 +1172,156 @@ only — it has never been type-checked against UIKit or Metal. Treat it as a fi
 
 ### The one real gap
 
-`attach_metal` returns `EngineError::Graphics`. Adopting a wgpu device from an injected
-`MTLDevice` is Phase 5 **step 1**, and it is the single graphics unknown in the whole plan;
-`release_graphics` and `restore_graphics` are stubs waiting on it. Everything else in the
-chain — gate, wrapper, ABI, bridge seam, UniFFI surface, Metal view — is written. Do step 1
-next, and this becomes a frame on a screen instead of a frame in a buffer.
+~~`attach_metal` returns `EngineError::Graphics`.~~ Closed by step 1 — see §16.
+
+
+---
+
+## 16. Step 1, and the .ipa is built in the cloud
+
+Two things landed together, and the second explains the first: **this project is developed
+entirely from a phone.** There is no Mac, no Xcode, no simulator. "The Swift compiles later"
+was never going to happen, so CI is the compiler, and the iOS workflow produces a
+downloadable `.ipa` on every push and on demand.
+
+### Who creates the `MTLDevice` — the design doc had it backwards
+
+§2 of `docs/SET_HW_RENDER_DESIGN.md` and the old header of `MetalCanvas.swift` both said
+Swift creates the `MTLDevice` and injects it into the engine. Two facts, read out of
+`wgpu-hal-30.0.1`, make that impossible:
+
+1. **No public constructor takes an existing device.** The only path from an `MTLDevice` to a
+   `metal::Adapter` is `AdapterShared::expose`, which is private (`src/metal/mod.rs:428`), so
+   `Instance::create_adapter_from_hal` is unreachable. The queue half *is* public
+   (`Queue::queue_from_raw`); the device half is not.
+2. **`Surface::configure` overwrites the layer's device.** It calls
+   `CAMetalLayer::setDevice` with wgpu's own device (`src/metal/surface.rs:276`).
+
+Fact 2 is the one that matters. Injection was not merely unsupported — it was *undone one
+call later*. A build doing it would have looked fine until the first attempt to share a
+texture between the core and the compositor, which would have failed with no obvious cause.
+
+So the arrow is reversed: **wgpu creates the device; Swift reads it back** with
+`metalDeviceHandle()` / `metalQueueHandle()`. The invariant the design actually cares about —
+one `MTLDevice` shared by wgpu, Swift and later MoltenVK, so every texture is shareable by
+construction — is unchanged. Only ownership moves.
+
+On iOS this costs nothing in device selection: `wgpu-hal` enumerates via
+`objc2_metal::MTLCopyAllDevices`, which on iOS is a shim returning whatever
+`MTLCreateSystemDefaultDevice()` would have (`objc2-metal-0.3.2/src/device.rs`). One GPU, and
+that is it.
+
+The consequence for Swift is that `configureLayer()` is nearly empty now. wgpu's `configure`
+sets `device`, `pixelFormat`, `framebufferOnly`, `colorspace`, `maximumDrawableCount`,
+`opaque` and `drawableSize`. Setting any of them in Swift is theatre. One intent was lost in
+the move and is flagged in the file rather than quietly dropped: Swift used to pin
+`maximumDrawableCount = 2` to save a frame of latency, and wgpu derives it as
+`desired_maximum_frame_latency + 1` = 3. Changing that means changing the shared renderer for
+the browser too, so it is a measurement to make on a device.
+
+### Two bugs that only surfaced once the path could run
+
+- **`launch()` requires a renderer**, and the harness kicked off `launchStub()` from `.task`
+  while the attach happens in `layoutSubviews` — a race it loses whenever layout is slow. The
+  session now starts from the attach callback, so the ordering is structural.
+- **Nothing declared the stub core.** `load_native_core` refuses undeclared ids rather than
+  inventing geometry, so it could never have loaded. `declare_core` and `core_state` are now
+  on the UniFFI surface; `wasm.rs` has had both all along.
+
+### The iOS pipeline
+
+```
+.github/workflows/ios.yml          macos-latest; workflow_dispatch + push
+native/ios/project.yml             XcodeGen spec — the .xcodeproj is generated, not committed
+native/ios/Info.plist              bundle keys; Metal is a required capability
+native/ios/build-engine.sh         Rust → .a + .dylib, UniFFI bindings, C++ wrapper
+native/ios/package-ipa.sh          xcodegen → xcodebuild → Payload/ → codesign → .ipa
+scripts/fetch-libretro-headers.sh  libretro.h for hosts that never build a core
+```
+
+Things in there that are load-bearing and easy to undo by accident:
+
+- **Bindings come from the `.dylib`, never the `.a`.** UniFFI's `calc_cdylib_name` only
+  recognises `.so`/`.dll`/`.dylib`, so pointing it at the static archive finds no metadata at
+  all. The staticlib is what Xcode links; the cdylib exists to be read.
+- **The generator is its own crate** (`crates/uniffi-bindgen`). A `[[bin]]` inside
+  `emulator-bridge` would compile the whole engine for the host to produce a tool that parses
+  a file, and `uniffi`'s `cli` feature would drag clap into the iOS staticlib.
+- **`#[uniffi::export]` ignores `#[cfg]` on individual methods** and generates scaffolding for
+  them regardless — a `cfg`-gated method fails to compile off-Apple with "method not found".
+  The platform split lives inside function bodies, which has the side benefit that the
+  generated Swift is identical whichever target's library was read.
+- **The wrapper dylib is embedded but not linked** (`link: false`). It is reached by `dlopen`;
+  linking it too would mean a wrong rpath stops the app launching at all instead of showing
+  "libcontinuum_switch.dylib is missing" in the HUD.
+- **The wrapper's iOS build does not require MoltenVK.** The rotating colour arrives through
+  the software path, which is all step 1 completes.
+- **Entitlements are applied by `codesign`, not by Xcode.** Signing is disabled for the build;
+  `package-ipa.sh` ad-hoc signs with `--entitlements`, and TrollStore preserves that blob.
+  Without it the JIT and increased-memory keys are absent. The workflow prints the
+  entitlements it actually embedded, because that is the one property of the file a listing
+  cannot show.
+
+### macOS ships bash 3.2
+
+`LINK_LIBS=()` expanded as `"${LINK_LIBS[@]}"` under `set -u` is an *error* on bash 3.2 —
+"unbound variable" — not an empty expansion. It was empty on exactly one platform: the one it
+had been added for. Fixed by removing the array rather than reaching for
+`${arr[@]+"${arr[@]}"}`, which is obscure enough that someone would later simplify it and
+break macOS again. If you add an array to any script here, make sure it cannot be empty.
+
+### What Linux can and cannot verify
+
+More than expected. The UniFFI bindings can be generated *here*, from a host cdylib, because
+the metadata is an interface description and target-independent — and the generated Swift
+`swiftc -typecheck`s against Foundation on Linux. Every Swift call site was checked against
+those generated signatures: names, argument labels, argument *order*, `Data` vs `Vec<u8>`,
+`Float` vs `Double`.
+
+What that still cannot catch is a type error in code that needs UIKit. It missed exactly one,
+and the failure is instructive:
+
+```swift
+Text("... \(fps, specifier: "%.0f") fps" + " · \(dropped) dropped")
+// error: '+' on 'RangeReplaceableCollection' requires 'LocalizedStringKey' to conform
+```
+
+`swiftc -parse` accepts that happily. It is a *type* error, so nothing short of the iOS SDK
+would ever have found it — which is the whole argument for the cloud build. Treat
+`swiftc -frontend -parse` as a spell-checker, not a compiler.
+
+### Verifying it
+
+```bash
+# Everything in §6, plus:
+cargo clippy --target aarch64-apple-ios --features native-core,uniffi-bindings -- -D warnings
+
+# Generate and type-check the Swift facade without a Mac:
+cargo build --release --features native-core,uniffi-bindings
+cargo build --release -p continuum-uniffi-bindgen
+./target/release/uniffi-bindgen generate \
+  --library target/release/libemulator_bridge.so --language swift \
+  --out-dir native/ios/build/Generated --no-format
+cp native/ios/build/Generated/*FFI.modulemap native/ios/build/Generated/module.modulemap
+swiftc -typecheck -I native/ios/build/Generated \
+  -Xcc -fmodule-map-file=native/ios/build/Generated/module.modulemap \
+  native/ios/build/Generated/emulator_bridge.swift
+```
+
+The `.ipa` itself: run the **iOS** workflow and download the `Continuum-ipa-<sha>` artifact.
+It is ~1.8 MB — a 4.4 MB arm64 executable with the engine statically linked, plus the 95 KB
+wrapper in `Frameworks/`.
+
+### Still not proven
+
+The app has never been run. Everything up to and including "xcodebuild produced a signed
+bundle with the right entitlements" is verified by CI; whether the rotating colour actually
+appears is not, and cannot be from here. The HUD exists for exactly that reason — each line
+distinguishes a different failure, because on a sideloaded build with no debugger it is the
+only diagnostic there is.
+
+One thing to know if it crashes rather than reporting: `panic = "abort"` in the release
+profile means a Rust panic takes the process down instead of surfacing as a Swift error,
+which defeats the `rustPanic` case UniFFI generates. A `[profile.ios]` inheriting release with
+`panic = "unwind"` would fix that, at the cost of changing the artefact paths every script
+uses. Worth doing if a silent crash ever needs diagnosing.
