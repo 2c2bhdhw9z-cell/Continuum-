@@ -39,10 +39,12 @@ export class DetailSheet {
     onDataChanged,
     onRemoveRom,
     onClearResume,
+    onOpenCheats,
     scheduler,
     coresForSystem = () => [],
   }) {
     this.onClearResume = onClearResume;
+    this.onOpenCheats = onOpenCheats;
     this.onLaunch = onLaunch;
     this.onLoadState = onLoadState;
     this.onDataChanged = onDataChanged;
@@ -63,6 +65,7 @@ export class DetailSheet {
     this.playBtn = document.getElementById('detail-play');
     this.favBtn = document.getElementById('detail-favorite');
     this.removeBtn = document.getElementById('detail-remove');
+    this.cheatsBtn = document.getElementById('detail-cheats');
     this.statesEl = document.getElementById('detail-states');
     this.statesCountEl = document.getElementById('detail-states-count');
     this.coreRow = document.getElementById('detail-core-row');
@@ -123,6 +126,10 @@ export class DetailSheet {
 
     this.playBtn.addEventListener('click', () => {
       if (this.entry) this.onLaunch(this.entry.id);
+    });
+
+    this.cheatsBtn?.addEventListener('click', () => {
+      if (this.entry) this.onOpenCheats?.(this.entry.id);
     });
 
     this.removeBtn?.addEventListener('click', async () => {

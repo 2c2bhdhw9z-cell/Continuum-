@@ -66,6 +66,24 @@ use crate::error::BridgeError;
 use crate::frame::{FrameGeometry, FrameView, PixelFormat};
 use crate::input::InputSnapshot;
 
+/// One core option, as the core itself declared it.
+///
+/// Cores publish these through `RETRO_ENVIRONMENT_SET_VARIABLES` during
+/// `retro_set_environment`, which happens before any content is loaded — so the list is
+/// known as soon as a core is instantiated, and a settings UI can be built from it
+/// without launching a game.
+#[derive(Debug, Clone)]
+pub struct CoreOption {
+    /// The variable name the core reads, e.g. `"mgba_color_correction"`.
+    pub key: String,
+    /// Human-readable label from the core's own table.
+    pub label: String,
+    /// Value currently in force. Empty means "unset", i.e. the core's own default.
+    pub value: String,
+    /// Permitted values, in the order the core listed them. The first is its default.
+    pub values: Vec<String>,
+}
+
 /// Everything the engine needs to know about a core before it exists in memory.
 ///
 /// Declared up front by the host from `cores/manifest.json`; also returned by a
@@ -137,6 +155,37 @@ pub trait EmulatorCore {
 
     fn load_state(&mut self, _src: &[u8]) -> Result<(), BridgeError> {
         Err(BridgeError::NotImplemented("load_state"))
+    }
+
+    /// Clears every cheat applied to the core (`retro_cheat_reset`).
+    fn reset_cheats(&mut self) -> Result<(), BridgeError> {
+        Err(BridgeError::NotImplemented("reset_cheats"))
+    }
+
+    /// Applies one cheat at `index` (`retro_cheat_set`).
+    ///
+    /// Signature is deliberately plain — `&str`, `u32`, `bool` — because this trait
+    /// compiles for every target, including the native iOS build where there is no
+    /// `JsValue`. The code string is whatever the user typed; validating cheat syntax is
+    /// the core's job, and each core's format differs (Game Genie for the NES, raw
+    /// address:value for the Mega Drive, and so on).
+    fn set_cheat(&mut self, _index: u32, _enabled: bool, _code: &str) -> Result<(), BridgeError> {
+        Err(BridgeError::NotImplemented("set_cheat"))
+    }
+
+    /// Whether this core can apply cheats at all.
+    fn supports_cheats(&self) -> bool {
+        false
+    }
+
+    /// Options this core declared. Empty when it declared none.
+    fn core_options(&self) -> Vec<CoreOption> {
+        Vec::new()
+    }
+
+    /// Sets one option. The core re-reads it on its next update poll.
+    fn set_core_option(&mut self, _key: &str, _value: &str) -> Result<(), BridgeError> {
+        Err(BridgeError::NotImplemented("set_core_option"))
     }
 
     /// Frames emulated since load. Used for the HUD and state metadata.

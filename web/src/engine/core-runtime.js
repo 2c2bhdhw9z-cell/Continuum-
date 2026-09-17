@@ -85,6 +85,9 @@ const ENV = {
 /** `sizeof(struct retro_system_content_info_override)` on wasm32: ptr + 2 bools, padded. */
 const CONTENT_OVERRIDE_STRIDE = 8;
 
+/** `sizeof(struct retro_variable)` on wasm32: two pointers. */
+const VARIABLE_STRIDE = 8;
+
 /**
  * Field offsets of `struct retro_game_info_ext` on wasm32 (7 pointers, a data
  * pointer, a size_t, two bools), and the allocation size including tail padding.
@@ -195,6 +198,17 @@ export class LibretroRuntime {
      * @type {{extensions: string[], needFullpath: boolean, persistentData: boolean}[]}
      */
     this.contentOverrides = [];
+    /**
+     * Options the core declared through SET_VARIABLES, keyed by variable name.
+     * `null` until the core declares them, which happens during `retro_set_environment`
+     * inside `shim_install()` — so the list is known before any content is loaded.
+     * @type {Map<string, {key: string, label: string, values: string[], defaultValue: string, value: string|null}>|null}
+     */
+    this.coreOptions = null;
+    /** key -> { ptr, value }: interned option values living in core memory. */
+    this._optionPtrs = new Map();
+    /** Set when a value changes, cleared when the core reads GET_VARIABLE_UPDATE. */
+    this._optionsDirty = false;
 
     /** Allocation holding the ROM; must outlive `retro_load_game`. */
     this._romPtr = 0;
@@ -459,13 +473,27 @@ export class LibretroRuntime {
         // Rotation would need a shader change; refuse rather than silently ignore.
         return u32[ptr >> 2] === 0;
 
-      case ENV.GET_VARIABLE:
-        // No core options are set, so every variable is "unset" and the core keeps
-        // its defaults. TODO(phase1c): back this with a settings UI.
-        return false;
+      case ENV.GET_VARIABLE: {
+        // struct { const char *key; const char *value; } — the core writes `key` and
+        // we fill in `value`, or return false to mean "unset, keep your default".
+        //
+        // Returning false for an unknown key is not a failure and must not be
+        // "helpfully" replaced with an empty string: an empty value is a value, and a
+        // core reading one where it expected a choice can end up with no setting at all.
+        const key = this._cstr(u32[ptr >> 2]);
+        const option = this.coreOptions?.get(key);
+        if (!option || option.value === null || option.value === undefined) return false;
+        u32[(ptr >> 2) + 1] = this._optionValuePtr(key, option.value);
+        return true;
+      }
 
       case ENV.GET_VARIABLE_UPDATE:
-        u8[ptr] = 0;
+        // Reports once per change and then clears: libretro treats this read as
+        // consuming the flag, and leaving it set makes a core re-read every variable on
+        // every frame. Leaving it *clear* was the old behaviour, which meant a core
+        // never noticed a setting change until the game was relaunched.
+        u8[ptr] = this._optionsDirty ? 1 : 0;
+        this._optionsDirty = false;
         return true;
 
       case ENV.GET_AUDIO_VIDEO_ENABLE:
@@ -488,12 +516,47 @@ export class LibretroRuntime {
         this.hooks.log?.('[core] requested shutdown');
         return true;
 
+      case ENV.SET_VARIABLES: {
+        // Array of { const char *key; const char *value; }, NULL-key terminated —
+        // structurally identical to SET_CONTENT_INFO_OVERRIDE above, two words per entry.
+        //
+        // `value` packs the label and the choices into one string:
+        //     "Color correction; disabled|enabled"
+        // The first choice is the core's default, which is what makes it safe to leave a
+        // variable unset: the core keeps that default itself.
+        this.coreOptions = new Map();
+        if (!ptr) return true;
+        for (let entry = ptr; ; entry += VARIABLE_STRIDE) {
+          const keyPtr = u32[entry >> 2];
+          if (!keyPtr) break;
+          const key = this._cstr(keyPtr);
+          const raw = this._cstr(u32[(entry >> 2) + 1]);
+          const split = raw.indexOf(';');
+          const label = (split < 0 ? raw : raw.slice(0, split)).trim();
+          const choices = (split < 0 ? '' : raw.slice(split + 1))
+            .split('|')
+            .map((choice) => choice.trim())
+            .filter(Boolean);
+          this.coreOptions.set(key, {
+            key,
+            label: label || key,
+            values: choices,
+            defaultValue: choices[0] ?? '',
+            // Whatever the frontend has stored is pushed in later, through `setOption`.
+            value: null,
+          });
+          // Defensive, as with the content overrides: a malformed array must not spin.
+          if (this.coreOptions.size > 512) break;
+        }
+        this.hooks.log?.(`[core] declared ${this.coreOptions.size} option(s)`);
+        return true;
+      }
+
       // Accepted and ignored: metadata the frontend is free to disregard.
       case ENV.SET_PERFORMANCE_LEVEL:
       case ENV.SET_INPUT_DESCRIPTORS:
       case ENV.SET_CONTROLLER_INFO:
       case ENV.SET_MEMORY_MAPS:
-      case ENV.SET_VARIABLES:
       case ENV.SET_CORE_OPTIONS:
       case ENV.SET_CORE_OPTIONS_INTL:
       case ENV.SET_CORE_OPTIONS_DISPLAY:
@@ -863,6 +926,128 @@ export class LibretroRuntime {
     this._gameInfoExtPtr = 0;
   }
 
+  // ------------------------------------------------------------------- cheats
+
+  /**
+   * Whether this core implements the cheat entry points.
+   *
+   * Checked against the module's actual exports rather than assumed. All four cores
+   * shipped here export them, but a core built without them would otherwise fail as
+   * `undefined is not a function` at the moment a user pressed a button.
+   */
+  get supportsCheats() {
+    return (
+      typeof this.exports?.retro_cheat_set === 'function' &&
+      typeof this.exports?.retro_cheat_reset === 'function'
+    );
+  }
+
+  /** `retro_cheat_reset` — drops every cheat the core is holding. */
+  resetCheats() {
+    if (!this.supportsCheats) throw new Error('this core does not implement retro_cheat_reset');
+    this.exports.retro_cheat_reset();
+  }
+
+  /**
+   * `retro_cheat_set(index, enabled, code)`.
+   *
+   * The code is copied into core memory as a NUL-terminated string. Deliberately *not*
+   * through `_allocCString`: that registers the allocation in `_loadAllocations`, which
+   * is freed wholesale on `unloadGame`, and a cheat outlives nothing in particular —
+   * cores copy the string during the call, so the buffer is freed here in a `finally`
+   * instead of being tracked.
+   *
+   * @param {number} index position in the core's cheat table
+   * @param {boolean} enabled
+   * @param {string} code
+   */
+  setCheat(index, enabled, code) {
+    if (!this.supportsCheats) throw new Error('this core does not implement retro_cheat_set');
+    const encoded = new TextEncoder().encode(code);
+    const ptr = this.exports.malloc(encoded.length + 1);
+    if (!ptr) throw new Error(`core malloc(${encoded.length + 1}) failed for a cheat code`);
+    try {
+      if (this._viewsStale()) this._refreshViews();
+      this._u8.set(encoded, ptr);
+      this._u8[ptr + encoded.length] = 0;
+      // `bool` is a 32-bit value in the wasm C ABI, so pass a number.
+      this.exports.retro_cheat_set(index, enabled ? 1 : 0, ptr);
+    } finally {
+      this.exports.free(ptr);
+    }
+  }
+
+  // -------------------------------------------------------------- core options
+
+  /**
+   * Interns an option's value as a C string inside core memory.
+   *
+   * Deliberately *not* `_allocCString`, whose allocations are freed wholesale by
+   * `unloadGame`. A core is entitled to hold onto the pointer it was handed by
+   * GET_VARIABLE, and cores re-read variables across a reload, so these live as long as
+   * the runtime and are freed in `destroy`. One allocation per key, replaced only when
+   * the value actually changes.
+   */
+  _optionValuePtr(key, value) {
+    const existing = this._optionPtrs.get(key);
+    if (existing && existing.value === value) return existing.ptr;
+    if (existing) this.exports.free(existing.ptr);
+
+    const encoded = new TextEncoder().encode(value);
+    const ptr = this.exports.malloc(encoded.length + 1);
+    if (!ptr) throw new Error(`core malloc(${encoded.length + 1}) failed for an option value`);
+    if (this._viewsStale()) this._refreshViews();
+    this._u8.set(encoded, ptr);
+    this._u8[ptr + encoded.length] = 0;
+    this._optionPtrs.set(key, { ptr, value });
+    return ptr;
+  }
+
+  /**
+   * The option table, flattened for the Rust boundary: groups of four strings,
+   * `[key, label, currentValue, choices joined by "|"]`.
+   *
+   * Flat strings rather than JSON because the crate has no serialiser and this is read
+   * once per launch, not per frame — adding serde to parse a list of dropdowns would be
+   * a dependency earning nothing.
+   *
+   * @returns {string[]}
+   */
+  coreOptionsFlat() {
+    const out = [];
+    for (const option of this.coreOptions?.values() ?? []) {
+      out.push(
+        option.key,
+        option.label,
+        option.value ?? option.defaultValue ?? '',
+        option.values.join('|'),
+      );
+    }
+    return out;
+  }
+
+  /**
+   * Sets one option and raises the update flag the core polls.
+   *
+   * @param {string} key
+   * @param {string} value
+   * @returns {boolean} whether the core declared this option
+   */
+  setOption(key, value) {
+    const option = this.coreOptions?.get(key);
+    if (!option) return false;
+    if (option.value === value) return true;
+    option.value = value;
+    // The core re-reads on its next GET_VARIABLE_UPDATE, which is how a setting changed
+    // mid-game takes effect without a relaunch.
+    this._optionsDirty = true;
+    return true;
+  }
+
+  get optionCount() {
+    return this.coreOptions?.size ?? 0;
+  }
+
   run() {
     this.exports.retro_run();
   }
@@ -942,6 +1127,10 @@ export class LibretroRuntime {
         this.exports.free(this._scratchPtr);
         this._scratchPtr = 0;
       }
+      // Option values are interned for the runtime's whole life rather than per load,
+      // so they are freed here and nowhere else.
+      for (const { ptr } of this._optionPtrs.values()) this.exports.free(ptr);
+      this._optionPtrs.clear();
     } catch (err) {
       this.hooks.log?.(`[core] error during teardown: ${err}`);
     }

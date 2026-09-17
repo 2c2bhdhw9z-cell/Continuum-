@@ -41,7 +41,51 @@ function defaults() {
     fetchBoxart: true,
     /** Capture a thumbnail from the game itself when no cover art was found. */
     captureArtwork: true,
+
+    /**
+     * How the emulated image fills the canvas. Passed straight to the Rust renderer's
+     * existing scale modes, so this setting is a persisted default for what the player's
+     * own dropdown already controlled per session.
+     *
+     * `'aspect'`  — fit, preserving the core's declared aspect ratio
+     * `'integer'` — largest whole-pixel multiple that fits, for sharp scaling
+     * `'stretch'` — fill, ignoring aspect
+     */
+    scaleMode: 'aspect',
+
+    /** `'nearest'` keeps pixels crisp; `'linear'` smooths them. */
+    filter: 'nearest',
+
+    /**
+     * Visual theme. Implemented as a `data-theme` attribute on `<html>` that remaps the
+     * token layer, so a theme is a handful of custom-property overrides rather than a
+     * parallel stylesheet.
+     */
+    theme: 'midnight',
   };
+}
+
+/** Themes the token layer defines. Kept here so the UI cannot offer a missing one. */
+export const THEMES = [
+  { id: 'midnight', name: 'Midnight', note: 'The default: near-black with a red accent.' },
+  { id: 'graphite', name: 'Graphite', note: 'Neutral greys, cooler highlights.' },
+  { id: 'crt', name: 'CRT Green', note: 'Phosphor green on very dark grey.' },
+  { id: 'paper', name: 'Paper', note: 'Light theme, for bright rooms.' },
+];
+
+const SCALE_MODES = ['aspect', 'integer', 'stretch'];
+const FILTERS = ['nearest', 'linear'];
+
+/**
+ * Applies the theme to the document.
+ *
+ * Separate from `setSetting` so it can also run at boot, before any listener exists, and
+ * so the attribute is the single source of truth the stylesheet reads.
+ */
+export function applyTheme(theme = getSetting('theme')) {
+  const id = THEMES.some((entry) => entry.id === theme) ? theme : 'midnight';
+  document.documentElement.dataset.theme = id;
+  return id;
 }
 
 /** @type {object|null} */
@@ -72,10 +116,28 @@ function readAll() {
   return cache;
 }
 
+/** Values an enum-valued setting is allowed to take. */
+const ALLOWED = {
+  scaleMode: SCALE_MODES,
+  filter: FILTERS,
+  theme: null, // checked against THEMES, which is defined below the defaults
+};
+
+function isAllowed(key, value) {
+  if (key === 'theme') return THEMES.some((entry) => entry.id === value);
+  const list = ALLOWED[key];
+  return !list || list.includes(value);
+}
+
 function pickKnown(parsed, base) {
   const out = {};
   for (const key of Object.keys(base)) {
-    if (key in parsed && typeof parsed[key] === typeof base[key]) out[key] = parsed[key];
+    if (!(key in parsed)) continue;
+    if (typeof parsed[key] !== typeof base[key]) continue;
+    // An enum read back from storage is validated as well as type-checked: a value
+    // written by a newer build, or edited by hand, must not reach the renderer.
+    if (typeof parsed[key] === 'string' && !isAllowed(key, parsed[key])) continue;
+    out[key] = parsed[key];
   }
   return out;
 }
@@ -105,6 +167,9 @@ export function getSetting(key) {
 export function setSetting(key, value) {
   const current = readAll();
   if (!(key in defaults())) throw new Error(`unknown setting '${key}'`);
+  if (typeof value === 'string' && !isAllowed(key, value)) {
+    throw new Error(`'${value}' is not a valid value for '${key}'`);
+  }
   if (current[key] === value) return value;
   cache = { ...current, [key]: value };
   if (!memoryOnly) {

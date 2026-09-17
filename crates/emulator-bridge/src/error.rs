@@ -38,6 +38,12 @@ pub enum BridgeError {
     #[error("save state error: {0}")]
     SaveState(String),
 
+    #[error("cheat error: {0}")]
+    Cheat(String),
+
+    #[error("core option error: {0}")]
+    CoreOption(String),
+
     #[error("not implemented yet: {0}")]
     NotImplemented(&'static str),
 }

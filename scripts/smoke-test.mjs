@@ -2363,6 +2363,331 @@ check(
 
 await page.evaluate(() => window.__continuum.settings.close());
 
+// ------------------------------------- 10. zip import, cheats, core options, UI
+
+// ---- .zip, with no third-party unzipper ----
+//
+// The container is parsed here; the inflating is the platform's own
+// `DecompressionStream('deflate-raw')`, which is the variant a zip entry actually stores.
+const zip = await page.evaluate(async () => {
+  const { listEntries, extract, pickRomEntry, looksLikeZip } = await import('./src/data/zip.js');
+  const { acceptedExtensions } = await import('./src/data/rom-detect.js');
+  const { crc32 } = await import('./src/data/crc32.js');
+
+  const rom = new Uint8Array(await (await fetch('./roms/nes-testcart.nes')).arrayBuffer());
+
+  // Built here rather than committed, so the fixture cannot drift from the reader.
+  // Stored (method 0) entries need no compressor, which keeps this self-contained.
+  const encoder = new TextEncoder();
+  const build = (files) => {
+    const chunks = [];
+    const central = [];
+    let offset = 0;
+    for (const [name, data] of files) {
+      const nameBytes = encoder.encode(name);
+      const crc = crc32(data);
+      const local = new Uint8Array(30 + nameBytes.length);
+      const lv = new DataView(local.buffer);
+      lv.setUint32(0, 0x04034b50, true);
+      lv.setUint16(4, 20, true);
+      lv.setUint16(8, 0, true); // stored
+      lv.setUint32(14, crc, true);
+      lv.setUint32(18, data.length, true);
+      lv.setUint32(22, data.length, true);
+      lv.setUint16(26, nameBytes.length, true);
+      local.set(nameBytes, 30);
+      chunks.push(local, data);
+
+      const cd = new Uint8Array(46 + nameBytes.length);
+      const cv = new DataView(cd.buffer);
+      cv.setUint32(0, 0x02014b50, true);
+      cv.setUint16(6, 20, true);
+      cv.setUint16(10, 0, true);
+      cv.setUint32(16, crc, true);
+      cv.setUint32(20, data.length, true);
+      cv.setUint32(24, data.length, true);
+      cv.setUint16(28, nameBytes.length, true);
+      cv.setUint32(42, offset, true);
+      cd.set(nameBytes, 46);
+      central.push(cd);
+      offset += local.length + data.length;
+    }
+    const cdStart = offset;
+    let cdSize = 0;
+    for (const cd of central) cdSize += cd.length;
+    const eocd = new Uint8Array(22);
+    const ev = new DataView(eocd.buffer);
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(8, central.length, true);
+    ev.setUint16(10, central.length, true);
+    ev.setUint32(12, cdSize, true);
+    ev.setUint32(16, cdStart, true);
+
+    let total = 0;
+    for (const c of [...chunks, ...central, eocd]) total += c.length;
+    const out = new Uint8Array(total);
+    let p = 0;
+    for (const c of [...chunks, ...central, eocd]) {
+      out.set(c, p);
+      p += c.length;
+    }
+    return out;
+  };
+
+  const archive = build([
+    ['readme.txt', encoder.encode('not a rom')],
+    ['__MACOSX/._junk', encoder.encode('resource fork')],
+    ['Super Mario Bros. (World).nes', rom],
+  ]);
+
+  const entries = listEntries(archive);
+  const picked = pickRomEntry(entries, acceptedExtensions());
+  const extracted = await extract(archive, picked.entry);
+
+  // Corruption must be refused, not warned about: a ROM with one flipped byte boots and
+  // misbehaves somewhere unrelated much later.
+  const corrupted = archive.slice();
+  const dataStart = picked.entry.offset + 30 + picked.entry.name.length;
+  corrupted[dataStart + 100] ^= 0xff;
+  let crcError = null;
+  try {
+    await extract(corrupted, picked.entry);
+  } catch (err) {
+    crcError = err.message;
+  }
+
+  // An archive of only documentation has no ROM, and should say so.
+  let noRomError = null;
+  const docsOnly = build([['readme.txt', encoder.encode('nothing here')]]);
+  const docsPick = pickRomEntry(listEntries(docsOnly), acceptedExtensions());
+  if (!docsPick.entry) noRomError = 'no rom';
+
+  return {
+    detected: looksLikeZip(archive),
+    names: entries.map((e) => e.name),
+    ignored: picked.ignored,
+    picked: picked.entry.name,
+    extractedLength: extracted.length,
+    matchesRom: extracted.length === rom.length && extracted[0] === rom[0] && extracted[15] === rom[15],
+    crcError,
+    noRomError,
+  };
+});
+check(
+  'a zip is unwrapped to the ROM inside it, skipping metadata',
+  zip.detected &&
+    zip.picked === 'Super Mario Bros. (World).nes' &&
+    // One ignored, not two: the macOS resource fork is skipped outright, while
+    // `readme.txt` is a legitimate candidate that simply loses to a file whose extension
+    // the ROM detector recognises. Counting it as "ignored" would misdescribe the rule.
+    zip.ignored === 1 &&
+    zip.matchesRom,
+  `${zip.names.length} entries, ${zip.ignored} ignored → ${zip.picked} (${zip.extractedLength} bytes)`,
+);
+check(
+  'a corrupt entry is refused and a ROM-less archive is recognised',
+  typeof zip.crcError === 'string' &&
+    /checksum/.test(zip.crcError) &&
+    zip.noRomError === 'no rom',
+  `corruption: "${zip.crcError?.slice(0, 48)}…"; docs-only archive yields no ROM`,
+);
+
+// ---- cheats ----
+if (webgpu) {
+  const cheatRun = await page.evaluate(async () => {
+    const cheats = await import('./src/data/cheats.js');
+    const { player, host } = window.__continuum;
+    const GAME = 'builtin-nes-testcart';
+
+    await cheats.hydrate();
+    await cheats.clearFor(GAME);
+    await cheats.add(GAME, { description: 'Infinite lives', code: 'SXIOPO', enabled: true });
+    await cheats.add(GAME, { description: 'Also on', code: 'AEKPTZ', enabled: true });
+    await cheats.add(GAME, { description: 'Off', code: '00FF:09', enabled: false });
+
+    let duplicate = null;
+    try {
+      await cheats.add(GAME, { code: 'sxiopo' });
+    } catch (err) {
+      duplicate = err.message;
+    }
+
+    // Launching is what applies them: cheats live in the core and die with it.
+    await player.launch(GAME);
+    for (let i = 0; i < 300; i++) {
+      if (host.bridge?.status === 'running') break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    await new Promise((r) => setTimeout(r, 400));
+    const onLaunch = { supported: host.bridge.cheatsSupported, active: host.bridge.activeCheatCount };
+
+    // Reset and state load must not silently drop them.
+    host.bridge.reset();
+    const afterReset = host.bridge.activeCheatCount;
+    host.bridge.loadState(host.bridge.saveState());
+    const afterLoad = host.bridge.activeCheatCount;
+
+    // Emulation has to survive all of that.
+    //
+    // Settled first: `reset()` zeroes the core's frame counter, and `host.stats` is a
+    // mirror refreshed by `tick()`, so sampling immediately can read a pre-reset value
+    // and then see the counter apparently go backwards.
+    await new Promise((r) => setTimeout(r, 250));
+    const before = Math.round(host.stats.frameCount);
+    await new Promise((r) => setTimeout(r, 400));
+    const advanced = Math.round(host.stats.frameCount) - before;
+
+    host.bridge.clearCheats();
+    const afterClear = host.bridge.activeCheatCount;
+
+    await cheats.clearFor(GAME);
+    player.exit();
+    await new Promise((r) => setTimeout(r, 500));
+    return { onLaunch, afterReset, afterLoad, afterClear, advanced, duplicate };
+  });
+
+  check(
+    'a stored cheat list is applied to the core on launch',
+    cheatRun.onLaunch.supported === true && cheatRun.onLaunch.active === 2,
+    `core supports cheats: ${cheatRun.onLaunch.supported}, ${cheatRun.onLaunch.active} of 3 active`,
+  );
+  check(
+    'cheats survive a reset and a state load, and can be cleared',
+    cheatRun.afterReset === 2 && cheatRun.afterLoad === 2 && cheatRun.afterClear === 0,
+    `after reset: ${cheatRun.afterReset}, after load: ${cheatRun.afterLoad}, after clear: ${cheatRun.afterClear}`,
+  );
+  check(
+    'emulation keeps running with cheats applied, and duplicates are refused',
+    cheatRun.advanced > 10 && /already in the list/.test(cheatRun.duplicate ?? ''),
+    `${cheatRun.advanced} frames in ~0.4 s · duplicate rejected: "${cheatRun.duplicate}"`,
+  );
+
+  // ---- core options ----
+  const options = await page.evaluate(async () => {
+    const { player, host } = window.__continuum;
+    // mGBA declares a large option table, which makes it the useful subject here.
+    await player.launch('builtin-gba-testcart');
+    for (let i = 0; i < 300; i++) {
+      if (host.bridge?.status === 'running') break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    await new Promise((r) => setTimeout(r, 400));
+
+    const read = () => {
+      const flat = host.bridge.coreOptionsFlat();
+      const out = [];
+      for (let i = 0; i + 3 < flat.length; i += 4) {
+        out.push({ key: flat[i], label: flat[i + 1], value: flat[i + 2], values: flat[i + 3].split('|') });
+      }
+      return out;
+    };
+
+    const declared = read();
+    const target = declared.find((option) => option.values.length > 1);
+    let changed = null;
+    if (target) {
+      const next = target.values.find((value) => value !== target.value) ?? target.values[1];
+      host.bridge.setCoreOption(target.key, next);
+      changed = { key: target.key, wanted: next, got: read().find((o) => o.key === target.key)?.value };
+    }
+
+    let unknown = null;
+    try {
+      host.bridge.setCoreOption('continuum_not_an_option', 'x');
+    } catch (err) {
+      unknown = err.message;
+    }
+
+    const before = Math.round(host.stats.frameCount);
+    await new Promise((r) => setTimeout(r, 400));
+    const advanced = Math.round(host.stats.frameCount) - before;
+
+    const coreId = host.bridge.currentCoreId;
+    player.exit();
+    await new Promise((r) => setTimeout(r, 500));
+    return { count: declared.length, changed, unknown, advanced, coreId };
+  });
+
+  check(
+    "the core's own options are read out of it, not from a table here",
+    options.count > 5 && options.coreId === 'mgba',
+    `${options.count} options declared by '${options.coreId}'`,
+  );
+  check(
+    'setting an option takes effect, and an undeclared key is refused',
+    options.changed?.got === options.changed?.wanted &&
+      /does not declare an option/.test(options.unknown ?? '') &&
+      options.advanced > 10,
+    `${options.changed?.key} → ${options.changed?.got} · unknown key refused · ${options.advanced} frames after`,
+  );
+}
+
+// ---- themes and the touch layout ----
+const uiPrefs = await page.evaluate(async () => {
+  const { THEMES, setSetting, applyTheme, getSetting } = await import('./src/data/settings.js');
+  const layout = await import('./src/data/touch-layout.js');
+
+  const applied = [];
+  for (const theme of THEMES) {
+    applyTheme(setSetting('theme', theme.id));
+    const styles = getComputedStyle(document.documentElement);
+    applied.push({
+      id: theme.id,
+      bg: styles.getPropertyValue('--bg').trim(),
+      accent: styles.getPropertyValue('--accent').trim(),
+    });
+  }
+  let rejectedTheme = null;
+  try {
+    setSetting('theme', 'not-a-theme');
+  } catch (err) {
+    rejectedTheme = err.message;
+  }
+  applyTheme(setSetting('theme', 'midnight'));
+
+  // Out-of-range values must be clamped, not stored: a layout restored from storage can
+  // otherwise put a control off-screen where it cannot be dragged back.
+  await layout.save({ scale: 99, opacity: -5, dpadX: 2, dpadY: 0.5, faceX: 0.8, faceY: 0.7 });
+  const clamped = layout.current();
+  const pad = document.getElementById('touchpad');
+  layout.apply(pad, clamped);
+  const padStyles = getComputedStyle(pad);
+  const properties = {
+    scale: padStyles.getPropertyValue('--tp-scale').trim(),
+    opacity: padStyles.getPropertyValue('--tp-opacity').trim(),
+    dpadX: padStyles.getPropertyValue('--tp-dpad-x').trim(),
+  };
+  await layout.reset();
+
+  return {
+    applied,
+    rejectedTheme,
+    scaleMode: getSetting('scaleMode'),
+    clamped,
+    properties,
+    reset: layout.current(),
+  };
+});
+check(
+  'each theme remaps the token layer, and an unknown theme is refused',
+  uiPrefs.applied.length === 4 &&
+    new Set(uiPrefs.applied.map((theme) => theme.bg)).size === 4 &&
+    new Set(uiPrefs.applied.map((theme) => theme.accent)).size === 4 &&
+    /not a valid value/.test(uiPrefs.rejectedTheme ?? ''),
+  uiPrefs.applied.map((theme) => `${theme.id}:${theme.bg}`).join(' '),
+);
+check(
+  'the touch layout is clamped into range and written as CSS properties',
+  uiPrefs.clamped.scale === 1.6 &&
+    uiPrefs.clamped.opacity === 0.15 &&
+    uiPrefs.clamped.dpadX === 0.92 &&
+    uiPrefs.properties.scale === '1.6' &&
+    uiPrefs.properties.dpadX === '92.00%' &&
+    uiPrefs.reset.scale === 1,
+  `99→${uiPrefs.clamped.scale}, -5→${uiPrefs.clamped.opacity}, 2→${uiPrefs.clamped.dpadX}; ` +
+    `--tp-dpad-x = ${uiPrefs.properties.dpadX}; reset → ${uiPrefs.reset.scale}`,
+);
+
 // ------------------------------------------------------------------- reporting
 
 await page.screenshot({ path: '/tmp/continuum-library.png', fullPage: false });

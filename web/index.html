@@ -166,6 +166,11 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h3l5 4V5L7 9H4zm12.5 3a4.5 4.5 0 00-2.5-4v8a4.5 4.5 0 002.5-4z"/></svg>
           </button>
           <button class="textbtn" id="ctl-save" type="button">Save state</button>
+          <!-- Cheats mid-game: deciding you want infinite lives usually happens after
+               you have died, not before you launched. -->
+          <button class="textbtn" id="ctl-cheats" type="button">Cheats</button>
+          <button class="textbtn" id="ctl-coreopts" type="button">Core options</button>
+          <button class="textbtn" id="ctl-layout" type="button">Controls</button>
           <label class="select">
             Scale
             <select id="ctl-scale">
@@ -224,6 +229,26 @@
       </div>
     </div>
 
+    <!-- Layout editor. Lives inside the player because the thing being arranged is only
+         on screen here, and the arrangement only makes sense against a running game. -->
+    <div class="touch-editor" id="touch-editor" hidden>
+      <p class="touch-editor__title">Drag the D-pad and buttons</p>
+      <label class="touch-editor__row">
+        <span>Size</span>
+        <input id="touch-scale" type="range" min="0.7" max="1.6" step="0.05" />
+        <b id="touch-scale-value">100%</b>
+      </label>
+      <label class="touch-editor__row">
+        <span>Opacity</span>
+        <input id="touch-opacity" type="range" min="0.15" max="1" step="0.05" />
+        <b id="touch-opacity-value">55%</b>
+      </label>
+      <div class="touch-editor__actions">
+        <button class="textbtn" id="touch-reset" type="button">Reset</button>
+        <button class="btn btn--primary btn--compact" id="touch-done" type="button">Done</button>
+      </div>
+    </div>
+
     <div class="loading" id="player-loading" hidden>
       <div class="loading__box">
         <p class="loading__title" id="loading-title">Loading core…</p>
@@ -267,6 +292,7 @@
           <div class="detail__actions">
             <button class="btn btn--primary" id="detail-play" type="button">Play</button>
             <button class="btn btn--ghost" id="detail-favorite" type="button">Add to favorites</button>
+            <button class="btn btn--ghost" id="detail-cheats" type="button">Cheats</button>
             <button class="btn btn--ghost" id="detail-remove" type="button" hidden>Remove ROM</button>
           </div>
           <!-- Shown only when more than one core declares this system. The choice is
@@ -295,6 +321,71 @@
             <div class="states" id="detail-states" role="list"></div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────── Core options ────────────────────────── -->
+  <div class="sheet" id="coreopts-sheet" hidden>
+    <div class="sheet__backdrop" data-close></div>
+    <div class="sheet__panel sheet__panel--narrow" role="dialog" aria-modal="true"
+         aria-labelledby="coreopts-title">
+      <button class="sheet__close" data-close type="button" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.3 5.7L12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></svg>
+      </button>
+      <div class="settings">
+        <h2 class="settings__title" id="coreopts-title">Core options</h2>
+        <p class="settings__note" id="coreopts-subtitle"></p>
+        <div id="coreopts-list"></div>
+        <p class="settings__note" id="coreopts-empty">
+          This core declares no options.
+        </p>
+        <p class="settings__note">
+          Most changes apply immediately. A few are only read while a game loads, so
+          those take effect next time you start it.
+        </p>
+        <button class="btn btn--ghost settings__danger" id="coreopts-reset" type="button" hidden>
+          Reset this core to its defaults
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ────────────────────────── Cheat Manager ────────────────────────── -->
+  <div class="sheet" id="cheat-sheet" hidden>
+    <div class="sheet__backdrop" data-close></div>
+    <div class="sheet__panel sheet__panel--narrow" role="dialog" aria-modal="true"
+         aria-labelledby="cheat-title">
+      <button class="sheet__close" data-close type="button" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.3 5.7L12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3z"/></svg>
+      </button>
+
+      <div class="settings">
+        <h2 class="settings__title" id="cheat-title">Cheats</h2>
+        <p class="settings__note" id="cheat-subtitle"></p>
+
+        <!-- No pattern validation: each system has its own convention and cores accept
+             several, so the code is stored as typed and the core decides. -->
+        <form class="cheat-form" id="cheat-form">
+          <label class="cheat-form__label" for="cheat-desc">Description</label>
+          <input class="cheat-form__input" id="cheat-desc" type="text" autocomplete="off"
+                 placeholder="Infinite lives" maxlength="120" />
+          <label class="cheat-form__label" for="cheat-code">Code</label>
+          <input class="cheat-form__input cheat-form__input--mono" id="cheat-code" type="text"
+                 autocomplete="off" spellcheck="false" required placeholder="SXIOPO" />
+          <p class="settings__note" id="cheat-hint"></p>
+          <button class="btn btn--primary" type="submit">Add cheat</button>
+        </form>
+
+        <div class="cheat-list" id="cheat-list"></div>
+        <p class="settings__note" id="cheat-empty">
+          No cheats for this game yet. Codes are stored on this device and applied when
+          the game starts.
+        </p>
+        <p class="settings__note" id="cheat-status"></p>
+        <button class="btn btn--danger settings__danger" id="cheat-clear" type="button" hidden>
+          Remove all cheats for this game
+        </button>
       </div>
     </div>
   </div>
@@ -344,6 +435,30 @@
             with another core by long-pressing its card.
           </p>
           <div id="settings-cores"></div>
+        </section>
+
+        <section class="settings__group">
+          <h3 class="settings__heading">Display</h3>
+          <div class="settings__row">
+            <label class="settings__label" for="settings-scale">Scaling</label>
+            <select class="settings__select" id="settings-scale">
+              <option value="aspect">Aspect fit</option>
+              <option value="integer">Integer (sharp)</option>
+              <option value="stretch">Stretch to fill</option>
+            </select>
+          </div>
+          <div class="settings__row">
+            <label class="settings__label" for="settings-filter">Filtering</label>
+            <select class="settings__select" id="settings-filter">
+              <option value="nearest">Nearest (crisp pixels)</option>
+              <option value="linear">Linear (smoothed)</option>
+            </select>
+          </div>
+          <div class="settings__row">
+            <label class="settings__label" for="settings-theme">Theme</label>
+            <select class="settings__select" id="settings-theme"></select>
+          </div>
+          <p class="settings__note" id="settings-theme-note"></p>
         </section>
 
         <section class="settings__group">

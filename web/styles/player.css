@@ -176,17 +176,31 @@
 
 /* --------------------------------------------------------------- touch pad */
 
+/*
+ * The on-screen pad is positioned entirely from custom properties, written by
+ * `data/touch-layout.js`. Dragging a control is therefore one property write — no
+ * per-button inline styles, no class thrash, and no JavaScript in the layout path once
+ * the number is set.
+ *
+ * Positions are fractions of the pad's own box rather than pixels, so one saved layout
+ * describes a phone in portrait and a tablet in landscape.
+ */
 .touchpad {
   position: absolute;
-  inset: auto 0 0 0;
+  inset: 0;
   z-index: 15;
-  height: 190px;
-  padding: 0 var(--sp-5) calc(var(--sp-5) + env(safe-area-inset-bottom));
   display: none;
-  align-items: flex-end;
-  justify-content: space-between;
   touch-action: none;
   user-select: none;
+
+  /* Defaults, overwritten per device from IndexedDB. Kept here as well so the pad is
+     usable on the very first frame, before the stored layout has been read. */
+  --tp-scale: 1;
+  --tp-opacity: 0.55;
+  --tp-dpad-x: 16%;
+  --tp-dpad-y: 66%;
+  --tp-face-x: 84%;
+  --tp-face-y: 66%;
 }
 
 .touchpad[hidden] {
@@ -200,10 +214,64 @@
   }
 }
 
+/* Clusters are absolutely placed at their stored centre and sized by one multiplier. */
+.touchpad__dpad,
+.touchpad__face {
+  position: absolute;
+  transform: translate(-50%, -50%) scale(var(--tp-scale));
+  transform-origin: center;
+  opacity: var(--tp-opacity);
+  transition: opacity var(--dur-fast);
+}
+
 .touchpad__dpad {
-  position: relative;
+  left: var(--tp-dpad-x);
+  top: var(--tp-dpad-y);
   width: 132px;
   height: 132px;
+}
+
+.touchpad__face {
+  left: var(--tp-face-x);
+  top: var(--tp-face-y);
+  width: 150px;
+  height: 132px;
+}
+
+/* A held control goes fully opaque: at 0.15 opacity a pressed button is otherwise
+   invisible, and the user loses track of whether the press registered. */
+.touchpad__dpad:has(.tp.is-pressed),
+.touchpad__face:has(.tp.is-pressed) {
+  opacity: 1;
+}
+
+/* ---- edit mode ---- */
+
+.touchpad.is-editing .tp {
+  pointer-events: none;
+}
+
+.touchpad.is-editing .touchpad__dpad,
+.touchpad.is-editing .touchpad__face {
+  opacity: 1;
+  cursor: grab;
+  outline: 2px dashed var(--accent);
+  outline-offset: 10px;
+  border-radius: 12px;
+}
+
+.touchpad.is-editing .touchpad__dpad.is-dragging,
+.touchpad.is-editing .touchpad__face.is-dragging {
+  cursor: grabbing;
+  outline-style: solid;
+}
+
+/* The shoulder and centre rows are not repositionable, so edit mode dims them rather
+   than implying they can be moved. */
+.touchpad.is-editing .touchpad__center,
+.touchpad.is-editing .touchpad__shoulders {
+  opacity: 0.25;
+  pointer-events: none;
 }
 
 .tp {
@@ -259,11 +327,7 @@
   border-radius: 0 10px 10px 0;
 }
 
-.touchpad__face {
-  position: relative;
-  width: 150px;
-  height: 132px;
-}
+
 
 .tp--a,
 .tp--b {
@@ -325,4 +389,62 @@
 #hud-pads {
   min-width: 3ch;
   text-align: center;
+}
+
+
+/* ═════════════════════════ Touch layout editor ═══════════════════════════ */
+
+.touch-editor {
+  position: absolute;
+  left: 50%;
+  top: var(--sp-5);
+  transform: translateX(-50%);
+  z-index: 30;
+  width: min(340px, calc(100vw - 2 * var(--sp-4)));
+  padding: var(--sp-4);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius);
+  background: rgba(8, 8, 12, 0.94);
+  backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: var(--shadow-sheet);
+}
+
+.touch-editor[hidden] {
+  display: none !important;
+}
+
+.touch-editor__title {
+  margin: 0 0 var(--sp-3);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+
+.touch-editor__row {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr 3rem;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+
+.touch-editor__row input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.touch-editor__row b {
+  color: var(--text);
+  font-family: var(--font-mono);
+  text-align: right;
+}
+
+.touch-editor__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
 }

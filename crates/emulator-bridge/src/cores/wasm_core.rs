@@ -20,7 +20,7 @@ use js_sys::{Float64Array, Uint8Array};
 use wasm_bindgen::prelude::*;
 
 use super::host::{self, VideoArrival};
-use super::{ContentHint, CoreDescriptor, EmulatorCore};
+use super::{ContentHint, CoreDescriptor, CoreOption, EmulatorCore};
 use crate::audio::AudioSink;
 use crate::error::BridgeError;
 use crate::frame::{FrameView, PixelFormat};
@@ -78,6 +78,27 @@ extern "C" {
 
     #[wasm_bindgen(method, catch, js_name = unserialize)]
     fn js_unserialize(this: &LibretroRuntimeHandle, state: &[u8]) -> Result<(), JsValue>;
+
+    #[wasm_bindgen(method, catch, js_name = resetCheats)]
+    fn js_reset_cheats(this: &LibretroRuntimeHandle) -> Result<(), JsValue>;
+
+    #[wasm_bindgen(method, catch, js_name = setCheat)]
+    fn js_set_cheat(
+        this: &LibretroRuntimeHandle,
+        index: u32,
+        enabled: bool,
+        code: &str,
+    ) -> Result<(), JsValue>;
+
+    #[wasm_bindgen(method, getter, js_name = supportsCheats)]
+    fn js_supports_cheats(this: &LibretroRuntimeHandle) -> bool;
+
+    /// Groups of four: `[key, label, currentValue, choices joined by "|"]`.
+    #[wasm_bindgen(method, js_name = coreOptionsFlat)]
+    fn js_core_options_flat(this: &LibretroRuntimeHandle) -> Vec<String>;
+
+    #[wasm_bindgen(method, js_name = setOption)]
+    fn js_set_option(this: &LibretroRuntimeHandle, key: &str, value: &str) -> bool;
 
     #[wasm_bindgen(method, js_name = destroy)]
     fn js_destroy(this: &LibretroRuntimeHandle);
@@ -336,6 +357,60 @@ impl EmulatorCore for WasmCore {
             .js_unserialize(src)
             .map_err(|err| BridgeError::SaveState(describe_js_error(&err)))?;
         Ok(())
+    }
+
+    fn reset_cheats(&mut self) -> Result<(), BridgeError> {
+        if !self.content_loaded {
+            return Err(BridgeError::NoSession);
+        }
+        self.runtime
+            .js_reset_cheats()
+            .map_err(|err| BridgeError::Cheat(describe_js_error(&err)))
+    }
+
+    fn set_cheat(&mut self, index: u32, enabled: bool, code: &str) -> Result<(), BridgeError> {
+        if !self.content_loaded {
+            return Err(BridgeError::NoSession);
+        }
+        self.runtime
+            .js_set_cheat(index, enabled, code)
+            .map_err(|err| BridgeError::Cheat(describe_js_error(&err)))
+    }
+
+    fn supports_cheats(&self) -> bool {
+        self.runtime.js_supports_cheats()
+    }
+
+    fn core_options(&self) -> Vec<CoreOption> {
+        // Flat groups of four rather than a serialised object: this crate carries no
+        // serialiser, the list is read once per launch and never per frame, and adding
+        // one to parse a handful of dropdowns would be a dependency earning nothing.
+        let flat = self.runtime.js_core_options_flat();
+        flat.chunks_exact(4)
+            .map(|group| CoreOption {
+                key: group[0].clone(),
+                label: group[1].clone(),
+                value: group[2].clone(),
+                values: group[3]
+                    .split('|')
+                    .filter(|value| !value.is_empty())
+                    .map(String::from)
+                    .collect(),
+            })
+            .collect()
+    }
+
+    fn set_core_option(&mut self, key: &str, value: &str) -> Result<(), BridgeError> {
+        if self.runtime.js_set_option(key, value) {
+            Ok(())
+        } else {
+            // A key the core never declared. Reported rather than ignored: it means a
+            // stored setting is stale, which is worth seeing in a log.
+            Err(BridgeError::CoreOption(format!(
+                "core '{}' does not declare an option named '{key}'",
+                self.descriptor.id
+            )))
+        }
     }
 
     fn frame_count(&self) -> u64 {

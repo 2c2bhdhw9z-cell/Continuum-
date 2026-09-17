@@ -537,6 +537,16 @@ impl WasmEmulatorBridge {
         self.inner.borrow().current_content_id().map(str::to_string)
     }
 
+    /// Which core is running, as opposed to which content.
+    ///
+    /// `EmulatorBridge` has always tracked this; it simply had no exported getter, so the
+    /// Core options sheet could list a core's options while reporting that no core was
+    /// running.
+    #[wasm_bindgen(getter, js_name = currentCoreId)]
+    pub fn current_core_id(&self) -> Option<String> {
+        self.inner.borrow().current_core_id().map(str::to_string)
+    }
+
     // --------------------------------------------------------------------- tick
 
     /// The whole engine, one animation frame's worth: input → core → audio → GPU.
@@ -726,6 +736,64 @@ impl WasmEmulatorBridge {
         self.inner
             .borrow_mut()
             .load_state(data)
+            .map_err(to_js_error)
+    }
+
+    // ------------------------------------------------------------------- cheats
+
+    /// Replaces the running session's whole cheat list.
+    ///
+    /// `enabled` is a byte per code (`1` on, `0` off), parallel to `codes` — wasm-bindgen
+    /// has no bool-slice ABI, the same reason [`Self::apply_gamepad`] takes bytes.
+    ///
+    /// @returns how many cheats are switched on
+    #[wasm_bindgen(js_name = applyCheats)]
+    pub fn apply_cheats(&self, codes: Vec<String>, enabled: &[u8]) -> Result<usize, JsError> {
+        self.inner
+            .borrow_mut()
+            .apply_cheats(codes, enabled)
+            .map_err(to_js_error)
+    }
+
+    #[wasm_bindgen(js_name = clearCheats)]
+    pub fn clear_cheats(&self) -> Result<(), JsError> {
+        self.inner.borrow_mut().clear_cheats().map_err(to_js_error)
+    }
+
+    #[wasm_bindgen(getter, js_name = cheatsSupported)]
+    pub fn cheats_supported(&self) -> bool {
+        self.inner.borrow().cheats_supported()
+    }
+
+    #[wasm_bindgen(getter, js_name = activeCheatCount)]
+    pub fn active_cheat_count(&self) -> usize {
+        self.inner.borrow().active_cheat_count()
+    }
+
+    // -------------------------------------------------------------- core options
+
+    /// The running core's options, flattened into groups of four strings:
+    /// `[key, label, currentValue, choices joined by "|"]`.
+    ///
+    /// Flat because wasm-bindgen cannot return a `Vec<CoreOption>` without generating a
+    /// wrapper class per element, and the UI is going to build DOM from it either way.
+    #[wasm_bindgen(js_name = coreOptionsFlat)]
+    pub fn core_options_flat(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for option in self.inner.borrow().core_options() {
+            out.push(option.key);
+            out.push(option.label);
+            out.push(option.value);
+            out.push(option.values.join("|"));
+        }
+        out
+    }
+
+    #[wasm_bindgen(js_name = setCoreOption)]
+    pub fn set_core_option(&self, key: &str, value: &str) -> Result<(), JsError> {
+        self.inner
+            .borrow_mut()
+            .set_core_option(key, value)
             .map_err(to_js_error)
     }
 }

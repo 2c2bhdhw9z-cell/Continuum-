@@ -23,7 +23,7 @@
  * vaguely, and disarms itself if left alone.
  */
 
-import { getSettings, setSetting, onSettingsChanged } from '../data/settings.js';
+import { getSettings, setSetting, onSettingsChanged, applyTheme, THEMES } from '../data/settings.js';
 import { storageBreakdown, clearEverything } from '../data/rom-store.js';
 import { storageEstimate } from '../data/idb.js';
 import { removeAllEntries } from '../data/catalog.js';
@@ -70,6 +70,10 @@ export class SettingsSheet {
     this.artEl = document.getElementById('settings-art');
     this.quotaEl = document.getElementById('settings-quota');
     this.coresEl = document.getElementById('settings-cores');
+    this.scaleSelect = document.getElementById('settings-scale');
+    this.filterSelect = document.getElementById('settings-filter');
+    this.themeSelect = document.getElementById('settings-theme');
+    this.themeNoteEl = document.getElementById('settings-theme-note');
     this.hudToggle = document.getElementById('settings-hud');
     this.boxartToggle = document.getElementById('settings-boxart');
     this.captureToggle = document.getElementById('settings-capture');
@@ -102,6 +106,34 @@ export class SettingsSheet {
     });
     this.captureToggle?.addEventListener('change', () => {
       setSetting('captureArtwork', this.captureToggle.checked);
+      this.onSettingChanged();
+    });
+
+    // Themes are populated from the list the token layer actually defines, so the
+    // dropdown cannot offer one that has no styles behind it.
+    if (this.themeSelect) {
+      for (const theme of THEMES) {
+        const option = document.createElement('option');
+        option.value = theme.id;
+        option.textContent = theme.name;
+        this.themeSelect.appendChild(option);
+      }
+      this.themeSelect.addEventListener('change', () => {
+        setSetting('theme', this.themeSelect.value);
+        applyTheme(this.themeSelect.value);
+        this._syncDisplay();
+        this.onSettingChanged();
+      });
+    }
+
+    // Scaling and filtering are persisted defaults for what the player's own dropdowns
+    // already changed per session; both are applied to a live session immediately.
+    this.scaleSelect?.addEventListener('change', () => {
+      setSetting('scaleMode', this.scaleSelect.value);
+      this.onSettingChanged();
+    });
+    this.filterSelect?.addEventListener('change', () => {
+      setSetting('filter', this.filterSelect.value);
       this.onSettingChanged();
     });
 
@@ -145,6 +177,18 @@ export class SettingsSheet {
     if (this.hudToggle) this.hudToggle.checked = settings.showHud;
     if (this.boxartToggle) this.boxartToggle.checked = settings.fetchBoxart;
     if (this.captureToggle) this.captureToggle.checked = settings.captureArtwork;
+    this._syncDisplay();
+  }
+
+  _syncDisplay() {
+    const settings = getSettings();
+    if (this.scaleSelect) this.scaleSelect.value = settings.scaleMode;
+    if (this.filterSelect) this.filterSelect.value = settings.filter;
+    if (this.themeSelect) this.themeSelect.value = settings.theme;
+    if (this.themeNoteEl) {
+      this.themeNoteEl.textContent =
+        THEMES.find((theme) => theme.id === settings.theme)?.note ?? '';
+    }
   }
 
   // ---------------------------------------------------------------------- cores

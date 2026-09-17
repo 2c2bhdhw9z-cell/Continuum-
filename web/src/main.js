@@ -24,15 +24,20 @@ import { LibraryView } from './ui/library-view.js';
 import { RomImporter } from './ui/rom-import.js';
 import { registerBuiltins } from './data/builtins.js';
 import * as saveStates from './data/save-states.js';
+import * as cheatStore from './data/cheats.js';
 import { requestPersistentStorage, storageEstimate } from './data/idb.js';
 import { runtimeStats } from './engine/core-runtime.js';
 import { DetailSheet } from './ui/detail-sheet.js';
 import { SettingsSheet } from './ui/settings-sheet.js';
+import { CheatSheet } from './ui/cheat-sheet.js';
+import { CoreOptionsSheet } from './ui/core-options-sheet.js';
+import { TouchEditor } from './ui/touch-editor.js';
 import { PlayerView } from './ui/player-view.js';
 import { CoreMenu } from './ui/core-menu.js';
 import { allIndices, entryAt, entryById } from './data/catalog.js';
 import { getCorePreference, setCorePreference } from './data/core-prefs.js';
 import { toast } from './ui/toast.js';
+import { applyTheme } from './data/settings.js';
 
 const host = new BridgeHost();
 const coreLoader = new CoreLoader(host);
@@ -82,6 +87,10 @@ const detail = new DetailSheet({
   onLoadState: (gameId, slot) => void player.loadState(gameId, slot),
   onDataChanged: () => library.refreshData(),
   onRemoveRom: (entryId) => importer.remove(entryId),
+  onOpenCheats: (entryId) => {
+    detail.close();
+    cheatSheet.open(entryId);
+  },
   onClearResume: async (entryId) => {
     await saveStates.clearAuto(entryId);
     detail.reloadStates();
@@ -89,6 +98,29 @@ const detail = new DetailSheet({
   },
   coresForSystem: (systemId) => coreLoader.coresForSystem(systemId),
 });
+
+/**
+ * The cheat manager. Opened from the detail sheet before a launch and from the player's
+ * controls during one; both edit the same stored list.
+ */
+const cheatSheet = new CheatSheet({
+  host,
+  runningGameId: () => host.bridge?.currentContentId ?? null,
+  onChanged: () => library.refreshData(),
+});
+
+/** The core's own options, read out of the running core rather than from a table here. */
+const coreOptionsSheet = new CoreOptionsSheet({
+  host,
+  runningCoreId: () => host.bridge?.currentCoreId ?? null,
+  runningCoreName: () =>
+    coreLoader.entryFor(host.bridge?.currentCoreId ?? '')?.name ??
+    host.bridge?.currentCoreId ??
+    'the core',
+});
+
+/** Drag-to-arrange for the on-screen pad. */
+const touchEditor = new TouchEditor();
 
 const importer = new RomImporter({
   onLibraryChanged: () => library.refreshData(),
@@ -102,7 +134,10 @@ const importer = new RomImporter({
 const settings = new SettingsSheet({
   coresForSystem: (systemId) => coreLoader.coresForSystem(systemId),
   coresReady: coreLoader.manifestReady,
-  onSettingChanged: () => player.syncHudVisibility(),
+  onSettingChanged: () => {
+    player.syncHudVisibility();
+    player.syncDisplaySettings();
+  },
   onLibraryCleared: () => {
     // The store is empty, so the in-memory library is too. Re-registering the built-in
     // carts immediately is what keeps "clear everything" from leaving a dead app: the
@@ -147,6 +182,9 @@ const player = new PlayerView({
   onRequestImport: () => importer.openPicker(),
   // A captured thumbnail has to reach the shelves: the card the user is about to
   // return to is the one that was blank when they launched it.
+  onOpenCheats: (entryId) => cheatSheet.open(entryId),
+  onOpenCoreOptions: () => coreOptionsSheet.open(),
+  onEditLayout: () => touchEditor.start(),
   onArtworkCaptured: () => {
     library.refreshData();
     if (detail.isOpen) detail.reloadStates();
@@ -177,8 +215,15 @@ async function launch(entryId, options) {
 // the first shelf show something playable rather than a placeholder.
 registerBuiltins();
 
+// Applied before the library mounts, so the first paint is already in the chosen theme
+// rather than flashing the default one.
+applyTheme();
+
 library.mount();
 input.attach();
+// The saved pad layout is read asynchronously; the stylesheet's own defaults are in force
+// until it arrives, so the pad is usable either way.
+void touchEditor.init();
 audio.installGestureUnlock();
 
 // UI work runs inside the same loop as emulation, after the engine tick.
@@ -212,6 +257,15 @@ void (async () => {
 // `listFor()` answers synchronously, which is what lets the virtualised state list
 // bind rows on the scroll path.
 void (async () => {
+  // Cheat lists come back the same way, and for the same reason: the UI needs to answer
+  // "does this game have cheats" synchronously while rendering.
+  const cheatSummary = await cheatStore.hydrate();
+  if (cheatSummary.cheats > 0) {
+    console.info(
+      `[cheats] ${cheatSummary.cheats} cheat(s) across ${cheatSummary.games} game(s) restored`,
+    );
+  }
+
   const { states, games } = await saveStates.hydrate();
   if (states > 0) {
     console.info(`[states] ${states} saved state(s) across ${games} game(s) restored`);
@@ -357,6 +411,9 @@ window.__continuum = {
   library,
   detail,
   settings,
+  cheatSheet,
+  coreOptionsSheet,
+  touchEditor,
   player,
   importer,
   coreMenu,

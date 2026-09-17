@@ -24,6 +24,7 @@
  */
 
 import { detectSystem, acceptedExtensions } from '../data/rom-detect.js';
+import { looksLikeZip, listEntries, extract, pickRomEntry } from '../data/zip.js';
 import { putRom, romId, listRoms, listFlags, deleteRom } from '../data/rom-store.js';
 import { addRealEntry, removeEntry, applyStoredFlags } from '../data/catalog.js';
 import { hydrateArtwork, scrapeArtwork, clearArtwork } from '../data/artwork.js';
@@ -55,7 +56,9 @@ export class RomImporter {
 
   _wire() {
     if (this.input) {
-      this.input.accept = acceptedExtensions().join(',');
+      // `.zip` alongside the raw extensions: an archive is unwrapped on import, so it
+      // is a first-class input rather than something the user must extract first.
+      this.input.accept = [...acceptedExtensions(), '.zip'].join(',');
       this.input.addEventListener('change', () => {
         const files = Array.from(this.input.files ?? []);
         // Reset first: picking the same file twice must fire `change` again.
@@ -173,6 +176,52 @@ export class RomImporter {
   }
 
   /**
+   * Unwraps an archive down to the single ROM inside it.
+   *
+   * The archive itself is never stored — the extracted bytes go into IndexedDB and the
+   * zip is dropped, so importing a 40 MB archive of a 4 MB ROM costs 4 MB. That is also
+   * why the extracted name replaces the archive's: everything downstream (system
+   * detection, the content hash, the cover-art lookup) should see the ROM's own
+   * filename, not `Some Collection.zip`.
+   *
+   * @param {Uint8Array} bytes
+   * @param {string} archiveName
+   * @returns {Promise<{bytes: Uint8Array, name: string}>}
+   */
+  async unzip(bytes, archiveName) {
+    const entries = listEntries(bytes);
+    if (!entries.length) throw new Error(`${archiveName} is an empty archive`);
+
+    const { entry, candidates, ignored } = pickRomEntry(entries, acceptedExtensions());
+    if (!entry) {
+      throw new Error(
+        `${archiveName} contains no ROM (${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}` +
+          `${ignored ? `, ${ignored} ignored as metadata` : ''})`,
+      );
+    }
+
+    const extracted = await extract(bytes, entry);
+    const leafName = entry.name.split('/').pop() ?? entry.name;
+
+    console.info(
+      `[import] ${archiveName} → ${leafName} (${extracted.length} bytes, ` +
+        `${entry.method === 0 ? 'stored' : 'deflated'} ${entry.compressedSize} → ${entry.size}, ` +
+        `crc ok)`,
+    );
+    if (candidates.length > 1) {
+      // Said out loud rather than silently guessing: an archive holding several regional
+      // dumps has a right answer the user knows and this code does not.
+      toast(
+        'Archive had several ROMs',
+        `Imported ${leafName}. Extract the archive to add the others.`,
+        { kind: 'info', ms: 7000 },
+      );
+    }
+
+    return { bytes: extracted, name: leafName };
+  }
+
+  /**
    * @param {File} file
    * @returns {Promise<import('../data/catalog.js').CatalogEntry>}
    */
@@ -182,8 +231,19 @@ export class RomImporter {
       throw new Error(`${(file.size / 1024 / 1024).toFixed(0)} MB exceeds the import limit`);
     }
 
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const detection = detectSystem(bytes, file.name);
+    let bytes = new Uint8Array(await file.arrayBuffer());
+    let name = file.name;
+
+    // An archive is unwrapped before anything else looks at it, so detection, hashing,
+    // storage and cover-art lookup all see the ROM itself. Nothing downstream knows a
+    // zip was involved, and the archive is never stored.
+    if (looksLikeZip(bytes) || /\.zip$/i.test(file.name)) {
+      const unpacked = await this.unzip(bytes, file.name);
+      bytes = unpacked.bytes;
+      name = unpacked.name;
+    }
+
+    const detection = detectSystem(bytes, name);
 
     if (!detection.systemId) {
       throw new Error(detection.detail);
@@ -199,25 +259,28 @@ export class RomImporter {
     const id = romId(bytes, detection.extension);
     const meta = await putRom({
       id,
-      name: file.name,
+      name,
       systemId: detection.systemId,
       extension: detection.extension,
       bytes,
     });
 
     console.info(
-      `[import] ${file.name} → ${detection.systemId} (${detection.confidence}: ${detection.detail})`,
+      `[import] ${name} → ${detection.systemId} (${detection.confidence}: ${detection.detail})`,
     );
 
     return addRealEntry({
       id,
-      title: titleFromFilename(file.name),
+      title: titleFromFilename(name),
       systemId: detection.systemId,
       sizeBytes: bytes.length,
-      filename: file.name,
+      filename: name,
       source: 'imported',
       addedAt: meta.addedAt,
-      blurb: `Imported ${file.name} · ${detection.detail}.`,
+      blurb:
+        name === file.name
+          ? `Imported ${name} · ${detection.detail}.`
+          : `Extracted from ${file.name} · ${detection.detail}.`,
     });
   }
 

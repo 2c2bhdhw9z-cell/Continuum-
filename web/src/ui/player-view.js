@@ -33,7 +33,9 @@ import {
   CAPTURE_WIDTH,
   CAPTURE_HEIGHT,
 } from '../data/artwork.js';
-import { getSetting } from '../data/settings.js';
+import { getSetting, setSetting } from '../data/settings.js';
+import * as cheatStore from '../data/cheats.js';
+import * as coreOptionStore from '../data/core-options.js';
 import { entryById, markPlayed } from '../data/catalog.js';
 import { getSystem } from '../data/systems.js';
 import { getCorePreference } from '../data/core-prefs.js';
@@ -66,6 +68,9 @@ export class PlayerView {
     onRequestImport,
     onStatesChanged,
     onArtworkCaptured,
+    onOpenCheats,
+    onOpenCoreOptions,
+    onEditLayout,
   }) {
     this.host = host;
     this.coreLoader = coreLoader;
@@ -79,6 +84,12 @@ export class PlayerView {
     this.onStatesChanged = onStatesChanged;
     /** Called once a thumbnail has been captured, so the library can redraw the card. */
     this.onArtworkCaptured = onArtworkCaptured;
+    /** Opens the cheat manager for the running game. */
+    this.onOpenCheats = onOpenCheats;
+    /** Opens the core's own option list. */
+    this.onOpenCoreOptions = onOpenCoreOptions;
+    /** Enters touch-layout edit mode. */
+    this.onEditLayout = onEditLayout;
 
     this.root = document.getElementById('view-player');
     this.canvas = document.getElementById('gpu-canvas');
@@ -146,12 +157,31 @@ export class PlayerView {
     document.getElementById('ctl-reset').addEventListener('click', () => this.reset());
     this.muteBtn.addEventListener('click', () => this.toggleMute());
     document.getElementById('ctl-save').addEventListener('click', () => this.saveState());
+    document.getElementById('ctl-cheats')?.addEventListener('click', () => {
+      if (this.entry) this.onOpenCheats?.(this.entry.id);
+    });
+    document.getElementById('ctl-coreopts')?.addEventListener('click', () =>
+      this.onOpenCoreOptions?.(),
+    );
+    document.getElementById('ctl-layout')?.addEventListener('click', () => {
+      // The chrome is idled on the way in: it sits over the pad being arranged, and the
+      // editor has its own Done button to come back through. `is-idle` is the same class
+      // the auto-hide timer uses, so there is one mechanism rather than two.
+      clearTimeout(this._chromeTimer);
+      this.chrome.classList.add('is-idle');
+      this.onEditLayout?.();
+    });
 
+    // These write the *setting*, not just the live session, so a choice made here is
+    // remembered and the Settings sheet shows the same value. `syncDisplaySettings`
+    // reads it back, which keeps one direction of truth.
     document.getElementById('ctl-scale').addEventListener('change', (event) => {
+      setSetting('scaleMode', event.target.value);
       this.host.bridge?.setScaleMode(event.target.value);
       this.loop.wake();
     });
     document.getElementById('ctl-filter').addEventListener('change', (event) => {
+      setSetting('filter', event.target.value);
       this.host.bridge?.setFilter(event.target.value);
       this.loop.wake();
     });
@@ -283,9 +313,10 @@ export class PlayerView {
       this._sessionCore = this.coreLoader.identityFor(coreId);
       this._lastAutoSave = Date.now();
 
-      // Apply the current control settings to the fresh session.
-      this.host.bridge.setScaleMode(document.getElementById('ctl-scale').value);
-      this.host.bridge.setFilter(document.getElementById('ctl-filter').value);
+      // The saved display preferences, not whatever the dropdowns happen to show. The
+      // dropdowns are then synced to match, so the player's own controls and the Settings
+      // sheet can never disagree about what is in force.
+      this.syncDisplaySettings();
       this.host.bridge.setSpeed(Number(document.getElementById('ctl-speed').value));
       this.host.syncCanvasSize();
 
@@ -299,6 +330,12 @@ export class PlayerView {
       this._setLoading(true, 'Restoring…', 'Reading your last checkpoint');
       const resumed = await this._resumeIfPossible(token);
       if (token !== this._launchToken) return;
+
+      // Cheats live inside the core and die with it, so the game's stored list is
+      // pushed on every launch. After the resume, because loading a state re-pushes
+      // them anyway and doing it here keeps the order obvious.
+      this._applyStoredCheats();
+      this._applyStoredCoreOptions(coreId);
 
       markPlayed(entry.id);
       this._setLoading(false);
@@ -397,6 +434,86 @@ export class PlayerView {
         console.info('[artwork] frame capture unavailable, keeping the generated plate:', err);
       }
     })();
+  }
+
+  /**
+   * Pushes this game's stored cheat list into the freshly started core.
+   *
+   * Never fatal. A core that does not implement the cheat entry points, or a code it
+   * rejects, must not stop a game from starting — so the failure is reported once and
+   * the session continues without cheats.
+   */
+  _applyStoredCheats() {
+    if (!this.entry) return 0;
+    const { codes, enabled } = cheatStore.payloadFor(this.entry.id);
+    if (!codes.length) return 0;
+
+    if (!this.host.bridge?.cheatsSupported) {
+      toast(
+        'Cheats not applied',
+        `${this._sessionCore?.name ?? 'This core'} does not support cheats.`,
+        { kind: 'warn' },
+      );
+      return 0;
+    }
+    try {
+      const active = this.host.bridge.applyCheats(codes, enabled);
+      console.info(`[cheats] applied ${active} of ${codes.length} for ${this.entry.id}`);
+      return active;
+    } catch (err) {
+      console.warn('[cheats] could not apply', err);
+      toast('Cheats not applied', String(err?.message ?? err), { kind: 'warn', ms: 7000 });
+      return 0;
+    }
+  }
+
+  /**
+   * Pushes this core's stored option values into the freshly loaded core.
+   *
+   * Applied after content is loaded rather than before, because that is the only window
+   * this code has — and it works because the core re-reads changed variables when
+   * `GET_VARIABLE_UPDATE` reports a change, which `core-runtime.js` now does. Options a
+   * core only consults while loading need a relaunch, and the Core options sheet says so.
+   */
+  _applyStoredCoreOptions(coreId) {
+    const stored = coreOptionStore.valuesFor(coreId);
+    const keys = Object.keys(stored);
+    if (!keys.length) return 0;
+
+    let applied = 0;
+    for (const key of keys) {
+      try {
+        this.host.bridge.setCoreOption(key, stored[key]);
+        applied++;
+      } catch (err) {
+        // A key this core build no longer declares. Logged, not surfaced: it is a stale
+        // preference, not something the user did wrong, and it cannot break the session.
+        console.info(`[core-options] skipping '${key}' for ${coreId}: ${err?.message ?? err}`);
+      }
+    }
+    if (applied) console.info(`[core-options] applied ${applied}/${keys.length} for ${coreId}`);
+    return applied;
+  }
+
+  /**
+   * Applies the saved scaling and filtering to the running session, and syncs the
+   * player's dropdowns to match.
+   *
+   * One direction of truth: the setting is authoritative and the dropdowns display it.
+   * Changing a dropdown still writes the setting (wired below), so the two stay in step
+   * whichever one the user touches.
+   */
+  syncDisplaySettings() {
+    const scale = getSetting('scaleMode');
+    const filter = getSetting('filter');
+    const scaleEl = document.getElementById('ctl-scale');
+    const filterEl = document.getElementById('ctl-filter');
+    if (scaleEl) scaleEl.value = scale;
+    if (filterEl) filterEl.value = filter;
+    if (this.host.bridge?.status === 'running' || this.host.bridge?.status === 'paused') {
+      this.host.bridge.setScaleMode(scale);
+      this.host.bridge.setFilter(filter);
+    }
   }
 
   /** Applies the performance-HUD setting. Off by default on phones. */

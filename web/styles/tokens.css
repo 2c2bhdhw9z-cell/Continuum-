@@ -98,3 +98,84 @@
     --dur-slow: 0ms;
   }
 }
+
+
+/* ═════════════════════════════════ Themes ════════════════════════════════
+ *
+ * A theme is an override of the surface, text and accent tokens — nothing else.
+ * Everything downstream (components, the player chrome, the generated cover-art
+ * plates) reads those tokens, so a theme is about twenty declarations rather than a
+ * parallel stylesheet.
+ *
+ * Applied as `data-theme` on `<html>` by `data/settings.js`. The default, `midnight`,
+ * is the `:root` block above, so the attribute is only ever an override.
+ *
+ * Phase 2 note: this is also the shape the Swift `Theme` struct wants — a small set of
+ * semantic colours per named theme, not a pile of per-component values.
+ */
+
+/* Neutral greys, cooler highlights. */
+[data-theme='graphite'] {
+  --bg: #0b0c0e;
+  --bg-elev: #121417;
+  --surface: #1a1d21;
+  --surface-hi: #23272d;
+  --border: #2b3037;
+  --border-hi: #3e444d;
+  --text: #f2f4f6;
+  --text-dim: #a3abb5;
+  --text-faint: #6b737d;
+  --accent: #4c8dff;
+  --accent-hi: #7aa9ff;
+  --accent-dim: #16325e;
+  --cyan: #46d3c4;
+}
+
+/* Phosphor green. The scanline overlays already in the card and hero art make this
+   read as a CRT without any extra machinery. */
+[data-theme='crt'] {
+  --bg: #050705;
+  --bg-elev: #0a0f0a;
+  --surface: #0f160f;
+  --surface-hi: #162116;
+  --border: #1e2d1e;
+  --border-hi: #2c422c;
+  --text: #d8ffd8;
+  --text-dim: #7dbb7d;
+  --text-faint: #4d7a4d;
+  --accent: #4dff88;
+  --accent-hi: #86ffae;
+  --accent-dim: #10401f;
+  --cyan: #6fffd8;
+  --amber: #d6ff5c;
+}
+
+/* Light. The one theme that inverts the surface ramp, so shadows have to soften too —
+   the dark theme's shadows are near-black and read as dirt on a white panel. */
+[data-theme='paper'] {
+  --bg: #f4f4f6;
+  --bg-elev: #ffffff;
+  --surface: #ffffff;
+  --surface-hi: #eceef2;
+  --border: #d8dbe1;
+  --border-hi: #b9bec7;
+  --text: #14161a;
+  --text-dim: #545a63;
+  --text-faint: #868d97;
+  --accent: #d61f3f;
+  --accent-hi: #f0405f;
+  --accent-dim: #f7ccd4;
+  --cyan: #0f8f83;
+  --amber: #a86200;
+  --shadow-card: 0 1px 3px rgba(20, 22, 26, 0.14), 0 6px 18px rgba(20, 22, 26, 0.08);
+  --shadow-sheet: 0 20px 60px rgba(20, 22, 26, 0.22);
+}
+
+/* The player is always dark: it surrounds emulated output, and a light letterbox
+   around a dark game is glare rather than design. */
+[data-theme='paper'] .view--player {
+  --bg: #08080c;
+  --text: #f5f5f8;
+  --text-dim: #a6a6b4;
+  background: #08080c;
+}

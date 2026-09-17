@@ -15,6 +15,8 @@
  *   state-data   { id, bytes }
  *   rom-art      { id, kind: 'url'|'blob', url, blob, tier, updatedAt }
  *   entry-flags  { id, favorite, lastPlayed, playCount }
+ *   cheats       { gameId, list: [{ id, description, code, enabled }] }
+ *   settings     { key, value }        durable preferences too big for localStorage
  * ```
  *
  * Metadata and payloads are separate stores throughout. Listing a library, or a
@@ -39,8 +41,10 @@ const DB_NAME = 'continuum';
  *   1 → ROM stores
  *   2 → save-state stores
  *   3 → cover art (`rom-art`) and durable library flags (`entry-flags`)
+ *   4 → per-game cheat lists (`cheats`)
+ *   5 → a general key/value `settings` store, first used by the touch layout
  */
-const DB_VERSION = 3;
+const DB_VERSION = 5;
 
 export const ROM_META = 'rom-meta';
 export const ROM_DATA = 'rom-data';
@@ -48,6 +52,8 @@ export const STATE_META = 'state-meta';
 export const STATE_DATA = 'state-data';
 export const ROM_ART = 'rom-art';
 export const ENTRY_FLAGS = 'entry-flags';
+export const CHEATS = 'cheats';
+export const SETTINGS = 'settings';
 
 /** @type {Promise<IDBDatabase>|null} */
 let dbPromise = null;
@@ -89,6 +95,21 @@ export function openDatabase() {
       }
       if (!db.objectStoreNames.contains(ENTRY_FLAGS)) {
         db.createObjectStore(ENTRY_FLAGS, { keyPath: 'id' });
+      }
+
+      // One record per game holding its whole list, rather than one record per cheat.
+      // A cheat list is read and written as a unit — the core is handed all of them at
+      // once (see `EmulatorBridge::apply_cheats`) — so a row per cheat would buy
+      // nothing but a second index to keep consistent.
+      if (!db.objectStoreNames.contains(CHEATS)) {
+        db.createObjectStore(CHEATS, { keyPath: 'gameId' });
+      }
+
+      // A general key/value store for preferences that are structured rather than a
+      // single boolean — the touch layout is six numbers — and that nothing needs to
+      // read synchronously during boot.
+      if (!db.objectStoreNames.contains(SETTINGS)) {
+        db.createObjectStore(SETTINGS, { keyPath: 'key' });
       }
     };
 

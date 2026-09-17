@@ -95,6 +95,17 @@ struct Session {
     content_id: String,
     core: Box<dyn EmulatorCore>,
     paused: bool,
+    /// The cheat list currently applied, kept so it can be re-applied after a reset or
+    /// a state load. Lives on the session rather than the bridge because cheats belong
+    /// to a game: ending the session is what forgets them.
+    cheats: Vec<Cheat>,
+}
+
+/// One cheat as the user entered it, plus whether it is switched on.
+#[derive(Debug, Clone)]
+struct Cheat {
+    code: String,
+    enabled: bool,
 }
 
 pub struct EmulatorBridge {
@@ -291,6 +302,9 @@ impl EmulatorBridge {
             content_id: content_id.to_string(),
             core,
             paused: false,
+            // A fresh core has no cheats. The front end pushes the game's saved list
+            // after launch, which is also what makes cheats survive a relaunch.
+            cheats: Vec::new(),
         });
         Ok(())
     }
@@ -377,6 +391,11 @@ impl EmulatorBridge {
     pub fn reset(&mut self) -> Result<(), BridgeError> {
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
         session.core.reset()?;
+        // Cheats are re-pushed after a reset. Several cores clear their cheat list in
+        // `retro_reset`, and the ones that do not are unharmed by being told again —
+        // whereas a user who resets and silently loses their cheats has no way to tell
+        // that is what happened.
+        Self::push_cheats(session)?;
         self.sink.flush();
         self.gamepads.release_all();
         Ok(())
@@ -692,8 +711,130 @@ impl EmulatorBridge {
     pub fn load_state(&mut self, data: &[u8]) -> Result<(), BridgeError> {
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
         session.core.load_state(data)?;
+        // A save state can carry the memory a cheat was patching, so the list is
+        // re-pushed for the restored timeline.
+        Self::push_cheats(session)?;
         // The audio backlog belongs to the abandoned timeline.
         self.sink.flush();
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------- cheats
+
+    /// Replaces the whole cheat list.
+    ///
+    /// Whole-list rather than incremental, because `retro_cheat_set` is indexed: a core
+    /// keeps cheats in a numbered table, and removing the second of five would leave a
+    /// hole that every later index has to be shifted around. Resetting and re-pushing is
+    /// what RetroArch does too, it costs microseconds, and it makes the applied state a
+    /// pure function of the list the user is looking at.
+    ///
+    /// `enabled` is a parallel byte array rather than `&[bool]` for the same reason as
+    /// [`Self::apply_gamepad`]: wasm-bindgen has no bool-slice ABI.
+    ///
+    /// @returns how many cheats are switched on
+    pub fn apply_cheats(
+        &mut self,
+        codes: Vec<String>,
+        enabled: &[u8],
+    ) -> Result<usize, BridgeError> {
+        let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
+        if !session.core.supports_cheats() {
+            return Err(BridgeError::Cheat(format!(
+                "core '{}' does not support cheats",
+                session.core_id
+            )));
+        }
+
+        // Blank lines are dropped here rather than skipped during the push, because
+        // skipping would leave gaps in the index sequence the core is given.
+        session.cheats = codes
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, code)| {
+                let code = code.trim().to_string();
+                if code.is_empty() {
+                    return None;
+                }
+                Some(Cheat {
+                    code,
+                    enabled: enabled.get(i).copied().unwrap_or(0) != 0,
+                })
+            })
+            .collect();
+
+        Self::push_cheats(session)?;
+        Ok(session.cheats.iter().filter(|cheat| cheat.enabled).count())
+    }
+
+    /// Clears every cheat, in the core and in our record of it.
+    pub fn clear_cheats(&mut self) -> Result<(), BridgeError> {
+        let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
+        session.cheats.clear();
+        if session.core.supports_cheats() {
+            session.core.reset_cheats()?;
+        }
+        Ok(())
+    }
+
+    /// Whether the running core can apply cheats at all.
+    pub fn cheats_supported(&self) -> bool {
+        self.session
+            .as_ref()
+            .is_some_and(|session| session.core.supports_cheats())
+    }
+
+    /// How many cheats are currently switched on.
+    pub fn active_cheat_count(&self) -> usize {
+        self.session.as_ref().map_or(0, |session| {
+            session.cheats.iter().filter(|cheat| cheat.enabled).count()
+        })
+    }
+
+    // ------------------------------------------------------------- core options
+
+    /// Options the running core declared, with their current values.
+    pub fn core_options(&self) -> Vec<crate::cores::CoreOption> {
+        self.session
+            .as_ref()
+            .map(|session| session.core.core_options())
+            .unwrap_or_default()
+    }
+
+    /// Sets one option on the running core.
+    ///
+    /// Takes effect without a relaunch for options the core re-reads on its update poll,
+    /// which is most of them. A few are only consulted while loading content; those need
+    /// the game restarted, and the core is the only thing that knows which is which.
+    pub fn set_core_option(&mut self, key: &str, value: &str) -> Result<(), BridgeError> {
+        let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
+        session.core.set_core_option(key, value)
+    }
+
+    /// Pushes the session's recorded list into the core: reset, then set each in order.
+    ///
+    /// Disabled cheats are still handed over, with `enabled = false`. That is the
+    /// libretro contract — a core is entitled to keep the code and simply not apply it —
+    /// and it keeps the indices stable so toggling one does not renumber the rest.
+    fn push_cheats(session: &mut Session) -> Result<(), BridgeError> {
+        if session.cheats.is_empty() {
+            // Still worth resetting: this is also the path that turns the last cheat off.
+            if session.core.supports_cheats() {
+                session.core.reset_cheats()?;
+            }
+            return Ok(());
+        }
+        session.core.reset_cheats()?;
+        // Collected first so the loop does not hold a borrow of `session.cheats` while
+        // calling `&mut` methods on `session.core`.
+        let list: Vec<(String, bool)> = session
+            .cheats
+            .iter()
+            .map(|cheat| (cheat.code.clone(), cheat.enabled))
+            .collect();
+        for (index, (code, enabled)) in list.iter().enumerate() {
+            session.core.set_cheat(index as u32, *enabled, code)?;
+        }
         Ok(())
     }
 }
