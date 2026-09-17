@@ -156,6 +156,18 @@ private extension FileManager {
 struct StubHarnessView: View {
     @StateObject private var host = EngineHost()
 
+    /// Built as a `String`, not as an interpolated `Text` literal.
+    ///
+    /// `Text("...")` takes a `LocalizedStringKey`, two of which cannot be concatenated with
+    /// `+` — which is what this line used to try, and why the app had never actually
+    /// compiled. Handing `Text` a `String` selects the verbatim initialiser instead, which
+    /// is also what a diagnostic read-out wants: nothing here should be run through
+    /// localisation.
+    private var stats: String {
+        let fps = String(format: "%.0f", host.displayFps)
+        return "\(host.frameCount) frames · \(fps) fps · \(host.dropped) dropped"
+    }
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             MetalCanvasView(
@@ -182,8 +194,7 @@ struct StubHarnessView: View {
                 if !host.gpu.isEmpty {
                     Text(host.gpu)
                 }
-                Text("\(host.frameCount) frames · \(host.displayFps, specifier: "%.0f") fps"
-                     + " · \(host.dropped) dropped")
+                Text(stats)
             }
             .font(.system(.caption2, design: .monospaced))
             .foregroundStyle(.white)
