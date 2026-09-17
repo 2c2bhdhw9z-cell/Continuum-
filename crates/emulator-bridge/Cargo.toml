@@ -1,0 +1,46 @@
+[package]
+name = "emulator-bridge"
+description = "Interface-agnostic emulator manager/engine layer. Compiles to WASM (Phase 1, web) and native ARM64 (Phase 2, iOS)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+# cdylib -> wasm32 / iOS staticlib. rlib -> host unit tests.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bytemuck = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+
+# --- Phase 1: browser. WebGPU backend only; no WebGL2 fallback by design. ---
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { workspace = true, features = ["std", "webgpu", "wgsl"] }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+js-sys = { workspace = true }
+console_error_panic_hook = { workspace = true }
+console_log = { workspace = true }
+web-sys = { workspace = true, features = [
+  "console",
+  "Window",
+  "Document",
+  "HtmlCanvasElement",
+  "Performance",
+] }
+
+# --- Phase 2: native (iOS/Metal, plus desktop dev hosts for the test suite). ---
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+wgpu = { workspace = true, features = [
+  "std",
+  "metal",
+  "vulkan",
+  "wgsl",
+  "parking_lot",
+] }
+
+[features]
+default = []
+# Phase 2 will add: uniffi = ["dep:uniffi"] for the Swift facade.

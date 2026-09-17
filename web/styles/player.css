@@ -1,0 +1,301 @@
+/*
+ * Player view.
+ *
+ * The canvas is sized entirely by CSS; its backing-store dimensions are owned by
+ * wgpu (which writes canvas.width/height during surface configure). Do not set a
+ * width/height attribute on it from CSS-adjacent JS — the two would fight and the
+ * result is a blurry or clipped presentation.
+ */
+
+.view--player {
+  background: #000;
+}
+
+.gpu-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* Emulator output is nearest-neighbour by intent; the browser must not add its
+     own smoothing on top of what the shader's sampler already decided. */
+  image-rendering: pixelated;
+  touch-action: none;
+}
+
+.player__chrome {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity var(--dur-slow) var(--ease);
+}
+
+/* Chrome fades out during play and returns on pointer movement. */
+.player__chrome.is-idle {
+  opacity: 0;
+}
+
+.player__chrome > * {
+  pointer-events: auto;
+}
+
+.player__top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: calc(var(--sp-3) + env(safe-area-inset-top)) var(--sp-4) var(--sp-5);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0));
+}
+
+.player__titles {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.player__title {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player__subtitle {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+.player__hud {
+  display: flex;
+  gap: var(--sp-3);
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+.hud__stat b {
+  color: var(--cyan);
+  font-weight: 600;
+}
+
+.hud__stat.is-warn b {
+  color: var(--amber);
+}
+
+.player__bottom {
+  padding: var(--sp-5) var(--sp-4) calc(var(--sp-4) + env(safe-area-inset-bottom));
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0));
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+/* ------------------------------------------------------------ audio unlock */
+
+.audio-unlock {
+  position: absolute;
+  z-index: 20;
+  left: 50%;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 12px 20px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 650;
+  font-size: var(--fs-sm);
+  box-shadow: var(--shadow-pop);
+  animation: nudge 2.4s var(--ease) infinite;
+}
+
+.audio-unlock[hidden] {
+  display: none;
+}
+
+@keyframes nudge {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50%      { transform: translateX(-50%) translateY(-4px); }
+}
+
+/* ------------------------------------------------------------------ loading */
+
+.loading {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 4, 8, 0.82);
+  backdrop-filter: blur(8px);
+}
+
+.loading[hidden] {
+  display: none;
+}
+
+.loading__box {
+  width: min(420px, calc(100vw - 2 * var(--sp-5)));
+  padding: var(--sp-5);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-pop);
+}
+
+.loading__title {
+  margin: 0 0 var(--sp-3);
+  font-weight: 650;
+}
+
+.loading__detail {
+  margin: var(--sp-2) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+/* --------------------------------------------------------------- touch pad */
+
+.touchpad {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 15;
+  height: 190px;
+  padding: 0 var(--sp-5) calc(var(--sp-5) + env(safe-area-inset-bottom));
+  display: none;
+  align-items: flex-end;
+  justify-content: space-between;
+  touch-action: none;
+  user-select: none;
+}
+
+.touchpad[hidden] {
+  display: none !important;
+}
+
+/* Only worth showing where there is no physical keyboard. */
+@media (pointer: coarse) {
+  .touchpad {
+    display: flex;
+  }
+}
+
+.touchpad__dpad {
+  position: relative;
+  width: 132px;
+  height: 132px;
+}
+
+.tp {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  backdrop-filter: blur(6px);
+  transition: background var(--dur-fast), transform var(--dur-fast);
+}
+
+.tp.is-pressed {
+  background: var(--accent);
+  transform: scale(0.94);
+}
+
+.tp--up,
+.tp--down {
+  left: 44px;
+  width: 44px;
+  height: 44px;
+}
+
+.tp--up {
+  top: 0;
+  border-radius: 10px 10px 0 0;
+}
+
+.tp--down {
+  bottom: 0;
+  border-radius: 0 0 10px 10px;
+}
+
+.tp--left,
+.tp--right {
+  top: 44px;
+  width: 44px;
+  height: 44px;
+}
+
+.tp--left {
+  left: 0;
+  border-radius: 10px 0 0 10px;
+}
+
+.tp--right {
+  right: 0;
+  border-radius: 0 10px 10px 0;
+}
+
+.touchpad__face {
+  position: relative;
+  width: 150px;
+  height: 132px;
+}
+
+.tp--a,
+.tp--b {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+
+.tp--a {
+  right: 0;
+  bottom: 46px;
+}
+
+.tp--b {
+  left: 8px;
+  bottom: 6px;
+}
+
+.touchpad__center {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--sp-5) + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  gap: var(--sp-3);
+}
+
+.tp--select,
+.tp--start {
+  position: relative;
+  padding: 8px 14px;
+  border-radius: 999px;
+}

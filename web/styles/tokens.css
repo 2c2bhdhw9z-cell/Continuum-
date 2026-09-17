@@ -1,0 +1,96 @@
+/*
+ * Design tokens. Single source of truth for the dark theme.
+ *
+ * Phase 2 note: these values are duplicated as a Swift `Theme` struct, so keep
+ * the palette small and semantic. Anything hard-coded in a component here is a
+ * value someone has to rediscover in Swift later.
+ */
+:root {
+  /* Surfaces, darkest to lightest. */
+  --bg: #08080c;
+  --bg-elev: #0e0e14;
+  --surface: #15151e;
+  --surface-hi: #1d1d28;
+  --border: #26262f;
+  --border-hi: #3a3a46;
+
+  /* Text. */
+  --text: #f5f5f8;
+  --text-dim: #a6a6b4;
+  --text-faint: #6e6e7c;
+
+  /* Accents. Crimson for primary action, cyan for live/technical readouts. */
+  --accent: #ff3355;
+  --accent-hi: #ff5c78;
+  --accent-dim: #7a1226;
+  --cyan: #37e2d5;
+  --amber: #ffb347;
+  --danger: #ff4d4d;
+
+  /* Type. System stack only: the app must work fully offline, and a webfont
+     would be a render-blocking network dependency on first paint. */
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --fs-xs: 0.6875rem;
+  --fs-sm: 0.8125rem;
+  --fs-md: 0.9375rem;
+  --fs-lg: 1.125rem;
+  --fs-xl: 1.5rem;
+  --fs-2xl: 2.25rem;
+  --fs-3xl: 3rem;
+
+  /* Spacing scale. */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+
+  --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.55);
+  --shadow-pop: 0 24px 64px rgba(0, 0, 0, 0.7);
+
+  /* Card geometry. Read by JS: the virtualiser needs exact item sizes, so these
+     live here rather than in library.css to keep one definition. */
+  --card-w: 158px;
+  --card-h: 222px;          /* art plate only */
+  --card-gap: 12px;
+  --card-label-h: 58px;     /* two clamped title lines + subtitle */
+  --shelf-h: 326px;         /* heading + art + label + breathing room */
+  --grid-row-h: 296px;
+
+  --topbar-h: 60px;
+  --statusbar-h: 28px;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+  --dur-slow: 360ms;
+}
+
+/* Touch devices get slightly larger cards: 158px is comfortable with a mouse and
+   fiddly with a thumb. */
+@media (pointer: coarse) {
+  :root {
+    --card-w: 132px;
+    --card-h: 186px;
+    --card-label-h: 54px;
+    --shelf-h: 286px;
+    --grid-row-h: 256px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur: 0ms;
+    --dur-slow: 0ms;
+  }
+}

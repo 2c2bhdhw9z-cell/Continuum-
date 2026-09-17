@@ -1,0 +1,13 @@
+/target
+**/*.rs.bk
+
+# Build output of scripts/build-wasm.sh. Regenerated from the crate, so it is not
+# source; run the script after cloning.
+/web/vendor/
+
+# Core binaries are third-party GPL/LGPL builds fetched by the Phase 1b build
+# script, not vendored here. The placeholder module is kept deliberately.
+/web/cores/*.wasm
+!/web/cores/diagnostic-core.wasm
+
+.DS_Store

@@ -1,0 +1,37 @@
+[workspace]
+members = ["crates/emulator-bridge"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.85"
+
+[workspace.dependencies]
+# Backends are selected per target in the crate manifests: WebGPU only for wasm,
+# Metal for iOS. Enabling them here would compile a WebGL2 fallback we explicitly
+# do not want.
+wgpu = { version = "30.0", default-features = false }
+bytemuck = { version = "1", features = ["derive"] }
+log = "0.4"
+thiserror = "2"
+raw-window-handle = "0.6"
+
+# --- wasm-only (Phase 1) ---
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = "0.3"
+console_error_panic_hook = "0.1"
+console_log = "1"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+# Emulator cores are latency-sensitive; never ship a debug-speed core.
+[profile.dev.package."*"]
+opt-level = 2

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Continuum">
+  <defs>
+    <linearGradient id="mark2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff5c78"/>
+      <stop offset="1" stop-color="#7a1226"/>
+    </linearGradient>
+  </defs>
+  <!-- Full bleed, art inside the 80% safe area for maskable icons. -->
+  <rect width="512" height="512" fill="#08080c"/>
+  <rect x="178" y="150" width="58" height="212" rx="14" fill="url(#mark2)"/>
+  <path d="M276 176 L364 256 L276 336 Z" fill="#37e2d5"/>
+</svg>

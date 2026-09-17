@@ -1,0 +1,202 @@
+{
+  "$comment": [
+    "Core declarations. Read at boot; the binaries are NOT. Each entry is metadata",
+    "the Rust registry stores as a CoreDescriptor so the UI can decide which core a",
+    "game needs without loading anything.",
+    "",
+    "Every entry currently points at cores/diagnostic-core.wasm — a valid but empty",
+    "module. Phase 1b replaces `module` per entry with the real libretro core built",
+    "to wasm32, and drops the `placeholder` flag. Nothing else here changes: the",
+    "geometry, refresh and audio values below are the real values for each system,",
+    "and they are what the pacer and renderer are already configured from.",
+    "",
+    "`targetFps` values are the true hardware refresh rates, not rounded to 60. A",
+    "core running at 60.0988 against a 60.000 display is why the frame pacer exists."
+  ],
+  "version": 1,
+  "cores": [
+    {
+      "id": "nestopia",
+      "name": "Nestopia UE",
+      "systems": ["nes"],
+      "module": "./cores/diagnostic-core.wasm",
+      "placeholder": true,
+      "sizeBytes": 8,
+      "targetFps": 60.0988,
+      "audioSampleRate": 44100,
+      "pixelFormat": "xrgb8888",
+      "geometry": {
+        "baseWidth": 256,
+        "baseHeight": 240,
+        "maxWidth": 256,
+        "maxHeight": 240,
+        "aspectRatio": 1.3333333
+      }
+    },
+    {
+      "id": "snes9x",
+      "name": "Snes9x",
+      "systems": ["snes"],
+      "module": "./cores/diagnostic-core.wasm",
+      "placeholder": true,
+      "sizeBytes": 8,
+      "targetFps": 60.0988,
+      "audioSampleRate": 32040,
+      "pixelFormat": "xrgb8888",
+      "geometry": {
+        "baseWidth": 256,
+        "baseHeight": 224,
+        "maxWidth": 512,
+        "maxHeight": 480,
+        "aspectRatio": 1.3333333
+      }
+    },
+    {
+      "id": "gambatte",
+      "name": "Gambatte",
+      "systems": ["gb", "gbc"],
+      "module": "./cores/diagnostic-core.wasm",
+      "placeholder": true,
+      "sizeBytes": 8,
+      "targetFps": 59.7275,
+      "audioSampleRate": 32768,
+      "pixelFormat": "rgb565",
+      "geometry": {
+        "baseWidth": 160,
+        "baseHeight": 144,
+        "maxWidth": 160,
+        "maxHeight": 144,
+        "aspectRatio": 1.1111111
+      }
+    },
+    {
+      "id": "mgba",
+      "name": "mGBA",
+      "systems": ["gba"],
+      "module": "./cores/diagnostic-core.wasm",
+      "placeholder": true,
+      "sizeBytes": 8,
+      "targetFps": 59.7275,
+      "audioSampleRate": 32768,
+      "pixelFormat": "xrgb8888",
+      "geometry": {
+        "baseWidth": 240,
+        "baseHeight": 160,
+        "maxWidth": 240,
+        "maxHeight": 160,
+        "aspectRatio": 1.5
+      }
+    },
+    {
+      "id": "genesis_plus",
+      "name": "Genesis Plus GX",
+      "systems": ["genesis", "sms"],
+      "module": "./cores/diagnostic-core.wasm",
+      "placeholder": true,
+      "sizeBytes": 8,
+      "targetFps": 59.9227,
+      "audioSampleRate": 44100,
+      "pixelFormat": "rgb565",
+      "geometry": {
+        "baseWidth": 320,
+        "baseHeight": 224,
+        "maxWidth": 320,
+        "maxHeight": 240,
+        "aspectRatio": 1.3333333
+      }
+    },
+    {
+      "id": "mupen64plus",
+      "name": "Mupen64Plus-Next",
+      "systems": ["n64"],
+      "module": "./cores/diagnostic-core.wasm",
+      "placeholder": true,
+      "sizeBytes": 8,
+      "targetFps": 60.0,
+      "audioSampleRate": 44100,
+      "pixelFormat": "xrgb8888",
+      "geometry": {
+        "baseWidth": 320,
+        "baseHeight": 240,
+        "maxWidth": 1024,
+        "maxHeight": 768,
+        "aspectRatio": 1.3333333
+      }
+    },
+    {
+      "id": "yabause",
+      "name": "Yabause",
+      "systems": ["saturn"],
+      "module": "./cores/diagnostic-core.wasm",
+      "placeholder": true,
+      "sizeBytes": 8,
+      "targetFps": 59.8261,
+      "audioSampleRate": 44100,
+      "pixelFormat": "rgb565",
+      "geometry": {
+        "baseWidth": 320,
+        "baseHeight": 224,
+        "maxWidth": 704,
+        "maxHeight": 512,
+        "aspectRatio": 1.3333333
+      }
+    },
+    {
+      "id": "mednafen_psx",
+      "name": "Beetle PSX",
+      "systems": ["ps1"],
+      "module": "./cores/diagnostic-core.wasm",
+      "placeholder": true,
+      "sizeBytes": 8,
+      "targetFps": 59.9407,
+      "audioSampleRate": 44100,
+      "pixelFormat": "xrgb8888",
+      "geometry": {
+        "baseWidth": 320,
+        "baseHeight": 240,
+        "maxWidth": 700,
+        "maxHeight": 576,
+        "aspectRatio": 1.3333333
+      }
+    },
+    {
+      "$comment": "Phase 2 only. Declared so the library can show them; the UI refuses to launch them in the browser because they need JIT.",
+      "id": "citra",
+      "name": "Citra",
+      "systems": ["3ds"],
+      "module": "./cores/diagnostic-core.wasm",
+      "placeholder": true,
+      "phase": 2,
+      "sizeBytes": 8,
+      "targetFps": 59.8261,
+      "audioSampleRate": 32728,
+      "pixelFormat": "rgba8888",
+      "geometry": {
+        "baseWidth": 400,
+        "baseHeight": 480,
+        "maxWidth": 1600,
+        "maxHeight": 1920,
+        "aspectRatio": 0.8333333
+      }
+    },
+    {
+      "id": "yuzu",
+      "name": "Yuzu",
+      "systems": ["switch"],
+      "module": "./cores/diagnostic-core.wasm",
+      "placeholder": true,
+      "phase": 2,
+      "sizeBytes": 8,
+      "targetFps": 60.0,
+      "audioSampleRate": 48000,
+      "pixelFormat": "rgba8888",
+      "geometry": {
+        "baseWidth": 1280,
+        "baseHeight": 720,
+        "maxWidth": 1920,
+        "maxHeight": 1080,
+        "aspectRatio": 1.7777778
+      }
+    }
+  ]
+}

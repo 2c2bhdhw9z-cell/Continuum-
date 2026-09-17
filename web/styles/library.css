@@ -1,0 +1,377 @@
+/*
+ * Hero, shelves, cards, grid.
+ *
+ * Virtualisation contract with the JS: every scroller positions its items with
+ * `position: absolute` + `transform: translate3d(...)`, and the scrollable extent
+ * comes from a single spacer element. So item elements here must never rely on
+ * document flow, and must never change size based on content — a card whose
+ * height depends on its title would break the fixed-size maths the virtualiser
+ * relies on.
+ */
+
+/* --------------------------------------------------------------------- hero */
+
+.hero {
+  position: relative;
+  height: min(62vh, 540px);
+  min-height: 380px;
+  display: flex;
+  align-items: flex-end;
+  padding: var(--sp-7) var(--sp-6);
+  overflow: hidden;
+}
+
+.hero__art {
+  position: absolute;
+  inset: 0;
+  /* Procedural art: no network images anywhere, so first paint needs no
+     round-trip and the app is genuinely offline-capable. */
+  background: var(--art, linear-gradient(135deg, #232338, #0b0b12));
+  transform: scale(1.04);
+  transition: background var(--dur-slow) var(--ease);
+}
+
+.hero__art::after {
+  /* Faint scanlines: reads as "console" without an asset. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.22) 0 1px,
+    transparent 1px 3px
+  );
+  mix-blend-mode: multiply;
+}
+
+.hero__scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(8, 8, 12, 0.95) 0%, rgba(8, 8, 12, 0.55) 45%, rgba(8, 8, 12, 0.1) 75%),
+    linear-gradient(0deg, var(--bg) 0%, rgba(8, 8, 12, 0) 55%);
+}
+
+.hero__body {
+  position: relative;
+  max-width: 620px;
+}
+
+.hero__eyebrow {
+  margin: 0 0 var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.hero__title {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-3xl);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+}
+
+.hero__meta {
+  margin: 0 0 var(--sp-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--cyan);
+  letter-spacing: 0.05em;
+}
+
+.hero__blurb {
+  margin: 0 0 var(--sp-4);
+  color: var(--text-dim);
+  font-size: var(--fs-md);
+  line-height: 1.55;
+  max-width: 52ch;
+}
+
+.hero__actions {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+@media (max-width: 700px) {
+  .hero__title { font-size: var(--fs-2xl); }
+  .hero { padding: var(--sp-5) var(--sp-4); }
+}
+
+/* ------------------------------------------------------------------- shelves */
+
+/* Vertical virtualiser root: height is set by JS to totalShelves * shelfHeight,
+   and shelf nodes are absolutely positioned inside it. */
+.shelves {
+  position: relative;
+  padding: var(--sp-4) 0 var(--sp-6);
+}
+
+.shelf {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--shelf-h);
+  /* Isolate each shelf's layout and paint: scrolling one shelf must not
+     invalidate the others. */
+  contain: layout paint style;
+}
+
+.shelf__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-6) var(--sp-2);
+}
+
+.shelf__title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.shelf__count {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+.shelf__body {
+  position: relative;
+}
+
+/* Horizontal virtualiser viewport for one shelf. */
+.shelf__track {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: calc(var(--card-h) + var(--card-label-h) + 4px);
+  padding: 0 var(--sp-6);
+  /*
+   * No scroll snapping. Snap positions align an item's edge with the scrollport
+   * edge, which cancels this track's left gutter: the browser silently scrolls to
+   * 32px on load and clips the first card. Arrow buttons page by whole columns
+   * instead, which is what snapping was for.
+   */
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Sets the scrollable width; items are absolutely positioned over it. */
+.shelf__spacer {
+  position: relative;
+  height: 100%;
+}
+
+.shelf__arrow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 44px;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  background: linear-gradient(90deg, rgba(8, 8, 12, 0.9), rgba(8, 8, 12, 0));
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+}
+
+.shelf__arrow--next {
+  right: 0;
+  background: linear-gradient(270deg, rgba(8, 8, 12, 0.9), rgba(8, 8, 12, 0));
+}
+
+.shelf__arrow--prev {
+  left: 0;
+}
+
+.shelf:hover .shelf__arrow,
+.shelf__arrow:focus-visible {
+  opacity: 1;
+}
+
+@media (pointer: coarse) {
+  /* Thumb-scrolling is better than arrow buttons on touch. */
+  .shelf__arrow { display: none; }
+}
+
+/* --------------------------------------------------------------------- card */
+
+.card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--card-w);
+  /* Art + label. Fixed, so the virtualiser's maths stays exact and a long title
+     cannot push into the shelf below. */
+  height: calc(var(--card-h) + var(--card-label-h));
+  display: block;
+  text-align: left;
+  /* `contain` keeps a recycled card's restyle from invalidating siblings, and
+     `will-change` promotes the transform so scrolling stays on the compositor. */
+  contain: layout paint style;
+  will-change: transform;
+}
+
+.card__art {
+  position: relative;
+  width: 100%;
+  height: var(--card-h);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--art, var(--surface));
+  box-shadow: var(--shadow-card);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur);
+}
+
+.card__art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.35));
+}
+
+.card:hover .card__art,
+.card:focus-visible .card__art {
+  transform: translateY(-4px) scale(1.03);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.7);
+}
+
+.card__badge {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 2;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(6, 6, 10, 0.78);
+  backdrop-filter: blur(4px);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--text);
+  text-transform: uppercase;
+}
+
+.card__glyph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 1;
+  font-family: var(--font-mono);
+  font-size: 40px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.65);
+  letter-spacing: -0.04em;
+}
+
+.card__progress {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 2;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.25);
+  overflow: hidden;
+}
+
+.card__progress i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.card__fav {
+  position: absolute;
+  right: 7px;
+  top: 7px;
+  z-index: 2;
+  width: 16px;
+  height: 16px;
+  fill: var(--accent);
+  filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.8));
+}
+
+.card__label {
+  padding: 8px 2px 0;
+}
+
+.card__title {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: 1.25;
+  /* Two-line clamp: a card must never resize to fit its title. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card__sub {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --------------------------------------------------------------------- grid */
+
+.grid-wrap {
+  padding: calc(var(--topbar-h) + var(--sp-5)) var(--sp-6) var(--sp-6);
+}
+
+.grid-wrap[hidden] {
+  display: none;
+}
+
+.grid__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: var(--sp-4);
+}
+
+.grid__title {
+  margin: 0;
+  font-size: var(--fs-xl);
+}
+
+.grid__count {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+/* Virtualiser root for the grid: height = rows * rowHeight. */
+.grid {
+  position: relative;
+}
+
+/* One virtualised row holding N cards. Recycling a row recycles its cards with
+   it, so the pool is rows, not individual cards. */
+.grid__row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--grid-row-h);
+  display: flex;
+  gap: var(--card-gap);
+  contain: layout paint style;
+}
+
+.grid__row .card {
+  position: relative;
+  flex: 0 0 var(--card-w);
+}

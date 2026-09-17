@@ -1,0 +1,277 @@
+/* Reset and primitives shared by both views. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+html {
+  background: var(--bg);
+  /* iOS: prevent rubber-banding the whole document while a game is running. */
+  overscroll-behavior: none;
+}
+
+body {
+  font-family: var(--font);
+  font-size: var(--fs-md);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overflow: hidden; /* Views manage their own scrolling. */
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 0;
+  background: none;
+  padding: 0;
+}
+
+svg {
+  width: 1.25em;
+  height: 1.25em;
+  fill: currentColor;
+  display: block;
+}
+
+/* Visible focus everywhere. The library is navigable by keyboard and, in
+   Phase 2, by game controller — an invisible focus ring makes both unusable. */
+:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.app {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+}
+
+.view {
+  position: absolute;
+  inset: 0;
+}
+
+.view[hidden] {
+  display: none;
+}
+
+/*
+ * While a game runs, the library is hidden with `visibility` rather than
+ * `display: none`. Removing it from layout would reset its scroll position and
+ * force every virtual scroller to re-measure from zero on return; this way the
+ * shelves are exactly where the user left them. `pointer-events: none` keeps its
+ * (still laid out) controls from swallowing clicks meant for the player.
+ */
+.app[data-view="player"] .view--library {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ buttons */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 10px 20px;
+  border-radius: var(--radius);
+  font-weight: 650;
+  font-size: var(--fs-md);
+  transition: transform var(--dur-fast) var(--ease), background var(--dur-fast);
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn--primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn--primary:hover {
+  background: var(--accent-hi);
+}
+
+.btn--ghost {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  backdrop-filter: blur(8px);
+}
+
+.btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.iconbtn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  transition: background var(--dur-fast), transform var(--dur-fast) var(--ease);
+}
+
+.iconbtn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.iconbtn:active {
+  transform: scale(0.94);
+}
+
+.iconbtn.is-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.textbtn {
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.textbtn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.select {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+}
+
+.select select {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font-size: var(--fs-sm);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
+/* ------------------------------------------------------------------- toasts */
+
+.toasts {
+  position: fixed;
+  right: var(--sp-4);
+  bottom: var(--sp-4);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  pointer-events: none;
+}
+
+.toast {
+  min-width: 240px;
+  max-width: 380px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface-hi);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--cyan);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--fs-sm);
+  animation: toast-in var(--dur) var(--ease);
+}
+
+.toast[data-kind="error"] {
+  border-left-color: var(--danger);
+}
+
+.toast[data-kind="warn"] {
+  border-left-color: var(--amber);
+}
+
+.toast__title {
+  font-weight: 650;
+  margin: 0 0 2px;
+}
+
+.toast__body {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.toast.is-leaving {
+  animation: toast-out var(--dur) var(--ease) forwards;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes toast-out {
+  to { opacity: 0; transform: translateY(8px); }
+}
+
+/* -------------------------------------------------------------------- misc */
+
+.empty {
+  padding: var(--sp-8) var(--sp-6);
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.empty__title {
+  font-size: var(--fs-lg);
+  color: var(--text);
+  margin: 0 0 var(--sp-2);
+}
+
+.empty__hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.progress {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.progress__bar {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width var(--dur-fast) linear;
+}
+
+/* Hide scrollbars on horizontal shelves without losing scrollability. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
