@@ -115,6 +115,8 @@ jobs:
             || { echo "::error::no Info.plist in the bundle"; exit 1; }
           unzip -l "$IPA" | grep -q "libcontinuum_switch.dylib" \
             || { echo "::error::the libretro wrapper is not embedded; the app would launch and fail to load a core"; exit 1; }
+          unzip -l "$IPA" | grep -q "pcsx_rearmed_libretro_ios.dylib" \
+            || { echo "::error::the PS1 core is not embedded; the app would launch and fail to load PCSX ReARMed"; exit 1; }
           echo "ipa verified"
 
       - name: Upload the .ipa

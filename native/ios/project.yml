@@ -72,6 +72,14 @@ targets:
         # of surfacing "libcontinuum_switch.dylib is missing" in the HUD.
         link: false
         codeSign: false
+      # The PCSX ReARMed (PS1) libretro core, the first real core. Same shape as the wrapper
+      # above and for the same reason: dlopened at runtime (need_fullpath, real ROM path),
+      # never linked. `embed` puts it in Frameworks/; package-ipa.sh signs it in one pass
+      # after the fact, so `codeSign: false` keeps Xcode from failing with signing disabled.
+      - framework: build/lib/pcsx_rearmed_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
 
 # Declared explicitly. XcodeGen only emits a *shared* scheme when one is defined here, and
 # `xcodebuild -scheme` cannot see the non-shared schemes Xcode would otherwise invent on

@@ -28,6 +28,101 @@ TOOLS="$ROOT/.tools"
 WORK="$ROOT/.work"
 OUT_DIR="$ROOT/web/cores"
 
+# ---------------------------------------------------------------- iOS PS1 core
+#
+# PCSX ReARMed for iOS is a *completely separate* path from the wasi-sdk web strategies
+# above. It does not use wasi-sdk, the RETRO_EXPORTS list, the wasm import-restriction
+# check, core-shim, or web/cores/. It compiles the real libretro core from source with
+# Apple's clang for aarch64-apple-ios and produces a native .dylib the iOS app dlopens.
+#
+# It is invoked as a distinct core name:
+#
+#   scripts/build-core.sh pcsx_rearmed        # PS1 core -> native/ios/build/lib/*.dylib
+#
+# and is dispatched before the wasi-sdk machinery ever runs, so nothing here perturbs the
+# web build. This path only runs on macOS (Darwin); it errors clearly anywhere else, the
+# same contract as native/ios/build-engine.sh.
+#
+# Ground truth (PCSX ReARMed's master Makefile.libretro, platform=ios-arm64): ARCH=arm64,
+# BUILTIN_GPU=neon, DYNAREC=0, CC='cc -arch arm64 -isysroot $(IOSSDK)', GNU_LINKER=0, links
+# -shared, TARGET=pcsx_rearmed_libretro_ios.dylib. The repo has git submodules (lightrec,
+# libchdr) that must be initialised recursively.
+#
+# DYNAREC=0 is not our choice: the Makefile force-disables the lightrec/dynarec JIT for iOS
+# arm64. That makes this first build INTERPRETER-only: no JIT dependency (so no dependence
+# on the JIT entitlement being honoured), correct-but-slower. That tradeoff is deliberate
+# for the first green build; it de-risks the loader/ROM/input/audio software frame path
+# before any recompiler is involved. A faster JIT-backed build is a later step.
+PS1_CORE_NAME="pcsx_rearmed"
+PS1_CORE_REPO="https://github.com/libretro/pcsx_rearmed"
+# THE canonical filename. This exact string must match, byte for byte:
+#   - build-engine.sh copy destination in native/ios/build/lib/
+#   - project.yml   framework: build/lib/pcsx_rearmed_libretro_ios.dylib
+#   - package-ipa.sh fallback source/dest
+#   - .github/workflows/ios.yml verify grep
+# A single divergence turns macOS CI red, so it is defined once, here.
+PS1_DYLIB_NAME="pcsx_rearmed_libretro_ios.dylib"
+# Staged next to libcontinuum_switch.dylib so project.yml's relative `build/lib/...` path
+# resolves and package-ipa.sh's fallback finds it in $OUT/lib.
+PS1_OUT_DIR="$ROOT/native/ios/build/lib"
+
+build_ps1_ios_core() {
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    cat >&2 <<'EOF'
+error: the pcsx_rearmed (PS1) core builds for iOS only, which needs a macOS host.
+
+  It cross-compiles the real libretro core with Apple's clang and the iphoneos SDK:
+      make -f Makefile.libretro platform=ios-arm64 IOSSDK=$(xcrun --sdk iphoneos --show-sdk-path)
+  There is no wasi-sdk fallback for this path. Build it on the macOS runner via the
+  ios workflow (native/ios/build-engine.sh calls this), which is what it is for.
+EOF
+    exit 1
+  fi
+
+  command -v xcrun >/dev/null 2>&1 || { echo "error: xcrun not found (need Xcode command line tools)" >&2; exit 1; }
+  command -v make >/dev/null 2>&1 || { echo "error: make not found" >&2; exit 1; }
+  command -v git >/dev/null 2>&1 || { echo "error: git not found" >&2; exit 1; }
+
+  local iossdk
+  iossdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+  [[ -n "$iossdk" && -d "$iossdk" ]] || { echo "error: could not resolve the iphoneos SDK path via xcrun" >&2; exit 1; }
+
+  mkdir -p "$WORK" "$PS1_OUT_DIR"
+
+  local src_dir="$WORK/$PS1_CORE_NAME"
+  if [[ ! -d "$src_dir/.git" ]]; then
+    echo "==> cloning $PS1_CORE_NAME"
+    git clone "$PS1_CORE_REPO" "$src_dir"
+  fi
+
+  echo "==> initialising submodules (lightrec, libchdr)"
+  ( cd "$src_dir" && git submodule update --init --recursive )
+
+  echo "==> building $PS1_CORE_NAME for ios-arm64 (DYNAREC=0, interpreter-only)"
+  # platform=ios-arm64 selects ARCH=arm64, BUILTIN_GPU=neon, DYNAREC=0, the arm64 clang
+  # CC and -shared link, and emits the .dylib TARGET. IOSSDK must be passed explicitly.
+  ( cd "$src_dir" && make -f Makefile.libretro platform=ios-arm64 IOSSDK="$iossdk" -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 4)" )
+
+  local built="$src_dir/$PS1_DYLIB_NAME"
+  [[ -f "$built" ]] || {
+    echo "error: expected $built after the make; the PS1 core did not build" >&2
+    exit 1
+  }
+
+  # dlopen from Frameworks/ resolves against @rpath (LD_RUNPATH_SEARCH_PATHS in project.yml
+  # points at @executable_path/Frameworks). If the Makefile did not set an @rpath install
+  # name, force one so the on-device load resolves. Harmless to reassert if already correct.
+  local install_name
+  install_name="$(otool -D "$built" 2>/dev/null | tail -n +2 | head -1 || true)"
+  if [[ "$install_name" != "@rpath/$PS1_DYLIB_NAME" ]]; then
+    echo "==> setting install_name to @rpath/$PS1_DYLIB_NAME (was: ${install_name:-none})"
+    install_name_tool -id "@rpath/$PS1_DYLIB_NAME" "$built"
+  fi
+
+  cp "$built" "$PS1_OUT_DIR/$PS1_DYLIB_NAME"
+  echo "==> done: native/ios/build/lib/$PS1_DYLIB_NAME ($(du -h "$PS1_OUT_DIR/$PS1_DYLIB_NAME" | cut -f1))"
+}
+
 WASI_SDK_VERSION="25.0"
 WASI_SDK="$TOOLS/wasi-sdk-${WASI_SDK_VERSION}-x86_64-linux"
 
@@ -441,6 +536,13 @@ build_core() {
   echo "==> done: web/cores/$core.wasm ($(du -h "$OUT_DIR/$core.wasm" | cut -f1))"
   echo
 }
+
+# The PS1 core is dispatched before the wasi-sdk web machinery so it never fetches wasi-sdk
+# and never touches web/cores/. It is a native iOS .dylib, not a wasm module.
+if [[ "${1:-}" == "$PS1_CORE_NAME" ]]; then
+  build_ps1_ios_core
+  exit 0
+fi
 
 ensure_toolchain
 

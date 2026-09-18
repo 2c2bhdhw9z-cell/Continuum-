@@ -83,6 +83,14 @@ if [ ! -f "$BUNDLE/Frameworks/libcontinuum_switch.dylib" ]; then
   cp "$OUT/lib/libcontinuum_switch.dylib" "$BUNDLE/Frameworks/"
 fi
 
+# Same fallback for the PS1 core (PCSX ReARMed). dlopened at runtime through
+# @executable_path/Frameworks like the wrapper; if Xcode's embed phase was skipped, place
+# it so the signing loop below still seals it and the app can load a real core on device.
+if [ ! -f "$BUNDLE/Frameworks/pcsx_rearmed_libretro_ios.dylib" ]; then
+  echo "==> embedding pcsx_rearmed_libretro_ios.dylib (Xcode did not)"
+  cp "$OUT/lib/pcsx_rearmed_libretro_ios.dylib" "$BUNDLE/Frameworks/"
+fi
+
 # ------------------------------------------------------------ 4. signing
 
 # Nested code first: codesign refuses to seal a bundle whose contents change afterwards.

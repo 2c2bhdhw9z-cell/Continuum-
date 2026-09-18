@@ -126,6 +126,21 @@ WRAPPER="$ROOT/native/switch-wrapper/build/libcontinuum_switch.dylib"
 cp "$WRAPPER" "$LIBDIR/"
 echo "==> $LIBDIR/libcontinuum_switch.dylib ($(du -h "$WRAPPER" | cut -f1))"
 
+# -------------------------------------------------- 4. the PS1 libretro core
+
+# PCSX ReARMed (PS1), the first real core, compiled from source for iOS by scripts/build-core.sh
+# and dlopened at runtime like the wrapper. build-core.sh clones the core, inits its
+# submodules, runs its Makefile.libretro for ios-arm64, fixes the @rpath install_name, and
+# stages the .dylib straight into build/lib/ (this same $LIBDIR). It is INTERPRETER-only
+# for now (the Makefile force-disables the JIT for iOS arm64) — see build-core.sh.
+echo "==> building the PS1 core (pcsx_rearmed) for iOS"
+"$ROOT/scripts/build-core.sh" pcsx_rearmed
+PS1_CORE="$LIBDIR/pcsx_rearmed_libretro_ios.dylib"
+# Hard-fail if the core is missing: shipping an .ipa without it would launch and then fail
+# to load PCSX ReARMed on device, which is far harder to diagnose than a red build here.
+[ -f "$PS1_CORE" ] || { echo "error: $PS1_CORE was not produced" >&2; exit 1; }
+echo "==> $LIBDIR/pcsx_rearmed_libretro_ios.dylib ($(du -h "$PS1_CORE" | cut -f1))"
+
 cat <<EOF
 
 ==> engine ready in $OUT
