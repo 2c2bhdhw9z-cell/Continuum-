@@ -43,12 +43,16 @@ mkdir -p "$LIBDIR" "$GENDIR"
 echo "==> rustup target add $TARGET"
 rustup target add "$TARGET"
 
-echo "==> cargo build --release --target $TARGET --features $FEATURES"
+# The `ios` profile inherits release but sets `panic = "unwind"`, so a Rust panic on device
+# crosses the FFI boundary as UniFFI's `rustPanic` and reaches the HUD instead of aborting
+# the process. It is a *custom* profile, so cargo writes its artefacts to
+# `target/$TARGET/ios/`, not `.../release/` — hence RUST_OUT below. See Cargo.toml.
+echo "==> cargo build --profile ios --target $TARGET --features $FEATURES"
 # Builds every crate-type at once: the .a is what Xcode links, and the .dylib is what
 # UniFFI reads metadata out of. One build, both artefacts.
-(cd "$ROOT" && cargo build --release --target "$TARGET" --features "$FEATURES")
+(cd "$ROOT" && cargo build --profile ios --target "$TARGET" --features "$FEATURES")
 
-RUST_OUT="$ROOT/target/$TARGET/release"
+RUST_OUT="$ROOT/target/$TARGET/ios"
 STATIC_LIB="$RUST_OUT/libemulator_bridge.a"
 DYLIB="$RUST_OUT/libemulator_bridge.dylib"
 
@@ -68,7 +72,7 @@ BINDGEN="$ROOT/target/release/uniffi-bindgen"
 # a UDL file, because the interface is declared with #[uniffi::export] proc-macros, so the
 # compiled artefact is the single source of truth.
 #
-# The iOS cdylib is preferred because the release build above produces it for free. If it is
+# The iOS cdylib is preferred because the engine build above produces it for free. If it is
 # absent — linking a cdylib for a device target is the one step here that could not be
 # rehearsed off a Mac — fall back to a host build. The metadata UniFFI reads is the interface
 # description, which is target-independent, so the generated Swift is byte-identical either

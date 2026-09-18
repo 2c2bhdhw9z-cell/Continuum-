@@ -1320,8 +1320,23 @@ appears is not, and cannot be from here. The HUD exists for exactly that reason 
 distinguishes a different failure, because on a sideloaded build with no debugger it is the
 only diagnostic there is.
 
-One thing to know if it crashes rather than reporting: `panic = "abort"` in the release
-profile means a Rust panic takes the process down instead of surfacing as a Swift error,
-which defeats the `rustPanic` case UniFFI generates. A `[profile.ios]` inheriting release with
-`panic = "unwind"` would fix that, at the cost of changing the artefact paths every script
-uses. Worth doing if a silent crash ever needs diagnosing.
+A Rust panic on device now surfaces rather than aborting silently. It used to be that
+`panic = "abort"` in the release profile took the whole process down on a panic instead of
+letting it cross the FFI boundary, which threw away the `rustPanic` case UniFFI generates and
+the HUD relies on. The fix is now in place: `Cargo.toml` carries a `[profile.ios]` that
+`inherits = "release"` and sets `panic = "unwind"`, and `native/ios/build-engine.sh` builds
+the engine with `cargo build --profile ios` and reads its artefacts from
+`target/aarch64-apple-ios/ios/` rather than `.../release/`.
+
+It is a *separate* profile, not a change to `[profile.release]`, on purpose: the wasm/web
+build (`scripts/build-wasm.sh`) and `cargo test` both use release and must keep
+`panic = "abort"` — `wasm32-unknown-unknown` has no real unwinder, so flipping release there
+would regress a build this change must not touch. Only `build-engine.sh` uses `--profile ios`,
+so only the iOS engine unwinds. The artefact-path cost the previous note warned about is paid
+inside `build-engine.sh` alone: `package-ipa.sh` reads from `native/ios/build/` (which
+`build-engine.sh` populates) and `native/switch-wrapper/build.sh` has its own `build/` dir, so
+neither needed touching. The host-side UniFFI bindgen and its metadata fallback stay on
+release, because the interface metadata UniFFI reads is profile- and target-independent.
+
+Still unproven, as before: whether the panic-to-HUD path actually fires on device, since the
+app has never been run. But the build no longer aborts on the way there.

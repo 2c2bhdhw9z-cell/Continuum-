@@ -37,6 +37,23 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 
+# The iOS engine profile. Identical to release except that panics unwind instead of
+# aborting. `panic = "abort"` takes the process down on a Rust panic, which throws away the
+# `rustPanic` case UniFFI generates and the HUD relies on to say *why* a session died; on a
+# sideloaded build with no debugger that error message is the only diagnostic there is.
+# Unwinding lets the panic cross the FFI boundary as a Swift error instead.
+#
+# This is a *separate* profile rather than a change to `[profile.release]` on purpose: the
+# wasm/web build (scripts/build-wasm.sh) and `cargo test` both use release and must keep
+# `panic = "abort"` — wasm32-unknown-unknown has no real unwinder, and flipping it there
+# would regress a build this change must not touch. Only native/ios/build-engine.sh builds
+# with `--profile ios`, so only the iOS engine unwinds. Custom profiles write their
+# artefacts to `target/<triple>/ios/`, so build-engine.sh reads from there rather than
+# `.../release/`.
+[profile.ios]
+inherits = "release"
+panic = "unwind"
+
 # Emulator cores are latency-sensitive; never ship a debug-speed core.
 [profile.dev.package."*"]
 opt-level = 2
