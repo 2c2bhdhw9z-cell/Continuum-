@@ -93,6 +93,16 @@ final class EngineHost: ObservableObject {
     /// strong reference therefore provably outlives any picker it is handed to.
     private lazy var folderPickerDelegate = FolderPickerDelegate(host: self)
 
+    /// The picker that is currently on screen, retained for as long as it is up.
+    ///
+    /// UIKit owns a presented view controller, so this is belt and braces against the one
+    /// remaining invisible failure: if anything releases or tears the picker down early, it
+    /// disappears without a word and its delegate is never called, which reads on the HUD
+    /// exactly like a delegate that refuses to fire. Holding a strong reference here means an
+    /// early release cannot be what happened, so the HUD's silence has to mean something else.
+    /// Cleared through `releaseActivePicker()` the moment any callback reports back.
+    private var activePicker: UIDocumentPickerViewController?
+
     /// The content types the picker offers: a single FOLDER. Declared once, here, because this
     /// is the only place a picker is built.
     ///
@@ -447,9 +457,9 @@ final class EngineHost: ObservableObject {
     /// presented straight from the window's topmost view controller instead of being routed
     /// back through a SwiftUI sheet.
     func presentFolderPicker() {
-        // Breadcrumb written BEFORE presenting, so the button press itself is observable even
-        // if the presentation cannot happen. If the HUD never reaches this line, the button
-        // action is not running; if it stops here, the presentation is what failed.
+        // Breadcrumb written BEFORE anything else, so the button press itself is observable
+        // even if resolving a presenter fails. If the HUD never reaches this line, the button
+        // action is not running at all.
         status = "presenting folder picker..."
 
         guard let presenter = Self.topmostViewController() else {
@@ -471,13 +481,55 @@ final class EngineHost: ObservableObject {
         // Show extensions so the user can confirm by eye that the folder holds .cue/.bin.
         picker.shouldShowFileExtensions = true
 
-        presenter.present(picker, animated: true)
+        // Watches for a dismissal that yields no pick at all: a swipe-away, or something else
+        // tearing the sheet down. Without this, "the user or the system closed the sheet" and
+        // "the pick callback never fired" are the same blank HUD, which is the one ambiguity
+        // still open. `presentationController` is created on demand from `modalPresentationStyle`
+        // for a controller that has not been presented yet, so it is expected to be non-nil;
+        // the pre-present line below reports whether the watch was actually wired rather than
+        // leaving a silently unhooked callback.
+        picker.presentationController?.delegate = folderPickerDelegate
+        let dismissalWatch = picker.presentationController == nil
+            ? "no dismissal watch"
+            : "dismissal watch on"
 
-        // Distinct from the pre-present line: reaching this means UIKit accepted the
-        // presentation, so a HUD still reading "presenting folder picker..." means present
-        // was never called, and one reading this means the picker is up and the next HUD
-        // change must come from the delegate.
-        status = "folder picker presented; waiting for the delegate"
+        // Arm the delegate for this picker: clears the flag that suppresses the dismissal
+        // notice, so a second pick attempt is tracked as carefully as the first.
+        folderPickerDelegate.prepareForNewPicker()
+
+        // Hold the picker so an early release cannot be the invisible cause of a silent HUD.
+        activePicker = picker
+
+        // Naming the presenter is the point of this line. If the picker is being presented
+        // from something unexpected or already detached from the window, this is the smoking
+        // gun, and it is only readable BEFORE the call in case the call itself never returns.
+        let presenterName = String(describing: type(of: presenter))
+        status = "presenting folder picker from \(presenterName) (\(dismissalWatch))..."
+
+        // The completion handler is the fix to a LYING diagnostic. `present` is asynchronous,
+        // so the old code's next-line "picker presented" claim was written whether or not the
+        // presentation ever finished, which made "stuck waiting for the delegate" mean two
+        // different things: a silent delegate, or a picker that never truly came up and took
+        // the user's pick with a controller that was already gone. Only the completion handler
+        // runs once UIKit has actually finished presenting, so only a HUD line written in here
+        // can honestly claim the sheet is up.
+        presenter.present(picker, animated: true) { [weak self] in
+            // UIKit runs this on the main thread, but the closure carries no isolation the
+            // compiler can see under SWIFT_VERSION 5.0, so the hop is explicit. `EngineHost`
+            // is global-actor isolated and therefore Sendable, so a weak capture of it is
+            // safe to carry across.
+            Task { @MainActor in
+                self?.status = "picker is up; waiting for a pick"
+            }
+        }
+    }
+
+    /// Drops the strong reference to the presented picker once it has reported back.
+    ///
+    /// Called from every delegate callback. Not private: `FolderPickerDelegate` is a separate
+    /// type by necessity (a UIKit delegate must be an `NSObject`) and is the only caller.
+    func releaseActivePicker() {
+        activePicker = nil
     }
 
     /// Resolves the view controller to present from: the topmost one in the active window.
@@ -559,47 +611,119 @@ final class EngineHost: ObservableObject {
 /// its `folderPickerDelegate` property, and `EngineHost` is itself owned by a `@StateObject` for
 /// the app's lifetime. The reference back to the host is `unowned` so the two do not form a
 /// retain cycle; it is safe because this object cannot outlive the host that owns it.
-final class FolderPickerDelegate: NSObject, UIDocumentPickerDelegate {
+/// Both pick callbacks are implemented, and both name themselves on the HUD. The modern iOS 14+
+/// array form is the one that should fire; the deprecated single-URL form is kept alongside it,
+/// never instead of it, purely as a diagnostic. If the array selector genuinely is not being
+/// delivered on this OS build, the single-URL one will fire and the HUD will say which, so the
+/// question "is the selector wrong, or is the callback never sent at all" is answered by reading
+/// the screen rather than by another round of guessing. Every callback is `@objc` explicitly:
+/// these are optional protocol requirements, dispatched by selector from Objective-C, and none of
+/// them should depend on the compiler inferring an `@objc` entry point.
+///
+/// `UIAdaptivePresentationControllerDelegate` is here for the same reason: it separates "the sheet
+/// was closed without a pick" from "the pick callback stayed silent".
+final class FolderPickerDelegate: NSObject, UIDocumentPickerDelegate,
+                                  UIAdaptivePresentationControllerDelegate {
     private unowned let host: EngineHost
+
+    /// Set as soon as any pick or cancel callback fires, and read only by the dismissal notice.
+    ///
+    /// The picker dismisses itself after a pick and after a cancel, so the dismissal callback can
+    /// arrive on a perfectly successful run. Without this flag it would overwrite "running: ..."
+    /// with "dismissed without a pick" and manufacture the exact false report this change exists
+    /// to eliminate. Written synchronously on the thread UIKit calls back on, never inside the
+    /// actor hop, so it is always set before any later callback can read it.
+    private var outcomeDelivered = false
 
     init(host: EngineHost) {
         self.host = host
         super.init()
     }
 
-    /// The callback whose absence was the bug. Its first act is always a HUD write.
-    func documentPicker(_ controller: UIDocumentPickerViewController,
-                        didPickDocumentsAt urls: [URL]) {
+    /// Re-arms dismissal tracking for a freshly built picker. Called by `presentFolderPicker`.
+    func prepareForNewPicker() {
+        outcomeDelivered = false
+    }
+
+    /// The modern iOS 14+ callback, and the one that is expected to fire. Its first act is a
+    /// HUD write, before any processing.
+    @objc func documentPicker(_ controller: UIDocumentPickerViewController,
+                              didPickDocumentsAt urls: [URL]) {
         // Unconditional breadcrumb, built from nothing but what was handed in, ahead of every
         // branch below. It proves the delegate fired and shows the shape of what came back, so
         // "the callback never ran" and "the callback ran and then something failed" can never
-        // again be confused for each other.
-        let fired = "delegate fired: \(urls.count) url(s): "
+        // again be confused for each other. It names itself multi-url so it is distinguishable
+        // at a glance from the single-url fallback.
+        let fired = "delegate fired (multi-url): \(urls.count) url(s): "
             + "\(urls.first?.lastPathComponent ?? "none")"
         // An empty pick is its own reported condition, not a silent no-op.
         let outcome = PickerOutcome(
             urls: urls,
             failureText: urls.isEmpty ? "delegate fired with 0 urls: nothing to open" : nil
         )
-        // UIKit calls this on the main thread, but the compiler cannot know that under
-        // SWIFT_VERSION 5.0, so the hop to the `@MainActor` host is explicit. `EngineHost` is
-        // global-actor isolated and therefore Sendable, so it is bound to a local first and the
-        // non-Sendable delegate itself is never captured.
-        let host = self.host
-        Task { @MainActor in
-            host.status = fired
-            host.handlePicked(outcome)
-        }
+        deliver(fired, outcome)
+    }
+
+    /// The deprecated iOS 8 single-URL callback, kept ALONGSIDE the array form above.
+    ///
+    /// This is not the primary path and is not expected to fire. It exists so that the failure
+    /// mode "the array selector is not being delivered" cannot hide: if this one runs, the HUD
+    /// says so by name, and if neither runs then no pick callback is being sent at all and the
+    /// signature was never the problem. It forwards into the SAME outcome and launch path with
+    /// the single URL wrapped in an array, so there is exactly one downstream behaviour.
+    @objc func documentPicker(_ controller: UIDocumentPickerViewController,
+                              didPickDocumentAt url: URL) {
+        let fired = "delegate fired (single-url): \(url.lastPathComponent)"
+        deliver(fired, PickerOutcome(urls: [url], failureText: nil))
     }
 
     /// Distinguishes "the user backed out" from "the callback never fired".
     ///
     /// Without this line those two look identical on the HUD, which is exactly the ambiguity
     /// that made the previous two iterations impossible to diagnose.
-    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+    @objc func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        outcomeDelivered = true
         let host = self.host
         Task { @MainActor in
             host.status = "picker cancelled: no folder chosen"
+            host.releaseActivePicker()
+        }
+    }
+
+    /// Reports a sheet that went away without producing a pick.
+    ///
+    /// This is the other half of the "stuck waiting for the delegate" ambiguity: a picker that
+    /// was swiped away, or torn down by something else, versus a picker that is still up with a
+    /// silent delegate. Those now read differently on the HUD.
+    @objc func presentationControllerDidDismiss(
+        _ presentationController: UIPresentationController
+    ) {
+        // A pick or a cancel has already spoken for this picker and the picker dismisses itself
+        // afterwards, so staying quiet here is deliberate: the real result must not be replaced
+        // by a "no pick" line. Every other branch of this type writes to the HUD.
+        if outcomeDelivered {
+            return
+        }
+        let host = self.host
+        Task { @MainActor in
+            host.status = "picker dismissed without a pick (swipe or programmatic)"
+            host.releaseActivePicker()
+        }
+    }
+
+    /// The one path from a pick to the main actor, shared by both pick callbacks.
+    ///
+    /// UIKit calls the callbacks on the main thread, but the compiler cannot know that under
+    /// SWIFT_VERSION 5.0, so the hop to the `@MainActor` host is explicit. `EngineHost` is
+    /// global-actor isolated and therefore Sendable, so it is bound to a local first and the
+    /// non-Sendable delegate itself is never captured by the task.
+    private func deliver(_ fired: String, _ outcome: PickerOutcome) {
+        outcomeDelivered = true
+        let host = self.host
+        Task { @MainActor in
+            host.status = fired
+            host.releaseActivePicker()
+            host.handlePicked(outcome)
         }
     }
 }
