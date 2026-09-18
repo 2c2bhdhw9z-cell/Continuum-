@@ -1340,3 +1340,399 @@ release, because the interface metadata UniFFI reads is profile- and target-inde
 
 Still unproven, as before: whether the panic-to-HUD path actually fires on device, since the
 app has never been run. But the build no longer aborts on the way there.
+
+## 17. Phase 5 Step 2: the first real core (PCSX ReARMed, software)
+
+Step 10 booted a stub. Step 2 boots a real libretro core, PCSX ReARMed, through the same
+software frame path. Nothing about the frame loop, the compositor or the audio ring changed;
+what changed is that the thing on the other side of `dlopen` is now a real emulator with real
+expectations, and the loader had to grow up to meet them.
+
+### (a) Why PS1, and why PCSX ReARMed first
+
+The point of the first real core is to de-risk the parts that the stub could not exercise:
+the loader against a core that actually rejects a bad load, ROM ingestion against content the
+core insists on opening itself, input mapping against a real controller layout, and the audio
+pipeline against a core that produces real sample-rate audio. All four ride the software
+frame path, which already works. Doing them before MoltenVK means the hardware path lands on
+top of a loader that is already proven rather than being debugged at the same time as Vulkan.
+PS1 is the right system for that: PCSX ReARMed is small, boots without a BIOS via HLE, and its
+software renderer needs no hardware context at all. paraLLEl-N64 follows immediately after, and
+it is what forces the full MoltenVK/Vulkan hardware path, so PS1 is deliberately the last core
+that can get away with software only.
+
+### (b) Thin passthrough, and the FrameGate stays reserved
+
+The loader is Option 1, a thin passthrough: `native_core.rs` `dlopen`s the core and forwards
+the `retro_*` calls directly. It does not route through the switch-wrapper's IoC FrameGate.
+That gate is the inversion-of-control seam built for the future standalone Switch engine, and
+it stays reserved for it: the stub wrapper and its 15/15 harness are still a live, independent
+gate, and none of it is on the PS1 path. A PS1 frame goes core, staging, Metal, entirely
+inside Rust, with no gate in the middle.
+
+### (c) The environment commands the loader had to learn
+
+The stub answered about six environment calls. PCSX ReARMed issues far more inside
+`retro_load_game`, and would refuse to load against the old surface, so `on_environment` was
+extended (every command number machine-checked against `.work/hdr/libretro/libretro.h`, with
+an inline comment citing each value, because §1 already recorded that an experimental-bit
+mistake produces a case that can never match):
+
+- `SET_PIXEL_FORMAT` (10) is mandatory. The core points at a `c_uint`; the loader maps it
+  (libretro 1 = XRGB8888, 2 = RGB565), stores the choice, and returns true. `0RGB1555` (0) is
+  refused with false, because the compositor does not normalise it.
+- `GET_VARIABLE` (15) returns false with a null value, which libretro defines as "use the core
+  default". PCSX ReARMed reads 73 variables; none are fabricated, so the core runs on its own
+  defaults. That is deliberate: inventing option strings is how a core ends up configured
+  wrong in ways nobody chose.
+- The option and descriptor families are accepted as no-ops returning true:
+  `SET_VARIABLES`, the `SET_CORE_OPTIONS*` variants and their display/update callbacks,
+  `SET_INPUT_DESCRIPTORS`, `SET_CONTROLLER_INFO`, `SET_PERFORMANCE_LEVEL`, `SET_SYSTEM_AV_INFO`,
+  `SET_GEOMETRY`, `SET_MESSAGE` and `SET_MESSAGE_EXT`. Accepting them keeps the core happy
+  without claiming a capability that is never delivered.
+- Two calls are deliberately refused (they fall through to the silent default-false arm):
+  `SET_AUDIO_BUFFER_STATUS_CALLBACK` and `GET_INPUT_BITMASKS`. §1's lesson is not to claim a
+  callback you will never make, so the audio-buffer callback is refused cleanly; refusing
+  bitmasks routes the core to per-id `input_state`, which `InputSnapshot::libretro_state`
+  already serves. The default arm stays silent so a per-frame refusal cannot spam the log.
+
+### (d) Pixel-format negotiation
+
+`video()` used to hardcode `PixelFormat::Rgba8888`. It now reports the format the core
+negotiated. PCSX ReARMed chooses RGB565 by default and XRGB8888 only if
+`pcsx_rearmed_rgb32_output` is on; both are normalised on the CPU by `gfx/convert.rs`, so
+reporting the true format is exactly what makes PS1 colours come out right. The negotiated
+value is carried through a process-global `Mutex<Option<PixelFormat>>` alongside `DIRECTORIES`,
+for the same lifetime reason: `SET_PIXEL_FORMAT` fires inside `retro_load_game` under a
+Mutex-held bridge, possibly off the callback thread. It is reset before each load so a stale
+value from a prior core cannot leak, and it defaults to the declared descriptor format when no
+`SET_PIXEL_FORMAT` arrived.
+
+### (e) BIOS handling and the HUD
+
+The system directory is `applicationSupportDirectory`, created if absent and passed as both
+`systemDir` and `saveDir`. A real BIOS placed there (for example `scph1001.bin`) raises
+compatibility, but PCSX ReARMed does not require one: with no BIOS it falls back to HLE (its
+`pcsx_rearmed_bios` option, `Config.HLE`) and still boots, at reduced accuracy. Because that is
+a compatibility note rather than a hard failure, the app checks the system dir for the known
+BIOS filenames and puts the result on the HUD ("BIOS: scph1001.bin" or "BIOS: none, HLE
+fallback"), so a missing BIOS is a legible on-screen condition rather than a silent drop in
+accuracy. No BIOS is ever bundled: shipping a PS1 BIOS is a copyright violation.
+
+### (f) need_fullpath and the fullpath plumbing
+
+PCSX ReARMed declares `need_fullpath = true` unconditionally and hard-rejects a load if
+`info->path` is NULL (its `frontend/libretro.c` around line 2010, "info->path required"): it
+opens and reads the disc image itself and ignores the data pointer. So the launch filename has
+to be a real, openable path, not the file stem the stub got away with. `ContentHint` gained an
+optional `full_path`, populated from the launch path when it contains a directory separator,
+and `load_content` hands the core that real path when the rom bytes are empty. On the Swift
+side the app writes a placeholder file to a real path in the writable area and passes that path
+as the launch filename with empty rom bytes. No commercial ROM is bundled, and CI cannot boot a
+game anyway; the point of this step is that the loader and the path plumbing run end to end. On
+device, dropping a real `.cue`/`.bin`/`.pbp`/`.chd` at that path would boot it.
+
+### (g) The build-core.sh iOS strategy and the artefact chain
+
+`scripts/build-core.sh` gained an isolated iOS path, Darwin-guarded and completely separate
+from the wasi-sdk web strategies. It clones `libretro/pcsx_rearmed`, inits its submodules
+(lightrec, libchdr), and runs `make -f Makefile.libretro platform=ios-arm64 IOSSDK=<sdk>`,
+which sets ARCH=arm64, BUILTIN_GPU=neon and, importantly, DYNAREC=0. The dynarec/lightrec JIT
+is force-disabled for iOS arm64, so the first green build is interpreter only: correct but
+slower, no JIT entitlement dependency to fight, which is the right tradeoff for proving the
+loader. The Makefile emits `pcsx_rearmed_libretro_ios.dylib`, and the build reasserts its
+install_name to `@rpath/pcsx_rearmed_libretro_ios.dylib` so it can be `dlopen`ed from
+`Frameworks/`.
+
+That one filename is load-bearing across five files, and a single divergence is what turns CI
+red:
+
+```
+scripts/build-core.sh   produces  native/ios/build/lib/pcsx_rearmed_libretro_ios.dylib
+native/ios/build-engine.sh stages  into build/lib/ and hard-fails if it is missing
+native/ios/project.yml  embeds     build/lib/pcsx_rearmed_libretro_ios.dylib (embed:true, link:false, codeSign:false)
+native/ios/package-ipa.sh signs    every Frameworks/*.dylib, with a fallback copy of the same name
+.github/workflows/ios.yml verifies unzip -l "$IPA" | grep -q pcsx_rearmed_libretro_ios.dylib
+```
+
+It is embedded but not linked, reached by `dlopen`, for the same reason as the stub wrapper: a
+wrong rpath then fails to load with a legible HUD line instead of stopping the app from
+launching at all. The stub wrapper stays embedded alongside it; its harness is still a gate.
+
+### (h) What remains unproven
+
+On-device PS1 boot is unproven, and CI cannot prove it. CI proves exactly one thing: that the
+macOS build produces a signed bundle that embeds the core dylib. It does not, and cannot, boot
+a game, because no ROM or BIOS is bundled and there is no device in the loop. So "the loader
+loads PCSX ReARMed, negotiates a pixel format, and renders a PS1 frame on a real phone" is not
+established by anything here. The HUD is the diagnostic for when it is finally run on device:
+the status line, the BIOS/HLE line, the GPU line, and the frames/fps/dropped counter each
+distinguish a different failure, and on a sideloaded build with no debugger they are the only
+diagnostics there are. The Swift itself is checked here only as far as `swiftc -frontend -parse`
+reaches, which per §16 is a spell-checker, not a compiler: anything needing UIKit is proven
+only by the cloud build.
+
+### (i) Multi-file cue/bin and the iOS folder scope
+
+A CD-based PS1 game is not one file. A `.cue` sheet is a short text descriptor that names one
+or more `.bin` track files sitting next to it, and PCSX ReARMed (need_fullpath, §(f)) opens the
+`.cue` and then opens each `.bin` it references itself. That is exactly what the original
+single-file `.fileImporter` broke: iOS grants a security scope to the ONE file the user picks,
+so when the user picked the `.cue`, the core's `fopen` of the adjacent `.bin` was outside any
+granted scope and iOS denied it. Cue/bin games therefore failed on device even though the same
+core reads them fine on a desktop. The fix is purely about the scope iOS grants; the core and
+the Rust launch path are unchanged (they already accept a real absolute file path).
+
+The fix, Option 1 (primary), is to pick a FOLDER instead of a file. The picker now offers
+`allowedContentTypes: [.folder]` (`UTType.folder` is a valid system type, no exported type
+declaration needed), so the user selects the folder that holds the `.cue` and its `.bin`
+tracks. `EngineHost.launch(url:)` treats the URL as a folder, calls
+`startAccessingSecurityScopedResource()` on the FOLDER, and holds that scope in
+`activeScopedURL` for the whole session. A folder scope covers the entire subtree, so the core
+can open the `.cue` AND every adjacent `.bin` under it. The scope is released only in
+`stopSession()` (when the session ends or a new folder is picked) and in the no-entry and
+launch-failure error paths, never in a defer right after launch, because the core keeps the
+files open for the session. There is exactly one start per successful pick and exactly one
+matching stop, so the scope is balanced and never double-started or leaked.
+
+Inside the folder the host chooses the launch entry, the single file it hands the core, by a
+fixed extension priority: `.cue` > `.pbp` > `.iso` > `.chd` > `.bin`. The `.cue` (or a
+self-contained `.pbp`/`.iso`/`.chd` image) is what the core is given; `.bin` is a last resort
+for a raw single-track image with no descriptor. Enumeration is
+`FileManager.default.contentsOfDirectory(at:includingPropertiesForKeys:options:)` with hidden
+files skipped, extensions compared case-insensitively. When several files share the winning
+extension the choice is deterministic: candidates are sorted by `lastPathComponent` and the
+first is taken, and the chosen file plus its folder are named on the HUD. If the folder holds
+no loadable entry, the HUD shows a legible "no .cue/.pbp/.iso/.chd found in <folder>" line, the
+folder scope is released, and no launch occurs.
+
+Option 2 (secondary, complementary) adds two Info.plist keys: `UIFileSharingEnabled` exposes
+the app's Documents directory in the Files app and Finder, and
+`LSSupportsOpeningDocumentsInPlace` lets the app open documents in place. Together they let a
+user drag a folder of a `.cue` plus its `.bin` tracks straight into the app's Documents
+directory. Files inside Documents are inside the app sandbox, so they need no security scope at
+all; this is the drag-a-folder-in path that bypasses the picker.
+
+Those two keys have to be injected through `native/ios/project.yml`'s `info.properties`, not
+just written into `native/ios/Info.plist`. XcodeGen GENERATES the Info.plist at `info.path` on
+every `xcodegen generate`: the emitted plist is a fixed set of auto-default keys
+(CFBundleIdentifier, CFBundleName, CFBundleDevelopmentRegion, CFBundleExecutable,
+CFBundleInfoDictionaryVersion, CFBundlePackageType, CFBundleShortVersionString=1.0,
+CFBundleVersion=1) MERGED with the target's `info.properties` map, and it OVERWRITES the on-disk
+Info.plist if it differs (XcodeGen `Sources/XcodeGenKit/FileWriter.swift` `writePlists` plus
+`InfoPlistGenerator.swift`). It does NOT read the committed Info.plist content. So the two new
+keys, plus every existing custom key (CFBundleDisplayName, the 0.8.0/1 version overrides,
+LSRequiresIPhoneOS, MinimumOSVersion, UIRequiredDeviceCapabilities, UILaunchScreen,
+UIApplicationSupportsIndirectInputEvents, UIStatusBarHidden,
+UIViewControllerBasedStatusBarAppearance and the two orientation arrays), now live in
+`info.properties` so the built app's plist is complete. The committed `native/ios/Info.plist`
+is kept as a faithful human-readable seed with the same keys, but it is `info.properties` that
+determines what ships.
+
+As with the rest of §17, on-device multi-file cue/bin boot cannot be proven in this sandbox and
+is not proven by CI either. There is no macOS, Xcode, iOS SDK or xcodegen here, and
+`swiftc -frontend -parse` is a spell-checker (§16), so the `.fileImporter([.folder])` call, the
+`FileManager` enumeration and the security-scope balance were reviewed by eye. CI proves only
+that the macOS build produces a signed bundle embedding the core dylib. That a real phone picks
+a folder, holds the folder scope, and lets PCSX ReARMed read a `.cue` and its `.bin` tracks is
+verified only by the orchestrator's CI build and a subsequent on-device run, not here.
+
+### (j) Every system in the .ipa: five cores, one loaded at a time
+
+The .ipa shipped one core. It now ships five, which is every core the web build has plus PS1:
+
+| core | systems | dylib in Frameworks/ |
+| --- | --- | --- |
+| `fceumm` | NES | `fceumm_libretro_ios.dylib` |
+| `snes9x` | SNES | `snes9x_libretro_ios.dylib` |
+| `mgba` | GBA, GB, GBC | `mgba_libretro_ios.dylib` |
+| `genesis_plus_gx` | Mega Drive, Master System, Game Gear | `genesis_plus_gx_libretro_ios.dylib` |
+| `pcsx_rearmed` | PS1 | `pcsx_rearmed_libretro_ios.dylib` |
+
+Those five filenames are the load-bearing strings of this whole change. They are defined once,
+in `ios_core_config()` in `scripts/build-core.sh`, and they have to agree byte for byte with
+`native/ios/project.yml` (five `embed: true, link: false, codeSign: false` framework entries),
+`native/ios/package-ipa.sh` (the embed fallback), `.github/workflows/ios.yml` (one `unzip -l`
+grep per core, each with its own `::error::` naming the system that would not run) and
+`CoreCatalog` in `native/ios/ContinuumApp.swift`. `build-engine.sh` and `package-ipa.sh` do not
+restate them at all: they read them from `scripts/build-core.sh ios-names`, and build-engine.sh
+asserts the list has exactly five entries before it trusts it. Nothing in Xcode will ever tell
+you one of these is wrong. The app builds, installs, launches, and then cannot find a core.
+
+#### `build-core.sh ios <core>`, and why it is a subcommand
+
+`scripts/build-core.sh <name>` means "build `<name>` as WASM for the web", and those spellings
+are live: `web/cores/README.md`, `README.md`, this document, the `buildHint` strings in
+`scripts/core-abi-test.mjs` and the `build-core.sh all` step in `.github/workflows/deploy.yml`
+all use them. The first iOS core was added as `build-core.sh pcsx_rearmed`, which was safe only
+because `pcsx_rearmed` has no WASM case block. Teaching `build-core.sh fceumm` to build an iOS
+dylib would have broken the web build, quietly, in the one place nobody looks until the PWA
+stops loading a core. So the iOS builds got their own namespace instead:
+
+```
+scripts/build-core.sh fceumm       # WASM. UNCHANGED, and every bare core name still means WASM.
+scripts/build-core.sh all          # WASM, all four web cores. UNCHANGED.
+scripts/build-core.sh ios fceumm   # one iOS dylib -> native/ios/build/lib/
+scripts/build-core.sh ios-all      # all five, and it keeps going after a failure
+scripts/build-core.sh ios-names    # print the canonical filenames, on any host
+```
+
+The iOS dispatch runs before `ensure_toolchain`, so it never fetches wasi-sdk and never creates
+or writes `web/cores/`. `pcsx_rearmed` on its own still works as an alias for
+`ios pcsx_rearmed`. `ios-names` is the one iOS subcommand that runs off a Mac, which is what
+makes the filename table checkable from Linux, and it is also how the two shell scripts
+downstream learn the list.
+
+`ios-all` deliberately does not stop at the first broken core. The macOS runner is the only
+compiler this project has, so a run that dies on core one costs a whole cycle to learn about
+core two. Each core builds in a subshell, every failure is named, the summary lists what is and
+is not in `native/ios/build/lib/`, and the command still exits non-zero so `build-engine.sh`
+and CI still go red.
+
+#### How each core actually builds, from reading its makefile
+
+Four of the five have a libretro makefile with a real `platform=ios-arm64` target, and all four
+emit `$(TARGET_NAME)_libretro_ios.dylib`, which is already the canonical name:
+
+* `fceumm` and `genesis_plus_gx` build at the repo root with `-f Makefile.libretro`. fceumm's
+  root `Makefile` is a one-line include of it.
+* `snes9x` is the exception worth knowing: its makefile is `libretro/Makefile` and it sets
+  `CORE_DIR := ..`, so make has to run **inside** the `libretro` subdirectory and the dylib
+  lands there. It is C++, and its `LD` is `$(CXX)`, so libc++ comes in by itself.
+* `pcsx_rearmed` is unchanged from the build that already worked: recursive submodules
+  (lightrec, libchdr), and its iOS block force-disables the dynarec, so it stays
+  interpreter-only.
+
+`mgba` has no makefile at all. Its libretro core is a CMake target, which is also why the WASM
+path uses CMake for it: CMake generates files the build needs, `version.c` among them. So the
+iOS path configures CMake with `CMAKE_SYSTEM_NAME=iOS`, `CMAKE_OSX_ARCHITECTURES=arm64` and
+`CMAKE_OSX_SYSROOT=<iphoneos sdk>`, builds the static `mgba_libretro.a`, and then links the
+dylib itself:
+
+```
+cc -arch arm64 -isysroot "$IOSSDK" -miphoneos-version-min=16.0 \
+   -dynamiclib -install_name "@rpath/mgba_libretro_ios.dylib" \
+   -o mgba_libretro_ios.dylib -Wl,-force_load,mgba_libretro.a \
+   -framework Foundation -lm
+```
+
+`-force_load` is the load-bearing flag. Nothing in that link references `retro_run` or any other
+entry point, so without it the linker pulls in no archive members and hands back a valid, empty
+dylib that dlopens and then has no libretro API in it. `-framework Foundation` matches the
+`OS_LIB` mgba's CMakeLists appends on Apple. Two upstream details to expect in a CI log: mgba's
+CMakeLists forces `CMAKE_OSX_DEPLOYMENT_TARGET` to 10.6 inside its `if(APPLE)` block, which only
+lowers the objects' minimum OS and cannot stop them loading on iOS 16, and it appends `-flto` to
+the Apple Release flags, so the archive holds bitcode the linker resolves at link time. The
+configure also passes `-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY`, because
+`CMAKE_SYSTEM_NAME=iOS` puts CMake in cross-compiling mode and mgba's configure then runs probes
+that would otherwise link an executable. Skewed link-based function probes are the only cost, and
+every function mgba probes for exists on Darwin anyway, which is why its own CMakeLists guards
+the compensating override with `AND NOT APPLE`.
+
+#### Three checks that exist because of how this can fail quietly
+
+Everything downstream of a staged dylib only ever asks whether a file exists: build-engine.sh
+checks the path and prints a size, ios.yml greps the zip listing for the name, and the Swift host
+checks `Frameworks/`. All three pass for an empty dylib, and the failure then lands on device a
+whole build-and-sideload cycle later. So `ios_stage_dylib` asserts the API is actually present,
+for all five cores, with `nm -gU | grep -q retro_run`, at the moment the artefact is staged. That
+is the guard the mgba link in particular needs.
+
+`ios-all` runs each core as a separate `bash` process, not a subshell. Bash disables errexit for
+a command used as an `if` condition and that suppression is inherited by subshells inside it, so
+`if ( build_ios_core "$core" ); then` would let a failing `make`, `install_name_tool` or `cp`
+fall through to the artefact check, leaving "did a .dylib appear" as the only pass criterion. A
+stale dylib from an earlier run satisfies that. A separate process re-reads the script and
+applies its own `set -euo pipefail`. For the same reason the expected dylib is deleted before
+each build and before each staging: `.work/ios/<core>` persists between runs, so nothing left
+over from a previous build can be reported as this build's output.
+
+`build-engine.sh` checks, before it compiles anything, that all five names appear in
+`project.yml`, `ios.yml` and `ContinuumApp.swift`. Those three restate the names by hand and no
+compiler can check them, so a typo would otherwise cost twenty minutes of core builds and then
+produce a green build with an app that cannot find a core. The check costs seconds and fails
+naming the file and the consumer.
+
+The macOS job's `timeout-minutes` went from 60 to 120 in the same change. The build step now
+compiles five native cores rather than one, including mgba's LTO build and link and
+pcsx_rearmed's full-depth clone with recursive submodules, and nothing but cargo is cached
+between runs. A timeout is this job's worst failure because it produces no artefact and no
+`::error::`, so it reads like an infrastructure hang. If runs get slow enough to matter, the next
+lever is an `actions/cache` step for `.work/ios` keyed on `hashFiles('scripts/build-core.sh')`,
+which is safe now that a stale artefact can no longer be mistaken for a fresh one.
+
+iOS sources are cloned into `.work/ios/<core>`, not `.work/<core>`. The WASM path clones the same
+repositories into `.work/<core>` and both builds compile in tree, so a shared directory would
+let stale wasm objects be linked into an iOS dylib.
+
+#### Extension to core, in exactly one place
+
+The Library (import-and-copy into Documents, which superseded the folder-scope design in §(i))
+now accepts every ROM extension the five cores cover, and routes a tap by extension:
+
+| extension | core |
+| --- | --- |
+| `.nes` | `fceumm` |
+| `.sfc`, `.smc` | `snes9x` |
+| `.gba`, `.gb`, `.gbc` | `mgba` |
+| `.sms`, `.gg`, `.md`, `.gen` | `genesis_plus_gx` |
+| `.cue`, `.chd`, `.pbp`, `.iso` | `pcsx_rearmed` |
+
+`importableExtensions` is that key set plus `.bin`; `launchableExtensions` is derived as the
+importable set minus `.bin`, so the two cannot drift apart. A `.bin` is a CD track that a cue
+sheet names literally, so it must be importable for those references to resolve and must never
+be tappable. The mapping lives once, in `CoreCatalog.routes`, and both the Library row and
+`launch(entry:)` read it: each row's detail line ends with the core it will launch on, so a
+routing mistake is visible in the list before a tap rather than as a game booting on the wrong
+emulator. An extension with no mapped core writes its own HUD line and launches nothing.
+
+Genesis Plus GX is the reason the launch path still passes the real filename through: the core
+picks Mega Drive, Master System or Game Gear from the content extension, which is what
+`ContentHint::from_filename` on the Rust side is for.
+
+#### Declare five, load one
+
+All five cores are declared when the surface attaches, and none are loaded. `declare_core`
+stores a descriptor in the registry and touches no filesystem: no dlopen, no read of the dylib,
+no core allocated. Only the core a tapped game needs is loaded, in `ensureCoreLoaded(coreId:)`,
+which keeps the dynamic-loading rule intact. Five resident cores would be five emulators' worth
+of memory for four systems nobody asked to play. The up-front declaration still earns its keep
+twice over: a Library tap goes straight to the load, and a dylib that never reached
+`Frameworks/` is named on the new `cores:` HUD line before the user taps anything, because from
+the Library a missing dylib and a broken core look identical.
+
+`ensureCoreLoaded(coreId:)` keeps the fix from §(h)'s successor turn verbatim, generalised to
+five cores: `engine.coreState(coreId:)` is read fresh on every call, no Swift `Bool` caches it
+anywhere, `loaded` and `bound` are the usable states, a nil state collapses to `unknown` and
+takes the reload path, and after declare plus load the state is RE-READ rather than success
+being inferred from nothing having thrown. It is still called AFTER `stopSession()`, never
+before, because `engine.stop()` unloads the core under the `Drop` retention policy.
+
+No Rust changed to ship four more cores. `NativeLibretroCore` is core-agnostic and
+`CoreRegistry` already held many declared cores, which is the payoff for §(c) and §(d) having
+been done properly: geometry, fps and sample rate are overwritten from
+`retro_get_system_av_info` on load, and the pixel format is renegotiated through
+`SET_PIXEL_FORMAT` inside `retro_load_game`. That last point has a concrete consequence worth
+recording so nobody "corrects" it: fceumm's iOS makefile forces `WANT_32BPP`, so on device that
+core negotiates XRGB8888 even though `CoreCatalog` declares RGB565 and the web build renders
+RGB565. The declaration is a pre-load hint, the negotiation settles it, and the renderer
+converts either.
+
+#### Still not proven
+
+The same boundary as the rest of §17, and it has not moved. This sandbox has no macOS, no Xcode
+and no iOS SDK, so nothing here compiled a single core dylib. What was verified: `cargo test`
+74 passing and 84 with `--features native-core,uniffi-bindings` (the Rust is untouched),
+`cargo check --profile ios --target aarch64-apple-ios` clean, `swiftc -frontend -parse` on both
+Swift files, `bash -n` on all three shell scripts, `project.yml` and `ios.yml` loading as YAML
+with all five dylibs asserted present and `info.properties` intact, `Info.plist` loading as a
+plist, `build-core.sh ios-names` printing the five names, a scripted trace showing the names
+agree across all six files, a scripted check that the routing table's keys are exactly the
+launchable extension set, and a stubbed-copy harness proving that `fceumm`, `mgba`,
+`genesis_plus_gx`, `snes9x` and `all` still route to the WASM path. What
+was not: that any of the five cores compiles for `aarch64-apple-ios`, that the .ipa contains
+five dylibs, and that a `.nes`, `.sfc`, `.gba`, `.sms`, `.md` or PS1 disc imports and launches
+on the wrong or the right core. Those are established only by the orchestrator's CI build plus
+a device run, and the HUD is the readout: the `cores:` line says which dylibs are in the bundle,
+and every opening, running and failure line names the core id, so a wrong route or a missing
+core is one glance rather than a deduction.

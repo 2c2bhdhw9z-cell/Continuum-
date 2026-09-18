@@ -41,6 +41,46 @@ targets:
     platform: iOS
     info:
       path: Info.plist
+      # XcodeGen GENERATES this Info.plist on every `xcodegen generate`: the emitted plist is
+      # a fixed set of auto-default keys (CFBundleIdentifier, CFBundleName,
+      # CFBundleDevelopmentRegion, CFBundleExecutable, CFBundleInfoDictionaryVersion,
+      # CFBundlePackageType, and CFBundleShortVersionString=1.0 / CFBundleVersion=1) MERGED
+      # with the keys below, and the on-disk Info.plist is OVERWRITTEN if it differs (see
+      # XcodeGen Sources/XcodeGenKit/FileWriter.swift writePlists + InfoPlistGenerator.swift).
+      # It does NOT read the committed Info.plist content. So every custom key the app needs
+      # must be declared here or it is dropped from the built app. The committed Info.plist is
+      # only a human-readable seed kept in sync by hand.
+      properties:
+        # Multi-file cue/bin support (Option 2): expose the app's Documents directory in the
+        # Files app / Finder and allow opening documents in place, so a user can drag a folder
+        # of .cue + .bin tracks straight into Documents (inside the sandbox, no security scope
+        # needed) as an alternative to the folder picker.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        # Custom keys carried over from the seed Info.plist. CFBundleShortVersionString and
+        # CFBundleVersion MUST be restated because the XcodeGen auto-defaults are 1.0 / 1 and
+        # the app ships 0.8.0 / 1.
+        CFBundleDisplayName: Continuum
+        CFBundleShortVersionString: "0.8.0"
+        CFBundleVersion: "1"
+        LSRequiresIPhoneOS: true
+        MinimumOSVersion: "16.0"
+        UIRequiredDeviceCapabilities:
+          - arm64
+          - metal
+        UILaunchScreen: {}
+        UIApplicationSupportsIndirectInputEvents: true
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
     sources:
       - path: ContinuumApp.swift
       - path: MetalCanvas.swift
@@ -70,6 +110,37 @@ targets:
         # load_native_core, which is the whole point of a core being loadable at runtime. If
         # it were linked as well, a wrong rpath would stop the app launching at all instead
         # of surfacing "libcontinuum_switch.dylib is missing" in the HUD.
+        link: false
+        codeSign: false
+      # The five real libretro cores. Same shape as the wrapper above and for the same
+      # reason: each is dlopened at runtime from Frameworks/ (a real ROM path, need_fullpath
+      # for the CD cores) and never linked. `embed` puts them in Frameworks/; package-ipa.sh
+      # signs everything in one pass after the fact, so `codeSign: false` keeps Xcode from
+      # failing with signing disabled.
+      #
+      # These filenames are produced and staged by scripts/build-core.sh, which is where they
+      # are defined; they must match it byte for byte, along with package-ipa.sh's embed
+      # fallback, the "Verify the .ipa" greps in .github/workflows/ios.yml and CoreCatalog in
+      # ContinuumApp.swift. Nothing in Xcode will tell you when one of them is wrong: the app
+      # builds, installs, launches, and then cannot find a core.
+      - framework: build/lib/fceumm_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/mgba_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/genesis_plus_gx_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/snes9x_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/pcsx_rearmed_libretro_ios.dylib
+        embed: true
         link: false
         codeSign: false
 
