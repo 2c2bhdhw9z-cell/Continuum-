@@ -36,11 +36,12 @@ struct ContinuumApp: App {
 
 /// A `Sendable` snapshot of the folder picker's result.
 ///
-/// `.fileImporter`'s completion closure carries no actor isolation, so its result has to cross
-/// a hop to reach the `@MainActor` engine host. `Result<[URL], any Error>` cannot make that hop
-/// because `any Error` is not `Sendable`, so the error is flattened to its finished HUD line
-/// right where it is received and only Sendable data travels. `URL` is `Sendable`, so the
-/// picked folder passes through untouched.
+/// `UIDocumentPickerDelegate`'s methods carry no actor isolation that the compiler can see, so
+/// what they receive has to cross a hop to reach the `@MainActor` engine host. Only Sendable
+/// data travels: any failure is flattened to its finished HUD line right where it is received,
+/// because `any Error` is not `Sendable`. `URL` is `Sendable`, so the picked folder passes
+/// through untouched, which is what lets the delegate hand its security-scoped folder URL to
+/// the main actor unchanged.
 struct PickerOutcome: Sendable {
     /// Exactly what the picker returned, in order. Empty when the picker failed.
     let urls: [URL]
@@ -79,6 +80,30 @@ final class EngineHost: ObservableObject {
     /// and stay open for the session's lifetime. It is balanced only when the session is
     /// replaced or stopped, never in a `defer` right after launch.
     private var activeScopedURL: URL?
+
+    /// The folder picker's delegate, retained here for the app's lifetime.
+    ///
+    /// THIS PROPERTY IS THE FIX. `UIDocumentPickerViewController.delegate` is a WEAK
+    /// reference, so the delegate object must be owned by something else for as long as the
+    /// picker is on screen. A delegate created as a local inside the presenting function is
+    /// released the moment that function returns, the picker's weak reference goes nil, and
+    /// the callback never fires: the sheet then dismisses and nothing happens, which is
+    /// exactly the symptom being fixed here. This host is owned by a `@StateObject` on the
+    /// root view of the only `WindowGroup`, so it lives as long as the app does, and this
+    /// strong reference therefore provably outlives any picker it is handed to.
+    private lazy var folderPickerDelegate = FolderPickerDelegate(host: self)
+
+    /// The content types the picker offers: a single FOLDER. Declared once, here, because this
+    /// is the only place a picker is built.
+    ///
+    /// A CD-based game is a set of files (a .cue text sheet plus the .bin tracks it names), and
+    /// picking the .cue alone scopes only that one file, so iOS then denies the C++ core's
+    /// `fopen` of the adjacent .bin tracks and cue/bin games fail. Picking the FOLDER instead
+    /// grants a security scope over the whole subtree, so the core can open the .cue AND every
+    /// adjacent .bin. `UTType.folder` is a valid system type (no exported type declaration
+    /// needed), so the directory is selectable while its non-folder siblings are greyed out,
+    /// which is the intended affordance: pick the folder that holds the .cue and its tracks.
+    private static let allowedTypes: [UTType] = [UTType.folder]
 
     /// PCSX ReARMed's pre-load numbers. These are only a hint: `declareCore` sizes an
     /// initial GPU texture from them, but `sync_descriptor_from_core` overwrites geometry,
@@ -226,10 +251,13 @@ final class EngineHost: ObservableObject {
 
     /// Launches the CD/game whose folder was picked through the Files app.
     ///
-    /// The URL comes from `.fileImporter` as a FOLDER and points outside the app sandbox, so
-    /// it is only readable inside its security scope. A single-file pick would scope only the
-    /// picked .cue, and iOS would then deny the C++ core's `fopen` of the adjacent .bin track
-    /// files it references, which is exactly why cue/bin games failed. Scoping the FOLDER
+    /// The URL comes from `UIDocumentPickerViewController` as a FOLDER and points outside the
+    /// app sandbox, so it is only readable inside its security scope. The picker is built with
+    /// `asCopy: false` precisely so this is the ORIGINAL folder rather than a temp copy, which
+    /// is what makes the scope below grant access to the real .cue and its sibling tracks.
+    /// A single-file pick would scope only the picked .cue, and iOS would then deny the C++
+    /// core's `fopen` of the adjacent .bin track files it references, which is exactly why
+    /// cue/bin games failed. Scoping the FOLDER
     /// grants the whole subtree, so the core can open the .cue AND every adjacent .bin. The
     /// scope is opened here and held in `activeScopedURL` for the session's lifetime. It is
     /// released in `stopSession()` when the session ends or is replaced, never immediately
@@ -410,13 +438,81 @@ final class EngineHost: ObservableObject {
         }
     }
 
+    /// Presents the folder picker directly from the live UIKit hierarchy.
+    ///
+    /// This replaces SwiftUI's `.fileImporter`, which was proven on device not to call its
+    /// completion closure at all for a folder selection: the sheet dismissed and the HUD, whose
+    /// very first statement in that closure was an unconditional breadcrumb, did not change.
+    /// SwiftUI's presentation machinery is therefore the thing that failed, so the picker is
+    /// presented straight from the window's topmost view controller instead of being routed
+    /// back through a SwiftUI sheet.
+    func presentFolderPicker() {
+        // Breadcrumb written BEFORE presenting, so the button press itself is observable even
+        // if the presentation cannot happen. If the HUD never reaches this line, the button
+        // action is not running; if it stops here, the presentation is what failed.
+        status = "presenting folder picker..."
+
+        guard let presenter = Self.topmostViewController() else {
+            status = "cannot present picker: no root view controller"
+            return
+        }
+
+        // asCopy: false is required. The core needs the ORIGINAL folder so its C++ side can
+        // fopen the .cue and the sibling .bin tracks in place; a copy would land in a temp
+        // location and is not valid for folders anyway.
+        let picker = UIDocumentPickerViewController(
+            forOpeningContentTypes: Self.allowedTypes,
+            asCopy: false
+        )
+        // The weak delegate is pointed at the property that owns it, never at a local. See
+        // `folderPickerDelegate` for why that distinction is the entire bug.
+        picker.delegate = folderPickerDelegate
+        picker.allowsMultipleSelection = false
+        // Show extensions so the user can confirm by eye that the folder holds .cue/.bin.
+        picker.shouldShowFileExtensions = true
+
+        presenter.present(picker, animated: true)
+
+        // Distinct from the pre-present line: reaching this means UIKit accepted the
+        // presentation, so a HUD still reading "presenting folder picker..." means present
+        // was never called, and one reading this means the picker is up and the next HUD
+        // change must come from the delegate.
+        status = "folder picker presented; waiting for the delegate"
+    }
+
+    /// Resolves the view controller to present from: the topmost one in the active window.
+    ///
+    /// Walks `connectedScenes` for the foreground window scene, takes its key window, then
+    /// follows `presentedViewController` to the top so the picker is presented from whatever
+    /// is actually on screen rather than from a controller that is already covered, which
+    /// UIKit would refuse. Returns nil only when there is genuinely no window to present
+    /// from; the caller turns that into its own HUD line rather than failing silently.
+    private static func topmostViewController() -> UIViewController? {
+        let windowScenes = UIApplication.shared.connectedScenes.compactMap {
+            $0 as? UIWindowScene
+        }
+        let scene = windowScenes.first { $0.activationState == .foregroundActive }
+            ?? windowScenes.first
+        guard let scene else { return nil }
+
+        let window = scene.keyWindow
+            ?? scene.windows.first { $0.isKeyWindow }
+            ?? scene.windows.first
+        guard var top = window?.rootViewController else { return nil }
+
+        while let presented = top.presentedViewController {
+            top = presented
+        }
+        return top
+    }
+
     /// Handles what the folder picker handed back, on the main actor.
     ///
-    /// Split out of the `.fileImporter` closure on purpose. That closure is a plain escaping
-    /// closure with no actor isolation, so anything it does to this `@MainActor` object has to
-    /// cross an actor hop first; mutating a `@Published` property from off the main actor may
-    /// never reach the UI, which is one way a pick can dismiss the sheet and change nothing on
-    /// screen. The closure now only flattens the result and hops here.
+    /// Split out of the delegate callback on purpose. `UIDocumentPickerDelegate`'s methods
+    /// carry no actor isolation the compiler can see, so anything they do to this `@MainActor`
+    /// object has to cross an actor hop first; mutating a `@Published` property from off the
+    /// main actor may never reach the UI, which is one way a pick can dismiss the sheet and
+    /// change nothing on screen. The delegate now only flattens what it received and hops here.
     func handlePicked(_ outcome: PickerOutcome) {
         // Unconditional breadcrumb: the first statement of the first main-actor code that runs
         // after a pick, ahead of every guard and early return. It proves the handler fired and
@@ -451,12 +547,69 @@ final class EngineHost: ObservableObject {
     }
 }
 
+// MARK: - The picker's delegate
+
+/// The `UIDocumentPickerViewController` delegate.
+///
+/// A separate `NSObject` subclass rather than a conformance on `EngineHost`, because a UIKit
+/// delegate must be an `NSObject` while `EngineHost` is a plain `@MainActor` `ObservableObject`.
+///
+/// LIFETIME, which is the whole point of this type: the picker holds its `delegate` WEAKLY, so
+/// this object only survives long enough to be called back because `EngineHost` owns it through
+/// its `folderPickerDelegate` property, and `EngineHost` is itself owned by a `@StateObject` for
+/// the app's lifetime. The reference back to the host is `unowned` so the two do not form a
+/// retain cycle; it is safe because this object cannot outlive the host that owns it.
+final class FolderPickerDelegate: NSObject, UIDocumentPickerDelegate {
+    private unowned let host: EngineHost
+
+    init(host: EngineHost) {
+        self.host = host
+        super.init()
+    }
+
+    /// The callback whose absence was the bug. Its first act is always a HUD write.
+    func documentPicker(_ controller: UIDocumentPickerViewController,
+                        didPickDocumentsAt urls: [URL]) {
+        // Unconditional breadcrumb, built from nothing but what was handed in, ahead of every
+        // branch below. It proves the delegate fired and shows the shape of what came back, so
+        // "the callback never ran" and "the callback ran and then something failed" can never
+        // again be confused for each other.
+        let fired = "delegate fired: \(urls.count) url(s): "
+            + "\(urls.first?.lastPathComponent ?? "none")"
+        // An empty pick is its own reported condition, not a silent no-op.
+        let outcome = PickerOutcome(
+            urls: urls,
+            failureText: urls.isEmpty ? "delegate fired with 0 urls: nothing to open" : nil
+        )
+        // UIKit calls this on the main thread, but the compiler cannot know that under
+        // SWIFT_VERSION 5.0, so the hop to the `@MainActor` host is explicit. `EngineHost` is
+        // global-actor isolated and therefore Sendable, so it is bound to a local first and the
+        // non-Sendable delegate itself is never captured.
+        let host = self.host
+        Task { @MainActor in
+            host.status = fired
+            host.handlePicked(outcome)
+        }
+    }
+
+    /// Distinguishes "the user backed out" from "the callback never fired".
+    ///
+    /// Without this line those two look identical on the HUD, which is exactly the ambiguity
+    /// that made the previous two iterations impossible to diagnose.
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        let host = self.host
+        Task { @MainActor in
+            host.status = "picker cancelled: no folder chosen"
+        }
+    }
+}
+
 // MARK: - The view
 
 struct PlayerView: View {
+    /// Owns the engine host for the app's lifetime, which is also what keeps the picker's
+    /// delegate alive long enough to be called back. See `EngineHost.folderPickerDelegate`.
     @StateObject private var host = EngineHost()
-    /// Drives the `.fileImporter` sheet. Toggled by the HUD affordance.
-    @State private var importing = false
 
     /// Built as a `String`, not as an interpolated `Text` literal.
     ///
@@ -468,19 +621,6 @@ struct PlayerView: View {
     private var stats: String {
         let fps = String(format: "%.0f", host.displayFps)
         return "\(host.frameCount) frames · \(fps) fps · \(host.dropped) dropped"
-    }
-
-    /// The content types the picker offers: a single FOLDER.
-    ///
-    /// A CD-based game is a set of files (a .cue text sheet plus the .bin tracks it names), and
-    /// picking the .cue alone scopes only that one file, so iOS then denies the C++ core's
-    /// `fopen` of the adjacent .bin tracks and cue/bin games fail. Picking the FOLDER instead
-    /// grants a security scope over the whole subtree, so the core can open the .cue AND every
-    /// adjacent .bin. `UTType.folder` is a valid system type (no exported type declaration
-    /// needed), so the directory is selectable while its non-folder siblings are greyed out,
-    /// which is the intended affordance: pick the folder that holds the .cue and its tracks.
-    private var allowedTypes: [UTType] {
-        [UTType.folder]
     }
 
     var body: some View {
@@ -514,8 +654,11 @@ struct PlayerView: View {
                 }
                 Text(stats)
 
+                // Presents the UIKit picker directly. It no longer toggles a `@State` bool for
+                // SwiftUI to act on, because SwiftUI's own presentation of the folder picker is
+                // the thing that was proven not to call back.
                 Button(host.running ? "Open another ROM Folder…" : "Open ROM Folder…") {
-                    importing = true
+                    host.presentFolderPicker()
                 }
                 .font(.system(.caption, design: .monospaced))
                 .padding(.top, 4)
@@ -527,34 +670,6 @@ struct PlayerView: View {
             .padding()
         }
         .background(.black)
-        .fileImporter(
-            isPresented: $importing,
-            allowedContentTypes: allowedTypes,
-            allowsMultipleSelection: false
-        ) { result in
-            // This closure is NOT main-actor isolated: `.fileImporter`'s completion is a plain
-            // `@escaping (Result<[URL], Error>) -> Void`, and under SWIFT_VERSION 5.0 touching
-            // the `@MainActor` host from here compiles but can run off the main actor, where a
-            // write to a `@Published` property may never reach the HUD. So it does two things
-            // only: flatten the result to Sendable data, and hop to the main actor. There is
-            // no early return and no `guard` here, and the handler's first act is to write the
-            // HUD, so a pick can no longer dismiss the sheet and leave the screen unchanged.
-            let outcome: PickerOutcome
-            switch result {
-            case .success(let urls):
-                outcome = PickerOutcome(urls: urls, failureText: nil)
-            case .failure(let error):
-                // Both forms are reported: localizedDescription is the readable one, the raw
-                // error is the one that actually names an NSCocoaErrorDomain code.
-                outcome = PickerOutcome(
-                    urls: [],
-                    failureText: "picker failed: \(error.localizedDescription) [\(error)]"
-                )
-            }
-            Task { @MainActor [host] in
-                host.handlePicked(outcome)
-            }
-        }
     }
 }
 
