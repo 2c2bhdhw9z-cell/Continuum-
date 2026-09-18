@@ -57,10 +57,11 @@ final class EngineHost: ObservableObject {
     /// Whether declare + load has already succeeded. The core is made resident once, on the
     /// first surface attach; a later ROM pick reuses it rather than re-declaring.
     private var coreLoaded = false
-    /// The security-scoped URL of the ROM currently in play. PCSX ReARMed uses need_fullpath
-    /// and keeps the file open for the whole session, so the scope must stay open for the
-    /// session's lifetime and be balanced only when the session is replaced or stopped —
-    /// never in a `defer` right after launch.
+    /// The security-scoped URL of the FOLDER whose game is currently in play. PCSX ReARMed
+    /// uses need_fullpath and keeps the files open for the whole session, and it opens the
+    /// .cue's adjacent .bin tracks itself, so the scope must cover the whole folder subtree
+    /// and stay open for the session's lifetime. It is balanced only when the session is
+    /// replaced or stopped, never in a `defer` right after launch.
     private var activeScopedURL: URL?
 
     /// PCSX ReARMed's pre-load numbers. These are only a hint: `declareCore` sizes an
@@ -194,15 +195,32 @@ final class EngineHost: ObservableObject {
         }
     }
 
-    /// Launches a ROM picked through the Files app.
+    /// The extension priority used to pick the launch entry from a picked folder.
     ///
-    /// The URL comes from `.fileImporter` and points outside the app sandbox, so it is only
-    /// readable inside its security scope. PCSX ReARMed opens the file itself and keeps it
-    /// open for the whole session (need_fullpath), so the scope is opened here and held in
-    /// `activeScopedURL` for the session's lifetime — it is released in `stopSession()` when
-    /// the session ends or is replaced, not immediately after launch.
+    /// A CD-based game is a set of files: a .cue text sheet that names one or more .bin
+    /// track files, or a single-file .pbp/.iso/.chd image. The .cue (or the single-file
+    /// image) is what the core is handed; the .bin tracks are opened by the core itself as
+    /// the .cue references them. So the launch entry is preferred in this order:
+    ///   .cue  the CD descriptor that references adjacent .bin tracks (most common)
+    ///   .pbp  a self-contained PSP/PS1 package
+    ///   .iso  a single-file image
+    ///   .chd  a compressed image (the core builds link against libchdr)
+    ///   .bin  last resort, only when no descriptor exists (a raw single-track image)
+    private static let launchExtensionPriority = ["cue", "pbp", "iso", "chd", "bin"]
+
+    /// Launches the CD/game whose folder was picked through the Files app.
+    ///
+    /// The URL comes from `.fileImporter` as a FOLDER and points outside the app sandbox, so
+    /// it is only readable inside its security scope. A single-file pick would scope only the
+    /// picked .cue, and iOS would then deny the C++ core's `fopen` of the adjacent .bin track
+    /// files it references, which is exactly why cue/bin games failed. Scoping the FOLDER
+    /// grants the whole subtree, so the core can open the .cue AND every adjacent .bin. The
+    /// scope is opened here and held in `activeScopedURL` for the session's lifetime. It is
+    /// released in `stopSession()` when the session ends or is replaced, never immediately
+    /// after launch, because PCSX ReARMed keeps the files open for the whole session
+    /// (need_fullpath).
     func launch(url: URL) {
-        // Re-entrancy: a fresh pick replaces any running session and its scoped file.
+        // Re-entrancy: a fresh pick replaces any running session and its scoped folder.
         if running || activeScopedURL != nil {
             stopSession()
         }
@@ -213,24 +231,37 @@ final class EngineHost: ObservableObject {
             status = "cannot access \(url.lastPathComponent): permission denied"
             return
         }
-        // Hold the scope open for the session; do NOT stop it here.
+        // Hold the folder scope open for the session; do NOT stop it here.
         activeScopedURL = url
+
+        // Enumerate the folder and pick the launch entry by extension priority. The entry is
+        // the file handed to the core; adjacent .bin tracks are reachable because the whole
+        // folder is scoped.
+        guard let entry = selectLaunchEntry(in: url) else {
+            // No loadable descriptor/image in the folder: release the folder scope we just
+            // took so it does not leak, and leave a legible line on the HUD.
+            url.stopAccessingSecurityScopedResource()
+            activeScopedURL = nil
+            running = false
+            status = "no .cue/.pbp/.iso/.chd found in \(url.lastPathComponent)"
+            return
+        }
 
         do {
             // need_fullpath: pass empty rom bytes and the real absolute path. The Rust side
             // routes on the '/' in the path and splits the real extension for content-info,
-            // so a security-scoped file URL's `path` is exactly what it needs.
+            // so the scoped entry file's `path` is exactly what it needs.
             try engine.launch(
                 coreId: PS1.coreId,
-                contentId: url.lastPathComponent,
+                contentId: entry.lastPathComponent,
                 rom: Data(),
-                filename: url.path
+                filename: entry.path
             )
             running = true
-            status = "running: \(url.lastPathComponent)"
+            status = "running: \(entry.lastPathComponent) (folder: \(url.lastPathComponent))"
         } catch {
-            // Launch failed: release the scope we just took so we do not leak it, and put
-            // the error on the HUD.
+            // Launch failed: release the folder scope we just took so we do not leak it, and
+            // put the error on the HUD.
             url.stopAccessingSecurityScopedResource()
             activeScopedURL = nil
             running = false
@@ -238,7 +269,33 @@ final class EngineHost: ObservableObject {
         }
     }
 
-    /// Stops the current session and releases the picked file's security scope.
+    /// Chooses the file to hand the core from the contents of a picked folder.
+    ///
+    /// Enumerates the folder (non-recursive, skipping hidden files) and returns the highest
+    /// priority entry by extension order (.cue > .pbp > .iso > .chd > .bin). When several
+    /// files share the winning extension, the choice is deterministic: the candidates are
+    /// sorted by `lastPathComponent` and the first is taken. Returns nil when the folder holds
+    /// no loadable entry.
+    private func selectLaunchEntry(in folder: URL) -> URL? {
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: folder,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+        for ext in Self.launchExtensionPriority {
+            let matches = contents
+                .filter { $0.pathExtension.lowercased() == ext }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            if let first = matches.first {
+                return first
+            }
+        }
+        return nil
+    }
+
+    /// Stops the current session and releases the picked folder's security scope.
     func stopSession() {
         if running {
             engine.stop()
@@ -257,7 +314,7 @@ final class EngineHost: ObservableObject {
             // Make the core resident up front so a ROM pick launches instantly, but do NOT
             // launch anything: PCSX ReARMed needs a real game and hard-rejects empty content.
             if ensureCoreLoaded() {
-                status = "surface ready — pick a PS1 ROM"
+                status = "surface ready - pick a PS1 ROM folder"
             }
         case .failure(let error):
             status = "attach failed: \(error)"
@@ -284,14 +341,17 @@ struct PlayerView: View {
         return "\(host.frameCount) frames · \(fps) fps · \(host.dropped) dropped"
     }
 
-    /// The content types the picker offers. iOS ships no built-in UTType for .cue/.bin/.chd/.pbp,
-    /// so UTType(filenameExtension:) returns nil for them and, without exported type declarations,
-    /// the picker greys those files out. On device, appending `.data` did not broaden the picker
-    /// enough, so .cue/.bin stayed unselectable. `.item` is the universal root of the type hierarchy:
-    /// every file (including extensionless .bin and unknown .cue) conforms to it, so none is greyed
-    /// out. The core still validates the actual content when it loads the ROM.
+    /// The content types the picker offers: a single FOLDER.
+    ///
+    /// A CD-based game is a set of files (a .cue text sheet plus the .bin tracks it names), and
+    /// picking the .cue alone scopes only that one file, so iOS then denies the C++ core's
+    /// `fopen` of the adjacent .bin tracks and cue/bin games fail. Picking the FOLDER instead
+    /// grants a security scope over the whole subtree, so the core can open the .cue AND every
+    /// adjacent .bin. `UTType.folder` is a valid system type (no exported type declaration
+    /// needed), so the directory is selectable while its non-folder siblings are greyed out,
+    /// which is the intended affordance: pick the folder that holds the .cue and its tracks.
     private var allowedTypes: [UTType] {
-        [UTType.item]
+        [UTType.folder]
     }
 
     var body: some View {
@@ -325,7 +385,7 @@ struct PlayerView: View {
                 }
                 Text(stats)
 
-                Button(host.running ? "Open another ROM…" : "Open ROM…") {
+                Button(host.running ? "Open another ROM Folder…" : "Open ROM Folder…") {
                     importing = true
                 }
                 .font(.system(.caption, design: .monospaced))
@@ -346,7 +406,7 @@ struct PlayerView: View {
             switch result {
             case .success(let urls):
                 guard let url = urls.first else {
-                    host.status = "no file selected"
+                    host.status = "no folder selected"
                     return
                 }
                 host.launch(url: url)

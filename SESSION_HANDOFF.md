@@ -1471,3 +1471,68 @@ distinguish a different failure, and on a sideloaded build with no debugger they
 diagnostics there are. The Swift itself is checked here only as far as `swiftc -frontend -parse`
 reaches, which per §16 is a spell-checker, not a compiler: anything needing UIKit is proven
 only by the cloud build.
+
+### (i) Multi-file cue/bin and the iOS folder scope
+
+A CD-based PS1 game is not one file. A `.cue` sheet is a short text descriptor that names one
+or more `.bin` track files sitting next to it, and PCSX ReARMed (need_fullpath, §(f)) opens the
+`.cue` and then opens each `.bin` it references itself. That is exactly what the original
+single-file `.fileImporter` broke: iOS grants a security scope to the ONE file the user picks,
+so when the user picked the `.cue`, the core's `fopen` of the adjacent `.bin` was outside any
+granted scope and iOS denied it. Cue/bin games therefore failed on device even though the same
+core reads them fine on a desktop. The fix is purely about the scope iOS grants; the core and
+the Rust launch path are unchanged (they already accept a real absolute file path).
+
+The fix, Option 1 (primary), is to pick a FOLDER instead of a file. The picker now offers
+`allowedContentTypes: [.folder]` (`UTType.folder` is a valid system type, no exported type
+declaration needed), so the user selects the folder that holds the `.cue` and its `.bin`
+tracks. `EngineHost.launch(url:)` treats the URL as a folder, calls
+`startAccessingSecurityScopedResource()` on the FOLDER, and holds that scope in
+`activeScopedURL` for the whole session. A folder scope covers the entire subtree, so the core
+can open the `.cue` AND every adjacent `.bin` under it. The scope is released only in
+`stopSession()` (when the session ends or a new folder is picked) and in the no-entry and
+launch-failure error paths, never in a defer right after launch, because the core keeps the
+files open for the session. There is exactly one start per successful pick and exactly one
+matching stop, so the scope is balanced and never double-started or leaked.
+
+Inside the folder the host chooses the launch entry, the single file it hands the core, by a
+fixed extension priority: `.cue` > `.pbp` > `.iso` > `.chd` > `.bin`. The `.cue` (or a
+self-contained `.pbp`/`.iso`/`.chd` image) is what the core is given; `.bin` is a last resort
+for a raw single-track image with no descriptor. Enumeration is
+`FileManager.default.contentsOfDirectory(at:includingPropertiesForKeys:options:)` with hidden
+files skipped, extensions compared case-insensitively. When several files share the winning
+extension the choice is deterministic: candidates are sorted by `lastPathComponent` and the
+first is taken, and the chosen file plus its folder are named on the HUD. If the folder holds
+no loadable entry, the HUD shows a legible "no .cue/.pbp/.iso/.chd found in <folder>" line, the
+folder scope is released, and no launch occurs.
+
+Option 2 (secondary, complementary) adds two Info.plist keys: `UIFileSharingEnabled` exposes
+the app's Documents directory in the Files app and Finder, and
+`LSSupportsOpeningDocumentsInPlace` lets the app open documents in place. Together they let a
+user drag a folder of a `.cue` plus its `.bin` tracks straight into the app's Documents
+directory. Files inside Documents are inside the app sandbox, so they need no security scope at
+all; this is the drag-a-folder-in path that bypasses the picker.
+
+Those two keys have to be injected through `native/ios/project.yml`'s `info.properties`, not
+just written into `native/ios/Info.plist`. XcodeGen GENERATES the Info.plist at `info.path` on
+every `xcodegen generate`: the emitted plist is a fixed set of auto-default keys
+(CFBundleIdentifier, CFBundleName, CFBundleDevelopmentRegion, CFBundleExecutable,
+CFBundleInfoDictionaryVersion, CFBundlePackageType, CFBundleShortVersionString=1.0,
+CFBundleVersion=1) MERGED with the target's `info.properties` map, and it OVERWRITES the on-disk
+Info.plist if it differs (XcodeGen `Sources/XcodeGenKit/FileWriter.swift` `writePlists` plus
+`InfoPlistGenerator.swift`). It does NOT read the committed Info.plist content. So the two new
+keys, plus every existing custom key (CFBundleDisplayName, the 0.8.0/1 version overrides,
+LSRequiresIPhoneOS, MinimumOSVersion, UIRequiredDeviceCapabilities, UILaunchScreen,
+UIApplicationSupportsIndirectInputEvents, UIStatusBarHidden,
+UIViewControllerBasedStatusBarAppearance and the two orientation arrays), now live in
+`info.properties` so the built app's plist is complete. The committed `native/ios/Info.plist`
+is kept as a faithful human-readable seed with the same keys, but it is `info.properties` that
+determines what ships.
+
+As with the rest of §17, on-device multi-file cue/bin boot cannot be proven in this sandbox and
+is not proven by CI either. There is no macOS, Xcode, iOS SDK or xcodegen here, and
+`swiftc -frontend -parse` is a spell-checker (§16), so the `.fileImporter([.folder])` call, the
+`FileManager` enumeration and the security-scope balance were reviewed by eye. CI proves only
+that the macOS build produces a signed bundle embedding the core dylib. That a real phone picks
+a folder, holds the folder scope, and lets PCSX ReARMed read a `.cue` and its `.bin` tracks is
+verified only by the orchestrator's CI build and a subsequent on-device run, not here.
