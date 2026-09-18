@@ -151,10 +151,6 @@ final class EngineHost: ObservableObject {
     /// also the only debugger on a sideloaded build.
     @Published var libraryStatus: String = "library: not scanned yet"
 
-    /// Whether declare + load has already succeeded. The core is made resident once, on the
-    /// first surface attach; a later launch reuses it rather than re-declaring.
-    private var coreLoaded = false
-
     /// The import picker's delegate, retained here for the app's lifetime.
     ///
     /// THIS PROPERTY IS A FIX, NOT A STYLE CHOICE. `UIDocumentPickerViewController.delegate`
@@ -303,15 +299,58 @@ final class EngineHost: ObservableObject {
         return "BIOS: none, HLE fallback"
     }
 
-    /// Makes the PS1 core resident without launching any content.
+    /// The engine core states in which a session can actually be started.
     ///
-    /// Declare + load only. This is safe to run before any ROM exists, because PCSX ReARMed
-    /// does not touch a game path until `retro_load_game`. Called once from the attach callback
-    /// so the core is ready the instant a game is tapped; returns `false` (and leaves an
-    /// error on the HUD) if the core cannot be made resident.
+    /// `"loaded"` is resident and idle. `"bound"` is resident and already checked out by a
+    /// session, which is usable too: `engine.launch` stops the previous session as its first
+    /// act, and that hands the core back to the registry. Reloading a bound core would tear
+    /// down a session the engine is about to unwind properly by itself.
+    private static let usableCoreStates = ["loaded", "bound"]
+
+    /// Makes the PS1 core resident, and re-makes it resident whenever the engine has dropped it.
+    ///
+    /// THE ENGINE IS THE ONLY SOURCE OF TRUTH HERE, AND THAT IS THE FIX. This method used to
+    /// cache its success in a Swift `Bool` and early-return on it. That bool went stale, because
+    /// the engine unloads the core behind Swift's back: `EmulatorBridge::stop()` returns the core
+    /// to the registry and, under the `Drop` retention policy, unloads it, which puts the
+    /// registry slot back to `declared`. Every `engine.stop()` therefore invalidated a cached
+    /// `true`, whether it came from `stopSession()` or from the canvas teardown that SwiftUI can
+    /// run whenever it re-creates the view tree. The next launch then failed with
+    /// `CoreUnavailable(reason: "declared but not loaded (state: declared)")` while Swift still
+    /// believed the core was loaded, and nothing on screen said otherwise.
+    ///
+    /// So no bool is kept at all. The state is read back from the engine on every call, and the
+    /// declare + load sequence is re-run whenever the core is not usable, which makes this path
+    /// self-healing rather than one-shot. Re-declaring is safe to repeat: `CoreRegistry::declare`
+    /// keeps an existing loaded instance and only refreshes metadata, so it cannot yank a core
+    /// that is already resident.
+    ///
+    /// Declare + load only, never a launch: safe to run before any ROM exists, because PCSX
+    /// ReARMed does not touch a game path until `retro_load_game`. Returns `false`, and leaves a
+    /// specific reason on the HUD, if the core cannot be made resident.
     @discardableResult
     private func ensureCoreLoaded() -> Bool {
-        if coreLoaded { return true }
+        // Ask the engine, never a local flag. `coreState` is Optional and returns nil when the id
+        // is unknown to the registry, i.e. nothing has been declared yet, which needs the same
+        // reload as an unloaded "declared". Collapsing that nil to "unknown" right here keeps one
+        // non-optional string for both the comparison and the HUD, and "unknown" is never a
+        // usable state, so an unknown id always takes the reload path below.
+        let observed = engine.coreState(coreId: PS1.coreId) ?? "unknown"
+        if Self.usableCoreStates.contains(observed) {
+            // Already usable. No HUD write here on purpose: this is the hot path on every tap,
+            // and `launch` names the state it observed in its own breadcrumb, so the state
+            // machine stays visible without this stomping on the "opening ..." line.
+            return true
+        }
+
+        // Name the state that prompted the reload, so the HUD shows the transition and not just
+        // its outcome. "failed" gets its own line because a core that loaded and then broke is a
+        // different condition from one that was never loaded.
+        if observed == "failed" {
+            status = "core state is failed; retrying load of \(PS1.coreId)..."
+        } else {
+            status = "core state was \(observed); loading \(PS1.coreId)..."
+        }
 
         guard let core = Bundle.main.privateFrameworksURL?
             .appendingPathComponent(PS1.library) else {
@@ -352,14 +391,22 @@ final class EngineHost: ObservableObject {
                 systemDir: systemDir?.path,
                 saveDir: systemDir?.path
             )
-            coreLoaded = true
-            return true
         } catch {
             // The HUD is the only diagnostic on a sideloaded build, so the error text lands
             // there rather than throwing into a blank screen.
             status = "\(error)"
             return false
         }
+
+        // Confirm against the engine rather than concluding success from "the two calls above
+        // did not throw". Believing a local success signal over the registry is exactly the
+        // mistake the cached bool made, so the result is verified where it actually lives.
+        let reloaded = engine.coreState(coreId: PS1.coreId) ?? "unknown"
+        guard Self.usableCoreStates.contains(reloaded) else {
+            status = "core load did not take: state is \(reloaded)"
+            return false
+        }
+        return true
     }
 
     // MARK: The Library
@@ -590,6 +637,12 @@ final class EngineHost: ObservableObject {
             stopSession()
         }
 
+        // ORDER IS LOAD-BEARING: THE STOP MUST COME FIRST, AND `ensureCoreLoaded` MUST FOLLOW IT.
+        // `stopSession()` calls `engine.stop()`, which under the `Drop` retention policy unloads
+        // the core and puts the registry slot back to `declared`. Verifying the core before the
+        // stop would therefore verify a core that the stop then invalidates, and the launch below
+        // would fail with `state: declared` having just been told the core was fine. Checking
+        // after the stop means the state read is the state `engine.launch` will actually see.
         guard ensureCoreLoaded() else {
             // ensureCoreLoaded writes its own specific reason on every failure path. Belt
             // and braces: if the status is somehow still the breadcrumb, say plainly that
@@ -599,6 +652,11 @@ final class EngineHost: ObservableObject {
             }
             return
         }
+
+        // Record the state the engine reports at the moment of launch, so a launch that still
+        // fails cannot leave the core state as the one unobservable fact in the sequence. This
+        // is the line that would have named "declared" out loud instead of costing device trips.
+        status = "\(opening) core \(engine.coreState(coreId: PS1.coreId) ?? "unknown")"
 
         // The row was built from a directory scan that may be a few seconds old, and Documents
         // is user-visible through the Files app, so the file can genuinely be gone. Reporting
