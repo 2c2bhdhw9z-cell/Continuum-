@@ -284,14 +284,14 @@ struct PlayerView: View {
         return "\(host.frameCount) frames · \(fps) fps · \(host.dropped) dropped"
     }
 
-    /// The content types the picker offers. Only .iso maps to a standard system UTType, so
-    /// the others are built from their extension; UTType(filenameExtension:) returns nil for
-    /// an extension the system does not know, so those are dropped and `.data` is added as a
-    /// permissive fallback so the picker does not grey out .chd/.pbp/.cue files.
+    /// The content types the picker offers. iOS ships no built-in UTType for .cue/.bin/.chd/.pbp,
+    /// so UTType(filenameExtension:) returns nil for them and, without exported type declarations,
+    /// the picker greys those files out. On device, appending `.data` did not broaden the picker
+    /// enough, so .cue/.bin stayed unselectable. `.item` is the universal root of the type hierarchy:
+    /// every file (including extensionless .bin and unknown .cue) conforms to it, so none is greyed
+    /// out. The core still validates the actual content when it loads the ROM.
     private var allowedTypes: [UTType] {
-        var types = ["chd", "pbp", "cue", "iso"].compactMap { UTType(filenameExtension: $0) }
-        types.append(.data)
-        return types
+        [UTType.item]
     }
 
     var body: some View {
