@@ -32,6 +32,22 @@ struct ContinuumApp: App {
     }
 }
 
+// MARK: - What the picker handed back
+
+/// A `Sendable` snapshot of the folder picker's result.
+///
+/// `.fileImporter`'s completion closure carries no actor isolation, so its result has to cross
+/// a hop to reach the `@MainActor` engine host. `Result<[URL], any Error>` cannot make that hop
+/// because `any Error` is not `Sendable`, so the error is flattened to its finished HUD line
+/// right where it is received and only Sendable data travels. `URL` is `Sendable`, so the
+/// picked folder passes through untouched.
+struct PickerOutcome: Sendable {
+    /// Exactly what the picker returned, in order. Empty when the picker failed.
+    let urls: [URL]
+    /// Nil on success. On failure this is the HUD line, already built.
+    let failureText: String?
+}
+
 // MARK: - The engine, owned once
 
 /// Holds the engine for the app's lifetime.
@@ -220,79 +236,166 @@ final class EngineHost: ObservableObject {
     /// after launch, because PCSX ReARMed keeps the files open for the whole session
     /// (need_fullpath).
     func launch(url: URL) {
+        // Breadcrumb, written before the re-entrancy stop and before ANY guard below can
+        // return. A pick that reaches this method therefore always changes the HUD. If the
+        // HUD ever stays on the pre-pick line again, this method provably was not reached,
+        // which narrows the fault to the picker itself rather than anything in here.
+        let opening = "opening \(url.lastPathComponent)..."
+        status = opening
+
         // Re-entrancy: a fresh pick replaces any running session and its scoped folder.
         if running || activeScopedURL != nil {
             stopSession()
         }
 
-        guard ensureCoreLoaded() else { return }
-
-        guard url.startAccessingSecurityScopedResource() else {
-            status = "cannot access \(url.lastPathComponent): permission denied"
+        guard ensureCoreLoaded() else {
+            // ensureCoreLoaded writes its own specific reason on every failure path. Belt
+            // and braces: if the status is somehow still the breadcrumb, say plainly that
+            // the core is not resident rather than leaving a line that reads like progress.
+            if status == opening {
+                status = "core not loaded: \(PS1.library) could not be made resident"
+            }
             return
         }
-        // Hold the folder scope open for the session; do NOT stop it here.
+
+        // The security scope MUST be opened BEFORE the folder is enumerated below. Outside
+        // its scope this URL reads as empty or unreadable, so enumerating first would report
+        // a bogus "no ROM found" for a folder that actually holds the game. Do not reorder
+        // the scope acquisition and the enumeration that follows it.
+        guard url.startAccessingSecurityScopedResource() else {
+            status = "cannot access \(url.path): security scope denied"
+            return
+        }
+        // Hold the folder scope open for the session; do NOT stop it here. Every early
+        // return past this line goes through `failAfterScope` so the scope cannot leak.
         activeScopedURL = url
+
+        // Sanity check the shape of what came back. The picker is configured for folders, but
+        // the user reported navigating INTO a folder before tapping Open, so report what the
+        // URL actually is instead of enumerating a file and blaming a missing ROM.
+        // Written as an explicit unwrap rather than a chained one-liner: `isDirectory` is
+        // itself `Bool?`, so a chain off `try?` invites a nested optional. Absent or
+        // unreadable resource values are treated as "not a directory" and reported.
+        var pickedIsDirectory = false
+        if let values = try? url.resourceValues(forKeys: [.isDirectoryKey]) {
+            pickedIsDirectory = values.isDirectory ?? false
+        }
+        guard pickedIsDirectory else {
+            failAfterScope(url, "picked a file, not a folder: \(url.lastPathComponent)")
+            return
+        }
 
         // Enumerate the folder and pick the launch entry by extension priority. The entry is
         // the file handed to the core; adjacent .bin tracks are reachable because the whole
         // folder is scoped.
-        guard let entry = selectLaunchEntry(in: url) else {
-            // No loadable descriptor/image in the folder: release the folder scope we just
-            // took so it does not leak, and leave a legible line on the HUD.
-            url.stopAccessingSecurityScopedResource()
-            activeScopedURL = nil
-            running = false
-            status = "no .cue/.pbp/.iso/.chd found in \(url.lastPathComponent)"
-            return
-        }
+        switch selectLaunchEntry(in: url) {
+        case .unreadable(let error):
+            // The folder could not be listed at all. Distinct from "nothing loadable in it":
+            // this is a permission or I/O fault, and the real error text is the diagnostic.
+            failAfterScope(url,
+                           "cannot read \(url.lastPathComponent): "
+                            + "\(error.localizedDescription) [\(error)]")
 
-        do {
-            // need_fullpath: pass empty rom bytes and the real absolute path. The Rust side
-            // routes on the '/' in the path and splits the real extension for content-info,
-            // so the scoped entry file's `path` is exactly what it needs.
-            try engine.launch(
-                coreId: PS1.coreId,
-                contentId: entry.lastPathComponent,
-                rom: Data(),
-                filename: entry.path
-            )
-            running = true
-            status = "running: \(entry.lastPathComponent) (folder: \(url.lastPathComponent))"
-        } catch {
-            // Launch failed: release the folder scope we just took so we do not leak it, and
-            // put the error on the HUD.
-            url.stopAccessingSecurityScopedResource()
-            activeScopedURL = nil
-            running = false
-            status = "\(error)"
+        case .noCandidate(let fileCount, let names):
+            // The folder listed fine but held nothing loadable. Naming what WAS found turns
+            // this from a dead end into an answer: wrong folder, nested subfolder, or an
+            // extension the core does not take.
+            let found = names.isEmpty ? "none" : names.joined(separator: ", ")
+            failAfterScope(url,
+                           "no .cue/.pbp/.iso/.chd/.bin in \(url.lastPathComponent) "
+                            + "(\(fileCount) files: \(found))")
+
+        case .entry(let entry):
+            do {
+                // need_fullpath: pass empty rom bytes and the real absolute path. The Rust
+                // side routes on the '/' in the path and splits the real extension for
+                // content-info, so the scoped entry file's `path` is exactly what it needs.
+                try engine.launch(
+                    coreId: PS1.coreId,
+                    contentId: entry.lastPathComponent,
+                    rom: Data(),
+                    filename: entry.path
+                )
+                running = true
+                status = "running: \(entry.lastPathComponent) "
+                    + "(folder: \(url.lastPathComponent))"
+            } catch {
+                // Launch failed: release the folder scope we took so we do not leak it, and
+                // put the error on the HUD.
+                failAfterScope(url, "launch failed: \(entry.lastPathComponent): \(error)")
+            }
         }
     }
+
+    /// Reports a failure that happened AFTER the folder scope was taken.
+    ///
+    /// Balances the single `startAccessingSecurityScopedResource` of this pick, clears
+    /// `activeScopedURL` so `stopSession` cannot release it twice, and puts the reason on the
+    /// HUD. Every post-scope early return in `launch` goes through here, which is what keeps
+    /// the scope open/release count matched at exactly one per successful pick.
+    private func failAfterScope(_ url: URL, _ message: String) {
+        url.stopAccessingSecurityScopedResource()
+        activeScopedURL = nil
+        running = false
+        status = message
+    }
+
+    /// The three distinguishable results of inspecting a picked folder.
+    ///
+    /// This exists because the two failures are NOT the same condition and must not read the
+    /// same on the HUD: a folder that cannot be listed (permissions, I/O) is a different
+    /// problem from a folder that lists fine but holds nothing the core can load. The old
+    /// `URL?` return collapsed both into nil, so an enumeration error was reported as
+    /// "no ROM found", which sent the diagnosis in the wrong direction.
+    private enum LaunchEntryOutcome {
+        /// The file to hand the core.
+        case entry(URL)
+        /// The folder listed, but no entry matched the launch extensions. Carries the total
+        /// number of visible files and a sample of their names for the HUD.
+        case noCandidate(fileCount: Int, names: [String])
+        /// The folder could not be listed at all; carries the real underlying error.
+        case unreadable(Error)
+    }
+
+    /// How many of the folder's filenames the HUD names when nothing loadable was found.
+    /// Enough to identify the folder, short enough to stay on screen.
+    private static let reportedNameLimit = 6
 
     /// Chooses the file to hand the core from the contents of a picked folder.
     ///
     /// Enumerates the folder (non-recursive, skipping hidden files) and returns the highest
-    /// priority entry by extension order (.cue > .pbp > .iso > .chd > .bin). When several
-    /// files share the winning extension, the choice is deterministic: the candidates are
-    /// sorted by `lastPathComponent` and the first is taken. Returns nil when the folder holds
-    /// no loadable entry.
-    private func selectLaunchEntry(in folder: URL) -> URL? {
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: folder,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else {
-            return nil
+    /// priority entry by extension order (.cue > .pbp > .iso > .chd > .bin), matched
+    /// case-insensitively. When several files share the winning extension, the choice is
+    /// deterministic: the candidates are sorted by `lastPathComponent` and the first is taken.
+    ///
+    /// The caller must already hold the folder's security scope; see `launch`.
+    private func selectLaunchEntry(in folder: URL) -> LaunchEntryOutcome {
+        let contents: [URL]
+        do {
+            contents = try FileManager.default.contentsOfDirectory(
+                at: folder,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+        } catch {
+            // Propagated rather than swallowed by `try?`: the real error text is the only
+            // thing that tells a sideloaded build apart from an empty folder.
+            return .unreadable(error)
         }
+
         for ext in Self.launchExtensionPriority {
             let matches = contents
                 .filter { $0.pathExtension.lowercased() == ext }
                 .sorted { $0.lastPathComponent < $1.lastPathComponent }
             if let first = matches.first {
-                return first
+                return .entry(first)
             }
         }
-        return nil
+
+        return .noCandidate(
+            fileCount: contents.count,
+            names: contents.prefix(Self.reportedNameLimit).map { $0.lastPathComponent }
+        )
     }
 
     /// Stops the current session and releases the picked folder's security scope.
@@ -305,6 +408,32 @@ final class EngineHost: ObservableObject {
             url.stopAccessingSecurityScopedResource()
             activeScopedURL = nil
         }
+    }
+
+    /// Handles what the folder picker handed back, on the main actor.
+    ///
+    /// Split out of the `.fileImporter` closure on purpose. That closure is a plain escaping
+    /// closure with no actor isolation, so anything it does to this `@MainActor` object has to
+    /// cross an actor hop first; mutating a `@Published` property from off the main actor may
+    /// never reach the UI, which is one way a pick can dismiss the sheet and change nothing on
+    /// screen. The closure now only flattens the result and hops here.
+    func handlePicked(_ outcome: PickerOutcome) {
+        // Unconditional breadcrumb: the first statement of the first main-actor code that runs
+        // after a pick, ahead of every guard and early return. It proves the handler fired and
+        // shows the raw shape of what came back. A failure line below replaces it immediately;
+        // that is intended, because a specific error beats a breadcrumb.
+        status = "picked \(outcome.urls.count) item(s): "
+            + "\(outcome.urls.first?.lastPathComponent ?? "none")"
+
+        if let failure = outcome.failureText {
+            status = failure
+            return
+        }
+        guard let url = outcome.urls.first else {
+            status = "picker returned no folder"
+            return
+        }
+        launch(url: url)
     }
 
     func surfaceAttached(_ result: Result<String, Error>) {
@@ -403,15 +532,27 @@ struct PlayerView: View {
             allowedContentTypes: allowedTypes,
             allowsMultipleSelection: false
         ) { result in
+            // This closure is NOT main-actor isolated: `.fileImporter`'s completion is a plain
+            // `@escaping (Result<[URL], Error>) -> Void`, and under SWIFT_VERSION 5.0 touching
+            // the `@MainActor` host from here compiles but can run off the main actor, where a
+            // write to a `@Published` property may never reach the HUD. So it does two things
+            // only: flatten the result to Sendable data, and hop to the main actor. There is
+            // no early return and no `guard` here, and the handler's first act is to write the
+            // HUD, so a pick can no longer dismiss the sheet and leave the screen unchanged.
+            let outcome: PickerOutcome
             switch result {
             case .success(let urls):
-                guard let url = urls.first else {
-                    host.status = "no folder selected"
-                    return
-                }
-                host.launch(url: url)
+                outcome = PickerOutcome(urls: urls, failureText: nil)
             case .failure(let error):
-                host.status = "picker failed: \(error.localizedDescription)"
+                // Both forms are reported: localizedDescription is the readable one, the raw
+                // error is the one that actually names an NSCocoaErrorDomain code.
+                outcome = PickerOutcome(
+                    urls: [],
+                    failureText: "picker failed: \(error.localizedDescription) [\(error)]"
+                )
+            }
+            Task { @MainActor [host] in
+                host.handlePicked(outcome)
             }
         }
     }
