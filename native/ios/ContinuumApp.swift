@@ -6,13 +6,17 @@
 // same software frame path. If the HUD is counting frames, the loader, the pixel-format
 // negotiation and the audio pipeline are all working against a real core.
 //
-// The core is loaded exactly as the stub was: declare, load, launch, in that order, from the
-// attach callback so the renderer exists first. What changed is the core it points at, the
-// PS1 geometry it declares, and that the launch filename is now a real, openable path
-// because PCSX ReARMed declares need_fullpath and hard-rejects a NULL info->path.
+// The stub set SET_SUPPORT_NO_GAME and happily booted with empty content, so the host used
+// to declare, load and launch straight from the attach callback. PCSX ReARMed does not: it
+// declares need_fullpath and hard-rejects a NULL/empty info->path with
+// "retro_load_game rejected the content". So the host no longer auto-boots. The surface
+// attach only makes the core resident (declare + load); the actual launch waits for the
+// user to pick a real ROM through the Files app, and then hands the core the ROM's real
+// absolute path.
 
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 @main
 struct ContinuumApp: App {
@@ -47,8 +51,17 @@ final class EngineHost: ObservableObject {
     /// The on-screen BIOS/HLE line. Populated the moment the system dir is known, so a
     /// missing BIOS is a legible condition rather than a silent drop in compatibility.
     @Published var bios: String = ""
+    /// True once a ROM has been launched. Drives the HUD affordance label and re-entrancy.
+    @Published var running = false
 
-    private var started = false
+    /// Whether declare + load has already succeeded. The core is made resident once, on the
+    /// first surface attach; a later ROM pick reuses it rather than re-declaring.
+    private var coreLoaded = false
+    /// The security-scoped URL of the ROM currently in play. PCSX ReARMed uses need_fullpath
+    /// and keeps the file open for the whole session, so the scope must stay open for the
+    /// session's lifetime and be balanced only when the session is replaced or stopped —
+    /// never in a `defer` right after launch.
+    private var activeScopedURL: URL?
 
     /// PCSX ReARMed's pre-load numbers. These are only a hint: `declareCore` sizes an
     /// initial GPU texture from them, but `sync_descriptor_from_core` overwrites geometry,
@@ -82,6 +95,9 @@ final class EngineHost: ObservableObject {
         // them is present. Never bundled: shipping a PS1 BIOS is a copyright violation.
         static let biosNames = ["scph1001.bin", "scph5501.bin", "scph7001.bin",
                                 "scph1000.bin", "scph5500.bin", "scph5502.bin"]
+        // The ROM extensions PCSX ReARMed accepts that the picker should surface. These have
+        // no standard system UTType, so they are built from the extension at runtime.
+        static let romExtensions = ["chd", "pbp", "cue", "iso"]
     }
 
     init() {
@@ -119,37 +135,28 @@ final class EngineHost: ObservableObject {
         return "BIOS: none, HLE fallback"
     }
 
-    /// Starts the session. Called only once the renderer exists.
+    /// Makes the PS1 core resident without launching any content.
     ///
-    /// Ordering is not cosmetic: `launch` fails with `NoRenderer` if the surface has not been
-    /// attached yet, and the attach happens in `layoutSubviews`. Kicking this off from
-    /// `.task` — as this file used to — races that and loses roughly whenever layout is slow.
-    func startSession() {
-        guard !started else { return }
+    /// Declare + load only. This is safe to run before any ROM exists — PCSX ReARMed does
+    /// not touch a game path until `retro_load_game`. Called once from the attach callback
+    /// so the core is ready the instant a ROM is picked; returns `false` (and leaves an
+    /// error on the HUD) if the core cannot be made resident.
+    @discardableResult
+    private func ensureCoreLoaded() -> Bool {
+        if coreLoaded { return true }
 
         guard let core = Bundle.main.privateFrameworksURL?
             .appendingPathComponent(PS1.library) else {
             status = "no Frameworks directory in the bundle"
-            return
+            return false
         }
         guard FileManager.default.fileExists(atPath: core.path) else {
             status = "\(PS1.library) is missing from the bundle"
-            return
+            return false
         }
 
         let systemDir = systemDirectory()
         bios = biosStatus(in: systemDir)
-
-        // PCSX ReARMed declares need_fullpath, so content is a real openable path rather
-        // than bytes: the core opens and reads the file itself and hard-rejects a NULL
-        // info->path. No commercial ROM ships in the bundle, so a placeholder is written to
-        // a real path in the writable area and passed as the launch filename with empty rom
-        // bytes. CI cannot boot a game regardless; the point here is that the loader and the
-        // fullpath plumbing run end to end. On device, dropping a real .cue/.bin/.pbp/.chd
-        // at this path would boot it.
-        let content = FileManager.default.temporaryDirectory
-            .appendingPathComponent("continuum-ps1.cue")
-        FileManager.default.createFile(atPath: content.path, contents: Data())
 
         do {
             // Declared before loaded, always: `loadNativeCore` refuses an undeclared id
@@ -177,18 +184,69 @@ final class EngineHost: ObservableObject {
                 systemDir: systemDir?.path,
                 saveDir: systemDir?.path
             )
+            coreLoaded = true
+            return true
+        } catch {
+            // The HUD is the only diagnostic on a sideloaded build, so the error text lands
+            // there rather than throwing into a blank screen.
+            status = "\(error)"
+            return false
+        }
+    }
+
+    /// Launches a ROM picked through the Files app.
+    ///
+    /// The URL comes from `.fileImporter` and points outside the app sandbox, so it is only
+    /// readable inside its security scope. PCSX ReARMed opens the file itself and keeps it
+    /// open for the whole session (need_fullpath), so the scope is opened here and held in
+    /// `activeScopedURL` for the session's lifetime — it is released in `stopSession()` when
+    /// the session ends or is replaced, not immediately after launch.
+    func launch(url: URL) {
+        // Re-entrancy: a fresh pick replaces any running session and its scoped file.
+        if running || activeScopedURL != nil {
+            stopSession()
+        }
+
+        guard ensureCoreLoaded() else { return }
+
+        guard url.startAccessingSecurityScopedResource() else {
+            status = "cannot access \(url.lastPathComponent): permission denied"
+            return
+        }
+        // Hold the scope open for the session; do NOT stop it here.
+        activeScopedURL = url
+
+        do {
+            // need_fullpath: pass empty rom bytes and the real absolute path. The Rust side
+            // routes on the '/' in the path and splits the real extension for content-info,
+            // so a security-scoped file URL's `path` is exactly what it needs.
             try engine.launch(
                 coreId: PS1.coreId,
-                contentId: "ps1",
+                contentId: url.lastPathComponent,
                 rom: Data(),
-                filename: content.path
+                filename: url.path
             )
-            started = true
-            status = "running"
+            running = true
+            status = "running: \(url.lastPathComponent)"
         } catch {
-            // A load failure here (no ROM, unreadable path) is expected on a bare CI build
-            // and must read legibly rather than blank the screen. The HUD carries the error.
+            // Launch failed: release the scope we just took so we do not leak it, and put
+            // the error on the HUD.
+            url.stopAccessingSecurityScopedResource()
+            activeScopedURL = nil
+            running = false
             status = "\(error)"
+        }
+    }
+
+    /// Stops the current session and releases the picked file's security scope.
+    func stopSession() {
+        if running {
+            engine.stop()
+            running = false
+        }
+        if let url = activeScopedURL {
+            url.stopAccessingSecurityScopedResource()
+            activeScopedURL = nil
         }
     }
 
@@ -196,18 +254,13 @@ final class EngineHost: ObservableObject {
         switch result {
         case .success(let summary):
             gpu = summary
-            status = "surface ready"
-            startSession()
+            // Make the core resident up front so a ROM pick launches instantly, but do NOT
+            // launch anything: PCSX ReARMed needs a real game and hard-rejects empty content.
+            if ensureCoreLoaded() {
+                status = "surface ready — pick a PS1 ROM"
+            }
         case .failure(let error):
             status = "attach failed: \(error)"
-        }
-    }
-}
-
-private extension FileManager {
-    func createFile(atPath path: String, contents: Data) {
-        if !fileExists(atPath: path) {
-            createFile(atPath: path, contents: contents, attributes: nil)
         }
     }
 }
@@ -216,6 +269,8 @@ private extension FileManager {
 
 struct PlayerView: View {
     @StateObject private var host = EngineHost()
+    /// Drives the `.fileImporter` sheet. Toggled by the HUD affordance.
+    @State private var importing = false
 
     /// Built as a `String`, not as an interpolated `Text` literal.
     ///
@@ -227,6 +282,16 @@ struct PlayerView: View {
     private var stats: String {
         let fps = String(format: "%.0f", host.displayFps)
         return "\(host.frameCount) frames · \(fps) fps · \(host.dropped) dropped"
+    }
+
+    /// The content types the picker offers. Only .iso maps to a standard system UTType, so
+    /// the others are built from their extension; UTType(filenameExtension:) returns nil for
+    /// an extension the system does not know, so those are dropped and `.data` is added as a
+    /// permissive fallback so the picker does not grey out .chd/.pbp/.cue files.
+    private var allowedTypes: [UTType] {
+        var types = ["chd", "pbp", "cue", "iso"].compactMap { UTType(filenameExtension: $0) }
+        types.append(.data)
+        return types
     }
 
     var body: some View {
@@ -259,6 +324,12 @@ struct PlayerView: View {
                     Text(host.gpu)
                 }
                 Text(stats)
+
+                Button(host.running ? "Open another ROM…" : "Open ROM…") {
+                    importing = true
+                }
+                .font(.system(.caption, design: .monospaced))
+                .padding(.top, 4)
             }
             .font(.system(.caption2, design: .monospaced))
             .foregroundStyle(.white)
@@ -267,6 +338,22 @@ struct PlayerView: View {
             .padding()
         }
         .background(.black)
+        .fileImporter(
+            isPresented: $importing,
+            allowedContentTypes: allowedTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else {
+                    host.status = "no file selected"
+                    return
+                }
+                host.launch(url: url)
+            case .failure(let error):
+                host.status = "picker failed: \(error.localizedDescription)"
+            }
+        }
     }
 }
 
