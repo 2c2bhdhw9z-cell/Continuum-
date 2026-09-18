@@ -355,22 +355,46 @@ build_ios_cmake_core() {
   # objects' minimum OS and cannot stop them loading on iOS 16, and it appends -flto to the
   # Apple Release flags, so the archive holds bitcode that the linker resolves at link time.
   #
-  # CMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY is passed rather than left as the thing to try
-  # if configuring fails. CMAKE_SYSTEM_NAME=iOS puts CMake in cross-compiling mode, and mgba's
-  # configure then runs its compiler check and a check_symbol_exists probe, both of which
-  # normally LINK an executable. Building those probes as static libraries removes a whole class
-  # of first-run configure failure, and it costs nothing here: the only thing it can skew is
-  # link-based function probes, and every function mgba probes for (strdup, strndup, locale,
-  # strtof_l, localtime_r) genuinely does exist on Darwin. mgba's own CMakeLists guards its
-  # compensating override with `AND NOT APPLE` for exactly that reason.
+  # Do NOT pass -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY here. It used to be set
+  # pre-emptively, guessing that CMAKE_SYSTEM_NAME=iOS plus cross-compiling would make mgba's
+  # configure-time probes fail while trying to LINK an executable. CI disproved the guess and
+  # exposed the cost: without the flag the configure reports its compiler checks as skipped or
+  # done, finishes in ~9s and generates build files, so it was never needed; meanwhile the flag
+  # makes every check_function_exists probe COMPILE ONLY and never link, so they all "succeed".
+  #
+  # That silently broke popcount32, which is not a libc function on any platform. mgba probes
+  # for it with find_function(popcount32); src/platform/cmake/FindFunction.cmake upper-cases the
+  # name into check_function_exists(popcount32 HAVE_POPCOUNT32), and mgba ships its own
+  # implementation in include/mgba-util/math.h behind `#ifndef HAVE_POPCOUNT32`. Compile-only
+  # probing of a call to a function that does not exist merely warns, so the probe logged
+  # "Looking for popcount32 - found", HAVE_POPCOUNT32 went into FUNCTION_DEFINES, math.h
+  # #ifndef'd its own implementation away, and the build then died at src/gba/gba.c:476 with
+  # "call to undeclared function 'popcount32'" -- an ERROR, not a warning, on AppleClang 21.
+  #
+  # mgba knows this trap exists and compensates, but only for everyone else: its CMakeLists
+  # hardcodes a known-good FUNCTION_DEFINES list under
+  # `if(CMAKE_TRY_COMPILE_TARGET_TYPE STREQUAL "STATIC_LIBRARY" AND NOT APPLE)`. The
+  # `AND NOT APPLE` is why an iOS build gets no rescue and keeps the bogus probe results.
+  #
+  # Do NOT reach for -Wno-implicit-function-declaration to quieten gba.c either. Suppressing
+  # the diagnostic does not bring popcount32 back: math.h has already compiled its only
+  # implementation out, so the failure just moves to link time as an undefined symbol.
+  #
+  # Belt and braces on top of not passing the flag, because a retry costs a whole CI run:
+  # pre-seed the probe's result. check_function_exists is a no-op when its result variable is
+  # already set -- CheckFunctionExists.cmake wraps the probe in
+  # `if(NOT DEFINED "${VARIABLE}" ...)` -- so -DHAVE_POPCOUNT32=OFF keeps math.h's own
+  # implementation even if a probe misbehaves again. HAVE_POPCOUNT32 is the real variable name
+  # rather than a guess: it is TOUPPER(popcount32) from FindFunction.cmake, and it is the same
+  # macro math.h tests.
   cmake -B "$build_dir" -S "$IOS_SRC_DIR" \
     -DCMAKE_SYSTEM_NAME=iOS \
     -DCMAKE_OSX_ARCHITECTURES=arm64 \
     -DCMAKE_OSX_SYSROOT="$IOSSDK" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_MIN_VERSION" \
-    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_FLAGS="-Wno-everything" \
+    -DHAVE_POPCOUNT32=OFF \
     -DBUILD_LIBRETRO=ON -DLIBRETRO_STATIC=ON -DSKIP_LIBRARY=ON \
     -DBUILD_QT=OFF -DBUILD_SDL=OFF -DBUILD_PYTHON=OFF \
     -DBUILD_TEST=OFF -DBUILD_SUITE=OFF \
