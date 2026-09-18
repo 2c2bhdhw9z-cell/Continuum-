@@ -112,10 +112,33 @@ targets:
         # of surfacing "libcontinuum_switch.dylib is missing" in the HUD.
         link: false
         codeSign: false
-      # The PCSX ReARMed (PS1) libretro core, the first real core. Same shape as the wrapper
-      # above and for the same reason: dlopened at runtime (need_fullpath, real ROM path),
-      # never linked. `embed` puts it in Frameworks/; package-ipa.sh signs it in one pass
-      # after the fact, so `codeSign: false` keeps Xcode from failing with signing disabled.
+      # The five real libretro cores. Same shape as the wrapper above and for the same
+      # reason: each is dlopened at runtime from Frameworks/ (a real ROM path, need_fullpath
+      # for the CD cores) and never linked. `embed` puts them in Frameworks/; package-ipa.sh
+      # signs everything in one pass after the fact, so `codeSign: false` keeps Xcode from
+      # failing with signing disabled.
+      #
+      # These filenames are produced and staged by scripts/build-core.sh, which is where they
+      # are defined; they must match it byte for byte, along with package-ipa.sh's embed
+      # fallback, the "Verify the .ipa" greps in .github/workflows/ios.yml and CoreCatalog in
+      # ContinuumApp.swift. Nothing in Xcode will tell you when one of them is wrong: the app
+      # builds, installs, launches, and then cannot find a core.
+      - framework: build/lib/fceumm_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/mgba_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/genesis_plus_gx_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/snes9x_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
       - framework: build/lib/pcsx_rearmed_libretro_ios.dylib
         embed: true
         link: false

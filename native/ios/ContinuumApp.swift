@@ -33,6 +33,16 @@
 // there is no security scope to be denied: the core opens the .cue and each adjacent .bin with
 // a plain fopen. A Library view lists what has been imported, which is also the only place the
 // launch decision is made now.
+//
+// FIVE CORES, ONE APP, ONE LOADED AT A TIME. The .ipa now carries every core the web build
+// has, plus PS1: fceumm (NES), snes9x (SNES), mGBA (GBA and GB/GBC), Genesis Plus GX (Mega
+// Drive, Master System, Game Gear) and PCSX ReARMed (PS1). All five are declared to the
+// engine when the surface attaches, because declaring is metadata only and loads no code, and
+// then exactly one of them is loaded: the one the tapped game needs, chosen from its file
+// extension through the single routing table in `CoreCatalog.routes`. That is the whole
+// multi-system story, and the two rules that keep it working are that the routing table has
+// exactly one copy and that `engine.coreState` is the only thing ever asked whether a core is
+// resident.
 
 import SwiftUI
 import UIKit
@@ -67,6 +77,223 @@ struct PickerOutcome: Sendable {
     let urls: [URL]
     /// Nil on success. On failure this is the HUD line, already built.
     let failureText: String?
+}
+
+// MARK: - The cores this build ships
+
+/// One libretro core in the bundle, as declared to the engine before anything is loaded.
+///
+/// THE NUMBERS BELOW ARE PRE-LOAD HINTS, AND THAT IS NOT A DEFECT TO CORRECT LATER.
+/// `declareCore` sizes an initial GPU texture from the geometry so the first frame has
+/// somewhere to land, and then `sync_descriptor_from_core` overwrites geometry, fps and sample
+/// rate from `retro_get_system_av_info` the instant the core loads. The pixel format is
+/// renegotiated through `SET_PIXEL_FORMAT` inside `retro_load_game`, and native_core.rs reports
+/// whatever the core actually chose. So the two fields that have to be exactly right are
+/// `coreId` and `library`: everything else is superseded by the core itself, one call later.
+///
+/// `pixelFormat` is the BRIDGE's numbering, not libretro's: 0 = RGB565, 1 = XRGB8888,
+/// 2 = RGBA8888, matching `PixelFormat::as_u32` in the Rust engine and the `pixel_format`
+/// field on `CoreDeclaration`. Do not "fix" these into libretro's RETRO_PIXEL_FORMAT_* values,
+/// which number the same three formats differently.
+struct CoreSpec: Sendable {
+    /// The registry id, and the string every HUD line names so a routing mistake is visible.
+    let coreId: String
+    let displayName: String
+    /// The systems this core claims. Matches web/cores/manifest.json for the four cores the
+    /// web build ships too, so the two builds cannot disagree about what runs what.
+    let systems: [String]
+    /// The dylib in Frameworks/, dlopened at runtime.
+    ///
+    /// MUST match the canonical filename scripts/build-core.sh stages, byte for byte.
+    /// `scripts/build-core.sh ios-names` prints that list, project.yml embeds it,
+    /// package-ipa.sh falls back to it and .github/workflows/ios.yml asserts it. A single
+    /// wrong character here reads on the HUD as a core missing from a bundle it is in.
+    let library: String
+    let width: UInt32
+    let height: UInt32
+    let maxWidth: UInt32
+    let maxHeight: UInt32
+    let aspectRatio: Float
+    let fps: Double
+    let sampleRate: UInt32
+    let pixelFormat: UInt32
+    /// Higher wins when two cores claim the same system. Nothing overlaps here, so this only
+    /// matters if a second core for one of these systems is ever added.
+    let priority: Int32
+    /// BIOS filenames this core looks for in the system directory, most useful first. Empty
+    /// for a core that needs none, which is every core here except PCSX ReARMed. Never
+    /// bundled: shipping a console BIOS is a copyright violation.
+    let biosNames: [String]
+}
+
+/// The five cores, and THE extension-to-core routing table.
+///
+/// Top level rather than nested privately inside `EngineHost` because the Library rows read the
+/// same routing table the launch path does. A second copy of that mapping is precisely the bug
+/// this type exists to prevent: it would stay invisible until a .sms opened on the wrong core.
+enum CoreCatalog {
+    /// NES. Note for anyone reading a device log: the iOS makefile for this core forces
+    /// WANT_32BPP, so on device it negotiates XRGB8888 even though it is declared RGB565 here
+    /// and built RGB565 for the web. The negotiation inside `retro_load_game` settles it and
+    /// the renderer converts either, so this is correct rather than a mismatch to fix.
+    static let fceumm = CoreSpec(
+        coreId: "fceumm",
+        displayName: "FCEUmm (NES)",
+        systems: ["nes"],
+        library: "fceumm_libretro_ios.dylib",
+        width: 256, height: 240,
+        maxWidth: 256, maxHeight: 240,
+        aspectRatio: 1.2195,
+        fps: 60.0988,
+        sampleRate: 48000,
+        pixelFormat: 0,
+        priority: 100,
+        biosNames: []
+    )
+
+    /// SNES. The max geometry is the hi-res interlaced worst case (1024x478), which is what
+    /// the web manifest declares for the same core.
+    static let snes9x = CoreSpec(
+        coreId: "snes9x",
+        displayName: "Snes9x (SNES)",
+        systems: ["snes"],
+        library: "snes9x_libretro_ios.dylib",
+        width: 256, height: 224,
+        maxWidth: 1024, maxHeight: 478,
+        aspectRatio: 1.3333333,
+        fps: 60.0988,
+        sampleRate: 32040,
+        pixelFormat: 0,
+        priority: 100,
+        biosNames: []
+    )
+
+    /// GBA plus GB/GBC. 65536 Hz is not a typo: mGBA reports 2^16, and the resampler in the
+    /// engine is what turns that into the device's rate.
+    static let mgba = CoreSpec(
+        coreId: "mgba",
+        displayName: "mGBA (GBA, GB, GBC)",
+        systems: ["gba", "gb", "gbc"],
+        library: "mgba_libretro_ios.dylib",
+        width: 240, height: 160,
+        maxWidth: 240, maxHeight: 160,
+        aspectRatio: 1.5,
+        fps: 59.7275,
+        sampleRate: 65536,
+        pixelFormat: 0,
+        priority: 100,
+        biosNames: []
+    )
+
+    /// Mega Drive, Master System and Game Gear from one core. The base geometry is the Mega
+    /// Drive's 320x224; the declared max is 348x240 so a 256x192 Master System frame and a
+    /// 320x240 Mega Drive frame both fit inside the texture the declaration sizes, whichever
+    /// arrives first. The core picks which system to be from the content extension, which is
+    /// why the launch path hands the real filename through to `ContentHint::from_filename`.
+    static let genesisPlusGx = CoreSpec(
+        coreId: "genesis_plus_gx",
+        displayName: "Genesis Plus GX (Mega Drive, Master System, Game Gear)",
+        systems: ["genesis", "sms", "gg"],
+        library: "genesis_plus_gx_libretro_ios.dylib",
+        width: 320, height: 224,
+        maxWidth: 348, maxHeight: 240,
+        aspectRatio: 1.3333333,
+        fps: 59.9227,
+        sampleRate: 44100,
+        pixelFormat: 0,
+        priority: 100,
+        biosNames: []
+    )
+
+    /// PS1, and the first real core this app ever loaded. Values unchanged from the build that
+    /// worked: native 320x240, a framebuffer that widens to 640x480 and, with interlace and
+    /// overscan, to about 700x576. A real BIOS in the system dir raises compatibility, and
+    /// without one PCSX ReARMed falls back to HLE and still boots, which is why a missing BIOS
+    /// is a HUD note rather than an error.
+    static let pcsxReARMed = CoreSpec(
+        coreId: "pcsx_rearmed",
+        displayName: "PCSX ReARMed (PS1)",
+        systems: ["ps1"],
+        library: "pcsx_rearmed_libretro_ios.dylib",
+        width: 320, height: 240,
+        maxWidth: 700, maxHeight: 576,
+        aspectRatio: 4.0 / 3.0,
+        fps: 59.94,
+        sampleRate: 44100,
+        pixelFormat: 0,
+        priority: 0,
+        biosNames: ["scph1001.bin", "scph5501.bin", "scph7001.bin",
+                    "scph1000.bin", "scph5500.bin", "scph5502.bin"]
+    )
+
+    /// Every core, in the order the HUD reports them.
+    static let all: [CoreSpec] = [fceumm, snes9x, mgba, genesisPlusGx, pcsxReARMed]
+
+    static let byId: [String: CoreSpec] = Dictionary(
+        uniqueKeysWithValues: all.map { ($0.coreId, $0) }
+    )
+
+    /// Lowercased file extension to core id. THE routing table, and the only copy of it.
+    ///
+    /// Built from the specs rather than from string literals so a core id cannot be misspelled
+    /// on one side of the mapping.
+    static let routes: [String: String] = [
+        "nes": fceumm.coreId,
+        "sfc": snes9x.coreId,
+        "smc": snes9x.coreId,
+        "gba": mgba.coreId,
+        "gb": mgba.coreId,
+        "gbc": mgba.coreId,
+        "sms": genesisPlusGx.coreId,
+        "gg": genesisPlusGx.coreId,
+        "md": genesisPlusGx.coreId,
+        "gen": genesisPlusGx.coreId,
+        "cue": pcsxReARMed.coreId,
+        "chd": pcsxReARMed.coreId,
+        "pbp": pcsxReARMed.coreId,
+        "iso": pcsxReARMed.coreId,
+    ]
+
+    /// A .bin is a CD track that a cue sheet names literally, never a launch target. It has to
+    /// be importable so those references resolve, and it must never appear in the Library.
+    static let trackExtension = "bin"
+
+    /// Extensions that may be copied into Documents.
+    ///
+    /// Wider than the launchable set below by exactly one entry, because a CD game is a set of
+    /// files: the .bin tracks must come in alongside the .cue that names them.
+    static let importableExtensions = [
+        "nes", "sfc", "smc", "gba", "gb", "gbc", "sms", "md", "gen", "gg",
+        "cue", "bin", "chd", "pbp", "iso",
+    ]
+
+    /// Extensions the Library offers as a launch target: the importable set MINUS the track
+    /// extension. Derived rather than restated, so the two lists cannot drift apart, and every
+    /// entry here has a `routes` mapping. One without a mapping is not silently ignored:
+    /// `core(forExtension:)` returns nil and the launch path says so by name.
+    static let launchableExtensions = importableExtensions.filter {
+        $0 != CoreCatalog.trackExtension
+    }
+
+    static func core(id: String) -> CoreSpec? {
+        byId[id]
+    }
+
+    /// The core that will run a file with this extension, or nil when nothing is mapped.
+    static func core(forExtension ext: String) -> CoreSpec? {
+        guard let id = routes[ext.lowercased()] else { return nil }
+        return byId[id]
+    }
+
+    /// What a Library row shows, so a wrong route is legible before anything is launched.
+    static func routeLabel(forExtension ext: String) -> String {
+        core(forExtension: ext)?.coreId ?? "no core"
+    }
+
+    /// ".nes, .sfc, .smc, ..." for the HUD lines that have to say what is accepted.
+    static func extensionList(_ extensions: [String]) -> String {
+        extensions.map { ".\($0)" }.joined(separator: ", ")
+    }
 }
 
 // MARK: - One row of the Library
@@ -114,8 +341,12 @@ struct LibraryEntry: Identifiable, Hashable, Sendable {
     }
 
     /// The secondary row line, built as a `String` so `Text` takes its verbatim initialiser.
+    ///
+    /// It names the core the row will launch on, read from the same `CoreCatalog.routes` the
+    /// launch path uses. That is deliberate: a routing mistake shows up in the list, before a
+    /// tap, instead of as a game that boots on the wrong emulator.
     var detail: String {
-        "\(ext.uppercased()) · \(sizeText)"
+        "\(ext.uppercased()) · \(sizeText) · \(CoreCatalog.routeLabel(forExtension: ext))"
     }
 }
 
@@ -135,9 +366,18 @@ final class EngineHost: ObservableObject {
     @Published var dropped: UInt32 = 0
     @Published var status: String = "waiting for the surface"
     @Published var gpu: String = ""
-    /// The on-screen BIOS/HLE line. Populated the moment the system dir is known, so a
-    /// missing BIOS is a legible condition rather than a silent drop in compatibility.
+    /// The on-screen BIOS/HLE line. Written when the cores are declared at attach, and
+    /// refreshed whenever a core loads, so a missing BIOS is a legible condition BEFORE a game
+    /// is tapped rather than a silent drop in compatibility afterwards. Empty for a core that
+    /// needs no BIOS, which is every core here except PCSX ReARMed.
     @Published var bios: String = ""
+    /// The on-screen core line: how many of the five were declared, and which dylibs are not
+    /// in the bundle.
+    ///
+    /// Written once when the surface attaches. Its whole job is to answer "is the core even
+    /// shipped" before the user taps a game, because a dylib that failed to embed and a core
+    /// that fails to load look identical from the Library otherwise.
+    @Published var cores: String = ""
     /// True once a ROM has been launched. Drives the HUD affordance label and re-entrancy.
     @Published var running = false
 
@@ -175,13 +415,14 @@ final class EngineHost: ObservableObject {
 
     /// The content types the picker offers: `public.item`, which every file conforms to.
     ///
-    /// DO NOT "TIGHTEN" THIS INTO A LIST OF ROM TYPES. It was learned the hard way, twice.
-    /// iOS ships no built-in `UTType` for .cue, .bin, .chd or .pbp, so
+    /// DO NOT "TIGHTEN" THIS INTO A LIST OF ROM TYPES. It was learned the hard way, twice, and
+    /// shipping four more cores made it worse rather than better: iOS ships no built-in
+    /// `UTType` for .nes, .sfc, .smc, .gba, .sms, .md, .gen, .gg, .cue, .bin, .chd or .pbp, so
     /// `UTType(filenameExtension: "cue")` and friends return nil, and a picker whose
     /// `allowedContentTypes` is built from them GREYS THOSE EXACT FILES OUT: the user opens
     /// the picker, sees their game, and cannot tap it. Declaring the types properly would mean
-    /// exporting custom UTIs from the Info.plist, which is more moving parts than a sideloaded
-    /// build needs.
+    /// exporting a dozen custom UTIs from the Info.plist, which is more moving parts than a
+    /// sideloaded build needs.
     ///
     /// So the picker stays permissive and NOTHING is greyed out, and acceptance is enforced
     /// AFTER the pick, by extension, in `importFiles`. Rejected files are named on the HUD
@@ -190,59 +431,9 @@ final class EngineHost: ObservableObject {
     /// importable extension and is reported by that same rejection path.
     private static let pickerContentTypes: [UTType] = [UTType.item]
 
-    /// Extensions that may be copied into Documents.
-    ///
-    /// Wider than the launchable set below because a CD game is a set of files: the .bin
-    /// tracks must come in alongside the .cue that names them, even though a .bin is never
-    /// itself a launch target.
-    private static let importableExtensions = ["bin", "chd", "cue", "iso", "pbp"]
-
-    /// Extensions the Library offers as a launch target.
-    ///
-    /// This is all that is left of the old `.cue > .pbp > .iso > .chd > .bin` priority order,
-    /// and it is the only place that knowledge is still meaningful. A .cue, .chd, .pbp or .iso
-    /// is a thing the core can be pointed at; a .bin is a track that the core opens for itself
-    /// when the .cue names it. So .bin files stay on disk, keep being read, and stay out of
-    /// this list rather than cluttering it with entries that must not be tapped.
-    private static let launchableExtensions = ["chd", "cue", "iso", "pbp"]
-
     /// How many filenames the HUD names before it starts counting instead. Enough to identify
     /// what happened, short enough to stay on screen.
     private static let reportedNameLimit = 6
-
-    /// PCSX ReARMed's pre-load numbers. These are only a hint: `declareCore` sizes an
-    /// initial GPU texture from them, but `sync_descriptor_from_core` overwrites geometry,
-    /// fps and sample rate from `retro_get_system_av_info` the instant the core loads, and
-    /// the pixel format is re-negotiated through `SET_PIXEL_FORMAT` inside `retro_load_game`.
-    /// So the accuracy that matters is the filename and the core id, not these figures.
-    private enum PS1 {
-        // Must match the dylib filename produced by scripts/build-core.sh and embedded by
-        // package-ipa.sh; a mismatch here is a "core is missing from the bundle" HUD line.
-        static let coreId = "pcsx_rearmed"
-        static let library = "pcsx_rearmed_libretro_ios.dylib"
-        // PS1 native resolution is 320x240; the framebuffer can widen to 640x480 and, with
-        // interlace and overscan, up to about 700x576. The declared max sizes the texture
-        // before the core reports its real av_info.
-        static let width: UInt32 = 320
-        static let height: UInt32 = 240
-        static let maxWidth: UInt32 = 700
-        static let maxHeight: UInt32 = 576
-        // PS1 runs at NTSC 59.94 Hz; the pacer takes the real number the core reports on
-        // load, so this is only the pre-load hint.
-        static let fps = 59.94
-        static let sampleRate: UInt32 = 44100
-        static let aspectRatio: Float = 4.0 / 3.0
-        // RGB565 (0) is PCSX ReARMed's default. The core re-negotiates via SET_PIXEL_FORMAT
-        // during retro_load_game (RGB565 by default, XRGB8888 if pcsx_rearmed_rgb32_output
-        // is on), and native_core.rs's video() reports whatever the core chose, so this
-        // declaration is superseded either way.
-        static let pixelFormat: UInt32 = 0
-        // A real BIOS placed in the system dir (e.g. scph1001.bin) raises compatibility.
-        // These are the filenames PCSX ReARMed looks for; the HUD reports whether any of
-        // them is present. Never bundled: shipping a PS1 BIOS is a copyright violation.
-        static let biosNames = ["scph1001.bin", "scph5501.bin", "scph7001.bin",
-                                "scph1000.bin", "scph5500.bin", "scph5502.bin"]
-    }
 
     init() {
         engine = ContinuumEngine()
@@ -282,21 +473,31 @@ final class EngineHost: ObservableObject {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
     }
 
-    /// Reports whether a PS1 BIOS is present in the system dir.
+    /// Reports whether one of a core's BIOS files is present in the system dir.
     ///
-    /// PCSX ReARMed does not require one: with no BIOS it falls back to HLE (its
-    /// `pcsx_rearmed_bios` option / `Config.HLE`) and still boots, at reduced accuracy. A
-    /// missing BIOS is therefore a compatibility note, not a hard failure, so it belongs on
-    /// the HUD rather than in an error path.
-    private func biosStatus(in systemDir: URL?) -> String {
-        guard let dir = systemDir else { return "no system dir; HLE BIOS only" }
-        let present = PS1.biosNames.first { name in
+    /// Returns an empty string for a core that declares none, which the HUD then hides: a NES
+    /// or SNES cart has nothing to say here, and a permanently empty BIOS line would only
+    /// train the eye to ignore the one core that does.
+    ///
+    /// PCSX ReARMed, the one core that lists any, does not require one: with no BIOS it falls
+    /// back to HLE (its `pcsx_rearmed_bios` option / `Config.HLE`) and still boots, at reduced
+    /// accuracy. A missing BIOS is therefore a compatibility note, not a hard failure, so it
+    /// belongs on the HUD rather than in an error path.
+    private func biosStatus(for spec: CoreSpec, in systemDir: URL?) -> String {
+        guard !spec.biosNames.isEmpty else { return "" }
+        // Every branch names the core. The line is cleared when a core with no BIOS list loads
+        // and repopulated when one with a list does, so a line that appears and disappears has
+        // to say whose it is or it reads as noise.
+        guard let dir = systemDir else {
+            return "BIOS (\(spec.coreId)): no system dir, HLE only"
+        }
+        let present = spec.biosNames.first { name in
             FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path)
         }
         if let present {
-            return "BIOS: \(present)"
+            return "BIOS (\(spec.coreId)): \(present)"
         }
-        return "BIOS: none, HLE fallback"
+        return "BIOS (\(spec.coreId)): none, HLE fallback"
     }
 
     /// The engine core states in which a session can actually be started.
@@ -307,7 +508,95 @@ final class EngineHost: ObservableObject {
     /// down a session the engine is about to unwind properly by itself.
     private static let usableCoreStates = ["loaded", "bound"]
 
-    /// Makes the PS1 core resident, and re-makes it resident whenever the engine has dropped it.
+    /// Builds the engine declaration for one core spec.
+    ///
+    /// One place, so the up-front declaration and the re-declaration inside
+    /// `ensureCoreLoaded(coreId:)` cannot fill a field in differently. `modulePath` is passed in
+    /// rather than derived here because it is the caller that has already resolved and checked
+    /// the bundle path.
+    private func declaration(for spec: CoreSpec, modulePath: String) -> CoreDeclaration {
+        CoreDeclaration(
+            id: spec.coreId,
+            displayName: spec.displayName,
+            systems: spec.systems,
+            modulePath: modulePath,
+            baseWidth: spec.width,
+            baseHeight: spec.height,
+            maxWidth: spec.maxWidth,
+            maxHeight: spec.maxHeight,
+            aspectRatio: spec.aspectRatio,
+            targetFps: spec.fps,
+            audioSampleRate: spec.sampleRate,
+            pixelFormat: spec.pixelFormat,
+            priority: spec.priority
+        )
+    }
+
+    /// Declares all five cores, and loads none of them.
+    ///
+    /// DECLARING IS NOT LOADING, WHICH IS WHY DOING ALL FIVE UP FRONT IS FREE. `declare_core`
+    /// stores a descriptor in the registry and touches no filesystem: it does not dlopen, does
+    /// not read the dylib, and does not allocate a core. Only the core a tapped game needs is
+    /// ever loaded, in `ensureCoreLoaded(coreId:)`, which is what keeps this build honest about
+    /// dynamic loading. Five resident cores would be five emulators' worth of memory for four
+    /// systems nobody asked to play.
+    ///
+    /// The existence check is the other half of the point. A core whose dylib did not make it
+    /// into Frameworks/ is named here, on the HUD, before the user taps anything, because from
+    /// the Library a missing dylib and a broken core look exactly the same.
+    @discardableResult
+    func declareAllCores() -> Bool {
+        guard let frameworks = Bundle.main.privateFrameworksURL else {
+            cores = "cores: no Frameworks directory in the bundle, so none could be declared"
+            return false
+        }
+
+        var declared: [String] = []
+        var missing: [String] = []
+        var failed: [String] = []
+
+        for spec in CoreCatalog.all {
+            let module = frameworks.appendingPathComponent(spec.library)
+            guard FileManager.default.fileExists(atPath: module.path) else {
+                // Deliberately NOT declared. An id that was never declared reads back from the
+                // engine as nil, so a later tap takes the reload path and reports the missing
+                // dylib by name instead of failing inside the loader.
+                missing.append("\(spec.coreId) (\(spec.library))")
+                continue
+            }
+            do {
+                try engine.declareCore(
+                    declaration: declaration(for: spec, modulePath: module.path)
+                )
+                declared.append(spec.coreId)
+            } catch {
+                failed.append("\(spec.coreId): \(error.localizedDescription)")
+            }
+        }
+
+        var line = "cores: \(declared.count) of \(CoreCatalog.all.count) declared"
+        if !missing.isEmpty {
+            line += " | not in the bundle: \(Self.nameList(missing))"
+        }
+        if !failed.isEmpty {
+            line += " | declare failed: \(Self.nameList(failed))"
+        }
+        cores = line
+
+        // The BIOS readout is written HERE, at attach, and not only when a core loads. It used
+        // to arrive as a side effect of loading PCSX ReARMed at attach; nothing is loaded at
+        // attach any more, and a BIOS line that only appears after a disc has been tapped is
+        // useless, because knowing the BIOS is absent is what would have changed what the user
+        // did. `ensureCoreLoaded` still refreshes it per core, which is what keeps it accurate
+        // once something is actually running.
+        if let biosCore = CoreCatalog.all.first(where: { !$0.biosNames.isEmpty }) {
+            bios = biosStatus(for: biosCore, in: systemDirectory())
+        }
+
+        return missing.isEmpty && failed.isEmpty
+    }
+
+    /// Makes one core resident, and re-makes it resident whenever the engine has dropped it.
     ///
     /// THE ENGINE IS THE ONLY SOURCE OF TRUTH HERE, AND THAT IS THE FIX. This method used to
     /// cache its success in a Swift `Bool` and early-return on it. That bool went stale, because
@@ -319,23 +608,30 @@ final class EngineHost: ObservableObject {
     /// `CoreUnavailable(reason: "declared but not loaded (state: declared)")` while Swift still
     /// believed the core was loaded, and nothing on screen said otherwise.
     ///
-    /// So no bool is kept at all. The state is read back from the engine on every call, and the
-    /// declare + load sequence is re-run whenever the core is not usable, which makes this path
-    /// self-healing rather than one-shot. Re-declaring is safe to repeat: `CoreRegistry::declare`
-    /// keeps an existing loaded instance and only refreshes metadata, so it cannot yank a core
-    /// that is already resident.
+    /// So no bool is kept at all, for any core. The state is read back from the engine on every
+    /// call, and the declare + load sequence is re-run whenever that core is not usable, which
+    /// makes this path self-healing rather than one-shot. Re-declaring is safe to repeat:
+    /// `CoreRegistry::declare` keeps an existing loaded instance and only refreshes metadata, so
+    /// it cannot yank a core that is already resident.
     ///
-    /// Declare + load only, never a launch: safe to run before any ROM exists, because PCSX
-    /// ReARMed does not touch a game path until `retro_load_game`. Returns `false`, and leaves a
-    /// specific reason on the HUD, if the core cannot be made resident.
+    /// Declare + load only, never a launch: safe to run before any ROM exists, because no core
+    /// here touches a game path until `retro_load_game`. Returns `false`, and leaves a specific
+    /// reason on the HUD naming the core, if it cannot be made resident.
     @discardableResult
-    private func ensureCoreLoaded() -> Bool {
+    private func ensureCoreLoaded(coreId: String) -> Bool {
+        // An id with no spec is a programming error in the routing table, not a user error, so
+        // it gets its own line rather than being reported as a missing dylib.
+        guard let spec = CoreCatalog.core(id: coreId) else {
+            status = "no core called \(coreId) is shipped in this build"
+            return false
+        }
+
         // Ask the engine, never a local flag. `coreState` is Optional and returns nil when the id
         // is unknown to the registry, i.e. nothing has been declared yet, which needs the same
         // reload as an unloaded "declared". Collapsing that nil to "unknown" right here keeps one
         // non-optional string for both the comparison and the HUD, and "unknown" is never a
         // usable state, so an unknown id always takes the reload path below.
-        let observed = engine.coreState(coreId: PS1.coreId) ?? "unknown"
+        let observed = engine.coreState(coreId: coreId) ?? "unknown"
         if Self.usableCoreStates.contains(observed) {
             // Already usable. No HUD write here on purpose: this is the hot path on every tap,
             // and `launch` names the state it observed in its own breadcrumb, so the state
@@ -347,63 +643,48 @@ final class EngineHost: ObservableObject {
         // its outcome. "failed" gets its own line because a core that loaded and then broke is a
         // different condition from one that was never loaded.
         if observed == "failed" {
-            status = "core state is failed; retrying load of \(PS1.coreId)..."
+            status = "core state is failed; retrying load of \(coreId)..."
         } else {
-            status = "core state was \(observed); loading \(PS1.coreId)..."
+            status = "core state was \(observed); loading \(coreId)..."
         }
 
         guard let core = Bundle.main.privateFrameworksURL?
-            .appendingPathComponent(PS1.library) else {
-            status = "no Frameworks directory in the bundle"
+            .appendingPathComponent(spec.library) else {
+            status = "no Frameworks directory in the bundle; \(coreId) cannot be loaded"
             return false
         }
         guard FileManager.default.fileExists(atPath: core.path) else {
-            status = "\(PS1.library) is missing from the bundle"
+            status = "\(spec.library) is missing from the bundle, so \(coreId) cannot load"
             return false
         }
 
         let systemDir = systemDirectory()
-        bios = biosStatus(in: systemDir)
+        bios = biosStatus(for: spec, in: systemDir)
 
         do {
             // Declared before loaded, always: `loadNativeCore` refuses an undeclared id
             // rather than inventing geometry for it.
-            try engine.declareCore(
-                declaration: CoreDeclaration(
-                    id: PS1.coreId,
-                    displayName: "PCSX ReARMed (PS1)",
-                    systems: ["ps1"],
-                    modulePath: core.path,
-                    baseWidth: PS1.width,
-                    baseHeight: PS1.height,
-                    maxWidth: PS1.maxWidth,
-                    maxHeight: PS1.maxHeight,
-                    aspectRatio: PS1.aspectRatio,
-                    targetFps: PS1.fps,
-                    audioSampleRate: PS1.sampleRate,
-                    pixelFormat: PS1.pixelFormat,
-                    priority: 0
-                )
-            )
+            try engine.declareCore(declaration: declaration(for: spec, modulePath: core.path))
             try engine.loadNativeCore(
-                coreId: PS1.coreId,
+                coreId: coreId,
                 libraryPath: core.path,
                 systemDir: systemDir?.path,
                 saveDir: systemDir?.path
             )
         } catch {
             // The HUD is the only diagnostic on a sideloaded build, so the error text lands
-            // there rather than throwing into a blank screen.
-            status = "\(error)"
+            // there rather than throwing into a blank screen. The core id goes with it: five
+            // cores means "it failed" is no longer enough to know what failed.
+            status = "\(coreId) failed to load: \(error)"
             return false
         }
 
         // Confirm against the engine rather than concluding success from "the two calls above
         // did not throw". Believing a local success signal over the registry is exactly the
         // mistake the cached bool made, so the result is verified where it actually lives.
-        let reloaded = engine.coreState(coreId: PS1.coreId) ?? "unknown"
+        let reloaded = engine.coreState(coreId: coreId) ?? "unknown"
         guard Self.usableCoreStates.contains(reloaded) else {
-            status = "core load did not take: state is \(reloaded)"
+            status = "\(coreId) load did not take: state is \(reloaded)"
             return false
         }
         return true
@@ -443,7 +724,7 @@ final class EngineHost: ObservableObject {
         // Only launch targets are listed. The .bin tracks are still right there on disk and
         // the core still opens them; they are simply not things to tap.
         let entries = contents
-            .filter { Self.launchableExtensions.contains($0.pathExtension.lowercased()) }
+            .filter { CoreCatalog.launchableExtensions.contains($0.pathExtension.lowercased()) }
             .map { LibraryEntry(url: $0) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         library = entries
@@ -452,7 +733,8 @@ final class EngineHost: ObservableObject {
             libraryStatus = contents.isEmpty
                 ? "library: empty, no files in Documents yet"
                 : "library: nothing launchable among \(contents.count) file(s) in Documents "
-                    + "(need a .cue, .chd, .pbp or .iso)"
+                    + "(need one of "
+                    + "\(CoreCatalog.extensionList(CoreCatalog.launchableExtensions)))"
         } else {
             libraryStatus = "library: \(entries.count) game(s) of "
                 + "\(contents.count) file(s) in Documents"
@@ -461,31 +743,37 @@ final class EngineHost: ObservableObject {
 
     /// Deletes the tapped-away rows from Documents, then rescans.
     ///
-    /// Deliberately shallow: it removes the launch target that was swiped, and says out loud
-    /// that any .bin tracks that target named are still on disk. Guessing which .bin files
-    /// belonged to a deleted .cue would mean parsing the cue sheet, and a wrong guess deletes
-    /// a track another game needs.
+    /// Deliberately shallow: it removes the launch target that was swiped, and when that target
+    /// was a cue sheet it says out loud that the .bin tracks the sheet named are still on disk.
+    /// Guessing which .bin files belonged to a deleted .cue would mean parsing the cue sheet,
+    /// and a wrong guess deletes a track another game needs. A cartridge ROM is one file, so
+    /// that note is only written when a .cue was actually among the deletions.
     func deleteEntries(at offsets: IndexSet) {
         var removed: [String] = []
         var failures: [String] = []
+        var leftTracksBehind = false
 
         for index in offsets where index >= 0 && index < library.count {
             let entry = library[index]
             do {
                 try FileManager.default.removeItem(atPath: entry.path)
                 removed.append(entry.name)
+                if entry.ext == "cue" { leftTracksBehind = true }
             } catch {
                 failures.append("\(entry.name): \(error.localizedDescription)")
             }
         }
+
+        let trackNote = leftTracksBehind
+            ? "; any .bin tracks it named are still in Documents"
+            : ""
 
         if removed.isEmpty && failures.isEmpty {
             // Only reachable if the swipe resolved to nothing at all, which would mean the
             // list and the offsets had drifted apart. Say so rather than looking successful.
             status = "delete matched no library row; the list was rescanned"
         } else if failures.isEmpty {
-            status = "deleted \(Self.nameList(removed)); "
-                + "any .bin tracks it named are still in Documents"
+            status = "deleted \(Self.nameList(removed))\(trackNote)"
         } else if removed.isEmpty {
             status = "delete failed: \(Self.nameList(failures))"
         } else {
@@ -533,11 +821,12 @@ final class EngineHost: ObservableObject {
             // Acceptance is by extension, here, because the picker is deliberately permissive
             // (see `pickerContentTypes`). A rejected file is named on the HUD together with
             // its extension, so "I picked the wrong thing" never looks like "the import broke".
-            guard Self.importableExtensions.contains(ext) else {
+            guard CoreCatalog.importableExtensions.contains(ext) else {
                 let extLabel = ext.isEmpty ? "no extension" : ".\(ext)"
                 rejected.append("\(name) [\(extLabel)]")
-                status = "skipped \(name): \(extLabel) is not PS1 content "
-                    + "(want .cue, .bin, .chd, .pbp or .iso)"
+                status = "skipped \(name): \(extLabel) is not content this build can run "
+                    + "(want one of "
+                    + "\(CoreCatalog.extensionList(CoreCatalog.importableExtensions)))"
                 continue
             }
 
@@ -614,16 +903,18 @@ final class EngineHost: ObservableObject {
 
     // MARK: Launch
 
-    /// Launches a game the user tapped in the Library.
+    /// Launches a game the user tapped in the Library, on the core its extension routes to.
     ///
     /// The path is inside our own Documents directory, so there is NO security scope here and
     /// nothing to acquire, hold or release. That is the entire point of the import step: the
-    /// C++ core opens the .cue and each adjacent .bin it references with a plain fopen, on
-    /// files this app owns, and the OS has no grant to refuse. PCSX ReARMed declares
-    /// need_fullpath, so it is handed empty ROM bytes and the real absolute path; the Rust
-    /// side routes on the '/' in that path and splits the real extension for content-info, so
-    /// `entry.path` is exactly what it needs and nothing about the Rust launch signature
-    /// changed with this rework.
+    /// core opens the file, and for a CD game each adjacent .bin the .cue references, with a
+    /// plain fopen on files this app owns, and the OS has no grant to refuse. Every core is
+    /// handed empty ROM bytes and the real absolute path, which is what the CD cores need
+    /// (`need_fullpath`) and what Genesis Plus GX needs for a different reason: the Rust side
+    /// splits the real extension into a `ContentHint`, and that is the difference between a
+    /// Master System cart booting as a Master System and as a Mega Drive. So `entry.path` is
+    /// exactly what the engine wants, and the Rust launch signature did not change to ship
+    /// four more cores.
     func launch(entry: LibraryEntry) {
         // Breadcrumb, written before the re-entrancy stop and before ANY guard below can
         // return. A tap that reaches this method therefore always changes the HUD. If the HUD
@@ -631,6 +922,19 @@ final class EngineHost: ObservableObject {
         // the fault to the Library row rather than to anything in here.
         let opening = "opening \(entry.name)..."
         status = opening
+
+        // Routing, from the one table the Library row also reads. Resolved BEFORE the stop
+        // below on purpose: an unmapped extension is a tap that should change nothing, so a
+        // running game is not torn down to report it.
+        guard let spec = CoreCatalog.core(forExtension: entry.ext) else {
+            let extLabel = entry.ext.isEmpty ? "no extension" : ".\(entry.ext)"
+            status = "no core is mapped to \(extLabel), so \(entry.name) cannot be launched"
+            return
+        }
+        // Name the core in the breadcrumb, so a routing bug is one glance rather than a
+        // deduction: a .sms that says genesis_plus_gx is right, and one that says anything
+        // else is the bug.
+        status = "\(opening) on \(spec.coreId)"
 
         // Re-entrancy: a fresh tap replaces any running session.
         if running {
@@ -643,12 +947,12 @@ final class EngineHost: ObservableObject {
         // stop would therefore verify a core that the stop then invalidates, and the launch below
         // would fail with `state: declared` having just been told the core was fine. Checking
         // after the stop means the state read is the state `engine.launch` will actually see.
-        guard ensureCoreLoaded() else {
+        guard ensureCoreLoaded(coreId: spec.coreId) else {
             // ensureCoreLoaded writes its own specific reason on every failure path. Belt
             // and braces: if the status is somehow still the breadcrumb, say plainly that
             // the core is not resident rather than leaving a line that reads like progress.
-            if status == opening {
-                status = "core not loaded: \(PS1.library) could not be made resident"
+            if status == opening || status == "\(opening) on \(spec.coreId)" {
+                status = "core not loaded: \(spec.library) could not be made resident"
             }
             return
         }
@@ -656,7 +960,8 @@ final class EngineHost: ObservableObject {
         // Record the state the engine reports at the moment of launch, so a launch that still
         // fails cannot leave the core state as the one unobservable fact in the sequence. This
         // is the line that would have named "declared" out loud instead of costing device trips.
-        status = "\(opening) core \(engine.coreState(coreId: PS1.coreId) ?? "unknown")"
+        status = "\(opening) on \(spec.coreId), state "
+            + "\(engine.coreState(coreId: spec.coreId) ?? "unknown")"
 
         // The row was built from a directory scan that may be a few seconds old, and Documents
         // is user-visible through the Files app, so the file can genuinely be gone. Reporting
@@ -669,16 +974,16 @@ final class EngineHost: ObservableObject {
 
         do {
             try engine.launch(
-                coreId: PS1.coreId,
+                coreId: spec.coreId,
                 contentId: entry.name,
                 rom: Data(),
                 filename: entry.path
             )
             running = true
-            status = "running: \(entry.name)"
+            status = "running: \(entry.name) on \(spec.coreId)"
         } catch {
             running = false
-            status = "launch failed: \(entry.name): \(error)"
+            status = "launch failed on \(spec.coreId): \(entry.name): \(error)"
         }
     }
 
@@ -839,12 +1144,19 @@ final class EngineHost: ObservableObject {
         switch result {
         case .success(let summary):
             gpu = summary
-            // Make the core resident up front so a Library tap launches instantly, but do NOT
-            // launch anything: PCSX ReARMed needs a real game and hard-rejects empty content.
-            if ensureCoreLoaded() {
-                refreshLibrary()
+            // Declare all five cores and LOAD NONE OF THEM. Which core is needed is not known
+            // until a game is tapped, and nothing here can be auto-booted anyway: these cores
+            // need real content and hard-reject empty content. Declaring costs no dlopen, so
+            // the Library tap goes straight to loading exactly one core.
+            let allCoresPresent = declareAllCores()
+            refreshLibrary()
+            if !allCoresPresent {
+                // The `cores` line already names what is wrong. Say out loud that it is worth
+                // reading rather than leaving a cheerful ready line above a broken bundle.
+                status = "surface ready, but not every core is in the bundle - read the cores line"
+            } else {
                 status = library.isEmpty
-                    ? "surface ready - tap Import Games to add a PS1 game"
+                    ? "surface ready - tap Import Games to add a game"
                     : "surface ready - tap a game in the Library"
             }
         case .failure(let error):
@@ -1033,12 +1345,18 @@ struct PlayerView: View {
     ///   - GPU but 0 frames     -> renderer up, core or gate not producing
     ///   - frames but no colour -> compositor or pixel-format problem
     ///   - frozen counter       -> the frame gate is not releasing
+    ///   - a core line naming a missing dylib -> that system's core never reached the bundle
+    ///   - a running line naming the wrong core -> the extension route is wrong
     private var hud: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Continuum · Phase 5 step 2 - PCSX ReARMed (software)")
+            Text("Continuum · Phase 5 step 2 - five libretro cores (software)")
                 .font(.system(.caption, design: .monospaced)).bold()
             Text(host.status)
                 .fixedSize(horizontal: false, vertical: true)
+            if !host.cores.isEmpty {
+                Text(host.cores)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if !host.bios.isEmpty {
                 Text(host.bios)
             }
@@ -1056,10 +1374,11 @@ struct PlayerView: View {
 
 /// The Library: what has been imported into Documents, and the only way to start a game.
 ///
-/// It lists launch targets only (.cue, .chd, .pbp, .iso). The .bin tracks a .cue names are on
-/// disk beside it and the core reads them, but they are not tappable, because handing a raw
-/// track to the core instead of its cue sheet is not something a user should be able to do by
-/// accident.
+/// It lists launch targets only, which is every importable extension except .bin. The .bin
+/// tracks a .cue names are on disk beside it and the core reads them, but they are not
+/// tappable, because handing a raw track to the core instead of its cue sheet is not something
+/// a user should be able to do by accident. Each row also names the core it will run on, read
+/// from `CoreCatalog.routes`, so the routing is visible before anything launches.
 struct LibraryView: View {
     @ObservedObject var host: EngineHost
 
@@ -1067,9 +1386,11 @@ struct LibraryView: View {
     /// nothing else to tell the user what to do next. It also mentions the free fallback that
     /// `UIFileSharingEnabled` and `LSSupportsOpeningDocumentsInPlace` already give us.
     private static let emptyGuidance =
-        "No games yet. Tap Import Games, then select a .cue together with every .bin track it "
-        + "names (in the picker: Select, tap each file, Open). Files you drop into the "
-        + "Continuum folder in the Files app show up here too."
+        "No games yet. Tap Import Games and select your ROM files: "
+        + CoreCatalog.extensionList(CoreCatalog.launchableExtensions)
+        + ". For a PS1 disc select the .cue together with every .bin track it names (in the "
+        + "picker: Select, tap each file, Open). Files you drop into the Continuum folder in "
+        + "the Files app show up here too."
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {

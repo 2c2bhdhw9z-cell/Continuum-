@@ -1,0 +1,28 @@
+{
+  "id": "FEAT-004",
+  "type": "feature",
+  "description": "Record the multi-core iOS build in SESSION_HANDOFF.md and run the full in-sandbox verification sweep, including the by-eye trace of the five canonical dylib filenames and the regression check that the WASM invocations of scripts/build-core.sh still mean WASM. Depends on FEAT-001, FEAT-002 and FEAT-003.",
+  "status": "completed",
+  "steps": [
+    "Add a SESSION_HANDOFF.md subsection under the Phase 5 Step 2 section covering: which five cores the .ipa now ships; the ios / ios-all / ios-names subcommand split and WHY it exists (a bare core name still means WASM, and overloading one would break the web build); the five canonical dylib filenames and the six files that must agree on them; how each core is built (make with platform=ios-arm64 for four of them, snes9x from inside libretro/ because its makefile sets CORE_DIR := .., and mgba through CMake plus a manual -force_load dylib link because it ships no makefile); the extension-to-core routing table; the declare-all-five-but-load-one rule; and the note that fceumm's iOS makefile forces 32bpp so the declared RGB565 is superseded by SET_PIXEL_FORMAT at load.",
+    "State plainly in that subsection what is NOT proven: the macOS dylib builds, the .ipa contents and the on-device launch of each system are verified only by the orchestrator's CI build plus a device run.",
+    "Run every Linux-verifiable gate and record the results in this feature's findings and in task.json's verification block."
+  ],
+  "acceptance_criteria": [
+    "SESSION_HANDOFF.md carries the new subsection with the subcommand split and its rationale, the five canonical filenames, the routing table and the unproven list.",
+    "cargo test -> 74 passing and cargo test --features native-core,uniffi-bindings -> 84 passing.",
+    "cargo check --profile ios --target aarch64-apple-ios --features native-core,uniffi-bindings -> clean.",
+    "swiftc -frontend -parse on both Swift files -> exit 0.",
+    "bash -n on scripts/build-core.sh, native/ios/build-engine.sh and native/ios/package-ipa.sh -> valid.",
+    "project.yml and ios.yml load as YAML with all five dylibs present and info.properties intact; Info.plist loads as a plist.",
+    "The five canonical dylib names are traced across all six files with no divergence.",
+    "Bare `build-core.sh fceumm|mgba|genesis_plus_gx|snes9x|all` still routes to the WASM path and nothing under web/ is modified by this task.",
+    "No em dashes were added, and only the intended files are in the commit."
+  ],
+  "verification": [
+    "The command outputs for every gate above, captured and summarised.",
+    "git show --stat on the local commit -> scripts/build-core.sh, native/ios/build-engine.sh, native/ios/project.yml, native/ios/package-ipa.sh, .github/workflows/ios.yml, native/ios/ContinuumApp.swift, SESSION_HANDOFF.md and .agents/tasks/task-ios-all-cores/** only, with no web/ and no crates/ changes."
+  ],
+  "blocked_reason": null,
+  "findings": "SESSION_HANDOFF.md gained section 17(j), 'Every system in the .ipa: five cores, one loaded at a time': a core/system/dylib table, the six files the filenames must agree across and which two derive them from `ios-names`, the ios / ios-all / ios-names split with the reason a bare core name still means WASM, the per-core build facts read from each upstream makefile (including snes9x's CORE_DIR := .. and mgba's CMake plus -force_load link), a subsection on the three checks that exist because this fails quietly (the nm assertion, the separate-process errexit fix and the pre-build cross-file name check) and the timeout raise, the extension-to-core routing table, the declare-five-load-one rule, the note that fceumm's iOS makefile forces 32bpp so the declared RGB565 is superseded by SET_PIXEL_FORMAT, and an explicit 'still not proven' list. VERIFIED: cargo test 74 passing; cargo test --features native-core,uniffi-bindings 84 passing; cargo check --profile ios --target aarch64-apple-ios --features native-core,uniffi-bindings clean; swiftc -frontend -parse exit 0 on both Swift files; bash -n clean on all three scripts; project.yml and ios.yml valid YAML with all five dylibs and info.properties intact; Info.plist valid; the five names traced across all six files with no divergence; bare build-core.sh fceumm|mgba|genesis_plus_gx|snes9x|all still route to the WASM path; nothing under web/ or crates/ is modified; no em dash on any added line."
+}

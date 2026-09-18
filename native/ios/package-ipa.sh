@@ -21,6 +21,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Needed to reach scripts/build-core.sh, which is the single source of the core dylib names.
+ROOT="$(cd "$HERE/../.." && pwd)"
 OUT="$HERE/build"
 DERIVED="$OUT/DerivedData"
 STAGE="$OUT/stage"
@@ -83,13 +85,32 @@ if [ ! -f "$BUNDLE/Frameworks/libcontinuum_switch.dylib" ]; then
   cp "$OUT/lib/libcontinuum_switch.dylib" "$BUNDLE/Frameworks/"
 fi
 
-# Same fallback for the PS1 core (PCSX ReARMed). dlopened at runtime through
-# @executable_path/Frameworks like the wrapper; if Xcode's embed phase was skipped, place
-# it so the signing loop below still seals it and the app can load a real core on device.
-if [ ! -f "$BUNDLE/Frameworks/pcsx_rearmed_libretro_ios.dylib" ]; then
-  echo "==> embedding pcsx_rearmed_libretro_ios.dylib (Xcode did not)"
-  cp "$OUT/lib/pcsx_rearmed_libretro_ios.dylib" "$BUNDLE/Frameworks/"
-fi
+# The same fallback for all five libretro cores (fceumm, mgba, genesis_plus_gx, snes9x,
+# pcsx_rearmed). Each is dlopened at runtime through @executable_path/Frameworks like the
+# wrapper; if Xcode's embed phase was skipped for one, place it here so the signing loop
+# below still seals it and the app can still load that core on device. An .ipa that is
+# missing a core produces an app which launches and then cannot run that one system, which is
+# about the hardest thing to diagnose from a phone.
+#
+# The filenames come from scripts/build-core.sh, the one place they are defined, rather than
+# being restated here.
+CORE_NAMES="$("$ROOT/scripts/build-core.sh" ios-names)"
+[ -n "$CORE_NAMES" ] || {
+  echo "error: scripts/build-core.sh ios-names returned nothing; cannot verify the cores" >&2
+  exit 1
+}
+for core_dylib in $CORE_NAMES; do
+  # build-engine.sh already hard-failed on a missing core, so this can only mean the two
+  # scripts were run out of order. Say that rather than zipping an .ipa with a hole in it.
+  [ -f "$OUT/lib/$core_dylib" ] || {
+    echo "error: $OUT/lib/$core_dylib is missing; run build-engine.sh first" >&2
+    exit 1
+  }
+  if [ ! -f "$BUNDLE/Frameworks/$core_dylib" ]; then
+    echo "==> embedding $core_dylib (Xcode did not)"
+    cp "$OUT/lib/$core_dylib" "$BUNDLE/Frameworks/"
+  fi
+done
 
 # ------------------------------------------------------------ 4. signing
 
