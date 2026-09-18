@@ -46,6 +46,15 @@ pub struct ContentHint {
     pub extension: String,
     /// Display name, usually the file stem. Cores may use it for save file naming.
     pub name: String,
+    /// Full, openable filesystem path when the caller has one.
+    ///
+    /// `None` for the web build, which loads from memory and never has a real path, and
+    /// for callers that only know a bare filename. A `need_fullpath` native core (PCSX
+    /// ReARMed, the Switch containers) hard-requires `retro_game_info::path` to be a real
+    /// openable path — `name` alone is only the file stem, which is not one — so the
+    /// native loader reads this when the content bytes are empty. Populated by
+    /// [`ContentHint::from_filename`] when the input already looks like a path.
+    pub full_path: Option<String>,
 }
 
 impl ContentHint {
@@ -54,16 +63,25 @@ impl ContentHint {
         Self {
             extension: extension.trim_start_matches('.').to_ascii_lowercase(),
             name: name.into(),
+            full_path: None,
         }
     }
 
     /// Derives the hint from a file name.
+    ///
+    /// When the input carries a directory separator it is a path, not a bare name, so the
+    /// verbatim string is retained in [`ContentHint::full_path`] for `need_fullpath` cores.
+    /// The extension/name split is unchanged, so the web build sees identical behaviour.
     pub fn from_filename(filename: &str) -> Self {
         let name = filename.rsplit('/').next().unwrap_or(filename);
-        match name.rsplit_once('.') {
+        let mut hint = match name.rsplit_once('.') {
             Some((stem, extension)) => Self::new(extension, stem),
             None => Self::new("", name),
+        };
+        if filename.contains('/') {
+            hint.full_path = Some(filename.to_string());
         }
+        hint
     }
 }
 
