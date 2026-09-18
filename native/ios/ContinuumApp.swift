@@ -1,9 +1,15 @@
-// Continuum — the Step 10 host app.
+// Continuum — the Phase 5 Step 2 host app.
 //
-// Enough SwiftUI to prove the chain end to end: the C++ libretro wrapper renders a rotating
-// colour, the Rust engine drives it and composites, and this presents the result on a
-// CAMetalLayer. No library, no ROM picker — those are steps 11 and later. If the square is
-// rotating and the HUD is counting frames, the whole Phase 5 boundary is working.
+// Step 10 proved the chain with a stub: the C++ libretro wrapper rendered a rotating colour,
+// the Rust engine drove it and composited, and this presented the result on a CAMetalLayer.
+// Step 2 swaps that stub for the first real libretro core, PCSX ReARMed (PS1), through the
+// same software frame path. If the HUD is counting frames, the loader, the pixel-format
+// negotiation and the audio pipeline are all working against a real core.
+//
+// The core is loaded exactly as the stub was: declare, load, launch, in that order, from the
+// attach callback so the renderer exists first. What changed is the core it points at, the
+// PS1 geometry it declares, and that the launch filename is now a real, openable path
+// because PCSX ReARMed declares need_fullpath and hard-rejects a NULL info->path.
 
 import SwiftUI
 import UIKit
@@ -12,7 +18,7 @@ import UIKit
 struct ContinuumApp: App {
     var body: some Scene {
         WindowGroup {
-            StubHarnessView()
+            PlayerView()
                 // The player is always dark: it surrounds emulated output, and a light
                 // letterbox around a dark game is glare rather than design.
                 .preferredColorScheme(.dark)
@@ -38,31 +44,79 @@ final class EngineHost: ObservableObject {
     @Published var dropped: UInt32 = 0
     @Published var status: String = "waiting for the surface"
     @Published var gpu: String = ""
+    /// The on-screen BIOS/HLE line. Populated the moment the system dir is known, so a
+    /// missing BIOS is a legible condition rather than a silent drop in compatibility.
+    @Published var bios: String = ""
 
     private var started = false
 
-    /// The stub wrapper's own numbers, from `native/switch-wrapper/stub_engine.h` and the
-    /// `ScreenInfo` the C++ reports through `retro_get_system_av_info`. They have to agree:
-    /// the declaration sizes the GPU texture, and the engine trusts it over the core.
-    private enum Stub {
-        static let coreId = "switch-stub"
-        static let library = "libcontinuum_switch.dylib"
-        static let width: UInt32 = 1280
-        static let height: UInt32 = 720
-        static let maxWidth: UInt32 = 1920
-        static let maxHeight: UInt32 = 1080
-        static let fps = 60.0
-        static let sampleRate: UInt32 = 48000
-        // The stub's software renderer writes bytes in R,G,B,A order, so it is declared
-        // RGBA8888 (2) and uploaded without conversion. Worth knowing that this is *not* one
-        // of libretro's three software formats — a real core would use XRGB8888, which is
-        // byte order B,G,R,X. The stub gets away with it because the same code produces and
-        // checks the colour, and because its real purpose is the hardware path.
-        static let pixelFormat: UInt32 = 2
+    /// PCSX ReARMed's pre-load numbers. These are only a hint: `declareCore` sizes an
+    /// initial GPU texture from them, but `sync_descriptor_from_core` overwrites geometry,
+    /// fps and sample rate from `retro_get_system_av_info` the instant the core loads, and
+    /// the pixel format is re-negotiated through `SET_PIXEL_FORMAT` inside `retro_load_game`.
+    /// So the accuracy that matters is the filename and the core id, not these figures.
+    private enum PS1 {
+        // Must match the dylib filename produced by scripts/build-core.sh and embedded by
+        // package-ipa.sh; a mismatch here is a "core is missing from the bundle" HUD line.
+        static let coreId = "pcsx_rearmed"
+        static let library = "pcsx_rearmed_libretro_ios.dylib"
+        // PS1 native resolution is 320x240; the framebuffer can widen to 640x480 and, with
+        // interlace and overscan, up to about 700x576. The declared max sizes the texture
+        // before the core reports its real av_info.
+        static let width: UInt32 = 320
+        static let height: UInt32 = 240
+        static let maxWidth: UInt32 = 700
+        static let maxHeight: UInt32 = 576
+        // PS1 runs at NTSC 59.94 Hz; the pacer takes the real number the core reports on
+        // load, so this is only the pre-load hint.
+        static let fps = 59.94
+        static let sampleRate: UInt32 = 44100
+        static let aspectRatio: Float = 4.0 / 3.0
+        // RGB565 (0) is PCSX ReARMed's default. The core re-negotiates via SET_PIXEL_FORMAT
+        // during retro_load_game (RGB565 by default, XRGB8888 if pcsx_rearmed_rgb32_output
+        // is on), and native_core.rs's video() reports whatever the core chose, so this
+        // declaration is superseded either way.
+        static let pixelFormat: UInt32 = 0
+        // A real BIOS placed in the system dir (e.g. scph1001.bin) raises compatibility.
+        // These are the filenames PCSX ReARMed looks for; the HUD reports whether any of
+        // them is present. Never bundled: shipping a PS1 BIOS is a copyright violation.
+        static let biosNames = ["scph1001.bin", "scph5501.bin", "scph7001.bin",
+                                "scph1000.bin", "scph5500.bin", "scph5502.bin"]
     }
 
     init() {
         engine = ContinuumEngine()
+    }
+
+    /// Where the core reads its BIOS and writes its savedata. Created if absent so the core
+    /// always has a real, writable directory to hand back through GET_SYSTEM_DIRECTORY.
+    private func systemDirectory() -> URL? {
+        guard let dir = FileManager.default.urls(for: .applicationSupportDirectory,
+                                                 in: .userDomainMask).first else {
+            return nil
+        }
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir,
+                                                     withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    /// Reports whether a PS1 BIOS is present in the system dir.
+    ///
+    /// PCSX ReARMed does not require one: with no BIOS it falls back to HLE (its
+    /// `pcsx_rearmed_bios` option / `Config.HLE`) and still boots, at reduced accuracy. A
+    /// missing BIOS is therefore a compatibility note, not a hard failure, so it belongs on
+    /// the HUD rather than in an error path.
+    private func biosStatus(in systemDir: URL?) -> String {
+        guard let dir = systemDir else { return "no system dir; HLE BIOS only" }
+        let present = PS1.biosNames.first { name in
+            FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path)
+        }
+        if let present {
+            return "BIOS: \(present)"
+        }
+        return "BIOS: none, HLE fallback"
     }
 
     /// Starts the session. Called only once the renderer exists.
@@ -74,59 +128,66 @@ final class EngineHost: ObservableObject {
         guard !started else { return }
 
         guard let core = Bundle.main.privateFrameworksURL?
-            .appendingPathComponent(Stub.library) else {
+            .appendingPathComponent(PS1.library) else {
             status = "no Frameworks directory in the bundle"
             return
         }
         guard FileManager.default.fileExists(atPath: core.path) else {
-            status = "\(Stub.library) is missing from the bundle"
+            status = "\(PS1.library) is missing from the bundle"
             return
         }
 
-        // Switch containers declare need_fullpath, so content is a path rather than bytes.
-        // The stub needs no real content, but it is given a path so the same code path runs.
-        let content = FileManager.default.temporaryDirectory
-            .appendingPathComponent("continuum-stub.nro")
-        FileManager.default.createFile(atPath: content.path, contents: Data())
+        let systemDir = systemDirectory()
+        bios = biosStatus(in: systemDir)
 
-        let systemDir = FileManager.default.urls(for: .applicationSupportDirectory,
-                                                 in: .userDomainMask).first
+        // PCSX ReARMed declares need_fullpath, so content is a real openable path rather
+        // than bytes: the core opens and reads the file itself and hard-rejects a NULL
+        // info->path. No commercial ROM ships in the bundle, so a placeholder is written to
+        // a real path in the writable area and passed as the launch filename with empty rom
+        // bytes. CI cannot boot a game regardless; the point here is that the loader and the
+        // fullpath plumbing run end to end. On device, dropping a real .cue/.bin/.pbp/.chd
+        // at this path would boot it.
+        let content = FileManager.default.temporaryDirectory
+            .appendingPathComponent("continuum-ps1.cue")
+        FileManager.default.createFile(atPath: content.path, contents: Data())
 
         do {
             // Declared before loaded, always: `loadNativeCore` refuses an undeclared id
             // rather than inventing geometry for it.
             try engine.declareCore(
                 declaration: CoreDeclaration(
-                    id: Stub.coreId,
-                    displayName: "Continuum Switch (stub)",
-                    systems: ["switch"],
+                    id: PS1.coreId,
+                    displayName: "PCSX ReARMed (PS1)",
+                    systems: ["ps1"],
                     modulePath: core.path,
-                    baseWidth: Stub.width,
-                    baseHeight: Stub.height,
-                    maxWidth: Stub.maxWidth,
-                    maxHeight: Stub.maxHeight,
-                    aspectRatio: 16.0 / 9.0,
-                    targetFps: Stub.fps,
-                    audioSampleRate: Stub.sampleRate,
-                    pixelFormat: Stub.pixelFormat,
+                    baseWidth: PS1.width,
+                    baseHeight: PS1.height,
+                    maxWidth: PS1.maxWidth,
+                    maxHeight: PS1.maxHeight,
+                    aspectRatio: PS1.aspectRatio,
+                    targetFps: PS1.fps,
+                    audioSampleRate: PS1.sampleRate,
+                    pixelFormat: PS1.pixelFormat,
                     priority: 0
                 )
             )
             try engine.loadNativeCore(
-                coreId: Stub.coreId,
+                coreId: PS1.coreId,
                 libraryPath: core.path,
                 systemDir: systemDir?.path,
                 saveDir: systemDir?.path
             )
             try engine.launch(
-                coreId: Stub.coreId,
-                contentId: "stub",
+                coreId: PS1.coreId,
+                contentId: "ps1",
                 rom: Data(),
                 filename: content.path
             )
             started = true
             status = "running"
         } catch {
+            // A load failure here (no ROM, unreadable path) is expected on a bare CI build
+            // and must read legibly rather than blank the screen. The HUD carries the error.
             status = "\(error)"
         }
     }
@@ -153,7 +214,7 @@ private extension FileManager {
 
 // MARK: - The view
 
-struct StubHarnessView: View {
+struct PlayerView: View {
     @StateObject private var host = EngineHost()
 
     /// Built as a `String`, not as an interpolated `Text` literal.
@@ -188,9 +249,12 @@ struct StubHarnessView: View {
             //   - frames but no colour → compositor or pixel-format problem
             //   - frozen counter       → the frame gate is not releasing
             VStack(alignment: .leading, spacing: 4) {
-                Text("Continuum · Phase 5 step 1 + 10")
+                Text("Continuum · Phase 5 step 2 - PCSX ReARMed (software)")
                     .font(.system(.caption, design: .monospaced)).bold()
                 Text(host.status)
+                if !host.bios.isEmpty {
+                    Text(host.bios)
+                }
                 if !host.gpu.isEmpty {
                     Text(host.gpu)
                 }

@@ -1340,3 +1340,134 @@ release, because the interface metadata UniFFI reads is profile- and target-inde
 
 Still unproven, as before: whether the panic-to-HUD path actually fires on device, since the
 app has never been run. But the build no longer aborts on the way there.
+
+## 17. Phase 5 Step 2: the first real core (PCSX ReARMed, software)
+
+Step 10 booted a stub. Step 2 boots a real libretro core, PCSX ReARMed, through the same
+software frame path. Nothing about the frame loop, the compositor or the audio ring changed;
+what changed is that the thing on the other side of `dlopen` is now a real emulator with real
+expectations, and the loader had to grow up to meet them.
+
+### (a) Why PS1, and why PCSX ReARMed first
+
+The point of the first real core is to de-risk the parts that the stub could not exercise:
+the loader against a core that actually rejects a bad load, ROM ingestion against content the
+core insists on opening itself, input mapping against a real controller layout, and the audio
+pipeline against a core that produces real sample-rate audio. All four ride the software
+frame path, which already works. Doing them before MoltenVK means the hardware path lands on
+top of a loader that is already proven rather than being debugged at the same time as Vulkan.
+PS1 is the right system for that: PCSX ReARMed is small, boots without a BIOS via HLE, and its
+software renderer needs no hardware context at all. paraLLEl-N64 follows immediately after, and
+it is what forces the full MoltenVK/Vulkan hardware path, so PS1 is deliberately the last core
+that can get away with software only.
+
+### (b) Thin passthrough, and the FrameGate stays reserved
+
+The loader is Option 1, a thin passthrough: `native_core.rs` `dlopen`s the core and forwards
+the `retro_*` calls directly. It does not route through the switch-wrapper's IoC FrameGate.
+That gate is the inversion-of-control seam built for the future standalone Switch engine, and
+it stays reserved for it: the stub wrapper and its 15/15 harness are still a live, independent
+gate, and none of it is on the PS1 path. A PS1 frame goes core, staging, Metal, entirely
+inside Rust, with no gate in the middle.
+
+### (c) The environment commands the loader had to learn
+
+The stub answered about six environment calls. PCSX ReARMed issues far more inside
+`retro_load_game`, and would refuse to load against the old surface, so `on_environment` was
+extended (every command number machine-checked against `.work/hdr/libretro/libretro.h`, with
+an inline comment citing each value, because §1 already recorded that an experimental-bit
+mistake produces a case that can never match):
+
+- `SET_PIXEL_FORMAT` (10) is mandatory. The core points at a `c_uint`; the loader maps it
+  (libretro 1 = XRGB8888, 2 = RGB565), stores the choice, and returns true. `0RGB1555` (0) is
+  refused with false, because the compositor does not normalise it.
+- `GET_VARIABLE` (15) returns false with a null value, which libretro defines as "use the core
+  default". PCSX ReARMed reads 73 variables; none are fabricated, so the core runs on its own
+  defaults. That is deliberate: inventing option strings is how a core ends up configured
+  wrong in ways nobody chose.
+- The option and descriptor families are accepted as no-ops returning true:
+  `SET_VARIABLES`, the `SET_CORE_OPTIONS*` variants and their display/update callbacks,
+  `SET_INPUT_DESCRIPTORS`, `SET_CONTROLLER_INFO`, `SET_PERFORMANCE_LEVEL`, `SET_SYSTEM_AV_INFO`,
+  `SET_GEOMETRY`, `SET_MESSAGE` and `SET_MESSAGE_EXT`. Accepting them keeps the core happy
+  without claiming a capability that is never delivered.
+- Two calls are deliberately refused (they fall through to the silent default-false arm):
+  `SET_AUDIO_BUFFER_STATUS_CALLBACK` and `GET_INPUT_BITMASKS`. §1's lesson is not to claim a
+  callback you will never make, so the audio-buffer callback is refused cleanly; refusing
+  bitmasks routes the core to per-id `input_state`, which `InputSnapshot::libretro_state`
+  already serves. The default arm stays silent so a per-frame refusal cannot spam the log.
+
+### (d) Pixel-format negotiation
+
+`video()` used to hardcode `PixelFormat::Rgba8888`. It now reports the format the core
+negotiated. PCSX ReARMed chooses RGB565 by default and XRGB8888 only if
+`pcsx_rearmed_rgb32_output` is on; both are normalised on the CPU by `gfx/convert.rs`, so
+reporting the true format is exactly what makes PS1 colours come out right. The negotiated
+value is carried through a process-global `Mutex<Option<PixelFormat>>` alongside `DIRECTORIES`,
+for the same lifetime reason: `SET_PIXEL_FORMAT` fires inside `retro_load_game` under a
+Mutex-held bridge, possibly off the callback thread. It is reset before each load so a stale
+value from a prior core cannot leak, and it defaults to the declared descriptor format when no
+`SET_PIXEL_FORMAT` arrived.
+
+### (e) BIOS handling and the HUD
+
+The system directory is `applicationSupportDirectory`, created if absent and passed as both
+`systemDir` and `saveDir`. A real BIOS placed there (for example `scph1001.bin`) raises
+compatibility, but PCSX ReARMed does not require one: with no BIOS it falls back to HLE (its
+`pcsx_rearmed_bios` option, `Config.HLE`) and still boots, at reduced accuracy. Because that is
+a compatibility note rather than a hard failure, the app checks the system dir for the known
+BIOS filenames and puts the result on the HUD ("BIOS: scph1001.bin" or "BIOS: none, HLE
+fallback"), so a missing BIOS is a legible on-screen condition rather than a silent drop in
+accuracy. No BIOS is ever bundled: shipping a PS1 BIOS is a copyright violation.
+
+### (f) need_fullpath and the fullpath plumbing
+
+PCSX ReARMed declares `need_fullpath = true` unconditionally and hard-rejects a load if
+`info->path` is NULL (its `frontend/libretro.c` around line 2010, "info->path required"): it
+opens and reads the disc image itself and ignores the data pointer. So the launch filename has
+to be a real, openable path, not the file stem the stub got away with. `ContentHint` gained an
+optional `full_path`, populated from the launch path when it contains a directory separator,
+and `load_content` hands the core that real path when the rom bytes are empty. On the Swift
+side the app writes a placeholder file to a real path in the writable area and passes that path
+as the launch filename with empty rom bytes. No commercial ROM is bundled, and CI cannot boot a
+game anyway; the point of this step is that the loader and the path plumbing run end to end. On
+device, dropping a real `.cue`/`.bin`/`.pbp`/`.chd` at that path would boot it.
+
+### (g) The build-core.sh iOS strategy and the artefact chain
+
+`scripts/build-core.sh` gained an isolated iOS path, Darwin-guarded and completely separate
+from the wasi-sdk web strategies. It clones `libretro/pcsx_rearmed`, inits its submodules
+(lightrec, libchdr), and runs `make -f Makefile.libretro platform=ios-arm64 IOSSDK=<sdk>`,
+which sets ARCH=arm64, BUILTIN_GPU=neon and, importantly, DYNAREC=0. The dynarec/lightrec JIT
+is force-disabled for iOS arm64, so the first green build is interpreter only: correct but
+slower, no JIT entitlement dependency to fight, which is the right tradeoff for proving the
+loader. The Makefile emits `pcsx_rearmed_libretro_ios.dylib`, and the build reasserts its
+install_name to `@rpath/pcsx_rearmed_libretro_ios.dylib` so it can be `dlopen`ed from
+`Frameworks/`.
+
+That one filename is load-bearing across five files, and a single divergence is what turns CI
+red:
+
+```
+scripts/build-core.sh   produces  native/ios/build/lib/pcsx_rearmed_libretro_ios.dylib
+native/ios/build-engine.sh stages  into build/lib/ and hard-fails if it is missing
+native/ios/project.yml  embeds     build/lib/pcsx_rearmed_libretro_ios.dylib (embed:true, link:false, codeSign:false)
+native/ios/package-ipa.sh signs    every Frameworks/*.dylib, with a fallback copy of the same name
+.github/workflows/ios.yml verifies unzip -l "$IPA" | grep -q pcsx_rearmed_libretro_ios.dylib
+```
+
+It is embedded but not linked, reached by `dlopen`, for the same reason as the stub wrapper: a
+wrong rpath then fails to load with a legible HUD line instead of stopping the app from
+launching at all. The stub wrapper stays embedded alongside it; its harness is still a gate.
+
+### (h) What remains unproven
+
+On-device PS1 boot is unproven, and CI cannot prove it. CI proves exactly one thing: that the
+macOS build produces a signed bundle that embeds the core dylib. It does not, and cannot, boot
+a game, because no ROM or BIOS is bundled and there is no device in the loop. So "the loader
+loads PCSX ReARMed, negotiates a pixel format, and renders a PS1 frame on a real phone" is not
+established by anything here. The HUD is the diagnostic for when it is finally run on device:
+the status line, the BIOS/HLE line, the GPU line, and the frames/fps/dropped counter each
+distinguish a different failure, and on a sideloaded build with no debugger they are the only
+diagnostics there are. The Swift itself is checked here only as far as `swiftc -frontend -parse`
+reaches, which per §16 is a spell-checker, not a compiler: anything needing UIKit is proven
+only by the cloud build.
