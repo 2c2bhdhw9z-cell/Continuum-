@@ -1,0 +1,15 @@
+{
+  "task_id": "task-ps1-pcsx-rearmed",
+  "task_description": "Phase 5 Step 2 of Continuum: integrate the first REAL libretro core, PCSX ReARMed (PS1), through the SOFTWARE frame path, as a thin passthrough loader (Option 1, dlopen + forward retro_*). Close the native_core.rs loader gaps (environment commands, pixel-format negotiation, need_fullpath), add an iOS cross-compile path to scripts/build-core.sh (platform=ios-arm64, interpreter-first), embed the core dylib through project.yml/build-engine.sh/package-ipa.sh and assert it in the ios.yml .ipa verify, and wire the Swift host + SESSION_HANDOFF.md. NO MoltenVK/Vulkan this step. Keep the 74 cargo tests and the 15/15 switch-wrapper harness green. macOS build + on-device boot are verified only by the orchestrator's CI run afterward.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "semantic_review": "v1 APPROVED (.agents/tasks/task-ps1-pcsx-rearmed/2026-09-18-005517-review.md). No blocking concerns. Four non-blocking notes: the [profile.ios] panic=unwind change is pre-existing on the base branch (appears in the diff only because it is vs master); full_path is a latent fallback (all current callers pass absolute paths); the negotiation lifecycle and load_content full_path selection lack end-to-end tests (would need a fake-core .dylib fixture); on-device boot is CI-only and documented in SESSION_HANDOFF §17h.",
+    "summary": "All Linux-verifiable gates pass. cargo test: 74 passing (plain) and 84 passing (--features native-core,uniffi-bindings, +10 new PS1 loader tests). cargo check --target aarch64-apple-ios --features native-core,uniffi-bindings: clean. cargo check --profile ios --target aarch64-apple-ios --features native-core,uniffi-bindings: clean. cargo clippy --features native-core,uniffi-bindings --all-targets -- -D warnings: clean. cargo check --target wasm32-unknown-unknown: clean (web/wasm build untouched). ./native/switch-wrapper/build.sh host: 15/15. bash -n on build-core.sh/build-engine.sh/package-ipa.sh: valid. project.yml + ios.yml: valid YAML. swiftc -frontend -parse ContinuumApp.swift: parses (spell-check only, no iOS SDK here). Test quality reviewed: the 10 new native_core.rs tests call the real on_environment with correctly shaped C payloads and assert against the real NEGOTIATED_FORMAT global and ContentHint::from_filename; they would fail if the SET_PIXEL_FORMAT / GET_VARIABLE / refusal / full_path logic were reverted. The dylib filename pcsx_rearmed_libretro_ios.dylib is consistent across build-core.sh, build-engine.sh, project.yml, package-ipa.sh, and ios.yml (traced). docker_build is skipped: this project has no Dockerfile; the equivalent macOS/Xcode .ipa build and on-device PS1 boot cannot run in this Linux sandbox and are verified only by the orchestrator's CI run afterward."
+  }
+}
