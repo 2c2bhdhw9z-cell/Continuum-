@@ -12,9 +12,7 @@ import UIKit
 struct ContinuumApp: App {
     var body: some Scene {
         WindowGroup {
-            StubHarnessView()
-                // The player is always dark: it surrounds emulated output, and a light
-                // letterbox around a dark game is glare rather than design.
+            TestLaunchView()
                 .preferredColorScheme(.dark)
                 .statusBarHidden(true)
                 .ignoresSafeArea()
@@ -32,6 +30,7 @@ struct ContinuumApp: App {
 @MainActor
 final class EngineHost: ObservableObject {
     let engine: ContinuumEngine
+    let coreManager: CoreManager
 
     @Published var frameCount: UInt64 = 0
     @Published var displayFps: Double = 0
@@ -63,6 +62,15 @@ final class EngineHost: ObservableObject {
 
     init() {
         engine = ContinuumEngine()
+        coreManager = CoreManager(engine: engine)
+
+        // Declare all cores at startup
+        do {
+            try coreManager.declareAllCores()
+            status = "cores declared"
+        } catch {
+            status = "Failed to declare cores: \(error)"
+        }
     }
 
     /// Starts the session. Called only once the renderer exists.
@@ -93,8 +101,8 @@ final class EngineHost: ObservableObject {
                                                  in: .userDomainMask).first
 
         do {
-            // Declared before loaded, always: `loadNativeCore` refuses an undeclared id
-            // rather than inventing geometry for it.
+            // NOTE: CoreManager.declareAllCores() already declared the standard cores.
+            // This stub core is declared manually because it's not in the standard registry.
             try engine.declareCore(
                 declaration: CoreDeclaration(
                     id: Stub.coreId,
@@ -112,12 +120,16 @@ final class EngineHost: ObservableObject {
                     priority: 0
                 )
             )
+
+            // Load the core (this is what was missing!)
             try engine.loadNativeCore(
                 coreId: Stub.coreId,
                 libraryPath: core.path,
                 systemDir: systemDir?.path,
                 saveDir: systemDir?.path
             )
+
+            // Now launch
             try engine.launch(
                 coreId: Stub.coreId,
                 contentId: "stub",
@@ -128,6 +140,18 @@ final class EngineHost: ObservableObject {
             status = "running"
         } catch {
             status = "\(error)"
+        }
+    }
+
+    /// Example: Launch a PS1 game using CoreManager
+    /// Call this when user selects a game from the library
+    func launchPS1Game(cuePath: String) {
+        do {
+            try coreManager.launchPS1Game(cuePath: cuePath)
+            started = true
+            status = "PS1 game running"
+        } catch {
+            status = "Failed to launch: \(error.localizedDescription)"
         }
     }
 

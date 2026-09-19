@@ -44,6 +44,9 @@ targets:
     sources:
       - path: ContinuumApp.swift
       - path: MetalCanvas.swift
+      - path: CoreManager.swift
+      - path: GameLibraryView.swift
+      - path: TestLaunchView.swift
       # The UniFFI-generated Swift facade. Written by build-engine.sh, never committed: a
       # stale checked-in binding that disagrees with the Rust compiles, links, and then
       # corrupts arguments at runtime, which is the worst failure mode in this stack.
@@ -70,6 +73,11 @@ targets:
         # load_native_core, which is the whole point of a core being loadable at runtime. If
         # it were linked as well, a wrong rpath would stop the app launching at all instead
         # of surfacing "libcontinuum_switch.dylib is missing" in the HUD.
+        link: false
+        codeSign: false
+      # NES core (fceumm) - real libretro core
+      - framework: build/lib/libretro_fceumm.dylib
+        embed: true
         link: false
         codeSign: false
 
