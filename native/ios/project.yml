@@ -94,6 +94,23 @@ targets:
       - path: TouchControls.swift
       # The player screen's chrome, and the diagnostics panel both screens share.
       - path: PlayerScreen.swift
+      # Stage 2, the library shell. The tab shell, the top bar, the hero and the shelves.
+      - path: LibraryShell.swift
+      # The pieces the shell is built from: hero, cards, list rows, palette, status tint.
+      - path: LibraryCards.swift
+      # Settings: the artwork controls and their disclosure, the layout controls, the permanent home
+      # of the diagnostics, the BIOS row and the core options.
+      - path: SettingsScreen.swift
+      # One game's detail sheet: the facts, the artwork actions and delete.
+      - path: GameDetailSheet.swift
+      # Cover art, the pure half: the libretro playlist directory names, the filename to
+      # thumbnail-name transform, the candidate ladder and the procedural plate.
+      - path: GameArtwork.swift
+      # Cover art, the working half: URLSession fetching capped at three at a time, the on-disk
+      # store outside Documents, the one-week negative cache and the user-picked image.
+      - path: ArtworkStore.swift
+      # What a filename can honestly be made to say: the display title and the region.
+      - path: GameMetadata.swift
       # The UniFFI-generated Swift facade. Written by build-engine.sh, never committed: a
       # stale checked-in binding that disagrees with the Rust compiles, links, and then
       # corrupts arguments at runtime, which is the worst failure mode in this stack.

@@ -294,6 +294,28 @@ enum CoreCatalog {
         $0 != CoreCatalog.trackExtension
     }
 
+    /// Every BIOS filename any core in this build looks for, deduplicated, in declaration order.
+    ///
+    /// DERIVED from the specs rather than restated, for the same reason `routes` is derived from
+    /// `routeTable`: a second list would drift, and a name that drifted would send the user hunting
+    /// for a file the core is not looking for. Read by the Settings BIOS row and by the copy-across
+    /// action, so both name exactly what the loader names.
+    static let biosNames: [String] = {
+        var seen = Set<String>()
+        var names: [String] = []
+        for spec in all {
+            for name in spec.biosNames where seen.insert(name.lowercased()).inserted {
+                names.append(name)
+            }
+        }
+        return names
+    }()
+
+    /// "scph1001.bin, scph5501.bin, ..." for the lines that have to say what is recognised.
+    static func biosNameList() -> String {
+        biosNames.isEmpty ? "none" : biosNames.joined(separator: ", ")
+    }
+
     static func core(id: String) -> CoreSpec? {
         byId[id]
     }
@@ -349,6 +371,15 @@ struct LibraryEntry: Identifiable, Hashable, Sendable {
     let byteCount: Int64
     /// What scanning the cue sheet for its tracks found, `.notApplicable` for a non-cue entry.
     let cueScan: CueScan
+    /// When the file arrived, or nil when the filesystem would not say.
+    ///
+    /// Read so the library can order a "Recently added" shelf and pick a featured game
+    /// DETERMINISTICALLY. That matters more than it sounds: the library array is rebuilt from disk
+    /// after every import and every delete, so a hero chosen at random would change on every
+    /// rescan. The modification date is used rather than the creation date because a copy into
+    /// Documents sets both, and a file dropped in through the Files app is more reliably stamped
+    /// with the former. It never takes part in identity, which is still the path alone.
+    let addedAt: Date?
 
     var id: String { path }
 
@@ -376,6 +407,7 @@ struct LibraryEntry: Identifiable, Hashable, Sendable {
         let normalisedExtension = url.pathExtension.lowercased()
         ext = normalisedExtension
         let ownBytes = Self.fileSize(of: url)
+        addedAt = Self.arrivalDate(of: url)
 
         // Every format but the cue sheet is one self-contained file, so its own size is the
         // game and there is nothing to add up.
@@ -497,6 +529,18 @@ struct LibraryEntry: Identifiable, Hashable, Sendable {
               let size = values.fileSize
         else { return -1 }
         return Int64(size)
+    }
+
+    /// When the file arrived, modification date first and creation date as the fallback.
+    ///
+    /// Stats only, like `fileSize`, so a rescan of a library of PlayStation discs still opens
+    /// nothing. Nil is a perfectly good answer: the shelf and the hero both fall back to name
+    /// order, which is stable for the same reason a date is.
+    private static func arrivalDate(of url: URL) -> Date? {
+        guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey,
+                                                            .creationDateKey])
+        else { return nil }
+        return values.contentModificationDate ?? values.creationDate
     }
 
     /// The text of a cue sheet, or nil when it cannot be read at all.
@@ -668,6 +712,211 @@ final class EngineHost: ObservableObject {
     /// also the only debugger on a sideloaded build.
     @Published var libraryStatus: String = "library: not scanned yet"
 
+    // MARK: The library shell's own state
+
+    /// Cover art: the catalogue, the fetching, the disk store and the negative cache.
+    ///
+    /// Owned here, once, for the app's lifetime. That is what keeps the tier 5 picker's delegate
+    /// alive long enough to be called back, for exactly the reason `importPickerDelegate` below
+    /// exists.
+    let artwork = ArtworkStore()
+
+    /// The artwork read-out, mirrored from the store so the diagnostics panel can show it without
+    /// observing a second object. Never empty.
+    @Published var artworkLine: String = "artwork: nothing looked up yet"
+
+    /// The game whose detail sheet is open, or nil. The sheet is presented from this, so setting it
+    /// to nil is what closes it.
+    @Published var detailEntry: LibraryEntry?
+
+    /// Which library tab is showing, and what is in the search field.
+    ///
+    /// HELD HERE RATHER THAN AS VIEW STATE, because the shell is removed from the view tree while a
+    /// game is running: `RootView` shows either the shell or the player, which is what keeps the
+    /// one Metal canvas mounted underneath both. View state would be discarded with it, so leaving
+    /// a game would drop the user back on Home with their search cleared, having started from
+    /// Favorites.
+    @Published var libraryTab: LibraryTab = .home
+    @Published var librarySearch: String = ""
+
+    /// The favourited games, keyed on the SAME identity `LibraryEntry` uses: the absolute path.
+    ///
+    /// Not an array index, because the library array is rebuilt from disk after every import and
+    /// delete. Ids are never pruned on a rescan either: a file that is temporarily absent, because
+    /// it is being replaced or because the Files app is mid-copy, is not a reason to forget it was
+    /// a favourite. `favouriteEntries` simply shows the ones that are currently there.
+    @Published private(set) var favourites: Set<String> = []
+
+    /// How All Games arranges itself, and whether Home carries a shelf per system.
+    ///
+    /// Both persist, and both are the part of "let the user change the layout" that is real today:
+    /// no engine change, no dead switch. Moving the on-screen game controls is FEAT-006.
+    @Published var libraryLayout: LibraryLayout = .grid {
+        didSet {
+            guard oldValue != libraryLayout else { return }
+            UserDefaults.standard.set(libraryLayout.rawValue, forKey: Self.layoutKey)
+        }
+    }
+
+    @Published var showsSystemShelves: Bool = true {
+        didSet {
+            guard oldValue != showsSystemShelves else { return }
+            UserDefaults.standard.set(showsSystemShelves, forKey: Self.systemShelvesKey)
+        }
+    }
+
+    private static let favouritesKey = "continuum.favourites.v1"
+    private static let layoutKey = "continuum.library.layout.v1"
+    private static let systemShelvesKey = "continuum.library.systemShelves.v1"
+
+    /// The favourites that are on disk right now, in the library's own order.
+    var favouriteEntries: [LibraryEntry] {
+        library.filter { favourites.contains($0.id) }
+    }
+
+    /// Adds or removes a favourite and persists the set immediately.
+    ///
+    /// Immediately rather than on some later flush, because a sideloaded build can be killed by the
+    /// OS at any moment and a favourite that did not survive would look like the feature not
+    /// working.
+    func toggleFavourite(_ entry: LibraryEntry) {
+        if favourites.contains(entry.id) {
+            favourites.remove(entry.id)
+            status = "removed \(entry.name) from favorites"
+        } else {
+            favourites.insert(entry.id)
+            status = "added \(entry.name) to favorites"
+        }
+        UserDefaults.standard.set(Array(favourites), forKey: Self.favouritesKey)
+    }
+
+    /// The indices in `library` of the entries with these ids.
+    ///
+    /// The bridge between a filtered view and `deleteEntries(at:)`, which indexes the real array. A
+    /// filtered list's offsets are NOT the library's offsets, and handing them over directly would
+    /// delete a different game. An id that is no longer in the library contributes nothing, and
+    /// `deleteEntries` already reports an empty selection as its own condition.
+    func indices(matching ids: Set<String>) -> IndexSet {
+        IndexSet(library.indices.filter { ids.contains(library[$0].id) })
+    }
+
+    // MARK: What the engine says about itself
+
+    /// The core the engine reports as resident, if any, with the state it reported.
+    ///
+    /// ASKED OF `engine.coreState` EVERY TIME, never cached. That is the same rule
+    /// `ensureCoreLoaded` follows and for the same reason: `engine.stop()` unloads the core behind
+    /// Swift's back under the Drop retention policy, so any Swift flag remembering residency is
+    /// wrong the moment a session ends.
+    func residentCore() -> (spec: CoreSpec, state: String)? {
+        for spec in CoreCatalog.all {
+            let state = engine.coreState(coreId: spec.coreId) ?? "unknown"
+            if Self.usableCoreStates.contains(state) {
+                return (spec: spec, state: state)
+            }
+        }
+        return nil
+    }
+
+    /// The options the resident core declared about itself, read fresh.
+    ///
+    /// Empty when no core is resident, which is the normal state while the library is on screen:
+    /// leaving a game hands the core back to the registry and it is unloaded. Settings says so
+    /// rather than showing an empty list with no explanation.
+    func coreOptionRecords() -> [CoreOptionRecord] {
+        guard residentCore() != nil else { return [] }
+        return engine.coreOptions()
+    }
+
+    /// Sets one core option, and names the outcome either way.
+    func applyCoreOption(key: String, value: String, label: String) {
+        let shown = label.isEmpty ? key : label
+        do {
+            try engine.setCoreOption(key: key, value: value)
+            status = "core option \(shown) set to \(value)"
+        } catch {
+            status = "core option \(shown) could not be set to \(value): \(error)"
+        }
+    }
+
+    /// Copies any recognised BIOS file out of Documents and into the directory the cores read.
+    ///
+    /// THIS EXISTS BECAUSE THE TWO DIRECTORIES ARE NOT THE SAME ONE, which is easy to miss and
+    /// impossible to diagnose from the outside. `UIFileSharingEnabled` exposes DOCUMENTS as the
+    /// Continuum folder in the Files app, and that is where an import lands, but the system
+    /// directory handed to a core through GET_SYSTEM_DIRECTORY is APPLICATION SUPPORT, which the
+    /// Files app does not show at all. So a user can put scph1001.bin somewhere perfectly sensible
+    /// and the core will never see it. This is the one step across.
+    ///
+    /// Copies rather than moves, so the file the user put in the visible folder stays where they
+    /// can see it. Overwrites, because re-installing a BIOS is a normal thing to do. Every outcome
+    /// gets its own line, including the two that are conditions rather than errors.
+    func installBiosFromDocuments() {
+        guard let documents = documentsDirectory() else {
+            status = "BIOS install failed: no Documents directory"
+            return
+        }
+        guard let systemDir = systemDirectory() else {
+            status = "BIOS install failed: no Application Support directory for the core to "
+                + "read from"
+            return
+        }
+
+        var installed: [String] = []
+        var failures: [String] = []
+
+        for name in CoreCatalog.biosNames {
+            // Matched case-insensitively on the name the LOADER looks for, then copied under that
+            // exact spelling, because the core opens the name it declared and iOS filesystems are
+            // case-preserving. A file called SCPH1001.BIN is the right file with the wrong case.
+            let source = documents.appendingPathComponent(name)
+            var resolved: URL?
+            if FileManager.default.fileExists(atPath: source.path) {
+                resolved = source
+            } else if let contents = try? FileManager.default.contentsOfDirectory(
+                at: documents,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) {
+                resolved = contents.first {
+                    $0.lastPathComponent.lowercased() == name.lowercased()
+                }
+            }
+            guard let resolved else { continue }
+
+            let destination = systemDir.appendingPathComponent(name)
+            do {
+                if FileManager.default.fileExists(atPath: destination.path) {
+                    try FileManager.default.removeItem(at: destination)
+                }
+                try FileManager.default.copyItem(at: resolved, to: destination)
+                installed.append(name)
+            } catch {
+                failures.append("\(name): \(error.localizedDescription)")
+            }
+        }
+
+        if installed.isEmpty && failures.isEmpty {
+            status = "no BIOS file found in the Continuum folder; the recognised names are "
+                + CoreCatalog.biosNameList()
+            return
+        }
+        if failures.isEmpty {
+            status = "installed BIOS: \(Self.nameList(installed)); relaunch the game to use it"
+        } else if installed.isEmpty {
+            status = "BIOS install failed: \(Self.nameList(failures))"
+        } else {
+            status = "installed BIOS: \(Self.nameList(installed)); "
+                + "failed: \(Self.nameList(failures))"
+        }
+
+        // Refresh the read-out so the BIOS line reflects what was just copied rather than what was
+        // true at attach.
+        if let biosCore = CoreCatalog.all.first(where: { !$0.biosNames.isEmpty }) {
+            bios = biosStatus(for: biosCore, in: systemDir)
+        }
+    }
+
     /// The import picker's delegate, retained here for the app's lifetime.
     ///
     /// THIS PROPERTY IS A FIX, NOT A STYLE CHOICE. `UIDocumentPickerViewController.delegate`
@@ -714,9 +963,27 @@ final class EngineHost: ObservableObject {
 
     init() {
         engine = ContinuumEngine()
+
+        // The remembered preferences, read before anything can display. Each one falls back to its
+        // default rather than to nil, so a first launch and a corrupted value behave the same way.
+        let defaults = UserDefaults.standard
+        favourites = Set(defaults.stringArray(forKey: Self.favouritesKey) ?? [])
+        if let stored = defaults.string(forKey: Self.layoutKey),
+           let layout = LibraryLayout(rawValue: stored) {
+            libraryLayout = layout
+        }
+        if let stored = defaults.object(forKey: Self.systemShelvesKey) as? Bool {
+            showsSystemShelves = stored
+        }
+
         // Scan up front so the Library is populated even if the Metal attach later fails.
         // An attach failure must not also hide the games the user already imported.
         refreshLibrary()
+
+        // Wired last, because it hands the store a reference to a fully initialised host. The store
+        // writes its read-out through `artworkLine`, and a network failure through `status`, so an
+        // artwork problem is legible on the strip rather than only behind the Settings tab.
+        artwork.attach(host: self)
     }
 
     // MARK: Directories
@@ -987,7 +1254,10 @@ final class EngineHost: ObservableObject {
         do {
             contents = try FileManager.default.contentsOfDirectory(
                 at: documents,
-                includingPropertiesForKeys: [.fileSizeKey],
+                // The date keys are prefetched alongside the size so a rescan of a library of
+                // PlayStation discs is still one directory read rather than one stat per file.
+                includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey,
+                                             .creationDateKey],
                 options: [.skipsHiddenFiles]
             )
         } catch {
@@ -1583,7 +1853,11 @@ final class EngineHost: ObservableObject {
     /// is actually on screen rather than from a controller that is already covered, which
     /// UIKit would refuse. Returns nil only when there is genuinely no window to present
     /// from; the caller turns that into its own HUD line rather than failing silently.
-    private static func topmostViewController() -> UIViewController? {
+    ///
+    /// Internal rather than private only so the artwork picker can reuse it. Writing a second
+    /// presenter resolver would be two copies of the one piece of UIKit plumbing in this app that
+    /// cannot be tested anywhere but a device, and the second copy is always the one that is wrong.
+    static func topmostViewController() -> UIViewController? {
         let windowScenes = UIApplication.shared.connectedScenes.compactMap {
             $0 as? UIWindowScene
         }
@@ -1812,7 +2086,9 @@ struct RootView: View {
             canvas
 
             if host.activeEntry == nil {
-                LibraryScreen(host: host)
+                // The library shell, opaque over the canvas. See LibraryShell.swift for why it
+                // covers the canvas rather than replacing it.
+                LibraryShell(host: host, artwork: host.artwork)
             } else {
                 PlayerScreen(host: host, system: host.activeSystem)
             }
@@ -1849,131 +2125,6 @@ struct RootView: View {
             .position(x: area.midX, y: area.midY)
         }
         .ignoresSafeArea()
-    }
-}
-
-/// The Library: what has been imported into Documents, and the only way to start a game.
-///
-/// It lists launch targets only, which is every importable extension except .bin. The .bin
-/// tracks a .cue names are on disk beside it and the core reads them, but they are not
-/// tappable, because handing a raw track to the core instead of its cue sheet is not something
-/// a user should be able to do by accident. Each row also names the core it will run on, read
-/// from `CoreCatalog.routes`, so the routing is visible before anything launches.
-struct LibraryScreen: View {
-    @ObservedObject var host: EngineHost
-
-    /// The empty state, which has to be guidance rather than a shrug: on this device there is
-    /// nothing else to tell the user what to do next. It also mentions the free fallback that
-    /// `UIFileSharingEnabled` and `LSSupportsOpeningDocumentsInPlace` already give us.
-    private static let emptyGuidance =
-        "No games yet. Tap Import Games and select your ROM files: "
-        + CoreCatalog.extensionList(CoreCatalog.launchableExtensions)
-        + ". For a PS1 disc select the .cue together with every .bin track it names (in the "
-        + "picker: Select, tap each file, Open). Files you drop into the Continuum folder in "
-        + "the Files app show up here too."
-
-    var body: some View {
-        // Opaque, and that is the point: the canvas is still mounted and ticking underneath, and a
-        // library you can see a game through is the debug overlay this screen replaces.
-        VStack(alignment: .leading, spacing: 8) {
-            header
-            // Always visible, never behind the toggle. It is the only diagnostic a sideloaded build
-            // has, and the Library is where a failed import or a missing core is reported.
-            Text(host.status)
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(Color.white.opacity(0.7))
-                .lineLimit(3)
-                .fixedSize(horizontal: false, vertical: true)
-            if host.showDiagnostics {
-                DiagnosticsPanel(host: host)
-            }
-            listBody
-            Spacer(minLength: 0)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.black)
-    }
-
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text("Library")
-                .font(.system(.title3, design: .monospaced)).bold()
-                .foregroundStyle(.white)
-            Spacer(minLength: 4)
-            Button("Import Games") {
-                host.presentImportPicker()
-            }
-            .font(.system(.caption, design: .monospaced))
-            Button {
-                host.showDiagnostics.toggle()
-            } label: {
-                Image(systemName: host.showDiagnostics ? "info.circle.fill" : "info.circle")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 34, height: 34)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .accessibilityLabel("Diagnostics")
-        }
-    }
-
-    @ViewBuilder
-    private var listBody: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(host.libraryStatus)
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(Color.white.opacity(0.75))
-                .fixedSize(horizontal: false, vertical: true)
-
-            if host.library.isEmpty {
-                Text(Self.emptyGuidance)
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.75))
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                List {
-                    // Identity comes from `LibraryEntry.id`, the absolute path, so rows keep
-                    // their identity across the rescans that follow every import and delete.
-                    ForEach(host.library) { entry in
-                        Button {
-                            host.launch(entry: entry)
-                        } label: {
-                            LibraryRow(entry: entry)
-                        }
-                        .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 4, bottom: 6, trailing: 4))
-                        .listRowBackground(Color.white.opacity(0.06))
-                        .listRowSeparatorTint(Color.white.opacity(0.15))
-                    }
-                    .onDelete { offsets in
-                        host.deleteEntries(at: offsets)
-                    }
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-            }
-        }
-    }
-}
-
-/// One Library row: the filename, and enough detail to tell two dumps of the same game apart.
-struct LibraryRow: View {
-    let entry: LibraryEntry
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(entry.name)
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.white)
-            Text(entry.detail)
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(Color.white.opacity(0.7))
-        }
-        // Full-width and hit-testable across the whole row, so the tap target is the row
-        // rather than just the glyphs of the filename.
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
     }
 }
 

@@ -162,6 +162,8 @@ struct PlayerScreen: View {
 ///   - a core line naming a missing dylib -> that system's core never reached the bundle
 ///   - a running line naming the wrong core -> the extension route is wrong
 ///   - a control layout line -> two controls were laid out on top of each other
+///   - an artwork line naming a network failure -> the covers are missing because of the network,
+///     not because the games have none, which are two conditions that look identical on a shelf
 ///
 /// It moved out of the always-on HUD into a toggle, and moved nowhere else: the same strings, in
 /// the same order, reachable from the library and from the player.
@@ -194,6 +196,10 @@ struct DiagnosticsPanel: View {
             }
             if !host.libraryStatus.isEmpty {
                 Text(host.libraryStatus)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !host.artworkLine.isEmpty {
+                Text(host.artworkLine)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
