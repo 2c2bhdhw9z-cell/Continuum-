@@ -273,9 +273,14 @@ final class ArtworkChooserModel: ObservableObject {
             line = ArtworkOptions.summary(for: cached, searchedOtherSystems: false)
         }
 
+        // `guard let self` rather than `await self?.run(...)`. Optional chaining on an async call
+        // makes the closure return `()?`, so the task is a `Task<()?, Never>` and does not fit
+        // `tasks`, which is the error the offline parse check cannot see. The other task closures in
+        // this file already unwrap first; these two now match them.
         let task = Task { [weak self] in
-            await self?.run(entry: entry, system: system, store: store,
-                            includeCrossSystemDownloads: false)
+            guard let self else { return }
+            await self.run(entry: entry, system: system, store: store,
+                           includeCrossSystemDownloads: false)
         }
         tasks.append(task)
     }
@@ -290,8 +295,9 @@ final class ArtworkChooserModel: ObservableObject {
         }
         searchedOtherSystems = true
         let task = Task { [weak self] in
-            await self?.run(entry: entry, system: system, store: store,
-                            includeCrossSystemDownloads: true)
+            guard let self else { return }
+            await self.run(entry: entry, system: system, store: store,
+                           includeCrossSystemDownloads: true)
         }
         tasks.append(task)
     }
