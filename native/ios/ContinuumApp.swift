@@ -1286,6 +1286,13 @@ final class EngineHost: ObservableObject {
             libraryStatus = "library: \(entries.count) game(s) of "
                 + "\(contents.count) file(s) in Documents"
         }
+
+        // Cover art for EVERY game, not only the ones that scroll into view, and without any game
+        // being opened. The sweep waits, coalesces the burst of rescans an import produces, and
+        // takes one of the three lookup slots so the cards on screen stay ahead of it. See
+        // `ArtworkStore.sweepLibrary`. It writes to the artwork line, never to `status` or to
+        // `libraryStatus`, so neither an import summary nor the line above is disturbed.
+        artwork.sweepLibrary(entries)
     }
 
     /// Deletes the tapped-away rows from Documents, then rescans.
@@ -1571,6 +1578,19 @@ final class EngineHost: ObservableObject {
     var activeSystem: GameSystem? {
         guard let ext = activeEntry?.ext else { return nil }
         return CoreCatalog.system(forExtension: ext)
+    }
+
+    /// The display aspect ratio of the running game, or nil when nothing is running.
+    ///
+    /// Read from the SAME `CoreSpec` the core was declared to the engine with, so the shape the
+    /// picture is given and the shape the engine was told about come from one number rather than
+    /// two. Nil while the Library is up, which is what keeps the canvas full bleed behind it
+    /// exactly as it always was. See `PictureFit` for what this is used for.
+    var activePictureAspect: CGFloat? {
+        guard !activeCoreId.isEmpty,
+              let spec = CoreCatalog.core(id: activeCoreId),
+              spec.aspectRatio > 0 else { return nil }
+        return CGFloat(spec.aspectRatio)
     }
 
     /// Leaves the running game and goes back to the Library.
@@ -2106,7 +2126,11 @@ struct RootView: View {
     private var canvas: some View {
         let padInput = host.padInput
         return GeometryReader { proxy in
-            let area = host.pictureArea ?? CGRect(origin: .zero, size: proxy.size)
+            let region = host.pictureArea ?? CGRect(origin: .zero, size: proxy.size)
+            // Centred in the free region and shaped like the game, rather than stretched across a
+            // region whose shape has nothing to do with the picture. See `PictureFit`.
+            let area = host.activePictureAspect
+                .map { PictureFit.rect(aspect: $0, in: region) } ?? region
             MetalCanvasView(
                 engine: host.engine,
                 // Captured as a local reference so this closure touches the box and nothing else,

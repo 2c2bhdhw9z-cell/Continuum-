@@ -15,6 +15,17 @@
 // CORS is a browser policy. URLSession is not subject to it, so this build downloads the real
 // bytes, keeps them, and shows real box art with no network at all. The <img> probe workaround is
 // deliberately NOT ported: it is a scar from a restriction that does not exist here.
+//
+// WHAT THE FIRST DEVICE RUN CHANGED IN HERE. Three games out of six got real art. The three that
+// worked were named the way libretro names things (No-Intro: "(USA)", "(USA, Europe)") and the
+// three that failed were named the way GoodTools names things ("(U)", "[!]"). The original ladder
+// only ever DELETED tags, and deletion cannot turn one convention into the other, so the ladder
+// gained two rungs that REWRITE instead: a GoodTools region code becomes the No-Intro spelling of
+// the same region, and a name carrying no region at all is offered the handful of regions a
+// No-Intro name almost always has. The three original forms and their order are untouched; the new
+// rungs sit around them and the whole ladder still dedupes, so a game that already worked asks for
+// no more than it did before. The one game neither rung can reach, because the server files it
+// under a third convention entirely, is found by the list search in ArtworkIndex.swift.
 
 import SwiftUI
 
@@ -130,21 +141,46 @@ struct ArtworkCandidate: Sendable, Equatable {
 /// The transform from a filename on disk to a libretro thumbnail name, and the ladder built from
 /// it. Pure, so every rule below can be read and checked without a device or a network.
 enum ArtworkNames {
-    /// Which of the three name forms a candidate came from, most specific first.
+    /// Which name form a candidate came from, most specific first.
+    ///
+    /// THE FIRST THREE ARE THE ORIGINAL LADDER AND THEIR ORDER IS UNCHANGED. The three that follow
+    /// were added after a device run resolved art for three games out of six: the three that
+    /// worked were named the way libretro names things (No-Intro), and the three that failed were
+    /// named the way GoodTools names things. Stripping a tag can never turn one convention into the
+    /// other, so the new forms REWRITE instead of stripping.
     enum NameForm: String, Sendable, Equatable {
-        /// The base name exactly as it sits on disk: "Super Mario World (USA) [!]".
+        /// The base name exactly as it sits on disk: "Super Mario World (U) [!]".
         case exact
-        /// Square-bracket dump tags dropped: "Super Mario World (USA)".
+        /// Square-bracket dump tags dropped: "Super Mario World (U)".
         case relaxed
+        /// GoodTools region codes rewritten as No-Intro spells them: "Super Mario World (USA)".
+        ///
+        /// Placed after `relaxed` and BEFORE `untagged` for the same reason `relaxed` comes before
+        /// `untagged`: it still carries a region, so it is more specific than a bare title. This is
+        /// the rung that fixes "Super Mario World (U) [!].smc", which is a 404 in all three of the
+        /// original forms and a 200 as "Super Mario World (USA)".
+        case regionTranslated
         /// Every (..) and [..] tag dropped: "Super Mario World".
         case untagged
+        /// A region ADDED to a name that carried none: "Kart Fighter" becomes "Kart Fighter (USA)".
+        ///
+        /// Last, because it is the only rung that guesses. It earns its place because a No-Intro
+        /// name almost always carries a region while the untagged form carries none, so a GoodTools
+        /// name with no region at all has nothing else left to try before the list search.
+        case regionAppended
+        /// A name taken from the server's own directory listing, so it matches no convention this
+        /// file can derive: "Kart Fighter (199x)(-)(AS)[p]". See ArtworkIndex.swift.
+        case indexed
 
         /// The suffix appended to the tier label, matching the browser's strings.
         var tierSuffix: String {
             switch self {
             case .exact: return ""
             case .relaxed: return "-relaxed"
+            case .regionTranslated: return "-region"
             case .untagged: return "-untagged"
+            case .regionAppended: return "-region-added"
+            case .indexed: return "-indexed"
             }
         }
 
@@ -152,7 +188,10 @@ enum ArtworkNames {
             switch self {
             case .exact: return "exact name"
             case .relaxed: return "dump tags dropped"
+            case .regionTranslated: return "region code translated"
             case .untagged: return "all tags dropped"
+            case .regionAppended: return "region added"
+            case .indexed: return "matched against the server's own list"
             }
         }
     }
@@ -281,20 +320,112 @@ enum ArtworkNames {
         return out
     }
 
-    /// The three name forms for a filename, most specific first, with the empty and the duplicate
+    // ------------------------------------------------------------------ GoodTools to No-Intro
+
+    /// Rewrites every GoodTools region code in a name into the way No-Intro spells the same region,
+    /// or nil when the name contains none to rewrite.
+    ///
+    /// THIS IS THE FIX FOR THE HALF OF A LIBRARY THAT GOT NO ART. libretro names thumbnails after
+    /// No-Intro, which spells regions out: "(USA)", "(Europe)", "(USA, Europe)". GoodTools
+    /// abbreviates them and runs them together: "(U)", "(E)", "(UE)". The original ladder only ever
+    /// DELETED tags, and deleting is a one-way door: "(U)" can become nothing, but it can never
+    /// become "(USA)". Measured against the live server rather than assumed: for
+    /// "Super Mario World (U) [!].smc" all three original forms are 404 and
+    /// "Super Mario World (USA)" is a 200 image/png.
+    ///
+    /// The translation table is NOT restated here. It is `GameMetadata.regionName(forTag:)`, which
+    /// already turns "(U)" into "USA" for the metadata line under every card, and which No-Intro's
+    /// own spelling is the display form of. One table means the region a card SHOWS and the region
+    /// this build ASKS FOR can never drift apart, and it already covers the combinations
+    /// ("(UE)" to "USA, Europe", "(JU)" to "Japan, USA") along with the single letters.
+    ///
+    /// A tag that is not a region is left exactly as it was, which is what keeps "(Unl)" on an
+    /// unlicensed cart and "(Rev A)" on a revision.
+    static func translateRegionCodes(_ name: String) -> String? {
+        var out = ""
+        var changed = false
+        let characters = Array(name)
+        var index = 0
+        while index < characters.count {
+            let character = characters[index]
+            guard character == "(" else {
+                out.append(character)
+                index += 1
+                continue
+            }
+            // The body of a tag never contains a closing bracket, exactly as the strippers above
+            // treat it, so an unterminated "(" is a literal character and not a tag.
+            var scan = index + 1
+            while scan < characters.count, characters[scan] != ")" {
+                scan += 1
+            }
+            guard scan < characters.count else {
+                out.append(character)
+                index += 1
+                continue
+            }
+            let body = String(characters[(index + 1)..<scan])
+            if let region = GameMetadata.regionName(forTag: body), region != body {
+                out.append("(\(region))")
+                changed = true
+            } else {
+                out.append("(\(body))")
+            }
+            index = scan + 1
+        }
+        return changed ? collapse(out) : nil
+    }
+
+    /// True when the name already names a region in a way either convention recognises.
+    ///
+    /// The gate on the appended forms below: a name that says "(U)" or "(Japan)" is not missing a
+    /// region, so guessing five more would be five guaranteed 404s. A name whose only tag is
+    /// "(Unl)" IS missing one, because unlicensed is not a region.
+    static func carriesRegion(_ name: String) -> Bool {
+        GameMetadata.parentheticalTags(in: name).contains {
+            GameMetadata.regionName(forTag: $0) != nil
+        }
+    }
+
+    /// The regions appended, in order, to a name that carries none.
+    ///
+    /// Ordered by how often a libretro thumbnail carries each one, commonest first, so the
+    /// likeliest guess is also the cheapest. Five rather than twenty: this rung is a guess, the
+    /// list search in ArtworkIndex.swift is the answer for everything it misses, and twenty guesses
+    /// per unknown game would be sixty requests before the search that actually works.
+    static let appendedRegions = ["USA", "USA, Europe", "World", "Europe", "Japan"]
+
+    // ------------------------------------------------------------------ the ladder
+
+    /// The name forms for a filename, most specific first, with the empty and the duplicate
     /// dropped.
     ///
     /// The dedupe is not tidiness. "Tetris (World)" has no square-bracket tags, so its relaxed
     /// form is identical to its exact one, and probing it again would be three wasted requests per
     /// game. A form that reduces to nothing, which is what a filename that is only tags does, is
-    /// dropped for the same reason.
+    /// dropped for the same reason. It matters more now than it did with three forms: a No-Intro
+    /// name translates to itself, so without the dedupe every already-working game would pay an
+    /// extra three requests for a name it had just asked for.
     static func nameForms(for filename: String) -> [(form: NameForm, name: String)] {
         let base = baseName(filename)
-        let candidates: [(NameForm, String)] = [
+        let dumpTagsDropped = stripDumpTags(base)
+        let allTagsDropped = stripTags(base)
+
+        var candidates: [(NameForm, String)] = [
             (.exact, sanitizeForLibretro(collapse(base))),
-            (.relaxed, sanitizeForLibretro(stripDumpTags(base))),
-            (.untagged, sanitizeForLibretro(stripTags(base))),
+            (.relaxed, sanitizeForLibretro(dumpTagsDropped)),
         ]
+        if let translated = translateRegionCodes(dumpTagsDropped) {
+            candidates.append((.regionTranslated, sanitizeForLibretro(translated)))
+        }
+        candidates.append((.untagged, sanitizeForLibretro(allTagsDropped)))
+        if !carriesRegion(base), !allTagsDropped.isEmpty {
+            for region in appendedRegions {
+                candidates.append(
+                    (.regionAppended, sanitizeForLibretro("\(allTagsDropped) (\(region))"))
+                )
+            }
+        }
 
         var seen = Set<String>()
         var forms: [(form: NameForm, name: String)] = []
@@ -313,15 +444,41 @@ enum ArtworkNames {
     /// genuine miss walks all nine. Folder-major would put "the title screen under the exact name"
     /// ahead of "the box art with the dump tag dropped", which is both slower and worse art.
     static func candidates(system: GameSystem, filename: String) -> [ArtworkCandidate] {
+        candidates(system: system, forms: nameForms(for: filename))
+    }
+
+    /// The three folder candidates for ONE thumbnail name, in the same order and with the same
+    /// provenance as a rung of the ladder above.
+    ///
+    /// Exists so the list search can hand back a filename the server actually has and get the same
+    /// candidate shape as everything else, rather than building a URL of its own. See
+    /// `ArtworkIndex.swift`.
+    static func candidates(system: GameSystem, thumbnailName: String,
+                           form: NameForm) -> [ArtworkCandidate] {
+        candidates(system: system, forms: [(form: form, name: thumbnailName)])
+    }
+
+    /// The shared builder. Every candidate this build ever asks for comes out of here, which is
+    /// what keeps the percent-encoding, the tier labels and the folder order in one place.
+    ///
+    /// The URL dedupe is belt and braces on top of the name dedupe in `nameForms`: two different
+    /// name forms can only produce the same URL if they produced the same name, and that is already
+    /// caught, but the list search appends candidates from a different source and a request sent
+    /// twice is a request wasted.
+    private static func candidates(system: GameSystem,
+                                   forms: [(form: NameForm, name: String)]) -> [ArtworkCandidate] {
         guard let directory = SystemArtwork.playlistDirectory(for: system) else { return [] }
         guard let encodedDirectory = percentEncoded(directory) else { return [] }
 
         var out: [ArtworkCandidate] = []
-        for (form, name) in nameForms(for: filename) {
+        var addresses = Set<String>()
+        for (form, name) in forms {
             guard let encodedName = percentEncoded(name) else { continue }
             for folder in ThumbnailFolder.allCases {
                 let address = "\(SystemArtwork.thumbnailHost)/\(encodedDirectory)"
                     + "/\(folder.rawValue)/\(encodedName).png"
+                guard !addresses.contains(address) else { continue }
+                addresses.insert(address)
                 guard let url = URL(string: address) else { continue }
                 out.append(
                     ArtworkCandidate(
@@ -335,6 +492,18 @@ enum ArtworkNames {
             }
         }
         return out
+    }
+
+    /// The directory listing for a system's box art folder, which is what the list search fetches.
+    ///
+    /// A browsable Apache index, so it is HTML and not JSON, and it is BIG: the NES box art index
+    /// is 4,054,023 bytes. That size is why nothing here fetches it speculatively.
+    static func listingURL(system: GameSystem,
+                           folder: ThumbnailFolder = .boxart) -> URL? {
+        guard let directory = SystemArtwork.playlistDirectory(for: system),
+              let encodedDirectory = percentEncoded(directory) else { return nil }
+        return URL(string: "\(SystemArtwork.thumbnailHost)/\(encodedDirectory)"
+                   + "/\(folder.rawValue)/")
     }
 
     /// Percent-encodes one path component the way the browser's encodeURIComponent did.

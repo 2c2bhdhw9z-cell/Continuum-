@@ -73,7 +73,23 @@ struct SettingsScreen: View {
                 + "shows the generated plate it already has."
             )
 
+            // The second disclosure, and the reason it is here rather than in a release note: the
+            // fallback search downloads the largest thing this app ever fetches, and it does it
+            // without being asked.
+            SettingsNote(
+                "Most covers are found by name in one request. When a game's name matches nothing, "
+                + "usually because it was dumped under a different naming convention, the app asks "
+                + "the server for its whole list of covers for that system and matches on the "
+                + "title alone. That list is downloaded once per system, it is a few megabytes "
+                + "for a big system (the NES list is about 4 MB), only the names are kept and "
+                + "not the page itself, and it is then used for every later search with no "
+                + "further download for a month. Nothing extra is sent: the request is for the "
+                + "server's own public index. This is what finds a cover for a game like Kart "
+                + "Fighter, whose art is filed under a name no filename here could produce."
+            )
+
             SettingsReadout(label: "Stored", value: artwork.storageLine)
+            SettingsReadout(label: "Cover lists", value: artwork.coverListLine)
             SettingsReadout(label: "Last", value: artwork.line)
 
             HStack(spacing: 10) {
@@ -85,11 +101,18 @@ struct SettingsScreen: View {
                 }
             }
 
+            SettingsButton(title: "Forget the downloaded cover lists", role: .destructive) {
+                artwork.forgetCoverLists()
+            }
+
             SettingsNote(
                 "Clearing throws away the downloaded covers and nothing else; the plates come "
                 + "straight back and a cover is fetched again next time it is on screen. A title "
                 + "the server has no art for is remembered for a week rather than asked about on "
-                + "every launch, and Retry forgets that so it is asked again now."
+                + "every launch, and Retry forgets that so it is asked again now, for every "
+                + "game in the library and not only the ones on screen. Forgetting the cover "
+                + "lists is the separate one: it gives back the megabytes they take, and the next "
+                + "that needs the fallback search downloads its system's list again."
             )
         }
     }
@@ -267,13 +290,15 @@ struct SettingsScreen: View {
         SettingsSection(title: "STORAGE") {
             SettingsReadout(label: "Library", value: host.libraryStatus)
             SettingsReadout(label: "Artwork", value: artwork.storageLine)
+            SettingsReadout(label: "Cover lists", value: artwork.coverListLine)
             SettingsNote(
                 "Games live in the app's own Documents directory, which the Files app shows as "
                 + "Continuum, and they keep the filenames they arrived with: a cue sheet names its "
                 + "tracks literally, so renaming one would break the game. Artwork is kept outside "
                 + "Documents, so a folder of downloaded covers never appears there as though it "
-                + "were something you imported. Deleting a game is a swipe in All Games, or the "
-                + "button in its detail sheet."
+                + "were something you imported, and the downloaded cover lists sit in their own "
+                + "folder beside it so the two can be cleared separately. Deleting a game is a "
+                + "swipe in All Games, or the button in its detail sheet."
             )
         }
     }

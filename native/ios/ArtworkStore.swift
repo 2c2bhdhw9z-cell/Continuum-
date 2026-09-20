@@ -19,6 +19,20 @@
 //  5. ART LIVES OUTSIDE DOCUMENTS. Documents is user-visible through the Files app because
 //     UIFileSharingEnabled is set, and a folder of hashed PNGs appearing next to a user's ROMs
 //     would read as clutter the app had lost track of. Artwork is not user content.
+//
+// Two more were added after the first device run, which resolved art for three games out of six:
+//
+//  6. A NAME THAT CANNOT BE DERIVED IS STILL FOUND. When every name in the ladder has 404ed, the
+//     server's own box art listing is fetched once per system and the game is matched on its title
+//     alone, which is the only thing that can find "Kart Fighter (199x)(-)(AS)[p].png" from
+//     "Kart Fighter.nes". The parsing, the matching and the thirty day store are in
+//     ArtworkIndex.swift; what lives here is the discipline around it: one fetch per system ever,
+//     never two at once, announced before it happens, and only after everything cheap has failed.
+//
+//  7. A GAME DOES NOT HAVE TO BE ON SCREEN. The shelves are Lazy containers, so a card resolves its
+//     own cover when it scrolls into view, which leaves a library that is mostly off screen mostly
+//     without art. `sweepLibrary` walks every game one at a time, which is inside the three-at-once
+//     cap and leaves two slots for the cards the user is looking at.
 
 import SwiftUI
 import UIKit
@@ -218,19 +232,28 @@ enum ArtworkDisk {
         return (try? FileManager.default.removeItem(at: url)) != nil
     }
 
+    /// Whether a cover is already stored, WITHOUT reading or decoding it.
+    ///
+    /// The sweep's cheap gate. `load(key:)` maps the file and decodes it, which is right when a
+    /// card is about to show the image and wasteful when the only question is whether there is any
+    /// work to do: a sweep over two hundred games would otherwise decode two hundred covers,
+    /// roughly two megabytes of live pixels each, to learn nothing.
+    static func hasCover(key: String) async -> Bool {
+        guard let url = fileURL(for: key) else { return false }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
     /// Empties the store. Returns how many files went and the bytes they held, so the Settings
     /// action can report what it did rather than just claiming to have worked.
+    ///
+    /// DIRECTORIES ARE SKIPPED, and that is load-bearing rather than tidy. The downloaded cover
+    /// lists live in a subdirectory of this one, they are a separate thing with a separate Settings
+    /// action and a thirty day life, and a `removeItem` on a directory is recursive: without this
+    /// check, clearing the covers would silently throw away four megabytes of list downloads too.
     static func clear() async -> (files: Int, bytes: Int64) {
-        guard let directory = directory() else { return (0, 0) }
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.fileSizeKey],
-            options: [.skipsHiddenFiles]
-        ) else { return (0, 0) }
-
         var files = 0
         var bytes: Int64 = 0
-        for url in contents {
+        for url in coverFiles() {
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
             if (try? FileManager.default.removeItem(at: url)) != nil {
                 files += 1
@@ -240,20 +263,28 @@ enum ArtworkDisk {
         return (files, bytes)
     }
 
-    /// What the store currently holds, for the Settings read-out.
+    /// What the store currently holds, for the Settings read-out. Directories are skipped for the
+    /// same reason they are in `clear()`: the cover lists are counted separately.
     static func usage() async -> (files: Int, bytes: Int64) {
-        guard let directory = directory() else { return (0, 0) }
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.fileSizeKey],
-            options: [.skipsHiddenFiles]
-        ) else { return (0, 0) }
-
+        let files = coverFiles()
         var bytes: Int64 = 0
-        for url in contents {
+        for url in files {
             bytes += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
         }
-        return (contents.count, bytes)
+        return (files.count, bytes)
+    }
+
+    /// The stored cover files, with subdirectories excluded.
+    private static func coverFiles() -> [URL] {
+        guard let directory = directory() else { return [] }
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+        return contents.filter {
+            ((try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false) == false
+        }
     }
 }
 
@@ -401,7 +432,11 @@ final class ArtworkStore: ObservableObject {
             generation += 1
             if fetchEnabled {
                 report("artwork: lookups are on, covers resolve from thumbnails.libretro.com")
+                // Turning them on is exactly the moment to go and get the ones that were skipped,
+                // including for games that are not on screen.
+                sweepLibrary(sweepEntries)
             } else {
+                sweepTask?.cancel()
                 report("artwork: lookups are off, only covers already stored are shown")
             }
         }
@@ -413,6 +448,15 @@ final class ArtworkStore: ObservableObject {
     @Published private(set) var resolvedThisRun = 0
     @Published private(set) var missedThisRun = 0
     @Published private(set) var failedThisRun = 0
+    /// How many cover lists are kept on disk, and what they cost. The honest figure for the
+    /// disclosure in Settings: a list is the one thing in this system that is megabytes rather than
+    /// kilobytes, so it says so with a real number instead of an estimate.
+    @Published private(set) var coverListFiles = 0
+    @Published private(set) var coverListBytes: Int64 = 0
+    /// How many games had to fall through to a list search this run, and how many of those the
+    /// search actually found. The second number is what the search is for.
+    @Published private(set) var listSearchesThisRun = 0
+    @Published private(set) var listMatchesThisRun = 0
     /// The artwork line, always a complete sentence, shown in Settings and in the diagnostics
     /// panel. Never empty.
     @Published private(set) var line = "artwork: nothing looked up yet"
@@ -454,6 +498,35 @@ final class ArtworkStore: ObservableObject {
     /// One lookup per game, however many cards are asking. The hero and a shelf card and an All
     /// Games row are routinely the same game on screen three times over.
     private var inFlight: [String: Task<CoverImage?, Never>] = [:]
+
+    // ------------------------------------------------- the server's own list, once per system
+
+    /// The cover lists already in memory, by system. Read on every list search, so a sweep of a
+    /// hundred NES games decodes the stored JSON once rather than a hundred times.
+    ///
+    /// Bounded by the number of systems this build knows, which is nine, and only systems that
+    /// actually needed a search are ever in here. A list is a dictionary of normalised titles, so
+    /// the biggest of them (the NES, ten thousand titles) is a few hundred kilobytes of strings,
+    /// not the four megabytes of HTML it came from.
+    private var coverLists: [String: ArtworkCoverList] = [:]
+
+    /// One list fetch per system, however many games are asking, EXACTLY as `inFlight` does per
+    /// game. This is the property that stops ten cards becoming ten four megabyte downloads.
+    private var coverListTasks: [String: Task<ArtworkCoverListOutcome, Never>] = [:]
+
+    /// Whether the main status line has already carried a list download this run.
+    ///
+    /// A multi megabyte download that nobody asked for deserves to be seen once, on the line the
+    /// user is actually looking at, rather than only in the artwork read-out inside Settings. Once,
+    /// because a library of five systems must not push five notices over whatever else is there.
+    private var announcedListDownload = false
+
+    /// The bounded sweep over games that are not on screen. See `sweepLibrary`.
+    private var sweepTask: Task<Void, Never>?
+
+    /// The games the last sweep was handed, so turning lookups back on can sweep again without this
+    /// store needing to know how to read the library.
+    private var sweepEntries: [LibraryEntry] = []
 
     /// The last lookup failure REASON promoted to the main status line.
     ///
@@ -524,6 +597,88 @@ final class ArtworkStore: ObservableObject {
         return cover
     }
 
+    // --------------------------------------------- every game, not only the ones on screen
+
+    /// Resolves art for EVERY game in the library, not only for the cards that are visible.
+    ///
+    /// WHY THIS EXISTS. The shelves and the grid are Lazy containers, so `CoverArtView.task` runs
+    /// only for a card that has been scrolled into view. That is right for a card and wrong for a
+    /// library: the requirement is that every game a user puts in gets its art without the game
+    /// being opened, and a game fifty rows down is neither open nor on screen.
+    ///
+    /// ONE GAME AT A TIME, WHICH IS THE BOUND. `ArtworkGate` allows three lookups at once, and a
+    /// sweep that claimed all three would put every visible card behind the entire library.
+    /// Claiming one leaves two for the cards the user is looking at, and the sweep still works
+    /// through the library in the background. Nothing is fired in parallel at import time: an
+    /// import calls `refreshLibrary`, which calls this, which waits before it starts and is
+    /// cancelled and restarted by the next rescan.
+    func sweepLibrary(_ entries: [LibraryEntry]) {
+        sweepEntries = entries
+        sweepTask?.cancel()
+        guard fetchEnabled, !entries.isEmpty else { return }
+
+        sweepTask = Task { [weak self] in
+            // The import summary, the first layout and the visible cards all go first. A rescan
+            // follows every import, every delete and every return from a game, so this delay also
+            // coalesces a burst of rescans into one sweep.
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard let self, !Task.isCancelled else { return }
+            await self.runSweep(entries)
+        }
+    }
+
+    private func runSweep(_ entries: [LibraryEntry]) async {
+        var considered = 0
+        var resolved = 0
+        var unresolved = 0
+        var sinceBump = 0
+
+        for entry in entries {
+            if Task.isCancelled { return }
+            guard fetchEnabled else {
+                note("artwork: the sweep stopped after \(considered) game(s), lookups were turned "
+                     + "off")
+                return
+            }
+
+            let key = ArtworkDisk.key(forPath: entry.path)
+            // Three cheap gates before anything touches the network, in increasing cost. The disk
+            // check deliberately does NOT decode: see `ArtworkDisk.hasCover`.
+            if memory.object(forKey: key as NSString) != nil { continue }
+            if isKnownMiss(key) { continue }
+            guard let system = CoreCatalog.system(forExtension: entry.ext),
+                  SystemArtwork.hasThumbnails(for: system) else { continue }
+            if await ArtworkDisk.hasCover(key: key) { continue }
+
+            considered += 1
+            if await cover(for: entry, system: system) != nil {
+                resolved += 1
+                sinceBump += 1
+                // Visible cards resolved to a plate before this sweep found their cover, and a
+                // card's lookup is keyed on the generation, so without a bump the art would only
+                // appear on the next relaunch. Bumped in batches rather than per cover: a bump
+                // re-runs every visible card's task, and those re-runs are memory cache hits.
+                if sinceBump >= 4 {
+                    sinceBump = 0
+                    generation += 1
+                }
+            } else {
+                unresolved += 1
+            }
+        }
+
+        if resolved > 0 {
+            generation += 1
+        }
+        if considered == 0 {
+            note("artwork: every game in the library already has a cover or a remembered miss, so "
+                 + "the sweep had nothing to look up")
+        } else {
+            note("artwork: swept \(considered) game(s) that had no cover yet, \(resolved) "
+                 + "resolved, \(unresolved) still without art")
+        }
+    }
+
     private func resolve(entry: LibraryEntry, system: GameSystem?,
                          key: String) async -> CoverImage? {
         // 1. Already on disk. This is the path every launch after the first one takes, and it needs
@@ -569,40 +724,39 @@ final class ArtworkStore: ObservableObject {
 
         switch outcome {
         case let .found(data, tier, source, address):
-            let result = await ArtworkDisk.store(data: data, key: key)
-            guard let image = result.image else {
-                failedThisRun += 1
-                reportLookupFailure(
-                    reason: "the server answered with bytes that would not decode as an image",
-                    game: title
-                )
-                return nil
-            }
-            memory.setObject(image, forKey: key as NSString,
-                             cost: Self.memoryCost(of: image))
-            clearMiss(key)
-            recordProvenance(source, forKey: key)
-            if let failure = result.writeFailure {
-                // Showing now, gone after a relaunch. Said out loud rather than left looking
-                // permanent, because a cover that silently re-downloads every launch is a bug that
-                // only shows up as a data bill.
-                failedThisRun += 1
-                reportLookupFailure(reason: "the cover \(failure), so it will be fetched again",
-                                    game: title)
-                return CoverImage(image: image, provenance: source)
-            }
-            resolvedThisRun += 1
-            await refreshUsage()
-            note("artwork: \(resolvedThisRun) cover(s) resolved this run, latest \(title) as "
-                 + "\(tier) from \(shortAddress(address))")
-            return CoverImage(image: image, provenance: source)
+            return await keep(data: data, tier: tier, source: source, address: address,
+                              key: key, title: title)
 
         case let .noArtOnServer(probes):
-            recordMiss(key)
-            missedThisRun += 1
-            note("artwork: \(missedThisRun) title(s) have no art on the server, latest \(title) "
-                 + "after \(probes) lookup(s); it will be retried in a week")
-            return nil
+            // EVERY NAME THIS BUILD CAN DERIVE IS A 404, WHICH IS NOT THE SAME AS "NO ART EXISTS".
+            // "Kart Fighter.nes" is a 404 under every one of those names and the server has the
+            // cover under "Kart Fighter (199x)(-)(AS)[p].png". So before a miss is believed, ask
+            // the server what it actually has. This rung is the expensive one, so it is last.
+            switch await searchCoverList(entry: entry, system: system, key: key,
+                                         walked: candidates, probes: probes, title: title) {
+            case let .found(cover):
+                return cover
+            case .searchedAndAbsent:
+                recordMiss(key)
+                missedThisRun += 1
+                note("artwork: \(missedThisRun) title(s) have no art on the server, latest "
+                     + "\(title) after \(probes) lookup(s) and a search of the "
+                     + "\(system.displayName) cover list; it will be retried in a week")
+                return nil
+            case .notSearched:
+                recordMiss(key)
+                missedThisRun += 1
+                note("artwork: \(missedThisRun) title(s) have no art on the server, latest "
+                     + "\(title) after \(probes) lookup(s); it will be retried in a week")
+                return nil
+            case let .searchFailed(reason):
+                // The ladder honestly 404ed, but the search that would have had the last word could
+                // not run. NOT recorded as a miss: a week of plates would be a conclusion drawn
+                // from a failure rather than from an answer.
+                failedThisRun += 1
+                reportLookupFailure(reason: reason, game: title)
+                return nil
+            }
 
         case let .failure(text):
             failedThisRun += 1
@@ -611,6 +765,207 @@ final class ArtworkStore: ObservableObject {
             reportLookupFailure(reason: text, game: title)
             return nil
         }
+    }
+
+    /// Stores a downloaded cover, records where it came from, and hands it back.
+    ///
+    /// Shared by the ladder and by the list search, so there is ONE place that decodes, one place
+    /// that writes, and one set of failure sentences. Two copies of this would be two sets of
+    /// strings to keep true, and the second copy is always the one that goes stale.
+    private func keep(data: Data, tier: String, source: String, address: String,
+                      key: String, title: String) async -> CoverImage? {
+        let result = await ArtworkDisk.store(data: data, key: key)
+        guard let image = result.image else {
+            failedThisRun += 1
+            reportLookupFailure(
+                reason: "the server answered with bytes that would not decode as an image",
+                game: title
+            )
+            return nil
+        }
+        memory.setObject(image, forKey: key as NSString,
+                         cost: Self.memoryCost(of: image))
+        clearMiss(key)
+        recordProvenance(source, forKey: key)
+        if let failure = result.writeFailure {
+            // Showing now, gone after a relaunch. Said out loud rather than left looking permanent,
+            // because a cover that silently re-downloads every launch is a bug that only shows up
+            // as a data bill.
+            failedThisRun += 1
+            reportLookupFailure(reason: "the cover \(failure), so it will be fetched again",
+                                game: title)
+            return CoverImage(image: image, provenance: source)
+        }
+        resolvedThisRun += 1
+        await refreshUsage()
+        note("artwork: \(resolvedThisRun) cover(s) resolved this run, latest \(title) as "
+             + "\(tier) from \(shortAddress(address))")
+        return CoverImage(image: image, provenance: source)
+    }
+
+    // ------------------------------------------------------------------ the list search
+
+    /// What asking the server's own list produced. Four outcomes, because they mean four different
+    /// things and only one of them is evidence that a game has no art.
+    private enum CoverListSearch {
+        /// A cover, found under a name no convention in this app could have derived.
+        case found(CoverImage)
+        /// The list was searched and genuinely does not have this title. The one outcome that
+        /// justifies recording a miss.
+        case searchedAndAbsent
+        /// There was nothing to search with, so the ladder's own answer stands.
+        case notSearched
+        /// The list could not be had, or the matched cover would not download. Says nothing about
+        /// whether the art exists.
+        case searchFailed(String)
+    }
+
+    /// Asks the server what it actually has, and matches on the title alone.
+    ///
+    /// THE LAST RUNG, AND THE ONLY ONE THAT IS NOT CHEAP. It runs solely after a whole ladder of
+    /// names has honestly 404ed, because the list for a large system is megabytes where a cover
+    /// probe is bytes. What it buys is the game the ladder can never reach: "Kart Fighter.nes",
+    /// whose cover is filed as "Kart Fighter (199x)(-)(AS)[p].png".
+    ///
+    /// The match is an equality of normalised titles. See ArtworkIndex.swift for why nothing looser
+    /// is allowed anywhere near this.
+    private func searchCoverList(entry: LibraryEntry, system: GameSystem, key: String,
+                                 walked: [ArtworkCandidate], probes: Int,
+                                 title: String) async -> CoverListSearch {
+        let searchTitle = ArtworkIndexNames.searchTitle(forFilename: entry.name)
+        guard !searchTitle.isEmpty else {
+            // A filename that is nothing but tags has no title to search for, and an empty title
+            // would match the first junk entry in the list.
+            return .notSearched
+        }
+
+        let list: ArtworkCoverList
+        switch await coverList(for: system, title: title) {
+        case let .ready(ready, _, _):
+            list = ready
+        case let .failure(reason):
+            return .searchFailed(reason)
+        }
+        // Counted here and not above, so the figure in Settings is the number of titles actually
+        // looked for in a list rather than the number that wanted one.
+        listSearchesThisRun += 1
+
+        // NOTE WHERE THE GATE IS NOT. The list download above runs OUTSIDE `ArtworkGate`, on its
+        // own session, and that is deliberate: holding one of the three lookup slots for the
+        // seconds a four megabyte listing takes would starve the cards on screen of a third of
+        // their capacity for a download that is not a cover. The cap on cover lookups is still
+        // exactly three, and the matched cover below takes a slot like every other lookup.
+        guard let filename = ArtworkIndexNames.match(title: searchTitle, in: list.titles) else {
+            return .searchedAndAbsent
+        }
+
+        // The listing's filenames are the server's real ones, so they are percent-encoded on the
+        // way out and NOT run through the invalid-character substitution: that transform exists to
+        // turn a ROM's filename into a libretro name, and this name already is one.
+        let thumbnailName = ArtworkNames.baseName(filename)
+        let walkedAddresses = Set(walked.map { $0.url.absoluteString })
+        let matched = ArtworkNames
+            .candidates(system: system, thumbnailName: thumbnailName, form: .indexed)
+            .filter { !walkedAddresses.contains($0.url.absoluteString) }
+        guard !matched.isEmpty else {
+            // The list named something the ladder had already asked for and been refused, which
+            // means the list is out of step with the files. Treated as absent rather than retried.
+            return .searchedAndAbsent
+        }
+
+        await ArtworkGate.shared.acquire()
+        let outcome = await ArtworkFetcher.resolve(candidates: matched)
+        await ArtworkGate.shared.release()
+
+        switch outcome {
+        case let .found(data, tier, source, address):
+            guard let cover = await keep(data: data, tier: tier, source: source, address: address,
+                                         key: key, title: title) else {
+                // `keep` has already written the specific reason it could not be kept.
+                return .searchFailed("the cover the \(system.displayName) list named could not be "
+                                     + "kept")
+            }
+            listMatchesThisRun += 1
+            note("artwork: \(title) had no art under any of the \(probes) name(s) this app can "
+                 + "derive, and the \(system.displayName) cover list matched it to \(filename); "
+                 + "\(listMatchesThisRun) cover(s) found that way this run")
+            return .found(cover)
+        case .noArtOnServer:
+            // The list named a file and the file is not there. A stale list, not a missing game.
+            return .searchedAndAbsent
+        case let .failure(text):
+            return .searchFailed(text)
+        }
+    }
+
+    /// The cover list for one system: from memory, then from disk, then downloaded ONCE.
+    ///
+    /// The three dictionary reads and the task insertion below happen with NO await between them,
+    /// which is what makes "at most one download per system" true even when ten cards ask in the
+    /// same instant. The disk read and the download both live INSIDE the task for the same reason:
+    /// an await before the task was recorded would be a window for a second one to start.
+    private func coverList(for system: GameSystem,
+                           title: String) async -> ArtworkCoverListOutcome {
+        let key = system.rawValue
+        if let ready = coverLists[key] {
+            return .ready(ready, downloadedBytes: nil, writeFailure: nil)
+        }
+        if let running = coverListTasks[key] {
+            return await running.value
+        }
+
+        let task = Task { [weak self] () -> ArtworkCoverListOutcome in
+            guard let self else {
+                return .failure("the artwork store went away before the cover list arrived")
+            }
+            if let stored = await ArtworkCoverLists.stored(for: system) {
+                await self.adopt(stored, for: system, downloadedBytes: nil, writeFailure: nil,
+                                 title: title)
+                return .ready(stored, downloadedBytes: nil, writeFailure: nil)
+            }
+            self.announceListDownload(system: system, title: title)
+            let outcome = await ArtworkCoverLists.download(for: system)
+            if case let .ready(list, downloadedBytes, writeFailure) = outcome {
+                await self.adopt(list, for: system, downloadedBytes: downloadedBytes,
+                                 writeFailure: writeFailure, title: title)
+            }
+            return outcome
+        }
+        coverListTasks[key] = task
+        let outcome = await task.value
+        coverListTasks[key] = nil
+        return outcome
+    }
+
+    /// Says out loud that a multi megabyte download is about to happen, BEFORE it happens.
+    ///
+    /// The artwork line takes it every time, and the main status line takes the first one of the
+    /// run. A download nobody asked for that is only visible behind the Settings tab is a silent
+    /// download, and this one is the largest thing this app ever fetches.
+    private func announceListDownload(system: GameSystem, title: String) {
+        note("artwork: \(title) has no cover under any name, downloading the "
+             + "\(system.displayName) cover list once so it can be searched; this is a few "
+             + "megabytes, it is kept, and it is not downloaded again for a month")
+        guard !announcedListDownload else { return }
+        announcedListDownload = true
+        host?.status = line
+    }
+
+    /// Takes a list into memory and reports what it cost.
+    private func adopt(_ list: ArtworkCoverList, for system: GameSystem,
+                       downloadedBytes: Int?, writeFailure: String?, title: String) async {
+        coverLists[system.rawValue] = list
+        await refreshCoverListUsage()
+        if let downloadedBytes {
+            note("artwork: kept the \(system.displayName) cover list, \(list.listedFiles) "
+                 + "cover(s) named in \(Self.byteText(Int64(downloadedBytes))) of listing, reduced "
+                 + "to \(list.titles.count) searchable title(s)")
+        }
+        guard let writeFailure else { return }
+        // Searchable now, gone after a relaunch, which would mean downloading megabytes again.
+        failedThisRun += 1
+        reportLookupFailure(reason: "the \(system.displayName) cover list \(writeFailure), so it "
+                            + "will have to be downloaded again", game: title)
     }
 
     /// Where a game's stored cover came from, without decoding it. Nil when there is none. Read by
@@ -640,6 +995,11 @@ final class ArtworkStore: ObservableObject {
     }
 
     /// Forgets every remembered miss, so the next pass asks the server again.
+    ///
+    /// The downloaded cover lists are deliberately KEPT: they are the expensive thing, they are
+    /// what makes a retry able to find a cover the names could not, and throwing them away would
+    /// turn a retry into several megabytes. "Forget the cover lists" is its own action for that
+    /// reason.
     func retryFailedLookups() {
         let count = readMisses().count
         defaults.removeObject(forKey: Self.missKey)
@@ -652,6 +1012,31 @@ final class ArtworkStore: ObservableObject {
             report("artwork: there were no remembered misses to retry")
         } else {
             report("artwork: \(count) remembered miss(es) cleared, they will be looked up again")
+        }
+        // Including the games that are not on screen, which is the whole point of the sweep.
+        sweepLibrary(sweepEntries)
+    }
+
+    /// Throws away the downloaded cover lists.
+    ///
+    /// Separate from clearing the covers because it is a different size and a different promise:
+    /// the covers are kilobytes each and come back one at a time, and a list is megabytes that come
+    /// back all at once. A user who wants the space back should be able to take it without losing
+    /// the art that is already showing.
+    func forgetCoverLists() {
+        Task {
+            let (files, bytes) = await ArtworkCoverLists.clear()
+            coverLists.removeAll()
+            announcedListDownload = false
+            listSearchesThisRun = 0
+            listMatchesThisRun = 0
+            await refreshCoverListUsage()
+            if files == 0 {
+                report("artwork: there were no downloaded cover lists to forget")
+            } else {
+                report("artwork: forgot \(files) cover list(s), \(Self.byteText(bytes)); one "
+                       + "will be downloaded again the next time a game needs the search")
+            }
         }
     }
 
@@ -826,6 +1211,13 @@ final class ArtworkStore: ObservableObject {
         let (files, bytes) = await ArtworkDisk.usage()
         storedFiles = files
         storedBytes = bytes
+        await refreshCoverListUsage()
+    }
+
+    private func refreshCoverListUsage() async {
+        let (files, bytes) = await ArtworkCoverLists.usage()
+        coverListFiles = files
+        coverListBytes = bytes
     }
 
     /// The Settings summary: what is stored, what is remembered, what went wrong.
@@ -836,6 +1228,27 @@ final class ArtworkStore: ObservableObject {
         }
         if failedThisRun > 0 {
             parts.append("\(failedThisRun) lookup(s) failed this run")
+        }
+        return parts.joined(separator: " \u{00B7} ")
+    }
+
+    /// The cover list summary: what the fallback search has cost and what it has bought.
+    ///
+    /// Its own line rather than folded into `storageLine`, because the download it describes is the
+    /// one thing in this system measured in megabytes and burying it in a list of kilobyte figures
+    /// would be the opposite of disclosing it.
+    var coverListLine: String {
+        guard coverListFiles > 0 || listSearchesThisRun > 0 else {
+            return "no cover list downloaded yet"
+        }
+        var parts: [String] = []
+        if coverListFiles > 0 {
+            parts.append("\(coverListFiles) system list(s) kept")
+            parts.append(Self.byteText(coverListBytes))
+        }
+        if listSearchesThisRun > 0 {
+            parts.append("\(listSearchesThisRun) title(s) searched this run")
+            parts.append("\(listMatchesThisRun) matched")
         }
         return parts.joined(separator: " \u{00B7} ")
     }

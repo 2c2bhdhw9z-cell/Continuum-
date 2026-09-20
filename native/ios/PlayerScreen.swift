@@ -19,6 +19,61 @@
 
 import SwiftUI
 
+// MARK: - Where the picture goes
+
+/// The rect the emulated picture is asked to occupy, inside the region the controls leave free.
+///
+/// THE BUG THIS FIXES, from the device screenshot: the picture sat against the left edge of the
+/// area above the controls with a wide band of black to its right, rather than centred and filling
+/// the space. `TouchControlsView` correctly reports the whole free region, and handing the canvas
+/// the whole of it means handing the renderer a surface whose shape has nothing to do with the
+/// game's: a 240x160 Game Boy Advance frame inside a tall portrait band is mostly empty surface,
+/// and where the unused part of a surface ends up is a property of the layer, not of this app.
+///
+/// So the rect asked for is the largest one with the GAME's aspect ratio that fits the free region,
+/// centred in it. The surface then has the same shape as the content, the renderer's own aspect fit
+/// becomes a no-op inside it, and the picture fills the rect edge to edge with nothing left over to
+/// be pushed into a corner. Centring is then simply where the rect is.
+///
+/// NOTHING ABOUT THE ATTACH OR THE RESIZE CONTRACT CHANGES. `MetalCanvas` still forwards its own
+/// bounds through `resizeSurface` exactly as it did for rotation; only the bounds it is given are
+/// different. The renderer stays the authority on scaling: the aspect used here is the one the core
+/// DECLARED, and a core that reports different geometry at runtime is still letterboxed correctly
+/// inside this rect rather than overflowing it.
+enum PictureFit {
+    /// The largest rect of the given aspect ratio that fits `region`, centred in it.
+    ///
+    /// A degenerate region or a nonsensical aspect returns the region untouched, because a surface
+    /// of nothing reads on a device as a black screen with no explanation, and the old behaviour is
+    /// a better failure than that.
+    static func rect(aspect: CGFloat, in region: CGRect) -> CGRect {
+        guard region.width >= 1, region.height >= 1 else { return region }
+        guard aspect.isFinite, aspect > 0 else { return region }
+
+        let regionAspect = region.width / region.height
+        var width = region.width
+        var height = region.height
+        if aspect > regionAspect {
+            // Wider than the space: full width, and the height follows.
+            height = (region.width / aspect).rounded(.down)
+        } else {
+            width = (region.height * aspect).rounded(.down)
+        }
+        // Whole points, and never larger than the region or smaller than a pixel. A fractional
+        // drawable size would be rounded by Metal anyway, and rounding it here is what keeps the
+        // centring symmetric.
+        width = max(1, min(width.rounded(.down), region.width))
+        height = max(1, min(height.rounded(.down), region.height))
+
+        return CGRect(
+            x: region.minX + ((region.width - width) / 2).rounded(),
+            y: region.minY + ((region.height - height) / 2).rounded(),
+            width: width,
+            height: height
+        )
+    }
+}
+
 // MARK: - The player
 
 /// A running game: the picture, the telemetry, the touch controls and the way back out.

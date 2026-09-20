@@ -109,6 +109,11 @@ targets:
       # Cover art, the working half: URLSession fetching capped at three at a time, the on-disk
       # store outside Documents, the one-week negative cache and the user-picked image.
       - path: ArtworkStore.swift
+      # Cover art, the last rung: the server's own box art listing, parsed once per system, reduced
+      # to titles and kept for thirty days, so a game named under a convention this app cannot
+      # derive still gets its cover. The match is an equality of normalised titles and nothing
+      # looser, which is what keeps it from putting a wrong cover on a card.
+      - path: ArtworkIndex.swift
       # What a filename can honestly be made to say: the display title and the region.
       - path: GameMetadata.swift
       # The UniFFI-generated Swift facade. Written by build-engine.sh, never committed: a
