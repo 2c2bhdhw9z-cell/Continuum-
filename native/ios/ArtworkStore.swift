@@ -816,8 +816,9 @@ final class ArtworkStore: ObservableObject {
                 missedThisRun += 1
                 note("artwork: \(missedThisRun) title(s) have no art on the server, latest "
                      + "\(title) after \(probes) lookup(s), a search of all three "
-                     + "\(system.displayName) cover lists and a search of the other systems' "
-                     + "lists; it will be retried in a week")
+                     + "\(system.displayName) cover lists and a search of the other systems' lists "
+                     + "this device has or would cheaply fetch; it will be retried in a week, by "
+                     + "which time more of those lists will be here")
                 return nil
             case let .ambiguousOnly(count):
                 // ART EXISTS AND NOTHING WAS PICKED, which is not a miss and must not be remembered
@@ -1392,6 +1393,9 @@ final class ArtworkStore: ObservableObject {
         // Folder-major, so the box art of every system comes before any title screen, which is the
         // order the row should read in.
         for folder in ThumbnailFolder.allCases {
+            // Checked in BOTH loops, because a break out of the inner one would otherwise leave the
+            // outer one to start the next folder after the sheet had already closed.
+            if Task.isCancelled { break }
             for other in SystemArtwork.crossSystemListOrder where other != system {
                 if Task.isCancelled { break }
                 guard SystemArtwork.hasThumbnails(for: other) else { continue }
