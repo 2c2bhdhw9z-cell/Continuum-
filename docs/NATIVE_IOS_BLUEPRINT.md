@@ -1,3 +1,12 @@
+> **Status: design intent plus history, not a to-do list.** Parts of this blueprint are built. The
+> `.ipa` exists, it is produced by `.github/workflows/ios.yml`, and it ships five libretro cores
+> as `dlopen`ed dylibs covering nine systems. Read the sections below for the reasoning and the
+> target shape, but check `SESSION_HANDOFF.md` §16 and §17 for what is actually done before
+> treating anything here as outstanding work. At least one claim was reversed by implementation:
+> ownership of the `MTLDevice` runs the other way, wgpu creates it and Swift reads it back
+> (`SESSION_HANDOFF.md` §16). What has not happened is a confirmed game on screen on a device.
+> For scope see `.kiro/steering/product-scope.md`.
+
 # Phase 5 — Wrapping the Rust engine in a native iOS app
 
 Architectural blueprint for taking `crates/emulator-bridge` from a wasm module in a PWA to

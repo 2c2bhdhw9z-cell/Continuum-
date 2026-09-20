@@ -1,13 +1,25 @@
 # Continuum — Session Handoff
 
-State of the project at tag `v0.6.0-library`, written to be the only document a new session
-needs to read before changing anything.
+> **Scope, read first.** The product is the sideloadable iOS `.ipa`, and it is the only
+> deliverable. It ships five libretro cores covering nine systems (§17). Everything under `web/`
+> is legacy scaffolding: its job was to prove the Rust engine before there was any way to compile
+> for the device, that job is finished, and it is pending removal. It is not a second supported
+> target. The web material in this document is retained for its engineering history, because the
+> reasoning, the traps paid for and the invariants it records are the same ones the native build
+> depends on. Anything below that calls the project a PWA is describing that history, not the
+> plan. Authoritative scope: `.kiro/steering/product-scope.md`. Plain-language overview for the
+> repo owner: `README.md`. On-device test checklist: `TESTING.md`.
 
-Continuum is an all-in-one emulator PWA. Four real libretro cores run as standalone
-WebAssembly modules — three C, one C++; a Rust engine owns pacing, input, audio and
-presentation; the front end is a strictly virtualised Netflix-style library. The same
-Rust crate is intended to compile for native ARM64 later, which is why so much logic
-that could have lived in JavaScript does not.
+State of the project at tag `v0.6.0-library` for the web material, plus §16 and §17 for the iOS
+build, written to be the only document a new session needs to read before changing anything.
+
+Continuum is an all-in-one emulator for iPhone. A Rust engine owns pacing, input, audio and
+presentation, and the platform layer loads the cores. On iOS those are five `dlopen`ed libretro
+dylibs staged into `Frameworks/` (§17). In the legacy browser build they were four standalone
+WebAssembly modules, three C and one C++, behind a strictly virtualised Netflix-style library;
+that front end survives only as the design reference for the SwiftUI UI. The reason so much
+logic lives in Rust rather than in JavaScript is exactly that the same crate now compiles for
+native ARM64.
 
 ## The five rules everything is built around
 
@@ -1736,3 +1748,31 @@ on the wrong or the right core. Those are established only by the orchestrator's
 a device run, and the HUD is the readout: the `cores:` line says which dylibs are in the bundle,
 and every opening, running and failure line names the core id, so a wrong route or a missing
 core is one glance rather than a deduction.
+
+
+---
+
+## Appendix: relocated from README.md
+
+`README.md` was rewritten for the repo owner, who does not write code, so it now covers the
+product and not the architecture. Three things lived only in that file and had no equivalent
+anywhere else in this document. They are recorded here rather than lost. All three describe the
+legacy browser build, and the first two carry over to the iOS UI as unfinished work.
+
+**Browser input mapping.** The web front end bound: arrow keys to the D-pad, `Z` and `X` to B and
+A, `A` and `S` to Y and X, `Q` and `W` to L and R, `Enter` to Start, `Shift` to Select, `P` to
+pause and `Esc` to back. Controllers were picked up automatically and assigned to the first free
+port, and the HUD showed how many were connected. On touch devices the on-screen pad appeared,
+with its D-pad tracked as a single surface so diagonals resolved. Keyboard, pad and touch could
+all be used at once, because `GamepadBridge` merges them per source in Rust (§3). The iOS touch
+overlay has the same job to do and inherits the same merge.
+
+**Audio quality.** The resampler in `src/audio/resample.rs` is linear. A windowed-sinc belongs
+there before anyone judges the sound quality on either platform. This is not a bug and nothing is
+blocked on it; it is a known ceiling.
+
+**Rewind and fast-forward.** `FramePacer` already supports a speed multiplier, so fast-forward is
+close to free. Rewind is not: save states measure roughly 13 KB for NES, 823 KB for SNES, 516 KB
+for GBA and 1 MB for Genesis, so a rewind ring needs a memory budget and probably compression
+rather than just a deeper buffer. On iOS the increased-memory entitlement changes that arithmetic
+but does not remove it.
