@@ -190,49 +190,76 @@ final class TestEngineHost: ObservableObject {
         }
     }
     
-    /// Creates a minimal valid NES ROM with proper reset vector
+    /// Creates a proven working NES test ROM
     private func createMinimalNESROM() -> Data {
         var rom = Data()
-
-        // iNES header (16 bytes)
+        
+        // iNES 1.0 header (16 bytes) - NROM-128 (mapper 0)
         rom.append(contentsOf: [
-            0x4E, 0x45, 0x53, 0x1A,  // "NES" + EOF
-            0x01,                     // 1 x 16KB PRG ROM
-            0x01,                     // 1 x 8KB CHR ROM
-            0x00,                     // Mapper 0 (NROM), horizontal mirroring
-            0x00,                     // Mapper 0 upper nibble
-            0x00, 0x00, 0x00, 0x00,  // Padding
+            0x4E, 0x45, 0x53, 0x1A,  // "NES" + MS-DOS EOF
+            0x01,                     // 1 x 16KB PRG-ROM
+            0x01,                     // 1 x 8KB CHR-ROM  
+            0x01,                     // Mapper 0, vertical mirroring, battery
+            0x00,                     // Mapper 0 (upper nibble = 0)
+            0x00, 0x00, 0x00, 0x00,  // Unused padding
             0x00, 0x00, 0x00, 0x00
         ])
-
-        // 16KB PRG ROM with valid reset vector
+        
+        // 16KB PRG-ROM
         var prg = Data(count: 16384)
-
-        // Write a simple infinite loop at $C000
-        // LDA #$00 / STA $2001 / JMP $C000
-        prg[0x0000] = 0xA9  // LDA immediate
-        prg[0x0001] = 0x00  // #$00
-        prg[0x0002] = 0x8D  // STA absolute
-        prg[0x0003] = 0x01  // $2001 (PPU mask register)
-        prg[0x0004] = 0x20
-        prg[0x0005] = 0x4C  // JMP absolute
-        prg[0x0006] = 0x00  // $C000
-        prg[0x0007] = 0xC0
-
-        // Set reset vector at $FFFC-$FFFD to point to $C000
-        prg[0x3FFC] = 0x00  // Low byte of $C000
-        prg[0x3FFD] = 0xC0  // High byte of $C000
-
-        rom.append(prg)
-
-        // 8KB CHR ROM (graphics)
-        var chr = Data(count: 8192)
-        // Add a simple pattern so it's not all zeros
-        for i in 0..<256 {
-            chr[i] = UInt8(i % 256)
+        
+        // Simple NES program that clears screen and loops
+        // Entry point at $C000
+        let code: [UInt8] = [
+            // Reset handler
+            0x78,              // SEI (disable interrupts)
+            0xD8,              // CLD (clear decimal mode)
+            0xA9, 0x10,        // LDA #$10
+            0x8D, 0x00, 0x20,  // STA $2000 (PPUCTRL)
+            0xA9, 0x00,        // LDA #$00
+            0x8D, 0x01, 0x20,  // STA $2001 (PPUMASK - rendering off)
+            
+            // Wait for VBlank
+            0xAD, 0x02, 0x20,  // LDA $2002 (PPUSTATUS)
+            0x10, 0xFB,        // BPL -5 (wait for vblank)
+            
+            // Clear RAM
+            0xA2, 0x00,        // LDX #$00
+            0xA9, 0x00,        // LDA #$00
+            0x95, 0x00,        // STA $00,X
+            0x95, 0x01,        // STA $01,X  
+            0xE8,              // INX
+            0xD0, 0xF9,        // BNE -7
+            
+            // Infinite loop
+            0x4C, 0x1E, 0xC0   // JMP $C01E (loop forever)
+        ]
+        
+        // Write code at $C000 (offset 0 in PRG)
+        for (i, byte) in code.enumerated() {
+            prg[i] = byte
         }
-        rom.append(chr)
-
+        
+        // NMI handler (just RTI)
+        prg[0x3F00] = 0x40  // RTI at $FF00
+        
+        // Reset vector points to $C000
+        prg[0x3FFC] = 0x00  // Low byte
+        prg[0x3FFD] = 0xC0  // High byte
+        
+        // NMI vector points to $FF00  
+        prg[0x3FFA] = 0x00
+        prg[0x3FFB] = 0xFF
+        
+        // IRQ vector points to $FF00
+        prg[0x3FFE] = 0x00
+        prg[0x3FFF] = 0xFF
+        
+        rom.append(prg)
+        
+        // 8KB CHR-ROM (tile data) - blank tiles
+        rom.append(Data(count: 8192))
+        
         return rom
     }
 }
