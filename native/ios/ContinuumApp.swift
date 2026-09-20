@@ -311,25 +311,102 @@ struct LibraryEntry: Identifiable, Hashable, Sendable {
     let name: String
     /// The lowercased extension, already normalised for comparison and display.
     let ext: String
-    /// File size in bytes, or -1 when the size could not be read.
+    /// The size of the GAME in bytes, or -1 when nothing about it could be read.
+    ///
+    /// For a cue sheet this is the sheet's own size PLUS the size of every unique track file it
+    /// names that is on disk, because a sheet is a text file of a few dozen bytes and the tracks
+    /// sitting beside it are the actual game: Crash Bandicoot is an 87-byte .cue next to a
+    /// 632 MB .bin, and the 87 bytes are not what anyone means by the size of the game. For
+    /// every other supported format, the cartridge ROMs and the self-contained disc images
+    /// alike, it is simply that one file's own size.
     let byteCount: Int64
+    /// What scanning the cue sheet for its tracks found, `.notApplicable` for a non-cue entry.
+    let cueScan: CueScan
 
     var id: String { path }
+
+    /// What a scan of a cue sheet's FILE lines found.
+    ///
+    /// Only a `.cue` is ever anything but `.notApplicable`: every other supported format is one
+    /// self-contained file whose own size is the whole game. Each way the scan can come up short
+    /// is its own case so the row can name it out loud, because "the tracks are not here" is the
+    /// exact shape of the commonest import mistake, importing the .cue and leaving the .bin
+    /// behind, and it is worth catching in the list rather than as a failed launch.
+    enum CueScan: Hashable, Sendable {
+        /// Not a cue sheet, so there was nothing to scan.
+        case notApplicable
+        /// A cue sheet whose own text could not be read, so its tracks could not be counted.
+        case unreadable
+        /// A cue sheet that was read but names no track file at all.
+        case noTracksNamed
+        /// A cue sheet naming `present + missing` unique track files.
+        case tracks(present: Int, missing: Int)
+    }
 
     init(url: URL) {
         path = url.path
         name = url.lastPathComponent
-        ext = url.pathExtension.lowercased()
-        var bytes: Int64 = -1
-        if let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
-           let size = values.fileSize {
-            bytes = Int64(size)
+        let normalisedExtension = url.pathExtension.lowercased()
+        ext = normalisedExtension
+        let ownBytes = Self.fileSize(of: url)
+
+        // Every format but the cue sheet is one self-contained file, so its own size is the
+        // game and there is nothing to add up.
+        guard normalisedExtension == "cue" else {
+            byteCount = ownBytes
+            cueScan = .notApplicable
+            return
         }
-        byteCount = bytes
+
+        guard let sheet = Self.cueText(at: url) else {
+            // The sheet itself will not read, so the tracks behind it cannot be counted at all.
+            // Its own size alone would read as a complete 87-byte game, which is why the row
+            // says this instead of showing that number unqualified.
+            byteCount = ownBytes
+            cueScan = .unreadable
+            return
+        }
+
+        let tracks = Self.trackURLs(
+            inCueSheet: sheet,
+            relativeTo: url.deletingLastPathComponent()
+        )
+        guard !tracks.isEmpty else {
+            byteCount = ownBytes
+            cueScan = .noTracksNamed
+            return
+        }
+
+        // Add up what is actually on disk and count what is not. Each track is only ever
+        // stat'ed, never opened.
+        var total: Int64 = 0
+        var readAnything = false
+        var present = 0
+        var missing = 0
+        if ownBytes >= 0 {
+            total = ownBytes
+            readAnything = true
+        }
+        for track in tracks {
+            let size = Self.fileSize(of: track)
+            if size >= 0 {
+                total += size
+                present += 1
+                readAnything = true
+            } else {
+                missing += 1
+            }
+        }
+
+        // -1, and so "size unknown", only when not one single file could be measured. A total
+        // built from some of them is still worth showing, and the missing count says what it
+        // is missing.
+        byteCount = readAnything ? total : -1
+        cueScan = .tracks(present: present, missing: missing)
     }
 
-    /// Human-sized file size. Hand-rolled rather than routed through a formatter because this
-    /// is a diagnostic read-out: it must not be localised and it must not vary by locale.
+    /// Human-sized size. Hand-rolled rather than routed through a formatter because this is a
+    /// diagnostic read-out: it must not be localised and it must not vary by locale.
     var sizeText: String {
         if byteCount < 0 { return "size unknown" }
         let megabytes = Double(byteCount) / (1024.0 * 1024.0)
@@ -340,11 +417,11 @@ struct LibraryEntry: Identifiable, Hashable, Sendable {
         if kilobytes >= 1.0 {
             return String(format: "%.0f KB", kilobytes)
         }
-        // A PlayStation .cue is a text file of well under a kilobyte, 87 bytes being typical,
-        // and rounding that to "0 KB" reads as an empty or broken import when the file is fine
-        // and the game plays. The tracks it names hold the actual game data and are deliberately
-        // not listed, so this row is the only place a size appears for a CD game. Report the
-        // real byte count rather than a rounded zero.
+        // Rounding a sub-kilobyte file to "0 KB" reads as an empty or broken import when the
+        // file is perfectly fine, so the real byte count goes out instead. A cue sheet with its
+        // tracks present no longer lands here, because its size is now the whole game, but a
+        // sheet whose tracks are missing still does, and a bare 87 bytes next to the missing
+        // note is exactly the read-out that case deserves.
         return "\(byteCount) bytes"
     }
 
@@ -352,9 +429,130 @@ struct LibraryEntry: Identifiable, Hashable, Sendable {
     ///
     /// It names the core the row will launch on, read from the same `CoreCatalog.routes` the
     /// launch path uses. That is deliberate: a routing mistake shows up in the list, before a
-    /// tap, instead of as a game that boots on the wrong emulator.
+    /// tap, instead of as a game that boots on the wrong emulator. Whatever else gets inserted,
+    /// the core name stays LAST, so that affordance is where it has always been.
     var detail: String {
-        "\(ext.uppercased()) · \(sizeText) · \(CoreCatalog.routeLabel(forExtension: ext))"
+        var parts = [ext.uppercased(), sizeText]
+        parts.append(contentsOf: cueNotes)
+        parts.append(CoreCatalog.routeLabel(forExtension: ext))
+        return parts.joined(separator: " · ")
+    }
+
+    /// The cue-specific notes that sit between the size and the core name.
+    ///
+    /// Empty for a format that is one file, and empty for a cue sheet whose every track was
+    /// found: a healthy row reads exactly as it did before. Anything else is spelled out, since
+    /// a size that quietly excludes a track the game needs is worse than no size at all.
+    var cueNotes: [String] {
+        switch cueScan {
+        case .notApplicable:
+            return []
+        case .unreadable:
+            return ["cue sheet unreadable, tracks not counted"]
+        case .noTracksNamed:
+            return ["cue names no track file"]
+        case let .tracks(_, missing):
+            if missing < 1 { return [] }
+            return [missing == 1 ? "1 track missing" : "\(missing) tracks missing"]
+        }
+    }
+
+    // MARK: Measuring a game that is more than one file
+
+    /// The size of one file in bytes, or -1 when it could not be read.
+    ///
+    /// Stats the file and never opens it. That is not an optimisation, it is the constraint: a
+    /// PlayStation track is hundreds of megabytes, and reading one just to measure it would
+    /// stall the UI on every rescan and could be fatal on memory. The only file this type ever
+    /// reads the contents of is the cue sheet, which is well under a kilobyte.
+    private static func fileSize(of url: URL) -> Int64 {
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
+              let size = values.fileSize
+        else { return -1 }
+        return Int64(size)
+    }
+
+    /// The text of a cue sheet, or nil when it cannot be read at all.
+    ///
+    /// UTF-8 first, then Latin-1, because a sheet written by an older Windows ripper is not
+    /// always UTF-8 and a single stray high byte would otherwise make the whole sheet
+    /// unreadable. Latin-1 cannot fail on any byte sequence, so nil here means the read itself
+    /// failed, not that the text was merely odd.
+    private static func cueText(at url: URL) -> String? {
+        if let utf8 = try? String(contentsOf: url, encoding: .utf8) {
+            return utf8
+        }
+        return try? String(contentsOf: url, encoding: .isoLatin1)
+    }
+
+    /// Every unique track file a cue sheet names, resolved against the sheet's own directory.
+    ///
+    /// Resolution is relative to the SHEET, not to Documents. Imports land flat today so the two
+    /// are the same directory, but the filenames in a sheet are written relative to the sheet,
+    /// and resolving them that way is what stays correct if that ever changes.
+    ///
+    /// Deduplicated by resolved path, and that is not a nicety: a sheet may name the same .bin
+    /// on more than one FILE line, and counting it twice would report a 632 MB game as 1.2 GB.
+    /// A genuine multi-track dump names several DIFFERENT files, and every one of those counts.
+    static func trackURLs(inCueSheet text: String, relativeTo directory: URL) -> [URL] {
+        var seen = Set<String>()
+        var tracks: [URL] = []
+
+        // Splitting on `isNewline` handles CRLF as well as LF, because Swift treats "\r\n" as
+        // one grapheme, and cue sheets are very often CRLF.
+        for line in text.split(whereSeparator: { $0.isNewline }) {
+            // Every line is offered, and anything that does not name a file comes back nil:
+            // TRACK, INDEX and PREGAP name none, and a malformed FILE line is skipped rather
+            // than guessed at. A half-written sheet must not take the whole Library down.
+            guard let filename = cueFilename(inCueLine: String(line)) else { continue }
+
+            let resolved = directory.appendingPathComponent(filename).standardizedFileURL
+            // Keyed on the RESOLVED path rather than the name as written, so two spellings of
+            // one file cannot both be counted.
+            if seen.insert(resolved.path).inserted {
+                tracks.append(resolved)
+            }
+        }
+
+        return tracks
+    }
+
+    /// The track filename a single cue-sheet line names, or nil when it names none.
+    ///
+    /// Pure and self-contained, which is what lets the cases that cannot be reproduced on a
+    /// device, a quoted name with spaces, an unquoted one, a lone quote, each be reasoned about
+    /// in isolation. The FILE test lives here rather than in the caller so there is exactly one
+    /// of it, and so that handing this function any other line is safe.
+    static func cueFilename(inCueLine line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tokens = trimmed.split(whereSeparator: { $0.isWhitespace })
+        // Case-insensitive on the first token: sheets in the wild write FILE, and some rippers
+        // write file.
+        guard let keyword = tokens.first, keyword.lowercased() == "file" else { return nil }
+
+        // Normally quoted, and that is the case that matters. Everything between the FIRST quote
+        // and the LAST quote on the line, which is what keeps a name with spaces in it whole:
+        //     FILE "Crash Bandicoot (USA).bin" BINARY
+        if let firstQuote = trimmed.firstIndex(of: "\"") {
+            guard let lastQuote = trimmed.lastIndex(of: "\""), firstQuote < lastQuote else {
+                // A single lone quote. Anything read out of that would be a guess, so the line
+                // is skipped rather than turned into a filename that was never written.
+                return nil
+            }
+            let quoted = trimmed[trimmed.index(after: firstQuote)..<lastQuote]
+                .trimmingCharacters(in: .whitespaces)
+            return quoted.isEmpty ? nil : quoted
+        }
+
+        // Unquoted: the name is what sits between FILE and the trailing format keyword, which is
+        // one of BINARY, MOTOROLA, AIFF, WAVE or MP3. So the last token is dropped and the rest
+        // rejoined, which keeps an unquoted name with spaces in it intact:
+        //     FILE my game.bin BINARY  ->  my game.bin
+        // Fewer than three tokens means there is no name between the keyword and the format, so
+        // there is nothing to take.
+        guard tokens.count >= 3 else { return nil }
+        let filename = tokens.dropFirst().dropLast().joined(separator: " ")
+        return filename.isEmpty ? nil : filename
     }
 }
 
