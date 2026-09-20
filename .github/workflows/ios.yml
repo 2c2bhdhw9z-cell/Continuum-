@@ -26,7 +26,13 @@ concurrency:
 jobs:
   ipa:
     runs-on: macos-latest
-    timeout-minutes: 60
+    # Raised from 60 when the build went from compiling one native libretro core to five, one of
+    # which (mgba) is an LTO CMake build plus a whole-archive link, and one of which
+    # (pcsx_rearmed) is a full-depth clone with recursive submodules. Nothing here is cached
+    # between runs except cargo. A timeout is the worst failure this job has: it produces no
+    # artefact and no ::error:: annotation, so it reads like an infrastructure hang rather than
+    # a build that simply needed longer. The job is billed by the minute either way.
+    timeout-minutes: 120
 
     steps:
       - uses: actions/checkout@v4
@@ -65,13 +71,19 @@ jobs:
           key: ios-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: ios-cargo-${{ runner.os }}-
 
-      - name: Install XcodeGen
+      - name: Install XcodeGen and make sure CMake is present
         run: |
           # The .xcodeproj is generated from native/ios/project.yml rather than committed,
           # because a UUID-keyed pbxproj cannot be reviewed in a diff — and this project has
           # no Xcode to edit one with.
           brew install xcodegen
           xcodegen --version
+          # The mgba core has no makefile: its libretro target is CMake, so the iOS core build
+          # needs cmake on the host. The runner image ships it, which is exactly why this is a
+          # conditional check rather than an unconditional install: it costs nothing today and
+          # removes a whole failure class if a future image drops it.
+          command -v cmake >/dev/null 2>&1 || brew install cmake
+          cmake --version
 
       - name: Fetch the libretro headers
         run: |
@@ -83,9 +95,6 @@ jobs:
 
       - name: Build the engine, the wrapper and the UniFFI bindings
         run: ./native/ios/build-engine.sh
-
-      - name: Build NES core (fceumm)
-        run: ./native/ios/build-nes-core.sh
 
       - name: Show the generated Swift interface
         run: |
@@ -111,15 +120,25 @@ jobs:
           echo "size: $SIZE bytes"
           [ "$SIZE" -gt 100000 ] || { echo "::error::.ipa is implausibly small ($SIZE bytes)"; exit 1; }
 
-          # The three things that make it installable and useful, checked individually.
+          # The things that make it installable and useful, checked individually. Each core
+          # gets its own message naming the system that would not run, because "the .ipa is
+          # fine" has to mean "every system in the Library can actually be launched".
           unzip -l "$IPA" | grep -q "Payload/Continuum.app/Continuum" \
             || { echo "::error::no executable at Payload/Continuum.app/Continuum"; exit 1; }
           unzip -l "$IPA" | grep -q "Payload/Continuum.app/Info.plist" \
             || { echo "::error::no Info.plist in the bundle"; exit 1; }
           unzip -l "$IPA" | grep -q "libcontinuum_switch.dylib" \
             || { echo "::error::the libretro wrapper is not embedded; the app would launch and fail to load a core"; exit 1; }
-          unzip -l "$IPA" | grep -q "libretro_fceumm.dylib" \
-            || { echo "::error::NES core is not embedded"; exit 1; }
+          unzip -l "$IPA" | grep -q "fceumm_libretro_ios.dylib" \
+            || { echo "::error::the NES core is not embedded; .nes files would list in the Library and fail to launch"; exit 1; }
+          unzip -l "$IPA" | grep -q "mgba_libretro_ios.dylib" \
+            || { echo "::error::the GBA/GB/GBC core is not embedded; .gba, .gb and .gbc files would list in the Library and fail to launch"; exit 1; }
+          unzip -l "$IPA" | grep -q "genesis_plus_gx_libretro_ios.dylib" \
+            || { echo "::error::the Mega Drive/Master System/Game Gear core is not embedded; .md, .gen, .sms and .gg files would list in the Library and fail to launch"; exit 1; }
+          unzip -l "$IPA" | grep -q "snes9x_libretro_ios.dylib" \
+            || { echo "::error::the SNES core is not embedded; .sfc and .smc files would list in the Library and fail to launch"; exit 1; }
+          unzip -l "$IPA" | grep -q "pcsx_rearmed_libretro_ios.dylib" \
+            || { echo "::error::the PS1 core is not embedded; the app would launch and fail to load PCSX ReARMed"; exit 1; }
           echo "ipa verified"
 
       - name: Upload the .ipa

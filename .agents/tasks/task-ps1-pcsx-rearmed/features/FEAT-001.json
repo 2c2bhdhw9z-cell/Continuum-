@@ -1,0 +1,30 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Establish the green baseline for Phase 5 Step 2. Confirm the existing engine, iOS type-checks, clippy and the switch-wrapper harness all pass before any change, so every later regression is attributable. This is a verification-only feature: it makes NO source edits. It exists because the four later features must each leave this baseline intact.",
+  "status": "completed",
+  "steps": [
+    "Run `cargo test` from the repo root and confirm 74 tests pass.",
+    "Run `cargo check --target aarch64-apple-ios --features native-core,uniffi-bindings` and confirm it type-checks cleanly on Linux (it does not link, which is expected).",
+    "Run `cargo check --profile ios --target aarch64-apple-ios --features native-core,uniffi-bindings` and confirm the custom ios profile also type-checks.",
+    "Run `cargo clippy --features native-core,uniffi-bindings --all-targets` and confirm zero warnings (CI runs it with -D warnings; touch a source file if clippy prints a cached 'Finished' without re-emitting).",
+    "Run `./scripts/fetch-libretro-headers.sh` to populate .work/hdr/libretro/ (network to raw.githubusercontent.com is available), then run `./native/switch-wrapper/build.sh host` and confirm the harness reports 15/15 checks passed.",
+    "Record the baseline results in this feature's findings field."
+  ],
+  "acceptance_criteria": [
+    "`cargo test` reports 74 passed, 0 failed.",
+    "Both `cargo check` invocations (default and --profile ios) for aarch64-apple-ios succeed.",
+    "`cargo clippy --features native-core,uniffi-bindings --all-targets` prints no warnings.",
+    "`./native/switch-wrapper/build.sh host` prints '15/15 checks passed'.",
+    "No source files were modified by this feature."
+  ],
+  "verification": [
+    "cargo test",
+    "cargo check --target aarch64-apple-ios --features native-core,uniffi-bindings",
+    "cargo check --profile ios --target aarch64-apple-ios --features native-core,uniffi-bindings",
+    "cargo clippy --features native-core,uniffi-bindings --all-targets",
+    "./scripts/fetch-libretro-headers.sh && ./native/switch-wrapper/build.sh host"
+  ],
+  "blocked_reason": null,
+  "findings": "Baseline verified green by the orchestrator before any edit. cargo test: 74 passed, 0 failed. cargo check --target aarch64-apple-ios --features native-core,uniffi-bindings: type-checks cleanly (no link, expected). cargo check --profile ios --target aarch64-apple-ios --features native-core,uniffi-bindings: clean. cargo clippy --features native-core,uniffi-bindings --all-targets: no warnings. ./scripts/fetch-libretro-headers.sh fetched libretro.h + libretro_vulkan.h into .work/hdr/libretro (raw.githubusercontent.com reachable). ./native/switch-wrapper/build.sh host: 15/15 checks passed. Toolchain: Rust 1.92.0 pinned; installed targets include aarch64-apple-ios and wasm32-unknown-unknown. No source files modified."
+}

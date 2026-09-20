@@ -6,6 +6,7 @@
 # Produces:
 #   build/lib/libemulator_bridge.a        the Rust engine, linked into the app
 #   build/lib/libcontinuum_switch.dylib   the C++ libretro wrapper, dlopened at runtime
+#   build/lib/*_libretro_ios.dylib        the five real libretro cores, also dlopened
 #   build/Generated/*.swift               the UniFFI facade
 #   build/Generated/*.h                   its C header
 #   build/Generated/module.modulemap      renamed so clang finds it by directory
@@ -125,6 +126,81 @@ WRAPPER="$ROOT/native/switch-wrapper/build/libcontinuum_switch.dylib"
 [ -f "$WRAPPER" ] || { echo "error: $WRAPPER was not produced" >&2; exit 1; }
 cp "$WRAPPER" "$LIBDIR/"
 echo "==> $LIBDIR/libcontinuum_switch.dylib ($(du -h "$WRAPPER" | cut -f1))"
+
+# ------------------------------------------------ 4. the five libretro cores
+
+# The real cores the .ipa ships, all compiled from source for iOS by scripts/build-core.sh
+# and dlopened at runtime like the wrapper above:
+#
+#   fceumm           NES
+#   mgba             GBA + GB/GBC
+#   genesis_plus_gx  Mega Drive + Master System + Game Gear
+#   snes9x           SNES
+#   pcsx_rearmed     PS1, INTERPRETER-only (its makefile force-disables the JIT for iOS
+#                    arm64), which is the same build that already worked
+#
+# build-core.sh clones each core into .work/ios/, runs its own build for ios-arm64, fixes the
+# @rpath install_name and stages the .dylib straight into build/lib/ (this same $LIBDIR).
+# `ios-all` builds all five and deliberately keeps going after a failure, so one broken core
+# cannot hide the state of the other four; it still exits non-zero, so this script still
+# stops before an .ipa can be built with a hole in it.
+#
+# The expected filenames are READ from build-core.sh rather than restated here. They have to
+# match byte for byte in project.yml, package-ipa.sh, ios.yml and ContinuumApp.swift already,
+# and a list copied into a fifth place is a list that eventually disagrees with the build.
+echo "==> asking build-core.sh which core dylibs to expect"
+CORE_NAMES="$("$ROOT/scripts/build-core.sh" ios-names)"
+CORE_COUNT="$(printf '%s\n' "$CORE_NAMES" | grep -c '\.dylib$' || true)"
+[ "$CORE_COUNT" = "5" ] || {
+  echo "error: build-core.sh ios-names listed $CORE_COUNT core dylib(s), expected 5" >&2
+  printf '%s\n' "$CORE_NAMES" >&2
+  exit 1
+}
+printf '%s\n' "$CORE_NAMES" | sed 's/^/      /'
+
+# Three files still have to spell these names out by hand, and none of them can be checked by a
+# compiler: project.yml decides what Xcode embeds, ios.yml decides what the .ipa is asserted to
+# contain, and ContinuumApp.swift decides what the app looks for in Frameworks/. A typo in any of
+# them produces a build that goes green and an app that cannot find a core. Checked HERE, before
+# twenty minutes of core compiles, because a wrong string should cost seconds.
+echo "==> checking the core filenames agree across project.yml, ios.yml and ContinuumApp.swift"
+DIVERGED=""
+for core_dylib in $CORE_NAMES; do
+  for consumer in "$HERE/project.yml" \
+                  "$ROOT/.github/workflows/ios.yml" \
+                  "$HERE/ContinuumApp.swift"; do
+    grep -q "$core_dylib" "$consumer" || {
+      echo "error: $(basename "$consumer") does not mention $core_dylib" >&2
+      DIVERGED="$DIVERGED $(basename "$consumer"):$core_dylib"
+    }
+  done
+done
+[ -z "$DIVERGED" ] || {
+  echo "error: the core dylib names have diverged:$DIVERGED" >&2
+  echo "       scripts/build-core.sh ios_core_config is the definition; fix the consumer." >&2
+  exit 1
+}
+echo "      all five names present in all three"
+
+echo "==> building the five libretro cores for iOS"
+"$ROOT/scripts/build-core.sh" ios-all
+
+# Hard-fail, naming every file that is absent. Shipping an .ipa without a core would launch
+# and then fail to load that core on device, which is far harder to diagnose than a red build
+# here. The loop reports all of them rather than stopping at the first.
+MISSING=""
+for core_dylib in $CORE_NAMES; do
+  if [ -f "$LIBDIR/$core_dylib" ]; then
+    echo "==> $LIBDIR/$core_dylib ($(du -h "$LIBDIR/$core_dylib" | cut -f1))"
+  else
+    echo "error: $LIBDIR/$core_dylib was not produced" >&2
+    MISSING="$MISSING $core_dylib"
+  fi
+done
+[ -z "$MISSING" ] || {
+  echo "error: missing iOS core dylib(s):$MISSING" >&2
+  exit 1
+}
 
 cat <<EOF
 

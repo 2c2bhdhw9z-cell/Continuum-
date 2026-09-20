@@ -175,21 +175,80 @@ unsafe extern "C" fn on_input_state(
     })
 }
 
-/// Environment commands answered for step 10.
-///
-/// Deliberately small: this is the *native* environment handler and it starts by
-/// implementing the two commands the web build refuses and Switch content requires —
-/// `GET_SYSTEM_DIRECTORY` for keys and firmware, `GET_SAVE_DIRECTORY` for savedata.
-unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
-    const GET_SYSTEM_DIRECTORY: c_uint = 9;
-    const GET_SAVE_DIRECTORY: c_uint = 31;
-    const GET_VARIABLE_UPDATE: c_uint = 17;
-    const SET_SUPPORT_NO_GAME: c_uint = 18;
-    const SET_CONTENT_INFO_OVERRIDE: c_uint = 65;
-    const GET_CAN_DUPE: c_uint = 3;
+// Environment command numbers. Every value below was machine-checked against
+// `.work/hdr/libretro/libretro.h` (SESSION_HANDOFF §1 records that a dropped experimental
+// bit produces a case that can never match, so the experimental commands keep theirs).
+const ENV_GET_CAN_DUPE: c_uint = 3; // libretro.h:767 RETRO_ENVIRONMENT_GET_CAN_DUPE
+const ENV_SET_MESSAGE: c_uint = 6; // libretro.h:807 RETRO_ENVIRONMENT_SET_MESSAGE
+const ENV_SET_PERFORMANCE_LEVEL: c_uint = 8; // libretro.h:836 RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL
+const ENV_GET_SYSTEM_DIRECTORY: c_uint = 9; // libretro.h:854 RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY
+const ENV_SET_PIXEL_FORMAT: c_uint = 10; // libretro.h:869 RETRO_ENVIRONMENT_SET_PIXEL_FORMAT
+const ENV_SET_INPUT_DESCRIPTORS: c_uint = 11; // libretro.h:886 RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS
+const ENV_GET_VARIABLE: c_uint = 15; // libretro.h:970 RETRO_ENVIRONMENT_GET_VARIABLE
+const ENV_SET_VARIABLES: c_uint = 16; // libretro.h:1020 RETRO_ENVIRONMENT_SET_VARIABLES
+const ENV_GET_VARIABLE_UPDATE: c_uint = 17; // libretro.h:1038 RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE
+const ENV_SET_SUPPORT_NO_GAME: c_uint = 18; // libretro.h:1055 RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME
+const ENV_GET_SAVE_DIRECTORY: c_uint = 31; // libretro.h:1330 RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY
+const ENV_SET_SYSTEM_AV_INFO: c_uint = 32; // libretro.h:1369 RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO
+const ENV_SET_CONTROLLER_INFO: c_uint = 35; // libretro.h:1510 RETRO_ENVIRONMENT_SET_CONTROLLER_INFO
+const ENV_SET_GEOMETRY: c_uint = 37; // libretro.h:1558 RETRO_ENVIRONMENT_SET_GEOMETRY
+const ENV_GET_CORE_OPTIONS_VERSION: c_uint = 52; // libretro.h:1854 RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION
+const ENV_SET_CORE_OPTIONS: c_uint = 53; // libretro.h:1928 RETRO_ENVIRONMENT_SET_CORE_OPTIONS
+const ENV_SET_CORE_OPTIONS_INTL: c_uint = 54; // libretro.h:1951 RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL
+const ENV_SET_CORE_OPTIONS_DISPLAY: c_uint = 55; // libretro.h:1980 RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY
+const ENV_SET_MESSAGE_EXT: c_uint = 60; // libretro.h:2079 RETRO_ENVIRONMENT_SET_MESSAGE_EXT
+const ENV_SET_MINIMUM_AUDIO_LATENCY: c_uint = 63; // libretro.h:2154 RETRO_ENVIRONMENT_SET_MINIMUM_AUDIO_LATENCY
+const ENV_SET_CONTENT_INFO_OVERRIDE: c_uint = 65; // libretro.h:2183 RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE
+const ENV_SET_CORE_OPTIONS_V2: c_uint = 67; // libretro.h:2345 RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
+const ENV_SET_CORE_OPTIONS_V2_INTL: c_uint = 68; // libretro.h:2362 RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL
+const ENV_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: c_uint = 69; // libretro.h:2383
 
+/// Stores the pixel format a core negotiated via `SET_PIXEL_FORMAT`.
+///
+/// A process global for the same lifetime reason as [`DIRECTORIES`]: the core calls
+/// `SET_PIXEL_FORMAT` from inside `retro_load_game`, which runs under a `Mutex`-held bridge
+/// and possibly off the callback thread, so a thread-local would lose the value. Reset
+/// before each load ([`reset_negotiated_format`]) so a stale format from a prior core
+/// cannot leak into the next one.
+static NEGOTIATED_FORMAT: std::sync::Mutex<Option<PixelFormat>> = std::sync::Mutex::new(None);
+
+fn reset_negotiated_format() {
+    let mut guard = match NEGOTIATED_FORMAT.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    *guard = None;
+}
+
+fn store_negotiated_format(format: PixelFormat) {
+    let mut guard = match NEGOTIATED_FORMAT.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    *guard = Some(format);
+}
+
+fn take_negotiated_format() -> Option<PixelFormat> {
+    let guard = match NEGOTIATED_FORMAT.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    *guard
+}
+
+/// The environment protocol, answering what a real PS1 core (PCSX ReARMed) needs to boot
+/// through the software frame path, and refusing everything else.
+///
+/// Returning `false` means "unsupported", which cores are required to handle, so the safe
+/// default for anything unlisted is `false` — and the default arm stays silent to avoid
+/// per-frame log spam, matching the existing style. The commands here are exactly those a
+/// first PCSX ReARMed boot exercises: `SET_PIXEL_FORMAT` (negotiated, not hardcoded),
+/// `GET_VARIABLE` (refused so the core uses its own defaults), the directory queries, and
+/// the option/descriptor/geometry/message families that a core announces but a minimal
+/// host need only tolerate.
+unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
     match cmd {
-        GET_SYSTEM_DIRECTORY | GET_SAVE_DIRECTORY => {
+        ENV_GET_SYSTEM_DIRECTORY | ENV_GET_SAVE_DIRECTORY => {
             let guard = match DIRECTORIES.lock() {
                 Ok(guard) => guard,
                 Err(poisoned) => poisoned.into_inner(),
@@ -197,7 +256,7 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
             let Some(directories) = guard.as_ref() else {
                 return false;
             };
-            let path = if cmd == GET_SYSTEM_DIRECTORY {
+            let path = if cmd == ENV_GET_SYSTEM_DIRECTORY {
                 directories.system.as_ref()
             } else {
                 directories.save.as_ref()
@@ -213,15 +272,73 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
                 None => false,
             }
         }
-        GET_CAN_DUPE => {
+        ENV_SET_PIXEL_FORMAT => {
+            // data is `const enum retro_pixel_format *`. libretro numbering is
+            // 0=0RGB1555, 1=XRGB8888, 2=RGB565; `from_libretro` maps 1/2 and rejects 0.
+            if data.is_null() {
+                return false;
+            }
+            let raw = unsafe { *(data as *const c_uint) };
+            match PixelFormat::from_libretro(raw) {
+                Some(format) => {
+                    store_negotiated_format(format);
+                    true
+                }
+                // 0RGB1555 (and anything else) is refused. PCSX ReARMed logs an error and
+                // keeps its current format; it does not abort the load.
+                None => false,
+            }
+        }
+        ENV_GET_VARIABLE => {
+            // data is `struct retro_variable { const char *key; const char *value; }`.
+            // We do not fabricate option strings: setting value to null and returning
+            // false is libretro's "unset, use your default", which is exactly what PCSX
+            // ReARMed's 73 reads expect.
+            if !data.is_null() {
+                // Offset of `value` is one pointer past `key`.
+                let value_slot = unsafe { (data as *mut *const c_char).add(1) };
+                unsafe { *value_slot = std::ptr::null() };
+            }
+            false
+        }
+        ENV_GET_CAN_DUPE => {
             unsafe { *(data as *mut bool) = true };
             true
         }
-        GET_VARIABLE_UPDATE => {
+        ENV_GET_VARIABLE_UPDATE => {
             unsafe { *(data as *mut bool) = false };
             true
         }
-        SET_SUPPORT_NO_GAME | SET_CONTENT_INFO_OVERRIDE => true,
+        // Accept-and-noop: the core announces these, and a minimal host need only tolerate
+        // them. Returning true means "recognized" without claiming any behaviour a callback
+        // would later have to honour. Deliberately absent: SET_AUDIO_BUFFER_STATUS_CALLBACK
+        // (62) and GET_INPUT_BITMASKS (51|EXPERIMENTAL) are *not* here — accepting the first
+        // would promise a callback we never make (SESSION_HANDOFF §1), and refusing the
+        // second makes the core fall back to per-id input_state, which InputSnapshot serves.
+        ENV_SET_SUPPORT_NO_GAME
+        | ENV_SET_CONTENT_INFO_OVERRIDE
+        | ENV_SET_VARIABLES
+        | ENV_SET_CORE_OPTIONS
+        | ENV_SET_CORE_OPTIONS_INTL
+        | ENV_SET_CORE_OPTIONS_DISPLAY
+        | ENV_SET_CORE_OPTIONS_V2
+        | ENV_SET_CORE_OPTIONS_V2_INTL
+        | ENV_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK
+        | ENV_SET_INPUT_DESCRIPTORS
+        | ENV_SET_CONTROLLER_INFO
+        | ENV_SET_PERFORMANCE_LEVEL
+        | ENV_SET_SYSTEM_AV_INFO
+        | ENV_SET_GEOMETRY
+        | ENV_SET_MESSAGE
+        | ENV_SET_MESSAGE_EXT
+        | ENV_SET_MINIMUM_AUDIO_LATENCY => true,
+        ENV_GET_CORE_OPTIONS_VERSION => {
+            // Report core-options API version 0: we accept the SET_CORE_OPTIONS* families
+            // as no-ops but implement none of their query surface, so 0 is the honest
+            // answer and keeps the core on the SET_VARIABLES-era path.
+            unsafe { *(data as *mut c_uint) = 0 };
+            true
+        }
         _ => false,
     }
 }
@@ -283,6 +400,9 @@ pub struct NativeLibretroCore {
     /// Frames the core reported as dupes. Worth counting rather than discarding: a core
     /// duping steadily is the signature of a stalled hardware path.
     duped_frames: u64,
+    /// The pixel format `video()` reports. Seeded from the descriptor's declared format and
+    /// overwritten by whatever the core chose through `SET_PIXEL_FORMAT` during load.
+    negotiated_format: PixelFormat,
 }
 
 impl NativeLibretroCore {
@@ -403,6 +523,7 @@ impl NativeLibretroCore {
             path.display()
         );
 
+        let negotiated_format = descriptor.pixel_format;
         Ok(Self {
             descriptor,
             library,
@@ -416,6 +537,7 @@ impl NativeLibretroCore {
             last_was_hardware: false,
             audio: Vec::new(),
             duped_frames: 0,
+            negotiated_format,
         })
     }
 
@@ -461,10 +583,17 @@ impl EmulatorCore for NativeLibretroCore {
     }
 
     fn load_content(&mut self, content: &[u8], hint: &ContentHint) -> Result<(), BridgeError> {
-        // `need_fullpath` content — which Switch containers are — arrives as a path with no
-        // bytes. Both shapes are handled, and which one applies is the core's declaration
-        // rather than our choice.
-        let path = CString::new(hint.name.clone()).map_err(|_| BridgeError::InvalidContent {
+        // `need_fullpath` content — which Switch containers and PS1 discs are — arrives as a
+        // path with no bytes, and the core opens the file itself. A core that hard-requires
+        // `info->path` (PCSX ReARMed rejects a null path outright) needs a real, openable
+        // filesystem path here, not the bare file stem in `hint.name`. So when there are no
+        // bytes and the caller supplied `full_path`, hand over that verbatim; otherwise fall
+        // back to `name`, which is what the in-memory and switch-stub paths already use.
+        let path_string = match (content.is_empty(), hint.full_path.as_ref()) {
+            (true, Some(full_path)) => full_path.clone(),
+            _ => hint.name.clone(),
+        };
+        let path = CString::new(path_string).map_err(|_| BridgeError::InvalidContent {
             core_id: self.descriptor.id.clone(),
             reason: "content path contains a NUL byte".into(),
         })?;
@@ -480,12 +609,20 @@ impl EmulatorCore for NativeLibretroCore {
             meta: std::ptr::null(),
         };
 
+        // A core negotiates its pixel format from inside `retro_load_game`. Clear any stale
+        // value first, then read back whatever it chose so `video()` reports the truth.
+        reset_negotiated_format();
+
         let ok = unsafe { (self.symbols.load_game)(&info) };
         if !ok {
             return Err(BridgeError::InvalidContent {
                 core_id: self.descriptor.id.clone(),
                 reason: "retro_load_game rejected the content".into(),
             });
+        }
+
+        if let Some(format) = take_negotiated_format() {
+            self.negotiated_format = format;
         }
 
         self.content_loaded = true;
@@ -542,7 +679,11 @@ impl EmulatorCore for NativeLibretroCore {
             width: self.last_width,
             height: self.last_height,
             stride_bytes: self.last_pitch,
-            format: PixelFormat::Rgba8888,
+            // The negotiated format, not a hardcoded value: RGB565 and XRGB8888 are both
+            // normalised on the CPU side by gfx/convert.rs, so reporting the true format is
+            // what makes PS1 colours correct. Defaults to the descriptor's declared format
+            // when no SET_PIXEL_FORMAT arrived.
+            format: self.negotiated_format,
         })
     }
 
@@ -616,4 +757,182 @@ fn c_str(pointer: *const c_char) -> String {
     unsafe { CStr::from_ptr(pointer) }
         .to_string_lossy()
         .into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The negotiated-format global is process-wide, so the format tests must not race each
+    // other. A dedicated lock serialises them without depending on the test harness's
+    // threading, and is poison-tolerant so one failing test does not cascade.
+    static FORMAT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn format_guard() -> std::sync::MutexGuard<'static, ()> {
+        match FORMAT_TEST_LOCK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// libretro pixel-format numbering: 0=0RGB1555, 1=XRGB8888, 2=RGB565.
+    const LIBRETRO_0RGB1555: c_uint = 0;
+    const LIBRETRO_XRGB8888: c_uint = 1;
+    const LIBRETRO_RGB565: c_uint = 2;
+
+    #[test]
+    fn set_pixel_format_rgb565_is_stored() {
+        let _guard = format_guard();
+        reset_negotiated_format();
+        let mut value: c_uint = LIBRETRO_RGB565;
+        let ok = unsafe {
+            on_environment(
+                ENV_SET_PIXEL_FORMAT,
+                &mut value as *mut c_uint as *mut c_void,
+            )
+        };
+        assert!(ok, "RGB565 must be accepted");
+        assert_eq!(take_negotiated_format(), Some(PixelFormat::Rgb565));
+    }
+
+    #[test]
+    fn set_pixel_format_xrgb8888_is_stored() {
+        let _guard = format_guard();
+        reset_negotiated_format();
+        let mut value: c_uint = LIBRETRO_XRGB8888;
+        let ok = unsafe {
+            on_environment(
+                ENV_SET_PIXEL_FORMAT,
+                &mut value as *mut c_uint as *mut c_void,
+            )
+        };
+        assert!(ok, "XRGB8888 must be accepted");
+        assert_eq!(take_negotiated_format(), Some(PixelFormat::Xrgb8888));
+    }
+
+    #[test]
+    fn set_pixel_format_0rgb1555_is_refused() {
+        let _guard = format_guard();
+        reset_negotiated_format();
+        let mut value: c_uint = LIBRETRO_0RGB1555;
+        let ok = unsafe {
+            on_environment(
+                ENV_SET_PIXEL_FORMAT,
+                &mut value as *mut c_uint as *mut c_void,
+            )
+        };
+        assert!(!ok, "0RGB1555 must be refused");
+        // Nothing stored: the core keeps its current format on refusal.
+        assert_eq!(take_negotiated_format(), None);
+    }
+
+    #[test]
+    fn get_variable_returns_false_and_nulls_value() {
+        // `retro_variable { key, value }`. The handler must not fabricate an option
+        // string: it nulls `value` and returns false, meaning "use your default".
+        #[repr(C)]
+        struct RetroVariable {
+            key: *const c_char,
+            value: *const c_char,
+        }
+        let key = CString::new("pcsx_rearmed_rgb32_output").unwrap();
+        // Seed `value` with a non-null sentinel so a passing test proves it was cleared.
+        let mut var = RetroVariable {
+            key: key.as_ptr(),
+            value: key.as_ptr(),
+        };
+        let ok = unsafe {
+            on_environment(
+                ENV_GET_VARIABLE,
+                &mut var as *mut RetroVariable as *mut c_void,
+            )
+        };
+        assert!(!ok, "GET_VARIABLE must return false so the core uses its default");
+        assert!(var.value.is_null(), "value must be nulled, not fabricated");
+    }
+
+    #[test]
+    fn get_variable_update_reports_no_change() {
+        let mut changed = true;
+        let ok = unsafe {
+            on_environment(
+                ENV_GET_VARIABLE_UPDATE,
+                &mut changed as *mut bool as *mut c_void,
+            )
+        };
+        assert!(ok);
+        assert!(!changed, "no options change between polls in this host");
+    }
+
+    #[test]
+    fn option_and_message_families_are_accepted_as_noops() {
+        for cmd in [
+            ENV_SET_VARIABLES,
+            ENV_SET_CORE_OPTIONS,
+            ENV_SET_CORE_OPTIONS_INTL,
+            ENV_SET_CORE_OPTIONS_DISPLAY,
+            ENV_SET_CORE_OPTIONS_V2,
+            ENV_SET_CORE_OPTIONS_V2_INTL,
+            ENV_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK,
+            ENV_SET_INPUT_DESCRIPTORS,
+            ENV_SET_CONTROLLER_INFO,
+            ENV_SET_PERFORMANCE_LEVEL,
+            ENV_SET_SYSTEM_AV_INFO,
+            ENV_SET_GEOMETRY,
+            ENV_SET_MESSAGE,
+            ENV_SET_MESSAGE_EXT,
+            ENV_SET_MINIMUM_AUDIO_LATENCY,
+            ENV_SET_SUPPORT_NO_GAME,
+            ENV_SET_CONTENT_INFO_OVERRIDE,
+        ] {
+            let ok = unsafe { on_environment(cmd, std::ptr::null_mut()) };
+            assert!(ok, "command {cmd} should be accepted as a no-op");
+        }
+    }
+
+    #[test]
+    fn audio_buffer_status_callback_is_refused() {
+        // Number 62 is SET_AUDIO_BUFFER_STATUS_CALLBACK. Accepting it would promise a
+        // callback we never make (SESSION_HANDOFF §1); refusing cleanly is correct.
+        const SET_AUDIO_BUFFER_STATUS_CALLBACK: c_uint = 62;
+        let ok = unsafe { on_environment(SET_AUDIO_BUFFER_STATUS_CALLBACK, std::ptr::null_mut()) };
+        assert!(!ok, "must refuse a callback we cannot honour");
+    }
+
+    #[test]
+    fn input_bitmasks_is_refused_so_core_uses_per_id_state() {
+        // 51 | EXPERIMENTAL. Refusing routes the core to per-id input_state, which
+        // InputSnapshot::libretro_state already serves.
+        const GET_INPUT_BITMASKS: c_uint = 51 | 0x10000;
+        let ok = unsafe { on_environment(GET_INPUT_BITMASKS, std::ptr::null_mut()) };
+        assert!(!ok);
+    }
+
+    #[test]
+    fn get_core_options_version_reports_zero() {
+        let mut version: c_uint = 999;
+        let ok = unsafe {
+            on_environment(
+                ENV_GET_CORE_OPTIONS_VERSION,
+                &mut version as *mut c_uint as *mut c_void,
+            )
+        };
+        assert!(ok);
+        assert_eq!(version, 0);
+    }
+
+    #[test]
+    fn from_filename_records_full_path_only_for_paths() {
+        // A bare filename has no full_path; a real path retains it verbatim for
+        // need_fullpath cores. This is what keeps the web build's behaviour identical.
+        let bare = ContentHint::from_filename("Crash.bin");
+        assert_eq!(bare.extension, "bin");
+        assert_eq!(bare.name, "Crash");
+        assert_eq!(bare.full_path, None);
+
+        let path = ContentHint::from_filename("/var/mobile/roms/Crash.bin");
+        assert_eq!(path.extension, "bin");
+        assert_eq!(path.name, "Crash");
+        assert_eq!(path.full_path.as_deref(), Some("/var/mobile/roms/Crash.bin"));
+    }
 }

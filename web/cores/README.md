@@ -1,3 +1,11 @@
+> **Status: legacy.** This file documents the cores of the browser prototype under `web/`, which
+> was scaffolding and is not a deliverable. The product is the iOS `.ipa`, which ships five
+> libretro cores as native `dlopen`ed dylibs rather than WebAssembly modules. This document is
+> retained for its engineering history: the shim, the import discipline and the per-core build
+> notes below are still the record of how a libretro core is made to behave. For the iOS core
+> builds see `SESSION_HANDOFF.md` §17 and `scripts/build-core.sh ios-names`. For scope see
+> `.kiro/steering/product-scope.md`.
+
 # Core binaries
 
 Emulator cores, fetched on demand by `src/engine/core-loader.js`. **Nothing here is

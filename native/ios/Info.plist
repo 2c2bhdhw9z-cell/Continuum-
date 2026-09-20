@@ -37,6 +37,17 @@
 	<key>UILaunchScreen</key>
 	<dict/>
 
+	<!-- Multi-file cue/bin support (Option 2): UIFileSharingEnabled exposes the app's
+	     Documents directory in the Files app / Finder, and LSSupportsOpeningDocumentsInPlace
+	     lets the app open documents in place. Together they let a user drag a folder of a
+	     .cue plus its .bin tracks straight into Documents (inside the sandbox, so no security
+	     scope is needed) as an alternative to the folder picker. These keys are the reference
+	     seed only: xcodegen injects them into the built app from project.yml info.properties. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIStatusBarHidden</key>
