@@ -1,12 +1,19 @@
 {
   "task_id": "task-ios-artwork-every-game",
   "task_description": "Every game gets a cover. Extend Continuum's existing iOS artwork system (do not redesign it) so the fallback search can reach the art that demonstrably exists on thumbnails.libretro.com: search all three thumbnail folders per system rather than box art alone, tolerate a series prefix or suffix in the title with hard guards, fall back to other systems' lists last with honest provenance, and keep automatic selection exactly as quiet as it is today by auto-picking the first hit silently. Alternatives appear only in the game's detail card, where they can be chosen and the choice persists and outranks automatic resolution. A miss is recorded only after every avenue has answered no. Swift only under native/ios/, committed locally on branch ios-ui-player-controls, never pushed.",
-  "status": "in_progress",
+  "status": "completed",
   "feature_order": [
     "FEAT-001",
     "FEAT-002",
     "FEAT-003",
     "FEAT-004"
   ],
-  "blocked_reason": null
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "No iOS build is possible on this host, so the build gate is swiftc -frontend -parse on all thirteen Swift files under native/ios/ (each exit 0) plus yaml.safe_load on project.yml with zero unlisted .swift files (14 sources listed, ArtworkChooser.swift among them). Tests: cargo test 74 passed 0 failed, proving no Rust changed, and the offline harness in .work/artwork-probe at 128/128 checks (73 before this task) run against saved copies of the real thumbnails.libretro.com listings. Test quality was proven by mutation rather than asserted: dropping the sequence-marker guards fails 2 checks, making uninvertArticle a no-op fails 10, auto-picking the first of several aligned titles fails 2, keying the list file on the system alone fails 3, and making the chooser offer only exact matches fails 8; the control run is 128/128. Live end to end: the URLs the matcher selects answer 200 image/png at 678613 bytes (Game Gear box art), 2241 (title screen), 2202 (in-game shot) and 593447 (Game Boy box art). There is no Dockerfile in this repository, so docker build is not applicable. NOT verifiable here and left to the orchestrator's CI run on macOS: SwiftUI and UIKit type checking, actual @MainActor isolation enforcement, and every on-device behaviour. RE-VERIFIED INDEPENDENTLY on a later pass, with the listings fetched again rather than read from the saved copies: all three Game Gear folder listings answer 200 text/html at 240387, 235007 and 236587 bytes, the shipped parser extracts 858, 834 and 846 png names from them, folds them onto 409, 428 and 428 titles, and finds 'krustys fun house' as the ONE aligned title in each, selecting the file the server really has. The four selected image URLs answer 200 image/png at 678613, 2241, 2202 and 593447 bytes, and the best name the ladder can derive, 'Simpsons, The - Krusty's Fun House (USA).png', still answers 404, which is what proves the alignment rather than the ladder is what closes the gap. ONE CORRECTION to the planner's server facts: Sega - Game Gear/Named_Boxarts DOES carry Krusty's Fun House (USA, Europe).png, so this game resolves on the first and cheapest folder rather than needing the title screens; searching all three folders remains necessary for games whose art exists only as a title screen or an in-game shot, and the alignment is what this game needed. One stale doc comment was corrected in ArtworkIndex.swift: the normalisedTitle example claimed 'simpsons the krustys fun house' where the code, the file header and the running harness all say 'the simpsons krustys fun house'."
+  }
 }

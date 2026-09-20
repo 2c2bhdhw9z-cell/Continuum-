@@ -72,7 +72,7 @@ enum ArtworkIndexNames {
     ///
     ///     "Kart Fighter.nes"                        -> "kart fighter"
     ///     "Kart Fighter (199x)(-)(AS)[p].png"       -> "kart fighter"
-    ///     "Simpsons, The - Krusty's Fun House (U)"  -> "simpsons the krustys fun house"
+    ///     "Simpsons, The - Krusty's Fun House (U)"  -> "the simpsons krustys fun house"
     ///
     /// The apostrophe is DELETED while other punctuation becomes a space, and that asymmetry is
     /// deliberate: "Krusty's" and "Krustys" are the same title spelled by two dumpers, so they have
