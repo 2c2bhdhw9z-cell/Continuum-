@@ -109,10 +109,12 @@ targets:
       # Cover art, the working half: URLSession fetching capped at three at a time, the on-disk
       # store outside Documents, the one-week negative cache and the user-picked image.
       - path: ArtworkStore.swift
-      # Cover art, the last rung: the server's own box art listing, parsed once per system, reduced
-      # to titles and kept for thirty days, so a game named under a convention this app cannot
-      # derive still gets its cover. The match is an equality of normalised titles and nothing
-      # looser, which is what keeps it from putting a wrong cover on a card.
+      # Cover art, the last rung: the server's own directory listings, one per system AND folder,
+      # parsed once each and kept for thirty days, so a game named under a convention this app
+      # cannot derive still gets its cover. The match is an equality of normalised titles, and after
+      # that a whole-word prefix or suffix alignment with hard guards, which is what finds a cover
+      # filed without the game's series name. Never a substring and never a distance, and an
+      # alignment that hits two titles picks nothing at all.
       - path: ArtworkIndex.swift
       # What a filename can honestly be made to say: the display title and the region.
       - path: GameMetadata.swift

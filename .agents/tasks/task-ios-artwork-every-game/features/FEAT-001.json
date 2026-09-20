@@ -1,0 +1,34 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Confirm the baseline is green and put the offline proving ground in place before any code changes. The planner already measured every server fact this task relies on; this feature reproduces the existing gates so a later failure is attributable, and saves the real thumbnails.libretro.com listings the new matching rules will be proven against. No app behaviour changes here.",
+  "status": "completed",
+  "steps": [
+    "From the repo root, confirm the branch and the clean tree: `git -C . branch --show-current` must print ios-ui-player-controls, and `git status --short` must be clean apart from untracked .work/ scratch (which is gitignored via the /.work/ line).",
+    "Run the Swift parse gate: `cd native/ios && for f in *.swift; do swiftc -frontend -parse \"$f\" >/dev/null 2>&1 && echo \"ok $f\" || echo \"FAIL $f\"; done`. All twelve files must print ok. Record the output.",
+    "Run `python3 -c \"import yaml;yaml.safe_load(open('native/ios/project.yml'));print('project.yml parses')\"` and confirm every .swift file in native/ios/ appears in targets.Continuum.sources (compare `ls native/ios/*.swift` against the sources list; the count is twelve today).",
+    "Run `cargo test` from the repo root. Expect `74 passed; 0 failed`. Record the tail of the output.",
+    "Rebuild and run the existing offline harness: `cd .work/artwork-probe && python3 make-harness.py && swiftc -O -o harness Extracted.swift main.swift && ./harness`. Expect 73/73 checks passed, exit 0. If the saved listing fixtures (nes-index.html, snes-index.html, gg-index.html) are missing, re-fetch them with curl as the harness README documents.",
+    "Save the three real Game Gear listings the new work is proven against, into .work/artwork-probe/ so the harness can read them as fixtures beside the ones already there: `curl -o gg-Named_Boxarts.html \"https://thumbnails.libretro.com/Sega%20-%20Game%20Gear/Named_Boxarts/\"`, the same for Named_Titles and Named_Snaps. Expect 240387, 235007 and 236587 bytes respectively, Content-Type text/html;charset=UTF-8. Note that .work/coverlists/ already holds copies the planner fetched; copying them across is fine, but record the byte sizes you actually have.",
+    "Save one cross-system fixture: the Game Boy box art listing, `curl -o gb-Named_Boxarts.html \"https://thumbnails.libretro.com/Nintendo%20-%20Game%20Boy/Named_Boxarts/\"`, expect 442588 bytes. It is the cross-system source for the Krusty case (the server files Krusty's Fun House (USA, Europe).png under Game Boy box art too).",
+    "Write the measured numbers you observed into .work/artwork-probe/README.md (append a short section, this file is gitignored scratch): the three Game Gear folder sizes, the Game Boy box art size, and the baseline counts (twelve Swift files parsing, 74 cargo tests, 73 harness checks). This is the reference the next two features verify against.",
+    "Do not change any file under native/ios/ in this feature. Do not commit; FEAT-002 makes the first commit."
+  ],
+  "acceptance_criteria": [
+    "`swiftc -frontend -parse` exits 0 for all twelve .swift files under native/ios/",
+    "`cargo test` reports 74 passed, 0 failed",
+    "`python3 make-harness.py && swiftc -O -o harness Extracted.swift main.swift && ./harness` in .work/artwork-probe exits 0 with 73/73 checks passed",
+    "project.yml parses as YAML and no .swift file under native/ios/ is missing from targets.Continuum.sources",
+    ".work/artwork-probe/ contains gg-Named_Boxarts.html, gg-Named_Titles.html, gg-Named_Snaps.html and gb-Named_Boxarts.html, with the byte sizes recorded in the README",
+    "`git status --short` shows no modification to any tracked file"
+  ],
+  "verification": [
+    "cd native/ios && for f in *.swift; do swiftc -frontend -parse \"$f\" >/dev/null 2>&1 && echo \"ok $f\" || echo \"FAIL $f\"; done",
+    "cargo test 2>&1 | tail -5",
+    "cd .work/artwork-probe && python3 make-harness.py && swiftc -O -o harness Extracted.swift main.swift && ./harness | tail -5",
+    "ls -l .work/artwork-probe/*.html",
+    "git status --short"
+  ],
+  "blocked_reason": null,
+  "findings": "Baseline green: twelve Swift files parse with swiftc -frontend -parse, project.yml parses and lists all twelve, cargo test 74 passed 0 failed, offline harness 73/73 checks passed. Fixtures saved into .work/artwork-probe/: gg-Named_Boxarts.html 240387 bytes, gg-Named_Titles.html 235007, gg-Named_Snaps.html 236587, gb-Named_Boxarts.html 442588, all HTTP 200 text/html;charset=UTF-8. CORRECTION TO THE BRIEF, measured with curl: Game Gear Named_Boxarts DOES carry \"Krusty's Fun House (USA, Europe).png\" today (GET 200, image/png, 678613 bytes); the entry is present in all three folders (Named_Titles 2241 bytes, Named_Snaps 2202 bytes). The three ladder-derivable box art names all 404. So on today's server the series-prefix mismatch alone blocked this game, and the all-three-folders fix is still required for any game whose art exists only outside Named_Boxarts."
+}

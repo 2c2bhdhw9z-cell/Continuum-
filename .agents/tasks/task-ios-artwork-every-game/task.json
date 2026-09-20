@@ -1,0 +1,12 @@
+{
+  "task_id": "task-ios-artwork-every-game",
+  "task_description": "Every game gets a cover. Extend Continuum's existing iOS artwork system (do not redesign it) so the fallback search can reach the art that demonstrably exists on thumbnails.libretro.com: search all three thumbnail folders per system rather than box art alone, tolerate a series prefix or suffix in the title with hard guards, fall back to other systems' lists last with honest provenance, and keep automatic selection exactly as quiet as it is today by auto-picking the first hit silently. Alternatives appear only in the game's detail card, where they can be chosen and the choice persists and outranks automatic resolution. A miss is recorded only after every avenue has answered no. Swift only under native/ios/, committed locally on branch ios-ui-player-controls, never pushed.",
+  "status": "in_progress",
+  "feature_order": [
+    "FEAT-001",
+    "FEAT-002",
+    "FEAT-003",
+    "FEAT-004"
+  ],
+  "blocked_reason": null
+}

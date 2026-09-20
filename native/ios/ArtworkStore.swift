@@ -23,11 +23,15 @@
 // Two more were added after the first device run, which resolved art for three games out of six:
 //
 //  6. A NAME THAT CANNOT BE DERIVED IS STILL FOUND. When every name in the ladder has 404ed, the
-//     server's own box art listing is fetched once per system and the game is matched on its title
-//     alone, which is the only thing that can find "Kart Fighter (199x)(-)(AS)[p].png" from
-//     "Kart Fighter.nes". The parsing, the matching and the thirty day store are in
-//     ArtworkIndex.swift; what lives here is the discipline around it: one fetch per system ever,
-//     never two at once, announced before it happens, and only after everything cheap has failed.
+//     server's own listing is fetched and the game is matched on its title alone, which is the only
+//     thing that can find "Kart Fighter (199x)(-)(AS)[p].png" from "Kart Fighter.nes". There is one
+//     listing per system AND FOLDER, walked box art, then title screens, then in-game shots, and a
+//     folder's list is downloaded only when the cheaper ones found nothing. When a game's own system
+//     has nothing in any of the three, the other systems' lists are searched too, cheapest first and
+//     bounded, and a cover borrowed that way says which console it came from. The parsing, the
+//     matching and the thirty day store are in ArtworkIndex.swift; what lives here is the discipline
+//     around it: one fetch per system and folder ever, never two at once, announced before it
+//     happens, and only after everything cheap has failed.
 //
 //  7. A GAME DOES NOT HAVE TO BE ON SCREEN. The shelves are Lazy containers, so a card resolves its
 //     own cover when it scrolls into view, which leaves a library that is mostly off screen mostly
@@ -453,10 +457,19 @@ final class ArtworkStore: ObservableObject {
     /// kilobytes, so it says so with a real number instead of an estimate.
     @Published private(set) var coverListFiles = 0
     @Published private(set) var coverListBytes: Int64 = 0
-    /// How many games had to fall through to a list search this run, and how many of those the
-    /// search actually found. The second number is what the search is for.
+    /// How many (game, folder) list searches ran this run, and how many of those found a cover.
+    /// The second number is what the search is for.
     @Published private(set) var listSearchesThisRun = 0
     @Published private(set) var listMatchesThisRun = 0
+    /// How many covers came from ANOTHER system's list this run, and how many titles matched more
+    /// than one cover so nothing could be auto-picked.
+    ///
+    /// Both are disclosed rather than buried: a cover borrowed from another console is a real
+    /// compromise a user is entitled to know about, and an ambiguous title is the one case where a
+    /// game keeps its plate even though art for it plainly exists, which is only actionable if it
+    /// is said out loud.
+    @Published private(set) var crossSystemMatchesThisRun = 0
+    @Published private(set) var ambiguousThisRun = 0
     /// The artwork line, always a complete sentence, shown in Settings and in the diagnostics
     /// panel. Never empty.
     @Published private(set) var line = "artwork: nothing looked up yet"
@@ -499,20 +512,27 @@ final class ArtworkStore: ObservableObject {
     /// Games row are routinely the same game on screen three times over.
     private var inFlight: [String: Task<CoverImage?, Never>] = [:]
 
-    // ------------------------------------------------- the server's own list, once per system
+    // -------------------------------------- the server's own lists, once per system and folder
 
-    /// The cover lists already in memory, by system. Read on every list search, so a sweep of a
-    /// hundred NES games decodes the stored JSON once rather than a hundred times.
+    /// The cover lists already in memory, keyed on SYSTEM AND FOLDER. Read on every list search, so
+    /// a sweep of a hundred NES games decodes the stored JSON once rather than a hundred times.
     ///
-    /// Bounded by the number of systems this build knows, which is nine, and only systems that
-    /// actually needed a search are ever in here. A list is a dictionary of normalised titles, so
-    /// the biggest of them (the NES, ten thousand titles) is a few hundred kilobytes of strings,
-    /// not the four megabytes of HTML it came from.
+    /// Bounded by nine systems times three folders, and only the pairs a search actually needed are
+    /// ever in here: a game whose box art is listed costs one list and the other two are never
+    /// fetched. A list is a dictionary of normalised titles, so the biggest of them (the NES, around
+    /// ten thousand titles) is a few hundred kilobytes of strings, not the four megabytes of HTML it
+    /// came from.
     private var coverLists: [String: ArtworkCoverList] = [:]
 
-    /// One list fetch per system, however many games are asking, EXACTLY as `inFlight` does per
-    /// game. This is the property that stops ten cards becoming ten four megabyte downloads.
+    /// One list fetch per (system, folder), however many games are asking, EXACTLY as `inFlight`
+    /// does per game. This is the property that stops ten cards becoming ten megabyte downloads.
     private var coverListTasks: [String: Task<ArtworkCoverListOutcome, Never>] = [:]
+
+    /// The key both dictionaries above are keyed on. One function, so a search and a download can
+    /// never disagree about what "the Game Gear title screens" is called.
+    private func listKey(system: GameSystem, folder: ThumbnailFolder) -> String {
+        "\(system.rawValue)#\(folder.rawValue)"
+    }
 
     /// Whether the main status line has already carried a list download this run.
     ///
@@ -737,11 +757,27 @@ final class ArtworkStore: ObservableObject {
             case let .found(cover):
                 return cover
             case .searchedAndAbsent:
+                // THE ONLY PATH THAT MAY RECORD A MISS, and it is now a much stronger claim than it
+                // used to be: the ladder 404ed under every name this app can derive, all three of
+                // this system's folder lists were searched, and the other systems' lists were
+                // searched too. Nothing was borrowed and nothing failed to download.
                 recordMiss(key)
                 missedThisRun += 1
                 note("artwork: \(missedThisRun) title(s) have no art on the server, latest "
-                     + "\(title) after \(probes) lookup(s) and a search of the "
-                     + "\(system.displayName) cover list; it will be retried in a week")
+                     + "\(title) after \(probes) lookup(s), a search of all three "
+                     + "\(system.displayName) cover lists and a search of the other systems' "
+                     + "lists; it will be retried in a week")
+                return nil
+            case let .ambiguousOnly(count):
+                // ART EXISTS AND NOTHING WAS PICKED, which is not a miss and must not be remembered
+                // as one. Several covers align with this title, and choosing between them by
+                // dropping a coin is exactly what the alignment guards exist to prevent. The plate
+                // stays, the card can choose, and the next launch asks again.
+                ambiguousThisRun += 1
+                note("artwork: \(title) matched \(count) cover(s) on the server and none of them is "
+                     + "an unambiguous match, so it keeps its generated plate; open its card to "
+                     + "choose between them. \(ambiguousThisRun) title(s) are waiting on a choice "
+                     + "this run")
                 return nil
             case .notSearched:
                 recordMiss(key)
@@ -805,30 +841,81 @@ final class ArtworkStore: ObservableObject {
 
     // ------------------------------------------------------------------ the list search
 
-    /// What asking the server's own list produced. Four outcomes, because they mean four different
-    /// things and only one of them is evidence that a game has no art.
+    /// What asking the server's own lists produced. FIVE outcomes, because they mean five different
+    /// things and only ONE of them is evidence that a game has no art.
     private enum CoverListSearch {
         /// A cover, found under a name no convention in this app could have derived.
         case found(CoverImage)
-        /// The list was searched and genuinely does not have this title. The one outcome that
-        /// justifies recording a miss.
+        /// Every list that could be searched was searched, and none of them has this title. The one
+        /// outcome that justifies recording a miss.
         case searchedAndAbsent
+        /// Art for this title exists, but more than one cover matched it, so nothing was auto-picked.
+        ///
+        /// NOT A MISS, and that distinction is the point of having this case at all. The server has
+        /// art for the game; what it does not have is an unambiguous answer, and guessing between
+        /// two covers is exactly how a wrong one ends up on a card. The detail sheet offers every
+        /// one of them, so this is a question waiting for a user rather than a dead end.
+        case ambiguousOnly(count: Int)
         /// There was nothing to search with, so the ladder's own answer stands.
         case notSearched
-        /// The list could not be had, or the matched cover would not download. Says nothing about
-        /// whether the art exists.
+        /// A list could not be had, or a matched cover would not download. Says NOTHING about
+        /// whether the art exists, so nothing is remembered on the strength of it.
         case searchFailed(String)
     }
 
-    /// Asks the server what it actually has, and matches on the title alone.
+    /// What trying to download one filename a list named produced.
+    private enum ListClaim {
+        case found(CoverImage)
+        /// The list named a file the server will not serve, or one the ladder had already been
+        /// refused. A list out of step with the files, not a game without art.
+        case absent
+        case failed(String)
+    }
+
+    /// What searching ONE list produced, gathered rather than written into shared state, so no part
+    /// of this walk has to be passed a mutable reference across an await.
+    private struct ListVerdict {
+        var cover: CoverImage?
+        var ambiguous = 0
+        var failure: String?
+    }
+
+    /// What a walk across several lists accumulated.
+    private struct ListWalk {
+        /// The reason the last list that could not be had could not be had. A walk that ends with
+        /// this set can never be reported as "the server has no art for this game".
+        var failure: String?
+        /// How many listing titles aligned with this game in the lists that were searched, counted
+        /// only where there were two or more of them and nothing could therefore be auto-picked.
+        var ambiguous = 0
+        /// How many lists were actually searched, as opposed to wanted.
+        var searched = 0
+        /// The (system, folder) pairs already searched, so no list is searched twice for one game.
+        var tried = Set<String>()
+    }
+
+    /// How many EXTRA cover lists one game may download while looking in other systems.
+    ///
+    /// TWO, and the number is a cost bound rather than a taste. The lists are walked cheapest first
+    /// (`SystemArtwork.crossSystemListOrder`), so two downloads at the cheap end of that order is
+    /// about 400 KB, and the worst case for one game is the two largest remaining lists. Because a
+    /// list is kept for thirty days and shared by every later game, a library of unmatched games
+    /// converges on the free pass below instead of paying again: the second game to need the Game
+    /// Boy list searches the copy the first one downloaded.
+    private static let crossSystemDownloadBudget = 2
+
+    /// Asks the server what it actually has, in all three of the game's own folders and then in the
+    /// other systems' lists, and matches on the title.
     ///
     /// THE LAST RUNG, AND THE ONLY ONE THAT IS NOT CHEAP. It runs solely after a whole ladder of
-    /// names has honestly 404ed, because the list for a large system is megabytes where a cover
-    /// probe is bytes. What it buys is the game the ladder can never reach: "Kart Fighter.nes",
-    /// whose cover is filed as "Kart Fighter (199x)(-)(AS)[p].png".
+    /// names has honestly 404ed, because a list is megabytes where a cover probe is bytes. What it
+    /// buys is every game the ladder can never reach: "Kart Fighter.nes", whose cover is filed as
+    /// "Kart Fighter (199x)(-)(AS)[p].png", and "Simpsons, The - Krusty's Fun House (U) [!].gg",
+    /// whose cover is filed under the game's own name with the series name left off.
     ///
-    /// The match is an equality of normalised titles. See ArtworkIndex.swift for why nothing looser
-    /// is allowed anywhere near this.
+    /// THE ORDER IS THE COST DISCIPLINE. Box art, then the title screen, then the in-game shot, each
+    /// list downloaded only when the cheaper ones found nothing, so a game whose box art is listed
+    /// still costs exactly one list. Other systems come last and are bounded; see above.
     private func searchCoverList(entry: LibraryEntry, system: GameSystem, key: String,
                                  walked: [ArtworkCandidate], probes: Int,
                                  title: String) async -> CoverListSearch {
@@ -838,40 +925,185 @@ final class ArtworkStore: ObservableObject {
             // would match the first junk entry in the list.
             return .notSearched
         }
+        let walkedAddresses = Set(walked.map { $0.url.absoluteString })
 
-        let list: ArtworkCoverList
-        switch await coverList(for: system, title: title) {
-        case let .ready(ready, _, _):
-            list = ready
-        case let .failure(reason):
-            return .searchFailed(reason)
+        var walk = ListWalk()
+
+        // PHASE 1: the game's own system, all three folders, in the preference order that is also a
+        // quality order. Box art is what a user means by the art of a game; the title screen and the
+        // in-game shot are what a game with no scanned cover still has.
+        for folder in ThumbnailFolder.allCases {
+            let list: ArtworkCoverList
+            switch await coverList(for: system, folder: folder, title: title, crossSystemFor: nil) {
+            case let .ready(ready, _, _):
+                list = ready
+            case let .failure(reason):
+                walk.failure = reason
+                continue
+            }
+            walk.tried.insert(listKey(system: system, folder: folder))
+            walk.searched += 1
+
+            let verdict = await consider(list: list, from: system, folder: folder,
+                                         gameSystem: system, key: key, searchTitle: searchTitle,
+                                         title: title, probes: probes,
+                                         walkedAddresses: walkedAddresses)
+            if let cover = verdict.cover { return .found(cover) }
+            walk.ambiguous += verdict.ambiguous
+            if let failure = verdict.failure { walk.failure = failure }
         }
-        // Counted here and not above, so the figure in Settings is the number of titles actually
-        // looked for in a list rather than the number that wanted one.
+
+        // PHASE 2: other systems, last, and only because the game's own system has nothing anywhere.
+        let crossSystem = await searchOtherSystems(system: system, key: key,
+                                                   searchTitle: searchTitle, title: title,
+                                                   probes: probes,
+                                                   walkedAddresses: walkedAddresses, walk: walk)
+        walk = crossSystem.walk
+        if let cover = crossSystem.cover { return .found(cover) }
+
+        // Ambiguity is reported ahead of a failed list, because it is the more useful answer: a
+        // title that matched several covers proves the network worked and that the art is there.
+        if walk.ambiguous > 0 { return .ambiguousOnly(count: walk.ambiguous) }
+        if let failure = walk.failure { return .searchFailed(failure) }
+        if walk.searched == 0 { return .notSearched }
+        return .searchedAndAbsent
+    }
+
+    /// The same title in every OTHER system's lists, cheapest list first.
+    ///
+    /// WHY THIS IS ALLOWED AT ALL. A cartridge dumped for one console is very often the same game on
+    /// four others, and libretro's folders do not agree on which of them got a scanned cover:
+    /// Krusty's Fun House has box art filed under Master System, Mega Drive, Super Nintendo, NES and
+    /// Game Boy. Borrowing one is better than a plate, and it is only honest if the card says where
+    /// it came from, which `claim` below makes sure of: "box art from Game Boy", never a silent
+    /// substitution.
+    ///
+    /// TWO PASSES, AND THE FIRST ONE IS FREE. Every list already in memory or already on disk is
+    /// searched before anything at all is downloaded, which is what makes a library of unmatched
+    /// games cost less with every game. Only then are at most `crossSystemDownloadBudget` further
+    /// box art lists fetched, in ascending measured size, stopping at the first hit.
+    private func searchOtherSystems(system: GameSystem, key: String, searchTitle: String,
+                                    title: String, probes: Int, walkedAddresses: Set<String>,
+                                    walk: ListWalk) async -> (cover: CoverImage?, walk: ListWalk) {
+        var walk = walk
+
+        // The free pass. Folder-major, so the box art of every system is searched before any title
+        // screen: a borrowed cover should be a cover if one exists anywhere.
+        for folder in ThumbnailFolder.allCases {
+            for other in SystemArtwork.crossSystemListOrder where other != system {
+                guard SystemArtwork.hasThumbnails(for: other) else { continue }
+                let pair = listKey(system: other, folder: folder)
+                guard !walk.tried.contains(pair) else { continue }
+                guard let list = await storedList(for: other, folder: folder) else { continue }
+                walk.tried.insert(pair)
+                walk.searched += 1
+
+                let verdict = await consider(list: list, from: other, folder: folder,
+                                             gameSystem: system, key: key,
+                                             searchTitle: searchTitle, title: title,
+                                             probes: probes, walkedAddresses: walkedAddresses)
+                if let cover = verdict.cover { return (cover, walk) }
+                walk.ambiguous += verdict.ambiguous
+                if let failure = verdict.failure { walk.failure = failure }
+            }
+        }
+
+        // The paid pass. Box art only: a borrowed title screen is a poor trade for a megabyte, and
+        // the box art lists are the smallest of the three for every system anyway.
+        var downloads = 0
+        for other in SystemArtwork.crossSystemListOrder where other != system {
+            guard downloads < Self.crossSystemDownloadBudget else { break }
+            guard SystemArtwork.hasThumbnails(for: other) else { continue }
+            let pair = listKey(system: other, folder: .boxart)
+            guard !walk.tried.contains(pair) else { continue }
+
+            let list: ArtworkCoverList
+            switch await coverList(for: other, folder: .boxart, title: title,
+                                   crossSystemFor: system) {
+            case let .ready(ready, downloadedBytes, _):
+                // Only a list that actually cost bytes counts against the budget. One that turned
+                // out to be in memory because another game fetched it a moment ago was free.
+                if downloadedBytes != nil { downloads += 1 }
+                list = ready
+            case let .failure(reason):
+                walk.failure = reason
+                // A failure counts against the budget too. Otherwise a phone with no network would
+                // walk all nine systems writing nine identical failures.
+                downloads += 1
+                continue
+            }
+            walk.tried.insert(pair)
+            walk.searched += 1
+
+            let verdict = await consider(list: list, from: other, folder: .boxart,
+                                         gameSystem: system, key: key, searchTitle: searchTitle,
+                                         title: title, probes: probes,
+                                         walkedAddresses: walkedAddresses)
+            if let cover = verdict.cover { return (cover, walk) }
+            walk.ambiguous += verdict.ambiguous
+            if let failure = verdict.failure { walk.failure = failure }
+        }
+
+        return (nil, walk)
+    }
+
+    /// Searches one list for one game and, on a single unambiguous match, claims the cover.
+    ///
+    /// THE UNIQUENESS RULE LIVES HERE, in the `hit.exact ?? hit.uniqueAligned` line and the else
+    /// branch under it. An exact title is taken. A single aligned title is taken. Two or more
+    /// aligned titles are taken by NOBODY: they are counted, the walk carries on, and the game keeps
+    /// its plate until someone opens its card and chooses. Auto-selection stays silent and first hit
+    /// wins, exactly as it did before this file could align anything.
+    private func consider(list: ArtworkCoverList, from listSystem: GameSystem,
+                          folder: ThumbnailFolder, gameSystem: GameSystem, key: String,
+                          searchTitle: String, title: String, probes: Int,
+                          walkedAddresses: Set<String>) async -> ListVerdict {
+        // Counted here rather than where a list is wanted, so the figure in Settings is the number
+        // of searches that really happened.
         listSearchesThisRun += 1
 
-        // NOTE WHERE THE GATE IS NOT. The list download above runs OUTSIDE `ArtworkGate`, on its
-        // own session, and that is deliberate: holding one of the three lookup slots for the
-        // seconds a four megabyte listing takes would starve the cards on screen of a third of
-        // their capacity for a download that is not a cover. The cap on cover lookups is still
-        // exactly three, and the matched cover below takes a slot like every other lookup.
-        guard let filename = ArtworkIndexNames.match(title: searchTitle, in: list.titles) else {
-            return .searchedAndAbsent
+        // NOTE WHERE THE GATE IS NOT. The list downloads above run OUTSIDE `ArtworkGate`, on their
+        // own session, and that is deliberate: holding one of the three lookup slots for the seconds
+        // a multi megabyte listing takes would starve the cards on screen of a third of their
+        // capacity for a download that is not a cover. The cap on cover lookups is still exactly
+        // three, and the matched cover below takes a slot like every other lookup. The alignment
+        // scan runs off the main actor inside `ArtworkCoverLists.search` for the same kind of reason.
+        let hit = await ArtworkCoverLists.search(title: searchTitle, in: list)
+        guard let filename = hit.exact ?? hit.uniqueAligned else {
+            guard hit.aligned.count >= 2 else { return ListVerdict() }
+            return ListVerdict(cover: nil, ambiguous: hit.aligned.count, failure: nil)
         }
 
-        // The listing's filenames are the server's real ones, so they are percent-encoded on the
-        // way out and NOT run through the invalid-character substitution: that transform exists to
-        // turn a ROM's filename into a libretro name, and this name already is one.
-        let thumbnailName = ArtworkNames.baseName(filename)
-        let walkedAddresses = Set(walked.map { $0.url.absoluteString })
-        let matched = ArtworkNames
-            .candidates(system: system, thumbnailName: thumbnailName, form: .indexed)
-            .filter { !walkedAddresses.contains($0.url.absoluteString) }
-        guard !matched.isEmpty else {
-            // The list named something the ladder had already asked for and been refused, which
-            // means the list is out of step with the files. Treated as absent rather than retried.
-            return .searchedAndAbsent
+        switch await claim(filename: filename, from: listSystem, folder: folder,
+                           gameSystem: gameSystem, key: key, title: title, probes: probes,
+                           walkedAddresses: walkedAddresses, matchedExactly: hit.exact != nil) {
+        case let .found(cover):
+            return ListVerdict(cover: cover, ambiguous: 0, failure: nil)
+        case .absent:
+            return ListVerdict()
+        case let .failed(reason):
+            return ListVerdict(cover: nil, ambiguous: 0, failure: reason)
         }
+    }
+
+    /// Downloads and keeps the one file a list named, and says which avenue found it.
+    private func claim(filename: String, from listSystem: GameSystem, folder: ThumbnailFolder,
+                       gameSystem: GameSystem, key: String, title: String, probes: Int,
+                       walkedAddresses: Set<String>, matchedExactly: Bool) async -> ListClaim {
+        // The listing's filenames are the server's real ones, so they are percent-encoded on the way
+        // out and NOT run through the invalid-character substitution: that transform exists to turn
+        // a ROM's filename into a libretro name, and this name already is one.
+        let thumbnailName = ArtworkNames.baseName(filename)
+        // ONE FOLDER, not three. The list that named this file says which folder it is in, so asking
+        // the other two would be two requests that list has already answered.
+        let matched = ArtworkNames
+            .candidates(system: listSystem, thumbnailName: thumbnailName, form: .indexed,
+                        folders: [folder])
+            .filter { !walkedAddresses.contains($0.url.absoluteString) }
+        guard !matched.isEmpty else { return .absent }
+
+        let listName = ArtworkCoverLists.listName(system: listSystem, folder: folder)
+        let crossSystem = listSystem != gameSystem
 
         await ArtworkGate.shared.acquire()
         let outcome = await ArtworkFetcher.resolve(candidates: matched)
@@ -879,34 +1111,50 @@ final class ArtworkStore: ObservableObject {
 
         switch outcome {
         case let .found(data, tier, source, address):
-            guard let cover = await keep(data: data, tier: tier, source: source, address: address,
-                                         key: key, title: title) else {
+            // PROVENANCE IS REWRITTEN HERE FOR A BORROWED COVER, and this is the only place that
+            // can: the fetcher knows the folder and the name form, and only the store knows which
+            // system the GAME is. "box art from Game Boy" is what the detail sheet shows, so a
+            // borrowed cover can never be mistaken for this console's own.
+            let provenance = crossSystem
+                ? "\(folder.readableName) from \(listSystem.displayName)"
+                : source
+            let label = crossSystem ? "\(tier)-\(listSystem.rawValue)" : tier
+            guard let cover = await keep(data: data, tier: label, source: provenance,
+                                         address: address, key: key, title: title) else {
                 // `keep` has already written the specific reason it could not be kept.
-                return .searchFailed("the cover the \(system.displayName) list named could not be "
-                                     + "kept")
+                return .failed("the cover \(listName) named could not be kept")
             }
             listMatchesThisRun += 1
-            note("artwork: \(title) had no art under any of the \(probes) name(s) this app can "
-                 + "derive, and the \(system.displayName) cover list matched it to \(filename); "
-                 + "\(listMatchesThisRun) cover(s) found that way this run")
+            if crossSystem {
+                crossSystemMatchesThisRun += 1
+                note("artwork: \(title) has no art under \(gameSystem.displayName) in any of the "
+                     + "three folders, and \(listName) matched it to \(filename), so this card is "
+                     + "showing \(folder.readableName) from \(listSystem.displayName); "
+                     + "\(crossSystemMatchesThisRun) cover(s) borrowed from another system this run")
+            } else {
+                note("artwork: \(title) had no art under any of the \(probes) name(s) this app can "
+                     + "derive, and \(listName) matched it to \(filename) "
+                     + "\(matchedExactly ? "by title" : "by aligning its series name") "
+                     + "; \(listMatchesThisRun) cover(s) found that way this run")
+            }
             return .found(cover)
         case .noArtOnServer:
             // The list named a file and the file is not there. A stale list, not a missing game.
-            return .searchedAndAbsent
+            return .absent
         case let .failure(text):
-            return .searchFailed(text)
+            return .failed(text)
         }
     }
 
-    /// The cover list for one system: from memory, then from disk, then downloaded ONCE.
+    /// The cover list for one system's FOLDER: from memory, then from disk, then downloaded ONCE.
     ///
-    /// The three dictionary reads and the task insertion below happen with NO await between them,
-    /// which is what makes "at most one download per system" true even when ten cards ask in the
-    /// same instant. The disk read and the download both live INSIDE the task for the same reason:
-    /// an await before the task was recorded would be a window for a second one to start.
-    private func coverList(for system: GameSystem,
-                           title: String) async -> ArtworkCoverListOutcome {
-        let key = system.rawValue
+    /// The two dictionary reads and the task insertion below happen with NO await between them,
+    /// which is what makes "at most one download per system and folder" true even when ten cards ask
+    /// in the same instant. The disk read and the download both live INSIDE the task for the same
+    /// reason: an await before the task was recorded would be a window for a second one to start.
+    private func coverList(for system: GameSystem, folder: ThumbnailFolder, title: String,
+                           crossSystemFor: GameSystem?) async -> ArtworkCoverListOutcome {
+        let key = listKey(system: system, folder: folder)
         if let ready = coverLists[key] {
             return .ready(ready, downloadedBytes: nil, writeFailure: nil)
         }
@@ -918,16 +1166,18 @@ final class ArtworkStore: ObservableObject {
             guard let self else {
                 return .failure("the artwork store went away before the cover list arrived")
             }
-            if let stored = await ArtworkCoverLists.stored(for: system) {
-                await self.adopt(stored, for: system, downloadedBytes: nil, writeFailure: nil,
-                                 title: title)
+            if let stored = await ArtworkCoverLists.stored(for: system, folder: folder) {
+                await self.adopt(stored, for: system, folder: folder, downloadedBytes: nil,
+                                 writeFailure: nil, title: title)
                 return .ready(stored, downloadedBytes: nil, writeFailure: nil)
             }
-            self.announceListDownload(system: system, title: title)
-            let outcome = await ArtworkCoverLists.download(for: system)
+            self.announceListDownload(system: system, folder: folder, title: title,
+                                      crossSystemFor: crossSystemFor)
+            let outcome = await ArtworkCoverLists.download(for: system, folder: folder)
             if case let .ready(list, downloadedBytes, writeFailure) = outcome {
-                await self.adopt(list, for: system, downloadedBytes: downloadedBytes,
-                                 writeFailure: writeFailure, title: title)
+                await self.adopt(list, for: system, folder: folder,
+                                 downloadedBytes: downloadedBytes, writeFailure: writeFailure,
+                                 title: title)
             }
             return outcome
         }
@@ -937,35 +1187,65 @@ final class ArtworkStore: ObservableObject {
         return outcome
     }
 
+    /// The list for one system's folder ONLY if it is already in memory or already on disk.
+    ///
+    /// The free pass of the cross-system search goes through here, so that phase cannot download
+    /// anything by accident: there is no path from this function to the network. A disk read is
+    /// cheap and idempotent, so it needs none of the one-task-per-key machinery above; what it does
+    /// need is to put what it finds into memory, so the next of a hundred swept games reads the
+    /// dictionary instead of the file.
+    private func storedList(for system: GameSystem,
+                            folder: ThumbnailFolder) async -> ArtworkCoverList? {
+        let key = listKey(system: system, folder: folder)
+        if let ready = coverLists[key] { return ready }
+        guard let stored = await ArtworkCoverLists.stored(for: system, folder: folder) else {
+            return nil
+        }
+        coverLists[key] = stored
+        await refreshCoverListUsage()
+        return stored
+    }
+
     /// Says out loud that a multi megabyte download is about to happen, BEFORE it happens.
     ///
-    /// The artwork line takes it every time, and the main status line takes the first one of the
-    /// run. A download nobody asked for that is only visible behind the Settings tab is a silent
-    /// download, and this one is the largest thing this app ever fetches.
-    private func announceListDownload(system: GameSystem, title: String) {
-        note("artwork: \(title) has no cover under any name, downloading the "
-             + "\(system.displayName) cover list once so it can be searched; this is a few "
-             + "megabytes, it is kept, and it is not downloaded again for a month")
+    /// The artwork line takes it every time, and the main status line takes the first one of the run.
+    /// A download nobody asked for that is only visible behind the Settings tab is a silent
+    /// download, and this one is the largest thing this app ever fetches. It now names the FOLDER as
+    /// well as the system, and says when the list belongs to a different console, because "the Game
+    /// Boy box art list" arriving while a Game Gear game is on screen is otherwise inexplicable.
+    private func announceListDownload(system: GameSystem, folder: ThumbnailFolder, title: String,
+                                      crossSystemFor: GameSystem?) {
+        let listName = ArtworkCoverLists.listName(system: system, folder: folder)
+        if let gameSystem = crossSystemFor {
+            note("artwork: \(title) has no cover anywhere under \(gameSystem.displayName), "
+                 + "downloading \(listName) once to see whether that console has one; this is a few "
+                 + "megabytes, it is kept, and it is not downloaded again for a month")
+        } else {
+            note("artwork: \(title) has no cover under any name, downloading \(listName) once so it "
+                 + "can be searched; this is a few megabytes, it is kept, and it is not downloaded "
+                 + "again for a month")
+        }
         guard !announcedListDownload else { return }
         announcedListDownload = true
         host?.status = line
     }
 
     /// Takes a list into memory and reports what it cost.
-    private func adopt(_ list: ArtworkCoverList, for system: GameSystem,
+    private func adopt(_ list: ArtworkCoverList, for system: GameSystem, folder: ThumbnailFolder,
                        downloadedBytes: Int?, writeFailure: String?, title: String) async {
-        coverLists[system.rawValue] = list
+        coverLists[listKey(system: system, folder: folder)] = list
         await refreshCoverListUsage()
+        let listName = ArtworkCoverLists.listName(system: system, folder: folder)
         if let downloadedBytes {
-            note("artwork: kept the \(system.displayName) cover list, \(list.listedFiles) "
-                 + "cover(s) named in \(Self.byteText(Int64(downloadedBytes))) of listing, reduced "
-                 + "to \(list.titles.count) searchable title(s)")
+            note("artwork: kept \(listName), \(list.listedFiles) cover(s) named in "
+                 + "\(Self.byteText(Int64(downloadedBytes))) of listing, reduced to "
+                 + "\(list.titles.count) searchable title(s)")
         }
         guard let writeFailure else { return }
         // Searchable now, gone after a relaunch, which would mean downloading megabytes again.
         failedThisRun += 1
-        reportLookupFailure(reason: "the \(system.displayName) cover list \(writeFailure), so it "
-                            + "will have to be downloaded again", game: title)
+        reportLookupFailure(reason: "\(listName) \(writeFailure), so it will have to be downloaded "
+                            + "again", game: title)
     }
 
     /// Where a game's stored cover came from, without decoding it. Nil when there is none. Read by
@@ -1006,6 +1286,9 @@ final class ArtworkStore: ObservableObject {
         rememberedMisses = 0
         missedThisRun = 0
         failedThisRun = 0
+        // A title that was waiting on a choice is asked about again too, and it may well align
+        // uniquely this time: the repository gains thumbnails, and a new one can settle an ambiguity.
+        ambiguousThisRun = 0
         lastNetworkReason = ""
         generation += 1
         if count == 0 {
@@ -1030,6 +1313,8 @@ final class ArtworkStore: ObservableObject {
             announcedListDownload = false
             listSearchesThisRun = 0
             listMatchesThisRun = 0
+            crossSystemMatchesThisRun = 0
+            ambiguousThisRun = 0
             await refreshCoverListUsage()
             if files == 0 {
                 report("artwork: there were no downloaded cover lists to forget")
@@ -1241,14 +1526,23 @@ final class ArtworkStore: ObservableObject {
         guard coverListFiles > 0 || listSearchesThisRun > 0 else {
             return "no cover list downloaded yet"
         }
+
         var parts: [String] = []
         if coverListFiles > 0 {
-            parts.append("\(coverListFiles) system list(s) kept")
+            // "folder list" rather than "system list", because a system now has up to three of them
+            // and a count of nine would otherwise read as nine consoles.
+            parts.append("\(coverListFiles) folder list(s) kept")
             parts.append(Self.byteText(coverListBytes))
         }
         if listSearchesThisRun > 0 {
-            parts.append("\(listSearchesThisRun) title(s) searched this run")
+            parts.append("\(listSearchesThisRun) list search(es) this run")
             parts.append("\(listMatchesThisRun) matched")
+        }
+        if crossSystemMatchesThisRun > 0 {
+            parts.append("\(crossSystemMatchesThisRun) borrowed from another system")
+        }
+        if ambiguousThisRun > 0 {
+            parts.append("\(ambiguousThisRun) waiting on a choice")
         }
         return parts.joined(separator: " \u{00B7} ")
     }

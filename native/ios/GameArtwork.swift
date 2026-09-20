@@ -94,6 +94,29 @@ enum SystemArtwork {
         guard let system else { return false }
         return playlistDirectory(for: system) != nil
     }
+
+    /// The order other systems' cover lists are consulted in when a game's own system has nothing.
+    ///
+    /// ORDERED BY THE MEASURED SIZE OF EACH SYSTEM'S Named_Boxarts LISTING, CHEAPEST FIRST. Measured
+    /// with curl from the build host against the live server, not estimated, in bytes:
+    ///
+    ///     sms       153,572        snes        970,863
+    ///     gg        240,387        gba       1,769,226
+    ///     gb        442,588        ps1       2,550,183
+    ///     gbc       452,020        nes       4,054,023
+    ///     genesis   618,548        total    11,261,410
+    ///
+    /// Cheapest first IS the cost bound. A cross-system search pays for the small lists before the
+    /// large ones, so the common case is a few hundred kilobytes rather than four megabytes, and
+    /// because every list is kept for thirty days and shared by every later game, a library
+    /// converges on searching lists it already has for nothing.
+    ///
+    /// Sorted by size rather than by likelihood on purpose: "which console is most likely to have
+    /// this game" is a guess, and a guess that is wrong costs the same download as one that is
+    /// right, while the size of a listing is a fact.
+    static let crossSystemListOrder: [GameSystem] = [
+        .sms, .gg, .gb, .gbc, .genesis, .snes, .gba, .ps1, .nes,
+    ]
 }
 
 /// The three thumbnail folders, in the order the specification asks for.
@@ -453,9 +476,13 @@ enum ArtworkNames {
     /// Exists so the list search can hand back a filename the server actually has and get the same
     /// candidate shape as everything else, rather than building a URL of its own. See
     /// `ArtworkIndex.swift`.
-    static func candidates(system: GameSystem, thumbnailName: String,
-                           form: NameForm) -> [ArtworkCandidate] {
-        candidates(system: system, forms: [(form: form, name: thumbnailName)])
+    /// The `folders` parameter is what the list search uses to ask ONE folder for a name. A list
+    /// says which folder a file is in, so asking the other two would be requests that list has
+    /// already answered.
+    static func candidates(system: GameSystem, thumbnailName: String, form: NameForm,
+                           folders: [ThumbnailFolder] = ThumbnailFolder.allCases)
+        -> [ArtworkCandidate] {
+        candidates(system: system, forms: [(form: form, name: thumbnailName)], folders: folders)
     }
 
     /// The shared builder. Every candidate this build ever asks for comes out of here, which is
@@ -466,7 +493,9 @@ enum ArtworkNames {
     /// caught, but the list search appends candidates from a different source and a request sent
     /// twice is a request wasted.
     private static func candidates(system: GameSystem,
-                                   forms: [(form: NameForm, name: String)]) -> [ArtworkCandidate] {
+                                   forms: [(form: NameForm, name: String)],
+                                   folders: [ThumbnailFolder] = ThumbnailFolder.allCases)
+        -> [ArtworkCandidate] {
         guard let directory = SystemArtwork.playlistDirectory(for: system) else { return [] }
         guard let encodedDirectory = percentEncoded(directory) else { return [] }
 
@@ -474,7 +503,7 @@ enum ArtworkNames {
         var addresses = Set<String>()
         for (form, name) in forms {
             guard let encodedName = percentEncoded(name) else { continue }
-            for folder in ThumbnailFolder.allCases {
+            for folder in folders {
                 let address = "\(SystemArtwork.thumbnailHost)/\(encodedDirectory)"
                     + "/\(folder.rawValue)/\(encodedName).png"
                 guard !addresses.contains(address) else { continue }

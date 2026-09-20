@@ -79,13 +79,25 @@ struct SettingsScreen: View {
             SettingsNote(
                 "Most covers are found by name in one request. When a game's name matches nothing, "
                 + "usually because it was dumped under a different naming convention, the app asks "
-                + "the server for its whole list of covers for that system and matches on the "
-                + "title alone. That list is downloaded once per system, it is a few megabytes "
-                + "for a big system (the NES list is about 4 MB), only the names are kept and "
-                + "not the page itself, and it is then used for every later search with no "
-                + "further download for a month. Nothing extra is sent: the request is for the "
-                + "server's own public index. This is what finds a cover for a game like Kart "
-                + "Fighter, whose art is filed under a name no filename here could produce."
+                + "the server for its own list of covers and matches on the title. There is one "
+                + "list per system and per folder: box art first, then title screens, then in-game "
+                + "shots, and a folder's list is only downloaded when the cheaper ones found "
+                + "nothing, so a game whose box art is listed costs one list and no more. Only the "
+                + "names are kept and not the page itself, and each list is then used for every "
+                + "later search with no further download for a month. A big system is a few "
+                + "megabytes a list: the NES box art list is about 4 MB and its title screen and "
+                + "in-game shot lists are about 4.9 MB each, while Game Gear is about 240 KB a "
+                + "list. Nothing extra is sent: the request is for the server's own public index."
+            )
+
+            SettingsNote(
+                "If a game has no art anywhere under its own system, the same title is looked for "
+                + "in the other systems' lists, smallest list first, and at most two extra lists "
+                + "are downloaded for any one game. A cover found that way says where it came "
+                + "from, for example \"box art from Game Boy\", and never pretends to be this "
+                + "console's own. A title that matches two or more covers is left alone rather "
+                + "than guessed at: it keeps its plate, and opening that game's card shows every "
+                + "cover the server has for it so you can pick one."
             )
 
             SettingsReadout(label: "Stored", value: artwork.storageLine)
@@ -111,8 +123,9 @@ struct SettingsScreen: View {
                 + "the server has no art for is remembered for a week rather than asked about on "
                 + "every launch, and Retry forgets that so it is asked again now, for every "
                 + "game in the library and not only the ones on screen. Forgetting the cover "
-                + "lists is the separate one: it gives back the megabytes they take, and the next "
-                + "that needs the fallback search downloads its system's list again."
+                + "lists is the separate one: it clears every one of them, per system and per "
+                + "folder, gives back the megabytes they take, and the next game that needs the "
+                + "fallback search downloads the one list it needs again."
             )
         }
     }
