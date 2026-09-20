@@ -183,6 +183,16 @@ enum ArtworkDisk {
         return DecodedImage(image: image.preparingForDisplay() ?? image)
     }
 
+    /// Decodes bytes that are NOT going to be stored.
+    ///
+    /// The chooser's row needs an image for each cover it offers, and storing forty of them to look at
+    /// three would fill the artwork directory with covers nobody chose. Non-isolated and async like
+    /// everything else here, so the decode happens off the main actor.
+    static func decode(data: Data) async -> DecodedImage? {
+        guard let image = UIImage(data: data) else { return nil }
+        return DecodedImage(image: image.preparingForDisplay() ?? image)
+    }
+
     /// The result of storing a cover: the decoded image either way, and a note when the write
     /// failed, because a cover that displays now and is gone after a relaunch must not look like a
     /// success.
@@ -482,6 +492,13 @@ final class ArtworkStore: ObservableObject {
     private static let fetchKey = "continuum.artwork.fetch.v1"
     private static let missKey = "continuum.artwork.misses.v1"
     private static let provenanceKey = "continuum.artwork.sources.v1"
+    /// The ADDRESS each stored cover came from, beside the readable provenance.
+    ///
+    /// Its own map because the chooser has to mark the cover in use, and marking it by comparing a
+    /// readable sentence to a label would be guessing. A URL is what the server is organised by.
+    private static let addressKey = "continuum.artwork.address.v1"
+    /// The cover a user CHOSE, which outranks everything automatic. See `ArtworkChoice`.
+    private static let choiceKey = "continuum.artwork.choice.v1"
     /// A week. The repository gains thumbnails over time, so a miss is not forever.
     private static let missLifetime: TimeInterval = 7 * 24 * 60 * 60
 
@@ -569,6 +586,27 @@ final class ArtworkStore: ObservableObject {
     /// Which game the picked image belongs to. Cleared when an outcome arrives.
     private var pickTarget: LibraryEntry?
 
+    // ------------------------------------------------------------------ the chooser's caches
+
+    /// What the detail sheet's enumeration found, by cover key, so REOPENING A CARD IS FREE.
+    ///
+    /// A plain dictionary and NOT @Published: the library shell observes this store, so publishing
+    /// this would rebuild every card on screen each time a sheet was opened. The sheet owns its own
+    /// published copy; see `ArtworkChooserModel`.
+    private var optionCache: [String: [ArtworkOption]] = [:]
+
+    /// The thumbnails the chooser has already downloaded, keyed on the option's URL.
+    ///
+    /// Bounded by bytes as well as by count for the same reason the cover cache is: a decoded box art
+    /// is around two megabytes of live pixels whatever the file size was. Smaller limits than the
+    /// cover cache because these are 74 by 99 on screen and only one sheet is ever open.
+    private let optionThumbnails: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 40
+        cache.totalCostLimit = 24 * 1024 * 1024
+        return cache
+    }()
+
     init() {
         // Absent means on. `bool(forKey:)` cannot tell "never set" from "set to false", so the
         // object is checked first: a fresh install fetches art, and a user who turned it off stays
@@ -634,6 +672,9 @@ final class ArtworkStore: ObservableObject {
     /// cancelled and restarted by the next rescan.
     func sweepLibrary(_ entries: [LibraryEntry]) {
         sweepEntries = entries
+        // The whole library is here, which is the only moment this object can tell a deleted game
+        // from one that is merely off screen. See `pruneState`.
+        pruneState(for: entries)
         sweepTask?.cancel()
         guard fetchEnabled, !entries.isEmpty else { return }
 
@@ -708,6 +749,16 @@ final class ArtworkStore: ObservableObject {
                              cost: Self.memoryCost(of: stored.image))
             return CoverImage(image: stored.image,
                               provenance: provenance(forKey: key) ?? "stored cover")
+        }
+
+        // 1b. A COVER THE USER CHOSE OUTRANKS EVERYTHING, so the ladder is not walked for it.
+        //     Normally step 1 has already served it, because a chosen cover is stored under this same
+        //     key; this is the path for a choice whose file has gone, after the artwork cache was
+        //     cleared or after a reinstall. Without it, the next lookup would resolve automatically
+        //     and quietly overwrite a decision the user made.
+        if let choice = readChoices()[key] {
+            return await restore(choice: choice, key: key,
+                                 title: GameMetadata.displayTitle(for: entry))
         }
 
         // 2. Turned off. Not a failure, and not worth a status line per game.
@@ -823,6 +874,9 @@ final class ArtworkStore: ObservableObject {
                          cost: Self.memoryCost(of: image))
         clearMiss(key)
         recordProvenance(source, forKey: key)
+        // The address as well as the readable sentence, so the chooser can mark THIS cover as the one
+        // in use by comparing URLs instead of parsing English.
+        recordAddress(address, forKey: key)
         if let failure = result.writeFailure {
             // Showing now, gone after a relaunch. Said out loud rather than left looking permanent,
             // because a cover that silently re-downloads every launch is a bug that only shows up
@@ -880,6 +934,20 @@ final class ArtworkStore: ObservableObject {
         var failure: String?
     }
 
+    /// WHY a list is being downloaded, so the sentence that announces it is true.
+    ///
+    /// Three callers reach the same download, and a single sentence cannot honestly serve them: "this
+    /// game has no cover under any name" is right during automatic resolution and plainly false when
+    /// the user has opened the card of a game whose cover is already showing to see what else exists.
+    private enum ListPhase {
+        /// Automatic resolution, the game's own system.
+        case resolving
+        /// Automatic resolution, looking for a cover to borrow for a game of this system.
+        case borrowing(for: GameSystem)
+        /// The detail card was opened and is enumerating what the server has.
+        case choosing
+    }
+
     /// What a walk across several lists accumulated.
     private struct ListWalk {
         /// The reason the last list that could not be had could not be had. A walk that ends with
@@ -934,7 +1002,8 @@ final class ArtworkStore: ObservableObject {
         // in-game shot are what a game with no scanned cover still has.
         for folder in ThumbnailFolder.allCases {
             let list: ArtworkCoverList
-            switch await coverList(for: system, folder: folder, title: title, crossSystemFor: nil) {
+            switch await coverList(for: system, folder: folder, title: title,
+                                   phase: .resolving) {
             case let .ready(ready, _, _):
                 list = ready
             case let .failure(reason):
@@ -1019,7 +1088,7 @@ final class ArtworkStore: ObservableObject {
 
             let list: ArtworkCoverList
             switch await coverList(for: other, folder: .boxart, title: title,
-                                   crossSystemFor: system) {
+                                   phase: .borrowing(for: system)) {
             case let .ready(ready, downloadedBytes, _):
                 // Only a list that actually cost bytes counts against the budget. One that turned
                 // out to be in memory because another game fetched it a moment ago was free.
@@ -1153,7 +1222,7 @@ final class ArtworkStore: ObservableObject {
     /// in the same instant. The disk read and the download both live INSIDE the task for the same
     /// reason: an await before the task was recorded would be a window for a second one to start.
     private func coverList(for system: GameSystem, folder: ThumbnailFolder, title: String,
-                           crossSystemFor: GameSystem?) async -> ArtworkCoverListOutcome {
+                           phase: ListPhase) async -> ArtworkCoverListOutcome {
         let key = listKey(system: system, folder: folder)
         if let ready = coverLists[key] {
             return .ready(ready, downloadedBytes: nil, writeFailure: nil)
@@ -1171,8 +1240,7 @@ final class ArtworkStore: ObservableObject {
                                  writeFailure: nil, title: title)
                 return .ready(stored, downloadedBytes: nil, writeFailure: nil)
             }
-            self.announceListDownload(system: system, folder: folder, title: title,
-                                      crossSystemFor: crossSystemFor)
+            self.announceListDownload(system: system, folder: folder, title: title, phase: phase)
             let outcome = await ArtworkCoverLists.download(for: system, folder: folder)
             if case let .ready(list, downloadedBytes, writeFailure) = outcome {
                 await self.adopt(list, for: system, folder: folder,
@@ -1214,16 +1282,19 @@ final class ArtworkStore: ObservableObject {
     /// well as the system, and says when the list belongs to a different console, because "the Game
     /// Boy box art list" arriving while a Game Gear game is on screen is otherwise inexplicable.
     private func announceListDownload(system: GameSystem, folder: ThumbnailFolder, title: String,
-                                      crossSystemFor: GameSystem?) {
+                                      phase: ListPhase) {
         let listName = ArtworkCoverLists.listName(system: system, folder: folder)
-        if let gameSystem = crossSystemFor {
-            note("artwork: \(title) has no cover anywhere under \(gameSystem.displayName), "
-                 + "downloading \(listName) once to see whether that console has one; this is a few "
-                 + "megabytes, it is kept, and it is not downloaded again for a month")
-        } else {
+        let cost = "this is a few megabytes, it is kept, and it is not downloaded again for a month"
+        switch phase {
+        case .resolving:
             note("artwork: \(title) has no cover under any name, downloading \(listName) once so it "
-                 + "can be searched; this is a few megabytes, it is kept, and it is not downloaded "
-                 + "again for a month")
+                 + "can be searched; \(cost)")
+        case let .borrowing(gameSystem):
+            note("artwork: \(title) has no cover anywhere under \(gameSystem.displayName), "
+                 + "downloading \(listName) once to see whether that console has one; \(cost)")
+        case .choosing:
+            note("artwork: looking for every cover \(title) has, downloading \(listName) once "
+                 + "because this device does not have it yet; \(cost)")
         }
         guard !announcedListDownload else { return }
         announcedListDownload = true
@@ -1255,6 +1326,379 @@ final class ArtworkStore: ObservableObject {
         provenance(forKey: ArtworkDisk.key(forPath: entry.path))
     }
 
+    // ------------------------------------------------------------------ the chooser
+
+    /// The cover this game's card is showing, when the user chose it by hand. Nil when artwork is
+    /// being resolved automatically, which is the ordinary case.
+    func artworkChoice(for entry: LibraryEntry) -> ArtworkChoice? {
+        readChoices()[ArtworkDisk.key(forPath: entry.path)]
+    }
+
+    /// Which of these offers is the one on the card right now, or nil when the cover in use is not
+    /// among them.
+    ///
+    /// The choice's own id is trusted first, then the ADDRESS the stored cover came from. A cover the
+    /// name ladder found is usually in the lists too, under the same name, so it does get marked; one
+    /// found under a name no list carries does not, and the sheet says where it came from in words
+    /// instead. Marking by comparing readable provenance strings would be guessing, which is why the
+    /// address is recorded beside them.
+    func inUseOptionID(for entry: LibraryEntry, among options: [ArtworkOption]) -> String? {
+        let key = ArtworkDisk.key(forPath: entry.path)
+        if let id = readChoices()[key]?.optionID, options.contains(where: { $0.id == id }) {
+            return id
+        }
+        guard let address = address(forKey: key) else { return nil }
+        return options.first { $0.url.absoluteString == address }?.id
+    }
+
+    /// What a previous open of this card found, with no work at all. Nil when it has never been
+    /// opened this run.
+    func cachedArtworkOptions(for entry: LibraryEntry) -> [ArtworkOption]? {
+        optionCache[ArtworkDisk.key(forPath: entry.path)]
+    }
+
+    /// Every cover the server has for one game.
+    ///
+    /// CALLED FROM THE DETAIL SHEET AND NOWHERE ELSE. Not from `cover(for:)`, not from `resolve`, not
+    /// from `runSweep`: browsing a library must cost exactly what it costs today, and this walks up to
+    /// three lists for the game's own system. The user opening a card is what pays for it.
+    ///
+    /// The game's own three folders are fetched if they are missing, because the user just asked for
+    /// them and the announce-before-download line explains the cost. The other systems are FREE ONLY:
+    /// whatever is already on disk is searched, and nothing is downloaded unless
+    /// `includeCrossSystemDownloads` says so, which only the explicit button in the sheet does.
+    func enumerateArtworkOptions(for entry: LibraryEntry, system: GameSystem,
+                                 includeCrossSystemDownloads: Bool) async -> [ArtworkOption] {
+        let key = ArtworkDisk.key(forPath: entry.path)
+        let query = ArtworkIndexNames.searchTitle(forFilename: entry.name)
+        guard !query.isEmpty else { return [] }
+        // Reopening a card is free. A request that may download more is never served from the cache,
+        // because its whole purpose is to look further than last time.
+        if !includeCrossSystemDownloads, let cached = optionCache[key] {
+            return cached
+        }
+
+        let title = GameMetadata.displayTitle(for: entry)
+        var lists: [(system: GameSystem, folder: ThumbnailFolder, titles: [String: String])] = []
+
+        for folder in ThumbnailFolder.allCases {
+            if Task.isCancelled { break }
+            if case let .ready(list, _, _) = await coverList(for: system, folder: folder,
+                                                            title: title, phase: .choosing) {
+                lists.append((system: system, folder: folder, titles: list.titles))
+            }
+        }
+
+        // Folder-major, so the box art of every system comes before any title screen, which is the
+        // order the row should read in.
+        for folder in ThumbnailFolder.allCases {
+            for other in SystemArtwork.crossSystemListOrder where other != system {
+                if Task.isCancelled { break }
+                guard SystemArtwork.hasThumbnails(for: other) else { continue }
+                guard let list = await storedList(for: other, folder: folder) else { continue }
+                lists.append((system: other, folder: folder, titles: list.titles))
+            }
+        }
+
+        if includeCrossSystemDownloads {
+            for other in SystemArtwork.crossSystemListOrder where other != system {
+                if Task.isCancelled { break }
+                guard SystemArtwork.hasThumbnails(for: other) else { continue }
+                guard !lists.contains(where: { $0.system == other && $0.folder == .boxart }) else {
+                    continue
+                }
+                if case let .ready(list, _, _) = await coverList(for: other, folder: .boxart,
+                                                                title: title, phase: .choosing) {
+                    lists.append((system: other, folder: .boxart, titles: list.titles))
+                }
+            }
+        }
+
+        // Off the main actor: see `ArtworkOptions.enumerated`.
+        let options = await ArtworkOptions.enumerated(query: query, ownSystem: system, lists: lists)
+        optionCache[key] = options
+        note("artwork: \(title) has \(options.count) cover(s) to choose from across "
+             + "\(lists.count) searched list(s)")
+        return options
+    }
+
+    /// One offer's image, for the row in the sheet.
+    ///
+    /// Cached by address, so scrolling the row and reopening the card cost nothing, and capped by
+    /// `ArtworkGate` like every other lookup in this app, so a sheet full of covers cannot starve the
+    /// cards behind it.
+    func artworkOptionThumbnail(_ option: ArtworkOption) async -> UIImage? {
+        let cacheKey = option.url.absoluteString as NSString
+        if let cached = optionThumbnails.object(forKey: cacheKey) {
+            return cached
+        }
+        let (data, failure) = await downloadOption(option)
+        guard let data else {
+            note("artwork: \(option.label) could not be shown, "
+                 + "\(failure ?? "the reason was not reported")")
+            return nil
+        }
+        guard let decoded = await ArtworkDisk.decode(data: data) else {
+            note("artwork: \(option.label) came back as bytes that would not decode as an image")
+            return nil
+        }
+        optionThumbnails.setObject(decoded.image, forKey: cacheKey,
+                                   cost: Self.memoryCost(of: decoded.image))
+        return decoded.image
+    }
+
+    /// Makes one offer this game's cover, for good.
+    ///
+    /// Stored under the game's own cover key like any other cover, so every card shows it with no new
+    /// code path, and recorded in `choiceKey` so no automatic resolve can take it away. The generation
+    /// bump is what makes the cards already on screen pick it up.
+    func chooseArtwork(_ option: ArtworkOption, for entry: LibraryEntry) async {
+        let key = ArtworkDisk.key(forPath: entry.path)
+        let title = GameMetadata.displayTitle(for: entry)
+        report("artwork: fetching \(option.label) for \(title)...")
+
+        let (data, failure) = await downloadOption(option)
+        guard let data else {
+            report("artwork: \(option.label) was not used for \(title), "
+                   + "\(failure ?? "the reason was not reported")")
+            return
+        }
+        let result = await ArtworkDisk.store(data: data, key: key)
+        guard let image = result.image else {
+            report("artwork: \(option.label) for \(title) came back as bytes that would not decode "
+                   + "as an image, so the cover was not changed")
+            return
+        }
+
+        memory.setObject(image, forKey: key as NSString, cost: Self.memoryCost(of: image))
+        optionThumbnails.setObject(image, forKey: option.url.absoluteString as NSString,
+                                   cost: Self.memoryCost(of: image))
+        recordProvenance("chosen: \(option.label)", forKey: key)
+        recordAddress(option.url.absoluteString, forKey: key)
+        recordChoice(
+            ArtworkChoice(kind: .remote, optionID: option.id, address: option.url.absoluteString,
+                          label: option.label, chosenAt: Date().timeIntervalSince1970),
+            forKey: key
+        )
+        clearMiss(key)
+        await refreshUsage()
+        generation += 1
+
+        if let writeFailure = result.writeFailure {
+            report("artwork: \(title) is showing \(option.label) but it \(writeFailure), so it will "
+                   + "have to be fetched again")
+        } else {
+            report("artwork: \(title) is now showing \(option.label), chosen by hand; automatic "
+                   + "lookups will not replace it")
+        }
+    }
+
+    /// Gives a game back to automatic resolution.
+    func clearArtworkChoice(for entry: LibraryEntry) {
+        let key = ArtworkDisk.key(forPath: entry.path)
+        guard readChoices()[key] != nil else {
+            report("artwork: \(entry.name) has no chosen cover, its artwork is already resolved "
+                   + "automatically")
+            return
+        }
+        recordChoice(nil, forKey: key)
+        memory.removeObject(forKey: key as NSString)
+        Task {
+            _ = await ArtworkDisk.remove(key: key)
+            recordProvenance(nil, forKey: key)
+            recordAddress(nil, forKey: key)
+            clearMiss(key)
+            await refreshUsage()
+            generation += 1
+            report("artwork: \(entry.name) is back to automatic artwork and will be looked up again")
+        }
+    }
+
+    /// Fetches one offer, through the same gate and the same validation every other lookup uses.
+    ///
+    /// Built as a one-candidate ladder rather than a bare URLSession call on purpose: the status code
+    /// check, the Content-Type check and the empty-body check in `ArtworkFetcher.resolve` are exactly
+    /// the ones a chosen cover needs, and a second copy of them here would be a second place for them
+    /// to go stale.
+    private func downloadOption(_ option: ArtworkOption) async -> (data: Data?, failure: String?) {
+        let candidate = ArtworkCandidate(
+            url: option.url,
+            tier: "\(option.folder.tier)-chosen",
+            name: option.thumbnailName,
+            folder: option.folder,
+            form: .indexed
+        )
+        await ArtworkGate.shared.acquire()
+        let outcome = await ArtworkFetcher.resolve(candidates: [candidate])
+        await ArtworkGate.shared.release()
+
+        switch outcome {
+        case let .found(data, _, _, _):
+            return (data, nil)
+        case .noArtOnServer:
+            return (nil, "the server no longer has that file, so the list it came from is out of "
+                    + "date")
+        case let .failure(text):
+            return (nil, text)
+        }
+    }
+
+    /// Puts a chosen cover back after the stored file has gone.
+    ///
+    /// THE ONE PLACE A CHOICE COULD HAVE BEEN LOST. `resolve` serves whatever is on disk, so a choice
+    /// normally needs no defending; but the artwork cache can be cleared, and without this the next
+    /// lookup would walk the ladder and quietly replace a cover the user picked. A remote choice is
+    /// downloaded again. A picked file cannot be: the stored copy was the only copy, so the record is
+    /// dropped and that is said out loud rather than left looking like a cover that came back wrong.
+    private func restore(choice: ArtworkChoice, key: String, title: String) async -> CoverImage? {
+        switch choice.kind {
+        case .pickedFile:
+            recordChoice(nil, forKey: key)
+            recordProvenance(nil, forKey: key)
+            recordAddress(nil, forKey: key)
+            failedThisRun += 1
+            reportLookupFailure(
+                reason: "the image chosen from Files for it is gone and the stored copy was the only "
+                    + "one, so its artwork goes back to being looked up automatically",
+                game: title
+            )
+            return nil
+        case .remote:
+            guard fetchEnabled else {
+                // Not a failure: the user turned lookups off, and the choice is still remembered for
+                // when they turn them back on.
+                return nil
+            }
+            guard let address = choice.address, let url = URL(string: address) else {
+                recordChoice(nil, forKey: key)
+                failedThisRun += 1
+                reportLookupFailure(reason: "the cover chosen for it has no address to fetch again, "
+                                    + "so its artwork goes back to being looked up automatically",
+                                    game: title)
+                return nil
+            }
+            let folder = choice.optionFolder ?? .boxart
+            let candidate = ArtworkCandidate(
+                url: url,
+                tier: "\(folder.tier)-chosen",
+                name: ArtworkNames.baseName(url.lastPathComponent),
+                folder: folder,
+                form: .indexed
+            )
+            await ArtworkGate.shared.acquire()
+            let outcome = await ArtworkFetcher.resolve(candidates: [candidate])
+            await ArtworkGate.shared.release()
+
+            switch outcome {
+            case let .found(data, _, _, resolvedAddress):
+                return await keep(data: data, tier: "\(folder.tier)-chosen",
+                                  source: "chosen: \(choice.label)", address: resolvedAddress,
+                                  key: key, title: title)
+            case .noArtOnServer:
+                recordChoice(nil, forKey: key)
+                failedThisRun += 1
+                reportLookupFailure(reason: "the cover chosen for it is no longer on the server, so "
+                                    + "its artwork goes back to being looked up automatically",
+                                    game: title)
+                return nil
+            case let .failure(text):
+                // The choice is KEPT. Being offline says nothing about whether the chosen cover is
+                // still there, and forgetting a user's decision because of a dropped connection
+                // would be the worst possible reading of it.
+                failedThisRun += 1
+                reportLookupFailure(reason: "the cover chosen for it could not be fetched again, "
+                                    + text, game: title)
+                return nil
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ what is remembered
+
+    private func readChoices() -> [String: ArtworkChoice] {
+        ArtworkChoices.decode(defaults.data(forKey: Self.choiceKey))
+    }
+
+    private func recordChoice(_ choice: ArtworkChoice?, forKey key: String) {
+        var map = readChoices()
+        if let choice {
+            map[key] = choice
+        } else {
+            map.removeValue(forKey: key)
+        }
+        guard let data = ArtworkChoices.encode(map) else {
+            // A choice that cannot be written is a choice that will not survive a relaunch, and that
+            // must not be silent: the cover is showing now and would be replaced automatically later.
+            note("artwork: the chosen cover is showing but could not be remembered, so an automatic "
+                 + "lookup may replace it after a relaunch")
+            return
+        }
+        defaults.set(data, forKey: Self.choiceKey)
+    }
+
+    private func address(forKey key: String) -> String? {
+        (defaults.object(forKey: Self.addressKey) as? [String: String])?[key]
+    }
+
+    private func recordAddress(_ address: String?, forKey key: String) {
+        var map = defaults.object(forKey: Self.addressKey) as? [String: String] ?? [:]
+        if let address {
+            map[key] = address
+        } else {
+            map.removeValue(forKey: key)
+        }
+        defaults.set(map, forKey: Self.addressKey)
+    }
+
+    /// Drops the per-entry artwork state of games that are no longer in the library.
+    ///
+    /// HERE BECAUSE THIS IS WHERE THE WHOLE LIBRARY ARRIVES. `refreshLibrary` runs after every
+    /// import, every delete and every return from a game, and hands the full list to `sweepLibrary`,
+    /// so this is the one place that can tell a deleted game from a game that is simply off screen.
+    /// All four maps are keyed on `ArtworkDisk.key(forPath:)`, so they are pruned together.
+    ///
+    /// An EMPTY library prunes nothing. A scan that could not read the directory looks exactly like a
+    /// library that was emptied, and throwing away every choice a user ever made on the strength of a
+    /// failed directory read would be unforgivable. The stored cover FILES are left alone too: they
+    /// are reproducible, they are counted and clearable in Settings, and a game deleted and imported
+    /// again at the same path is the same key, so its cover is simply still there.
+    private func pruneState(for entries: [LibraryEntry]) {
+        guard !entries.isEmpty else { return }
+        let live = Set(entries.map { ArtworkDisk.key(forPath: $0.path) })
+
+        var dropped = 0
+        let choices = readChoices()
+        let liveChoices = choices.filter { live.contains($0.key) }
+        if liveChoices.count != choices.count {
+            dropped += choices.count - liveChoices.count
+            if let data = ArtworkChoices.encode(liveChoices) {
+                defaults.set(data, forKey: Self.choiceKey)
+            }
+        }
+
+        for mapKey in [Self.provenanceKey, Self.addressKey] {
+            guard let map = defaults.object(forKey: mapKey) as? [String: String] else { continue }
+            let kept = map.filter { live.contains($0.key) }
+            guard kept.count != map.count else { continue }
+            dropped += map.count - kept.count
+            defaults.set(kept, forKey: mapKey)
+        }
+
+        let misses = readMisses()
+        let keptMisses = misses.filter { live.contains($0.key) }
+        if keptMisses.count != misses.count {
+            dropped += misses.count - keptMisses.count
+            defaults.set(keptMisses, forKey: Self.missKey)
+            rememberedMisses = keptMisses.count
+        }
+
+        optionCache = optionCache.filter { live.contains($0.key) }
+
+        guard dropped > 0 else { return }
+        note("artwork: forgot \(dropped) piece(s) of artwork state for game(s) that are no longer in "
+             + "the library")
+    }
+
     // ------------------------------------------------------------------ the Settings actions
 
     /// Throws away every stored cover. The plates come straight back, so nothing goes blank.
@@ -1262,14 +1706,31 @@ final class ArtworkStore: ObservableObject {
         Task {
             let (files, bytes) = await ArtworkDisk.clear()
             memory.removeAllObjects()
+            optionThumbnails.removeAllObjects()
             defaults.removeObject(forKey: Self.provenanceKey)
+            defaults.removeObject(forKey: Self.addressKey)
+            // A CHOSEN COVER FROM THE SERVER SURVIVES THIS, because it can be downloaded again and a
+            // cache clear is not meant to undo a decision. A picked image cannot: the copy that was
+            // just cleared was the only one, so its record goes with it rather than being left
+            // pointing at bytes that no longer exist.
+            let choices = readChoices()
+            let remote = choices.filter { $0.value.kind == .remote }
+            let picked = choices.count - remote.count
+            if picked > 0, let data = ArtworkChoices.encode(remote) {
+                defaults.set(data, forKey: Self.choiceKey)
+            }
             resolvedThisRun = 0
             await refreshUsage()
             generation += 1
             if files == 0 {
                 report("artwork: there were no stored covers to clear")
+            } else if picked > 0 {
+                report("artwork: cleared \(files) stored cover(s), \(Self.byteText(bytes)); "
+                       + "\(remote.count) chosen cover(s) will be downloaded again and \(picked) "
+                       + "image(s) picked from Files are gone, as their stored copy was the only one")
             } else {
-                report("artwork: cleared \(files) stored cover(s), \(Self.byteText(bytes))")
+                report("artwork: cleared \(files) stored cover(s), \(Self.byteText(bytes)); "
+                       + "\(remote.count) chosen cover(s) will be downloaded again")
             }
         }
     }
@@ -1326,16 +1787,26 @@ final class ArtworkStore: ObservableObject {
     }
 
     /// Drops one game's cover, so it falls back to its plate and can be looked up or picked again.
+    ///
+    /// The CHOICE goes with it. Removing a cover a user chose and keeping the record of the choice
+    /// would leave a game whose artwork is neither the chosen one nor an automatic one, which is not a
+    /// state anybody asked for.
     func clearCover(for entry: LibraryEntry) {
         let key = ArtworkDisk.key(forPath: entry.path)
+        let hadChoice = readChoices()[key] != nil
+        recordChoice(nil, forKey: key)
         Task {
             let removed = await ArtworkDisk.remove(key: key)
             memory.removeObject(forKey: key as NSString)
             recordProvenance(nil, forKey: key)
+            recordAddress(nil, forKey: key)
             clearMiss(key)
             await refreshUsage()
             generation += 1
-            if removed {
+            if removed, hadChoice {
+                report("artwork: removed the cover chosen for \(entry.name), its artwork will be "
+                       + "looked up automatically again")
+            } else if removed {
                 report("artwork: removed the stored cover for \(entry.name)")
             } else {
                 report("artwork: \(entry.name) had no stored cover to remove")
@@ -1344,15 +1815,26 @@ final class ArtworkStore: ObservableObject {
     }
 
     /// Looks one game up again right now, ignoring a remembered miss.
+    ///
+    /// A CHOSEN COVER IS DROPPED BY THIS, because tapping it means go and find one. It is the only
+    /// reading of the button that is not a contradiction: a choice outranks automatic resolution
+    /// everywhere else, so an automatic lookup that left the choice in place would find a cover and
+    /// then be forbidden from showing it.
     func lookUpAgain(_ entry: LibraryEntry) {
         let key = ArtworkDisk.key(forPath: entry.path)
+        let hadChoice = readChoices()[key] != nil
+        recordChoice(nil, forKey: key)
         clearMiss(key)
         memory.removeObject(forKey: key as NSString)
         Task {
             _ = await ArtworkDisk.remove(key: key)
             recordProvenance(nil, forKey: key)
+            recordAddress(nil, forKey: key)
             generation += 1
-            if fetchEnabled {
+            if fetchEnabled, hadChoice {
+                report("artwork: the cover chosen for \(entry.name) was dropped, looking it up "
+                       + "again")
+            } else if fetchEnabled {
                 report("artwork: looking \(entry.name) up again")
             } else {
                 report("artwork: \(entry.name) will be looked up when artwork lookups are turned "
@@ -1439,6 +1921,16 @@ final class ArtworkStore: ObservableObject {
             memory.setObject(image, forKey: key as NSString,
                              cost: Self.memoryCost(of: image))
             recordProvenance("picked from Files", forKey: key)
+            recordAddress(nil, forKey: key)
+            // Remembered as a CHOICE, which is what stops an automatic lookup replacing it: a picked
+            // image is the answer for a game the thumbnail database has never heard of, and it has to
+            // outrank anything a later search turns up.
+            recordChoice(
+                ArtworkChoice(kind: .pickedFile, optionID: nil, address: nil,
+                              label: url.lastPathComponent,
+                              chosenAt: Date().timeIntervalSince1970),
+                forKey: key
+            )
             clearMiss(key)
             await refreshUsage()
             generation += 1

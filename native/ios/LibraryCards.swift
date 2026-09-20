@@ -133,6 +133,22 @@ struct HeroCard: View {
                          generation: generation, showsCaption: false)
                 .frame(height: height)
                 .frame(maxWidth: .infinity)
+                // A LONG PRESS OPENS THE DETAIL SHEET HERE TOO, which is the one surface that used to
+                // lack it: a shelf card, a grid card and a list row all have it, so a hero that did
+                // not was the odd one out, and there is no way to discover that except by trying.
+                //
+                // ON THE ART LAYER RATHER THAN ON THE ZSTACK, deliberately. The Play and More info
+                // pills and the favourite star are Buttons drawn ABOVE this in the same stack, so
+                // they hit-test first and keep working exactly as they did; the press only belongs to
+                // the art, which is the part of a hero a finger lands on.
+                //
+                // THE TAP IS NOT TOUCHED. On this surface Play is what launches the game, as it
+                // always has been, and a full-bleed banner that launched a game when a finger brushed
+                // it would be a trap rather than a convenience.
+                .contentShape(Rectangle())
+                .onLongPressGesture(minimumDuration: 0.4) {
+                    host.detailEntry = entry
+                }
 
             // The scrim is what keeps the title legible over art nobody has vetted: a cover can be
             // any brightness at all, and light text on a white box art is unreadable.

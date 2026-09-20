@@ -116,6 +116,11 @@ targets:
       # filed without the game's series name. Never a substring and never a distance, and an
       # alignment that hits two titles picks nothing at all.
       - path: ArtworkIndex.swift
+      # Cover art, the choice: every cover the server has for one game, enumerated only when that
+      # game's detail card is opened, offered as labelled thumbnails, and remembered against the
+      # entry so a chosen cover outranks anything automatic resolution would pick. Nothing in here
+      # runs while the library is being browsed.
+      - path: ArtworkChooser.swift
       # What a filename can honestly be made to say: the display title and the region.
       - path: GameMetadata.swift
       # The UniFFI-generated Swift facade. Written by build-engine.sh, never committed: a
