@@ -6,9 +6,34 @@ makes sense if the one before it passed.
 For every test there are three parts: what to do, what you should see if it worked, and what to
 send me if it did not.
 
-Before you start, read [README.md](README.md) if you have not. The short version: nobody has
-seen a game run in this app yet, so a failure here is expected rather than surprising. The point
-of these tests is to find out exactly *where* it stops.
+## What is already confirmed working
+
+This build has been run on an iPhone 17 Pro Max and it plays games. All five cores ran a real
+game, each at 60 fps with 0 dropped frames, with the `cores:` line reading 5 of 5 declared every
+time:
+
+| System | Game that ran | Core | Frames counted in the screenshot |
+| --- | --- | --- | --- |
+| NES | Kart Fighter | fceumm | 285 |
+| SNES | Super Mario World (U) | snes9x | 466 |
+| Game Boy Advance | Pokemon Emerald (USA, Europe) | mgba | 321 |
+| Game Boy Color | Pokemon Yellow (UE) | mgba | 1162 |
+| Genesis / Mega Drive | Mortal Kombat 3 (USA) | genesis_plus_gx | 2354 |
+| Game Gear | Simpsons: Krusty's Fun House (U) | genesis_plus_gx | 2188 |
+| PlayStation 1 | Crash Bandicoot (USA) | pcsx_rearmed | 2390 |
+
+Alongside those: five games imported in one go (`imported 5 of 5`), a PlayStation `.cue` and its
+`.bin` imported together and booted with no BIOS present, the Crash Bandicoot row showing the
+size of the whole game as `CUE · 602.8 MB · pcsx_rearmed`, and the Library reading
+`library: 6 game(s) of 7 file(s) in Documents`, which is correct: the seventh file is that `.bin`
+track, and it is deliberately not a row you can tap.
+
+So this checklist is no longer asking whether any of it works. **It is a regression check.** Each
+test below says what already passed, and if one of those fails on a new build then something that
+used to work has broken, which is worth telling me straight away. Two file types have still never
+been tried, `.sms` and `.gb`, and they are marked as such in Test 3.
+
+Before you start, read [README.md](README.md) if you have not.
 
 ## The single most useful thing you can do
 
@@ -27,6 +52,8 @@ of status text** is the one that matters most, because it is the most recent thi
 tried to do.
 
 ## Test 1: does the app install and open
+
+**Already passed.** The app installed, opened, and reported 5 of 5 cores declared.
 
 **Do this**
 
@@ -57,6 +84,9 @@ tried to do.
   useful to know.
 
 ## Test 2: does a cartridge game import and play
+
+**Already passed**, on `.nes` with Kart Fighter and on `.gba` with Pokemon Emerald. Both played
+at 60 fps with 0 dropped frames.
 
 **Start with a `.nes` or a `.gba` file.** One file, nothing else needed, no extra files and no
 BIOS. That keeps the question simple: does emulation work at all? If you start with a
@@ -101,16 +131,20 @@ A screenshot covers nearly all of this at once.
 
 ## Test 3: the other cartridge systems
 
-Only worth doing once Test 2 passed. Each is the same routine as Test 2, with a different file.
-Work down the list and note which ones pass.
+**Mostly passed. Two rows are still untried, and they are the only gap left in this checklist.**
+Each is the same routine as Test 2, with a different file.
 
-| File to try | Console | Core it should name |
-| --- | --- | --- |
-| `.sfc` or `.smc` | SNES | snes9x |
-| `.gb` or `.gbc` | Game Boy, Game Boy Color | mgba |
-| `.sms` | Master System | genesis_plus_gx |
-| `.md` or `.gen` | Genesis / Mega Drive | genesis_plus_gx |
-| `.gg` | Game Gear | genesis_plus_gx |
+| File to try | Console | Core it should name | Where it stands |
+| --- | --- | --- | --- |
+| `.sfc` or `.smc` | SNES | snes9x | Passed on `.smc` with Super Mario World |
+| `.gb` or `.gbc` | Game Boy, Game Boy Color | mgba | Passed on `.gbc` with Pokemon Yellow. `.gb` not tried |
+| `.sms` | Master System | genesis_plus_gx | **Not tried yet.** Still worth doing |
+| `.md` or `.gen` | Genesis / Mega Drive | genesis_plus_gx | Passed on `.md` with Mortal Kombat 3 |
+| `.gg` | Game Gear | genesis_plus_gx | Passed on `.gg` with Krusty's Fun House |
+
+The two untried rows are the ones to spend a test on. Neither is a worry: `.sms` runs on the same
+core as the `.md` and `.gg` games that played, and `.gb` runs on the same core as the `.gba` and
+`.gbc` games that played. They just have not been seen.
 
 **You should see** the same as Test 2 for each one: the right core named in the list, a picture,
 and the frame counter climbing.
@@ -126,8 +160,11 @@ and the frame counter climbing.
 
 ## Test 4: does a PlayStation game work
 
-Leave this until the cartridge systems work. It has an extra way to fail that has nothing to do
-with emulation.
+**Already passed.** Crash Bandicoot, imported as a `.cue` plus its `.bin` in one go, played with
+no BIOS file present at all.
+
+It has an extra way to fail that has nothing to do with emulation, so on a fresh build it is
+still worth leaving until the cartridge systems work.
 
 **Do this**
 
@@ -139,7 +176,9 @@ with emulation.
 
 **You should see**
 
-- The `.cue` in the Library, with a detail line naming `pcsx_rearmed`.
+- The `.cue` in the Library, with a detail line naming `pcsx_rearmed`. The size on that line is
+  the whole game, the sheet plus the tracks it names, not the few bytes of the `.cue` itself.
+  Crash Bandicoot reads `CUE · 602.8 MB · pcsx_rearmed`.
 - The `.bin` files **not** in the list. That is correct and not a bug. They are on disk beside
   the `.cue`, and the emulator reads them itself. Only the `.cue` is something you tap.
 - The status line going to `running:` and then a picture.
@@ -157,6 +196,8 @@ with emulation.
   runs for two seconds and stops is a different fault from one that never starts.
 
 ## Test 5: the Files app route
+
+**Already passed.** Files dropped into the folder showed up in the Library.
 
 This is an alternative to the import button, and worth confirming separately because it uses a
 different path through the app.
@@ -186,6 +227,7 @@ Rough guide to the lines, top to bottom:
 | Status line | The most recent thing the app did or tried to do. **This is the line to report.** |
 | `cores:` | How many of the five emulator cores are actually inside the app. Should be 5 of 5. |
 | `BIOS (...)` | Only relevant to PlayStation. `none, HLE fallback` is normal. |
+| `library:` | How many games the app found, and how many files that came from. A PlayStation `.bin` track counts as a file and not as a game, so `6 game(s) of 7 file(s)` is right for six games where one of them is a `.cue` with one track. |
 | Graphics line | Describes the graphics device. If this line is missing, drawing never started. |
 | `... frames · ... fps · ... dropped` | Whether the emulator is running. 0 frames means it never ran. Frames climbing with a black screen means it ran but the picture did not arrive. |
 

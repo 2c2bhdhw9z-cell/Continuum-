@@ -1324,13 +1324,17 @@ The `.ipa` itself: run the **iOS** workflow and download the `Continuum-ipa-<sha
 It is ~1.8 MB — a 4.4 MB arm64 executable with the engine statically linked, plus the 95 KB
 wrapper in `Frameworks/`.
 
-### Still not proven
+### Still not proven, as of this step (superseded by §18)
 
-The app has never been run. Everything up to and including "xcodebuild produced a signed
-bundle with the right entitlements" is verified by CI; whether the rotating colour actually
-appears is not, and cannot be from here. The HUD exists for exactly that reason — each line
-distinguishes a different failure, because on a sideloaded build with no debugger it is the
-only diagnostic there is.
+**Superseded 2026-09-20.** The app has since been run on an iPhone 17 Pro Max and all five cores
+drove real games; see §18. The paragraph below records the state of knowledge when the cloud
+build landed, and its argument for the HUD is what made the device run legible.
+
+At that point the app had never been run. Everything up to and including "xcodebuild produced a
+signed bundle with the right entitlements" was verified by CI; whether the rotating colour
+actually appears was not, and could not be, from here. The HUD exists for exactly that reason:
+each line distinguishes a different failure, because on a sideloaded build with no debugger it is
+the only diagnostic there is.
 
 A Rust panic on device now surfaces rather than aborting silently. It used to be that
 `panic = "abort"` in the release profile took the whole process down on a panic instead of
@@ -1350,8 +1354,9 @@ inside `build-engine.sh` alone: `package-ipa.sh` reads from `native/ios/build/` 
 neither needed touching. The host-side UniFFI bindgen and its metadata fallback stay on
 release, because the interface metadata UniFFI reads is profile- and target-independent.
 
-Still unproven, as before: whether the panic-to-HUD path actually fires on device, since the
-app has never been run. But the build no longer aborts on the way there.
+Still unexercised: whether the panic-to-HUD path actually fires on device. The app has now been
+run on device (§18), but nothing panicked during that run, so the unwind-across-FFI-to-HUD path
+has not been observed firing. The build no longer aborts on the way there.
 
 ## 17. Phase 5 Step 2: the first real core (PCSX ReARMed, software)
 
@@ -1471,7 +1476,12 @@ It is embedded but not linked, reached by `dlopen`, for the same reason as the s
 wrong rpath then fails to load with a legible HUD line instead of stopping the app from
 launching at all. The stub wrapper stays embedded alongside it; its harness is still a gate.
 
-### (h) What remains unproven
+### (h) What remained unproven at this step (resolved on device, §18)
+
+**Resolved 2026-09-20.** On-device PS1 boot is now established: Crash Bandicoot (USA) on
+`pcsx_rearmed`, 2390 frames at 60 fps with 0 dropped, `BIOS (pcsx_rearmed): none, HLE fallback`.
+See §18. The boundary stated below was accurate for CI and is still accurate for CI; it was a
+device run, not CI, that closed it, and the HUD lines it names are what carried the result back.
 
 On-device PS1 boot is unproven, and CI cannot prove it. CI proves exactly one thing: that the
 macOS build produces a signed bundle that embeds the core dylib. It does not, and cannot, boot
@@ -1548,6 +1558,14 @@ is not proven by CI either. There is no macOS, Xcode, iOS SDK or xcodegen here, 
 that the macOS build produces a signed bundle embedding the core dylib. That a real phone picks
 a folder, holds the folder scope, and lets PCSX ReARMed read a `.cue` and its `.bin` tracks is
 verified only by the orchestrator's CI build and a subsequent on-device run, not here.
+
+**Resolved 2026-09-20, but by the design that superseded this one.** Multi-file cue/bin works on
+device: a `.cue` and its `.bin` were selected together in one import, both landed in Documents,
+and the `.cue` booted (§18). That is §(j)'s import-and-copy Library, where content lives inside
+the app sandbox and no security scope is involved at all. The folder-scope picker described in
+this subsection is therefore still unexercised on device; what the device run proves is the path
+that replaced it. Keep this subsection for why the single-file `.fileImporter` failed, which is
+the reasoning the import path inherited.
 
 ### (j) Every system in the .ipa: five cores, one loaded at a time
 
@@ -1730,7 +1748,15 @@ core negotiates XRGB8888 even though `CoreCatalog` declares RGB565 and the web b
 RGB565. The declaration is a pre-load hint, the negotiation settles it, and the renderer
 converts either.
 
-#### Still not proven
+#### Still not proven from here (largely closed by the device run, §18)
+
+**Updated 2026-09-20.** The device run in §18 closed most of what follows: all five cores do
+compile for `aarch64-apple-ios`, the `.ipa` does carry five dylibs (`cores: 5 of 5 declared` on
+the HUD), and `.nes`, `.smc`, `.gba`, `.gbc`, `.md`, `.gg` and a PS1 `.cue` each imported and
+launched on the core `CoreCatalog.routes` names. `.sms` and `.gb` remain unlaunched on device,
+though their cores are proven by sibling extensions. The sandbox boundary below is unchanged and
+still states exactly what can and cannot be checked from here, which is what the next core will
+run into.
 
 The same boundary as the rest of §17, and it has not moved. This sandbox has no macOS, no Xcode
 and no iOS SDK, so nothing here compiled a single core dylib. What was verified: `cargo test`
@@ -1749,6 +1775,71 @@ a device run, and the HUD is the readout: the `cores:` line says which dylibs ar
 and every opening, running and failure line names the core id, so a wrong route or a missing
 core is one glance rather than a deduction.
 
+## 18. Device verification, 2026-09-20: five cores, seven systems, one phone
+
+Recorded so that no later session repeats this work, or reads §16 and §17's "unproven" notes as
+current. Hardware: iPhone 17 Pro Max (A19 Pro), running a sideloaded `.ipa` from the iOS
+workflow. Every observation here comes from on-device screenshots of the HUD, which remains the
+only instrument, exactly as §16 argued it would have to be.
+
+Every screenshot showed `cores: 5 of 5 declared`, and every game held 60 fps with 0 dropped
+frames. The frame count is whatever the counter read when the screenshot was taken, so treat it
+as a lower bound on how long the core sustained the frame loop, not as a benchmark:
+
+| system | core | content | frames at screenshot |
+| --- | --- | --- | --- |
+| NES | `fceumm` | Kart Fighter | 285 |
+| SNES | `snes9x` | Super Mario World (U) | 466 |
+| GBA | `mgba` | Pokemon Emerald (USA, Europe) | 321 |
+| GBC | `mgba` | Pokemon Yellow (UE) | 1162 |
+| Mega Drive | `genesis_plus_gx` | Mortal Kombat 3 (USA) | 2354 |
+| Game Gear | `genesis_plus_gx` | Simpsons: Krusty's Fun House (U) | 2188 |
+| PS1 | `pcsx_rearmed` | Crash Bandicoot (USA) | 2390 |
+
+What that settles, subsystem by subsystem:
+
+* **The five-dylib bundle, and declare-five-load-one (§17(j)).** All five dylibs reach
+  `Frameworks/` under their canonical filenames, `dlopen` finds each one, and `declare_core` plus
+  `ensureCoreLoaded(coreId:)` make exactly the needed core resident on demand. Seven launches
+  across five cores in one session, no stale-`Bool` reload failure and no wrong-core route.
+* **`CoreCatalog.routes` extension routing (§17(j)).** `.nes`, `.smc`, `.gba`, `.gbc`, `.md`,
+  `.gg` and `.cue` each launched on the core the table names, with the row's detail line agreeing
+  with the core that then ran. The pre-tap affordance works as designed.
+* **`ContentHint::from_filename` for the shared core (§17(j)).** One `genesis_plus_gx` instance
+  drove Mega Drive and Game Gear content correctly in the same session, which is precisely the
+  discrimination nothing off-device could check.
+* **Pixel-format renegotiation inside `retro_load_game` (§17(c), §17(d)).** Cores with different
+  native formats all drew correct pictures through the one software path, fceumm included, whose
+  iOS makefile forces `WANT_32BPP` and so negotiates XRGB8888 against its RGB565 declaration.
+  The declaration is a pre-load hint and the negotiation settles it: now confirmed on hardware,
+  and still not a defect to "correct".
+* **`need_fullpath` and multi-file cue/bin (§17(f), §17(i)).** A `.cue` and its `.bin` imported
+  together in one selection, copied into Documents, and booted, with the core opening the track
+  itself. This proves §17(j)'s import-and-copy Library, not §17(i)'s folder scope.
+* **BIOS-less PS1 through HLE (§17(e)).** No BIOS file was present. The HUD read
+  `BIOS (pcsx_rearmed): none, HLE fallback` and the game booted regardless.
+* **The Metal software path and the memory entitlement (§16).** 60 fps sustained with 0 dropped,
+  and roughly 6.8 GB available to the app, so the increased-memory entitlement survived the
+  installer that was used.
+* **Library bookkeeping (§17(j)).** `imported 5 of 5` for a single five-file batch.
+  `library: 6 game(s) of 7 file(s) in Documents`, the seventh file being Crash Bandicoot's `.bin`
+  track: `launchableExtensions` is `importableExtensions` minus `.bin`, so the track is
+  importable and never tappable, and that count is correct rather than a discrepancy. The
+  cue-summing `sizeText` read `CUE · 602.8 MB · pcsx_rearmed`, the sheet plus its unique tracks,
+  not the 87-byte sheet.
+
+### What this run did NOT establish
+
+* `.sms` and `.gb` were never launched, for want of content. Both route to a core proven by a
+  sibling extension (`genesis_plus_gx` by `.md` and `.gg`, `mgba` by `.gba` and `.gbc`), so the
+  residual risk is in the routing row and `ContentHint::from_filename`, not in the core itself.
+  Five of five cores are verified; seven of nine systems are.
+* The panic-to-HUD unwind path (§16) still has not fired, because nothing panicked.
+* §17(i)'s folder-scope picker remains unexercised, having been superseded by the import path.
+* `.sfc`, `.gen`, `.chd`, `.pbp` and `.iso` were not exercised; each shares a core and a routing
+  row with an extension that was.
+* Nothing here measured audio output, input latency, thermal behaviour or a long session. "60 fps,
+  0 dropped" is what the HUD showed at the moments captured.
 
 ---
 

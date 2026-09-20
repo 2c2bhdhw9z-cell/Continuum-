@@ -25,24 +25,48 @@ files have to be in the app for the `.cue` to load.
 
 ## Where it actually stands
 
-Read this part before you expect the app to work.
+**The app plays real games on a real iPhone.** On an iPhone 17 Pro Max, all five cores ran a
+real commercial game, each at 60 fps with 0 dropped frames, with the `cores:` line reading
+5 of 5 declared every time:
 
-**Confirmed:**
+| System | Game that ran | Core | Frames counted in the screenshot |
+| --- | --- | --- | --- |
+| NES | Kart Fighter | fceumm | 285 |
+| SNES | Super Mario World (U) | snes9x | 466 |
+| Game Boy Advance | Pokemon Emerald (USA, Europe) | mgba | 321 |
+| Game Boy Color | Pokemon Yellow (UE) | mgba | 1162 |
+| Genesis / Mega Drive | Mortal Kombat 3 (USA) | genesis_plus_gx | 2354 |
+| Game Gear | Simpsons: Krusty's Fun House (U) | genesis_plus_gx | 2188 |
+| PlayStation 1 | Crash Bandicoot (USA) | pcsx_rearmed | 2390 |
 
-- The app builds successfully in the cloud.
-- All five cores are confirmed to be inside the `.ipa`. The build checks each one by name and
-  goes red if any is missing.
-- Importing game files on a real phone works.
-- On a real phone the drawing path ran at 60 fps with 0 dropped frames, and roughly 6.84 GB of
-  memory was available to the app.
+Also confirmed on the phone:
 
-**Not confirmed:**
+- Importing several games at once. One batch of five files reported `imported 5 of 5`.
+- Importing a PlayStation game as a `.cue` plus its `.bin` track together in a single go, and
+  the game boots.
+- PlayStation running with no BIOS file present, using the core's own stand-in for it
+  (`BIOS (pcsx_rearmed): none, HLE fallback`).
+- The Library counting honestly: `library: 6 game(s) of 7 file(s) in Documents`. The seventh
+  file is Crash Bandicoot's `.bin` track. It is on disk, and it is deliberately not a row you
+  can tap, because the `.cue` next to it is the thing you play.
+- A `.cue` row showing the size of the whole game rather than of the small text file. Crash
+  Bandicoot reads `CUE · 602.8 MB · pcsx_rearmed`.
+- Roughly 6.8 GB of memory available to the app, with the drawing path holding 60 fps.
 
-- **No game has been seen running on screen yet.** Nobody has watched a game appear. The cores
-  are in the app and the files import, but "does it actually play" is still an open question.
+**The honest edges:**
 
-Nothing below should be read as proof that games play. When you are ready to find out, the
-checklist in [TESTING.md](TESTING.md) walks through it step by step.
+- Two file types have never been tried, for want of the files: Master System (`.sms`) and plain
+  Game Boy (`.gb`). Each one runs on a core that is already proven by a different file type,
+  `.sms` on the core proven by `.md` and `.gg`, and `.gb` on the core proven by `.gba` and
+  `.gbc`. So all five cores are confirmed, seven of the nine systems are confirmed directly, and
+  those last two are expected to work but nobody has watched them.
+- This is a sideloaded developer build, not a polished product. It is a plain list of games on a
+  black background with a block of diagnostic text above it. The look further down this page is
+  the design target, not what is built.
+
+[TESTING.md](TESTING.md) is the checklist that got it this far. It records which tests have
+already passed, so it now doubles as the way to check that a new build has not broken something
+that used to work.
 
 The pictures further down came from the older browser prototype, not from the iPhone app. They
 are in here to show what the design is aiming at, not to show the iPhone app working.
@@ -114,7 +138,7 @@ on an app installed this way there is no other way to see what went wrong. [TEST
 explains how to read it.
 
 These four pictures are also from the browser prototype. They show four of the cores drawing
-their own test cartridges, which is the closest thing to proof of emulation that exists so far.
+their own test cartridges, from back when the browser build was the only place any of this ran.
 
 | NES | Game Boy Advance | Master System | SNES |
 | --- | --- | --- | --- |
@@ -136,10 +160,18 @@ emulator behind it, so it does not play anything.
 
 ## What needs testing
 
-[TESTING.md](TESTING.md) is a checklist you can work through on your phone. It says what to do,
-what you should see if it worked, and what to send me if it did not. Start at the top: the first
-test worth doing is a single-file cartridge game such as a `.nes` or a `.gba`, because those need
-no extra files, so they answer "does emulation work at all" on their own.
+"Does emulation work at all" is answered, so what is left is narrower:
+
+- **The two file types nobody has tried:** a Master System `.sms` and a plain Game Boy `.gb`.
+  Both run on cores that already work, so this is a short confirmation rather than an open
+  question.
+- **Bugs in what already works.** Longer sessions, games fussier than the ones tried so far,
+  other PlayStation discs, and anything that looks or sounds wrong on screen.
+
+[TESTING.md](TESTING.md) is the checklist you can work through on your phone. It says what to do,
+what you should see if it worked, what has already passed, and what to send me if something
+fails. When something does go wrong, the single most useful thing is the exact text from the
+block at the top of the screen, and [TESTING.md](TESTING.md) explains how to read it.
 
 ## About the old web version
 
@@ -157,7 +189,7 @@ The deep technical material lives in these documents, deliberately, so this page
 - [SESSION_HANDOFF.md](SESSION_HANDOFF.md) is the full engineering handoff: the architecture, the
   reasoning behind each subsystem, every trap already paid for, and the list of things not to
   undo. Read this first before changing code. Sections 16 and 17 cover the iOS build and the
-  five-core `.ipa`.
+  five-core `.ipa`, and section 18 records the on-device verification of all five cores.
 - [docs/NATIVE_IOS_BLUEPRINT.md](docs/NATIVE_IOS_BLUEPRINT.md) is the design for the iOS app.
   Parts of it are now built.
 - [docs/SET_HW_RENDER_DESIGN.md](docs/SET_HW_RENDER_DESIGN.md) is the graphics design for
