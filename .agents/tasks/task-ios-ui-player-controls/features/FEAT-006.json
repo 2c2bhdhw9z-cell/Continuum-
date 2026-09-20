@@ -1,0 +1,37 @@
+{
+  "id": "FEAT-006",
+  "type": "feature",
+  "stage": "Stage 3 - PLAN ONLY, do not build in this task",
+  "description": "The user-editable control layout, plus the engine additions the remaining player controls need. The user asked for this directly: the ability to change the layout to however they like, with more to follow. The browser build had exactly this feature and its model is the reason Stage 1 was built to take a layout as a parameter, so this is an addition rather than a rewrite. This feature also collects every player control visible in docs/mobile-player.png that CANNOT be wired without exporting something new from Rust, so a later session does not rediscover that one at a time.",
+  "status": "planned",
+  "steps": [
+    "PART A, the layout editor. Stage 1 already takes a TouchLayout of the same six numbers the browser used (web/src/data/touch-layout.js): scale, opacity, dpadX, dpadY, faceX, faceY, with the browser's LIMITS (scale 0.7 to 1.6, opacity 0.15 to 1, x 0.08 to 0.92, y 0.12 to 0.9) and clamping on every read. So the editor writes those six numbers and the existing layout engine does the rest.",
+    "Why those limits exist, and keep them: a control centred at 0 would be half off screen, and on iOS the outer few millimetres belong to the system's edge gestures, which is a real conflict rather than a stylistic margin. The y range keeps controls out of the status area and off the home indicator.",
+    "Edit mode: a long-press on the player screen, or a Settings entry, enters a mode where each cluster can be dragged. Drag updates the fraction, the clamp keeps it legal, and the live overlap assertion Stage 1 already runs turns any illegal arrangement into a visible report instead of a shipped bug. Sliders for scale and opacity.",
+    "Persist with UserDefaults or a JSON file in Application Support. The browser chose IndexedDB over localStorage because a layout is not needed synchronously at boot and is the one preference worth surviving a storage purge; on iOS that argument mostly evaporates, so prefer the simplest thing that survives a relaunch. Sanitise on load, always, so a layout written by an older build or a corrupted file can never put a control off screen.",
+    "Offer Reset to defaults, and consider a per-orientation layout, because a thumb rests in a different place in landscape. The browser used one layout for both. Per-orientation is the better answer on a phone and is cheap once the layout is a value: store two and pick by the current size class.",
+    "GO FURTHER THAN THE BROWSER, since the user said more is coming: allow individual controls to be moved and hidden, not just the two clusters. That means promoting the layout from six numbers to a per-control dictionary of offsets plus a hidden flag, keeping the six-number form as the default seed so existing layouts migrate. Also worth having: a turbo or hold toggle per button, and a second layout profile per system, since a PS1 pad and a NES pad want different arrangements.",
+    "PART B, the engine additions the remaining controls need. None of these can be built without touching crates/**, which Stage 1 and Stage 2 must not do, so they are listed here with what each unlocks.",
+    "set_scale_mode: unlocks the ASPECT and SCALE selectors. gfx/renderer.rs already HAS ScaleMode with AspectFit, IntegerScale and Stretch, and set_scale_mode exists on the renderer (renderer.rs:349). It is simply not exported through uniffi_api.rs. This is the cheapest one and it is a pure pass-through.",
+    "set_filter or the equivalent: unlocks the FILTER selector. The renderer already distinguishes Nearest from Linear.",
+    "The pacer's speed multiplier: unlocks the SPEED selector and fast-forward. SESSION_HANDOFF.md's appendix records that FramePacer already supports a speed multiplier, so fast-forward is close to free while rewind is not, because save states run from roughly 13 KB for NES to 1 MB for Genesis and a rewind ring needs a memory budget and probably compression.",
+    "Mute or gain: unlocks VOLUME. But note the order of work: drain_audio is not exported either, so the iOS build has NO audio output path at all today. A volume slider is meaningless until audio is actually played out, so audio output comes first and volume falls out of it.",
+    "A core memory or footprint query: unlocks the 'MB core' figure in the reference telemetry strip. There is no such API anywhere in the engine today, which is why Stage 1's strip shows the core id in its place rather than inventing a number.",
+    "A framebuffer readback: unlocks tier 4 of the artwork ladder, the in-game capture past frame 60, which is the only artwork tier that works for a ROM no database has heard of.",
+    "Physical controllers: GameController framework support. Worth noting that the merge already exists in Rust, because GamepadBridge keeps an independent layer per source and merges them, so a physical pad and the touch overlay can be used together. But apply_gamepad is the only input function exported, and it REPLACES the gamepad layer wholesale, so a physical pad and the touch overlay would fight over that one layer. Doing this properly means exporting set_button and set_axis with their PadSource, which is the design the Rust side already anticipates and the reason the per-source split exists at all."
+  ],
+  "acceptance_criteria": [
+    "A user can move the D-pad and the face cluster, change control size and opacity, and the arrangement survives a relaunch.",
+    "No editable arrangement can put a control off screen or overlap another; the clamp and the live overlap assertion enforce it.",
+    "Reset to defaults restores the seeded layout.",
+    "A layout loaded from storage is sanitised before it is used, so an older or corrupted file cannot produce an illegal layout.",
+    "The engine additions in Part B are each recorded with what they unlock and what already exists in Rust, so a later session does not have to re-derive the gap."
+  ],
+  "verification": [
+    "By eye: the clamp is applied on every read and not only on write.",
+    "The overlap assertion from Stage 1 must still fire during edit mode, not be disabled to make dragging feel smoother.",
+    "On device: drag each cluster to every corner in both orientations and confirm nothing leaves the safe area or collides."
+  ],
+  "blocked_reason": null,
+  "findings": "Not implemented in this task, by scope, but it changed Stage 1's design in one specific way that matters: because the user said they intend to let users rearrange the controls, Stage 1's layout engine takes a TouchLayout value with the browser's six numbers and the browser's LIMITS and clamping, rather than hardcoding positions. Stage 1 ships only TouchLayout.standard and no editor UI, so there is no dead feature on screen, but the editor becomes a view that writes six numbers instead of a rewrite of the layout code. Part B exists because the reference screenshot docs/mobile-player.png shows four selectors (aspect, filter, speed, scale) plus volume that LOOK like Stage 1 omissions and are not: uniffi_api.rs's surface ends at connected_pads, and set_scale_mode, filter selection, the speed multiplier, mute and drain_audio are all absent from it, so every one of those controls needs a Rust export first."
+}

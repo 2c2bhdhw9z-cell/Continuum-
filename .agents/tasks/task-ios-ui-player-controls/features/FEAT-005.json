@@ -1,0 +1,31 @@
+{
+  "id": "FEAT-005",
+  "type": "feature",
+  "stage": "Stage 2 - PLAN ONLY, do not build in this task",
+  "description": "Settings and Favorites: the two tabs that need real persistence. Settings is where the diagnostics move to permanently and where core options become reachable. Favorites needs storage that survives a relaunch. Design reference docs/settings-mobile.png.",
+  "status": "planned",
+  "steps": [
+    "Settings hosts the diagnostics toggle as its permanent home. Stage 1 puts a toggle on both screens; Settings is where it belongs long term, and the full diagnostic block (the phase banner, status, cores, bios, gpu, frame counters) renders there in the same monospace it uses now. Nothing is deleted in the move: this HUD is the only debugger a sideloaded build has, and every string must still be displayable.",
+    "Expose core options through the ALREADY-EXPOSED coreOptions() and setCoreOption(key:value:). This is real and needs no Rust change: coreOptions returns CoreOptionRecord with key, label, value and values, so the UI is a picker per record driven entirely by what the core itself declared. Only show them while a core is resident, and say which core they belong to, because the options change per core and a stale list is worse than none.",
+    "Surface the BIOS state for PCSX ReARMed as a first-class Settings row rather than only a HUD line, including where to put a BIOS file (the Files app, the Continuum folder) and the fact that the app falls back to HLE without one and still boots. That is a compatibility note, not an error, and the existing biosStatus text already says so per core.",
+    "Add the artwork controls from FEAT-004: the fetch switch with its plain-language disclosure that resolving art sends the ROM filename to thumbnails.libretro.com, a clear-cache action and a retry-failed-lookups action.",
+    "Favorites: persist a Set of favourite entry ids in UserDefaults, keyed on the SAME identity LibraryEntry already uses, the absolute path. Do not invent a second identity and do not key on an array index; the array is rebuilt from disk after every import and delete. Prune ids that no longer exist on a rescan, but prune lazily and say nothing, because a file temporarily absent is not a reason to forget it was a favourite.",
+    "The Favorites tab is a shelf or grid of the favourited entries with the same cards, and an empty state that says how to favourite something.",
+    "Record what is NOT settable without a Rust change so a later session does not go looking: aspect, filter, integer scale, speed and volume are all absent from uniffi_api.rs. They belong to FEAT-006.",
+    "Record the audio gap plainly: drain_audio is NOT exposed through UniFFI, so there is no audio output path on iOS at all today. A volume control would have nothing to control. The telemetry's audio_queued_frames and audio_underruns are real, which is why Stage 1's strip can show a latency figure, but nothing is being played out."
+  ],
+  "acceptance_criteria": [
+    "Settings holds the diagnostics toggle and the full diagnostic block, with no string lost from the current HUD.",
+    "Core options are listed from the engine's own coreOptions() while a core is resident, naming the core, and setting one calls setCoreOption(key:value:).",
+    "The BIOS state is a readable Settings row that explains the HLE fallback.",
+    "Artwork fetching can be turned off, the cache cleared and failed lookups retried, with the third-party disclosure stated in plain language.",
+    "Favorites survive a relaunch, are keyed on the absolute path, and a missing file does not silently erase a favourite.",
+    "The features that need an engine addition are listed in one place with the reason."
+  ],
+  "verification": [
+    "swiftc -frontend -parse on every Swift file under native/ios/; by-eye review of the UserDefaults round trip and of @MainActor isolation.",
+    "On device: toggle diagnostics, change a core option and see it take effect, favourite a game and relaunch."
+  ],
+  "blocked_reason": null,
+  "findings": "Not implemented in this task, by scope. Two facts established while planning are worth carrying: coreOptions() and setCoreOption(key:value:) ARE already exported through UniFFI, so core options need no Rust work at all, while aspect, filter, scale, speed and volume are NOT, and drain_audio is not exported either, which means the iOS build currently has no audio output path whatsoever."
+}

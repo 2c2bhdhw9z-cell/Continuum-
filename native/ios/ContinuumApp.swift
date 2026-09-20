@@ -44,6 +44,7 @@
 // exactly one copy and that `engine.coreState` is the only thing ever asked whether a core is
 // resident.
 
+import QuartzCore
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -52,9 +53,9 @@ import UniformTypeIdentifiers
 struct ContinuumApp: App {
     var body: some Scene {
         WindowGroup {
-            PlayerView()
-                // The player is always dark: it surrounds emulated output, and a light
-                // letterbox around a dark game is glare rather than design.
+            RootView()
+                // Always dark: the app surrounds emulated output, and a light letterbox around a
+                // dark game is glare rather than design.
                 .preferredColorScheme(.dark)
                 .statusBarHidden(true)
                 .ignoresSafeArea()
@@ -233,26 +234,44 @@ enum CoreCatalog {
         uniqueKeysWithValues: all.map { ($0.coreId, $0) }
     )
 
-    /// Lowercased file extension to core id. THE routing table, and the only copy of it.
+    /// Where one file extension goes: which core runs it, and which system it is.
     ///
-    /// Built from the specs rather than from string literals so a core id cannot be misspelled
-    /// on one side of the mapping.
-    static let routes: [String: String] = [
-        "nes": fceumm.coreId,
-        "sfc": snes9x.coreId,
-        "smc": snes9x.coreId,
-        "gba": mgba.coreId,
-        "gb": mgba.coreId,
-        "gbc": mgba.coreId,
-        "sms": genesisPlusGx.coreId,
-        "gg": genesisPlusGx.coreId,
-        "md": genesisPlusGx.coreId,
-        "gen": genesisPlusGx.coreId,
-        "cue": pcsxReARMed.coreId,
-        "chd": pcsxReARMed.coreId,
-        "pbp": pcsxReARMed.coreId,
-        "iso": pcsxReARMed.coreId,
+    /// The system is the part that was missing, and a core id could never have supplied it: mgba
+    /// is GBA *and* GB *and* GBC, and genesis_plus_gx is Mega Drive *and* Master System *and* Game
+    /// Gear. The on-screen pad has to know which of those it is drawing for, because a Game Gear
+    /// pad has two buttons and a SNES pad has nine.
+    struct Route: Sendable {
+        let coreId: String
+        let system: GameSystem
+    }
+
+    /// Lowercased file extension to its route. THE routing table, and still the only copy of it.
+    ///
+    /// Core ids come from the specs rather than from string literals so one cannot be misspelled on
+    /// one side of the mapping.
+    static let routeTable: [String: Route] = [
+        "nes": Route(coreId: fceumm.coreId, system: .nes),
+        "sfc": Route(coreId: snes9x.coreId, system: .snes),
+        "smc": Route(coreId: snes9x.coreId, system: .snes),
+        "gba": Route(coreId: mgba.coreId, system: .gba),
+        "gb": Route(coreId: mgba.coreId, system: .gb),
+        "gbc": Route(coreId: mgba.coreId, system: .gbc),
+        "sms": Route(coreId: genesisPlusGx.coreId, system: .sms),
+        "gg": Route(coreId: genesisPlusGx.coreId, system: .gg),
+        "md": Route(coreId: genesisPlusGx.coreId, system: .genesis),
+        "gen": Route(coreId: genesisPlusGx.coreId, system: .genesis),
+        "cue": Route(coreId: pcsxReARMed.coreId, system: .ps1),
+        "chd": Route(coreId: pcsxReARMed.coreId, system: .ps1),
+        "pbp": Route(coreId: pcsxReARMed.coreId, system: .ps1),
+        "iso": Route(coreId: pcsxReARMed.coreId, system: .ps1),
     ]
+
+    /// Extension to core id, DERIVED from the table above and never restated.
+    ///
+    /// Kept as its own property because everything that already routed a launch or labelled a
+    /// Library row reads it, and because deriving it is what makes a second copy impossible: there
+    /// is no edit that can add a system without also having a core, or a core without a system.
+    static let routes: [String: String] = routeTable.mapValues { $0.coreId }
 
     /// A .bin is a CD track that a cue sheet names literally, never a launch target. It has to
     /// be importable so those references resolve, and it must never appear in the Library.
@@ -283,6 +302,14 @@ enum CoreCatalog {
     static func core(forExtension ext: String) -> CoreSpec? {
         guard let id = routes[ext.lowercased()] else { return nil }
         return byId[id]
+    }
+
+    /// Which system a file with this extension is, or nil when nothing is mapped.
+    ///
+    /// Read from the SAME table the core was resolved from, so the pad on screen and the core
+    /// running it can never disagree about what console this is.
+    static func system(forExtension ext: String) -> GameSystem? {
+        routeTable[ext.lowercased()]?.system
     }
 
     /// What a Library row shows, so a wrong route is legible before anything is launched.
@@ -586,6 +613,50 @@ final class EngineHost: ObservableObject {
     @Published var cores: String = ""
     /// True once a ROM has been launched. Drives the HUD affordance label and re-entrancy.
     @Published var running = false
+
+    /// The game currently on screen, or nil when the Library is showing.
+    ///
+    /// This is what switches between the two screens, and it is the ENTRY rather than a `Bool` on
+    /// purpose: the player screen needs the filename for its title bar and the extension to decide
+    /// which pad to draw, and holding the entry means neither has to be looked up a second time or
+    /// stored twice. Set only on `launch`'s success path, cleared only in `stopSession`.
+    @Published var activeEntry: LibraryEntry?
+
+    /// Whether the engine is paused. Kept in step with `engine.pause()` and `engine.resume(...)`
+    /// so the control can show which of the two it will do next.
+    @Published var paused = false
+
+    /// Whether the full diagnostic block is on screen.
+    ///
+    /// The block itself is unchanged and nothing in it was dropped; it simply stopped being
+    /// permanently in front of the game. The thin status line above it is always visible, so a
+    /// failure is still legible with this off.
+    @Published var showDiagnostics = false
+
+    /// The on-screen pad's layout. One value, so the layout editor is a view that writes six
+    /// numbers rather than a rewrite. See `TouchLayout`.
+    @Published var touchLayout: TouchLayout = .standard
+
+    /// Whatever the control surface last had to report, which today is only a layout overlap.
+    @Published var controlNote: String = ""
+
+    /// The rect the picture may draw into without a control sitting on it, published by the
+    /// control surface after every layout. Nil means the whole screen, which is what the Library
+    /// wants and what the player falls back to before the first layout pass.
+    @Published var pictureArea: CGRect?
+
+    /// Queued audio frames and underruns from the last tick. Real numbers measuring a ring that
+    /// nothing drains yet, because `drain_audio` is not exported through UniFFI.
+    @Published var audioQueued: UInt32 = 0
+    @Published var audioUnderruns: UInt32 = 0
+
+    /// The live read-through the render loop uses to fetch pad state.
+    ///
+    /// Owned here, for the app's lifetime, rather than by the player screen, because SwiftUI
+    /// rebuilds views freely and the display link must never be left holding a box that was
+    /// replaced. The box is a plain reference type with a weak link to whichever control surface is
+    /// on screen, so "no controls" is a released pad rather than a missing value.
+    let padInput = PadInputSource()
 
     /// The launchable games found in Documents, newest scan wins.
     @Published var library: [LibraryEntry] = []
@@ -1186,9 +1257,17 @@ final class EngineHost: ObservableObject {
                 filename: entry.path
             )
             running = true
+            // Set HERE, on the success path only, next to `running`. A tap that failed anywhere
+            // above must leave the Library on screen with its reason showing, not open a player
+            // over a session that does not exist.
+            activeEntry = entry
+            activeCoreId = spec.coreId
+            paused = false
             status = "running: \(entry.name) on \(spec.coreId)"
         } catch {
             running = false
+            activeEntry = nil
+            activeCoreId = ""
             status = "launch failed on \(spec.coreId): \(entry.name): \(error)"
         }
     }
@@ -1203,7 +1282,210 @@ final class EngineHost: ObservableObject {
             engine.stop()
             running = false
         }
+        // Cleared whether or not a session was running, so a half-started launch cannot leave the
+        // player screen up over nothing. The pad state goes with it: a finger still down when a
+        // session ends must not be pushed into the next one.
+        activeEntry = nil
+        activeCoreId = ""
+        paused = false
+        pictureArea = nil
+        padInput.view?.releaseAll()
     }
+
+    // MARK: The player session
+
+    /// Which pad the player screen should draw, from the running game's extension.
+    ///
+    /// Resolved through the SAME routing table the core was resolved through, so the controls on
+    /// screen and the core behind them cannot disagree about what console this is.
+    var activeSystem: GameSystem? {
+        guard let ext = activeEntry?.ext else { return nil }
+        return CoreCatalog.system(forExtension: ext)
+    }
+
+    /// Leaves the running game and goes back to the Library.
+    ///
+    /// Delegates to `stopSession()` rather than calling `engine.stop()` itself, so there is still
+    /// exactly one place that stops a session and the Drop retention policy's unload happens on the
+    /// path the launch sequence already depends on.
+    func leavePlayer() {
+        let leaving = activeEntry?.name
+        stopSession()
+        // A distinct line either way. "Stopped nothing" is a real condition worth seeing: it means
+        // the back control was reached with no session, which points at the launch path rather than
+        // at this one.
+        if let leaving {
+            status = "stopped \(leaving); back in the library"
+        } else {
+            status = "left the player with no session running"
+        }
+        refreshLibrary()
+    }
+
+    func togglePause() {
+        guard running else {
+            status = "pause ignored: no game is running"
+            return
+        }
+        if paused {
+            // The same clock MetalCanvas hands the engine on didBecomeActive. The pacer takes a
+            // timestamp and never reads a clock of its own, so resuming from a different time base
+            // would make it think every frame was late.
+            engine.resume(nowMillis: CACurrentMediaTime() * 1000.0)
+            paused = false
+            status = "resumed \(activeEntry?.name ?? "the session")"
+        } else {
+            engine.pause()
+            paused = true
+            status = "paused \(activeEntry?.name ?? "the session")"
+        }
+    }
+
+    func resetGame() {
+        guard running else {
+            status = "reset ignored: no game is running"
+            return
+        }
+        do {
+            try engine.reset()
+            status = "reset \(activeEntry?.name ?? "the session")"
+        } catch {
+            status = "reset failed on \(activeEntry?.name ?? "the session"): \(error)"
+        }
+    }
+
+    /// Writes a save state next to the game, as <filename>.state.
+    ///
+    /// Beside the game in Documents on purpose: Documents is already exposed through the Files app
+    /// by `UIFileSharingEnabled`, so a state is something the user can copy off the device without
+    /// any extra plumbing. Every branch gets its own line, including the two that are not errors so
+    /// much as conditions.
+    func saveStateToDisk() {
+        guard running, let entry = activeEntry else {
+            status = "save state ignored: no game is running"
+            return
+        }
+        guard let documents = documentsDirectory() else {
+            status = "save state failed: no Documents directory"
+            return
+        }
+
+        let bytes: Data
+        do {
+            bytes = Data(try engine.saveState())
+        } catch {
+            status = "save state refused by \(CoreCatalog.routeLabel(forExtension: entry.ext)): "
+                + "\(error)"
+            return
+        }
+        guard !bytes.isEmpty else {
+            status = "save state came back empty for \(entry.name); nothing was written"
+            return
+        }
+
+        let target = documents.appendingPathComponent("\(entry.name).state")
+        do {
+            try bytes.write(to: target, options: .atomic)
+            status = "saved state: \(target.lastPathComponent), \(bytes.count) bytes"
+        } catch {
+            status = "save state could not be written to \(target.lastPathComponent): "
+                + "\(error.localizedDescription)"
+        }
+    }
+
+    /// Takes a line from the control surface.
+    ///
+    /// Only reachable today when two controls were laid out on top of each other, which is the one
+    /// failure the layout arithmetic cannot rule out by itself and exactly the bug
+    /// docs/mobile-player.png captured. It lands in its own field so it cannot be overwritten by
+    /// the next status line.
+    func noteControlLayout(_ line: String) {
+        controlNote = line
+        // Surfaced on the always-visible line too, because a layout fault is not something to
+        // find only after opening the diagnostics panel.
+        status = line
+    }
+
+    /// Records the area the picture may use, as reported by the control surface.
+    ///
+    /// Hopped to the next run loop turn because it arrives from a UIKit layout pass, and writing
+    /// published state in the middle of one is how a SwiftUI update loop starts. The control
+    /// surface already suppresses unchanged values, so this does not fire every frame.
+    func updatePictureArea(_ rect: CGRect) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard self.pictureArea != rect else { return }
+            self.pictureArea = rect
+        }
+    }
+
+    // MARK: The read-outs
+
+    /// The banner line, unchanged in substance from the one the HUD carried.
+    var buildLine: String { "Phase 5 step 2 - five libretro cores (software)" }
+
+    var frameLine: String {
+        let fps = String(format: "%.0f", displayFps)
+        return "\(frameCount) frames - \(fps) fps - \(dropped) dropped"
+    }
+
+    /// Audio, in the ring the engine fills.
+    ///
+    /// The millisecond figure is a DERIVATION AND NOT A GUESS. `output_sample_rate` is initialised
+    /// to 48000 in `EmulatorBridge` (bridge.rs, the `Default` construction) and
+    /// `set_output_sample_rate` is NOT exported through UniFFI, so nothing on iOS can change it:
+    /// 48000 is provably the rate these frames are queued at. When audio output is finally wired
+    /// and the device's real rate arrives, this is the line to correct.
+    var audioLine: String {
+        let ms = Double(audioQueued) / Self.assumedOutputSampleRate * 1000.0
+        return "audio: \(audioQueued) frames queued, "
+            + String(format: "%.0f", ms)
+            + " ms, \(audioUnderruns) underrun(s), no output path yet"
+    }
+
+    /// What the engine thinks is plugged in.
+    ///
+    /// `connectedPads()` reports 0 while the touch pad works, and that is correct rather than a
+    /// bug: `apply_gamepad` writes straight into the gamepad source layer and never consults the
+    /// connection table, and `connect_pad` is not exported through UniFFI at all. The line says so,
+    /// because a bare "pads: 0" next to working controls would send the next reader hunting.
+    var inputLine: String {
+        guard let system = activeSystem else {
+            return "input: no pad on screen (no game running), "
+                + "\(physicalPads) physical pad(s) registered"
+        }
+        return "input: \(system.badge) pad on port 0, \(system.controlCount) button(s) plus the "
+            + "D-pad, \(physicalPads) physical pad(s) registered"
+    }
+
+    /// The thin strip on the player screen.
+    var telemetryLine: String {
+        let fps = String(format: "%.0f", displayFps)
+        let ms = Double(audioQueued) / Self.assumedOutputSampleRate * 1000.0
+        let core = activeCoreId.isEmpty ? "no core" : activeCoreId
+        return "\(fps) fps - \(frameCount) frames - \(dropped) dropped - "
+            + String(format: "%.0f", ms) + " ms audio - \(core)"
+    }
+
+    /// See `audioLine` for why this is a fact about the engine rather than an assumption.
+    private static let assumedOutputSampleRate = 48_000.0
+
+    /// The core id of the running session, cached at launch.
+    ///
+    /// Cached rather than read from `engine.currentCoreId()` where it is displayed, and that is not
+    /// premature: the telemetry strip re-renders on every tick, so a read there would take the
+    /// engine's mutex sixty times a second, on the same thread that holds it for the whole of each
+    /// tick. The id cannot change without going through `launch` or `stopSession`, both of which
+    /// set this.
+    @Published var activeCoreId: String = ""
+
+    /// How many physical pads the engine has registered, read once when the surface attaches.
+    ///
+    /// Expected to be 0 forever at the moment, and that is correct rather than broken:
+    /// `connect_pad` is not exported through UniFFI, and `apply_gamepad` writes straight into the
+    /// gamepad source layer without consulting the connection table. Read once rather than per
+    /// frame for the same mutex reason as `activeCoreId`.
+    @Published var physicalPads: UInt32 = 0
 
     // MARK: Presenting the picker
 
@@ -1350,6 +1632,9 @@ final class EngineHost: ObservableObject {
         switch result {
         case .success(let summary):
             gpu = summary
+            // Read once, here, so the diagnostics panel can show it without the telemetry strip
+            // taking the engine's mutex on every frame. Expected to be 0; see `physicalPads`.
+            physicalPads = engine.connectedPads()
             // Declare all five cores and LOAD NONE OF THEM. Which core is needed is not known
             // until a game is tapped, and nothing here can be auto-booted anyway: these cores
             // need real content and hard-reject empty content. Declaring costs no dlopen, so
@@ -1504,77 +1789,66 @@ final class ImportPickerDelegate: NSObject, UIDocumentPickerDelegate,
 
 // MARK: - The view
 
-struct PlayerView: View {
+/// The app's one root: the drawing surface, plus whichever screen is in front of it.
+///
+/// THE METAL CANVAS IS MOUNTED ONCE AND NEVER UNMOUNTED, AND THAT IS THE REASON THIS VIEW IS
+/// SHAPED LIKE THIS RATHER THAN AS A NavigationStack. `attachMetal` hands the engine this view's
+/// `CAMetalLayer` and the engine then owns the surface, its device, its queue and its swapchain
+/// configuration. Pushing a player screen that replaced the canvas would tear that layer down and
+/// force a second attach against a new one, on the one path in this app that cannot be tested
+/// anywhere but a device. So the canvas stays at the bottom of this stack for the app's lifetime
+/// and the screens cover it: the Library opaquely, the player around the picture.
+struct RootView: View {
     /// Owns the engine host for the app's lifetime, which is also what keeps the picker's
     /// delegate alive long enough to be called back. See `EngineHost.importPickerDelegate`.
     @StateObject private var host = EngineHost()
 
-    /// Built as a `String`, not as an interpolated `Text` literal.
-    ///
-    /// `Text("...")` takes a `LocalizedStringKey`, two of which cannot be concatenated with
-    /// `+`, which is what this line used to try, and why the app had never actually compiled.
-    /// Handing `Text` a `String` selects the verbatim initialiser instead, which is also what
-    /// a diagnostic read-out wants: nothing here should be run through localisation.
-    private var stats: String {
-        let fps = String(format: "%.0f", host.displayFps)
-        return "\(host.frameCount) frames · \(fps) fps · \(host.dropped) dropped"
-    }
-
     var body: some View {
         ZStack(alignment: .topLeading) {
+            // Black under everything, so the letterbox the renderer leaves around a 4:3 picture is
+            // black rather than whatever the compositor had there.
+            Color.black.ignoresSafeArea()
+
+            canvas
+
+            if host.activeEntry == nil {
+                LibraryScreen(host: host)
+            } else {
+                PlayerScreen(host: host, system: host.activeSystem)
+            }
+        }
+        .background(.black)
+    }
+
+    /// The one canvas, sized to the area the controls left free.
+    ///
+    /// `pictureArea` is nil until a player screen has laid its controls out, and while the Library
+    /// is up, in which case the canvas takes the whole window exactly as it always did. When it is
+    /// set, the canvas is positioned into that rect and `MetalCanvas.layoutSubviews` forwards the
+    /// new extent through the `resizeSurface` path it already used for rotation. Nothing about the
+    /// attach changes; only the size does.
+    private var canvas: some View {
+        let padInput = host.padInput
+        return GeometryReader { proxy in
+            let area = host.pictureArea ?? CGRect(origin: .zero, size: proxy.size)
             MetalCanvasView(
                 engine: host.engine,
+                // Captured as a local reference so this closure touches the box and nothing else,
+                // which keeps the display link's read away from the main-actor host entirely.
+                gamepadSource: { padInput.currentFrame() },
                 onAttach: { host.surfaceAttached($0) },
                 onTelemetry: { telemetry in
                     host.frameCount = telemetry.frameCount
                     host.displayFps = telemetry.displayFps
                     host.dropped = telemetry.dropped
+                    host.audioQueued = telemetry.audioQueuedFrames
+                    host.audioUnderruns = telemetry.audioUnderruns
                 }
             )
-            .ignoresSafeArea()
-
-            // HUD above, Library below, both on screen at once and neither behind navigation.
-            // The HUD is how every problem on this device gets diagnosed, so it does not get
-            // traded away for a tidier Library.
-            VStack(alignment: .leading, spacing: 8) {
-                hud
-                LibraryView(host: host)
-            }
-            .padding()
+            .frame(width: max(1, area.width), height: max(1, area.height))
+            .position(x: area.midX, y: area.midY)
         }
-        .background(.black)
-    }
-
-    /// The diagnostic panel. On a sideloaded build with no debugger this is the actual test
-    /// result, and the only one. Each line distinguishes a different failure:
-    ///   - no GPU line          -> attachMetal failed; the reason is in `status`
-    ///   - GPU but 0 frames     -> renderer up, core or gate not producing
-    ///   - frames but no colour -> compositor or pixel-format problem
-    ///   - frozen counter       -> the frame gate is not releasing
-    ///   - a core line naming a missing dylib -> that system's core never reached the bundle
-    ///   - a running line naming the wrong core -> the extension route is wrong
-    private var hud: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Continuum · Phase 5 step 2 - five libretro cores (software)")
-                .font(.system(.caption, design: .monospaced)).bold()
-            Text(host.status)
-                .fixedSize(horizontal: false, vertical: true)
-            if !host.cores.isEmpty {
-                Text(host.cores)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !host.bios.isEmpty {
-                Text(host.bios)
-            }
-            if !host.gpu.isEmpty {
-                Text(host.gpu)
-            }
-            Text(stats)
-        }
-        .font(.system(.caption2, design: .monospaced))
-        .foregroundStyle(.white)
-        .padding(10)
-        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+        .ignoresSafeArea()
     }
 }
 
@@ -1585,7 +1859,7 @@ struct PlayerView: View {
 /// tappable, because handing a raw track to the core instead of its cue sheet is not something
 /// a user should be able to do by accident. Each row also names the core it will run on, read
 /// from `CoreCatalog.routes`, so the routing is visible before anything launches.
-struct LibraryView: View {
+struct LibraryScreen: View {
     @ObservedObject var host: EngineHost
 
     /// The empty state, which has to be guidance rather than a shrug: on this device there is
@@ -1599,17 +1873,54 @@ struct LibraryView: View {
         + "the Files app show up here too."
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Library")
-                    .font(.system(.caption, design: .monospaced)).bold()
-                Spacer()
-                Button("Import Games") {
-                    host.presentImportPicker()
-                }
-                .font(.system(.caption, design: .monospaced))
+        // Opaque, and that is the point: the canvas is still mounted and ticking underneath, and a
+        // library you can see a game through is the debug overlay this screen replaces.
+        VStack(alignment: .leading, spacing: 8) {
+            header
+            // Always visible, never behind the toggle. It is the only diagnostic a sideloaded build
+            // has, and the Library is where a failed import or a missing core is reported.
+            Text(host.status)
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(Color.white.opacity(0.7))
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+            if host.showDiagnostics {
+                DiagnosticsPanel(host: host)
             }
+            listBody
+            Spacer(minLength: 0)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.black)
+    }
 
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text("Library")
+                .font(.system(.title3, design: .monospaced)).bold()
+                .foregroundStyle(.white)
+            Spacer(minLength: 4)
+            Button("Import Games") {
+                host.presentImportPicker()
+            }
+            .font(.system(.caption, design: .monospaced))
+            Button {
+                host.showDiagnostics.toggle()
+            } label: {
+                Image(systemName: host.showDiagnostics ? "info.circle.fill" : "info.circle")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .accessibilityLabel("Diagnostics")
+        }
+    }
+
+    @ViewBuilder
+    private var listBody: some View {
+        VStack(alignment: .leading, spacing: 6) {
             Text(host.libraryStatus)
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(Color.white.opacity(0.75))
@@ -1641,11 +1952,8 @@ struct LibraryView: View {
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
-                .frame(maxHeight: 240)
             }
         }
-        .padding(10)
-        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -1672,6 +1980,10 @@ struct LibraryRow: View {
 /// Bridges `MetalCanvas` into SwiftUI, and wires the app lifecycle to it.
 struct MetalCanvasView: UIViewRepresentable {
     let engine: ContinuumEngine
+    /// Read once per frame inside the display link, immediately before the engine step. See
+    /// `MetalCanvas.gamepadSource` for why it has to be pulled per frame rather than pushed on a
+    /// touch.
+    let gamepadSource: () -> PadFrame
     let onAttach: (Result<String, Error>) -> Void
     let onTelemetry: (TickTelemetry) -> Void
 
@@ -1679,6 +1991,7 @@ struct MetalCanvasView: UIViewRepresentable {
         let canvas = MetalCanvas(engine: engine)
         canvas.onAttach = onAttach
         canvas.onTelemetry = onTelemetry
+        canvas.gamepadSource = gamepadSource
         canvas.start()
         context.coordinator.observe(canvas)
         return canvas
@@ -1686,6 +1999,7 @@ struct MetalCanvasView: UIViewRepresentable {
 
     func updateUIView(_ canvas: MetalCanvas, context: Context) {
         canvas.onTelemetry = onTelemetry
+        canvas.gamepadSource = gamepadSource
     }
 
     static func dismantleUIView(_ canvas: MetalCanvas, coordinator: Coordinator) {

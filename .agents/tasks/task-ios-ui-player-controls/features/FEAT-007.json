@@ -1,0 +1,30 @@
+{
+  "id": "FEAT-007",
+  "type": "feature",
+  "stage": "Later - RECORDED ONLY, explicitly after the iOS work is finished",
+  "description": "An Android .apk alongside the iOS .ipa. The user stated this directly and framed the ordering themselves: they want it for Android users after all the iOS work is done, and iOS stays the target they update the most. Nothing here is to be built now, and nothing in Stage 1, 2 or 3 should be shaped around it. It is recorded because the decision changes a written project rule, and because a surprising amount of the work is already done.",
+  "status": "recorded",
+  "decision_point": {
+    "question": "A second platform contradicts a steering rule that is currently written as non-negotiable.",
+    "detail": ".kiro/steering/product-scope.md opens with 'the .ipa is the only deliverable' and states that the project is NOT dual-platform, that it has one product, and that web/ plus .github/workflows/deploy.yml are dead code awaiting removal. Those rules exist to stop effort leaking into the browser build, which was scaffolding. An Android target is a different proposition from keeping the PWA alive, but it does contradict the letter of that document.",
+    "recommendation": "When this work actually starts, update product-scope.md in the SAME change, so the steering file and the intent do not disagree. The specific wording to change is 'one artefact' and 'not dual-platform'. Keep the anti-PWA rule intact: Android means a native Kotlin shell over the same Rust engine, and it is not a reason to revive web/. Until then iOS remains the only target, exactly as the user said."
+  },
+  "what_already_exists": [
+    "UniFFI generates Kotlin bindings from the SAME #[uniffi::export] annotations that produce the Swift facade. The engine's public API would not have to change at all: apply_gamepad, launch, tick, attach_* and the rest are already described in a binding-neutral way.",
+    "The graphics layer is wgpu, which already targets Vulkan on Android. The Apple-specific part is narrow: gfx/metal.rs and the MTLDevice ownership rule. An Android equivalent attaches wgpu to an ANativeWindow or a SurfaceView instead, and the rest of gfx/renderer.rs (including the AspectFit letterboxing) is platform-neutral.",
+    "ALL input mapping lives in Rust on purpose. crates/emulator-bridge/src/input/ has a module comment saying exactly this: the UI's only job is to forward raw events, so a second front end inherits identical behaviour by calling the same functions rather than reimplementing them. GamepadBridge's per-source merge was built with more than one platform in mind.",
+    "scripts/build-core.sh already has a per-platform subcommand namespace (`ios <core>`, `ios-all`, `ios-names`) sitting beside the WASM path, created precisely so a platform's core builds could not collide with another's. An `android <core>` namespace follows the established pattern rather than inventing one.",
+    "The frame pacer, audio resampler, core registry and pixel conversion are all pure Rust with no platform dependency, and are already covered by the existing cargo test suites."
+  ],
+  "what_is_genuinely_new": [
+    "A Kotlin or Jetpack Compose shell: library, player and settings, which is Stage 2 and Stage 3's UI work done a second time. This is the bulk of it.",
+    "Rebuilding all five libretro cores for aarch64-linux-android with the NDK. Each core's makefile has an android platform target, but they are not the ios-arm64 ones and each needs the same per-core reading the iOS builds needed.",
+    "An Android surface attach path in gfx/, plus deciding whether Vulkan or GLES is the floor.",
+    "Audio output, which is not written for EITHER platform yet: drain_audio is not exported through UniFFI at all, so iOS has no audio path today. Doing audio once, in a way both AVAudioEngine and AAudio can consume, is cheaper than doing it twice.",
+    "A CI runner story. iOS needs macOS and Android does not, so an Android job is actually the easier half and could run on the existing Linux runners.",
+    "Distribution: an .apk can be installed directly, so the TrollStore and entitlements machinery has no Android counterpart and none is needed."
+  ],
+  "carry_over_from_this_task": "The input contract Stage 1 establishes applies verbatim on Android, and the trap is the same one. apply_gamepad takes the W3C standard gamepad order (0 B, 1 A, 2 Y, 3 X, 4 L, 5 R, 6 L2, 7 R2, 8 Select, 9 Start, 10 L3, 11 R3, 12 Up, 13 Down, 14 Left, 15 Right) and NOT libretro's joypad order, it replaces the gamepad source layer wholesale so it must be pushed every frame, and the per-system button mappings read from the upstream cores (Mega Drive A B C are retro Y B A; Master System and Game Gear 1 and 2 are retro B and A; PS1 Cross Circle Square Triangle are retro B A Y X) are properties of the cores, not of iOS. A Kotlin front end should port native/ios/TouchControls.swift's PadSlot table and D-pad surface maths rather than re-deriving either.",
+  "blocked_reason": null,
+  "findings": "Recorded, not planned in detail and not built, because the user was explicit that it comes after the iOS work and that iOS is what they will update most. No Stage 1 decision was changed for it. The one thing worth acting on early is negative: do not let an eventual Android target become an argument for keeping web/ alive, because the PWA is scaffolding and a Kotlin shell over the same Rust engine is a different thing entirely."
+}

@@ -81,9 +81,19 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+    # EVERY SWIFT FILE THE APP NEEDS MUST BE LISTED HERE, BY NAME. This list is explicit, not a
+    # directory glob, so a new file that is not added below is simply never compiled: the app
+    # builds, installs and launches, and the feature in that file does not exist, with no error
+    # anywhere to read. Adding a file to native/ios/ and forgetting this line is therefore a silent
+    # failure, which is the worst kind on a build whose only debugger is the on-screen HUD.
     sources:
       - path: ContinuumApp.swift
       - path: MetalCanvas.swift
+      # The on-screen pad: the engine's button wire format, the per-system control sets, and the
+      # multi-touch surface that tracks the D-pad as one region so diagonals resolve.
+      - path: TouchControls.swift
+      # The player screen's chrome, and the diagnostics panel both screens share.
+      - path: PlayerScreen.swift
       # The UniFFI-generated Swift facade. Written by build-engine.sh, never committed: a
       # stale checked-in binding that disagrees with the Rust compiles, links, and then
       # corrupts arguments at runtime, which is the worst failure mode in this stack.

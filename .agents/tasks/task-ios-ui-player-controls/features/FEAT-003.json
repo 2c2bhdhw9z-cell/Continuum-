@@ -1,0 +1,37 @@
+{
+  "id": "FEAT-003",
+  "type": "feature",
+  "stage": "Stage 2 - PLAN ONLY, do not build in this task",
+  "description": "The Netflix-style library shell: the screen the app opens into, replacing the monospace debug HUD over a plain List. Design reference is docs/library-mobile.png and docs/mobile-after.png, specified in .kiro/steering/product-scope.md. Dark full-bleed shell, a featured hero with full-bleed art, horizontal shelves of cover-art cards each with a small system badge, a bottom tab bar (Home, All Games, Favorites, Settings), search, and a thin status strip.",
+  "status": "planned",
+  "steps": [
+    "Build the shell as a TabView with four tabs (Home, All Games, Favorites, Settings), active tab in red, on a dark full-bleed background. Keep the ONE MetalCanvasView mounted beneath the whole shell exactly as Stage 1 leaves it: the library covers it opaquely and the player reveals it. Do not start unmounting and remounting the canvas to get a navigation animation, because that tears down the layer the engine attached to.",
+    "Top bar: the logo tile, a search field reading 'Search N titles...' with N from host.library.count, an import (+) button wired to the EXISTING presentImportPicker() and nothing else, and a small status indicator whose colour reflects the last status line. The import path is device-verified and must not be reimplemented or wrapped.",
+    "Featured hero: full-bleed cover art behind a FEATURED label, the title at large weight, a metadata line in the established shape ('NES - USA - 24.0 KB - Imported' style, built from the existing LibraryEntry.detail and the cue-summing sizeText, which already reports a game's real total size), a short description, then a filled red Play pill and a grey More info pill. Play calls the existing launch(entry:). Choose the hero deterministically (most recently imported, or most recently played once play counts exist) so it does not shuffle on every rescan.",
+    "Horizontal shelves: each with a title and a count, holding cover-art cards. Cards carry a small system badge in the top-left drawn from the GameSystem badge string Stage 1 already added to CoreCatalog. Shelves to start with: Recently added, then one shelf per system that has games, which is honest grouping that needs no metadata the app does not have.",
+    "Card art comes from FEAT-004. A card must render immediately on its procedural plate and let real art fade in, so the library never waits on the network.",
+    "Search filters by filename, which is the only text the app reliably has. Do not invent a title parser that strips regions and dump tags for display: LibraryEntry.name is deliberately the filename exactly as it sits on disk, because two dumps of the same game have to be distinguishable.",
+    "All Games is the full grid or list, and is where delete lives. Keep the existing deleteEntries(at:) including its note that .bin tracks a deleted .cue named are still on disk, because guessing which tracks to delete can destroy a track another game needs.",
+    "Thin status strip above the tab bar showing host.status, always visible, with the full diagnostic block one tap away, exactly as Stage 1 establishes. The status line is the only debugger on a sideloaded build and it does not get traded for a tidier library.",
+    "A long-press or a More info tap opens a detail sheet (docs/shot-detail.png, docs/detail-artwork.png): the entry's detail and cueNotes, which already name the commonest import mistake of bringing the .cue without its .bin, the resolved core id from the one routing table, artwork actions, and delete.",
+    "PRESERVE, all of it, untouched: the picker configuration and its delegate lifetime machinery, filenames preserved on import with no rename on collision, the flat copy into Documents, no security-scoped URLs on the launch path, engine.coreState as the only residency truth, ensureCoreLoaded after stopSession, the single routing table and the launchableExtensions derivation, the cue-summing sizeText, LibraryEntry identity on absolute path, and the single engine.launch call site.",
+    "Empty state: keep the existing guidance text verbatim in substance. It names the accepted extensions from the one table, explains selecting a .cue with every .bin track, and mentions the Files app fallback that UIFileSharingEnabled already provides. On this device there is nothing else to tell the user what to do next."
+  ],
+  "acceptance_criteria": [
+    "The app opens into the library shell, not into a debug HUD.",
+    "Hero, shelves, cards with system badges, search, bottom tab bar and thin status strip all match the reference screenshots in structure.",
+    "Import still goes through the existing presentImportPicker() with its retained delegate, and a .cue plus its .bin tracks in one selection still works.",
+    "Every existing diagnostic string is still reachable.",
+    "LibraryEntry identity is still the absolute path, so rows keep identity across the rescan after every import and delete.",
+    "The library never blocks on artwork.",
+    "Exactly one MetalCanvasView is still mounted for the app's lifetime, and exactly one engine.launch call site remains."
+  ],
+  "verification": [
+    "swiftc -frontend -parse on every Swift file under native/ios/, plus a by-eye review of layout at both orientations and of every EngineHost touch for @MainActor isolation.",
+    "project.yml lists every new Swift file under targets.Continuum.sources and still parses.",
+    "cargo test still 74 passing if no Rust is touched.",
+    "On device: import a .cue with its .bin, confirm the hero and shelves populate, confirm search, confirm delete, confirm the status strip and the diagnostics toggle."
+  ],
+  "blocked_reason": null,
+  "findings": "Not implemented in this task, by scope. Stage 1 deliberately leaves three things in place that this feature needs: the GameSystem dimension on CoreCatalog's single routing table (for badges and per-system shelves), the activeEntry-driven split between a library screen and a player screen (so a new shell slots in without touching the player), and the diagnostics toggle pattern (so the status strip and the full block already have somewhere to live)."
+}
