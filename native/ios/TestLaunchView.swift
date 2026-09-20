@@ -190,10 +190,10 @@ final class TestEngineHost: ObservableObject {
         }
     }
     
-    /// Creates a minimal valid NES ROM (16 bytes iNES header + 16KB PRG + 8KB CHR)
+    /// Creates a minimal valid NES ROM with proper reset vector
     private func createMinimalNESROM() -> Data {
         var rom = Data()
-        
+
         // iNES header (16 bytes)
         rom.append(contentsOf: [
             0x4E, 0x45, 0x53, 0x1A,  // "NES" + EOF
@@ -204,13 +204,35 @@ final class TestEngineHost: ObservableObject {
             0x00, 0x00, 0x00, 0x00,  // Padding
             0x00, 0x00, 0x00, 0x00
         ])
-        
-        // 16KB PRG ROM (program code) - fill with zeros
-        rom.append(Data(count: 16384))
-        
-        // 8KB CHR ROM (graphics) - fill with zeros
-        rom.append(Data(count: 8192))
-        
+
+        // 16KB PRG ROM with valid reset vector
+        var prg = Data(count: 16384)
+
+        // Write a simple infinite loop at $C000
+        // LDA #$00 / STA $2001 / JMP $C000
+        prg[0x0000] = 0xA9  // LDA immediate
+        prg[0x0001] = 0x00  // #$00
+        prg[0x0002] = 0x8D  // STA absolute
+        prg[0x0003] = 0x01  // $2001 (PPU mask register)
+        prg[0x0004] = 0x20
+        prg[0x0005] = 0x4C  // JMP absolute
+        prg[0x0006] = 0x00  // $C000
+        prg[0x0007] = 0xC0
+
+        // Set reset vector at $FFFC-$FFFD to point to $C000
+        prg[0x3FFC] = 0x00  // Low byte of $C000
+        prg[0x3FFD] = 0xC0  // High byte of $C000
+
+        rom.append(prg)
+
+        // 8KB CHR ROM (graphics)
+        var chr = Data(count: 8192)
+        // Add a simple pattern so it's not all zeros
+        for i in 0..<256 {
+            chr[i] = UInt8(i % 256)
+        }
+        rom.append(chr)
+
         return rom
     }
 }
