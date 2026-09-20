@@ -29,26 +29,33 @@ fi
 
 cd "$WORK/libretro-fceumm"
 
-# Extract source files from Makefile.common
+# Extract source files from Makefile.common using the proven web build approach
 echo "==> Reading source files from Makefile.common"
-echo "CORE_DIR := src" > /tmp/fceumm_vars.mk
-cat Makefile.common >> /tmp/fceumm_vars.mk
-SOURCES_C=$(make -f /tmp/fceumm_vars.mk --no-print-directory -s -p 2>/dev/null | grep "^SOURCES_C\s*=" | sed 's/^SOURCES_C\s*=\s*//')
+cat > "$WORK/list-fceumm.mk" <<'EOF'
+CORE_DIR := src
+include Makefile.common
+print:
+	@echo $(SOURCES_C)
+EOF
 
-# Convert to array
-SOURCES=()
-for src in $SOURCES_C; do
-  SOURCES+=("$src")
-done
+SOURCES_C=$(make -f "$WORK/list-fceumm.mk" print 2>/dev/null)
 
-echo "==> Found ${#SOURCES[@]} source files"
+if [ -z "$SOURCES_C" ]; then
+  echo "error: could not extract SOURCES_C from Makefile.common" >&2
+  exit 1
+fi
+
+echo "==> Found $(echo $SOURCES_C | wc -w) source files"
 
 # Compiler flags
 CFLAGS=(
   "-target" "$TARGET"
   "-mios-version-min=$MIN_IOS_VERSION"
   "-O2"
+  "-DNDEBUG"
   "-fPIC"
+  "-fno-strict-aliasing"
+  "-Wno-everything"
   "-DHAVE_ASPRINTF"
   "-DHAVE_STDINT_H"
   "-D__LIBRETRO__"
@@ -65,15 +72,23 @@ CFLAGS=(
 
 # Compile all sources
 OBJECTS=()
-mkdir -p build
-echo "==> Compiling ${#SOURCES[@]} source files"
-for src in "${SOURCES[@]}"; do
-  obj="build/$(basename "$src" .c).o"
+mkdir -p "$WORK/obj-fceumm"
+echo "==> Compiling source files"
 
+for src in $SOURCES_C; do
+  obj="$(echo "$src" | tr '/' '_').o"
   echo "    $src"
-  clang -c "${CFLAGS[@]}" "$src" -o "$obj"
-  OBJECTS+=("$obj")
+  clang -c "${CFLAGS[@]}" "$src" -o "$WORK/obj-fceumm/$obj"
+  OBJECTS+=("$WORK/obj-fceumm/$obj")
 done
+
+BUILT=${#OBJECTS[@]}
+echo "==> Compiled $BUILT objects"
+
+if [ "$BUILT" -eq 0 ]; then
+  echo "error: no objects were produced" >&2
+  exit 1
+fi
 
 # Link into dylib
 DYLIB="$OUT/libretro_fceumm.dylib"
