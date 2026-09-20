@@ -337,7 +337,15 @@ struct LibraryEntry: Identifiable, Hashable, Sendable {
             return String(format: "%.1f MB", megabytes)
         }
         let kilobytes = Double(byteCount) / 1024.0
-        return String(format: "%.0f KB", kilobytes)
+        if kilobytes >= 1.0 {
+            return String(format: "%.0f KB", kilobytes)
+        }
+        // A PlayStation .cue is a text file of well under a kilobyte, 87 bytes being typical,
+        // and rounding that to "0 KB" reads as an empty or broken import when the file is fine
+        // and the game plays. The tracks it names hold the actual game data and are deliberately
+        // not listed, so this row is the only place a size appears for a CD game. Report the
+        // real byte count rather than a rounded zero.
+        return "\(byteCount) bytes"
     }
 
     /// The secondary row line, built as a `String` so `Text` takes its verbatim initialiser.
