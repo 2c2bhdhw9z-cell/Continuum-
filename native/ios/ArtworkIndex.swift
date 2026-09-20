@@ -237,16 +237,37 @@ enum ArtworkIndexNames {
         guard shorter.count >= 2 else { return false }
         guard shorter.joined(separator: " ").count >= 8 else { return false }
 
+        // WHERE the residue sits is the whole basis of guards 3 and 4, and the first version of this
+        // function ignored it. A sequel number goes at the END of a title ("Sonic Drift 2"), so a
+        // trailing residue of bare numbers is the dangerous case those guards exist for. A LEADING
+        // run of digits is something else entirely: a catalogue index from a numbered ROM set, as in
+        // "1190 - Super Mario Advance 4 - Super Mario Bros 3 (E) (Menace)", whose cover the server
+        // files as "Super Mario Advance 4 - Super Mario Bros. 3 (Europe) (En,Fr,De,Es,It).png". The
+        // server title is a suffix of the file's, leaving "1190" at the front, and guards 3 and 4
+        // both refused it, so a real cover was reported as a genuine miss.
         let residue: [String]
+        let residueIsLeading: Bool
         if Array(longer.prefix(shorter.count)) == shorter {
             residue = Array(longer.dropFirst(shorter.count))
+            residueIsLeading = false
         } else if Array(longer.suffix(shorter.count)) == shorter {
             residue = Array(longer.dropLast(shorter.count))
+            residueIsLeading = true
         } else {
             return false
         }
 
         guard let first = residue.first, let last = residue.last else { return false }
+
+        // A leading residue of nothing but DIGITS is a catalogue index, so it aligns. Digits only,
+        // not `isSequenceMarker`: a roman numeral at the front of a title is not a set number, and
+        // widening this to cover one would start matching sequels from the wrong end. The guards on
+        // the shorter side still apply, so the matched title is still at least two words and eight
+        // characters, and a match still has to be unique before anything is auto-picked.
+        if residueIsLeading, residue.allSatisfy({ $0.allSatisfy(\.isNumber) }) {
+            return true
+        }
+
         guard residue.contains(where: { !isSequenceMarker($0) }) else { return false }
         guard !isSequenceMarker(first), !isSequenceMarker(last) else { return false }
         return true
