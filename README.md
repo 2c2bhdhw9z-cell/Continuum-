@@ -213,9 +213,9 @@ The deep technical material lives in these documents, deliberately, so this page
 - [docs/SET_HW_RENDER_DESIGN.md](docs/SET_HW_RENDER_DESIGN.md) is the graphics design for
   hardware-rendered cores, which is what N64 and everything above it will need.
 - [.kiro/steering/product-scope.md](.kiro/steering/product-scope.md) states the scope in one
-  place: the `.ipa` is the only deliverable, there will be no web target, Android is a planned
-  third facade over the same engine, and the deleted browser UI's screenshots remain the design
-  reference for the iOS UI.
+  place: the `.ipa` is the only deliverable, there will be no web target, Android is the one other
+  planned facade over the same engine, the Switch is a system to emulate and not a device to run
+  on, and the deleted browser UI's screenshots remain the design reference for the iOS UI.
 - [CLAUDE.md](CLAUDE.md) holds the working conventions for agents in this repository.
 
 The quick checks that run anywhere, including on Linux:
