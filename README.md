@@ -190,8 +190,13 @@ job finished, and **it has now been deleted**, along with the workflow that publ
 If you see this project described as a PWA or a web app anywhere in the older documents, that is
 history, not the plan. The `.ipa` is the only thing that ships.
 
-An Android `.apk` is planned once the iPhone app is finished. It will be the same Rust engine
-with an Android shell on top, not a web page in a wrapper.
+After the iPhone app, the next platform to run Continuum on is the **Nintendo Switch**, and that is
+a genuine attempt rather than a promise. `native/switch-wrapper/` already holds a frame gate, a
+Vulkan stub renderer and a test harness; what it does not yet have is the Rust engine behind it.
+
+An Android `.apk` comes after that, and is a long way off. Both are the same Rust engine with a
+different shell on top, not a web page in a wrapper, which is why the order costs little: audio,
+input, timing, rewind, save states, cheats and the compositor all live in the engine.
 
 ## For developers and AI agents
 

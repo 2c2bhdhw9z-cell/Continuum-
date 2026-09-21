@@ -71,7 +71,8 @@ Broken out rather than left as one row, because "untested" hides how much of it 
 | Save state compatibility refusal | **Built, cannot be tested deliberately** | Only fires for a state from a different core or build |
 | Core setting overrides | **Done** | The host refuses a core's requests for its settings, so every core keeps its own defaults. Two DS settings had to be answered because they do not start at the default they advertise; everything else, for every core, is still refused |
 | Multi-screen compositor | **Done, unused** | Draws N regions of one texture to N places. Nothing selects more than one yet: it exists for rearranging the DS screens and for hardware-rendered cores |
-| Android `.apk` | **Not started** | Recorded as FEAT-007, explicitly after iOS. Everything new goes in the Rust engine so Android inherits it |
+| Nintendo Switch | **Partial** | The NEXT platform after the iPhone app. `native/switch-wrapper/` is a working frame gate and a Vulkan stub with no engine behind it yet. See Platform order below |
+| Android `.apk` | **Not started** | Far future, after the Switch. Everything new goes in the Rust engine, so Android inherits it whenever it is picked up |
 
 ---
 
@@ -137,10 +138,29 @@ paraLLEl-RDP is Vulkan compute and has no GL equivalent.
 
 ---
 
+## Platform order
+
+Which devices Continuum itself runs on, in the order they are being done. Not to be confused with
+the systems it emulates, which is the table at the top.
+
+| Order | Platform | State |
+| --- | --- | --- |
+| 1 | **iPhone (`.ipa`)** | The one being built. Everything above refers to this. |
+| 2 | **Nintendo Switch** | Next, and a genuine attempt rather than a promise. `native/switch-wrapper/` already holds a frame gate, a Vulkan stub renderer and a test harness; what it does not have is the Rust engine wired in behind it. |
+| 3 | Android (`.apk`) | A long way off. Deliberately last. |
+
+The reason this order costs little: every feature is built in the Rust engine rather than in Swift
+wherever there is a choice. Audio, input, timing, rewind, save states, cheats and the compositor are
+all engine-side, so a new platform needs a shell and a screen, not a rewrite. The iPhone app is the
+shell that exists today.
+
+---
+
 ## Deliberately deferred
 
 Not forgotten, and not bugs:
 
 - iOS deployment target stays at 16 rather than 18, and Swift stays at language mode 5.
 - Per-orientation control layouts.
-- PSP, 3DS and Switch. `native/switch-wrapper/` is a working frame gate with no engine behind it.
+- PSP and 3DS as emulated systems. The Switch is NOT in this list; it is the next platform to run
+  Continuum ON. See Platform order.

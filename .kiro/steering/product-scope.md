@@ -23,11 +23,23 @@ Rules that follow, and they are not negotiable:
 - "Done" for this project means: the `.ipa` plays every supported system, and the only
   remaining work is steady updates for users of that `.ipa`.
 
+## The platform order is iPhone, then Switch, then Android
+
+Stated by the owner, and it corrects an earlier reading of this file that put Android second:
+
+1. **iPhone (`.ipa`)** — the only deliverable today.
+2. **Nintendo Switch** — the next platform, and a genuine attempt. `native/switch-wrapper/`
+   already holds the frame gate, a Vulkan stub renderer and a test harness; the missing piece is
+   the Rust engine behind it.
+3. **Android (`.apk`)** — "WAY down the line", in the owner's words. Last, deliberately.
+
+Do not reorder these, and do not treat Android as imminent when planning work.
+
 ## Android is a real future deliverable, and it is not a PWA
 
-An Android `.apk` is planned **after** iOS is complete. It is a third facade over the same
-Rust engine, reached through UniFFI's Kotlin bindings, in the same way `uniffi_api.rs` serves
-Swift. It is emphatically not a web wrapper.
+An Android `.apk` is planned **after the Switch**, which is after iOS. It is a further facade over
+the same Rust engine, reached through UniFFI's Kotlin bindings, in the same way `uniffi_api.rs`
+serves Swift. It is emphatically not a web wrapper.
 
 The owner's own device is an iPhone, so the `.ipa` is updated often and the `.apk` will be
 updated occasionally. Anything added to the engine should therefore stay platform-neutral:
@@ -109,12 +121,17 @@ The replacement, when it is written, must be native:
 
 ## Systems
 
-Shipping in the `.ipa` today, five cores, nine systems: NES (fceumm), SNES (snes9x),
-GBA/GB/GBC (mgba), Genesis/Master System/Game Gear (genesis_plus_gx), PS1 (pcsx_rearmed).
+Shipping in the `.ipa` today, six cores, ten systems: NES (fceumm), SNES (snes9x),
+GBA/GB/GBC (mgba), Genesis/Master System/Game Gear (genesis_plus_gx), PS1 (pcsx_rearmed),
+DS (melonDS, software rendered, so it needed none of the hardware-renderer work).
 
-Still ahead, hardest last: N64 (needs MoltenVK and the injected-Vulkan-context path), PSP, DS,
-3DS, Switch. `native/switch-wrapper/` is a working inversion-of-control frame gate with no
-engine behind it yet.
+Still ahead as emulated systems, hardest last: N64 (needs MoltenVK and the injected-Vulkan-context
+path), PSP, 3DS.
+
+**Running Continuum ON a Switch is a different axis and belongs to the platform order above, not
+here.** `native/switch-wrapper/` is a libretro core wrapper, so that route is Continuum hosted
+inside RetroArch on the device; it is a working inversion-of-control frame gate with no engine
+behind it yet. Emulating Switch GAMES is not on any list.
 
 Architectural invariants (one MTLDevice owned by Rust and read back by Swift,
 `engine.coreState` as the only source of truth for core residency, import-and-copy into
