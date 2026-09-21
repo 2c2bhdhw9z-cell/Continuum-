@@ -114,6 +114,9 @@ struct PlayerScreen: View {
                 TouchControlsHost(
                     system: system,
                     layout: host.touchLayout,
+                    // The same number `RootView` positions the canvas with, so the pad can work out
+                    // where the picture actually is and put the DS touch screen exactly on it.
+                    pictureAspect: host.activePictureAspect,
                     input: host.padInput,
                     onDiagnostic: { line in host.noteControlLayout(line) },
                     onPictureArea: { rect in host.updatePictureArea(rect) }

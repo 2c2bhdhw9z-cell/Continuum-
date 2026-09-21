@@ -240,6 +240,16 @@ final class MetalCanvas: UIView {
         if let gamepadSource {
             let pad = gamepadSource()
             engine.applyGamepadFrom(port: 0, source: .touch, buttons: pad.buttons, axes: pad.axes)
+            // The stylus rides the same frame as the buttons, on the same layer, because on a DS a
+            // tap and a button press are frequently one action and splitting them across two ticks
+            // would be a frame of skew between halves of the same input. Pushed unconditionally
+            // rather than only while pressed, so the release is delivered too: a stroke that ended
+            // must be seen to end, or the DS goes on believing the screen is held.
+            engine.applyPointer(port: 0,
+                                source: .touch,
+                                x: Float(pad.pointer.x),
+                                y: Float(pad.pointer.y),
+                                pressed: pad.pointerPressed)
         }
         if let controllerSource {
             for pad in controllerSource() {

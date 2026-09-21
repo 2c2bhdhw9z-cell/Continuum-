@@ -81,11 +81,30 @@ struct PadFrame: Sendable, Equatable {
     let buttons: [Bool]
     let axes: [Float]
 
+    /// Where the stylus is, as a fraction of the WHOLE framebuffer with the origin top left, and
+    /// whether it is down. See `EmulatorBridge.applyPointer` for why fractions and not pixels.
+    ///
+    /// Carried in the pad frame rather than pushed from the touch handler, for the reason
+    /// `MetalCanvas.gamepadSource` exists: the tick holds the engine's mutex for its whole
+    /// duration, so every engine call belongs inside it and the touch handlers only ever write to
+    /// this box. It also means a stroke and the buttons pressed during it land in the same frame,
+    /// which matters for a game where a tap and a button are one action.
+    ///
+    /// `(0, 0)` while nothing has been touched. Harmless because `pointerPressed` is false, and
+    /// the engine remembers the last position rather than reading this one.
+    let pointer: CGPoint
+    let pointerPressed: Bool
+
     /// Nothing held. What is pushed when no game is running, so a button cannot survive a
     /// session ending while a finger was down.
+    ///
+    /// Note that this also lifts the stylus, which is the same guarantee for the same reason: a
+    /// session that ended mid-stroke must not leave the DS believing the screen is still held.
     static let released = PadFrame(pressed: [])
 
-    init(pressed: Set<PadSlot>) {
+    init(pressed: Set<PadSlot>, pointer: CGPoint = .zero, pointerPressed: Bool = false) {
+        self.pointer = pointer
+        self.pointerPressed = pointerPressed
         var slots = [Bool](repeating: false, count: PadSlot.arrayLength)
         for slot in pressed {
             slots[slot.rawValue] = true
@@ -185,6 +204,29 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .genesis: return "MD"
         case .ps1: return "PS1"
         case .ds: return "DS"
+        }
+    }
+
+    /// Which part of the framebuffer is a touch screen, as a fraction of it with the origin top
+    /// left, or nil for a system that has none.
+    ///
+    /// Expressed against the framebuffer rather than against the display because that is the one
+    /// description that survives rotation, the aspect setting and every layout the pad can take:
+    /// wherever the picture ends up being drawn, the touch screen is still the same part of it.
+    ///
+    /// The DS framebuffer is both screens stacked, top over bottom, so its touch screen is the
+    /// LOWER HALF and nothing above y = 0.5 responds. That is not a simplification of the
+    /// hardware, it is the hardware: only the bottom screen was ever a digitiser.
+    ///
+    /// Every other system returns nil, and that is what keeps this whole feature off their pads.
+    /// Listed case by case rather than defaulted, so adding a system is a compile error here
+    /// instead of a touch screen that silently does nothing.
+    var touchScreen: CGRect? {
+        switch self {
+        case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1:
+            return nil
+        case .ds:
+            return CGRect(x: 0, y: 0.5, width: 1, height: 0.5)
         }
     }
 
@@ -799,6 +841,20 @@ final class TouchControlsView: UIView {
         }
     }
 
+    /// The running game's display aspect ratio, when one is known.
+    ///
+    /// Needed only so this view can work out where inside the free area the picture is actually
+    /// drawn, which is where a touch screen has to be. It is passed in from the same
+    /// `EngineHost.activePictureAspect` that `RootView` positions the canvas with, rather than
+    /// derived here from the system, because two routes to that number would eventually disagree
+    /// and the symptom would be a stylus offset from the finger by the difference.
+    var pictureAspect: CGFloat? {
+        didSet {
+            guard pictureAspect != oldValue else { return }
+            setNeedsLayout()
+        }
+    }
+
     /// True while the layout editor owns this pad.
     ///
     /// The mode swap is total rather than additive: an editing pad sends NOTHING to the engine and
@@ -863,6 +919,13 @@ final class TouchControlsView: UIView {
     private enum Grab {
         case dpad(CGPoint)
         case chip(Int)
+        /// A finger on the emulated touch screen, carrying the point in this view's coordinates.
+        ///
+        /// Tracked on move like the D-pad and unlike a chip, because a stylus that did not follow
+        /// the finger would make every DS game that asks you to draw, drag or slide unplayable.
+        /// Deliberately NOT sticky: a finger that leaves the touch screen lifts the stylus, because
+        /// sliding off the digitiser is a release on the hardware too.
+        case pointer(CGPoint)
     }
 
     /// Keyed on `UITouch` identity, which is stable across began, moved, ended and cancelled and
@@ -937,6 +1000,17 @@ final class TouchControlsView: UIView {
 
     /// The last picture area published, so an unchanged layout does not resize the surface.
     private var lastPictureArea: CGRect?
+
+    /// Where the touch screen is on the glass, in this view's coordinates, or nil when the running
+    /// system has none or the picture has not been laid out yet.
+    ///
+    /// Recomputed on every layout pass rather than on demand, because a touch has to be answered
+    /// from whatever the last layout decided and a rotation must not leave a stale rect behind.
+    private var touchScreenRect: CGRect?
+
+    /// The last place the stylus was, as a framebuffer fraction, so a released frame reports where
+    /// the finger lifted instead of the top-left corner.
+    private var lastPointerFraction: CGPoint = .zero
 
     // ------------------------------------------------------------------ life cycle
 
@@ -1282,7 +1356,36 @@ final class TouchControlsView: UIView {
                               width: bounds.width, height: height)
             }
         }
+        updateTouchScreenRect(in: area)
         deliverPictureArea(area)
+    }
+
+    /// Works out where on the glass the emulated touch screen landed.
+    ///
+    /// Two steps, and the first is the one that is easy to get wrong: the picture does not fill the
+    /// free area, it is letterboxed inside it by `PictureFit` exactly as `RootView` draws it. So the
+    /// fitted rect has to be reproduced here before the system's framebuffer fraction can be
+    /// applied to it. Mapping the fraction onto the free area instead would put the stylus wherever
+    /// the letterbox happened to be thick, which is a miss that grows with the mismatch between the
+    /// screen's shape and the game's.
+    private func updateTouchScreenRect(in area: CGRect) {
+        guard let fraction = system.touchScreen else {
+            touchScreenRect = nil
+            return
+        }
+        // Without a known aspect the free area is the honest best guess, and it is what the canvas
+        // is drawn into in that case too, so the two still agree.
+        let picture = pictureAspect.map { PictureFit.rect(aspect: $0, in: area) } ?? area
+        guard picture.width >= 1, picture.height >= 1 else {
+            touchScreenRect = nil
+            return
+        }
+        touchScreenRect = CGRect(
+            x: picture.minX + fraction.minX * picture.width,
+            y: picture.minY + fraction.minY * picture.height,
+            width: fraction.width * picture.width,
+            height: fraction.height * picture.height
+        )
     }
 
     private func deliverPictureArea(_ area: CGRect) {
@@ -1498,7 +1601,22 @@ final class TouchControlsView: UIView {
         if dpadRect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
             return true
         }
-        return chipIndex(at: point) != nil
+        if chipIndex(at: point) != nil {
+            return true
+        }
+        // The emulated touch screen, on the systems that have one. No hit slop: this is a region
+        // rather than a control, its edge is the edge of the digitiser, and growing it would put
+        // the stylus outside the screen it belongs to.
+        //
+        // Claiming this area is safe for the chrome because the DS touch screen is the LOWER half
+        // of the picture and the player's buttons are all in a bar along the top. It is the reason
+        // `touchScreen` describes half a framebuffer instead of all of one: claiming the whole
+        // picture would reach the back button, and a game you cannot leave is worse than a game
+        // whose top screen ignores taps it should ignore anyway.
+        if let touchScreenRect, touchScreenRect.contains(point) {
+            return true
+        }
+        return false
     }
 
     /// Which group a point would drag, if any.
@@ -1570,6 +1688,11 @@ final class TouchControlsView: UIView {
                 grabs[ObjectIdentifier(touch)] = .dpad(touch.location(in: dpad))
             } else if let index = chipIndex(at: point) {
                 grabs[ObjectIdentifier(touch)] = .chip(index)
+            } else if let touchScreenRect, touchScreenRect.contains(point) {
+                // Tested last, so a control that happens to sit over the picture still wins. The
+                // layout keeps them apart, but the order costs nothing and means a future layout
+                // that does overlap degrades into a working button rather than a dead one.
+                grabs[ObjectIdentifier(touch)] = .pointer(point)
             }
         }
         recompute()
@@ -1583,10 +1706,25 @@ final class TouchControlsView: UIView {
         var changed = false
         for touch in touches {
             let key = ObjectIdentifier(touch)
-            // Only a D-pad grab tracks movement. A chip grab is sticky by design: see `Grab`.
-            if case .dpad = grabs[key] {
+            guard let grab = grabs[key] else { continue }
+            // A D-pad and a stylus grab track movement. A chip grab is sticky by design: see `Grab`.
+            switch grab {
+            case .dpad:
                 grabs[key] = .dpad(touch.location(in: dpad))
                 changed = true
+            case .pointer:
+                let point = touch.location(in: self)
+                if let touchScreenRect, touchScreenRect.contains(point) {
+                    grabs[key] = .pointer(point)
+                } else {
+                    // Slid off the digitiser, which is a release. The grab is dropped rather than
+                    // clamped to the edge: clamping would hold the stylus against the border for as
+                    // long as the finger stayed down, and a game reads that as a deliberate press.
+                    grabs.removeValue(forKey: key)
+                }
+                changed = true
+            case .chip:
+                break
             }
         }
         if changed {
@@ -1716,6 +1854,8 @@ final class TouchControlsView: UIView {
         var left = false
         var right = false
 
+        var stylus: CGPoint?
+
         for grab in grabs.values {
             switch grab {
             case .chip(let index):
@@ -1730,6 +1870,11 @@ final class TouchControlsView: UIView {
                 down = down || d.down
                 left = left || d.left
                 right = right || d.right
+            case .pointer(let point):
+                // Last finger down wins if two are somehow on the screen at once. The DS digitiser
+                // was resistive and reported ONE position, so there is no honest way to represent
+                // two and averaging them would invent a touch where neither finger is.
+                stylus = point
             }
         }
 
@@ -1738,12 +1883,46 @@ final class TouchControlsView: UIView {
         if left { pressed.insert(.left) }
         if right { pressed.insert(.right) }
 
-        padState = PadFrame(pressed: pressed)
+        // Remembered so a release reports the point the finger lifted from rather than the origin.
+        // The engine keeps the last position too, for the same reason, but the frame it publishes
+        // has to be consistent on its own: a released frame carrying (0, 0) would be a lie about
+        // where the stylus is, even though nothing currently acts on it.
+        if let stylus {
+            lastPointerFraction = pointerFraction(of: stylus)
+        }
+        padState = PadFrame(pressed: pressed,
+                            pointer: lastPointerFraction,
+                            pointerPressed: stylus != nil)
 
         dpad.setDirections(up: up, down: down, left: left, right: right)
         for chip in chips {
             chip.setPressed(pressed.contains(chip.control.slot))
         }
+    }
+
+    /// A point on the glass as a fraction of the WHOLE framebuffer, origin top left.
+    ///
+    /// The inverse of `updateTouchScreenRect`, and it has to stay the inverse: that method placed
+    /// the system's framebuffer fraction onto the picture, so this one maps back through the same
+    /// fraction. For the DS that means a finger at the very top of the touch screen comes out at
+    /// y = 0.5 rather than y = 0, because the top half of that framebuffer is the OTHER screen.
+    /// Reporting 0 there would put every touch on the wrong screen, and the core would discard it.
+    ///
+    /// Clamped, because a finger can sit a fraction of a point outside the rect it was grabbed in
+    /// and a fraction outside 0...1 is not a place on the framebuffer.
+    private func pointerFraction(of point: CGPoint) -> CGPoint {
+        guard let rect = touchScreenRect,
+              let fraction = system.touchScreen,
+              rect.width >= 1, rect.height >= 1 else { return lastPointerFraction }
+
+        let withinX = Self.unitClamped((point.x - rect.minX) / rect.width)
+        let withinY = Self.unitClamped((point.y - rect.minY) / rect.height)
+        return CGPoint(x: fraction.minX + withinX * fraction.width,
+                       y: fraction.minY + withinY * fraction.height)
+    }
+
+    private static func unitClamped(_ value: CGFloat) -> CGFloat {
+        min(max(value, 0), 1)
     }
 
     /// Which directions a touch at this point means.
@@ -1789,6 +1968,9 @@ final class TouchControlsView: UIView {
 struct TouchControlsHost: UIViewRepresentable {
     let system: GameSystem
     let layout: TouchLayout
+    /// The running game's display aspect, so the pad can find the picture inside the area it
+    /// reserved and put the emulated touch screen on it. See `TouchControlsView.pictureAspect`.
+    let pictureAspect: CGFloat?
     /// The box `MetalCanvas` reads through. Held by the caller, so it survives this view being
     /// rebuilt, and pointed at the live view here.
     let input: PadInputSource
@@ -1818,6 +2000,7 @@ struct TouchControlsHost: UIViewRepresentable {
     /// a reader will look for it.
     init(system: GameSystem,
          layout: TouchLayout,
+         pictureAspect: CGFloat? = nil,
          input: PadInputSource,
          onDiagnostic: @escaping (String) -> Void,
          onPictureArea: @escaping (CGRect) -> Void,
@@ -1826,6 +2009,7 @@ struct TouchControlsHost: UIViewRepresentable {
          onOverlapState: @escaping (String?) -> Void = { _ in }) {
         self.system = system
         self.layout = layout
+        self.pictureAspect = pictureAspect
         self.input = input
         self.onDiagnostic = onDiagnostic
         self.onPictureArea = onPictureArea
@@ -1836,6 +2020,7 @@ struct TouchControlsHost: UIViewRepresentable {
 
     func makeUIView(context: Context) -> TouchControlsView {
         let view = TouchControlsView(system: system, layout: layout)
+        view.pictureAspect = pictureAspect
         view.onDiagnostic = onDiagnostic
         view.onPictureArea = onPictureArea
         view.onLayoutEdited = onLayoutEdited
@@ -1853,6 +2038,7 @@ struct TouchControlsHost: UIViewRepresentable {
         // which value the opacity is read from, not whether a pass happens.
         view.isEditing = isEditing
         view.layout = layout
+        view.pictureAspect = pictureAspect
         view.onDiagnostic = onDiagnostic
         view.onPictureArea = onPictureArea
         view.onLayoutEdited = onLayoutEdited
