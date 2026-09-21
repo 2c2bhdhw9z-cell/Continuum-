@@ -142,6 +142,16 @@ paraLLEl-RDP is Vulkan compute and has no GL equivalent.
 
 ## Known problems
 
+- **The app would not open, and it was the JIT probe.** Fixed. That probe writes a function into
+  memory and calls it, and it ran at STARTUP. Executing a page the process just wrote is the one
+  thing iOS terminates an app for unless the dynamic-codesigning entitlement is genuinely in force,
+  and whether it is depends on how the copy was signed and installed rather than on the build:
+  TrollStore preserves it, a free developer account does not. So on those installs the app opened
+  and was killed before drawing anything, including the line the probe existed to print. **That
+  silently blocked every on-device test for several builds**, which is also why the JIT line never
+  came back. Startup now only asks whether such a page can be MAPPED, which is a real answer and
+  cannot get the process killed; the half that runs code is a clearly labelled button in Settings.
+
 - ~~**mgba is flaky in CI.**~~ **Diagnosed and fixed.** The archive holds LLVM bitcode, because
   mgba's CMake adds `-flto` unconditionally on Apple through a condition that parses as
   `APPLE OR (GNU AND BUILD_LTO)`, so `-DBUILD_LTO=OFF` could never have turned it off.
