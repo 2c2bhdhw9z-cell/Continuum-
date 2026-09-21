@@ -35,6 +35,15 @@ put behaviour in the Rust engine rather than in Swift wherever there is a choice
 everything in Swift is work that Android will have to pay for a second time. Volume is the
 worked example, applied in `bridge.rs` rather than on the iOS mixer for exactly this reason.
 
+**Shared engine, native look. These are not the same decision and must not be unified.** The
+owner stated it directly about the segmented selectors: iOS gets the glass appearance, a
+recessed groove with a translucent floating thumb, and the flat filled-rectangle style is the
+right one for Android because that is Material Design's language. So a control's BEHAVIOUR
+belongs in the engine or in shared reasoning, while its APPEARANCE is per platform and a
+difference between the two builds is correct rather than drift. `SegmentedChoice` in
+`native/ios/SettingsScreen.swift` carries the long-form note; do not "fix" it into a filled
+block for consistency with a future Android screen.
+
 ## What stays
 
 The Rust engine (`crates/emulator-bridge`) stays, because it **is** the emulator: frame

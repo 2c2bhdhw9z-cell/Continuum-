@@ -892,7 +892,30 @@ struct SettingsButton: View {
 }
 
 
-/// A segmented selector that reliably follows a dragging finger.
+/// A segmented selector that reliably follows a dragging finger, and looks like the system's.
+///
+/// ## Why it is glass and not a block of accent colour
+///
+/// THIS APPEARANCE IS A DELIBERATE MATCH TO THE NATIVE iOS SEGMENTED CONTROL AND SHOULD NOT BE
+/// "TIDIED UP" INTO A FILLED RECTANGLE. The first version of this control drew the selection as
+/// a solid accent-red rectangle, which was flagged on sight: a saturated filled block is
+/// Material Design's language, not the recessed-groove-with-a-floating-thumb that iOS uses, and
+/// on a phone running a version of iOS whose whole design language is translucency it looked
+/// like an Android app. So the track is a dark groove and the thumb is `ultraThinMaterial` with
+/// a hairline specular edge and a small soft shadow.
+///
+/// The material matters more than the colour. It is a real blur of what sits behind it, so it
+/// inherits whatever the running OS does with materials rather than being a grey that had to be
+/// guessed; that is why the thumb is not simply `Color.white.opacity(0.14)`.
+///
+/// The accent colour is used for SELECTION ELSEWHERE in this app, on the tab bar and the Play
+/// pill, and that is not an inconsistency: those are single emphasised actions, where iOS also
+/// uses colour. A segmented control indicates its selection by POSITION and ELEVATION instead,
+/// and borrowing the accent for it was what made it look foreign.
+///
+/// When the Android build arrives, the flat filled style is the correct one THERE, and this note
+/// exists so that it is understood as a per-platform decision rather than a mistake to be
+/// unified. The engine is shared; the look of a selection control is not.
 ///
 /// ## Why this exists instead of `Picker` with `.pickerStyle(.segmented)`
 ///
@@ -951,23 +974,54 @@ struct SegmentedChoice<Option: Hashable>: View {
             let index = options.firstIndex(of: selection) ?? 0
 
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(ShellPalette.surfaceStrong)
+                // The recessed track. Deliberately darker than the card it sits on, because the
+                // whole illusion is a groove with something floating in it, and a track lighter
+                // than its surroundings reads as a raised slab instead.
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.black.opacity(0.28))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.5)
+                    )
 
-                // The highlight is drawn from the selection rather than moved by the gesture, so
-                // there is exactly one source of truth for where it sits. A gesture that moved
-                // it directly could disagree with the value actually stored.
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(ShellPalette.accent)
-                    .padding(3)
+                // The thumb, and this is the part being asked for: glass rather than a painted
+                // block. See the type's note on why it is not the accent colour.
+                //
+                // Drawn from the selection rather than moved by the gesture, so there is exactly
+                // one source of truth for where it sits. A gesture that dragged it directly could
+                // end up disagreeing with the value actually stored.
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    // `ultraThinMaterial` is what makes it glass rather than a grey rectangle: it
+                    // is a real blur of what is behind it, so it picks up the card, the artwork
+                    // and whatever the system is doing with materials on the running OS, instead
+                    // of being a colour that has to be guessed to match.
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        // The specular edge. A single hairline of white at low opacity is what
+                        // reads as a lit top edge on a physical control, and it is the difference
+                        // between "translucent" and "glass".
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.24), lineWidth: 0.5)
+                    )
+                    // Lifts it out of the groove. Small and soft: a heavy shadow here looks like a
+                    // floating card rather than a segment resting in a track.
+                    .shadow(color: Color.black.opacity(0.32), radius: 2.5, x: 0, y: 1)
+                    .padding(2)
                     .frame(width: segment)
                     .offset(x: segment * CGFloat(index))
-                    .animation(.easeOut(duration: 0.12), value: index)
+                    // A spring rather than a fixed curve, so the thumb settles the way the
+                    // system's own does instead of arriving on a timer.
+                    .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.86),
+                               value: index)
 
                 HStack(spacing: 0) {
                     ForEach(options, id: \.self) { option in
                         Text(title(option))
-                            .font(.system(size: 14, weight: .semibold))
+                            // The selected label carries the weight, since the thumb behind it is
+                            // now subtle rather than a block of colour. Without this the selection
+                            // is legible on a bright screen and nearly invisible in sunlight.
+                            .font(.system(size: 14,
+                                          weight: option == selection ? .semibold : .medium))
                             .foregroundStyle(option == selection
                                              ? Color.white
                                              : ShellPalette.secondaryText)
