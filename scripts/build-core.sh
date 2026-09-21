@@ -8,7 +8,7 @@
 #
 # Usage (macOS host only, except where noted):
 #   scripts/build-core.sh ios fceumm       # one core  -> native/ios/build/lib/*.dylib
-#   scripts/build-core.sh ios-all          # all five cores
+#   scripts/build-core.sh ios-all          # every core
 #   scripts/build-core.sh ios-names        # print the canonical dylib filenames, ANY host
 #
 # `ios-names` runs anywhere on purpose. It is the single source of those filenames, and
@@ -41,7 +41,7 @@ WORK="$ROOT/.work"
 #   scripts/build-core.sh fceumm       # WASM, for the web. UNCHANGED.
 #   scripts/build-core.sh all          # WASM, all four web cores. UNCHANGED.
 #   scripts/build-core.sh ios fceumm   # one iOS dylib -> native/ios/build/lib/
-#   scripts/build-core.sh ios-all      # all five iOS cores
+#   scripts/build-core.sh ios-all      # every iOS core
 #   scripts/build-core.sh ios-names    # print the canonical dylib filenames and stop
 #
 # A bare core name already means "build it as WASM for the web", and those spellings are
@@ -89,12 +89,12 @@ WORK="$ROOT/.work"
 #                    for iOS, builds the static mgba_libretro archive, and links the dylib
 #                    itself. See build_ios_cmake_core for why -force_load is load-bearing.
 #
-# Four of the five canonical filenames below are therefore exactly what upstream emits.
+# All but one of the canonical filenames below are therefore exactly what upstream emits.
 # Only mgba's is ours, because only mgba's link is ours.
 
-# The five iOS cores, in build order. Never empty, which matters: macOS ships bash 3.2,
+# The iOS cores, in build order. Never empty, which matters: macOS ships bash 3.2,
 # where an empty array expanded under `set -u` is an error rather than nothing.
-IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed)
+IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed melonds)
 
 # Staged next to libcontinuum_switch.dylib so project.yml's relative `build/lib/...` paths
 # resolve and package-ipa.sh's fallback finds them in $OUT/lib.
@@ -178,6 +178,27 @@ ios_core_config() {
       # lightrec and libchdr, and they are needed recursively.
       IOS_SUBMODULES=1
       IOS_DISPLAY="PS1, interpreter only"
+      ;;
+    melonds)
+      IOS_REPO="https://github.com/libretro/melonDS"
+      IOS_DYLIB_NAME="melonds_libretro_ios.dylib"
+      IOS_KIND="make"
+      IOS_MAKEFILE="Makefile"
+      # NO SUBMODULES, unlike pcsx_rearmed: this core vendors everything it needs.
+      #
+      # AND NO HARDWARE RENDERER, which is the whole reason the DS arrives before the N64
+      # despite the plan in docs/SET_HW_RENDER_DESIGN.md listing it later. That plan put the DS
+      # behind ANGLE because melonDS has an OpenGL renderer, and reading the makefile shows iOS
+      # never gets it: `HAVE_OPENGL := 0` and `HAVE_OPENGLES3 := 0` are the file's defaults, the
+      # unix block is the only one that turns GL on, and the ios block leaves both alone. So this
+      # core emits pixels through the same path the other five already use, and needs none of
+      # MoltenVK, ANGLE or SET_HW_RENDER.
+      #
+      # Its framebuffer is 256x384: BOTH SCREENS, already stacked top over bottom, in one
+      # texture. So the existing single-screen composite draws them correctly with no change at
+      # all; the instanced pass added for step 2 is what will later allow rearranging them, not
+      # what makes them appear.
+      IOS_DISPLAY="Nintendo DS, software renderer"
       ;;
     *)
       return 1
@@ -459,7 +480,7 @@ build_ios_core() {
   esac
 }
 
-# Builds all five, and keeps going after a failure on purpose.
+# Builds them all, and keeps going after a failure on purpose.
 #
 # The macOS runner is the only compiler this project has, so a run that stops at the first
 # broken core costs a whole cycle to learn about the second. Each core is built on its own,

@@ -170,6 +170,7 @@ enum GameSystem: String, Sendable, CaseIterable {
     case gg
     case genesis
     case ps1
+    case ds
 
     /// The short code a library card badges itself with.
     var badge: String {
@@ -183,6 +184,7 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .gg: return "GG"
         case .genesis: return "MD"
         case .ps1: return "PS1"
+        case .ds: return "DS"
         }
     }
 
@@ -197,6 +199,7 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .gg: return "Game Gear"
         case .genesis: return "Mega Drive"
         case .ps1: return "PlayStation"
+        case .ds: return "Nintendo DS"
         }
     }
 
@@ -259,6 +262,25 @@ enum GameSystem: String, Sendable, CaseIterable {
                                     bottom: (.b, "Cross"), left: (.y, "Square"))
                 + Self.shoulders(left: [(.l, "L1"), (.l2, "L2")],
                                  right: [(.r, "R1"), (.r2, "R2")])
+                + Self.selectStart
+
+        case .ds:
+            // The DS diamond is the Super Nintendo's arrangement, not the PlayStation's: A sits on
+            // the RIGHT and B at the BOTTOM, which is Nintendo's layout, so the labels here are the
+            // same slots the SNES uses rather than a rotation of the PS1 set. Getting it wrong
+            // would not look broken, it would look like a game with its buttons swapped, which is
+            // the kind of thing that gets blamed on the core.
+            //
+            // Two shoulders, because the DS has exactly L and R and no triggers.
+            //
+            // THE TOUCH SCREEN IS NOT HERE YET, and it is the one control this system is defined
+            // by. It is a pointer device rather than a button, so it needs the engine's pointer
+            // path and a mapping from a finger on the lower half of the picture to a coordinate
+            // inside the bottom screen. Absent rather than faked: a DS pad with a dead area where
+            // the stylus should go would be worse than one that plainly does not have it yet.
+            return Self.diamondFace(top: (.x, "X"), right: (.a, "A"),
+                                    bottom: (.b, "B"), left: (.y, "Y"))
+                + Self.shoulders(left: [(.l, "L")], right: [(.r, "R")])
                 + Self.selectStart
         }
     }

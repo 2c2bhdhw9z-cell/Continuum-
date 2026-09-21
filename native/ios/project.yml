@@ -201,7 +201,7 @@ targets:
         # of surfacing "libcontinuum_switch.dylib is missing" in the HUD.
         link: false
         codeSign: false
-      # The five real libretro cores. Same shape as the wrapper above and for the same
+      # The real libretro cores. Same shape as the wrapper above and for the same
       # reason: each is dlopened at runtime from Frameworks/ (a real ROM path, need_fullpath
       # for the CD cores) and never linked. `embed` puts them in Frameworks/; package-ipa.sh
       # signs everything in one pass after the fact, so `codeSign: false` keeps Xcode from
@@ -229,6 +229,12 @@ targets:
         link: false
         codeSign: false
       - framework: build/lib/pcsx_rearmed_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      # Nintendo DS. Software renderer, so it needs nothing the other five do not: see the note in
+      # scripts/build-core.sh ios_core_config for why this core arrives before the N64.
+      - framework: build/lib/melonds_libretro_ios.dylib
         embed: true
         link: false
         codeSign: false

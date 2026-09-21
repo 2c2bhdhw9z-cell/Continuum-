@@ -1,10 +1,45 @@
 # What to test, and what to tell me
 
-This is a checklist you can work through on your phone. Do the tests in order. Each one only
-makes sense if the one before it passed.
+This file has two halves and the first one is the one to look at.
 
-For every test there are three parts: what to do, what you should see if it worked, and what to
-send me if it did not.
+**[The queue](#the-queue-what-still-needs-testing)** is the short list of things that have been
+built and never tried on a device. It is meant to be worked through and ticked off, and it is the
+only part that changes often.
+
+**[The regression checklist](#what-is-already-confirmed-working)** is everything that has already
+been confirmed. It is not asking whether the app works any more; it is there so that if a new
+build breaks something that used to work, there is a written record of what "used to work" meant.
+
+---
+
+# The queue: what still needs testing
+
+Nothing in here has been confirmed on a device. Tick a line when it works, or tell me what it did
+instead. **The most useful reply is the exact text from the diagnostics panel**, which is the ⓘ
+button in the player; see [Reading the diagnostic text](#reading-the-diagnostic-text).
+
+| | What to do | What it should do | Why it is in the queue |
+| --- | --- | --- | --- |
+| ☐ **1. The JIT line** | Open a game, tap ⓘ, find the line starting `JIT:` | Say **working with MAP_JIT** or **working WITHOUT MAP_JIT** | **Do this one first, it is the cheapest and it decides whether N64 is possible at all.** The app has claimed the JIT entitlement since the first build and had never once used it. If it says NOT AVAILABLE, three planned pieces of graphics work would be serving a core that could never run |
+| ☐ **2. Save state slots** | Save twice in one game, then open that game's card and load the older one | Both saves listed newest first, and loading either works | Loading used to fail on some games and not others. That was my bug: I refused any state whose length was not exactly what the core reported at that instant, and cores are allowed to change that figure. Now only a state **shorter** than the core needs is refused |
+| ☐ **3. The layout editor** | Settings → Move the on-screen controls. Try to drag a group. Read the **DRAGGING** line | The groups move, and DRAGGING counts up | You have reported this broken three times and I have stopped guessing. **The DRAGGING count is the whole point:** if it never moves, the touches are not reaching the pad. If it counts up while nothing moves, they arrive and the redraw is broken. Those need opposite fixes |
+| ☐ **4. Cover from the game** | In the player, tap **⋯** → Use this frame as the cover | That game's cover becomes the frame you were on | Last time there was no button, because it was hidden behind a long press. A plain tap opens the menu now. Pausing first on a title screen is the best way to use it |
+| ☐ **5. The selectors** | Look at Picture, Fast forward, Rewind in Settings | Rounded pill, like the system's own, not a square block | You told me twice. The first fix changed the material and left the corner radius, so the shape did not change. They are capsules now |
+| ☐ **6. Auto-hide the pad** | Connect a controller, then Settings → Hide the on-screen pad | On-screen pad disappears, picture takes the space | Reported as not working, and nothing is wrong: it cannot act until a controller is attached, and it was tested without one. It now says **On, but waiting** in that state |
+
+### Cannot be tested on purpose
+
+**The save-state compatibility refusal.** It only fires when a state is loaded by a different core,
+or by a different build of the same core, than the one that wrote it. You would have to engineer
+that. It is what stops a state loading "successfully" into a game whose insides are then quietly
+wrong, so it matters, but there is no reasonable way to ask you to trigger it.
+
+### Never tried at all
+
+`.sms` and `.gb` files. Every other extension has been imported and played. See
+[Test 3](#test-3-the-other-cartridge-systems).
+
+---
 
 ## What is already confirmed working
 
@@ -28,10 +63,27 @@ size of the whole game as `CUE · 602.8 MB · pcsx_rearmed`, and the Library rea
 `library: 6 game(s) of 7 file(s) in Documents`, which is correct: the seventh file is that `.bin`
 track, and it is deliberately not a row you can tap.
 
+Everything below has since been confirmed on a device as well, in the order it was built:
+
+| Confirmed | Notes from the person testing it |
+| --- | --- |
+| Sound | Tried on four games |
+| Fast forward | Works, and sound stays clean while it runs |
+| Volume and mute | Works, including during fast forward |
+| Screen fit: Fit, Pixel perfect, Fill | "Changes how it sits" |
+| Scaling: Sharp, Smooth | Works; smooth is blurrier, which is what it is |
+| Rewind | Works |
+| Rewind Off and On | Works |
+| Save states | Work, and deleting one works |
+| Auto-save and resume | Works |
+| Cheats | Work |
+| Bluetooth controller | Works |
+| Controller and thumbs together | Works, which was the hard part of the input rewrite |
+| Library layout, Grid and List | Works |
+
 So this checklist is no longer asking whether any of it works. **It is a regression check.** Each
 test below says what already passed, and if one of those fails on a new build then something that
-used to work has broken, which is worth telling me straight away. Two file types have still never
-been tried, `.sms` and `.gb`, and they are marked as such in Test 3.
+used to work has broken, which is worth telling me straight away.
 
 Before you start, read [README.md](README.md) if you have not.
 

@@ -227,8 +227,40 @@ enum CoreCatalog {
                     "scph1000.bin", "scph5500.bin", "scph5502.bin"]
     )
 
+    /// Nintendo DS, and the first system to arrive without any hardware-render work.
+    ///
+    /// THE FRAMEBUFFER IS BOTH SCREENS. melonDS emits 256x384, which is the two 256x192 screens
+    /// already stacked top over bottom in one texture, so the existing composite draws them
+    /// correctly with no change: the aspect ratio below is that whole stacked image, 2:3, not one
+    /// screen's 4:3. Getting that wrong would letterbox the pair into the shape of a single screen
+    /// and squash both.
+    ///
+    /// Software rendered on iOS, which is why this core is here at all. The plan in
+    /// docs/SET_HW_RENDER_DESIGN.md put the DS behind ANGLE because melonDS HAS an OpenGL
+    /// renderer, and its makefile never enables it for iOS: `HAVE_OPENGL := 0` is the default and
+    /// only the unix block changes it. So the DS reaches the same pixel path the other five use.
+    ///
+    /// BIOS is the open question rather than graphics. melonDS traditionally wants bios7.bin,
+    /// bios9.bin and firmware.bin, and newer builds can boot without them. The names are declared
+    /// so the Settings BIOS row looks for them and reports what it finds, which is how a missing
+    /// file becomes a readable note instead of a silent failure to boot.
+    static let melonDS = CoreSpec(
+        coreId: "melonds",
+        displayName: "melonDS (Nintendo DS)",
+        systems: ["ds"],
+        library: "melonds_libretro_ios.dylib",
+        width: 256, height: 384,
+        maxWidth: 256, maxHeight: 384,
+        aspectRatio: 256.0 / 384.0,
+        fps: 59.8261,
+        sampleRate: 32823,
+        pixelFormat: 0,
+        priority: 0,
+        biosNames: ["bios7.bin", "bios9.bin", "firmware.bin"]
+    )
+
     /// Every core, in the order the HUD reports them.
-    static let all: [CoreSpec] = [fceumm, snes9x, mgba, genesisPlusGx, pcsxReARMed]
+    static let all: [CoreSpec] = [fceumm, snes9x, mgba, genesisPlusGx, pcsxReARMed, melonDS]
 
     static let byId: [String: CoreSpec] = Dictionary(
         uniqueKeysWithValues: all.map { ($0.coreId, $0) }
@@ -264,6 +296,7 @@ enum CoreCatalog {
         "chd": Route(coreId: pcsxReARMed.coreId, system: .ps1),
         "pbp": Route(coreId: pcsxReARMed.coreId, system: .ps1),
         "iso": Route(coreId: pcsxReARMed.coreId, system: .ps1),
+        "nds": Route(coreId: melonDS.coreId, system: .ds),
     ]
 
     /// Extension to core id, DERIVED from the table above and never restated.
@@ -284,6 +317,7 @@ enum CoreCatalog {
     static let importableExtensions = [
         "nes", "sfc", "smc", "gba", "gb", "gbc", "sms", "md", "gen", "gg",
         "cue", "bin", "chd", "pbp", "iso",
+        "nds",
     ]
 
     /// Extensions the Library offers as a launch target: the importable set MINUS the track

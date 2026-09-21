@@ -26,7 +26,7 @@ concurrency:
 jobs:
   ipa:
     runs-on: macos-latest
-    # Raised from 60 when the build went from compiling one native libretro core to five, one of
+    # Raised from 60 when the build went from compiling one native libretro core to several, one of
     # which (mgba) is an LTO CMake build plus a whole-archive link, and one of which
     # (pcsx_rearmed) is a full-depth clone with recursive submodules. Nothing here is cached
     # between runs except cargo. A timeout is the worst failure this job has: it produces no
@@ -137,6 +137,8 @@ jobs:
             || { echo "::error::the Mega Drive/Master System/Game Gear core is not embedded; .md, .gen, .sms and .gg files would list in the Library and fail to launch"; exit 1; }
           unzip -l "$IPA" | grep -q "snes9x_libretro_ios.dylib" \
             || { echo "::error::the SNES core is not embedded; .sfc and .smc files would list in the Library and fail to launch"; exit 1; }
+          unzip -l "$IPA" | grep -q "melonds_libretro_ios.dylib" \
+            || { echo "::error::melonds core missing from the .ipa"; exit 1; }
           unzip -l "$IPA" | grep -q "pcsx_rearmed_libretro_ios.dylib" \
             || { echo "::error::the PS1 core is not embedded; the app would launch and fail to load PCSX ReARMed"; exit 1; }
           echo "ipa verified"

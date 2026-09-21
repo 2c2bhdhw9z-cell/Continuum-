@@ -85,7 +85,7 @@ if [ ! -f "$BUNDLE/Frameworks/libcontinuum_switch.dylib" ]; then
   cp "$OUT/lib/libcontinuum_switch.dylib" "$BUNDLE/Frameworks/"
 fi
 
-# The same fallback for all five libretro cores (fceumm, mgba, genesis_plus_gx, snes9x,
+# The same fallback for every libretro core (fceumm, mgba, genesis_plus_gx, snes9x, melonds,
 # pcsx_rearmed). Each is dlopened at runtime through @executable_path/Frameworks like the
 # wrapper; if Xcode's embed phase was skipped for one, place it here so the signing loop
 # below still seals it and the app can still load that core on device. An .ipa that is

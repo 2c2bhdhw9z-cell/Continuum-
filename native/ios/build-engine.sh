@@ -6,7 +6,7 @@
 # Produces:
 #   build/lib/libemulator_bridge.a        the Rust engine, linked into the app
 #   build/lib/libcontinuum_switch.dylib   the C++ libretro wrapper, dlopened at runtime
-#   build/lib/*_libretro_ios.dylib        the five real libretro cores, also dlopened
+#   build/lib/*_libretro_ios.dylib        the real libretro cores, also dlopened
 #   build/Generated/*.swift               the UniFFI facade
 #   build/Generated/*.h                   its C header
 #   build/Generated/module.modulemap      renamed so clang finds it by directory
@@ -127,7 +127,7 @@ WRAPPER="$ROOT/native/switch-wrapper/build/libcontinuum_switch.dylib"
 cp "$WRAPPER" "$LIBDIR/"
 echo "==> $LIBDIR/libcontinuum_switch.dylib ($(du -h "$WRAPPER" | cut -f1))"
 
-# ------------------------------------------------ 4. the five libretro cores
+# ------------------------------------------------ 4. the libretro cores
 
 # The real cores the .ipa ships, all compiled from source for iOS by scripts/build-core.sh
 # and dlopened at runtime like the wrapper above:
@@ -141,7 +141,7 @@ echo "==> $LIBDIR/libcontinuum_switch.dylib ($(du -h "$WRAPPER" | cut -f1))"
 #
 # build-core.sh clones each core into .work/ios/, runs its own build for ios-arm64, fixes the
 # @rpath install_name and stages the .dylib straight into build/lib/ (this same $LIBDIR).
-# `ios-all` builds all five and deliberately keeps going after a failure, so one broken core
+# `ios-all` builds them all and deliberately keeps going after a failure, so one broken core
 # cannot hide the state of the other four; it still exits non-zero, so this script still
 # stops before an .ipa can be built with a hole in it.
 #
@@ -180,9 +180,11 @@ done
   echo "       scripts/build-core.sh ios_core_config is the definition; fix the consumer." >&2
   exit 1
 }
-echo "      all five names present in all three"
+# Counted rather than spelled, so adding a core cannot leave this line claiming a number it no
+# longer checks. The list comes from `ios-names`, which is the one definition.
+echo "      all $(echo "$CORE_NAMES" | wc -w | tr -d ' ') names present in all three"
 
-echo "==> building the five libretro cores for iOS"
+echo "==> building $(echo "$CORE_NAMES" | wc -w | tr -d ' ') libretro cores for iOS"
 "$ROOT/scripts/build-core.sh" ios-all
 
 # Hard-fail, naming every file that is absent. Shipping an .ipa without a core would launch
