@@ -550,7 +550,7 @@ python3 scripts/make-sms-rom.py      # sms-testcart.sms  (32768 B)
 python3 scripts/make-snes-rom.py     # snes-testcart.sfc (32768 B)
 
 # Verification, fastest first
-cargo test                           # 74 unit tests
+cargo test                           # 85 unit tests
 cargo fmt --all --check
 cargo clippy --all-targets -- -D warnings          # what CI runs; zero warnings
 node scripts/core-abi-test.mjs       # 64 checks, 4 cores, no browser
@@ -1173,7 +1173,7 @@ Seven API mismatches, all mine, all caught by the compiler rather than by readin
 ```bash
 ./native/switch-wrapper/build.sh host      # 15/15 checks — the real test
 ./native/switch-wrapper/build.sh vulkan    # compiles against real Vulkan headers
-cargo test                                 # 74 (70 + 4 in gfx/hw.rs)
+cargo test                                 # 85 (was 74 before rewind and volume)
 cargo clippy --features native-core,uniffi-bindings --all-targets
 cargo check --target aarch64-apple-ios --features native-core,uniffi-bindings
 swiftc -frontend -parse native/ios/*.swift # syntax only; no UIKit/Metal on Linux
@@ -1995,3 +1995,151 @@ close to free. Rewind is not: save states measure roughly 13 KB for NES, 823 KB 
 for GBA and 1 MB for Genesis, so a rewind ring needs a memory budget and probably compression
 rather than just a deeper buffer. On iOS the increased-memory entitlement changes that arithmetic
 but does not remove it.
+
+
+## 20. The settings become real, rewind arrives, and the web app is deleted
+
+Three changes, in this order because the order mattered.
+
+### 20.1 The engine exports what the settings screen had been apologising for
+
+Everything the Settings screen listed under "NOT WIRED YET" claimed the same thing: the engine can
+already do this, it just cannot be reached from Swift. Four of the five claims were true. Scale
+mode, filter and the speed multiplier existed on `EmulatorBridge` and were simply missing from
+`uniffi_api.rs`. Volume genuinely did not exist at any layer.
+
+`ScaleModeOption` and `ScaleFilterOption` are the crate's first `uniffi::Enum`, and they **mirror**
+`gfx::ScaleMode` and `gfx::ScaleFilter` rather than those types carrying the derive themselves. That
+is deliberate and should not be "simplified": the graphics layer is not supposed to know a foreign
+function interface exists, which is the same reasoning that keeps `MetalHandles` unexported, and it
+keeps a settings-screen vocabulary at the boundary instead of a shader vocabulary.
+
+**Two bugs were fixed that would have made these look broken on the first build, and neither was in
+the new code.** `FramePacer` is rebuilt by every `launch` and every `stop`, and the renderer's frame
+target is released on stop, so a preference written only into those objects reverts to its default
+the next time a game starts: the user sets 2x, launches, and silently gets 1x. The wanted values now
+live on the bridge and are re-applied in `launch` **and** in `attach_renderer`, in either order,
+because whether the host restores its settings before or after Metal is ready is not something the
+engine should depend on. **Do not move those re-applications.**
+
+The second was audio under fast-forward. At 2x the core produces twice the samples per wall-clock
+second while the device still consumes one second's worth, so the fixed ring overwrote its own
+oldest audio several times a second, which is heard as chopping. `set_speed` now also re-declares
+the sink's source rate as `native * speed`, so the resampler consumes the surplus and the stream
+stays continuous and rises in pitch. `Resampler::set_source_rate` had existed and been called from
+nowhere since it was written; this is what it was for.
+
+Volume is applied in `EmulatorBridge::drain_audio`, on the far side of the ring, for two reasons:
+scaling on the way in would delay a volume change by the whole buffered backlog, and this runs on
+the display link rather than the real-time render thread. It is **ramped** across each drained
+block, not stepped. A slider under a finger sets a new target every frame and a gain jump at a block
+boundary is a step discontinuity in the waveform, heard as a click sixty times a second.
+
+**The ceiling a UI must respect:** `MAX_CATCH_UP_STEPS = 4` in `timing.rs` means the real speed
+limit is about 4x on a 60 Hz screen regardless of the multiplier requested. The excess is forfeited
+and shows up as a rising `dropped` count. `EmulationSettings.FastForward` therefore stops at 4x. Do
+not add an 8x entry.
+
+### 20.2 Rewind: save states as a tape
+
+`crates/emulator-bridge/src/rewind.rs`. Two properties drove the design.
+
+**The budget is in bytes, not snapshots.** Save-state sizes differ by two orders of magnitude across
+these systems, so "keep 600 snapshots" is ten seconds of rewind on NES and an out-of-memory kill on
+PS1. iOS terminates a process that grows too large rather than paging it. The budget is the promise;
+how much time it buys varies by system, and `EmulationSettings.refreshRewindReadout` divides the
+budget by the running core's real state size to say what it actually bought.
+
+**The steady state allocates nothing.** At ten snapshots a second a 500 KB state would be 5 MB of
+allocation and 5 MB of free every second, forever. Evicted buffers go to a free list capped at
+`MAX_POOLED_BUFFERS` and are handed back out, so a snapshot is a `memcpy` into memory already owned.
+`push_with(size, closure)` exists so the core writes straight into the pooled buffer instead of into
+a temporary that is then copied.
+
+**Rewinding lives in `EmulatorBridge::tick`, not in Swift.** `tick` diverts to `tick_rewinding` when
+the flag is set, and Swift only sets the flag. Driving it from outside, by calling a rewind method
+and then `tick`, would advance the core and throw that frame away sixty times a second, and the
+picture would judder rather than reverse.
+
+`tick_rewinding` restores a snapshot and then runs **exactly one** core frame. That frame is the
+whole trick and must not be removed as an optimisation: a libretro core's framebuffer is whatever
+`retro_run` last wrote, and `retro_unserialize` changes the core's memory without redrawing
+anything, so loading a state and presenting immediately shows the image from *before* the rewind.
+The screen would appear frozen while the emulator silently travelled. Audio from that frame is
+produced and then flushed, because not draining the core lets its internal batch buffer grow
+unbounded and playing it would be a forward-running fragment under a backward-running picture.
+
+The pacer is re-anchored on **every** rewind tick rather than once when the button is released. The
+pacer is not consulted on that path, so its idea of "last tick" would otherwise freeze at the moment
+rewind began, and releasing the button after a third of a second would read as a third of a second of
+missed emulation and be answered with a sprint forwards.
+
+The tape is cleared by `reset`, `load_state` and `stop`, because every snapshot on it describes a
+future that no longer follows from the present.
+
+### 20.3 The on-screen control layout editor
+
+`TouchLayoutEditor.swift`. The pad on that screen **is the real pad**, mounted the way
+`PlayerScreen` mounts it with `isEditing` true. A drawing of it would have to reimplement the unit
+arithmetic, the cluster templates, the orientation rules and the clamping, and the second copy would
+eventually disagree with the first, producing an editor that shows an arrangement you do not get.
+
+Drags report continuously for the preview but only the touch that **ends** a drag is persisted:
+binding a drag to the host's `@Published` layout would republish it sixty times a second and
+re-evaluate the whole library shell underneath. Landscape writes only x, because the pad overrides
+both clusters' y in landscape, and writing a number with no visible effect is a dead control in
+disguise. The screen says so rather than hiding it.
+
+`TouchLayout.mirrored` rounds to four decimals, and that is not tidiness: `1.0 - 0.17` is
+`0.8300000000000001`, so without rounding `mirrored.mirrored` was not the identity, pressing Swap
+sides twice left the layout a hair off, and `isStandard` then answered false about an arrangement
+indistinguishable from the default, leaving Reset offering to do something invisible.
+
+`TouchLayout`'s `init(from:)` is deliberately forgiving, using `decodeIfPresent` per field. The
+synthesized initialiser throws the moment a single key is missing, which would turn a layout written
+by a build that renamed one field into a total reset, and a user reads that as the app forgetting
+their arrangement.
+
+### 20.4 The web app is deleted
+
+Deleted: `web/`, `.github/workflows/deploy.yml`, `core-shim/`, `src/wasm.rs`,
+`src/cores/wasm_core.rs`, `src/cores/host.rs`, the five Node scripts, and the wasm half of
+`scripts/build-core.sh` (962 lines to 547). The wasm dependency block is gone from `Cargo.toml` and
+the wasm-only workspace dependencies with it.
+
+**The crate no longer builds for `wasm32`, and that is intentional. Do not add that check back as a
+gate.** It was a verification gate for months and its absence is a deliberate scope change, not an
+oversight.
+
+Two things about this that are easy to get wrong:
+
+1. **`cores::validate_wasm_module` and `CoreRegistry::attach_module` are NOT dead and were kept.**
+   They look like wasm leftovers and they are not: they are how the built-in diagnostic stand-in core
+   loads, six tests depend on them, and the magic-header check is a real guard against a truncated
+   download. The names are a leftover; the code is live.
+2. **The iOS half of `build-core.sh` shares nothing with the deleted half.** That was verified
+   mechanically before cutting, by extracting every `ios_*` and `build_ios_*` body and intersecting
+   the identifiers against the list of defined functions: the iOS path calls only `ios_*` and
+   `build_ios_*`. `ios-names` still prints the same five filenames, which is the contract
+   `build-engine.sh` and `package-ipa.sh` read rather than repeating.
+
+`wasm.rs` was the working reference implementation for four of the five knobs exported in 20.1,
+which is why the exports were written **first** and the deletion came after. Anyone deleting a
+facade should check what is using it as a worked example before removing it.
+
+### 20.5 What is still not wired
+
+The Settings list is down from seven entries to two:
+
+- **Cover art captured from the running game** (artwork tier 4). The whole readback path exists in
+  Rust and is unexported: `Renderer::encode_capture` at `gfx/renderer.rs`, `FrameCapture::take_rgba`,
+  and `EmulatorBridge::encode_capture`, which uploads the current frame first so a paused session
+  still captures correctly. What stands in the way is that `FrameCapture` is not a UniFFI type and
+  the buffer map is asynchronous. The shape to copy is the deleted `wasm.rs` `captureFrame`, which
+  dropped its borrow **before** awaiting the map; on iOS that borrow is the `Mutex` the display link
+  holds, so awaiting while holding it would deadlock. `pollster` is already an Apple-target
+  dependency and `attach_metal` already drives a future with it.
+- **Physical controllers.** The engine merges input per source already, so a real pad and the
+  on-screen pad could be used together, but the only exported input call replaces the whole gamepad
+  layer, so the two would fight over it. Needs a per-source apply on the UniFFI surface, not a new
+  input system.

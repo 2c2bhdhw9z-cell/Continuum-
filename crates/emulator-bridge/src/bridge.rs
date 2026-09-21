@@ -6,10 +6,10 @@
 //! per animation frame.
 //!
 //! That split is what makes Phase 2 a UI port instead of a rewrite. This file
-//! contains no `wasm_bindgen`, no `web_sys`, no JS types — the facades in
-//! `wasm.rs` (Phase 1) and the planned UniFFI layer (Phase 2) are thin wrappers
-//! over this API, so both platforms inherit the same behaviour rather than
-//! re-implementing it.
+//! contains no platform types at all: `uniffi_api.rs` is a thin wrapper over this
+//! API, so a second platform inherits this behaviour rather than re-implementing
+//! it. A browser facade used to sit beside it and was removed without this file
+//! changing, which is the property to preserve.
 //!
 //! Single-threaded and single-loop by construction: `tick` runs input, core steps,
 //! audio submission and the GPU present in that order, and nothing here spawns a

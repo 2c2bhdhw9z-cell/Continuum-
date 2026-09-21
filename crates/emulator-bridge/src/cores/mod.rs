@@ -14,24 +14,14 @@
 mod diagnostic;
 mod registry;
 
-#[cfg(target_arch = "wasm32")]
-pub(crate) mod host;
-#[cfg(target_arch = "wasm32")]
-mod wasm_core;
-
-// Phase 5: a libretro core from a shared library. Feature-gated rather than merely
-// target-gated, because the web build must not acquire a `libloading` dependency for a
-// module it can never use.
-#[cfg(all(not(target_arch = "wasm32"), feature = "native-core"))]
+// A libretro core from a shared library, which is now the only way a real core loads.
+// Feature-gated rather than unconditional so the host test suite does not acquire a
+// `libloading` dependency for a module it never exercises.
+#[cfg(feature = "native-core")]
 pub mod native_core;
 
 pub use diagnostic::DiagnosticCore;
 pub use registry::{CoreRegistry, CoreState};
-
-#[cfg(target_arch = "wasm32")]
-pub use host::CoreHost;
-#[cfg(target_arch = "wasm32")]
-pub use wasm_core::{LibretroRuntimeHandle, WasmCore};
 
 /// What the frontend knows about the content being loaded.
 ///

@@ -175,12 +175,15 @@ block at the top of the screen, and [TESTING.md](TESTING.md) explains how to rea
 
 ## About the old web version
 
-Everything under `web/` was a prototype that ran in a browser. It existed for one reason: to
+There used to be a prototype under `web/` that ran in a browser. It existed for one reason: to
 prove the shared engine worked before there was any way to compile anything for an iPhone. That
-job is finished.
+job finished, and **it has now been deleted**, along with the workflow that published it.
 
-It is not a product, it is not supported, and it is scheduled to be deleted. If you see it
-described as a PWA or a web app anywhere in the older documents, that is history, not the plan.
+If you see this project described as a PWA or a web app anywhere in the older documents, that is
+history, not the plan. The `.ipa` is the only thing that ships.
+
+An Android `.apk` is planned once the iPhone app is finished. It will be the same Rust engine
+with an Android shell on top, not a web page in a wrapper.
 
 ## For developers and AI agents
 
@@ -195,15 +198,24 @@ The deep technical material lives in these documents, deliberately, so this page
 - [docs/SET_HW_RENDER_DESIGN.md](docs/SET_HW_RENDER_DESIGN.md) is the graphics design for
   hardware-rendered cores, which is what N64 and everything above it will need.
 - [.kiro/steering/product-scope.md](.kiro/steering/product-scope.md) states the scope in one
-  place: the `.ipa` is the only deliverable, `web/` is legacy, and the browser UI is the design
+  place: the `.ipa` is the only deliverable, there will be no web target, Android is a planned
+  third facade over the same engine, and the deleted browser UI's screenshots remain the design
   reference for the iOS UI.
 - [CLAUDE.md](CLAUDE.md) holds the working conventions for agents in this repository.
 
 The quick checks that run anywhere, including on Linux:
 
 ```bash
-cargo test                                                    # 74 tests
-cargo test --features native-core,uniffi-bindings             # 84 tests
-cargo check --profile ios --target aarch64-apple-ios
+cargo test                                                    # 85 tests
+cargo test --features native-core,uniffi-bindings             # 95 tests
+cargo clippy --features native-core,uniffi-bindings --all-targets
+cargo check --profile ios --target aarch64-apple-ios --features native-core,uniffi-bindings
 scripts/build-core.sh ios-names                               # the five core filenames
+```
+
+The Swift files can only be syntax-checked off a Mac, never type-checked, so a SwiftUI mistake
+is found by CI and not before:
+
+```bash
+for f in native/ios/*.swift; do swiftc -frontend -parse "$f"; done
 ```

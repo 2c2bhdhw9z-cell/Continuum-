@@ -1,8 +1,8 @@
 //! `NativeLibretroCore` — a libretro core loaded from a shared library.
 //!
-//! The native counterpart to [`super::wasm_core::WasmCore`]. Where that one drives a wasm
-//! module through a JS runtime, this one `dlopen`s a `.dylib` from the app bundle and calls
-//! its `retro_*` exports directly.
+//! The only real core loader: it `dlopen`s a `.dylib` from the app bundle and calls its
+//! `retro_*` exports directly. There was a sibling that drove a wasm module through a JS
+//! runtime, and it went with the browser build.
 //!
 //! Step 10 of the Phase 5 sequence loads `libcontinuum_switch.dylib` — the C++ wrapper
 //! around a stub engine that renders a rotating colour — which is why this exists before
@@ -12,11 +12,10 @@
 //! ## The callback problem, and why these are statics
 //!
 //! libretro's callbacks are bare C function pointers with no user-data parameter. There is
-//! nowhere to put a `&mut self`. `cores/host.rs` solved this for the wasm build with a
-//! thread-local exchange, and the same reasoning applies here for the same reason: the
-//! bridge is already mutably borrowed while `retro_run` is executing, so a callback that
-//! reached back into it would be a second mutable borrow. Under a `Mutex` — which the
-//! native build uses instead of a `RefCell` — that is a deadlock rather than a panic.
+//! nowhere to put a `&mut self`. The bridge is already mutably borrowed while `retro_run`
+//! is executing, so a callback that reached back into it would be a second mutable borrow,
+//! and under the `Mutex` this build holds the engine behind that is a deadlock rather than
+//! a panic.
 //!
 //! So the callbacks write into a thread-local `EXCHANGE`, and `run_frame` collects from it
 //! afterwards. Exactly the shape `host.rs` already established.

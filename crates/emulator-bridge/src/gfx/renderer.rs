@@ -98,32 +98,10 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    /// Builds a renderer for a browser canvas.
-    ///
-    /// `width`/`height` are *physical* pixels (CSS size x devicePixelRatio). wgpu
-    /// writes them onto the canvas element during `configure`, so the caller must
-    /// not set `canvas.width` itself — doing so from both sides is how you get a
-    /// blurry or clipped presentation.
-    #[cfg(target_arch = "wasm32")]
-    pub async fn from_canvas(
-        canvas: web_sys::HtmlCanvasElement,
-        width: u32,
-        height: u32,
-    ) -> Result<Self, GfxError> {
-        // WebGPU only — no WebGL2 fallback is compiled in, by design.
-        let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
-        descriptor.backends = wgpu::Backends::BROWSER_WEBGPU;
-        let instance = wgpu::Instance::new(descriptor);
-
-        let surface: wgpu::Surface<'static> = instance
-            .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
-            .map_err(|e| GfxError::SurfaceCreation(e.to_string()))?;
-
-        Self::from_surface(instance, surface, width, height).await
-    }
-
-    /// Backend-agnostic construction. Phase 2 calls this with a `CAMetalLayer`
-    /// surface; the browser path calls it with a canvas surface.
+    /// Backend-agnostic construction. The iOS path calls this with a `CAMetalLayer`
+    /// surface, and it is deliberately not written against Metal: a surface is a surface,
+    /// which is what kept this file honest while there were two platforms and is what will
+    /// keep it honest when Android arrives.
     pub async fn from_surface(
         instance: wgpu::Instance,
         surface: wgpu::Surface<'static>,

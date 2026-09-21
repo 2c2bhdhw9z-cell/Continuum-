@@ -1,41 +1,56 @@
 # Product scope: the .ipa is the only deliverable
 
-## There will not be a PWA
+## There is no PWA, and there never will be
 
 Continuum ships as **one artefact: a sideloadable iOS `.ipa`**. It is an all-in-one emulator
-for iPhone, installed through TrollStore, with JIT and the increased-memory entitlements.
+for iPhone, with JIT and the increased-memory entitlements.
 
-The web app under `web/` was scaffolding. Its job was to prove the Rust engine worked before
-there was any way to compile for iOS, and that job is finished. It is **not** a deliverable,
-it is **not** a second supported target, and the project is **not** dual-platform.
+Do not name a specific installer in documentation. The owner does not use TrollStore, and
+install instructions must stay installer-neutral.
 
-Rules that follow from this, and they are not negotiable:
+The web app under `web/` was scaffolding to prove the Rust engine worked before anything could
+be compiled for iOS. **That job finished and the web app has been deleted**, along with
+`.github/workflows/deploy.yml`, the wasm facade (`src/wasm.rs`), the wasm core loader, the
+wasm host shim, `core-shim/`, the Node test scripts, and the wasm half of
+`scripts/build-core.sh`. The crate no longer builds for `wasm32` and that is intentional, so
+do not add a wasm target check back as a CI gate.
 
-- Do not add features to `web/`. Do not polish it, do not fix its cosmetics, do not extend it.
+Rules that follow, and they are not negotiable:
+
+- Do not reintroduce a web target, a PWA, a browser build or a GitHub Pages deploy. Not as a
+  demo, not as a test harness, not "just to check the engine".
 - Do not describe the project as having a web half and an iOS half. It has one product.
-- `web/` and `.github/workflows/deploy.yml` are slated for removal. Treat them as dead code
-  that has not been deleted yet, not as something to maintain.
-- Do not keep `web/` alive on the grounds that the browser tests live there. If a test is
-  worth having, write it natively (Rust integration test, or a Swift/XCTest target). See
-  "Testing" below.
 - "Done" for this project means: the `.ipa` plays every supported system, and the only
   remaining work is steady updates for users of that `.ipa`.
+
+## Android is a real future deliverable, and it is not a PWA
+
+An Android `.apk` is planned **after** iOS is complete. It is a third facade over the same
+Rust engine, reached through UniFFI's Kotlin bindings, in the same way `uniffi_api.rs` serves
+Swift. It is emphatically not a web wrapper.
+
+The owner's own device is an iPhone, so the `.ipa` is updated often and the `.apk` will be
+updated occasionally. Anything added to the engine should therefore stay platform-neutral:
+put behaviour in the Rust engine rather than in Swift wherever there is a choice, because
+everything in Swift is work that Android will have to pay for a second time. Volume is the
+worked example, applied in `bridge.rs` rather than on the iOS mixer for exactly this reason.
 
 ## What stays
 
 The Rust engine (`crates/emulator-bridge`) stays, because it **is** the emulator: frame
-pacing, input mapping, audio resampling, core selection and loading, and Metal presentation.
-The `.ipa` is that engine plus a SwiftUI shell plus the libretro core dylibs.
+pacing, input mapping, audio resampling, core selection and loading, rewind, and Metal
+presentation. The `.ipa` is that engine plus a SwiftUI shell plus the libretro core dylibs.
 
-The engine's wasm support (`src/wasm.rs`, the `MaybeSend` split, the wasm-only dependencies)
-is feature-gated and costs the iOS build nothing. Removing it is optional cleanup, not a
-priority, and must never be done in a way that risks the native path.
+One piece of apparently wasm-shaped code is **not** dead and must not be removed:
+`cores::validate_wasm_module` and `CoreRegistry::attach_module`. They are the path the
+built-in diagnostic stand-in core loads through, six tests depend on them, and the magic-header
+check is a real guard. The name is a leftover; the code is live.
 
-## The UI target: make the .ipa look like the PWA
+## The UI target
 
-The web UI is the **design reference** for the SwiftUI app. This is the one thing the PWA is
-still good for. Screenshots in `docs/`: `library-mobile.png`, `mobile-player.png`,
-`settings-mobile.png`, `shot-detail.png`, `detail-artwork.png`.
+The deleted web UI is still the **design reference** for the SwiftUI app, through its
+screenshots, which is why those were kept: `docs/library-mobile.png`, `docs/mobile-player.png`,
+`docs/settings-mobile.png`, `docs/shot-detail.png`, `docs/detail-artwork.png`.
 
 Library screen, as it should look on iOS:
 
@@ -69,19 +84,19 @@ only diagnostic there is, but it is not what the user should open the app into.
 
 ## Testing
 
-The `.ipa` has no automated test that proves a core actually emulates correctly. The browser
-smoke tests were that net, and they are going away with `web/`.
+**State this plainly rather than letting it be discovered: there is no automated test that
+proves a core actually emulates correctly.** The browser smoke tests were that net and they
+were deleted with the web app. Core correctness is currently verified only by a person playing
+a game on a device, which is why `TESTING.md` exists.
 
-Replacements must be native:
+The replacement, when it is written, must be native:
 
-- Rust integration tests that `dlopen` a host-architecture core dylib through
-  `NativeLibretroCore` and assert on real frames, audio and input. This needs a host build
-  path in `scripts/build-core.sh` alongside the existing `ios` one.
-- The existing `cargo test` suites (74 default, 84 with `--features native-core,uniffi-bindings`)
-  already cover pacing, audio, input, the registry and pixel conversion. Keep them green.
-
-Do not delete the browser tests without saying plainly, in the same change, that core
-behaviour is then untested until a native replacement lands.
+- Rust integration tests that `dlopen` a host-architecture core dylib through the native core
+  loader and assert on real frames, audio and input. This needs a host build path in
+  `scripts/build-core.sh` alongside the existing `ios` one.
+- The existing `cargo test` suites (85 default, 95 with `--features native-core,uniffi-bindings`)
+  cover pacing, audio, input, the registry, pixel conversion and the rewind tape. Keep them
+  green, and keep both numbers accurate in documentation when they change.
 
 ## Systems
 

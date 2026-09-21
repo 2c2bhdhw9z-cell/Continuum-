@@ -1,4 +1,5 @@
-//! Graphics layer. `wgpu` only — WebGPU in the browser, Metal on iOS.
+//! Graphics layer. `wgpu` only, targeting Metal, and written against a surface rather
+//! than against Metal so the next backend is a configuration change.
 
 mod convert;
 pub mod hw;

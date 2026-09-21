@@ -1,14 +1,15 @@
 [package]
 name = "emulator-bridge"
-description = "Interface-agnostic emulator manager/engine layer. Compiles to WASM (Phase 1, web) and native ARM64 (Phase 2, iOS)."
+description = "Interface-agnostic emulator manager/engine layer. Builds for native ARM64 (iOS) and for the host, where the test suite runs."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
 [lib]
-# cdylib -> wasm32, and the dylib UniFFI reads metadata out of (its library mode accepts
-#           only .so/.dll/.dylib — never .a — so the staticlib cannot serve that purpose).
+# cdylib -> the dylib UniFFI reads metadata out of. Its library mode accepts only
+#           .so/.dll/.dylib and never .a, so the staticlib cannot serve that purpose, which
+#           is the whole reason this entry outlived the wasm build that introduced it.
 # staticlib -> what Xcode links into the .app.
 # rlib -> host unit tests.
 crate-type = ["cdylib", "rlib", "staticlib"]
@@ -17,25 +18,6 @@ crate-type = ["cdylib", "rlib", "staticlib"]
 bytemuck = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
-
-# --- Phase 1: browser. WebGPU backend only; no WebGL2 fallback by design. ---
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wgpu = { workspace = true, features = ["std", "webgpu", "wgsl"] }
-wasm-bindgen = { workspace = true }
-wasm-bindgen-futures = { workspace = true }
-js-sys = { workspace = true }
-console_error_panic_hook = { workspace = true }
-console_log = { workspace = true }
-web-sys = { workspace = true, features = [
-  "console",
-  "Window",
-  "Document",
-  "HtmlCanvasElement",
-  "Performance",
-] }
-
-# --- Phase 2: native (iOS/Metal, plus desktop dev hosts for the test suite). ---
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 wgpu = { workspace = true, features = [
   "std",
   "metal",
@@ -43,12 +25,12 @@ wgpu = { workspace = true, features = [
   "wgsl",
   "parking_lot",
 ] }
-# Phase 5. Both optional and native-only, so the wasm build's dependency graph and the
-# web CI are completely untouched by their presence.
+# Optional so the host test suite builds neither of them. `libloading` is how a real core is
+# loaded and `uniffi` is how Swift reaches the engine, and a test run needs neither.
 libloading = { version = "0.8", optional = true }
 uniffi = { version = "0.28", optional = true }
 
-# --- Phase 5: Apple targets (iOS device, and macOS for binding generation). ---
+# --- Apple targets only (iOS device, and macOS for binding generation). ---
 [target.'cfg(target_vendor = "apple")'.dependencies]
 # `Renderer::from_surface` is async because `request_adapter`/`request_device` are. On Metal
 # they resolve without pending, and `attach_metal` is called synchronously from
@@ -58,7 +40,7 @@ pollster = "0.4"
 
 [features]
 default = []
-# Phase 5: load a libretro core from a shared library (`cores/native_core.rs`).
+# Load a libretro core from a shared library (`cores/native_core.rs`).
 native-core = ["dep:libloading"]
-# Phase 5: the Swift-facing facade (`uniffi.rs`), peer of `wasm.rs`.
+# The Swift-facing facade (`uniffi_api.rs`).
 uniffi-bindings = ["dep:uniffi"]
