@@ -29,6 +29,12 @@ concurrency:
   group: ios-${{ github.ref }}
   cancel-in-progress: true
 
+# `contents: write` so the build can publish a Release. Spelled out because the default for a
+# workflow token is read-only on many repositories, and a release step that cannot write fails at
+# the very end of a long macOS build.
+permissions:
+  contents: write
+
 jobs:
   ipa:
     runs-on: macos-latest
@@ -160,6 +166,81 @@ jobs:
           path: native/ios/build/Continuum.ipa
           if-no-files-found: error
           retention-days: 30
+
+      # THE INSTALLABLE COPY, and the artifact above is not one.
+      #
+      # An Actions artifact can only be downloaded by something that can authenticate as a logged-in
+      # GitHub user. It arrives as a zip containing the .ipa, and no on-device signing tool can
+      # fetch one from a URL. That is why installing has meant opening the Actions page, downloading
+      # a zip, unzipping it and importing by hand, every single time.
+      #
+      # A Release asset on a public repository is plain unauthenticated HTTPS, so ESign and Feather
+      # can pull it straight down. More usefully, GitHub keeps a permanent redirect at
+      # /releases/latest/download/<asset>, which always resolves to the newest release's copy. So
+      # ONE bookmarked link installs whatever the latest build is, with no repository browsing at
+      # all. The asset name has to stay exactly `Continuum.ipa` for that URL to keep working.
+      #
+      # A tag per run rather than one reused tag, because build history has already been worth
+      # having: when the app would not open, the question "does an older build still open" was the
+      # one that would have separated a code fault from a signing fault, and that needs older
+      # builds to still be reachable.
+      #
+      # Not marked prerelease. `releases/latest` SKIPS prereleases, which would quietly break the
+      # bookmarked link.
+      - name: Publish the .ipa as a Release
+        if: success() && github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="build-${{ github.run_number }}-$(echo '${{ github.sha }}' | cut -c1-7)"
+          LATEST="https://github.com/${{ github.repository }}/releases/latest/download/Continuum.ipa"
+          # Notes via a FILE rather than an inline --notes string. The text wants blank lines and
+          # backticks, and both are hazards inside a shell argument in a YAML block scalar; a heredoc
+          # quoted with <<'EOF' passes them through untouched with no escaping to get wrong.
+          cat > /tmp/notes.md <<'EOF'
+          Press **Continuum.ipa** below to download it, then import it into ESign or Feather and sign
+          it with your certificate.
+
+          **Bookmark this instead of browsing here:** it always redirects to the newest build.
+          EOF
+          echo "$LATEST" >> /tmp/notes.md
+          printf '\nBuilt from %s on %s.\n' "${{ github.sha }}" "${{ github.ref_name }}" >> /tmp/notes.md
+          # No --latest flag: a non-prerelease, non-draft release is already what
+          # /releases/latest resolves to, and the flag is recent enough that relying on it would
+          # risk failing this step at the very end of a long build for no gain.
+          gh release create "$TAG" \
+            native/ios/build/Continuum.ipa \
+            --title "Continuum build ${{ github.run_number }}" \
+            --notes-file /tmp/notes.md
+          echo "released $TAG with Continuum.ipa"
+          echo "always-newest link: $LATEST"
+
+      # Written to the run's SUMMARY rather than only to the log, because the summary renders as a
+      # page with tappable links on a phone while a log line is text to be copied by hand.
+      - name: Say how to install it
+        if: success() && github.ref == 'refs/heads/master'
+        run: |
+          set -euo pipefail
+          REPO="https://github.com/${{ github.repository }}"
+          LATEST="$REPO/releases/latest/download/Continuum.ipa"
+          {
+            echo "## Install this build"
+            echo
+            echo "**[Download Continuum.ipa]($LATEST)** — this link always gives the newest build, so it is the one to bookmark."
+            echo
+            echo "Then import it into ESign or Feather and sign it with your certificate."
+            echo
+            echo "### Deep links, if your signer supports them"
+            echo
+            echo "These open the signing app directly. NOT VERIFIED on a device yet, so if one of them"
+            echo "does nothing, use the download link above and import by hand, and say which failed."
+            echo
+            echo "- ESign: \`esign://install?url=$LATEST\`"
+            echo "- Feather: \`feather://install?url=$LATEST\`"
+            echo
+            echo "Built from \`${{ github.sha }}\`."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # Uploaded separately because when something *does* go wrong on device, this is what
       # says why: the entitlements that were embedded and the generated Swift that was
