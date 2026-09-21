@@ -168,6 +168,9 @@ ios_core_config() {
   IOS_SUBMODULES=0
   IOS_CMAKE_TARGET=""
   IOS_CMAKE_ARCHIVE=""
+  # Extra `VAR=value` arguments for a make-based core, as an ARRAY so a value containing a space
+  # cannot split. Empty for every core that builds correctly with its own defaults.
+  IOS_MAKE_VARS=()
   IOS_DISPLAY=""
   case "$1" in
     fceumm)
@@ -247,6 +250,24 @@ ios_core_config() {
       #
       # need_fullpath is TRUE here, so this core is handed a path and opens the file itself.
       # That is the behaviour the host already had for every core; see `load_content`.
+      #
+      # HAVE_CHD=0 IS WHAT MAKES THIS CORE BUILD AT ALL, and it is not a workaround so much as
+      # dropping something we were never going to use. The first attempt failed compiling the
+      # core's BUNDLED COPY OF ZLIB 1.2.11, which is old enough to define functions in K&R style:
+      #
+      #     const char * ZEXPORT zError(err)
+      #         int err;
+      #
+      # Xcode 26's clang defaults to a C standard that removed K&R definitions, so it is an error
+      # rather than a warning, and the same file also collided with the SDK's own _stdio.h.
+      #
+      # Reading Makefile.common shows zlib, libchdr and zstd are compiled ONLY inside
+      # `ifeq ($(HAVE_CHD), 1)`, so turning CHD off removes every failing file. Nothing is lost:
+      # CHD is a compressed DISC format, this app routes only `.pce` HuCard files to this core, and
+      # PC Engine CD needs a system card BIOS that cannot ship anyway. NEED_CD is deliberately left
+      # alone, because Makefile.common defines -DNEED_CD unconditionally while guarding the sources
+      # it needs, so switching it off compiles code whose files are absent.
+      IOS_MAKE_VARS=(HAVE_CHD=0)
       IOS_DISPLAY="TurboGrafx-16 / PC Engine, software renderer"
       ;;
     stella2023)
@@ -456,7 +477,15 @@ build_ios_make_core() {
   # platform=ios-arm64 is what selects the arm64 clang, -dynamiclib, the iOS defines and the
   # .dylib TARGET. IOSSDK has to be passed explicitly: the makefiles fall back to shelling
   # out to xcodebuild for it, which is slower and, on some runners, wrong.
-  ( cd "$make_dir" && make -f "$IOS_MAKEFILE" platform=ios-arm64 IOSSDK="$IOSSDK" -j"$(ios_jobs)" )
+  # `${arr[@]+"${arr[@]}"}` rather than plain `"${arr[@]}"`, because macOS ships bash 3.2 and an
+  # EMPTY array expanded under `set -u` is an error there rather than nothing. Seven of the eight
+  # cores pass no extra variables, so the empty case is the common one. See the note at the top of
+  # this file about IOS_CORES for the same hazard.
+  if (( ${#IOS_MAKE_VARS[@]} > 0 )); then
+    echo "==> extra make variables: ${IOS_MAKE_VARS[*]}"
+  fi
+  ( cd "$make_dir" && make -f "$IOS_MAKEFILE" platform=ios-arm64 IOSSDK="$IOSSDK" \
+      ${IOS_MAKE_VARS[@]+"${IOS_MAKE_VARS[@]}"} -j"$(ios_jobs)" )
 
   # Every one of these makefiles sets TARGET := $(TARGET_NAME)_libretro_ios.dylib for an ios
   # platform, which is already the canonical name, so that path is tried first. The search is

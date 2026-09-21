@@ -1299,13 +1299,17 @@ final class EngineHost: ObservableObject {
         // Reads its own stored preferences and pushes them into the engine as it is built, so
         // the first frame of the first game already looks and sounds the way the user left it.
         emulation = EmulationSettings(engine: engine)
-        // Costs one page mapped and unmapped. Done here so the answer is on the HUD before any
-        // game is launched, which is the point: it has to be readable without a core running.
-        // The mapping-only probe. This line is the reason the app now opens at all: the call that
-        // used to be here wrote a function into a page and called it, and iOS kills a process for
-        // that unless the entitlement is genuinely in force, which depends on the installer rather
-        // than on this build. So every install whose signature did not carry it opened and died
-        // here, before drawing a single line.
+        // One page mapped and unmapped, nothing written to it and nothing run from it. Done here so
+        // the answer is on the HUD before any game is launched, because it has to be readable
+        // without a core running.
+        //
+        // THE MAPPING-ONLY PROBE, AND THIS LINE IS WHY THE APP OPENS AT ALL. What used to be here
+        // wrote a function into a page and called it. iOS terminates a process for executing a page
+        // it just wrote unless the dynamic-codesigning entitlement is genuinely in force, and
+        // whether it is depends on how this copy was signed and installed rather than on anything
+        // in the build. So every install whose signature did not carry it opened and was killed on
+        // this line, before drawing anything, including the line the probe existed to print. The
+        // half that runs code is a button in Settings now.
         jitLine = engine.jitProbe()
         // Scans for already-paired controllers as it is built, because a pad connected before the
         // app launched has already sent its connect notification to nobody. Given the engine so
