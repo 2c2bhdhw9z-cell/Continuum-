@@ -893,7 +893,11 @@ final class EngineHost: ObservableObject {
     /// failure is still legible with this off.
     @Published var showDiagnostics = false
 
-    /// What a JIT probe found, read once at startup. See `jit_probe.rs` in the engine.
+    /// What the SAFE half of the JIT probe found, read once at startup.
+    ///
+    /// Safe means it maps an executable page and releases it without writing to it or running it.
+    /// The half that runs code is behind a button in Settings, because it can get the app killed
+    /// and used to do that ON LAUNCH: see `EmulatorBridge.jitProbe` and `jitProbeExecution`.
     ///
     /// Read ONCE rather than on demand, and kept, because the answer cannot change while the app
     /// is running: it is a property of the installed binary's entitlements and the signature that
@@ -1129,6 +1133,21 @@ final class EngineHost: ObservableObject {
         return engine.coreOptions()
     }
 
+    /// Runs the half of the JIT probe that executes code, on request only.
+    ///
+    /// Writes the result into `jitLine` so it lands in the same place the safe answer did, and into
+    /// the status line so it is visible without opening the diagnostics panel.
+    ///
+    /// IF THE APP CLOSES DURING THIS, THAT IS THE ANSWER. The kernel refuses a forbidden execute by
+    /// terminating the process, so there is nothing to catch and nothing to report; reopening the
+    /// app is safe and nothing is lost. The button that calls this says so.
+    func runJitExecutionProbe() {
+        status = "running the JIT test; if the app closes, that IS the result and reopening is safe"
+        let line = engine.jitProbeExecution()
+        jitLine = line
+        status = line
+    }
+
     /// Sets one core option, and names the outcome either way.
     func applyCoreOption(key: String, value: String, label: String) {
         let shown = label.isEmpty ? key : label
@@ -1282,6 +1301,11 @@ final class EngineHost: ObservableObject {
         emulation = EmulationSettings(engine: engine)
         // Costs one page mapped and unmapped. Done here so the answer is on the HUD before any
         // game is launched, which is the point: it has to be readable without a core running.
+        // The mapping-only probe. This line is the reason the app now opens at all: the call that
+        // used to be here wrote a function into a page and called it, and iOS kills a process for
+        // that unless the entitlement is genuinely in force, which depends on the installer rather
+        // than on this build. So every install whose signature did not carry it opened and died
+        // here, before drawing a single line.
         jitLine = engine.jitProbe()
         // Scans for already-paired controllers as it is built, because a pad connected before the
         // app launched has already sent its connect notification to nobody. Given the engine so

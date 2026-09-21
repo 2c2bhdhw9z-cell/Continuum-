@@ -1066,8 +1066,24 @@ impl ContinuumEngine {
     /// enable, so forcing it would have failed in a way that looked like a broken core.
     ///
     /// Takes no lock and touches no session. Costs one page mapped and unmapped.
+    ///
+    /// SAFE ON THE LAUNCH PATH, and the distinction matters because this call was not always. It
+    /// used to write a function into a page and call it, which iOS answers with SIGKILL when the
+    /// dynamic-codesigning entitlement is not honoured, so on those installs the app opened and
+    /// died before drawing anything. It now only asks whether such a page can be MAPPED. See
+    /// [`Self::jit_probe_execution`].
     pub fn jit_probe(&self) -> String {
         crate::jit_probe::describe()
+    }
+
+    /// Runs code from a page this process just wrote, and reports whether that worked.
+    ///
+    /// **May get the app killed, by design, and relaunching is fine.** There is no way to ask the
+    /// kernel whether executing a written page would be permitted; the only test is to do it, and
+    /// a refusal arrives as the process being terminated rather than as an error. So this is behind
+    /// an explicit control that says so, and is never called while the app is starting up.
+    pub fn jit_probe_execution(&self) -> String {
+        crate::jit_probe::describe_execution()
     }
 
     /// The running core's own version string, or `None` if it does not report one.

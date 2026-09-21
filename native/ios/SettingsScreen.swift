@@ -436,6 +436,24 @@ struct SettingsScreen: View {
                 host.installBiosFromDocuments()
             }
 
+            SettingsReadout(label: "JIT", value: host.jitLine.isEmpty ? "not probed" : host.jitLine)
+
+            SettingsButton(title: "Test whether this build can run generated code",
+                           role: .normal) {
+                host.runJitExecutionProbe()
+            }
+
+            SettingsNote(
+                "This decides whether the Nintendo 64 is possible, because an N64 emulator needs "
+                + "to write instructions and run them. THE APP MAY CLOSE WHEN YOU PRESS IT, and "
+                + "that is the answer rather than a crash: iOS refuses a forbidden execute by "
+                + "shutting the app down, so there is nothing for it to report. Reopening is "
+                + "completely safe and nothing is lost. If it closes, the permission did not "
+                + "survive however this copy was installed. If it stays open, read the JIT line "
+                + "above.\n\nThis used to run automatically when the app opened, which is why the "
+                + "app would not start."
+            )
+
             SettingsNote(
                 "The core reads its BIOS from the app's Application Support directory, which the "
                 + "Files app does not show. The Continuum folder the Files app DOES show is the "

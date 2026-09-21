@@ -58,10 +58,26 @@
 ///
 /// A string rather than an enum, because every outcome is something a person reads once and
 /// nothing branches on. The caller shows it and does not interpret it.
+/// # This one is safe to call at startup, and the other one is not
+///
+/// THE APP USED TO RUN THE FULL PROBE WHEN IT LAUNCHED, AND THAT MADE THE APP UNLAUNCHABLE.
+/// Executing a page you just wrote is exactly what iOS kills a process for when the
+/// dynamic-codesigning entitlement is not actually in force, and whether it is in force depends
+/// on how the copy was signed and installed rather than on anything in this source. TrollStore
+/// preserves those entitlements; a free developer account and the installers built on it do not.
+/// So on those installs the app opened and was killed before it could draw the very line the
+/// probe existed to print, which also silently blocked every other on-device test for several
+/// builds.
+///
+/// This function therefore only asks whether the kernel will MAP such a page. That is a real
+/// answer — if the mapping is refused, no recompiler can run — and `mmap` reports refusal by
+/// returning a value rather than by having the process killed. Nothing is written and nothing is
+/// executed. See [`describe_execution`] for the rest of the answer, which is now something the
+/// owner asks for deliberately.
 pub fn describe() -> String {
     #[cfg(all(target_os = "ios", target_arch = "aarch64"))]
     {
-        ios_aarch64::probe()
+        ios_aarch64::probe_mapping()
     }
     #[cfg(not(all(target_os = "ios", target_arch = "aarch64")))]
     {
@@ -74,6 +90,27 @@ pub fn describe() -> String {
         //
         // Said plainly rather than pretending to have run, because a probe that reported success
         // where it had done nothing would be worse than useless.
+        "JIT: not probed, this build is not iOS arm64".to_string()
+    }
+}
+
+/// The full answer: map a page, write a function into it, and CALL it.
+///
+/// **This can get the process killed, and that is not a bug in it.** Executing a page the process
+/// just wrote is precisely the operation iOS forbids without the dynamic-codesigning entitlement
+/// being honoured, and the kernel's answer to a forbidden execute is SIGKILL rather than an error
+/// code. There is no way to ask "would this be allowed" other than doing it.
+///
+/// So this is never called on the launch path. It is reached only from an explicit control that
+/// says what may happen, because an app that closes when you press a clearly labelled button is a
+/// diagnosis, while an app that closes when you open it is just broken.
+pub fn describe_execution() -> String {
+    #[cfg(all(target_os = "ios", target_arch = "aarch64"))]
+    {
+        ios_aarch64::probe_execution()
+    }
+    #[cfg(not(all(target_os = "ios", target_arch = "aarch64")))]
+    {
         "JIT: not probed, this build is not iOS arm64".to_string()
     }
 }
@@ -134,7 +171,48 @@ mod ios_aarch64 {
 
     const LEN: usize = 4096;
 
-    pub fn probe() -> String {
+    /// Asks only whether an executable page can be MAPPED. Never writes, never executes.
+    ///
+    /// Safe to call anywhere, including at launch, because every outcome here is a return value.
+    /// It is also genuinely informative in the negative: a refused mapping means no recompiler can
+    /// run at all. A successful mapping is necessary but not sufficient, which the wording says.
+    pub fn probe_mapping() -> String {
+        let with_jit = can_map(MAP_PRIVATE | MAP_ANON | MAP_JIT);
+        let plain = can_map(MAP_PRIVATE | MAP_ANON);
+        match (with_jit, plain) {
+            (true, _) => "JIT: executable pages can be mapped with MAP_JIT. Whether they can be \
+                          RUN is the other half, and Settings has the button that finds out."
+                .to_string(),
+            (false, true) => "JIT: MAP_JIT was refused, but a plain executable mapping was \
+                              accepted. Settings has the button that tries running one."
+                .to_string(),
+            (false, false) => "JIT: NOT AVAILABLE, no executable page could be mapped at all. No \
+                               recompiler can run, so N64 is not possible on this installed build."
+                .to_string(),
+        }
+    }
+
+    /// One mapping attempt, immediately released. Nothing is written to the page.
+    fn can_map(flags: i32) -> bool {
+        // SAFETY: a fresh anonymous mapping, never dereferenced, unmapped before returning.
+        unsafe {
+            let page = mmap(
+                core::ptr::null_mut(),
+                LEN,
+                PROT_READ | PROT_WRITE | PROT_EXEC,
+                flags,
+                -1,
+                0,
+            );
+            if page.is_null() || page as isize == -1 {
+                return false;
+            }
+            munmap(page, LEN);
+            true
+        }
+    }
+
+    pub fn probe_execution() -> String {
         // TRIED TWO WAYS, AND REPORTING WHICH ONE WORKED IS THE POINT. A yes or no would say
         // whether a recompiler is possible; naming the mechanism says what a recompiler has to
         // ASK FOR, which is the thing the port actually needs to know. On a sideloaded build the
