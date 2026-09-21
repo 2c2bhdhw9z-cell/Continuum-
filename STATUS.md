@@ -13,7 +13,9 @@ If a row says Partial, the note says exactly what is absent. Nothing here is rou
 
 ## Systems
 
-Six cores, ten systems.
+Six cores, ten systems, shipping today. Four systems are still ahead and none of them is in this
+table: **N64, PSP, 3DS and the Switch**, hardest last. They all need the hardware-renderer work, so
+they live in [the road below](#the-road-to-the-rest-of-the-systems) rather than here.
 
 | System | Core | State | What is missing |
 | --- | --- | --- | --- |
@@ -71,16 +73,20 @@ Broken out rather than left as one row, because "untested" hides how much of it 
 | Save state compatibility refusal | **Built, cannot be tested deliberately** | Only fires for a state from a different core or build |
 | Core setting overrides | **Done** | The host refuses a core's requests for its settings, so every core keeps its own defaults. Two DS settings had to be answered because they do not start at the default they advertise; everything else, for every core, is still refused |
 | Multi-screen compositor | **Done, unused** | Draws N regions of one texture to N places. Nothing selects more than one yet: it exists for rearranging the DS screens and for hardware-rendered cores |
-| Nintendo Switch | **Partial** | The NEXT platform after the iPhone app. `native/switch-wrapper/` is a working frame gate and a Vulkan stub with no engine behind it yet. See Platform order below |
-| Android `.apk` | **Not started** | Far future, after the Switch. Everything new goes in the Rust engine, so Android inherits it whenever it is picked up |
+| Android `.apk` | **Not started** | The one other PLATFORM, and the only one after the iPhone. Next in order, still far off in time. Everything new goes in the Rust engine so Android inherits it |
+| Switch wrapper (to EMULATE the Switch) | **Partial** | `native/switch-wrapper/` has the frame gate, a Vulkan stub and a test harness, with no engine behind it. Steps 10 to 12 of the road below |
 
 ---
 
-## The road to N64
+## The road to the rest of the systems
 
-N64 is **step 6** of the twelve-step sequence in
-[docs/SET_HW_RENDER_DESIGN.md](docs/SET_HW_RENDER_DESIGN.md) section 13. The DS did not need any of
-it, which is why the DS arrived first.
+All twelve steps of the sequence in
+[docs/SET_HW_RENDER_DESIGN.md](docs/SET_HW_RENDER_DESIGN.md) section 13, not just as far as N64.
+Shown whole because stopping the table at step 6 hid the fact that **the Switch is on this list**,
+at steps 10 to 12, and that it is a system to be emulated rather than a device to run on.
+
+The DS is not on here at all, and that is why it shipped first: melonDS is software rendered on
+iOS, so it needed none of this.
 
 | Step | State |
 | --- | --- |
@@ -89,9 +95,27 @@ it, which is why the DS arrived first.
 | 3. MoltenVK in-process, a triangle into an `MTLTexture` | **Not started**. No core involved; this is where the zero-copy handoff is proven or corrected |
 | 4. `SET_HW_RENDER` for Vulkan, against Beetle PSX HW | **Not started**. Deliberately a core that is not N64, so a wrong contract shows up on a game whose software path already works |
 | 5. Recompiler measurement | **Not started** |
-| 6. **paraLLEl-N64** | **Not started** |
+| 6. **paraLLEl-N64**, the N64 | **Not started**. See the two gates below |
+| 7. ANGLE alongside MoltenVK | **Partly moot**. It existed for the DS, which was reached without it. Still needed by a GL-only core later |
+| 8. **Citra**, the 3DS | **Not started**. Two screens of unequal width, which the DS does not expose |
+| 9. **PPSSPP**, the PSP | **Not started** |
+| 10. **Switch**, stage 1: the wrapper against a stub engine | **Partial**. `native/switch-wrapper/` already has the `retro_*` skeleton, the frame gate, a Vulkan stub renderer and a test harness. No Rust engine behind it |
+| 11. Switch, stage 2: a real engine behind `ISwitchEngine`, homebrew booting | **Not started** |
+| 12. Switch, stage 3: capability shim, shader cache, retail content | **Not started** |
 
-### Two things gate it, and neither is graphics
+### The Switch, since it is the one that gets misread
+
+**It is the last and hardest SYSTEM TO EMULATE, after N64. It is not a platform Continuum runs on.**
+Section 12 of the design document is the whole approach: every existing Switch engine is a
+standalone application rather than a plugin, so `continuum_switch_libretro.cpp` wraps one behind an
+`ISwitchEngine` interface and hands it to the rest of Continuum as an ordinary libretro core, which
+is why nothing else in the engine has to learn that anything unusual happened.
+
+Section 11 of that document also establishes it fits in memory, with the entitlements, on 12 GB
+hardware and only there: roughly 4 GB of guest RAM plus 1 to 2 GB of GPU resources plus recompiled
+code, against a 6 to 8 GB working budget.
+
+### Two things gate N64, and neither is graphics
 
 **The recompiler.** An N64 interpreter is far too slow, so N64 needs a working JIT. The
 entitlements have claimed one since the first build and had never been exercised, so this build
@@ -138,29 +162,10 @@ paraLLEl-RDP is Vulkan compute and has no GL equivalent.
 
 ---
 
-## Platform order
-
-Which devices Continuum itself runs on, in the order they are being done. Not to be confused with
-the systems it emulates, which is the table at the top.
-
-| Order | Platform | State |
-| --- | --- | --- |
-| 1 | **iPhone (`.ipa`)** | The one being built. Everything above refers to this. |
-| 2 | **Nintendo Switch** | Next, and a genuine attempt rather than a promise. `native/switch-wrapper/` already holds a frame gate, a Vulkan stub renderer and a test harness; what it does not have is the Rust engine wired in behind it. |
-| 3 | Android (`.apk`) | A long way off. Deliberately last. |
-
-The reason this order costs little: every feature is built in the Rust engine rather than in Swift
-wherever there is a choice. Audio, input, timing, rewind, save states, cheats and the compositor are
-all engine-side, so a new platform needs a shell and a screen, not a rewrite. The iPhone app is the
-shell that exists today.
-
----
-
 ## Deliberately deferred
 
 Not forgotten, and not bugs:
 
 - iOS deployment target stays at 16 rather than 18, and Swift stays at language mode 5.
 - Per-orientation control layouts.
-- PSP and 3DS as emulated systems. The Switch is NOT in this list; it is the next platform to run
-  Continuum ON. See Platform order.
+- Nothing to do with PSP, 3DS or Switch is deferred; they are steps 9 to 12 of the road above.
