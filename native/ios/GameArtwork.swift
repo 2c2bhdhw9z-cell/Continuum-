@@ -65,6 +65,12 @@ enum SystemArtwork {
         // single underscore with both of its spaces intact. Still worth one on-device check,
         // because a sandbox and a phone are not the same network.
         case .gg: return "Sega - Game Gear"
+        // The server's name is "Nintendo - Nintendo DS", with the word Nintendo twice. That
+        // repetition looks like a mistake and is not: the first is the manufacturer and the second
+        // is part of the system's own name, which is the same pattern as the Nintendo
+        // Entertainment System row above. A directory name that is nearly right is
+        // indistinguishable from a game having no art, because both come back as a 404.
+        case .ds: return "Nintendo - Nintendo DS"
         }
     }
 
@@ -86,6 +92,10 @@ enum SystemArtwork {
         case .genesis: return 220
         case .ps1: return 240
         case .gg: return 165
+        // Chosen here rather than copied, like Game Gear, because the browser build had no DS
+        // row. 310 is a magenta that sits clear of every value above it: the nearest is the SNES
+        // at 268, and 42 degrees is enough separation to read as a different system on a shelf.
+        case .ds: return 310
         }
     }
 
