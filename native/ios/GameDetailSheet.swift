@@ -436,6 +436,7 @@ struct GameDetailSheet: View {
             SettingsButton(title: "Choose an image from Files", role: .normal) {
                 artwork.presentArtworkPicker(for: entry)
             }
+            capturedCoverControl
             if artwork.artworkChoice(for: entry) != nil {
                 SettingsButton(title: "Use automatic artwork again", role: .normal) {
                     chooser.useAutomatic(entry: entry, store: artwork)
@@ -449,9 +450,9 @@ struct GameDetailSheet: View {
             }
             SettingsNote(
                 "A cover chosen here wins over anything found automatically, including after a "
-                + "relaunch, and an image from Files wins over everything, which is the answer for a "
-                + "game the thumbnail database has never heard of. The generated plate is always "
-                + "underneath, so nothing is ever blank."
+                + "relaunch, and an image from Files or a frame captured from the game wins over "
+                + "everything, which is the answer for a game the thumbnail database has never heard "
+                + "of. The generated plate is always underneath, so nothing is ever blank."
             )
         }
         .padding(14)
@@ -524,6 +525,48 @@ struct GameDetailSheet: View {
                 + "lists, smallest first, and downloads the ones this device does not already have: "
                 + "all nine box art lists together are about 11 MB if none of them is here yet. A "
                 + "cover found that way says which system it came from."
+            )
+        }
+    }
+
+    /// The cover taken from the game itself, or the reason it is not on offer.
+    ///
+    /// A CONTROL THAT CANNOT WORK IS NOT OFFERED, which is the rule the Settings screen is built
+    /// around and it applies with force here: capturing reads the live Metal surface, so it needs a
+    /// session, and a button that answered "no game is running" every time it was pressed would
+    /// teach the user that this card lies. The note is not a consolation prize either, it is the
+    /// actual instruction, because the place the capture lives is not obvious: it is behind a press
+    /// on the player's save button.
+    ///
+    /// AS THINGS STAND THE NOTE IS WHAT EVERY USER SEES, and that is worth writing down rather than
+    /// discovering later. This sheet is presented by the library shell, and `RootView` mounts the
+    /// library shell only while `activeEntry` is nil, so a running game means the player screen is on
+    /// screen and this card is not. The condition below is therefore false today for exactly the same
+    /// reason `stateRow` has a "Play" variant instead of a "Load" one. It is written as a condition
+    /// anyway, not hardcoded, because the day this card becomes reachable over a running game the
+    /// right control appears with nothing to change here, and the wrong one would not.
+    ///
+    /// The button is a plain `SettingsButton` like the four artwork actions around it rather than the
+    /// 44 point row the save states use: it belongs to that block visually, and the control whose
+    /// mis-tap would actually cost something, the one operated with a game running and a thumb in the
+    /// way, is the player's menu row, which the system sizes for a touch.
+    @ViewBuilder
+    private var capturedCoverControl: some View {
+        if host.running, host.activeEntry?.id == entry.id {
+            SettingsButton(title: "Use the current frame as the cover", role: .normal) {
+                // No dismissal afterwards, deliberately. The store bumps its generation when the
+                // cover lands, this sheet observes the store, so the header above redraws with the
+                // new cover and the Source line above says where it came from. Closing the card would
+                // hide the one piece of feedback that proves it worked.
+                artwork.captureCover(for: entry)
+            }
+        } else {
+            SettingsNote(
+                "A cover can also be taken from the game itself, which is the only thing that works "
+                + "for a ROM no cover database has ever heard of. It needs the game to be running: "
+                + "start it, then press and hold the save button at the top of the player and choose "
+                + "\"Use this frame as the cover\". Pausing first is worth doing, because the frame "
+                + "you are looking at while paused is exactly the frame that gets stored."
             )
         }
     }

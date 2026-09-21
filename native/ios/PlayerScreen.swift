@@ -209,6 +209,15 @@ struct PlayerScreen: View {
     /// press has to be distinguished from a tap, so a finger that lands slightly off it and slides
     /// while the menu is coming up must still be on it. The rest of the bar keeps 38 because a plain
     /// tap is forgiving in a way a press is not.
+    ///
+    /// THE COVER CAPTURE IS A ROW IN THIS MENU RATHER THAN A BUTTON IN THE BAR, which is the argument
+    /// above carried one step further. Everything the paragraph above lists is already in that row,
+    /// and one more circle could only come out of the width of the others, which is the opposite of
+    /// what a touch target needs. A menu row costs no width at all and the system sizes it for a
+    /// finger, so the control that must never be hit by accident is the one that gains most from
+    /// living behind a press. It belongs beside the save states rather than beside pause and reset
+    /// for a second reason: like a save it writes something durable about this game, and unlike pause
+    /// and reset it is not a thing anyone reaches for by reflex mid-game.
     private var saveStateControl: some View {
         Menu {
             Button {
@@ -242,6 +251,25 @@ struct PlayerScreen: View {
                     }
                 }
             }
+
+            // Its own section, because it is not a save state and a row loose among them would read
+            // as one. Offered only with a game on screen: the player is never mounted without one,
+            // so this is the optional being unwrapped rather than a condition anybody can hit, and
+            // `captureCover` guards the session itself for the paths that can.
+            //
+            // THE ANSWER ARRIVES ON THE STATUS LINE under the telemetry strip, which this screen
+            // already draws, so there is no alert and nothing to dismiss. Capturing while PAUSED
+            // works and is the better way to use it: the engine refreshes from the core before it
+            // reads the surface, so a game paused on its title screen gives up exactly that frame.
+            if let entry = host.activeEntry {
+                Section("Cover art") {
+                    Button {
+                        host.artwork.captureCover(for: entry)
+                    } label: {
+                        Label("Use this frame as the cover", systemImage: "camera.viewfinder")
+                    }
+                }
+            }
         } label: {
             Image(systemName: "square.and.arrow.down")
                 .font(.system(size: 15, weight: .semibold))
@@ -251,7 +279,10 @@ struct PlayerScreen: View {
         } primaryAction: {
             host.saveStateToSlot()
         }
-        .accessibilityLabel("Save state, press and hold to load one")
+        // One literal rather than a concatenation, like every other label in this file: the
+        // concatenated form resolves to a different overload of this modifier than a plain string
+        // does, and on a build whose only compiler is CI that is not a thing to find out remotely.
+        .accessibilityLabel("Save state, press and hold to load one or to grab the cover")
     }
 
     /// How many states the in-game menu offers. Six is about what fits without scrolling on the

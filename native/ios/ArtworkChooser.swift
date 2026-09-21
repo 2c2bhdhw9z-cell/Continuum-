@@ -171,17 +171,88 @@ struct ArtworkChoice: Codable, Sendable, Equatable {
         case remote
         /// An image the user picked out of Files. The stored copy is the ONLY copy.
         case pickedFile
+        /// A frame captured from the running game. The stored copy is the ONLY copy, exactly as for
+        /// a picked file, because the frame it came from was gone the moment the game advanced.
+        case capturedFrame
+        /// A kind this build has never heard of, read back from a store a LATER build wrote.
+        ///
+        /// NOT A SOURCE, A DEGRADATION. See `init(from:)` for why an unrecognised kind arrives here
+        /// rather than as a thrown error, and `ArtworkStore.restore(choice:key:title:)` for what is
+        /// then done with it: the stored cover keeps outranking automatic resolution, which is the
+        /// property the record exists for, and if the file is gone the record is dropped with an
+        /// explanation rather than a guess.
+        case unknown
     }
 
     let kind: Kind
-    /// The option's stable id, for marking it as the one in use. Nil for a picked file, which has no
-    /// option to point at.
+    /// The option's stable id, for marking it as the one in use. Nil for a picked file or a captured
+    /// frame, neither of which has an option to point at.
     let optionID: String?
-    /// The address to fetch again if the stored cover is ever lost. Nil for a picked file.
+    /// The address to fetch again if the stored cover is ever lost. Nil for anything local.
     let address: String?
-    /// What to call it on screen: "box art from Game Boy", or the picked file's name.
+    /// What to call it on screen: "box art from Game Boy", the picked file's name, or the size the
+    /// frame was captured at.
     let label: String
     let chosenAt: Double
+
+    /// Written out because declaring `init(from:)` below suppresses the memberwise one, exactly as
+    /// `SaveStateRecord` and `TouchLayout` have to.
+    init(kind: Kind, optionID: String?, address: String?, label: String, chosenAt: Double) {
+        self.kind = kind
+        self.optionID = optionID
+        self.address = address
+        self.label = label
+        self.chosenAt = chosenAt
+    }
+
+    // MARK: Storage
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, optionID, address, label, chosenAt
+    }
+
+    /// Decodes field by field, each one falling back rather than throwing, for the reason
+    /// `SaveStateRecord` does and with one extra of its own.
+    ///
+    /// AN UNRECOGNISED KIND IS THE CASE THAT MATTERS, and it is not hypothetical: this file gained
+    /// `capturedFrame` after builds carrying only `remote` and `pickedFile` had already written this
+    /// store. A `String`-backed enum throws on a raw value it does not know, the throw propagates
+    /// out of the dictionary decode, and `ArtworkChoices.decode` would hand back an EMPTY map: one
+    /// game gaining a kind an older build cannot read would lose EVERY OTHER GAME's choice with it,
+    /// and each of those games would then be quietly re-resolved automatically over a cover its
+    /// owner chose by hand. So an unknown raw value becomes `.unknown` here, and a value that cannot
+    /// be decoded at all costs one entry rather than the map. See `ArtworkChoices.decode`.
+    ///
+    /// THE ROUND TRIP IS LOSSY AND THAT IS THE ACCEPTED COST. `recordChoice` rewrites the whole map
+    /// on every change, so a kind read as `.unknown` is written back as "unknown" and the newer
+    /// build's own word for it is gone. The alternative, carrying the raw string alongside the enum,
+    /// makes `kind` optional at every use site to defend against a version mix that only happens
+    /// when somebody moves backwards between builds. Nothing about the COVER is lost either way: the
+    /// file on disk is never touched by a decode, and the record still does its one job of outranking
+    /// automatic resolution.
+    init(from decoder: Decoder) throws {
+        let box = try decoder.container(keyedBy: CodingKeys.self)
+        let storedKind = try box.decodeIfPresent(String.self, forKey: .kind)
+        // A missing kind falls to `.unknown` rather than to `.remote`: treating a record with no
+        // provenance as a remote one would send this app fetching whatever URL sat beside it, and
+        // "I do not know where this came from" is the honest reading of the bytes.
+        kind = Kind(rawValue: storedKind ?? "") ?? .unknown
+        optionID = try box.decodeIfPresent(String.self, forKey: .optionID)
+        address = try box.decodeIfPresent(String.self, forKey: .address)
+        label = try box.decodeIfPresent(String.self, forKey: .label) ?? "a cover chosen earlier"
+        chosenAt = try box.decodeIfPresent(Double.self, forKey: .chosenAt) ?? 0
+    }
+
+    /// Written out rather than synthesized, only so the encoded shape and the forgiving decode above
+    /// sit next to each other and cannot drift apart unnoticed. The same reason `TouchLayout` does it.
+    func encode(to encoder: Encoder) throws {
+        var box = encoder.container(keyedBy: CodingKeys.self)
+        try box.encode(kind.rawValue, forKey: .kind)
+        try box.encodeIfPresent(optionID, forKey: .optionID)
+        try box.encodeIfPresent(address, forKey: .address)
+        try box.encode(label, forKey: .label)
+        try box.encode(chosenAt, forKey: .chosenAt)
+    }
 
     /// The folder the chosen cover came from, recovered from the option id.
     ///
@@ -216,9 +287,39 @@ struct ArtworkChoice: Codable, Sendable, Equatable {
 /// that an automatic resolve is allowed to replace one, which is recoverable, while a crash on launch
 /// is not.
 enum ArtworkChoices {
+    /// Decodes the map, and then, if that failed, decodes it one entry at a time.
+    ///
+    /// THE SECOND PASS IS THE POINT, and `capturedFrame` is what bought it. A dictionary decode is
+    /// all-or-nothing: one value this build cannot read takes every other game's choice down with
+    /// it, and the visible result is a library quietly re-resolving covers their owner chose by hand.
+    /// `ArtworkChoice.init(from:)` already refuses to throw on a kind it does not recognise, so the
+    /// remaining way to lose an entry is a field stored with the wrong JSON type by some build that
+    /// shaped this record differently. Salvaging per entry makes that cost one game instead of all
+    /// of them.
+    ///
+    /// The fast path stays first and is the one that runs every time, so the ordinary launch pays
+    /// nothing for this. It is also worth being honest about what it cannot do: a build that shipped
+    /// BEFORE this function existed still decodes strictly, so a store written here and read there
+    /// loses the map. The covers themselves are untouched on disk, which is why that is recoverable.
     static func decode(_ data: Data?) -> [String: ArtworkChoice] {
         guard let data else { return [:] }
-        return (try? JSONDecoder().decode([String: ArtworkChoice].self, from: data)) ?? [:]
+        if let whole = try? JSONDecoder().decode([String: ArtworkChoice].self, from: data) {
+            return whole
+        }
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            // Not even JSON, so there is nothing to salvage. An empty map is the documented
+            // behaviour: a crash on launch would be worse than an automatic lookup.
+            return [:]
+        }
+        var salvaged: [String: ArtworkChoice] = [:]
+        for (key, value) in object {
+            guard let entry = try? JSONSerialization.data(withJSONObject: value) else { continue }
+            guard let choice = try? JSONDecoder().decode(ArtworkChoice.self, from: entry) else {
+                continue
+            }
+            salvaged[key] = choice
+        }
+        return salvaged
     }
 
     static func encode(_ map: [String: ArtworkChoice]) -> Data? {

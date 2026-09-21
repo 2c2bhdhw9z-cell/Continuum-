@@ -1556,14 +1556,30 @@ final class ArtworkStore: ObservableObject {
     /// dropped and that is said out loud rather than left looking like a cover that came back wrong.
     private func restore(choice: ArtworkChoice, key: String, title: String) async -> CoverImage? {
         switch choice.kind {
-        case .pickedFile:
+        case .pickedFile, .capturedFrame, .unknown:
+            // THE THREE LOCAL KINDS SHARE ONE PATH, because the only thing this function can act on
+            // is whether there is somewhere to fetch the bytes from, and for all three there is not.
+            // A captured frame is the sharpest case of it: the frame it was taken from stopped
+            // existing the moment the game advanced, so there is not even a theoretical way back to
+            // the same image. What differs between the three is the sentence, and the sentence is the
+            // whole value of this branch to whoever reads it on the status line.
+            let lost: String
+            switch choice.kind {
+            case .capturedFrame:
+                lost = "the frame captured from it is gone and the stored copy was the only one"
+            case .unknown:
+                lost = "the cover stored for it was recorded by a build this one does not "
+                    + "understand, so it cannot be put back"
+            default:
+                lost = "the image chosen from Files for it is gone and the stored copy was the only "
+                    + "one"
+            }
             recordChoice(nil, forKey: key)
             recordProvenance(nil, forKey: key)
             recordAddress(nil, forKey: key)
             failedThisRun += 1
             reportLookupFailure(
-                reason: "the image chosen from Files for it is gone and the stored copy was the only "
-                    + "one, so its artwork goes back to being looked up automatically",
+                reason: lost + ", so its artwork goes back to being looked up automatically",
                 game: title
             )
             return nil
@@ -1714,13 +1730,16 @@ final class ArtworkStore: ObservableObject {
             defaults.removeObject(forKey: Self.provenanceKey)
             defaults.removeObject(forKey: Self.addressKey)
             // A CHOSEN COVER FROM THE SERVER SURVIVES THIS, because it can be downloaded again and a
-            // cache clear is not meant to undo a decision. A picked image cannot: the copy that was
-            // just cleared was the only one, so its record goes with it rather than being left
-            // pointing at bytes that no longer exist.
+            // cache clear is not meant to undo a decision. A LOCAL one cannot: an image picked from
+            // Files and a frame captured from a game were both stored exactly once, so the copy that
+            // has just been cleared was the only one and the record goes with it rather than being
+            // left pointing at bytes that no longer exist. Anything that is not `.remote` counts as
+            // local here, which is also the right answer for a kind a later build invented: this
+            // build has no address to fetch it from either way.
             let choices = readChoices()
             let remote = choices.filter { $0.value.kind == .remote }
-            let picked = choices.count - remote.count
-            if picked > 0, let data = ArtworkChoices.encode(remote) {
+            let local = choices.count - remote.count
+            if local > 0, let data = ArtworkChoices.encode(remote) {
                 defaults.set(data, forKey: Self.choiceKey)
             }
             resolvedThisRun = 0
@@ -1728,10 +1747,11 @@ final class ArtworkStore: ObservableObject {
             generation += 1
             if files == 0 {
                 report("artwork: there were no stored covers to clear")
-            } else if picked > 0 {
+            } else if local > 0 {
                 report("artwork: cleared \(files) stored cover(s), \(Self.byteText(bytes)); "
-                       + "\(remote.count) chosen cover(s) will be downloaded again and \(picked) "
-                       + "image(s) picked from Files are gone, as their stored copy was the only one")
+                       + "\(remote.count) chosen cover(s) will be downloaded again and \(local) "
+                       + "cover(s) picked from Files or captured from a game are gone, as their "
+                       + "stored copy was the only one")
             } else {
                 report("artwork: cleared \(files) stored cover(s), \(Self.byteText(bytes)); "
                        + "\(remote.count) chosen cover(s) will be downloaded again")
@@ -1932,6 +1952,130 @@ final class ArtworkStore: ObservableObject {
             recordChoice(
                 ArtworkChoice(kind: .pickedFile, optionID: nil, address: nil,
                               label: url.lastPathComponent,
+                              chosenAt: Date().timeIntervalSince1970),
+                forKey: key
+            )
+            clearMiss(key)
+            await refreshUsage()
+            generation += 1
+        }
+    }
+
+    // ------------------------------------------------------------------ tier 6, a captured frame
+
+    /// Makes the frame the running game is showing into that game's cover.
+    ///
+    /// THE ONLY RUNG THAT CANNOT MISS. Every tier above this one is a question put to somebody else
+    /// and can be answered with "never heard of it": a homebrew build, a translation patch or a
+    /// prototype is a 404 under every name this app can derive, absent from all nine of the server's
+    /// own listings, and has no scan in existence for anyone to pick out of Files. The game is on
+    /// screen regardless, so this takes a picture of it.
+    ///
+    /// SHAPED EXACTLY LIKE `handlePickedArtwork`, and for the same reasons rather than for symmetry.
+    /// The bytes are stored under the same key, the decoded image goes into the same cache at the
+    /// same cost, and the record goes in as a CHOICE, which is the part that matters: without it the
+    /// next automatic resolve would be free to replace a cover the user deliberately made, and a
+    /// re-scan of the library would do it silently. See `recordChoice`.
+    ///
+    /// GUARDED ON THE SESSION BEFORE THE ENGINE IS TOUCHED, and the third guard is not paranoia: the
+    /// detail sheet can be opened for any game in the library, so "capture this game" and "a game is
+    /// running" are two different facts, and storing a frame of Zelda as the cover of Metroid would be
+    /// a silent, persistent, wrong answer. Every refusal says which of the three it was, on the line
+    /// the user is already looking at.
+    ///
+    /// A LANDSCAPE FRAME ON A PORTRAIT CARD IS CENTRE CROPPED, not letterboxed, because `CoverArtView`
+    /// draws every cover `.fill` and clips. That is worth knowing rather than fixing here: it is the
+    /// same treatment a wide image picked from Files already gets, the middle of a game's frame is
+    /// usually the part worth showing, and a cover that letterboxed itself would be the only thing on
+    /// a shelf that did.
+    func captureCover(for entry: LibraryEntry) {
+        let title = GameMetadata.displayTitle(for: entry)
+
+        guard let host else {
+            // Only reachable if this store was never attached, which `EngineHost.init` does. Said
+            // out loud rather than returned silently, because a control that does nothing with no
+            // explanation is the one thing this app's Settings screen has a rule against.
+            report("artwork: nothing was captured for \(title), this store has no engine attached")
+            return
+        }
+        guard host.running, let active = host.activeEntry else {
+            report("artwork: nothing to capture for \(title), no game is running")
+            return
+        }
+        guard active.id == entry.id else {
+            report("artwork: \(title) is not the game that is running, so there is no frame of it "
+                   + "to capture")
+            return
+        }
+
+        let width: UInt32
+        let height: UInt32
+        let rgba: Data
+        do {
+            // 0 BY 0 MEANS THE SURFACE AS IT IS, which is the right request rather than a convenient
+            // one. This app sizes the Metal surface to the game's own aspect ratio (see
+            // `PictureFit`), so the surface already holds the picture edge to edge with no letterbox
+            // to crop back off, and the capture runs through the same pipeline as a present: the
+            // scale mode, the filter and the aspect the user chose in Settings all apply. Asking for
+            // a fixed size instead would produce a cover that does not match what they were looking
+            // at, and this tier's entire claim is that it is a picture of THAT.
+            //
+            // THIS BLOCKS FOR A FEW MILLISECONDS while the GPU finishes the readback, on the main
+            // actor, which is why it hangs off a menu item and a button and nothing else. It is also
+            // safe on a paused game, because the engine refreshes from the core first, and pausing on
+            // a title screen and then grabbing it is the best way to use this.
+            let frame = try host.engine.captureFrame(width: 0, height: 0)
+            width = frame.width
+            height = frame.height
+            // NOT wrapped in `Data(...)`. UniFFI already hands back `Data` for a Rust `Vec<u8>`, so
+            // re-wrapping it would compile and copy several megabytes for nothing, which is the exact
+            // trap noted on `engine.saveState()` in SaveStates.swift.
+            rgba = frame.rgba
+        } catch {
+            report("artwork: the frame could not be captured from \(title): \(error)")
+            return
+        }
+
+        let key = ArtworkDisk.key(forPath: entry.path)
+        Task {
+            // Both of these run OFF the main actor, being nonisolated async functions: the bitmap and
+            // the PNG encode in the first, the write and the decode in the second. A full-screen
+            // frame is tens of megabytes of pixels, and none of that belongs on the actor that is
+            // drawing the game this frame came from.
+            let (png, failure) = await CapturedCover.pngData(width: width, height: height,
+                                                             rgba: rgba)
+            guard let png else {
+                report("artwork: the frame captured from \(title) was not stored, "
+                       + "\(failure ?? "the reason was not reported")")
+                return
+            }
+            let result = await ArtworkDisk.store(data: png, key: key)
+            guard let image = result.image else {
+                // A PNG this app has just encoded and cannot decode again would mean something is
+                // wrong with the image rather than with the capture, so it is reported as its own
+                // condition rather than folded into the line above.
+                report("artwork: the frame captured from \(title) could not be read back as an "
+                       + "image, so it was not used")
+                return
+            }
+            if let writeFailure = result.writeFailure {
+                report("artwork: the captured frame is the cover for \(title) but it \(writeFailure)")
+            } else {
+                report("artwork: a \(width) by \(height) frame is now the cover for \(title)")
+            }
+            memory.setObject(image, forKey: key as NSString,
+                             cost: Self.memoryCost(of: image))
+            recordProvenance("captured from the game, \(width) by \(height)", forKey: key)
+            // No address, exactly as for a picked file: there is nowhere to fetch this again. It is
+            // cleared rather than left alone so a game that previously had a downloaded cover cannot
+            // keep pointing the chooser at the URL that cover came from.
+            recordAddress(nil, forKey: key)
+            // Remembered as a CHOICE for the reason the picked file is: this is the answer for a game
+            // the thumbnail database has never heard of, so it has to outrank anything a later search
+            // turns up, including after a relaunch and after a re-scan.
+            recordChoice(
+                ArtworkChoice(kind: .capturedFrame, optionID: nil, address: nil,
+                              label: "a \(width) by \(height) frame from the game",
                               chosenAt: Date().timeIntervalSince1970),
                 forKey: key
             )

@@ -126,33 +126,67 @@ final class EmulationSettings: ObservableObject {
     /// can be a hundred times the size of an NES one, so the same 64 MB is minutes on one
     /// system and seconds on another. `rewindReadout` says what it turned out to be worth on
     /// the game in front of you, which is the honest way round.
+    /// Off, or on with the budget chosen for you.
+    ///
+    /// THIS USED TO OFFER 32, 96 AND 256 MB AND THE CHOICE WAS REMOVED ON PURPOSE. Asking somebody
+    /// how many megabytes of rewind they want is asking them to do arithmetic they have no way of
+    /// doing: how much time a budget buys depends on the running core's save-state size, which
+    /// differs by a factor of about a hundred between the NES and the PlayStation, is not knowable
+    /// before a game is launched, and is not a number anyone should have to think about. Three
+    /// numbers that all mean "rewind, please" is a menu, not a setting.
+    ///
+    /// So "on" now sizes itself from the device, and `automaticBytes` explains how. The read-out
+    /// still says what it worked out to and what it bought, which is the part that was always the
+    /// useful half.
+    ///
+    /// The raw values of the two remaining cases are deliberately "off" and "on", and an older
+    /// stored value of "small", "medium" or "large" is read as "on" rather than being discarded.
+    /// See the restore in `init`.
     enum RewindBudget: String, CaseIterable, Identifiable {
         case off
-        case small
-        case medium
-        case large
+        case on
 
         var id: String { rawValue }
-
-        var megabytes: Int {
-            switch self {
-            case .off: return 0
-            case .small: return 32
-            case .medium: return 96
-            case .large: return 256
-            }
-        }
-
-        var bytes: UInt64 { UInt64(megabytes) * 1_048_576 }
 
         var label: String {
             switch self {
             case .off: return "Off"
-            case .small: return "32 MB"
-            case .medium: return "96 MB"
-            case .large: return "256 MB"
+            case .on: return "On"
             }
         }
+
+        var bytes: UInt64 {
+            switch self {
+            case .off: return 0
+            case .on: return EmulationSettings.automaticBytes
+            }
+        }
+    }
+
+    /// The rewind budget when rewind is on, chosen from how much memory the device has.
+    ///
+    /// **A share of physical memory rather than a fixed ceiling, because the risk being managed is
+    /// not "wasting memory", it is iOS terminating the app.** A phone does not page an app out when
+    /// it grows; it kills it. A fixed 256 MB is comfortable on a recent Pro and a much larger share
+    /// of a 3 GB device, where the app is also holding a core's working memory, the audio rings,
+    /// the Metal surface and a library of cover art. Scaling means the generous case stays generous
+    /// without the small case being the one that gets killed.
+    ///
+    /// Four percent, clamped. The clamp is what makes it a promise rather than a formula: the floor
+    /// keeps rewind worth switching on at all on a small device, and the ceiling stops a future
+    /// phone with a great deal of memory from quietly reserving hundreds of megabytes for a feature
+    /// the user may not be using this session.
+    ///
+    /// `physicalMemory` and not the memory free right now, which would be the more precise signal
+    /// and the wrong one: it changes minute to minute, so the same setting would buy a different
+    /// amount of rewind on each launch, and the read-out would be telling the truth about something
+    /// that keeps moving. A figure derived from the hardware is stable and explainable.
+    static var automaticBytes: UInt64 {
+        let physical = ProcessInfo.processInfo.physicalMemory
+        let share = physical / 25
+        let floor: UInt64 = 48 * 1_048_576
+        let ceiling: UInt64 = 384 * 1_048_576
+        return min(max(share, floor), ceiling)
     }
 
     // MARK: Stored preferences
@@ -256,9 +290,11 @@ final class EmulationSettings: ObservableObject {
         if let stored = defaults.object(forKey: Self.mutedKey) as? Bool {
             muted = stored
         }
-        if let raw = defaults.string(forKey: Self.rewindKey),
-           let stored = RewindBudget(rawValue: raw) {
-            rewindBudget = stored
+        if let raw = defaults.string(forKey: Self.rewindKey) {
+            // An older build stored "small", "medium" or "large" here. Those all meant rewind was
+            // wanted, so they are read as "on" rather than falling back to the default, which would
+            // silently switch the feature off for anyone who had already turned it on.
+            rewindBudget = RewindBudget(rawValue: raw) ?? (raw == "off" ? .off : .on)
         }
 
         applyAll()

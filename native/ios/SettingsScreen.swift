@@ -9,8 +9,13 @@
 // The selectors the design reference always showed for fit, filter, speed and volume are real now:
 // the engine exports scale mode, filter, the pacer's multiplier, mute and a ramped volume, and
 // rewind has a memory budget behind it. `EmulationSettings` owns all five, persists them and
-// re-asserts them into an engine whose pacer does not survive a session. That list at the bottom is
-// correspondingly much shorter than it was, and everything left on it is genuinely still missing.
+// re-asserts them into an engine whose pacer does not survive a session.
+//
+// THAT LIST AT THE BOTTOM IS NOW EMPTY, and the section draws nothing rather than drawing a heading
+// over an empty list. Physical controllers came off it when the engine gained a per-source input
+// push, and cover art taken from the game came off it when the engine gained a framebuffer readback,
+// which was the last entry. The list and its section are still here, because the next thing the
+// engine cannot do yet belongs in exactly that place. See `notYetWiredSection`.
 //
 // Nothing was deleted from the diagnostic HUD in moving it here. The same strings, in the same
 // order, are still one tap away from the status strip on both screens.
@@ -736,31 +741,57 @@ struct SettingsScreen: View {
 
             SettingsNote(
                 "Rewind works by quietly saving the game ten times a second and stepping back "
-                + "through those saves when you hold the rewind button in the player. The setting "
-                + "is memory rather than seconds because the two are not the same thing: a "
-                + "PlayStation save is around a hundred times the size of an NES one, so the same "
-                + "96 MB is minutes of NES and seconds of Crash Bandicoot. The line above says "
-                + "what it actually bought on the game you are playing."
+                + "through those saves while you hold the rewind button in the player. How much "
+                + "memory that takes is worked out for you from the size of this device, so there "
+                + "is nothing to pick: the line above says what it came to and, once a game is "
+                + "running, how many seconds of rewind it actually bought."
             )
             SettingsNote(
-                "Off is the default and costs nothing. Turning it on spends that memory for as "
-                + "long as a game is running, and on a phone that matters: iOS closes an app that "
-                + "grows too large rather than slowing it down. Resetting a game or loading a "
-                + "save clears the history, because winding back past either would take you "
-                + "somewhere you never were."
+                "How far back it reaches depends entirely on the game, which is why it is not "
+                + "offered in seconds. A PlayStation save is around a hundred times the size of an "
+                + "NES one, so the same memory is minutes of Super Mario Bros and seconds of Crash "
+                + "Bandicoot. Off is the default and costs nothing, because the memory is spent "
+                + "for as long as a game is running, and on a phone that matters: iOS closes an "
+                + "app that grows too large rather than slowing it down. Resetting a game or "
+                + "loading a save clears the history, since winding back past either would take "
+                + "you somewhere you never were."
             )
         }
     }
 
     // MARK: What is not wired
 
+    /// The gaps, when there are any.
+    ///
+    /// DRAWS NOTHING AT ALL WHEN `gaps` IS EMPTY, which is the state this build is in: the last entry
+    /// was retired when in-game cover capture was wired, so the list is empty for the first time. A
+    /// heading reading "NOT WIRED YET" over an explanation of a list with nothing in it is not
+    /// information, it is a section asking to be read and then answering nothing, and this screen's
+    /// rule against controls that do nothing is the same rule. The section, the `Gap` type and the
+    /// array all stay exactly where they are, because the next thing the engine cannot do yet goes
+    /// here and one line in the array brings the whole section back.
+    ///
+    /// `@ViewBuilder` so the empty case is genuinely nothing rather than an empty container, and this
+    /// stays ONE child of `body`'s second `Group` either way, which matters: that builder is near the
+    /// ten child ceiling described at the top of `body`.
+    @ViewBuilder
     private var notYetWiredSection: some View {
-        SettingsSection(title: "NOT WIRED YET") {
+        if !Self.gaps.isEmpty {
+            SettingsSection(title: "NOT WIRED YET") {
+                gapList
+            }
+        }
+    }
+
+    /// The contents of the section above, split out only to keep that `if` legible.
+    private var gapList: some View {
+        VStack(alignment: .leading, spacing: 12) {
             SettingsNote(
                 "What is listed here is absent rather than broken. It needs something exported "
                 + "from the engine that is not exported today, and each one is recorded in "
                 + "FEAT-006 with what it unlocks. Physical controllers used to be on this list and "
-                + "are now real, in GAME CONTROLLERS above."
+                + "are now real, in GAME CONTROLLERS above, and so is cover art taken from the game "
+                + "itself, in COVER ART above."
             )
             ForEach(Self.gaps) { gap in
                 VStack(alignment: .leading, spacing: 2) {
@@ -790,11 +821,15 @@ struct SettingsScreen: View {
 
     /// The gaps, each with the reason. Written out because the design reference shows controls for
     /// all of them and a later reader would otherwise assume they were forgotten.
+    ///
+    /// EMPTY, FOR NOW, and the section above draws nothing while it is. Everything the design
+    /// reference shows has something real behind it.
     private static let gaps: [Gap] = [
-        Gap(name: "Cover art from the game itself",
-            reason: "The fourth artwork tier is a capture from a running game, which is the only "
-            + "tier that works for a ROM no database has heard of. It needs a framebuffer readback "
-            + "exported from the engine."),
+        // "Cover art from the game itself" was here, and it is now in COVER ART on a game's card and
+        // behind a press on the player's save button. The call it was waiting for, a framebuffer
+        // readback, is exported, so the entry had stopped being a missing feature and become a false
+        // statement about the app, which is the same reason the entry below it went.
+        //
         // "Physical controllers" was here, and it is now GAME CONTROLLERS above. The call it was
         // waiting for, an input push that names which source layer it belongs to, is exported, so
         // the entry was no longer a missing feature but a false statement about the app. An

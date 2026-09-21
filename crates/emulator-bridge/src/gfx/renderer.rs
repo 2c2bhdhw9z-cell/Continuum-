@@ -373,7 +373,10 @@ impl Renderer {
     ///
     /// `pub(crate)` and deliberately not part of the public surface: `gfx::metal` uses these
     /// to read the `MTLDevice` back out, and nothing else should reach past the renderer.
-    #[cfg(target_vendor = "apple")]
+    /// Unconditional, unlike [`Self::wgpu_queue`] below. The Metal handoff needs this only on
+    /// Apple, but the frame capture needs it on every target: a readback has to wait for the GPU,
+    /// and waiting means polling the device. Keeping it target-gated would have made capture an
+    /// Apple-only feature for no reason other than where the accessor happened to live.
     pub(crate) fn wgpu_device(&self) -> &wgpu::Device {
         &self.device
     }

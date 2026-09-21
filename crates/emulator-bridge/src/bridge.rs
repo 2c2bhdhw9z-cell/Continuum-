@@ -908,6 +908,64 @@ impl EmulatorBridge {
             .map_or(0, |session| session.core.state_size())
     }
 
+    /// Captures the current frame as tightly packed RGBA8, returning its width and height too.
+    ///
+    /// `width`/`height` of zero mean "the current surface size". The image is rendered through the
+    /// same pipeline and bind group as a normal present, so the active scale mode, filter and
+    /// aspect ratio all apply: what comes back is what is on screen, not the core's raw
+    /// framebuffer.
+    ///
+    /// **This blocks until the GPU has finished, and that is safe here in a way it was not in the
+    /// browser.** A readback is inherently two-step, because the copy has to complete before the
+    /// bytes can be read, so something has to wait. The old web facade could not wait while
+    /// holding its borrow of the engine: awaiting there yielded to the JS event loop, which let
+    /// the animation-frame callback run and try to borrow the engine again, and the second borrow
+    /// panicked. That shape is why its capture dropped the borrow before awaiting.
+    ///
+    /// Here the wait is a synchronous device poll rather than an await. Nothing else runs on this
+    /// thread while it blocks, so there is no re-entrancy to guard against: the display link, the
+    /// UI and this call are all the main thread, and the one thread that is NOT the main thread,
+    /// the audio render callback, is specifically designed never to touch this engine. So the
+    /// simple version is correct, and the cost is a few milliseconds of main thread on a
+    /// deliberate user action rather than on any frame path.
+    pub fn capture_rgba(
+        &mut self,
+        width: u32,
+        height: u32,
+    ) -> Result<(u32, u32, Vec<u8>), BridgeError> {
+        // Submits the copy, and ends the mutable borrow of the renderer before the device is
+        // borrowed again below.
+        let capture = self.encode_capture(width, height)?;
+        let renderer = self.renderer.as_ref().ok_or(BridgeError::NoRenderer)?;
+
+        // The callback is empty on purpose. Its result would say whether the mapping succeeded,
+        // and `take_rgba` already answers that by failing with "capture not mapped" when it did
+        // not, so plumbing the result through a channel would add a second way to learn the same
+        // thing.
+        capture.buffer().slice(..).map_async(wgpu::MapMode::Read, |_| {});
+        // `submission_index: None` waits for everything queued rather than for one specific
+        // submission, which is what is wanted: `encode_capture` submitted the copy immediately
+        // before this. `timeout: None` blocks until the GPU is done rather than giving up after an
+        // interval, because a capture that silently returned a half-copied buffer would be worse
+        // than one that took a few milliseconds longer.
+        renderer
+            .wgpu_device()
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            })
+            .map_err(|err| {
+                BridgeError::Gfx(crate::error::GfxError::InvalidFrame(format!(
+                    "waiting for the capture to finish failed: {err}"
+                )))
+            })?;
+
+        // Read before `take_rgba`, which consumes the capture so a buffer cannot be read twice or
+        // left mapped.
+        let (width, height) = (capture.width(), capture.height());
+        Ok((width, height, capture.take_rgba()?))
+    }
+
     /// The running core's own version string, for save-state compatibility.
     ///
     /// See [`crate::cores::EmulatorCore::version`]. A host storing save states should record

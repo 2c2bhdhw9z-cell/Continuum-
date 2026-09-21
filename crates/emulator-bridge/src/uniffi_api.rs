@@ -266,6 +266,22 @@ impl From<crate::gfx::ScaleFilter> for ScaleFilterOption {
     }
 }
 
+/// One captured frame: the image, and the size it came back at.
+///
+/// The size is returned rather than assumed because the caller is allowed to ask for `0, 0`
+/// meaning "whatever the screen is", and because a request is not a promise: the renderer frames
+/// the capture for its own dimensions, so a caller that guessed would eventually guess wrong and
+/// read the bytes at the wrong stride, which looks like a sheared image rather than an error.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct CapturedFrame {
+    pub width: u32,
+    pub height: u32,
+    /// Tightly packed RGBA8, `width * height * 4` bytes, top row first. No padding: the engine
+    /// has already removed the GPU's row alignment, so this can be handed straight to an image
+    /// constructor.
+    pub rgba: Vec<u8>,
+}
+
 /// Which thing produced a poll of input.
 ///
 /// The engine holds one independent layer per source and merges them when the core reads
@@ -994,6 +1010,26 @@ impl ContinuumEngine {
     /// against before being loaded; see [`ContinuumEngine::core_version`].
     pub fn save_state_size(&self) -> u64 {
         self.lock().state_size() as u64
+    }
+
+    /// Captures what is on screen as RGBA8. See [`CapturedFrame`].
+    ///
+    /// `width` and `height` of `0` mean the current surface size. The capture goes through the
+    /// same pipeline as a present, so the scale mode, the filter and the aspect ratio all apply:
+    /// it is a picture of the game as displayed, not the core's raw framebuffer.
+    ///
+    /// **Blocks for a few milliseconds while the GPU finishes.** A readback cannot be instant,
+    /// because the copy has to complete before the bytes exist. Call it from a deliberate user
+    /// action, never from a frame path, and note it works on a paused session: the engine
+    /// refreshes from the core before capturing, so a paused game captures the frame it is sitting
+    /// on rather than whatever was last presented.
+    pub fn capture_frame(&self, width: u32, height: u32) -> Result<CapturedFrame, EngineError> {
+        let (width, height, rgba) = self.lock().capture_rgba(width, height)?;
+        Ok(CapturedFrame {
+            width,
+            height,
+            rgba,
+        })
     }
 
     /// The running core's own version string, or `None` if it does not report one.

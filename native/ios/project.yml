@@ -146,8 +146,18 @@ targets:
       # Cover art, the choice: every cover the server has for one game, enumerated only when that
       # game's detail card is opened, offered as labelled thumbnails, and remembered against the
       # entry so a chosen cover outranks anything automatic resolution would pick. Nothing in here
-      # runs while the library is being browsed.
+      # runs while the library is being browsed. It also holds ArtworkChoice, the record that makes a
+      # chosen, picked or CAPTURED cover survive a relaunch and a re-scan.
       - path: ArtworkChooser.swift
+      # Cover art, the tier that asks nobody: one frame captured from the running game, turned into
+      # the PNG the store keeps. The stride, the byte order and the meaning of the alpha byte all live
+      # in here, and every one of them fails by producing a WRONG PICTURE rather than an error, which
+      # is why the arithmetic is split off from the CoreGraphics call and checked on the build host.
+      # WITHOUT THIS LINE the build breaks in ArtworkStore.swift, which names CapturedCover, so this
+      # is one of the few files whose absence is loud. That is luck rather than a safety net: the
+      # feature it carries is the last artwork tier, and it is the only one that works for a ROM no
+      # cover database has ever heard of.
+      - path: FrameCapture.swift
       # What a filename can honestly be made to say: the display title and the region.
       - path: GameMetadata.swift
       # Save states: the metadata index, the payload files in Application Support, the auto-save
