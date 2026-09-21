@@ -113,9 +113,16 @@ The replacement, when it is written, must be native:
 
 ## Systems
 
-Shipping in the `.ipa` today, six cores, ten systems: NES (fceumm), SNES (snes9x),
-GBA/GB/GBC (mgba), Genesis/Master System/Game Gear (genesis_plus_gx), PS1 (pcsx_rearmed),
-DS (melonDS). The DS arrived early and out of order because melonDS is software rendered on
+Shipping in the `.ipa` today, six cores, TWELVE systems: NES + Famicom Disk System (fceumm),
+SNES (snes9x), GBA/GB/GBC (mgba), Genesis/Master System/Game Gear/SG-1000 (genesis_plus_gx),
+PS1 (pcsx_rearmed), DS (melonDS).
+
+**Check a core's own `valid_extensions` before concluding a system needs a new core.** The Disk
+System and the SG-1000 were both already supported by cores in the app and were reachable for the
+cost of a routing entry; so were `.smd`, `.swc`, `.fig`, `.unf`, `.unif`, `.sgb`, `.mdf` and `.toc`.
+The routing table is now the single source of truth for which files import and which launch, because
+the importable list used to be a hand-written second copy and routing an extension without editing
+it changed nothing on screen. The DS arrived early and out of order because melonDS is software rendered on
 iOS, so it needed none of the hardware-renderer work the rest of the list does.
 
 Still ahead, hardest last: N64 (needs MoltenVK and the injected-Vulkan-context path), PSP,

@@ -28,7 +28,11 @@ files have to be in the app for the `.cue` to load.
 **The app plays real games on a real iPhone.** On an iPhone 17 Pro Max, five cores each ran a
 real commercial game at 60 fps with 0 dropped frames. A sixth core, the Nintendo DS, has since
 been added and has not been run on a device yet, so the `cores:` line now reads **6 of 6
-declared** and these seven systems are the confirmed ones:
+declared**.
+
+Twelve systems ship in total. Two of them, the **Famicom Disk System** and the **Sega SG-1000**,
+were added without adding any emulator: reading what each core already declared it could open
+showed the app was refusing files it could run. These seven are the ones confirmed on a device:
 
 | System | Game that ran | Core | Frames counted in the screenshot |
 | --- | --- | --- | --- |

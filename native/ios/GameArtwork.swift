@@ -71,6 +71,13 @@ enum SystemArtwork {
         // Entertainment System row above. A directory name that is nearly right is
         // indistinguishable from a game having no art, because both come back as a 404.
         case .ds: return "Nintendo - Nintendo DS"
+        // BOTH OF THESE WERE CHECKED AGAINST THE LIVE SERVER, not guessed, and the first one is
+        // exactly why that rule exists: "Nintendo - Famicom Disk System" is the obvious spelling
+        // and it answers 404. The server calls it the Family Computer Disk System, which is the
+        // Famicom's full Japanese-market name. A directory listing that answers 200 and a boxart
+        // PNG that downloads from it were both confirmed for each of these two.
+        case .fds: return "Nintendo - Family Computer Disk System"
+        case .sg1000: return "Sega - SG-1000"
         }
     }
 
@@ -96,6 +103,16 @@ enum SystemArtwork {
         // row. 310 is a magenta that sits clear of every value above it: the nearest is the SNES
         // at 268, and 42 degrees is enough separation to read as a different system on a shelf.
         case .ds: return 310
+        // Both chosen here, like Game Gear and the DS, and both picked by taking the WIDEST
+        // REMAINING GAP in the values above rather than by eye. Sorted, the ten existing hues leave
+        // their largest holes between the Game Boy at 88 and the Game Gear at 165, and between the
+        // DS at 310 and the NES at 355. So the Disk System takes 126 and the SG-1000 takes 333.
+        //
+        // Family resemblance was deliberately NOT the rule, even though the Disk System is a
+        // Famicom add-on and would "belong" beside the NES at 355. These plates exist to tell games
+        // apart on a shelf, and two systems a few degrees apart defeat that.
+        case .fds: return 126
+        case .sg1000: return 333
         }
     }
 

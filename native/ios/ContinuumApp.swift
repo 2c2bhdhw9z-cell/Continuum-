@@ -140,7 +140,11 @@ enum CoreCatalog {
     static let fceumm = CoreSpec(
         coreId: "fceumm",
         displayName: "FCEUmm (NES)",
-        systems: ["nes"],
+        // "fds" as well as "nes", because this core declares `fds` in its own valid_extensions and
+        // the Disk System is routed to it. The engine uses this list to answer "which cores can run
+        // this system", so omitting it would leave a system the app routes here unclaimed by any
+        // core as far as the engine is concerned.
+        systems: ["nes", "fds"],
         library: "fceumm_libretro_ios.dylib",
         width: 256, height: 240,
         maxWidth: 256, maxHeight: 240,
@@ -194,7 +198,7 @@ enum CoreCatalog {
     static let genesisPlusGx = CoreSpec(
         coreId: "genesis_plus_gx",
         displayName: "Genesis Plus GX (Mega Drive, Master System, Game Gear)",
-        systems: ["genesis", "sms", "gg"],
+        systems: ["genesis", "sms", "gg", "sg1000"],
         library: "genesis_plus_gx_libretro_ios.dylib",
         width: 320, height: 224,
         maxWidth: 348, maxHeight: 240,
@@ -281,21 +285,77 @@ enum CoreCatalog {
     ///
     /// Core ids come from the specs rather than from string literals so one cannot be misspelled on
     /// one side of the mapping.
+    /// EVERY EXTENSION HERE WAS TAKEN FROM THE CORE'S OWN `valid_extensions` STRING, not from what
+    /// a system is usually called. The six cores between them declare these:
+    ///
+    ///     fceumm            fds nes unf unif
+    ///     snes9x            smc sfc swc fig bs st
+    ///     mgba              gba gb gbc sgb
+    ///     genesis_plus_gx   m3u mdx md smd gen bin cue iso chd bms sms gg sg 68k sgd
+    ///     pcsx_rearmed      bin cue img mdf pbp toc cbn m3u chd iso exe
+    ///     melonDS           nds ids dsi
+    ///
+    /// Reading that list is what turned up TWO WHOLE SYSTEMS this app already had the emulator for
+    /// and was refusing to open: the Famicom Disk System through fceumm, and the SG-1000 through
+    /// genesis_plus_gx. Several alternative file formats for systems already supported were being
+    /// refused too, and `.smd` is the one that matters most in practice, because a Mega Drive ROM
+    /// downloaded today is as likely to be interleaved `.smd` as plain `.md`.
+    ///
+    /// Not every declared extension is here, and each omission is a decision:
+    ///
+    ///   - `bin` is claimed by two cores AND is the companion file of a `.cue`. It stays unrouted
+    ///     so a PlayStation track cannot be tapped as though it were a game. See `Route`.
+    ///   - `cue`, `iso`, `chd` and `m3u` are claimed by genesis_plus_gx as well, for Sega CD. They
+    ///     stay with the PlayStation, which is far more common and needs no BIOS to boot.
+    ///   - `m3u` is NOT routed at all yet, even for the PlayStation. It is a playlist naming other
+    ///     files, and the multi-file import only understands a cue sheet's tracks, so a multi-disc
+    ///     game would import as one unopenable line. Worth doing; it is not free.
+    ///   - `bs` and `st` are Satellaview and Sufami Turbo, which need a base cartridge to boot, and
+    ///     `dsi` needs DSi firmware. An extension that always fails is worse than one that is
+    ///     absent, because the first looks like a broken app.
+    ///   - `exe` is a real PlayStation homebrew format and is deliberately skipped: a file called
+    ///     `.exe` appearing as a tappable game invites someone to expect a Windows program to run.
+    ///   - `mdx`, `68k`, `sgd`, `bms`, `img`, `cbn` and `ids` are rare enough that nobody will miss
+    ///     them, and `img` is ambiguous enough to be anything at all.
     static let routeTable: [String: Route] = [
         "nes": Route(coreId: fceumm.coreId, system: .nes),
+        // Unheadered NES dumps. Same core, same system, and refusing them was a gap rather than a
+        // decision.
+        "unf": Route(coreId: fceumm.coreId, system: .nes),
+        "unif": Route(coreId: fceumm.coreId, system: .nes),
+        // The Famicom's disk drive. A system in its own right; see `GameSystem.fds`. NEEDS the
+        // Disk System BIOS, which is why `launch` checks for it by name and says so.
+        "fds": Route(coreId: fceumm.coreId, system: .fds),
         "sfc": Route(coreId: snes9x.coreId, system: .snes),
         "smc": Route(coreId: snes9x.coreId, system: .snes),
+        // Super Wild Card and Pro Fighter dumps: plain SNES ROMs in a different wrapper, which
+        // snes9x reads directly.
+        "swc": Route(coreId: snes9x.coreId, system: .snes),
+        "fig": Route(coreId: snes9x.coreId, system: .snes),
         "gba": Route(coreId: mgba.coreId, system: .gba),
         "gb": Route(coreId: mgba.coreId, system: .gb),
         "gbc": Route(coreId: mgba.coreId, system: .gbc),
+        // A Super Game Boy cartridge is a Game Boy game, so it is routed as one rather than given
+        // a system of its own: the SNES border it would have drawn on real hardware is not
+        // something mgba reproduces here.
+        "sgb": Route(coreId: mgba.coreId, system: .gb),
         "sms": Route(coreId: genesisPlusGx.coreId, system: .sms),
         "gg": Route(coreId: genesisPlusGx.coreId, system: .gg),
+        // Sega's first console, on the core that already supported it.
+        "sg": Route(coreId: genesisPlusGx.coreId, system: .sg1000),
         "md": Route(coreId: genesisPlusGx.coreId, system: .genesis),
         "gen": Route(coreId: genesisPlusGx.coreId, system: .genesis),
+        // Interleaved Mega Drive dumps, which are extremely common in older ROM sets and were
+        // simply being turned away.
+        "smd": Route(coreId: genesisPlusGx.coreId, system: .genesis),
         "cue": Route(coreId: pcsxReARMed.coreId, system: .ps1),
         "chd": Route(coreId: pcsxReARMed.coreId, system: .ps1),
         "pbp": Route(coreId: pcsxReARMed.coreId, system: .ps1),
         "iso": Route(coreId: pcsxReARMed.coreId, system: .ps1),
+        // Two more single-file disc images pcsx_rearmed opens itself. Unlike a `.cue` these name
+        // no companion track, so they need nothing from the multi-file import path.
+        "mdf": Route(coreId: pcsxReARMed.coreId, system: .ps1),
+        "toc": Route(coreId: pcsxReARMed.coreId, system: .ps1),
         "nds": Route(coreId: melonDS.coreId, system: .ds),
     ]
 
@@ -310,23 +370,27 @@ enum CoreCatalog {
     /// be importable so those references resolve, and it must never appear in the Library.
     static let trackExtension = "bin"
 
+    /// Extensions the Library offers as a launch target: exactly the routing table's keys.
+    ///
+    /// DERIVED, AND IT USED NOT TO BE. This list and the one below were both written out by hand,
+    /// which made them a second copy of the routing table, and the drift that invites had already
+    /// happened silently in the other direction: routing an extension was not enough to make it
+    /// work, because a file whose extension was missing from the hardcoded list was never copied in
+    /// and so never appeared. Adding the Disk System, the SG-1000 and the alternative Mega Drive and
+    /// SNES formats would have looked like routing them and changed nothing on screen.
+    ///
+    /// Sorted, because a `Dictionary`'s key order is not defined and this list is shown to the user
+    /// in the Library's empty state and in the "nothing launchable" status line. An arbitrary order
+    /// is acceptable there; one that reshuffles between launches is not.
+    static let launchableExtensions: [String] = CoreCatalog.routeTable.keys.sorted()
+
     /// Extensions that may be copied into Documents.
     ///
-    /// Wider than the launchable set below by exactly one entry, because a CD game is a set of
-    /// files: the .bin tracks must come in alongside the .cue that names them.
-    static let importableExtensions = [
-        "nes", "sfc", "smc", "gba", "gb", "gbc", "sms", "md", "gen", "gg",
-        "cue", "bin", "chd", "pbp", "iso",
-        "nds",
-    ]
-
-    /// Extensions the Library offers as a launch target: the importable set MINUS the track
-    /// extension. Derived rather than restated, so the two lists cannot drift apart, and every
-    /// entry here has a `routes` mapping. One without a mapping is not silently ignored:
-    /// `core(forExtension:)` returns nil and the launch path says so by name.
-    static let launchableExtensions = importableExtensions.filter {
-        $0 != CoreCatalog.trackExtension
-    }
+    /// Wider than the launchable set by exactly one entry, because a CD game is a set of files: the
+    /// .bin tracks must come in alongside the .cue that names them. `bin` is therefore importable
+    /// and deliberately absent from `routeTable`, which is what keeps it out of the Library.
+    static let importableExtensions: [String] =
+        CoreCatalog.launchableExtensions + [CoreCatalog.trackExtension]
 
     /// Every BIOS filename any core in this build looks for, deduplicated, in declaration order.
     ///
@@ -1205,6 +1269,25 @@ final class EngineHost: ObservableObject {
     /// back to HLE (its `pcsx_rearmed_bios` option / `Config.HLE`) and still boots, at reduced
     /// accuracy. A missing BIOS is therefore a compatibility note, not a hard failure, so it
     /// belongs on the HUD rather than in an error path.
+    /// The name of a firmware file this game cannot start without, when it is absent.
+    ///
+    /// Per SYSTEM rather than per core, which is why it does not use `CoreSpec.biosNames`: fceumm
+    /// runs both the NES and the Disk System, the NES needs nothing, and declaring the Disk System's
+    /// BIOS against the core would put a "missing firmware" line on every NES game for no reason.
+    ///
+    /// Nil for every other system, and that is a fact about what we ship rather than an omission.
+    /// The PlayStation boots on pcsx_rearmed's HLE, which reimplements the BIOS in code, and the DS
+    /// boots on melonDS's FreeBIOS, which is a clean-room replacement. Both are open source, so
+    /// both ship. The Disk System has no equivalent.
+    private func missingRequiredBios(for entry: LibraryEntry) -> String? {
+        guard CoreCatalog.system(forExtension: entry.ext) == .fds else { return nil }
+        let name = "disksys.rom"
+        guard let dir = systemDirectory() else { return name }
+        return FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path)
+            ? nil
+            : name
+    }
+
     private func biosStatus(for spec: CoreSpec, in systemDir: URL?) -> String {
         guard !spec.biosNames.isEmpty else { return "" }
         // Every branch names the core. The line is cleared when a core with no BIOS list loads
@@ -1683,6 +1766,20 @@ final class EngineHost: ObservableObject {
         guard let spec = CoreCatalog.core(forExtension: entry.ext) else {
             let extLabel = entry.ext.isEmpty ? "no extension" : ".\(entry.ext)"
             status = "no core is mapped to \(extLabel), so \(entry.name) cannot be launched"
+            return
+        }
+        // Checked BEFORE anything is torn down, for the same reason the routing above is: this is a
+        // tap that should change nothing but the status line.
+        //
+        // The Disk System is the only system here that cannot boot without a file we are not
+        // allowed to ship. Its BIOS is Nintendo's own code, so there is no legal way to put it in
+        // the app and no free reimplementation of it the way melonDS carries FreeBIOS for the DS.
+        // Without this check the core simply refuses the content and the HUD says "retro_load_game
+        // rejected the content", which names neither the cause nor the cure.
+        if let missing = missingRequiredBios(for: entry) {
+            status = "\(entry.name) needs \(missing) in the Continuum folder to boot. "
+                + "The Disk System's startup file is Nintendo's own and cannot ship with the app, "
+                + "so it has to be added through Files"
             return
         }
         // Name the core in the breadcrumb, so a routing bug is one glance rather than a

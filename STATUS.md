@@ -13,7 +13,7 @@ If a row says Partial, the note says exactly what is absent. Nothing here is rou
 
 ## Systems
 
-Six cores, ten systems, shipping today. Four systems are still ahead and none of them is in this
+Six cores, **twelve** systems, shipping today. The last two cost no new emulator at all: both were already supported by cores in the app and simply were not wired up. Four systems are still ahead and none of them is in this
 table: **N64, PSP, 3DS and the Switch**, hardest last. They all need the hardware-renderer work, so
 they live in [the road below](#the-road-to-the-rest-of-the-systems) rather than here.
 
@@ -28,6 +28,8 @@ they live in [the road below](#the-road-to-the-rest-of-the-systems) rather than 
 | Game Gear | genesis_plus_gx | **Done** | |
 | Mega Drive / Genesis | genesis_plus_gx | **Done** | |
 | PlayStation | pcsx_rearmed | **Done** | Interpreter, not the recompiler. Fast enough, and see Recompiler below for why it is not switched on |
+| **Famicom Disk System** | fceumm | **Built, untested** | Needs `disksys.rom`, which is Nintendo's own code and cannot ship with the app. The launch path checks for it by name and says so rather than letting the core fail |
+| **Sega SG-1000** | genesis_plus_gx | **Built, untested** | Needs nothing extra |
 | **Nintendo DS** | melonDS | **Built, untested** | The core builds, links and ships, and every part of it including the touch screen is now wired end to end. **Nothing has booted on a device yet.** See the DS section below |
 
 ### Nintendo DS, in detail
@@ -71,6 +73,7 @@ Broken out rather than left as one row, because "untested" hides how much of it 
 | Cheats | **Done** | |
 | On-screen control layout editor | **Partial** | Reported not working three times. The panel is smaller now so it cannot cover the pad, and it shows a live drag counter to say whether touches are arriving at all. Waiting on that reading |
 | Save state compatibility refusal | **Built, cannot be tested deliberately** | Only fires for a state from a different core or build |
+| File formats per system | **Done** | Every extension is now taken from the cores' own declared lists rather than a hand-written one. That added the two systems above plus `.smd`, `.swc`, `.fig`, `.unf`, `.unif`, `.sgb`, `.mdf` and `.toc`, which were being refused despite being supported |
 | Core setting overrides | **Done** | The host refuses a core's requests for its settings, so every core keeps its own defaults. Two DS settings had to be answered because they do not start at the default they advertise; everything else, for every core, is still refused |
 | Multi-screen compositor | **Done, unused** | Draws N regions of one texture to N places. Nothing selects more than one yet: it exists for rearranging the DS screens and for hardware-rendered cores |
 | Android `.apk` | **Not started** | The one other PLATFORM, and the only one after the iPhone. Next in order, still far off in time. Everything new goes in the Rust engine so Android inherits it |

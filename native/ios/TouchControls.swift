@@ -190,6 +190,12 @@ enum GameSystem: String, Sendable, CaseIterable {
     case genesis
     case ps1
     case ds
+    /// The Famicom's disk drive add-on. A separate system rather than a flavour of NES, because it
+    /// has its own library, its own box art directory and its own BIOS requirement, and a shelf
+    /// that called those games "NES" would be wrong about all three.
+    case fds
+    /// Sega's first console, the Master System's predecessor. Runs on the same core.
+    case sg1000
 
     /// The short code a library card badges itself with.
     var badge: String {
@@ -204,6 +210,8 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .genesis: return "MD"
         case .ps1: return "PS1"
         case .ds: return "DS"
+        case .fds: return "FDS"
+        case .sg1000: return "SG"
         }
     }
 
@@ -223,7 +231,7 @@ enum GameSystem: String, Sendable, CaseIterable {
     /// instead of a touch screen that silently does nothing.
     var touchScreen: CGRect? {
         switch self {
-        case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1:
+        case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .fds, .sg1000:
             return nil
         case .ds:
             return CGRect(x: 0, y: 0.5, width: 1, height: 0.5)
@@ -242,6 +250,8 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .genesis: return "Mega Drive"
         case .ps1: return "PlayStation"
         case .ds: return "Nintendo DS"
+        case .fds: return "Famicom Disk System"
+        case .sg1000: return "Sega SG-1000"
         }
     }
 
@@ -271,7 +281,10 @@ enum GameSystem: String, Sendable, CaseIterable {
     /// rather than half-drawn here.
     var controls: [PadControl] {
         switch self {
-        case .nes, .gb, .gbc:
+        case .nes, .gb, .gbc, .fds:
+            // The Famicom Disk System used the Famicom's own controller, so its pad is the NES pad
+            // unchanged. Disk swapping is not a button: it arrives as a core option, and a game
+            // that asks for side B has to be answered there rather than here.
             return Self.twoFace(right: (.a, "A"), left: (.b, "B")) + Self.selectStart
 
         case .gba:
@@ -292,9 +305,11 @@ enum GameSystem: String, Sendable, CaseIterable {
                 + [PadControl(slot: .start, label: "START", cluster: .system,
                               shape: .pill, offset: CGPoint(x: 0, y: 0))]
 
-        case .sms, .gg:
+        case .sms, .gg, .sg1000:
             // Two buttons and Start. The Master System's console-mounted Pause arrives as Start,
-            // which is the only way a core can offer it.
+            // which is the only way a core can offer it. The SG-1000 is the same shape of pad for
+            // the same reason: two buttons, and a Pause that lived on the console rather than in
+            // your hand.
             return Self.twoFace(right: (.a, "2"), left: (.b, "1"))
                 + [PadControl(slot: .start, label: "START", cluster: .system,
                               shape: .pill, offset: CGPoint(x: 0, y: 0))]
@@ -315,11 +330,10 @@ enum GameSystem: String, Sendable, CaseIterable {
             //
             // Two shoulders, because the DS has exactly L and R and no triggers.
             //
-            // THE TOUCH SCREEN IS NOT HERE YET, and it is the one control this system is defined
-            // by. It is a pointer device rather than a button, so it needs the engine's pointer
-            // path and a mapping from a finger on the lower half of the picture to a coordinate
-            // inside the bottom screen. Absent rather than faked: a DS pad with a dead area where
-            // the stylus should go would be worse than one that plainly does not have it yet.
+            // THE TOUCH SCREEN IS NOT IN THIS LIST, and that is correct rather than missing: it is
+            // a pointer rather than a button, so it cannot be a `PadControl`. It lives in
+            // `touchScreen` above, which describes the lower half of the framebuffer as a
+            // digitiser, and the pad answers it as a `.pointer` grab.
             return Self.diamondFace(top: (.x, "X"), right: (.a, "A"),
                                     bottom: (.b, "B"), left: (.y, "Y"))
                 + Self.shoulders(left: [(.l, "L")], right: [(.r, "R")])
