@@ -398,22 +398,32 @@ struct TouchLayoutEditor: View {
                     .foregroundStyle(ShellPalette.secondaryText)
             }
             Spacer(minLength: 8)
+            // SIZED TO 44 POINTS, AND THAT IS THE BUG FIX RATHER THAN A STYLE TWEAK. This was a
+            // capsule about 28 points tall sitting inside a scrolling panel, which is the worst
+            // combination available: a target below the comfortable minimum, in a container that
+            // treats any small finger movement as the start of a scroll and cancels the tap. The
+            // reported symptom was that picking a system mostly did nothing. `contentShape` makes
+            // the whole padded area take the touch rather than just the glyphs, and a visible
+            // chevron says it opens something.
             Menu {
                 ForEach(GameSystem.allCases, id: \.self) { system in
                     Button(system.displayName) { previewSystem = system }
                 }
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: 6) {
                     Text(previewSystem.badge)
-                        .font(.system(size: 13, weight: .semibold))
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 14, weight: .bold))
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 11, weight: .bold))
                 }
                 .foregroundStyle(ShellPalette.metadata)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(ShellPalette.surface, in: Capsule())
+                .padding(.horizontal, 14)
+                .frame(minWidth: 96, minHeight: 44)
+                .background(ShellPalette.surfaceStrong, in: Capsule())
+                .contentShape(Capsule())
             }
+            .accessibilityLabel("Check the layout against another system's controls")
+            .accessibilityValue(previewSystem.displayName)
         }
     }
 

@@ -16,6 +16,9 @@
 // order, are still one tap away from the status strip on both screens.
 
 import SwiftUI
+// For UISelectionFeedbackGenerator in SegmentedChoice. Imported explicitly rather than relying
+// on SwiftUI to re-export UIKit, which it is not documented to do.
+import UIKit
 
 struct SettingsScreen: View {
     @ObservedObject var host: EngineHost
@@ -312,12 +315,11 @@ struct SettingsScreen: View {
                 Text("All Games")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.white)
-                Picker("All Games layout", selection: $host.libraryLayout) {
-                    ForEach(LibraryLayout.allCases) { layout in
-                        Text(layout.title).tag(layout)
-                    }
-                }
-                .pickerStyle(.segmented)
+                // Converted along with the others. It had the same fault and only escaped the
+                // report because it is one row further down the page than the ones being tested.
+                SegmentedChoice(options: LibraryLayout.allCases,
+                                title: { $0.title },
+                                selection: $host.libraryLayout)
             }
 
             Toggle(isOn: $host.showsSystemShelves) {
@@ -490,23 +492,35 @@ struct SettingsScreen: View {
 
     // MARK: Picture
 
+    /// Note every explanation here is STATIC and covers all the options at once, rather than
+    /// describing the selected one. That is not a style preference, it is the fix for a real bug:
+    /// per-option text is different lengths, so changing the selection changed the height of the
+    /// section and shifted the control out from under the finger that was still choosing. See
+    /// `SegmentedChoice`. Nothing in these sections may change height as a selection changes.
     private var pictureSection: some View {
         SettingsSection(title: "PICTURE") {
-            Picker("Screen fit", selection: $emulation.screenFit) {
-                ForEach(EmulationSettings.ScreenFit.allCases) { fit in
-                    Text(fit.label).tag(fit)
-                }
-            }
-            .pickerStyle(.segmented)
-            SettingsNote(emulation.screenFit.explanation)
+            SettingsLabel("Screen fit")
+            SegmentedChoice(options: EmulationSettings.ScreenFit.allCases,
+                            title: { $0.label },
+                            selection: $emulation.screenFit)
+            SettingsNote(
+                "Fit is the normal choice: as large as the picture goes while keeping the right "
+                + "shape, with black bars on the short edge. Pixel perfect makes every emulated "
+                + "pixel exactly the same size as its neighbours so the grid stays even, which "
+                + "costs a little more of the screen and is the reason people ask for it. Fill "
+                + "uses the whole screen and stretches the picture to do it: nothing is cut off, "
+                + "but circles stop being round."
+            )
 
-            Picker("Scaling", selection: $emulation.pixelFilter) {
-                ForEach(EmulationSettings.PixelFilter.allCases) { filter in
-                    Text(filter.label).tag(filter)
-                }
-            }
-            .pickerStyle(.segmented)
-            SettingsNote(emulation.pixelFilter.explanation)
+            SettingsLabel("Scaling")
+            SegmentedChoice(options: EmulationSettings.PixelFilter.allCases,
+                            title: { $0.label },
+                            selection: $emulation.pixelFilter)
+            SettingsNote(
+                "Sharp keeps hard pixel edges, the way these games were drawn, and is the "
+                + "default. Smooth blends neighbouring pixels, which some people prefer on the "
+                + "older systems."
+            )
 
             SettingsNote(
                 "Both apply the moment you change them, to the game running now and to every "
@@ -558,12 +572,10 @@ struct SettingsScreen: View {
 
     private var speedSection: some View {
         SettingsSection(title: "SPEED AND REWIND") {
-            Picker("Fast forward", selection: $emulation.fastForward) {
-                ForEach(EmulationSettings.FastForward.allCases) { speed in
-                    Text(speed.label).tag(speed)
-                }
-            }
-            .pickerStyle(.segmented)
+            SettingsLabel("Fast forward")
+            SegmentedChoice(options: EmulationSettings.FastForward.allCases,
+                            title: { $0.label },
+                            selection: $emulation.fastForward)
             SettingsNote(
                 "How fast the fast-forward button in the player runs while you hold it. Sound "
                 + "keeps playing and rises in pitch, the way fast-forward has always sounded. "
@@ -572,12 +584,10 @@ struct SettingsScreen: View {
                 + "read 8x and give you 4x."
             )
 
-            Picker("Rewind", selection: $emulation.rewindBudget) {
-                ForEach(EmulationSettings.RewindBudget.allCases) { budget in
-                    Text(budget.label).tag(budget)
-                }
-            }
-            .pickerStyle(.segmented)
+            SettingsLabel("Rewind memory")
+            SegmentedChoice(options: EmulationSettings.RewindBudget.allCases,
+                            title: { $0.label },
+                            selection: $emulation.rewindBudget)
 
             SettingsReadout(label: "Rewind holds", value: emulation.rewindReadout)
 
@@ -672,6 +682,28 @@ struct SettingsSection<Content: View>: View {
     }
 }
 
+/// The name of the control underneath it.
+///
+/// Needed because `SegmentedChoice` draws no label of its own, the same as the stock segmented
+/// control it replaced: there is nowhere sensible inside a row of equal segments to put one. With
+/// three selectors now stacked in one card, an unlabelled row of four sizes and an unlabelled row
+/// of four speeds would be guesswork.
+struct SettingsLabel: View {
+    let text: String
+
+    init(_ text: String) {
+        self.text = text
+    }
+
+    var body: some View {
+        Text(text.uppercased())
+            .font(.system(size: 10, weight: .bold))
+            .tracking(1.1)
+            .foregroundStyle(Color.white.opacity(0.45))
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 /// A sentence of explanation. Plain language, because every note in here is either a disclosure or
 /// the reason something is missing.
 struct SettingsNote: View {
@@ -744,5 +776,123 @@ struct SettingsButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+
+/// A segmented selector that reliably follows a dragging finger.
+///
+/// ## Why this exists instead of `Picker` with `.pickerStyle(.segmented)`
+///
+/// The stock segmented control is the right INTERACTION: put a thumb on it, slide, and the
+/// selection follows. It is also close to unusable inside a `ScrollView`, and the two reasons
+/// compound into a control that answers about one drag in ten.
+///
+/// The first reason is gesture arbitration. A vertical `ScrollView` and a horizontal drag are
+/// not as separable as they sound: a thumb sliding sideways across a phone always travels a
+/// little vertically too, and the scroll view is entitled to claim the sequence the moment it
+/// sees that. When it does, the segmented control never sees the rest of the drag and the
+/// selection springs back to where it started, which reads as the control ignoring you.
+///
+/// The second reason was mine, and it is worth recording because it is invisible in a
+/// screenshot. Each of these selectors used to be followed by an explanatory sentence that
+/// CHANGED WITH THE SELECTION, and those sentences are different lengths. So sliding across
+/// the control rewrote the paragraph underneath it, the section grew or shrank by a line or
+/// two, and everything below moved. Including, sometimes, the control itself: a target that
+/// slides out from under the finger mid-drag defeats any amount of correct gesture handling.
+/// The fix for that half is in the sections above, where the notes are now static text that
+/// covers every option, so choosing can no longer change the height of anything.
+///
+/// This control fixes the first half. `DragGesture(minimumDistance: 0)` begins on touch-down
+/// rather than after a threshold, and `highPriorityGesture` gives it to this view ahead of the
+/// scroll view, so once a finger lands here the whole gesture belongs to the selector. The
+/// deliberate cost: a drag that STARTS on a selector will not scroll the page. That is the
+/// right trade, because a finger placed on a selector was placed there to choose something.
+///
+/// Two smaller things that matter more than they look:
+///
+///   - The track is 44 points tall, which is Apple's minimum comfortable target and noticeably
+///     taller than the stock control. Most of "selecting is hard" is a target too small to
+///     land on while holding a phone one-handed.
+///   - It ticks. `UISelectionFeedbackGenerator` fires on every change, so a selection that
+///     landed is felt as well as seen. That is not decoration: the complaint that started this
+///     rewrite was not knowing whether a choice had registered, and on a control you operate
+///     with the thumb that is covering it, touch is the sense that is actually free.
+struct SegmentedChoice<Option: Hashable>: View {
+    let options: [Option]
+    let title: (Option) -> String
+    @Binding var selection: Option
+
+    /// Apple's minimum comfortable hit target. See the note above on why this is the fix for
+    /// most of "selecting is hard".
+    private static var trackHeight: CGFloat { 44 }
+
+    /// Held as state rather than made per event, because a feedback generator is meant to be
+    /// kept alive by whatever uses it; one constructed and thrown away on each change is doing
+    /// the expensive half of the work and skipping the cheap half.
+    @State private var feedback = UISelectionFeedbackGenerator()
+
+    var body: some View {
+        GeometryReader { proxy in
+            let segment = options.isEmpty ? proxy.size.width
+                : proxy.size.width / CGFloat(options.count)
+            let index = options.firstIndex(of: selection) ?? 0
+
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(ShellPalette.surfaceStrong)
+
+                // The highlight is drawn from the selection rather than moved by the gesture, so
+                // there is exactly one source of truth for where it sits. A gesture that moved
+                // it directly could disagree with the value actually stored.
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(ShellPalette.accent)
+                    .padding(3)
+                    .frame(width: segment)
+                    .offset(x: segment * CGFloat(index))
+                    .animation(.easeOut(duration: 0.12), value: index)
+
+                HStack(spacing: 0) {
+                    ForEach(options, id: \.self) { option in
+                        Text(title(option))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(option == selection
+                                             ? Color.white
+                                             : ShellPalette.secondaryText)
+                            .lineLimit(1)
+                            // Shrinks rather than truncating, because a label clipped to "Pixel
+                            // perf..." is a worse outcome than one a point smaller.
+                            .minimumScaleFactor(0.75)
+                            .frame(width: segment, height: Self.trackHeight)
+                    }
+                }
+            }
+            // The whole track takes touches, including the gaps between labels. Without this the
+            // responsive area is the text, which is the small-target problem again.
+            .contentShape(Rectangle())
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in choose(atX: value.location.x, segment: segment) }
+                    // Also on the release, so a straight tap with no movement still selects. A
+                    // tap does deliver one `onChanged`, but relying on that alone would make the
+                    // simplest interaction depend on the subtlest behaviour.
+                    .onEnded { value in choose(atX: value.location.x, segment: segment) }
+            )
+        }
+        .frame(height: Self.trackHeight)
+    }
+
+    /// Selects whichever segment the finger is over.
+    ///
+    /// Clamped rather than ignored outside the track, so a thumb that slides off the end holds
+    /// the last option instead of dropping the drag. Sliding past the edge is how someone
+    /// reaches for the final choice in a hurry, and it should land there.
+    private func choose(atX x: CGFloat, segment: CGFloat) {
+        guard segment > 0, !options.isEmpty else { return }
+        let raw = Int((x / segment).rounded(.down))
+        let option = options[min(max(raw, 0), options.count - 1)]
+        guard option != selection else { return }
+        feedback.selectionChanged()
+        selection = option
     }
 }

@@ -749,7 +749,16 @@ final class TouchControlsView: UIView {
     /// How far outside a cluster its editing outline is drawn, and therefore how far outside it
     /// can be grabbed. One number for both on purpose: the outline the user can see IS the area
     /// that responds, so there is no invisible margin to discover by accident.
-    private static let handleInset: CGFloat = 7
+    /// How far outside a cluster's own bounds the editor's outline is drawn and responds.
+    ///
+    /// Raised from 7 after the editor was tried on a real phone and grabbing a group was reported
+    /// as unreliable. Seven points is under a millimetre and a half: it means a finger aiming at
+    /// the outline itself, rather than at a button inside it, misses more often than not. Twelve
+    /// is still tight enough that the two outlines do not merge at the default layout, and a genuine
+    /// overlap resolves to the nearer centre rather than ambiguously, so being generous here costs
+    /// nothing. This is the hit area AND the drawn outline, deliberately: an outline that was not
+    /// the responsive area would be a drawing that lies about where to put your finger.
+    private static let handleInset: CGFloat = 12
 
     // ------------------------------------------------------------------ inputs
 

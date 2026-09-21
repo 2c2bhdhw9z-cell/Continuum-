@@ -47,21 +47,12 @@ final class EmulationSettings: ObservableObject {
             }
         }
 
-        /// Written for someone deciding, not for someone who already knows the term.
-        var explanation: String {
-            switch self {
-            case .fit:
-                return "As large as it goes while keeping the right shape. Black bars on the "
-                    + "short edge. This is the normal choice."
-            case .integer:
-                return "Every emulated pixel exactly the same size as its neighbours, so the "
-                    + "grid stays even. Wastes a little more of the screen, which is the price "
-                    + "of it looking exactly right."
-            case .stretch:
-                return "Fills the screen completely and stretches the picture to do it. Nothing "
-                    + "is cut off, but circles are not round."
-            }
-        }
+        // There used to be a per-option `explanation` here, and it was removed rather than left
+        // unused. Showing it under the selector meant the text changed length as the selection
+        // changed, which changed the height of the section and slid the selector out from under
+        // the finger still choosing on it. The wording now lives in one static note in
+        // `SettingsScreen.pictureSection` that describes every option at once. See
+        // `SegmentedChoice` for the whole account.
 
         var engineValue: ScaleModeOption {
             switch self {
@@ -86,15 +77,7 @@ final class EmulationSettings: ObservableObject {
             }
         }
 
-        var explanation: String {
-            switch self {
-            case .sharp:
-                return "Hard pixel edges, the way the games were drawn. The default."
-            case .smooth:
-                return "Blends neighbouring pixels. Softer, and some people prefer it on the "
-                    + "older systems."
-            }
-        }
+        // Per-option `explanation` removed for the reason given on `ScreenFit` above.
 
         var engineValue: ScaleFilterOption {
             switch self {
