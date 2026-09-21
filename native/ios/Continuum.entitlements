@@ -3,7 +3,24 @@
   Continuum — entitlements for the sideloaded build.
 
   Distribution is sideloading with custom signing, so these are simply present rather than
-  requested: App Store review is out of scope and JIT is unconditional.
+  requested: App Store review is out of scope.
+
+  READ THIS BEFORE TRUSTING THE JIT KEYS BELOW. `com.apple.security.cs.allow-jit` and
+  `com.apple.security.cs.allow-unsigned-executable-memory` are macOS HARDENED RUNTIME keys. On
+  iOS they are not the switch for executable memory and are simply ignored. iOS gates that behind
+  `dynamic-codesigning`, which Apple restricts: NO provisioning profile grants it, development or
+  distribution, free or paid, because it is not a capability a profile can carry. Only a signing
+  bypass such as TrollStore, or a jailbreak, can.
+
+  So "JIT is unconditional", which this comment used to claim, was wrong on the platform this
+  file is for. Whether a recompiler can run is a property of HOW A COPY WAS INSTALLED and cannot
+  be fixed from inside the repository. The button in Settings is what answers it on a given
+  install; see `jit_probe.rs`.
+
+  `dynamic-codesigning` is deliberately NOT added here. A restricted entitlement that the signing
+  identity cannot carry can make an install fail outright, and an app that will not install is a
+  worse outcome than one that cannot recompile. Add it only against a signing method that is
+  known to grant it.
 
   The two memory entitlements do different jobs and both are needed:
 

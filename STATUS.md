@@ -123,7 +123,21 @@ code, against a 6 to 8 GB working budget.
 
 ### Two things gate N64, and neither is graphics
 
-**The recompiler.** An N64 interpreter is far too slow, so N64 needs a working JIT. The
+**The recompiler, and it may not be winnable on a sideloaded build.** An N64 interpreter is far
+too slow, so N64 needs a working JIT.
+
+Worth knowing before any more graphics work is done for it: the entitlements file asks for
+`com.apple.security.cs.allow-jit` and `com.apple.security.cs.allow-unsigned-executable-memory`,
+and **both are macOS hardened-runtime keys that iOS ignores.** iOS gates executable memory behind
+`dynamic-codesigning`, which no provisioning profile can carry, at any account tier. Only a signing
+bypass such as TrollStore, or a jailbreak, grants it. So on a normal sideload, signed on-device with
+a developer or distribution certificate, the honest expectation is that a recompiler cannot run at
+all.
+
+That would put N64 out of reach on such an install, and the same applies to PSP, 3DS and the Switch,
+which all want a recompiler too. It does NOT affect anything shipping today: every one of the
+fourteen systems runs on an interpreter. The button in Settings settles it per install, and that
+answer should be had before steps 3 to 6 are built for a core that could not execute. The
 entitlements have claimed one since the first build and had never been exercised, so this build
 carries a probe: open a game, tap ⓘ, read the line starting `JIT:`. That is item 1 in
 [TESTING.md](TESTING.md)'s queue and it is the cheapest useful thing anyone can do right now.
