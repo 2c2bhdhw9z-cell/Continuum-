@@ -40,19 +40,19 @@
 //! ## The sequence, and the part that is not optional
 //!
 //! 1. `mmap` with `MAP_JIT`, requesting read, write and execute.
-//! 2. `pthread_jit_write_protect_np(0)` to make the page writable on this thread. Apple
-//!    hardware does not allow a page to be writable and executable at the same instant, so this
-//!    toggles which one it is, per thread.
-//! 3. Write the instructions.
-//! 4. `pthread_jit_write_protect_np(1)` to make it executable again.
-//! 5. `sys_icache_invalidate`, which is **not optional on arm64**. The instruction cache does
-//!    not observe data writes, so without it the processor may execute whatever was in that
-//!    cache line before. Omitting it appears to work in the simulator and crashes on device,
-//!    intermittently, which is the worst failure mode this sequence has.
+//! 2. Write the instructions.
+//! 3. `sys_icache_invalidate`, which is **not optional on arm64**. The instruction cache does not
+//!    observe data writes, so without it the processor may execute whatever was in that cache line
+//!    before. Omitting it appears to work in the simulator and crashes on device, intermittently.
 //!
-//! The probe writes a function that returns 42 and then calls it. Returning 42 proves all five
-//! steps worked, because there is no way to get that answer without the page being both written
-//! and executed.
+//! There is deliberately no `pthread_jit_write_protect_np` in that list. It is macOS-only, does
+//! not exist in the iOS SDK, and referencing it fails to LINK rather than failing at runtime,
+//! which is how this probe learned it. See the note in `ios_aarch64`.
+//!
+//! The probe writes a function that returns 42 and calls it, twice: once asking for `MAP_JIT` and,
+//! if that is refused, once without it. Returning 42 cannot happen by accident, and reporting
+//! WHICH attempt succeeded is more useful than a yes or no, because it tells a future recompiler
+//! port what to ask for.
 
 /// What the probe found, as a sentence for the diagnostics HUD.
 ///
@@ -82,7 +82,7 @@ pub fn describe() -> String {
 mod ios_aarch64 {
     use core::ffi::c_void;
 
-    // Declared here rather than taking a dependency on `libc` for five symbols. The values are
+    // Declared here rather than taking a dependency on `libc` for four symbols. The values are
     // from Apple's `sys/mman.h` and are stable ABI: changing them would break every compiled
     // binary on the platform, so they are not a version risk.
     const PROT_READ: i32 = 0x01;
@@ -90,7 +90,7 @@ mod ios_aarch64 {
     const PROT_EXEC: i32 = 0x04;
     const MAP_PRIVATE: i32 = 0x0002;
     const MAP_ANON: i32 = 0x1000;
-    /// The flag that makes an executable mapping legal at all under the hardened runtime.
+    /// The flag that asks for a mapping the hardened runtime will allow to be executable.
     const MAP_JIT: i32 = 0x0800;
 
     unsafe extern "C" {
@@ -103,58 +103,92 @@ mod ios_aarch64 {
             offset: i64,
         ) -> *mut c_void;
         fn munmap(addr: *mut c_void, len: usize) -> i32;
-        /// `0` allows writes on this thread, `1` restores execute protection. Per thread, not
-        /// per page, which is why the toggle brackets the write rather than the mapping.
-        fn pthread_jit_write_protect_np(enabled: i32);
         fn sys_icache_invalidate(start: *mut c_void, len: usize);
     }
 
+    // NOTE THE ABSENCE OF `pthread_jit_write_protect_np`, WHICH IS THE MOST USEFUL THING THIS
+    // PROBE HAS ALREADY ESTABLISHED, and it cost two red builds to learn.
+    //
+    // That function is `macos(11.0)` only. It does not exist in the iOS SDK, and referencing it
+    // fails to LINK for aarch64-apple-ios rather than failing at runtime. Apple Silicon macOS
+    // refuses to have a page writable and executable at the same instant and needs the toggle to
+    // choose; iOS with the JIT entitlement does not work that way, so there is nothing to toggle.
+    //
+    // parallel-n64's own header said so and I did not read it literally enough. Its comment is
+    // "only necessary on macOS ARM because Apple restrictions on MAP_JIT pages". That is a
+    // statement about which platform needs the call, not a note about where it happened to be
+    // tested, and it means that core's arm64 recompiler needs LESS adaptation for iOS than for
+    // the Mac it was written on, not more.
+
     /// `mov w0, #42` then `ret`, as arm64 machine code.
     ///
-    /// Chosen because it is the shortest function whose return value cannot happen by accident.
-    /// A page that was never written, or never made executable, cannot produce 42: it either
-    /// traps or returns whatever was already there.
+    /// The shortest function whose return value cannot happen by accident. A page that was never
+    /// written, or never made executable, either traps or returns whatever was already there.
     ///
-    /// `MOVZ W0, #42` is `0x52800000 | (42 << 5)`, and `RET` is `0xD65F03C0`. Written as bytes
-    /// rather than words so the order in memory is explicit and does not depend on how a `u32`
-    /// happens to be laid out.
+    /// `MOVZ W0, #42` is `0x52800000 | (42 << 5)`, and `RET` is `0xD65F03C0`. Written as bytes so
+    /// the order in memory is explicit rather than depending on how a `u32` is laid out.
     const RETURN_42: [u8; 8] = [
         0x40, 0x05, 0x80, 0x52, // mov w0, #42
         0xC0, 0x03, 0x5F, 0xD6, // ret
     ];
 
-    pub fn probe() -> String {
-        // One page is plenty for eight bytes, and `mmap` rounds up regardless.
-        const LEN: usize = 4096;
+    const LEN: usize = 4096;
 
-        // SAFETY: a fresh anonymous mapping, used only through the pointer returned, unmapped
-        // on every exit path below, and never aliased. The function written into it takes no
-        // arguments and returns a `u32`, which is the signature it is called through.
+    pub fn probe() -> String {
+        // TRIED TWO WAYS, AND REPORTING WHICH ONE WORKED IS THE POINT. A yes or no would say
+        // whether a recompiler is possible; naming the mechanism says what a recompiler has to
+        // ASK FOR, which is the thing the port actually needs to know. On a sideloaded build the
+        // answer depends on how the app was signed and which entitlements survived, so it is a
+        // property of the installed copy rather than of this source.
+        match attempt(MAP_PRIVATE | MAP_ANON | MAP_JIT) {
+            Ok(()) => {
+                return "JIT: working with MAP_JIT. An executable page was mapped, written, \
+                        invalidated and called."
+                    .to_string()
+            }
+            Err(with_jit) => {
+                // Without MAP_JIT. Worth trying, because a plain read-write-execute mapping is
+                // permitted on some configurations and is all a recompiler needs; if this is the
+                // one that works, the port simply does not pass the flag.
+                match attempt(MAP_PRIVATE | MAP_ANON) {
+                    Ok(()) => "JIT: working WITHOUT MAP_JIT, a plain executable mapping was \
+                               accepted."
+                        .to_string(),
+                    Err(plain) => format!(
+                        "JIT: NOT AVAILABLE. With MAP_JIT: {with_jit}. Without it: {plain}. No \
+                         recompiler can run, so N64 is not possible on this installed build."
+                    ),
+                }
+            }
+        }
+    }
+
+    /// One attempt with a given set of mmap flags. `Ok(())` means a page was written and executed
+    /// and returned the expected answer.
+    fn attempt(flags: i32) -> Result<(), String> {
+        // SAFETY: a fresh anonymous mapping, used only through the pointer returned, unmapped on
+        // every exit path, never aliased. The function written into it takes no arguments and
+        // returns a `u32`, which is the signature it is called through.
         unsafe {
             let page = mmap(
                 core::ptr::null_mut(),
                 LEN,
                 PROT_READ | PROT_WRITE | PROT_EXEC,
-                MAP_PRIVATE | MAP_ANON | MAP_JIT,
+                flags,
                 -1,
                 0,
             );
             // `mmap` reports failure as `MAP_FAILED`, which is `-1` rather than null.
             if page.is_null() || page as isize == -1 {
-                return "JIT: REFUSED, an executable page could not be mapped. The allow-jit \
-                        entitlement is missing from the installed app, or the signature did not \
-                        carry it."
-                    .to_string();
+                return Err("the page could not be mapped".to_string());
             }
 
-            // Writable on this thread. Without this the store below faults, because the page is
-            // executable and Apple hardware will not have it both ways at once.
-            pthread_jit_write_protect_np(0);
             core::ptr::copy_nonoverlapping(RETURN_42.as_ptr(), page as *mut u8, RETURN_42.len());
-            pthread_jit_write_protect_np(1);
 
-            // NOT OPTIONAL. See the module note: the instruction cache does not observe the
-            // write above, so skipping this executes whatever that cache line held before.
+            // NOT OPTIONAL ON ARM64. The instruction cache does not observe the write above, so
+            // skipping this executes whatever that cache line held before. It appears to work in
+            // the simulator and crashes on device, intermittently, which is the worst failure
+            // mode this sequence has.
             sys_icache_invalidate(page, RETURN_42.len());
 
             let entry: extern "C" fn() -> u32 = core::mem::transmute(page);
@@ -162,14 +196,11 @@ mod ios_aarch64 {
             munmap(page, LEN);
 
             if answer == 42 {
-                "JIT: working. An executable page was mapped, written and called.".to_string()
+                Ok(())
             } else {
-                // Reached only if the page executed something other than what was written,
-                // which in practice means the cache invalidation did not take.
-                format!(
-                    "JIT: WRONG ANSWER, the page executed but returned {answer} instead of 42, \
-                     so it ran something other than what was written."
-                )
+                // Reached only if the page executed something other than what was written, which
+                // in practice means the cache invalidation did not take.
+                Err(format!("the page ran but returned {answer} instead of 42"))
             }
         }
     }
