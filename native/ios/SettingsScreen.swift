@@ -495,6 +495,23 @@ struct SettingsScreen: View {
     /// setting.
     private var saveStatesSection: some View {
         SettingsSection(title: "SAVE STATES") {
+            Toggle(isOn: $saveStates.autoSavesEnabled) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Auto-save")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text(saveStates.autoSavesEnabled
+                         ? "On, so leaving a game writes its auto-save."
+                         : "Off, so nothing is saved unless you save it yourself.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(ShellPalette.secondaryText)
+                }
+            }
+            .tint(ShellPalette.accent)
+
+            // Two switches rather than one, because writing the auto-save and resuming into it are
+            // different questions. Keeping the auto-save written while NOT resuming into it every
+            // launch is a combination someone reasonably wants, and one switch could not express it.
             Toggle(isOn: $saveStates.resumesAutomatically) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Pick up where you left off")
@@ -508,14 +525,28 @@ struct SettingsScreen: View {
                 }
             }
             .tint(ShellPalette.accent)
+            // Dimmed rather than hidden when auto-save is off. With nothing being written there is
+            // nothing to resume into, so leaving it live would be a switch that does nothing, which
+            // is the one thing this screen has a rule against. Hiding it instead would make the row
+            // appear and disappear as the switch above is flipped, and a control that moves is
+            // harder to find again than one that is visibly unavailable.
+            .disabled(!saveStates.autoSavesEnabled)
+            .opacity(saveStates.autoSavesEnabled ? 1 : 0.45)
 
             SettingsNote(
-                "Leaving a game, or the app going to the background, writes that game's auto-save, "
-                + "and starting the game again loads it back. There is no save every few seconds "
-                + "while you play, on purpose: saving a PlayStation game's state is a megabyte of "
-                + "work, and a stutter every few seconds would be a worse trade than an auto-save "
-                + "that is a few minutes old. Rewind, in SPEED AND REWIND above, is the setting for "
-                + "undoing the last few seconds."
+                "With auto-save on, leaving a game or the app going to the background writes that "
+                + "game's auto-save, and the second switch decides whether starting the game loads "
+                + "it back. There is no save every few seconds while you play, on purpose: saving "
+                + "a PlayStation game's state is a megabyte of work, and a stutter every few "
+                + "seconds would be a worse trade than an auto-save that is a few minutes old. "
+                + "Rewind, in SPEED AND REWIND above, is the setting for undoing the last few "
+                + "seconds."
+            )
+            SettingsNote(
+                "Turning auto-save off does not delete the auto-saves already written. They stay "
+                + "loadable from each game's card, because they are real states and this switch "
+                + "stops a behaviour rather than throwing anything away. Saving by hand from the "
+                + "player keeps working either way, and its slots are never touched by auto-save."
             )
 
             SettingsReadout(label: "Stored", value: saveStates.storageLine)

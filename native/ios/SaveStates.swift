@@ -431,6 +431,29 @@ final class SaveStates: ObservableObject {
         }
     }
 
+    /// Whether leaving a game or backgrounding the app writes that game's auto-save at all.
+    ///
+    /// A SEPARATE SWITCH FROM `resumesAutomatically`, because they are genuinely two different
+    /// questions and collapsing them would take away a combination someone reasonably wants:
+    /// keep writing the auto-save, so the game can be picked up from a game's card on purpose,
+    /// but do not resume into it every time the game is launched. Writing and restoring are the
+    /// two halves and each is worth its own control.
+    ///
+    /// Turning this off does NOT delete the auto-saves already written. They are still valid
+    /// states and still loadable from a game's card, and deleting them would be this switch
+    /// quietly destroying data rather than stopping a behaviour. "Delete every save state" is the
+    /// control that deletes things, and it says so.
+    ///
+    /// Default ON. The auto-save exists precisely because a phone takes the app away mid-game,
+    /// and the cost of it is one serialize at the moment a session ends rather than anything
+    /// during play.
+    @Published var autoSavesEnabled: Bool = true {
+        didSet {
+            guard oldValue != autoSavesEnabled else { return }
+            UserDefaults.standard.set(autoSavesEnabled, forKey: Self.autoSaveKey)
+        }
+    }
+
     /// How many records named a payload that is not on disk, counted when the index was read.
     ///
     /// Reported rather than repaired. Dropping those records silently would be the app deciding on
@@ -467,6 +490,7 @@ final class SaveStates: ObservableObject {
     private var writingAuto = false
 
     private static let resumeKey = "continuum.saveStates.autoResume.v1"
+    private static let autoSaveKey = "continuum.saveStates.autoSave.v1"
 
     // MARK: Lifecycle
 
@@ -478,6 +502,13 @@ final class SaveStates: ObservableObject {
         // fire for an assignment made inside `init`, so this cannot loop back into the write above.
         if let stored = UserDefaults.standard.object(forKey: Self.resumeKey) as? Bool {
             resumesAutomatically = stored
+        }
+        // Read through `object(forKey:)` rather than `bool(forKey:)` for the same reason as above:
+        // `bool(forKey:)` answers false for a key that was never written, which is
+        // indistinguishable from a user who switched it off, and relying on that agreeing with the
+        // default is how a default becomes impossible to change later.
+        if let stored = UserDefaults.standard.object(forKey: Self.autoSaveKey) as? Bool {
+            autoSavesEnabled = stored
         }
 
         hydrate()
@@ -691,6 +722,10 @@ final class SaveStates: ObservableObject {
     /// recorded on `line`, which is what Settings and the diagnostics panel read, because a lost
     /// auto-save that left no trace anywhere is how somebody loses an hour and never finds out why.
     func writeAutoSave(reason: String) {
+        // Checked first, and silently. This fires from a notification and from `stopSession`, so a
+        // report here would put a line on the status strip every time the app was backgrounded to
+        // say that something the user switched off had not happened.
+        guard autoSavesEnabled else { return }
         guard !writingAuto else { return }
         guard let entry = runningEntry() else { return }
         let gameId = Self.gameId(for: entry)
@@ -988,6 +1023,7 @@ final class SaveStates: ObservableObject {
     /// One line for the diagnostics HUD. Short, because it shares a strip.
     var diagnosticLine: String {
         var parts = ["states \(records.count)"]
+        parts.append(autoSavesEnabled ? "autosave on" : "autosave off")
         parts.append(resumesAutomatically ? "resume on" : "resume off")
         if missingPayloads > 0 {
             parts.append("\(missingPayloads) missing")
