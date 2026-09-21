@@ -26,6 +26,26 @@ button in the player; see [Reading the diagnostic text](#reading-the-diagnostic-
 | ☐ **4. Cover from the game** | In the player, tap **⋯** → Use this frame as the cover | That game's cover becomes the frame you were on | Last time there was no button, because it was hidden behind a long press. A plain tap opens the menu now. Pausing first on a title screen is the best way to use it |
 | ☐ **5. The selectors** | Look at Picture, Fast forward, Rewind in Settings | Rounded pill, like the system's own, not a square block | You told me twice. The first fix changed the material and left the corner radius, so the shape did not change. They are capsules now |
 | ☐ **6. Auto-hide the pad** | Connect a controller, then Settings → Hide the on-screen pad | On-screen pad disappears, picture takes the space | Reported as not working, and nothing is wrong: it cannot act until a controller is attached, and it was tested without one. It now says **On, but waiting** in that state |
+| ☐ **7. A DS game** | Import a `.nds` file and tap it | Boots, with **both screens** visible, one above the other | Brand new: the sixth core. melonDS is software rendered on iOS, so the DS needed none of the graphics work the N64 needs. Its framebuffer is 256x384, which is both screens already stacked, so the existing compositor should draw them with no changes |
+| ☐ **8. DS without BIOS files** | Just try #7 and see what the status line says | Either it boots, or it names the file it wants | **This is the open question for the DS, not graphics.** melonDS traditionally wants `bios7.bin`, `bios9.bin` and `firmware.bin`; newer builds can boot without them. Those names are declared, so Settings → BIOS reports which are present. Whichever way it goes, the answer decides whether DS needs a BIOS step |
+
+### Known to be incomplete, so not worth reporting
+
+- **The DS touch screen.** Not wired yet, and it is the control the system is defined by. It is a
+  pointer rather than a button, so it needs a path through the engine that does not exist yet plus a
+  mapping from a finger on the lower half of the picture into the bottom screen. Left absent rather
+  than faked, because a DS pad with a dead patch where the stylus goes is worse than one that
+  plainly has not got it.
+
+### Known problems being chased
+
+- **mgba is flaky in CI, not broken in the app.** One build produced an mgba core with no libretro
+  API in it at all, and the next build of the identical commit, with the identical Xcode, was fine.
+  Its CMake plus link-time-optimisation plus force-load link does not always emit a dylib with
+  symbols. **It cannot ship broken**, because `build-core.sh` asserts the core exports `retro_run`
+  and fails the build if it does not, which is exactly what caught it. So the symptom is a wasted
+  build rather than a GBA game that will not start. If a build ever fails mentioning mgba and
+  `retro_run`, that is this, and a retry is the workaround.
 
 ### Cannot be tested on purpose
 

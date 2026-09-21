@@ -168,10 +168,17 @@ emulator behind it, so it does not play anything.
 - **Bugs in what already works.** Longer sessions, games fussier than the ones tried so far,
   other PlayStation discs, and anything that looks or sounds wrong on screen.
 
-[TESTING.md](TESTING.md) is the checklist you can work through on your phone. It says what to do,
-what you should see if it worked, what has already passed, and what to send me if something
-fails. When something does go wrong, the single most useful thing is the exact text from the
-block at the top of the screen, and [TESTING.md](TESTING.md) explains how to read it.
+Two pages track all of this, and they are kept current rather than written once:
+
+- **[STATUS.md](STATUS.md)** is what is finished and what is not. One row per system and per
+  feature, with three states: done and confirmed on a device, built but never tried, or partial
+  with the missing piece named. Nothing in it is rounded up, so a half-finished thing says so.
+- **[TESTING.md](TESTING.md)** opens with the queue: the short list of things built and not yet
+  tried, each saying what to do, what should happen and why it is on the list. Below that is the
+  regression checklist of everything already confirmed.
+
+When something does go wrong, the single most useful thing is the exact text from the block at the
+top of the screen, and [TESTING.md](TESTING.md) explains how to read it.
 
 ## About the old web version
 

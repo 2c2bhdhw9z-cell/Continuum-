@@ -185,6 +185,12 @@ impl GamepadBridge {
         self.sources[source as usize].set_button(port, button, pressed);
     }
 
+    /// Moves one layer's pointer. See [`crate::input::InputState::set_pointer`] for the units and
+    /// [`Self::snapshot`] for how a pointer merges, which is not how buttons merge.
+    pub fn set_pointer(&mut self, port: usize, source: PadSource, x: f32, y: f32, pressed: bool) {
+        self.sources[source as usize].set_pointer(port, x, y, pressed);
+    }
+
     pub fn set_axis(&mut self, port: usize, source: PadSource, axis: usize, value: f32) {
         self.sources[source as usize].set_axis(port, axis, value);
     }
@@ -214,6 +220,21 @@ impl GamepadBridge {
                     if layer.axes[axis].abs() > merged.axes[axis].abs() {
                         merged.axes[axis] = layer.axes[axis];
                     }
+                }
+                // A PRESSED POINTER WINS, and an unpressed one never overwrites a pressed one.
+                // Buttons can be OR-ed and axes can take the largest, but a position cannot be
+                // combined with another position: two fingers in different places have no
+                // meaningful average. So the rule is that whichever layer is actually holding
+                // the pointer supplies both the coordinates and the pressed flag, and a layer
+                // resting at (0,0) cannot drag a live touch to the corner. In practice only the
+                // touch layer ever sets this, which is why the simple rule is sufficient.
+                if layer.pointer_pressed && !merged.pointer_pressed {
+                    merged.pointer = layer.pointer;
+                    merged.pointer_pressed = true;
+                } else if !merged.pointer_pressed {
+                    // Nothing held anywhere yet: keep the last position reported, so a release
+                    // leaves the stylus where it was rather than snapping it to a corner.
+                    merged.pointer = layer.pointer;
                 }
             }
         }

@@ -754,6 +754,26 @@ impl ContinuumEngine {
             .apply_gamepad_from(port as usize, source.into(), &buttons, &axes);
     }
 
+    /// Moves a pointer, which is how a touch screen reaches a core.
+    ///
+    /// **`x` and `y` are fractions of the WHOLE framebuffer, `0.0` to `1.0`, origin top left.**
+    /// Not pixels, and not one screen: on the Nintendo DS the framebuffer is both screens stacked,
+    /// so the touch screen is the lower half and its top edge is `y = 0.5`. The host does that
+    /// conversion because only the host knows where on the display it drew the picture, and the
+    /// engine would have to guess.
+    ///
+    /// The coordinates are REMEMBERED when `pressed` is false rather than cleared, so a release
+    /// leaves the stylus where it was lifted. Clearing them would put a jump to the top-left corner
+    /// at the end of every stroke, which a game reads as a real input.
+    ///
+    /// Call it on the `touch` source for an on-screen stylus. A pressed pointer on any layer beats
+    /// an unpressed one; two positions are never averaged, because two fingers in different places
+    /// have no meaningful midpoint.
+    pub fn apply_pointer(&self, port: u32, source: InputSource, x: f32, y: f32, pressed: bool) {
+        self.lock()
+            .set_pointer(port as usize, source.into(), x, y, pressed);
+    }
+
     /// Releases one layer, leaving the others untouched.
     ///
     /// For a controller being unplugged, or the on-screen pad going away when the player

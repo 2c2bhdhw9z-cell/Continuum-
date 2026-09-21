@@ -658,6 +658,16 @@ impl EmulatorBridge {
         self.gamepads.set_axis(port, source, axis, value);
     }
 
+    /// Moves a pointer: the Nintendo DS touch screen, and any later system with one.
+    ///
+    /// `x` and `y` are fractions of the WHOLE framebuffer in `0.0..=1.0` from the top left, not of
+    /// one screen. That matters for the DS, whose framebuffer is both screens stacked: the touch
+    /// screen is the lower half, so a tap at the very top of it is `y = 0.5`. The host does that
+    /// arithmetic because only the host knows where it drew the picture.
+    pub fn set_pointer(&mut self, port: usize, source: PadSource, x: f32, y: f32, pressed: bool) {
+        self.gamepads.set_pointer(port, source, x, y, pressed);
+    }
+
     /// Releases one source, e.g. when the touch overlay is dismissed.
     pub fn release_input_source(&mut self, source: PadSource) {
         self.gamepads.release_source(source);
