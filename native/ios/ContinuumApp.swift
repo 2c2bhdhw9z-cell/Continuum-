@@ -684,9 +684,32 @@ final class EngineHost: ObservableObject {
     /// failure is still legible with this off.
     @Published var showDiagnostics = false
 
-    /// The on-screen pad's layout. One value, so the layout editor is a view that writes six
-    /// numbers rather than a rewrite. See `TouchLayout`.
-    @Published var touchLayout: TouchLayout = .standard
+    /// The on-screen pad's layout: where the two thumb clusters sit, how big they are and how
+    /// faint. One value, which is why the editor turned out to be a screen that writes six numbers
+    /// rather than a rewrite. See `TouchLayout` and `TouchLayoutEditor`.
+    ///
+    /// Persisted on every change rather than on a later flush, for the reason `toggleFavourite`
+    /// gives: a sideloaded build can be killed by the OS at any moment, and an arrangement that did
+    /// not survive that would read as the editor not working. The write is cheap because the editor
+    /// only assigns here when a drag or a slider is RELEASED, never per frame of one; see
+    /// `TouchControlsView.onLayoutEdited`.
+    ///
+    /// Stored sanitised, and read back through `TouchLayout.restored(from:)` which sanitises again.
+    /// Twice on purpose: this key outlives the build that wrote it, so the limits it was written
+    /// against are not necessarily the limits it will be read against.
+    @Published var touchLayout: TouchLayout = .standard {
+        didSet {
+            guard oldValue != touchLayout else { return }
+            guard let encoded = touchLayout.storedRepresentation else {
+                // Nothing is written on a failed encode, rather than the key being cleared. The
+                // layout the user can see on screen is still the live one, and clearing would
+                // silently reset it on the next launch with nothing to explain why.
+                status = "could not save the control layout; it still applies to this session"
+                return
+            }
+            UserDefaults.standard.set(encoded, forKey: Self.touchLayoutKey)
+        }
+    }
 
     /// Whatever the control surface last had to report, which today is only a layout overlap.
     @Published var controlNote: String = ""
@@ -790,8 +813,8 @@ final class EngineHost: ObservableObject {
 
     /// How All Games arranges itself, and whether Home carries a shelf per system.
     ///
-    /// Both persist, and both are the part of "let the user change the layout" that is real today:
-    /// no engine change, no dead switch. Moving the on-screen game controls is FEAT-006.
+    /// Both persist, and both are about the LIBRARY. Moving the on-screen game controls is a
+    /// different setting with a confusingly similar name: it lives in `touchLayout` above.
     @Published var libraryLayout: LibraryLayout = .grid {
         didSet {
             guard oldValue != libraryLayout else { return }
@@ -809,6 +832,10 @@ final class EngineHost: ObservableObject {
     private static let favouritesKey = "continuum.favourites.v1"
     private static let layoutKey = "continuum.library.layout.v1"
     private static let systemShelvesKey = "continuum.library.systemShelves.v1"
+    /// Named for the GAME controls, not for the library layout `layoutKey` holds. The two are
+    /// unrelated settings with confusingly similar names, and a key that did not say which it meant
+    /// would be the first thing a later reader got wrong.
+    private static let touchLayoutKey = "continuum.controls.touchLayout.v1"
 
     /// The favourites that are on disk right now, in the library's own order.
     var favouriteEntries: [LibraryEntry] {
@@ -1023,6 +1050,11 @@ final class EngineHost: ObservableObject {
         if let stored = defaults.object(forKey: Self.systemShelvesKey) as? Bool {
             showsSystemShelves = stored
         }
+        // Assigned unconditionally, because `restored(from:)` already answers absent, unreadable
+        // and out of range with the default. The extra `didSet` write the other preferences avoid
+        // by testing first does not happen here either: `didSet` does not fire for an assignment
+        // made inside `init`, which is also why this cannot loop back through the encode above.
+        touchLayout = TouchLayout.restored(from: defaults.data(forKey: Self.touchLayoutKey))
 
         // Scan up front so the Library is populated even if the Metal attach later fails.
         // An attach failure must not also hide the games the user already imported.
@@ -1885,6 +1917,24 @@ final class EngineHost: ObservableObject {
         }
         return "input: \(system.badge) pad on port 0, \(system.controlCount) button(s) plus the "
             + "D-pad, \(physicalPads) physical pad(s) registered"
+    }
+
+    /// The on-screen pad's arrangement in one line, for the Settings row that opens the editor.
+    ///
+    /// Says "default" when it is the shipped one rather than printing the same six numbers a fresh
+    /// install would, because the useful question that row answers is whether anything has been
+    /// changed. The numbers are still spelled out once it has been, since they are what persists and
+    /// they are the only way to tell two similar arrangements apart.
+    var touchLayoutLine: String {
+        let live = touchLayout.sanitised
+        let size = "\(Int((live.scale * 100).rounded()))%"
+        let opacity = "\(Int((live.opacity * 100).rounded()))%"
+        guard !live.isStandard else {
+            return "default: size \(size), opacity \(opacity)"
+        }
+        let positions = String(format: "d-pad %.2f, %.2f  buttons %.2f, %.2f",
+                               live.dpadX, live.dpadY, live.faceX, live.faceY)
+        return "size \(size), opacity \(opacity), \(positions)"
     }
 
     /// The thin strip on the player screen.

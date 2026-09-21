@@ -1,5 +1,5 @@
-// Continuum - Settings: the artwork controls, the layout controls, and the permanent home of the
-// diagnostics.
+// Continuum - Settings: the artwork controls, the on-screen control editor, the library layout
+// controls, and the permanent home of the diagnostics.
 //
 // THE RULE THIS FILE IS BUILT AROUND: every control in here does something today. A switch that
 // does nothing is worse than an absent one, because it teaches the user that the app lies. So the
@@ -27,6 +27,15 @@ struct SettingsScreen: View {
     @State private var coreOptions: [CoreOptionRecord] = []
     @State private var coreOptionsNote = "not read yet"
 
+    /// Whether the control layout editor is up.
+    ///
+    /// Presented full screen rather than as a sheet, and that is the one thing about it that is not
+    /// a matter of taste: the editor's whole job is to show the controls where they will really be,
+    /// and a sheet is inset from the bottom of the screen, which is exactly the edge both thumb
+    /// clusters live at. A card cannot show you where a control sits relative to a screen it does
+    /// not cover.
+    @State private var showControlEditor = false
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -35,16 +44,29 @@ struct SettingsScreen: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
 
-                pictureSection
-                soundSection
-                speedSection
-                artworkSection
-                layoutSection
-                diagnosticsSection
-                biosSection
-                coreOptionsSection
-                storageSection
-                notYetWiredSection
+                // Grouped, and NOT for tidiness: a SwiftUI view builder accepts at most ten
+                // children, and this screen has more sections than that. Exceeding it fails with
+                // an error that points at the whole block and names no section, which on a build
+                // whose only compiler is CI is an expensive thing to go looking for. Two groups
+                // keep every block well under the limit and leave room for the next section.
+                //
+                // The split is along a real seam rather than at the tenth item: these four are how
+                // the game itself behaves, and the rest are the app around it.
+                Group {
+                    pictureSection
+                    soundSection
+                    speedSection
+                    controlsSection
+                }
+                Group {
+                    artworkSection
+                    layoutSection
+                    diagnosticsSection
+                    biosSection
+                    coreOptionsSection
+                    storageSection
+                    notYetWiredSection
+                }
             }
             .padding(.bottom, 24)
         }
@@ -54,6 +76,17 @@ struct SettingsScreen: View {
             // tape, not telemetry, and polling the engine for it every frame would take the
             // engine lock sixty times a second to redraw text that barely changes.
             emulation.refreshRewindReadout()
+        }
+        .fullScreenCover(isPresented: $showControlEditor) {
+            TouchLayoutEditor(
+                initialLayout: host.touchLayout,
+                // The host's own `didSet` is what persists it. The editor is handed a closure rather
+                // than the host so a drag in progress cannot republish the host, and with it every
+                // view in the library shell underneath this one, on every touch move. See the note
+                // on `TouchLayoutEditor`.
+                onCommit: { layout in host.touchLayout = layout },
+                onClose: { showControlEditor = false }
+            )
         }
     }
 
@@ -143,6 +176,50 @@ struct SettingsScreen: View {
         }
     }
 
+    // MARK: The on-screen controls
+
+    /// The game pad's own layout, which is a different thing from the LAYOUT section below it.
+    ///
+    /// Two sections rather than one, because the two settings share nothing but a word: this one is
+    /// where your thumbs go during a game, and that one is how the library arranges its cards. They
+    /// were confusing enough while only one of them existed.
+    private var controlsSection: some View {
+        SettingsSection(title: "ON-SCREEN CONTROLS") {
+            SettingsReadout(label: "Arrangement", value: host.touchLayoutLine)
+
+            SettingsButton(title: "Move the on-screen controls", role: .normal) {
+                showControlEditor = true
+            }
+
+            SettingsNote(
+                "Opens the pad full screen with the two thumb groups outlined, and drags them where "
+                + "you want them. Sliders for size and how faint they are, a swap for a left-handed "
+                + "grip, and the room left for the picture shown as you go, because moving a group "
+                + "inward takes that room away. Remembered between launches."
+            )
+
+            // Reachable from here as well as inside the editor, on the same reasoning as the
+            // library's layout toggle: the editor is the place you go to fiddle, and putting the
+            // way back to the shipped arrangement behind a screenful of fiddling is the wrong way
+            // round when what you want is to undo it.
+            SettingsButton(title: "Reset the controls to the default arrangement",
+                           role: .destructive) {
+                host.touchLayout = .standard
+            }
+            .disabled(host.touchLayout.isStandard)
+            .opacity(host.touchLayout.isStandard ? 0.45 : 1)
+
+            SettingsNote(
+                "Every position is a fraction of the screen rather than a number of pixels, so one "
+                + "arrangement is right on every device and in both orientations, and each one is "
+                + "held inside limits that keep a control on screen and clear of the few "
+                + "millimetres at each edge that iOS reserves for its own swipe gestures. The pad "
+                + "checks the result it laid out for controls sitting on top of each other and says "
+                + "so on the diagnostic line, so a bad arrangement is reported rather than shipped."
+            )
+        }
+    }
+
     // MARK: Layout
 
     private var layoutSection: some View {
@@ -172,11 +249,9 @@ struct SettingsScreen: View {
             .tint(ShellPalette.accent)
 
             SettingsNote(
-                "These two are remembered between launches. Moving and resizing the on-screen game "
-                + "controls is a bigger piece of work and is not here yet: the control layout is "
-                + "already a value the player screen takes, with limits that keep a button on "
-                + "screen and clear of the system edge gestures, so the editor is a screen that "
-                + "writes six numbers rather than a rewrite. It is recorded as FEAT-006."
+                "These two are remembered between launches, and both are about the library. The "
+                + "on-screen game controls are a separate setting with a confusingly similar name: "
+                + "they are in ON-SCREEN CONTROLS above."
             )
         }
     }
@@ -478,9 +553,6 @@ struct SettingsScreen: View {
     /// The gaps, each with the reason. Written out because the design reference shows controls for
     /// all of them and a later reader would otherwise assume they were forgotten.
     private static let gaps: [Gap] = [
-        Gap(name: "Moving the on-screen controls",
-            reason: "The layout is already a value with limits and clamping, so this is an editor "
-            + "screen rather than a rewrite. It is the next piece of UI work, not an engine gap."),
         Gap(name: "Cover art from the game itself",
             reason: "The fourth artwork tier is a capture from a running game, which is the only "
             + "tier that works for a ROM no database has heard of. It needs a framebuffer readback "

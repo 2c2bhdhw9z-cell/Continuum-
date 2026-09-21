@@ -95,8 +95,14 @@ targets:
       # exactly the failure the comment above this list is about.
       - path: AudioOutput.swift
       # The on-screen pad: the engine's button wire format, the per-system control sets, and the
-      # multi-touch surface that tracks the D-pad as one region so diagonals resolve.
+      # multi-touch surface that tracks the D-pad as one region so diagonals resolve. It also holds
+      # TouchLayout, the six persisted numbers the editor below writes.
       - path: TouchControls.swift
+      # The layout editor: the full-screen screen that moves the on-screen controls. It mounts the
+      # REAL pad in edit mode rather than a drawing of one, so what is dragged is what a game gets.
+      # Without this line the button in Settings has nothing to open and the layout is fixed again,
+      # with nothing anywhere to say why.
+      - path: TouchLayoutEditor.swift
       # The player screen's chrome, and the diagnostics panel both screens share.
       - path: PlayerScreen.swift
       # Stage 2, the library shell. The tab shell, the top bar, the hero and the shelves.

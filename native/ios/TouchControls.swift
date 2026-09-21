@@ -8,6 +8,7 @@
 // here: the button array's ORDER (`PadSlot`), the D-pad being ONE surface rather than four
 // buttons (`TouchControlsView.directions`), and real multi-touch (`TouchControlsView.grabs`).
 
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -346,14 +347,21 @@ enum GameSystem: String, Sendable, CaseIterable {
 /// The six numbers that describe a control layout.
 ///
 /// Deliberately the SAME six the browser build used (`web/src/data/touch-layout.js`), with the
-/// same limits, because the intention is to let the user rearrange the controls. Stage 1 ships no
-/// editor and only ever uses `standard`, but taking the layout as a value now means that editor
-/// is a view that writes six numbers rather than a rewrite of the layout engine.
+/// same limits, because the intention was always to let the user rearrange the controls. That
+/// editor exists now (`TouchLayoutEditor`), and taking the layout as a value from the start is
+/// why it is a screen that writes six numbers rather than a rewrite of the layout engine.
 ///
 /// The limits are not cosmetic margins. A control centred at 0 would be half off screen, and on
 /// iOS the outer few millimetres belong to the system's edge gestures, so a control parked there
 /// would fight the OS for the touch.
-struct TouchLayout: Sendable, Equatable {
+///
+/// `Codable` so the editor's result survives a relaunch. It is stored as JSON under one
+/// UserDefaults key rather than as six keys, because the six numbers are only meaningful
+/// together: a build that half-restored a layout would put the clusters somewhere the user never
+/// arranged. Decoding is deliberately forgiving and `sanitised` is applied on the way out, so an
+/// absent value, a truncated one and one written by a different build all land on something
+/// legal. See `restored(from:)`.
+struct TouchLayout: Sendable, Equatable, Codable {
     static let minScale = 0.7
     static let maxScale = 1.6
     static let minOpacity = 0.15
@@ -370,6 +378,20 @@ struct TouchLayout: Sendable, Equatable {
     var faceX: Double
     var faceY: Double
 
+    /// Spelled out rather than left to the synthesized memberwise initialiser, because declaring
+    /// `init(from:)` below in the body of the type suppresses that synthesis, and losing it would
+    /// break `standard` and `sanitised` with an error that points at those two rather than here.
+    init(scale: Double, opacity: Double,
+         dpadX: Double, dpadY: Double,
+         faceX: Double, faceY: Double) {
+        self.scale = scale
+        self.opacity = opacity
+        self.dpadX = dpadX
+        self.dpadY = dpadY
+        self.faceX = faceX
+        self.faceY = faceY
+    }
+
     /// The default, tuned for a phone held at the bottom corners.
     ///
     /// The browser's defaults put the clusters at y 0.66, which suited a desktop-shaped viewport.
@@ -378,6 +400,97 @@ struct TouchLayout: Sendable, Equatable {
     static let standard = TouchLayout(scale: 1.0, opacity: 0.55,
                                       dpadX: 0.17, dpadY: 0.78,
                                       faceX: 0.83, faceY: 0.78)
+
+    // MARK: Storage
+
+    private enum CodingKeys: String, CodingKey {
+        case scale, opacity, dpadX, dpadY, faceX, faceY
+    }
+
+    /// Decodes field by field, each one falling back to the default rather than throwing.
+    ///
+    /// THE POINT IS THAT A PARTIAL PAYLOAD IS NOT A FAILURE. The synthesized initialiser throws
+    /// the moment any single key is missing, which would turn a layout written by a build that
+    /// named one field differently into a total reset, and the user would read that as the app
+    /// forgetting their arrangement. Per-field recovery keeps the five numbers it can still
+    /// understand. Malformed JSON, which is not recoverable, is handled one level up in
+    /// `restored(from:)`.
+    init(from decoder: Decoder) throws {
+        let box = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = Self.standard
+        scale = try box.decodeIfPresent(Double.self, forKey: .scale) ?? fallback.scale
+        opacity = try box.decodeIfPresent(Double.self, forKey: .opacity) ?? fallback.opacity
+        dpadX = try box.decodeIfPresent(Double.self, forKey: .dpadX) ?? fallback.dpadX
+        dpadY = try box.decodeIfPresent(Double.self, forKey: .dpadY) ?? fallback.dpadY
+        faceX = try box.decodeIfPresent(Double.self, forKey: .faceX) ?? fallback.faceX
+        faceY = try box.decodeIfPresent(Double.self, forKey: .faceY) ?? fallback.faceY
+    }
+
+    /// Written out rather than synthesized, only so that the encoded shape and the forgiving
+    /// decode above sit next to each other and cannot drift apart unnoticed.
+    func encode(to encoder: Encoder) throws {
+        var box = encoder.container(keyedBy: CodingKeys.self)
+        try box.encode(scale, forKey: .scale)
+        try box.encode(opacity, forKey: .opacity)
+        try box.encode(dpadX, forKey: .dpadX)
+        try box.encode(dpadY, forKey: .dpadY)
+        try box.encode(faceX, forKey: .faceX)
+        try box.encode(faceY, forKey: .faceY)
+    }
+
+    /// The bytes to hand UserDefaults. Nil only if encoding six finite doubles somehow fails,
+    /// which the caller treats as "do not write" rather than as "store nothing": clearing the key
+    /// on a failed encode would silently reset a layout the user can still see on screen.
+    var storedRepresentation: Data? {
+        try? JSONEncoder().encode(sanitised)
+    }
+
+    /// The layout to start from, given whatever was in UserDefaults.
+    ///
+    /// Absent, unreadable and out of range all end in a usable layout, and the caller does not
+    /// have to tell them apart, because there is nothing different to do about any of them. The
+    /// sanitise on the way out is what makes that safe rather than optimistic.
+    static func restored(from data: Data?) -> TouchLayout {
+        guard let data,
+              let decoded = try? JSONDecoder().decode(TouchLayout.self, from: data) else {
+            return standard
+        }
+        return decoded.sanitised
+    }
+
+    // MARK: Derived
+
+    /// Whether this is already the shipped arrangement, so a Reset control can say so instead of
+    /// offering to do nothing.
+    var isStandard: Bool { sanitised == Self.standard }
+
+    /// The same layout with the two clusters swapped left to right.
+    ///
+    /// For a left-handed player, who otherwise has to drag both clusters past each other and
+    /// through the region where the overlap check complains. Mirroring x rather than EXCHANGING the
+    /// two values is the difference between "swap sides" and "swap clusters": a D-pad nudged in to
+    /// 0.3 ends up 0.3 from the right edge, keeping its own distance from its own edge, where an
+    /// exchange would have given it the other cluster's inset. Both results are inside the x limits
+    /// for any legal input, since those limits are symmetric about 0.5, and `sanitised` still runs
+    /// because that symmetry is a property of today's constants rather than a promise.
+    ///
+    /// ROUNDED, and that is not tidiness. `1.0 - 0.17` is `0.8300000000000001` in binary floating
+    /// point, and `1.0 - 0.8300000000000001` is `0.16999999999999993`, so without the rounding this
+    /// would not be its own inverse: pressing Swap twice would leave the layout a hair off where it
+    /// started and `isStandard` would answer false about an arrangement indistinguishable from the
+    /// default, which would in turn leave Reset offering to do something invisible. Four decimals is
+    /// far finer than a point on any screen this runs on, so nothing observable is given up for it.
+    var mirrored: TouchLayout {
+        var out = sanitised
+        out.dpadX = Self.rounded(1.0 - out.dpadX)
+        out.faceX = Self.rounded(1.0 - out.faceX)
+        return out.sanitised
+    }
+
+    /// To four decimal places, which on a 400 point wide screen is four hundredths of a point.
+    private static func rounded(_ value: Double) -> Double {
+        (value * 10_000).rounded() / 10_000
+    }
 
     /// Forces any layout into range. Applied on every read, not only on write, so a layout
     /// restored from storage by a future build cannot put a control off screen.
@@ -509,6 +622,68 @@ final class DPadView: UIView {
     }
 }
 
+/// A labelled outline round a cluster that can be dragged. Only on screen while the layout is
+/// being edited.
+///
+/// DRAWN BY THE PAD RATHER THAN BY THE EDITOR SCREEN ABOVE IT, and that is the whole reason this
+/// class exists instead of a rectangle in SwiftUI. The pad is the only thing that knows where a
+/// cluster actually ENDED UP: the editor knows the six fractions it asked for, and the two differ
+/// whenever a clamp bit, which is most of the time near an edge. An outline positioned from the
+/// fractions would drift away from the control it is supposed to be pointing at, and it would
+/// drift furthest exactly where the user is most likely to be aiming.
+///
+/// It is also why this is a sibling of the chips rather than a change to them: at a low opacity
+/// setting the pad is close to invisible, and a grab target you cannot see is a broken editor. The
+/// outline is kept at full strength while the controls preview the real opacity. See
+/// `TouchControlsView.applyOpacity`.
+final class ClusterHandle: UIView {
+    /// The same red as `ShellPalette.accent`, restated as a `UIColor`.
+    ///
+    /// Restated rather than imported, because the palette is a SwiftUI type owned by the library
+    /// shell and this file sits underneath it: the pad knows nothing about the shell and reaching
+    /// up for a colour would invert that. The cost is one number to keep in step, which is why it
+    /// is named here.
+    private static let accent = UIColor(red: 0.93, green: 0.16, blue: 0.29, alpha: 1)
+
+    private let caption = UILabel()
+
+    init(title: String) {
+        super.init(frame: .zero)
+        // Every touch has to reach the pad, which is the only thing that can tell a drag of one
+        // cluster from a drag of the other. Same reason as `ControlChip`.
+        isUserInteractionEnabled = false
+        layer.borderWidth = 2
+        layer.cornerRadius = 12
+        caption.text = title
+        caption.font = .systemFont(ofSize: 10, weight: .bold)
+        caption.textColor = .white
+        caption.textAlignment = .center
+        caption.adjustsFontSizeToFitWidth = true
+        caption.minimumScaleFactor = 0.7
+        caption.isUserInteractionEnabled = false
+        addSubview(caption)
+        setActive(false)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not supported") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Inside the outline at the top, where a cluster has no control drawn: the D-pad's top
+        // arm is the middle third, and the face cluster's top button is centred, so a caption
+        // pinned to the top-left corner of the outline sits over empty space in both.
+        caption.frame = CGRect(x: 6, y: 4, width: max(0, bounds.width - 12), height: 12)
+    }
+
+    /// Thickens while this is the cluster being dragged, so a finger that has wandered still says
+    /// which of the two it is carrying.
+    func setActive(_ active: Bool) {
+        backgroundColor = Self.accent.withAlphaComponent(active ? 0.24 : 0.10)
+        layer.borderColor = Self.accent.withAlphaComponent(active ? 1.0 : 0.8).cgColor
+    }
+}
+
 // MARK: - The surface that reads the fingers
 
 /// The whole on-screen pad: layout, drawing and every touch.
@@ -567,6 +742,11 @@ final class TouchControlsView: UIView {
     /// still get it.
     private static let hitSlop: CGFloat = 5
 
+    /// How far outside a cluster its editing outline is drawn, and therefore how far outside it
+    /// can be grabbed. One number for both on purpose: the outline the user can see IS the area
+    /// that responds, so there is no invisible margin to discover by accident.
+    private static let handleInset: CGFloat = 7
+
     // ------------------------------------------------------------------ inputs
 
     var system: GameSystem {
@@ -579,10 +759,50 @@ final class TouchControlsView: UIView {
     var layout: TouchLayout {
         didSet {
             guard layout != oldValue else { return }
-            alpha = CGFloat(layout.sanitised.opacity)
+            applyOpacity()
             setNeedsLayout()
         }
     }
+
+    /// True while the layout editor owns this pad.
+    ///
+    /// The mode swap is total rather than additive: an editing pad sends NOTHING to the engine and
+    /// its touches move clusters instead of pressing buttons. Trying to do both at once was
+    /// rejected on purpose. A drag that also counted as a press would fire a button on every
+    /// adjustment, and the alternative of a modifier or a long press would mean a user aiming at a
+    /// cluster in a full-screen editor could still miss and shoot. Nothing is running while the
+    /// editor is up, because it is reached from Settings and Settings only exists with no game on
+    /// screen, so there is no input to preserve either.
+    var isEditing: Bool = false {
+        didSet {
+            guard isEditing != oldValue else { return }
+            // Both directions drop everything held. Entering with a button down would leave it
+            // pressed with no touch left to release it, and leaving mid-drag would keep a handle
+            // lit over a cluster nobody is carrying.
+            releaseAll()
+            applyOpacity()
+            setNeedsLayout()
+        }
+    }
+
+    /// Called while a cluster is dragged in editing mode, with the layout that drag produced.
+    ///
+    /// `settled` is true on the touch that ENDS the drag, and it is the signal to write the value
+    /// somewhere permanent. Every move reports too, because the preview has to follow the finger,
+    /// but a caller that persisted on each of those would encode and store a layout sixty times a
+    /// second for as long as a finger is down.
+    ///
+    /// The layout handed over is already sanitised, so a caller cannot be given a value the pad
+    /// would then refuse.
+    var onLayoutEdited: ((_ layout: TouchLayout, _ settled: Bool) -> Void)?
+
+    /// The overlap check's verdict, published on every CHANGE including back to nil.
+    ///
+    /// Separate from `onDiagnostic`, which only ever fires on a real collision: the player's status
+    /// line must not be overwritten with "all clear" on every layout pass. An editor needs the
+    /// other half, because a warning that cannot be taken down again would accuse the user of a
+    /// collision they had just dragged their way out of.
+    var onOverlapState: ((String?) -> Void)?
 
     /// Every line this view has to say out loud. On a sideloaded build with no debugger a silent
     /// layout fault is invisible, so the one thing that can still go wrong after all the
@@ -614,12 +834,63 @@ final class TouchControlsView: UIView {
     /// is therefore the only reliable way to know which finger let go of what.
     private var grabs: [ObjectIdentifier: Grab] = [:]
 
+    /// Which of the two movable groups a drag is carrying.
+    ///
+    /// Two, and not one per control. The layout is six numbers and four of them are the two cluster
+    /// positions, so a cluster is the smallest thing a drag can honestly move: offering to drag a
+    /// single face button would promise a per-control layout that the value cannot express and the
+    /// pad would snap back from.
+    private enum DragTarget {
+        case dpad
+        case face
+    }
+
+    /// One cluster being dragged, and enough to finish the drag without re-deriving anything.
+    ///
+    /// `offset` is the gap between where the finger landed and the cluster's centre, so a cluster
+    /// grabbed by its corner does not jump its centre under the fingertip on the first move.
+    /// `layout` is the last value published, which is what a cancelled touch settles on: a
+    /// cancellation has a location, but it is the location of an interruption rather than of an
+    /// intention.
+    private struct ClusterDrag {
+        let touch: ObjectIdentifier
+        let target: DragTarget
+        let offset: CGSize
+        var layout: TouchLayout
+    }
+
+    /// The drag in progress, or nil.
+    ///
+    /// ONE AT A TIME, unlike the pad's real touches. Two fingers dragging both clusters would be
+    /// writing two halves of one value from two independent streams, and each would be editing a
+    /// layout the other had already moved on from. The pad needs multi-touch because a game does;
+    /// an editor does not.
+    private var clusterDrag: ClusterDrag?
+
     private var chips: [ControlChip] = []
     private let dpad = DPadView()
+
+    /// The two editing outlines. Built once and hidden rather than created on entering edit mode,
+    /// so entering it cannot be the moment a view allocation goes wrong.
+    private let dpadHandle = ClusterHandle(title: "D-PAD")
+    private let faceHandle = ClusterHandle(title: "BUTTONS")
 
     /// Hit rectangles in this view's coordinate space, rebuilt on every layout.
     private var chipRects: [CGRect] = []
     private var dpadRect: CGRect = .zero
+
+    /// What the last layout pass worked out, kept only for the editor's drag arithmetic.
+    ///
+    /// Recorded rather than recomputed because a drag has to invert exactly the mapping the layout
+    /// pass used. Two copies of "where does fraction 0.17 land" would eventually disagree, and the
+    /// symptom would be a cluster that creeps away from the finger.
+    private var editPlayArea: CGRect = .zero
+    private var dpadCentreNow: CGPoint = .zero
+    private var faceCentreNow: CGPoint = .zero
+
+    /// The two draggable groups as laid out: a cluster plus the shoulders anchored to it.
+    private var dpadGroupRect: CGRect = .zero
+    private var faceGroupRect: CGRect = .zero
 
     /// The frame the render loop reads. Recomputed from `grabs` on every touch event, never
     /// mutated incrementally, so two fingers on one button, a cancelled touch and a gesture
@@ -642,8 +913,14 @@ final class TouchControlsView: UIView {
         // direction while pressing a face button, which is most of playing a game, is impossible.
         isMultipleTouchEnabled = true
         backgroundColor = .clear
-        alpha = CGFloat(self.layout.opacity)
         addSubview(dpad)
+        // Added once, in front of everything, and hidden until the editor asks for them. `rebuild`
+        // re-fronts them because it adds new chips above whatever was already there.
+        for handle in [dpadHandle, faceHandle] {
+            handle.isHidden = true
+            addSubview(handle)
+        }
+        applyOpacity()
         rebuild()
     }
 
@@ -673,6 +950,13 @@ final class TouchControlsView: UIView {
     /// foreground, and whenever the control set changes under a finger.
     func releaseAll() {
         grabs.removeAll()
+        // A drag is abandoned rather than settled. Nothing is published, because the value the
+        // caller already has from the last move is the last thing the user actually saw, and
+        // reporting a settle from a teardown would persist a layout on the way out of a screen the
+        // user may have been leaving to get away from it.
+        clusterDrag = nil
+        dpadHandle.setActive(false)
+        faceHandle.setActive(false)
         recompute()
     }
 
@@ -681,6 +965,7 @@ final class TouchControlsView: UIView {
     private func rebuild() {
         // A held button from the previous system's pad must not survive into the new one.
         grabs.removeAll()
+        clusterDrag = nil
 
         for chip in chips {
             chip.removeFromSuperview()
@@ -692,9 +977,43 @@ final class TouchControlsView: UIView {
         // The D-pad stays behind the chips, which only matters if a future layout puts them
         // close enough to touch.
         bringSubviewToFront(dpad)
+        // The outlines stay in front of everything, including the chips just added.
+        bringSubviewToFront(dpadHandle)
+        bringSubviewToFront(faceHandle)
+        // New chips arrive fully opaque, so the previewed opacity has to be re-applied to them.
+        applyOpacity()
         recompute()
-        lastOverlapReport = nil
+        // Cleared THROUGH the publisher rather than by assigning nil, so a listener is told. A
+        // different system has a different control set, so last system's collision is not this
+        // system's problem, and an editor whose warning could not be taken down by switching the
+        // preview would be accusing the user of an overlap that is no longer on screen. The next
+        // layout pass re-checks and re-reports if the new set collides too.
+        setOverlapReport(nil)
         setNeedsLayout()
+    }
+
+    /// Puts the previewed opacity where it belongs for the current mode.
+    ///
+    /// Normally on this VIEW, which is one property to set and fades the whole pad together. While
+    /// editing, on the controls INDIVIDUALLY, so the outlines can stay at full strength: `alpha` is
+    /// inherited by subviews, so a pad faded to the minimum 0.15 would take its own grab targets
+    /// down with it and leave the user dragging something they cannot see. The controls still show
+    /// the real setting, which is the point of previewing it at all.
+    private func applyOpacity() {
+        let previewed = CGFloat(layout.sanitised.opacity)
+        if isEditing {
+            alpha = 1
+            dpad.alpha = previewed
+            for chip in chips {
+                chip.alpha = previewed
+            }
+        } else {
+            alpha = previewed
+            dpad.alpha = 1
+            for chip in chips {
+                chip.alpha = 1
+            }
+        }
     }
 
     // ------------------------------------------------------------------ layout
@@ -711,6 +1030,13 @@ final class TouchControlsView: UIView {
             dpadRect = .zero
             for chip in chips { chip.frame = .zero }
             dpad.frame = .zero
+            // No geometry means nothing to grab. Cleared rather than left stale so a drag cannot
+            // be started against rectangles from a layout that no longer applies.
+            editPlayArea = .zero
+            dpadGroupRect = .zero
+            faceGroupRect = .zero
+            dpadHandle.isHidden = true
+            faceHandle.isHidden = true
             report("touch controls: no room to lay out, play area is "
                    + "\(Int(play.width))x\(Int(play.height))")
             return
@@ -819,8 +1145,61 @@ final class TouchControlsView: UIView {
             chipRects.append(rect)
         }
 
+        // Recorded from the values this pass actually used, so a drag inverts the same mapping
+        // rather than a second copy of it.
+        editPlayArea = play
+        dpadCentreNow = dpadCentre
+        faceCentreNow = faceCentre
+        layoutHandles()
+
         verifyNoOverlap()
         publishPictureArea(landscape: landscape)
+    }
+
+    /// Works out what each drag would carry, and outlines it.
+    ///
+    /// The two groups are gathered by the ANCHOR each control was positioned from just above, not
+    /// by the cluster's name, which is what keeps an outline from ever including a control that
+    /// travels with the other cluster. So the left shoulders belong to the D-pad group because they
+    /// hang off `dpadCentre`, and the right shoulders belong to the face group for the same reason.
+    ///
+    /// SELECT and START are in neither, deliberately. Neither of their positions comes from the six
+    /// numbers this editor writes: in portrait the row is pinned to the bottom centre of the play
+    /// area, and in landscape each pill is stacked under whichever column it belongs to. Putting
+    /// them inside a grab area would promise a move that cannot happen.
+    private func layoutHandles() {
+        guard isEditing else {
+            dpadHandle.isHidden = true
+            faceHandle.isHidden = true
+            return
+        }
+
+        var dpadGroup = dpadRect
+        var faceGroup: CGRect?
+        for (index, rect) in chipRects.enumerated() where index < chips.count {
+            switch chips[index].control.cluster {
+            case .shoulderLeft:
+                dpadGroup = dpadGroup.union(rect)
+            case .dpad, .face, .shoulderRight:
+                faceGroup = faceGroup.map { $0.union(rect) } ?? rect
+            case .system:
+                break
+            }
+        }
+
+        dpadGroupRect = dpadGroup
+        faceGroupRect = faceGroup ?? .zero
+
+        dpadHandle.isHidden = dpadGroupRect.isEmpty
+        dpadHandle.frame = Self.clamp(Self.grown(dpadGroupRect), into: bounds)
+        faceHandle.isHidden = faceGroupRect.isEmpty
+        faceHandle.frame = Self.clamp(Self.grown(faceGroupRect), into: bounds)
+    }
+
+    /// A group rectangle grown into the area its outline occupies and responds over.
+    private static func grown(_ rect: CGRect) -> CGRect {
+        guard !rect.isEmpty else { return rect }
+        return rect.insetBy(dx: -handleInset, dy: -handleInset)
     }
 
     /// Hands the player screen the rect the picture may use.
@@ -991,13 +1370,22 @@ final class TouchControlsView: UIView {
                 + collisions.prefix(4).joined(separator: ", ")
                 + (collisions.count > 4 ? " and \(collisions.count - 4) more" : "")
         }
-        // Reported once per distinct outcome. Repeating it on every layout pass would bury the
-        // rest of the diagnostics.
-        if line != lastOverlapReport {
-            lastOverlapReport = line
-            if let line {
-                report(line)
-            }
+        setOverlapReport(line)
+    }
+
+    /// Records the overlap verdict and tells whoever is listening, once per distinct outcome.
+    ///
+    /// Repeating it on every layout pass would bury the rest of the diagnostics, which is why the
+    /// comparison is here rather than at the call sites. The two listeners get different halves on
+    /// purpose: `onOverlapState` hears the all-clear as well, and `report` only ever hears a real
+    /// collision, because the player's always-visible status line must not be overwritten with good
+    /// news on every layout pass.
+    private func setOverlapReport(_ line: String?) {
+        guard line != lastOverlapReport else { return }
+        lastOverlapReport = line
+        onOverlapState?(line)
+        if let line {
+            report(line)
         }
     }
 
@@ -1066,10 +1454,45 @@ final class TouchControlsView: UIView {
     /// Without this the whole view would swallow every touch over the picture, including the back
     /// button in the chrome above it, and leaving a running game would be impossible.
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        if isEditing {
+            // Only the two outlines, for the same reason the playing pad only claims its controls:
+            // the editor's own panel sits above this view and has to keep its taps. A pad that
+            // swallowed everything in edit mode would leave the user unable to reach Done.
+            return dragTarget(at: point) != nil
+        }
         if dpadRect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
             return true
         }
         return chipIndex(at: point) != nil
+    }
+
+    /// Which group a point would drag, if any.
+    ///
+    /// The responsive area is exactly the outline that is drawn, so there is no invisible margin.
+    /// A tie, which the two clusters dragged together makes reachable, resolves to the nearer
+    /// centre: it has to resolve the SAME way every time, because a grab that picked a different
+    /// cluster on each attempt would read as the editor ignoring the finger.
+    private func dragTarget(at point: CGPoint) -> DragTarget? {
+        let dpadArea = Self.grown(dpadGroupRect)
+        let faceArea = Self.grown(faceGroupRect)
+        let inDpad = !dpadGroupRect.isEmpty && dpadArea.contains(point)
+        let inFace = !faceGroupRect.isEmpty && faceArea.contains(point)
+        if inDpad && inFace {
+            let toDpad = Self.distanceSquared(from: point, to: dpadCentreNow)
+            let toFace = Self.distanceSquared(from: point, to: faceCentreNow)
+            return toDpad <= toFace ? .dpad : .face
+        }
+        if inDpad { return .dpad }
+        if inFace { return .face }
+        return nil
+    }
+
+    /// Squared, because only the comparison is needed and a square root would add nothing but a
+    /// chance of a rounding difference between two distances that are meant to tie.
+    private static func distanceSquared(from point: CGPoint, to other: CGPoint) -> CGFloat {
+        let dx = point.x - other.x
+        let dy = point.y - other.y
+        return dx * dx + dy * dy
     }
 
     /// Which control a point lands on, tested against the control's real shape.
@@ -1102,6 +1525,10 @@ final class TouchControlsView: UIView {
     // ------------------------------------------------------------------ touches
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if isEditing {
+            beginDrag(touches)
+            return
+        }
         for touch in touches {
             let point = touch.location(in: self)
             if dpadRect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
@@ -1114,6 +1541,10 @@ final class TouchControlsView: UIView {
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if isEditing {
+            continueDrag(touches)
+            return
+        }
         var changed = false
         for touch in touches {
             let key = ObjectIdentifier(touch)
@@ -1140,10 +1571,102 @@ final class TouchControlsView: UIView {
     }
 
     private func endTouches(_ touches: Set<UITouch>) {
+        if isEditing {
+            endDrag(touches)
+            return
+        }
         for touch in touches {
             grabs.removeValue(forKey: ObjectIdentifier(touch))
         }
         recompute()
+    }
+
+    // ------------------------------------------------------------------ dragging a cluster
+
+    private func beginDrag(_ touches: Set<UITouch>) {
+        // A second finger while one is already dragging is ignored rather than queued. See
+        // `clusterDrag`.
+        guard clusterDrag == nil else { return }
+        for touch in touches {
+            let point = touch.location(in: self)
+            guard let target = dragTarget(at: point) else { continue }
+            let centre = target == .dpad ? dpadCentreNow : faceCentreNow
+            clusterDrag = ClusterDrag(
+                touch: ObjectIdentifier(touch),
+                target: target,
+                offset: CGSize(width: point.x - centre.x, height: point.y - centre.y),
+                layout: layout.sanitised
+            )
+            setActiveHandle(target)
+            return
+        }
+    }
+
+    private func continueDrag(_ touches: Set<UITouch>) {
+        guard var drag = clusterDrag else { return }
+        // Matched on identity rather than taken from `touches.first`, because a second finger
+        // anywhere on the pad also delivers moves and would otherwise steer the drag.
+        guard let touch = touches.first(where: { ObjectIdentifier($0) == drag.touch }) else {
+            return
+        }
+        let point = touch.location(in: self)
+        let wanted = CGPoint(x: point.x - drag.offset.width, y: point.y - drag.offset.height)
+        let next = layoutMovingCentre(of: drag.target, to: wanted)
+        guard next != drag.layout else { return }
+        drag.layout = next
+        clusterDrag = drag
+        onLayoutEdited?(next, false)
+    }
+
+    private func endDrag(_ touches: Set<UITouch>) {
+        guard let drag = clusterDrag,
+              touches.contains(where: { ObjectIdentifier($0) == drag.touch }) else { return }
+        clusterDrag = nil
+        setActiveHandle(nil)
+        // Settled even when the finger never moved. A tap that produced no change still publishes
+        // the value the pad is holding, which a caller can compare against its own and ignore; the
+        // alternative, staying silent, would lose the ONE case that matters: a drag whose last move
+        // was clamped, where the value the caller has is the one to keep and it needs to be told
+        // that it is final.
+        onLayoutEdited?(drag.layout, true)
+    }
+
+    private func setActiveHandle(_ target: DragTarget?) {
+        dpadHandle.setActive(target == .dpad)
+        faceHandle.setActive(target == .face)
+    }
+
+    /// The layout that would put one cluster's centre at this point.
+    ///
+    /// Inverts the layout pass exactly: a fraction is measured against `editPlayArea`, which is the
+    /// same rectangle `clampedCentre` multiplies its fractions by. The result is sanitised, so the
+    /// six numbers a drag can produce are a subset of the six the pad accepts, and the editor
+    /// cannot express an arrangement the pad would then refuse.
+    ///
+    /// LANDSCAPE WRITES ONLY X, and that is not an oversight. The layout pass overrides both
+    /// clusters' y with `landscapeClusterY` when the screen is wider than it is tall, because a
+    /// sideways grip puts the thumbs at the middle of the long edge rather than at the bottom
+    /// corners. Writing y there would store a number with no visible effect, which is the same
+    /// dishonesty as a control that does nothing: the finger would move and the cluster would not.
+    /// The stored y still applies in portrait, so it is left untouched rather than zeroed.
+    private func layoutMovingCentre(of target: DragTarget, to point: CGPoint) -> TouchLayout {
+        var next = layout.sanitised
+        let area = editPlayArea
+        guard area.width > 0, area.height > 0 else { return next }
+
+        let fractionX = Double((point.x - area.minX) / area.width)
+        let fractionY = Double((point.y - area.minY) / area.height)
+        let landscape = bounds.width > bounds.height
+
+        switch target {
+        case .dpad:
+            next.dpadX = fractionX
+            if !landscape { next.dpadY = fractionY }
+        case .face:
+            next.faceX = fractionX
+            if !landscape { next.faceY = fractionY }
+        }
+        return next.sanitised
     }
 
     /// Rebuilds the entire pad state from the live grabs.
@@ -1239,19 +1762,66 @@ struct TouchControlsHost: UIViewRepresentable {
     /// `TouchControlsView.onPictureArea`.
     let onPictureArea: (CGRect) -> Void
 
+    /// True when this pad is the one inside `TouchLayoutEditor`. See `TouchControlsView.isEditing`
+    /// for what changes, which is everything about what a touch means.
+    let isEditing: Bool
+
+    /// Where a drag's result goes. See `TouchControlsView.onLayoutEdited` for what `settled` means.
+    let onLayoutEdited: (TouchLayout, Bool) -> Void
+
+    /// The overlap check's verdict including the all-clear. See
+    /// `TouchControlsView.onOverlapState`.
+    let onOverlapState: (String?) -> Void
+
+    /// Spelled out rather than left to the synthesized memberwise initialiser.
+    ///
+    /// Two reasons, and the second is the load-bearing one. It lets the three editing parameters
+    /// default, so the player screen's call site is untouched by a feature it does not use. And a
+    /// synthesized memberwise initialiser gives default arguments only for `var` properties with
+    /// initial values, so getting the same effect implicitly would mean making three `let`s into
+    /// `var`s and relying on that rule holding: an explicit initialiser states the contract where
+    /// a reader will look for it.
+    init(system: GameSystem,
+         layout: TouchLayout,
+         input: PadInputSource,
+         onDiagnostic: @escaping (String) -> Void,
+         onPictureArea: @escaping (CGRect) -> Void,
+         isEditing: Bool = false,
+         onLayoutEdited: @escaping (TouchLayout, Bool) -> Void = { _, _ in },
+         onOverlapState: @escaping (String?) -> Void = { _ in }) {
+        self.system = system
+        self.layout = layout
+        self.input = input
+        self.onDiagnostic = onDiagnostic
+        self.onPictureArea = onPictureArea
+        self.isEditing = isEditing
+        self.onLayoutEdited = onLayoutEdited
+        self.onOverlapState = onOverlapState
+    }
+
     func makeUIView(context: Context) -> TouchControlsView {
         let view = TouchControlsView(system: system, layout: layout)
         view.onDiagnostic = onDiagnostic
         view.onPictureArea = onPictureArea
+        view.onLayoutEdited = onLayoutEdited
+        view.onOverlapState = onOverlapState
+        view.isEditing = isEditing
         input.view = view
         return view
     }
 
     func updateUIView(_ view: TouchControlsView, context: Context) {
         view.system = system
+        // Set BEFORE the layout, because entering or leaving edit mode drops everything held and
+        // re-applies the previewed opacity, and doing that after the new layout arrived would
+        // re-apply the old one. Both paths end in `setNeedsLayout`, so the order only decides
+        // which value the opacity is read from, not whether a pass happens.
+        view.isEditing = isEditing
         view.layout = layout
         view.onDiagnostic = onDiagnostic
         view.onPictureArea = onPictureArea
+        view.onLayoutEdited = onLayoutEdited
+        view.onOverlapState = onOverlapState
         // Re-pointed on every update because SwiftUI may hand back a different instance after a
         // rebuild, and a stale box would silently report a released pad forever.
         input.view = view
@@ -1263,6 +1833,8 @@ struct TouchControlsHost: UIViewRepresentable {
         view.releaseAll()
         view.onDiagnostic = nil
         view.onPictureArea = nil
+        view.onLayoutEdited = nil
+        view.onOverlapState = nil
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
