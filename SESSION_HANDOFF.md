@@ -2296,12 +2296,11 @@ then `pthread_jit_write_protect_np` per thread, then `sys_icache_invalidate`, an
 those is not optional: omitting it works in the simulator and crashes on device, intermittently.
 Nothing in this project has executed that path even once.
 
-**De-risk it before step 3, not at step 6, and de-risk it on a core that already works.** Rebuild
-`pcsx_rearmed` with `DYNAREC=1` and see whether PS1 still runs. That is one flag in
-`scripts/build-core.sh`, it is testable on a game already verified working, and it answers the
-question with the graphics stack entirely uninvolved. If the JIT path is broken, finding out on a
-core that runs fine without it is enormously cheaper than finding out underneath a brand new
-Vulkan compute renderer where any of five things could be at fault.
+**CORRECTION, from reading the cores. The paragraph that used to be here recommended rebuilding
+`pcsx_rearmed` with `DYNAREC=1` as a cheap de-risk on a core that already works. That would not
+have answered anything, and §22.6 records what was done instead.** The short version: that core has
+no Apple JIT support to switch on, so forcing the flag would have built and then failed at the
+first executable page, presenting as a broken PlayStation core rather than as a missing port.
 
 ### 22.4 RISK TWO: MoltenVK has to get into the bundle
 
@@ -2330,3 +2329,66 @@ step with no core involved, which is what step 3 already is.
 Steps 4 and 6 are deliberately separated by a core that is not N64. If the contract is wrong, it
 should be wrong on a PlayStation game whose software-rendered version is already verified on this
 device, not on the highest-risk core in the sequence.
+
+
+### 22.6 What the cores actually support, and the JIT probe
+
+The recommendation in §22.3 was wrong and is corrected above. Here is what reading the three
+candidate cores established, because it changes the shape of the N64 work.
+
+| Core | `MAP_JIT` | `pthread_jit_write_protect_np` | Verdict |
+| --- | --- | --- | --- |
+| `libretro/pcsx_rearmed` | absent | absent | No Apple JIT support anywhere. `DYNAREC = 0` for `ios-arm64` is not an App Store concession, there is nothing to enable. |
+| `libretro/mupen64plus-libretro-nx` | absent | absent | Same. Rules it out as the N64 core for a recompiled build. |
+| `libretro/parallel-n64` | **present** | **present** | `mupen64plus-core/src/device/r4300/new_dynarec/arm64/apple_jit_protect.h`, used by `assem_arm64.c`. |
+
+**Note the convergence.** `docs/SET_HW_RENDER_DESIGN.md` chose parallel-n64 on graphics grounds,
+because paraLLEl-RDP is the only accurate-and-fast N64 rasteriser and has no GL equivalent. It
+independently turns out to be the only N64 core with Apple JIT code at all. Two unrelated reasons
+landing on the same core is good evidence the choice was right.
+
+parallel-n64 still disables it for iOS: `WITH_DYNAREC=` empty at `Makefile` line 379, and its
+`ios-arm64` CPUFLAGS add `-DNO_ASM` and `-D__arm__`. So enabling it means making `ios-arm64`
+resemble that core's **macOS arm64** path, which is a bounded port rather than a flag, and the
+closest possible starting point: same CPU, same Apple rules.
+
+#### The probe, and what it already taught us before running
+
+`crates/emulator-bridge/src/jit_probe.rs`, exported as `jitProbe()` and shown on the diagnostics
+panel. It maps a page, writes `mov w0, #42; ret`, invalidates the instruction cache, calls it, and
+checks the answer. 42 cannot happen by accident: a page that was never written or never made
+executable either traps or returns whatever was already there.
+
+It tries **twice**, with `MAP_JIT` and then without, and reports which succeeded. That is
+deliberate: a yes or no says whether a recompiler is possible, while naming the mechanism says what
+a recompiler has to ask for, which is what the port needs. On a sideloaded build the answer depends
+on how the app was signed and which entitlements survived, so it is a property of the installed
+copy rather than of this source, and only a device can answer it.
+
+**Two things it established at compile time, before ever running:**
+
+1. **`pthread_jit_write_protect_np` is `macos(11.0)` only.** It is not in the iOS SDK, and
+   referencing it fails to **link** for `aarch64-apple-ios`. `cargo check` cannot catch this,
+   because check does not link, so the iOS target compiled clean while the build failed. Apple
+   Silicon macOS will not have a page writable and executable at once and needs the toggle to
+   choose; iOS with the JIT entitlement does not work that way, so there is nothing to toggle.
+2. **Therefore parallel-n64's recompiler needs LESS adaptation for iOS than for the Mac it was
+   written on, not more.** Its header says "only necessary on macOS ARM", which is a statement
+   about which platform needs the call rather than a note about where it was tested. The N64
+   estimate moves in the right direction.
+
+A third, mundane trap worth recording: the probe was first gated on `target_vendor = "apple"`, and
+macOS arm64 is an Apple arm64 target, so it was pulled into the macOS build CI does purely to
+generate the Swift bindings. It is gated on `target_os = "ios"` now. The two spellings look
+interchangeable until one of them is not.
+
+#### What to do with the answer
+
+- **"working with MAP_JIT"** or **"working WITHOUT MAP_JIT"**: the entitlements are real on the
+  installed build and a recompiler is possible. Proceed to step 3, and when step 6 arrives, port
+  parallel-n64's `WITH_DYNAREC=aarch64` path from its macOS arm64 configuration, passing or
+  omitting `MAP_JIT` to match whichever line the probe reported.
+- **"NOT AVAILABLE"**: no recompiler can run on this installed build, and N64 is not reachable
+  until that changes. That is a signing and installation question rather than a code one, and it
+  is worth knowing before any of steps 3 to 5 are built, since all of them exist to serve a core
+  that could not run anyway.
