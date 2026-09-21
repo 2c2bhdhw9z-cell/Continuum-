@@ -59,20 +59,27 @@
 /// A string rather than an enum, because every outcome is something a person reads once and
 /// nothing branches on. The caller shows it and does not interpret it.
 pub fn describe() -> String {
-    #[cfg(all(target_vendor = "apple", target_arch = "aarch64"))]
+    #[cfg(all(target_os = "ios", target_arch = "aarch64"))]
     {
-        apple_aarch64::probe()
+        ios_aarch64::probe()
     }
-    #[cfg(not(all(target_vendor = "apple", target_arch = "aarch64")))]
+    #[cfg(not(all(target_os = "ios", target_arch = "aarch64")))]
     {
-        // The host test machine. Said plainly rather than pretending to have run, because a
-        // probe that reported success where it had done nothing would be worse than useless.
-        "JIT: not probed, this build is not Apple arm64".to_string()
+        // The host test machine, and also the macOS build CI does purely to generate the Swift
+        // bindings. GATED ON `target_os = "ios"` RATHER THAN `target_vendor = "apple"`, which is
+        // a distinction that cost one red build: macOS arm64 is an Apple arm64 target, so the
+        // wider gate pulled this module into that build, where `pthread_jit_write_protect_np`
+        // needs macOS 11 and the host build's deployment target is lower. The link failed for a
+        // symbol nothing on that target would ever have called.
+        //
+        // Said plainly rather than pretending to have run, because a probe that reported success
+        // where it had done nothing would be worse than useless.
+        "JIT: not probed, this build is not iOS arm64".to_string()
     }
 }
 
-#[cfg(all(target_vendor = "apple", target_arch = "aarch64"))]
-mod apple_aarch64 {
+#[cfg(all(target_os = "ios", target_arch = "aarch64"))]
+mod ios_aarch64 {
     use core::ffi::c_void;
 
     // Declared here rather than taking a dependency on `libc` for five symbols. The values are
@@ -177,7 +184,7 @@ mod tests {
         // having none. The real answer can only come from a device.
         let line = super::describe();
         assert!(line.starts_with("JIT:"), "unexpected probe line: {line}");
-        #[cfg(not(all(target_vendor = "apple", target_arch = "aarch64")))]
+        #[cfg(not(all(target_os = "ios", target_arch = "aarch64")))]
         assert!(line.contains("not probed"));
     }
 }
