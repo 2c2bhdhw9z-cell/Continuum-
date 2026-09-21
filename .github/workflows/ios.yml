@@ -17,6 +17,12 @@ on:
       - "Cargo.lock"
       - "rust-toolchain.toml"
       - "scripts/fetch-libretro-headers.sh"
+      # The script that builds and verifies every core. Its absence here was a real gap: a
+      # change to the core build did not start a build, so it could only be tested by
+      # remembering to dispatch one by hand. Listed rather than globbing scripts/**, because
+      # the rest of that directory generates test ROMs and cannot affect the .ipa, and a macOS
+      # runner costs ten times a Linux one.
+      - "scripts/build-core.sh"
       - ".github/workflows/ios.yml"
 
 concurrency:
