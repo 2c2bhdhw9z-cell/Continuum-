@@ -181,7 +181,10 @@ final class EmulationSettings: ObservableObject {
     /// and the wrong one: it changes minute to minute, so the same setting would buy a different
     /// amount of rewind on each launch, and the read-out would be telling the truth about something
     /// that keeps moving. A figure derived from the hardware is stable and explainable.
-    static var automaticBytes: UInt64 {
+    /// `nonisolated` because `RewindBudget.bytes` reads it, and a nested enum's computed property is
+    /// not on any actor while this type is `@MainActor`. Safe to mark: it reads one hardware fact
+    /// and two constants, touches no mutable state, and cannot observe anything that changes.
+    nonisolated static var automaticBytes: UInt64 {
         let physical = ProcessInfo.processInfo.physicalMemory
         let share = physical / 25
         let floor: UInt64 = 48 * 1_048_576
