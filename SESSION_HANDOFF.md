@@ -2143,3 +2143,86 @@ The Settings list is down from seven entries to two:
   on-screen pad could be used together, but the only exported input call replaces the whole gamepad
   layer, so the two would fight over it. Needs a per-source apply on the UniFFI surface, not a new
   input system.
+
+
+## 21. Save states never worked, and the way they failed is the lesson
+
+Reported by the owner, not by any check in this repository: save states were a feature of the
+browser build and were supposed to carry over to the `.ipa`. They had never worked, for any core,
+since the first real core was integrated.
+
+### 21.1 The trap
+
+`native_core.rs` resolved `retro_serialize_size` but **not** `retro_serialize` or
+`retro_unserialize`, and `NativeLibretroCore` never implemented `save_state` or `load_state`. Both
+therefore fell through to the `EmulatorCore` trait's defaults, which return
+`BridgeError::NotImplemented`.
+
+What makes this worth a section is how it hid. `state_size()` **was** implemented, on the one symbol
+that had been resolved, so it returned a real and plausible number. Every layer above concluded the
+core supported save states:
+
+- The save button called into it, got an error, and printed it on the status line, where it looked
+  like a per-core quirk rather than a missing implementation.
+- **The rewind tape recorded nothing at all.** `RewindBuffer::push_with` asks the core to fill a
+  buffer, the core returned `NotImplemented`, and `tick` logs a refused snapshot at
+  `log::debug!` and carries on by design, because one lost rewind point must not drop a frame. So
+  rewind shipped, reported a sensible budget, and silently held zero snapshots.
+
+The general lesson, worth applying to the remaining unwired features: **a capability query answering
+truthfully is not evidence that the capability is implemented.** `state_size()` and `save_state()`
+came from the same C library through the same loader and disagreed about whether the feature
+existed, and nothing in 95 tests could see it because no test loads a real dylib.
+
+### 21.2 Save-state compatibility is a corruption hazard, not a validation nicety
+
+A libretro save state is an opaque dump of a core's internal structs and `retro_unserialize` is not
+versioned. Handing a core a state written by a **different build of that same core** does not
+reliably fail: it can succeed into a machine whose internals are subtly wrong, surfacing minutes
+later as a hang, a corrupted savedata file, or a crash in code with no connection to the load. Cause
+and symptom are far enough apart that nobody connects them.
+
+Nothing in the engine can detect this, which is why the checks live in the host where the metadata
+is. Four things are recorded beside every state and checked before any load, in this order:
+
+1. the payload file exists,
+2. the core id matches `current_core_id()`,
+3. the core version matches `core_version()` (this is why `retro_get_system_info` is now read),
+4. the byte length matches `save_state_size()` **as the core reports it right now**.
+
+An unknown on either side of a check falls through to the remaining checks rather than refusing,
+because a record written by an older build that did not store a version must not become unloadable.
+Degrading to a weaker check is correct; loading anyway is not.
+
+### 21.3 Things in the Swift store that look incidental and are not
+
+- **Payload writes are synchronous.** The auto-save fires on `willResignActive`, after which iOS
+  gives the app a short and unspecified window before suspending it. Work handed to a task that has
+  not run yet is work that may never run: a state written synchronously exists, one dispatched
+  asynchronously is a promise.
+- **There is no auto-save timer.** `retro_serialize` on a PlayStation state is a megabyte of struct
+  copying inside the engine lock, so a periodic save is a periodic hitch. Rewind already covers the
+  last few seconds and is built for it, against a memory budget, on the engine's own thread.
+- **The index decodes field by field** with `decodeIfPresent`. That decoder runs over the whole
+  index, so one field renamed by a later build would wipe every save state on the device rather than
+  degrade one record.
+- **Storage is Application Support, not Documents.** `UIFileSharingEnabled` has to be on so cue and
+  bin tracks can be dropped in, which makes Documents user-visible. An index is a set of claims
+  about files, and files anyone can rename underneath it make those claims lies. Unlike artwork,
+  neither the save state nor the cheat directory is excluded from backup: a cover is one download, a
+  save state is the only thing in this app representing time the user spent.
+- **Cheats are pushed whole and in order, including the disabled ones** with their flag set false.
+  `retro_cheat_set` is indexed, so omitting a disabled cheat renumbers every cheat after it and the
+  core's table stops matching the list on screen.
+
+### 21.4 The other lesson: what each check can and cannot catch
+
+The `Data` versus `[UInt8]` mismatch that failed the first build of this work is a useful calibration
+of the verification story:
+
+- `swiftc -frontend -parse` is a **syntax** pass. It cannot see a type mismatch and passed on the
+  broken line.
+- Verifying that every engine method **exists** in freshly generated bindings, which was done,
+  checks names and not argument types.
+- **CI remains the only thing in this project that type-checks Swift.** Budget a build for it rather
+  than trusting a local pass, and note UniFFI maps a Rust `Vec<u8>` to `Data` on this boundary.
