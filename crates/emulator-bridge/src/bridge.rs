@@ -621,6 +621,17 @@ impl EmulatorBridge {
         self.sink.drain(dst)
     }
 
+    /// Discards the queued backlog without touching the session.
+    ///
+    /// For a host whose output device changed underneath it: headphones unplugged, a Bluetooth
+    /// route gone. Those samples were resampled for the device that just went away, and the
+    /// host has thrown away its own buffer at the same moment, so keeping them would only make
+    /// the reported latency a lie. `load_state` already does this for the same reason, one
+    /// timeline over instead of one device over.
+    pub fn flush_audio(&mut self) {
+        self.sink.flush();
+    }
+
     pub fn set_muted(&mut self, muted: bool) {
         if muted != self.muted {
             self.muted = muted;

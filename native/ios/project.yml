@@ -89,6 +89,11 @@ targets:
     sources:
       - path: ContinuumApp.swift
       - path: MetalCanvas.swift
+      # Sound. The AVAudioSession and AVAudioEngine graph, and the lock-free single-producer
+      # single-consumer ring between the display link that drains the engine and the render block
+      # that plays it. IF THIS LINE GOES MISSING THE APP IS SILENT AND NOTHING SAYS WHY, which is
+      # exactly the failure the comment above this list is about.
+      - path: AudioOutput.swift
       # The on-screen pad: the engine's button wire format, the per-system control sets, and the
       # multi-touch surface that tracks the D-pad as one region so diagonals resolve.
       - path: TouchControls.swift

@@ -1843,6 +1843,134 @@ What that settles, subsystem by subsystem:
 
 ---
 
+## 19. Sound, at last: the iOS audio output path
+
+Until this step the device had no audio output whatsoever. The engine produced PCM, `RingAudioSink`
+resampled it, `AudioRing` buffered it, and nothing ever read it: `drain_audio` existed on the
+bridge (`bridge.rs:617`) but was not on the UniFFI surface, and no Swift file mentioned
+AVAudioEngine. The HUD's "69 ms audio" was a ring filling and never emptying, and its own comment
+said so. The browser build had working audio the whole time, which is why this step is mostly
+transcription rather than invention: `wasm.rs` already exported `drainAudioInto`,
+`setOutputSampleRate` and `audioQueuedFrames`, and the native facade now exports the same
+capabilities in UniFFI's shapes.
+
+### Push from the tick, pull from the render callback
+
+```text
+CADisplayLink (main thread)                audio IO thread (real-time)
+engine.applyGamepad(...)
+engine.tick(nowMillis:)      <- holds the engine Mutex for the whole tick
+engine.drainAudio(maxFrames:) <- takes it again, briefly
+ring.append(...)  ring.publish()           ring.pull(...) -> AudioBufferList
+```
+
+The obvious implementation has the render block call `drainAudio` itself. That is a real-time
+thread taking the same `Mutex<EmulatorBridge>` the display link holds for the entire duration of
+every tick, sixty times a second: priority inversion, heard as clicks and dropouts rather than seen
+as a stall, and worst exactly when the emulator is busiest. So `MetalCanvas.tick` drains into a
+Swift-side ring immediately after the step, and `AVAudioSourceNode`'s render block reads that ring.
+The render block never calls into Rust, never locks, never allocates and never blocks; everything
+it touches is allocated when `AudioOutput` is built.
+
+### The ring has no atomics, and is still correct
+
+Swift below iOS 18 has no fence it may legally use here: `Synchronization.Atomic` is iOS 18 and
+this app targets 16, C11 atomics are not importable, `OSMemoryBarrier` is deprecated and Apple's
+own position is that imported atomics are not to be trusted from Swift, and every lock is banned on
+a real-time thread by construction. So `AudioSampleRing` buys its ordering with arithmetic:
+
+**Each side publishes its cursor one call late.** The producer stores the frontier it reached at
+the end of the *previous* tick before appending anything new, so the consumer is only ever shown
+samples written at least one display frame ago. The consumer does the same with its read cursor. In
+between, each thread performs a dispatch, a Rust mutex acquire and release, and a good deal of ARC
+traffic, every one of which is an atomic read-modify-write and therefore a full barrier on arm64.
+
+The residual error is benign by construction, which is what makes it a design rather than a hope.
+Cursors only increase, so a stale read is always a *smaller* number: a consumer reading a stale
+publish sees less audio and underruns a hair early, and a producer reading a stale consume sees
+less free space and asks Rust for fewer samples, where Rust's ring already has documented overrun
+behaviour. Neither side can ever see a cursor ahead of the truth, so neither can read an unwritten
+slot or overwrite an unread one. Two consequences worth knowing:
+
+- **`ring.publish()` must be called on every tick, including ticks that append nothing.** It is the
+  store that hands the previous tick's samples over. A path that returns early without it leaves
+  the consumer silent while the ring fills behind it, which is the original bug wearing a disguise.
+- When the deployment target reaches iOS 18 this becomes two `Atomic<Int>` with explicit
+  `.releasing`/`.acquiring` orderings and the lag can go. Until then **the lag is the ordering
+  guarantee.** Do not simplify it away.
+
+### The rate is negotiated, not assumed
+
+`EmulatorBridge` defaults `output_sample_rate` to 48000 because something has to be assumed before
+an audio graph exists. On iOS that assumption is wrong often enough to matter: a modern iPhone
+speaker is 48000, several Bluetooth routes are 44100, and a wired interface can be neither. So
+`AudioOutput` activates the session, reads `AVAudioSession.sampleRate`, and reports it through
+`setOutputSampleRate`. Resampling then happens in `audio/resample.rs`, which already does it and is
+already tested; a second implementation in Swift would be a second thing to keep correct, and
+getting it subtly wrong sounds like a slightly out-of-tune game rather than like a bug.
+
+A rate change drops both rings, because the queued tail was resampled for a device that has gone.
+That is what `flush_audio` is for.
+
+### Latency, and why it is what it is
+
+Steady state is roughly 50 ms: a 33 ms prime buffer (two video frames, expressed in seconds so it
+means the same thing at 44100 and 48000) plus one tick of publish lag, with the Rust ring near zero
+because the tick empties it. The Swift ring is 8192 frames, which is headroom rather than latency:
+it is what absorbs a tick that ran late without anything being dropped. On an underrun the render
+block emits silence, counts it, and **re-primes** rather than limping along at whatever depth
+starved it. That re-prime is also why pausing a game costs exactly one counted underrun instead of
+one per callback.
+
+### Traps paid for in this step
+
+- **`#[uniffi::export]` and `#[cfg]`, again.** Nothing new here is platform-split, which is the
+  point: §16 records that a `cfg`-gated method inside the export block generates scaffolding that
+  fails to compile off-Apple, so `drain_audio` and friends are unconditional.
+- **`Vec<f32>`, not a pointer.** UniFFI copies, and that is accepted deliberately: the copy is
+  about 6 KB per tick on the display link's thread, and it is what keeps the render thread out of
+  the engine lock. `drain_audio` sizes its allocation from `audio_stats().queued_frames` rather
+  than from `max_frames`, so a caller that always asks for the ceiling does not churn 32 KB to
+  return 6 KB.
+- **`AudioOutput.swift` had to be added to `project.yml`.** The sources list is explicit, so an
+  unlisted file is simply never compiled and the app builds, installs, launches and is silent with
+  no error anywhere. For a feature whose failure mode is *the absence of a sound*, that is the
+  worst possible way to lose it.
+- **An `AVAudioSourceNode`'s format is fixed when it is constructed.** A route change can change
+  the rate, so route changes and `AVAudioEngineConfigurationChange` rebuild the graph rather than
+  poking it. The unplug case is the one that has to work: iOS pauses playback when the old device
+  goes away, and an app that ignores the notification is permanently silent afterwards.
+- **The render block writes no strings.** Composing one would allocate. It moves counters, and the
+  read-out turns those into words on the main thread.
+
+### Diagnostics, because "no sound" and "not implemented" look identical
+
+Every failure path writes a distinct sentence into `AudioOutput.status`, and the HUD shows it. The
+audio line reports the real rate, both ring depths summed, and both underrun counters separately,
+because an engine underrun means the core did not produce in time while a device underrun means the
+tick did not push in time. The single most useful field is `ring.renderedFrames`: zero while the
+graph reports itself running means the render block is not being called at all, and the line says
+`SILENT (the render block has not run)` rather than printing a plausible latency for a buffer
+nobody is reading.
+
+### Verified here
+
+`cargo test` 74, `cargo test --features native-core,uniffi-bindings` 84, `cargo check --profile ios
+--target aarch64-apple-ios --features native-core,uniffi-bindings` clean, `cargo check --target
+wasm32-unknown-unknown` clean, `cargo clippy --features native-core,uniffi-bindings --all-targets
+-- -D warnings` clean. The generated Swift facade was produced from the host cdylib as §16
+describes and `swiftc -typecheck`ed, confirming `drainAudio(maxFrames: UInt32) -> [Float]`,
+`audioStats() -> AudioStatsSnapshot`, `setOutputSampleRate(rate: UInt32)`, `outputSampleRate() ->
+UInt32` and `flushAudio()`. `swiftc -frontend -parse` passes on all fourteen Swift files.
+
+**Not verified here, and it cannot be:** whether sound comes out. `swiftc -frontend -parse` is a
+spell-checker (§16), so no AVFoundation call site in `AudioOutput.swift` has been type-checked, and
+nothing on this box can run a render callback. The first device run should read the audio line
+before anything else: `SILENT` points at the graph, a growing engine-side buffer points at the
+pump, and a rising device underrun count points at the tick being late.
+
+---
+
 ## Appendix: relocated from README.md
 
 `README.md` was rewritten for the repo owner, who does not write code, so it now covers the

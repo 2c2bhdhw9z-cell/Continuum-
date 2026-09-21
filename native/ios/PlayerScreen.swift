@@ -243,7 +243,11 @@ struct DiagnosticsPanel: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Text(host.frameLine)
+            // Wrapped, because the audio line now carries the real rate, both ring depths, both
+            // underrun counters and the status sentence behind them, and a truncated diagnostic
+            // is not a diagnostic.
             Text(host.audioLine)
+                .fixedSize(horizontal: false, vertical: true)
             Text(host.inputLine)
             if !host.controlNote.isEmpty {
                 Text(host.controlNote)

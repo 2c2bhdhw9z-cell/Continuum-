@@ -689,10 +689,44 @@ final class EngineHost: ObservableObject {
     /// wants and what the player falls back to before the first layout pass.
     @Published var pictureArea: CGRect?
 
-    /// Queued audio frames and underruns from the last tick. Real numbers measuring a ring that
-    /// nothing drains yet, because `drain_audio` is not exported through UniFFI.
+    /// Queued audio frames and underruns in the ENGINE's ring, from the last tick.
+    ///
+    /// These are only half the latency now. `drain_audio` is exported and the display link
+    /// empties this ring into `audio`'s every frame, so the engine side sits near zero in steady
+    /// state and the device side carries the buffer. Both halves are added up in `audioLine`,
+    /// because what a player hears is the sum.
     @Published var audioQueued: UInt32 = 0
     @Published var audioUnderruns: UInt32 = 0
+
+    /// The device audio path: the session, the graph, and the lock-free ring between the display
+    /// link and the render block.
+    ///
+    /// Owned here for the app's lifetime, for the same reason `padInput` is: SwiftUI rebuilds
+    /// views freely, and neither the display link nor a live `AVAudioEngine` may be left holding
+    /// an object that was replaced underneath them. Built with the SAME engine instance, because
+    /// the whole design rests on the drain happening on the display link's thread.
+    let audio: AudioOutput
+
+    /// Mirrored from `audio` once per frame so the HUD can read it without touching the audio
+    /// object from a view body. Every one of these is measured rather than assumed.
+    @Published var audioRunning = false
+    @Published var audioStatus = "audio: not started"
+    @Published var audioDeviceRate: Double = 0
+    @Published var audioDeviceBuffered: Int = 0
+    @Published var audioRenderUnderruns: Int = 0
+    @Published var audioRenderedFrames: Int = 0
+    @Published var audioDroppedFrames: Int = 0
+
+    /// The engine's own view of its ring, polled once a second rather than once a frame.
+    ///
+    /// `engine.audioStats()` takes the engine mutex, and the telemetry strip re-renders on every
+    /// tick, so reading it per frame would take that lock sixty times a second on the same thread
+    /// that already holds it for the whole of each tick. Once a second is plenty for numbers that
+    /// only matter when they are non-zero.
+    @Published var audioOverruns: UInt64 = 0
+    @Published var audioSourceRate: UInt32 = 0
+    @Published var audioCapacityFrames: UInt32 = 0
+    private var audioStatsCountdown = 0
 
     /// The live read-through the render loop uses to fetch pad state.
     ///
@@ -963,6 +997,10 @@ final class EngineHost: ObservableObject {
 
     init() {
         engine = ContinuumEngine()
+        // Built here, with that engine, and never rebuilt. The graph itself is not started until
+        // a game launches: holding an active `AVAudioSession` while the user browses their
+        // library would duck whatever music they had playing for no reason at all.
+        audio = AudioOutput(engine: engine)
 
         // The remembered preferences, read before anything can display. Each one falls back to its
         // default rather than to nil, so a first launch and a corrupted value behave the same way.
@@ -1540,6 +1578,17 @@ final class EngineHost: ObservableObject {
             activeEntry = entry
             activeCoreId = spec.coreId
             paused = false
+            // AFTER the launch, on the success path only. The session is what decides the real
+            // output rate, and `audio.start()` reports that rate to the engine, so the sink has
+            // to already exist: `launch` is what builds it. Audio that failed to come up does
+            // NOT fail the launch, because a silent game is still a playable game, and the reason
+            // is on the HUD either way.
+            audio.start()
+            // Read once here, right after the rate has been reported, so the HUD has a fallback
+            // figure even if `AVAudioSession` gave us nothing usable. Not read per frame: the
+            // telemetry strip re-renders on every tick and this takes the engine lock.
+            engineOutputRate = engine.outputSampleRate()
+            refreshAudioReadout()
             status = "running: \(entry.name) on \(spec.coreId)"
         } catch {
             running = false
@@ -1555,6 +1604,12 @@ final class EngineHost: ObservableObject {
     /// which no longer exists anywhere in this file: imported content lives in our own sandbox,
     /// so there is no scope to balance and no half-wired lifecycle left behind.
     func stopSession() {
+        // Audio down FIRST, before `engine.stop()` frees the sink. Ordering matters for the same
+        // reason the teardown order inside the bridge does: stopping the engine first would leave
+        // a render block being called against a ring whose contents belong to a session that no
+        // longer exists. Unconditional, and outside the `running` guard, so a half-started launch
+        // cannot leave a live audio graph behind it.
+        audio.stop()
         if running {
             engine.stop()
             running = false
@@ -1567,6 +1622,7 @@ final class EngineHost: ObservableObject {
         paused = false
         pictureArea = nil
         padInput.view?.releaseAll()
+        refreshAudioReadout()
     }
 
     // MARK: The player session
@@ -1719,18 +1775,86 @@ final class EngineHost: ObservableObject {
         return "\(frameCount) frames - \(fps) fps - \(dropped) dropped"
     }
 
-    /// Audio, in the ring the engine fills.
+    /// Audio, end to end, with nothing assumed.
     ///
-    /// The millisecond figure is a DERIVATION AND NOT A GUESS. `output_sample_rate` is initialised
-    /// to 48000 in `EmulatorBridge` (bridge.rs, the `Default` construction) and
-    /// `set_output_sample_rate` is NOT exported through UniFFI, so nothing on iOS can change it:
-    /// 48000 is provably the rate these frames are queued at. When audio output is finally wired
-    /// and the device's real rate arrives, this is the line to correct.
+    /// This line used to say "no output path yet" and derive its milliseconds from a hard-coded
+    /// 48000, because nothing drained the engine's ring and nothing could tell the engine what
+    /// rate the device ran at. Both are now false, so every number here is measured:
+    ///
+    /// - the rate is the one `AVAudioSession` reported after the session was activated, passed
+    ///   into the engine so the resampling happens in Rust;
+    /// - the latency is BOTH rings added together, because the engine's ring is drained into the
+    ///   device's ring every tick and what a player hears is the sum of the two;
+    /// - the underruns are counted separately at each end, since an engine underrun means the
+    ///   core did not produce in time while a device underrun means the tick did not push in
+    ///   time, and those have completely different causes;
+    /// - "silent" is reported when the graph is up but the render block has never run, which is
+    ///   the one failure that would otherwise look exactly like working audio.
     var audioLine: String {
-        let ms = Double(audioQueued) / Self.assumedOutputSampleRate * 1000.0
-        return "audio: \(audioQueued) frames queued, "
-            + String(format: "%.0f", ms)
-            + " ms, \(audioUnderruns) underrun(s), no output path yet"
+        guard audioRunning else {
+            return "audio: not running - \(audioStatus)"
+        }
+        let rate = audioDeviceRate > 0 ? audioDeviceRate : Double(engineOutputRate)
+        let frames = Int(audioQueued) + audioDeviceBuffered
+        let ms = rate > 0 ? Double(frames) / rate * 1000.0 : 0
+        let played = audioRenderedFrames > 0
+            ? "playing"
+            : "SILENT (the render block has not run)"
+        var line = "audio: \(played), \(frames) frames buffered ("
+            + String(format: "%.0f", ms) + " ms) at \(Int(rate)) Hz, "
+            + "\(audioUnderruns) engine + \(audioRenderUnderruns) device underrun(s)"
+        // Shown only when it says something. A core at the device's own rate is a passthrough and
+        // does not need announcing; a core at 32040 Hz being stretched to 48000 does, because that
+        // is the path any pitch or quality complaint would start at.
+        if audioSourceRate > 0, audioSourceRate != engineOutputRate {
+            line += ", resampling \(audioSourceRate) to \(engineOutputRate) Hz"
+        }
+        if audioOverruns > 0 {
+            line += ", \(audioOverruns) engine overrun(s)"
+        }
+        // The early warning that precedes an overrun. In steady state the tick empties the engine
+        // ring every frame, so a half-full one means the pump is not keeping up and audio is about
+        // to start being dropped: worth seeing BEFORE the overrun counter moves.
+        if audioCapacityFrames > 0, audioQueued * 2 > audioCapacityFrames {
+            line += ", engine ring \(audioQueued)/\(audioCapacityFrames) and filling"
+        }
+        if audioDroppedFrames > 0 {
+            line += ", \(audioDroppedFrames) frame(s) dropped at the device"
+        }
+        return line + " - \(audioStatus)"
+    }
+
+    /// Copies the audio object's state into published properties.
+    ///
+    /// Called from the telemetry callback, which runs on the main thread inside the display link,
+    /// and from the launch and stop paths so the line is right the moment either happens. Reading
+    /// the ring's counters is a handful of word loads with no lock and no allocation; the strings
+    /// are only reassigned when they differ, so a running game does not rebuild them sixty times
+    /// a second.
+    func refreshAudioReadout() {
+        if audioRunning != audio.isRunning { audioRunning = audio.isRunning }
+        if audioStatus != audio.status { audioStatus = audio.status }
+        if audioDeviceRate != audio.sampleRate { audioDeviceRate = audio.sampleRate }
+        audioDeviceBuffered = audio.ring.bufferedFrames
+        audioRenderUnderruns = audio.ring.underruns
+        audioRenderedFrames = audio.ring.renderedFrames
+        audioDroppedFrames = audio.ring.droppedFrames
+
+        // The engine's half, on a one second timer. See `audioOverruns` for why this is not read
+        // every frame. Counted down rather than derived from the frame number, so it keeps working
+        // at 120 Hz and across a session that restarted the counter.
+        audioStatsCountdown -= 1
+        if audioStatsCountdown <= 0 {
+            audioStatsCountdown = 60
+            let stats = engine.audioStats()
+            audioOverruns = stats.overruns
+            audioSourceRate = stats.sourceRate
+            audioCapacityFrames = stats.capacityFrames
+            // Re-read rather than trusted from launch time: a route change reconfigures the sink
+            // behind Swift's back, and a stale rate here would silently make the latency figure
+            // wrong again.
+            engineOutputRate = stats.outputRate
+        }
     }
 
     /// What the engine thinks is plugged in.
@@ -1749,16 +1873,34 @@ final class EngineHost: ObservableObject {
     }
 
     /// The thin strip on the player screen.
+    ///
+    /// The audio figure is the SUM of both rings over the device's real rate, same as
+    /// `audioLine`. When the graph is not up it says so in a word rather than printing a
+    /// millisecond figure for a buffer nothing is reading, which is what the old strip did.
     var telemetryLine: String {
         let fps = String(format: "%.0f", displayFps)
-        let ms = Double(audioQueued) / Self.assumedOutputSampleRate * 1000.0
         let core = activeCoreId.isEmpty ? "no core" : activeCoreId
+        let audioPart: String
+        if !audioRunning {
+            audioPart = "no audio"
+        } else if audioRenderedFrames == 0 {
+            audioPart = "audio silent"
+        } else {
+            let rate = audioDeviceRate > 0 ? audioDeviceRate : Double(engineOutputRate)
+            let frames = Int(audioQueued) + audioDeviceBuffered
+            let ms = rate > 0 ? Double(frames) / rate * 1000.0 : 0
+            audioPart = String(format: "%.0f", ms) + " ms audio"
+        }
         return "\(fps) fps - \(frameCount) frames - \(dropped) dropped - "
-            + String(format: "%.0f", ms) + " ms audio - \(core)"
+            + "\(audioPart) - \(core)"
     }
 
-    /// See `audioLine` for why this is a fact about the engine rather than an assumption.
-    private static let assumedOutputSampleRate = 48_000.0
+    /// What the engine says it is resampling to, read once when audio comes up.
+    ///
+    /// A fallback for the read-outs above, used only before the session has reported a rate.
+    /// Read once rather than per frame for the same mutex reason as `activeCoreId`: the strip
+    /// re-renders on every tick, and `outputSampleRate()` takes the engine lock.
+    @Published var engineOutputRate: UInt32 = 0
 
     /// The core id of the running session, cached at launch.
     ///
@@ -1929,6 +2071,10 @@ final class EngineHost: ObservableObject {
             // Read once, here, so the diagnostics panel can show it without the telemetry strip
             // taking the engine's mutex on every frame. Expected to be 0; see `physicalPads`.
             physicalPads = engine.connectedPads()
+            // The engine's default output rate, before any session has said otherwise. Shown so
+            // the audio line has a rate to print while the Library is up, and so a device whose
+            // session later reports something else makes the change visible rather than silent.
+            engineOutputRate = engine.outputSampleRate()
             // Declare all five cores and LOAD NONE OF THEM. Which core is needed is not known
             // until a game is tapped, and nothing here can be auto-booted anyway: these cores
             // need real content and hard-reject empty content. Declaring costs no dlopen, so
@@ -2136,6 +2282,10 @@ struct RootView: View {
                 // Captured as a local reference so this closure touches the box and nothing else,
                 // which keeps the display link's read away from the main-actor host entirely.
                 gamepadSource: { padInput.currentFrame() },
+                // Handed over so the display link can pump it immediately after each step. The
+                // object is owned by the host, so a SwiftUI rebuild of this view cannot take the
+                // audio graph down with it.
+                audio: host.audio,
                 onAttach: { host.surfaceAttached($0) },
                 onTelemetry: { telemetry in
                     host.frameCount = telemetry.frameCount
@@ -2143,6 +2293,10 @@ struct RootView: View {
                     host.dropped = telemetry.dropped
                     host.audioQueued = telemetry.audioQueuedFrames
                     host.audioUnderruns = telemetry.audioUnderruns
+                    // Reads a handful of words out of the lock-free ring. This is where "the
+                    // graph is up but nothing is playing" becomes visible, which on a sideloaded
+                    // build is the difference between a diagnosis and a guess.
+                    host.refreshAudioReadout()
                 }
             )
             .frame(width: max(1, area.width), height: max(1, area.height))
@@ -2159,6 +2313,9 @@ struct MetalCanvasView: UIViewRepresentable {
     /// `MetalCanvas.gamepadSource` for why it has to be pulled per frame rather than pushed on a
     /// touch.
     let gamepadSource: () -> PadFrame
+    /// The device audio path, pumped from the display link. Owned by the host; see
+    /// `MetalCanvas.audio` for why the push has to happen there and not on the audio thread.
+    let audio: AudioOutput
     let onAttach: (Result<String, Error>) -> Void
     let onTelemetry: (TickTelemetry) -> Void
 
@@ -2167,6 +2324,7 @@ struct MetalCanvasView: UIViewRepresentable {
         canvas.onAttach = onAttach
         canvas.onTelemetry = onTelemetry
         canvas.gamepadSource = gamepadSource
+        canvas.audio = audio
         canvas.start()
         context.coordinator.observe(canvas)
         return canvas
@@ -2175,6 +2333,7 @@ struct MetalCanvasView: UIViewRepresentable {
     func updateUIView(_ canvas: MetalCanvas, context: Context) {
         canvas.onTelemetry = onTelemetry
         canvas.gamepadSource = gamepadSource
+        canvas.audio = audio
     }
 
     static func dismantleUIView(_ canvas: MetalCanvas, coordinator: Coordinator) {

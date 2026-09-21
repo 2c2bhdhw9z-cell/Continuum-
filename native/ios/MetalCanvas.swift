@@ -61,6 +61,19 @@ final class MetalCanvas: UIView {
     /// Nil until a player screen is on screen, and a released pad while no game runs.
     var gamepadSource: (() -> PadFrame)?
 
+    /// The device audio path, pumped from the tick below.
+    ///
+    /// Pushed from here rather than pulled by the audio thread, and that is the whole design:
+    /// `AVAudioSourceNode`'s render block runs on a real-time thread, the engine is a
+    /// `Mutex<EmulatorBridge>`, and this tick holds that mutex for its entire duration. A render
+    /// block reaching for the same lock would be a real-time thread waiting on the main thread,
+    /// heard as clicks and dropouts rather than seen as a stall. So the drain happens here and
+    /// the render block reads a lock-free Swift ring. See `AudioOutput`.
+    ///
+    /// Owned by `EngineHost`, not by this view, because SwiftUI may rebuild the view at any time
+    /// and the audio graph must outlive that.
+    var audio: AudioOutput?
+
     /// Reports how attaching went, so the harness can show it instead of a black screen.
     var onAttach: ((Result<String, Error>) -> Void)?
 
@@ -213,6 +226,13 @@ final class MetalCanvas: UIView {
         // not when the callback fired. FramePacer::plan() takes a timestamp for exactly this
         // reason — it never reads a clock of its own.
         let telemetry = engine.tick(nowMillis: link.targetTimestamp * 1000.0)
+
+        // Audio AFTER the step, and before the telemetry callback. After, because the samples
+        // this tick's core steps just produced are the ones worth having and draining first
+        // would always be a frame behind. Before the callback, so the HUD reads a ring depth
+        // that is current rather than one drain stale.
+        audio?.pump()
+
         onTelemetry?(telemetry)
     }
 
@@ -230,6 +250,11 @@ final class MetalCanvas: UIView {
     func didEnterBackground() {
         engine.releaseGraphics()
         stop()
+        // After `stop()`, deliberately. The display link is what feeds the audio ring, so once
+        // it is gone the render block would emit an unbroken run of silence and count an
+        // underrun for every callback. Suspending is not the same as stopping: `AudioOutput`
+        // remembers that a game wanted audio, so foregrounding brings it back.
+        audio?.suspend()
     }
 
     func willEnterForeground() {
@@ -240,5 +265,8 @@ final class MetalCanvas: UIView {
     func didBecomeActive() {
         start()
         engine.resume(nowMillis: CACurrentMediaTime() * 1000.0)
+        // Rebuilt rather than unpaused, inside `resume`: the route may have changed while the
+        // app was away, and with it the rate the graph was built for.
+        audio?.resume()
     }
 }

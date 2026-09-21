@@ -3,14 +3,22 @@
 //! acquire the lock and delegate, then something has leaked out of the engine and belongs
 //! back in `bridge.rs`.
 //!
-//! ## Why UniFFI, and why the copy does not matter
+//! ## Why UniFFI, and what the copy costs
 //!
-//! UniFFI copies `Vec<u8>` across the boundary, which is its one real cost. It does not
-//! matter here because **nothing on the per-frame data path crosses this boundary**. Frames
-//! go core → staging → Metal entirely inside Rust; audio goes core → ring → CoreAudio
-//! entirely inside Rust. What crosses is what crosses `wasm.rs` today — launch, pause, save
-//! state, settings — a few dozen calls a minute. For that traffic, generated correctness
-//! beats hand-written speed.
+//! UniFFI copies sequences across the boundary, which is its one real cost. Video never pays
+//! it: frames go core → staging → Metal entirely inside Rust, so the pixel path does not
+//! cross here at all. Control traffic does not care: launch, pause, save state and settings
+//! are a few dozen calls a minute, and for those, generated correctness beats hand-written
+//! speed.
+//!
+//! Audio is the one per-frame payload that does cross, through [`ContinuumEngine::drain_audio`],
+//! and the copy is accepted deliberately. The alternative would be handing Swift a pointer into
+//! the Rust ring, which UniFFI cannot express and which would put the platform's real-time
+//! render thread inside this file's `Mutex` - the one place it must never be, because the
+//! display link already holds that lock for the whole of every tick. So a tick's worth of PCM
+//! is copied out on the display link's thread, roughly 6 KB at 48 kHz, and the render thread
+//! reads a lock-free ring on the Swift side that never calls back into Rust. See
+//! `native/ios/AudioOutput.swift` for that half.
 //!
 //! ## `Mutex`, not `RefCell`
 //!
@@ -25,8 +33,17 @@
 
 use std::sync::Mutex;
 
+use crate::audio::CHANNELS;
 use crate::bridge::EmulatorBridge;
 use crate::error::BridgeError;
+
+/// Ceiling on one [`ContinuumEngine::drain_audio`] call, in stereo frames.
+///
+/// 4096 frames is about 85 ms at 48 kHz, which is deliberately the same ceiling `wasm.rs`
+/// gives itself through its 8192-sample staging buffer. Far more than one display-link tick
+/// can ever owe, so a slow frame cannot be truncated by this bound, and a caller that asks
+/// for a million frames gets a clamp rather than a 16 MB allocation.
+const MAX_DRAIN_FRAMES: u32 = 4096;
 
 /// Errors as Swift sees them: one variant per `BridgeError` arm that a caller can act on,
 /// collapsed where the distinction is meaningless outside Rust.
@@ -137,6 +154,37 @@ pub struct CoreDeclaration {
     pub pixel_format: u32,
     /// Higher wins when several cores can run the same system.
     pub priority: i32,
+}
+
+/// The audio ring, as Swift sees it.
+///
+/// A snapshot rather than a subscription: the numbers are read when a HUD asks for them, and
+/// the per-frame mirror in [`TickTelemetry`] carries the two a HUD wants every frame so that
+/// showing them costs no extra trip through the engine lock.
+///
+/// Every field is a fact the Swift side cannot work out for itself. `queued_frames` against
+/// `capacity_frames` is how full the Rust ring is; `overruns` counts audio the device was too
+/// slow to take, `underruns` counts silence the ring could not fill, and `source_rate` against
+/// `output_rate` says what the resampler is actually doing. Which matters because on iOS the
+/// output rate is whatever the hardware said it was, not a constant.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct AudioStatsSnapshot {
+    /// Interleaved stereo frames waiting to be drained.
+    pub queued_frames: u32,
+    /// The ring's size, fixed when the session started.
+    pub capacity_frames: u32,
+    /// Times the ring filled and the oldest audio was dropped.
+    pub overruns: u64,
+    /// Times a drain asked for more than was queued.
+    pub underruns: u64,
+    pub frames_submitted: u64,
+    pub frames_drained: u64,
+    /// The rate the core produces at.
+    pub source_rate: u32,
+    /// The rate the ring is resampled to, which is the device's real rate once Swift has
+    /// reported it through [`ContinuumEngine::set_output_sample_rate`].
+    pub output_rate: u32,
+    pub channels: u32,
 }
 
 /// One core option, as the core itself declared it.
@@ -551,6 +599,103 @@ impl ContinuumEngine {
 
     pub fn connected_pads(&self) -> u32 {
         self.lock().connected_pads() as u32
+    }
+
+    // --------------------------------------------------------------------- audio
+
+    /// Tells the engine the rate the device actually runs at, so resampling happens here.
+    ///
+    /// The peer of `wasm.rs`'s `setOutputSampleRate`, and it exists for the same reason: the
+    /// hardware rate is not knowable until the platform's audio graph is up. `EmulatorBridge`
+    /// defaults to 48000 because something has to be assumed before then, and on iOS that
+    /// assumption is wrong often enough to matter. `AVAudioSession` reports 48000 on a modern
+    /// iPhone speaker, 44100 on some Bluetooth routes, and a headset can negotiate something
+    /// else again. So Swift reads the session's real rate after activating it and reports it
+    /// here.
+    ///
+    /// Resampling stays on this side of the boundary deliberately. `audio/resample.rs` already
+    /// reconciles a core's rate with an output rate, is already unit tested, and is already
+    /// the code the browser build has been running for a year. A second implementation in
+    /// Swift would be a second thing to keep correct, and getting it subtly wrong sounds like
+    /// a slightly out of tune game rather than like a bug.
+    ///
+    /// A rate change drops whatever is queued, because those samples were resampled for the
+    /// old rate and playing them at the new one would pitch shift the tail.
+    pub fn set_output_sample_rate(&self, rate: u32) {
+        self.lock().set_output_sample_rate(rate);
+    }
+
+    /// The rate the ring is currently being filled at.
+    pub fn output_sample_rate(&self) -> u32 {
+        self.lock().output_sample_rate()
+    }
+
+    /// Drains up to `max_frames` stereo frames of queued PCM, interleaved as L, R, L, R.
+    ///
+    /// Returns however many samples were there, which is normally fewer than asked for and is
+    /// not a failure: an empty vector means the ring is empty, nothing more. The count is
+    /// always a multiple of two, because the ring is written a whole frame at a time.
+    ///
+    /// **By value, because UniFFI copies.** There is no way to hand Swift a pointer into the
+    /// ring through this boundary, and the shapes that avoid the copy all end somewhere worse:
+    /// a callback would run Swift code while this file's `Mutex` is held, and an out-parameter
+    /// does not exist in UniFFI's type system. So the cost is one allocation and one copy per
+    /// tick, sized to what is actually queued rather than to `max_frames`, which at 48 kHz is
+    /// about 6 KB of PCM sixteen times a second. That is bought with something worth much
+    /// more: the platform's real-time render thread never touches this lock.
+    ///
+    /// **Called from the display link, immediately after `tick`.** Never from an audio render
+    /// callback. The display link already holds this lock for the whole of each tick, so a
+    /// render callback taking it too would be a real-time thread blocking on the main thread,
+    /// which is heard as clicks and dropouts rather than seen as a stall. The Swift side
+    /// pushes into its own lock-free ring here and pulls from that ring on the audio thread.
+    pub fn drain_audio(&self, max_frames: u32) -> Vec<f32> {
+        let ceiling = max_frames.min(MAX_DRAIN_FRAMES) as usize * CHANNELS;
+        if ceiling == 0 {
+            return Vec::new();
+        }
+        let mut guard = self.lock();
+        // Sized to what is queued rather than to the ceiling, so a caller that always asks for
+        // the maximum does not churn a 32 KB allocation per tick to return 6 KB of it. Reading
+        // the depth first is free: the guard is already held, so nothing can push in between.
+        let queued = guard.audio_stats().queued_frames as usize * CHANNELS;
+        let wanted = ceiling.min(queued);
+        if wanted == 0 {
+            return Vec::new();
+        }
+        let mut out = vec![0.0f32; wanted];
+        let written = guard.drain_audio(&mut out);
+        // Muting drains nothing at all, so this is a truncate to zero rather than a no-op.
+        out.truncate(written);
+        out
+    }
+
+    /// Everything the ring knows about itself. See [`AudioStatsSnapshot`].
+    pub fn audio_stats(&self) -> AudioStatsSnapshot {
+        let guard = self.lock();
+        let stats = guard.audio_stats();
+        let spec = guard.audio_spec();
+        AudioStatsSnapshot {
+            queued_frames: stats.queued_frames,
+            capacity_frames: stats.capacity_frames,
+            overruns: stats.overruns,
+            underruns: stats.underruns,
+            frames_submitted: stats.frames_submitted,
+            frames_drained: stats.frames_drained,
+            source_rate: spec.source_rate,
+            output_rate: spec.output_rate,
+            channels: spec.channels,
+        }
+    }
+
+    /// Drops everything queued.
+    ///
+    /// For the host rebuilding its audio graph, which is what a route change forces: the
+    /// buffered tail was resampled for a device configuration that no longer exists, and the
+    /// Swift ring is thrown away at the same moment. Flushing both keeps the two ends
+    /// agreeing about how much latency there is, which is the number the HUD reports.
+    pub fn flush_audio(&self) {
+        self.lock().flush_audio();
     }
 }
 
