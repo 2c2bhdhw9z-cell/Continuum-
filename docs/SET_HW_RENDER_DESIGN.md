@@ -1249,7 +1249,7 @@ Each step is verifiable on its own, and the risky question is answered first.
 | # | Step | Proves | Risk |
 | --- | --- | --- | --- |
 | 1 | ~~wgpu device adopted from an injected `MTLDevice`~~ → **done**, inverted: wgpu creates the device, Swift adopts it (§2) | The §5 unknown, before anything depends on it | ~~High~~ — resolved without raw Metal and without patching `wgpu-hal` |
-| 2 | Instanced composite pass; one screen, then two with a hardcoded split | Rendering generalises before any HW core exists | Low |
+| 2 | ~~Instanced composite pass; one screen, then two with a hardcoded split~~ → **done**. `ScreenSplit` in `gfx/renderer.rs`, instanced `frame_blit.wgsl`, 7 layout tests + 3 shader tests | Rendering generalises before any HW core exists | ~~Low~~ — resolved. Single-screen geometry is asserted identical, so the nine shipping systems are untouched |
 | 3 | MoltenVK in-process, sharing device and queue; render a triangle into an `MTLTexture` and composite it | The whole zero-copy path, with no core involved | Medium |
 | 4 | `SET_HW_RENDER` accepted for Vulkan; `GET_HW_RENDER_INTERFACE`; **Beetle PSX HW** | The full contract against the simplest real core | Medium |
 | 5 | JIT enabled for the PS1 dynarec; measure against step 4 | The reason for the whole phase | Low, now unconditional |

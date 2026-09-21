@@ -2226,3 +2226,107 @@ of the verification story:
   checks names and not argument types.
 - **CI remains the only thing in this project that type-checks Swift.** Budget a build for it rather
   than trusting a local pass, and note UniFFI maps a Rust `Vec<u8>` to `Data` on this boundary.
+
+
+## 22. Starting N64: step 2 done, and the two risks that actually gate it
+
+N64 is **step 6** of the twelve-step sequence in `docs/SET_HW_RENDER_DESIGN.md` §13, not a task
+of its own. Step 1 (wgpu owning the `MTLDevice`) was finished long ago. Step 2 is now done. The
+order is not bureaucracy: the doc's own reasoning is that steps 1 to 3 involve no emulator core
+at all, because they are where the graphics architecture is proven or corrected, and a failure
+there is a rectangle in the wrong place rather than a game misbehaving for reasons that could be
+anywhere in a hundred thousand lines of core.
+
+### 22.1 What step 2 changed
+
+The composite pass was one fullscreen quad. It is now one instance per screen, each carrying a
+source rect and a destination rect, because two things ahead cannot be expressed by a single
+quad: the DS and 3DS hand over **one** framebuffer with **two** screens stacked inside it, and a
+hardware-rendered core draws into a texture whose shape is not the window's.
+
+`ScreenSplit::Single` is still the only value anything selects, and a test asserts its geometry is
+exactly what the one-quad version produced. That test is the regression guard for nine shipping
+systems; do not delete it when a second split finally gets used.
+
+Three things in there failed silently by nature and are now pinned by tests:
+
+- **The uniform array is packed into `vec4`s, not `vec2`s.** WGSL requires an array element in
+  the uniform address space to be 16-byte aligned. A struct of `vec2`s is 8-byte aligned, so it
+  either fails to compile or acquires padding the Rust side then disagrees with, and the symptom
+  is garbage geometry with no error from either half.
+- **The v flip happens before the source rect is applied.** So a source offset is an ordinary
+  top-down texture coordinate, and the top screen of a stacked pair has the **smaller v** while
+  also having the **positive** clip-space offset. Those conventions disagreeing is what swaps the
+  two screens of a DS, which looks deliberate and is not.
+- **Unused array slots hold the identity, not zeroes.** A zeroed slot is a degenerate triangle:
+  it draws nothing, which is indistinguishable from a draw that never happened.
+
+### 22.2 The shader is now validated on the build machine
+
+`frame_blit.wgsl` is embedded with `include_str!` and compiled by wgpu at runtime, so **no WGSL
+mistake was ever a compile error**: a wrong type, a missing binding or an alignment violation all
+built cleanly and then presented a black screen on a phone with no debugger. `naga` is wgpu's own
+shader front end and was already in the dependency tree at the same version, so validating the
+shader in a unit test costs no extra compilation and moves that failure from a device to `cargo
+test`. Two further tests check the entry-point names the pipeline looks up by string, and that the
+shader declares as many screens as the engine writes.
+
+That last one closed a real gap: `MAX_SCREENS` is declared once in `renderer.rs` and once in the
+shader, and nothing connected them, so raising only the Rust constant would have written
+placements past the end of the declared array with both halves still compiling. The guard was
+verified by making the two numbers disagree and watching it fail.
+
+**This matters more from here on than it did before.** Every remaining graphics step edits this
+shader, and the composite pass is exactly where a mistake is invisible until it is on screen.
+
+### 22.3 RISK ONE: the dynarec has never been switched on
+
+**This is the one that can kill N64 outright, and it has nothing to do with graphics.**
+
+`pcsx_rearmed` currently ships with `DYNAREC=0` (see §17): the interpreter, chosen deliberately to
+prove the core path without a JIT dependency to fight. PS1 is playable that way. **An N64
+interpreter is not.** Every usable N64 core depends on a recompiler, so N64 needs the dynarec
+working on device, which needs the `MAP_JIT` path working on device.
+
+The entitlements are all present and correct in `native/ios/Continuum.entitlements`:
+`allow-jit`, `allow-unsigned-executable-memory`, `increased-memory-limit` and
+`extended-virtual-addressing`, with a comment explaining why the last two are different jobs. But
+**present entitlements are not a working JIT.** On arm64 the sequence is `mmap` with `MAP_JIT`,
+then `pthread_jit_write_protect_np` per thread, then `sys_icache_invalidate`, and the last of
+those is not optional: omitting it works in the simulator and crashes on device, intermittently.
+Nothing in this project has executed that path even once.
+
+**De-risk it before step 3, not at step 6, and de-risk it on a core that already works.** Rebuild
+`pcsx_rearmed` with `DYNAREC=1` and see whether PS1 still runs. That is one flag in
+`scripts/build-core.sh`, it is testable on a game already verified working, and it answers the
+question with the graphics stack entirely uninvolved. If the JIT path is broken, finding out on a
+core that runs fine without it is enormously cheaper than finding out underneath a brand new
+Vulkan compute renderer where any of five things could be at fault.
+
+### 22.4 RISK TWO: MoltenVK has to get into the bundle
+
+paraLLEl-RDP is a Vulkan **compute** implementation of the N64's RDP and is the only
+accurate-and-fast N64 rasteriser that exists. It has no GL equivalent, so the Vulkan path is
+mandatory rather than preferred, which means MoltenVK ships inside the `.ipa`: roughly 8 MB, on an
+app that is currently 6.2 MB. The alternative core, Mupen64Plus-Next with GLideN64, is GL-only and
+would need ANGLE instead at roughly 15 MB. Neither is avoidable and the size should be stated
+rather than discovered.
+
+Practical consequence for CI: `ios.yml` currently builds five cores from source and nothing else.
+MoltenVK has to be fetched or built as an XCFramework and embedded by `package-ipa.sh`, which is
+new machinery in the one part of the build that has no local reproduction. Worth doing as its own
+step with no core involved, which is what step 3 already is.
+
+### 22.5 The order from here
+
+1. **Dynarec flag on PS1** (§22.3). Cheap, unrelated to graphics, answers the biggest N64 question.
+2. **Step 3**: MoltenVK in-process sharing the one device and queue, rendering a triangle into an
+   `MTLTexture` that the compositor samples. No core. This is where the zero-copy handoff is proven
+   or corrected.
+3. **Step 4**: accept `SET_HW_RENDER` for Vulkan and run **Beetle PSX HW**, the simplest real
+   hardware-rendered core, against a system already known to work.
+4. **Step 6**: paraLLEl-N64.
+
+Steps 4 and 6 are deliberately separated by a core that is not N64. If the contract is wrong, it
+should be wrong on a PlayStation game whose software-rendered version is already verified on this
+device, not on the highest-risk core in the sequence.
