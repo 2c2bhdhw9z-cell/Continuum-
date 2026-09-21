@@ -31,6 +31,14 @@ struct SettingsScreen: View {
     /// answer the question wrongly.
     @ObservedObject var controllers: PhysicalControllers
 
+    /// Observed so that the storage read-out is right the moment it is looked at. It is a count and
+    /// a size, and both change from the player screen, which is the screen the user was on before
+    /// this one.
+    @ObservedObject var saveStates: SaveStates
+
+    /// Observed for the same reason: the cheat read-out counts what is stored across every game.
+    @ObservedObject var cheats: CheatStore
+
     /// Read fresh from the engine when this screen appears, never cached across appearances. The
     /// core's option list changes per core and a stale list is worse than none.
     @State private var coreOptions: [CoreOptionRecord] = []
@@ -67,6 +75,9 @@ struct SettingsScreen: View {
                     speedSection
                     controllerSection
                     controlsSection
+                    // In this group rather than the second one, along the seam the note above
+                    // describes: a cheat changes how the game itself behaves.
+                    cheatsSection
                 }
                 Group {
                     artworkSection
@@ -74,6 +85,9 @@ struct SettingsScreen: View {
                     diagnosticsSection
                     biosSection
                     coreOptionsSection
+                    // Beside STORAGE on purpose: the two read-outs are about the same disk, and the
+                    // note in STORAGE now has to explain three directories rather than two.
+                    saveStatesSection
                     storageSection
                     notYetWiredSection
                 }
@@ -360,7 +374,7 @@ struct SettingsScreen: View {
 
             // The same block both screens share, shown here in full so Settings is a real home for
             // it rather than only a switch that turns it on somewhere else.
-            DiagnosticsPanel(host: host, emulation: emulation)
+            DiagnosticsPanel(host: host, emulation: emulation, saveStates: saveStates)
 
             SettingsNote(
                 "This is the only debugger a sideloaded build has: no console, no crash log and no "
@@ -471,6 +485,93 @@ struct SettingsScreen: View {
         }
     }
 
+    // MARK: Save states
+
+    /// The resume switch, what the states cost, and the one button that throws them all away.
+    ///
+    /// Everything about an individual state is in that game's detail sheet, which is where it
+    /// belongs: a list of every state on the device, across games, would be a list nobody navigates
+    /// by. What is here is what is only answerable at this level, which is the total and the
+    /// setting.
+    private var saveStatesSection: some View {
+        SettingsSection(title: "SAVE STATES") {
+            Toggle(isOn: $saveStates.resumesAutomatically) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Pick up where you left off")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text(saveStates.resumesAutomatically
+                         ? "On, so starting a game restores its auto-save."
+                         : "Off, so every game starts from the beginning.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(ShellPalette.secondaryText)
+                }
+            }
+            .tint(ShellPalette.accent)
+
+            SettingsNote(
+                "Leaving a game, or the app going to the background, writes that game's auto-save, "
+                + "and starting the game again loads it back. There is no save every few seconds "
+                + "while you play, on purpose: saving a PlayStation game's state is a megabyte of "
+                + "work, and a stutter every few seconds would be a worse trade than an auto-save "
+                + "that is a few minutes old. Rewind, in SPEED AND REWIND above, is the setting for "
+                + "undoing the last few seconds."
+            )
+
+            SettingsReadout(label: "Stored", value: saveStates.storageLine)
+            SettingsReadout(label: "Last", value: saveStates.line)
+
+            SettingsButton(title: "Delete every save state", role: .destructive) {
+                saveStates.deleteEverything()
+            }
+
+            SettingsNote(
+                "States are kept outside the Continuum folder the Files app shows, which is "
+                + "deliberate: a slot owns its file, and a payload renamed or moved underneath the "
+                + "list that describes it would leave the app listing states it can no longer load. "
+                + "They are included in a device backup, unlike the artwork, because nothing can "
+                + "reproduce them. Deleting everything here cannot be undone and it includes the "
+                + "auto-saves, so every game starts from the beginning afterwards. One game's states "
+                + "are managed in that game's card, from the library."
+            )
+        }
+    }
+
+    // MARK: Cheats
+
+    /// What is stored, whether the running core takes cheats at all, and the way to clear the lot.
+    ///
+    /// The per game list is in the detail sheet for the same reason the save states are: a code only
+    /// means anything next to the game it was written for. This section exists because "how many
+    /// cheats has this app got and is the core actually using them" cannot be answered from any one
+    /// game's card, and because the core's own count is the only honest confirmation that a code
+    /// was accepted.
+    private var cheatsSection: some View {
+        SettingsSection(title: "CHEATS") {
+            SettingsReadout(label: "Stored", value: cheats.storageLine)
+            SettingsReadout(label: "Last", value: cheats.line)
+
+            SettingsButton(title: "Delete every stored cheat", role: .destructive) {
+                cheats.deleteEverything()
+            }
+
+            SettingsNote(
+                "Cheats are added in a game's card, from the library, because a code is written for "
+                + "one game and one region of it. The list is pushed into the emulated console when "
+                + "the game starts and again whenever it changes, so a code added mid-game takes "
+                + "effect without a relaunch. Not every core takes them: the read-out above says "
+                + "what the running one does, and a core that takes none is a stated fact about "
+                + "that core rather than a failure."
+            )
+            SettingsNote(
+                "Codes are never checked for shape. Each system has its own convention and cores "
+                + "accept several, so a front end that insisted on one pattern would reject codes "
+                + "that work. A code the core cannot parse is ignored by it, which is the same "
+                + "outcome as a code for the wrong region of the same game."
+            )
+        }
+    }
+
     // MARK: Storage
 
     private var storageSection: some View {
@@ -478,6 +579,7 @@ struct SettingsScreen: View {
             SettingsReadout(label: "Library", value: host.libraryStatus)
             SettingsReadout(label: "Artwork", value: artwork.storageLine)
             SettingsReadout(label: "Cover lists", value: artwork.coverListLine)
+            SettingsReadout(label: "Save states", value: saveStates.storageLine)
             SettingsNote(
                 "Games live in the app's own Documents directory, which the Files app shows as "
                 + "Continuum, and they keep the filenames they arrived with: a cue sheet names its "
@@ -485,7 +587,17 @@ struct SettingsScreen: View {
                 + "Documents, so a folder of downloaded covers never appears there as though it "
                 + "were something you imported, and the downloaded cover lists sit in their own "
                 + "folder beside it so the two can be cleared separately. Deleting a game is a "
-                + "swipe in All Games, or the button in its detail sheet."
+                + "swipe in All Games, or the button in its detail sheet, and it takes that game's "
+                + "save states and cheats with it."
+            )
+            SettingsNote(
+                "Save states and cheats are outside Documents too, each in its own folder, and for "
+                + "a stronger reason than the artwork's: a numbered slot owns its file. Documents is "
+                + "user-visible, so anything in it can be renamed or moved from the Files app, and a "
+                + "payload that moved underneath the list describing it would leave a slot the app "
+                + "can list and cannot load. An earlier build wrote one state per game into "
+                + "Documents and had no way to read it back; that file is not used any more, and "
+                + "any left over from it can be deleted from the Continuum folder."
             )
         }
     }

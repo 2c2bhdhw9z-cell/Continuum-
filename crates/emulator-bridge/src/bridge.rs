@@ -908,6 +908,18 @@ impl EmulatorBridge {
             .map_or(0, |session| session.core.state_size())
     }
 
+    /// The running core's own version string, for save-state compatibility.
+    ///
+    /// See [`crate::cores::EmulatorCore::version`]. A host storing save states should record
+    /// this beside each one and refuse to load a state whose recorded version differs, because
+    /// `retro_unserialize` will not reliably refuse it itself.
+    pub fn core_version(&self) -> Option<String> {
+        self.session
+            .as_ref()
+            .and_then(|session| session.core.version())
+            .map(str::to_owned)
+    }
+
     /// Submits a GPU readback of the presented image.
     ///
     /// `width`/`height` of zero mean "the current surface size". The caller awaits

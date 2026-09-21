@@ -88,6 +88,11 @@ struct PlayerScreen: View {
     /// object decides whether the touch controls below are mounted at all.
     @ObservedObject var controllers: PhysicalControllers
 
+    /// Observed rather than reached through the host, because the save button's menu LISTS this
+    /// game's states: saving has to make the new slot appear in the menu without leaving the player,
+    /// and deleting one from the detail sheet has to take it out of the menu.
+    @ObservedObject var saveStates: SaveStates
+
     /// Which pad to draw. Nil when the launched file's extension has no system mapped, which the
     /// launch path should already have refused, so it is reported rather than silently ignored.
     let system: GameSystem?
@@ -121,7 +126,7 @@ struct PlayerScreen: View {
                 telemetryStrip
                 statusLine
                 if host.showDiagnostics {
-                    DiagnosticsPanel(host: host, emulation: emulation)
+                    DiagnosticsPanel(host: host, emulation: emulation, saveStates: saveStates)
                 }
                 // Claims the rest of the height without claiming any touches, so everything below
                 // reaches the controls.
@@ -182,9 +187,7 @@ struct PlayerScreen: View {
             sessionButton("arrow.clockwise", label: "Reset") {
                 host.resetGame()
             }
-            sessionButton("square.and.arrow.down", label: "Save state") {
-                host.saveStateToDisk()
-            }
+            saveStateControl
             sessionButton(host.showDiagnostics ? "info.circle.fill" : "info.circle",
                           label: "Diagnostics") {
                 host.showDiagnostics.toggle()
@@ -192,6 +195,68 @@ struct PlayerScreen: View {
         }
         .foregroundStyle(.white)
     }
+
+    /// Save and load on ONE control: a tap saves, a press opens the menu that can also load.
+    ///
+    /// ONE BUTTON RATHER THAN TWO, and the reason is the bar it sits in. This row already holds
+    /// back, a title, rewind, fast-forward, pause, reset and diagnostics, and on a phone in portrait
+    /// there is no room for an eighth circle without shrinking all of them, which is the opposite of
+    /// what a touch target needs. `Menu(content:label:primaryAction:)` gives both behaviours to one
+    /// target: the primary action is the save, which is what this button has always done and what
+    /// muscle memory expects, and the menu underneath it is where loading lives.
+    ///
+    /// 44 POINTS, not the 38 the other session buttons use. This is the one control in the bar whose
+    /// press has to be distinguished from a tap, so a finger that lands slightly off it and slides
+    /// while the menu is coming up must still be on it. The rest of the bar keeps 38 because a plain
+    /// tap is forgiving in a way a press is not.
+    private var saveStateControl: some View {
+        Menu {
+            Button {
+                host.saveStateToSlot()
+            } label: {
+                Label("Save to a new slot", systemImage: "square.and.arrow.down")
+            }
+
+            let states = host.activeEntry.map { saveStates.states(for: $0) } ?? []
+            if states.isEmpty {
+                // Disabled and explicit rather than absent. An empty menu reads as a broken
+                // control, and "there is nothing to load yet" is the answer to the question the
+                // user just asked by opening it.
+                Button("No saved states for this game yet") {}
+                    .disabled(true)
+            } else {
+                // Newest first, which is the order the store keeps. Capped, because this is a menu
+                // over a running game and not the management screen: the detail sheet lists every
+                // state with its size and frame, and a menu long enough to scroll would be a worse
+                // version of that list. The cap is a hard limit rather than a page, so the wording
+                // below has to stay honest about it.
+                Section("Load a state") {
+                    ForEach(states.prefix(Self.menuStateLimit)) { record in
+                        Button {
+                            saveStates.load(record)
+                        } label: {
+                            Label(record.summaryLine, systemImage: record.isAuto
+                                  ? "clock.arrow.circlepath"
+                                  : "tray.and.arrow.up")
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "square.and.arrow.down")
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 44, height: 44)
+                .background(Color.white.opacity(0.12), in: Circle())
+                .contentShape(Circle())
+        } primaryAction: {
+            host.saveStateToSlot()
+        }
+        .accessibilityLabel("Save state, press and hold to load one")
+    }
+
+    /// How many states the in-game menu offers. Six is about what fits without scrolling on the
+    /// shortest screen this app supports, and the detail sheet is the place that shows them all.
+    private static let menuStateLimit = 6
 
     private func sessionButton(_ symbol: String, label: String,
                                action: @escaping () -> Void) -> some View {
@@ -299,6 +364,11 @@ struct DiagnosticsPanel: View {
     /// hand. When absent the emulation line is simply not drawn, rather than drawn empty.
     var emulation: EmulationSettings?
 
+    /// Optional for the same reason, and defaulted so that every existing caller still compiles.
+    /// The line it draws answers "did the auto-save happen", which on a sideloaded build with no
+    /// console is otherwise unanswerable.
+    var saveStates: SaveStates? = nil
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Continuum \(host.buildLine)")
@@ -334,17 +404,33 @@ struct DiagnosticsPanel: View {
                 Text(emulation.diagnosticLine)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if !host.controlNote.isEmpty {
-                Text(host.controlNote)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !host.libraryStatus.isEmpty {
-                Text(host.libraryStatus)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !host.artworkLine.isEmpty {
-                Text(host.artworkLine)
-                    .fixedSize(horizontal: false, vertical: true)
+            // GROUPED, and not for tidiness: a view builder takes at most ten children, this block
+            // had reached twelve, and the failure names the whole block rather than the line that
+            // broke it. Nothing was removed to make room, which the note at the top of this type
+            // forbids; the last four lines simply share one child. See `SettingsScreen.body`, which
+            // is split the same way and for the same reason.
+            Group {
+                if !host.controlNote.isEmpty {
+                    Text(host.controlNote)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !host.libraryStatus.isEmpty {
+                    Text(host.libraryStatus)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !host.artworkLine.isEmpty {
+                    Text(host.artworkLine)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                // How many states exist, whether resuming is on, and whether the running game has
+                // an auto-save to resume FROM. That last one is the line worth having: a game that
+                // started from the beginning did so either because resuming is off, because there
+                // was nothing stored, or because the gate refused it, and those are three different
+                // bugs.
+                if let saveStates {
+                    Text(saveStates.diagnosticLine)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .font(.system(.caption2, design: .monospaced))

@@ -150,6 +150,19 @@ targets:
       - path: ArtworkChooser.swift
       # What a filename can honestly be made to say: the display title and the region.
       - path: GameMetadata.swift
+      # Save states: the metadata index, the payload files in Application Support, the auto-save
+      # written when a game is left or the app is put away, the resume on launch, and the four-check
+      # gate that refuses to hand a core a state another build wrote. WITHOUT THIS LINE the app
+      # still builds and every reference to it fails in four other files, which is luck rather than
+      # a safety net: ContinuumApp, PlayerScreen, GameDetailSheet and SettingsScreen all name types
+      # from it. The gate is the part that must never be quietly dropped, because the failure it
+      # prevents is a core accepting a foreign state and corrupting itself minutes later.
+      - path: SaveStates.swift
+      # Cheats: the durable per-game code lists, and the one path that pushes a list into the
+      # resident core as a whole and in order. Separate from SaveStates.swift because a cheat is
+      # text the user typed and a state is an opaque blob a core wrote, and only one of those two
+      # can corrupt a session.
+      - path: CheatStore.swift
       # The UniFFI-generated Swift facade. Written by build-engine.sh, never committed: a
       # stale checked-in binding that disagrees with the Rust compiles, links, and then
       # corrupts arguments at runtime, which is the worst failure mode in this stack.

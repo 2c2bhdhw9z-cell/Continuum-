@@ -1041,6 +1041,15 @@ final class EngineHost: ObservableObject {
     /// what happened, short enough to stay on screen.
     private static let reportedNameLimit = 6
 
+    /// Save states: the index, the compatibility gate, the auto-save and the resume.
+    ///
+    /// A separate object for the same reason `EmulationSettings` is one, and it is `let` rather than
+    /// `@Published` because the object never changes; the views that need it observe it directly.
+    let saveStates: SaveStates
+
+    /// The per-game cheat lists, and the one path that pushes them into a core.
+    let cheats: CheatStore
+
     init() {
         engine = ContinuumEngine()
         // Built here, with that engine, and never rebuilt. The graph itself is not started until
@@ -1056,6 +1065,13 @@ final class EngineHost: ObservableObject {
         // that can wait for a frame: a pad unplugged mid-press has no further poll coming, so
         // whatever it was holding would stay held for the rest of the session.
         controllers = PhysicalControllers(engine: engine)
+        // Reads its metadata index as it is built, so the library can tell which games have an
+        // auto-save before anything is launched, and registers the two notification observers that
+        // write the auto-save when the app stops being the thing in front of the user.
+        saveStates = SaveStates(engine: engine)
+        // Reads the stored cheat lists as it is built. Nothing is pushed to a core here: a cheat
+        // table belongs to a session, so the push happens on launch.
+        cheats = CheatStore(engine: engine)
 
         // The remembered preferences, read before anything can display. Each one falls back to its
         // default rather than to nil, so a first launch and a corrupted value behave the same way.
@@ -1082,6 +1098,12 @@ final class EngineHost: ObservableObject {
         // writes its read-out through `artworkLine`, and a network failure through `status`, so an
         // artwork problem is legible on the strip rather than only behind the Settings tab.
         artwork.attach(host: self)
+
+        // Same reason, and these two need more from the host than the artwork store does: which
+        // game is running, which only the launch path knows, and the status line, which is where a
+        // refused load or a failed auto-save has to be said out loud.
+        saveStates.attach(host: self)
+        cheats.attach(host: self)
 
         // Wired after `init` has finished with `self`, for the same reason. A pad connecting or
         // disconnecting is exactly the kind of thing the always-visible status line is for: it is
@@ -1414,20 +1436,36 @@ final class EngineHost: ObservableObject {
         var failures: [String] = []
         var leftTracksBehind = false
 
+        var statesRemoved = 0
+
         for index in offsets where index >= 0 && index < library.count {
             let entry = library[index]
             do {
                 try FileManager.default.removeItem(atPath: entry.path)
                 removed.append(entry.name)
                 if entry.ext == "cue" { leftTracksBehind = true }
+                // The save states go with the game. NOT for tidiness: a state is keyed by the
+                // game's filename, so leaving them behind means the next import of a file with the
+                // same name inherits states written by a different dump of that game, and the byte
+                // length check is the only thing standing between that and a corrupted machine.
+                // Counted so the deletion says what else it took.
+                let gameId = SaveStates.gameId(for: entry)
+                statesRemoved += saveStates.states(forGameId: gameId).count
+                saveStates.deleteAll(forGameId: gameId)
+                // The cheats too, and for the plainer reason: they are a list about a game that is
+                // no longer here, and a reimport would silently inherit codes for another dump.
+                cheats.deleteAll(forGameId: gameId)
             } catch {
                 failures.append("\(entry.name): \(error.localizedDescription)")
             }
         }
 
-        let trackNote = leftTracksBehind
+        var trackNote = leftTracksBehind
             ? "; any .bin tracks it named are still in Documents"
             : ""
+        if statesRemoved > 0 {
+            trackNote += "; \(statesRemoved) save state(s) went with it"
+        }
 
         if removed.isEmpty && failures.isEmpty {
             // Only reachable if the swipe resolved to nothing at all, which would mean the
@@ -1576,7 +1614,13 @@ final class EngineHost: ObservableObject {
     /// Master System cart booting as a Master System and as a Mega Drive. So `entry.path` is
     /// exactly what the engine wants, and the Rust launch signature did not change to ship
     /// four more cores.
-    func launch(entry: LibraryEntry) {
+    ///
+    /// `resumingAuto` exists for exactly one caller: loading a specific save state from a game's
+    /// detail sheet, which launches the game and then loads that state. Restoring the auto-save
+    /// first would serialize a megabyte, load it, and throw it away one line later, and the status
+    /// line would claim a resume that the next call immediately overwrote. Every other caller wants
+    /// the default, which is why it has one.
+    func launch(entry: LibraryEntry, resumingAuto: Bool = true) {
         // Breadcrumb, written before the re-entrancy stop and before ANY guard below can
         // return. A tap that reaches this method therefore always changes the HUD. If the HUD
         // ever stays on the previous line, this method provably was not reached, which narrows
@@ -1659,6 +1703,23 @@ final class EngineHost: ObservableObject {
             engineOutputRate = engine.outputSampleRate()
             refreshAudioReadout()
             status = "running: \(entry.name) on \(spec.coreId)"
+
+            // AFTER the launch, because a cheat table belongs to a session: the core builds it on
+            // `retro_load_game` and it dies with the session, so it has to be pushed again every
+            // time. Before the resume below on purpose, so that a state restored into this session
+            // is restored into a machine that already has the cheats the user expects. The engine
+            // re-pushes the table itself after a reset and after a state load, so this is the only
+            // place Swift has to do it.
+            cheats.push(for: entry)
+
+            // The resume, LAST, so it can overwrite the "running" line above with what actually
+            // happened. It is synchronous: see `SaveStates.load` for why nothing here is awaited.
+            // A refusal is never fatal, it writes its reason and the game carries on from the
+            // beginning, which is the only sensible outcome when the alternative is a state that
+            // might corrupt the machine.
+            if resumingAuto {
+                saveStates.resumeIfPossible(entry: entry)
+            }
         } catch {
             running = false
             activeEntry = nil
@@ -1684,6 +1745,14 @@ final class EngineHost: ObservableObject {
         // would leave the engine in that mode with no button on screen to leave it, and the next
         // game would start fast-forwarding or winding backwards on its first frame.
         emulation.releaseHeldControls()
+        // THE AUTO-SAVE, AND IT HAS TO BE HERE RATHER THAN ANYWHERE LATER IN THIS FUNCTION.
+        // `engine.stop()` below tears the session down and, under the Drop retention policy,
+        // unloads the core: after that line there is nothing left to serialize and
+        // `retro_serialize` has no session to answer for. The store checks `running` itself and
+        // does nothing when there is no session, so a half-started launch that reaches here writes
+        // nothing. It is silent on success on purpose, because the line a user is reading when they
+        // leave a game is the one `leavePlayer` is about to write.
+        saveStates.writeAutoSave(reason: "the game was left")
         if running {
             engine.stop()
             running = false
@@ -1774,43 +1843,29 @@ final class EngineHost: ObservableObject {
         }
     }
 
-    /// Writes a save state next to the game, as <filename>.state.
+    /// Saves the running game into its next free numbered slot.
     ///
-    /// Beside the game in Documents on purpose: Documents is already exposed through the Files app
-    /// by `UIFileSharingEnabled`, so a state is something the user can copy off the device without
-    /// any extra plumbing. Every branch gets its own line, including the two that are not errors so
-    /// much as conditions.
-    func saveStateToDisk() {
-        guard running, let entry = activeEntry else {
-            status = "save state ignored: no game is running"
-            return
-        }
-        guard let documents = documentsDirectory() else {
-            status = "save state failed: no Documents directory"
-            return
-        }
+    /// A one-line delegation, and the shape is the point. This used to be the whole save-state
+    /// feature: it wrote ONE file per game, `<filename>.state`, into Documents, and nothing in the
+    /// app ever read it back. Documents looked like the right home because `UIFileSharingEnabled`
+    /// already exposes it, so a state could be copied off the device, but a slot system cannot live
+    /// somewhere its files can be renamed or deleted underneath the index that describes them. See
+    /// the header of SaveStates.swift for that argument and for the compatibility gate, which is the
+    /// part that could not exist at all while a state carried no metadata.
+    func saveStateToSlot() {
+        saveStates.saveToNewSlot()
+    }
 
-        let bytes: Data
-        do {
-            bytes = Data(try engine.saveState())
-        } catch {
-            status = "save state refused by \(CoreCatalog.routeLabel(forExtension: entry.ext)): "
-                + "\(error)"
-            return
-        }
-        guard !bytes.isEmpty else {
-            status = "save state came back empty for \(entry.name); nothing was written"
-            return
-        }
-
-        let target = documents.appendingPathComponent("\(entry.name).state")
-        do {
-            try bytes.write(to: target, options: .atomic)
-            status = "saved state: \(target.lastPathComponent), \(bytes.count) bytes"
-        } catch {
-            status = "save state could not be written to \(target.lastPathComponent): "
-                + "\(error.localizedDescription)"
-        }
+    /// Launches a game and immediately loads one of its states.
+    ///
+    /// The detail sheet's "play from this state", and the reason `launch` takes `resumingAuto`. A
+    /// launch is synchronous all the way to a running session, so by the time it returns there is a
+    /// core to load into; if it failed, `running` is false and the store refuses with its own
+    /// reason rather than this method inventing one.
+    func launchAndLoad(entry: LibraryEntry, record: SaveStateRecord) {
+        launch(entry: entry, resumingAuto: false)
+        guard running else { return }
+        saveStates.load(record)
     }
 
     /// Takes a line from the control surface.
@@ -2378,6 +2433,10 @@ struct RootView: View {
                              // because a pad connecting has to redraw it: it decides whether the
                              // on-screen controls are mounted at all.
                              controllers: host.controllers,
+                             // Observed for the same kind of reason: the save button's menu lists
+                             // this game's states, so writing one has to change the menu without
+                             // anything else on the player redrawing.
+                             saveStates: host.saveStates,
                              system: host.activeSystem)
             }
         }

@@ -129,7 +129,8 @@ struct LibraryShell: View {
         .background(SafeAreaProbe { metrics = $0 })
         // A sheet rather than a pushed view, so nothing in the view tree under it is replaced.
         .sheet(item: $host.detailEntry) { entry in
-            GameDetailSheet(entry: entry, host: host, artwork: artwork)
+            GameDetailSheet(entry: entry, host: host, artwork: artwork,
+                            saveStates: host.saveStates, cheats: host.cheats)
         }
     }
 
@@ -445,7 +446,9 @@ struct LibraryShell: View {
         SettingsScreen(host: host,
                        artwork: artwork,
                        emulation: host.emulation,
-                       controllers: host.controllers)
+                       controllers: host.controllers,
+                       saveStates: host.saveStates,
+                       cheats: host.cheats)
             .padding(.top, topBarHeight + max(metrics.insets.top, 8) + 6)
             .padding(.bottom, bottomBarHeight)
     }

@@ -66,6 +66,28 @@ struct RetroSystemTiming {
     sample_rate: f64,
 }
 
+/// `retro_system_info`, laid out to match the C struct.
+///
+/// Read for one field, `library_version`, and that field is load-bearing rather than
+/// cosmetic. A libretro save state is an opaque dump of the core's internal structs, and
+/// `retro_unserialize` is not versioned: handing a core a state written by a DIFFERENT BUILD
+/// of itself does not reliably fail. It can succeed into a subtly corrupted machine that
+/// crashes minutes later somewhere unrelated, which is the worst failure mode available
+/// because the cause and the symptom are nowhere near each other. Recording the version
+/// alongside every saved state is what lets the app refuse the load instead of hoping.
+///
+/// The strings are owned by the core and must be copied, not retained. Every field is
+/// declared even though only one is read, because the layout has to match for the offset of
+/// that one to be right.
+#[repr(C)]
+struct RetroSystemInfo {
+    library_name: *const c_char,
+    library_version: *const c_char,
+    valid_extensions: *const c_char,
+    need_fullpath: bool,
+    block_extract: bool,
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 struct RetroSystemAvInfo {
@@ -378,7 +400,18 @@ struct Symbols {
     unload_game: unsafe extern "C" fn(),
     run: unsafe extern "C" fn(),
     reset: unsafe extern "C" fn(),
+    get_system_info: unsafe extern "C" fn(*mut RetroSystemInfo),
     serialize_size: unsafe extern "C" fn() -> usize,
+    // THESE TWO WERE MISSING UNTIL SAVE STATES WERE TESTED ON A DEVICE, and their absence is
+    // worth recording because of how quietly it failed. `serialize_size` was resolved and
+    // `state_size()` therefore returned a real, plausible number, so everything upstream
+    // believed the core supported save states. But `save_state` and `load_state` were never
+    // implemented on this type, so they fell through to the trait's defaults, which return
+    // `NotImplemented`. The result was a save button that always failed and a rewind tape that
+    // silently recorded nothing at all, because the tick logs a refused snapshot at debug level
+    // and carries on. Nothing anywhere said the feature did not exist.
+    serialize: unsafe extern "C" fn(*mut c_void, usize) -> bool,
+    unserialize: unsafe extern "C" fn(*const c_void, usize) -> bool,
     cheat_reset: unsafe extern "C" fn(),
     cheat_set: unsafe extern "C" fn(c_uint, bool, *const c_char),
 }
@@ -402,6 +435,12 @@ pub struct NativeLibretroCore {
     /// The pixel format `video()` reports. Seeded from the descriptor's declared format and
     /// overwritten by whatever the core chose through `SET_PIXEL_FORMAT` during load.
     negotiated_format: PixelFormat,
+    /// The core's `library_version`, copied once at load. `None` if the core left it null or
+    /// reported something that is not UTF-8.
+    ///
+    /// Copied rather than borrowed because the pointer belongs to the core, and this outlives
+    /// no particular call but the core's own lifetime is not something to bet a `&str` on.
+    library_version: Option<String>,
 }
 
 impl NativeLibretroCore {
@@ -473,7 +512,19 @@ impl NativeLibretroCore {
             unload_game: symbol!("retro_unload_game", unsafe extern "C" fn()),
             run: symbol!("retro_run", unsafe extern "C" fn()),
             reset: symbol!("retro_reset", unsafe extern "C" fn()),
+            get_system_info: symbol!(
+                "retro_get_system_info",
+                unsafe extern "C" fn(*mut RetroSystemInfo)
+            ),
             serialize_size: symbol!("retro_serialize_size", unsafe extern "C" fn() -> usize),
+            serialize: symbol!(
+                "retro_serialize",
+                unsafe extern "C" fn(*mut c_void, usize) -> bool
+            ),
+            unserialize: symbol!(
+                "retro_unserialize",
+                unsafe extern "C" fn(*const c_void, usize) -> bool
+            ),
             cheat_reset: symbol!("retro_cheat_reset", unsafe extern "C" fn()),
             cheat_set: symbol!(
                 "retro_cheat_set",
@@ -523,6 +574,37 @@ impl NativeLibretroCore {
         );
 
         let negotiated_format = descriptor.pixel_format;
+        // Read here, before any content is loaded, because `retro_get_system_info` is one of
+        // the few libretro entry points a core must answer at any time. Doing it once and
+        // keeping the copy means nothing later has to call back into the core for a string that
+        // cannot change.
+        let library_version = unsafe {
+            let mut info = RetroSystemInfo {
+                library_name: std::ptr::null(),
+                library_version: std::ptr::null(),
+                valid_extensions: std::ptr::null(),
+                need_fullpath: false,
+                block_extract: false,
+            };
+            (symbols.get_system_info)(&mut info);
+            if info.library_version.is_null() {
+                None
+            } else {
+                // A core reporting a version that is not UTF-8 is treated as reporting none,
+                // rather than as an error: the version is only used to refuse a mismatched save
+                // state, and a core that cannot name itself simply loses that one check.
+                CStr::from_ptr(info.library_version)
+                    .to_str()
+                    .ok()
+                    .map(str::to_owned)
+            }
+        };
+        log::info!(
+            "core '{}' reports version {}",
+            descriptor.id,
+            library_version.as_deref().unwrap_or("(none)")
+        );
+
         Ok(Self {
             descriptor,
             library,
@@ -537,6 +619,7 @@ impl NativeLibretroCore {
             audio: Vec::new(),
             duped_frames: 0,
             negotiated_format,
+            library_version,
         })
     }
 
@@ -709,6 +792,87 @@ impl EmulatorCore for NativeLibretroCore {
         } else {
             0
         }
+    }
+
+    /// Writes a save state into `dst`, returning how many bytes the core wrote.
+    ///
+    /// The size is re-read here rather than taken from the caller's buffer length, because
+    /// libretro permits `retro_serialize_size` to CHANGE during a session: a disc swap is the
+    /// usual reason, and some cores report a different figure once they have run a few frames.
+    /// A caller that sized its buffer a moment ago can therefore be holding a buffer that is
+    /// now too small, and handing `retro_serialize` a length longer than the buffer would be a
+    /// heap overflow rather than an error. So the buffer is checked against what the core wants
+    /// right now, and the core is handed the smaller figure's worth of nothing at all if it does
+    /// not fit.
+    fn save_state(&self, dst: &mut [u8]) -> Result<usize, BridgeError> {
+        if !self.content_loaded {
+            return Err(BridgeError::NoSession);
+        }
+        let size = unsafe { (self.symbols.serialize_size)() };
+        if size == 0 {
+            return Err(BridgeError::SaveState(format!(
+                "{} does not support save states",
+                self.descriptor.display_name
+            )));
+        }
+        if dst.len() < size {
+            return Err(BridgeError::SaveState(format!(
+                "save buffer is {} bytes but {} now needs {size}",
+                dst.len(),
+                self.descriptor.display_name
+            )));
+        }
+        // Cast through the slice's pointer rather than taking a reference to the whole buffer,
+        // so the core is given exactly the length it asked for even when `dst` is longer.
+        let ok = unsafe { (self.symbols.serialize)(dst.as_mut_ptr().cast::<c_void>(), size) };
+        if !ok {
+            return Err(BridgeError::SaveState(format!(
+                "{} refused to write a save state",
+                self.descriptor.display_name
+            )));
+        }
+        Ok(size)
+    }
+
+    /// Restores a save state.
+    ///
+    /// **A state from the wrong core, or from a different build of the right one, is a real
+    /// hazard rather than a rejected input.** `retro_unserialize` reads an opaque dump straight
+    /// back into the core's own structs and is not versioned, so a foreign blob of plausible
+    /// length can be accepted and leave the emulated machine quietly corrupt, to crash later
+    /// somewhere with no visible connection to this call. Nothing at this layer can tell the
+    /// difference, which is why the checks live where the metadata does: the host records the
+    /// core id, the core's reported version and the exact byte length beside every state and
+    /// refuses a mismatch before calling this. The length check below is the only defence
+    /// available here, and it is the weakest of the four.
+    fn load_state(&mut self, src: &[u8]) -> Result<(), BridgeError> {
+        if !self.content_loaded {
+            return Err(BridgeError::NoSession);
+        }
+        if src.is_empty() {
+            return Err(BridgeError::SaveState("that save state is empty".into()));
+        }
+        let expected = unsafe { (self.symbols.serialize_size)() };
+        if expected != 0 && src.len() != expected {
+            return Err(BridgeError::SaveState(format!(
+                "that save state is {} bytes but {} expects {expected}, so it was written by a \
+                 different core or a different build",
+                src.len(),
+                self.descriptor.display_name
+            )));
+        }
+        let ok = unsafe { (self.symbols.unserialize)(src.as_ptr().cast::<c_void>(), src.len()) };
+        if !ok {
+            return Err(BridgeError::SaveState(format!(
+                "{} rejected that save state",
+                self.descriptor.display_name
+            )));
+        }
+        Ok(())
+    }
+
+    fn version(&self) -> Option<&str> {
+        self.library_version.as_deref()
     }
 
     fn reset_cheats(&mut self) -> Result<(), BridgeError> {

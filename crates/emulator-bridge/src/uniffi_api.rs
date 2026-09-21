@@ -990,9 +990,23 @@ impl ContinuumEngine {
     ///
     /// Exposed so a settings screen can say what a rewind budget is worth on the game
     /// actually running, instead of quoting an average across systems that is wrong for all
-    /// of them.
+    /// of them. Also the fourth and last of the checks a stored save state should be matched
+    /// against before being loaded; see [`ContinuumEngine::core_version`].
     pub fn save_state_size(&self) -> u64 {
         self.lock().state_size() as u64
+    }
+
+    /// The running core's own version string, or `None` if it does not report one.
+    ///
+    /// **Record this beside every save state you store, and refuse to load a state whose
+    /// recorded version differs from this.** A libretro save state is an opaque dump of the
+    /// core's internal structs and `retro_unserialize` is not versioned, so a state written by
+    /// a different build of the same core can be ACCEPTED and leave the emulated machine
+    /// quietly corrupt, to crash later somewhere with no visible connection to the load. The
+    /// engine cannot tell the difference, so the host has to, and the four things worth storing
+    /// are the core id, this version, the exact byte length and the game it belongs to.
+    pub fn core_version(&self) -> Option<String> {
+        self.lock().core_version()
     }
 }
 

@@ -158,6 +158,17 @@ pub trait EmulatorCore: crate::MaybeSend {
 
     fn reset(&mut self) -> Result<(), BridgeError>;
 
+    /// The core's own version string, as it reports it.
+    ///
+    /// Exists for save-state compatibility rather than for display. A state written by one
+    /// build of a core is not safely readable by another, and `retro_unserialize` will not
+    /// reliably say so, so the host stores this beside every state and refuses a mismatch.
+    /// `None` means the core does not report one, in which case that check cannot be made and
+    /// the remaining ones have to carry it.
+    fn version(&self) -> Option<&str> {
+        None
+    }
+
     /// Save-state size in bytes; `0` means the core has no state support.
     fn state_size(&self) -> usize {
         0
