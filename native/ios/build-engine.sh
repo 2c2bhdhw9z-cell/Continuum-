@@ -151,9 +151,22 @@ echo "==> $LIBDIR/libcontinuum_switch.dylib ($(du -h "$WRAPPER" | cut -f1))"
 echo "==> asking build-core.sh which core dylibs to expect"
 CORE_NAMES="$("$ROOT/scripts/build-core.sh" ios-names)"
 CORE_COUNT="$(printf '%s\n' "$CORE_NAMES" | grep -c '\.dylib$' || true)"
-[ "$CORE_COUNT" = "5" ] || {
-  echo "error: build-core.sh ios-names listed $CORE_COUNT core dylib(s), expected 5" >&2
+# CHECKS THE SHAPE, NOT A MAGIC NUMBER. This used to assert exactly 5, which is the one thing a
+# guard here must not do: adding a sixth core turned a correct list into a build failure, and the
+# error told the reader the list was wrong when the assertion was. What this is actually defending
+# against is `ios-names` returning nothing, or returning something that is not a list of core
+# filenames, either of which would let the rest of this script proceed on an empty set and produce
+# an .ipa with no cores in it. Both of those are caught by requiring at least one entry and
+# requiring every entry to look like a core dylib, and neither needs editing when a core is added.
+[ "$CORE_COUNT" -ge 1 ] || {
+  echo "error: build-core.sh ios-names listed no core dylibs at all" >&2
   printf '%s\n' "$CORE_NAMES" >&2
+  exit 1
+}
+MALFORMED="$(printf '%s\n' "$CORE_NAMES" | grep -v '_libretro_ios\.dylib$' || true)"
+[ -z "$MALFORMED" ] || {
+  echo "error: build-core.sh ios-names returned entries that are not core dylibs:" >&2
+  printf '%s\n' "$MALFORMED" >&2
   exit 1
 }
 printf '%s\n' "$CORE_NAMES" | sed 's/^/      /'
