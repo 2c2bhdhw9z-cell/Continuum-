@@ -315,6 +315,39 @@ ios_clone() {
     echo "==> initialising submodules for $core"
     ( cd "$IOS_SRC_DIR" && git submodule update --init --recursive )
   fi
+  ios_record_source_version "$core"
+}
+
+# Where every core's source came from, written down.
+#
+# These clones are UNPINNED: `--depth 1` of whatever the default branch's HEAD is on the day CI
+# runs. That is a deliberate tradeoff, since pinning six cores means maintaining six pins and
+# missing their fixes, but unrecorded it makes a whole class of failure undebuggable. When a core
+# that worked last week stops working, or quietly changes behaviour, the first question is what
+# moved, and without this there is no way to answer it and nothing to bisect.
+#
+# It is not hypothetical for the DS in particular. Two melonDS option VALUES are hardcoded in
+# `option_overrides` and matched by `strcmp` inside the core, so an upstream rename turns the DS
+# touch screen off again with no error on either side. This does not prevent that, but it does
+# make it attributable to a commit rather than to a mystery.
+#
+# Written to a file as well as the log because the log ages out of the Actions UI while this ships
+# in the build metadata artefact next to the entitlements and the generated Swift.
+ios_record_source_version() {
+  local core="$1"
+  local sha
+  sha="$(git -C "$IOS_SRC_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
+  echo "==> $core source: $IOS_REPO @ $sha"
+  mkdir -p "$IOS_OUT_DIR"
+  local manifest="$IOS_OUT_DIR/core-sources.txt"
+  # Rewritten per core rather than appended blindly, so a rebuild of one core updates its line
+  # instead of adding a second one that disagrees with the first.
+  if [[ -f "$manifest" ]]; then
+    grep -v "^$core " "$manifest" > "$manifest.tmp" 2>/dev/null || true
+    mv "$manifest.tmp" "$manifest"
+  fi
+  echo "$core $IOS_REPO $sha" >> "$manifest"
+  LC_ALL=C sort -o "$manifest" "$manifest"
 }
 
 # The one place an install name is fixed and a dylib is staged.

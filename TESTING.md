@@ -55,15 +55,21 @@ answers. So:
 Both are now answered explicitly for this one core, and every other setting of every core is still
 left alone.
 
-### Known problems being chased
+### Fixed since the last build: the mgba flake
 
-- **mgba is flaky in CI, not broken in the app.** One build produced an mgba core with no libretro
-  API in it at all, and the next build of the identical commit, with the identical Xcode, was fine.
-  Its CMake plus link-time-optimisation plus force-load link does not always emit a dylib with
-  symbols. **It cannot ship broken**, because `build-core.sh` asserts the core exports `retro_run`
-  and fails the build if it does not, which is exactly what caught it. So the symptom is a wasted
-  build rather than a GBA game that will not start. If a build ever fails mentioning mgba and
-  `retro_run`, that is this, and a retry is the workaround.
+**Diagnosed, so this should stop happening.** One build produced an mgba core with no emulator API
+in it at all, and the next build of the identical commit was fine. The cause was link-time
+optimisation being allowed to delete the very functions the app looks for, because nothing in that
+link mentioned them by name, and whether it deleted them depended on how the compiler happened to
+split the work across cores. They are now named explicitly, so there is nothing left to chance.
+
+Two things follow from it that are worth knowing:
+
+- The build used to check that a core had **one** of the twenty functions the app needs. It now
+  checks all twenty. A core that loses one of them fails the build instead of failing on your
+  phone, which is what happened for months with save states.
+- If a build ever does fail mentioning a core and a missing entry point, that is this check doing
+  its job. Tell me which core and I will look at it; a retry is no longer the expected fix.
 
 ### Cannot be tested on purpose
 

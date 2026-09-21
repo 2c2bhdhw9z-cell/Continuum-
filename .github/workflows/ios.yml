@@ -168,5 +168,6 @@ jobs:
           path: |
             native/ios/build/Generated/
             native/ios/project.yml
+            native/ios/build/lib/core-sources.txt
           if-no-files-found: warn
           retention-days: 14

@@ -111,14 +111,29 @@ paraLLEl-RDP is Vulkan compute and has no GL equivalent.
 
 ## Known problems
 
-- **mgba is flaky in CI.** One build produced an mgba core with no libretro API in it; the next
-  build of the identical commit was fine. Its CMake plus link-time-optimisation plus force-load link
-  does not always emit symbols. **It cannot ship broken**, because `build-core.sh` asserts the core
-  exports `retro_run`, which is what caught it, so the cost is a wasted build rather than a GBA game
-  that will not start. Not yet diagnosed.
+- ~~**mgba is flaky in CI.**~~ **Diagnosed and fixed.** The archive holds LLVM bitcode, because
+  mgba's CMake adds `-flto` unconditionally on Apple through a condition that parses as
+  `APPLE OR (GNU AND BUILD_LTO)`, so `-DBUILD_LTO=OFF` could never have turned it off.
+  `-force_load` guaranteed the archive members were loaded and then LTO decided what to emit from
+  them, and since nothing in the link referenced the libretro API, LTO was free to internalise it.
+  Whether it did came down to how its parallel codegen partitioned the module, which is why the
+  same commit passed and failed on different days. Every entry point is now named with `-u`, which
+  makes it a root before LTO runs. One clean build so far, and the mechanism is deterministic
+  rather than lucky.
+- **The staged-dylib check now covers all 20 entry points**, not just `retro_run`. One symbol only
+  ever caught a core that resolved nothing; a core that loses one entry point is both likelier and
+  much quieter. That is not hypothetical: save states were broken for this project's whole life
+  because `retro_serialize` was never resolved.
 - **`swiftc` on Linux cannot type-check.** It is a syntax pass, so a Swift type error, an actor
   isolation mistake or a wrong argument label is only caught by CI. Several builds have been spent
   on exactly that, and it is a property of the toolchain rather than carelessness.
+- **The six core sources are not pinned.** Each is cloned at whatever its default branch's HEAD is
+  on the day CI runs. Pinning six upstreams means maintaining six pins and missing their fixes, so
+  the tradeoff is deliberate, but it does mean a core that built last week can change under us. It
+  matters most for the DS, where two option VALUES are hardcoded here and compared by string inside
+  melonDS: an upstream rename would switch the touch screen off again with no error at either end.
+  Every build now records each core's repository and commit in `core-sources.txt` inside the build
+  metadata artefact, so that becomes a diff between two builds rather than a mystery.
 
 ---
 
