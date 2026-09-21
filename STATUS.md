@@ -123,31 +123,38 @@ code, against a 6 to 8 GB working budget.
 
 ### Two things gate N64, and neither is graphics
 
-**The recompiler, and it may not be winnable on a sideloaded build.** An N64 interpreter is far
-too slow, so N64 needs a working JIT.
+**The recompiler, and it is reachable after all.** An N64 interpreter is far too slow, so N64
+needs a working JIT. Two earlier readings of this were both wrong, in opposite directions, so here
+is the verified position.
 
-Worth knowing before any more graphics work is done for it: the entitlements file asks for
-`com.apple.security.cs.allow-jit` and `com.apple.security.cs.allow-unsigned-executable-memory`,
-and **both are macOS hardened-runtime keys that iOS ignores.** iOS gates executable memory behind
-`dynamic-codesigning`, which no provisioning profile can carry, at any account tier. Only a signing
-bypass such as TrollStore, or a jailbreak, grants it. So on a normal sideload, signed on-device with
-a developer or distribution certificate, the honest expectation is that a recompiler cannot run at
-all.
+iOS does not gate executable memory on the `com.apple.security.cs.*` keys in
+`Continuum.entitlements`; those are macOS hardened-runtime keys and iOS ignores them. Nor does it
+require `dynamic-codesigning`, the TrollStore route, which no provisioning profile can carry.
 
-That would put N64 out of reach on such an install, and the same applies to PSP, 3DS and the Switch,
-which all want a recompiler too. It does NOT affect anything shipping today: every one of the
-fourteen systems runs on an interpreter. The button in Settings settles it per install, and that
-answer should be had before steps 3 to 6 are built for a core that could not execute. The
-entitlements have claimed one since the first build and had never been exercised, so this build
-carries a probe: open a game, tap ⓘ, read the line starting `JIT:`. That is item 1 in
-[TESTING.md](TESTING.md)'s queue and it is the cheapest useful thing anyone can do right now.
+**What it actually takes is `get-task-allow` plus an attached debugger.** A debugged process gets
+`CS_DEBUGGED` and the kernel permits executable memory. StikDebug and StikJIT do the attaching
+entirely on-device over a local VPN loopback, needing a computer only once to make a pairing file.
+`get-task-allow` is grantable, but ONLY by a development provisioning profile, so **signing this app
+with a distribution identity silently rules out every recompiler system.** The app now reports
+whether its own installed copy has the entitlement, so this is checkable rather than guessed.
+
+One more piece is required on this hardware. Where TXM/SPTM is present, which it is on recent
+devices, attaching is not sufficient: each executable region has to be prepared through the debug
+connection first, using a breakpoint protocol the HOST APP must implement:
+
+    JIT26Detach()                      mov x16, #0 ; brk #0xf00d ; ret
+    JIT26PrepareRegion(address, size)  mov x16, #1 ; brk #0xf00d ; ret
+
+Order matters and a `brk` with no script attached crashes the process, so this is gated work rather
+than a flag. It is Part 1 of StikJIT's integration guide and is **not started**. Nothing else on the
+N64 road should be built before it, because every step after 2 exists to serve a core that cannot
+execute without it.
 
 Reading the cores established the rest: `pcsx_rearmed` and `mupen64plus-next` have **no** Apple JIT
-support at all, so switching the PlayStation recompiler on would have failed at the first
-executable page and looked like a broken core. `parallel-n64` **does** have it, and it is also the
-core the graphics design already chose for unrelated reasons. Its iOS build disables the recompiler,
-so enabling it means porting that core's macOS arm64 configuration, which is bounded work on the
-same CPU under the same rules.
+support at all, so switching the PlayStation recompiler on would have failed at the first executable
+page and looked like a broken core. `parallel-n64` **does** have it, and it is also the core the
+graphics design already chose for unrelated reasons. Its iOS build disables the recompiler, so
+enabling it means porting that core's macOS arm64 configuration.
 
 **MoltenVK in the bundle**, roughly 8 MB on an app that is currently 7.3 MB. Unavoidable:
 paraLLEl-RDP is Vulkan compute and has no GL equivalent.

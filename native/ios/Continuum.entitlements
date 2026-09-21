@@ -5,22 +5,28 @@
   Distribution is sideloading with custom signing, so these are simply present rather than
   requested: App Store review is out of scope.
 
-  READ THIS BEFORE TRUSTING THE JIT KEYS BELOW. `com.apple.security.cs.allow-jit` and
-  `com.apple.security.cs.allow-unsigned-executable-memory` are macOS HARDENED RUNTIME keys. On
-  iOS they are not the switch for executable memory and are simply ignored. iOS gates that behind
-  `dynamic-codesigning`, which Apple restricts: NO provisioning profile grants it, development or
-  distribution, free or paid, because it is not a capability a profile can carry. Only a signing
-  bypass such as TrollStore, or a jailbreak, can.
+  HOW JIT ACTUALLY WORKS ON iOS, because two earlier versions of this comment were wrong in
+  opposite directions. It is not unconditional, and it is not impossible either.
 
-  So "JIT is unconditional", which this comment used to claim, was wrong on the platform this
-  file is for. Whether a recompiler can run is a property of HOW A COPY WAS INSTALLED and cannot
-  be fixed from inside the repository. The button in Settings is what answers it on a given
-  install; see `jit_probe.rs`.
+  The two `com.apple.security.cs.*` keys below are macOS HARDENED RUNTIME keys. On iOS they are
+  not the switch for executable memory, and they are ignored. That part of the correction stands.
 
-  `dynamic-codesigning` is deliberately NOT added here. A restricted entitlement that the signing
-  identity cannot carry can make an install fail outright, and an app that will not install is a
-  worse outcome than one that cannot recompile. Add it only against a signing method that is
-  known to grant it.
+  What iOS actually requires is `get-task-allow`, and then an external debugger. A process that is
+  being debugged gets `CS_DEBUGGED`, and the kernel permits executable memory for it. That is the
+  mechanism every JIT-using sideloaded app on a non-jailbroken iPhone relies on, through StikDebug
+  or StikJIT over a local VPN loopback, with no computer needed after the first pairing.
+
+  `get-task-allow` IS grantable, but only by a DEVELOPMENT provisioning profile. Apple does not
+  whitelist it on distribution profiles. So the signing choice decides whether a recompiler is
+  possible, and signing this app with a distribution identity silently rules it out.
+
+  `dynamic-codesigning` is deliberately NOT here. That is the TrollStore/jailbreak route, it
+  cannot be carried by any profile, and a restricted entitlement the signing identity cannot
+  satisfy can make an install fail outright. The debugger route needs nothing of the sort.
+
+  Sources: StikJIT's own integration guide states the process receiving JIT must have
+  `get-task-allow`, and Apple's developer forums state that entitlement is whitelisted only by
+  development profiles.
 
   The two memory entitlements do different jobs and both are needed:
 
@@ -39,9 +45,23 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- THE ONE THAT MATTERS ON iOS. Lets a debugger attach, which is what makes executable
+	     memory available: StikDebug and StikJIT both require it of the process receiving JIT.
+
+	     ONLY A DEVELOPMENT PROVISIONING PROFILE CAN CARRY THIS. Signing with a distribution
+	     identity drops it, and a dropped `get-task-allow` means no recompiler, which means no
+	     N64, PSP, 3DS or Switch however good the graphics path gets. The app reports whether
+	     its own installed copy has it, so this is checkable rather than assumed; see
+	     `jit_probe.rs` and the JIT line in the diagnostics. -->
+	<key>get-task-allow</key>
+	<true/>
+
 	<!-- JIT. mmap with MAP_JIT, then pthread_jit_write_protect_np per thread, then
 	     sys_icache_invalidate — which is NOT optional on arm64: omitting it works in the
-	     simulator and crashes on device, intermittently. -->
+	     simulator and crashes on device, intermittently.
+
+	     A macOS hardened-runtime key, kept because it is harmless and correct for a future
+	     macOS target, but it is NOT what enables this on iOS. See the header. -->
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
 

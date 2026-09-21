@@ -117,7 +117,85 @@ pub fn describe_execution() -> String {
 
 #[cfg(all(target_os = "ios", target_arch = "aarch64"))]
 mod ios_aarch64 {
-    use core::ffi::c_void;
+    use core::ffi::{c_char, c_void};
+
+    // `csops` below is resolved at RUNTIME through `dlsym` rather than declared for the linker.
+    //
+    // It is a private symbol. Declaring it in this block would make the LINKER responsible for
+    // finding it, and a missing symbol there fails the build — which cannot be caught locally,
+    // because `cargo check` does not link and the only linker for this target is CI. That exact
+    // mistake cost two red builds with `pthread_jit_write_protect_np`. `dlsym` moves the question
+    // to runtime, where a missing symbol is a `None` the read-out can report.
+    extern "C" {
+        fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+    }
+
+    /// `RTLD_DEFAULT` on Darwin: search every loaded image in the normal order.
+    const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
+
+    /// `csops` operation for "give me this process's code signing status word".
+    const CS_OPS_STATUS: u32 = 0;
+    /// The process may be attached to by a debugger. THE ENTITLEMENT THAT DECIDES WHETHER JIT IS
+    /// POSSIBLE, because JIT on iOS comes from being debugged and nothing may debug a process
+    /// without it. Carried only by a development provisioning profile.
+    const CS_GET_TASK_ALLOW: u32 = 0x0000_0004;
+    /// A debugger is attached right now, which is when executable memory is actually permitted.
+    const CS_DEBUGGED: u32 = 0x1000_0000;
+
+    /// This process's code signing status word, or `None` if it could not be read.
+    fn signing_status() -> Option<u32> {
+        type Csops = unsafe extern "C" fn(i32, u32, *mut c_void, usize) -> i32;
+        // SAFETY: the name is a NUL-terminated literal, and the resolved pointer is called with
+        // exactly the signature `csops` is documented to have.
+        unsafe {
+            let symbol = dlsym(RTLD_DEFAULT, c"csops".as_ptr());
+            if symbol.is_null() {
+                return None;
+            }
+            let csops: Csops = core::mem::transmute(symbol);
+            let mut status: u32 = 0;
+            let rc = csops(
+                0, // 0 means this process
+                CS_OPS_STATUS,
+                &mut status as *mut u32 as *mut c_void,
+                core::mem::size_of::<u32>(),
+            );
+            if rc == 0 {
+                Some(status)
+            } else {
+                None
+            }
+        }
+    }
+
+    /// What the signature says about this installed copy, as a sentence fragment.
+    ///
+    /// This is the half of the JIT question that has nothing to do with running code, and it is the
+    /// half that is actually actionable: `get-task-allow` comes from the provisioning profile the
+    /// copy was signed with, so a "no" here is fixed by re-signing with a development identity
+    /// rather than by changing anything in this repository.
+    pub fn signing_summary() -> String {
+        match signing_status() {
+            None => "signing flags unreadable".to_string(),
+            Some(status) => {
+                let debuggable = status & CS_GET_TASK_ALLOW != 0;
+                let debugged = status & CS_DEBUGGED != 0;
+                match (debuggable, debugged) {
+                    (false, _) => "get-task-allow is MISSING, so nothing can attach a debugger \
+                                   and no recompiler can run. Re-sign with a DEVELOPMENT \
+                                   certificate and profile, not a distribution one"
+                        .to_string(),
+                    (true, false) => "get-task-allow is present, so this copy can receive JIT \
+                                      once a debugger attaches. Nothing is attached yet: that is \
+                                      StikDebug's job"
+                        .to_string(),
+                    (true, true) => "get-task-allow is present AND a debugger is attached, which \
+                                     is the state a recompiler needs"
+                        .to_string(),
+                }
+            }
+        }
+    }
 
     // Declared here rather than taking a dependency on `libc` for four symbols. The values are
     // from Apple's `sys/mman.h` and are stable ABI: changing them would break every compiled
@@ -177,19 +255,17 @@ mod ios_aarch64 {
     /// It is also genuinely informative in the negative: a refused mapping means no recompiler can
     /// run at all. A successful mapping is necessary but not sufficient, which the wording says.
     pub fn probe_mapping() -> String {
+        // The signing half comes first, because it is the one with an action attached to it. A
+        // mapping result is interesting; a missing `get-task-allow` is a thing to go and fix.
+        let signing = signing_summary();
         let with_jit = can_map(MAP_PRIVATE | MAP_ANON | MAP_JIT);
         let plain = can_map(MAP_PRIVATE | MAP_ANON);
-        match (with_jit, plain) {
-            (true, _) => "JIT: executable pages can be mapped with MAP_JIT. Whether they can be \
-                          RUN is the other half, and Settings has the button that finds out."
-                .to_string(),
-            (false, true) => "JIT: MAP_JIT was refused, but a plain executable mapping was \
-                              accepted. Settings has the button that tries running one."
-                .to_string(),
-            (false, false) => "JIT: NOT AVAILABLE, no executable page could be mapped at all. No \
-                               recompiler can run, so N64 is not possible on this installed build."
-                .to_string(),
-        }
+        let mapping = match (with_jit, plain) {
+            (true, _) => "executable pages map with MAP_JIT",
+            (false, true) => "MAP_JIT refused, plain executable mapping accepted",
+            (false, false) => "no executable page could be mapped at all",
+        };
+        format!("JIT: {signing}. Mapping: {mapping}.")
     }
 
     /// One mapping attempt, immediately released. Nothing is written to the page.
