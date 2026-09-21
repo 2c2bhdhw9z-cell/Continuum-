@@ -81,9 +81,48 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+    # EVERY SWIFT FILE THE APP NEEDS MUST BE LISTED HERE, BY NAME. This list is explicit, not a
+    # directory glob, so a new file that is not added below is simply never compiled: the app
+    # builds, installs and launches, and the feature in that file does not exist, with no error
+    # anywhere to read. Adding a file to native/ios/ and forgetting this line is therefore a silent
+    # failure, which is the worst kind on a build whose only debugger is the on-screen HUD.
     sources:
       - path: ContinuumApp.swift
       - path: MetalCanvas.swift
+      # The on-screen pad: the engine's button wire format, the per-system control sets, and the
+      # multi-touch surface that tracks the D-pad as one region so diagonals resolve.
+      - path: TouchControls.swift
+      # The player screen's chrome, and the diagnostics panel both screens share.
+      - path: PlayerScreen.swift
+      # Stage 2, the library shell. The tab shell, the top bar, the hero and the shelves.
+      - path: LibraryShell.swift
+      # The pieces the shell is built from: hero, cards, list rows, palette, status tint.
+      - path: LibraryCards.swift
+      # Settings: the artwork controls and their disclosure, the layout controls, the permanent home
+      # of the diagnostics, the BIOS row and the core options.
+      - path: SettingsScreen.swift
+      # One game's detail sheet: the facts, the artwork actions and delete.
+      - path: GameDetailSheet.swift
+      # Cover art, the pure half: the libretro playlist directory names, the filename to
+      # thumbnail-name transform, the candidate ladder and the procedural plate.
+      - path: GameArtwork.swift
+      # Cover art, the working half: URLSession fetching capped at three at a time, the on-disk
+      # store outside Documents, the one-week negative cache and the user-picked image.
+      - path: ArtworkStore.swift
+      # Cover art, the last rung: the server's own directory listings, one per system AND folder,
+      # parsed once each and kept for thirty days, so a game named under a convention this app
+      # cannot derive still gets its cover. The match is an equality of normalised titles, and after
+      # that a whole-word prefix or suffix alignment with hard guards, which is what finds a cover
+      # filed without the game's series name. Never a substring and never a distance, and an
+      # alignment that hits two titles picks nothing at all.
+      - path: ArtworkIndex.swift
+      # Cover art, the choice: every cover the server has for one game, enumerated only when that
+      # game's detail card is opened, offered as labelled thumbnails, and remembered against the
+      # entry so a chosen cover outranks anything automatic resolution would pick. Nothing in here
+      # runs while the library is being browsed.
+      - path: ArtworkChooser.swift
+      # What a filename can honestly be made to say: the display title and the region.
+      - path: GameMetadata.swift
       # The UniFFI-generated Swift facade. Written by build-engine.sh, never committed: a
       # stale checked-in binding that disagrees with the Rust compiles, links, and then
       # corrupts arguments at runtime, which is the worst failure mode in this stack.

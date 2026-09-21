@@ -49,6 +49,18 @@ final class MetalCanvas: UIView {
     /// Called once per presented frame with the engine's telemetry, for the HUD.
     var onTelemetry: ((TickTelemetry) -> Void)?
 
+    /// Supplies the pad state for the frame about to run.
+    ///
+    /// Read here, in the display link, and not from the touch handlers, and that is the whole
+    /// reason a held button stays held. `apply_gamepad` lands in `apply_standard_gamepad`, which
+    /// REPLACES the gamepad source layer wholesale on every call, because a poll is a complete
+    /// statement about a device. Pushing only on touch-down would therefore have the very next
+    /// frame clear the press: a button would fire once and let go by itself, which is unplayable
+    /// in a way that looks like a flaky screen rather than a missing call.
+    ///
+    /// Nil until a player screen is on screen, and a released pad while no game runs.
+    var gamepadSource: (() -> PadFrame)?
+
     /// Reports how attaching went, so the harness can show it instead of a black screen.
     var onAttach: ((Result<String, Error>) -> Void)?
 
@@ -188,6 +200,15 @@ final class MetalCanvas: UIView {
 
     @objc private func tick(_ link: CADisplayLink) {
         guard attached else { return }
+
+        // Input FIRST, then the step. `EmulatorBridge::tick` snapshots the merged pad state once
+        // and hands that snapshot to every catch-up step of this tick, so a frame pushed after the
+        // tick would not be seen until the next one. One frame of avoidable lag, on every press.
+        if let gamepadSource {
+            let pad = gamepadSource()
+            engine.applyGamepad(port: 0, buttons: pad.buttons, axes: pad.axes)
+        }
+
         // targetTimestamp, not timestamp: the pacer wants when this frame will be *shown*,
         // not when the callback fired. FramePacer::plan() takes a timestamp for exactly this
         // reason — it never reads a clock of its own.
