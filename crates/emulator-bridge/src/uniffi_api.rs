@@ -1032,6 +1032,24 @@ impl ContinuumEngine {
         })
     }
 
+    /// Whether this app can write instructions into memory and execute them, as a sentence.
+    ///
+    /// **Ask this once, at startup, and show the answer.** It is the question every N64 core
+    /// depends on and the one this project has never answered: an N64 interpreter is far too slow
+    /// to be playable, so N64 needs a recompiler, and a recompiler needs a working JIT. The
+    /// entitlements have been present since the first build and have never been exercised, and on
+    /// a sideloaded app they are only as good as the signature that carried them, so this is a
+    /// property of the installed build rather than of the source.
+    ///
+    /// Deliberately not part of any core. See [`crate::jit_probe`] for why switching a core's
+    /// recompiler on would not have answered it: the PlayStation core has no Apple JIT support to
+    /// enable, so forcing it would have failed in a way that looked like a broken core.
+    ///
+    /// Takes no lock and touches no session. Costs one page mapped and unmapped.
+    pub fn jit_probe(&self) -> String {
+        crate::jit_probe::describe()
+    }
+
     /// The running core's own version string, or `None` if it does not report one.
     ///
     /// **Record this beside every save state you store, and refuse to load a state whose

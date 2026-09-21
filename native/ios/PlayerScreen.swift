@@ -462,6 +462,15 @@ struct DiagnosticsPanel: View {
                     Text(saveStates.diagnosticLine)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                // Whether this app can write instructions and run them, asked once at startup.
+                // Here rather than in Settings because it is a fact about the installed build, and
+                // the diagnostics panel is where facts about the build already live. It decides
+                // whether N64 is possible at all: an N64 interpreter is far too slow to be
+                // playable, so N64 needs a recompiler, and a recompiler needs this to say working.
+                if !host.jitLine.isEmpty {
+                    Text(host.jitLine)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .font(.system(.caption2, design: .monospaced))

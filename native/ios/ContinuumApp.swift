@@ -684,6 +684,18 @@ final class EngineHost: ObservableObject {
     /// failure is still legible with this off.
     @Published var showDiagnostics = false
 
+    /// What a JIT probe found, read once at startup. See `jit_probe.rs` in the engine.
+    ///
+    /// Read ONCE rather than on demand, and kept, because the answer cannot change while the app
+    /// is running: it is a property of the installed binary's entitlements and the signature that
+    /// carried them. Probing repeatedly would map and unmap a page for an answer already known.
+    ///
+    /// It is here at all because it decides whether N64 is possible. An N64 interpreter is far too
+    /// slow to be playable, so every usable N64 core needs a recompiler, and a recompiler needs to
+    /// be able to write instructions into memory and jump to them. The entitlements have been in
+    /// the build since the beginning and had never been exercised.
+    @Published var jitLine: String = ""
+
     /// The on-screen pad's layout: where the two thumb clusters sit, how big they are and how
     /// faint. One value, which is why the editor turned out to be a screen that writes six numbers
     /// rather than a rewrite. See `TouchLayout` and `TouchLayoutEditor`.
@@ -1059,6 +1071,9 @@ final class EngineHost: ObservableObject {
         // Reads its own stored preferences and pushes them into the engine as it is built, so
         // the first frame of the first game already looks and sounds the way the user left it.
         emulation = EmulationSettings(engine: engine)
+        // Costs one page mapped and unmapped. Done here so the answer is on the HUD before any
+        // game is launched, which is the point: it has to be readable without a core running.
+        jitLine = engine.jitProbe()
         // Scans for already-paired controllers as it is built, because a pad connected before the
         // app launched has already sent its connect notification to nobody. Given the engine so
         // that a disconnect can release the gamepad input layer immediately, which is not something

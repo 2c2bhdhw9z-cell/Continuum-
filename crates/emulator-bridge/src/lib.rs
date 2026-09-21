@@ -52,6 +52,7 @@ pub mod error;
 pub mod frame;
 pub mod gfx;
 pub mod input;
+pub mod jit_probe;
 pub mod rewind;
 pub mod timing;
 
