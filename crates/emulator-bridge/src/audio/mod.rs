@@ -89,6 +89,19 @@ pub trait AudioSink: crate::MaybeSend {
     /// Called after the user gesture that unlocks `AudioContext`, since the real
     /// `sampleRate` is not knowable before then.
     fn set_output_rate(&mut self, output_rate: u32);
+
+    /// Re-declares the rate the *incoming* samples should be treated as arriving at.
+    ///
+    /// This is how fast-forward stays listenable. At 2x speed the core is stepped twice
+    /// as often, so it produces twice as many samples per wall-clock second while the
+    /// device still consumes one second's worth. Left alone the ring simply overflows and
+    /// overwrites its oldest samples, which is heard as audio chopped several times a
+    /// second. Telling the resampler the source is running at `native * speed` makes it
+    /// consume the surplus instead, so the stream stays continuous and shifts up in pitch
+    /// - which is what fast-forward has sounded like on every emulator for thirty years.
+    ///
+    /// Default is a no-op so a sink without a resampler (the null sink) ignores it.
+    fn set_source_rate(&mut self, _source_rate: u32) {}
 }
 
 /// Scratch size for `i16` → `f32` conversion. Stack-resident, so conversion of an
@@ -212,6 +225,18 @@ impl AudioSink for RingAudioSink {
         // Buffered audio was resampled for the old rate; playing it at the new one
         // would pitch-shift the tail.
         self.ring.clear();
+    }
+
+    fn set_source_rate(&mut self, source_rate: u32) {
+        if source_rate == 0 || source_rate == self.resampler.source_rate() {
+            return;
+        }
+        // Deliberately *not* clearing the ring, unlike `set_output_rate`. Everything
+        // already queued was resampled for the correct output rate and is still going to
+        // the same device, so it remains playable; only the conversion ratio applied to
+        // samples arriving from here on changes. Dropping the backlog on every speed
+        // change would turn holding a fast-forward button into a stutter.
+        self.resampler.set_source_rate(source_rate);
     }
 }
 

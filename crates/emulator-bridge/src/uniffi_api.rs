@@ -196,6 +196,97 @@ pub struct CoreOptionRecord {
     pub values: Vec<String>,
 }
 
+/// How the game's image is fitted to the screen.
+///
+/// A mirror of [`crate::gfx::ScaleMode`] rather than that type carrying a `uniffi::Enum`
+/// derive itself, and deliberately so. The graphics layer is not supposed to know a foreign
+/// function interface exists - the same reasoning that keeps `MetalHandles` unexported at
+/// the foot of this file - and `renderer.rs` also compiles for targets where `uniffi` is
+/// not a dependency at all. Two four-line enums and a `From` impl is a cheaper price than
+/// coupling those layers, and it means this boundary can name things for the person reading
+/// a settings screen rather than for the person reading a shader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ScaleModeOption {
+    /// Fills as much of the screen as possible while keeping the correct shape, leaving
+    /// black bars on whichever axis runs out first.
+    AspectFit,
+    /// Rounds down to a whole multiple of the game's own pixel grid, so every emulated
+    /// pixel is the same size as every other. Wastes more of the screen and is the reason
+    /// people ask for it.
+    IntegerScale,
+    /// Fills the screen and accepts the distortion.
+    Stretch,
+}
+
+impl From<ScaleModeOption> for crate::gfx::ScaleMode {
+    fn from(mode: ScaleModeOption) -> Self {
+        match mode {
+            ScaleModeOption::AspectFit => Self::AspectFit,
+            ScaleModeOption::IntegerScale => Self::IntegerScale,
+            ScaleModeOption::Stretch => Self::Stretch,
+        }
+    }
+}
+
+impl From<crate::gfx::ScaleMode> for ScaleModeOption {
+    fn from(mode: crate::gfx::ScaleMode) -> Self {
+        match mode {
+            crate::gfx::ScaleMode::AspectFit => Self::AspectFit,
+            crate::gfx::ScaleMode::IntegerScale => Self::IntegerScale,
+            crate::gfx::ScaleMode::Stretch => Self::Stretch,
+        }
+    }
+}
+
+/// How a game's pixels are sampled when scaled up. See [`ScaleModeOption`] on why this
+/// mirrors [`crate::gfx::ScaleFilter`] instead of being it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ScaleFilterOption {
+    /// Hard pixel edges. What the games were drawn for, and the default.
+    Nearest,
+    /// Smooths between pixels.
+    Linear,
+}
+
+impl From<ScaleFilterOption> for crate::gfx::ScaleFilter {
+    fn from(filter: ScaleFilterOption) -> Self {
+        match filter {
+            ScaleFilterOption::Nearest => Self::Nearest,
+            ScaleFilterOption::Linear => Self::Linear,
+        }
+    }
+}
+
+impl From<crate::gfx::ScaleFilter> for ScaleFilterOption {
+    fn from(filter: crate::gfx::ScaleFilter) -> Self {
+        match filter {
+            crate::gfx::ScaleFilter::Nearest => Self::Nearest,
+            crate::gfx::ScaleFilter::Linear => Self::Linear,
+        }
+    }
+}
+
+/// The rewind tape, as Swift sees it.
+///
+/// `bytes` against `budget_bytes` is how full the tape is, and dividing `snapshots` by the
+/// snapshot rate is how many seconds of rewind are actually available - which is the number
+/// a user cares about and the one that cannot be stated up front, because it depends on how
+/// large the running core's save states turn out to be.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct RewindStatsSnapshot {
+    /// Snapshots currently held.
+    pub snapshots: u32,
+    /// Bytes those snapshots occupy.
+    pub bytes: u64,
+    /// Snapshots discarded to stay inside the budget. Climbing steadily is the tape
+    /// working, not failing.
+    pub evicted: u64,
+    /// The ceiling. `0` means rewind is switched off.
+    pub budget_bytes: u64,
+    /// Core frames between snapshots.
+    pub interval_frames: u32,
+}
+
 /// The engine, as Swift holds it.
 #[derive(uniffi::Object)]
 pub struct ContinuumEngine {
@@ -696,6 +787,152 @@ impl ContinuumEngine {
     /// agreeing about how much latency there is, which is the number the HUD reports.
     pub fn flush_audio(&self) {
         self.lock().flush_audio();
+    }
+
+    /// Sets output gain. `0.0` is silence, `1.0` is the core's own level.
+    ///
+    /// Applied inside the engine rather than on the platform's mixer for one reason worth
+    /// stating: it is the same volume on every platform this engine ever runs on, including
+    /// the Android build that does not exist yet. Out-of-range values are clamped rather
+    /// than rejected, and the change is ramped across the next drained block so that
+    /// dragging a slider does not click. Safe to call every frame.
+    pub fn set_volume(&self, volume: f32) {
+        self.lock().set_volume(volume);
+    }
+
+    pub fn volume(&self) -> f32 {
+        self.lock().volume()
+    }
+
+    /// Silences output without stopping emulation.
+    ///
+    /// Distinct from `set_volume(0.0)`: muting also drops the queued backlog, so unmuting
+    /// resumes at the present moment rather than replaying the second of audio that
+    /// accumulated while it was silent.
+    pub fn set_muted(&self, muted: bool) {
+        self.lock().set_muted(muted);
+    }
+
+    pub fn is_muted(&self) -> bool {
+        self.lock().is_muted()
+    }
+
+    // --------------------------------------------------------------------- video
+
+    /// Sets how the image is fitted to the screen. See [`ScaleModeOption`].
+    ///
+    /// A 32-byte uniform write, so this is free to call whenever and takes effect on the
+    /// next presented frame. Remembered by the engine across launches, so it does not need
+    /// re-applying every time a game starts.
+    pub fn set_scale_mode(&self, mode: ScaleModeOption) {
+        self.lock().set_scale_mode(mode.into());
+    }
+
+    pub fn scale_mode(&self) -> ScaleModeOption {
+        self.lock().scale_mode().into()
+    }
+
+    /// Sets pixel sampling. See [`ScaleFilterOption`].
+    ///
+    /// Rebuilds one bind group, which is cheap and is not a pipeline rebuild. Safe before a
+    /// game launches, safe while one runs, and remembered across launches.
+    pub fn set_filter(&self, filter: ScaleFilterOption) {
+        self.lock().set_filter(filter.into());
+    }
+
+    pub fn filter(&self) -> ScaleFilterOption {
+        self.lock().filter().into()
+    }
+
+    // --------------------------------------------------------------------- speed
+
+    /// Sets the speed multiplier. `1.0` is native.
+    ///
+    /// **The achievable ceiling is lower than the accepted one, and a caller building a UI
+    /// needs to know it.** The engine accepts `0.05` to `16.0`, but it also refuses to run
+    /// more than four core frames in one display tick, which on a 60 Hz screen puts the real
+    /// limit near 4x no matter what is asked for. Beyond that the surplus is forfeited and
+    /// appears as a climbing `dropped` count in [`TickTelemetry`] rather than as more speed,
+    /// so offering 8x in a menu would be offering something the engine cannot deliver.
+    ///
+    /// Audio follows the speed change and stays continuous, shifting up in pitch the way
+    /// fast-forward has always sounded, rather than being chopped by ring overruns.
+    pub fn set_speed(&self, speed: f64) {
+        self.lock().set_speed(speed);
+    }
+
+    /// The multiplier actually in force, after clamping.
+    pub fn speed(&self) -> f64 {
+        self.lock().speed()
+    }
+
+    // -------------------------------------------------------------------- rewind
+
+    /// Sets the rewind memory ceiling in bytes. `0` switches rewind off and frees the tape.
+    ///
+    /// Expressed in memory rather than in seconds because save-state sizes differ by two
+    /// orders of magnitude between the systems Continuum runs, so the same budget is minutes
+    /// of NES and seconds of PlayStation. Read [`ContinuumEngine::rewind_stats`] to show a
+    /// user what their budget actually bought them on the game in front of them.
+    pub fn set_rewind_budget_bytes(&self, budget_bytes: u64) {
+        // usize on every target this ships to is 64-bit, but the cast is saturating rather
+        // than lossy so a 32-bit build would clamp instead of wrapping to a tiny budget.
+        let budget = usize::try_from(budget_bytes).unwrap_or(usize::MAX);
+        self.lock().set_rewind_budget_bytes(budget);
+    }
+
+    /// Core frames between snapshots. Lower is finer-grained rewind and more work per
+    /// second; the default is 6, which is ten snapshots a second at 60 fps.
+    pub fn set_rewind_interval(&self, frames: u32) {
+        self.lock().set_rewind_interval(frames);
+    }
+
+    /// Everything the tape knows about itself. See [`RewindStatsSnapshot`].
+    pub fn rewind_stats(&self) -> RewindStatsSnapshot {
+        let guard = self.lock();
+        let (snapshots, bytes, evicted) = guard.rewind_stats();
+        RewindStatsSnapshot {
+            snapshots,
+            bytes,
+            evicted,
+            budget_bytes: guard.rewind_budget_bytes() as u64,
+            interval_frames: guard.rewind_interval(),
+        }
+    }
+
+    /// Starts or stops rewinding. Set on button press, clear on release.
+    ///
+    /// **This is the whole of the rewind UI contract, and the reason there is nothing to call
+    /// per frame.** While set, the engine's own tick goes backwards instead of forwards, so
+    /// the host keeps calling `tick` exactly as it always does. Driving it from Swift
+    /// instead, by rewinding and then ticking, would advance the core and then throw that
+    /// frame away sixty times a second, and the picture would judder rather than reverse.
+    pub fn set_rewinding(&self, rewinding: bool) {
+        self.lock().set_rewinding(rewinding);
+    }
+
+    pub fn is_rewinding(&self) -> bool {
+        self.lock().is_rewinding()
+    }
+
+    /// Steps one snapshot backwards, returning `false` when the tape is empty.
+    ///
+    /// An empty tape is not an error - it is simply the start of recorded history, which a
+    /// held rewind button will reach - so this returns a flag rather than throwing.
+    ///
+    /// Exported for a "step back once" control rather than for held-button rewind, which
+    /// should use [`ContinuumEngine::set_rewinding`] instead.
+    pub fn rewind_step(&self) -> Result<bool, EngineError> {
+        Ok(self.lock().rewind_step()?)
+    }
+
+    /// Size in bytes of one save state for the running core, or `0` if it has none.
+    ///
+    /// Exposed so a settings screen can say what a rewind budget is worth on the game
+    /// actually running, instead of quoting an average across systems that is wrong for all
+    /// of them.
+    pub fn save_state_size(&self) -> u64 {
+        self.lock().state_size() as u64
     }
 }
 

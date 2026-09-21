@@ -15,16 +15,26 @@
 //! audio submission and the GPU present in that order, and nothing here spawns a
 //! thread, a worker or a timer.
 
-use crate::audio::{AudioSink, AudioSpec, AudioStats, NullAudioSink, RingAudioSink};
+use crate::audio::{AudioSink, AudioSpec, AudioStats, NullAudioSink, RingAudioSink, CHANNELS};
 use crate::cores::{ContentHint, CoreDescriptor, CoreRegistry, CoreState, EmulatorCore};
 use crate::error::BridgeError;
 use crate::gfx::{Renderer, ScaleFilter, ScaleMode};
 use crate::input::{Button, GamepadBridge, PadKind, PadSource};
+use crate::rewind::RewindBuffer;
 use crate::timing::FramePacer;
 
 /// Video frames of audio to buffer. Three is the usual compromise between
 /// robustness against a slow tick and audible input-to-sound latency.
 const AUDIO_LATENCY_FRAMES: usize = 3;
+
+/// Core frames between rewind snapshots.
+///
+/// Six is ten snapshots a second at 60 fps, which is a fine enough grain that rewinding
+/// feels like scrubbing rather than stepping, while costing a tenth as much memory and
+/// serialisation work as snapshotting every frame. It also bounds the cost of the feature:
+/// `retro_serialize` is not free, and calling it sixty times a second on a PlayStation
+/// state would eat frame budget a phone does not have to spare.
+const DEFAULT_REWIND_INTERVAL_FRAMES: u32 = 6;
 
 /// What happens to a core when its session ends.
 ///
@@ -121,6 +131,39 @@ pub struct EmulatorBridge {
     /// Reused across `save_state` calls so snapshotting does not allocate.
     state_scratch: Vec<u8>,
     retention: CoreRetention,
+
+    // The user's preferences, held here rather than only on the objects that consume
+    // them, because those objects do not outlive a session. `FramePacer` is rebuilt by
+    // every `launch` and every `stop`, and the renderer's frame target is released on
+    // stop, so a preference written only into the pacer or only into the renderer
+    // quietly reverts to its default the next time a game starts. Storing the wanted
+    // value here and re-applying it in `launch` is what makes a setting a setting
+    // rather than a per-session accident.
+    /// Wanted speed multiplier. Survives the pacer being rebuilt.
+    speed: f64,
+    /// Wanted scale mode. Survives the renderer being re-targeted.
+    scale_mode: ScaleMode,
+    /// Wanted scaling filter. Survives the renderer being re-targeted.
+    filter: ScaleFilter,
+    /// The core's own declared sample rate, before any speed adjustment. Kept so the
+    /// fast-forward ratio is always computed from the native rate rather than compounded
+    /// off the last adjusted one.
+    native_audio_rate: u32,
+    /// Wanted output gain in `0.0..=1.0`.
+    volume: f32,
+    /// The gain actually applied to the last sample of the previous drain. Ramping from
+    /// here to `volume` across a block is what stops a dragged volume slider from
+    /// clicking sixty times a second.
+    gain: f32,
+    /// Bounded tape of save states. Disabled until given a budget. See [`RewindBuffer`].
+    rewind: RewindBuffer,
+    /// Core frames between rewind snapshots. See [`DEFAULT_REWIND_INTERVAL_FRAMES`].
+    rewind_interval: u32,
+    /// Core frames stepped since the last snapshot. Counts steps rather than ticks,
+    /// because a tick can run up to four of them.
+    frames_since_snapshot: u32,
+    /// True while the rewind button is held. Diverts `tick` entirely.
+    rewinding: bool,
 }
 
 impl Default for EmulatorBridge {
@@ -144,14 +187,30 @@ impl EmulatorBridge {
             muted: false,
             state_scratch: Vec::new(),
             retention: CoreRetention::Drop,
+            speed: 1.0,
+            scale_mode: ScaleMode::AspectFit,
+            filter: ScaleFilter::Nearest,
+            native_audio_rate: 0,
+            volume: 1.0,
+            gain: 1.0,
+            rewind: RewindBuffer::new(),
+            rewind_interval: DEFAULT_REWIND_INTERVAL_FRAMES,
+            frames_since_snapshot: 0,
+            rewinding: false,
         }
     }
 
     // ---------------------------------------------------------------- lifecycle
 
     /// Installs the renderer built by the platform layer.
-    pub fn attach_renderer(&mut self, renderer: Renderer) {
+    pub fn attach_renderer(&mut self, mut renderer: Renderer) {
         log::info!("renderer attached: {}", renderer.adapter_summary());
+        // A renderer arrives with its own defaults, which are not necessarily the ones the
+        // user chose. On iOS the host restores saved settings during launch, and whether
+        // that lands before or after the Metal layer is ready is not something this side
+        // should have to depend on, so the wanted values are pushed in either order.
+        renderer.set_scale_mode(self.scale_mode);
+        renderer.set_filter(self.filter);
         self.renderer = Some(renderer);
     }
 
@@ -280,8 +339,16 @@ impl EmulatorBridge {
             descriptor.target_fps,
             AUDIO_LATENCY_FRAMES,
         ));
+        self.native_audio_rate = descriptor.audio_sample_rate;
+        // Both objects above were just replaced, taking the user's speed and video
+        // preferences with them. Put them back before the first frame, so a game does not
+        // start at 1x with the wrong filter and then visibly correct itself.
+        self.pacer.set_speed(self.speed);
+        self.apply_audio_speed();
         if let Some(renderer) = &mut self.renderer {
             renderer.set_aspect_ratio(descriptor.geometry.aspect_ratio);
+            renderer.set_scale_mode(self.scale_mode);
+            renderer.set_filter(self.filter);
         }
         self.gamepads.release_all();
         self.state_scratch = Vec::with_capacity(core.state_size());
@@ -343,6 +410,20 @@ impl EmulatorBridge {
         // their library is pure waste.
         self.state_scratch = Vec::new();
         self.pacer = FramePacer::new(60.0);
+        // The replacement pacer is at 1x; the user's choice is not forgotten just because
+        // a session ended.
+        self.pacer.set_speed(self.speed);
+        self.native_audio_rate = 0;
+        // Volume ramps from wherever the last session left off, and the next session's
+        // first block should not fade in from a stale gain.
+        self.gain = self.volume;
+        // The tape belongs to the game that just ended. `launch` calls `stop` first, so
+        // this is also what stops one game's history leaking into the next one's.
+        self.rewind.clear();
+        self.frames_since_snapshot = 0;
+        // A session that ended while the button was held must not leave the next one
+        // rewinding into an empty tape from its first frame.
+        self.rewinding = false;
     }
 
     /// Sets what happens to a core when its session ends. See [`CoreRetention`].
@@ -398,6 +479,10 @@ impl EmulatorBridge {
         Self::push_cheats(session)?;
         self.sink.flush();
         self.gamepads.release_all();
+        // Everything on the rewind tape is from before the reset, so rewinding would undo
+        // the reset itself.
+        self.rewind.clear();
+        self.frames_since_snapshot = 0;
         Ok(())
     }
 
@@ -448,6 +533,14 @@ impl EmulatorBridge {
     /// The unified step: input → core → audio → GPU. Called once per
     /// `requestAnimationFrame` and from nowhere else.
     pub fn tick(&mut self, now_ms: f64) -> Result<TickReport, BridgeError> {
+        // Rewind replaces the normal step entirely rather than running alongside it. Doing
+        // it from the host instead - calling a rewind method and then `tick` - would advance
+        // the core and then jump it back within the same frame, so the two would fight and
+        // the picture would judder rather than reverse.
+        if self.rewinding && self.rewind.is_enabled() && self.session.is_some() {
+            return self.tick_rewinding(now_ms);
+        }
+
         // Destructured so the core (borrowed from `session`) and the renderer can
         // be used together without fighting the borrow checker.
         let Self {
@@ -456,6 +549,9 @@ impl EmulatorBridge {
             sink,
             pacer,
             gamepads,
+            rewind,
+            rewind_interval,
+            frames_since_snapshot,
             ..
         } = self;
 
@@ -505,6 +601,24 @@ impl EmulatorBridge {
             session.core.run_frame(&snapshot)?;
             // 3. Audio — drained straight into the ring, no intermediate buffer.
             session.core.drain_audio(sink.as_mut());
+        }
+
+        // 3b. Rewind tape. Counted in core steps rather than ticks, so the spacing between
+        //     snapshots stays even while fast-forwarding, and skipped entirely when the
+        //     pacer ran no steps, since that would record a state identical to the last.
+        if plan.steps > 0 && rewind.is_enabled() {
+            *frames_since_snapshot += plan.steps;
+            if *frames_since_snapshot >= *rewind_interval {
+                *frames_since_snapshot = 0;
+                let size = session.core.state_size();
+                let core = &session.core;
+                // A refused snapshot must not fail the tick. Losing one rewind point is a
+                // far smaller thing than dropping a frame, so this is logged at debug and
+                // the tick carries on.
+                if let Err(err) = rewind.push_with(size, |dst| core.save_state(dst)) {
+                    log::debug!("rewind snapshot skipped: {err}");
+                }
+            }
         }
 
         // 4. GPU. With zero steps there is no new frame, so the previous texture is
@@ -618,7 +732,67 @@ impl EmulatorBridge {
         if self.muted {
             return 0;
         }
-        self.sink.drain(dst)
+        let written = self.sink.drain(dst);
+        self.apply_gain(&mut dst[..written]);
+        written
+    }
+
+    /// Scales a drained block by the wanted volume, ramping rather than stepping.
+    ///
+    /// Applied here, on the far side of the ring, for two reasons. The ring holds audio
+    /// that was queued up to a few frames ago, so scaling on the way *in* would mean a
+    /// volume change did not take effect until that backlog drained. And this runs on the
+    /// display link, never on the platform's real-time render thread, so the arithmetic is
+    /// nowhere near the callback that must not miss its deadline.
+    ///
+    /// The ramp matters. A volume slider under a finger produces a new target every frame,
+    /// and jumping the gain at a block boundary puts a step discontinuity into the
+    /// waveform, which is heard as a click - sixty of them a second while dragging. Gliding
+    /// across the block instead spreads the change over its samples and is inaudible.
+    fn apply_gain(&mut self, block: &mut [f32]) {
+        let target = self.volume;
+        // Already there: one multiply per sample, or none at all at unity.
+        if (self.gain - target).abs() <= f32::EPSILON {
+            self.gain = target;
+            if target < 1.0 {
+                for sample in block.iter_mut() {
+                    *sample *= target;
+                }
+            }
+            return;
+        }
+        let frames = block.len() / CHANNELS;
+        if frames == 0 {
+            // Nothing to ramp across. Taking the new value here would be a step change on
+            // the next non-empty block, so the glide is left pending instead.
+            return;
+        }
+        let step = (target - self.gain) / frames as f32;
+        let mut gain = self.gain;
+        for frame in block.chunks_mut(CHANNELS) {
+            gain += step;
+            for sample in frame.iter_mut() {
+                *sample *= gain;
+            }
+        }
+        self.gain = target;
+    }
+
+    /// Sets the output gain. `0.0` is silence, `1.0` is the core's own level.
+    ///
+    /// Clamped rather than rejected: a host sending `1.5` wants "as loud as possible", and
+    /// amplifying past unity would clip a core that is already mixing near full scale.
+    pub fn set_volume(&mut self, volume: f32) {
+        self.volume = if volume.is_finite() {
+            volume.clamp(0.0, 1.0)
+        } else {
+            // NaN compares false against everything, so `clamp` would panic on it.
+            1.0
+        };
+    }
+
+    pub fn volume(&self) -> f32 {
+        self.volume
     }
 
     /// Discards the queued backlog without touching the session.
@@ -655,23 +829,70 @@ impl EmulatorBridge {
     }
 
     pub fn set_filter(&mut self, filter: ScaleFilter) {
+        self.filter = filter;
         if let Some(renderer) = &mut self.renderer {
             renderer.set_filter(filter);
         }
     }
 
+    pub fn filter(&self) -> ScaleFilter {
+        self.filter
+    }
+
     pub fn set_scale_mode(&mut self, mode: ScaleMode) {
+        self.scale_mode = mode;
         if let Some(renderer) = &mut self.renderer {
             renderer.set_scale_mode(mode);
         }
     }
 
+    pub fn scale_mode(&self) -> ScaleMode {
+        self.scale_mode
+    }
+
+    /// Sets the speed multiplier. `1.0` is native; above it is fast-forward.
+    ///
+    /// Note the real ceiling is lower than the accepted one. `FramePacer` clamps to
+    /// `0.05..=16.0`, but it also refuses to run more than `MAX_CATCH_UP_STEPS` core steps
+    /// in a single display tick, which on a 60 Hz screen puts the achievable rate at about
+    /// 4x however large a multiplier is asked for. Anything beyond that is forfeited and
+    /// shows up as a climbing dropped-step count rather than as extra speed.
     pub fn set_speed(&mut self, speed: f64) {
         self.pacer.set_speed(speed);
+        // Read back rather than storing the argument, so what is remembered is what the
+        // pacer actually accepted after clamping.
+        self.speed = self.pacer.speed();
+        self.apply_audio_speed();
     }
 
     pub fn speed(&self) -> f64 {
         self.pacer.speed()
+    }
+
+    /// Re-declares the sink's source rate as `native * speed`. See
+    /// [`crate::audio::AudioSink::set_source_rate`] for why this is what fast-forward
+    /// needs, and note it is a no-op until a session exists to have a native rate.
+    fn apply_audio_speed(&mut self) {
+        if self.native_audio_rate == 0 {
+            return;
+        }
+        let adjusted = (f64::from(self.native_audio_rate) * self.speed).round();
+        // A sample rate is a u32 and the pacer's 16x ceiling cannot overflow one from any
+        // realistic core rate, but clamping keeps the cast total rather than merely
+        // very likely to be fine.
+        let adjusted = adjusted.clamp(1.0, f64::from(u32::MAX)) as u32;
+        self.sink.set_source_rate(adjusted);
+    }
+
+    /// Size in bytes of a save state for the running core, or `0` if it has none.
+    ///
+    /// Queried live rather than cached because libretro permits the figure to change
+    /// during a session - a disc swap is the usual reason. A rewind buffer sizing itself
+    /// from this must therefore cope with the answer moving under it.
+    pub fn state_size(&self) -> usize {
+        self.session
+            .as_ref()
+            .map_or(0, |session| session.core.state_size())
     }
 
     /// Submits a GPU readback of the presented image.
@@ -727,7 +948,167 @@ impl EmulatorBridge {
         Self::push_cheats(session)?;
         // The audio backlog belongs to the abandoned timeline.
         self.sink.flush();
+        // So does the rewind tape. Every snapshot on it describes a future that no longer
+        // follows from the present, and rewinding into it would jump the player somewhere
+        // they never were.
+        self.rewind.clear();
+        self.frames_since_snapshot = 0;
         Ok(())
+    }
+
+    // ------------------------------------------------------------------- rewind
+
+    /// One tick spent going backwards instead of forwards.
+    ///
+    /// Restores the newest snapshot and then runs **exactly one** core frame. That single
+    /// frame is not a rounding error, it is the point: a libretro core's framebuffer is
+    /// whatever `retro_run` last wrote, and `retro_unserialize` changes the core's memory
+    /// without redrawing anything. Loading a state and presenting immediately would show the
+    /// image from before the rewind, so the screen would freeze while the emulator silently
+    /// travelled. One frame turns the restored state into a picture.
+    ///
+    /// Net motion is therefore one snapshot interval minus one frame per tick, which at the
+    /// default spacing is a brisk scrub backwards rather than a mirror of real time. That is
+    /// what rewind is normally for.
+    ///
+    /// Audio is produced by that frame and then dropped on the floor. The alternative, not
+    /// draining the core at all, lets the core's internal batch buffer grow unbounded, and
+    /// playing it would be a forward-running fragment several times a second while the
+    /// picture runs backwards. Silence while rewinding is what most emulators do and is
+    /// easily the least strange of the three.
+    fn tick_rewinding(&mut self, now_ms: f64) -> Result<TickReport, BridgeError> {
+        let stepped_back = self.rewind_step()?;
+        let snapshot = self.gamepads.snapshot();
+
+        // Re-anchored every rewind tick, not once when the button comes up. The pacer is not
+        // consulted on this path, so without this its idea of "last tick" would stay frozen
+        // at the moment rewind began; releasing the button after a third of a second would
+        // then look like a third of a second of missed emulation and be answered with a
+        // sprint forwards. Keeping it current means the first normal tick after a rewind sees
+        // an ordinary one-frame gap.
+        self.pacer.resync(now_ms);
+
+        let Self {
+            session,
+            renderer,
+            sink,
+            pacer,
+            ..
+        } = self;
+        let session = session
+            .as_mut()
+            .expect("the caller checked a session exists and nothing above clears it");
+
+        if stepped_back {
+            session.core.run_frame(&snapshot)?;
+            session.core.drain_audio(sink.as_mut());
+            sink.flush();
+        }
+
+        // Presented either way. Reaching the start of the tape stops the motion but must not
+        // stop the display, or a held button at the end of history would look like a hang.
+        let mut presented = false;
+        if let Some(renderer) = renderer.as_mut() {
+            let frame = if stepped_back {
+                session.core.video()
+            } else {
+                None
+            };
+            renderer.present(frame)?;
+            presented = true;
+        }
+
+        Ok(TickReport {
+            steps: u32::from(stepped_back),
+            presented,
+            display_fps: pacer.display_fps(),
+            frame_count: session.core.frame_count(),
+            audio: sink.stats(),
+            ..Default::default()
+        })
+    }
+
+    /// Starts or stops walking backwards. Held-button shaped: set it true on press, false on
+    /// release, and the engine handles the rest inside its own tick.
+    pub fn set_rewinding(&mut self, rewinding: bool) {
+        self.rewinding = rewinding;
+    }
+
+    pub fn is_rewinding(&self) -> bool {
+        self.rewinding
+    }
+
+    /// Sets the rewind memory ceiling in bytes. `0` disables rewind.
+    ///
+    /// How much time the budget buys depends on the system: the same 64 MB is minutes of
+    /// NES and seconds of PlayStation, because their save states differ by two orders of
+    /// magnitude. [`RewindBuffer`] explains why the budget is expressed in memory rather
+    /// than in seconds.
+    pub fn set_rewind_budget_bytes(&mut self, budget_bytes: usize) {
+        self.rewind.set_budget_bytes(budget_bytes);
+    }
+
+    pub fn rewind_budget_bytes(&self) -> usize {
+        self.rewind.budget_bytes()
+    }
+
+    /// Core frames between snapshots. Clamped to at least 1; 0 would snapshot every frame
+    /// twice over and is meaningless.
+    pub fn set_rewind_interval(&mut self, frames: u32) {
+        self.rewind_interval = frames.max(1);
+    }
+
+    pub fn rewind_interval(&self) -> u32 {
+        self.rewind_interval
+    }
+
+    /// Snapshots held, bytes held, and how many have been evicted to stay in budget.
+    pub fn rewind_stats(&self) -> (u32, u64, u64) {
+        (
+            self.rewind.len() as u32,
+            self.rewind.bytes() as u64,
+            self.rewind.evicted(),
+        )
+    }
+
+    /// Steps one snapshot backwards. Returns `false` when the tape is empty.
+    ///
+    /// An empty tape is not an error: it is the beginning of recorded history, and a held
+    /// rewind button reaching it should stop rather than throw. The snapshot is consumed,
+    /// so rewinding walks backwards and does not sit on one frame.
+    ///
+    /// The audio backlog is flushed for the same reason [`EmulatorBridge::load_state`]
+    /// flushes it - those samples belong to the timeline just abandoned. The tape itself is
+    /// deliberately *not* cleared here, which is what separates rewinding from loading a
+    /// state: one walks back along recorded history, the other leaves it.
+    pub fn rewind_step(&mut self) -> Result<bool, BridgeError> {
+        if self.session.is_none() {
+            return Err(BridgeError::NoSession);
+        }
+        let Some(snapshot) = self.rewind.pop() else {
+            return Ok(false);
+        };
+
+        // The buffer goes back to the pool whether or not the load worked, so a core that
+        // rejects a state does not leak it out of the tape's memory budget.
+        let outcome = {
+            let session = self
+                .session
+                .as_mut()
+                .expect("checked immediately above, and nothing here can clear it");
+            session
+                .core
+                .load_state(&snapshot)
+                .and_then(|()| Self::push_cheats(session))
+        };
+        self.rewind.recycle(snapshot);
+        outcome?;
+
+        self.sink.flush();
+        // The next snapshot is a full interval away from the point just restored, not from
+        // wherever the counter happened to be when the button was pressed.
+        self.frames_since_snapshot = 0;
+        Ok(true)
     }
 
     // ------------------------------------------------------------------- cheats

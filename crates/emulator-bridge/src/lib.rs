@@ -47,6 +47,7 @@ pub mod error;
 pub mod frame;
 pub mod gfx;
 pub mod input;
+pub mod rewind;
 pub mod timing;
 
 /// `Send` on native targets, and nothing on wasm.
