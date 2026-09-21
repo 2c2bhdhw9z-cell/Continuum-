@@ -442,7 +442,10 @@ struct LibraryShell: View {
     }
 
     private var settingsTab: some View {
-        SettingsScreen(host: host, artwork: artwork, emulation: host.emulation)
+        SettingsScreen(host: host,
+                       artwork: artwork,
+                       emulation: host.emulation,
+                       controllers: host.controllers)
             .padding(.top, topBarHeight + max(metrics.insets.top, 8) + 6)
             .padding(.bottom, bottomBarHeight)
     }

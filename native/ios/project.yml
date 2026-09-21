@@ -1,7 +1,7 @@
 # XcodeGen input. `xcodegen generate` turns this into Continuum.xcodeproj.
 #
 # Generated rather than committed, because a .xcodeproj is a UUID-keyed property list that
-# cannot be reviewed in a diff or edited safely without Xcode — and nobody on this project
+# cannot be reviewed in a diff or edited safely without Xcode, and nobody on this project
 # has Xcode. Forty lines of YAML that a tool expands is auditable; 400 lines of pbxproj is
 # not. The generated project is gitignored.
 #
@@ -98,6 +98,17 @@ targets:
       # multi-touch surface that tracks the D-pad as one region so diagonals resolve. It also holds
       # TouchLayout, the six persisted numbers the editor below writes.
       - path: TouchControls.swift
+      # Physical controllers: MFi, Xbox, DualShock and DualSense through GameController. The
+      # connect and disconnect observers, the per frame poll the display link reads, and the
+      # translation into the engine's W3C button order. It writes the engine's GAMEPAD input layer
+      # while TouchControls.swift writes the TOUCH layer, which is what lets both be used at once.
+      # WITHOUT THIS LINE nothing in it is compiled, and for once that fails loudly rather than
+      # silently: ContinuumApp, MetalCanvas, PlayerScreen and SettingsScreen all name types from it,
+      # so the build breaks in four other files instead of shipping an app that quietly ignores
+      # every controller. That is luck rather than a safety net, and it is not a reason to leave the
+      # line out. The GameController framework itself needs no entry here, because Swift autolinks
+      # what it imports; AVFoundation in AudioOutput.swift is listed nowhere either.
+      - path: PhysicalControllers.swift
       # The layout editor: the full-screen screen that moves the on-screen controls. It mounts the
       # REAL pad in edit mode rather than a drawing of one, so what is dragged is what a game gets.
       # Without this line the button in Settings has nothing to open and the layout is fixed again,
@@ -201,7 +212,7 @@ targets:
 
 # Declared explicitly. XcodeGen only emits a *shared* scheme when one is defined here, and
 # `xcodebuild -scheme` cannot see the non-shared schemes Xcode would otherwise invent on
-# first open — which fails on a CI runner that never opens the project.
+# first open, which fails on a CI runner that never opens the project.
 schemes:
   Continuum:
     build:

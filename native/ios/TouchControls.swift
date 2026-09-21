@@ -14,7 +14,11 @@ import UIKit
 
 // MARK: - The wire format
 
-/// A slot in the button array that `engine.applyGamepad(port:buttons:axes:)` expects.
+/// A slot in the button array that `engine.applyGamepadFrom(port:source:buttons:axes:)` expects.
+///
+/// Shared with the physical controllers in PhysicalControllers.swift, which build the same array
+/// for the same call and differ only in the source layer they name. One table, so the two cannot
+/// drift into disagreeing about what button 3 is.
 ///
 /// THE RAW VALUE IS THE ARRAY INDEX, AND THIS IS **NOT** LIBRETRO'S BUTTON ORDER.
 ///
@@ -23,12 +27,12 @@ import UIKit
 /// a confusing game rather than as a bug. So the path was traced end to end rather than assumed:
 ///
 /// ```text
-///   uniffi_api.rs:548   apply_gamepad(port, buttons, axes)
-///     -> bridge.rs:554    apply_gamepad(port, &buttons, &axes)
-///       -> input/gamepad.rs  apply_standard_gamepad(port, buttons, axes)
+///   uniffi_api.rs   apply_gamepad_from(port, source, buttons, axes)
+///     -> bridge.rs    apply_gamepad_from(port, source, &buttons, &axes)
+///       -> input/gamepad.rs  apply_standard_gamepad_from(port, source, buttons, axes)
 /// ```
 ///
-/// `apply_standard_gamepad` does not read the array positionally into libretro ids. It walks
+/// `apply_standard_gamepad_from` does not read the array positionally into libretro ids. It walks
 /// `STANDARD_GAMEPAD_MAP` (gamepad.rs, the table just above it) and pulls `buttons[index]` for
 /// each entry, and that table is the **W3C "standard gamepad" layout**. The order below is that
 /// table, transcribed entry by entry.
@@ -36,7 +40,7 @@ import UIKit
 /// For contrast, libretro's own order is the `Button` enum in `input/mod.rs`
 /// (B 0, Y 1, Select 2, Start 3, Up 4, Down 5, Left 6, Right 7, A 8, X 9, L 10, R 11) and it is
 /// what the core is finally asked for through `InputSnapshot::libretro_state`. It is NOT the wire
-/// format of `apply_gamepad`. Sending it would put Y where A belongs and Start where X belongs.
+/// format of this call. Sending it would put Y where A belongs and Start where X belongs.
 ///
 /// Why the bottom face button is retro B and not retro A is worth restating, because it also
 /// looks like a mistake: retro follows the Nintendo arrangement where A sits to the RIGHT of B,

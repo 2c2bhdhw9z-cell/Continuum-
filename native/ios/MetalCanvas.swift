@@ -1,4 +1,4 @@
-// Continuum — the one drawing surface, and the one MTLDevice.
+// Continuum: the one drawing surface, and the one MTLDevice.
 //
 // The architectural rule is unchanged from the design document: **there is exactly one
 // MTLDevice in this process.** An iPhone has one GPU, Metal resources belong to the device
@@ -6,7 +6,7 @@
 // be shareable and every frame would need a copy.
 //
 // What changed is *who creates it*. The blueprint had this file create the device and hand
-// it to the engine. That is not implementable on wgpu 30, and — worse — it would have
+// it to the engine. That is not implementable on wgpu 30, and worse than that, it would have
 // looked like it worked:
 //
 //   - wgpu's Metal backend has no public constructor that accepts an existing MTLDevice.
@@ -22,7 +22,7 @@
 // Because the engine owns the surface, it also owns almost all of the layer's
 // configuration: device, pixelFormat, framebufferOnly, colorspace, maximumDrawableCount,
 // opacity and drawableSize are all set by `configure`. Setting them here would be
-// misleading — they would be overwritten on the first frame. Only the properties wgpu
+// misleading, because they would be overwritten on the first frame. Only the properties wgpu
 // leaves alone are set below.
 
 import Metal
@@ -33,7 +33,7 @@ import UIKit
 final class MetalCanvas: UIView {
     /// The process's MTLDevice, read back from the engine after `attachMetal`.
     ///
-    /// Not used for drawing — the engine composites — but it is the handle MoltenVK will be
+    /// Not used for drawing, since the engine composites, but it is the handle MoltenVK will be
     /// initialised on when the Vulkan core path lands, and its `name` is the cheapest proof
     /// that the graphics chain came up on a real GPU.
     private(set) var device: MTLDevice?
@@ -49,17 +49,29 @@ final class MetalCanvas: UIView {
     /// Called once per presented frame with the engine's telemetry, for the HUD.
     var onTelemetry: ((TickTelemetry) -> Void)?
 
-    /// Supplies the pad state for the frame about to run.
+    /// Supplies the ON-SCREEN pad's state for the frame about to run.
     ///
     /// Read here, in the display link, and not from the touch handlers, and that is the whole
-    /// reason a held button stays held. `apply_gamepad` lands in `apply_standard_gamepad`, which
-    /// REPLACES the gamepad source layer wholesale on every call, because a poll is a complete
-    /// statement about a device. Pushing only on touch-down would therefore have the very next
-    /// frame clear the press: a button would fire once and let go by itself, which is unplayable
-    /// in a way that looks like a flaky screen rather than a missing call.
+    /// reason a held button stays held. `apply_gamepad_from` REPLACES one source layer wholesale on
+    /// every call, because a poll is a complete statement about a device. Pushing only on touch-down
+    /// would therefore have the very next frame clear the press: a button would fire once and let
+    /// go by itself, which is unplayable in a way that looks like a flaky screen rather than a
+    /// missing call.
     ///
     /// Nil until a player screen is on screen, and a released pad while no game runs.
     var gamepadSource: (() -> PadFrame)?
+
+    /// Supplies every attached PHYSICAL controller's state for the frame about to run.
+    ///
+    /// A second source, on a second engine layer, and the separation is the point rather than
+    /// tidiness. `gamepadSource` above is polled every frame whether or not a finger is on the
+    /// glass, so if both fed the same layer the overlay's "nothing held" would erase a real
+    /// controller sixty times a second, and the symptom would be a controller that works only
+    /// while no thumb is near the screen. See the header of PhysicalControllers.swift.
+    ///
+    /// An empty array means nothing is attached, which is not the same as a released frame: with
+    /// no controller there is nothing for the gamepad layer to be told.
+    var controllerSource: (() -> [ControllerFrame])?
 
     /// The device audio path, pumped from the tick below.
     ///
@@ -95,8 +107,8 @@ final class MetalCanvas: UIView {
         // Animation transaction. wgpu does not touch this.
         metalLayer.presentsWithTransaction = false
 
-        // Everything else that used to be set here — device, pixelFormat, framebufferOnly,
-        // colorspace, maximumDrawableCount — is set by the engine's `Surface::configure`.
+        // Everything else that used to be set here (device, pixelFormat, framebufferOnly,
+        // colorspace and maximumDrawableCount) is set by the engine's `Surface::configure`.
         //
         // One intent was lost in the move and is worth naming rather than pretending
         // otherwise: this file used to pin `maximumDrawableCount = 2`, on the argument that
@@ -217,14 +229,28 @@ final class MetalCanvas: UIView {
         // Input FIRST, then the step. `EmulatorBridge::tick` snapshots the merged pad state once
         // and hands that snapshot to every catch-up step of this tick, so a frame pushed after the
         // tick would not be seen until the next one. One frame of avoidable lag, on every press.
+        //
+        // Both sources are pushed here, and each names its OWN layer. `applyGamepadFrom` replaces
+        // the layer it is given and merges with the others only when the core reads input, which is
+        // what lets a thumb on the overlay and a real controller be held in the same frame, even on
+        // the same button. Sending both to one layer, which is what the older
+        // `applyGamepad(port:buttons:axes:)` would do, is the bug that reads as a broken controller.
+        // The order of the two pushes does not matter, because they touch different layers; what
+        // matters is that both land before the step.
         if let gamepadSource {
             let pad = gamepadSource()
-            engine.applyGamepad(port: 0, buttons: pad.buttons, axes: pad.axes)
+            engine.applyGamepadFrom(port: 0, source: .touch, buttons: pad.buttons, axes: pad.axes)
+        }
+        if let controllerSource {
+            for pad in controllerSource() {
+                engine.applyGamepadFrom(port: pad.port, source: .gamepad,
+                                        buttons: pad.buttons, axes: pad.axes)
+            }
         }
 
         // targetTimestamp, not timestamp: the pacer wants when this frame will be *shown*,
         // not when the callback fired. FramePacer::plan() takes a timestamp for exactly this
-        // reason — it never reads a clock of its own.
+        // reason: it never reads a clock of its own.
         let telemetry = engine.tick(nowMillis: link.targetTimestamp * 1000.0)
 
         // Audio AFTER the step, and before the telemetry callback. After, because the samples

@@ -266,6 +266,33 @@ impl From<crate::gfx::ScaleFilter> for ScaleFilterOption {
     }
 }
 
+/// Which thing produced a poll of input.
+///
+/// The engine holds one independent layer per source and merges them when the core reads
+/// input, which is what lets the on-screen pad and a physical controller be used together,
+/// including on the same button in the same frame. Mirrors `input::PadSource` for the reason
+/// [`ScaleModeOption`] mirrors its gfx counterpart: the input layer should not have to know
+/// an FFI exists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum InputSource {
+    /// A physical controller.
+    Gamepad,
+    /// A hardware keyboard.
+    Keyboard,
+    /// The on-screen pad.
+    Touch,
+}
+
+impl From<InputSource> for crate::input::PadSource {
+    fn from(source: InputSource) -> Self {
+        match source {
+            InputSource::Gamepad => Self::Gamepad,
+            InputSource::Keyboard => Self::Keyboard,
+            InputSource::Touch => Self::Touch,
+        }
+    }
+}
+
 /// The rewind tape, as Swift sees it.
 ///
 /// `bytes` against `budget_bytes` is how full the tape is, and dividing `snapshots` by the
@@ -686,6 +713,39 @@ impl ContinuumEngine {
 
     pub fn apply_gamepad(&self, port: u32, buttons: Vec<bool>, axes: Vec<f32>) {
         self.lock().apply_gamepad(port as usize, &buttons, &axes);
+    }
+
+    /// As [`ContinuumEngine::apply_gamepad`], but says which input layer the poll came from.
+    ///
+    /// **Use this rather than `apply_gamepad` as soon as there is more than one thing
+    /// producing input, and that is not a style preference.** The engine keeps one layer per
+    /// source and merges them when the core reads input, so a poll REPLACES its own layer
+    /// rather than adding to it. Send the on-screen pad and a physical controller to the same
+    /// layer and the quiet one wins whichever wrote last: the overlay reporting "nothing
+    /// held" sixty times a second would cancel out a real controller, and the symptom is a
+    /// controller that only works while no finger is near the glass.
+    ///
+    /// Buttons are in W3C standard gamepad order, the same as `apply_gamepad`, which is NOT
+    /// libretro order. See `input/gamepad.rs`.
+    pub fn apply_gamepad_from(
+        &self,
+        port: u32,
+        source: InputSource,
+        buttons: Vec<bool>,
+        axes: Vec<f32>,
+    ) {
+        self.lock()
+            .apply_gamepad_from(port as usize, source.into(), &buttons, &axes);
+    }
+
+    /// Releases one layer, leaving the others untouched.
+    ///
+    /// For a controller being unplugged, or the on-screen pad going away when the player
+    /// leaves. Without it, whatever that layer was holding stays held for the rest of the
+    /// session: a controller disconnected mid-press leaves its button down forever, because
+    /// no further poll is ever coming to say otherwise.
+    pub fn release_input_source(&self, source: InputSource) {
+        self.lock().release_input_source(source.into());
     }
 
     pub fn connected_pads(&self) -> u32 {

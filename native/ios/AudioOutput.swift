@@ -9,7 +9,7 @@
 //
 //   CADisplayLink (main thread)                     audio IO thread (real-time)
 //   ---------------------------                     ---------------------------
-//   engine.applyGamepad(...)
+//   engine.applyGamepadFrom(...)  <- once per input layer: the overlay, then any controller
 //   engine.tick(nowMillis:)      <- takes the engine Mutex for the whole tick
 //   engine.drainAudio(maxFrames:) <- takes it again, briefly, and copies PCM out
 //   ring.append(samples)                            ring.pull(into: scratch, frames:)

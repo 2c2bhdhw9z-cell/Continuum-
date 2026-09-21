@@ -22,6 +22,12 @@ struct SettingsScreen: View {
     @ObservedObject var artwork: ArtworkStore
     @ObservedObject var emulation: EmulationSettings
 
+    /// Observed rather than reached through the host, so that plugging a controller in while this
+    /// screen is open updates the read-out in front of you. That is not a nicety: the read-out is
+    /// how a player finds out whether the app can see their pad at all, and a stale one would
+    /// answer the question wrongly.
+    @ObservedObject var controllers: PhysicalControllers
+
     /// Read fresh from the engine when this screen appears, never cached across appearances. The
     /// core's option list changes per core and a stale list is worse than none.
     @State private var coreOptions: [CoreOptionRecord] = []
@@ -56,6 +62,7 @@ struct SettingsScreen: View {
                     pictureSection
                     soundSection
                     speedSection
+                    controllerSection
                     controlsSection
                 }
                 Group {
@@ -172,6 +179,83 @@ struct SettingsScreen: View {
                 + "lists is the separate one: it clears every one of them, per system and per "
                 + "folder, gives back the megabytes they take, and the next game that needs the "
                 + "fallback search downloads the one list it needs again."
+            )
+        }
+    }
+
+    // MARK: Physical controllers
+
+    /// What is attached, what its buttons do, and whether it takes the screen back.
+    ///
+    /// A READ-OUT AND ONE SWITCH, and that shape is the honest one for this feature. There is
+    /// nothing to configure about a controller that the app should be asking: the mapping is the
+    /// W3C standard layout, which is the wire format the engine documents, and iOS owns the
+    /// pairing. What a player actually needs from a settings screen here is an answer to "does it
+    /// see my controller", which is the read-out, and a decision about the overlay, which is the
+    /// switch. Anything else would be a control invented to fill the section.
+    private var controllerSection: some View {
+        SettingsSection(title: "GAME CONTROLLERS") {
+            SettingsReadout(label: "Attached", value: controllers.summary)
+
+            Toggle(isOn: $controllers.autoHidesOnScreenPad) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Hide the on-screen pad while a controller is connected")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text(controllers.autoHidesOnScreenPad
+                         ? "On, and the picture uses the space the controls were holding."
+                         : "Off, so both work at once, including on the same button.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(ShellPalette.secondaryText)
+                }
+            }
+            .tint(ShellPalette.accent)
+
+            SettingsNote(
+                "Off is the default on purpose. A controller can be connected and not in your "
+                + "hands, charging on a desk or paired from yesterday and across the room, and a "
+                + "pad that vanished on its own with no way back would leave the game unplayable. "
+                + "With this on, the controls come straight back the moment the controller "
+                + "disconnects. Either way the buttons along the top of the player, pause, reset, "
+                + "save state, the diagnostics and the way back to the library, stay where they "
+                + "are: this only hides the game pad."
+            )
+
+            SettingsNote(
+                "One exception, and the read-out above names it when it applies: a pad with no View "
+                + "or Share button has no SELECT, so the on-screen pad stays put even with this on. "
+                + "Hiding it would leave SELECT reachable from nothing at all, and that is how a "
+                + "Game Boy or NES game opens its own menu."
+            )
+
+            SettingsNote(
+                "Pairing is done by iOS, not here: hold the pairing button on the controller, then "
+                + "open Settings, Bluetooth and tap it. It appears above as soon as it connects, "
+                + "with no need to restart this app, and the light or number on the controller "
+                + "shows which player it became. Xbox, DualShock, DualSense and MFi pads all "
+                + "arrive the same way. Up to four are read at once, one per port, and the first "
+                + "one to connect is player 1 and keeps that place when others join or leave."
+            )
+
+            SettingsNote(
+                "The buttons are mapped by POSITION rather than by the letter printed on them, "
+                + "which is what makes a DualSense and an Xbox pad behave identically: the bottom "
+                + "button of the diamond is always B, the right one is always A, and the left and "
+                + "top are Y and X. That is the arrangement these consoles used, where A sits to "
+                + "the right of B. Shoulders and triggers are L, R, L2 and R2. The Menu button, "
+                + "Options on a DualShock, is START, and the small button on the left, View or "
+                + "Share, is SELECT. The left stick works as a D-pad as well, so a game that only "
+                + "reads directions is playable without touching the D-pad, and both sticks are "
+                + "passed through for the cores that read them."
+            )
+
+            SettingsNote(
+                "A controller and the on-screen pad are independent, all the way down: the "
+                + "emulator keeps a separate set of buttons for each and combines them when the "
+                + "game reads its controls, so one cannot cancel the other out even when both are "
+                + "pressing the same button in the same instant. A controller that disconnects "
+                + "mid-press releases everything it was holding rather than leaving the game "
+                + "stuck running in one direction."
             )
         }
     }
@@ -520,9 +604,10 @@ struct SettingsScreen: View {
     private var notYetWiredSection: some View {
         SettingsSection(title: "NOT WIRED YET") {
             SettingsNote(
-                "These are absent rather than broken. Each one needs something exported from the "
-                + "engine that is not exported today, and they are recorded in FEAT-006 with what "
-                + "each one unlocks."
+                "What is listed here is absent rather than broken. It needs something exported "
+                + "from the engine that is not exported today, and each one is recorded in "
+                + "FEAT-006 with what it unlocks. Physical controllers used to be on this list and "
+                + "are now real, in GAME CONTROLLERS above."
             )
             ForEach(Self.gaps) { gap in
                 VStack(alignment: .leading, spacing: 2) {
@@ -557,10 +642,11 @@ struct SettingsScreen: View {
             reason: "The fourth artwork tier is a capture from a running game, which is the only "
             + "tier that works for a ROM no database has heard of. It needs a framebuffer readback "
             + "exported from the engine."),
-        Gap(name: "Physical controllers",
-            reason: "The engine merges input per source already, so a real pad and the on-screen "
-            + "pad could be used together, but the only exported input call replaces the whole "
-            + "gamepad layer, so the two would fight over it."),
+        // "Physical controllers" was here, and it is now GAME CONTROLLERS above. The call it was
+        // waiting for, an input push that names which source layer it belongs to, is exported, so
+        // the entry was no longer a missing feature but a false statement about the app. An
+        // out-of-date gap is worse than a missing control, because the honesty of this whole list
+        // is the only thing that makes it worth reading.
     ]
 }
 

@@ -230,6 +230,24 @@ impl GamepadBridge {
     /// complete statement about that device — and leaves the keyboard and touch layers
     /// untouched. Called every frame from the engine tick, so it allocates nothing.
     pub fn apply_standard_gamepad(&mut self, port: usize, buttons: &[bool], axes: &[f32]) {
+        self.apply_standard_gamepad_from(port, PadSource::Gamepad, buttons, axes);
+    }
+
+    /// As [`Self::apply_standard_gamepad`], but says which layer the poll belongs to.
+    ///
+    /// This distinction is the whole reason the on-screen pad and a real controller can be
+    /// used at the same time, or even in the same moment on the same button. Sources are
+    /// independent layers merged at snapshot time, so a poll that lands on the wrong one does
+    /// not merge, it *replaces*: an overlay reporting "nothing held" sixty times a second into
+    /// the same layer a physical pad writes to would cancel that pad out entirely, and the
+    /// symptom would be a controller that works only while no finger is near the screen.
+    pub fn apply_standard_gamepad_from(
+        &mut self,
+        port: usize,
+        source: PadSource,
+        buttons: &[bool],
+        axes: &[f32],
+    ) {
         if port >= MAX_PORTS {
             return;
         }
@@ -264,7 +282,7 @@ impl GamepadBridge {
             state.buttons |= 1 << Button::Down as u32;
         }
 
-        self.sources[PadSource::Gamepad as usize].ports[port] = state;
+        self.sources[source as usize].ports[port] = state;
     }
 
     /// Pass-through for a controller whose layout is not the standard one: button

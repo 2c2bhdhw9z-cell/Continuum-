@@ -669,6 +669,19 @@ impl EmulatorBridge {
         self.gamepads.apply_standard_gamepad(port, buttons, axes);
     }
 
+    /// Applies one poll of a W3C standard gamepad to a named layer. See
+    /// [`GamepadBridge::apply_standard_gamepad_from`] for why the layer matters.
+    pub fn apply_gamepad_from(
+        &mut self,
+        port: usize,
+        source: PadSource,
+        buttons: &[bool],
+        axes: &[f32],
+    ) {
+        self.gamepads
+            .apply_standard_gamepad_from(port, source, buttons, axes);
+    }
+
     pub fn connect_pad(&mut self, port: usize, kind: PadKind, label: &str) -> bool {
         self.gamepads.connect(port, kind, label)
     }

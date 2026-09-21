@@ -766,6 +766,18 @@ final class EngineHost: ObservableObject {
     /// on screen, so "no controls" is a released pad rather than a missing value.
     let padInput = PadInputSource()
 
+    /// Physical controllers: MFi, Xbox, DualShock and DualSense, through GameController.
+    ///
+    /// Owned here for the app's lifetime for the same two reasons `padInput` and `audio` are. It
+    /// registers notification observers that must not be torn down and rebuilt by a SwiftUI view
+    /// update, and the display link polls it every frame, so it may not be an object that a view
+    /// rebuild can replace underneath the tick.
+    ///
+    /// Its own object rather than more properties here, following `EmulationSettings`: it owns one
+    /// stored preference with its own key, and the Settings and player screens observe it directly
+    /// so a pad being plugged in changes what is on screen without this type mirroring every field.
+    let controllers: PhysicalControllers
+
     /// The launchable games found in Documents, newest scan wins.
     @Published var library: [LibraryEntry] = []
     /// The Library's own status line, kept separate from `status` on purpose.
@@ -1038,6 +1050,12 @@ final class EngineHost: ObservableObject {
         // Reads its own stored preferences and pushes them into the engine as it is built, so
         // the first frame of the first game already looks and sounds the way the user left it.
         emulation = EmulationSettings(engine: engine)
+        // Scans for already-paired controllers as it is built, because a pad connected before the
+        // app launched has already sent its connect notification to nobody. Given the engine so
+        // that a disconnect can release the gamepad input layer immediately, which is not something
+        // that can wait for a frame: a pad unplugged mid-press has no further poll coming, so
+        // whatever it was holding would stay held for the rest of the session.
+        controllers = PhysicalControllers(engine: engine)
 
         // The remembered preferences, read before anything can display. Each one falls back to its
         // default rather than to nil, so a first launch and a corrupted value behave the same way.
@@ -1064,6 +1082,15 @@ final class EngineHost: ObservableObject {
         // writes its read-out through `artworkLine`, and a network failure through `status`, so an
         // artwork problem is legible on the strip rather than only behind the Settings tab.
         artwork.attach(host: self)
+
+        // Wired after `init` has finished with `self`, for the same reason. A pad connecting or
+        // disconnecting is exactly the kind of thing the always-visible status line is for: it is
+        // the one line a player reads when a controller does nothing, and it says whether the app
+        // saw the pad at all. Nil during the scan above, deliberately, so a pad already attached at
+        // launch cannot overwrite the surface-attach message with a line about itself.
+        controllers.onChange = { [weak self] line in
+            self?.status = line
+        }
     }
 
     // MARK: Directories
@@ -1807,6 +1834,13 @@ final class EngineHost: ObservableObject {
     func updatePictureArea(_ rect: CGRect) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            // A rect from an overlay that is on its way off the screen is not the truth about the
+            // picture, and because this write is deferred by a run loop turn it would land AFTER
+            // `PlayerScreen` cleared the area for exactly that reason. The result would be a
+            // letterbox held open for controls nobody can see, until the next time something else
+            // changed. The unmount path cannot be relied on to stay silent: a view being removed can
+            // still be laid out on the way out.
+            guard !self.controllers.hidesOnScreenPadNow else { return }
             guard self.pictureArea != rect else { return }
             self.pictureArea = rect
         }
@@ -1904,19 +1938,32 @@ final class EngineHost: ObservableObject {
         }
     }
 
-    /// What the engine thinks is plugged in.
+    /// What is driving input right now: the on-screen pad, and every physical controller.
     ///
-    /// `connectedPads()` reports 0 while the touch pad works, and that is correct rather than a
-    /// bug: `apply_gamepad` writes straight into the gamepad source layer and never consults the
-    /// connection table, and `connect_pad` is not exported through UniFFI at all. The line says so,
-    /// because a bare "pads: 0" next to working controls would send the next reader hunting.
+    /// The two are reported separately because they are separate ENGINE LAYERS, and telling them
+    /// apart is the whole diagnosis when input misbehaves. The overlay writes the `.touch` layer
+    /// and controllers write `.gamepad`; the engine merges them when the core reads input. A
+    /// controller that shows here and still does nothing in the game is a mapping or a core
+    /// problem, while a controller that does not show here never reached the app at all, and
+    /// without both halves on one line those two look identical.
+    ///
+    /// `physicalPads` is deliberately NOT what the controller half is built from. See its own note.
     var inputLine: String {
+        var pads = controllers.diagnosticLine
+        // Appended only when it says something, the way `audioLine` treats its resampling note. The
+        // engine's own pad table cannot be written from Swift today, so a zero here is the expected
+        // value and printing it beside a real controller count would read as a contradiction.
+        if physicalPads > 0 {
+            pads += ", engine pad table \(physicalPads)"
+        }
         guard let system = activeSystem else {
-            return "input: no pad on screen (no game running), "
-                + "\(physicalPads) physical pad(s) registered"
+            return "input: no pad on screen (no game running), \(pads)"
+        }
+        guard !controllers.hidesOnScreenPadNow else {
+            return "input: on-screen pad hidden by the controller setting, \(pads)"
         }
         return "input: \(system.badge) pad on port 0, \(system.controlCount) button(s) plus the "
-            + "D-pad, \(physicalPads) physical pad(s) registered"
+            + "D-pad, \(pads)"
     }
 
     /// The on-screen pad's arrangement in one line, for the Settings row that opens the editor.
@@ -1976,12 +2023,16 @@ final class EngineHost: ObservableObject {
     /// set this.
     @Published var activeCoreId: String = ""
 
-    /// How many physical pads the engine has registered, read once when the surface attaches.
+    /// How many pads the ENGINE'S OWN connection table has registered, read once when the surface
+    /// attaches.
     ///
-    /// Expected to be 0 forever at the moment, and that is correct rather than broken:
-    /// `connect_pad` is not exported through UniFFI, and `apply_gamepad` writes straight into the
-    /// gamepad source layer without consulting the connection table. Read once rather than per
-    /// frame for the same mutex reason as `activeCoreId`.
+    /// Expected to be 0 forever, still, and that is correct rather than broken. `connect_pad` is
+    /// not exported through UniFFI, so nothing in Swift can register a pad in that table, and
+    /// `apply_gamepad_from` writes an input layer without consulting it. Real controllers are
+    /// therefore tracked on this side, in `PhysicalControllers`, and `inputLine` reports that
+    /// instead. This figure is kept because the day `connect_pad` is exported, a non-zero value
+    /// here is how you will know it worked. Read once rather than per frame for the same mutex
+    /// reason as `activeCoreId`.
     @Published var physicalPads: UInt32 = 0
 
     // MARK: Presenting the picker
@@ -2321,7 +2372,13 @@ struct RootView: View {
                 // covers the canvas rather than replacing it.
                 LibraryShell(host: host, artwork: host.artwork)
             } else {
-                PlayerScreen(host: host, emulation: host.emulation, system: host.activeSystem)
+                PlayerScreen(host: host,
+                             emulation: host.emulation,
+                             // Observed by the player screen rather than read through the host,
+                             // because a pad connecting has to redraw it: it decides whether the
+                             // on-screen controls are mounted at all.
+                             controllers: host.controllers,
+                             system: host.activeSystem)
             }
         }
         .background(.black)
@@ -2336,6 +2393,7 @@ struct RootView: View {
     /// attach changes; only the size does.
     private var canvas: some View {
         let padInput = host.padInput
+        let controllers = host.controllers
         return GeometryReader { proxy in
             let region = host.pictureArea ?? CGRect(origin: .zero, size: proxy.size)
             // Centred in the free region and shaped like the game, rather than stretched across a
@@ -2347,6 +2405,14 @@ struct RootView: View {
                 // Captured as a local reference so this closure touches the box and nothing else,
                 // which keeps the display link's read away from the main-actor host entirely.
                 gamepadSource: { padInput.currentFrame() },
+                // The other input source, on the engine's other layer. Captured as a local for half
+                // the reason the line above is: so the closure does not reach through `host` and
+                // republish the library shell from inside the render loop. The isolation half does
+                // not apply, because unlike the pad box this object IS main-actor isolated, and the
+                // display link is the main thread. Empty while nothing is attached, which is what
+                // keeps the gamepad layer untouched rather than being told "nothing held" sixty
+                // times a second.
+                controllerSource: { controllers.poll() },
                 // Handed over so the display link can pump it immediately after each step. The
                 // object is owned by the host, so a SwiftUI rebuild of this view cannot take the
                 // audio graph down with it.
@@ -2378,6 +2444,9 @@ struct MetalCanvasView: UIViewRepresentable {
     /// `MetalCanvas.gamepadSource` for why it has to be pulled per frame rather than pushed on a
     /// touch.
     let gamepadSource: () -> PadFrame
+    /// Every attached physical controller, read in the same tick and pushed to the engine's OTHER
+    /// input layer. See `MetalCanvas.controllerSource` for why the two must not share one.
+    let controllerSource: () -> [ControllerFrame]
     /// The device audio path, pumped from the display link. Owned by the host; see
     /// `MetalCanvas.audio` for why the push has to happen there and not on the audio thread.
     let audio: AudioOutput
@@ -2389,6 +2458,7 @@ struct MetalCanvasView: UIViewRepresentable {
         canvas.onAttach = onAttach
         canvas.onTelemetry = onTelemetry
         canvas.gamepadSource = gamepadSource
+        canvas.controllerSource = controllerSource
         canvas.audio = audio
         canvas.start()
         context.coordinator.observe(canvas)
@@ -2398,6 +2468,7 @@ struct MetalCanvasView: UIViewRepresentable {
     func updateUIView(_ canvas: MetalCanvas, context: Context) {
         canvas.onTelemetry = onTelemetry
         canvas.gamepadSource = gamepadSource
+        canvas.controllerSource = controllerSource
         canvas.audio = audio
     }
 

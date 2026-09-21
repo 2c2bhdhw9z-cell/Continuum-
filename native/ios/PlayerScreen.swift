@@ -84,6 +84,10 @@ struct PlayerScreen: View {
     /// button appears and disappears with the setting that enables it.
     @ObservedObject var emulation: EmulationSettings
 
+    /// Watched because a controller connecting can take the on-screen pad off the screen, so this
+    /// object decides whether the touch controls below are mounted at all.
+    @ObservedObject var controllers: PhysicalControllers
+
     /// Which pad to draw. Nil when the launched file's extension has no system mapped, which the
     /// launch path should already have refused, so it is reported rather than silently ignored.
     let system: GameSystem?
@@ -93,7 +97,15 @@ struct PlayerScreen: View {
             // Controls first, so the chrome's buttons sit above them in the z-order. They only
             // claim the touches that land on an actual control (see
             // `TouchControlsView.point(inside:with:)`), so the picture and the chrome stay live.
-            if let system {
+            //
+            // Not mounted at all while a controller has taken over, rather than mounted and hidden.
+            // A hidden overlay would still be laid out, would still claim the region it reserves
+            // for itself, and `TouchControlsView` would still be the thing reporting the picture
+            // area, so the game would keep the letterbox it needed for controls nobody can see.
+            // Unmounting also drops any held button on the way out, through
+            // `TouchControlsHost.dismantleUIView`, so a finger down at the moment a pad connects
+            // cannot leave a press behind on the touch layer.
+            if let system, !controllers.hidesOnScreenPadNow {
                 TouchControlsHost(
                     system: system,
                     layout: host.touchLayout,
@@ -117,6 +129,14 @@ struct PlayerScreen: View {
             }
             .padding(.horizontal, 12)
             .padding(.top, 6)
+        }
+        // The overlay is the thing that reports how much room the picture may have, so when it goes
+        // away the last rect it reported is a lie: the picture would keep a letterbox reserved for
+        // controls that are no longer there. Cleared rather than recomputed here, because nil
+        // already means "the whole window" to `RootView`, and a re-mounted overlay publishes its own
+        // rect on its first layout pass, so the way back needs nothing extra.
+        .onChange(of: controllers.hidesOnScreenPadNow) { _ in
+            host.pictureArea = nil
         }
     }
 
@@ -302,7 +322,11 @@ struct DiagnosticsPanel: View {
             // is not a diagnostic.
             Text(host.audioLine)
                 .fixedSize(horizontal: false, vertical: true)
+            // Wrapped, because this line now carries controller names as well as the on-screen
+            // pad's state, and a pad whose name is cut off is exactly the information the line was
+            // read for.
             Text(host.inputLine)
+                .fixedSize(horizontal: false, vertical: true)
             // Fit, filter, volume and the rewind depth, plus a marker while either held control
             // is active. Worth a line because all five are now things a user can change, so
             // "why does this game look/sound like that" became a question the HUD should answer.
