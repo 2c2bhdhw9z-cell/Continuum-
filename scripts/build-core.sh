@@ -94,7 +94,7 @@ WORK="$ROOT/.work"
 
 # The iOS cores, in build order. Never empty, which matters: macOS ships bash 3.2,
 # where an empty array expanded under `set -u` is an error rather than nothing.
-IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed melonds)
+IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed melonds mednafen_pce_fast stella2023)
 
 # Every libretro entry point the engine resolves by name, which is the real contract between a
 # staged dylib and the app. Kept in step with the `Symbols` struct in
@@ -230,6 +230,43 @@ ios_core_config() {
       # all; the instanced pass added for step 2 is what will later allow rearranging them, not
       # what makes them appear.
       IOS_DISPLAY="Nintendo DS, software renderer"
+      ;;
+    mednafen_pce_fast)
+      IOS_REPO="https://github.com/libretro/beetle-pce-fast-libretro"
+      IOS_DYLIB_NAME="mednafen_pce_fast_libretro_ios.dylib"
+      IOS_KIND="make"
+      IOS_MAKEFILE="Makefile"
+      # No submodules, and its ios block already emits
+      # $(TARGET_NAME)_libretro_ios.dylib with TARGET_NAME := mednafen_pce_fast, so the
+      # canonical name above is upstream's own rather than ours.
+      #
+      # The "fast" mednafen PC Engine core rather than the full one, deliberately. Both play
+      # HuCard games; the full core adds PC Engine CD and SuperGrafx, and CD needs a syscard
+      # BIOS we are not allowed to ship. So the lighter core covers exactly the part of the
+      # library that works with no files from the user.
+      #
+      # need_fullpath is TRUE here, so this core is handed a path and opens the file itself.
+      # That is the behaviour the host already had for every core; see `load_content`.
+      IOS_DISPLAY="TurboGrafx-16 / PC Engine, software renderer"
+      ;;
+    stella2023)
+      IOS_REPO="https://github.com/libretro/stella2023"
+      IOS_DYLIB_NAME="stella2023_libretro_ios.dylib"
+      IOS_KIND="make"
+      IOS_MAKEFILE="Makefile"
+      # Its libretro makefile is NOT at the repository root: the root Makefile is Stella's own
+      # SDL build, with no libretro target and no ios platform at all. Building from the root
+      # would fail in a way that looks like the core being unbuildable for iOS when it is not.
+      IOS_MAKE_SUBDIR="src/os/libretro"
+      # The maintained modern Stella rather than the 2014 fork that is also on the buildbot.
+      # Both have a working ios-arm64 block; this one is the current upstream.
+      #
+      # need_fullpath is FALSE here, and it is the FIRST core in this project for which that
+      # matters. Stella memcpys straight from retro_game_info::data with no path fallback, so a
+      # frontend that hands over a path and no bytes gives it a zero-byte ROM. The host did
+      # exactly that for every core until this one; see the need_fullpath handling in
+      # `NativeLibretroCore::load_content`, which reads the file when a core asks for bytes.
+      IOS_DISPLAY="Atari 2600, software renderer"
       ;;
     *)
       return 1

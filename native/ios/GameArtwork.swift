@@ -78,6 +78,10 @@ enum SystemArtwork {
         // PNG that downloads from it were both confirmed for each of these two.
         case .fds: return "Nintendo - Family Computer Disk System"
         case .sg1000: return "Sega - SG-1000"
+        // Both checked against the live server the same way. The PC Engine's is the awkward one:
+        // it carries BOTH regional names in a single directory, with no slash and no bracket.
+        case .tg16: return "NEC - PC Engine - TurboGrafx 16"
+        case .atari2600: return "Atari - 2600"
         }
     }
 
@@ -113,6 +117,10 @@ enum SystemArtwork {
         // apart on a shelf, and two systems a few degrees apart defeat that.
         case .fds: return 126
         case .sg1000: return 333
+        // Same rule again, applied to the twelve values above: the widest remaining gaps were
+        // 45 to 88 and 268 to 310, so these take their midpoints.
+        case .tg16: return 67
+        case .atari2600: return 289
         }
     }
 

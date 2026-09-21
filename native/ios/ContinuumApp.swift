@@ -263,8 +263,63 @@ enum CoreCatalog {
         biosNames: ["bios7.bin", "bios9.bin", "firmware.bin"]
     )
 
+    /// The TurboGrafx-16, on the lighter of mednafen's two PC Engine cores.
+    ///
+    /// "Fast" rather than the full Beetle PCE on purpose. Both play HuCard games identically as far
+    /// as this app is concerned; the full core adds PC Engine CD and SuperGrafx, and CD needs a
+    /// system card BIOS that cannot ship. So this covers exactly the part of the library that works
+    /// with no files from the user.
+    ///
+    /// Every number here is from the core's own header: `MEDNAFEN_CORE_GEOMETRY_*`,
+    /// `MEDNAFEN_CORE_TIMING_FPS` 59.82, a hardcoded 44100 sample rate, and RGB565, which is
+    /// pixelFormat 0 in this app's encoding rather than libretro's. The 512 max width is real: the
+    /// PC Engine can switch horizontal resolution mid-frame.
+    static let mednafenPceFast = CoreSpec(
+        coreId: "mednafen_pce_fast",
+        displayName: "Beetle PCE Fast (TurboGrafx-16)",
+        systems: ["tg16"],
+        library: "mednafen_pce_fast_libretro_ios.dylib",
+        width: 256, height: 243,
+        maxWidth: 512, maxHeight: 243,
+        aspectRatio: 6.0 / 5.0,
+        fps: 59.82,
+        sampleRate: 44100,
+        pixelFormat: 0,
+        priority: 0,
+        biosNames: []
+    )
+
+    /// The Atari 2600, on the current upstream Stella.
+    ///
+    /// THE FIRST CORE IN THIS APP THAT NEEDS THE ROM IN MEMORY. Stella declares `need_fullpath`
+    /// false and then `memcpy`s from `retro_game_info::data` with no path fallback, so the host's
+    /// habit of handing every core a path and no bytes would have given it a zero-byte ROM. The
+    /// engine now reads the file for any core that declares it wants bytes; see
+    /// `NativeLibretroCore::load_content`.
+    ///
+    /// Geometry is from the core: 160 wide before its NTSC filter, and `AtariNTSC::outWidth(160)`
+    /// = ((159 / 2) + 1) * 7 + 8 = 568 after it, which is the real maximum and has to be declared
+    /// or a filtered frame would not fit. XRGB8888, which is pixelFormat 1 here. The sample rate is
+    /// the core's own (262 * 76 * 60) / 38 = 31440.
+    static let stella = CoreSpec(
+        coreId: "stella2023",
+        displayName: "Stella (Atari 2600)",
+        systems: ["atari2600"],
+        library: "stella2023_libretro_ios.dylib",
+        width: 160, height: 210,
+        maxWidth: 568, maxHeight: 312,
+        aspectRatio: 4.0 / 3.0,
+        fps: 60.0,
+        sampleRate: 31440,
+        pixelFormat: 1,
+        priority: 0,
+        biosNames: []
+    )
+
     /// Every core, in the order the HUD reports them.
-    static let all: [CoreSpec] = [fceumm, snes9x, mgba, genesisPlusGx, pcsxReARMed, melonDS]
+    static let all: [CoreSpec] = [
+        fceumm, snes9x, mgba, genesisPlusGx, pcsxReARMed, melonDS, mednafenPceFast, stella,
+    ]
 
     static let byId: [String: CoreSpec] = Dictionary(
         uniqueKeysWithValues: all.map { ($0.coreId, $0) }
@@ -357,6 +412,16 @@ enum CoreCatalog {
         "mdf": Route(coreId: pcsxReARMed.coreId, system: .ps1),
         "toc": Route(coreId: pcsxReARMed.coreId, system: .ps1),
         "nds": Route(coreId: melonDS.coreId, system: .ds),
+        // HuCard only. The core also declares cue, ccd, chd, toc and m3u for PC Engine CD, and
+        // those are deliberately left out: CD games need a system card BIOS that cannot ship, so
+        // routing them would offer a system that always fails. `.sgx` is absent because the FAST
+        // core does not declare it; SuperGrafx needs the full Beetle PCE.
+        "pce": Route(coreId: mednafenPceFast.coreId, system: .tg16),
+        // `.a26` only. Stella also declares `.bin`, and `.bin` belongs to the PlayStation here as a
+        // cue sheet's companion track, which must never be tappable. A 2600 ROM named `.bin` has to
+        // be renamed, which is a real cost, and it is still the right trade: the alternative is
+        // every PlayStation track appearing in the Library as an Atari game.
+        "a26": Route(coreId: stella.coreId, system: .atari2600),
     ]
 
     /// Extension to core id, DERIVED from the table above and never restated.
@@ -386,11 +451,30 @@ enum CoreCatalog {
 
     /// Extensions that may be copied into Documents.
     ///
-    /// Wider than the launchable set by exactly one entry, because a CD game is a set of files: the
-    /// .bin tracks must come in alongside the .cue that names them. `bin` is therefore importable
-    /// and deliberately absent from `routeTable`, which is what keeps it out of the Library.
-    static let importableExtensions: [String] =
-        CoreCatalog.launchableExtensions + [CoreCatalog.trackExtension]
+    /// Wider than the launchable set, for two reasons that are both about files that are not games:
+    ///
+    ///   - a CD game is a set of files, so the .bin tracks must come in alongside the .cue that
+    ///     names them. `bin` is importable and deliberately absent from `routeTable`, which is what
+    ///     keeps a track out of the Library;
+    ///   - firmware has to get into the visible folder before the install action can move it to the
+    ///     one the cores read. That already worked for the PlayStation by accident, its BIOS being
+    ///     a `.bin`, and did NOT work for `disksys.rom`: the picker refused the file outright, so
+    ///     the Disk System's instructions could not be followed even in principle.
+    ///
+    /// Derived from the firmware list rather than restated, so adding a system whose firmware has a
+    /// new extension does not need this line edited too.
+    static let importableExtensions: [String] = {
+        var seen = Set<String>()
+        var names: [String] = []
+        let firmwareExtensions = installableFirmwareNames.map {
+            ($0 as NSString).pathExtension.lowercased()
+        }
+        for ext in launchableExtensions + [trackExtension] + firmwareExtensions
+        where !ext.isEmpty && seen.insert(ext).inserted {
+            names.append(ext)
+        }
+        return names
+    }()
 
     /// Every BIOS filename any core in this build looks for, deduplicated, in declaration order.
     ///
@@ -409,9 +493,36 @@ enum CoreCatalog {
         return names
     }()
 
+    /// Firmware a SYSTEM needs that is not declared against its core.
+    ///
+    /// One entry, and it exists because the two lists answer different questions. `CoreSpec`'s list
+    /// drives the HUD's "BIOS (core):" line, so a name belongs there only if every game that core
+    /// runs might want it. fceumm runs the NES, which needs nothing, and the Disk System, which
+    /// cannot start without `disksys.rom`; putting that name on the core would put a missing-firmware
+    /// line on every NES game, and leaving it off entirely meant the copy-across below did not
+    /// recognise the file at all. So the user could follow the instructions exactly, drop the file
+    /// in the visible folder, press the button, and be told nothing was found.
+    ///
+    /// The copy-across reads BOTH lists for that reason. Anything a system might need has to be
+    /// here or the file can never reach the directory the cores actually read.
+    static let extraFirmwareNames: [String] = ["disksys.rom"]
+
+    /// Every firmware filename the install action will move across, from either list.
+    static let installableFirmwareNames: [String] = {
+        var seen = Set<String>()
+        var names: [String] = []
+        for name in biosNames + extraFirmwareNames where seen.insert(name.lowercased()).inserted {
+            names.append(name)
+        }
+        return names
+    }()
+
     /// "scph1001.bin, scph5501.bin, ..." for the lines that have to say what is recognised.
+    ///
+    /// Reports the INSTALLABLE set rather than the per-core one, because this string is shown next
+    /// to the install button and has to name everything that button will act on.
     static func biosNameList() -> String {
-        biosNames.isEmpty ? "none" : biosNames.joined(separator: ", ")
+        installableFirmwareNames.isEmpty ? "none" : installableFirmwareNames.joined(separator: ", ")
     }
 
     static func core(id: String) -> CoreSpec? {
@@ -1055,7 +1166,7 @@ final class EngineHost: ObservableObject {
         var installed: [String] = []
         var failures: [String] = []
 
-        for name in CoreCatalog.biosNames {
+        for name in CoreCatalog.installableFirmwareNames {
             // Matched case-insensitively on the name the LOADER looks for, then copied under that
             // exact spelling, because the core opens the name it declared and iOS filesystems are
             // case-preserving. A file called SCPH1001.BIN is the right file with the wrong case.
@@ -1777,9 +1888,12 @@ final class EngineHost: ObservableObject {
         // Without this check the core simply refuses the content and the HUD says "retro_load_game
         // rejected the content", which names neither the cause nor the cure.
         if let missing = missingRequiredBios(for: entry) {
-            status = "\(entry.name) needs \(missing) in the Continuum folder to boot. "
-                + "The Disk System's startup file is Nintendo's own and cannot ship with the app, "
-                + "so it has to be added through Files"
+            // Names the file AND the two steps, because the folder the Files app shows is not the
+            // folder the core reads: dropping the file in is necessary but not sufficient, and
+            // Settings has the one button that crosses the gap. See `installBiosFromDocuments`.
+            status = "\(entry.name) needs \(missing), which is Nintendo's own startup file and "
+                + "cannot ship with the app. Put it in the Continuum folder in Files, then use "
+                + "Settings, Install a BIOS from the Continuum folder"
             return
         }
         // Name the core in the breadcrumb, so a routing bug is one glance rather than a

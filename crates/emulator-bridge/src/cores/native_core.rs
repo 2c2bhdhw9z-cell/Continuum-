@@ -551,6 +551,20 @@ pub struct NativeLibretroCore {
     /// Copied rather than borrowed because the pointer belongs to the core, and this outlives
     /// no particular call but the core's own lifetime is not something to bet a `&str` on.
     library_version: Option<String>,
+    /// What the core said about how it wants its content, read from the same
+    /// `retro_get_system_info` call as the version above.
+    ///
+    /// `true` means "hand me a path and I will open the file myself", which is what a disc-based
+    /// core wants: PCSX ReARMed must not be given a 600 MB `.bin` in memory. `false` means the
+    /// libretro contract obliges the FRONTEND to provide the bytes, and `load_content` reads the
+    /// file to satisfy that.
+    ///
+    /// THIS WAS NEVER READ UNTIL A CORE NEEDED IT. Every core was handed a path and no bytes, which
+    /// worked for the first six only because each of them either declares `need_fullpath` or
+    /// happens to fall back to opening the path anyway. Stella does neither: it `memcpy`s from
+    /// `info->data` unconditionally, so it would have received a zero-byte ROM and failed in a way
+    /// that looks exactly like a broken core.
+    need_fullpath: bool,
 }
 
 impl NativeLibretroCore {
@@ -696,7 +710,7 @@ impl NativeLibretroCore {
         // the few libretro entry points a core must answer at any time. Doing it once and
         // keeping the copy means nothing later has to call back into the core for a string that
         // cannot change.
-        let library_version = unsafe {
+        let (library_version, need_fullpath) = unsafe {
             let mut info = RetroSystemInfo {
                 library_name: std::ptr::null(),
                 library_version: std::ptr::null(),
@@ -705,7 +719,7 @@ impl NativeLibretroCore {
                 block_extract: false,
             };
             (symbols.get_system_info)(&mut info);
-            if info.library_version.is_null() {
+            let version = if info.library_version.is_null() {
                 None
             } else {
                 // A core reporting a version that is not UTF-8 is treated as reporting none,
@@ -715,12 +729,14 @@ impl NativeLibretroCore {
                     .to_str()
                     .ok()
                     .map(str::to_owned)
-            }
+            };
+            (version, info.need_fullpath)
         };
         log::info!(
-            "core '{}' reports version {}",
+            "core '{}' reports version {}, need_fullpath {}",
             descriptor.id,
-            library_version.as_deref().unwrap_or("(none)")
+            library_version.as_deref().unwrap_or("(none)"),
+            need_fullpath
         );
 
         Ok(Self {
@@ -738,6 +754,7 @@ impl NativeLibretroCore {
             duped_frames: 0,
             negotiated_format,
             library_version,
+            need_fullpath,
         })
     }
 
@@ -797,6 +814,41 @@ impl EmulatorCore for NativeLibretroCore {
             core_id: self.descriptor.id.clone(),
             reason: "content path contains a NUL byte".into(),
         })?;
+
+        // When the core did NOT ask for a path, libretro obliges the frontend to supply the bytes,
+        // and this is where that obligation is met. The host hands every game over as a path with
+        // no bytes, which is right for a disc — PCSX ReARMed must not be given a 600 MB track in
+        // memory — and silently wrong for a core that reads `info->data` directly. Stella is the
+        // first such core here: it `memcpy`s from `data` with no fallback, so it would have been
+        // handed a zero-byte ROM and failed in a way indistinguishable from a broken build.
+        //
+        // Read HERE rather than in Swift, and driven by what the core declared rather than by a list
+        // of core ids, so the next core to want bytes needs no change at all. The read is skipped
+        // entirely for a `need_fullpath` core, which is what keeps disc images off the heap.
+        let mut read_from_path = Vec::new();
+        if content.is_empty() && !self.need_fullpath {
+            if let Some(full_path) = hint.full_path.as_ref() {
+                read_from_path =
+                    std::fs::read(full_path).map_err(|err| BridgeError::InvalidContent {
+                        core_id: self.descriptor.id.clone(),
+                        reason: format!(
+                            "core wants the content in memory and {full_path} could not be read: \
+                             {err}"
+                        ),
+                    })?;
+                log::info!(
+                    "core '{}' declared need_fullpath false, so {} byte(s) were read from {}",
+                    self.descriptor.id,
+                    read_from_path.len(),
+                    full_path
+                );
+            }
+        }
+        let content: &[u8] = if read_from_path.is_empty() {
+            content
+        } else {
+            &read_from_path
+        };
 
         let info = RetroGameInfo {
             path: path.as_ptr(),

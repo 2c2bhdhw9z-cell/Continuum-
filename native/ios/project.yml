@@ -238,6 +238,16 @@ targets:
         embed: true
         link: false
         codeSign: false
+      # TurboGrafx-16 and Atari 2600. Both software renderers, and both reached by reading what
+      # each core declares rather than by adding anything to the graphics path.
+      - framework: build/lib/mednafen_pce_fast_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/stella2023_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
 
 # Declared explicitly. XcodeGen only emits a *shared* scheme when one is defined here, and
 # `xcodebuild -scheme` cannot see the non-shared schemes Xcode would otherwise invent on

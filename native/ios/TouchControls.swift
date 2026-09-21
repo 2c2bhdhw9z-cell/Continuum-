@@ -196,6 +196,11 @@ enum GameSystem: String, Sendable, CaseIterable {
     case fds
     /// Sega's first console, the Master System's predecessor. Runs on the same core.
     case sg1000
+    /// NEC's PC Engine, sold as the TurboGrafx-16 outside Japan. HuCard games only; the CD add-on
+    /// needs a system card BIOS that cannot ship with the app.
+    case tg16
+    /// The Atari 2600. One button, and the reason `oneFace` exists.
+    case atari2600
 
     /// The short code a library card badges itself with.
     var badge: String {
@@ -212,6 +217,8 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .ds: return "DS"
         case .fds: return "FDS"
         case .sg1000: return "SG"
+        case .tg16: return "TG16"
+        case .atari2600: return "2600"
         }
     }
 
@@ -231,7 +238,8 @@ enum GameSystem: String, Sendable, CaseIterable {
     /// instead of a touch screen that silently does nothing.
     var touchScreen: CGRect? {
         switch self {
-        case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .fds, .sg1000:
+        case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .fds, .sg1000,
+             .tg16, .atari2600:
             return nil
         case .ds:
             return CGRect(x: 0, y: 0.5, width: 1, height: 0.5)
@@ -252,6 +260,8 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .ds: return "Nintendo DS"
         case .fds: return "Famicom Disk System"
         case .sg1000: return "Sega SG-1000"
+        case .tg16: return "TurboGrafx-16"
+        case .atari2600: return "Atari 2600"
         }
     }
 
@@ -320,6 +330,30 @@ enum GameSystem: String, Sendable, CaseIterable {
                 + Self.shoulders(left: [(.l, "L1"), (.l2, "L2")],
                                  right: [(.r, "R1"), (.r2, "R2")])
                 + Self.selectStart
+
+        case .tg16:
+            // READ FROM beetle-pce-fast's OWN DESCRIPTORS: JOYPAD_A is "I" and JOYPAD_B is "II",
+            // so the right-hand button is I and the left is II. That is the opposite way round
+            // from how the numerals read, and guessing from the names would have swapped every
+            // PC Engine game's two buttons.
+            //
+            // START is labelled RUN, because that is what the console printed on it.
+            return Self.twoFace(right: (.a, "I"), left: (.b, "II"))
+                + Self.systemPair(select: "SELECT", start: "RUN")
+
+        case .atari2600:
+            // One button. Stella's descriptors call JOYPAD_B "Fire", JOYPAD_START "Reset" and
+            // JOYPAD_SELECT "Select", and those last two were console switches rather than pad
+            // buttons: on real hardware you reached over to the machine to reset a game. They are
+            // the only way a core can offer them, so they sit in the bottom row with their real
+            // names.
+            //
+            // The 2600's other controls are deliberately absent. Its difficulty switches arrive as
+            // shoulder buttons and the paddle and driving controllers as analog axes, and none of
+            // them is a thing a player reaches for mid-game. A pad with six controls where the
+            // hardware had one would be a worse reproduction, not a more complete one.
+            return Self.oneFace((.b, "FIRE"))
+                + Self.systemPair(select: "SELECT", start: "RESET")
 
         case .ds:
             // The DS diamond is the Super Nintendo's arrangement, not the PlayStation's: A sits on
@@ -416,12 +450,34 @@ enum GameSystem: String, Sendable, CaseIterable {
     }
 
     /// SELECT and START, side by side. Centres are 2.85 units apart, clear of a 2.6 unit pill.
-    private static let selectStart: [PadControl] = [
-        PadControl(slot: .select, label: "SELECT", cluster: .system,
-                   shape: .pill, offset: CGPoint(x: -1.425, y: 0)),
-        PadControl(slot: .start, label: "START", cluster: .system,
-                   shape: .pill, offset: CGPoint(x: 1.425, y: 0)),
-    ]
+    /// A single face button, centred in the cluster.
+    ///
+    /// The Atari 2600 is the one system here with exactly one, and centring it rather than putting
+    /// it where a two-button pad's right button goes is deliberate: an off-centre lone button reads
+    /// as a pad with a missing button rather than as a joystick with a fire button, which is what a
+    /// 2600 controller was.
+    private static func oneFace(_ only: (PadSlot, String)) -> [PadControl] {
+        [
+            PadControl(slot: only.0, label: only.1, cluster: .face,
+                       shape: .round, offset: CGPoint(x: 0, y: 0)),
+        ]
+    }
+
+    /// The bottom row of two pills, with the labels the console printed on them.
+    ///
+    /// Parameterised because the SLOTS are universal and the NAMES are not: every system sends
+    /// retro SELECT and START, but the PC Engine wrote RUN on the second one and the Atari 2600
+    /// wrote RESET. Drawing START on those would be labelling a button with a name it never had.
+    private static func systemPair(select: String, start: String) -> [PadControl] {
+        [
+            PadControl(slot: .select, label: select, cluster: .system,
+                       shape: .pill, offset: CGPoint(x: -1.425, y: 0)),
+            PadControl(slot: .start, label: start, cluster: .system,
+                       shape: .pill, offset: CGPoint(x: 1.425, y: 0)),
+        ]
+    }
+
+    private static let selectStart: [PadControl] = systemPair(select: "SELECT", start: "START")
 }
 
 // MARK: - Where the controls sit
