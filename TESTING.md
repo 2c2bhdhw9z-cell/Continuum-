@@ -26,16 +26,34 @@ button in the player; see [Reading the diagnostic text](#reading-the-diagnostic-
 | ☐ **4. Cover from the game** | In the player, tap **⋯** → Use this frame as the cover | That game's cover becomes the frame you were on | Last time there was no button, because it was hidden behind a long press. A plain tap opens the menu now. Pausing first on a title screen is the best way to use it |
 | ☐ **5. The selectors** | Look at Picture, Fast forward, Rewind in Settings | Rounded pill, like the system's own, not a square block | You told me twice. The first fix changed the material and left the corner radius, so the shape did not change. They are capsules now |
 | ☐ **6. Auto-hide the pad** | Connect a controller, then Settings → Hide the on-screen pad | On-screen pad disappears, picture takes the space | Reported as not working, and nothing is wrong: it cannot act until a controller is attached, and it was tested without one. It now says **On, but waiting** in that state |
-| ☐ **7. A DS game** | Import a `.nds` file and tap it | Boots, with **both screens** visible, one above the other | Brand new: the sixth core. melonDS is software rendered on iOS, so the DS needed none of the graphics work the N64 needs. Its framebuffer is 256x384, which is both screens already stacked, so the existing compositor should draw them with no changes |
-| ☐ **8. DS without BIOS files** | Just try #7 and see what the status line says | Either it boots, or it names the file it wants | **This is the open question for the DS, not graphics.** melonDS traditionally wants `bios7.bin`, `bios9.bin` and `firmware.bin`; newer builds can boot without them. Those names are declared, so Settings → BIOS reports which are present. Whichever way it goes, the answer decides whether DS needs a BIOS step |
+| ☐ **7. A DS game** | Import a `.nds` file and tap it | Boots straight into the game, with **both screens** visible, one above the other | Brand new: the sixth core. melonDS is software rendered on iOS, so the DS needed none of the graphics work the N64 needs. Its framebuffer is 256x384, which is both screens already stacked, so the existing compositor should draw them with no changes. **No BIOS files needed** — see the note below |
+| ☐ **8. The DS touch screen** | In a DS game, tap and drag on the **lower** screen | The game responds where you touched, and dragging drags | The control the DS is defined by, and it is new in this build. Only the lower screen responds, which is the hardware: the top screen was never a digitiser. If touches land in the wrong place, **say whether they were offset by a little or landed on the wrong screen entirely** — those are different bugs. If nothing happens at all, say whether the buttons still work |
 
-### Known to be incomplete, so not worth reporting
+### Answered without a device: the DS needs no BIOS files
 
-- **The DS touch screen.** Not wired yet, and it is the control the system is defined by. It is a
-  pointer rather than a button, so it needs a path through the engine that does not exist yet plus a
-  mapping from a finger on the lower half of the picture into the bottom screen. Left absent rather
-  than faked, because a DS pad with a dead patch where the stylus goes is worse than one that
-  plainly has not got it.
+This was question 8 in the queue and it is now settled by reading the core's own source, so it
+does not need a test of its own.
+
+**No `bios7.bin`, `bios9.bin` or `firmware.bin` required.** This build of melonDS carries a
+FreeBIOS and generates a default firmware when the real dumps are absent. Settings → BIOS still
+lists those three names and reports which are present, and it is fine for it to say none.
+
+Finding that out turned up two faults that would each have cost a wasted test, both the same
+mistake in different clothes. This app refuses to answer a core's requests for its settings, on
+the principle that a core's own defaults are better than values a frontend invents. But two of
+melonDS's settings do not start at the default they advertise; they start at whatever their C
+variable was initialised to, and the advertised default is only ever applied by a frontend that
+answers. So:
+
+- the **touch screen** advertises mouse control and starts at *disabled*, which meant the screen
+  was switched off inside the core and no amount of correct data from the app could have reached
+  it;
+- **boot game directly** advertises enabled and starts at *off*, which would have sent the core to
+  the DS firmware menu. A generated firmware has no menu that can launch a cartridge, so a game
+  would have loaded and then sat there.
+
+Both are now answered explicitly for this one core, and every other setting of every core is still
+left alone.
 
 ### Known problems being chased
 
@@ -63,9 +81,10 @@ wrong, so it matters, but there is no reasonable way to ask you to trigger it.
 
 ## What is already confirmed working
 
-This build has been run on an iPhone 17 Pro Max and it plays games. All five cores ran a real
-game, each at 60 fps with 0 dropped frames, with the `cores:` line reading 5 of 5 declared every
-time:
+This build has been run on an iPhone 17 Pro Max and it plays games. Five cores each ran a real
+game at 60 fps with 0 dropped frames. The sixth core, the DS, was added later and is still in the
+queue above, so the `cores:` line now reads **6 of 6 declared** rather than the 5 of 5 that these
+runs showed:
 
 | System | Game that ran | Core | Frames counted in the screenshot |
 | --- | --- | --- | --- |
@@ -125,7 +144,8 @@ tried to do.
 
 ## Test 1: does the app install and open
 
-**Already passed.** The app installed, opened, and reported 5 of 5 cores declared.
+**Already passed**, when there were five cores. It reported 5 of 5 declared; with the DS added it
+should now say 6 of 6.
 
 **Do this**
 
@@ -140,7 +160,7 @@ tried to do.
   line, a line starting `cores:`, a line starting `BIOS`, a line about the graphics device, and a
   line counting frames and fps.
 - The status line should say something close to `surface ready - tap Import Games to add a game`.
-- The `cores:` line should say **5 of 5 declared**.
+- The `cores:` line should say **6 of 6 declared**.
 - Below the text block there is a **Library** heading with an **Import Games** button.
 
 **Tell me if it did not work**
@@ -150,7 +170,7 @@ tried to do.
   different installers keep or strip the app's special permissions, and that changes what is
   likely wrong.
 - If it opened: the screenshot.
-- If the `cores:` line says fewer than 5, send that whole line word for word. It names the
+- If the `cores:` line says fewer than 6, send that whole line word for word. It names the
   missing piece, and that means the build is at fault, not your phone.
 - If there is no line about the graphics device, say so. That is a specific failure and it is
   useful to know.
@@ -297,7 +317,7 @@ Rough guide to the lines, top to bottom:
 | --- | --- |
 | First line | Names the build. Confirms you are running what you think you are running. |
 | Status line | The most recent thing the app did or tried to do. **This is the line to report.** |
-| `cores:` | How many of the five emulator cores are actually inside the app. Should be 5 of 5. |
+| `cores:` | How many of the six emulator cores are actually inside the app. Should be 6 of 6. |
 | `BIOS (...)` | Only relevant to PlayStation. `none, HLE fallback` is normal. |
 | `library:` | How many games the app found, and how many files that came from. A PlayStation `.bin` track counts as a file and not as a game, so `6 game(s) of 7 file(s)` is right for six games where one of them is a `.cue` with one track. |
 | Graphics line | Describes the graphics device. If this line is missing, drawing never started. |

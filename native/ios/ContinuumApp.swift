@@ -1953,7 +1953,12 @@ final class EngineHost: ObservableObject {
     // MARK: The read-outs
 
     /// The banner line, unchanged in substance from the one the HUD carried.
-    var buildLine: String { "Phase 5 step 2 - five libretro cores (software)" }
+    /// Counted from the catalogue rather than written out, because this line is the first thing
+    /// read in every screenshot and a hardcoded number goes stale the moment a core is added. It
+    /// said "five" while six were shipping.
+    var buildLine: String {
+        "Phase 5 step 2 - \(CoreCatalog.all.count) libretro cores (software)"
+    }
 
     var frameLine: String {
         let fps = String(format: "%.0f", displayFps)

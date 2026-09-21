@@ -26,11 +26,11 @@ Six cores, ten systems.
 | Game Gear | genesis_plus_gx | **Done** | |
 | Mega Drive / Genesis | genesis_plus_gx | **Done** | |
 | PlayStation | pcsx_rearmed | **Done** | Interpreter, not the recompiler. Fast enough, and see Recompiler below for why it is not switched on |
-| **Nintendo DS** | melonDS | **Partial** | The core builds, links and ships. **Nothing has booted yet, and the touch screen is not wired to the app.** See the DS section below |
+| **Nintendo DS** | melonDS | **Built, untested** | The core builds, links and ships, and every part of it including the touch screen is now wired end to end. **Nothing has booted on a device yet.** See the DS section below |
 
 ### Nintendo DS, in detail
 
-The reason this is Partial rather than one row of "untested":
+Broken out rather than left as one row, because "untested" hides how much of it is proven:
 
 | Piece | State |
 | --- | --- |
@@ -40,8 +40,11 @@ The reason this is Partial rather than one row of "untested":
 | Both screens drawn | **Built, untested**. The framebuffer is 256x384, which is both screens already stacked, so the existing compositor should draw it with no changes |
 | Buttons, D-pad, L and R, Select and Start | **Built, untested** |
 | **Touch screen, engine side** | **Done**. `RETRO_DEVICE_POINTER` did not exist at all; it is now in the input layer, merged per source, exported as `applyPointer`, and covered by 8 unit tests |
-| **Touch screen, app side** | **NOT STARTED**. Nothing in Swift sends a pointer yet, so the touch screen does nothing |
-| BIOS | **Unknown**. `bios7.bin`, `bios9.bin` and `firmware.bin` are declared so Settings reports what it finds. Whether this build needs them is the first thing a device will say |
+| **Touch screen, app side** | **Built, untested**. The pad owns the stylus, because it already owns touches and already knows where the picture is. The lower half of the picture is the digitiser; a touch is mapped through the letterboxed picture rect, so it lands under the finger rather than off by the thickness of the letterbox |
+| **Touch screen, switched on in the core** | **Done**. It was off: the core's touch mode starts at *disabled*, not at the mouse control it advertises, so the screen was dead inside the core regardless of what the app sent. Now answered explicitly, with tests |
+| Boots the cartridge rather than the firmware menu | **Done**. The same trap: *boot game directly* advertises enabled and starts off, which would have sent the core to a firmware menu that a generated firmware cannot launch a game from |
+| BIOS | **Answered, no files needed**. This build carries a FreeBIOS and generates a firmware when the dumps are absent. The three names stay declared so Settings still reports what it finds, and none is a fine answer |
+| Speed | **Unknown**. Software rendered and single threaded: the core has a threaded renderer option that is left off, so if the DS runs slow that is the first lever to pull |
 
 ---
 
@@ -66,6 +69,7 @@ The reason this is Partial rather than one row of "untested":
 | Cheats | **Done** | |
 | On-screen control layout editor | **Partial** | Reported not working three times. The panel is smaller now so it cannot cover the pad, and it shows a live drag counter to say whether touches are arriving at all. Waiting on that reading |
 | Save state compatibility refusal | **Built, cannot be tested deliberately** | Only fires for a state from a different core or build |
+| Core setting overrides | **Done** | The host refuses a core's requests for its settings, so every core keeps its own defaults. Two DS settings had to be answered because they do not start at the default they advertise; everything else, for every core, is still refused |
 | Multi-screen compositor | **Done, unused** | Draws N regions of one texture to N places. Nothing selects more than one yet: it exists for rearranging the DS screens and for hardware-rendered cores |
 | Android `.apk` | **Not started** | Recorded as FEAT-007, explicitly after iOS. Everything new goes in the Rust engine so Android inherits it |
 

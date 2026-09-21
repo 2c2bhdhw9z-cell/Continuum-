@@ -25,9 +25,10 @@ files have to be in the app for the `.cue` to load.
 
 ## Where it actually stands
 
-**The app plays real games on a real iPhone.** On an iPhone 17 Pro Max, all five cores ran a
-real commercial game, each at 60 fps with 0 dropped frames, with the `cores:` line reading
-5 of 5 declared every time:
+**The app plays real games on a real iPhone.** On an iPhone 17 Pro Max, five cores each ran a
+real commercial game at 60 fps with 0 dropped frames. A sixth core, the Nintendo DS, has since
+been added and has not been run on a device yet, so the `cores:` line now reads **6 of 6
+declared** and these seven systems are the confirmed ones:
 
 | System | Game that ran | Core | Frames counted in the screenshot |
 | --- | --- | --- | --- |
