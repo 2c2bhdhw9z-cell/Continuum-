@@ -353,6 +353,7 @@ dependencies = [
  "bytemuck",
  "libloading",
  "log",
+ "naga",
  "pollster",
  "thiserror 2.0.20",
  "uniffi",

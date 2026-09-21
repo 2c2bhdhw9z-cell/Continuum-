@@ -38,6 +38,18 @@ uniffi = { version = "0.28", optional = true }
 # async. pollster is the smallest correct way to do that: no dependencies of its own.
 pollster = "0.4"
 
+[dev-dependencies]
+# Validates frame_blit.wgsl in a unit test. ALREADY IN THE TREE as one of wgpu's own
+# dependencies at the same version, so this costs no extra compilation, and it buys the one
+# check this project could not otherwise make off a device.
+#
+# A WGSL mistake is not a compile error anywhere: the shader is embedded with `include_str!` and
+# handed to wgpu at runtime, so a bad type or a uniform alignment violation surfaces as a black
+# screen on a phone with no debugger attached. Parsing and validating it here turns that into a
+# failing test on the build machine. Pinned rather than floating because it has to agree with the
+# naga inside wgpu, and a version skew would validate against rules the runtime does not apply.
+naga = { version = "30.0.1", features = ["wgsl-in"] }
+
 [features]
 default = []
 # Load a libretro core from a shared library (`cores/native_core.rs`).

@@ -9,4 +9,4 @@ mod renderer;
 #[cfg(target_vendor = "apple")]
 pub mod metal;
 
-pub use renderer::{FrameCapture, Renderer, ScaleFilter, ScaleMode};
+pub use renderer::{FrameCapture, Renderer, ScaleFilter, ScaleMode, ScreenSplit};

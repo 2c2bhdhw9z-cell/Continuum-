@@ -41,14 +41,84 @@ pub enum ScaleMode {
     Stretch,
 }
 
-/// Uniform block consumed by `frame_blit.wgsl`. 32 bytes, 16-byte aligned.
+/// How a core's single framebuffer is divided into screens.
+///
+/// Every system shipping today is [`ScreenSplit::Single`], and the reason this enum exists
+/// before anything needs the other variant is the DS and the 3DS: both hand over ONE
+/// framebuffer with TWO screens stacked inside it, and presenting that means drawing two
+/// regions of one texture to two places. That is the same draw with different numbers, not a
+/// second pass, so the generalisation belongs in the compositor rather than in whichever core
+/// integration happens to arrive first.
+///
+/// Proving it now is deliberate and comes from the hardware-render plan: the composite pass is
+/// generalised BEFORE any hardware core exists, because a mistake here is a rectangle in the
+/// wrong place rather than a game that misbehaves for reasons that could be anywhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScreenSplit {
+    /// One screen filling the whole framebuffer.
+    #[default]
+    Single,
+    /// Two screens stacked vertically inside the framebuffer, presented stacked in the same
+    /// order: the top half of the texture is drawn above the bottom half.
+    VerticalPair,
+}
+
+impl ScreenSplit {
+    /// How many screens this split produces. Never zero, and never above [`MAX_SCREENS`].
+    pub fn count(self) -> u32 {
+        match self {
+            ScreenSplit::Single => 1,
+            ScreenSplit::VerticalPair => 2,
+        }
+    }
+}
+
+/// Upper bound on screens in one composite pass. Matches `MAX_SCREENS` in `frame_blit.wgsl`.
+///
+/// Four rather than two. The DS and the 3DS need two, and a fixed-size uniform array costs 32
+/// bytes per unused slot, which is not worth a second buffer layout to reclaim. Raising it means
+/// changing the constant in both files, which is why they name each other.
+const MAX_SCREENS: usize = 4;
+
+/// One screen's placement: where it is sampled from, and where it is drawn.
+///
+/// PACKED INTO TWO `vec4`s RATHER THAN FOUR `vec2`s, and that is about alignment rather than
+/// size. WGSL requires an element of an array in the uniform address space to be 16-byte
+/// aligned; a struct of `vec2`s is 8-byte aligned, so it either fails to compile or quietly
+/// acquires padding this side would then disagree with. A `vec4` is 16-byte aligned by
+/// definition, so the two declarations cannot drift apart.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
+struct ScreenUniform {
+    /// `[scale_x, scale_y, offset_x, offset_y]` in clip space.
+    dest: [f32; 4],
+    /// `[scale_u, scale_v, offset_u, offset_v]` applied to the texture coordinate. Identity is
+    /// `[1, 1, 0, 0]`, which samples the whole texture.
+    source: [f32; 4],
+}
+
+impl ScreenUniform {
+    /// The whole texture drawn to the whole target. What an unused slot holds, so a slot that
+    /// somehow gets drawn shows the frame rather than a degenerate triangle.
+    const fn identity() -> Self {
+        Self {
+            dest: [1.0, 1.0, 0.0, 0.0],
+            source: [1.0, 1.0, 0.0, 0.0],
+        }
+    }
+}
+
+/// Uniform block consumed by `frame_blit.wgsl`. 144 bytes.
+///
+/// The field order is not cosmetic: `screens` has to start at a 16-byte boundary for the array
+/// alignment rule above, and the three scalars before it add up to exactly 16.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct BlitUniforms {
-    scale: [f32; 2],
-    offset: [f32; 2],
     frame_size: [f32; 2],
-    _padding: [f32; 2],
+    screen_count: u32,
+    _padding: u32,
+    screens: [ScreenUniform; MAX_SCREENS],
 }
 
 /// GPU-side framebuffer, rebuilt only when the core's output geometry changes.
@@ -81,6 +151,12 @@ pub struct Renderer {
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     uniform_buffer: wgpu::Buffer,
+    /// How the framebuffer is divided into screens. See [`ScreenSplit`].
+    screen_split: ScreenSplit,
+    /// Instances the next draw issues, kept in step with the uniform array by
+    /// `write_uniforms_for`. Cached because the draw does not write uniforms, and a count that
+    /// disagreed with the array would draw an instance whose placement was never written.
+    screen_count: u32,
     sampler_nearest: wgpu::Sampler,
     sampler_linear: wgpu::Sampler,
     frame_target: Option<FrameTarget>,
@@ -275,6 +351,8 @@ impl Renderer {
             pipeline,
             bind_group_layout,
             uniform_buffer,
+            screen_split: ScreenSplit::Single,
+            screen_count: 1,
             sampler_nearest,
             sampler_linear,
             frame_target: None,
@@ -322,6 +400,25 @@ impl Renderer {
 
     pub fn filter(&self) -> ScaleFilter {
         self.filter
+    }
+
+    /// Sets how the framebuffer is divided into screens. See [`ScreenSplit`].
+    ///
+    /// A 144-byte buffer write and a change to one instance count, so this is free to call at any
+    /// time and takes effect on the next presented frame. No pipeline or bind group is touched.
+    ///
+    /// Nothing selects anything but [`ScreenSplit::Single`] yet, because no dual-screen core is
+    /// integrated. It is reachable now so that the compositor is proven before one is.
+    pub fn set_screen_split(&mut self, split: ScreenSplit) {
+        if self.screen_split == split {
+            return;
+        }
+        self.screen_split = split;
+        self.write_uniforms();
+    }
+
+    pub fn screen_split(&self) -> ScreenSplit {
+        self.screen_split
     }
 
     pub fn set_scale_mode(&mut self, mode: ScaleMode) {
@@ -466,7 +563,7 @@ impl Renderer {
             if let Some(target) = &self.frame_target {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &target.bind_group, &[]);
-                pass.draw(0..6, 0..1);
+                pass.draw(0..6, 0..self.screen_count.max(1));
             }
         }
 
@@ -603,14 +700,62 @@ impl Renderer {
             .map(|t| (t.width as f32, t.height as f32))
             .unwrap_or((1.0, 1.0));
 
+        let fitted = self.compute_scale(fb_width, fb_height, target_width, target_height);
+        let screens = Self::screen_layout(self.screen_split, fitted);
+        // Cached because the draw needs it and the draw does not write uniforms: this and
+        // `screens` are produced together, so a count that disagreed with the array would mean
+        // drawing an instance whose placement was never written.
+        self.screen_count = self.screen_split.count();
+
         let uniforms = BlitUniforms {
-            scale: self.compute_scale(fb_width, fb_height, target_width, target_height),
-            offset: [0.0, 0.0],
             frame_size: [fb_width, fb_height],
-            _padding: [0.0, 0.0],
+            screen_count: self.screen_count,
+            _padding: 0,
+            screens,
         };
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+    }
+
+    /// Divides an already-fitted rectangle into one placement per screen.
+    ///
+    /// Pure, associated and taking the fitted scale rather than reading `self`, so the whole of
+    /// the layout arithmetic can be unit tested with no GPU, no device and no core. That is the
+    /// point of doing this step before a hardware core exists.
+    ///
+    /// `fitted` is the clip-space half-extent the framebuffer occupies AS A WHOLE, which is what
+    /// [`Self::compute_scale`] already returns. The stacked case then subdivides that rectangle
+    /// rather than recomputing an aspect fit per screen, and the two results tile it exactly:
+    /// the pair together covers the same area one screen would have, so switching split cannot
+    /// change how much of the window is used or where the letterbox falls.
+    fn screen_layout(split: ScreenSplit, fitted: [f32; 2]) -> [ScreenUniform; MAX_SCREENS] {
+        let mut screens = [ScreenUniform::identity(); MAX_SCREENS];
+        let [sx, sy] = fitted;
+
+        match split {
+            ScreenSplit::Single => {
+                screens[0] = ScreenUniform {
+                    dest: [sx, sy, 0.0, 0.0],
+                    source: [1.0, 1.0, 0.0, 0.0],
+                };
+            }
+            ScreenSplit::VerticalPair => {
+                let half = sy * 0.5;
+                // Top screen. Clip space is y-up, so the top half is the POSITIVE offset, while
+                // its source is the SMALLER v because the shader flips v before applying this.
+                // The two conventions disagreeing is exactly the kind of thing that renders
+                // upside down or swapped, which is why it is spelled out rather than inferred.
+                screens[0] = ScreenUniform {
+                    dest: [sx, half, 0.0, half],
+                    source: [1.0, 0.5, 0.0, 0.0],
+                };
+                screens[1] = ScreenUniform {
+                    dest: [sx, half, 0.0, -half],
+                    source: [1.0, 0.5, 0.0, 0.5],
+                };
+            }
+        }
+        screens
     }
 
     /// Clip-space scale that fits the framebuffer into a target of the given size.
@@ -809,7 +954,7 @@ impl Renderer {
             if let Some(target) = &self.frame_target {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &target.bind_group, &[]);
-                pass.draw(0..6, 0..1);
+                pass.draw(0..6, 0..self.screen_count.max(1));
             }
         }
 
@@ -892,5 +1037,217 @@ mod tests {
     fn matching_aspect_fills_surface() {
         let s = aspect_fit((1600.0, 1200.0), 4.0 / 3.0);
         assert!((s[0] - 1.0).abs() < 1e-6 && (s[1] - 1.0).abs() < 1e-6);
+    }
+}
+
+
+#[cfg(test)]
+mod screen_layout_tests {
+    use super::{BlitUniforms, Renderer, ScreenSplit, ScreenUniform, MAX_SCREENS};
+
+    /// The compositor's placement arithmetic, called for real rather than reimplemented.
+    ///
+    /// `screen_layout` is an associated function taking the already-fitted scale precisely so
+    /// that it can be reached from here: the rest of the renderer needs a GPU, a surface and a
+    /// device, and none of those are available on the machine this is built on. The step this
+    /// belongs to is the one that generalises the composite pass before any hardware-rendered
+    /// core exists, and being testable on a Linux box with no GPU is most of why it goes first.
+    fn layout(split: ScreenSplit, fitted: [f32; 2]) -> [ScreenUniform; MAX_SCREENS] {
+        Renderer::screen_layout(split, fitted)
+    }
+
+    /// Clip-space vertical span a placement covers, as `(bottom, top)`.
+    fn vertical_span(screen: &ScreenUniform) -> (f32, f32) {
+        let (scale, offset) = (screen.dest[1], screen.dest[3]);
+        (offset - scale, offset + scale)
+    }
+
+    /// Texture-space vertical span a placement samples, as `(top_v, bottom_v)`.
+    fn source_span(screen: &ScreenUniform) -> (f32, f32) {
+        let (scale, offset) = (screen.source[1], screen.source[3]);
+        (offset, offset + scale)
+    }
+
+    #[test]
+    fn a_single_screen_is_exactly_what_the_one_quad_version_drew() {
+        // THE REGRESSION GUARD FOR NINE WORKING SYSTEMS. Before this step the shader applied one
+        // scale and a zero offset to a fullscreen quad and sampled the whole texture. If the
+        // single-screen case is not still precisely that, every system already shipping changes
+        // how it is framed, and a slightly wrong letterbox is the kind of thing that is noticed
+        // late and blamed on something else.
+        let screens = layout(ScreenSplit::Single, [0.75, 1.0]);
+        assert_eq!(screens[0].dest, [0.75, 1.0, 0.0, 0.0]);
+        assert_eq!(screens[0].source, [1.0, 1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn unused_slots_hold_the_identity_rather_than_zeroes() {
+        // A zeroed slot is a degenerate triangle, which draws nothing and looks identical to a
+        // draw that never happened. The identity draws the frame, so a count that ever ran long
+        // is visible rather than silent.
+        let screens = layout(ScreenSplit::Single, [1.0, 1.0]);
+        for screen in &screens[1..] {
+            assert_eq!(*screen, ScreenUniform::identity());
+        }
+    }
+
+    #[test]
+    fn a_vertical_pair_stacks_top_above_bottom() {
+        let screens = layout(ScreenSplit::VerticalPair, [1.0, 1.0]);
+
+        let (top_bottom_edge, top_top_edge) = vertical_span(&screens[0]);
+        let (bottom_bottom_edge, bottom_top_edge) = vertical_span(&screens[1]);
+
+        // Clip space is y-up, so the first screen must sit above the second.
+        assert!(top_bottom_edge >= bottom_top_edge - 1e-6,
+                "the top screen must not hang below the bottom one");
+        assert!((top_top_edge - 1.0).abs() < 1e-6);
+        assert!((bottom_bottom_edge + 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_vertical_pair_samples_the_top_half_for_the_top_screen() {
+        // THE CONVENTION MOST LIKELY TO BE INVERTED. The shader flips v before applying the
+        // source rect, so top-down texture coordinates are what arrive here: the screen drawn
+        // HIGHER in clip space is the one sampling the SMALLER v. Getting this backwards swaps
+        // the two screens of a DS, which looks deliberate and is not.
+        let screens = layout(ScreenSplit::VerticalPair, [1.0, 1.0]);
+
+        assert_eq!(source_span(&screens[0]), (0.0, 0.5), "top screen samples the top half");
+        assert_eq!(source_span(&screens[1]), (0.5, 1.0), "bottom screen samples the bottom half");
+    }
+
+    #[test]
+    fn a_vertical_pair_tiles_the_same_area_one_screen_would_have() {
+        // Switching split must not change how much of the window is used or where the letterbox
+        // falls: the pair subdivides the fitted rectangle rather than each half being fitted on
+        // its own. Exactly adjacent, with no gap and no overlap.
+        let fitted = [0.8, 0.6];
+        let single = layout(ScreenSplit::Single, fitted);
+        let pair = layout(ScreenSplit::VerticalPair, fitted);
+
+        let (single_low, single_high) = vertical_span(&single[0]);
+        let (top_low, top_high) = vertical_span(&pair[0]);
+        let (bottom_low, bottom_high) = vertical_span(&pair[1]);
+
+        assert!((top_high - single_high).abs() < 1e-6, "pair reaches the same top edge");
+        assert!((bottom_low - single_low).abs() < 1e-6, "pair reaches the same bottom edge");
+        assert!((top_low - bottom_high).abs() < 1e-6, "no gap and no overlap between them");
+
+        // Width is untouched by a vertical split.
+        assert!((pair[0].dest[0] - fitted[0]).abs() < 1e-6);
+        assert!((pair[1].dest[0] - fitted[0]).abs() < 1e-6);
+    }
+
+    #[test]
+    fn every_split_fits_inside_the_uniform_array() {
+        // The draw issues `count` instances against a fixed-size array, so a split that counted
+        // higher than the array is long would read past it. Checked here rather than trusted,
+        // because the two numbers live in different declarations.
+        for split in [ScreenSplit::Single, ScreenSplit::VerticalPair] {
+            let count = split.count();
+            assert!(count >= 1, "a split with no screens would present nothing");
+            assert!(count as usize <= MAX_SCREENS,
+                    "{split:?} wants {count} screens and the array holds {MAX_SCREENS}");
+        }
+    }
+
+    #[test]
+    fn the_uniform_block_matches_what_the_shader_declares() {
+        // THE AGREEMENT THAT FAILS SILENTLY. `frame_blit.wgsl` declares this same block, and WGSL
+        // requires an array element in the uniform address space to be 16-byte aligned. If the
+        // scalars before `screens` stop adding up to 16, or `ScreenUniform` stops being 32 bytes,
+        // the shader reads every placement from the wrong offset: the geometry is garbage and
+        // nothing reports an error, because both sides still compile.
+        assert_eq!(core::mem::size_of::<ScreenUniform>(), 32);
+        assert_eq!(core::mem::size_of::<BlitUniforms>(), 16 + 32 * MAX_SCREENS);
+
+        // `screens` has to begin exactly one 16-byte block in.
+        let uniforms = BlitUniforms {
+            frame_size: [0.0, 0.0],
+            screen_count: 0,
+            _padding: 0,
+            screens: [ScreenUniform::identity(); MAX_SCREENS],
+        };
+        let base = &uniforms as *const _ as usize;
+        let screens = &uniforms.screens as *const _ as usize;
+        assert_eq!(screens - base, 16, "screens must start at a 16-byte boundary");
+    }
+}
+
+
+#[cfg(test)]
+mod shader_tests {
+    /// Parses and validates `frame_blit.wgsl` the way wgpu will at runtime.
+    ///
+    /// THE ONLY CHECK IN THIS PROJECT THAT CAN CATCH A SHADER MISTAKE WITHOUT A PHONE. The shader
+    /// is embedded with `include_str!` and compiled by wgpu at device creation, so nothing about
+    /// it is a Rust compile error: a wrong type, a missing binding or a uniform alignment
+    /// violation all build cleanly and then present a black screen on a device with no debugger.
+    /// naga is wgpu's own shader front end and is already in the dependency tree at the same
+    /// version, so running it here is the same validation the runtime performs, several minutes
+    /// earlier and on the machine doing the building.
+    ///
+    /// This matters more from here on than it did before. The hardware-render work ahead changes
+    /// this shader repeatedly, and the composite pass is exactly where a mistake is invisible
+    /// until it is on screen.
+    #[test]
+    fn the_blit_shader_parses_and_validates() {
+        let source = include_str!("frame_blit.wgsl");
+        let module = naga::front::wgsl::parse_str(source)
+            .unwrap_or_else(|err| panic!("frame_blit.wgsl does not parse:\n{}", err.emit_to_string(source)));
+
+        // Validated with the same capability set a plain fragment pipeline gets, so a feature
+        // that would need enabling on the device cannot slip in unnoticed.
+        let mut validator = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::empty(),
+        );
+        if let Err(err) = validator.validate(&module) {
+            panic!("frame_blit.wgsl does not validate:\n{}", err.emit_to_string(source));
+        }
+    }
+
+    /// The shader's screen array has to be as long as the Rust one.
+    ///
+    /// READ OUT OF THE SHADER TEXT, because nothing else connects the two numbers. `MAX_SCREENS`
+    /// is declared once in `renderer.rs` and once in `frame_blit.wgsl`, and raising only the Rust
+    /// one writes placements past the end of what the shader declares: both still compile, both
+    /// still run, and the extra screens read whatever follows in the uniform buffer. Comparing the
+    /// declarations is crude and is the only thing that actually holds them together.
+    #[test]
+    fn the_shader_declares_as_many_screens_as_the_engine_writes() {
+        let source = include_str!("frame_blit.wgsl");
+        let declared = source
+            .split("array<Screen,")
+            .nth(1)
+            .and_then(|tail| tail.split('>').next())
+            .map(str::trim)
+            .and_then(|count| count.parse::<usize>().ok())
+            .expect("frame_blit.wgsl should declare screens as array<Screen, N>");
+
+        assert_eq!(
+            declared,
+            super::MAX_SCREENS,
+            "the shader holds {declared} screens and the engine writes {}",
+            super::MAX_SCREENS
+        );
+    }
+
+    /// The entry points the pipeline asks for by name, which is a runtime lookup and therefore
+    /// another thing no compiler checks. Renaming one in the shader and not in `renderer.rs` fails
+    /// at device creation, which on this project means it fails on a phone.
+    #[test]
+    fn the_shader_has_the_entry_points_the_pipeline_names() {
+        let source = include_str!("frame_blit.wgsl");
+        let module = naga::front::wgsl::parse_str(source).expect("shader parses");
+
+        let names: Vec<&str> = module
+            .entry_points
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        assert!(names.contains(&"vs_main"), "expected a vs_main entry point, found {names:?}");
+        assert!(names.contains(&"fs_main"), "expected an fs_main entry point, found {names:?}");
     }
 }
