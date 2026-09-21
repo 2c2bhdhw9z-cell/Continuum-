@@ -737,7 +737,9 @@ final class SaveStates: ObservableObject {
 
         let bytes: Data
         do {
-            bytes = Data(try engine.saveState())
+            // No `Data(...)` around this. UniFFI already hands back `Data` for a Rust `Vec<u8>`,
+            // and re-wrapping it compiled while copying up to a megabyte for nothing.
+            bytes = try engine.saveState()
         } catch {
             report("save state refused by \(engine.currentCoreId() ?? "the core"): \(error)",
                    announce: announce)
@@ -843,7 +845,10 @@ final class SaveStates: ObservableObject {
         }
 
         do {
-            try engine.loadState(data: Array(data))
+            // Passed straight through. UniFFI maps the Rust `Vec<u8>` to `Data` here, not to
+            // `[UInt8]`, so wrapping it in `Array(...)` was both a compile error and a pointless
+            // copy of up to a megabyte.
+            try engine.loadState(data: data)
         } catch {
             // The gate passed and the core still refused. Reported rather than swallowed: this is
             // the one path that says the four checks were not enough, and it is worth knowing.
