@@ -196,28 +196,29 @@ struct PlayerScreen: View {
         .foregroundStyle(.white)
     }
 
-    /// Save and load on ONE control: a tap saves, a press opens the menu that can also load.
+    /// Everything durable this screen can do to a game: save, load, and take the cover from it.
     ///
-    /// ONE BUTTON RATHER THAN TWO, and the reason is the bar it sits in. This row already holds
-    /// back, a title, rewind, fast-forward, pause, reset and diagnostics, and on a phone in portrait
-    /// there is no room for an eighth circle without shrinking all of them, which is the opposite of
-    /// what a touch target needs. `Menu(content:label:primaryAction:)` gives both behaviours to one
-    /// target: the primary action is the save, which is what this button has always done and what
-    /// muscle memory expects, and the menu underneath it is where loading lives.
+    /// A PLAIN TAP OPENS THIS, and it used to take a press. That was `Menu(content:label:
+    /// primaryAction:)`, where the tap saved to a new slot and only a long press revealed the menu,
+    /// which read well on paper and failed in the one way that matters: the cover capture was
+    /// reported as having "no button to even try". A control whose only affordance is a gesture
+    /// nobody was told about is an absent control, and the press was not discoverable on a screen
+    /// with seven other things that respond to a tap. So the save moved into the menu with the rest,
+    /// and the glyph changed from the save arrow to an ellipsis, because a button that now opens a
+    /// list of three things should not go on claiming to be the save button.
     ///
-    /// 44 POINTS, not the 38 the other session buttons use. This is the one control in the bar whose
-    /// press has to be distinguished from a tap, so a finger that lands slightly off it and slides
-    /// while the menu is coming up must still be on it. The rest of the bar keeps 38 because a plain
-    /// tap is forgiving in a way a press is not.
+    /// The cost is honest and small: saving is two taps instead of one. Worth it for load and
+    /// capture becoming findable, and a save state is not something anyone needs to reach for in a
+    /// fraction of a second.
     ///
-    /// THE COVER CAPTURE IS A ROW IN THIS MENU RATHER THAN A BUTTON IN THE BAR, which is the argument
-    /// above carried one step further. Everything the paragraph above lists is already in that row,
-    /// and one more circle could only come out of the width of the others, which is the opposite of
-    /// what a touch target needs. A menu row costs no width at all and the system sizes it for a
-    /// finger, so the control that must never be hit by accident is the one that gains most from
-    /// living behind a press. It belongs beside the save states rather than beside pause and reset
-    /// for a second reason: like a save it writes something durable about this game, and unlike pause
-    /// and reset it is not a thing anyone reaches for by reflex mid-game.
+    /// ONE CONTROL RATHER THAN THREE, which is the bar it sits in rather than a preference. The row
+    /// already holds back, a title, rewind, fast-forward, pause, reset and diagnostics, and on a
+    /// phone in portrait there is no room for more circles without shrinking all of them, which is
+    /// the opposite of what a touch target needs. Menu rows cost no width at all and the system
+    /// sizes each one for a finger.
+    ///
+    /// 44 POINTS, not the 38 the other session buttons use, because this is the one that opens
+    /// something rather than doing something, and a menu that fails to open reads as a dead button.
     private var saveStateControl: some View {
         Menu {
             Button {
@@ -271,18 +272,17 @@ struct PlayerScreen: View {
                 }
             }
         } label: {
-            Image(systemName: "square.and.arrow.down")
-                .font(.system(size: 15, weight: .semibold))
+            // `ellipsis` rather than the save glyph, because this control no longer does one thing.
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 17, weight: .semibold))
                 .frame(width: 44, height: 44)
                 .background(Color.white.opacity(0.12), in: Circle())
                 .contentShape(Circle())
-        } primaryAction: {
-            host.saveStateToSlot()
         }
         // One literal rather than a concatenation, like every other label in this file: the
         // concatenated form resolves to a different overload of this modifier than a plain string
         // does, and on a build whose only compiler is CI that is not a thing to find out remotely.
-        .accessibilityLabel("Save state, press and hold to load one or to grab the cover")
+        .accessibilityLabel("Save states and cover art")
     }
 
     /// How many states the in-game menu offers. Six is about what fits without scrolling on the

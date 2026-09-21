@@ -852,14 +852,39 @@ impl EmulatorCore for NativeLibretroCore {
         if src.is_empty() {
             return Err(BridgeError::SaveState("that save state is empty".into()));
         }
+        // DIRECTIONAL, and it did not used to be. This refused any length that was not exactly
+        // what the core reports right now, which was wrong and showed up as save states loading on
+        // some games and not others. `retro_serialize_size` is permitted to CHANGE during a
+        // session and between sessions: several cores report a larger figure once they have run a
+        // few frames, and a PlayStation core's figure moves with the disc state. So a state that is
+        // a perfectly good state, from this core and this build, can legitimately be a different
+        // length from the one the core would write this instant, and refusing it made the feature
+        // look broken for exactly the cores that do this.
+        //
+        // Too SHORT is still refused, because that is the one direction with a real hazard: the
+        // core reads its own structures out of the buffer, and a buffer smaller than it expects is
+        // how it reads past the end. Too long is harmless, since the core stops when it has what it
+        // needs, so the surplus is ignored.
+        //
+        // This is not the check that stops a state from the WRONG core being loaded. That is the
+        // host's job, where the core id and the core's version are recorded beside every state, and
+        // it is far stronger than comparing a length.
         let expected = unsafe { (self.symbols.serialize_size)() };
-        if expected != 0 && src.len() != expected {
+        if expected != 0 && src.len() < expected {
             return Err(BridgeError::SaveState(format!(
-                "that save state is {} bytes but {} expects {expected}, so it was written by a \
-                 different core or a different build",
+                "that save state is {} bytes but {} needs at least {expected}, so it is truncated \
+                 or was written by a different core",
                 src.len(),
                 self.descriptor.display_name
             )));
+        }
+        if expected != 0 && src.len() != expected {
+            log::info!(
+                "loading a {} byte state into '{}', which currently reports {expected}; \
+                 permitted, the figure is allowed to move during a session",
+                src.len(),
+                self.descriptor.id
+            );
         }
         let ok = unsafe { (self.symbols.unserialize)(src.as_ptr().cast::<c_void>(), src.len()) };
         if !ok {

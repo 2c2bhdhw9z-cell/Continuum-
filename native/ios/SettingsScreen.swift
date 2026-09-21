@@ -215,6 +215,24 @@ struct SettingsScreen: View {
     /// pairing. What a player actually needs from a settings screen here is an answer to "does it
     /// see my controller", which is the read-out, and a decision about the overlay, which is the
     /// switch. Anything else would be a control invented to fill the section.
+    /// What the auto-hide switch is doing at this moment, which is not always what it means.
+    ///
+    /// Three states rather than two. The switch can only act while a controller the app can read is
+    /// attached, so "on with nothing attached" is a real and confusing condition: the switch is on,
+    /// the pad is still there, and nothing has gone wrong. It was reported as the setting not
+    /// working, which is the correct reading of a control that appears to do nothing, so the
+    /// control now says which of the three it is in.
+    private var autoHideExplanation: String {
+        guard controllers.autoHidesOnScreenPad else {
+            return "Off, so both work at once, including on the same button."
+        }
+        if controllers.playablePads > 0 {
+            return "On, and the picture is using the space the controls were holding."
+        }
+        return "On, but waiting: nothing is hidden until a controller is connected. Pair one in "
+            + "iOS Settings, then Bluetooth."
+    }
+
     private var controllerSection: some View {
         SettingsSection(title: "GAME CONTROLLERS") {
             SettingsReadout(label: "Attached", value: controllers.summary)
@@ -224,9 +242,11 @@ struct SettingsScreen: View {
                     Text("Hide the on-screen pad while a controller is connected")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
-                    Text(controllers.autoHidesOnScreenPad
-                         ? "On, and the picture uses the space the controls were holding."
-                         : "Off, so both work at once, including on the same button.")
+                    // Says what it is doing RIGHT NOW rather than only what it means, because this
+                    // switch cannot act without a controller attached and that was reported as it
+                    // not working. Nothing was wrong, but a switch that is on and visibly changing
+                    // nothing has to account for itself rather than leave the user guessing.
+                    Text(autoHideExplanation)
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
                 }
@@ -1040,13 +1060,17 @@ struct SegmentedChoice<Option: Hashable>: View {
             let index = options.firstIndex(of: selection) ?? 0
 
             ZStack(alignment: .leading) {
-                // The recessed track. Deliberately darker than the card it sits on, because the
-                // whole illusion is a groove with something floating in it, and a track lighter
-                // than its surroundings reads as a raised slab instead.
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                // A CAPSULE, NOT A ROUNDED SQUARE, and this is the shape the whole control was
+                // rebuilt for. An earlier pass changed the thumb's material and left both of these
+                // at a 10 and 8 point radius, which on a 44 point track is visually square, and the
+                // difference was called out immediately on a device: the corner radius was doing
+                // more to make it look like an Android control than the colour ever was. A capsule
+                // takes its radius from its own height, so this cannot drift back to looking boxy
+                // if the track height changes.
+                Capsule(style: .continuous)
                     .fill(Color.black.opacity(0.28))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        Capsule(style: .continuous)
                             .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.5)
                     )
 
@@ -1056,7 +1080,7 @@ struct SegmentedChoice<Option: Hashable>: View {
                 // Drawn from the selection rather than moved by the gesture, so there is exactly
                 // one source of truth for where it sits. A gesture that dragged it directly could
                 // end up disagreeing with the value actually stored.
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                Capsule(style: .continuous)
                     // `ultraThinMaterial` is what makes it glass rather than a grey rectangle: it
                     // is a real blur of what is behind it, so it picks up the card, the artwork
                     // and whatever the system is doing with materials on the running OS, instead
@@ -1066,13 +1090,16 @@ struct SegmentedChoice<Option: Hashable>: View {
                         // The specular edge. A single hairline of white at low opacity is what
                         // reads as a lit top edge on a physical control, and it is the difference
                         // between "translucent" and "glass".
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        Capsule(style: .continuous)
                             .strokeBorder(Color.white.opacity(0.24), lineWidth: 0.5)
                     )
                     // Lifts it out of the groove. Small and soft: a heavy shadow here looks like a
                     // floating card rather than a segment resting in a track.
                     .shadow(color: Color.black.opacity(0.32), radius: 2.5, x: 0, y: 1)
-                    .padding(2)
+                    // Three points, not two, so the groove stays visible all the way around a
+                    // capsule. At two the thumb's curve meets the track's curve and the gap
+                    // disappears at the ends, which is what makes a pill read as a filled box.
+                    .padding(3)
                     .frame(width: segment)
                     .offset(x: segment * CGFloat(index))
                     // A spring rather than a fixed curve, so the thumb settles the way the

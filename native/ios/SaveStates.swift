@@ -222,8 +222,9 @@ enum SaveStateRefusal {
     case coreMismatch(saved: String, running: String)
     /// The same core, rebuilt since.
     case versionMismatch(core: String, saved: String, running: String)
-    /// The length the running core expects is not the length that was written.
-    case sizeMismatch(saved: Int, expected: Int)
+    /// Shorter than the running core needs, which is the only direction that is a fault. See the
+    /// note in `SaveStates.refusal(for:)` on why a LONGER state is accepted.
+    case tooShort(saved: Int, expected: Int)
 
     var message: String {
         switch self {
@@ -236,10 +237,10 @@ enum SaveStateRefusal {
             return "The core has been rebuilt since this state was saved (\(core) \(saved) wrote "
                 + "it, this build is \(running)), so its internal layout may have moved. Not "
                 + "loading it, to avoid corrupting the game."
-        case .sizeMismatch(let saved, let expected):
-            return "This state does not match what the core expects (the state is \(saved) bytes "
-                + "and this core expects \(expected)), so it was almost certainly written by a "
-                + "different build."
+        case .tooShort(let saved, let expected):
+            return "This state is shorter than the core can read (it is \(saved) bytes and the "
+                + "core needs at least \(expected)), so it was cut short when it was written or it "
+                + "came from a different core."
         }
     }
 
@@ -249,7 +250,7 @@ enum SaveStateRefusal {
         case .payloadMissing: return "payload missing"
         case .coreMismatch: return "different core"
         case .versionMismatch: return "core rebuilt"
-        case .sizeMismatch: return "wrong state size"
+        case .tooShort: return "state too short"
         }
     }
 }
@@ -685,9 +686,24 @@ final class SaveStates: ObservableObject {
         // read straight from the machine the state is about to be pushed into. Zero means the core
         // does not support states at all, which is not a mismatch and is refused by the save and
         // load paths on their own terms.
+        //
+        // DIRECTIONAL, and it did not used to be. Refusing every length that was not exactly what
+        // the core reports this instant was wrong, and it showed up on a device as save states
+        // loading for some games and not others. `retro_serialize_size` is allowed to CHANGE: some
+        // cores report a larger figure once they have run a few frames, and a PlayStation core's
+        // figure moves with the disc state. So a state that is genuinely from this core and this
+        // build can be a different length from the one the core would write right now, and treating
+        // that as corruption broke the feature for precisely the cores that do it.
+        //
+        // Short is still refused, because that is the direction with a hazard behind it: the core
+        // reads its own structures out of the buffer, so one smaller than it expects is how it reads
+        // past the end. Longer is harmless, since it stops when it has what it needs.
+        //
+        // This was never the check doing the real protecting. The core id and the core's version
+        // above are, and both are far stronger than comparing a length.
         let expected = Int(engine.saveStateSize())
-        if record.byteCount > 0, expected > 0, record.byteCount != expected {
-            return .sizeMismatch(saved: record.byteCount, expected: expected)
+        if record.byteCount > 0, expected > 0, record.byteCount < expected {
+            return .tooShort(saved: record.byteCount, expected: expected)
         }
 
         return nil

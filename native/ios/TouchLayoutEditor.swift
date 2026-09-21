@@ -71,6 +71,14 @@ struct TouchLayoutEditor: View {
     /// no room at all, or no clear band for the picture.
     @State private var padNote: String = ""
 
+    /// How many drag callbacks the pad has delivered, and what the last one was.
+    ///
+    /// On screen on purpose. See the comment at the `onLayoutEdited` call site: it exists to tell
+    /// "the touches never arrived" apart from "the touches arrived and nothing redrew", which are
+    /// the two ways this screen can fail and need opposite fixes.
+    @State private var dragEvents = 0
+    @State private var dragNote = "nothing dragged yet"
+
     /// Whether the panel is showing more than its header.
     ///
     /// Collapsible because the panel has to sit somewhere, and anywhere it sits is somewhere a
@@ -200,6 +208,16 @@ struct TouchLayoutEditor: View {
                 // Not hopped, because this comes from a touch callback rather than a layout pass,
                 // and the preview has to follow the finger within the same turn to feel attached.
                 self.draft = layout
+                // COUNTED AND SHOWN, which is instrumentation rather than decoration. This editor
+                // was reported as not working with no way to tell which half had failed, and the
+                // two possibilities need completely different fixes: if this line never moves, the
+                // touches are not reaching the pad at all and the problem is hit-testing or
+                // something on top of it; if it counts up while the controls stay put, the drag is
+                // arriving and the redraw is what is broken. One number on screen separates them
+                // without another round trip.
+                self.dragEvents += 1
+                self.dragNote = "\(self.dragEvents) move(s), last "
+                    + (settled ? "released" : "in progress")
                 // `layout` is passed on rather than `draft` re-read: a `@State` property written
                 // a line earlier is not guaranteed to read back as the new value inside the same
                 // event, and committing the previous one would persist the second-to-last drag.
@@ -222,7 +240,14 @@ struct TouchLayoutEditor: View {
     private var panel: some View {
         GeometryReader { proxy in
             VStack(spacing: 0) {
-                card(maxBodyHeight: max(120, proxy.size.height * 0.56))
+                // 0.42, down from 0.56. At the larger figure this panel reached down over the top
+                // of the thumb clusters at the default layout, and the panel is above the pad in
+                // the z-order, so the part of a group that was underneath it could not be grabbed.
+                // Dragging still worked from the exposed part, which is the worst version of a
+                // layout bug: it behaves differently depending on where the finger lands, so it
+                // reads as unreliable rather than as blocked. The panel scrolls, so a smaller
+                // window costs nothing but a little more scrolling.
+                card(maxBodyHeight: max(120, proxy.size.height * 0.42))
                 Spacer(minLength: 0)
             }
         }
@@ -280,6 +305,7 @@ struct TouchLayoutEditor: View {
         opacitySlider
         positionSliders
         SettingsReadout(label: "Positions", value: positionLine)
+        SettingsReadout(label: "Dragging", value: dragNote)
 
         HStack(spacing: 10) {
             SettingsButton(title: "Swap sides", role: .normal) {
