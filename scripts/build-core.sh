@@ -96,6 +96,37 @@ WORK="$ROOT/.work"
 # where an empty array expanded under `set -u` is an error rather than nothing.
 IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed melonds)
 
+# Every libretro entry point the engine resolves by name, which is the real contract between a
+# staged dylib and the app. Kept in step with the `Symbols` struct in
+# crates/emulator-bridge/src/cores/native_core.rs: that struct resolves all of these during
+# `NativeLibretroCore::load`, and a core missing any one of them fails there naming the symbol.
+#
+# Listed here so that failure happens in CI instead of on a phone. It is not hypothetical: save
+# states were broken for the whole project's life because `retro_serialize` was never resolved,
+# and the symptom was a save button that failed and a rewind that recorded nothing.
+IOS_REQUIRED_SYMBOLS=(
+  retro_api_version
+  retro_init
+  retro_deinit
+  retro_set_environment
+  retro_set_video_refresh
+  retro_set_audio_sample
+  retro_set_audio_sample_batch
+  retro_set_input_poll
+  retro_set_input_state
+  retro_get_system_info
+  retro_get_system_av_info
+  retro_load_game
+  retro_unload_game
+  retro_run
+  retro_reset
+  retro_serialize_size
+  retro_serialize
+  retro_unserialize
+  retro_cheat_reset
+  retro_cheat_set
+)
+
 # Staged next to libcontinuum_switch.dylib so project.yml's relative `build/lib/...` paths
 # resolve and package-ipa.sh's fallback finds them in $OUT/lib.
 IOS_OUT_DIR="$ROOT/native/ios/build/lib"
@@ -303,10 +334,26 @@ ios_stage_dylib() {
   # worry either: the mgba link below pulls a whole LTO archive in with -force_load precisely
   # because a link that resolves nothing still produces a valid, empty dylib. So assert the API
   # is actually in there, for every core, where the artefact is staged.
-  if ! nm -gU "$built" 2>/dev/null | grep -q "retro_run"; then
-    echo "error: $built exports no retro_run; it is not a usable libretro core" >&2
-    echo "       (a dylib that links but resolves no core objects looks fine to every" >&2
-    echo "        later check and fails only on device)" >&2
+  #
+  # ALL of it, not just retro_run. Checking one symbol only catches a core that resolved
+  # nothing at all; it says nothing about a core that lost one entry point, which is the more
+  # likely and much quieter failure. mgba is built with LTO (see build_ios_cmake_core), and LTO
+  # is free to internalise any symbol the link does not reference, so "some of the API survived"
+  # is a state this build can actually produce.
+  local exported
+  exported="$(nm -gU "$built" 2>/dev/null | awk '{ print $NF }')"
+  local missing=()
+  local symbol
+  for symbol in "${IOS_REQUIRED_SYMBOLS[@]}"; do
+    # Mach-O prefixes C symbols with an underscore, and the match is anchored so that
+    # retro_serialize cannot be satisfied by retro_serialize_size.
+    grep -qx "_$symbol" <<<"$exported" || missing+=("$symbol")
+  done
+  if (( ${#missing[@]} > 0 )); then
+    echo "error: $built is missing ${#missing[@]} libretro entry point(s):" >&2
+    printf '         %s\n' "${missing[@]}" >&2
+    echo "       (a dylib that links but exports an incomplete API looks fine to every" >&2
+    echo "        later check and fails only on device, when the engine resolves them)" >&2
     exit 1
   fi
 
@@ -447,9 +494,35 @@ build_ios_cmake_core() {
   # valid, empty dylib that dlopens and then has no libretro API in it. -force_load takes
   # every member. -framework Foundation matches the OS_LIB mgba's CMakeLists appends on
   # Apple, and -lm the M_LIBRARY it appends everywhere else.
+  #
+  # -u for every entry point, and THIS IS THE FIX FOR THE INTERMITTENT mgba FAILURE that
+  # produced a core with no libretro API in it on one run and a good one on the next, from the
+  # same commit and the same Xcode.
+  #
+  # -force_load was necessary but not sufficient, because this archive holds LLVM bitcode
+  # rather than native objects. mgba's CMakeLists adds -flto unconditionally on Apple:
+  #
+  #   if(APPLE OR CMAKE_C_COMPILER_ID STREQUAL "GNU" AND BUILD_LTO)
+  #
+  # which CMake parses as `APPLE OR (GNU AND BUILD_LTO)`, so -DBUILD_LTO=OFF cannot turn it
+  # off. -force_load therefore guarantees the archive MEMBERS are loaded, and then LTO decides
+  # what to emit from them. Nothing in the link referenced the libretro API, so LTO was entitled
+  # to internalise and dead-strip it, and whether it did came down to how its parallel codegen
+  # happened to partition the module. That is the nondeterminism.
+  #
+  # -u names each symbol as an undefined root the link must satisfy, which marks it live before
+  # LTO runs and leaves nothing to chance. Preferred over -exported_symbols_list, which would
+  # also work: that hides every other symbol, and hiding one the core needs is a failure this
+  # script could not see, whereas an over-long -u list fails loudly at link time.
+  local keep_alive=()
+  local symbol
+  for symbol in "${IOS_REQUIRED_SYMBOLS[@]}"; do
+    keep_alive+=(-Wl,-u,"_$symbol")
+  done
   cc -arch arm64 -isysroot "$IOSSDK" -miphoneos-version-min="$IOS_MIN_VERSION" \
     -dynamiclib -install_name "@rpath/$IOS_DYLIB_NAME" \
     -o "$built" -Wl,-force_load,"$archive" \
+    "${keep_alive[@]}" \
     -framework Foundation -lm
   [[ -f "$built" ]] || {
     echo "error: $core: the dylib link reported success but produced nothing" >&2
