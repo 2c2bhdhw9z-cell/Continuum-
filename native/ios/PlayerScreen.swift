@@ -356,6 +356,9 @@ struct PlayerScreen: View {
             .foregroundStyle(Color.white.opacity(0.75))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
+            // See `DiagnosticsPanel`: a read-out must never eat a touch, and this one spans the
+            // full width directly above the picture.
+            .allowsHitTesting(false)
     }
 
     /// Always on screen, never behind the toggle.
@@ -368,6 +371,9 @@ struct PlayerScreen: View {
             .foregroundStyle(Color.white.opacity(0.6))
             .lineLimit(2)
             .fixedSize(horizontal: false, vertical: true)
+            // Two lines of it, full width, and it is always on screen rather than behind the
+            // toggle. See `DiagnosticsPanel`.
+            .allowsHitTesting(false)
     }
 }
 
@@ -481,5 +487,12 @@ struct DiagnosticsPanel: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: 8))
+        // A READ-OUT MUST NEVER EAT A TOUCH. This panel is full width, has a filled background,
+        // grows to fourteen-odd lines, and sits above the control overlay in the player's z-order,
+        // so wherever it overhangs it was absorbing touches with no feedback of any kind. On the DS
+        // that is a dead band across the top of the touch screen; in landscape, where the panel is
+        // full width and the controls sit high, it can reach a shoulder button too. There is
+        // nothing interactive in here to lose: every child is a `Text`.
+        .allowsHitTesting(false)
     }
 }

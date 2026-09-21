@@ -1740,6 +1740,10 @@ final class EngineHost: ObservableObject {
             activeEntry = entry
             activeCoreId = spec.coreId
             paused = false
+            // Told AFTER `activeEntry`, because `activeSystem` is derived from it. This is what
+            // stops "hide the on-screen pad" unmounting the overlay for a system whose touch
+            // screen lives on it; see `PhysicalControllers.runningSystemNeedsOverlay`.
+            controllers.noteRunningSystem(activeSystem)
             // AFTER the launch, on the success path only. The session is what decides the real
             // output rate, and `audio.start()` reports that rate to the engine, so the sink has
             // to already exist: `launch` is what builds it. Audio that failed to come up does
@@ -1813,6 +1817,9 @@ final class EngineHost: ObservableObject {
         activeCoreId = ""
         paused = false
         pictureArea = nil
+        // After `activeEntry` is cleared, so a DS session ending releases the hold it had on the
+        // overlay and the setting starts working again for the next game.
+        controllers.noteRunningSystem(nil)
         padInput.view?.releaseAll()
         refreshAudioReadout()
     }

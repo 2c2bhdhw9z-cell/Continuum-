@@ -664,8 +664,11 @@ impl NativeLibretroCore {
         }
 
         // Before `set_environment`, because cores read their options during the environment
-        // call and again on init. Installing after would mean the first read — the one that
-        // decides the DS touch mode — saw an empty table.
+        // call and again on init. Installing after would mean the first read saw an empty table.
+        //
+        // Installed AGAIN at `load_content`, and that is the one that actually matters for the DS:
+        // melonDS reads `melonds_touch_mode` from `check_variables` during `retro_load_game`, not
+        // here. See the note there.
         install_options(&descriptor.id);
 
         // Order matters and is specified by libretro: the environment callback must be
@@ -805,6 +808,16 @@ impl EmulatorCore for NativeLibretroCore {
             size: content.len(),
             meta: std::ptr::null(),
         };
+
+        // Re-installed here, not only at load, because THIS is where the options that matter are
+        // read. `OPTIONS` is a process global, so it holds whatever the last core to be opened
+        // installed, and the core running a session is not necessarily that core. Today they
+        // coincide, but only because of three facts in other files: retention defaults to `Drop`,
+        // `launch` stops and unloads before loading, and the host re-opens the dylib each time. A
+        // change to any one of them would have silently reverted the DS to a disabled touch screen
+        // and a firmware boot, with nothing anywhere saying so. Installing it next to the call
+        // that reads it makes the guarantee local to the code that depends on it.
+        install_options(&self.descriptor.id);
 
         // A core negotiates its pixel format from inside `retro_load_game`. Clear any stale
         // value first, then read back whatever it chose so `video()` reports the truth.
@@ -1225,9 +1238,18 @@ mod tests {
     fn ds_gets_no_other_options_invented_for_it() {
         let _guard = option_test_guard();
         install_options("melonds");
-        // Loading the DS must not turn the host into one that answers every option. The
-        // screen layout in particular has to stay the core's own `Top/Bottom`, because the
-        // 256x384 framebuffer the renderer and the pointer maths both assume IS that layout.
+        // Loading the DS must not turn the host into one that answers every option.
+        //
+        // The screen layout is the one to justify rather than assume, because the whole
+        // coordinate contract rests on it: 256x384 stacked is what `CoreSpec::melonDS`, the
+        // letterbox and the pointer's split at y = 0.5 all assume. Refusing it is safe here for
+        // a reason that was READ rather than inferred from the advertised default, which the
+        // comment on `option_overrides` explains is worth nothing: the core's own line is
+        //
+        //     ScreenLayout layout = ScreenLayout::TopBottom;
+        //
+        // so the initialiser and the advertised default agree, and refusing selects the layout
+        // we want. Were that initialiser anything else, this option would need answering too.
         let (ok, value) = ask_option("melonds_screen_layout");
         assert!(!ok, "unlisted options stay refused");
         assert!(value.is_none(), "value must be nulled, not fabricated");

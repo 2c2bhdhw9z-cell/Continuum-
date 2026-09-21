@@ -235,8 +235,15 @@ final class MetalCanvas: UIView {
         // what lets a thumb on the overlay and a real controller be held in the same frame, even on
         // the same button. Sending both to one layer, which is what the older
         // `applyGamepad(port:buttons:axes:)` would do, is the bug that reads as a broken controller.
-        // The order of the two pushes does not matter, because they touch different layers; what
-        // matters is that both land before the step.
+        // The order of the pad and the controller does not matter, because they touch different
+        // layers; what matters is that both land before the step.
+        //
+        // The pointer below is the exception worth naming, because it shares the touch layer with
+        // the overlay rather than having one of its own. That used to make these lines
+        // order-dependent: a gamepad poll built a fresh port state and wiped the stylus, so moving
+        // `applyPointer` above `applyGamepadFrom` would have erased every stroke silently. The
+        // gamepad polls now carry the pointer across, so the order here is a preference rather than
+        // a requirement. See `apply_standard_gamepad_from`.
         if let gamepadSource {
             let pad = gamepadSource()
             engine.applyGamepadFrom(port: 0, source: .touch, buttons: pad.buttons, axes: pad.axes)

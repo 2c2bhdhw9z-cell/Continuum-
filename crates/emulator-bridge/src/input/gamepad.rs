@@ -273,7 +273,18 @@ impl GamepadBridge {
             return;
         }
 
-        let mut state = PortState::default();
+        // The pointer is carried across rather than reset, and this is load-bearing rather
+        // than tidy. A poll replaces its layer wholesale, which is what makes the overlay and
+        // a real controller independent, but a gamepad poll has nothing to say about a stylus:
+        // they share the touch layer, since a thumb on the glass and a finger on the DS touch
+        // screen are the same input device. Resetting it here would mean the stylus survived
+        // only for as long as the tick happened to push the buttons before the pointer, and
+        // swapping those two lines in MetalCanvas would silently erase every stroke.
+        let mut state = PortState {
+            pointer: self.sources[source as usize].ports[port].pointer,
+            pointer_pressed: self.sources[source as usize].ports[port].pointer_pressed,
+            ..PortState::default()
+        };
         for (index, button) in STANDARD_GAMEPAD_MAP {
             if buttons.get(index).copied().unwrap_or(false) {
                 state.buttons |= 1 << button as u32;
@@ -312,7 +323,16 @@ impl GamepadBridge {
         if port >= MAX_PORTS {
             return;
         }
-        let mut state = PortState::default();
+        // Carried across for the reason `apply_standard_gamepad_from` explains, even though
+        // this path is only ever a physical controller and so has no stylus of its own today.
+        // Leaving one of the two polls destructive would be a trap for whoever wires a pointer
+        // to a second layer later.
+        let mut state = PortState {
+            pointer: self.sources[PadSource::Gamepad as usize].ports[port].pointer,
+            pointer_pressed: self.sources[PadSource::Gamepad as usize].ports[port]
+                .pointer_pressed,
+            ..PortState::default()
+        };
         for (index, pressed) in buttons.iter().enumerate() {
             if *pressed {
                 if let Some(button) = Button::from_u32(index as u32) {

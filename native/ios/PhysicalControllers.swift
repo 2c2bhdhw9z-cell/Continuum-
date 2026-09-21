@@ -175,11 +175,37 @@ final class PhysicalControllers: ObservableObject {
     /// something real to fire on.
     @Published private(set) var hidesOnScreenPadNow = false
 
+    /// Whether the running system's controls include something no controller has.
+    ///
+    /// Set from `EngineHost` as sessions start and stop. Published because it is an input to
+    /// `hidesOnScreenPadNow`, which is published for the reason given there.
+    ///
+    /// THE DS TOUCH SCREEN IS WHY THIS EXISTS. The overlay does not only carry buttons; on the DS
+    /// it carries the digitiser, and `GCExtendedGamepad` has no equivalent of a stylus at all. So
+    /// unmounting the overlay for a DS game does not move its controls to the controller, it
+    /// deletes the control the console is defined by. This is the same exception
+    /// `portZeroPadIsComplete` makes for a pad with no Options button, for the same reason: the
+    /// setting must never take away something nothing else can reach.
+    @Published private(set) var runningSystemNeedsOverlay = false
+
+    /// Tells this object what is running, so the hiding decision can account for it.
+    ///
+    /// Takes the system rather than a bool so the caller cannot get the policy wrong; which
+    /// systems need the overlay is this object's business, and `GameSystem.touchScreen` is the one
+    /// place that knows which have a digitiser.
+    func noteRunningSystem(_ system: GameSystem?) {
+        let next = system?.touchScreen != nil
+        guard runningSystemNeedsOverlay != next else { return }
+        runningSystemNeedsOverlay = next
+        recomputeHiding()
+    }
+
     /// Recomputes the hiding decision. Called from everything that can change any input to it.
     private func recomputeHiding() {
         // `portZeroPadIsComplete` is the condition that stops this setting taking a button off the
-        // screen that nothing else can press. See that property.
-        let next = autoHidesOnScreenPad && portZeroPadIsComplete
+        // screen that nothing else can press. See that property. `runningSystemNeedsOverlay` is
+        // the same guarantee for a control that is not a button at all.
+        let next = autoHidesOnScreenPad && portZeroPadIsComplete && !runningSystemNeedsOverlay
         if hidesOnScreenPadNow != next { hidesOnScreenPadNow = next }
     }
 

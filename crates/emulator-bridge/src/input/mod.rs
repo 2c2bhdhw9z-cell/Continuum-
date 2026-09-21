@@ -173,9 +173,24 @@ impl InputState {
     /// stroke, which games read as a real input.
     pub fn set_pointer(&mut self, port: usize, x: f32, y: f32, pressed: bool) {
         if let Some(p) = self.ports.get_mut(port) {
-            // Clamped rather than rejected. A finger can legitimately slide a pixel outside the
-            // picture mid-drag, and the useful reading of that is the edge rather than nothing.
-            p.pointer = [x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)];
+            // The position is only taken from a PRESSED report, which is what makes the promise
+            // above actually hold. It used to be written unconditionally, and then "the
+            // coordinates are kept" was true only for as long as every caller remembered to
+            // repeat the last position when it released. One did not: the host pushes a released
+            // frame at (0, 0) whenever no control surface is mounted, so leaving the player or
+            // auto-hiding the pad dragged the remembered stylus to the framebuffer origin, which
+            // on a DS is the far corner of the wrong screen.
+            //
+            // Ignoring the coordinates rather than trusting them costs nothing: a stroke reports
+            // a position on every pressed frame, so there is no way to move a finger without
+            // being pressed. A mouse or a lightgun would want hover, and that is the one thing
+            // this would have to change for.
+            if pressed {
+                // Clamped rather than rejected. A finger can legitimately slide a pixel outside
+                // the picture mid-drag, and the useful reading of that is the edge rather than
+                // nothing.
+                p.pointer = [x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)];
+            }
             p.pointer_pressed = pressed;
         }
     }
@@ -358,6 +373,56 @@ mod pointer_tests {
         assert_eq!(
             snapshot.libretro_state(0, RETRO_DEVICE_POINTER, 0, RETRO_POINTER_Y),
             super::InputSnapshot::to_pointer_axis(0.75)
+        );
+    }
+
+    #[test]
+    fn a_release_cannot_drag_the_stylus_somewhere_else() {
+        // The test above releases at the same coordinates it pressed at, so it would pass even if
+        // a release were allowed to move the stylus. This is the case that actually happens: the
+        // host pushes `PadFrame.released`, which carries (0, 0), on every frame with no control
+        // surface mounted. Leaving the player, or auto-hiding the pad, must not move the stylus
+        // to the framebuffer origin, which on a DS is the far corner of the TOP screen.
+        let mut state = InputState::default();
+        state.set_pointer(0, 0.5, 0.75, true);
+        state.set_pointer(0, 0.0, 0.0, false);
+        let snapshot = state.snapshot();
+
+        assert_eq!(snapshot.libretro_state(0, RETRO_DEVICE_POINTER, 0, RETRO_POINTER_PRESSED), 0);
+        assert_eq!(
+            snapshot.libretro_state(0, RETRO_DEVICE_POINTER, 0, RETRO_POINTER_Y),
+            super::InputSnapshot::to_pointer_axis(0.75),
+            "a released frame's coordinates must be ignored, not stored"
+        );
+    }
+
+    #[test]
+    fn a_gamepad_poll_does_not_wipe_the_stylus() {
+        // The on-screen pad and the stylus SHARE the touch layer, because a thumb on the glass
+        // and a finger on the DS touch screen are the same device. A poll replaces its layer
+        // wholesale, which is what keeps the overlay and a real controller independent, so
+        // without care a gamepad poll erases the pointer that arrived beside it.
+        //
+        // This was real: the display link pushed buttons and then the pointer, and the stylus
+        // survived only because of that order. Swapping two adjacent lines in MetalCanvas would
+        // have silently killed every DS stroke, and nothing would have failed to say so.
+        use super::{GamepadBridge, PadSource};
+
+        let mut pads = GamepadBridge::new();
+        pads.set_pointer(0, PadSource::Touch, 0.5, 0.75, true);
+        // The overlay reporting "nothing held", which is what it sends on most frames.
+        pads.apply_standard_gamepad_from(0, PadSource::Touch, &[false; 16], &[]);
+
+        let snapshot = pads.snapshot();
+        assert_eq!(
+            snapshot.libretro_state(0, RETRO_DEVICE_POINTER, 0, RETRO_POINTER_PRESSED),
+            1,
+            "a button poll must not lift the stylus"
+        );
+        assert_eq!(
+            snapshot.libretro_state(0, RETRO_DEVICE_POINTER, 0, RETRO_POINTER_Y),
+            super::InputSnapshot::to_pointer_axis(0.75),
+            "a button poll must not move the stylus"
         );
     }
 

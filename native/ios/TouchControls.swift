@@ -1075,6 +1075,10 @@ final class TouchControlsView: UIView {
         // A held button from the previous system's pad must not survive into the new one.
         grabs.removeAll()
         clusterDrag = nil
+        // Nor may the previous system's touch screen. Cleared here rather than left to the next
+        // layout pass, because until that pass runs a DS-shaped rect would be claiming touches
+        // over an NES game's picture, and `point(inside:)` is answered from whatever this holds.
+        touchScreenRect = nil
 
         for chip in chips {
             chip.removeFromSuperview()
@@ -1144,6 +1148,10 @@ final class TouchControlsView: UIView {
             editPlayArea = .zero
             dpadGroupRect = .zero
             faceGroupRect = .zero
+            // The touch screen is in the same position, for the same reason: a stylus answered
+            // from a rect this pass just decided does not exist would be reporting a press at a
+            // coordinate derived from a layout that is gone.
+            clearTouchScreenRect()
             dpadHandle.isHidden = true
             faceHandle.isHidden = true
             report("touch controls: no room to lay out, play area is "
@@ -1322,6 +1330,10 @@ final class TouchControlsView: UIView {
         allRects.append(dpadRect)
         let occupied = allRects.filter { !$0.isEmpty }
         guard !occupied.isEmpty else {
+            // A pad with no controls at all still shows a picture, and on a system with a
+            // digitiser that picture is still touchable, so the rect is recomputed against the
+            // same area being published rather than left disagreeing with it.
+            updateTouchScreenRect(in: bounds)
             deliverPictureArea(bounds)
             return
         }
@@ -1370,14 +1382,14 @@ final class TouchControlsView: UIView {
     /// screen's shape and the game's.
     private func updateTouchScreenRect(in area: CGRect) {
         guard let fraction = system.touchScreen else {
-            touchScreenRect = nil
+            clearTouchScreenRect()
             return
         }
         // Without a known aspect the free area is the honest best guess, and it is what the canvas
         // is drawn into in that case too, so the two still agree.
         let picture = pictureAspect.map { PictureFit.rect(aspect: $0, in: area) } ?? area
         guard picture.width >= 1, picture.height >= 1 else {
-            touchScreenRect = nil
+            clearTouchScreenRect()
             return
         }
         touchScreenRect = CGRect(
@@ -1386,6 +1398,41 @@ final class TouchControlsView: UIView {
             width: fraction.width * picture.width,
             height: fraction.height * picture.height
         )
+        revalidatePointerGrabs()
+    }
+
+    /// Drops the touch screen, and any finger that was resting on it.
+    private func clearTouchScreenRect() {
+        touchScreenRect = nil
+        revalidatePointerGrabs()
+    }
+
+    /// Re-tests every finger currently held on the touch screen against the rect as it is NOW.
+    ///
+    /// A layout pass can move the digitiser out from under a finger that is already down: a
+    /// rotation, the aspect arriving after the first pass, a safe-area change, or a layout with no
+    /// room at all. A stationary finger never fires `touchesMoved`, so without this it would go on
+    /// reporting a fraction derived from a rect that has moved, and in the worst case report a
+    /// press against a rect that no longer exists.
+    ///
+    /// Only pointer grabs are touched. A button held through a rotation should stay held, which is
+    /// why this is not `releaseAll`.
+    private func revalidatePointerGrabs() {
+        guard !grabs.isEmpty else { return }
+        var changed = false
+        for (key, grab) in grabs {
+            guard case .pointer(let point) = grab else { continue }
+            if let touchScreenRect, touchScreenRect.contains(point) {
+                continue
+            }
+            // Dropped rather than re-aimed. The finger has not moved; the screen under it has, and
+            // guessing where the user now means to be pointing would be inventing input.
+            grabs.removeValue(forKey: key)
+            changed = true
+        }
+        if changed {
+            recompute()
+        }
     }
 
     private func deliverPictureArea(_ area: CGRect) {

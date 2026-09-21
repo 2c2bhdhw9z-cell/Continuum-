@@ -226,6 +226,12 @@ struct SettingsScreen: View {
         guard controllers.autoHidesOnScreenPad else {
             return "Off, so both work at once, including on the same button."
         }
+        // Named before the other two, because a switch that is on, with a controller attached, and
+        // a pad still on screen is the most confusing state of all, and it is CORRECT.
+        if controllers.runningSystemNeedsOverlay {
+            return "On, but this system's touch screen is part of the on-screen controls, so they "
+                + "stay up while it is running. No controller has a stylus."
+        }
         if controllers.playablePads > 0 {
             return "On, and the picture is using the space the controls were holding."
         }
