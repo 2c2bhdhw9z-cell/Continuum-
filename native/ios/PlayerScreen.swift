@@ -80,6 +80,10 @@ enum PictureFit {
 struct PlayerScreen: View {
     @ObservedObject var host: EngineHost
 
+    /// Watched so the rewind and fast-forward buttons redraw while held, and so the rewind
+    /// button appears and disappears with the setting that enables it.
+    @ObservedObject var emulation: EmulationSettings
+
     /// Which pad to draw. Nil when the launched file's extension has no system mapped, which the
     /// launch path should already have refused, so it is reported rather than silently ignored.
     let system: GameSystem?
@@ -105,7 +109,7 @@ struct PlayerScreen: View {
                 telemetryStrip
                 statusLine
                 if host.showDiagnostics {
-                    DiagnosticsPanel(host: host)
+                    DiagnosticsPanel(host: host, emulation: emulation)
                 }
                 // Claims the rest of the height without claiming any touches, so everything below
                 // reaches the controls.
@@ -139,6 +143,18 @@ struct PlayerScreen: View {
 
             Spacer(minLength: 4)
 
+            if emulation.rewindEnabled {
+                holdButton("backward.fill",
+                           label: "Rewind",
+                           active: emulation.isRewinding,
+                           onPress: { emulation.beginRewind() },
+                           onRelease: { emulation.endRewind() })
+            }
+            holdButton("forward.fill",
+                       label: "Fast forward",
+                       active: emulation.isFastForwarding,
+                       onPress: { emulation.beginFastForward() },
+                       onRelease: { emulation.endFastForward() })
             sessionButton(host.paused ? "play.fill" : "pause.fill",
                           label: host.paused ? "Resume" : "Pause") {
                 host.togglePause()
@@ -169,6 +185,39 @@ struct PlayerScreen: View {
         .accessibilityLabel(label)
     }
 
+    /// A button that acts while it is held rather than when it is tapped.
+    ///
+    /// Built on `DragGesture(minimumDistance: 0)` rather than on `Button`, because a `Button`
+    /// only reports the completed tap and gives no press and release either side of it, and
+    /// `onLongPressGesture` waits out a recognition delay before firing. Fast-forward and
+    /// rewind have to start the instant the finger lands and stop the instant it lifts, and a
+    /// half-second delay on a rewind button feels like the button is broken.
+    ///
+    /// A drag that wanders off the button still ends the hold, because `onEnded` fires wherever
+    /// the finger lifts. That is the behaviour to want: the alternative, a hold that survives
+    /// the finger sliding away, is how you end up stuck at 4x.
+    private func holdButton(_ symbol: String, label: String, active: Bool,
+                            onPress: @escaping () -> Void,
+                            onRelease: @escaping () -> Void) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 15, weight: .semibold))
+            .frame(width: 38, height: 38)
+            .background(active ? ShellPalette.accent.opacity(0.85) : Color.white.opacity(0.12),
+                        in: Circle())
+            .contentShape(Circle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        // `onChanged` fires repeatedly for one press, so this must be
+                        // idempotent. Both `begin` calls guard on their own state.
+                        onPress()
+                    }
+                    .onEnded { _ in onRelease() }
+            )
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(active ? [.isSelected] : [])
+    }
+
     // MARK: Telemetry
 
     /// The thin strip from the design reference: fps, frames, audio, core.
@@ -178,9 +227,10 @@ struct PlayerScreen: View {
     ///
     ///   - core memory. There is no memory query anywhere in the engine, so the core id takes that
     ///     slot instead, which is at least load-bearing: it is how a routing mistake is spotted.
-    ///   - a real audio latency for audio that is being heard. `drain_audio` is not exported
-    ///     through UniFFI, so nothing is played out yet. The queued figure below is real, it is
-    ///     just measuring a ring nobody is draining.
+    ///
+    /// The audio figure was the other one, and it is real now: `drain_audio` is exported, the
+    /// AVAudioEngine graph plays what it returns, and the strip reports both ring depths and the
+    /// device's own underrun count rather than the depth of a ring nobody was draining.
     private var telemetryStrip: some View {
         Text(host.telemetryLine)
             .font(.system(.caption2, design: .monospaced))
@@ -225,6 +275,10 @@ struct PlayerScreen: View {
 struct DiagnosticsPanel: View {
     @ObservedObject var host: EngineHost
 
+    /// Optional so the panel can still be shown from a context that has no settings object to
+    /// hand. When absent the emulation line is simply not drawn, rather than drawn empty.
+    var emulation: EmulationSettings?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Continuum \(host.buildLine)")
@@ -249,6 +303,13 @@ struct DiagnosticsPanel: View {
             Text(host.audioLine)
                 .fixedSize(horizontal: false, vertical: true)
             Text(host.inputLine)
+            // Fit, filter, volume and the rewind depth, plus a marker while either held control
+            // is active. Worth a line because all five are now things a user can change, so
+            // "why does this game look/sound like that" became a question the HUD should answer.
+            if let emulation {
+                Text(emulation.diagnosticLine)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if !host.controlNote.isEmpty {
                 Text(host.controlNote)
                     .fixedSize(horizontal: false, vertical: true)

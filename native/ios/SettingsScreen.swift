@@ -1,13 +1,16 @@
 // Continuum - Settings: the artwork controls, the layout controls, and the permanent home of the
 // diagnostics.
 //
-// THE RULE THIS FILE IS BUILT AROUND: every control in here does something today. The design
-// reference shows selectors for aspect, filter, speed, scale and volume, and not one of them can be
-// wired, because `set_scale_mode`, filter selection, the pacer's speed multiplier, mute and
-// `drain_audio` are all absent from the engine's exported surface. A switch that does nothing is
-// worse than an absent one: it teaches the user that the app lies. So those are not here as dead
-// controls, they are listed at the bottom as a read-only note saying what each one needs, which is
-// information rather than a promise.
+// THE RULE THIS FILE IS BUILT AROUND: every control in here does something today. A switch that
+// does nothing is worse than an absent one, because it teaches the user that the app lies. So the
+// things that are not wired are not here as dead controls; they are listed at the bottom as a
+// read-only note saying what each one needs, which is information rather than a promise.
+//
+// The selectors the design reference always showed for fit, filter, speed and volume are real now:
+// the engine exports scale mode, filter, the pacer's multiplier, mute and a ramped volume, and
+// rewind has a memory budget behind it. `EmulationSettings` owns all five, persists them and
+// re-asserts them into an engine whose pacer does not survive a session. That list at the bottom is
+// correspondingly much shorter than it was, and everything left on it is genuinely still missing.
 //
 // Nothing was deleted from the diagnostic HUD in moving it here. The same strings, in the same
 // order, are still one tap away from the status strip on both screens.
@@ -17,6 +20,7 @@ import SwiftUI
 struct SettingsScreen: View {
     @ObservedObject var host: EngineHost
     @ObservedObject var artwork: ArtworkStore
+    @ObservedObject var emulation: EmulationSettings
 
     /// Read fresh from the engine when this screen appears, never cached across appearances. The
     /// core's option list changes per core and a stale list is worse than none.
@@ -31,6 +35,9 @@ struct SettingsScreen: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
 
+                pictureSection
+                soundSection
+                speedSection
                 artworkSection
                 layoutSection
                 diagnosticsSection
@@ -41,7 +48,13 @@ struct SettingsScreen: View {
             }
             .padding(.bottom, 24)
         }
-        .onAppear(perform: refreshCoreOptions)
+        .onAppear {
+            refreshCoreOptions()
+            // Read on appearance rather than continuously: this is a sentence about the rewind
+            // tape, not telemetry, and polling the engine for it every frame would take the
+            // engine lock sixty times a second to redraw text that barely changes.
+            emulation.refreshRewindReadout()
+        }
     }
 
     // MARK: Artwork
@@ -186,7 +199,7 @@ struct SettingsScreen: View {
 
             // The same block both screens share, shown here in full so Settings is a real home for
             // it rather than only a switch that turns it on somewhere else.
-            DiagnosticsPanel(host: host)
+            DiagnosticsPanel(host: host, emulation: emulation)
 
             SettingsNote(
                 "This is the only debugger a sideloaded build has: no console, no crash log and no "
@@ -316,6 +329,117 @@ struct SettingsScreen: View {
         }
     }
 
+    // MARK: Picture
+
+    private var pictureSection: some View {
+        SettingsSection(title: "PICTURE") {
+            Picker("Screen fit", selection: $emulation.screenFit) {
+                ForEach(EmulationSettings.ScreenFit.allCases) { fit in
+                    Text(fit.label).tag(fit)
+                }
+            }
+            .pickerStyle(.segmented)
+            SettingsNote(emulation.screenFit.explanation)
+
+            Picker("Scaling", selection: $emulation.pixelFilter) {
+                ForEach(EmulationSettings.PixelFilter.allCases) { filter in
+                    Text(filter.label).tag(filter)
+                }
+            }
+            .pickerStyle(.segmented)
+            SettingsNote(emulation.pixelFilter.explanation)
+
+            SettingsNote(
+                "Both apply the moment you change them, to the game running now and to every "
+                + "game after it. They are remembered, so a game started tomorrow looks the way "
+                + "you left this."
+            )
+        }
+    }
+
+    // MARK: Sound
+
+    private var soundSection: some View {
+        SettingsSection(title: "SOUND") {
+            Toggle(isOn: $emulation.muted) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Mute")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text(emulation.muted
+                         ? "Silent. The game still runs at full speed."
+                         : "Sound on.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(ShellPalette.secondaryText)
+                }
+            }
+            .tint(ShellPalette.accent)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("VOLUME \(Int((emulation.volume * 100).rounded()))%")
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1.1)
+                    .foregroundStyle(Color.white.opacity(0.45))
+                Slider(value: $emulation.volume, in: 0...1)
+                    .tint(ShellPalette.accent)
+                    .disabled(emulation.muted)
+            }
+
+            SettingsNote(
+                "Volume is applied inside the emulator rather than by the system, so it is "
+                + "separate from the phone's own volume and the two multiply. Muting is not the "
+                + "same as sliding to zero: muting also throws away the sound already queued, so "
+                + "unmuting picks up at the present moment instead of replaying the second you "
+                + "missed."
+            )
+        }
+    }
+
+    // MARK: Speed and rewind
+
+    private var speedSection: some View {
+        SettingsSection(title: "SPEED AND REWIND") {
+            Picker("Fast forward", selection: $emulation.fastForward) {
+                ForEach(EmulationSettings.FastForward.allCases) { speed in
+                    Text(speed.label).tag(speed)
+                }
+            }
+            .pickerStyle(.segmented)
+            SettingsNote(
+                "How fast the fast-forward button in the player runs while you hold it. Sound "
+                + "keeps playing and rises in pitch, the way fast-forward has always sounded. "
+                + "The list stops at 4x because that is genuinely where the emulator stops: "
+                + "beyond it the extra frames are dropped rather than run, so a 8x button would "
+                + "read 8x and give you 4x."
+            )
+
+            Picker("Rewind", selection: $emulation.rewindBudget) {
+                ForEach(EmulationSettings.RewindBudget.allCases) { budget in
+                    Text(budget.label).tag(budget)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            SettingsReadout(label: "Rewind holds", value: emulation.rewindReadout)
+
+            SettingsNote(
+                "Rewind works by quietly saving the game ten times a second and stepping back "
+                + "through those saves when you hold the rewind button in the player. The setting "
+                + "is memory rather than seconds because the two are not the same thing: a "
+                + "PlayStation save is around a hundred times the size of an NES one, so the same "
+                + "96 MB is minutes of NES and seconds of Crash Bandicoot. The line above says "
+                + "what it actually bought on the game you are playing."
+            )
+            SettingsNote(
+                "Off is the default and costs nothing. Turning it on spends that memory for as "
+                + "long as a game is running, and on a phone that matters: iOS closes an app that "
+                + "grows too large rather than slowing it down. Resetting a game or loading a "
+                + "save clears the history, because winding back past either would take you "
+                + "somewhere you never were."
+            )
+        }
+    }
+
     // MARK: What is not wired
 
     private var notYetWiredSection: some View {
@@ -354,20 +478,6 @@ struct SettingsScreen: View {
     /// The gaps, each with the reason. Written out because the design reference shows controls for
     /// all of them and a later reader would otherwise assume they were forgotten.
     private static let gaps: [Gap] = [
-        Gap(name: "Aspect and integer scale",
-            reason: "The renderer already has the modes and a setter for them. It is not exported "
-            + "through the engine's Swift interface, so nothing here can call it."),
-        Gap(name: "Filter, nearest or linear",
-            reason: "The renderer distinguishes them already. Same reason: not exported."),
-        Gap(name: "Speed and fast forward",
-            reason: "The frame pacer supports a speed multiplier. Not exported. Rewind is a "
-            + "different matter, because a save state runs from roughly 13 KB to 1 MB and a rewind "
-            + "ring needs a memory budget."),
-        Gap(name: "Volume",
-            reason: "There is no audio output path on this build at all: the engine queues audio "
-            + "and the drain is not exported, so a volume control would have nothing to control. "
-            + "Audio output comes first and volume falls out of it. The queued figure in the "
-            + "diagnostics is real, it is measuring a ring nothing is draining."),
         Gap(name: "Moving the on-screen controls",
             reason: "The layout is already a value with limits and clamping, so this is an editor "
             + "screen rather than a rewrite. It is the next piece of UI work, not an engine gap."),

@@ -638,6 +638,13 @@ struct LibraryEntry: Identifiable, Hashable, Sendable {
 final class EngineHost: ObservableObject {
     let engine: ContinuumEngine
 
+    /// Fit, filter, fast-forward multiplier, volume and the rewind budget.
+    ///
+    /// Its own object rather than more properties here, following `artwork`: it owns its own
+    /// storage keys and defaults, and re-asserts them into an engine whose pacer and frame
+    /// target do not survive a session. See `EmulationSettings`.
+    let emulation: EmulationSettings
+
     @Published var frameCount: UInt64 = 0
     @Published var displayFps: Double = 0
     @Published var dropped: UInt32 = 0
@@ -1001,6 +1008,9 @@ final class EngineHost: ObservableObject {
         // a game launches: holding an active `AVAudioSession` while the user browses their
         // library would duck whatever music they had playing for no reason at all.
         audio = AudioOutput(engine: engine)
+        // Reads its own stored preferences and pushes them into the engine as it is built, so
+        // the first frame of the first game already looks and sounds the way the user left it.
+        emulation = EmulationSettings(engine: engine)
 
         // The remembered preferences, read before anything can display. Each one falls back to its
         // default rather than to nil, so a first launch and a corrupted value behave the same way.
@@ -1610,6 +1620,11 @@ final class EngineHost: ObservableObject {
         // longer exists. Unconditional, and outside the `running` guard, so a half-started launch
         // cannot leave a live audio graph behind it.
         audio.stop()
+        // Both held controls released before the engine stops, for the same reason the pad state
+        // is cleared below: a finger still down on fast-forward or rewind when a session ends
+        // would leave the engine in that mode with no button on screen to leave it, and the next
+        // game would start fast-forwarding or winding backwards on its first frame.
+        emulation.releaseHeldControls()
         if running {
             engine.stop()
             running = false
@@ -2256,7 +2271,7 @@ struct RootView: View {
                 // covers the canvas rather than replacing it.
                 LibraryShell(host: host, artwork: host.artwork)
             } else {
-                PlayerScreen(host: host, system: host.activeSystem)
+                PlayerScreen(host: host, emulation: host.emulation, system: host.activeSystem)
             }
         }
         .background(.black)
