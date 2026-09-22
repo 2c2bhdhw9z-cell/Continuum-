@@ -448,10 +448,21 @@ struct SettingsScreen: View {
                 + "to write instructions and run them. THE APP MAY CLOSE WHEN YOU PRESS IT, and "
                 + "that is the answer rather than a crash: iOS refuses a forbidden execute by "
                 + "shutting the app down, so there is nothing for it to report. Reopening is "
-                + "completely safe and nothing is lost. If it closes, the permission did not "
-                + "survive however this copy was installed. If it stays open, read the JIT line "
-                + "above.\n\nThis used to run automatically when the app opened, which is why the "
-                + "app would not start."
+                + "completely safe and nothing is lost.\n\nIf the JIT line above says "
+                + "get-task-allow is MISSING, this button can only close the app, so there is no "
+                + "point pressing it.\n\nThis used to run automatically when the app opened, which "
+                + "is why the app would not start."
+            )
+
+            SettingsNote(
+                "Getting get-task-allow means signing with a DEVELOPMENT certificate and profile; "
+                + "a distribution one cannot carry it, whatever else it can do.\n\nIf development "
+                + "signing fails with a verification or integrity error, the usual cause is "
+                + "Developer Mode being switched off. iOS has refused development-signed apps "
+                + "without it since iOS 16. Turn it on in Settings, Privacy & Security, Developer "
+                + "Mode, then restart the phone.\n\nNothing currently playable depends on any of "
+                + "this. All fourteen systems in this build run on interpreters; the entitlement "
+                + "only matters for N64, PSP, 3DS and Switch, and none of those are here yet."
             )
 
             SettingsNote(
