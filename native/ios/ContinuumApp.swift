@@ -2242,7 +2242,22 @@ final class EngineHost: ObservableObject {
     /// read in every screenshot and a hardcoded number goes stale the moment a core is added. It
     /// said "five" while six were shipping.
     var buildLine: String {
-        "Phase 5 step 2 - \(CoreCatalog.all.count) libretro cores (software)"
+        "\(Self.versionLabel) - \(CoreCatalog.all.count) libretro cores (software)"
+    }
+
+    /// Version and build number of the copy that is actually running, e.g. `0.8.0 (76)`.
+    ///
+    /// THE POINT OF THIS IS TO TELL A NEW INSTALL FROM A FAILED ONE AT A GLANCE. CFBundleVersion
+    /// was a hardcoded "1" for this project's whole life, so every build was 0.8.0 (1) under one
+    /// bundle id, and an installer that compares those numbers treats a new .ipa as the copy
+    /// already present and skips it. It now carries the CI run number, which means this line
+    /// changes when an install genuinely replaced the app and stays put when it did not. An evening
+    /// went into a core that was in the bundle the whole time and simply was not installed.
+    static var versionLabel: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "Continuum \(short) (\(build))"
     }
 
     var frameLine: String {

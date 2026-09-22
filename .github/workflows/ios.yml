@@ -119,6 +119,12 @@ jobs:
             native/ios/build/Generated/*.swift | sed 's/^\s*/  /' | sort -u || true
 
       - name: Package the unsigned .ipa
+        env:
+          # THE RUN NUMBER BECOMES CFBundleVersion, and without it an install silently does nothing.
+          # See the long note in package-ipa.sh: a hardcoded version made every build look like the
+          # copy already installed, so on-device signers skipped the replacement while reporting
+          # success.
+          CONTINUUM_BUILD_NUMBER: ${{ github.run_number }}
         run: ./native/ios/package-ipa.sh
 
       # Fails the job rather than uploading nothing, so a green tick always means there is

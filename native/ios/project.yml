@@ -58,8 +58,16 @@ targets:
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         # Custom keys carried over from the seed Info.plist. CFBundleShortVersionString and
-        # CFBundleVersion MUST be restated because the XcodeGen auto-defaults are 1.0 / 1 and
-        # the app ships 0.8.0 / 1.
+        # CFBundleVersion MUST be restated because the XcodeGen auto-defaults are 1.0 / 1.
+        #
+        # CFBundleVersion IS REWRITTEN BY package-ipa.sh BEFORE THIS FILE IS READ, and the literal
+        # below is only the fallback for a build with no number to stamp. It used to be a permanent
+        # "1", which meant every build this project ever produced was version 0.8.0 (1) under the
+        # same bundle id. An installer decides whether an .ipa is an upgrade from exactly that
+        # number, so a new build looked to iOS like the copy already installed and the install was
+        # skipped: signing succeeded, the installer reported success, and the app did not change.
+        # Diagnosing that cost an evening, because every symptom pointed at the app rather than at
+        # the installer declining to replace it.
         CFBundleDisplayName: Continuum
         CFBundleShortVersionString: "0.8.0"
         CFBundleVersion: "1"

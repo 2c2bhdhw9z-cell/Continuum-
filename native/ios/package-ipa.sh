@@ -44,6 +44,40 @@ command -v xcodegen >/dev/null 2>&1 || {
   exit 1
 }
 
+# EVERY BUILD NEEDS ITS OWN CFBundleVersion, and it is not a cosmetic detail.
+#
+# An installer decides whether an .ipa is an upgrade by comparing bundle id and version. This
+# project shipped a hardcoded CFBundleVersion of "1" for its whole life, so every build was
+# 0.8.0 (1) under the same id, and a freshly built .ipa was indistinguishable from the copy already
+# on the phone. On-device signers skip that: signing succeeds, the install reports success, and the
+# app is not replaced. The symptom is an app that stubbornly behaves like an older build, which
+# looks exactly like a build that was never made.
+#
+# CONTINUUM_BUILD_NUMBER is the CI run number when CI sets it. Locally it falls back to a UTC
+# timestamp, which is monotonic for a human working forwards in time, so a hand build also replaces
+# whatever is installed.
+BUILD_NUMBER="${CONTINUUM_BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
+echo "==> stamping CFBundleVersion $BUILD_NUMBER"
+# Rewritten in place with a tab-tolerant match on the one key, then asserted, because a silent
+# no-op here would put the original bug straight back with no sign of it.
+python3 - "$HERE/project.yml" "$BUILD_NUMBER" <<'PY'
+import re
+import sys
+
+path, build = sys.argv[1], sys.argv[2]
+with open(path, "r", encoding="utf-8") as handle:
+    text = handle.read()
+
+pattern = re.compile(r'^(\s*CFBundleVersion:\s*)"[^"]*"$', re.MULTILINE)
+text, count = pattern.subn(lambda m: f'{m.group(1)}"{build}"', text)
+if count != 1:
+    sys.exit(f"error: expected exactly one CFBundleVersion line, rewrote {count}")
+
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(text)
+print(f"CFBundleVersion set to {build}")
+PY
+
 echo "==> xcodegen generate"
 (cd "$HERE" && xcodegen generate --spec project.yml --project .)
 
