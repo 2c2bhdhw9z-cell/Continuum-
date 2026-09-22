@@ -209,8 +209,13 @@ jobs:
           # No --latest flag: a non-prerelease, non-draft release is already what
           # /releases/latest resolves to, and the flag is recent enough that relying on it would
           # risk failing this step at the very end of a long build for no gain.
+          # The entitlements files ride along so they have a stable download URL too. ESign asks for
+          # a FILE rather than pasted text, and a phone with no computer has no way to write a
+          # plist, so these have to be downloadable.
           gh release create "$TAG" \
             native/ios/build/Continuum.ipa \
+            native/ios/get-task-allow.entitlements \
+            native/ios/get-task-allow.plist \
             --title "Continuum build ${{ github.run_number }}" \
             --notes-file /tmp/notes.md
           echo "released $TAG with Continuum.ipa"

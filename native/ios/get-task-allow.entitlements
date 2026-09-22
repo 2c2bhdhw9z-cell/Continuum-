@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ONE KEY, ON PURPOSE.
+
+  This file exists to be selected in ESign's "Custom signature entitlements" box, on a phone with
+  no computer to write a plist on. It is not the app's real entitlements file; that is
+  Continuum.entitlements next to this one.
+
+  Only `get-task-allow` is here because it is the only key that decides whether a recompiler is
+  possible on iOS, and because every ADDITIONAL key is another reason for installd to reject the
+  signed app. A minimal file has the best chance of installing at all, and installing is the whole
+  question being tested.
+
+  Three outcomes, all of them answers:
+
+    will not install                 the provisioning profile refuses get-task-allow. A wall, not
+                                     a mistake, and the end of the road for a recompiler on that
+                                     signing identity.
+    installs, JIT line says MISSING  the signer did not apply this file.
+    installs, JIT line says present  it worked.
+
+  The app reads its own signature and prints which one happened; see jit_probe.rs.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>get-task-allow</key>
+	<true/>
+</dict>
+</plist>
