@@ -13,8 +13,9 @@ If a row says Partial, the note says exactly what is absent. Nothing here is rou
 
 ## Systems
 
-**Eight** cores, **fourteen** systems, shipping today. Two of those systems cost no new emulator at all, both having been supported already by cores in the app and simply not wired up. Four systems are still ahead and none of them is in this
-table: **N64, PSP, 3DS and the Switch**, hardest last. They all need the hardware-renderer work, so
+**Nine** cores, **fifteen** systems, shipping today, and the fifteenth is the **Nintendo 64**. Two of those systems cost no new emulator at all, both having been supported already by cores in the app and simply not wired up. Three systems are still ahead and none of them is in this
+table: **PSP, 3DS and the Switch**, hardest last. The N64 arrived early, by the same trick the DS did:
+its core has a software renderer, so it skipped the graphics road entirely. They all need the hardware-renderer work, so
 they live in [the road below](#the-road-to-the-rest-of-the-systems) rather than here.
 
 | System | Core | State | What is missing |
@@ -30,6 +31,7 @@ they live in [the road below](#the-road-to-the-rest-of-the-systems) rather than 
 | PlayStation | pcsx_rearmed | **Done** | Interpreter, not the recompiler. Fast enough, and see Recompiler below for why it is not switched on |
 | **Famicom Disk System** | fceumm | **Built, untested** | Needs `disksys.rom`, which is Nintendo's own code and cannot ship with the app. The launch path checks for it by name and says so rather than letting the core fail |
 | **Sega SG-1000** | genesis_plus_gx | **Built, untested** | Needs nothing extra |
+| **Nintendo 64** | parallel_n64 | **Built, untested** | Software rasteriser and interpreter, so it needs NEITHER MoltenVK NOR JIT. **Expected to be slow**; that it runs at all was the question. `.n64`, `.z64`, `.v64` |
 | **TurboGrafx-16** | mednafen_pce_fast | **Built, untested** | HuCard games only. PC Engine CD needs a system card BIOS that cannot ship |
 | **Atari 2600** | stella2023 | **Built, untested** | `.a26` only. A 2600 ROM named `.bin` has to be renamed, because `.bin` belongs to the PlayStation here as a disc track |
 | **Nintendo DS** | melonDS | **Built, untested** | The core builds, links and ships, and every part of it including the touch screen is now wired end to end. **Nothing has booted on a device yet.** See the DS section below |

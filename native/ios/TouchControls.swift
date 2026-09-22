@@ -102,7 +102,15 @@ struct PadFrame: Sendable, Equatable {
     /// session that ended mid-stroke must not leave the DS believing the screen is still held.
     static let released = PadFrame(pressed: [])
 
-    init(pressed: Set<PadSlot>, pointer: CGPoint = .zero, pointerPressed: Bool = false) {
+    /// Left analog stick deflection, each component `-1...1`, y positive DOWNWARD to match the
+    /// engine's axis convention.
+    ///
+    /// Zero for every system whose pad has no stick, which is all of them but the N64. See
+    /// `GameSystem.dpadDrivesAnalogStick` for why the N64 cannot do without it.
+    init(pressed: Set<PadSlot>,
+         stick: CGPoint = .zero,
+         pointer: CGPoint = .zero,
+         pointerPressed: Bool = false) {
         self.pointer = pointer
         self.pointerPressed = pointerPressed
         var slots = [Bool](repeating: false, count: PadSlot.arrayLength)
@@ -111,13 +119,29 @@ struct PadFrame: Sendable, Equatable {
         }
         buttons = slots
 
-        // Zeroed, and that is correct rather than a stub. Stage 1 has no analog stick, and
-        // `apply_standard_gamepad` ORs the stick-derived D-pad onto the button bits past
-        // AXIS_DEADZONE (0.35), so a centred stick provably cannot cancel a D-pad press that
-        // came from `buttons`. Sending nothing at all would behave identically; sending four
-        // explicit zeroes makes the axis half of the contract visible at the call site.
-        axes = [Float](repeating: 0, count: Self.axisCount)
+        // Left stick in 0 and 1, right stick left at zero: nothing here drives a right stick, and
+        // on the N64 the core reads the right stick as its C buttons, which are real buttons on
+        // this pad instead.
+        //
+        // A CENTRED STICK CANNOT CANCEL A D-PAD PRESS, which is what makes sending both safe:
+        // `apply_standard_gamepad` ORs the stick-derived directions ONTO the button bits and only
+        // past AXIS_DEADZONE (0.35), so zeroes contribute nothing. That was the reason these were
+        // four explicit zeroes before any system needed a stick, and it is the reason a real
+        // deflection can now be sent alongside the same digital bits.
+        axes = [
+            Float(stick.x).clampedToStick,
+            Float(stick.y).clampedToStick,
+            0,
+            0,
+        ]
     }
+}
+
+private extension Float {
+    /// Clamped to the engine's axis range. A value outside it is not a stick position, and
+    /// `apply_standard_gamepad_from` clamps again on its side; doing it here as well means the
+    /// frame this app publishes is already truthful rather than relying on the far end to fix it.
+    var clampedToStick: Float { Swift.min(Swift.max(self, -1), 1) }
 }
 
 /// A live read-through to whichever `TouchControlsView` is on screen.
@@ -201,6 +225,9 @@ enum GameSystem: String, Sendable, CaseIterable {
     case tg16
     /// The Atari 2600. One button, and the reason `oneFace` exists.
     case atari2600
+    /// The Nintendo 64. The first system here whose primary control is an ANALOG STICK rather than
+    /// a D-pad, which is why `dpadDrivesAnalogStick` exists.
+    case n64
 
     /// The short code a library card badges itself with.
     var badge: String {
@@ -219,6 +246,30 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .sg1000: return "SG"
         case .tg16: return "TG16"
         case .atari2600: return "2600"
+        case .n64: return "N64"
+        }
+    }
+
+    /// Whether the D-pad surface should also report an ANALOG STICK deflection.
+    ///
+    /// True only for the N64, and it is the difference between that system being playable and
+    /// looking broken. Almost every N64 game reads the Control Stick and ignores the D-pad
+    /// entirely: Mario 64 does not move at all from the D-pad. The core maps the stick to the LEFT
+    /// analog axes, which this app has always sent as zeroes because no system before this one had
+    /// a stick.
+    ///
+    /// The surface is already a continuous touch point rather than four buttons, so the deflection
+    /// is real analog rather than eight fixed directions. See `Self.stickVector(at:in:)`.
+    ///
+    /// The digital D-pad bits are still sent alongside it, because a few N64 games do read the
+    /// D-pad and sending both costs nothing.
+    var dpadDrivesAnalogStick: Bool {
+        switch self {
+        case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .ds, .fds, .sg1000,
+             .tg16, .atari2600:
+            return false
+        case .n64:
+            return true
         }
     }
 
@@ -239,7 +290,7 @@ enum GameSystem: String, Sendable, CaseIterable {
     var touchScreen: CGRect? {
         switch self {
         case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .fds, .sg1000,
-             .tg16, .atari2600:
+             .tg16, .atari2600, .n64:
             return nil
         case .ds:
             return CGRect(x: 0, y: 0.5, width: 1, height: 0.5)
@@ -262,6 +313,7 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .sg1000: return "Sega SG-1000"
         case .tg16: return "TurboGrafx-16"
         case .atari2600: return "Atari 2600"
+        case .n64: return "Nintendo 64"
         }
     }
 
@@ -354,6 +406,31 @@ enum GameSystem: String, Sendable, CaseIterable {
             // hardware had one would be a worse reproduction, not a more complete one.
             return Self.oneFace((.b, "FIRE"))
                 + Self.systemPair(select: "SELECT", start: "RESET")
+
+        case .n64:
+            // EVERY ONE OF THESE WAS READ FROM THE CORE, and this is the most counter-intuitive
+            // table in this file. parallel-n64's own descriptors in
+            // `emulate_game_controller_via_libretro.c` say:
+            //
+            //     retro B      -> N64 A          retro A   -> C-Down
+            //     retro Y      -> N64 B          retro X   -> C-Up
+            //     retro L2     -> Z Trigger      retro L   -> C-Left
+            //     retro SELECT -> L Shoulder     retro R   -> C-Right
+            //     retro R2     -> R Shoulder     left stick -> Control Stick
+            //
+            // So the N64's A button is retro B and its B button is retro Y, and L Shoulder arrives
+            // on SELECT of all things. Mapping these from their names would have swapped A with B,
+            // put Z on the wrong control and left L unreachable, and every one of those would have
+            // been blamed on the core rather than on this table.
+            //
+            // The diamond puts A right and B left, which is Nintendo's arrangement, with the two
+            // most-used C buttons above and below. The other two C buttons are left off rather
+            // than crammed in: six face buttons on a phone is not a control scheme.
+            return Self.diamondFace(top: (.x, "C\u{2191}"), right: (.b, "A"),
+                                    bottom: (.a, "C\u{2193}"), left: (.y, "B"))
+                + Self.shoulders(left: [(.l2, "Z"), (.select, "L")], right: [(.r2, "R")])
+                + [PadControl(slot: .start, label: "START", cluster: .system,
+                              shape: .pill, offset: CGPoint(x: 0, y: 0))]
 
         case .ds:
             // The DS diamond is the Super Nintendo's arrangement, not the PlayStation's: A sits on
@@ -1972,6 +2049,7 @@ final class TouchControlsView: UIView {
         var right = false
 
         var stylus: CGPoint?
+        var stick = CGPoint.zero
 
         for grab in grabs.values {
             switch grab {
@@ -1987,6 +2065,11 @@ final class TouchControlsView: UIView {
                 down = down || d.down
                 left = left || d.left
                 right = right || d.right
+                // Only asked for when the running system has a stick, so every other system's
+                // frame is bit-for-bit what it was before this existed.
+                if system.dpadDrivesAnalogStick {
+                    stick = Self.stickVector(at: point, in: dpad.bounds)
+                }
             case .pointer(let point):
                 // Last finger down wins if two are somehow on the screen at once. The DS digitiser
                 // was resistive and reported ONE position, so there is no honest way to represent
@@ -2008,6 +2091,7 @@ final class TouchControlsView: UIView {
             lastPointerFraction = pointerFraction(of: stylus)
         }
         padState = PadFrame(pressed: pressed,
+                            stick: stick,
                             pointer: lastPointerFraction,
                             pointerPressed: stylus != nil)
 
@@ -2040,6 +2124,37 @@ final class TouchControlsView: UIView {
 
     private static func unitClamped(_ value: CGFloat) -> CGFloat {
         min(max(value, 0), 1)
+    }
+
+    /// The analog deflection a touch at this point means, each component `-1...1`.
+    ///
+    /// Shares `directions`' normalisation and deadzone deliberately, so the stick and the digital
+    /// bits agree about where the centre is and about when a touch counts at all. What it does NOT
+    /// share is quantisation: `directions` collapses to eight compass points, and this keeps the
+    /// real vector, which is the whole reason an N64 game can be steered gently rather than only
+    /// slammed to full deflection.
+    ///
+    /// Rescaled so that the edge of the DEADZONE is zero and the edge of the surface is full
+    /// deflection. Without that, the smallest movement that registers at all would jump straight to
+    /// 22 percent, and a character would start walking rather than creeping.
+    ///
+    /// Magnitude is clamped rather than the components individually, because clamping x and y
+    /// separately would let a diagonal reach 1.41 and read as harder than any straight push.
+    static func stickVector(at point: CGPoint, in bounds: CGRect) -> CGPoint {
+        let halfWidth = bounds.width / 2
+        let halfHeight = bounds.height / 2
+        guard halfWidth > 0, halfHeight > 0 else { return .zero }
+
+        let x = (point.x - bounds.midX) / halfWidth
+        let y = (point.y - bounds.midY) / halfHeight
+        let magnitude = (x * x + y * y).squareRoot()
+        guard magnitude > dpadDeadzone else { return .zero }
+
+        // Beyond the deadzone, remap [deadzone, 1] onto [0, 1] and cap at full.
+        let scaled = min((magnitude - dpadDeadzone) / (1 - dpadDeadzone), 1)
+        let unitX = x / magnitude
+        let unitY = y / magnitude
+        return CGPoint(x: unitX * scaled, y: unitY * scaled)
     }
 
     /// Which directions a touch at this point means.

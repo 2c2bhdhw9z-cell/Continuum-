@@ -155,6 +155,8 @@ jobs:
             || { echo "::error::the TurboGrafx-16 core is not embedded; .pce files would list in the Library and fail to launch"; exit 1; }
           unzip -l "$IPA" | grep -q "stella2023_libretro_ios.dylib" \
             || { echo "::error::the Atari 2600 core is not embedded; .a26 files would list in the Library and fail to launch"; exit 1; }
+          unzip -l "$IPA" | grep -q "parallel_n64_libretro_ios.dylib" \
+            || { echo "::error::the N64 core is not embedded; .n64, .z64 and .v64 files would list in the Library and fail to launch"; exit 1; }
           unzip -l "$IPA" | grep -q "pcsx_rearmed_libretro_ios.dylib" \
             || { echo "::error::the PS1 core is not embedded; the app would launch and fail to load PCSX ReARMed"; exit 1; }
           echo "ipa verified"

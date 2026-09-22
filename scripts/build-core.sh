@@ -94,7 +94,8 @@ WORK="$ROOT/.work"
 
 # The iOS cores, in build order. Never empty, which matters: macOS ships bash 3.2,
 # where an empty array expanded under `set -u` is an error rather than nothing.
-IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed melonds mednafen_pce_fast stella2023)
+IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed melonds mednafen_pce_fast stella2023
+           parallel_n64)
 
 # Every libretro entry point the engine resolves by name, which is the real contract between a
 # staged dylib and the app. Kept in step with the `Symbols` struct in
@@ -288,6 +289,32 @@ ios_core_config() {
       # exactly that for every core until this one; see the need_fullpath handling in
       # `NativeLibretroCore::load_content`, which reads the file when a core asks for bytes.
       IOS_DISPLAY="Atari 2600, software renderer"
+      ;;
+    parallel_n64)
+      IOS_REPO="https://github.com/libretro/parallel-n64"
+      IOS_DYLIB_NAME="parallel_n64_libretro_ios.dylib"
+      IOS_KIND="make"
+      IOS_MAKEFILE="Makefile"
+      # Submodules, and they are needed: the core vendors mupen64plus and its plugins as
+      # submodules rather than in-tree.
+      IOS_SUBMODULES=1
+      # THE N64 NEEDS NEITHER OF THE TWO THINGS EVERYONE ASSUMES IT NEEDS, and reading this
+      # core's own ios block is what establishes that:
+      #
+      #     HAVE_OPENGL=0     software rasteriser, so it emits pixels through the same path
+      #                       the other eight cores already use. No MoltenVK, no ANGLE, none
+      #                       of steps 3 to 6 of docs/SET_HW_RENDER_DESIGN.md.
+      #     WITH_DYNAREC=     interpreter, so it needs NO executable memory and therefore no
+      #                       JIT, no get-task-allow and no debugger attached.
+      #
+      # It will be SLOW. A software rasteriser plus an interpreter is slow on any phone, and
+      # that is the honest expectation rather than a defect to chase. It runs, which is the
+      # thing that was in doubt.
+      #
+      # `parallel_n64` and not `mupen64plus_next`: both are on the libretro buildbot for
+      # ios-arm64, but Mupen64Plus-Next renders through GLideN64 and has no software path, so
+      # it cannot work until the graphics work is done. See docs/PLATFORM_LIMITS.md.
+      IOS_DISPLAY="Nintendo 64, software rasteriser and interpreter"
       ;;
     *)
       return 1

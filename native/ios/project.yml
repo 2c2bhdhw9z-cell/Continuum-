@@ -248,6 +248,12 @@ targets:
         embed: true
         link: false
         codeSign: false
+      # Nintendo 64, software rasteriser and interpreter. Needs neither MoltenVK nor JIT; see
+      # scripts/build-core.sh ios_core_config and docs/PLATFORM_LIMITS.md.
+      - framework: build/lib/parallel_n64_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
 
 # Declared explicitly. XcodeGen only emits a *shared* scheme when one is defined here, and
 # `xcodebuild -scheme` cannot see the non-shared schemes Xcode would otherwise invent on

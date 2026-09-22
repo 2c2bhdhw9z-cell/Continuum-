@@ -82,6 +82,9 @@ enum SystemArtwork {
         // it carries BOTH regional names in a single directory, with no slash and no bracket.
         case .tg16: return "NEC - PC Engine - TurboGrafx 16"
         case .atari2600: return "Atari - 2600"
+        // Checked against the live server like the rest. "Nintendo" twice again, for the same
+        // reason the DS and the NES have it: manufacturer then system name.
+        case .n64: return "Nintendo - Nintendo 64"
         }
     }
 
@@ -121,6 +124,8 @@ enum SystemArtwork {
         // 45 to 88 and 268 to 310, so these take their midpoints.
         case .tg16: return 67
         case .atari2600: return 289
+        // Widest remaining gap in the fourteen values above was 126 to 165, so this takes 145.
+        case .n64: return 145
         }
     }
 

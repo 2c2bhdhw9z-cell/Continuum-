@@ -316,9 +316,41 @@ enum CoreCatalog {
         biosNames: []
     )
 
+    /// The Nintendo 64, on a software rasteriser and an interpreter.
+    ///
+    /// THE POINT OF THIS ENTRY IS THAT IT NEEDS NEITHER OF THE TWO THINGS THE N64 IS SUPPOSED TO
+    /// NEED. parallel-n64's own iOS block sets `HAVE_OPENGL=0` and leaves `WITH_DYNAREC` empty, so
+    /// it renders in software through the same path the other eight cores use and executes no
+    /// generated code at all. No MoltenVK, and no `get-task-allow`.
+    ///
+    /// **It will be slow.** A software rasteriser plus an interpreter is slow on any phone, and
+    /// that is the expected result rather than a fault to chase. What was in doubt was whether it
+    /// runs, and this is what answers it.
+    ///
+    /// Geometry, aspect ratio and frame rate are ALL dynamic in this core: it sets them from the
+    /// loaded ROM's region and its current resolution, and the engine re-reads them after load. The
+    /// numbers here are only a seed for the first sizing, so 320x240 with a 640x480 ceiling is the
+    /// honest declaration rather than a guess at one resolution. XRGB8888, which is pixelFormat 1
+    /// in this app's encoding.
+    static let parallelN64 = CoreSpec(
+        coreId: "parallel_n64",
+        displayName: "ParaLLEl N64 (software)",
+        systems: ["n64"],
+        library: "parallel_n64_libretro_ios.dylib",
+        width: 320, height: 240,
+        maxWidth: 640, maxHeight: 480,
+        aspectRatio: 4.0 / 3.0,
+        fps: 60.0,
+        sampleRate: 48000,
+        pixelFormat: 1,
+        priority: 0,
+        biosNames: []
+    )
+
     /// Every core, in the order the HUD reports them.
     static let all: [CoreSpec] = [
         fceumm, snes9x, mgba, genesisPlusGx, pcsxReARMed, melonDS, mednafenPceFast, stella,
+        parallelN64,
     ]
 
     static let byId: [String: CoreSpec] = Dictionary(
@@ -422,6 +454,13 @@ enum CoreCatalog {
         // be renamed, which is a real cost, and it is still the right trade: the alternative is
         // every PlayStation track appearing in the Library as an Atari game.
         "a26": Route(coreId: stella.coreId, system: .atari2600),
+        // The three real N64 ROM formats. The core also declares `bin`, `zip`, `u1` and `ndd`:
+        // `bin` is a PlayStation cue sheet's companion track here and must never be tappable,
+        // `zip` would need archive handling this app does not have, and the other two are rare
+        // enough that offering them would be inviting a failure rather than a system.
+        "n64": Route(coreId: parallelN64.coreId, system: .n64),
+        "z64": Route(coreId: parallelN64.coreId, system: .n64),
+        "v64": Route(coreId: parallelN64.coreId, system: .n64),
     ]
 
     /// Extension to core id, DERIVED from the table above and never restated.
