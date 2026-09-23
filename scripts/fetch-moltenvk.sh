@@ -72,14 +72,31 @@ cp -R "$WORK/$MEMBER" "$FRAMEWORK"
   echo "error: extracted framework has no MoltenVK binary" >&2
   exit 1
 }
+# Each property tested SEPARATELY rather than as one pattern, because `file` does not order its
+# words the same way on every host and this script runs on both. Linux says
+#
+#   Mach-O 64-bit arm64 dynamically linked shared library
+#
+# and macOS says
+#
+#   Mach-O 64-bit dynamically linked shared library arm64
+#
+# A single glob requiring "arm64" before "dynamically linked shared library" therefore passes on
+# Linux and fails on the machine that actually builds the app, which is exactly what it did: the
+# fetch and the extraction were correct and the assertion rejected a good framework.
 DESCRIPTION="$(file -b "$FRAMEWORK/MoltenVK")"
-case "$DESCRIPTION" in
-  *"arm64"*"dynamically linked shared library"*) ;;
-  *)
-    echo "error: $FRAMEWORK/MoltenVK is not an arm64 dynamic library" >&2
-    echo "       file says: $DESCRIPTION" >&2
-    exit 1
-    ;;
-esac
+check_description() {
+  case "$DESCRIPTION" in
+    *"$1"*) ;;
+    *)
+      echo "error: $FRAMEWORK/MoltenVK does not look like '$1'" >&2
+      echo "       file says: $DESCRIPTION" >&2
+      exit 1
+      ;;
+  esac
+}
+check_description "Mach-O"
+check_description "arm64"
+check_description "dynamically linked shared library"
 
 echo "==> done: native/ios/build/lib/MoltenVK.framework ($(du -h "$FRAMEWORK/MoltenVK" | cut -f1))"
