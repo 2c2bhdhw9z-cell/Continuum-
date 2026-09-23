@@ -431,6 +431,39 @@ fn option_overrides(core_id: &str) -> &'static [(&'static str, &'static str)] {
             // would be a DS that loads a game and then sits there.
             ("melonds_boot_directly", "enabled"),
         ],
+        // THE THIRD INSTANCE OF THE SAME TRAP, and this one froze the app rather than disabling a
+        // feature. The N64 core picks its renderer like this:
+        //
+        //     if (gfx_var.value)                       // NULL when the host refuses the read
+        //     {
+        //         if (!strcmp(gfx_var.value, "auto"))
+        //             core_settings_autoselect_gfx_plugin();
+        //         ...
+        //     }
+        //
+        // Refuse the read and `gfx_var.value` is NULL, so that whole block is skipped and the
+        // autoselect never runs at all. `gfx_plugin` then keeps its zero initialiser, and the enum
+        // in Graphics/plugin.h begins:
+        //
+        //     enum gfx_plugin_type { GFX_GLIDE64 = 0, GFX_RICE, GFX_GLN64, GFX_ANGRYLION, ... };
+        //
+        // So the default is GLIDE64, an OPENGL renderer, in a build compiled with HAVE_OPENGL=0
+        // where that plugin does not exist. The core then tries to render through nothing and the
+        // app hangs on the first frame, which presents as the emulator freezing when a game starts.
+        //
+        // `angrylion` is the software rasteriser and the only value the option even offers when GL
+        // is absent. Naming it explicitly takes the `!strcmp(gfx_var.value, "angrylion")` branch,
+        // which sets the plugin directly and does not depend on the autoselect running or on
+        // HAVE_THR_AL being defined.
+        //
+        // The RSP is named for the same reason rather than because its initialiser is wrong: zero
+        // happens to be RSP_HLE, which is what we want, but it is reached only by the same skipped
+        // block, so relying on it would be relying on a coincidence. HLE over the software
+        // rasteriser is also the faster pairing, and speed is the entire question for this core.
+        "parallel_n64" => &[
+            ("parallel-n64-gfxplugin", "angrylion"),
+            ("parallel-n64-rspplugin", "hle"),
+        ],
         _ => &[],
     }
 }
@@ -1305,6 +1338,24 @@ mod tests {
         let (ok, value) = ask_option("melonds_screen_layout");
         assert!(!ok, "unlisted options stay refused");
         assert!(value.is_none(), "value must be nulled, not fabricated");
+    }
+
+    #[test]
+    fn the_n64_gets_the_software_rasteriser_rather_than_a_missing_gl_one() {
+        let _guard = option_test_guard();
+        install_options("parallel_n64");
+
+        // Without this the app FREEZES when an N64 game starts. Refusing the read skips the block
+        // that would have auto-selected a renderer, leaving `gfx_plugin` at its zero initialiser,
+        // which is GFX_GLIDE64 — an OpenGL plugin absent from a HAVE_OPENGL=0 build. See
+        // `option_overrides`.
+        let (ok, value) = ask_option("parallel-n64-gfxplugin");
+        assert!(ok, "the N64 renderer must be named, not left to a C initialiser");
+        assert_eq!(value.as_deref(), Some("angrylion"));
+
+        let (ok, value) = ask_option("parallel-n64-rspplugin");
+        assert!(ok, "the N64 RSP must be named for the same reason");
+        assert_eq!(value.as_deref(), Some("hle"));
     }
 
     #[test]
