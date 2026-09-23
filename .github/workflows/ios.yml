@@ -207,10 +207,15 @@ jobs:
           # backticks, and both are hazards inside a shell argument in a YAML block scalar; a heredoc
           # quoted with <<'EOF' passes them through untouched with no escaping to get wrong.
           cat > /tmp/notes.md <<'EOF'
-          Press **Continuum.ipa** below to download it, then import it into ESign or Feather and sign
-          it with your certificate.
+          **Download the numbered file**, not the plain one: its name says which build it is, so it
+          cannot be confused with an older download sitting in Files or in a signer's list. Both
+          files below are the same app.
 
-          **Bookmark this instead of browsing here:** it always redirects to the newest build.
+          Then import it into ESign or Feather and sign it with your certificate.
+
+          **Bookmark this if you want one permanent link:** it always redirects to the newest build,
+          but it always downloads under the same name, so check the build number in the app after
+          installing.
           EOF
           echo "$LATEST" >> /tmp/notes.md
           printf '\nBuilt from %s on %s.\n' "${{ github.sha }}" "${{ github.ref_name }}" >> /tmp/notes.md
@@ -220,8 +225,22 @@ jobs:
           # The entitlements files ride along so they have a stable download URL too. ESign asks for
           # a FILE rather than pasted text, and a phone with no computer has no way to write a
           # plist, so these have to be downloadable.
+          # TWO COPIES OF THE SAME .ipa, UNDER TWO NAMES, AND THE SECOND ONE EXISTS BECAUSE THE
+          # FIRST ONE'S NAME IS A TRAP.
+          #
+          # Continuum.ipa is the fixed name that /releases/latest/download/Continuum.ipa depends
+          # on, so it has to stay. But every build downloading under one name means a phone
+          # accumulates Continuum.ipa, Continuum-1.ipa, Continuum-2.ipa with nothing to say which
+          # build each one is, and an on-device signer lists them looking nearly identical. Signing
+          # last week's file by accident is then the expected outcome, not a slip, and it presents
+          # as a brand new core being absent from a build that definitely contains it.
+          #
+          # Continuum-<run>.ipa carries the build number in the FILENAME, so the right file is
+          # identifiable in Files and in the signer's own list without checking a size or a hash.
+          cp native/ios/build/Continuum.ipa "native/ios/build/Continuum-${{ github.run_number }}.ipa"
           gh release create "$TAG" \
             native/ios/build/Continuum.ipa \
+            "native/ios/build/Continuum-${{ github.run_number }}.ipa" \
             native/ios/get-task-allow.entitlements \
             native/ios/get-task-allow.plist \
             --title "Continuum build ${{ github.run_number }}" \
