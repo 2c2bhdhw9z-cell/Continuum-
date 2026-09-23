@@ -1086,6 +1086,16 @@ impl ContinuumEngine {
         crate::jit_probe::describe_execution()
     }
 
+    /// Whether MoltenVK is in this process and answering, which decides whether hardware rendered
+    /// cores are possible at all.
+    ///
+    /// `frameworks_dir` is the app bundle's Frameworks directory; only the host knows it. Safe on
+    /// the launch path: it is a `dlopen` and two reads, and every failure is a returned string. See
+    /// [`crate::vulkan_probe`], which explains at length why it deliberately does almost nothing.
+    pub fn vulkan_probe(&self, frameworks_dir: String) -> String {
+        crate::vulkan_probe::describe(&frameworks_dir)
+    }
+
     /// The running core's own version string, or `None` if it does not report one.
     ///
     /// **Record this beside every save state you store, and refuse to load a state whose

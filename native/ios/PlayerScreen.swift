@@ -480,6 +480,14 @@ struct DiagnosticsPanel: View {
                     Text(host.jitLine)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                // Whether MoltenVK is in the process. The gate on every system that renders through
+                // a GPU rather than on the CPU, which is Dreamcast, PSP, the 3DS and a playable
+                // N64. Here rather than in Settings for the same reason the JIT line is: it is a
+                // fact about the installed build, and this panel is where those live.
+                if !host.vulkanLine.isEmpty {
+                    Text(host.vulkanLine)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .font(.system(.caption2, design: .monospaced))

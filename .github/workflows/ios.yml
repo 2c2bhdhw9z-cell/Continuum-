@@ -23,6 +23,9 @@ on:
       # the rest of that directory generates test ROMs and cannot affect the .ipa, and a macOS
       # runner costs ten times a Linux one.
       - "scripts/build-core.sh"
+      # Fetches MoltenVK, which package-ipa.sh runs before generating the project. A change to the
+      # pinned version or the extraction has to rebuild, for the same reason build-core.sh does.
+      - "scripts/fetch-moltenvk.sh"
       - ".github/workflows/ios.yml"
 
 concurrency:
@@ -163,6 +166,11 @@ jobs:
             || { echo "::error::the Atari 2600 core is not embedded; .a26 files would list in the Library and fail to launch"; exit 1; }
           unzip -l "$IPA" | grep -q "parallel_n64_libretro_ios.dylib" \
             || { echo "::error::the N64 core is not embedded; .n64, .z64 and .v64 files would list in the Library and fail to launch"; exit 1; }
+          # Not a core. MoltenVK is the gate on every hardware rendered system, and because it is
+          # dlopened rather than linked, its absence would not fail the build or the launch: it would
+          # surface only as the Vulkan line reporting NOT AVAILABLE on a phone.
+          unzip -l "$IPA" | grep -q "MoltenVK.framework/MoltenVK" \
+            || { echo "::error::MoltenVK is not embedded; hardware rendered cores would be impossible and the Vulkan probe would report it missing"; exit 1; }
           unzip -l "$IPA" | grep -q "pcsx_rearmed_libretro_ios.dylib" \
             || { echo "::error::the PS1 core is not embedded; the app would launch and fail to load PCSX ReARMed"; exit 1; }
           echo "ipa verified"

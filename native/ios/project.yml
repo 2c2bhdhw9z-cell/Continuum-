@@ -262,6 +262,14 @@ targets:
         embed: true
         link: false
         codeSign: false
+      # MoltenVK: Vulkan on Metal, and the gate on every hardware rendered system. Embedded but
+      # NOT LINKED, deliberately. It is reached by `dlopen` from vulkan_probe.rs so that a missing
+      # or broken MoltenVK is a line on the diagnostics panel rather than an app that will not
+      # launch. Fetched by scripts/fetch-moltenvk.sh, which package-ipa.sh runs before generating.
+      - framework: build/lib/MoltenVK.framework
+        embed: true
+        link: false
+        codeSign: false
 
 # Declared explicitly. XcodeGen only emits a *shared* scheme when one is defined here, and
 # `xcodebuild -scheme` cannot see the non-shared schemes Xcode would otherwise invent on

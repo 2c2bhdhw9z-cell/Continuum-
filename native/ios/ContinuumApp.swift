@@ -948,6 +948,13 @@ final class EngineHost: ObservableObject {
     /// the build since the beginning and had never been exercised.
     @Published var jitLine: String = ""
 
+    /// Whether MoltenVK loaded and answered, read once at startup.
+    ///
+    /// The gate on every system that renders through a GPU rather than in software: Dreamcast, PSP,
+    /// the 3DS, and an N64 that runs at a playable speed. All four are unreachable while the app can
+    /// only show pixels a core rasterised on the CPU. See `vulkan_probe.rs`.
+    @Published var vulkanLine: String = ""
+
     /// The on-screen pad's layout: where the two thumb clusters sit, how big they are and how
     /// faint. One value, which is why the editor turned out to be a screen that writes six numbers
     /// rather than a rewrite. See `TouchLayout` and `TouchLayoutEditor`.
@@ -1350,6 +1357,12 @@ final class EngineHost: ObservableObject {
         // this line, before drawing anything, including the line the probe existed to print. The
         // half that runs code is a button in Settings now.
         jitLine = engine.jitProbe()
+        // Step 3 of the graphics road, and the question everything above software rendering waits
+        // on. Safe here for the same reason the line above now is: a dlopen and two reads, with
+        // every failure arriving as a string rather than as a dead app.
+        vulkanLine = engine.vulkanProbe(
+            frameworksDir: Bundle.main.privateFrameworksPath ?? ""
+        )
         // Scans for already-paired controllers as it is built, because a pad connected before the
         // app launched has already sent its connect notification to nobody. Given the engine so
         // that a disconnect can release the gamepad input layer immediately, which is not something
