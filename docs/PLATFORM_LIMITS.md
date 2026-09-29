@@ -16,7 +16,7 @@ Nothing here is a guess. Where something is unknown it says so.
 | Signing | Paid certificate from a UDID registration service, signed ON DEVICE with ESign |
 | Certificate used | **Distribution.** The Development one will not install |
 | Developer Mode | Already ON. Ruled out as the cause of the development-cert failure |
-| No computer | Everything is done from the phone. CI is the only compiler |
+| No computer | Everything is done from the phone. CI is the only compiler. The owner will not use or borrow a computer, not even once (see "JIT is not reachable for this owner") |
 
 The development certificate fails with a verification/integrity error. Ruled out so far: Developer
 Mode being off, and ESign's "Auto modify jailbreak dependencies" toggle (tested both on and off).
@@ -78,6 +78,30 @@ JIT26PrepareRegion(address, length) // mov x16, #1 ; brk #0xf00d ; ret
 
 **Not implemented in Continuum.** It is Part 1 of StikJIT's integration guide. A `brk` with no
 script attached crashes the process, so this is gated work rather than a flag.
+
+### JIT is not reachable for this owner
+
+The owner's stated position (29 Sept 2026): no computer, not even once, and no library or
+borrowed machine. That alone rules JIT out, whatever certificate is bought:
+
+- **The pairing file needs a computer next to the phone.** On iOS 26.x it is made over a USB
+  cable. From iOS 27, idevice_pair can pair over Wi-Fi with no cable, but only from a computer on
+  the same local network. A cloud machine (CI, or an AI agent's VM such as Grok Bot's) can do
+  neither. A pairing file also grants deep access to the device, so never make or store one on a
+  shared online machine.
+- **"Once" is not guaranteed.** Pairing files can expire at random and then have to be remade.
+- **A signing service's "JIT certificate" only supplies `get-task-allow`.** It does not remove
+  the pairing file. Do not suggest buying one to this owner.
+- **The app side is missing too** (the TXM protocol above), and it could not be tested anyway.
+
+So every system must be usable with no JIT: interpreters and cached interpreters only. The system
+this really hurts is the **Switch**. iPhone Switch emulators such as MeloNX require JIT, so raise
+this with the owner before starting steps 10 to 12 of
+[SET_HW_RENDER_DESIGN.md](SET_HW_RENDER_DESIGN.md) section 13. If the owner's position changes,
+JIT becomes a real project again, starting with the TXM protocol.
+
+> Sources: the idevice_pair README (Wi-Fi pairing needs iOS 27 and the same network), the
+> StikDebug guide's pairing-file page (files expire at random), and StikJIT's INTEGRATION.md.
 
 ---
 
