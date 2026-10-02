@@ -75,7 +75,7 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Save states, slots, delete | **Partial** | Slot list was reported failing on some games; claimed fixed in code, **not retested on a device**. Do not treat as Done until someone proves slots on the phone |
 | Auto-save and resume | **Done** | |
 | Cheats | **Done** | |
-| On-screen control layout editor | **Partial** | Drag already proven on device. Phase 1 on `master` (`dfc5be4`): SELECT/START individually draggable and persisted; portrait clamps a clear game strip (≥28% height); debug prose/coords/drag counters stripped. Still Partial until device-proven on a new IPA. **Not “like Manic”** — skins and free-feel are later, and only Brett stamps usable |
+| On-screen control layout editor | **Partial** | Phase 1 **device-proven on build 81**: SELECT/START are their own boxes, clear GAME strip in portrait, debug wall gone (Brett’s shots). Still not every control free, still **not Manic** (no skins / free-feel stamp). Remaining: freer per-button placement toward Manic, only when Brett says it feels usable |
 | Save state compatibility refusal | **Built, cannot be tested deliberately** | Only fires for a state from a different core or build |
 | Honouring what a core wants its content as | **Done** | Every core used to be handed a file path and no bytes. That worked for the first six by luck, and would have given Stella a zero-byte ROM, because it copies straight from the data pointer with no path fallback. The engine now reads what each core declares and loads the file when the core wants bytes, so the next such core needs no change |
 | File formats per system | **Done** | Every extension is now taken from the cores' own declared lists rather than a hand-written one. That added the two systems above plus `.smd`, `.swc`, `.fig`, `.unf`, `.unif`, `.sgb`, `.mdf` and `.toc`, which were being refused despite being supported |
@@ -105,7 +105,7 @@ iOS, so it needed none of this.
 | 5. Recompiler measurement | **Not started** |
 | 6. **paraLLEl-N64**, the N64 | **Not started**. See the two gates below |
 | 7. ANGLE alongside MoltenVK | **Partly moot**. It existed for the DS, which was reached without it. Still needed by a GL-only core later |
-| 8. **Citra**, the 3DS | **Not started**. Two screens of unequal width, which the DS does not expose. **No software rasterizer** — OpenGL/Vulkan only — so this is not the DS/N64 soft trick; it needs MoltenVK / `SET_HW_RENDER` (steps 3–4) first, then an iOS Citra/Azahar build. Interpreter-only is still expected slow |
+| 8. **Citra** / emuThreeDS-style, the 3DS | **Not started — not in the app**. No 3DS row in the system picker; nothing to launch. Needs MoltenVK / `SET_HW_RENDER` (steps 3–4) first, then an iOS core build (emuThreeDS as port reference). Interpreter-only and **expected slow**. Do not say 3DS “worked” until a core is in an IPA |
 | 9. **PPSSPP**, the PSP | **Not started** |
 | 10. **Switch**, stage 1: the wrapper against a stub engine | **Partial**. `native/switch-wrapper/` already has the `retro_*` skeleton, the frame gate, a Vulkan stub renderer and a test harness. No Rust engine behind it |
 | 11. Switch, stage 2: a real engine behind `ISwitchEngine`, homebrew booting | **Not started** |
