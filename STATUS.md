@@ -31,7 +31,7 @@ they live in [the road below](#the-road-to-the-rest-of-the-systems) rather than 
 | PlayStation | pcsx_rearmed | **Done** | Interpreter, not the recompiler. Fast enough, and see Recompiler below for why it is not switched on |
 | **Famicom Disk System** | fceumm | **Built, untested** | Needs `disksys.rom`, which is Nintendo's own code and cannot ship with the app. The launch path checks for it by name and says so rather than letting the core fail |
 | **Sega SG-1000** | genesis_plus_gx | **Built, untested** | Needs nothing extra |
-| **Nintendo 64** | parallel_n64 | **Built, untested** | Software rasteriser and interpreter, so it needs NEITHER MoltenVK NOR JIT. **Expected to be slow**; that it runs at all was the question. `.n64`, `.z64`, `.v64` |
+| **Nintendo 64** | parallel_n64 | **Partial — device FAIL** | Freeze on tap / hang before play (Brett, library with N64 titles). Not “slow soft” — never booted past start. Soft/interp may still be slow after a fix. Done only when a batched IPA boots a title past the hang. `.n64`, `.z64`, `.v64` |
 | **TurboGrafx-16** | mednafen_pce_fast | **Built, untested** | HuCard games only. PC Engine CD needs a system card BIOS that cannot ship |
 | **Atari 2600** | stella2023 | **Built, untested** | `.a26` only. A 2600 ROM named `.bin` has to be renamed, because `.bin` belongs to the PlayStation here as a disc track |
 | **Nintendo DS** | melonDS | **Done** | Confirmed on device (build 80): Mario Kart DS and Pokémon SoulSilver, dual screens live, ~60 fps, 0 dropped |
