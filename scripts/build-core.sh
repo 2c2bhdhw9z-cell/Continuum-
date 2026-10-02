@@ -329,11 +329,15 @@ ios_core_config() {
       # ios-arm64, but Mupen64Plus-Next renders through GLideN64 and has no software path, so
       # it cannot work until the graphics work is done. See docs/PLATFORM_LIMITS.md.
       #
-      # Continuum patch (scripts/patches/parallel_n64-reapply-variables-after-initiate-gfx.patch):
-      # InitiateGFX / n64video_config_init resets angrylion config.parallel=true after the
-      # host's parallel-n64-angrylion-multithread=off was applied at load. The patch reapplies
-      # update_variables(false) in emu_step_initialize after plugin_connect_all so the first
-      # tick does not start the worker pool. Applied by ios_apply_core_patches after clone.
+      # Continuum patches (scripts/patches/, applied by ios_apply_core_patches after clone):
+      # 1) parallel_n64-aarch64-gate-hot-state-on-new-dynarec.patch (critical):
+      #    iOS builds WITH_DYNAREC= so NEW_DYNAREC is unset, but r4300.h aarch64 still
+      #    aliased mupencorestop to new_dynarec_hot_state.stop. main_run only clears that
+      #    under #ifdef NEW_DYNAREC, so the first VI latches stop and retro_return early-outs
+      #    forever (stuck "N64 first tick", frames 0). Gate hot-state aliases on NEW_DYNAREC.
+      # 2) parallel_n64-reapply-variables-after-initiate-gfx.patch (kept; device FAIL on 96
+      #    ruled it out as the hang cause, but still correct for angrylion multithread-off):
+      #    reapply update_variables(false) after InitiateGFX / n64video_config_init.
       IOS_DISPLAY="Nintendo 64, software rasteriser and interpreter"
       ;;
     *)
@@ -692,9 +696,45 @@ ios_apply_core_patches() {
   local core="$1"
   case "$core" in
     parallel_n64)
+      ios_apply_parallel_n64_aarch64_hot_state_gate_patch
       ios_apply_parallel_n64_first_tick_patch
       ;;
   esac
+}
+
+ios_apply_parallel_n64_aarch64_hot_state_gate_patch() {
+  local src="$IOS_SRC_DIR/mupen64plus-core/src/device/r4300/r4300.h"
+  local patch="$ROOT/scripts/patches/parallel_n64-aarch64-gate-hot-state-on-new-dynarec.patch"
+  local marker="Continuum: iOS builds WITH_DYNAREC="
+
+  [[ -f "$src" ]] || {
+    echo "error: parallel_n64: expected $src after clone; upstream layout changed" >&2
+    exit 1
+  }
+  [[ -f "$patch" ]] || {
+    echo "error: parallel_n64: missing Continuum patch at $patch" >&2
+    exit 1
+  }
+
+  if grep -qF "$marker" "$src"; then
+    echo "==> parallel_n64: Continuum aarch64 NEW_DYNAREC gate already present"
+    return
+  fi
+
+  echo "==> parallel_n64: applying Continuum aarch64 NEW_DYNAREC gate (r4300.h hot-state aliases)"
+  # -p1 strips a/ b/ from the unified diff. Fail loud if the hunk no longer matches HEAD:
+  # an unpatched dylib would leave iOS interpreter builds stuck after the first VI.
+  if ! patch -p1 --forward -d "$IOS_SRC_DIR" < "$patch"; then
+    echo "error: parallel_n64: Continuum aarch64 NEW_DYNAREC gate patch failed to apply." >&2
+    echo "       Upstream likely moved the aarch64 branch in r4300.h; refresh the patch" >&2
+    echo "       against mupen64plus-core/src/device/r4300/r4300.h (mupencorestop aliases)." >&2
+    exit 1
+  fi
+
+  grep -qF "$marker" "$src" || {
+    echo "error: parallel_n64: patch reported success but the Continuum marker is missing" >&2
+    exit 1
+  }
 }
 
 ios_apply_parallel_n64_first_tick_patch() {
