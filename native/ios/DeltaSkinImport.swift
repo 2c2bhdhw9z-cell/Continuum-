@@ -661,14 +661,18 @@ enum ZipStore {
                 if total >= out.count {
                     out.count = max(out.count * 2, capacity * 2)
                 }
+                // Snapshot length before borrowing `out` — Swift exclusivity forbids
+                // reading `out.count` inside `withUnsafeMutableBytes`.
+                let outCount = out.count
+                let availBefore = uInt(outCount - total)
                 let wrote: Int = try out.withUnsafeMutableBytes { dstPtr in
                     guard let dstBase = dstPtr.bindMemory(to: UInt8.self).baseAddress else {
                         throw DeltaSkinImportError.unreadable("deflate destination unavailable")
                     }
                     stream.next_out = dstBase.advanced(by: total)
-                    stream.avail_out = uInt(out.count - total)
+                    stream.avail_out = availBefore
                     let status = zlib.inflate(&stream, Z_NO_FLUSH)
-                    let produced = (out.count - total) - Int(stream.avail_out)
+                    let produced = Int(availBefore) - Int(stream.avail_out)
                     total += produced
                     if status == Z_STREAM_END {
                         return -1
