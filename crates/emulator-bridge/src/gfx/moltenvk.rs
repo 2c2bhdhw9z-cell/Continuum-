@@ -90,6 +90,62 @@ pub mod metal_objects {
     pub const EXTENSION_NAME: &str = "VK_EXT_metal_objects";
 }
 
+
+/// Instance extensions Continuum may enable, after intersecting with what the loader advertises.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FilteredInstanceExtensions {
+    /// `VK_KHR_portability_enumeration` — required on some MoltenVK builds, absent on others.
+    pub portability_enumeration: bool,
+}
+
+impl FilteredInstanceExtensions {
+    /// Keep only extensions that exist in `available` (extension name strings).
+    pub fn from_available<'a>(names: impl IntoIterator<Item = &'a str>) -> Self {
+        let mut portability_enumeration = false;
+        for name in names {
+            if name == "VK_KHR_portability_enumeration" {
+                portability_enumeration = true;
+            }
+        }
+        Self {
+            portability_enumeration,
+        }
+    }
+}
+
+/// Device extensions Continuum may enable, after intersecting with what the device advertises.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FilteredDeviceExtensions {
+    pub metal_objects: bool,
+    pub portability_subset: bool,
+}
+
+impl FilteredDeviceExtensions {
+    /// `VK_EXT_metal_objects` is required for zero-copy export; missing it is a hard error.
+    /// `VK_KHR_portability_subset` is optional and only enabled when advertised.
+    pub fn from_available<'a>(names: impl IntoIterator<Item = &'a str>) -> Result<Self, String> {
+        let mut metal_objects = false;
+        let mut portability_subset = false;
+        for name in names {
+            match name {
+                "VK_EXT_metal_objects" => metal_objects = true,
+                "VK_KHR_portability_subset" => portability_subset = true,
+                _ => {}
+            }
+        }
+        if !metal_objects {
+            return Err(
+                "VK_EXT_metal_objects not advertised by the physical device;                  zero-copy MTLTexture export requires it"
+                    .into(),
+            );
+        }
+        Ok(Self {
+            metal_objects: true,
+            portability_subset,
+        })
+    }
+}
+
 /// Keeps MoltenVK's Vulkan objects alive for as long as wgpu samples the exported texture.
 ///
 /// Dropping the `VkImage` would destroy the backing `MTLTexture`. The proof runs once per
@@ -207,12 +263,34 @@ mod apple {
             .engine_version(vk::make_api_version(0, 0, 1, 0))
             .api_version(vk::API_VERSION_1_1);
 
+        // Only enable instance extensions the loader actually advertises. iOS MoltenVK in
+        // the bundle rejected VK_KHR_portability_enumeration on build 82 ("Extension
+        // specified does not exist"); desktop MoltenVK still needs it plus the enumerate
+        // portability create flag.
+        let available_instance = unsafe { entry.enumerate_instance_extension_properties(None) }
+            .map_err(|e| format!("enumerate instance extensions: {e}"))?;
+        let available_instance_names: Vec<&str> = available_instance
+            .iter()
+            .map(|e| {
+                unsafe { CStr::from_ptr(e.extension_name.as_ptr() as *const c_char) }
+                    .to_str()
+                    .unwrap_or("")
+            })
+            .collect();
+        let instance_plan =
+            super::FilteredInstanceExtensions::from_available(available_instance_names.iter().copied());
+
         let portability = portability_enumeration::NAME;
-        let instance_exts = [portability.as_ptr()];
+        let mut instance_exts: Vec<*const c_char> = Vec::new();
+        let mut instance_flags = vk::InstanceCreateFlags::empty();
+        if instance_plan.portability_enumeration {
+            instance_exts.push(portability.as_ptr());
+            instance_flags |= vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR;
+        }
         let create_info = vk::InstanceCreateInfo::default()
             .application_info(&app_info)
             .enabled_extension_names(&instance_exts)
-            .flags(vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR);
+            .flags(instance_flags);
 
         // SAFETY: create_info references live CStrings above.
         let instance = unsafe { entry.create_instance(&create_info, None) }
@@ -236,9 +314,27 @@ mod apple {
             .queue_family_index(queue_family)
             .queue_priorities(&queue_priorities);
 
+        let available_device = unsafe { instance.enumerate_device_extension_properties(phys) }
+            .map_err(|e| format!("enumerate device extensions: {e}"))?;
+        let available_device_names: Vec<&str> = available_device
+            .iter()
+            .map(|e| {
+                unsafe { CStr::from_ptr(e.extension_name.as_ptr() as *const c_char) }
+                    .to_str()
+                    .unwrap_or("")
+            })
+            .collect();
+        let device_plan =
+            super::FilteredDeviceExtensions::from_available(available_device_names.iter().copied())?;
+
         let metal_objects = vk::EXT_METAL_OBJECTS_NAME;
         let portability_subset = ash::khr::portability_subset::NAME;
-        let device_exts = [metal_objects.as_ptr(), portability_subset.as_ptr()];
+        let mut device_exts: Vec<*const c_char> = Vec::new();
+        // metal_objects is guaranteed present by FilteredDeviceExtensions::from_available.
+        device_exts.push(metal_objects.as_ptr());
+        if device_plan.portability_subset {
+            device_exts.push(portability_subset.as_ptr());
+        }
         let device_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(std::slice::from_ref(&queue_info))
             .enabled_extension_names(&device_exts);
@@ -612,13 +708,6 @@ mod apple {
         Err("no DEVICE_LOCAL memory type for the triangle image".into())
     }
 
-    #[allow(dead_code)]
-    fn extension_present(name: &CStr, list: &[vk::ExtensionProperties]) -> bool {
-        list.iter().any(|e| {
-            let n = unsafe { CStr::from_ptr(e.extension_name.as_ptr() as *const c_char) };
-            n == name
-        })
-    }
 }
 
 #[cfg(test)]
@@ -654,6 +743,45 @@ mod tests {
         assert_eq!(&frag[..4], &[0x03, 0x02, 0x23, 0x07]);
         assert_eq!(vert.len() % 4, 0);
         assert_eq!(frag.len() % 4, 0);
+    }
+
+    #[test]
+    fn instance_filter_skips_portability_when_absent() {
+        let plan = FilteredInstanceExtensions::from_available(["VK_KHR_surface"]);
+        assert!(!plan.portability_enumeration);
+    }
+
+    #[test]
+    fn instance_filter_enables_portability_when_present() {
+        let plan = FilteredInstanceExtensions::from_available([
+            "VK_KHR_surface",
+            "VK_KHR_portability_enumeration",
+        ]);
+        assert!(plan.portability_enumeration);
+    }
+
+    #[test]
+    fn device_filter_requires_metal_objects() {
+        let err = FilteredDeviceExtensions::from_available(["VK_KHR_swapchain"]).unwrap_err();
+        assert!(err.contains("VK_EXT_metal_objects"));
+    }
+
+    #[test]
+    fn device_filter_enables_metal_objects_only_when_subset_absent() {
+        let plan = FilteredDeviceExtensions::from_available(["VK_EXT_metal_objects"]).unwrap();
+        assert!(plan.metal_objects);
+        assert!(!plan.portability_subset);
+    }
+
+    #[test]
+    fn device_filter_enables_subset_when_advertised() {
+        let plan = FilteredDeviceExtensions::from_available([
+            "VK_EXT_metal_objects",
+            "VK_KHR_portability_subset",
+        ])
+        .unwrap();
+        assert!(plan.metal_objects);
+        assert!(plan.portability_subset);
     }
 
     #[test]
