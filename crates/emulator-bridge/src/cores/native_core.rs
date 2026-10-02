@@ -437,40 +437,26 @@ fn option_overrides(core_id: &str) -> &'static [(&'static str, &'static str)] {
             ("melonds_boot_directly", "enabled"),
         ],
         // THE THIRD INSTANCE OF THE SAME TRAP, and this one froze the app rather than disabling a
-        // feature. The N64 core picks its renderer like this:
+        // feature. parallel_n64 picks its renderer from `parallel-n64-gfxplugin`. Upstream nests the
+        // `gfx_plugin = GFX_ANGRYLION` assign under `if (!strcmp(..., "auto"))` (TODO: logic wrong),
+        // so answering that key with "angrylion" never sets the plugin at all. `gfx_plugin` stays
+        // at its zero initialiser — GFX_GLIDE64 in Graphics/plugin.h — an OpenGL renderer in a
+        // HAVE_OPENGL=0 build. Force-angrylion therefore leaves GFX_GLIDE64=0 and the app hangs
+        // on the GL gate / first frame.
         //
-        //     if (gfx_var.value)                       // NULL when the host refuses the read
-        //     {
-        //         if (!strcmp(gfx_var.value, "auto"))
-        //             core_settings_autoselect_gfx_plugin();
-        //         ...
-        //     }
+        // Refuse `parallel-n64-gfxplugin` instead. That lets the core hit
+        // `core_settings_autoselect_gfx_plugin()`, which picks angrylion (the software rasteriser,
+        // the only viable choice without GL). Naming "angrylion" ourselves is the bug.
         //
-        // Refuse the read and `gfx_var.value` is NULL, so that whole block is skipped and the
-        // autoselect never runs at all. `gfx_plugin` then keeps its zero initialiser, and the enum
-        // in Graphics/plugin.h begins:
-        //
-        //     enum gfx_plugin_type { GFX_GLIDE64 = 0, GFX_RICE, GFX_GLN64, GFX_ANGRYLION, ... };
-        //
-        // So the default is GLIDE64, an OPENGL renderer, in a build compiled with HAVE_OPENGL=0
-        // where that plugin does not exist. The core then tries to render through nothing and the
-        // app hangs on the first frame, which presents as the emulator freezing when a game starts.
-        //
-        // `angrylion` is the software rasteriser and the only value the option even offers when GL
-        // is absent. Naming it explicitly takes the `!strcmp(gfx_var.value, "angrylion")` branch,
-        // which sets the plugin directly and does not depend on the autoselect running or on
-        // HAVE_THR_AL being defined.
-        //
-        // The RSP is named for the same reason rather than because its initialiser is wrong: zero
-        // happens to be RSP_HLE, which is what we want, but it is reached only by the same skipped
-        // block, so relying on it would be relying on a coincidence. HLE over the software
-        // rasteriser is also the faster pairing, and speed is the entire question for this core.
+        // RSP HLE is named explicitly (faster pairing with the soft path). angrylion multithread
+        // must be "off" — refusing selects all threads, which hangs under the display-link tick.
+        // cached_interpreter is the CPU core for this soft path without dynarec iOS issues.
         "parallel_n64" => &[
-            ("parallel-n64-gfxplugin", "angrylion"),
             ("parallel-n64-rspplugin", "hle"),
             // Refusing this read selects "all threads". Under the display-link tick that
             // worker pool hangs the app on the first frame; force single-threaded soft path.
             ("parallel-n64-angrylion-multithread", "off"),
+            ("parallel-n64-cpucore", "cached_interpreter"),
         ],
         _ => &[],
     }
@@ -1359,23 +1345,27 @@ mod tests {
         let _guard = option_test_guard();
         install_options("parallel_n64");
 
-        // Without this the app FREEZES when an N64 game starts. Refusing the read skips the block
-        // that would have auto-selected a renderer, leaving `gfx_plugin` at its zero initialiser,
-        // which is GFX_GLIDE64 — an OpenGL plugin absent from a HAVE_OPENGL=0 build. See
+        // Host must REFUSE gfxplugin so the core hits `core_settings_autoselect_gfx_plugin()` and
+        // picks angrylion. Answering "angrylion" never sets `gfx_plugin` — upstream nests that
+        // assign under `if (!strcmp(..., "auto"))` — leaving GFX_GLIDE64=0 and the GL hang. See
         // `option_overrides`.
         let (ok, value) = ask_option("parallel-n64-gfxplugin");
-        assert!(ok, "the N64 renderer must be named, not left to a C initialiser");
-        assert_eq!(value.as_deref(), Some("angrylion"));
+        assert!(!ok, "gfxplugin must be refused so the core can autoselect angrylion");
+        assert!(value.is_none(), "value must be nulled, not fabricated");
 
         let (ok, value) = ask_option("parallel-n64-rspplugin");
-        assert!(ok, "the N64 RSP must be named for the same reason");
+        assert!(ok, "the N64 RSP must be named hle");
         assert_eq!(value.as_deref(), Some("hle"));
 
-        // Same trap as gfxplugin: refuse selects "all threads", which hangs under the
-        // display-link tick. Name "off" so angrylion stays on the emulator thread.
+        // Refuse selects "all threads", which hangs under the display-link tick. Name "off" so
+        // angrylion stays on the emulator thread.
         let (ok, value) = ask_option("parallel-n64-angrylion-multithread");
         assert!(ok, "angrylion multithread must be named off, not left to all threads");
         assert_eq!(value.as_deref(), Some("off"));
+
+        let (ok, value) = ask_option("parallel-n64-cpucore");
+        assert!(ok, "N64 CPU core must be cached_interpreter");
+        assert_eq!(value.as_deref(), Some("cached_interpreter"));
     }
 
     #[test]
