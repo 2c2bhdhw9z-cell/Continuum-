@@ -23,6 +23,9 @@ on:
       # the rest of that directory generates test ROMs and cannot affect the .ipa, and a macOS
       # runner costs ten times a Linux one.
       - "scripts/build-core.sh"
+      # Continuum patches applied to unpinned core checkouts during ios-all. A patch-only
+      # change must rebuild the IPA the same way a build-core.sh change does.
+      - "scripts/patches/**"
       # Fetches MoltenVK, which package-ipa.sh runs before generating the project. A change to the
       # pinned version or the extraction has to rebuild, for the same reason build-core.sh does.
       - "scripts/fetch-moltenvk.sh"

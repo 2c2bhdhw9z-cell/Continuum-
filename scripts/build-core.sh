@@ -328,6 +328,12 @@ ios_core_config() {
       # `parallel_n64` and not `mupen64plus_next`: both are on the libretro buildbot for
       # ios-arm64, but Mupen64Plus-Next renders through GLideN64 and has no software path, so
       # it cannot work until the graphics work is done. See docs/PLATFORM_LIMITS.md.
+      #
+      # Continuum patch (scripts/patches/parallel_n64-reapply-variables-after-initiate-gfx.patch):
+      # InitiateGFX / n64video_config_init resets angrylion config.parallel=true after the
+      # host's parallel-n64-angrylion-multithread=off was applied at load. The patch reapplies
+      # update_variables(false) in emu_step_initialize after plugin_connect_all so the first
+      # tick does not start the worker pool. Applied by ios_apply_core_patches after clone.
       IOS_DISPLAY="Nintendo 64, software rasteriser and interpreter"
       ;;
     *)
@@ -672,6 +678,60 @@ build_ios_cmake_core() {
   ios_stage_dylib "$built" "$IOS_DYLIB_NAME"
 }
 
+# Continuum-owned edits to unpinned upstream core checkouts.
+#
+# Cores clone at HEAD with no pin (see ios_record_source_version). When upstream behaviour
+# and Continuum's host disagree in a way that cannot be fixed from the frontend alone, the
+# fix lives here as a patch applied after clone and before make, so the next ios-all / IPA
+# rebuild picks it up without waiting on an upstream merge.
+#
+# Idempotent: a re-run against a leftover .work/ios/<core> that already has the hunk skips
+# rather than failing. If the anchor moved upstream, patch fails loudly so CI goes red
+# instead of shipping an unpatched core.
+ios_apply_core_patches() {
+  local core="$1"
+  case "$core" in
+    parallel_n64)
+      ios_apply_parallel_n64_first_tick_patch
+      ;;
+  esac
+}
+
+ios_apply_parallel_n64_first_tick_patch() {
+  local src="$IOS_SRC_DIR/libretro/libretro.c"
+  local patch="$ROOT/scripts/patches/parallel_n64-reapply-variables-after-initiate-gfx.patch"
+  local marker="Continuum: re-apply core options after InitiateGFX"
+
+  [[ -f "$src" ]] || {
+    echo "error: parallel_n64: expected $src after clone; upstream layout changed" >&2
+    exit 1
+  }
+  [[ -f "$patch" ]] || {
+    echo "error: parallel_n64: missing Continuum patch at $patch" >&2
+    exit 1
+  }
+
+  if grep -qF "$marker" "$src"; then
+    echo "==> parallel_n64: Continuum first-tick patch already present"
+    return
+  fi
+
+  echo "==> parallel_n64: applying Continuum first-tick patch (reapply options after InitiateGFX)"
+  # -p1 strips a/ b/ from the unified diff. Fail loud if the hunk no longer matches HEAD:
+  # an unpatched dylib would look like a Continuum host bug on device.
+  if ! patch -p1 --forward -d "$IOS_SRC_DIR" < "$patch"; then
+    echo "error: parallel_n64: Continuum first-tick patch failed to apply." >&2
+    echo "       Upstream likely moved emu_step_initialize; refresh the patch against" >&2
+    echo "       libretro/libretro.c around plugin_connect_all / CoreDoCommand(EXECUTE)." >&2
+    exit 1
+  fi
+
+  grep -qF "$marker" "$src" || {
+    echo "error: parallel_n64: patch reported success but the Continuum marker is missing" >&2
+    exit 1
+  }
+}
+
 build_ios_core() {
   local core="$1"
   ios_core_config "$core" || {
@@ -685,6 +745,7 @@ build_ios_core() {
   # run produced.
   rm -f "$IOS_OUT_DIR/$IOS_DYLIB_NAME"
   ios_clone "$core"
+  ios_apply_core_patches "$core"
 
   case "$IOS_KIND" in
     make) build_ios_make_core "$core" ;;

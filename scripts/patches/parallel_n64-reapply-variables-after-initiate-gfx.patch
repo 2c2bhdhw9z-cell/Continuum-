@@ -1,0 +1,16 @@
+--- a/libretro/libretro.c
++++ b/libretro/libretro.c
+@@ -1031,6 +1031,13 @@
+       default:           current_rsp_type = RSP_PLUGIN_HLE;      break;
+    }
+    plugin_connect_all();
++
++   /* Continuum: re-apply core options after InitiateGFX.
++    * plugin_connect_all -> plugin_start_gfx -> angrylionInitiateGFX ->
++    * n64video_config_init memsets config and sets parallel=true again, wiping the
++    * host's parallel-n64-angrylion-multithread=off from load. Without this, the
++    * first retro_run starts the worker pool and never VI-yields (stuck on first tick). */
++   update_variables(false);
+ 
+    if (log_cb)
+       log_cb(RETRO_LOG_INFO, "EmuThread: M64CMD_EXECUTE.\n");
