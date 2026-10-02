@@ -1,6 +1,17 @@
 --- a/libretro/libretro.c
 +++ b/libretro/libretro.c
-@@ -1031,6 +1031,13 @@
+@@ -1000,6 +1000,10 @@
+       video_cb(NULL, screen_width, screen_height, screen_pitch);
+ }
+ 
++/* Continuum: forward decl - update_variables is defined later in this file;
++ * emu_step_initialize needs it to re-apply options after InitiateGFX. */
++void update_variables(bool startup);
++
+ static void emu_step_initialize(void)
+ {
+    if (emu_initialized)
+@@ -1031,6 +1035,13 @@
        default:           current_rsp_type = RSP_PLUGIN_HLE;      break;
     }
     plugin_connect_all();
