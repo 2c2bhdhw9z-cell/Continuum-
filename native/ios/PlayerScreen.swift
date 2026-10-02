@@ -450,6 +450,12 @@ struct DiagnosticsPanel: View {
             // forbids; the last four lines simply share one child. See `SettingsScreen.body`, which
             // is split the same way and for the same reason.
             Group {
+                // Inside the Group so the VStack stays at ten children. Skipped when status
+                // already is the "Last N64: …" line (home strip after reopen).
+                if !host.lastN64Crumb.isEmpty && !host.status.hasPrefix("Last N64:") {
+                    Text("Last N64: \(host.lastN64Crumb)")
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if !host.controlNote.isEmpty {
                     Text(host.controlNote)
                         .fixedSize(horizontal: false, vertical: true)

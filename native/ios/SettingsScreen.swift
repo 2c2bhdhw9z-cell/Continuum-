@@ -407,6 +407,17 @@ struct SettingsScreen: View {
             // it rather than only a switch that turns it on somewhere else.
             DiagnosticsPanel(host: host, emulation: emulation, saveStates: saveStates)
 
+            SettingsReadout(
+                label: "Last N64",
+                value: host.lastN64Crumb.isEmpty
+                    ? "none — appears after an N64 tap that did not reach tick ok"
+                    : host.lastN64Crumb
+            )
+            SettingsNote(
+                "Persisted across force-quit. Tap an N64 game, freeze, kill the app, reopen: this "
+                + "line (and the home status strip) name the stuck crumb without starting a game."
+            )
+
             SettingsNote(
                 "This is the only debugger a sideloaded build has: no console, no crash log and no "
                 + "attached Xcode. Each line answers a different question. No GPU line means the "

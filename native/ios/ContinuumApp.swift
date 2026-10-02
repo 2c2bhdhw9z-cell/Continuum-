@@ -978,6 +978,12 @@ final class EngineHost: ObservableObject {
     /// guessing at core options.
     var n64AwaitingFirstTick = false
 
+    /// Last N64 diagnostic crumb restored from disk. Empty when the previous N64 attempt reached
+    /// "tick ok" (cleared on success) or when N64 has never been tapped. Surfaced on the home
+    /// status strip and in Settings without starting a game, so a freeze → force-quit still
+    /// leaves a readable line.
+    @Published var lastN64Crumb: String = ""
+
     /// The game currently on screen, or nil when the Library is showing.
     ///
     /// This is what switches between the two screens, and it is the ENTRY rather than a `Bool` on
@@ -1196,6 +1202,8 @@ final class EngineHost: ObservableObject {
     /// unrelated settings with confusingly similar names, and a key that did not say which it meant
     /// would be the first thing a later reader got wrong.
     private static let touchLayoutKey = "continuum.controls.touchLayout.v1"
+    /// Last N64 start-path crumb, flushed synchronously so a hard freeze still leaves it on disk.
+    private static let lastN64CrumbKey = "continuum.n64.lastCrumb.v1"
 
     /// The favourites that are on disk right now, in the library's own order.
     var favouriteEntries: [LibraryEntry] {
@@ -1474,6 +1482,12 @@ final class EngineHost: ObservableObject {
         // by testing first does not happen here either: `didSet` does not fire for an assignment
         // made inside `init`, which is also why this cannot loop back through the encode above.
         touchLayout = TouchLayout.restored(from: defaults.data(forKey: Self.touchLayoutKey))
+        // Restored before surface attach so a force-quit mid-N64 leaves a readable line on reopen.
+        // Status is set to the "Last N64: …" form here; surfaceAttached keeps it when present.
+        lastN64Crumb = defaults.string(forKey: Self.lastN64CrumbKey) ?? ""
+        if !lastN64Crumb.isEmpty {
+            status = "Last N64: \(lastN64Crumb)"
+        }
 
         // Scan up front so the Library is populated even if the Metal attach later fails.
         // An attach failure must not also hide the games the user already imported.
@@ -2006,13 +2020,41 @@ final class EngineHost: ObservableObject {
 
     // MARK: Launch
 
+    /// Flushes an N64 crumb to UserDefaults before any call that may hang the process.
+    ///
+    /// `synchronize()` is deliberate: a freeze inside `retro_load_game` / `retro_run` must leave
+    /// the last write on disk, not only in the in-memory cache. Appends the last core log line
+    /// when the log interface has one, so a force-quit → reopen still shows what the core said.
+    private func setN64Crumb(_ line: String) {
+        status = line
+        var persisted = line
+        let coreLog = engine.lastCoreLogLine()
+        if !coreLog.isEmpty {
+            persisted = "\(line) · \(coreLog)"
+        }
+        lastN64Crumb = persisted
+        let defaults = UserDefaults.standard
+        defaults.set(persisted, forKey: Self.lastN64CrumbKey)
+        defaults.synchronize()
+    }
+
+    /// Drops the persisted N64 crumb after a successful first tick. A clean boot should not haunt
+    /// the next launch; only a stuck crumb (load / first tick) is worth keeping.
+    private func clearPersistedN64Crumb() {
+        lastN64Crumb = ""
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: Self.lastN64CrumbKey)
+        defaults.synchronize()
+    }
+
     /// Writes a status crumb and gives SwiftUI one chance to paint before a call that may hang.
     ///
     /// Without the run-loop spin, a freeze inside `retro_load_game` / `retro_run` leaves the
     /// *previous* breadcrumb on screen and the diagnostic is useless. Fifty milliseconds is enough
-    /// for one frame and short enough not to matter on the success path.
+    /// for one frame and short enough not to matter on the success path. The UserDefaults flush
+    /// happens first so a hang during the spin still leaves the crumb on disk.
     private func paintStatusNow(_ line: String) {
-        status = line
+        setN64Crumb(line)
         RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
     }
 
@@ -2025,14 +2067,15 @@ final class EngineHost: ObservableObject {
     func prepareN64FirstTickProbe() -> Bool {
         guard n64AwaitingFirstTick else { return false }
         if status != "N64 first tick…" {
-            status = "N64 first tick…"
+            setN64Crumb("N64 first tick…")
             return true
         }
         return false
     }
 
     /// Status crumb after the first N64 `retro_run` returns. Appends the last core log line when
-    /// the log interface captured one, so Console and the HUD agree.
+    /// the log interface captured one, so Console and the HUD agree. Clears the persisted crumb:
+    /// a successful tick means the next launch does not need a "Last N64" haunt.
     func finishN64FirstTickProbeIfNeeded() {
         guard n64AwaitingFirstTick else { return }
         n64AwaitingFirstTick = false
@@ -2042,6 +2085,7 @@ final class EngineHost: ObservableObject {
         } else {
             status = "N64 tick ok · \(coreLog)"
         }
+        clearPersistedN64Crumb()
     }
 
     /// Launches a game the user tapped in the Library, on the core its extension routes to.
@@ -2177,7 +2221,9 @@ final class EngineHost: ObservableObject {
             refreshAudioReadout()
             if isN64 {
                 // Load returned. Next crumb is around the first display-link tick / retro_run.
-                status = "N64 load ok"
+                // Flush before the display link can fire: a hang on the first retro_run must leave
+                // "N64 load ok" (or the later first-tick crumb) on disk for the next open.
+                setN64Crumb("N64 load ok")
                 n64AwaitingFirstTick = true
             } else {
                 status = "running: \(entry.name) on \(spec.coreId)"
@@ -2203,7 +2249,13 @@ final class EngineHost: ObservableObject {
             running = false
             activeEntry = nil
             activeCoreId = ""
-            status = "launch failed on \(spec.coreId): \(entry.name): \(error)"
+            n64AwaitingFirstTick = false
+            let failed = "launch failed on \(spec.coreId): \(entry.name): \(error)"
+            if isN64 {
+                setN64Crumb(failed)
+            } else {
+                status = failed
+            }
         }
     }
 
@@ -2772,7 +2824,12 @@ final class EngineHost: ObservableObject {
             // the Library tap goes straight to loading exactly one core.
             let allCoresPresent = declareAllCores()
             refreshLibrary()
-            if !allCoresPresent {
+            if !lastN64Crumb.isEmpty {
+                // Prefer the stuck crumb over the cheerful ready line: Brett force-quit after an
+                // N64 freeze and reopened specifically to read this. Visible on the home strip
+                // without starting a game.
+                status = "Last N64: \(lastN64Crumb)"
+            } else if !allCoresPresent {
                 // The `cores` line already names what is wrong. Say out loud that it is worth
                 // reading rather than leaving a cheerful ready line above a broken bundle.
                 status = "surface ready, but not every core is in the bundle - read the cores line"
