@@ -624,8 +624,18 @@ impl EmulatorBridge {
         // 4. GPU. With zero steps there is no new frame, so the previous texture is
         //    re-presented rather than skipping present entirely (which would stall
         //    the compositor's expectations).
+        //
+        // Hardware path: if Beetle (or another Vulkan core) called set_image, try to
+        // export the VkImage via VK_EXT_metal_objects and adopt it before present.
+        // Soft failure leaves the previous texture up — honest Partial until a device
+        // frame proves the full chain.
         let mut presented = false;
         if let Some(renderer) = renderer.as_mut() {
+            if plan.steps > 0 {
+                if let Err(err) = crate::gfx::vulkan_hw::apply_pending_to_renderer(renderer) {
+                    log::debug!("vulkan HW adopt skipped: {err}");
+                }
+            }
             let frame = if plan.steps > 0 {
                 session.core.video()
             } else {

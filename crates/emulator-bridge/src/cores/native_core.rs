@@ -962,6 +962,9 @@ impl EmulatorCore for NativeLibretroCore {
             } else if exchange.hardware_frame {
                 self.last_width = exchange.width;
                 self.last_height = exchange.height;
+                // set_image does not carry size; video_refresh does. Tell vulkan_hw so
+                // the compositor can adopt the VkImage at the right dimensions.
+                vulkan_hw::note_frame_size(exchange.width, exchange.height);
             }
             std::mem::swap(&mut self.audio, &mut exchange.audio);
         });

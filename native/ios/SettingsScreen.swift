@@ -434,11 +434,12 @@ struct SettingsScreen: View {
             SettingsNote(
                 "PCSX ReARMed is the software path that already boots PlayStation games. "
                 + "Beetle PSX HW is the Vulkan hardware-render core for step 4 of the graphics "
-                + "road: it ships in the IPA when CI builds ios-all on a Mac runner, and picking "
-                + "it here is what makes the next PlayStation launch load that dylib. Step 4 "
-                + "stays Partial until a phone shows a Beetle HW frame through SET_HW_RENDER; "
-                + "this control only selects the core, it does not claim that path works yet. "
-                + "Beetle wants a real BIOS in the system folder (no HLE like ReARMed)."
+                + "road: it ships in the IPA, and picking it here is what makes the next "
+                + "PlayStation launch load mednafen_psx_hw. After Metal attach the app prepares "
+                + "a shared MoltenVK VkDevice and installs it when SET_HW_RENDER is accepted. "
+                + "Step 4 stays Partial until a phone shows a Beetle HW frame through that "
+                + "contract; this control only selects the core. Beetle wants a real BIOS in "
+                + "the system folder (scph5501.bin and friends; no HLE like ReARMed)."
             )
         }
     }

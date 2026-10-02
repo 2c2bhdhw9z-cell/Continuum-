@@ -2692,9 +2692,14 @@ final class EngineHost: ObservableObject {
             // only asked whether MoltenVK loads; this draws a triangle into an MTLTexture and
             // hands it to the compositor. Safe: every failure is a string. Replaces the startup
             // Vulkan line so the panel shows the stronger result once Metal is up.
-            vulkanLine = engine.vulkanTriangleProbe(
-                frameworksDir: Bundle.main.privateFrameworksPath ?? ""
-            )
+            let frameworks = Bundle.main.privateFrameworksPath ?? ""
+            let triangle = engine.vulkanTriangleProbe(frameworksDir: frameworks)
+            // Step 4: long-lived MoltenVK VkDevice for SET_HW_RENDER / Beetle PSX HW.
+            // Must run after attachMetal so wgpu's MTLDevice is the one MoltenVK shares.
+            // Install into vulkan_hw happens here if a core already accepted SET_HW_RENDER,
+            // otherwise on the next SET_HW_RENDER accept.
+            let prepare = engine.prepareVulkanHw(frameworksDir: frameworks)
+            vulkanLine = "\(triangle) | \(prepare)"
             // Read once, here, so the diagnostics panel can show it without the telemetry strip
             // taking the engine's mutex on every frame. Expected to be 0; see `physicalPads`.
             physicalPads = engine.connectedPads()

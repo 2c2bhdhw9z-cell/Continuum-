@@ -4,6 +4,7 @@
 mod convert;
 pub mod hw;
 pub mod moltenvk;
+pub mod moltenvk_device;
 pub mod vulkan_hw;
 mod renderer;
 

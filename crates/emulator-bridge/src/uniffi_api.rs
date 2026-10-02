@@ -464,7 +464,8 @@ impl ContinuumEngine {
                 frame_count: report.frame_count,
                 audio_queued_frames: report.audio.queued_frames,
                 audio_underruns: report.audio.underruns as u32,
-                hardware_frame: false,
+                hardware_frame: crate::gfx::vulkan_hw::status().set_image_count > 0
+                    && crate::gfx::vulkan_hw::status().interface_ready,
             },
             Err(error) => {
                 log::debug!("tick failed: {error}");
@@ -1110,7 +1111,28 @@ impl ContinuumEngine {
     /// Safe to call from the diagnostics path: every failure is a returned string. On a phone
     /// a success line means the zero-copy handoff worked; on this Linux box the line says the
     /// path is not available here.
-    pub fn vulkan_triangle_probe(&self, frameworks_dir: String) -> String {
+    /// Step 4: create (or reuse) the shared MoltenVK VkInstance/VkDevice/VkQueue and,
+    /// when `SET_HW_RENDER` was already accepted, install those handles and call the
+    /// core's `context_reset`.
+    ///
+    /// Call after `attach_metal` so wgpu's MTLDevice is live. Safe diagnostics string on
+    /// every path. Beetle PSX HW needs this before (or as) it negotiates Vulkan.
+    pub fn prepare_vulkan_hw(&self, frameworks_dir: String) -> String {
+        #[cfg(target_vendor = "apple")]
+        {
+            let metal_device = self.metal_device_handle();
+            let report =
+                crate::gfx::moltenvk_device::prepare_hw_context(&frameworks_dir, metal_device);
+            report.summary
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            let _ = frameworks_dir;
+            crate::gfx::moltenvk_device::prepare_hw_context("", 0).summary
+        }
+    }
+
+        pub fn vulkan_triangle_probe(&self, frameworks_dir: String) -> String {
         #[cfg(target_vendor = "apple")]
         {
             let mut guard = self.lock();

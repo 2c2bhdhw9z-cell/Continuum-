@@ -7,8 +7,10 @@
 //!
 //! Accepts Vulkan only; fills frontend callbacks; answers preferred = Vulkan; stores
 //! negotiation; serves `GET_HW_RENDER_INTERFACE` once a context is marked ready; records
-//! `set_image` for the compositor. Live MoltenVK `VkDevice` install still needs Apple +
-//! attached Metal. Beetle iOS dylib is not in `IOS_CORES` yet (Mac/CI build gap).
+//! `set_image` for the compositor. Live MoltenVK handles come from
+//! [`crate::gfx::moltenvk_device`] after Metal attach (`prepare_vulkan_hw`); install runs
+//! when `SET_HW_RENDER` is accepted or when prepare lands after accept. Beetle PSX HW is in
+//! `IOS_CORES` / the IPA; Settings selects it for PlayStation launches.
 //!
 //! Constants verified against `.work/hdr/libretro/{libretro,libretro_vulkan}.h`.
 
@@ -68,6 +70,8 @@ pub fn status() -> VulkanHwStatus {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PendingVulkanFrame {
     pub image_view: u64,
+    /// `VkImage` from `retro_vulkan_image::create_info.image` when the core filled it.
+    pub image: u64,
     pub image_layout: u32,
     pub width: u32,
     pub height: u32,
@@ -76,6 +80,45 @@ pub struct PendingVulkanFrame {
 
 pub fn take_pending_frame() -> Option<PendingVulkanFrame> {
     lock_state().pending.take()
+}
+
+/// Records the size from `video_refresh(RETRO_HW_FRAME_BUFFER_VALID, w, h, …)`.
+///
+/// `set_image` does not carry width/height; the refresh callback does. Called from the
+/// native core when a hardware frame arrives so the compositor can adopt at the right size.
+pub fn note_frame_size(width: u32, height: u32) {
+    let mut state = lock_state();
+    if let Some(pending) = state.pending.as_mut() {
+        pending.width = width;
+        pending.height = height;
+    } else {
+        state.pending = Some(PendingVulkanFrame {
+            width,
+            height,
+            ..PendingVulkanFrame::default()
+        });
+    }
+}
+
+/// Consumes a pending `set_image` and adopts its `VkImage` into the compositor when possible.
+///
+/// Returns whether a texture was adopted. Soft failure (no pending / no device) is `Ok(false)`.
+pub fn apply_pending_to_renderer(renderer: &mut crate::gfx::Renderer) -> Result<bool, String> {
+    let Some(frame) = take_pending_frame() else {
+        return Ok(false);
+    };
+    if frame.image == 0 {
+        // Core called set_image without filling create_info.image — cannot export yet.
+        return Ok(false);
+    }
+    let width = frame.width;
+    let height = frame.height;
+    if width == 0 || height == 0 {
+        // Size not yet noted from video_refresh; put the frame back and wait.
+        lock_state().pending = Some(frame);
+        return Ok(false);
+    }
+    crate::gfx::moltenvk_device::adopt_pending_frame(renderer, frame.image, width, height)
 }
 
 /// `struct retro_hw_render_callback` — clang layout on this host: sizeof 64,
@@ -127,10 +170,24 @@ struct RetroHwRenderInterfaceVulkan {
     set_signal_semaphore: Option<unsafe extern "C" fn(*mut c_void, u64)>,
 }
 
+/// `VkImageViewCreateInfo` without ash's lifetime marker — clang layout on 64-bit.
+#[repr(C)]
+struct RawImageViewCreateInfo {
+    s_type: u32,
+    p_next: usize,
+    flags: u32,
+    image: u64,
+    view_type: u32,
+    format: u32,
+    components: [u32; 4],
+    subresource_range: [u32; 5],
+}
+
 #[repr(C)]
 struct RetroVulkanImage {
     image_view: u64,
     image_layout: u32,
+    create_info: RawImageViewCreateInfo,
 }
 
 #[repr(C)]
@@ -232,6 +289,17 @@ unsafe fn on_set_hw_render(data: *mut c_void) -> bool {
         callback.version_minor,
         callback.bottom_left_origin
     );
+    drop(state);
+    // If MoltenVK was prepared at Metal attach, install live handles and call context_reset
+    // now. If prepare has not run yet, prepare_vulkan_hw will install when it lands.
+    let installed = crate::gfx::moltenvk_device::try_install_into_vulkan_hw();
+    if installed {
+        log::info!("SET_HW_RENDER: installed shared MoltenVK handles and called context_reset");
+    } else {
+        log::info!(
+            "SET_HW_RENDER: accepted; MoltenVK handles not ready yet (prepare_vulkan_hw after Metal attach)"
+        );
+    }
     true
 }
 
@@ -409,11 +477,14 @@ unsafe extern "C" fn frontend_set_image(
     }
     let image = unsafe { &*image };
     let mut state = lock_state();
+    let width = state.pending.map(|p| p.width).unwrap_or(0);
+    let height = state.pending.map(|p| p.height).unwrap_or(0);
     state.pending = Some(PendingVulkanFrame {
         image_view: image.image_view,
+        image: image.create_info.image,
         image_layout: image.image_layout,
-        width: 0,
-        height: 0,
+        width,
+        height,
         src_queue_family,
     });
     state.set_image_count = state.set_image_count.saturating_add(1);
@@ -632,11 +703,23 @@ mod tests {
         let image = RetroVulkanImage {
             image_view: 0xABCD,
             image_layout: 1,
+            create_info: RawImageViewCreateInfo {
+                s_type: 0,
+                p_next: 0,
+                flags: 0,
+                image: 0x1111,
+                view_type: 0,
+                format: 0,
+                components: [0; 4],
+                subresource_range: [0; 5],
+            },
         };
         unsafe {
             full.set_image.unwrap()(full.handle, &image, 0, std::ptr::null(), 0);
         }
-        assert_eq!(take_pending_frame().unwrap().image_view, 0xABCD);
+        let pending = take_pending_frame().unwrap();
+        assert_eq!(pending.image_view, 0xABCD);
+        assert_eq!(pending.image, 0x1111);
         assert_eq!(status().set_image_count, 1);
         reset();
     }
@@ -676,5 +759,60 @@ mod tests {
     #[test]
     fn unknown_env_command_is_not_claimed() {
         assert!(unsafe { try_environment(999_999, std::ptr::null_mut()) }.is_none());
+    }
+
+    #[test]
+    fn retro_vulkan_image_create_info_image_offset() {
+        // create_info at 16; image field at +24 inside VkImageViewCreateInfo → absolute 40.
+        assert_eq!(size_of::<RawImageViewCreateInfo>(), 80);
+        assert_eq!(offset_of!(RawImageViewCreateInfo, image), 24);
+        assert_eq!(offset_of!(RetroVulkanImage, image_view), 0);
+        assert_eq!(offset_of!(RetroVulkanImage, image_layout), 8);
+        assert_eq!(offset_of!(RetroVulkanImage, create_info), 16);
+        assert_eq!(size_of::<RetroVulkanImage>(), 96);
+    }
+
+    #[test]
+    fn install_vulkan_handles_calls_context_reset() {
+        let _g = guard();
+        reset();
+        static RESET_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        unsafe extern "C" fn on_reset() {
+            RESET_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        RESET_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
+        let mut callback = RetroHwRenderCallback {
+            context_type: HwContextType::Vulkan as u32,
+            context_reset: Some(on_reset),
+            get_current_framebuffer: None,
+            get_proc_address: None,
+            depth: false,
+            stencil: false,
+            bottom_left_origin: false,
+            version_major: 1,
+            version_minor: 0,
+            cache_context: false,
+            context_destroy: None,
+            debug_context: false,
+        };
+        assert!(unsafe {
+            try_environment(ENV_SET_HW_RENDER, &mut callback as *mut _ as *mut c_void).unwrap()
+        });
+        install_vulkan_handles(1, 2, 3, 4, 0, None, None);
+        assert_eq!(RESET_COUNT.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(status().interface_ready);
+        let mut out: *const c_void = std::ptr::null();
+        assert!(unsafe {
+            try_environment(
+                ENV_GET_HW_RENDER_INTERFACE,
+                &mut out as *mut _ as *mut c_void,
+            )
+            .unwrap()
+        });
+        let full = unsafe { &*(out as *const RetroHwRenderInterfaceVulkan) };
+        assert_eq!(full.instance, 1);
+        assert_eq!(full.device, 3);
+        assert_eq!(full.queue, 4);
+        reset();
     }
 }
