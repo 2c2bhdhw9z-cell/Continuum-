@@ -350,10 +350,13 @@ dependencies = [
 name = "emulator-bridge"
 version = "0.1.0"
 dependencies = [
+ "ash",
  "bytemuck",
  "libloading",
  "log",
  "naga",
+ "objc2",
+ "objc2-metal",
  "pollster",
  "thiserror 2.0.20",
  "uniffi",

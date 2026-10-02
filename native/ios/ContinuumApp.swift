@@ -2609,6 +2609,13 @@ final class EngineHost: ObservableObject {
         switch result {
         case .success(let summary):
             gpu = summary
+            // Step 3 of the graphics road, the half that needs the MTLDevice. The startup line
+            // only asked whether MoltenVK loads; this draws a triangle into an MTLTexture and
+            // hands it to the compositor. Safe: every failure is a string. Replaces the startup
+            // Vulkan line so the panel shows the stronger result once Metal is up.
+            vulkanLine = engine.vulkanTriangleProbe(
+                frameworksDir: Bundle.main.privateFrameworksPath ?? ""
+            )
             // Read once, here, so the diagnostics panel can show it without the telemetry strip
             // taking the engine's mutex on every frame. Expected to be 0; see `physicalPads`.
             physicalPads = engine.connectedPads()

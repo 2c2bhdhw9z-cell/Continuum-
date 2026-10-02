@@ -1096,6 +1096,54 @@ impl ContinuumEngine {
         crate::vulkan_probe::describe(&frameworks_dir)
     }
 
+    /// Step 3 of the graphics road: MoltenVK draws a triangle into an `MTLTexture` and the
+    /// compositor samples it with no CPU copy.
+    ///
+    /// Needs `attach_metal` first (for the shared `MTLDevice`) and MoltenVK in Frameworks.
+    /// Safe to call from the diagnostics path: every failure is a returned string. On a phone
+    /// a success line means the zero-copy handoff worked; on this Linux box the line says the
+    /// path is not available here.
+    /// Step 3 of the graphics road: MoltenVK draws a triangle into an `MTLTexture` and the
+    /// compositor samples it with no CPU copy.
+    ///
+    /// Needs `attach_metal` first (for the shared `MTLDevice`) and MoltenVK in Frameworks.
+    /// Safe to call from the diagnostics path: every failure is a returned string. On a phone
+    /// a success line means the zero-copy handoff worked; on this Linux box the line says the
+    /// path is not available here.
+    pub fn vulkan_triangle_probe(&self, frameworks_dir: String) -> String {
+        #[cfg(target_vendor = "apple")]
+        {
+            let mut guard = self.lock();
+            let handles = guard
+                .renderer()
+                .and_then(crate::gfx::metal::metal_handles);
+            let Some(handles) = handles else {
+                return "Vulkan triangle: no Metal renderer attached; attach the layer first".into();
+            };
+            let Some(renderer) = guard.renderer_mut() else {
+                return "Vulkan triangle: renderer disappeared between checks".into();
+            };
+            let proof = crate::gfx::moltenvk::prove_zero_copy(
+                &frameworks_dir,
+                handles.device,
+                handles.queue,
+                renderer,
+            );
+            if proof.texture_adopted {
+                // Present the adopted texture once so a success is visible, not only a string.
+                if let Err(error) = renderer.present(None) {
+                    return format!("{}; composite present failed: {error}", proof.summary);
+                }
+            }
+            proof.summary
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            let _ = frameworks_dir;
+            "Vulkan triangle: NOT AVAILABLE on this host (needs iOS MoltenVK + Metal)".into()
+        }
+    }
+
     /// The running core's own version string, or `None` if it does not report one.
     ///
     /// **Record this beside every save state you store, and refuse to load a state whose

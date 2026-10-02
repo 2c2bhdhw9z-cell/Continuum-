@@ -100,7 +100,7 @@ iOS, so it needed none of this.
 | --- | --- |
 | 1. wgpu owns the one `MTLDevice` | **Done** |
 | 2. Composite pass generalised to N screens | **Done**, with 7 layout tests and 3 shader tests |
-| 3. MoltenVK in-process, a triangle into an `MTLTexture` | **Not started**. No core involved; this is where the zero-copy handoff is proven or corrected |
+| 3. MoltenVK in-process, a triangle into an `MTLTexture` | **Partial**. Code on `master`: MoltenVK loads (part one), then draws a triangle into a `VkImage`, exports the backing `MTLTexture` via `VK_EXT_metal_objects`, adopts it into the wgpu compositor (`adopt_frame_texture` / `create_texture_from_hal`), and compares MoltenVK's `MTLDevice` to wgpu's. Host unit tests cover SPIR-V blobs, extension structure types, and the refuse path. **Not device-proven** — the IPA from CI is what runs the path on a phone; do not treat as Done until the diagnostics line says OK on device |
 | 4. `SET_HW_RENDER` for Vulkan, against Beetle PSX HW | **Not started**. Deliberately a core that is not N64, so a wrong contract shows up on a game whose software path already works |
 | 5. Recompiler measurement | **Not started** |
 | 6. **paraLLEl-N64**, the N64 | **Not started**. See the two gates below |

@@ -18,6 +18,9 @@ crate-type = ["cdylib", "rlib", "staticlib"]
 bytemuck = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
+# Vulkan bindings. On every target so host tests can check VK_EXT_metal_objects structure
+# type numbers; `loaded` is how Apple loads MoltenVK by path (same reason the probe dlopens).
+ash = { version = "0.38", default-features = false, features = ["std", "loaded"] }
 wgpu = { workspace = true, features = [
   "std",
   "metal",
@@ -37,6 +40,16 @@ uniffi = { version = "0.28", optional = true }
 # `layoutSubviews`, so the future is driven here rather than making the whole UniFFI surface
 # async. pollster is the smallest correct way to do that: no dependencies of its own.
 pollster = "0.4"
+# Retained MTLTexture handles for wgpu-hal's texture_from_raw (step 3 zero-copy import).
+# Versions match wgpu-hal 30's own Apple deps so we do not invent a second ObjC stack.
+objc2 = "0.6.3"
+objc2-metal = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "MTLDevice",
+  "MTLCommandQueue",
+  "MTLTexture",
+  "MTLTypes",
+] }
 
 [dev-dependencies]
 # Validates frame_blit.wgsl in a unit test. ALREADY IN THE TREE as one of wgpu's own
@@ -56,3 +69,4 @@ default = []
 native-core = ["dep:libloading"]
 # The Swift-facing facade (`uniffi_api.rs`).
 uniffi-bindings = ["dep:uniffi"]
+

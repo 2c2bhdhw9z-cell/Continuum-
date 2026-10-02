@@ -449,6 +449,24 @@ impl Renderer {
         self.needs_reconfigure = false;
     }
 
+    /// Installs an already-created texture as the compositor's frame source.
+    ///
+    /// Used by the MoltenVK triangle proof (and later by hardware cores): the texture was
+    /// produced elsewhere — exported from a `VkImage` via `VK_EXT_metal_objects`, or created
+    /// by wgpu and imported into Vulkan — and this path samples it with no CPU upload.
+    /// Replaces any previous frame target.
+    pub fn adopt_frame_texture(&mut self, texture: wgpu::Texture, width: u32, height: u32) {
+        let bind_group = self.build_bind_group(&texture);
+        self.frame_target = Some(FrameTarget {
+            texture,
+            bind_group,
+            width,
+            height,
+        });
+        self.convert_scratch = Vec::new();
+        self.write_uniforms();
+    }
+
     /// Drops the framebuffer texture. Called when a session ends so a large PS1
     /// texture is not held while the user browses the library.
     pub fn release_frame_target(&mut self) {

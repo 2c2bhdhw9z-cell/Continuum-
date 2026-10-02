@@ -3,6 +3,7 @@
 
 mod convert;
 pub mod hw;
+pub mod moltenvk;
 mod renderer;
 
 /// Metal surface construction and `MTLDevice` hand-off. iOS and macOS only.
