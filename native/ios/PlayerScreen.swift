@@ -111,15 +111,20 @@ struct PlayerScreen: View {
             // `TouchControlsHost.dismantleUIView`, so a finger down at the moment a pad connects
             // cannot leave a press behind on the touch layer.
             if let system, !controllers.hidesOnScreenPadNow {
+                // touchLayoutsVersion / touchSkinsVersion: refresh pad when Settings edits land.
+                let _ = host.touchLayoutsVersion
+                let _ = host.touchSkinsVersion
                 TouchControlsHost(
                     system: system,
-                    layout: host.touchLayout,
+                    layout: host.touchLayout(for: system),
                     // The same number `RootView` positions the canvas with, so the pad can work out
                     // where the picture actually is and put the DS touch screen exactly on it.
                     pictureAspect: host.activePictureAspect,
                     input: host.padInput,
                     onDiagnostic: { line in host.noteControlLayout(line) },
-                    onPictureArea: { rect in host.updatePictureArea(rect) }
+                    onPictureArea: { rect in host.updatePictureArea(rect) },
+                    skinArtwork: host.skinImage(for: system),
+                    skinScreenNormalized: host.skinScreenOutput(for: system)
                 )
                 .ignoresSafeArea()
             }

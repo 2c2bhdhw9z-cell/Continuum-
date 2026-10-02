@@ -109,12 +109,14 @@ struct SettingsScreen: View {
         }
         .fullScreenCover(isPresented: $showControlEditor) {
             TouchLayoutEditor(
-                initialLayout: host.touchLayout,
-                // The host's own `didSet` is what persists it. The editor is handed a closure rather
-                // than the host so a drag in progress cannot republish the host, and with it every
-                // view in the library shell underneath this one, on every touch move. See the note
-                // on `TouchLayoutEditor`.
-                onCommit: { layout in host.touchLayout = layout },
+                layoutFor: { system in host.touchLayout(for: system) },
+                // Per-system commit: editor preview console is the key. Closure keeps drag
+                // settle from republishing the whole library shell; see TouchLayoutEditor.
+                onCommit: { system, layout in host.setTouchLayout(layout, for: system) },
+                onSkinImported: { system, result in host.applyImportedSkin(result, for: system) },
+                skinImageFor: { system in host.skinImage(for: system) },
+                skinScreenFor: { system in host.skinScreenOutput(for: system) },
+                onClearSkin: { system in host.clearSkin(for: system) },
                 onClose: { showControlEditor = false }
             )
         }
@@ -325,29 +327,30 @@ struct SettingsScreen: View {
             }
 
             SettingsNote(
-                "Opens the pad full screen. Drag the outlined thumb groups, SELECT, or START where "
-                + "you want them. Size and opacity sliders, a swap for a left-handed grip, and the "
-                + "room left for the picture shown as you go. Remembered between launches."
+                "Opens the pad full screen. Pick a preview console, then drag face buttons, "
+                + "shoulders, SELECT, or START. Size and opacity, left-handed swap, and Import "
+                + ".deltaskin (layout, art, and game screen hole). Each console's layout and skin "
+                + "are remembered on their own between launches."
             )
 
             // Reachable from here as well as inside the editor, on the same reasoning as the
             // library's layout toggle: the editor is the place you go to fiddle, and putting the
             // way back to the shipped arrangement behind a screenful of fiddling is the wrong way
             // round when what you want is to undo it.
-            SettingsButton(title: "Reset the controls to the default arrangement",
+            SettingsButton(title: "Reset every system's controls and skins",
                            role: .destructive) {
-                host.touchLayout = .standard
+                host.resetAllTouchLayouts()
             }
-            .disabled(host.touchLayout.isStandard)
-            .opacity(host.touchLayout.isStandard ? 0.45 : 1)
+            .disabled(!host.hasCustomControlsOrSkins)
+            .opacity(host.hasCustomControlsOrSkins ? 1 : 0.45)
 
             SettingsNote(
-                "Every position is a fraction of the screen rather than a number of pixels, so one "
-                + "arrangement is right on every device and in both orientations, and each one is "
-                + "held inside limits that keep a control on screen and clear of the few "
-                + "millimetres at each edge that iOS reserves for its own swipe gestures. The pad "
-                + "checks the result it laid out for controls sitting on top of each other and says "
-                + "so on the diagnostic line, so a bad arrangement is reported rather than shipped."
+                "Each console keeps its own arrangement (import a GBA .deltaskin without moving "
+                + "your PS1 buttons). Positions are fractions of the screen, so one layout works "
+                + "on every device and in both orientations, and stays clear of the edge swipe "
+                + "bands. The pad reports overlapping controls on the diagnostic line. Importing "
+                + "a .deltaskin also draws its PDF/PNG art and places the game picture from "
+                + "screens[] when the pack includes them."
             )
         }
     }

@@ -1010,7 +1010,10 @@ final class EngineHost: ObservableObject {
     /// `launch` hands to `ensureCoreLoaded`. Persisted so a step-4 test session survives relaunch.
     @Published var ps1CoreChoice: Ps1CoreChoice = .pcsxReARMed {
         didSet {
+            guard oldValue != ps1CoreChoice else { return }
             UserDefaults.standard.set(ps1CoreChoice.rawValue, forKey: Self.ps1CoreKey)
+            // BIOS line must name Beetle vs ReARMed honestly when the picker flips.
+            refreshBiosReadoutForSelectedPs1()
         }
     }
 
@@ -1037,30 +1040,207 @@ final class EngineHost: ObservableObject {
     /// only show pixels a core rasterised on the CPU. See `vulkan_probe.rs`.
     @Published var vulkanLine: String = ""
 
-    /// The on-screen pad's layout: where the two thumb clusters sit, how big they are and how
-    /// faint. One value, which is why the editor turned out to be a screen that writes six numbers
-    /// rather than a rewrite. See `TouchLayout` and `TouchLayoutEditor`.
+    /// True once this session has seen `TickTelemetry.hardwareFrame` (Beetle set_image path).
+    @Published var sawHardwareFrame = false
+    /// Live HW-frame bit from the latest tick. Soft cores stay false.
+    @Published var hardwareFrameLive = false
+
+    /// Per-system on-screen pad layouts (Manic/Delta-style: a GBA skin must not overwrite PS1).
     ///
-    /// Persisted on every change rather than on a later flush, for the reason `toggleFavourite`
-    /// gives: a sideloaded build can be killed by the OS at any moment, and an arrangement that did
-    /// not survive that would read as the editor not working. The write is cheap because the editor
-    /// only assigns here when a drag or a slider is RELEASED, never per frame of one; see
-    /// `TouchControlsView.onLayoutEdited`.
-    ///
-    /// Stored sanitised, and read back through `TouchLayout.restored(from:)` which sanitises again.
-    /// Twice on purpose: this key outlives the build that wrote it, so the limits it was written
-    /// against are not necessarily the limits it will be read against.
-    @Published var touchLayout: TouchLayout = .standard {
-        didSet {
-            guard oldValue != touchLayout else { return }
-            guard let encoded = touchLayout.storedRepresentation else {
-                // Nothing is written on a failed encode, rather than the key being cleared. The
-                // layout the user can see on screen is still the live one, and clearing would
-                // silently reset it on the next launch with nothing to explain why.
-                status = "could not save the control layout; it still applies to this session"
+    /// Keyed by `GameSystem.rawValue`. Absent key means that system still uses
+    /// `touchLayoutFallback` (migrated from the old single global layout) or `.standard`.
+    /// `touchLayoutsVersion` bumps so SwiftUI re-reads without republishing a fat dictionary
+    /// on every drag; the editor still commits only on settle.
+    private var touchLayoutsBySystem: [String: TouchLayout] = [:]
+    /// Pre-v2 single layout, kept as the default for systems the user has not customized yet.
+    private var touchLayoutFallback: TouchLayout?
+    @Published private(set) var touchLayoutsVersion: UInt = 0
+
+    /// Layout for one console. Player and editor both go through here.
+    func touchLayout(for system: GameSystem) -> TouchLayout {
+        let raw = touchLayoutsBySystem[system.rawValue] ?? touchLayoutFallback ?? .standard
+        return raw.sanitised
+    }
+
+    /// Writes one system's layout and persists the whole map.
+    func setTouchLayout(_ layout: TouchLayout, for system: GameSystem) {
+        let clean = layout.sanitised
+        if clean.isStandard {
+            if touchLayoutsBySystem.removeValue(forKey: system.rawValue) == nil {
+                // Still standard and no override — nothing to persist.
                 return
             }
-            UserDefaults.standard.set(encoded, forKey: Self.touchLayoutKey)
+        } else if touchLayoutsBySystem[system.rawValue] == clean {
+            return
+        } else {
+            touchLayoutsBySystem[system.rawValue] = clean
+        }
+        persistTouchLayouts()
+        touchLayoutsVersion &+= 1
+    }
+
+    /// Clears every per-system override and the migrated global fallback.
+    func resetAllTouchLayouts() {
+        let hadLayouts = !touchLayoutsBySystem.isEmpty || touchLayoutFallback != nil
+        let hadSkins = !touchSkinsBySystem.isEmpty
+        guard hadLayouts || hadSkins else { return }
+        touchLayoutsBySystem.removeAll()
+        touchLayoutFallback = nil
+        UserDefaults.standard.removeObject(forKey: Self.touchLayoutsKey)
+        UserDefaults.standard.removeObject(forKey: Self.touchLayoutKey)
+        touchLayoutsVersion &+= 1
+        if hadSkins {
+            for key in Array(touchSkinsBySystem.keys) {
+                if let system = GameSystem(rawValue: key) {
+                    removeSkinAssetFiles(for: system)
+                }
+            }
+            touchSkinsBySystem.removeAll()
+            touchSkinImages.removeAll()
+            UserDefaults.standard.removeObject(forKey: Self.touchSkinsKey)
+            touchSkinsVersion &+= 1
+        }
+    }
+
+    private func persistTouchLayouts() {
+        var payload: [String: Data] = [:]
+        for (key, layout) in touchLayoutsBySystem {
+            guard let data = layout.storedRepresentation else {
+                status = "could not save the \(key) control layout; it still applies to this session"
+                continue
+            }
+            payload[key] = data
+        }
+        if payload.isEmpty {
+            UserDefaults.standard.removeObject(forKey: Self.touchLayoutsKey)
+            return
+        }
+        guard let encoded = try? JSONEncoder().encode(payload) else {
+            status = "could not save control layouts; they still apply to this session"
+            return
+        }
+        UserDefaults.standard.set(encoded, forKey: Self.touchLayoutsKey)
+    }
+
+    // MARK: Per-system Delta skin art
+
+    private var touchSkinsBySystem: [String: DeltaSkinVisual] = [:]
+    /// Decoded UIImage cache keyed by system rawValue. Cleared when a skin is replaced or reset.
+    private var touchSkinImages: [String: UIImage] = [:]
+    @Published private(set) var touchSkinsVersion: UInt = 0
+
+    func skinVisual(for system: GameSystem) -> DeltaSkinVisual? {
+        touchSkinsBySystem[system.rawValue]
+    }
+
+    func skinImage(for system: GameSystem) -> UIImage? {
+        let _ = touchSkinsVersion
+        if let cached = touchSkinImages[system.rawValue] {
+            return cached
+        }
+        guard let visual = touchSkinsBySystem[system.rawValue],
+              let kind = visual.assetKind else { return nil }
+        let url = skinAssetURL(for: system, kind: kind)
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        let mapping = CGSize(width: visual.mappingWidth, height: visual.mappingHeight)
+        guard let image = DeltaSkinImporter.makeUIImage(from: data, kind: kind, mappingSize: mapping)
+        else { return nil }
+        touchSkinImages[system.rawValue] = image
+        return image
+    }
+
+    func skinScreenOutput(for system: GameSystem) -> DeltaSkinNormalizedRect? {
+        touchSkinsBySystem[system.rawValue]?.screenOutput
+    }
+
+    /// Applies an imported .deltaskin package's art + screens under one console.
+    func applyImportedSkin(_ result: DeltaSkinImportResult, for system: GameSystem) {
+        var visual = result.visual
+        // Drop asset metadata if bytes failed to load — avoid a "present" skin with no picture.
+        if result.assetData == nil {
+            visual.assetFileName = nil
+            visual.assetKind = nil
+        }
+        touchSkinsBySystem[system.rawValue] = visual
+        touchSkinImages.removeValue(forKey: system.rawValue)
+
+        if let data = result.assetData, let kind = visual.assetKind {
+            do {
+                try persistSkinAsset(data, for: system, kind: kind)
+                let mapping = CGSize(width: visual.mappingWidth, height: visual.mappingHeight)
+                if let image = DeltaSkinImporter.makeUIImage(from: data, kind: kind, mappingSize: mapping) {
+                    touchSkinImages[system.rawValue] = image
+                }
+            } catch {
+                status = "skin art could not be saved for \(system.displayName): \(error.localizedDescription)"
+                visual.assetFileName = nil
+                visual.assetKind = nil
+                touchSkinsBySystem[system.rawValue] = visual
+            }
+        } else {
+            removeSkinAssetFiles(for: system)
+        }
+        persistTouchSkins()
+        touchSkinsVersion &+= 1
+    }
+
+    /// Clears skin art + screen frame for one console (layout stays).
+    func clearSkin(for system: GameSystem) {
+        guard touchSkinsBySystem.removeValue(forKey: system.rawValue) != nil else { return }
+        touchSkinImages.removeValue(forKey: system.rawValue)
+        removeSkinAssetFiles(for: system)
+        persistTouchSkins()
+        touchSkinsVersion &+= 1
+    }
+
+    private func persistTouchSkins() {
+        guard !touchSkinsBySystem.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: Self.touchSkinsKey)
+            return
+        }
+        guard let encoded = try? JSONEncoder().encode(touchSkinsBySystem) else {
+            status = "could not save skin art metadata; it still applies to this session"
+            return
+        }
+        UserDefaults.standard.set(encoded, forKey: Self.touchSkinsKey)
+    }
+
+    private func loadTouchSkins(from defaults: UserDefaults) {
+        guard let blob = defaults.data(forKey: Self.touchSkinsKey),
+              let decoded = try? JSONDecoder().decode([String: DeltaSkinVisual].self, from: blob)
+        else { return }
+        touchSkinsBySystem = decoded
+    }
+
+    private func skinsDirectory() -> URL? {
+        guard let root = FileManager.default.urls(for: .applicationSupportDirectory,
+                                                  in: .userDomainMask).first else { return nil }
+        let dir = root.appendingPathComponent("Continuum/Skins", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func skinAssetURL(for system: GameSystem, kind: DeltaSkinAssetKind) -> URL {
+        let ext = kind == .pdf ? "pdf" : "png"
+        let base = skinsDirectory() ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("\(system.rawValue).\(ext)", isDirectory: false)
+    }
+
+    private func persistSkinAsset(_ data: Data, for system: GameSystem, kind: DeltaSkinAssetKind) throws {
+        guard skinsDirectory() != nil else {
+            throw NSError(domain: "ContinuumSkins", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "no Application Support directory"])
+        }
+        // Only one asset file per system; remove the other extension if present.
+        removeSkinAssetFiles(for: system)
+        try data.write(to: skinAssetURL(for: system, kind: kind), options: .atomic)
+    }
+
+    private func removeSkinAssetFiles(for system: GameSystem) {
+        let fm = FileManager.default
+        for kind in [DeltaSkinAssetKind.pdf, .png] {
+            let url = skinAssetURL(for: system, kind: kind)
+            try? fm.removeItem(at: url)
         }
     }
 
@@ -1179,7 +1359,8 @@ final class EngineHost: ObservableObject {
     /// How All Games arranges itself, and whether Home carries a shelf per system.
     ///
     /// Both persist, and both are about the LIBRARY. Moving the on-screen game controls is a
-    /// different setting with a confusingly similar name: it lives in `touchLayout` above.
+    /// different setting with a confusingly similar name: game controls live in the
+    /// per-system touch layout store above.
     @Published var libraryLayout: LibraryLayout = .grid {
         didSet {
             guard oldValue != libraryLayout else { return }
@@ -1202,6 +1383,10 @@ final class EngineHost: ObservableObject {
     /// unrelated settings with confusingly similar names, and a key that did not say which it meant
     /// would be the first thing a later reader got wrong.
     private static let touchLayoutKey = "continuum.controls.touchLayout.v1"
+    /// Per-system map. v1 global key above becomes `touchLayoutFallback` when v2 is absent.
+    private static let touchLayoutsKey = "continuum.controls.touchLayouts.v2"
+    /// Per-system Delta skin visuals (screens + asset metadata). Bytes live under Skins/.
+    private static let touchSkinsKey = "continuum.controls.touchSkins.v1"
     /// Last N64 start-path crumb, flushed synchronously so a hard freeze still leaves it on disk.
     private static let lastN64CrumbKey = "continuum.n64.lastCrumb.v1"
 
@@ -1481,7 +1666,21 @@ final class EngineHost: ObservableObject {
         // and out of range with the default. The extra `didSet` write the other preferences avoid
         // by testing first does not happen here either: `didSet` does not fire for an assignment
         // made inside `init`, which is also why this cannot loop back through the encode above.
-        touchLayout = TouchLayout.restored(from: defaults.data(forKey: Self.touchLayoutKey))
+        // v2 per-system map first; v1 single layout becomes the fallback for untouched systems.
+        if let blob = defaults.data(forKey: Self.touchLayoutsKey),
+           let decoded = try? JSONDecoder().decode([String: Data].self, from: blob) {
+            var loaded: [String: TouchLayout] = [:]
+            for (key, data) in decoded {
+                let layout = TouchLayout.restored(from: data)
+                if !layout.isStandard {
+                    loaded[key] = layout
+                }
+            }
+            touchLayoutsBySystem = loaded
+        }
+        let legacy = TouchLayout.restored(from: defaults.data(forKey: Self.touchLayoutKey))
+        touchLayoutFallback = legacy.isStandard ? nil : legacy
+        loadTouchSkins(from: defaults)
         // Restored before surface attach so a force-quit mid-N64 leaves a readable line on reopen.
         // Status is set to the "Last N64: …" form here; surfaceAttached keeps it when present.
         lastN64Crumb = defaults.string(forKey: Self.lastN64CrumbKey) ?? ""
@@ -1566,12 +1765,27 @@ final class EngineHost: ObservableObject {
     /// boots on melonDS's FreeBIOS, which is a clean-room replacement. Both are open source, so
     /// both ship. The Disk System has no equivalent.
     private func missingRequiredBios(for entry: LibraryEntry) -> String? {
-        guard CoreCatalog.system(forExtension: entry.ext) == .fds else { return nil }
-        let name = "disksys.rom"
-        guard let dir = systemDirectory() else { return name }
-        return FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path)
-            ? nil
-            : name
+        let system = CoreCatalog.system(forExtension: entry.ext)
+        if system == .fds {
+            let name = "disksys.rom"
+            guard let dir = systemDirectory() else { return name }
+            return FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path)
+                ? nil
+                : name
+        }
+        // Beetle PSX HW has no HLE BIOS. Soft PCSX ReARMed still boots without one; Beetle
+        // does not. Gate here so the HUD names the file and the install button, instead of an
+        // opaque retro_load_game refusal after SET_HW_RENDER work already looks fine.
+        if system == .ps1, ps1CoreChoice == .beetlePsxHw {
+            let names = CoreCatalog.mednafenPsxHw.biosNames
+            guard let first = names.first else { return "a PlayStation BIOS" }
+            guard let dir = systemDirectory() else { return first }
+            let found = names.contains { name in
+                FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path)
+            }
+            return found ? nil : first
+        }
+        return nil
     }
 
     private func biosStatus(for spec: CoreSpec, in systemDir: URL?) -> String {
@@ -1580,6 +1794,9 @@ final class EngineHost: ObservableObject {
         // and repopulated when one with a list does, so a line that appears and disappears has
         // to say whose it is or it reads as noise.
         guard let dir = systemDir else {
+            if spec.coreId == CoreCatalog.mednafenPsxHw.coreId {
+                return "BIOS (\(spec.coreId)): no system dir — Beetle needs a real BIOS"
+            }
             return "BIOS (\(spec.coreId)): no system dir, HLE only"
         }
         let present = spec.biosNames.first { name in
@@ -1588,7 +1805,25 @@ final class EngineHost: ObservableObject {
         if let present {
             return "BIOS (\(spec.coreId)): \(present)"
         }
+        // Beetle has no HLE path. Saying "HLE fallback" here sent Brett looking for a soft
+        // boot that cannot happen on the HW core.
+        if spec.coreId == CoreCatalog.mednafenPsxHw.coreId {
+            return "BIOS (\(spec.coreId)): none — Beetle needs a real BIOS (no HLE)"
+        }
         return "BIOS (\(spec.coreId)): none, HLE fallback"
+    }
+
+    /// Prefers the PlayStation core Settings currently selects so Beetle never inherits a false
+    /// "HLE fallback" line from ReARMed while that core is the one a disc would launch on.
+    private func refreshBiosReadoutForSelectedPs1() {
+        let spec: CoreSpec
+        switch ps1CoreChoice {
+        case .beetlePsxHw:
+            spec = CoreCatalog.mednafenPsxHw
+        case .pcsxReARMed:
+            spec = CoreCatalog.pcsxReARMed
+        }
+        bios = biosStatus(for: spec, in: systemDirectory())
     }
 
     /// The engine core states in which a session can actually be started.
@@ -1678,11 +1913,9 @@ final class EngineHost: ObservableObject {
         // to arrive as a side effect of loading PCSX ReARMed at attach; nothing is loaded at
         // attach any more, and a BIOS line that only appears after a disc has been tapped is
         // useless, because knowing the BIOS is absent is what would have changed what the user
-        // did. `ensureCoreLoaded` still refreshes it per core, which is what keeps it accurate
-        // once something is actually running.
-        if let biosCore = CoreCatalog.all.first(where: { !$0.biosNames.isEmpty }) {
-            bios = biosStatus(for: biosCore, in: systemDirectory())
-        }
+        // did. Prefer the PlayStation core Settings currently selects so Beetle does not inherit
+        // a false "HLE fallback" line from ReARMed. `ensureCoreLoaded` still refreshes per core.
+        refreshBiosReadoutForSelectedPs1()
 
         return missing.isEmpty && failed.isEmpty
     }
@@ -2137,9 +2370,16 @@ final class EngineHost: ObservableObject {
             // Names the file AND the two steps, because the folder the Files app shows is not the
             // folder the core reads: dropping the file in is necessary but not sufficient, and
             // Settings has the one button that crosses the gap. See `installBiosFromDocuments`.
-            status = "\(entry.name) needs \(missing), which is Nintendo's own startup file and "
-                + "cannot ship with the app. Put it in the Continuum folder in Files, then use "
-                + "Settings, Install a BIOS from the Continuum folder"
+            if CoreCatalog.system(forExtension: entry.ext) == .ps1 {
+                status = "\(entry.name) on Beetle PSX HW needs \(missing), a real PlayStation "
+                    + "BIOS (Beetle has no HLE). Put it in the Continuum folder in Files, then "
+                    + "Settings → Install a BIOS from the Continuum folder. Or switch PlayStation "
+                    + "core back to PCSX ReARMed, which can boot without one."
+            } else {
+                status = "\(entry.name) needs \(missing), which is Nintendo's own startup file and "
+                    + "cannot ship with the app. Put it in the Continuum folder in Files, then use "
+                    + "Settings, Install a BIOS from the Continuum folder"
+            }
             return
         }
         // Name the core in the breadcrumb, so a routing bug is one glance rather than a
@@ -2203,11 +2443,18 @@ final class EngineHost: ObservableObject {
             // over a session that does not exist.
             activeEntry = entry
             activeCoreId = spec.coreId
+            // Beetle device-proof crumb: stay Partial until hardwareFrame flips on a phone.
+            // Soft cores leave this false; telemetry paints the first Vulkan frame when it arrives.
+            sawHardwareFrame = false
+            hardwareFrameLive = false
             paused = false
             // Told AFTER `activeEntry`, because `activeSystem` is derived from it. This is what
             // stops "hide the on-screen pad" unmounting the overlay for a system whose touch
             // screen lives on it; see `PhysicalControllers.runningSystemNeedsOverlay`.
             controllers.noteRunningSystem(activeSystem)
+            if spec.coreId == CoreCatalog.mednafenPsxHw.coreId {
+                status = "\(entry.name) on Beetle PSX HW — waiting for first Vulkan frame"
+            }
             // AFTER the launch, on the success path only. The session is what decides the real
             // output rate, and `audio.start()` reports that rate to the engine, so the sink has
             // to already exist: `launch` is what builds it. Audio that failed to come up does
@@ -2578,25 +2825,28 @@ final class EngineHost: ObservableObject {
 
     /// The on-screen pad's arrangement in one line, for the Settings row that opens the editor.
     ///
-    /// Says "default" when it is the shipped one rather than printing the same numbers a fresh
-    /// install would, because the useful question that row answers is whether anything has been
-    /// changed. The numbers are still spelled out once it has been, since they are what persists and
-    /// they are the only way to tell two similar arrangements apart.
+    /// Reports how many systems have a custom layout. Details live in the editor per preview
+    /// console; a single global dump no longer fits once GBA and PS1 can differ.
+    /// True when Reset should stay enabled (custom layouts and/or imported skins).
+    var hasCustomControlsOrSkins: Bool {
+        let _ = touchLayoutsVersion
+        let _ = touchSkinsVersion
+        return !touchLayoutsBySystem.isEmpty || touchLayoutFallback != nil || !touchSkinsBySystem.isEmpty
+    }
+
     var touchLayoutLine: String {
-        let live = touchLayout.sanitised
-        let size = "\(Int((live.scale * 100).rounded()))%"
-        let opacity = "\(Int((live.opacity * 100).rounded()))%"
-        guard !live.isStandard else {
-            return "default: size \(size), opacity \(opacity)"
+        let _ = touchLayoutsVersion
+        let custom = touchLayoutsBySystem.count
+        let hasFallback = touchLayoutFallback != nil
+        if custom == 0 && !hasFallback {
+            return "default on every system"
         }
-        let freeCount = live.buttonFrees.count
-        let freeBit = freeCount == 0 ? "" : ", \(freeCount) free"
-        let positions = String(
-            format: "d-pad %.2f,%.2f  buttons %.2f,%.2f  select %.2f,%.2f  start %.2f,%.2f",
-            live.dpadX, live.dpadY, live.faceX, live.faceY,
-            live.selectX, live.selectY, live.startX, live.startY
-        )
-        return "size \(size), opacity \(opacity), \(positions)\(freeBit)"
+        if custom == 0 {
+            return "one older global layout (open editor per system to split)"
+        }
+        let names = touchLayoutsBySystem.keys.sorted().joined(separator: ", ")
+        let fallbackBit = hasFallback ? "; older global still fills the rest" : ""
+        return "\(custom) system(s) customized (\(names))" + fallbackBit
     }
 
     /// The thin strip on the player screen.
@@ -2618,8 +2868,9 @@ final class EngineHost: ObservableObject {
             let ms = rate > 0 ? Double(frames) / rate * 1000.0 : 0
             audioPart = String(format: "%.0f", ms) + " ms audio"
         }
+        let hwPart = hardwareFrameLive ? " - HW" : ""
         return "\(fps) fps - \(frameCount) frames - \(dropped) dropped - "
-            + "\(audioPart) - \(core)"
+            + "\(audioPart) - \(core)" + hwPart
     }
 
     /// What the engine says it is resampling to, read once when audio comes up.
@@ -3062,6 +3313,13 @@ struct RootView: View {
                     host.dropped = telemetry.dropped
                     host.audioQueued = telemetry.audioQueuedFrames
                     host.audioUnderruns = telemetry.audioUnderruns
+                    host.hardwareFrameLive = telemetry.hardwareFrame
+                    if telemetry.hardwareFrame, !host.sawHardwareFrame {
+                        host.sawHardwareFrame = true
+                        if host.activeCoreId == CoreCatalog.mednafenPsxHw.coreId {
+                            host.status = "Beetle HW: first Vulkan frame via SET_HW_RENDER"
+                        }
+                    }
                     // Reads a handful of words out of the lock-free ring. This is where "the
                     // graph is up but nothing is playing" becomes visible, which on a sideloaded
                     // build is the difference between a diagnosis and a guess.

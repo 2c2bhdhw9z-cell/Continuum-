@@ -10,13 +10,13 @@ Source of truth for the schema: [Delta Custom Skins](https://noah978.gitbook.io/
 
 | Drop | What Continuum reads today |
 | --- | --- |
-| `Something.deltaskin` | Unzips, reads `info.json`, maps button frames into the on-screen layout |
+| `Something.deltaskin` | Unzips, reads `info.json`, maps buttons, loads PDF/PNG art, applies `screens` |
 | `Something.zip` with the same contents | Same as `.deltaskin` |
-| Bare `info.json` | Same parse path (handy while editing) |
+| Bare `info.json` | Layout + screens only (no ZIP assets to draw) |
 
-Assets (PDF / PNG under `assets`) are **not** drawn yet. Import only applies hitbox
-positions from `items` onto Continuum's free-drag layout. Background art and per-button
-artwork remain stubbed.
+Import applies hitbox positions from `items`, draws `assets` PDF/PNG behind the pad, and
+places the game picture from the first `screens[].outputFrame` when present. Per-button
+thumbstick artwork and press animations remain stubbed.
 
 ## Package rules (from Delta docs)
 
@@ -55,6 +55,10 @@ artwork remain stubbed.
 | SNES | `com.rileytestut.delta.game.snes` |
 | Nintendo 64 | `com.rileytestut.delta.game.n64` |
 | Sega Genesis | `com.rileytestut.delta.game.genesis` |
+
+PlayStation is Continuum-only here (Delta does not ship a PS1 `gameTypeIdentifier`). A
+PS1-oriented pack without a recognised id still imports frames onto the editor's current
+preview console.
 
 Unknown identifiers still import button frames; only the layout-editor preview console
 hint is skipped.
@@ -107,16 +111,17 @@ centres). Coordinates use the Delta convention: origin top-left, y increases dow
 ## Sample
 
 A minimal GBA portrait `info.json` lives at
-[`docs/samples/delta-skin-gba-info.json`](samples/delta-skin-gba-info.json). You can import
-that bare file from the layout editor to exercise the parser without a full ZIP.
+[`docs/samples/delta-skin-gba-info.json`](samples/delta-skin-gba-info.json). A packed
+[`docs/samples/continuum-sample-gba.deltaskin`](samples/continuum-sample-gba.deltaskin)
+includes a tiny PNG so Import can exercise art + `screens` together. You can also import
+the bare `info.json` to exercise layout/screens without ZIP assets.
 
 ## What still does not work
 
-- Drawing skin PDF/PNG assets behind or on the controls
 - Landscape / iPad / splitView selection beyond the preference order above
-- Applying `screens` / `outputFrame` to the game picture
-- Thumbstick artwork, press animations, or any extension fields beyond Delta's documented
-  `info.json`
+- Thumbstick artwork, press animations, CoreImage `filters`, or extension fields beyond
+  Delta's documented `info.json`
+- Multi-screen DS layouts beyond using the first `screens[]` entry for the picture hole
 - Device proof of the import path (code only until a build is tried on a phone)
 
 Use **Import .deltaskin** in the on-screen control layout editor. Cancelling the picker or

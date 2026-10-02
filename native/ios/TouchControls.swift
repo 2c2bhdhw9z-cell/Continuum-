@@ -1160,6 +1160,36 @@ final class TouchControlsView: UIView {
     /// would be a control resting on the game.
     var onPictureArea: ((CGRect) -> Void)?
 
+    /// Full-bleed controller skin art from an imported .deltaskin (PDF/PNG). Drawn behind chips.
+    var skinArtwork: UIImage? {
+        didSet {
+            guard skinArtwork !== oldValue else { return }
+            skinImageView.image = skinArtwork
+            skinImageView.isHidden = skinArtwork == nil
+            applyOpacity()
+            setNeedsLayout()
+        }
+    }
+
+    /// First Delta `screens[].outputFrame` as fractions of mappingSize (= this view when art is up).
+    /// When set, the game picture uses this hole instead of the free band between controls.
+    var skinScreenNormalized: DeltaSkinNormalizedRect? {
+        didSet {
+            guard skinScreenNormalized != oldValue else { return }
+            setNeedsLayout()
+        }
+    }
+
+    /// Drawn under the procedural chips so a Delta PDF/PNG shows through.
+    private let skinImageView: UIImageView = {
+        let view = UIImageView()
+        view.contentMode = .scaleToFill
+        view.isUserInteractionEnabled = false
+        view.isHidden = true
+        view.accessibilityIdentifier = "deltaSkinArtwork"
+        return view
+    }()
+
     // ------------------------------------------------------------------ state
 
     /// What one finger is holding.
@@ -1274,6 +1304,7 @@ final class TouchControlsView: UIView {
         // direction while pressing a face button, which is most of playing a game, is impossible.
         isMultipleTouchEnabled = true
         backgroundColor = .clear
+        insertSubview(skinImageView, at: 0)
         addSubview(dpad)
         // D-pad outline added once; per-chip outlines arrive in `rebuild` with the control set.
         dpadHandle.isHidden = true
@@ -1377,11 +1408,24 @@ final class TouchControlsView: UIView {
     /// the real setting, which is the point of previewing it at all.
     private func applyOpacity() {
         let previewed = CGFloat(layout.sanitised.opacity)
+        let hasSkin = skinArtwork != nil
+        // Skin art stays fully opaque; procedural chrome fades so Delta PDFs are visible.
+        // In the editor, keep chips readable enough to drag (floor 0.35) even with a skin.
+        skinImageView.alpha = 1
         if isEditing {
             alpha = 1
-            dpad.alpha = previewed
+            let chipAlpha = hasSkin ? max(previewed, 0.35) : previewed
+            dpad.alpha = chipAlpha
             for chip in chips {
-                chip.alpha = previewed
+                chip.alpha = chipAlpha
+            }
+        } else if hasSkin {
+            // View stays opaque so the skin does not inherit the layout opacity slider.
+            alpha = 1
+            let ghost = max(0.08, previewed * 0.2)
+            dpad.alpha = ghost
+            for chip in chips {
+                chip.alpha = ghost
             }
         } else {
             alpha = previewed
@@ -1396,6 +1440,12 @@ final class TouchControlsView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+
+        // Skin fills the whole pad view (Delta mappingSize matches the representation's screen).
+        if !skinImageView.isHidden {
+            skinImageView.frame = bounds
+            sendSubviewToBack(skinImageView)
+        }
 
         let safe = bounds.inset(by: safeAreaInsets)
         let play = safe.insetBy(dx: Self.edgeMargin, dy: Self.edgeMargin)
@@ -1607,6 +1657,17 @@ final class TouchControlsView: UIView {
     /// column between the left group and the right group. Either way no control sits on the game,
     /// which is the requirement docs/mobile-player.png failed.
     private func publishPictureArea(landscape: Bool) {
+        // Delta skins name the game hole explicitly. Prefer that over the free-band heuristic
+        // so a bezel PDF and the Metal canvas agree on the same rectangle.
+        if let screen = skinScreenNormalized {
+            let area = screen.cgRect(in: bounds)
+            if area.width >= 1, area.height >= 1 {
+                updateTouchScreenRect(in: area)
+                deliverPictureArea(area)
+                return
+            }
+        }
+
         var allRects = chipRects
         allRects.append(dpadRect)
         let occupied = allRects.filter { !$0.isEmpty }
@@ -2400,6 +2461,11 @@ struct TouchControlsHost: UIViewRepresentable {
     /// `TouchControlsView.onOverlapState`.
     let onOverlapState: (String?) -> Void
 
+    /// Imported Delta skin PDF/PNG, when one is active for this console.
+    let skinArtwork: UIImage?
+    /// Delta `screens` outputFrame as fractions of mappingSize, when the pack named one.
+    let skinScreenNormalized: DeltaSkinNormalizedRect?
+
     /// Spelled out rather than left to the synthesized memberwise initialiser.
     ///
     /// Two reasons, and the second is the load-bearing one. It lets the three editing parameters
@@ -2416,7 +2482,9 @@ struct TouchControlsHost: UIViewRepresentable {
          onPictureArea: @escaping (CGRect) -> Void,
          isEditing: Bool = false,
          onLayoutEdited: @escaping (TouchLayout, Bool) -> Void = { _, _ in },
-         onOverlapState: @escaping (String?) -> Void = { _ in }) {
+         onOverlapState: @escaping (String?) -> Void = { _ in },
+         skinArtwork: UIImage? = nil,
+         skinScreenNormalized: DeltaSkinNormalizedRect? = nil) {
         self.system = system
         self.layout = layout
         self.pictureAspect = pictureAspect
@@ -2426,6 +2494,8 @@ struct TouchControlsHost: UIViewRepresentable {
         self.isEditing = isEditing
         self.onLayoutEdited = onLayoutEdited
         self.onOverlapState = onOverlapState
+        self.skinArtwork = skinArtwork
+        self.skinScreenNormalized = skinScreenNormalized
     }
 
     func makeUIView(context: Context) -> TouchControlsView {
@@ -2435,6 +2505,8 @@ struct TouchControlsHost: UIViewRepresentable {
         view.onPictureArea = onPictureArea
         view.onLayoutEdited = onLayoutEdited
         view.onOverlapState = onOverlapState
+        view.skinArtwork = skinArtwork
+        view.skinScreenNormalized = skinScreenNormalized
         view.isEditing = isEditing
         input.view = view
         return view
@@ -2453,6 +2525,8 @@ struct TouchControlsHost: UIViewRepresentable {
         view.onPictureArea = onPictureArea
         view.onLayoutEdited = onLayoutEdited
         view.onOverlapState = onOverlapState
+        view.skinArtwork = skinArtwork
+        view.skinScreenNormalized = skinScreenNormalized
         // Re-pointed on every update because SwiftUI may hand back a different instance after a
         // rebuild, and a stale box would silently report a released pad forever.
         input.view = view

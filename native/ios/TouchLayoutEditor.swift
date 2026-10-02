@@ -6,18 +6,26 @@
 // Every value goes through `TouchLayout.sanitised` before commit. Landscape still overrides D-pad
 // y (thumbs sit mid-edge); free buttons and SELECT/START stay free in both orientations.
 //
-// Import .deltaskin maps Delta info.json item frames onto that same free-drag layout. Skin art
-// is not drawn yet; cancel / empty pick fails with a panel message (see DeltaSkinImport.swift).
+// Layouts are PER SYSTEM: switching the preview console loads that console's saved arrangement.
+// Import .deltaskin maps Delta info.json item frames onto the inferred (or current preview)
+// system's layout. Skin art is not drawn yet; cancel / empty pick fails with a panel message.
 
 import SwiftUI
 
 /// The full-screen layout editor.
 ///
-/// Holds the in-progress layout in local `@State` rather than binding the host's `@Published`
-/// `touchLayout`, so a drag does not republish the whole library shell sixty times a second.
+/// Holds the in-progress layout in local `@State` rather than binding the host, so a drag does
+/// not republish the whole library shell sixty times a second. Commits carry the preview
+/// `GameSystem` so each console keeps its own arrangement.
 struct TouchLayoutEditor: View {
 
-    let onCommit: (TouchLayout) -> Void
+    let layoutFor: (GameSystem) -> TouchLayout
+    let onCommit: (GameSystem, TouchLayout) -> Void
+    /// Persists imported Delta art + screens under the target console.
+    let onSkinImported: (GameSystem, DeltaSkinImportResult) -> Void
+    let skinImageFor: (GameSystem) -> UIImage?
+    let skinScreenFor: (GameSystem) -> DeltaSkinNormalizedRect?
+    let onClearSkin: (GameSystem) -> Void
     let onClose: () -> Void
 
     @State private var draft: TouchLayout
@@ -30,13 +38,24 @@ struct TouchLayoutEditor: View {
     @State private var skinMessage: String?
     @State private var skinMessageIsError = false
     @State private var skinPicker = DeltaSkinPicker()
+    /// Bumps when import/clear changes art so the pad remounts with new UIImage.
+    @State private var skinEpoch: UInt = 0
 
-    init(initialLayout: TouchLayout,
-         onCommit: @escaping (TouchLayout) -> Void,
+    init(layoutFor: @escaping (GameSystem) -> TouchLayout,
+         onCommit: @escaping (GameSystem, TouchLayout) -> Void,
+         onSkinImported: @escaping (GameSystem, DeltaSkinImportResult) -> Void,
+         skinImageFor: @escaping (GameSystem) -> UIImage?,
+         skinScreenFor: @escaping (GameSystem) -> DeltaSkinNormalizedRect?,
+         onClearSkin: @escaping (GameSystem) -> Void,
          onClose: @escaping () -> Void) {
+        self.layoutFor = layoutFor
         self.onCommit = onCommit
+        self.onSkinImported = onSkinImported
+        self.skinImageFor = skinImageFor
+        self.skinScreenFor = skinScreenFor
+        self.onClearSkin = onClearSkin
         self.onClose = onClose
-        let start = initialLayout.sanitised
+        let start = layoutFor(.ps1).sanitised
         _draft = State(initialValue: start)
         _committed = State(initialValue: start)
     }
@@ -50,7 +69,8 @@ struct TouchLayoutEditor: View {
         }
         .onDisappear {
             let finished = draft
-            DispatchQueue.main.async { onCommit(finished) }
+            let system = previewSystem
+            DispatchQueue.main.async { onCommit(system, finished) }
         }
     }
 
@@ -101,11 +121,13 @@ struct TouchLayoutEditor: View {
             },
             onOverlapState: { line in
                 DispatchQueue.main.async { self.overlapWarning = line }
-            }
+            },
+            skinArtwork: skinImageFor(previewSystem),
+            skinScreenNormalized: skinScreenFor(previewSystem)
         )
-        // Remount when the preview console changes so chip labels and outlines cannot keep a
-        // previous system's names (e.g. Triangle/Square stuck after switching off PS1).
-        .id(previewSystem)
+        // Remount when the preview console or imported art changes so chip labels and skin
+        // UIImage cannot keep a previous system's names or a stale texture.
+        .id("\(previewSystem.rawValue)-\(skinEpoch)")
         .ignoresSafeArea()
     }
 
@@ -148,6 +170,14 @@ struct TouchLayoutEditor: View {
                         }
                         SettingsButton(title: "Import .deltaskin", role: .normal) {
                             beginSkinImport()
+                        }
+                        if skinImageFor(previewSystem) != nil || skinScreenFor(previewSystem) != nil {
+                            SettingsButton(title: "Clear this system's skin art", role: .destructive) {
+                                onClearSkin(previewSystem)
+                                skinEpoch &+= 1
+                                skinMessage = "Cleared skin art for \(previewSystem.displayName)."
+                                skinMessageIsError = false
+                            }
                         }
                         if let skinMessage {
                             skinBanner(skinMessage, isError: skinMessageIsError)
@@ -228,7 +258,7 @@ struct TouchLayoutEditor: View {
             Spacer(minLength: 8)
             Menu {
                 ForEach(GameSystem.allCases, id: \.self) { system in
-                    Button(system.displayName) { previewSystem = system }
+                    Button(system.displayName) { selectPreviewSystem(system) }
                 }
             } label: {
                 HStack(spacing: 6) {
@@ -324,7 +354,18 @@ struct TouchLayoutEditor: View {
         let next = layout.sanitised
         guard committed != next else { return }
         committed = next
-        onCommit(next)
+        onCommit(previewSystem, next)
+    }
+
+    /// Switch preview console (iOS 16-safe; no two-parameter onChange).
+    private func selectPreviewSystem(_ system: GameSystem) {
+        guard system != previewSystem else { return }
+        onCommit(previewSystem, draft.sanitised)
+        previewSystem = system
+        let loaded = layoutFor(system).sanitised
+        draft = loaded
+        committed = loaded
+        skinMessage = nil
     }
 
     private var summaryLine: String {
@@ -361,11 +402,19 @@ struct TouchLayoutEditor: View {
         skinPicker.present { result in
             switch result {
             case .success(let imported):
-                draft = imported.layout
-                commit(imported.layout)
-                if let system = imported.previewSystem {
-                    previewSystem = system
+                let target = imported.previewSystem ?? previewSystem
+                let clean = imported.layout.sanitised
+                // Save under the skin's console, then show that console without re-loading an
+                // older layout for it (selectPreviewSystem would layoutFor and wipe the import).
+                onCommit(target, clean)
+                onSkinImported(target, imported)
+                if target != previewSystem {
+                    onCommit(previewSystem, draft.sanitised)
+                    previewSystem = target
                 }
+                draft = clean
+                committed = clean
+                skinEpoch &+= 1
                 skinMessage = imported.summary
                 skinMessageIsError = false
             case .failure(let error):

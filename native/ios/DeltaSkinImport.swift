@@ -4,16 +4,67 @@
 //   1. Opens a document picker for .deltaskin / .zip / bare info.json
 //   2. Extracts and parses info.json
 //   3. Maps item frames into a TouchLayout (buttonFrees + cluster centres)
+//   4. Loads PDF/PNG assets and `screens` outputFrame for the game picture
+//   5. The editor stores layout + art under the skin's GameSystem (per-console),
+//      so a GBA skin does not overwrite PS1 button positions.
 //
-// Assets (PDF/PNG) are NOT applied yet. Cancelling or picking nothing fails with a clear
-// message on the layout editor panel — not a silent no-op.
+// Cancelling or picking nothing fails with a clear message on the layout editor
+// panel — not a silent no-op.
 
 import Foundation
 import zlib
 import UniformTypeIdentifiers
 import UIKit
+import CoreGraphics
 
-// MARK: - Public result
+// MARK: - Screen / art payloads
+
+/// A rectangle in mappingSize space, stored as fractions of that size (origin top-left).
+struct DeltaSkinNormalizedRect: Codable, Equatable, Sendable {
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+
+    /// Maps this fraction rect onto a view that fills the same mapping aspect.
+    func cgRect(in bounds: CGRect) -> CGRect {
+        CGRect(
+            x: bounds.minX + CGFloat(x) * bounds.width,
+            y: bounds.minY + CGFloat(y) * bounds.height,
+            width: CGFloat(width) * bounds.width,
+            height: CGFloat(height) * bounds.height
+        )
+    }
+
+    static func from(frame: CGRect, mappingSize: CGSize) -> DeltaSkinNormalizedRect? {
+        guard mappingSize.width > 0, mappingSize.height > 0,
+              frame.width > 0, frame.height > 0 else { return nil }
+        return DeltaSkinNormalizedRect(
+            x: Double(frame.minX / mappingSize.width),
+            y: Double(frame.minY / mappingSize.height),
+            width: Double(frame.width / mappingSize.width),
+            height: Double(frame.height / mappingSize.height)
+        )
+    }
+}
+
+/// Decoded skin artwork bytes plus how to turn them into a UIImage.
+enum DeltaSkinAssetKind: String, Codable, Sendable {
+    case pdf
+    case png
+}
+
+/// Artwork + screen hole from one imported representation (persisted per console).
+struct DeltaSkinVisual: Codable, Equatable, Sendable {
+    var skinName: String
+    var translucent: Bool
+    var mappingWidth: Double
+    var mappingHeight: Double
+    /// First `screens[].outputFrame`, as fractions of mappingSize. Nil keeps Continuum's free band.
+    var screenOutput: DeltaSkinNormalizedRect?
+    var assetFileName: String?
+    var assetKind: DeltaSkinAssetKind?
+}
 
 /// What importing one Delta skin package produced.
 struct DeltaSkinImportResult: Sendable {
@@ -25,6 +76,10 @@ struct DeltaSkinImportResult: Sendable {
     let previewSystem: GameSystem?
     /// Short line for the editor panel (what was read, what was skipped).
     let summary: String
+    /// Metadata for persistence (screens + asset names). Always set on success.
+    let visual: DeltaSkinVisual
+    /// Raw PDF or PNG bytes from the package, when an asset file was present and readable.
+    let assetData: Data?
 }
 
 /// Why a skin import did not produce a layout.
@@ -61,14 +116,27 @@ enum DeltaSkinImportError: LocalizedError, Equatable {
 
 enum DeltaSkinImporter {
 
-    /// Reads a picked file URL (app-owned copy from the document picker) into a layout.
+    /// Reads a picked file URL (app-owned copy from the document picker) into a layout + art.
     static func importPackage(at url: URL) throws -> DeltaSkinImportResult {
-        let infoData = try loadInfoJSON(from: url)
-        return try parseInfoJSON(infoData, sourceName: url.lastPathComponent)
+        let package = try loadPackageBytes(from: url)
+        return try parseInfoJSON(
+            package.infoJSON,
+            sourceName: url.lastPathComponent,
+            assetLookup: package.assetLookup
+        )
     }
 
-    /// Same parse path for tests and for a bare info.json drop.
+    /// Same parse path for tests and for a bare info.json drop (no ZIP assets).
     static func parseInfoJSON(_ data: Data, sourceName: String) throws -> DeltaSkinImportResult {
+        try parseInfoJSON(data, sourceName: sourceName, assetLookup: { _ in nil })
+    }
+
+    /// Parse `info.json` and optionally pull named assets through `assetLookup`.
+    static func parseInfoJSON(
+        _ data: Data,
+        sourceName: String,
+        assetLookup: (String) -> Data?
+    ) throws -> DeltaSkinImportResult {
         let root: [String: Any]
         do {
             let object = try JSONSerialization.jsonObject(with: data, options: [])
@@ -107,6 +175,17 @@ enum DeltaSkinImporter {
             throw DeltaSkinImportError.noMappableItems
         }
 
+        let screenOutput = firstScreenOutput(from: chosen.screens, mappingSize: mapping)
+        let assetPick = pickAssetFileName(from: chosen.assets)
+        var assetData: Data?
+        var assetKind: DeltaSkinAssetKind?
+        if let assetPick {
+            if let bytes = assetLookup(assetPick.name), !bytes.isEmpty {
+                assetData = bytes
+                assetKind = assetPick.kind
+            }
+        }
+
         var summaryBits = [
             "\(name)",
             "via \(sourceName)",
@@ -118,43 +197,76 @@ enum DeltaSkinImporter {
             let more = mapped.skipped.count > 4 ? "…" : ""
             summaryBits.append("skipped \(skipList)\(more)")
         }
-        summaryBits.append("layout only — skin art not drawn yet")
+        if screenOutput != nil {
+            summaryBits.append("game screen frame applied")
+        } else {
+            summaryBits.append("no screens[] — picture keeps free band")
+        }
+        if assetData != nil, let assetPick {
+            summaryBits.append("art \(assetPick.name)")
+        } else if assetPick != nil {
+            summaryBits.append("art file missing in package")
+        } else {
+            summaryBits.append("no assets[] art")
+        }
+
+        let visual = DeltaSkinVisual(
+            skinName: name,
+            translucent: chosen.translucent,
+            mappingWidth: Double(mapping.width),
+            mappingHeight: Double(mapping.height),
+            screenOutput: screenOutput,
+            assetFileName: assetPick?.name,
+            assetKind: assetKind
+        )
 
         return DeltaSkinImportResult(
             layout: mapped.layout.sanitised,
             skinName: name,
             previewSystem: preview,
-            summary: summaryBits.joined(separator: " · ")
+            summary: summaryBits.joined(separator: " · "),
+            visual: visual,
+            assetData: assetData
         )
     }
 
-    // MARK: Load info.json
+    // MARK: Package bytes
 
-    private static func loadInfoJSON(from url: URL) throws -> Data {
+    private struct LoadedPackage {
+        let infoJSON: Data
+        let assetLookup: (String) -> Data?
+    }
+
+    private static func loadPackageBytes(from url: URL) throws -> LoadedPackage {
         let ext = url.pathExtension.lowercased()
         if ext == "json" || url.lastPathComponent.lowercased() == "info.json" {
+            let data: Data
             do {
-                return try Data(contentsOf: url)
+                data = try Data(contentsOf: url)
             } catch {
                 throw DeltaSkinImportError.unreadable(error.localizedDescription)
             }
+            return LoadedPackage(infoJSON: data, assetLookup: { _ in nil })
         }
 
         if ext == "deltaskin" || ext == "zip" {
+            let bytes: Data
             do {
-                let bytes = try Data(contentsOf: url)
-                if let info = try ZipStore.data(forEntryNamed: "info.json", in: bytes) {
-                    return info
-                }
-                // Some packs nest one folder; accept a single */info.json.
-                if let nested = try ZipStore.dataMatchingInfoJSON(in: bytes) {
-                    return nested
-                }
-                throw DeltaSkinImportError.missingInfoJSON
-            } catch let error as DeltaSkinImportError {
-                throw error
+                bytes = try Data(contentsOf: url)
             } catch {
                 throw DeltaSkinImportError.unreadable(error.localizedDescription)
+            }
+            let info: Data
+            if let flat = try ZipStore.data(forEntryNamed: "info.json", in: bytes) {
+                info = flat
+            } else if let nested = try ZipStore.dataMatchingInfoJSON(in: bytes) {
+                info = nested
+            } else {
+                throw DeltaSkinImportError.missingInfoJSON
+            }
+            return LoadedPackage(infoJSON: info) { name in
+                (try? ZipStore.data(forEntryNamed: name, in: bytes))
+                    ?? (try? ZipStore.dataMatchingFileName(name, in: bytes))
             }
         }
 
@@ -162,7 +274,7 @@ enum DeltaSkinImporter {
         do {
             let data = try Data(contentsOf: url)
             if (try? JSONSerialization.jsonObject(with: data)) is [String: Any] {
-                return data
+                return LoadedPackage(infoJSON: data, assetLookup: { _ in nil })
             }
         } catch {
             throw DeltaSkinImportError.unreadable(error.localizedDescription)
@@ -178,6 +290,9 @@ enum DeltaSkinImporter {
         let path: String
         let mappingSize: CGSize
         let items: [[String: Any]]
+        let screens: [[String: Any]]
+        let assets: [String: Any]
+        let translucent: Bool
     }
 
     private static func pickRepresentation(from representations: [String: Any]) -> ChosenOrientation? {
@@ -197,7 +312,17 @@ enum DeltaSkinImporter {
                           let items = node["items"] as? [[String: Any]],
                           !items.isEmpty else { continue }
                     let path = "\(device)/\(size)/\(orientation)"
-                    let chosen = ChosenOrientation(path: path, mappingSize: mapping, items: items)
+                    let screens = node["screens"] as? [[String: Any]] ?? []
+                    let assets = node["assets"] as? [String: Any] ?? [:]
+                    let translucent = (node["translucent"] as? Bool) ?? false
+                    let chosen = ChosenOrientation(
+                        path: path,
+                        mappingSize: mapping,
+                        items: items,
+                        screens: screens,
+                        assets: assets,
+                        translucent: translucent
+                    )
                     if device == "iphone", size == "edgeToEdge", orientation == "portrait" {
                         return chosen
                     }
@@ -211,6 +336,79 @@ enum DeltaSkinImporter {
             }
         }
         return fallback
+    }
+
+    private static func firstScreenOutput(
+        from screens: [[String: Any]],
+        mappingSize: CGSize
+    ) -> DeltaSkinNormalizedRect? {
+        for screen in screens {
+            guard let frame = readFrame(screen["outputFrame"]),
+                  let normalized = DeltaSkinNormalizedRect.from(frame: frame, mappingSize: mappingSize)
+            else { continue }
+            return normalized
+        }
+        return nil
+    }
+
+    private struct AssetPick {
+        let name: String
+        let kind: DeltaSkinAssetKind
+    }
+
+    /// Prefer Delta's resizable PDF; otherwise medium → large → small PNG.
+    private static func pickAssetFileName(from assets: [String: Any]) -> AssetPick? {
+        func kind(for name: String) -> DeltaSkinAssetKind {
+            name.lowercased().hasSuffix(".pdf") ? .pdf : .png
+        }
+        if let name = (assets["resizable"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !name.isEmpty {
+            return AssetPick(name: name, kind: kind(for: name))
+        }
+        for key in ["medium", "large", "small"] {
+            if let name = (assets[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !name.isEmpty {
+                return AssetPick(name: name, kind: kind(for: name))
+            }
+        }
+        return nil
+    }
+
+    /// Renders imported asset bytes into a UIImage sized to the mapping (points).
+    static func makeUIImage(from data: Data, kind: DeltaSkinAssetKind, mappingSize: CGSize) -> UIImage? {
+        switch kind {
+        case .png:
+            return UIImage(data: data)
+        case .pdf:
+            return renderPDF(data, pointSize: mappingSize)
+        }
+    }
+
+    private static func renderPDF(_ data: Data, pointSize: CGSize) -> UIImage? {
+        guard pointSize.width > 0, pointSize.height > 0,
+              let provider = CGDataProvider(data: data as CFData),
+              let document = CGPDFDocument(provider),
+              let page = document.page(at: 1) else { return nil }
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = false
+        format.scale = UIScreen.main.scale
+        let renderer = UIGraphicsImageRenderer(size: pointSize, format: format)
+        return renderer.image { ctx in
+            UIColor.clear.setFill()
+            ctx.fill(CGRect(origin: .zero, size: pointSize))
+            let cg = ctx.cgContext
+            cg.saveGState()
+            cg.translateBy(x: 0, y: pointSize.height)
+            cg.scaleBy(x: 1, y: -1)
+            let media = page.getBoxRect(.mediaBox)
+            guard media.width > 0, media.height > 0 else {
+                cg.restoreGState()
+                return
+            }
+            cg.scaleBy(x: pointSize.width / media.width, y: pointSize.height / media.height)
+            cg.drawPDFPage(page)
+            cg.restoreGState()
+        }
     }
 
     private static func readSize(_ value: Any?) -> CGSize? {
@@ -357,6 +555,11 @@ extension PadSlot {
         case "b": return .b
         case "x": return .x
         case "y": return .y
+        // PS1 face names (same retro slots Continuum labels Triangle/Circle/Cross/Square).
+        case "triangle": return .x
+        case "circle": return .a
+        case "cross": return .b
+        case "square": return .y
         case "l", "l1": return .l
         case "r", "r1": return .r
         case "l2": return .l2
@@ -494,6 +697,19 @@ enum ZipStore {
         }
         guard let entry = matches.first else { return nil }
         return try payload(for: entry, in: archive)
+    }
+
+    /// Finds an asset by basename, including packs that nest one folder.
+    static func dataMatchingFileName(_ fileName: String, in archive: Data) throws -> Data? {
+        let want = fileName.lowercased()
+        let entries = try listEntries(in: archive)
+        for entry in entries {
+            let lower = entry.name.lowercased()
+            if lower == want || lower.hasSuffix("/\(want)") {
+                return try payload(for: entry, in: archive)
+            }
+        }
+        return nil
     }
 
     private struct Entry {
