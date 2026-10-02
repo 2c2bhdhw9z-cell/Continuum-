@@ -31,7 +31,7 @@ they live in [the road below](#the-road-to-the-rest-of-the-systems) rather than 
 | PlayStation | pcsx_rearmed | **Done** | Interpreter, not the recompiler. Fast enough, and see Recompiler below for why it is not switched on |
 | **Famicom Disk System** | fceumm | **Built, untested** | Needs `disksys.rom`, which is Nintendo's own code and cannot ship with the app. The launch path checks for it by name and says so rather than letting the core fail |
 | **Sega SG-1000** | genesis_plus_gx | **Built, untested** | Needs nothing extra |
-| **Nintendo 64** | parallel_n64 | **Partial — device FAIL** | Still stuck on build 96: **`N64 first tick…`**, frames 0. Ruled out: multithread-off (91), refuse-gfxplugin (92), InitiateGFX reapply (96). Medic cause: aarch64 `r4300.h` aliases `mupencorestop` to hot_state while iOS builds `WITH_DYNAREC=` / no `NEW_DYNAREC`, so stop never clears. Fix on master (new patch `parallel_n64-aarch64-gate-hot-state-on-new-dynarec.patch`); unproven until next IPA. Done only when past that crumb with frames > 0. `.n64`, `.z64`, `.v64` |
+| **Nintendo 64** | parallel_n64 | **Done** | Device-proven on build 97 (`258a828`): past `N64 first tick…`, frames climbing, ~60 fps into Smash character select. Soft/interp only (no JIT on this signed IPA). `.n64`, `.z64`, `.v64` |
 | **TurboGrafx-16** | mednafen_pce_fast | **Built, untested** | HuCard games only. PC Engine CD needs a system card BIOS that cannot ship |
 | **Atari 2600** | stella2023 | **Built, untested** | `.a26` only. A 2600 ROM named `.bin` has to be renamed, because `.bin` belongs to the PlayStation here as a disc track |
 | **Nintendo DS** | melonDS | **Done** | Confirmed on device (build 80): Mario Kart DS and Pokémon SoulSilver, dual screens live, ~60 fps, 0 dropped |
