@@ -1178,6 +1178,22 @@ impl ContinuumEngine {
     pub fn core_version(&self) -> Option<String> {
         self.lock().core_version()
     }
+
+    /// Most recent line a libretro core wrote through `GET_LOG_INTERFACE`.
+    ///
+    /// Empty when no core has logged yet. On iOS the same line is also in os_log under
+    /// subsystem `app.continuum` / category `libretro`. Does not take the engine lock: the
+    /// buffer lives in the log shim, outside the session.
+    pub fn last_core_log_line(&self) -> String {
+        #[cfg(feature = "native-core")]
+        {
+            crate::cores::native_core::last_core_log_line()
+        }
+        #[cfg(not(feature = "native-core"))]
+        {
+            String::new()
+        }
+    }
 }
 
 impl ContinuumEngine {

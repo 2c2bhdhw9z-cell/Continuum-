@@ -49,6 +49,13 @@ final class MetalCanvas: UIView {
     /// Called once per presented frame with the engine's telemetry, for the HUD.
     var onTelemetry: ((TickTelemetry) -> Void)?
 
+    /// Fired immediately before `engine.tick`. Return `true` to skip the tick this frame
+    /// (N64 first-tick crumb needs one display-link turn to paint).
+    var onBeforeTick: (() -> Bool)?
+
+    /// Fired immediately after `engine.tick` returns. Clears the N64 first-tick probe.
+    var onAfterTick: (() -> Void)?
+
     /// Supplies the ON-SCREEN pad's state for the frame about to run.
     ///
     /// Read here, in the display link, and not from the touch handlers, and that is the whole
@@ -268,7 +275,13 @@ final class MetalCanvas: UIView {
         // targetTimestamp, not timestamp: the pacer wants when this frame will be *shown*,
         // not when the callback fired. FramePacer::plan() takes a timestamp for exactly this
         // reason: it never reads a clock of its own.
+        // N64 probe may ask us to skip one frame so "N64 first tick…" can paint before
+        // retro_run. Audio and telemetry still idle that turn; the next link fire runs for real.
+        if onBeforeTick?() == true {
+            return
+        }
         let telemetry = engine.tick(nowMillis: link.targetTimestamp * 1000.0)
+        onAfterTick?()
 
         // Audio AFTER the step, and before the telemetry callback. After, because the samples
         // this tick's core steps just produced are the ones worth having and draining first

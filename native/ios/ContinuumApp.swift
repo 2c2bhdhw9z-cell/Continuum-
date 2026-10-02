@@ -971,6 +971,13 @@ final class EngineHost: ObservableObject {
     /// True once a ROM has been launched. Drives the HUD affordance label and re-entrancy.
     @Published var running = false
 
+    /// Set after parallel_n64 `retro_load_game` returns; cleared after the first `retro_run`.
+    ///
+    /// The display-link tick reads this so a freeze on the first frame leaves "N64 first tick…"
+    /// on the status line instead of "N64 load ok", which is how we tell load from tick without
+    /// guessing at core options.
+    var n64AwaitingFirstTick = false
+
     /// The game currently on screen, or nil when the Library is showing.
     ///
     /// This is what switches between the two screens, and it is the ENTRY rather than a `Bool` on
@@ -1999,6 +2006,44 @@ final class EngineHost: ObservableObject {
 
     // MARK: Launch
 
+    /// Writes a status crumb and gives SwiftUI one chance to paint before a call that may hang.
+    ///
+    /// Without the run-loop spin, a freeze inside `retro_load_game` / `retro_run` leaves the
+    /// *previous* breadcrumb on screen and the diagnostic is useless. Fifty milliseconds is enough
+    /// for one frame and short enough not to matter on the success path.
+    private func paintStatusNow(_ line: String) {
+        status = line
+        RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    /// Prepares the N64 first-tick crumb. Returns `true` when THIS display-link fire should
+    /// skip `engine.tick` so the crumb can paint.
+    ///
+    /// A hang inside `retro_run` on the same turn as the status write would leave the previous
+    /// line on screen (SwiftUI commits after the callback). Skipping one frame after writing
+    /// "N64 first tick…" is what makes a freeze name the tick rather than "N64 load ok".
+    func prepareN64FirstTickProbe() -> Bool {
+        guard n64AwaitingFirstTick else { return false }
+        if status != "N64 first tick…" {
+            status = "N64 first tick…"
+            return true
+        }
+        return false
+    }
+
+    /// Status crumb after the first N64 `retro_run` returns. Appends the last core log line when
+    /// the log interface captured one, so Console and the HUD agree.
+    func finishN64FirstTickProbeIfNeeded() {
+        guard n64AwaitingFirstTick else { return }
+        n64AwaitingFirstTick = false
+        let coreLog = engine.lastCoreLogLine()
+        if coreLog.isEmpty {
+            status = "N64 tick ok"
+        } else {
+            status = "N64 tick ok · \(coreLog)"
+        }
+    }
+
     /// Launches a game the user tapped in the Library, on the core its extension routes to.
     ///
     /// The path is inside our own Documents directory, so there is NO security scope here and
@@ -2094,6 +2139,13 @@ final class EngineHost: ObservableObject {
             return
         }
 
+        let isN64 = spec.coreId == CoreCatalog.parallelN64.coreId
+        // N64 freeze diagnosis: paint "N64 load…" *before* retro_load_game so a hang inside
+        // launch leaves that crumb visible. Other cores keep the existing breadcrumb path.
+        if isN64 {
+            paintStatusNow("N64 load…")
+        }
+
         do {
             try engine.launch(
                 coreId: spec.coreId,
@@ -2123,7 +2175,13 @@ final class EngineHost: ObservableObject {
             // telemetry strip re-renders on every tick and this takes the engine lock.
             engineOutputRate = engine.outputSampleRate()
             refreshAudioReadout()
-            status = "running: \(entry.name) on \(spec.coreId)"
+            if isN64 {
+                // Load returned. Next crumb is around the first display-link tick / retro_run.
+                status = "N64 load ok"
+                n64AwaitingFirstTick = true
+            } else {
+                status = "running: \(entry.name) on \(spec.coreId)"
+            }
 
             // AFTER the launch, because a cheat table belongs to a session: the core builds it on
             // `retro_load_game` and it dies with the session, so it has to be pushed again every
@@ -2183,6 +2241,7 @@ final class EngineHost: ObservableObject {
         // session ends must not be pushed into the next one.
         activeEntry = nil
         activeCoreId = ""
+        n64AwaitingFirstTick = false
         paused = false
         pictureArea = nil
         // After `activeEntry` is cleared, so a DS session ending releases the hold it had on the
@@ -2938,6 +2997,8 @@ struct RootView: View {
                 // audio graph down with it.
                 audio: host.audio,
                 onAttach: { host.surfaceAttached($0) },
+                onBeforeTick: { host.prepareN64FirstTickProbe() },
+                onAfterTick: { host.finishN64FirstTickProbeIfNeeded() },
                 onTelemetry: { telemetry in
                     host.frameCount = telemetry.frameCount
                     host.displayFps = telemetry.displayFps
@@ -2971,11 +3032,16 @@ struct MetalCanvasView: UIViewRepresentable {
     /// `MetalCanvas.audio` for why the push has to happen there and not on the audio thread.
     let audio: AudioOutput
     let onAttach: (Result<String, Error>) -> Void
+    /// Returns true to skip this `engine.tick` so an N64 first-tick status crumb can paint.
+    let onBeforeTick: () -> Bool
+    let onAfterTick: () -> Void
     let onTelemetry: (TickTelemetry) -> Void
 
     func makeUIView(context: Context) -> MetalCanvas {
         let canvas = MetalCanvas(engine: engine)
         canvas.onAttach = onAttach
+        canvas.onBeforeTick = onBeforeTick
+        canvas.onAfterTick = onAfterTick
         canvas.onTelemetry = onTelemetry
         canvas.gamepadSource = gamepadSource
         canvas.controllerSource = controllerSource
@@ -2987,6 +3053,8 @@ struct MetalCanvasView: UIViewRepresentable {
 
     func updateUIView(_ canvas: MetalCanvas, context: Context) {
         canvas.onTelemetry = onTelemetry
+        canvas.onBeforeTick = onBeforeTick
+        canvas.onAfterTick = onAfterTick
         canvas.gamepadSource = gamepadSource
         canvas.controllerSource = controllerSource
         canvas.audio = audio

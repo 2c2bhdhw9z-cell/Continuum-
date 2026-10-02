@@ -211,6 +211,7 @@ const ENV_SET_VARIABLES: c_uint = 16; // libretro.h:1020 RETRO_ENVIRONMENT_SET_V
 const ENV_GET_VARIABLE_UPDATE: c_uint = 17; // libretro.h:1038 RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE
 const ENV_SET_SUPPORT_NO_GAME: c_uint = 18; // libretro.h:1055 RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME
 const ENV_GET_SAVE_DIRECTORY: c_uint = 31; // libretro.h:1330 RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY
+const ENV_GET_LOG_INTERFACE: c_uint = 27; // libretro.h:1247 RETRO_ENVIRONMENT_GET_LOG_INTERFACE
 const ENV_SET_SYSTEM_AV_INFO: c_uint = 32; // libretro.h:1369 RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO
 const ENV_SET_CONTROLLER_INFO: c_uint = 35; // libretro.h:1510 RETRO_ENVIRONMENT_SET_CONTROLLER_INFO
 const ENV_SET_GEOMETRY: c_uint = 37; // libretro.h:1558 RETRO_ENVIRONMENT_SET_GEOMETRY
@@ -256,6 +257,26 @@ fn take_negotiated_format() -> Option<PixelFormat> {
         Err(poisoned) => poisoned.into_inner(),
     };
     *guard
+}
+
+// Varargs trampoline: see `retro_log_shim.c`. Rust cannot express the printf ABI on stable.
+// Linked by build.rs (`cc`) when the `native-core` feature is on.
+extern "C" {
+    fn continuum_fill_retro_log_callback(data: *mut c_void);
+    fn continuum_last_core_log_line() -> *const c_char;
+}
+
+/// Most recent line the active core sent through `GET_LOG_INTERFACE`, if any.
+///
+/// Empty when the core has not logged yet. Safe to call from the status UI at any time.
+pub fn last_core_log_line() -> String {
+    let ptr = unsafe { continuum_last_core_log_line() };
+    if ptr.is_null() {
+        return String::new();
+    }
+    unsafe { CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// The environment protocol, answering what a real PS1 core (PCSX ReARMed) needs to boot
@@ -342,6 +363,16 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
         }
         ENV_GET_VARIABLE_UPDATE => {
             unsafe { *(data as *mut bool) = false };
+            true
+        }
+        ENV_GET_LOG_INTERFACE => {
+            // data is `struct retro_log_callback { retro_log_printf_t log; }`.
+            // Without this, cores fall back to stderr (invisible in Console.app on iOS) or
+            // stay silent. The trampoline forwards to os_log on Apple and stderr elsewhere.
+            if data.is_null() {
+                return false;
+            }
+            unsafe { continuum_fill_retro_log_callback(data) };
             true
         }
         // Accept-and-noop: the core announces these, and a minimal host need only tolerate
@@ -1393,6 +1424,27 @@ mod tests {
         let (ok, value) = ask_option("melonds_touch_mode");
         assert!(!ok, "a previous core's overrides must not survive the next load");
         assert!(value.is_none());
+    }
+
+    #[test]
+    fn get_log_interface_installs_a_callback() {
+        #[repr(C)]
+        struct RetroLogCallback {
+            log: *mut c_void,
+        }
+        let mut cb = RetroLogCallback {
+            log: std::ptr::null_mut(),
+        };
+        let ok = unsafe {
+            on_environment(
+                ENV_GET_LOG_INTERFACE,
+                &mut cb as *mut RetroLogCallback as *mut c_void,
+            )
+        };
+        assert!(ok, "GET_LOG_INTERFACE must be accepted so cores can log");
+        assert!(!cb.log.is_null(), "log callback pointer must be filled in");
+        // Callable with no prior core log (empty or whatever a previous test left).
+        let _ = last_core_log_line();
     }
 
     #[test]

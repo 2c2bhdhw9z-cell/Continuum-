@@ -70,3 +70,6 @@ native-core = ["dep:libloading"]
 # The Swift-facing facade (`uniffi_api.rs`).
 uniffi-bindings = ["dep:uniffi"]
 
+[build-dependencies]
+# Compiles the GET_LOG_INTERFACE varargs trampoline (retro_log_shim.c) when native-core is on.
+cc = "1.2"
