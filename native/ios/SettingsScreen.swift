@@ -324,10 +324,9 @@ struct SettingsScreen: View {
             }
 
             SettingsNote(
-                "Opens the pad full screen with the two thumb groups outlined, and drags them where "
-                + "you want them. Sliders for size and how faint they are, a swap for a left-handed "
-                + "grip, and the room left for the picture shown as you go, because moving a group "
-                + "inward takes that room away. Remembered between launches."
+                "Opens the pad full screen. Drag the outlined thumb groups, SELECT, or START where "
+                + "you want them. Size and opacity sliders, a swap for a left-handed grip, and the "
+                + "room left for the picture shown as you go. Remembered between launches."
             )
 
             // Reachable from here as well as inside the editor, on the same reasoning as the

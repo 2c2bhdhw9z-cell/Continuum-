@@ -559,23 +559,17 @@ enum GameSystem: String, Sendable, CaseIterable {
 
 // MARK: - Where the controls sit
 
-/// The six numbers that describe a control layout.
+/// The numbers that describe a control layout.
 ///
-/// Deliberately the SAME six the browser build used (`web/src/data/touch-layout.js`), with the
-/// same limits, because the intention was always to let the user rearrange the controls. That
-/// editor exists now (`TouchLayoutEditor`), and taking the layout as a value from the start is
-/// why it is a screen that writes six numbers rather than a rewrite of the layout engine.
+/// Started as the same six the browser build used (`web/src/data/touch-layout.js`) for the two
+/// thumb clusters, then grew SELECT and START positions so every on-screen control the editor
+/// outlines can be dragged and persisted. Same limits as before: a control centred at 0 would be
+/// half off screen, and on iOS the outer few millimetres belong to the system's edge gestures.
 ///
-/// The limits are not cosmetic margins. A control centred at 0 would be half off screen, and on
-/// iOS the outer few millimetres belong to the system's edge gestures, so a control parked there
-/// would fight the OS for the touch.
-///
-/// `Codable` so the editor's result survives a relaunch. It is stored as JSON under one
-/// UserDefaults key rather than as six keys, because the six numbers are only meaningful
-/// together: a build that half-restored a layout would put the clusters somewhere the user never
-/// arranged. Decoding is deliberately forgiving and `sanitised` is applied on the way out, so an
-/// absent value, a truncated one and one written by a different build all land on something
-/// legal. See `restored(from:)`.
+/// `Codable` so the editor's result survives a relaunch. Decoding is deliberately forgiving and
+/// `sanitised` is applied on the way out, so an absent value, a truncated one and one written by a
+/// different build all land on something legal. Older payloads without SELECT/START keys restore
+/// those four from `standard`. See `restored(from:)`.
 struct TouchLayout: Sendable, Equatable, Codable {
     static let minScale = 0.7
     static let maxScale = 1.6
@@ -592,34 +586,49 @@ struct TouchLayout: Sendable, Equatable, Codable {
     var dpadY: Double
     var faceX: Double
     var faceY: Double
+    /// SELECT (or the system's equivalent pill) centre, as a fraction of the play area.
+    var selectX: Double
+    var selectY: Double
+    /// START / RUN / RESET / Pause pill centre, as a fraction of the play area.
+    var startX: Double
+    var startY: Double
 
     /// Spelled out rather than left to the synthesized memberwise initialiser, because declaring
     /// `init(from:)` below in the body of the type suppresses that synthesis, and losing it would
     /// break `standard` and `sanitised` with an error that points at those two rather than here.
     init(scale: Double, opacity: Double,
          dpadX: Double, dpadY: Double,
-         faceX: Double, faceY: Double) {
+         faceX: Double, faceY: Double,
+         selectX: Double, selectY: Double,
+         startX: Double, startY: Double) {
         self.scale = scale
         self.opacity = opacity
         self.dpadX = dpadX
         self.dpadY = dpadY
         self.faceX = faceX
         self.faceY = faceY
+        self.selectX = selectX
+        self.selectY = selectY
+        self.startX = startX
+        self.startY = startY
     }
 
     /// The default, tuned for a phone held at the bottom corners.
     ///
-    /// The browser's defaults put the clusters at y 0.66, which suited a desktop-shaped viewport.
-    /// On a phone that leaves the controls short of the thumbs, so they sit lower here. The model
-    /// and its limits are carried over unchanged; only this one number is retuned.
+    /// Cluster y sits lower than the browser's 0.66 so thumbs reach them. SELECT and START default
+    /// to a bottom centre pair that matches where the pad used to pin them before they became
+    /// editable, so a fresh layout and an upgraded one look the same until the user moves them.
     static let standard = TouchLayout(scale: 1.0, opacity: 0.55,
                                       dpadX: 0.17, dpadY: 0.78,
-                                      faceX: 0.83, faceY: 0.78)
+                                      faceX: 0.83, faceY: 0.78,
+                                      selectX: 0.35, selectY: 0.90,
+                                      startX: 0.65, startY: 0.90)
 
     // MARK: Storage
 
     private enum CodingKeys: String, CodingKey {
         case scale, opacity, dpadX, dpadY, faceX, faceY
+        case selectX, selectY, startX, startY
     }
 
     /// Decodes field by field, each one falling back to the default rather than throwing.
@@ -639,6 +648,10 @@ struct TouchLayout: Sendable, Equatable, Codable {
         dpadY = try box.decodeIfPresent(Double.self, forKey: .dpadY) ?? fallback.dpadY
         faceX = try box.decodeIfPresent(Double.self, forKey: .faceX) ?? fallback.faceX
         faceY = try box.decodeIfPresent(Double.self, forKey: .faceY) ?? fallback.faceY
+        selectX = try box.decodeIfPresent(Double.self, forKey: .selectX) ?? fallback.selectX
+        selectY = try box.decodeIfPresent(Double.self, forKey: .selectY) ?? fallback.selectY
+        startX = try box.decodeIfPresent(Double.self, forKey: .startX) ?? fallback.startX
+        startY = try box.decodeIfPresent(Double.self, forKey: .startY) ?? fallback.startY
     }
 
     /// Written out rather than synthesized, only so that the encoded shape and the forgiving
@@ -651,9 +664,13 @@ struct TouchLayout: Sendable, Equatable, Codable {
         try box.encode(dpadY, forKey: .dpadY)
         try box.encode(faceX, forKey: .faceX)
         try box.encode(faceY, forKey: .faceY)
+        try box.encode(selectX, forKey: .selectX)
+        try box.encode(selectY, forKey: .selectY)
+        try box.encode(startX, forKey: .startX)
+        try box.encode(startY, forKey: .startY)
     }
 
-    /// The bytes to hand UserDefaults. Nil only if encoding six finite doubles somehow fails,
+    /// The bytes to hand UserDefaults. Nil only if encoding the layout somehow fails,
     /// which the caller treats as "do not write" rather than as "store nothing": clearing the key
     /// on a failed encode would silently reset a layout the user can still see on screen.
     var storedRepresentation: Data? {
@@ -699,6 +716,8 @@ struct TouchLayout: Sendable, Equatable, Codable {
         var out = sanitised
         out.dpadX = Self.rounded(1.0 - out.dpadX)
         out.faceX = Self.rounded(1.0 - out.faceX)
+        out.selectX = Self.rounded(1.0 - out.selectX)
+        out.startX = Self.rounded(1.0 - out.startX)
         return out.sanitised
     }
 
@@ -716,7 +735,11 @@ struct TouchLayout: Sendable, Equatable, Codable {
             dpadX: Self.clamp(dpadX, Self.minX, Self.maxX, Self.standard.dpadX),
             dpadY: Self.clamp(dpadY, Self.minY, Self.maxY, Self.standard.dpadY),
             faceX: Self.clamp(faceX, Self.minX, Self.maxX, Self.standard.faceX),
-            faceY: Self.clamp(faceY, Self.minY, Self.maxY, Self.standard.faceY)
+            faceY: Self.clamp(faceY, Self.minY, Self.maxY, Self.standard.faceY),
+            selectX: Self.clamp(selectX, Self.minX, Self.maxX, Self.standard.selectX),
+            selectY: Self.clamp(selectY, Self.minY, Self.maxY, Self.standard.selectY),
+            startX: Self.clamp(startX, Self.minX, Self.maxX, Self.standard.startX),
+            startY: Self.clamp(startY, Self.minY, Self.maxY, Self.standard.startY)
         )
     }
 
@@ -950,6 +973,14 @@ final class TouchControlsView: UIView {
     private static let bandFractionPortrait: CGFloat = 0.44
     private static let bandFractionLandscape: CGFloat = 0.94
 
+    /// Minimum fraction of the view height reserved for the picture in portrait.
+    ///
+    /// The pad used to fall back to drawing the game full-height whenever the topmost control
+    /// left less than 20 percent free (reported as "controls reach 188 points from the top of
+    /// 956"). That fallback put controls on top of the game. Clamping every control into the
+    /// band below this floor keeps a usable strip clear by construction instead.
+    private static let minClearPortraitFraction: CGFloat = 0.28
+
     /// Breathing room inside the safe area, so nothing sits against a rounded corner.
     private static let edgeMargin: CGFloat = 10
 
@@ -1079,15 +1110,17 @@ final class TouchControlsView: UIView {
     /// is therefore the only reliable way to know which finger let go of what.
     private var grabs: [ObjectIdentifier: Grab] = [:]
 
-    /// Which of the two movable groups a drag is carrying.
+    /// Which outlined control a drag is carrying.
     ///
-    /// Two, and not one per control. The layout is six numbers and four of them are the two cluster
-    /// positions, so a cluster is the smallest thing a drag can honestly move: offering to drag a
-    /// single face button would promise a per-control layout that the value cannot express and the
-    /// pad would snap back from.
+    /// The two thumb clusters still move as groups (D-pad with its left shoulders, face buttons
+    /// with their right shoulders), because those share one anchor each in the layout. SELECT and
+    /// START each have their own stored centre, so each gets its own target rather than riding
+    /// along with a cluster they no longer belong to.
     private enum DragTarget {
         case dpad
         case face
+        case select
+        case start
     }
 
     /// One cluster being dragged, and enough to finish the drag without re-deriving anything.
@@ -1119,6 +1152,8 @@ final class TouchControlsView: UIView {
     /// so entering it cannot be the moment a view allocation goes wrong.
     private let dpadHandle = ClusterHandle(title: "D-PAD")
     private let faceHandle = ClusterHandle(title: "BUTTONS")
+    private let selectHandle = ClusterHandle(title: "SELECT")
+    private let startHandle = ClusterHandle(title: "START")
 
     /// Hit rectangles in this view's coordinate space, rebuilt on every layout.
     private var chipRects: [CGRect] = []
@@ -1132,10 +1167,14 @@ final class TouchControlsView: UIView {
     private var editPlayArea: CGRect = .zero
     private var dpadCentreNow: CGPoint = .zero
     private var faceCentreNow: CGPoint = .zero
+    private var selectCentreNow: CGPoint = .zero
+    private var startCentreNow: CGPoint = .zero
 
-    /// The two draggable groups as laid out: a cluster plus the shoulders anchored to it.
+    /// The draggable groups as laid out: thumb clusters plus shoulders, and each system pill alone.
     private var dpadGroupRect: CGRect = .zero
     private var faceGroupRect: CGRect = .zero
+    private var selectGroupRect: CGRect = .zero
+    private var startGroupRect: CGRect = .zero
 
     /// The frame the render loop reads. Recomputed from `grabs` on every touch event, never
     /// mutated incrementally, so two fingers on one button, a cancelled touch and a gesture
@@ -1172,7 +1211,7 @@ final class TouchControlsView: UIView {
         addSubview(dpad)
         // Added once, in front of everything, and hidden until the editor asks for them. `rebuild`
         // re-fronts them because it adds new chips above whatever was already there.
-        for handle in [dpadHandle, faceHandle] {
+        for handle in [dpadHandle, faceHandle, selectHandle, startHandle] {
             handle.isHidden = true
             addSubview(handle)
         }
@@ -1213,6 +1252,8 @@ final class TouchControlsView: UIView {
         clusterDrag = nil
         dpadHandle.setActive(false)
         faceHandle.setActive(false)
+        selectHandle.setActive(false)
+        startHandle.setActive(false)
         recompute()
     }
 
@@ -1240,6 +1281,8 @@ final class TouchControlsView: UIView {
         // The outlines stay in front of everything, including the chips just added.
         bringSubviewToFront(dpadHandle)
         bringSubviewToFront(faceHandle)
+        bringSubviewToFront(selectHandle)
+        bringSubviewToFront(startHandle)
         // New chips arrive fully opaque, so the previewed opacity has to be re-applied to them.
         applyOpacity()
         recompute()
@@ -1295,12 +1338,16 @@ final class TouchControlsView: UIView {
             editPlayArea = .zero
             dpadGroupRect = .zero
             faceGroupRect = .zero
+            selectGroupRect = .zero
+            startGroupRect = .zero
             // The touch screen is in the same position, for the same reason: a stylus answered
             // from a rect this pass just decided does not exist would be reporting a press at a
             // coordinate derived from a layout that is gone.
             clearTouchScreenRect()
             dpadHandle.isHidden = true
             faceHandle.isHidden = true
+            selectHandle.isHidden = true
+            startHandle.isHidden = true
             report("touch controls: no room to lay out, play area is "
                    + "\(Int(play.width))x\(Int(play.height))")
             return
@@ -1309,47 +1356,54 @@ final class TouchControlsView: UIView {
         let landscape = bounds.width > bounds.height
         let unit = self.unit(in: play, landscape: landscape)
         let faceExtent = self.faceHalfExtent()
-        let hasSystemRow = system.controls.contains { $0.cluster == .system }
 
-        // WHERE SELECT AND START GO IS ORIENTATION DEPENDENT, and that is what keeps the picture
-        // clear in both.
-        //
-        // In PORTRAIT they sit in their own band along the bottom, and the thumb clusters are
-        // clamped ABOVE it. Two disjoint bands makes "the system row cannot collide with a
-        // cluster" true by construction rather than by luck, and the picture then takes the whole
-        // area above the controls.
-        //
-        // In LANDSCAPE that same bottom band would run straight through the middle of the screen,
-        // which is where the game is. So SELECT goes under the D-pad and START under the face
-        // buttons, both inside their own column, leaving a clear column down the centre for the
-        // picture.
-        let systemBandHeight = (hasSystemRow && !landscape)
-            ? Self.systemSize.height * unit + 0.5 * unit
-            : 0
-        let clusterArea = CGRect(x: play.minX, y: play.minY,
+        // PORTRAIT keeps a clear strip for the game above every control. SELECT and START are no
+        // longer pinned to a reserved bottom row; they use the same play-area fractions as the
+        // thumb clusters. Without a floor the shoulders of a low cluster used to climb inside the
+        // top fifth of a tall phone and the picture publisher fell back to full-height draw.
+        let clearTop = landscape ? 0 : play.height * Self.minClearPortraitFraction
+        let controlArea = CGRect(x: play.minX, y: play.minY + clearTop,
                                  width: play.width,
-                                 height: max(0, play.height - systemBandHeight))
+                                 height: max(0, play.height - clearTop))
 
         let dpadHalf = Self.dpadSpan * unit / 2
         // In landscape the clusters sit higher in their columns, because a landscape grip puts the
-        // thumbs at the middle of the edge rather than at the bottom corner, and because the
-        // column has to hold a shoulder above and a system pill below.
+        // thumbs at the middle of the edge rather than at the bottom corner.
         let live = layout.sanitised
         let clusterY: CGFloat? = landscape ? Self.landscapeClusterY : nil
+        // Shoulder stacks hang ABOVE the cluster centres. Count them into the top half-extent so
+        // clamping into `controlArea` keeps the whole group under the portrait clear strip, not
+        // just the D-pad / face diamond.
+        let leftShoulderRows = CGFloat(
+            system.controls.filter { $0.cluster == .shoulderLeft }.count
+        )
+        let rightShoulderRows = CGFloat(
+            system.controls.filter { $0.cluster == .shoulderRight }.count
+        )
+        let dpadTopExtent = dpadHalf + (leftShoulderRows > 0
+            ? (leftShoulderRows * 1.3 + 0.45) * unit
+            : 0)
+        let faceTopExtent = faceExtent.height * unit + (rightShoulderRows > 0
+            ? (rightShoulderRows * 1.3 + 0.45) * unit
+            : 0)
         let dpadCentre = clampedCentre(
             fractionX: CGFloat(live.dpadX), fractionY: clusterY ?? CGFloat(live.dpadY),
-            halfWidth: dpadHalf, halfHeight: dpadHalf,
-            into: clusterArea, wholePlayArea: play
+            halfWidth: dpadHalf,
+            halfHeightTop: dpadTopExtent, halfHeightBottom: dpadHalf,
+            into: controlArea, wholePlayArea: play
         )
         let faceCentre = clampedCentre(
             fractionX: CGFloat(live.faceX), fractionY: clusterY ?? CGFloat(live.faceY),
-            halfWidth: faceExtent.width * unit, halfHeight: faceExtent.height * unit,
-            into: clusterArea, wholePlayArea: play
+            halfWidth: faceExtent.width * unit,
+            halfHeightTop: faceTopExtent, halfHeightBottom: faceExtent.height * unit,
+            into: controlArea, wholePlayArea: play
         )
 
         dpadRect = CGRect(x: dpadCentre.x - dpadHalf, y: dpadCentre.y - dpadHalf,
                           width: dpadHalf * 2, height: dpadHalf * 2)
+        dpadRect = Self.clamp(dpadRect, into: landscape ? play : controlArea)
         dpad.frame = dpadRect
+        dpadCentreNow = CGPoint(x: dpadRect.midX, y: dpadRect.midY)
 
         // Shoulders are anchored to the cluster they belong with, above it, so they travel with it
         // and can never land on top of it.
@@ -1363,6 +1417,8 @@ final class TouchControlsView: UIView {
                 - (Self.shoulderSize.height / 2 + 0.45) * unit
         )
 
+        selectCentreNow = .zero
+        startCentreNow = .zero
         chipRects = []
         chipRects.reserveCapacity(chips.count)
         for chip in chips {
@@ -1381,38 +1437,40 @@ final class TouchControlsView: UIView {
                 centre = CGPoint(x: shoulderRightAnchor.x + control.offset.x * unit,
                                  y: shoulderRightAnchor.y + control.offset.y * unit)
             case .system:
-                if landscape {
-                    // SELECT to the D-pad's column, everything else (START) to the face column.
-                    // The control's own offset is ignored here on purpose: those offsets describe
-                    // the portrait row and would push a pill out of its column.
-                    let inLeftColumn = control.slot == .select
-                    let columnX = inLeftColumn ? dpadCentre.x : faceCentre.x
-                    let columnBottom = inLeftColumn
-                        ? dpadCentre.y + dpadHalf
-                        : faceCentre.y + faceExtent.height * unit
-                    centre = CGPoint(
-                        x: columnX,
-                        y: columnBottom + (Self.systemSize.height / 2 + 0.45) * unit
-                    )
-                } else {
-                    centre = CGPoint(x: play.midX + control.offset.x * unit,
-                                     y: play.maxY - Self.systemSize.height * unit / 2
-                                        + control.offset.y * unit)
-                }
+                // Each system pill has its own stored centre. Offsets on the template are ignored:
+                // they described the old fixed bottom row and would fight the editable position.
+                let isSelect = control.slot == .select
+                let halfW = size.width / 2
+                let halfH = size.height / 2
+                centre = clampedCentre(
+                    fractionX: CGFloat(isSelect ? live.selectX : live.startX),
+                    fractionY: CGFloat(isSelect ? live.selectY : live.startY),
+                    halfWidth: halfW,
+                    halfHeightTop: halfH, halfHeightBottom: halfH,
+                    into: controlArea, wholePlayArea: play
+                )
             }
 
             var rect = CGRect(x: centre.x - size.width / 2, y: centre.y - size.height / 2,
                               width: size.width, height: size.height)
-            // The last line of defence: whatever the arithmetic produced, it ends up on screen.
-            rect = Self.clamp(rect, into: play)
+            // Last line of defence: stay on screen, and in portrait stay out of the game strip.
+            rect = Self.clamp(rect, into: landscape ? play : controlArea)
             chip.frame = rect
             chipRects.append(rect)
+            if control.cluster == .system {
+                let mid = CGPoint(x: rect.midX, y: rect.midY)
+                if control.slot == .select {
+                    selectCentreNow = mid
+                } else {
+                    startCentreNow = mid
+                }
+            }
         }
 
         // Recorded from the values this pass actually used, so a drag inverts the same mapping
         // rather than a second copy of it.
         editPlayArea = play
-        dpadCentreNow = dpadCentre
+        // dpadCentreNow already recorded from the clamped dpad rect above.
         faceCentreNow = faceCentre
         layoutHandles()
 
@@ -1422,24 +1480,23 @@ final class TouchControlsView: UIView {
 
     /// Works out what each drag would carry, and outlines it.
     ///
-    /// The two groups are gathered by the ANCHOR each control was positioned from just above, not
-    /// by the cluster's name, which is what keeps an outline from ever including a control that
-    /// travels with the other cluster. So the left shoulders belong to the D-pad group because they
-    /// hang off `dpadCentre`, and the right shoulders belong to the face group for the same reason.
-    ///
-    /// SELECT and START are in neither, deliberately. Neither of their positions comes from the six
-    /// numbers this editor writes: in portrait the row is pinned to the bottom centre of the play
-    /// area, and in landscape each pill is stacked under whichever column it belongs to. Putting
-    /// them inside a grab area would promise a move that cannot happen.
+    /// Thumb groups are gathered by the ANCHOR each control was positioned from just above, not by
+    /// the cluster's name, which is what keeps an outline from ever including a control that
+    /// travels with the other cluster. SELECT and START each get their own outline from their chip
+    /// rect, because each has its own stored centre now.
     private func layoutHandles() {
         guard isEditing else {
             dpadHandle.isHidden = true
             faceHandle.isHidden = true
+            selectHandle.isHidden = true
+            startHandle.isHidden = true
             return
         }
 
         var dpadGroup = dpadRect
         var faceGroup: CGRect?
+        var selectGroup: CGRect?
+        var startGroup: CGRect?
         for (index, rect) in chipRects.enumerated() where index < chips.count {
             switch chips[index].control.cluster {
             case .shoulderLeft:
@@ -1447,17 +1504,27 @@ final class TouchControlsView: UIView {
             case .dpad, .face, .shoulderRight:
                 faceGroup = faceGroup.map { $0.union(rect) } ?? rect
             case .system:
-                break
+                if chips[index].control.slot == .select {
+                    selectGroup = selectGroup.map { $0.union(rect) } ?? rect
+                } else {
+                    startGroup = startGroup.map { $0.union(rect) } ?? rect
+                }
             }
         }
 
         dpadGroupRect = dpadGroup
         faceGroupRect = faceGroup ?? .zero
+        selectGroupRect = selectGroup ?? .zero
+        startGroupRect = startGroup ?? .zero
 
         dpadHandle.isHidden = dpadGroupRect.isEmpty
         dpadHandle.frame = Self.clamp(Self.grown(dpadGroupRect), into: bounds)
         faceHandle.isHidden = faceGroupRect.isEmpty
         faceHandle.frame = Self.clamp(Self.grown(faceGroupRect), into: bounds)
+        selectHandle.isHidden = selectGroupRect.isEmpty
+        selectHandle.frame = Self.clamp(Self.grown(selectGroupRect), into: bounds)
+        startHandle.isHidden = startGroupRect.isEmpty
+        startHandle.frame = Self.clamp(Self.grown(startGroupRect), into: bounds)
     }
 
     /// A group rectangle grown into the area its outline occupies and responds over.
@@ -1504,16 +1571,17 @@ final class TouchControlsView: UIView {
             }
         } else {
             let topEdge = occupied.map(\.minY).min() ?? bounds.maxY
-            let height = topEdge - bounds.minY
-            if height < bounds.height * 0.2 {
-                report("touch layout: no clear band for the picture in portrait, "
-                       + "the controls reach \(Int(height)) points from the top of "
-                       + "\(Int(bounds.height)); drawing full height instead")
-                area = bounds
-            } else {
-                area = CGRect(x: bounds.minX, y: bounds.minY,
-                              width: bounds.width, height: height)
+            let natural = topEdge - bounds.minY
+            // Never fall back to full-height draw: that was the failure mode that put controls on
+            // the game. Prefer the reserved clear strip, even if a layout somehow still crowded it.
+            let floor = bounds.height * Self.minClearPortraitFraction
+            let height = max(natural, floor)
+            if natural < floor {
+                report("touch layout: portrait clear band forced to \(Int(floor)) of "
+                       + "\(Int(bounds.height)) points; controls reached \(Int(natural)) from top")
             }
+            area = CGRect(x: bounds.minX, y: bounds.minY,
+                          width: bounds.width, height: min(height, bounds.height))
         }
         updateTouchScreenRect(in: area)
         deliverPictureArea(area)
@@ -1645,21 +1713,26 @@ final class TouchControlsView: UIView {
         }
     }
 
-    /// A cluster centre from its two fractions, pulled back until the cluster fits.
+    /// A control centre from its two fractions, pulled back until the control fits.
     ///
-    /// `wholePlayArea` is passed separately so a cluster that cannot fit inside the reduced
-    /// cluster area at all still lands somewhere legal instead of being pinned to a negative
-    /// height rectangle.
+    /// Top and bottom half-extents are separate so a shoulder stack above a cluster can reserve
+    /// more room above the centre than below it, which is what keeps the portrait clear strip
+    /// free of controls rather than only free of cluster centres.
+    ///
+    /// `wholePlayArea` is passed separately so a control that cannot fit inside the reduced area
+    /// at all still lands somewhere legal instead of being pinned to a negative height rectangle.
     private func clampedCentre(fractionX: CGFloat, fractionY: CGFloat,
-                               halfWidth: CGFloat, halfHeight: CGFloat,
+                               halfWidth: CGFloat,
+                               halfHeightTop: CGFloat, halfHeightBottom: CGFloat,
                                into area: CGRect, wholePlayArea: CGRect) -> CGPoint {
-        let target = area.height >= halfHeight * 2 ? area : wholePlayArea
+        let need = halfHeightTop + halfHeightBottom
+        let target = area.height >= need ? area : wholePlayArea
         let x = min(max(wholePlayArea.minX + wholePlayArea.width * fractionX,
                         target.minX + halfWidth),
                     max(target.minX + halfWidth, target.maxX - halfWidth))
         let y = min(max(wholePlayArea.minY + wholePlayArea.height * fractionY,
-                        target.minY + halfHeight),
-                    max(target.minY + halfHeight, target.maxY - halfHeight))
+                        target.minY + halfHeightTop),
+                    max(target.minY + halfHeightTop, target.maxY - halfHeightBottom))
         return CGPoint(x: x, y: y)
     }
 
@@ -1820,18 +1893,24 @@ final class TouchControlsView: UIView {
     /// centre: it has to resolve the SAME way every time, because a grab that picked a different
     /// cluster on each attempt would read as the editor ignoring the finger.
     private func dragTarget(at point: CGPoint) -> DragTarget? {
-        let dpadArea = Self.grown(dpadGroupRect)
-        let faceArea = Self.grown(faceGroupRect)
-        let inDpad = !dpadGroupRect.isEmpty && dpadArea.contains(point)
-        let inFace = !faceGroupRect.isEmpty && faceArea.contains(point)
-        if inDpad && inFace {
-            let toDpad = Self.distanceSquared(from: point, to: dpadCentreNow)
-            let toFace = Self.distanceSquared(from: point, to: faceCentreNow)
-            return toDpad <= toFace ? .dpad : .face
+        var hits: [(DragTarget, CGPoint)] = []
+        if !dpadGroupRect.isEmpty, Self.grown(dpadGroupRect).contains(point) {
+            hits.append((.dpad, dpadCentreNow))
         }
-        if inDpad { return .dpad }
-        if inFace { return .face }
-        return nil
+        if !faceGroupRect.isEmpty, Self.grown(faceGroupRect).contains(point) {
+            hits.append((.face, faceCentreNow))
+        }
+        if !selectGroupRect.isEmpty, Self.grown(selectGroupRect).contains(point) {
+            hits.append((.select, selectCentreNow))
+        }
+        if !startGroupRect.isEmpty, Self.grown(startGroupRect).contains(point) {
+            hits.append((.start, startCentreNow))
+        }
+        guard let first = hits.first else { return nil }
+        return hits.dropFirst().reduce(first) { best, next in
+            Self.distanceSquared(from: point, to: next.1)
+                < Self.distanceSquared(from: point, to: best.1) ? next : best
+        }.0
     }
 
     /// Squared, because only the comparison is needed and a square root would add nothing but a
@@ -1957,7 +2036,13 @@ final class TouchControlsView: UIView {
         for touch in touches {
             let point = touch.location(in: self)
             guard let target = dragTarget(at: point) else { continue }
-            let centre = target == .dpad ? dpadCentreNow : faceCentreNow
+            let centre: CGPoint
+            switch target {
+            case .dpad: centre = dpadCentreNow
+            case .face: centre = faceCentreNow
+            case .select: centre = selectCentreNow
+            case .start: centre = startCentreNow
+            }
             clusterDrag = ClusterDrag(
                 touch: ObjectIdentifier(touch),
                 target: target,
@@ -2001,21 +2086,20 @@ final class TouchControlsView: UIView {
     private func setActiveHandle(_ target: DragTarget?) {
         dpadHandle.setActive(target == .dpad)
         faceHandle.setActive(target == .face)
+        selectHandle.setActive(target == .select)
+        startHandle.setActive(target == .start)
     }
 
-    /// The layout that would put one cluster's centre at this point.
+    /// The layout that would put one control's centre at this point.
     ///
     /// Inverts the layout pass exactly: a fraction is measured against `editPlayArea`, which is the
-    /// same rectangle `clampedCentre` multiplies its fractions by. The result is sanitised, so the
-    /// six numbers a drag can produce are a subset of the six the pad accepts, and the editor
-    /// cannot express an arrangement the pad would then refuse.
+    /// same rectangle `clampedCentre` multiplies its fractions by. The result is sanitised, so a
+    /// drag cannot express an arrangement the pad would then refuse.
     ///
-    /// LANDSCAPE WRITES ONLY X, and that is not an oversight. The layout pass overrides both
-    /// clusters' y with `landscapeClusterY` when the screen is wider than it is tall, because a
-    /// sideways grip puts the thumbs at the middle of the long edge rather than at the bottom
-    /// corners. Writing y there would store a number with no visible effect, which is the same
-    /// dishonesty as a control that does nothing: the finger would move and the cluster would not.
-    /// The stored y still applies in portrait, so it is left untouched rather than zeroed.
+    /// LANDSCAPE WRITES ONLY X for the thumb clusters, and that is not an oversight. The layout
+    /// pass overrides both clusters' y with `landscapeClusterY` when the screen is wider than it
+    /// is tall. Writing y there would store a number with no visible effect. SELECT and START are
+    /// free in both orientations, so both axes are written for them.
     private func layoutMovingCentre(of target: DragTarget, to point: CGPoint) -> TouchLayout {
         var next = layout.sanitised
         let area = editPlayArea
@@ -2032,6 +2116,12 @@ final class TouchControlsView: UIView {
         case .face:
             next.faceX = fractionX
             if !landscape { next.faceY = fractionY }
+        case .select:
+            next.selectX = fractionX
+            next.selectY = fractionY
+        case .start:
+            next.startX = fractionX
+            next.startY = fractionY
         }
         return next.sanitised
     }

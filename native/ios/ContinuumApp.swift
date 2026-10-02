@@ -2390,7 +2390,7 @@ final class EngineHost: ObservableObject {
 
     /// The on-screen pad's arrangement in one line, for the Settings row that opens the editor.
     ///
-    /// Says "default" when it is the shipped one rather than printing the same six numbers a fresh
+    /// Says "default" when it is the shipped one rather than printing the same numbers a fresh
     /// install would, because the useful question that row answers is whether anything has been
     /// changed. The numbers are still spelled out once it has been, since they are what persists and
     /// they are the only way to tell two similar arrangements apart.
@@ -2401,8 +2401,11 @@ final class EngineHost: ObservableObject {
         guard !live.isStandard else {
             return "default: size \(size), opacity \(opacity)"
         }
-        let positions = String(format: "d-pad %.2f, %.2f  buttons %.2f, %.2f",
-                               live.dpadX, live.dpadY, live.faceX, live.faceY)
+        let positions = String(
+            format: "d-pad %.2f,%.2f  buttons %.2f,%.2f  select %.2f,%.2f  start %.2f,%.2f",
+            live.dpadX, live.dpadY, live.faceX, live.faceY,
+            live.selectX, live.selectY, live.startX, live.startY
+        )
         return "size \(size), opacity \(opacity), \(positions)"
     }
 
