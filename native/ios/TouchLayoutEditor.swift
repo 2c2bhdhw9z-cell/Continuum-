@@ -1,9 +1,10 @@
 // Continuum - the on-screen control layout editor.
 //
 // Shows the REAL pad (`TouchControlsHost` with `isEditing` true) so what you drag is what you get.
-// Thumb clusters move as groups; SELECT and START each have their own stored centre and outline.
-// Every value goes through `TouchLayout.sanitised` before commit. Landscape still overrides thumb
-// cluster y (thumbs sit mid-edge); SELECT/START stay free in both orientations.
+// Every face button, shoulder (L/R/L1/L2/R1/R2), and SELECT/START has its own outline and drag.
+// The D-pad stays one surface. Preview remounts on console change so labels match that system.
+// Every value goes through `TouchLayout.sanitised` before commit. Landscape still overrides D-pad
+// y (thumbs sit mid-edge); free buttons and SELECT/START stay free in both orientations.
 
 import SwiftUI
 
@@ -96,6 +97,9 @@ struct TouchLayoutEditor: View {
                 DispatchQueue.main.async { self.overlapWarning = line }
             }
         )
+        // Remount when the preview console changes so chip labels and outlines cannot keep a
+        // previous system's names (e.g. Triangle/Square stuck after switching off PS1).
+        .id(previewSystem)
         .ignoresSafeArea()
     }
 

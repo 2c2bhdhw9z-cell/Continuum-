@@ -2401,12 +2401,14 @@ final class EngineHost: ObservableObject {
         guard !live.isStandard else {
             return "default: size \(size), opacity \(opacity)"
         }
+        let freeCount = live.buttonFrees.count
+        let freeBit = freeCount == 0 ? "" : ", \(freeCount) free"
         let positions = String(
             format: "d-pad %.2f,%.2f  buttons %.2f,%.2f  select %.2f,%.2f  start %.2f,%.2f",
             live.dpadX, live.dpadY, live.faceX, live.faceY,
             live.selectX, live.selectY, live.startX, live.startY
         )
-        return "size \(size), opacity \(opacity), \(positions)"
+        return "size \(size), opacity \(opacity), \(positions)\(freeBit)"
     }
 
     /// The thin strip on the player screen.
