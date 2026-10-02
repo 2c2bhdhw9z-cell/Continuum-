@@ -28,6 +28,7 @@ use crate::audio::AudioSink;
 use crate::error::BridgeError;
 use crate::frame::{FrameView, PixelFormat};
 use crate::gfx::hw::{classify_video_refresh, VideoRefreshKind};
+use crate::gfx::vulkan_hw;
 use crate::input::InputSnapshot;
 
 // ---------------------------------------------------------------- libretro ABI
@@ -268,6 +269,10 @@ fn take_negotiated_format() -> Option<PixelFormat> {
 /// the option/descriptor/geometry/message families that a core announces but a minimal
 /// host need only tolerate.
 unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
+    // Step 4: Vulkan SET_HW_RENDER / GET_HW_RENDER_INTERFACE / preferred / negotiation.
+    if let Some(handled) = unsafe { vulkan_hw::try_environment(cmd, data) } {
+        return handled;
+    }
     match cmd {
         ENV_GET_SYSTEM_DIRECTORY | ENV_GET_SAVE_DIRECTORY => {
             let guard = match DIRECTORIES.lock() {
@@ -717,6 +722,9 @@ impl NativeLibretroCore {
         // melonDS reads `melonds_touch_mode` from `check_variables` during `retro_load_game`, not
         // here. See the note there.
         install_options(&descriptor.id);
+
+        // Fresh HW-render negotiation per core load.
+        vulkan_hw::reset();
 
         // Order matters and is specified by libretro: the environment callback must be
         // installed before `retro_init`, because cores query it during
@@ -1468,5 +1476,74 @@ mod tests {
         assert_eq!(path.extension, "bin");
         assert_eq!(path.name, "Crash");
         assert_eq!(path.full_path.as_deref(), Some("/var/mobile/roms/Crash.bin"));
+    }
+
+    #[test]
+    fn set_hw_render_vulkan_is_accepted_through_environment() {
+        vulkan_hw::reset();
+        let mut callback = crate::gfx::vulkan_hw::RetroHwRenderCallback {
+            context_type: crate::gfx::hw::HwContextType::Vulkan as u32,
+            context_reset: None,
+            get_current_framebuffer: None,
+            get_proc_address: None,
+            depth: true,
+            stencil: false,
+            bottom_left_origin: false,
+            version_major: 1,
+            version_minor: 1,
+            cache_context: false,
+            context_destroy: None,
+            debug_context: false,
+        };
+        let ok = unsafe {
+            on_environment(
+                crate::gfx::vulkan_hw::ENV_SET_HW_RENDER,
+                &mut callback as *mut _ as *mut c_void,
+            )
+        };
+        assert!(ok, "Vulkan SET_HW_RENDER must be accepted by the native host");
+        assert!(callback.get_current_framebuffer.is_some());
+        assert!(callback.get_proc_address.is_some());
+        vulkan_hw::reset();
+    }
+
+    #[test]
+    fn set_hw_render_gl_is_refused_through_environment() {
+        vulkan_hw::reset();
+        let mut callback = crate::gfx::vulkan_hw::RetroHwRenderCallback {
+            context_type: crate::gfx::hw::HwContextType::OpenGlEs3 as u32,
+            context_reset: None,
+            get_current_framebuffer: None,
+            get_proc_address: None,
+            depth: false,
+            stencil: false,
+            bottom_left_origin: true,
+            version_major: 3,
+            version_minor: 0,
+            cache_context: false,
+            context_destroy: None,
+            debug_context: false,
+        };
+        let ok = unsafe {
+            on_environment(
+                crate::gfx::vulkan_hw::ENV_SET_HW_RENDER,
+                &mut callback as *mut _ as *mut c_void,
+            )
+        };
+        assert!(!ok, "GL SET_HW_RENDER must be refused (Vulkan-only frontend)");
+        vulkan_hw::reset();
+    }
+
+    #[test]
+    fn preferred_hw_render_is_vulkan_through_environment() {
+        let mut value: c_uint = 0;
+        let ok = unsafe {
+            on_environment(
+                crate::gfx::vulkan_hw::ENV_GET_PREFERRED_HW_RENDER,
+                &mut value as *mut c_uint as *mut c_void,
+            )
+        };
+        assert!(ok);
+        assert_eq!(value, crate::gfx::hw::HwContextType::Vulkan as c_uint);
     }
 }

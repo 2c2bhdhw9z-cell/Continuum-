@@ -4,6 +4,7 @@
 mod convert;
 pub mod hw;
 pub mod moltenvk;
+pub mod vulkan_hw;
 mod renderer;
 
 /// Metal surface construction and `MTLDevice` hand-off. iOS and macOS only.
