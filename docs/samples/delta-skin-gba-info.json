@@ -1,0 +1,69 @@
+{
+  "name": "Continuum sample GBA",
+  "identifier": "dev.continuum.sample.gba",
+  "gameTypeIdentifier": "com.rileytestut.delta.game.gba",
+  "debug": false,
+  "representations": {
+    "iphone": {
+      "edgeToEdge": {
+        "portrait": {
+          "assets": {
+            "resizable": "placeholder.pdf"
+          },
+          "mappingSize": {
+            "width": 414,
+            "height": 896
+          },
+          "extendedEdges": {
+            "top": 8,
+            "bottom": 8,
+            "left": 8,
+            "right": 8
+          },
+          "translucent": false,
+          "items": [
+            {
+              "inputs": {
+                "up": "up",
+                "down": "down",
+                "left": "left",
+                "right": "right"
+              },
+              "frame": { "x": 28, "y": 620, "width": 120, "height": 120 }
+            },
+            {
+              "inputs": ["b"],
+              "frame": { "x": 270, "y": 650, "width": 52, "height": 52 }
+            },
+            {
+              "inputs": ["a"],
+              "frame": { "x": 330, "y": 610, "width": 52, "height": 52 }
+            },
+            {
+              "inputs": ["l"],
+              "frame": { "x": 24, "y": 520, "width": 90, "height": 36 }
+            },
+            {
+              "inputs": ["r"],
+              "frame": { "x": 300, "y": 520, "width": 90, "height": 36 }
+            },
+            {
+              "inputs": ["select"],
+              "frame": { "x": 130, "y": 780, "width": 64, "height": 28 }
+            },
+            {
+              "inputs": ["start"],
+              "frame": { "x": 220, "y": 780, "width": 64, "height": 28 }
+            }
+          ],
+          "screens": [
+            {
+              "inputFrame": { "x": 0, "y": 0, "width": 240, "height": 160 },
+              "outputFrame": { "x": 47, "y": 120, "width": 320, "height": 213 }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

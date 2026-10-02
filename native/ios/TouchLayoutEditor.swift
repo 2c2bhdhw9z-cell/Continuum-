@@ -5,6 +5,9 @@
 // The D-pad stays one surface. Preview remounts on console change so labels match that system.
 // Every value goes through `TouchLayout.sanitised` before commit. Landscape still overrides D-pad
 // y (thumbs sit mid-edge); free buttons and SELECT/START stay free in both orientations.
+//
+// Import .deltaskin maps Delta info.json item frames onto that same free-drag layout. Skin art
+// is not drawn yet; cancel / empty pick fails with a panel message (see DeltaSkinImport.swift).
 
 import SwiftUI
 
@@ -24,6 +27,9 @@ struct TouchLayoutEditor: View {
     @State private var overlapWarning: String?
     @State private var panelExpanded = true
     @State private var input = PadInputSource()
+    @State private var skinMessage: String?
+    @State private var skinMessageIsError = false
+    @State private var skinPicker = DeltaSkinPicker()
 
     init(initialLayout: TouchLayout,
          onCommit: @escaping (TouchLayout) -> Void,
@@ -139,6 +145,12 @@ struct TouchLayoutEditor: View {
                             }
                             .disabled(draft.isStandard)
                             .opacity(draft.isStandard ? 0.45 : 1)
+                        }
+                        SettingsButton(title: "Import .deltaskin", role: .normal) {
+                            beginSkinImport()
+                        }
+                        if let skinMessage {
+                            skinBanner(skinMessage, isError: skinMessageIsError)
                         }
                         if let overlapWarning {
                             warning(overlapWarning)
@@ -317,6 +329,50 @@ struct TouchLayoutEditor: View {
 
     private var summaryLine: String {
         "size \(percent(draft.scale))  opacity \(percent(draft.opacity))"
+    }
+
+    private func skinBanner(_ text: String, isError: Bool) -> some View {
+        let tint = isError ? Color.red.opacity(0.85) : ShellPalette.accent
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(isError ? "SKIN IMPORT" : "SKIN")
+                .font(.system(size: 10, weight: .bold))
+                .tracking(1.1)
+                .foregroundStyle(tint)
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundStyle(Color.white.opacity(0.9))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(tint.opacity(0.14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(tint.opacity(0.55), lineWidth: 1)
+                )
+        )
+    }
+
+    private func beginSkinImport() {
+        skinMessage = "Pick a .deltaskin, .zip, or info.json…"
+        skinMessageIsError = false
+        skinPicker.present { result in
+            switch result {
+            case .success(let imported):
+                draft = imported.layout
+                commit(imported.layout)
+                if let system = imported.previewSystem {
+                    previewSystem = system
+                }
+                skinMessage = imported.summary
+                skinMessageIsError = false
+            case .failure(let error):
+                skinMessage = error.localizedDescription
+                skinMessageIsError = true
+            }
+        }
     }
 
     private func percent(_ value: Double) -> String {

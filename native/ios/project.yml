@@ -122,6 +122,10 @@ targets:
       # Without this line the button in Settings has nothing to open and the layout is fixed again,
       # with nothing anywhere to say why.
       - path: TouchLayoutEditor.swift
+      # Delta .deltaskin import: info.json parse, ZIP extract, map item frames onto TouchLayout,
+      # and the UIDocumentPicker entry the layout editor calls. WITHOUT THIS LINE the Import
+      # .deltaskin button compiles against missing types and the build breaks in TouchLayoutEditor.
+      - path: DeltaSkinImport.swift
       # The player screen's chrome, and the diagnostics panel both screens share.
       - path: PlayerScreen.swift
       # Stage 2, the library shell. The tab shell, the top bar, the hero and the shelves.
