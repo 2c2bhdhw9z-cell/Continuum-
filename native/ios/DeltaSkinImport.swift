@@ -481,7 +481,7 @@ enum ZipStore {
     static func data(forEntryNamed name: String, in archive: Data) throws -> Data? {
         for entry in try listEntries(in: archive) {
             if entry.name == name || entry.name.hasSuffix("/\(name)") {
-                return try inflate(entry, in: archive)
+                return try payload(for: entry, in: archive)
             }
         }
         return nil
@@ -493,7 +493,7 @@ enum ZipStore {
             $0.name.lowercased() == "info.json" || $0.name.lowercased().hasSuffix("/info.json")
         }
         guard let entry = matches.first else { return nil }
-        return try inflate(entry, in: archive)
+        return try payload(for: entry, in: archive)
     }
 
     private struct Entry {
@@ -617,7 +617,7 @@ enum ZipStore {
         return entries
     }
 
-    private static func inflate(_ entry: Entry, in archive: Data) throws -> Data {
+    private static func payload(for entry: Entry, in archive: Data) throws -> Data {
         let start = entry.dataOffset
         let end = start + Int(entry.compressedSize)
         guard start >= 0, end <= archive.count else {
@@ -639,12 +639,12 @@ enum ZipStore {
     /// fails on ordinary .deltaskin packs.
     private static func inflateRawDeflate(_ compressed: Data, expectedSize: Int) throws -> Data {
         var stream = z_stream()
-        let initStatus = inflateInit2_(&stream, -MAX_WBITS, ZLIB_VERSION,
+        let initStatus = zlib.inflateInit2_(&stream, -MAX_WBITS, ZLIB_VERSION,
                                        Int32(MemoryLayout<z_stream>.size))
         guard initStatus == Z_OK else {
             throw DeltaSkinImportError.unreadable("deflate init failed (\(initStatus))")
         }
-        defer { inflateEnd(&stream) }
+        defer { zlib.inflateEnd(&stream) }
 
         let capacity = max(expectedSize, 1)
         var out = Data(count: capacity)
@@ -667,7 +667,7 @@ enum ZipStore {
                     }
                     stream.next_out = dstBase.advanced(by: total)
                     stream.avail_out = uInt(out.count - total)
-                    let status = inflate(&stream, Z_NO_FLUSH)
+                    let status = zlib.inflate(&stream, Z_NO_FLUSH)
                     let produced = (out.count - total) - Int(stream.avail_out)
                     total += produced
                     if status == Z_STREAM_END {
