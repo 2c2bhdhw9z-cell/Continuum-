@@ -34,25 +34,25 @@ they live in [the road below](#the-road-to-the-rest-of-the-systems) rather than 
 | **Nintendo 64** | parallel_n64 | **Built, untested** | Software rasteriser and interpreter, so it needs NEITHER MoltenVK NOR JIT. **Expected to be slow**; that it runs at all was the question. `.n64`, `.z64`, `.v64` |
 | **TurboGrafx-16** | mednafen_pce_fast | **Built, untested** | HuCard games only. PC Engine CD needs a system card BIOS that cannot ship |
 | **Atari 2600** | stella2023 | **Built, untested** | `.a26` only. A 2600 ROM named `.bin` has to be renamed, because `.bin` belongs to the PlayStation here as a disc track |
-| **Nintendo DS** | melonDS | **Built, untested** | The core builds, links and ships, and every part of it including the touch screen is now wired end to end. **Nothing has booted on a device yet.** See the DS section below |
+| **Nintendo DS** | melonDS | **Done** | Confirmed on device (build 80): Mario Kart DS and Pokémon SoulSilver, dual screens live, ~60 fps, 0 dropped |
 
 ### Nintendo DS, in detail
 
-Broken out rather than left as one row, because "untested" hides how much of it is proven:
+Broken out rather than left as one row. Device-proven on build 80:
 
 | Piece | State |
 | --- | --- |
 | Core compiles and links for iOS arm64 | **Done**, 5.7 MB, and it exports `retro_run` |
 | Shipped in the `.ipa` | **Done** |
-| `.nds` recognised, imported and routed | **Built, untested** |
-| Both screens drawn | **Built, untested**. The framebuffer is 256x384, which is both screens already stacked, so the existing compositor should draw it with no changes |
-| Buttons, D-pad, L and R, Select and Start | **Built, untested** |
+| `.nds` recognised, imported and routed | **Done**. Mario Kart DS and SoulSilver imported and launched on device |
+| Both screens drawn | **Done**. Dual screens live in the player shots |
+| Buttons, D-pad, L and R, Select and Start | **Done**. Playable on device |
 | **Touch screen, engine side** | **Done**. `RETRO_DEVICE_POINTER` did not exist at all; it is now in the input layer, merged per source, exported as `applyPointer`, and covered by 8 unit tests |
-| **Touch screen, app side** | **Built, untested**. The pad owns the stylus, because it already owns touches and already knows where the picture is. The lower half of the picture is the digitiser; a touch is mapped through the letterboxed picture rect, so it lands under the finger rather than off by the thickness of the letterbox |
+| **Touch screen, app side** | **Done**. Stylus path used in play on device |
 | **Touch screen, switched on in the core** | **Done**. It was off: the core's touch mode starts at *disabled*, not at the mouse control it advertises, so the screen was dead inside the core regardless of what the app sent. Now answered explicitly, with tests |
 | Boots the cartridge rather than the firmware menu | **Done**. The same trap: *boot game directly* advertises enabled and starts off, which would have sent the core to a firmware menu that a generated firmware cannot launch a game from |
 | BIOS | **Answered, no files needed**. This build carries a FreeBIOS and generates a firmware when the dumps are absent. The three names stay declared so Settings still reports what it finds, and none is a fine answer |
-| Speed | **Unknown**. Software rendered and single threaded: the core has a threaded renderer option that is left off, so if the DS runs slow that is the first lever to pull |
+| Speed | **Done for the titles tried**. Mario Kart DS and SoulSilver held ~60 fps with 0 dropped on build 80 (software rendered, single threaded). Threaded renderer remains a lever if a heavier title is slow |
 
 ---
 
@@ -75,7 +75,7 @@ Broken out rather than left as one row, because "untested" hides how much of it 
 | Save states, slots, delete | **Done** | The slot list was reported failing on some games; that was a bug of mine and is fixed but not retested |
 | Auto-save and resume | **Done** | |
 | Cheats | **Done** | |
-| On-screen control layout editor | **Partial** | Reported not working three times. The panel is smaller now so it cannot cover the pad, and it shows a live drag counter to say whether touches are arriving at all. Waiting on that reading |
+| On-screen control layout editor | **Partial** | Drag is proven (`524 move(s), last released` on device). Still missing: Done → reopen must stick, and portrait still has no clear game band (`controls reach 188 pts from top of 956`, full-height draw). Old “touches dead ×3” report is stale |
 | Save state compatibility refusal | **Built, cannot be tested deliberately** | Only fires for a state from a different core or build |
 | Honouring what a core wants its content as | **Done** | Every core used to be handed a file path and no bytes. That worked for the first six by luck, and would have given Stella a zero-byte ROM, because it copies straight from the data pointer with no path fallback. The engine now reads what each core declares and loads the file when the core wants bytes, so the next such core needs no change |
 | File formats per system | **Done** | Every extension is now taken from the cores' own declared lists rather than a hand-written one. That added the two systems above plus `.smd`, `.swc`, `.fig`, `.unf`, `.unif`, `.sgb`, `.mdf` and `.toc`, which were being refused despite being supported |
