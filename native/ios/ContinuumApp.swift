@@ -231,6 +231,32 @@ enum CoreCatalog {
                     "scph1000.bin", "scph5500.bin", "scph5502.bin"]
     )
 
+    /// Beetle PSX HW — step 4 SET_HW_RENDER Vulkan proof core.
+    ///
+    /// Soft PCSX ReARMed stays the default PlayStation route. This dylib ships in the IPA so a
+    /// Mac/CI build can exercise the Vulkan HW path; Settings → PlayStation core switches
+    /// launches here. Same BIOS names as PCSX; Beetle expects a real BIOS (no HLE fallback
+    /// like ReARMed). Geometry seed matches the soft path; the HW renderer will renegotiate
+    /// through SET_HW_RENDER once the MoltenVK context is live on device.
+    ///
+    /// Priority lower than everyday soft cores on purpose: registry order must not steal PS1
+    /// from PCSX when no Settings override is set. File extensions still route to pcsx_rearmed.
+    static let mednafenPsxHw = CoreSpec(
+        coreId: "mednafen_psx_hw",
+        displayName: "Beetle PSX HW (Vulkan)",
+        systems: ["ps1"],
+        library: "mednafen_psx_hw_libretro_ios.dylib",
+        width: 320, height: 240,
+        maxWidth: 700, maxHeight: 576,
+        aspectRatio: 4.0 / 3.0,
+        fps: 59.94,
+        sampleRate: 44100,
+        pixelFormat: 0,
+        priority: -10,
+        biosNames: ["scph1001.bin", "scph5501.bin", "scph7001.bin",
+                    "scph1000.bin", "scph5500.bin", "scph5502.bin"]
+    )
+
     /// Nintendo DS, and the first system to arrive without any hardware-render work.
     ///
     /// THE FRAMEBUFFER IS BOTH SCREENS. melonDS emits 256x384, which is the two 256x192 screens
@@ -349,8 +375,8 @@ enum CoreCatalog {
 
     /// Every core, in the order the HUD reports them.
     static let all: [CoreSpec] = [
-        fceumm, snes9x, mgba, genesisPlusGx, pcsxReARMed, melonDS, mednafenPceFast, stella,
-        parallelN64,
+        fceumm, snes9x, mgba, genesisPlusGx, pcsxReARMed, mednafenPsxHw, melonDS,
+        mednafenPceFast, stella, parallelN64,
     ]
 
     static let byId: [String: CoreSpec] = Dictionary(
@@ -569,9 +595,19 @@ enum CoreCatalog {
     }
 
     /// The core that will run a file with this extension, or nil when nothing is mapped.
-    static func core(forExtension ext: String) -> CoreSpec? {
-        guard let id = routes[ext.lowercased()] else { return nil }
-        return byId[id]
+    ///
+    /// `ps1CoreId` overrides the PlayStation route when Settings asks for Beetle PSX HW
+    /// (step 4). Other systems ignore it. An unknown or non-PS1 override id is ignored so a
+    /// bad preference cannot blank the launch.
+    static func core(forExtension ext: String, ps1CoreId: String? = nil) -> CoreSpec? {
+        guard let route = routeTable[ext.lowercased()] else { return nil }
+        if route.system == .ps1,
+           let overrideId = ps1CoreId,
+           let override = byId[overrideId],
+           override.systems.contains("ps1") {
+            return override
+        }
+        return byId[route.coreId]
     }
 
     /// Which system a file with this extension is, or nil when nothing is mapped.
@@ -877,6 +913,28 @@ struct LibraryEntry: Identifiable, Hashable, Sendable {
 
 // MARK: - The engine, owned once
 
+/// Which PlayStation core a Library launch uses.
+///
+/// Soft PCSX ReARMed remains the everyday default. Beetle PSX HW is the step 4
+/// SET_HW_RENDER proof core: it ships in the IPA when Mac CI builds ios-all, and this
+/// preference is how a device session selects it without rewriting the extension table.
+enum Ps1CoreChoice: String, CaseIterable, Identifiable {
+    case pcsxReARMed = "pcsx_rearmed"
+    case beetlePsxHw = "mednafen_psx_hw"
+
+    var id: String { rawValue }
+
+    /// Core id handed to `CoreCatalog.core(forExtension:ps1CoreId:)`.
+    var coreId: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .pcsxReARMed: return "PCSX ReARMed"
+        case .beetlePsxHw: return "Beetle PSX HW"
+        }
+    }
+}
+
 /// Holds the engine for the app's lifetime.
 ///
 /// One instance, created once. The engine is `Send + Sync` on the Rust side, it is a
@@ -931,6 +989,17 @@ final class EngineHost: ObservableObject {
     /// permanently in front of the game. The thin status line above it is always visible, so a
     /// failure is still legible with this off.
     @Published var showDiagnostics = false
+
+    /// Which PlayStation core launches `.cue` / `.chd` / `.pbp` / `.iso` and friends.
+    ///
+    /// Default stays PCSX ReARMed (software). Beetle PSX HW is for step 4 SET_HW_RENDER on a
+    /// device IPA; flipping this does not change the file-extension table, only the core id
+    /// `launch` hands to `ensureCoreLoaded`. Persisted so a step-4 test session survives relaunch.
+    @Published var ps1CoreChoice: Ps1CoreChoice = .pcsxReARMed {
+        didSet {
+            UserDefaults.standard.set(ps1CoreChoice.rawValue, forKey: Self.ps1CoreKey)
+        }
+    }
 
     /// What the SAFE half of the JIT probe found, read once at startup.
     ///
@@ -1115,6 +1184,7 @@ final class EngineHost: ObservableObject {
     private static let favouritesKey = "continuum.favourites.v1"
     private static let layoutKey = "continuum.library.layout.v1"
     private static let systemShelvesKey = "continuum.library.systemShelves.v1"
+    private static let ps1CoreKey = "continuum.cores.ps1.v1"
     /// Named for the GAME controls, not for the library layout `layoutKey` holds. The two are
     /// unrelated settings with confusingly similar names, and a key that did not say which it meant
     /// would be the first thing a later reader got wrong.
@@ -1387,6 +1457,10 @@ final class EngineHost: ObservableObject {
         }
         if let stored = defaults.object(forKey: Self.systemShelvesKey) as? Bool {
             showsSystemShelves = stored
+        }
+        if let stored = defaults.string(forKey: Self.ps1CoreKey),
+           let choice = Ps1CoreChoice(rawValue: stored) {
+            ps1CoreChoice = choice
         }
         // Assigned unconditionally, because `restored(from:)` already answers absent, unreadable
         // and out of range with the default. The extra `didSet` write the other preferences avoid
@@ -1954,7 +2028,10 @@ final class EngineHost: ObservableObject {
         // Routing, from the one table the Library row also reads. Resolved BEFORE the stop
         // below on purpose: an unmapped extension is a tap that should change nothing, so a
         // running game is not torn down to report it.
-        guard let spec = CoreCatalog.core(forExtension: entry.ext) else {
+        guard let spec = CoreCatalog.core(
+            forExtension: entry.ext,
+            ps1CoreId: ps1CoreChoice.coreId
+        ) else {
             let extLabel = entry.ext.isEmpty ? "no extension" : ".\(entry.ext)"
             status = "no core is mapped to \(extLabel), so \(entry.name) cannot be launched"
             return
@@ -2255,7 +2332,7 @@ final class EngineHost: ObservableObject {
     /// read in every screenshot and a hardcoded number goes stale the moment a core is added. It
     /// said "five" while six were shipping.
     var buildLine: String {
-        "\(Self.versionLabel) - \(CoreCatalog.all.count) libretro cores (software)"
+        "\(Self.versionLabel) - \(CoreCatalog.all.count) libretro cores"
     }
 
     /// Version and build number of the copy that is actually running, e.g. `0.8.0 (76)`.

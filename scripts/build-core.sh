@@ -94,14 +94,12 @@ WORK="$ROOT/.work"
 
 # The iOS cores, in build order. Never empty, which matters: macOS ships bash 3.2,
 # where an empty array expanded under `set -u` is an error rather than nothing.
-IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed melonds mednafen_pce_fast stella2023
-           parallel_n64)
+IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed mednafen_psx_hw melonds
+           mednafen_pce_fast stella2023 parallel_n64)
 
-# mednafen_psx_hw (Beetle PSX HW) is intentionally NOT in IOS_CORES yet.
-# Step 4 needs that core against the Vulkan SET_HW_RENDER contract, but building
-# it requires a Mac / CI ios-arm64 pass (`make platform=ios-arm64 HAVE_HW=1`).
-# Case block below is ready; do not add to this array until the dylib exists and
-# the MoltenVK context path is device-proven.
+# mednafen_psx_hw (Beetle PSX HW) is in ios-all so Mac CI embeds the dylib in the IPA.
+# Build is Mac/CI-only (`make platform=ios-arm64 HAVE_HW=1`); Linux hosts cannot cross-compile
+# it. Step 4 stays Partial until a phone shows a Beetle HW frame through SET_HW_RENDER.
 
 # Every libretro entry point the engine resolves by name, which is the real contract between a
 # staged dylib and the app. Kept in step with the `Symbols` struct in
@@ -301,8 +299,8 @@ ios_core_config() {
       IOS_DYLIB_NAME="mednafen_psx_hw_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile"
-      # HAVE_HW=1 → Vulkan + OpenGL, target mednafen_psx_hw. NOT in IOS_CORES.
-      #   scripts/build-core.sh ios mednafen_psx_hw
+      # HAVE_HW=1 → Vulkan + OpenGL, target mednafen_psx_hw. In IOS_CORES / ios-all.
+      # Mac or GitHub Actions macos-latest only; see ios_require_darwin.
       IOS_MAKE_VARS=(HAVE_HW=1)
       IOS_DISPLAY="PlayStation, Beetle PSX HW (Vulkan) — step 4 proof core"
       ;;
@@ -354,7 +352,6 @@ ios_usage() {
 scripts/build-core.sh - build the libretro cores the iOS app dlopens.
 
   ios <core>    build one core. Valid: ${IOS_CORES[*]}
-                plus mednafen_psx_hw (Beetle PSX HW, step 4; not in ios-all yet)
   ios-all       build all ${#IOS_CORES[@]} cores, continuing past a failure and
                 summarising at the end
   ios-names     print the canonical .dylib filenames and exit. Works on any host,

@@ -244,6 +244,13 @@ targets:
         embed: true
         link: false
         codeSign: false
+      # Beetle PSX HW: step 4 SET_HW_RENDER Vulkan proof core. Mac/CI build only
+      # (HAVE_HW=1). Soft PCSX ReARMed stays the default PlayStation route; Settings can
+      # switch launches to this dylib so an IPA can exercise the HW path.
+      - framework: build/lib/mednafen_psx_hw_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
       # Nintendo DS. Software renderer, so it needs nothing the other five do not: see the note in
       # scripts/build-core.sh ios_core_config for why this core arrives before the N64.
       - framework: build/lib/melonds_libretro_ios.dylib

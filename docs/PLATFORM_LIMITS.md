@@ -130,6 +130,13 @@ https://buildbot.libretro.com/nightly/apple/ios-arm64/latest/
 
 Check this list before promising or refusing a system. It is one `curl` away.
 
+**Continuum ships `mednafen_psx_hw` (Beetle PSX HW) through `IOS_CORES` / `ios-all`.** The
+dylib is built only on a Mac host or the GitHub Actions `macos-latest` runner
+(`make platform=ios-arm64 HAVE_HW=1`); a Linux box cannot cross-compile it. Soft
+`pcsx_rearmed` remains the default PlayStation route; Settings can select Beetle for
+step 4 `SET_HW_RENDER` exercises. That path is still Partial until a device frame
+proves it.
+
 ---
 
 ## N64 is possible right now, with no JIT and no graphics work

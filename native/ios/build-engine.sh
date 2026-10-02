@@ -138,6 +138,7 @@ echo "==> $LIBDIR/libcontinuum_switch.dylib ($(du -h "$WRAPPER" | cut -f1))"
 #   snes9x           SNES
 #   pcsx_rearmed     PS1, INTERPRETER-only (its makefile force-disables the JIT for iOS
 #                    arm64), which is the same build that already worked
+#   mednafen_psx_hw  PS1 Beetle HW (HAVE_HW=1), step 4 SET_HW_RENDER proof; Mac/CI only
 #
 # build-core.sh clones each core into .work/ios/, runs its own build for ios-arm64, fixes the
 # @rpath install_name and stages the .dylib straight into build/lib/ (this same $LIBDIR).

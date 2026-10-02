@@ -88,6 +88,7 @@ struct SettingsScreen: View {
                     artworkSection
                     layoutSection
                     diagnosticsSection
+                    coresSection
                     biosSection
                     coreOptionsSection
                     // Beside STORAGE on purpose: the two read-outs are about the same disk, and the
@@ -417,18 +418,44 @@ struct SettingsScreen: View {
         }
     }
 
+    // MARK: Cores
+
+    /// PlayStation core picker for step 4. Everyday default stays soft PCSX ReARMed; Beetle
+    /// PSX HW is how an IPA exercises SET_HW_RENDER Vulkan once Mac CI has embedded the dylib.
+    private var coresSection: some View {
+        SettingsSection(title: "PLAYSTATION CORE") {
+            SettingsLabel("Core for PlayStation games")
+            SegmentedChoice(
+                options: Ps1CoreChoice.allCases,
+                title: { $0.label },
+                selection: $host.ps1CoreChoice
+            )
+
+            SettingsNote(
+                "PCSX ReARMed is the software path that already boots PlayStation games. "
+                + "Beetle PSX HW is the Vulkan hardware-render core for step 4 of the graphics "
+                + "road: it ships in the IPA when CI builds ios-all on a Mac runner, and picking "
+                + "it here is what makes the next PlayStation launch load that dylib. Step 4 "
+                + "stays Partial until a phone shows a Beetle HW frame through SET_HW_RENDER; "
+                + "this control only selects the core, it does not claim that path works yet. "
+                + "Beetle wants a real BIOS in the system folder (no HLE like ReARMed)."
+            )
+        }
+    }
+
     // MARK: BIOS
 
     private var biosSection: some View {
         SettingsSection(title: "BIOS") {
             SettingsReadout(label: "State", value: host.bios.isEmpty
-                            ? "no core in this build needs a BIOS file except PCSX ReARMed"
+                            ? "no core in this build needs a BIOS file except the PlayStation cores"
                             : host.bios)
 
             SettingsNote(
-                "PCSX ReARMed is the only core here that looks for one, and it does not require "
-                + "it: with no BIOS it falls back to HLE and still boots, at reduced accuracy and "
-                + "compatibility. A missing BIOS is a note, not an error."
+                "PCSX ReARMed looks for a BIOS and does not require it: with none it falls back "
+                + "to HLE and still boots, at reduced accuracy. Beetle PSX HW expects a real "
+                + "BIOS (scph5501.bin and friends). A missing BIOS is a note for ReARMed and a "
+                + "likely boot failure for Beetle."
             )
 
             SettingsButton(title: "Install a BIOS from the Continuum folder", role: .normal) {
