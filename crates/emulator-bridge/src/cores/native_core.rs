@@ -468,6 +468,9 @@ fn option_overrides(core_id: &str) -> &'static [(&'static str, &'static str)] {
         "parallel_n64" => &[
             ("parallel-n64-gfxplugin", "angrylion"),
             ("parallel-n64-rspplugin", "hle"),
+            // Refusing this read selects "all threads". Under the display-link tick that
+            // worker pool hangs the app on the first frame; force single-threaded soft path.
+            ("parallel-n64-angrylion-multithread", "off"),
         ],
         _ => &[],
     }
@@ -1367,6 +1370,12 @@ mod tests {
         let (ok, value) = ask_option("parallel-n64-rspplugin");
         assert!(ok, "the N64 RSP must be named for the same reason");
         assert_eq!(value.as_deref(), Some("hle"));
+
+        // Same trap as gfxplugin: refuse selects "all threads", which hangs under the
+        // display-link tick. Name "off" so angrylion stays on the emulator thread.
+        let (ok, value) = ask_option("parallel-n64-angrylion-multithread");
+        assert!(ok, "angrylion multithread must be named off, not left to all threads");
+        assert_eq!(value.as_deref(), Some("off"));
     }
 
     #[test]

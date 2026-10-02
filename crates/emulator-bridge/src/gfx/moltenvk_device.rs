@@ -453,7 +453,8 @@ mod apple {
             return std::ptr::null();
         }
         let dev = vk::Device::from_raw(device);
-        let f = unsafe { ctx.device.get_device_proc_addr(dev, name) };
+        // ash exposes vkGetDeviceProcAddr on Instance, not Device (Vulkan 1.0).
+        let f = unsafe { ctx.instance.get_device_proc_addr(dev, name) };
         match f {
             Some(func) => func as *const std::ffi::c_void,
             None => std::ptr::null(),
