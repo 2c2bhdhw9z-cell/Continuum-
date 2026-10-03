@@ -89,7 +89,7 @@ Broken out rather than left as one row. Device-proven on build 80:
 
 This is the bar. A line is **Done** only when a phone showed it. **In the tree** means the code is on master and no phone has run it. **Not built** means it is not in the app. JIT is **out on purpose**, not a missing feature.
 
-Build 108 (the `ee307b8` compile) failed. There is no install file. `TouchControls.swift` could not see the stick, the buttons, or the skin picture, and `ContinuumApp.swift` also failed to compile. A skin already saved on the phone only has the first hole and no circle pad. After a later install that actually exists, import that skin file again.
+Build 108 failed. There is no install file from that run. The skin methods sat outside the controls class, and the picture rect was assigned with an `if` inside the view. Both are fixed and the next install is compiling. It is not on a phone. A skin already saved on the phone only has the first hole and no circle pad. After an install that actually exists, import that skin file again.
 
 | What | State | Notes |
 | --- | --- | --- |

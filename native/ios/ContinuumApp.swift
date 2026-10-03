@@ -3589,13 +3589,10 @@ struct RootView: View {
             // A skin hole already says which part of this view is the picture, and the
             // renderer crops each framebuffer into those holes. Letterboxing the whole
             // stacked frame inside the canvas would put both screens in the top hole.
-            let area: CGRect
-            if host.skinHolesActive {
-                area = region
-            } else {
-                area = host.activePictureAspect
-                    .map { PictureFit.rect(aspect: $0, in: region) } ?? region
-            }
+            let area = host.skinHolesActive
+                ? region
+                : (host.activePictureAspect
+                    .map { PictureFit.rect(aspect: $0, in: region) } ?? region)
             MetalCanvasView(
                 engine: host.engine,
                 // Captured as a local reference so this closure touches the box and nothing else,

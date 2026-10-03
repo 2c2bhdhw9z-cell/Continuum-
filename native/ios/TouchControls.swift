@@ -2715,7 +2715,6 @@ final class TouchControlsView: UIView {
         if x > 0 && abs(x) > abs(y) * dpadDiagonalRatio { right = true }
         return (up, down, left, right)
     }
-}
 
 // MARK: - Skin holes, analog sticks, pressed art
 
@@ -2920,6 +2919,8 @@ final class TouchControlsView: UIView {
             }
         }
     }
+
+}
 
 // MARK: - SwiftUI bridge
 
