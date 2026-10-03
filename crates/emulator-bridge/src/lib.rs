@@ -61,6 +61,7 @@ pub mod import;
 pub mod input;
 pub mod jit_probe;
 pub mod memory;
+pub mod memory_maps;
 // Microphone, camera and Amiibo files. Self-contained so it merges cleanly beside other
 // environment work in cores/native_core.rs; see the module header.
 pub mod peripherals;

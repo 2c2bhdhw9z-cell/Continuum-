@@ -230,6 +230,13 @@ pub trait EmulatorCore: crate::MaybeSend {
         None
     }
 
+    /// The memory map the core published with `RETRO_ENVIRONMENT_SET_MEMORY_MAPS`, preprocessed,
+    /// or empty when it published none. Only meaningful while content is loaded. Read by the
+    /// achievements mapper, the RAM search's region list and bus-address pokes.
+    fn memory_map(&self) -> &[crate::memory_maps::MemoryDescriptor] {
+        &[]
+    }
+
     /// Tells the core which device is in a port (`retro_set_controller_port_device`).
     fn set_controller_port_device(&mut self, _port: u32, _device: u32) -> Result<(), BridgeError> {
         Err(BridgeError::NotImplemented("set_controller_port_device"))

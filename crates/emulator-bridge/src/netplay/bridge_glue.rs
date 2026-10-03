@@ -339,6 +339,7 @@ mod tests {
             cheats: Vec::new(),
             pokes: Vec::new(),
             search: None,
+            search_region: Default::default(),
         });
         bridge
     }

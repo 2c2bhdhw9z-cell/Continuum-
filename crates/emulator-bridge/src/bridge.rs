@@ -129,6 +129,31 @@ struct Session {
     pokes: Vec<Poke>,
     /// The RAM search in progress, if one was started. Belongs to the game, so it ends with it.
     search: Option<RamSearch>,
+    /// Which memory the search runs over. Meaningless while `search` is `None`.
+    search_region: SearchRegion,
+}
+
+/// The memory a RAM search runs over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SearchRegion {
+    /// libretro's `SYSTEM_RAM`, addressed from 0. What every search was before memory maps.
+    #[default]
+    SystemRam,
+    /// One descriptor of the core's memory map, addressed by the console's own addresses. The
+    /// start and length are kept so a core republishing a different map mid-search is noticed.
+    Mapped { index: usize, start: usize, len: usize },
+}
+
+/// One region the RAM search can be pointed at, for the picker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchRegionInfo {
+    /// "system", or "map:N" for descriptor N of the core's memory map.
+    pub key: String,
+    /// What to call it on screen: "System RAM", "IWRAM", ...
+    pub name: String,
+    /// The console address of its first byte (0 for system RAM).
+    pub start: u64,
+    pub size: u64,
 }
 
 /// One cheat as the user entered it, plus whether it is switched on.
@@ -444,6 +469,7 @@ impl EmulatorBridge {
             cheats: Vec::new(),
             pokes: Vec::new(),
             search: None,
+            search_region: SearchRegion::SystemRam,
         });
         let content_name = hint
             .full_path
@@ -1794,28 +1820,137 @@ impl EmulatorBridge {
     /// Starts a RAM search over `SYSTEM_RAM`, replacing any search in progress.
     /// Returns the number of candidates, which is every address.
     pub fn search_start(&mut self, width: SearchWidth, aligned: bool) -> Result<usize, BridgeError> {
+        self.search_start_in("system", width, aligned)
+    }
+
+    /// The memory the RAM search can run over: system RAM when the core exposes it, then every
+    /// distinct writable region of the core's memory map (the GBA's IWRAM and EWRAM, a SNES core's
+    /// work RAM, the Sega CD's PRG RAM). Empty with no game running.
+    pub fn search_regions(&self) -> Vec<SearchRegionInfo> {
+        let Some(session) = self.session.as_ref() else {
+            return Vec::new();
+        };
+        let mut regions = Vec::new();
+        if let Some(ram) = session.core.memory_region(crate::memory::MEMORY_SYSTEM_RAM) {
+            regions.push(SearchRegionInfo {
+                key: "system".into(),
+                name: "System RAM".into(),
+                start: 0,
+                size: ram.len() as u64,
+            });
+        }
+        for region in crate::memory_maps::searchable(session.core.memory_map()) {
+            regions.push(SearchRegionInfo {
+                key: format!("map:{}", region.index),
+                name: region.name,
+                start: region.start as u64,
+                size: region.len as u64,
+            });
+        }
+        regions
+    }
+
+    /// Resolves a region key from [`Self::search_regions`].
+    fn search_region_for(session: &Session, key: &str) -> Result<SearchRegion, BridgeError> {
+        if key == "system" {
+            return Ok(SearchRegion::SystemRam);
+        }
+        let index = key
+            .strip_prefix("map:")
+            .and_then(|n| n.parse::<usize>().ok())
+            .ok_or_else(|| BridgeError::Memory(format!("'{key}' is not a memory region name")))?;
+        crate::memory_maps::searchable(session.core.memory_map())
+            .into_iter()
+            .find(|r| r.index == index)
+            .map(|r| SearchRegion::Mapped {
+                index,
+                start: r.start,
+                len: r.len,
+            })
+            .ok_or_else(|| {
+                BridgeError::Memory(format!(
+                    "{} has no searchable memory region {index} (its memory map changed?)",
+                    session.core.descriptor().display_name
+                ))
+            })
+    }
+
+    /// The bytes a search region covers right now.
+    fn search_bytes(session: &Session, region: SearchRegion) -> Option<&[u8]> {
+        match region {
+            SearchRegion::SystemRam => session.core.memory_region(crate::memory::MEMORY_SYSTEM_RAM),
+            SearchRegion::Mapped { index, start, len } => {
+                let desc = session.core.memory_map().get(index)?;
+                if desc.start != start {
+                    return None;
+                }
+                // SAFETY: the descriptor is from the core's current map, the core is not running
+                // (every caller holds the engine lock between frames), and libretro.h:4238 says
+                // the buffer stays valid for the session. The slice is tied to `session`.
+                unsafe { crate::memory_maps::descriptor_bytes(desc, len) }
+            }
+        }
+    }
+
+    /// The console address of offset 0 of a search region.
+    fn search_base(region: SearchRegion) -> u32 {
+        match region {
+            SearchRegion::SystemRam => 0,
+            SearchRegion::Mapped { start, .. } => start as u32,
+        }
+    }
+
+    /// Starts a RAM search over one region from [`Self::search_regions`] ("system" or "map:N"),
+    /// replacing any search in progress. Returns the number of candidates.
+    pub fn search_start_in(
+        &mut self,
+        key: &str,
+        width: SearchWidth,
+        aligned: bool,
+    ) -> Result<usize, BridgeError> {
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
-        let ram = session
-            .core
-            .memory_region(crate::memory::MEMORY_SYSTEM_RAM)
-            .ok_or_else(|| Self::no_region(session, crate::memory::MEMORY_SYSTEM_RAM))?;
-        let search = RamSearch::start(ram, width, aligned).map_err(BridgeError::Memory)?;
+        let region = Self::search_region_for(session, key)?;
+        let search = {
+            let ram = Self::search_bytes(session, region).ok_or_else(|| match region {
+                SearchRegion::SystemRam => Self::no_region(session, crate::memory::MEMORY_SYSTEM_RAM),
+                SearchRegion::Mapped { .. } => {
+                    BridgeError::Memory(format!("memory region '{key}' could not be read"))
+                }
+            })?;
+            RamSearch::start(ram, width, aligned).map_err(BridgeError::Memory)?
+        };
         let count = search.count();
         session.search = Some(search);
+        session.search_region = region;
         Ok(count)
+    }
+
+    /// The key of the region the running search covers, or `None` when no search is running.
+    pub fn search_region_key(&self) -> Option<String> {
+        let session = self.session.as_ref()?;
+        session.search.as_ref()?;
+        Some(match session.search_region {
+            SearchRegion::SystemRam => "system".into(),
+            SearchRegion::Mapped { index, .. } => format!("map:{index}"),
+        })
     }
 
     /// Applies one filter to the search in progress. Returns how many candidates survive.
     pub fn search_filter(&mut self, filter: SearchFilter) -> Result<usize, BridgeError> {
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
-        let Session { core, search, .. } = session;
-        let search = search
-            .as_mut()
+        let region = session.search_region;
+        let mut search = session
+            .search
+            .take()
             .ok_or_else(|| BridgeError::Memory("no RAM search is running; start one first".into()))?;
-        let ram = core.memory_region(crate::memory::MEMORY_SYSTEM_RAM).ok_or_else(|| {
-            BridgeError::Memory("the system RAM went away during the search".into())
-        })?;
-        search.filter(ram, filter).map_err(BridgeError::Memory)
+        let result = match Self::search_bytes(session, region) {
+            Some(ram) => search.filter(ram, filter).map_err(BridgeError::Memory),
+            None => Err(BridgeError::Memory(
+                "the memory being searched went away during the search".into(),
+            )),
+        };
+        session.search = Some(search);
+        result
     }
 
     /// Candidates left, or `None` when no search is running.
@@ -1828,18 +1963,41 @@ impl EmulatorBridge {
         self.session.as_ref()?.search.as_ref().map(RamSearch::width)
     }
 
-    /// Up to `limit` surviving addresses with their current and previous values.
+    /// Up to `limit` surviving addresses with their current and previous values. For a mapped
+    /// region the addresses are the console's own (`$03001234` on a GBA), not offsets.
     pub fn search_results(&self, limit: usize) -> Vec<SearchHit> {
         let Some(session) = self.session.as_ref() else {
             return Vec::new();
         };
-        let (Some(search), Some(ram)) = (
-            session.search.as_ref(),
-            session.core.memory_region(crate::memory::MEMORY_SYSTEM_RAM),
-        ) else {
+        let region = session.search_region;
+        let (Some(search), Some(ram)) = (session.search.as_ref(), Self::search_bytes(session, region))
+        else {
             return Vec::new();
         };
-        search.results(ram, limit)
+        let base = Self::search_base(region);
+        search
+            .results(ram, limit)
+            .into_iter()
+            .map(|hit| SearchHit {
+                address: hit.address.wrapping_add(base),
+                ..hit
+            })
+            .collect()
+    }
+
+    /// The cheat-list code that pins `value` at `address`, an address from
+    /// [`Self::search_results`]: a plain poke for system RAM, a bus poke for a mapped region.
+    pub fn search_poke_code(&self, address: u32, value: u32, bytes: u8) -> Result<String, BridgeError> {
+        let region = self
+            .session
+            .as_ref()
+            .filter(|s| s.search.is_some())
+            .map_or(SearchRegion::SystemRam, |s| s.search_region);
+        let poke = match region {
+            SearchRegion::SystemRam => Poke::new(address, value, bytes),
+            SearchRegion::Mapped { .. } => Poke::new_bus(address, value, bytes),
+        };
+        poke.map(|p| p.code()).map_err(BridgeError::Cheat)
     }
 
     /// Ends the search and frees its two snapshots.
@@ -1859,9 +2017,17 @@ impl EmulatorBridge {
         }
         let Session { core, pokes, .. } = session;
         if let Some(ram) = core.memory_region_mut(crate::memory::MEMORY_SYSTEM_RAM) {
-            for poke in pokes.iter() {
+            for poke in pokes.iter().filter(|p| !p.bus) {
                 poke.apply(ram);
             }
+        }
+        // Bus pokes go through the memory map. A map that does not cover the address (a different
+        // core, or a game without that memory) skips the poke, as an out-of-range plain one is.
+        let map = core.memory_map();
+        for poke in pokes.iter().filter(|p| p.bus) {
+            // SAFETY: the map is the core's current one, the core is not running, and nothing else
+            // holds a slice of its memory: `ram` above has gone out of scope.
+            unsafe { crate::memory_maps::write_through(map, poke.address, &poke.value_bytes()) };
         }
     }
 
@@ -1882,7 +2048,9 @@ impl EmulatorBridge {
             return;
         }
         let core = &session.core;
-        achievements.set_memory(|id| core.memory_region(id).map(|r| (r.as_ptr(), r.len())));
+        achievements.set_memory(core.memory_map(), |id| {
+            core.memory_region(id).map(|r| (r.as_ptr(), r.len()))
+        });
         achievements.do_frame();
     }
 
@@ -1950,6 +2118,7 @@ impl EmulatorBridge {
             cheats: Vec::new(),
             pokes: Vec::new(),
             search: None,
+            search_region: SearchRegion::SystemRam,
         });
         Ok(())
     }
@@ -2215,6 +2384,121 @@ mod tests {
         fn frame_count(&self) -> u64 {
             0
         }
+    }
+
+    /// A core with mGBA's GBA memory map and nothing else: IWRAM, EWRAM, save and the rest, with
+    /// `SYSTEM_RAM` being EWRAM as mGBA's is. Each frame bumps IWRAM byte $10 (a "timer").
+    struct MappedGba {
+        descriptor: CoreDescriptor,
+        buffers: crate::memory_maps::fixtures::Buffers,
+        map: Vec<crate::memory_maps::MemoryDescriptor>,
+    }
+
+    impl MappedGba {
+        fn new() -> Self {
+            let (buffers, raw) = crate::memory_maps::fixtures::mgba_gba(0x80_0000, 0x8000);
+            let map = crate::memory_maps::fixtures::copy(&raw);
+            Self {
+                descriptor: descriptor("gbamap", "test"),
+                buffers,
+                map,
+            }
+        }
+    }
+
+    impl EmulatorCore for MappedGba {
+        fn descriptor(&self) -> &CoreDescriptor {
+            &self.descriptor
+        }
+        fn load_content(&mut self, _: &[u8], _: &ContentHint) -> Result<(), BridgeError> {
+            Ok(())
+        }
+        fn run_frame(&mut self, _: &crate::input::InputSnapshot) -> Result<(), BridgeError> {
+            let timer = &mut self.buffers.blocks[0][0x10];
+            *timer = timer.wrapping_add(1);
+            Ok(())
+        }
+        fn video(&self) -> Option<crate::frame::FrameView<'_>> {
+            None
+        }
+        fn drain_audio(&mut self, _: &mut dyn AudioSink) {}
+        fn reset(&mut self) -> Result<(), BridgeError> {
+            Ok(())
+        }
+        fn supports_cheats(&self) -> bool {
+            true
+        }
+        fn reset_cheats(&mut self) -> Result<(), BridgeError> {
+            Ok(())
+        }
+        fn set_cheat(&mut self, _: u32, _: bool, _: &str) -> Result<(), BridgeError> {
+            Ok(())
+        }
+        fn memory_region(&self, id: u32) -> Option<&[u8]> {
+            (id == crate::memory::MEMORY_SYSTEM_RAM).then(|| &self.buffers.blocks[1][..])
+        }
+        fn memory_region_mut(&mut self, id: u32) -> Option<&mut [u8]> {
+            (id == crate::memory::MEMORY_SYSTEM_RAM).then(|| &mut self.buffers.blocks[1][..])
+        }
+        fn memory_map(&self) -> &[crate::memory_maps::MemoryDescriptor] {
+            &self.map
+        }
+        fn frame_count(&self) -> u64 {
+            0
+        }
+    }
+
+    fn running_mapped_gba() -> EmulatorBridge {
+        let mut bridge = EmulatorBridge::new();
+        bridge.declare_core(descriptor("gbamap", "test"));
+        bridge.attach_core("gbamap", Box::new(MappedGba::new())).unwrap();
+        bridge.launch_headless_for_test("gbamap", b"rom").unwrap();
+        bridge
+    }
+
+    #[test]
+    fn search_regions_list_system_ram_then_the_mapped_ones() {
+        let bridge = running_mapped_gba();
+        let regions = bridge.search_regions();
+        let keys: Vec<&str> = regions.iter().map(|r| r.key.as_str()).collect();
+        assert_eq!(keys[..3], ["system", "map:0", "map:1"]);
+        assert_eq!((regions[1].start, regions[1].size), (0x0300_0000, 0x8000));
+        assert_eq!((regions[2].start, regions[2].size), (0x0200_0000, 0x40000));
+        assert!(EmulatorBridge::new().search_regions().is_empty());
+    }
+
+    #[test]
+    fn a_search_over_iwram_finds_the_timer_at_its_console_address() {
+        let mut bridge = running_mapped_gba();
+        assert_eq!(bridge.search_start_in("map:0", SearchWidth::Bits8, false).unwrap(), 0x8000);
+        assert_eq!(bridge.search_region_key().as_deref(), Some("map:0"));
+        bridge.step_headless_for_test(1).unwrap();
+        assert_eq!(bridge.search_filter(SearchFilter::IncreasedBy(1)).unwrap(), 1);
+        let hits = bridge.search_results(10);
+        assert_eq!(hits[0].address, 0x0300_0010);
+
+        // The cheat made from it is a bus poke, and it pins IWRAM, not EWRAM at the same offset.
+        let code = bridge.search_poke_code(hits[0].address, 7, 1).unwrap();
+        assert_eq!(code, "poke:03000010:07:1:bus");
+        bridge.apply_cheats(vec![code], &[1]).unwrap();
+        bridge.step_headless_for_test(3).unwrap();
+        let session = bridge.session.as_ref().unwrap();
+        let iwram = crate::memory_maps::searchable(session.core.memory_map())[0].clone();
+        let byte = unsafe { *((iwram.host + 0x10) as *const u8) };
+        assert_eq!(byte, 7);
+        assert_ne!(bridge.read_memory(crate::memory::MEMORY_SYSTEM_RAM, 0x10, 1).unwrap(), vec![7]);
+    }
+
+    #[test]
+    fn unknown_or_stale_region_keys_are_refused_with_a_sentence() {
+        let mut bridge = running_mapped_gba();
+        assert!(bridge.search_start_in("map:3", SearchWidth::Bits8, false).is_err(), "ROM");
+        assert!(bridge.search_start_in("bogus", SearchWidth::Bits8, false).is_err());
+        assert!(bridge.search_start_in("map:99", SearchWidth::Bits8, false).is_err());
+        // A plain search still means system RAM and makes plain pokes.
+        bridge.search_start(SearchWidth::Bits8, false).unwrap();
+        assert_eq!(bridge.search_region_key().as_deref(), Some("system"));
+        assert_eq!(bridge.search_poke_code(0x10, 1, 1).unwrap(), "poke:0010:01:1");
     }
 
     #[test]
