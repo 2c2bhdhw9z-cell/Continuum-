@@ -2,7 +2,7 @@
 
 One app for the iPhone. It plays games from older consoles. You install `Continuum.ipa` yourself. It is not on the App Store.
 
-The skin install is [Continuum-109](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-109-05ee4df/Continuum-109.ipa). Build 108 failed and has no file. Do not install 107 for skins. 109 is not done until the picture is in the hole on the phone. Import the skin file again after installing.
+The install is [Continuum-111](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-111-cdae676/Continuum-111.ipa). It has everything 109 had (the skin fixes) plus the whole batch below. Build 110 failed and has no file. Import the skin file again after installing. The skin is not done until the picture is in the hole on the phone.
 
 This install is **not** signed with a JIT. Heavier systems here run on an interpreter.
 

@@ -93,7 +93,7 @@ Broken out rather than left as one row. Device-proven on build 80:
 
 This is the bar. A line is **Done** only when a phone showed it. **In the tree** means the code is on master and no phone has run it. **Not built** means it is not in the app. JIT is **out on purpose**, not a missing feature.
 
-Build 108 failed and has no file. The compile fix is in `05ee4df`, and the install is [Continuum-109](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-109-05ee4df/Continuum-109.ipa). It is not proven on a phone. A skin already saved on the phone only has the first hole and no circle pad, so import the skin file again.
+The install is [Continuum-111](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-111-cdae676/Continuum-111.ipa) (`cdae676`). It carries 109's skin work and every row below marked In the tree. Build 110 failed at the link and has no file. None of it is proven on a phone. A skin already saved on the phone only has the first hole and no circle pad, so import the skin file again.
 
 | What | State | Notes |
 | --- | --- | --- |
