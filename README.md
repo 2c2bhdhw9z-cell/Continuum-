@@ -18,8 +18,8 @@ This install is **not** signed with a JIT. Heavier systems here run on an interp
 **In the app, not finished**
 
 - PlayStation GPU option (Beetle). Crash did boot with a real `scph1001.bin`. That is not proof the GPU handoff is done. The other PlayStation option still runs with no BIOS.
-- Nintendo 3DS (Mario Kart). It runs, then randomly stutters and comes back. That hitch is **not** fixed. Continuum-102 tries not to freeze the game while new graphics finish. Nobody has confirmed that on a phone yet. No JIT.
-- On-screen control skins. The system list stays put, and tapping a system does change the layout. Sideways skins are in 102 and are **not** done until they feel right. A skin imported before 102 only has the upright layout until you import it again.
+- Nintendo 3DS (Mario Kart) runs. The latest shots do not show a stutter. The open problem is the skin, below.
+- On-screen control skins. Game Boy Color sideways works. Other imported skins do not. On 3DS the picture is not in the top screen hole (it floats above the skin upright, and sits in the corner sideways) and the bottom screen stays empty. Debug text is still on the picture. Not done until every system’s import feels right.
 
 **In the app, not tried on a phone**
 
