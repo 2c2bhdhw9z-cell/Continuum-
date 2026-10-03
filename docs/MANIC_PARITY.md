@@ -4,6 +4,8 @@ The owner's goal: Continuum is the one iPhone emulator everyone uses. Every line
 Manic EMU (or another leading iOS emulator) does. Tick it when it is on master. "Phone" means a
 phone has shown it working; until then a ticked line is only "in the code".
 
+Ticked `[x]` = on master, not yet shown on a phone unless it says so. Wave 2 (core settings, filters, speeds, discs, every import method, Manic skins and all 48 function buttons, keyboard, motion, remapping, 19 new systems) landed 3 October 2026.
+
 Keep this file current. A new session should be able to read this and carry on.
 
 ## Decisions already made
@@ -31,30 +33,30 @@ DS, 3DS, PSP.
 
 | System | Core | Formats Manic takes | State |
 | --- | --- | --- | --- |
-| WonderSwan / Color | mednafen_wswan | .ws .wsc .pc2 .pcv2 | [ ] |
-| Neo Geo Pocket / Color | mednafen_ngp | .ngp .ngc .ngpc .npc | [ ] |
-| PC Engine CD, SuperGrafx | mednafen_pce, mednafen_supergrafx | .pce .sgx .cue .ccd .chd .toc .m3u | [ ] |
-| Commodore Amiga | puae | .adf .adz .dms .fdi .ipf .hdf .hdz .lha .slave .info .cue .ccd .nrg .mds .iso .chd .uae .m3u .zip .7z .rp9 | [ ] |
-| Commodore 64 | vice_x64sc | .d64 .d71 .d80 .d81 .d82 .g64 .g41 .x64 .t64 .tap .prg .p00 .crt .bin .gz .d6z .d7z .d8z .g6z .g4z .x6z .cmd .m3u .vfl .vsf .nib .nbz .d2m .d4m | [ ] |
-| DOS | dosbox_pure | .zip .dosz .exe .com .bat .iso .cue .img .ima .vhd .jrc .tc .m3u .conf | [ ] |
-| DOOM | prboom | .wad .iwad .pwad | [ ] |
-| Atari Jaguar | virtualjaguar | .j64 .jag .rom .abs .cof .bin .prg | [ ] |
-| Atari Lynx | handy | .lnx .o | [ ] |
-| Atari 7800 | prosystem | .a78 .bin .cdf | [ ] |
-| Atari 5200 | a5200 | .a52 .bin | [ ] |
-| Arcade | fbneo (mame2003_plus as a second choice) | .zip .7z .cmd | [ ] |
-| Pokemon Mini | pokemini | .min | [ ] |
-| Virtual Boy | mednafen_vb | .vb .vboy | [ ] |
-| Sega Saturn | yabause (mednafen_saturn as a choice) | .iso .chd .ccd .cue | [ ] |
-| Sega CD | genesis_plus_gx | .chd .iso .cue | [ ] |
-| Sega 32X | picodrive | .32x | [ ] |
-| Master System extra | genesis_plus_gx | .bms | [ ] |
-| 3DS extra | azahar | .app .cia | [ ] |
-| PSP extra | ppsspp | .elf .iso .prx .pbp .chd (ambiguous with PS1, see below) | [ ] |
-| DS extra | melonds | .ds | [ ] |
-| NES extra | fceumm | .fc | [ ] |
-| SNES extra | snes9x | .snes | [ ] |
-| Sega Dreamcast | flycast, from source (not on the iOS buildbot) | .cdi .gdi .chd .cue .bin .m3u | [ ] |
+| WonderSwan / Color | mednafen_wswan | .ws .wsc .pc2 .pcv2 | [x] code |
+| Neo Geo Pocket / Color | mednafen_ngp | .ngp .ngc .ngpc .npc | [x] code |
+| PC Engine CD, SuperGrafx | mednafen_pce, mednafen_supergrafx | .pce .sgx .cue .ccd .chd .toc .m3u | [x] code |
+| Commodore Amiga | puae | .adf .adz .dms .fdi .ipf .hdf .hdz .lha .slave .info .cue .ccd .nrg .mds .iso .chd .uae .m3u .zip .7z .rp9 | [x] code |
+| Commodore 64 | vice_x64sc | .d64 .d71 .d80 .d81 .d82 .g64 .g41 .x64 .t64 .tap .prg .p00 .crt .bin .gz .d6z .d7z .d8z .g6z .g4z .x6z .cmd .m3u .vfl .vsf .nib .nbz .d2m .d4m | [x] code |
+| DOS | dosbox_pure | .zip .dosz .exe .com .bat .iso .cue .img .ima .vhd .jrc .tc .m3u .conf | [x] code |
+| DOOM | prboom | .wad .iwad .pwad | [x] code |
+| Atari Jaguar | virtualjaguar | .j64 .jag .rom .abs .cof .bin .prg | [x] code |
+| Atari Lynx | handy | .lnx .o | [x] code |
+| Atari 7800 | prosystem | .a78 .bin .cdf | [x] code |
+| Atari 5200 | a5200 | .a52 .bin | [x] code |
+| Arcade | fbneo (mame2003_plus as a second choice) | .zip .7z .cmd | [x] code |
+| Pokemon Mini | pokemini | .min | [x] code |
+| Virtual Boy | mednafen_vb | .vb .vboy | [x] code |
+| Sega Saturn | yabause (mednafen_saturn as a choice) | .iso .chd .ccd .cue | [x] code |
+| Sega CD | genesis_plus_gx | .chd .iso .cue | [x] code |
+| Sega 32X | picodrive | .32x | [x] code |
+| Master System extra | genesis_plus_gx | .bms | [x] code |
+| 3DS extra | azahar | .app .cia | [x] code |
+| PSP extra | ppsspp | .elf .iso .prx .pbp .chd (ambiguous with PS1, see below) | [x] code |
+| DS extra | melonds | .ds | [x] code |
+| NES extra | fceumm | .fc | [x] code |
+| SNES extra | snes9x | .snes | [x] code |
+| Sega Dreamcast | flycast, from source (not on the iOS buildbot) | .cdi .gdi .chd .cue .bin .m3u | [x] code, optional build |
 | Adobe Flash | Ruffle in a bundled player view | .swf | [ ] |
 | J2ME | JavaScript J2ME engine in a bundled player view | .jar | [ ] |
 | GameCube | Dolphin interpreter, from source | .gcm .gcz .rvz .iso .dol .elf | [ ] research |
@@ -67,31 +69,31 @@ pick a system only when it truly cannot tell. The choice is remembered per game.
 
 ## Files
 
-- [ ] .zip and .7z import: unpacked on import, except where the core wants the archive itself
+- [x] .zip and .7z import: unpacked on import, except where the core wants the archive itself
       (arcade, DOS, Amiga .zip).
-- [ ] Save files in Manic's formats, import and export, per system: .srm .sav .dsv .mcd .mcr .eep
+- [x] Save files in Manic's formats, import and export, per system: .srm .sav .dsv .mcd .mcr .eep
       .flash .nvr .bkr .dsg, Dreamcast VMU, PSP and 3DS save folders as zips.
-- [ ] Multi-disc games: .m3u, and swap disc / insert disc in game.
+- [x] Multi-disc games: .m3u, and swap disc / insert disc in game.
 
 ## Ways to get games in
 
 - [x] Files and iCloud Drive picker (already).
-- [ ] Wi-Fi transfer: a switch starts a small upload page; type the shown address into any browser.
-- [ ] Paste from the clipboard (works with Handoff from a Mac).
-- [ ] Drag and drop into the app.
-- [ ] Open in / Share to Continuum from other apps.
-- [ ] WebDAV and SMB (NAS, router storage).
-- [ ] Google Drive, Dropbox, OneDrive: through Files (works now) and as direct logins.
+- [x] Wi-Fi transfer: a switch starts a small upload page; type the shown address into any browser.
+- [x] Paste from the clipboard (works with Handoff from a Mac).
+- [x] Drag and drop into the app.
+- [x] Open in / Share to Continuum from other apps.
+- [x] WebDAV and SMB (NAS, router storage).
+- [x] Google Drive, Dropbox, OneDrive through the Files picker. [ ] Direct logins need app ids only the owner can register with Google, Dropbox and Microsoft.
 
 ## Skins
 
-- [ ] `.manicskin` files, Manic's `public.aoshuang.game.*` identifiers, and Delta's.
-- [ ] One skin used across related systems (GB/GBC, MD/MCD/32X, MS/GG/SG-1000, NES/FDS, DOS/DOOM).
-- [ ] Default skin per system, a different skin per game, and switching skin mid-game.
-- [ ] Press animations (`asset.normal` per button).
-- [ ] Switch buttons: `selected` asset, spring `animation` begin/end, `selfRetracting`, state binding.
-- [ ] Button sound (`sound.caf`).
-- [ ] Every custom function button: flex, quickSave, quickLoad, fastForward, toggleFastForward,
+- [x] `.manicskin` files, Manic's `public.aoshuang.game.*` identifiers, and Delta's.
+- [x] One skin used across related systems (GB/GBC, MD/MCD/32X, MS/GG/SG-1000, NES/FDS, DOS/DOOM).
+- [x] Default skin per system, a different skin per game, and switching skin mid-game.
+- [x] Press animations (`asset.normal` per button).
+- [x] Switch buttons: `selected` asset, spring `animation` begin/end, `selfRetracting`, state binding.
+- [x] Button sound (`sound.caf`).
+- [x] Every custom function button: flex, quickSave, quickLoad, fastForward, toggleFastForward,
       fastForward2x/3x/4x, reverseScreens, volume, saveStates, cheatCodes, skins, filters,
       screenshot, haptics, controllers, orientation, functionLayout, restart, resolution, quit,
       amiibo, homeMenu, toggleControlls, blowing, palette, swapDisk, insertDisc, shake,
@@ -101,21 +103,31 @@ pick a system only when it truly cannot tell. The choice is remembered per game.
 
 ## In-game features those buttons need
 
-- [ ] Core settings screen per core (resolution, renderer, palettes and so on).
-- [ ] Filters: CRT, scanlines, LCD grid, smooth, and more.
-- [ ] Palettes for Game Boy, Game Boy Color, Virtual Boy.
-- [ ] Fast forward speeds 2x, 3x, 4x, cycle, and slow motion.
-- [ ] Shake (the phone's motion sensor to the core), DS lid, WonderSwan rotation.
-- [ ] Controller type per port (DualShock and so on).
-- [ ] Hide or show the controls, orientation lock.
-- [ ] 3DS home menu.
-- [ ] Simulated blow for DS mic games.
-- [ ] Gameplay manuals (a PDF per game).
-- [ ] Button remapping for skins and controllers (triggerPro-style profiles).
-- [ ] AirPlay scaling and AirPlay layout choices.
+- [x] Core settings screen per core (resolution, renderer, palettes and so on).
+- [x] Filters: CRT, scanlines, LCD grid, smooth, and more.
+- [x] Palettes for Game Boy, Game Boy Color, Virtual Boy.
+- [x] Fast forward speeds 2x, 3x, 4x, cycle, and slow motion.
+- [x] Shake (the phone's motion sensor to the core), DS lid, WonderSwan rotation.
+- [x] Controller type per port (DualShock and so on).
+- [x] Hide or show the controls, orientation lock.
+- [x] 3DS home menu.
+- [x] Simulated blow for DS mic games.
+- [x] Gameplay manuals (a PDF per game).
+- [x] Button remapping for skins and controllers (triggerPro-style profiles).
+- [x] AirPlay scaling and AirPlay layout choices.
 
 ## Already ahead of Manic (keep it that way)
 
 Online play for two phones, cloud sync through any folder, RAM cheat search, 50 save slots with
 pictures, rewind, extra buttons placed anywhere, skin editor inside the app, game rumble on the
 phone and controllers.
+
+## Still to do
+
+- [ ] Flash (.swf) through Ruffle in a bundled player view.
+- [ ] J2ME (.jar) through a bundled JavaScript J2ME engine.
+- [ ] GameCube and Wii (Dolphin interpreter): research whether it can run at all without JIT.
+- [ ] Symbian / N-Gage (EKA2L1): research; it is built around a recompiler.
+- [ ] Dreamcast: confirm flycast actually builds on CI and runs on a phone.
+- [ ] Direct Google Drive / Dropbox / OneDrive logins (needs the owner's developer app ids).
+- [ ] Achievements on Game Boy Advance (needs the core's memory map).
