@@ -132,6 +132,7 @@ extern "C" {
         index: u32,
         start: *mut u32,
         end: *mut u32,
+        real: *mut u32,
         kind: *mut u8,
     ) -> c_int;
     fn continuum_rc_error_str(result: c_int) -> *const c_char;
@@ -339,13 +340,14 @@ fn error_text(result: c_int) -> String {
 pub fn console_regions(console_id: u32) -> Vec<ConsoleRegion> {
     let mut regions = Vec::new();
     for index in 0..64 {
-        let (mut start, mut end, mut kind) = (0u32, 0u32, 0u8);
-        if unsafe { continuum_rc_console_region(console_id, index, &mut start, &mut end, &mut kind) }
-            == 0
-        {
+        let (mut start, mut end, mut real, mut kind) = (0u32, 0u32, 0u32, 0u8);
+        let found = unsafe {
+            continuum_rc_console_region(console_id, index, &mut start, &mut end, &mut real, &mut kind)
+        };
+        if found == 0 {
             break;
         }
-        regions.push(ConsoleRegion { start, end, kind });
+        regions.push(ConsoleRegion { start, end, real, kind });
     }
     regions
 }
@@ -365,6 +367,9 @@ unsafe impl Send for Achievements {}
 
 impl Achievements {
     pub fn new() -> Result<Self, String> {
+        // CHD and CSO hashing (rcheevos only reads cue/bin, gdi and iso itself). Process-wide,
+        // once; every later hash picks it up.
+        super::cdreader::install();
         let shared = Box::new(RefCell::new(Shared::default()));
         let ctx = &*shared as *const RefCell<Shared> as *mut c_void;
         let client = unsafe {
@@ -598,9 +603,14 @@ impl Achievements {
         std::mem::take(&mut self.shared.borrow_mut().events)
     }
 
-    /// Points the memory reads at the core's regions as they are right now.
-    pub fn set_memory(&mut self, core_region: impl Fn(u32) -> Option<(*const u8, usize)>) {
-        let blocks = memory_map::build(&self.console, core_region);
+    /// Points the memory reads at the core's memory as it is right now: through its memory map
+    /// when it published one (`map` non-empty), else through its libretro regions.
+    pub fn set_memory(
+        &mut self,
+        map: &[crate::memory_maps::MemoryDescriptor],
+        core_region: impl Fn(u32) -> Option<(*const u8, usize)>,
+    ) {
+        let blocks = memory_map::build(&self.console, map, core_region);
         self.shared.borrow_mut().blocks = blocks;
     }
 
@@ -783,7 +793,7 @@ mod tests {
         assert!(!achievements.console.is_empty());
         assert_eq!(achievements.console[0].start, 0);
         let ram: Vec<u8> = (0..2048u32).map(|i| (i % 251) as u8).collect();
-        achievements.set_memory(|id| {
+        achievements.set_memory(&[], |id| {
             (id == crate::memory::MEMORY_SYSTEM_RAM).then_some((ram.as_ptr(), ram.len()))
         });
         let ctx = &*achievements.shared as *const RefCell<Shared> as *mut c_void;
@@ -806,5 +816,38 @@ mod tests {
             .iter()
             .any(|r| r.kind == memory_map::RC_MEMORY_TYPE_SAVE_RAM));
         assert!(console_regions(9999).is_empty());
+        assert_eq!(snes[0].real, 0x07E_0000);
+    }
+
+    #[test]
+    fn live_gba_and_segacd_tables_carry_the_real_addresses_the_map_tests_assume() {
+        // memory_map.rs tests the GBA and Sega CD with copies of these; this keeps them honest.
+        let gba: Vec<(u32, u32, u32)> =
+            console_regions(5).iter().map(|r| (r.start, r.end, r.real)).collect();
+        assert_eq!(
+            gba,
+            vec![
+                (0x00000, 0x07FFF, 0x0300_0000),
+                (0x08000, 0x47FFF, 0x0200_0000),
+                (0x48000, 0x57FFF, 0x0E00_0000),
+            ]
+        );
+        let segacd: Vec<u32> = console_regions(9).iter().map(|r| r.real).collect();
+        assert_eq!(segacd, vec![0x00FF_0000, 0x8002_0000, 0x0020_0000]);
+    }
+
+    #[test]
+    fn a_gba_memory_map_is_honoured_end_to_end() {
+        let mut achievements = Achievements::new().unwrap();
+        achievements.console = console_regions(5);
+        let (buffers, raw) = crate::memory_maps::fixtures::mgba_gba(0x80_0000, 0x8000);
+        let map = crate::memory_maps::fixtures::copy(&raw);
+        achievements.set_memory(&map, |_| None);
+        let ctx = &*achievements.shared as *const RefCell<Shared> as *mut c_void;
+        let mut out = [0u8; 1];
+        assert_eq!(unsafe { read_hook(ctx, 0x0000, out.as_mut_ptr(), 1) }, 1);
+        assert_eq!(out[0], buffers.blocks[0][0]);
+        assert_eq!(unsafe { read_hook(ctx, 0x8000, out.as_mut_ptr(), 1) }, 1);
+        assert_eq!(out[0], buffers.blocks[1][0]);
     }
 }

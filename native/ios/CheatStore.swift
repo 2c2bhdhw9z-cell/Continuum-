@@ -322,12 +322,14 @@ final class CheatStore: ObservableObject {
         return add(code: code, label: label, forGameId: gameId)
     }
 
-    /// "RAM $00C0 = 99 (8-bit)" for a poke, nil for an ordinary code.
+    /// "RAM $00C0 = 99 (8-bit)" for a poke, "Address $03001234 = ..." for one made from a mapped
+    /// region, nil for an ordinary code.
     static func pokeSummary(for code: String) -> String? {
         guard let poke = describePokeCode(code: code) else { return nil }
         let hex = String(poke.address, radix: 16, uppercase: true)
         let padded = String(repeating: "0", count: max(0, 4 - hex.count)) + hex
-        return "RAM $\(padded) = \(poke.value) (\(Int(poke.bytes) * 8)-bit), written every frame"
+        let place = poke.bus ? "Address" : "RAM"
+        return "\(place) $\(padded) = \(poke.value) (\(Int(poke.bytes) * 8)-bit), written every frame"
     }
 
     private enum AppendOutcome {

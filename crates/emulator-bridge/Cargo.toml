@@ -40,6 +40,9 @@ uniffi = { version = "0.28", optional = true }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 sevenz-rust2 = { version = "=0.20.0", default-features = false, features = ["ppmd"] }
 chd = { version = "0.3.4", default-features = false, features = ["std", "cd_full"] }
+# Raw deflate for CSO blocks, read when hashing a PSP .cso for RetroAchievements
+# (src/achievements/disc.rs). Already in the tree at this version under zip, so nothing new builds.
+miniz_oxide = "0.9"
 
 # --- Apple targets only (iOS device, and macOS for binding generation). ---
 [target.'cfg(target_vendor = "apple")'.dependencies]

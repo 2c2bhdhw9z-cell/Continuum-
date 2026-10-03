@@ -473,6 +473,7 @@ dependencies = [
  "chd",
  "libloading",
  "log",
+ "miniz_oxide",
  "naga",
  "objc2",
  "objc2-metal",

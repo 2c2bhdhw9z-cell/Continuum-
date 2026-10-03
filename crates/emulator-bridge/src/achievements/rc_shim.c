@@ -318,12 +318,13 @@ void continuum_rc_set_hardcore(rc_client_t* client, int enabled) {
 
 /* The console's memory map, one region at a time. Returns 0 past the end. */
 int continuum_rc_console_region(uint32_t console_id, uint32_t index, uint32_t* start,
-                                uint32_t* end, uint8_t* type) {
+                                uint32_t* end, uint32_t* real, uint8_t* type) {
   const rc_memory_regions_t* regions = rc_console_memory_regions(console_id);
   if (!regions || index >= regions->num_regions)
     return 0;
   *start = regions->region[index].start_address;
   *end = regions->region[index].end_address;
+  *real = regions->region[index].real_address;
   *type = regions->region[index].type;
   return 1;
 }

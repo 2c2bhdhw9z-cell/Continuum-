@@ -124,6 +124,21 @@ pub struct PokeRecord {
     pub address: u32,
     pub value: u32,
     pub bytes: u8,
+    /// `address` is the console's own address (a poke made from a mapped region), not an offset
+    /// into system RAM.
+    pub bus: bool,
+}
+
+/// One memory region the RAM search can run over.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct RamSearchRegion {
+    /// Pass back to `ram_search_start_in`: "system" or "map:N".
+    pub key: String,
+    /// "System RAM", "IWRAM", "PRGRAM", ...
+    pub name: String,
+    /// The console address of the first byte (0 for system RAM).
+    pub start: u64,
+    pub size: u64,
 }
 
 /// The metadata inside a `.continuumstate` export.
@@ -230,6 +245,7 @@ pub fn describe_poke_code(code: String) -> Option<PokeRecord> {
             address: p.address,
             value: p.value,
             bytes: p.bytes,
+            bus: p.bus,
         })
 }
 
@@ -365,5 +381,46 @@ impl ContinuumEngine {
 
     pub fn ram_search_clear(&self) {
         self.lock().search_clear();
+    }
+
+    /// The regions a search can run over: system RAM, then every writable region of the core's
+    /// memory map (GBA IWRAM and EWRAM, SNES work RAM, ...). Empty with no game running.
+    pub fn ram_search_regions(&self) -> Vec<RamSearchRegion> {
+        self.lock()
+            .search_regions()
+            .into_iter()
+            .map(|r| RamSearchRegion {
+                key: r.key,
+                name: r.name,
+                start: r.start,
+                size: r.size,
+            })
+            .collect()
+    }
+
+    /// Starts a search over one region from `ram_search_regions`. Hits from a mapped region carry
+    /// the console's own addresses.
+    pub fn ram_search_start_in(
+        &self,
+        region: String,
+        width: RamSearchWidth,
+        aligned: bool,
+    ) -> Result<u64, EngineError> {
+        Ok(self.lock().search_start_in(&region, width.into(), aligned)? as u64)
+    }
+
+    /// The key of the region the running search covers, or `None`.
+    pub fn ram_search_region(&self) -> Option<String> {
+        self.lock().search_region_key()
+    }
+
+    /// The cheat code that pins `value` at a hit's `address`, right for the region searched.
+    pub fn ram_search_poke_code(
+        &self,
+        address: u32,
+        value: u32,
+        bytes: u8,
+    ) -> Result<String, EngineError> {
+        Ok(self.lock().search_poke_code(address, value, bytes)?)
     }
 }

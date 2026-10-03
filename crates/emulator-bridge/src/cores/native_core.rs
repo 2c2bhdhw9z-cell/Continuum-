@@ -217,6 +217,9 @@ const ENV_GET_SAVE_DIRECTORY: c_uint = 31; // libretro.h:1330 RETRO_ENVIRONMENT_
 const ENV_GET_LOG_INTERFACE: c_uint = 27; // libretro.h:1247 RETRO_ENVIRONMENT_GET_LOG_INTERFACE
 const ENV_SET_SYSTEM_AV_INFO: c_uint = 32; // libretro.h:1369 RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO
 const ENV_SET_CONTROLLER_INFO: c_uint = 35; // libretro.h:1510 RETRO_ENVIRONMENT_SET_CONTROLLER_INFO
+// Experimental, so the 0x10000 bit (libretro.h:729) is part of the number; without it the case
+// could never match.
+const ENV_SET_MEMORY_MAPS: c_uint = 36 | 0x10000; // libretro.h:1534 RETRO_ENVIRONMENT_SET_MEMORY_MAPS
 const ENV_SET_GEOMETRY: c_uint = 37; // libretro.h:1558 RETRO_ENVIRONMENT_SET_GEOMETRY
 const ENV_GET_CORE_OPTIONS_VERSION: c_uint = 52; // libretro.h:1854 RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION
 const ENV_SET_CORE_OPTIONS: c_uint = 53; // libretro.h:1928 RETRO_ENVIRONMENT_SET_CORE_OPTIONS
@@ -231,6 +234,33 @@ const ENV_SET_CORE_OPTIONS_V2: c_uint = 67; // libretro.h:2345 RETRO_ENVIRONMENT
 const ENV_SET_CORE_OPTIONS_V2_INTL: c_uint = 68; // libretro.h:2362 RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL
 const ENV_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: c_uint = 69; // libretro.h:2383
 const ENV_SET_VARIABLE: c_uint = 70; // libretro.h:2417 RETRO_ENVIRONMENT_SET_VARIABLE
+
+/// The memory map a core published and the `NativeLibretroCore` has not yet collected.
+///
+/// A hand-off slot, not the store: cores publish from inside `retro_load_game` (mGBA,
+/// snes9x2010, Genesis Plus GX for the Sega CD), where nothing can reach the core object, so the
+/// environment callback leaves the copied table here and the core takes it right after the call
+/// returns (and after every `retro_run`, for a core that republishes). From then on the table
+/// lives on the core it belongs to, so a second resident core never sees it. A process global for
+/// the `DIRECTORIES` reason. Emptied at every core and content load.
+static PUBLISHED_MEMORY_MAP: std::sync::Mutex<Option<Vec<crate::memory_maps::MemoryDescriptor>>> =
+    std::sync::Mutex::new(None);
+
+fn publish_memory_map(table: Option<Vec<crate::memory_maps::MemoryDescriptor>>) {
+    let mut guard = match PUBLISHED_MEMORY_MAP.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    *guard = table;
+}
+
+fn take_published_memory_map() -> Option<Vec<crate::memory_maps::MemoryDescriptor>> {
+    let mut guard = match PUBLISHED_MEMORY_MAP.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    guard.take()
+}
 
 /// The rotation the core last asked for with `SET_ROTATION`, 0..=3 quarter turns counter-clockwise
 /// (libretro.h:735). A process global for the `DIRECTORIES` reason; reset at every core load.
@@ -503,6 +533,20 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
             }
             true
         }
+        ENV_SET_MEMORY_MAPS => {
+            // data is `const struct retro_memory_map *` (libretro.h:1524). Copied whole, strings
+            // included, because the core may free its table the moment this returns; then run
+            // through RetroArch's preprocessing so lookups match RetroArch's (see memory_maps).
+            if data.is_null() {
+                return false;
+            }
+            let table = unsafe {
+                crate::memory_maps::copy_from_core(data as *const crate::memory_maps::RetroMemoryMap)
+            };
+            log::info!("core published a memory map of {} descriptor(s)", table.len());
+            publish_memory_map(Some(table));
+            true
+        }
         ENV_GET_CAN_DUPE => {
             unsafe { *(data as *mut bool) = true };
             true
@@ -756,6 +800,8 @@ pub struct NativeLibretroCore {
     /// `info->data` unconditionally, so it would have received a zero-byte ROM and failed in a way
     /// that looks exactly like a broken core.
     need_fullpath: bool,
+    /// The core's `SET_MEMORY_MAPS` table, preprocessed. Empty when it published none.
+    memory_map: Vec<crate::memory_maps::MemoryDescriptor>,
 }
 
 impl NativeLibretroCore {
@@ -909,6 +955,8 @@ impl NativeLibretroCore {
         gl_hw::reset();
         // A previous core's controller table must not describe this one's ports.
         store_controller_info(Vec::new());
+        // Nor its memory map this one's memory.
+        publish_memory_map(None);
         // Same for the microphone handle and the camera registration: a core is handed both
         // during `retro_set_environment` or `retro_load_game`, and nothing the last core held may
         // be honoured for this one.
@@ -987,6 +1035,8 @@ impl NativeLibretroCore {
             negotiated_format,
             library_version,
             need_fullpath,
+            // A core may publish during `retro_set_environment` or `retro_init`; kept if so.
+            memory_map: take_published_memory_map().unwrap_or_default(),
         })
     }
 
@@ -1131,6 +1181,8 @@ impl EmulatorCore for NativeLibretroCore {
         // A core negotiates its pixel format from inside `retro_load_game`. Clear any stale
         // value first, then read back whatever it chose so `video()` reports the truth.
         reset_negotiated_format();
+        // A map is for one game's memory: published again (or not) by this load.
+        publish_memory_map(None);
 
         let ok = unsafe { (self.symbols.load_game)(&info) };
         if !ok {
@@ -1142,6 +1194,13 @@ impl EmulatorCore for NativeLibretroCore {
 
         if let Some(format) = take_negotiated_format() {
             self.negotiated_format = format;
+        }
+        // The map published during this load, or none: a previous game's table describes memory
+        // this game does not have. A core that published only at init keeps that one.
+        if let Some(table) = take_published_memory_map() {
+            self.memory_map = table;
+        } else if self.content_loaded {
+            self.memory_map.clear();
         }
 
         self.content_loaded = true;
@@ -1186,6 +1245,10 @@ impl EmulatorCore for NativeLibretroCore {
 
         unsafe { (self.symbols.run)() };
         super::options::note_frame();
+        // A core that republishes mid-game (a mapper change) does it from inside retro_run.
+        if let Some(table) = take_published_memory_map() {
+            self.memory_map = table;
+        }
 
         EXCHANGE.with(|cell| {
             let mut exchange = cell.borrow_mut();
@@ -1421,6 +1484,14 @@ impl EmulatorCore for NativeLibretroCore {
     fn memory_region_mut(&mut self, id: u32) -> Option<&mut [u8]> {
         let (pointer, len) = self.raw_memory(id)?;
         Some(unsafe { std::slice::from_raw_parts_mut(pointer, len) })
+    }
+
+    fn memory_map(&self) -> &[crate::memory_maps::MemoryDescriptor] {
+        if self.content_loaded {
+            &self.memory_map
+        } else {
+            &[]
+        }
     }
 
     fn set_controller_port_device(&mut self, port: u32, device: u32) -> Result<(), BridgeError> {

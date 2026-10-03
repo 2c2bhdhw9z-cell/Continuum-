@@ -9,6 +9,14 @@
 //! for example `poke:00C0:63:1`. The engine splits those out of the list before the core sees it
 //! (see `EmulatorBridge::apply_cheats`), so a core never receives a code it would misread.
 //!
+//! ## Bus pokes
+//!
+//! A poke made from a search over one of a core's MAPPED regions (the GBA's internal work RAM at
+//! `$03000000`, say, from `RETRO_ENVIRONMENT_SET_MEMORY_MAPS`) carries the console's own address
+//! and a fourth field: `poke:03001234:63:1:bus`. The engine resolves it through the core's memory
+//! map every frame instead of indexing `SYSTEM_RAM`. Old three-field codes mean what they always
+//! did.
+//!
 //! Little endian, because every system Continuum runs that has a RAM worth searching stores
 //! multi-byte values that way in the buffer libretro exposes, and the search reads them the same
 //! way. One rule for both halves is what makes "make a cheat from this address" write back the
@@ -17,14 +25,19 @@
 /// The prefix that marks a cheat list entry as an engine poke rather than a core code.
 pub const POKE_PREFIX: &str = "poke:";
 
+/// The fourth field of a bus poke. See the module note.
+pub const BUS_SUFFIX: &str = "bus";
+
 /// One poke.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Poke {
-    /// Byte offset into `SYSTEM_RAM`.
+    /// Byte offset into `SYSTEM_RAM`, or the console's own address when `bus` is set.
     pub address: u32,
     pub value: u32,
     /// 1, 2 or 4.
     pub bytes: u8,
+    /// `address` is a console bus address, resolved through the core's memory map.
+    pub bus: bool,
 }
 
 impl Poke {
@@ -45,14 +58,26 @@ impl Poke {
             address,
             value,
             bytes,
+            bus: false,
         })
+    }
+
+    /// A poke at a console bus address. See the module note.
+    pub fn new_bus(address: u32, value: u32, bytes: u8) -> Result<Self, String> {
+        Self::new(address, value, bytes).map(|poke| Self { bus: true, ..poke })
     }
 
     /// The canonical code string. See the module note.
     pub fn code(&self) -> String {
         let digits = usize::from(self.bytes) * 2;
+        // A console address is shown whole ($03001234), a RAM offset as at least four digits.
+        let (suffix, address_digits) = if self.bus {
+            (format!(":{BUS_SUFFIX}"), 8)
+        } else {
+            (String::new(), 4)
+        };
         format!(
-            "{POKE_PREFIX}{:04X}:{:0digits$X}:{}",
+            "{POKE_PREFIX}{:0address_digits$X}:{:0digits$X}:{}{suffix}",
             self.address, self.value, self.bytes
         )
     }
@@ -73,11 +98,16 @@ impl Poke {
         }
         let body = &trimmed[POKE_PREFIX.len()..];
         let parts: Vec<&str> = body.split(':').map(str::trim).collect();
-        if parts.len() != 3 {
-            return Err(format!(
-                "'{trimmed}' should be poke:ADDRESS:VALUE:BYTES, for example poke:00C0:63:1"
-            ));
-        }
+        let bus = match parts.len() {
+            3 => false,
+            4 if parts[3].eq_ignore_ascii_case(BUS_SUFFIX) => true,
+            _ => {
+                return Err(format!(
+                    "'{trimmed}' should be poke:ADDRESS:VALUE:BYTES, for example poke:00C0:63:1 \
+                     (or with :bus on the end for a console address)"
+                ))
+            }
+        };
         let hex = |text: &str, what: &str| {
             let text = text
                 .strip_prefix("0x")
@@ -91,7 +121,16 @@ impl Poke {
         let bytes: u8 = parts[2]
             .parse()
             .map_err(|_| format!("the width in '{trimmed}' should be 1, 2 or 4"))?;
-        Self::new(address, value, bytes)
+        if bus {
+            Self::new_bus(address, value, bytes)
+        } else {
+            Self::new(address, value, bytes)
+        }
+    }
+
+    /// The little-endian bytes this poke writes.
+    pub fn value_bytes(&self) -> Vec<u8> {
+        self.value.to_le_bytes()[..usize::from(self.bytes)].to_vec()
     }
 
     /// Writes this poke into `ram`. Returns false, and writes nothing, when it does not fit.
@@ -127,6 +166,18 @@ mod tests {
         }
         assert_eq!(Poke::new(0xC0, 0x63, 1).unwrap().code(), "poke:00C0:63:1");
         assert_eq!(Poke::new(0xC0, 0x63, 2).unwrap().code(), "poke:00C0:0063:2");
+    }
+
+    #[test]
+    fn bus_pokes_round_trip_and_old_codes_are_unchanged() {
+        let bus = Poke::new_bus(0x0300_1234, 0x63, 1).unwrap();
+        assert_eq!(bus.code(), "poke:03001234:63:1:bus");
+        assert_eq!(Poke::parse(&bus.code()).unwrap(), bus);
+        assert!(Poke::parse("POKE:03001234:63:1:BUS").unwrap().bus);
+        assert!(!Poke::parse("poke:00C0:63:1").unwrap().bus);
+        assert!(Poke::parse("poke:00C0:63:1:map").is_err());
+        assert!(Poke::parse("poke:00C0:63:1:bus:x").is_err());
+        assert_eq!(Poke::new(1, 0xAABB, 2).unwrap().value_bytes(), vec![0xBB, 0xAA]);
     }
 
     #[test]

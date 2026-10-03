@@ -134,7 +134,9 @@ struct ChtImportButton: View {
 
 // MARK: - RAM search
 
-/// Classic RAM search over the running game's system RAM.
+/// Classic RAM search over the running game's memory: system RAM, or any writable region the core
+/// published in its memory map (the GBA's IWRAM and EWRAM, for instance). The list of regions and
+/// which addresses a hit carries both come from the engine (`ramSearchRegions`).
 struct CheatSearchView: View {
     let entry: LibraryEntry
     @ObservedObject var host: EngineHost
@@ -148,6 +150,9 @@ struct CheatSearchView: View {
     @State private var line = ""
     /// The hit being turned into a cheat, and the value it will pin.
     @State private var making: RamSearchHit?
+    /// Memory the search can run over, from the engine, and the one chosen ("system" or "map:N").
+    @State private var regions: [RamSearchRegion] = []
+    @State private var regionKey = "system"
     @State private var pinText = ""
     @State private var pinLabel = ""
 
@@ -206,6 +211,15 @@ struct CheatSearchView: View {
 
     private var setup: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if regions.count > 1 {
+                Picker("Memory", selection: $regionKey) {
+                    ForEach(regions, id: \.key) { region in
+                        Text(Self.describe(region)).tag(region.key)
+                    }
+                }
+                .pickerStyle(.menu)
+                .font(.system(size: 13))
+            }
             Picker("Size", selection: $width) {
                 Text("8-bit").tag(RamSearchWidth.bits8)
                 Text("16-bit").tag(RamSearchWidth.bits16)
@@ -217,8 +231,12 @@ struct CheatSearchView: View {
                 .tint(ShellPalette.accent)
             SettingsButton(title: count == nil ? "Start a search" : "Start over", role: .normal) {
                 do {
-                    let total = try host.engine.ramSearchStart(width: width, aligned: aligned)
-                    line = "search started over \(total) address(es) of system RAM"
+                    let key = regions.contains(where: { $0.key == regionKey }) ? regionKey : "system"
+                    let total = try host.engine.ramSearchStartIn(region: key, width: width,
+                                                                 aligned: aligned)
+                    let name = regions.first(where: { $0.key == key }).map(Self.describe)
+                        ?? "system RAM"
+                    line = "search started over \(total) address(es) of \(name)"
                 } catch {
                     line = "the search could not start: \(error)"
                 }
@@ -323,6 +341,12 @@ struct CheatSearchView: View {
     }
 
     private func refresh() {
+        regions = host.engine.ramSearchRegions()
+        if let running = host.engine.ramSearchRegion() {
+            regionKey = running
+        } else if !regions.contains(where: { $0.key == regionKey }), let first = regions.first {
+            regionKey = first.key
+        }
         count = host.engine.ramSearchCount()
         hits = count == nil ? [] : host.engine.ramSearchResults(limit: Self.resultLimit)
         if let running = host.engine.ramSearchWidth() {
@@ -344,12 +368,32 @@ struct CheatSearchView: View {
             return
         }
         let label = pinLabel.isEmpty ? "RAM \(Self.hex(hit.address))" : pinLabel
-        if let problem = cheats.addPoke(address: hit.address, value: value, bytes: bytes,
-                                        label: label, forGameId: SaveStates.gameId(for: entry)) {
+        // The engine makes the code, because only it knows whether the hit is a system RAM offset
+        // or a console address from a mapped region (a `:bus` poke).
+        let code: String
+        do {
+            code = try host.engine.ramSearchPokeCode(address: hit.address, value: value,
+                                                     bytes: bytes)
+        } catch {
+            line = "no cheat was added: \(error)"
+            return
+        }
+        if let problem = cheats.add(code: code, label: label,
+                                    forGameId: SaveStates.gameId(for: entry)) {
             line = "no cheat was added: \(problem)"
         } else {
             line = "added \"\(label)\": \(Self.hex(hit.address)) stays at \(value)"
         }
+    }
+
+    /// "IWRAM at $03000000, 32 KB".
+    static func describe(_ region: RamSearchRegion) -> String {
+        let size = region.size >= 1024 ? "\(region.size / 1024) KB" : "\(region.size) bytes"
+        if region.key == "system" {
+            return "\(region.name), \(size)"
+        }
+        let start = String(region.start, radix: 16, uppercase: true)
+        return "\(region.name) at $\(start), \(size)"
     }
 
     static func hex(_ address: UInt32) -> String {
