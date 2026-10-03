@@ -32,7 +32,7 @@ table: **the Switch**, hardest last. The N64 arrived by the software-renderer tr
 | **Nintendo 64** | parallel_n64 | **Done** | Device-proven on build 97 (`258a828`): past `N64 first tick…`, frames climbing, ~60 fps into Smash character select. Soft/interp only (no JIT on this signed IPA). `.n64`, `.z64`, `.v64` |
 | **TurboGrafx-16** | mednafen_pce_fast | **Built, untested** | HuCard games only. PC Engine CD needs a system card BIOS that cannot ship |
 | **Atari 2600** | stella2023 | **Built, untested** | `.a26` only. A 2600 ROM named `.bin` has to be renamed, because `.bin` belongs to the PlayStation here as a disc track |
-| **Nintendo 3DS** | azahar | **Partial** | A game runs (Mario Kart). The open fail is the skin: the picture is not in the top screen hole, and the bottom screen stays empty. A fix is in `ee307b8` and is not installed yet. No JIT. Decrypted `.3ds`, `.3dsx`, `.cci`, `.cxi` only. A retail game can still need 3DS system archives this app does not ship |
+| **Nintendo 3DS** | azahar | **Partial** | A game runs (Mario Kart). The open fail is the skin: the picture is not in the top screen hole, and the bottom screen stays empty. The install is Continuum-109 (`05ee4df`). It is not proven on a phone. No JIT. Decrypted `.3ds`, `.3dsx`, `.cci`, `.cxi` only. A retail game can still need 3DS system archives this app does not ship |
 | **Nintendo DS** | melonDS | **Done** | Confirmed on device (build 80): Mario Kart DS and Pokémon SoulSilver, dual screens live, ~60 fps, 0 dropped |
 | **PlayStation Portable** | ppsspp | **Partial** | In the IPA as `ppsspp_libretro_ios.dylib`. CPU is the IR interpreter: the core's option value "IR JIT" is `CPUCore::IR_INTERPRETER` with compile-to-native off. No dynarec, no executable memory. Picture is Vulkan `set_image`, the same hook as the 3DS. No BIOS is shipped; PPSSPP does not need one. `.cso` only. `.iso`, `.chd` and `.pbp` stay PlayStation. **Not device-proven.** Do not claim a game runs or quote a frame rate |
 
@@ -89,17 +89,17 @@ Broken out rather than left as one row. Device-proven on build 80:
 
 This is the bar. A line is **Done** only when a phone showed it. **In the tree** means the code is on master and no phone has run it. **Not built** means it is not in the app. JIT is **out on purpose**, not a missing feature.
 
-Build 108 failed. There is no install file from that run. The skin methods sat outside the controls class, and the picture rect was assigned with an `if` inside the view. Both are fixed and the next install is compiling. It is not on a phone. A skin already saved on the phone only has the first hole and no circle pad. After an install that actually exists, import that skin file again.
+Build 108 failed and has no file. The compile fix is in `05ee4df`, and the install is [Continuum-109](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-109-05ee4df/Continuum-109.ipa). It is not proven on a phone. A skin already saved on the phone only has the first hole and no circle pad, so import the skin file again.
 
 | What | State | Notes |
 | --- | --- | --- |
-| Two screens, each placed where the skin file says | **In the tree** (`ee307b8`) | Last phone report: the top hole is empty and the bottom screen stays empty. Not done until a new import shows both |
+| Two screens, each placed where the skin file says | **In 109, not on a phone** | Last phone report: the top hole is empty and the bottom screen stays empty. Not done until a new import shows both |
 | Swap which screen is the big one | **Not built** | |
 | AirPlay: game on the TV, touch screen on the phone | **Not built** | |
-| Button shows a pressed picture | **In the tree** (`ee307b8`) | Only when the skin file has that picture. Not on a phone |
+| Button shows a pressed picture | **In 109, not on a phone** | Only when the skin file has that picture. Not on a phone |
 | Extra buttons you place yourself | **Not built** | The built-in pad can be dragged. That is not extra floating triggers |
 | Edit an imported skin inside the app | **Not built** | Dragging the built-in pad is a different editor |
-| Circle pad or joystick as a real stick | **In the tree** (`ee307b8`) | Not a D-pad. Not on a phone. Import the skin again |
+| Circle pad or joystick as a real stick | **In 109, not on a phone** | Not a D-pad. Not on a phone. Import the skin again |
 | Touch screen as a mouse | **Not built** | |
 | iPhone camera into a 3DS game | **Not built** | |
 | iPhone microphone | **Not built** | |
