@@ -97,7 +97,7 @@ wrong, so it matters, but there is no reasonable way to ask you to trigger it.
 
 These are not tests. They are not in the app. JIT is out on purpose.
 
-- Swap which screen is the big one
+- Swap which screen is the big one (next, not in 109)
 - AirPlay (game on the TV, touch screen stays on the phone)
 - Extra buttons you place yourself
 - Editing an imported skin inside the app (dragging the built-in pad is a different thing)
