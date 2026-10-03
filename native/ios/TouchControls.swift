@@ -1506,6 +1506,9 @@ final class TouchControlsView: UIView {
     var trackpadEnabled = false {
         didSet {
             guard trackpadEnabled != oldValue else { return }
+            // Switching off mid-click must still deliver one released frame, or the core keeps
+            // the button the last frame said was down.
+            owesMouseRelease = oldValue
             trackpadTouches.removeAll()
             pendingMouse = .zero
             leftPulse = 0
@@ -1523,6 +1526,8 @@ final class TouchControlsView: UIView {
     }
 
     private var trackpadTouches: [ObjectIdentifier: TrackpadTouch] = [:]
+    /// Set when trackpad mode was switched off, so one released mouse frame is still sent.
+    private var owesMouseRelease = false
     /// Most fingers down at once during the current trackpad gesture.
     private var trackpadFingers = 0
     /// Whether any finger in the current gesture moved past the tap slop.
@@ -1551,7 +1556,13 @@ final class TouchControlsView: UIView {
 
     /// The mouse for the frame about to run. Consumes the motion and one frame of any click.
     func takeMouseFrame() -> MouseFrame? {
-        guard trackpadEnabled else { return nil }
+        guard trackpadEnabled else {
+            if owesMouseRelease {
+                owesMouseRelease = false
+                return MouseFrame(dx: 0, dy: 0, left: false, right: false, middle: false)
+            }
+            return nil
+        }
         let now = ProcessInfo.processInfo.systemUptime
         var holding = false
         for (key, touch) in trackpadTouches {
