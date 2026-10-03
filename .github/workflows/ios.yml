@@ -221,6 +221,13 @@ jobs:
             || echo "::warning::the Ruffle player is not bundled; Flash (.swf) games will say the player is not in this build"
           grep -q "support/players/j2me/bld/main-all.js" <<<"$LISTING" \
             || echo "::warning::the J2meJS player is not bundled; J2ME (.jar) games will say the player is not in this build"
+          # Every @rpath library the app binary links must be inside the app, or iOS kills it at launch
+          # (build 117 shipped linked to AMSMB2.framework without embedding it).
+          rm -rf /tmp/ipacheck && mkdir /tmp/ipacheck && unzip -q "$IPA" -d /tmp/ipacheck
+          APP=/tmp/ipacheck/Payload/Continuum.app
+          for lib in $(otool -L "$APP/Continuum" | awk '/@rpath\//{print $1}' | sed 's#@rpath/##'); do
+            [ -e "$APP/Frameworks/$lib" ] || { echo "::error::the app links $lib but it is not in Frameworks; it would close on launch"; exit 1; }
+          done
           echo "ipa verified"
 
       - name: Upload the .ipa

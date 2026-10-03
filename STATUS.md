@@ -135,6 +135,8 @@ Everything below is on master and in Continuum-116 unless it says otherwise. TES
 
 ### Not done
 
+- SMB (NAS shares) is out again: build 117 closed on launch because the SMB library was linked but not packed into the app. WebDAV still works. CI now refuses any build with that mistake.
+
 - GameCube and Wii: they cannot be playable without JIT (see docs/HARD_SYSTEMS.md).
 - Symbian / N-Gage: not started.
 - Direct Google Drive, Dropbox and OneDrive logins: they need developer app ids only the owner can register. They do work through the Files picker.

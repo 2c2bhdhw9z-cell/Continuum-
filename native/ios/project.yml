@@ -35,14 +35,10 @@ settings:
     # load works in the simulator (which searches differently) and fails on device.
     LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
 
-# Swift packages, resolved by xcodebuild on the CI runner (it has network access).
-# AMSMB2 is SMB2/3 for NAS shares, a Swift wrapper over libsmb2 (C, compiled inside the package).
-# Pinned exactly: 4.x needs Swift 6.2 (Xcode 26, which the runner has), and a floating version
-# could change the API RemoteSources.swift calls.
-packages:
-  AMSMB2:
-    url: https://github.com/amosavian/AMSMB2
-    exactVersion: 4.0.3
+# SMB (AMSMB2) was removed after build 117: Xcode linked its framework but never embedded it, so
+# the app died at launch looking for AMSMB2.framework. RemoteSources.swift builds without it
+# (`#if canImport(AMSMB2)`) and says SMB is not in this build. Bring it back only together with a
+# proven embed, and the "every linked framework is inside the app" check in ios.yml will catch it.
 
 targets:
   Continuum:
@@ -478,9 +474,6 @@ targets:
         LIBRARY_SEARCH_PATHS: "$(inherited) $(SRCROOT)/build/lib"
         OTHER_LDFLAGS: "$(inherited) -lemulator_bridge -lc++ -framework OpenGLES"
     dependencies:
-      # SMB browsing (RemoteSources.swift). A dynamic framework, embedded by Xcode into Frameworks/
-      # and signed there by package-ipa.sh's *.framework loop like MoltenVK.
-      - package: AMSMB2
       # The C++ libretro wrapper, dlopened at runtime rather than linked. `embed` puts it in
       # Frameworks/; `codeSign: false` because package-ipa.sh signs everything in one pass
       # after the fact, and letting Xcode try would fail with signing disabled.
