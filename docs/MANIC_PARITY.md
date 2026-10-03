@@ -57,8 +57,8 @@ DS, 3DS, PSP.
 | NES extra | fceumm | .fc | [x] code |
 | SNES extra | snes9x | .snes | [x] code |
 | Sega Dreamcast | flycast, from source (not on the iOS buildbot) | .cdi .gdi .chd .cue .bin .m3u | [x] code, optional build |
-| Adobe Flash | Ruffle in a bundled player view | .swf | [ ] |
-| J2ME | JavaScript J2ME engine in a bundled player view | .jar | [ ] |
+| Adobe Flash | Ruffle in a bundled player view | .swf | [x] code |
+| J2ME | JavaScript J2ME engine in a bundled player view | .jar | [x] code |
 | GameCube | Dolphin interpreter, from source | .gcm .gcz .rvz .iso .dol .elf | [ ] research |
 | Wii | Dolphin interpreter, from source | .rvz .wbfs .ciso .wia .iso .wad .dol .elf | [ ] research |
 | Symbian / N-Gage | EKA2L1 | .sis .sisx .n-gage | [ ] research |
@@ -124,10 +124,19 @@ phone and controllers.
 
 ## Still to do
 
-- [ ] Flash (.swf) through Ruffle in a bundled player view.
-- [ ] J2ME (.jar) through a bundled JavaScript J2ME engine.
+- [x] Flash (.swf) through Ruffle in a bundled player view.
+- [x] J2ME (.jar) through a bundled JavaScript J2ME engine.
 - [ ] GameCube and Wii (Dolphin interpreter): research whether it can run at all without JIT.
 - [ ] Symbian / N-Gage (EKA2L1): research; it is built around a recompiler.
 - [ ] Dreamcast: confirm flycast actually builds on CI and runs on a phone.
 - [ ] Direct Google Drive / Dropbox / OneDrive logins (needs the owner's developer app ids).
-- [ ] Achievements on Game Boy Advance (needs the core's memory map).
+- [x] Achievements on Game Boy Advance (memory maps). Still to fix: .cht RAM cheats on GBA use system RAM addresses.
+
+## Where the last session stopped (3 October 2026)
+
+- Build 116 (`c8f7dd5`) is wave 2 and built green. Master `97a2c9b` adds Flash, J2ME, memory maps
+  and docs/HARD_SYSTEMS.md; its CI build had not finished when the session ended. Watch it, and if
+  it fails, read the log and fix it.
+- Next: update STATUS.md and TESTING.md for waves 2 and 3, refresh docs/PLATFORM_LIMITS.md (the iOS
+  buildbot now carries dolphin, flycast, ppsspp and azahar), then Dreamcast per docs/HARD_SYSTEMS.md.
+- Worker reports with phone test steps were in a scratch folder and are not in the repo.
