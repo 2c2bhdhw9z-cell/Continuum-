@@ -53,7 +53,9 @@ jobs:
     # except cargo. A timeout is the worst failure this job has: it produces no artefact
     # and no ::error:: annotation, so it reads like an infrastructure hang rather than a
     # build that simply needed longer. The job is billed by the minute either way.
-    timeout-minutes: 240
+    # Raised to 300 when flycast (Dreamcast, built from source with glslang) joined ios-all as an
+    # optional core. The prebuilt buildbot cores cost seconds, not minutes.
+    timeout-minutes: 300
 
     steps:
       - uses: actions/checkout@v4
