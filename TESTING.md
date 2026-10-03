@@ -50,6 +50,48 @@ button in the player; see [Reading the diagnostic text](#reading-the-diagnostic-
 | ☐ **27. Cloud sync** | Settings, CLOUD SYNC, choose a folder in iCloud Drive. Save, go back to the library | Status says files went up | New |
 | ☐ **15. Import the skin again** | Install Continuum-109, then import the skin file again. A skin already saved on the phone only has the first hole and no circle pad | Top picture inside the top hole, bottom picture in the bottom hole, both ways you hold the phone. The circle pad moves as a stick. A button shows its pressed picture only if the file has one | Install Continuum-109. Build 108 has no file. Not done until the picture is in the hole on the phone |
 
+## The big list: everything built on 3 October 2026 that no phone has tried
+
+Install Continuum-116 (or a newer build). Numbers 31 and 32 need build 117 or later.
+
+1. **New systems open.** Settings, Diagnostics: the cores line should say about 32 declared, and name any missing one.
+2. **Each new system plays.** Import one game each for WonderSwan, Neo Geo Pocket, Lynx, Atari 7800, Atari 5200, Virtual Boy, Pokemon Mini, 32X and SuperGrafx. Each should show its cover and its own pad, and play.
+3. **Disc systems.** Import a Saturn, Sega CD and PC Engine CD game (cue and bins together). It should pick the right system on its own. With no BIOS it names the exact file to add.
+4. **Computers.** Play a C64, Amiga and DOS game (DOS as a .zip). The keyboard button opens the on-screen keyboard; a Bluetooth keyboard should type too.
+5. **DOOM.** Import a .wad. It should start with no extra files.
+6. **Arcade.** Import a game zip like mslug.zip. Neo Geo games need neogeo.zip in the Continuum folder.
+7. **Jaguar.** Import a .j64 and check the speed.
+8. **Dreamcast.** Only if the cores line lists flycast. Import a .gdi or .chd and check the speed.
+9. **Unsure files.** Import a disc the app cannot identify. It should ask which system once, and remember.
+10. **Wi-Fi transfer.** Library, +, Wi-Fi transfer. Type the address shown into a computer browser on the same Wi-Fi and upload a game.
+11. **Paste.** Copy a game in Files, then Import, Paste from the clipboard.
+12. **Drag and drop.** Drag a game from Files onto the library in split view.
+13. **Open in.** In Files, share a .gba to Continuum.
+14. **NAS.** Add a WebDAV or SMB server in Import, browse it, and import a game.
+15. **Save files from other emulators.** Game card, Save slots, Import a save file (a DS .dsv or PS1 .mcr). Launch: the save is there.
+16. **Manic skins.** Import a .manicskin. Buttons work, press animations show, switches slide, and you hear button sounds unless the phone is on silent.
+17. **Skin per game.** Game card, Skin: pick one. In game, menu, Skin: switch it live.
+18. **Function buttons.** On a skin or an extra button, try quick save, fast forward 2x, filters, palette, screenshot, hide controls and quit.
+19. **Core settings.** Menu, Core settings: change an option. If it says a restart is needed, restart the game.
+20. **Filters.** Menu, Filters: try CRT, LCD grid and dot matrix.
+21. **Palettes.** On a Game Boy game, menu, Next palette.
+22. **Speeds.** Menu, Speed: try 2x, 3x, 4x and slow motion. The sound slows down too.
+23. **Discs.** On a multi-disc PS1 .m3u, use Next disc. On a Famicom Disk game, Next disc flips the side.
+24. **Rotate.** Menu, Rotate picture. Also try a vertical WonderSwan game.
+25. **Atari 2600 switches.** Menu, TV type and the difficulty switches.
+26. **Tilt.** Play Yoshi Topsy-Turvy or WarioWare Twisted (GBA) and tilt the phone.
+27. **Shake.** Menu, Shake. On Pokemon Mini it shakes the game.
+28. **PlayStation analog.** Menu, Analog pad on, then an analog game.
+29. **DS lid and blow; 3DS HOME.** DS menu: Close the lid. Hold the mic button in a blowing game. On 3DS, menu, HOME button.
+30. **Controllers and remapping.** Menu, Controllers: swap players, map a button to another, make a second profile and switch to it.
+31. **Flash.** Import a .swf. It plays, and the pad acts as arrows and Space.
+32. **J2ME.** Import a .jar. The phone keypad works, and saves are still there after you leave and come back.
+33. **Achievements on GBA.** Log in to RetroAchievements and play a GBA game that has achievements. Unlocks should pop up.
+34. **RAM search on GBA.** Menu, Cheats and RAM search: pick IWRAM or EWRAM, search for lives, and make a cheat.
+35. **TV settings.** With AirPlay on, menu, TV scaling and TV layout.
+
+Also still untried from earlier: steps 16 to 27 in the queue table above, and the skin hole test (15).
+
 ### Answered without a device: the DS needs no BIOS files
 
 This was question 8 in the queue and it is now settled by reading the core's own source, so it

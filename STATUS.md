@@ -121,6 +121,30 @@ The install is [Continuum-111](https://github.com/2c2bhdhw9z-cell/Continuum-/rel
 
 ---
 
+## Built 3 October 2026, not on a phone yet
+
+Everything below is on master and in Continuum-116 unless it says otherwise. TESTING.md has a numbered list for trying each one.
+
+- **19 new systems:** WonderSwan, Neo Geo Pocket, PC Engine CD, SuperGrafx, Amiga, C64, DOS, DOOM, Jaguar, Lynx, Atari 7800, Atari 5200, Arcade, Pokemon Mini, Virtual Boy, Saturn, Sega CD, 32X, and Dreamcast (optional, never compiled before build 116).
+- **Getting games in:** Wi-Fi transfer, paste, drag and drop, Open in, WebDAV, SMB, zip and 7z files, automatic system detection, and save files in other emulators' formats.
+- **Manic skins:** .manicskin files, a skin library, a skin per game, switching mid-game, press animations, switch buttons, button sounds, and all 48 function buttons.
+- **Core settings for every core:** filters, palettes, 2x/3x/4x and slow motion, disc swap, rotation, and separate TV settings.
+- **Controls:** a keyboard, tilt and shake, controller types, remapping profiles, DS lid and blow, and the 3DS HOME button.
+- **Gameplay manuals:** PDF manuals attached to a game.
+- **Not in 116, waiting on build 117:** Flash, J2ME, memory maps (GBA achievements and RAM search on GBA), and better disc hashing for achievements.
+
+### Not done
+
+- GameCube and Wii: they cannot be playable without JIT (see docs/HARD_SYSTEMS.md).
+- Symbian / N-Gage: not started.
+- Direct Google Drive, Dropbox and OneDrive logins: they need developer app ids only the owner can register. They do work through the Files picker.
+- .cht RAM cheats on GBA read the wrong memory.
+- Camera and Amiibo do not reach a 3DS game, because the 3DS core cannot take them.
+- DS games do not hear the real microphone; the blow button stands in for it.
+- Online play over the internet needs port 55435 opened on the host's router.
+- docs/PLATFORM_LIMITS.md is out of date: the iOS buildbot now carries dolphin, flycast, ppsspp and azahar.
+
+
 ## The road to the rest of the systems
 
 All twelve steps of the sequence in
