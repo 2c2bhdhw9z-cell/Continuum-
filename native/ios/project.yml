@@ -35,6 +35,15 @@ settings:
     # load works in the simulator (which searches differently) and fails on device.
     LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
 
+# Swift packages, resolved by xcodebuild on the CI runner (it has network access).
+# AMSMB2 is SMB2/3 for NAS shares, a Swift wrapper over libsmb2 (C, compiled inside the package).
+# Pinned exactly: 4.x needs Swift 6.2 (Xcode 26, which the runner has), and a floating version
+# could change the API RemoteSources.swift calls.
+packages:
+  AMSMB2:
+    url: https://github.com/amosavian/AMSMB2
+    exactVersion: 4.0.3
+
 targets:
   Continuum:
     type: application
@@ -89,9 +98,169 @@ targets:
         # Online play (Netplay.swift): the host listens on the local network and advertises over
         # Bonjour, and the guest browses for it. iOS shows this sentence in the Local Network
         # permission prompt, and refuses to browse a service type not listed below.
-        NSLocalNetworkUsageDescription: "Continuum uses the local network to find and connect to another phone for two-player online play."
+        # Also covers Wi-Fi transfer (WiFiTransfer.swift) and SMB/WebDAV browsing (RemoteSources.swift).
+        NSLocalNetworkUsageDescription: "Continuum uses the local network for two-player online play with another phone, for Wi-Fi transfer of games and saves from a computer's browser, and to browse a NAS or computer over SMB or WebDAV."
         NSBonjourServices:
           - _continuum._tcp
+        # Open in / Share to Continuum (ImportCenter.open): every game, disc, skin, cheat and save
+        # extension, plus zip, 7z, iso and PDF manuals through the system's own types. Alternate rank,
+        # so Continuum is offered without taking over any file type. `.md`, `.bin`, `.img`, `.exe` and
+        # `.crt` are left out: iOS already owns those extensions for other kinds of file, so declaring
+        # them would be ignored; they still come in through the picker, Wi-Fi and the network.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Game cartridge
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - dev.continuum.game-rom
+          - CFBundleTypeName: Game disc image
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - dev.continuum.disc-image
+          - CFBundleTypeName: Controller skin
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - dev.continuum.skin
+          - CFBundleTypeName: Cheat list
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - dev.continuum.cheat
+          - CFBundleTypeName: Game save
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - dev.continuum.save
+          - CFBundleTypeName: Archive, disc or manual
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.zip-archive
+              - org.7-zip.7-zip-archive
+              - public.iso-image
+              - com.adobe.pdf
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: dev.continuum.game-rom
+            UTTypeDescription: Game cartridge
+            UTTypeConformsTo:
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - "nes"
+                - "unf"
+                - "unif"
+                - "fds"
+                - "sfc"
+                - "smc"
+                - "swc"
+                - "fig"
+                - "gb"
+                - "gbc"
+                - "sgb"
+                - "gba"
+                - "agb"
+                - "sms"
+                - "gg"
+                - "sg"
+                - "gen"
+                - "smd"
+                - "32x"
+                - "pce"
+                - "sgx"
+                - "nds"
+                - "n64"
+                - "z64"
+                - "v64"
+                - "3ds"
+                - "3dsx"
+                - "cci"
+                - "cxi"
+                - "cso"
+                - "a26"
+                - "a78"
+                - "a52"
+                - "lnx"
+                - "j64"
+                - "jag"
+                - "ws"
+                - "wsc"
+                - "ngp"
+                - "ngc"
+                - "min"
+                - "vb"
+                - "vboy"
+                - "adf"
+                - "adz"
+                - "dms"
+                - "ipf"
+                - "hdf"
+                - "hdz"
+                - "lha"
+                - "d64"
+                - "d71"
+                - "d81"
+                - "g64"
+                - "t64"
+                - "prg"
+                - "dosz"
+                - "wad"
+          - UTTypeIdentifier: dev.continuum.disc-image
+            UTTypeDescription: Game disc image
+            UTTypeConformsTo:
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - "cue"
+                - "chd"
+                - "pbp"
+                - "mdf"
+                - "mds"
+                - "toc"
+                - "ccd"
+                - "gdi"
+                - "cdi"
+                - "m3u"
+          - UTTypeIdentifier: dev.continuum.skin
+            UTTypeDescription: Controller skin
+            UTTypeConformsTo:
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - "deltaskin"
+                - "manicskin"
+          - UTTypeIdentifier: dev.continuum.cheat
+            UTTypeDescription: Cheat list
+            UTTypeConformsTo:
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - "cht"
+          - UTTypeIdentifier: dev.continuum.save
+            UTTypeDescription: Game save
+            UTTypeConformsTo:
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - "srm"
+                - "sav"
+                - "dsv"
+                - "dsg"
+                - "mcr"
+                - "mcd"
+                - "gme"
+                - "vmp"
+                - "eep"
+                - "mpk"
+                - "sra"
+                - "fla"
+                - "flash"
+                - "nvr"
+                - "bkr"
+                - "bcr"
+                - "brm"
+                - "vmu"
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -247,6 +416,19 @@ targets:
       # Online play transport (NWListener, NWConnection, NWBrowser) over the Rust lockstep
       # protocol (crates/emulator-bridge/src/netplay).
       - path: Netplay.swift
+      # Import: every way in (clipboard, drag and drop, Open in), archives, the system picker and
+      # CoreCatalog.systemResolver over the Rust detector (crates/emulator-bridge/src/import).
+      - path: ImportCenter.swift
+      # The Import screen behind the library's + button.
+      - path: ImportScreen.swift
+      # Wi-Fi transfer: NWListener HTTP server; the page and the head parser are in Rust.
+      - path: WiFiTransfer.swift
+      # WebDAV (URLSession PROPFIND) and SMB (AMSMB2) servers, Keychain passwords, folder browser.
+      - path: RemoteSources.swift
+      # Save files in other emulators' formats, converted in Rust, written through the battery path.
+      - path: SaveFormats.swift
+      # Gameplay manuals: PDFs in Documents/Manuals, PDFKit viewer, EngineHost.showGameplayManual.
+      - path: GameplayManuals.swift
       # The UniFFI-generated Swift facade. Written by build-engine.sh, never committed: a
       # stale checked-in binding that disagrees with the Rust compiles, links, and then
       # corrupts arguments at runtime, which is the worst failure mode in this stack.
@@ -272,6 +454,9 @@ targets:
         LIBRARY_SEARCH_PATHS: "$(inherited) $(SRCROOT)/build/lib"
         OTHER_LDFLAGS: "$(inherited) -lemulator_bridge -lc++ -framework OpenGLES"
     dependencies:
+      # SMB browsing (RemoteSources.swift). A dynamic framework, embedded by Xcode into Frameworks/
+      # and signed there by package-ipa.sh's *.framework loop like MoltenVK.
+      - package: AMSMB2
       # The C++ libretro wrapper, dlopened at runtime rather than linked. `embed` puts it in
       # Frameworks/; `codeSign: false` because package-ipa.sh signs everything in one pass
       # after the fact, and letting Xcode try would fail with signing disabled.

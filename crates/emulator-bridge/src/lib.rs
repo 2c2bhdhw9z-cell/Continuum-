@@ -56,6 +56,8 @@ pub mod cores;
 pub mod error;
 pub mod frame;
 pub mod gfx;
+// Getting games, saves and manuals in: system detection, zip/7z, save formats, WebDAV, Wi-Fi.
+pub mod import;
 pub mod input;
 pub mod jit_probe;
 pub mod memory;
@@ -101,6 +103,11 @@ pub mod uniffi_api;
 // they merge cleanly beside other workers' additions to uniffi_api.rs.
 #[cfg(feature = "uniffi-bindings")]
 pub mod uniffi_peripherals;
+
+// System detection, archives, save formats, WebDAV and Wi-Fi transfer (src/import), as free
+// functions: none of it touches a core or the engine lock.
+#[cfg(feature = "uniffi-bindings")]
+pub mod uniffi_import;
 
 pub use bridge::{BridgeStatus, EmulatorBridge, TickReport};
 pub use error::{BridgeError, GfxError};

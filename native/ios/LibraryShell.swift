@@ -30,6 +30,7 @@
 
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - Which tab
 
@@ -132,6 +133,18 @@ struct LibraryShell: View {
             GameDetailSheet(entry: entry, host: host, artwork: artwork,
                             saveStates: host.saveStates, cheats: host.cheats)
         }
+        // Attached to a different view than the detail sheet, so the two never fight.
+        .background(
+            Color.clear.sheet(isPresented: $host.showImportScreen) {
+                ImportScreen(host: host) { host.showImportScreen = false }
+            }
+        )
+        // Drag and drop from another app (Files, Safari, Mail in split view or Stage Manager).
+        // Every dropped item goes through the same import path as the picker, as one batch.
+        .onDrop(of: [.item], isTargeted: nil) { providers in
+            host.importCenter.importProviders(providers, source: "the drop")
+            return true
+        }
     }
 
     // MARK: Top bar
@@ -201,12 +214,13 @@ struct LibraryShell: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// The import affordance. Wired to the EXISTING `presentImportPicker()` and to nothing else:
-    /// that path is device-verified, including its retained delegate and its multi-select of a .cue
-    /// with every .bin track, and it must not be reimplemented or wrapped.
+    /// The import affordance. Opens the Import screen, whose first row is the EXISTING
+    /// `presentImportPicker()`, unchanged: that path is device-verified, including its retained
+    /// delegate and its multi-select of a .cue with every .bin track. The other rows (Wi-Fi, the
+    /// clipboard, WebDAV, SMB) all end in the same `importFiles`.
     private var importButton: some View {
         Button {
-            host.presentImportPicker()
+            host.showImportScreen = true
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 17, weight: .semibold))

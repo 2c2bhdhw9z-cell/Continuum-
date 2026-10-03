@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Continuum Wi-Fi transfer</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: #0d0d10; color: #eee; margin: 0; padding: 24px; }
+  h1 { font-size: 20px; letter-spacing: 2px; margin: 0 0 4px; }
+  h2 { font-size: 13px; letter-spacing: 1.5px; color: #999; margin: 28px 0 8px; text-transform: uppercase; }
+  p { color: #aaa; margin: 4px 0 12px; }
+  #drop { border: 2px dashed #555; border-radius: 12px; padding: 32px; text-align: center; cursor: pointer; }
+  #drop.over { border-color: #e8505b; background: #1b1114; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #222; }
+  .bar { height: 6px; background: #222; border-radius: 3px; overflow: hidden; margin-top: 4px; }
+  .bar > div { height: 100%; width: 0; background: #e8505b; }
+  .err { color: #ff7a7a; } .ok { color: #7adf8a; }
+  a { color: #e8505b; }
+  small { color: #888; }
+</style>
+</head>
+<body>
+<h1>CONTINUUM</h1>
+<p>Send games, disc sets, skins, cheats and saves to the phone. Keep Continuum open while this runs.</p>
+<div id="drop">Drop files here, or tap to choose<br><small>A .cue and its .bin tracks can go together. Zips and 7z are unpacked on the phone.</small></div>
+<input id="pick" type="file" multiple style="display:none">
+<div id="queue"></div>
+<h2>Library</h2>
+<div id="games"><small>Loading...</small></div>
+<h2>Battery saves</h2>
+<div id="saves"><small>Loading...</small></div>
+<script>
+const drop = document.getElementById('drop');
+const pick = document.getElementById('pick');
+const queue = document.getElementById('queue');
+let busy = Promise.resolve();
+
+function size(n) {
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+  return Math.max(1, Math.round(n / 1024)) + ' KB';
+}
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+function upload(file) {
+  const row = el('div', 'row');
+  const left = el('div'); left.style.flex = '1';
+  left.appendChild(el('div', null, file.name));
+  const bar = el('div', 'bar'); const fill = el('div'); bar.appendChild(fill); left.appendChild(bar);
+  const state = el('small', null, 'waiting');
+  row.appendChild(left); row.appendChild(state); queue.appendChild(row);
+  busy = busy.then(() => new Promise(done => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', '/upload?name=' + encodeURIComponent(file.name));
+    xhr.upload.onprogress = e => { if (e.lengthComputable) { fill.style.width = (100 * e.loaded / e.total) + '%'; state.textContent = size(e.loaded) + ' of ' + size(e.total); } };
+    xhr.onload = () => {
+      fill.style.width = '100%';
+      state.className = xhr.status < 300 ? 'ok' : 'err';
+      state.textContent = xhr.responseText || (xhr.status < 300 ? 'sent' : 'failed ' + xhr.status);
+      done(); refresh();
+    };
+    xhr.onerror = () => { state.className = 'err'; state.textContent = 'the phone stopped answering (is Continuum still open?)'; done(); };
+    xhr.send(file);
+  }));
+}
+function send(files) { for (const f of files) upload(f); }
+
+drop.onclick = () => pick.click();
+pick.onchange = () => { send(pick.files); pick.value = ''; };
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); send(e.dataTransfer.files); };
+
+function list(target, items, link) {
+  target.innerHTML = '';
+  if (!items.length) { target.appendChild(el('small', null, 'Nothing yet.')); return; }
+  for (const item of items) {
+    const row = el('div', 'row');
+    if (link) { const a = el('a', null, item.name); a.href = link + encodeURIComponent(item.name); a.download = item.name; row.appendChild(a); }
+    else row.appendChild(el('span', null, item.name));
+    row.appendChild(el('small', null, size(item.size)));
+    target.appendChild(row);
+  }
+}
+function refresh() {
+  fetch('/api/library').then(r => r.json()).then(j => {
+    list(document.getElementById('games'), j.games || [], null);
+    list(document.getElementById('saves'), j.saves || [], '/saves/');
+  }).catch(() => { document.getElementById('games').innerHTML = '<small class="err">Could not reach the phone.</small>'; });
+}
+refresh();
+</script>
+</body>
+</html>

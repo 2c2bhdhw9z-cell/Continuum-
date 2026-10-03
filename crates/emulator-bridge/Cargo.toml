@@ -32,6 +32,14 @@ wgpu = { workspace = true, features = [
 # loaded and `uniffi` is how Swift reaches the engine, and a test run needs neither.
 libloading = { version = "0.8", optional = true }
 uniffi = { version = "0.28", optional = true }
+# Import (src/import): game archives and disc images, all pure Rust so the same code builds for
+# aarch64-apple-ios and for Android later with no C toolchain. zip reads and writes .zip (deflate
+# through miniz_oxide); sevenz-rust2 reads .7z (LZMA, LZMA2, PPMd, built in; 0.20 is the last
+# release whose rust-version fits the pinned 1.92 toolchain); chd reads MAME's CHD disc images
+# with every CD codec (cdlz, cdzl, cdfl, zstd).
+zip = { version = "2", default-features = false, features = ["deflate"] }
+sevenz-rust2 = { version = "=0.20.0", default-features = false, features = ["ppmd"] }
+chd = { version = "0.3.4", default-features = false, features = ["std", "cd_full"] }
 
 # --- Apple targets only (iOS device, and macOS for binding generation). ---
 [target.'cfg(target_vendor = "apple")'.dependencies]
@@ -62,6 +70,8 @@ objc2-metal = { version = "0.3.2", default-features = false, features = [
 # failing test on the build machine. Pinned rather than floating because it has to agree with the
 # naga inside wgpu, and a version skew would validate against rules the runtime does not apply.
 naga = { version = "30.0.1", features = ["wgsl-in"] }
+# The import tests build real .7z archives to read back; the app itself only ever decodes.
+sevenz-rust2 = { version = "=0.20.0", default-features = false, features = ["ppmd", "compress", "util"] }
 
 [features]
 default = []

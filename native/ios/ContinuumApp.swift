@@ -138,6 +138,11 @@ struct CoreSpec: Sendable {
 /// same routing table the launch path does. A second copy of that mapping is precisely the bug
 /// this type exists to prevent: it would stay invisible until a .sms opened on the wrong core.
 enum CoreCatalog {
+    /// Names the system of a file whose extension several systems share (.cue, .chd, .zip, ...),
+    /// by looking inside it. Nil means "use the extension table". Installed by ImportCenter (the
+    /// Rust detector plus the user's remembered answers); declared here by the import lane.
+    static var systemResolver: ((URL) -> String?)?
+
     /// NES. Note for anyone reading a device log: the iOS makefile for this core forces
     /// WANT_32BPP, so on device it negotiates XRGB8888 even though it is declared RGB565 here
     /// and built RGB565 for the web. The negotiation inside `retro_load_game` settles it and
@@ -2363,6 +2368,13 @@ final class EngineHost: ObservableObject {
     /// Cloud folder sync of saves, cheats, cover choices and settings. See `CloudSync.swift`.
     let cloudSync = CloudSync()
 
+    /// Every import method (Wi-Fi, clipboard, drag and drop, Open in, WebDAV, SMB), archives,
+    /// system detection and save formats, in front of `importFiles`. See `ImportCenter.swift`.
+    let importCenter = ImportCenter()
+
+    /// Whether the Import screen (the library's + button) is up.
+    @Published var showImportScreen = false
+
     /// Two-player online play: the transport over the engine's lockstep protocol. See
     /// `Netplay.swift`.
     let netplay: NetplayController
@@ -2799,6 +2811,7 @@ final class EngineHost: ObservableObject {
 
         cloudSync.attach(host: self)
         netplay.attach(host: self)
+        importCenter.attach(host: self)
         // Sync trigger one of three: the app opening. The others are returning to the library
         // (`leavePlayer`) and the Sync now button in Settings.
         cloudSync.syncIfConfigured(reason: "the app opened")
@@ -3321,9 +3334,17 @@ final class EngineHost: ObservableObject {
     ///   3. EVERY FILE IS COPIED INDEPENDENTLY, in its own do/catch. One unreadable file in a
     ///      selection of ten must not abort the other nine; it reports itself and the batch
     ///      carries on.
-    func importFiles(_ urls: [URL]) {
+    func importFiles(_ incoming: [URL]) {
         guard let documents = documentsDirectory() else {
             status = "cannot import: no Documents directory"
+            return
+        }
+
+        // Skins, cheats, saves and manuals go to their own stores, and archives are unpacked (or
+        // kept whole for arcade, DOS and Amiga) before anything is copied. See ImportCenter.
+        let (urls, handledElsewhere) = importCenter.prepare(incoming)
+        if urls.isEmpty && handledElsewhere > 0 {
+            refreshLibrary()
             return
         }
 
@@ -3339,7 +3360,8 @@ final class EngineHost: ObservableObject {
             // Acceptance is by extension, here, because the picker is deliberately permissive
             // (see `pickerContentTypes`). A rejected file is named on the HUD together with
             // its extension, so "I picked the wrong thing" never looks like "the import broke".
-            guard CoreCatalog.importableExtensions.contains(ext) else {
+            guard CoreCatalog.importableExtensions.contains(ext)
+                    || ImportCenter.extraContentExtensions.contains(ext) else {
                 let extLabel = ext.isEmpty ? "no extension" : ".\(ext)"
                 rejected.append("\(name) [\(extLabel)]")
                 status = "skipped \(name): \(extLabel) is not content this build can run "
@@ -3402,7 +3424,13 @@ final class EngineHost: ObservableObject {
         if !failures.isEmpty {
             summary += " | failed: \(Self.nameList(failures))"
         }
+        if !importCenter.lastNote.isEmpty {
+            summary += " | \(importCenter.lastNote)"
+        }
         status = summary
+
+        // Shared extensions are read now, and the user is asked about the unsure ones once.
+        importCenter.finishImport(imported, documents: documents)
 
         // Refresh last, so a freshly imported .cue is tappable straight away. This writes
         // `libraryStatus`, not `status`, so the summary above survives.
@@ -4671,6 +4699,10 @@ struct RootView: View {
             }
         }
         .background(.black)
+        // The "which system is this?" picker, over the library or the player.
+        .background(ImportCenterPresenter(center: host.importCenter))
+        // Open in / Share to Continuum, from Files, Mail, Safari and AirDrop.
+        .onOpenURL { url in host.importCenter.open(url: url) }
     }
 
     /// The one canvas, sized to the area the controls left free.
