@@ -1128,6 +1128,16 @@ final class TouchControlsView: UIView {
         }
     }
 
+    /// True while the layout editor's system list is on screen.
+    ///
+    /// The list is drawn above this pad, but a row whose point lands on an outline still loses
+    /// the tap if this view answers `point(inside:)` with yes: UIKit then delivers the touch
+    /// here, the row never runs, and the preview console does not change. The editor sets this
+    /// for the whole time the list is open, including a dismissal that picks nothing, and
+    /// clears it when the list is gone. Ignored while a game is actually playing (`isEditing`
+    /// is false there). See `claimsEditingHit(onOutline:menuListOpen:)`.
+    var editingHitsSuspended = false
+
     /// Called while a cluster is dragged in editing mode, with the layout that drag produced.
     ///
     /// `settled` is true on the touch that ENDS the drag, and it is the signal to write the value
@@ -1982,16 +1992,39 @@ final class TouchControlsView: UIView {
 
     // ------------------------------------------------------------------ hit testing
 
+    /// Whether an editing touch belongs to this pad.
+    ///
+    /// `onOutline` is the standing rule: only a drawn control outline is tappable, so Done, the
+    /// sliders and the system menu (all of which sit above this view, off the outlines) keep
+    /// their taps.
+    ///
+    /// `menuListOpen` is the other half of the build-98 failure, where tapping another system
+    /// did nothing. The system list opens on top of the pad. UIKit still asks this view
+    /// `point(inside:)` for that tap. If the row's point is inside an outline and this returns
+    /// true, this view becomes the hit target, the row's action is never delivered, and
+    /// `selectPreviewSystem` does not run. Returning false while the list is open lets the row
+    /// receive the tap. The list is also no longer a child of the panel's scroller; a row
+    /// inside that scroller was not delivering its action even when the point missed every
+    /// outline. Both have to be true for a switch to happen. The switch function itself is not
+    /// involved in this decision.
+    static func claimsEditingHit(onOutline: Bool, menuListOpen: Bool) -> Bool {
+        onOutline && !menuListOpen
+    }
+
     /// Only the controls are touchable.
     ///
     /// Without this the whole view would swallow every touch over the picture, including the back
     /// button in the chrome above it, and leaving a running game would be impossible.
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         if isEditing {
-            // Only the two outlines, for the same reason the playing pad only claims its controls:
-            // the editor's own panel sits above this view and has to keep its taps. A pad that
-            // swallowed everything in edit mode would leave the user unable to reach Done.
-            return dragTarget(at: point) != nil
+            // Only the outlines, and not even those while the system list is open. See
+            // `claimsEditingHit`. A pad that swallowed the whole screen in edit mode would
+            // leave the user unable to reach Done; a pad that swallowed a menu row drawn on
+            // top of an outline would leave the preview console stuck.
+            return Self.claimsEditingHit(
+                onOutline: dragTarget(at: point) != nil,
+                menuListOpen: editingHitsSuspended
+            )
         }
         if dpadRect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
             return true
@@ -2156,6 +2189,9 @@ final class TouchControlsView: UIView {
     // ------------------------------------------------------------------ dragging a cluster
 
     private func beginDrag(_ touches: Set<UITouch>) {
+        // `point(inside:)` already refuses these. This is the same rule again so a touch that
+        // was claimed before the list opened cannot start a drag underneath a row.
+        guard Self.claimsEditingHit(onOutline: true, menuListOpen: editingHitsSuspended) else { return }
         // A second finger while one is already dragging is ignored rather than queued. See
         // `clusterDrag`.
         guard clusterDrag == nil else { return }
@@ -2466,6 +2502,10 @@ struct TouchControlsHost: UIViewRepresentable {
     /// Delta `screens` outputFrame as fractions of mappingSize, when the pack named one.
     let skinScreenNormalized: DeltaSkinNormalizedRect?
 
+    /// True while the editor's system list is open. See `TouchControlsView.editingHitsSuspended`.
+    /// Default false so the player, which never opens that list, does not have to mention it.
+    let editingHitsSuspended: Bool
+
     /// Spelled out rather than left to the synthesized memberwise initialiser.
     ///
     /// Two reasons, and the second is the load-bearing one. It lets the three editing parameters
@@ -2484,7 +2524,8 @@ struct TouchControlsHost: UIViewRepresentable {
          onLayoutEdited: @escaping (TouchLayout, Bool) -> Void = { _, _ in },
          onOverlapState: @escaping (String?) -> Void = { _ in },
          skinArtwork: UIImage? = nil,
-         skinScreenNormalized: DeltaSkinNormalizedRect? = nil) {
+         skinScreenNormalized: DeltaSkinNormalizedRect? = nil,
+         editingHitsSuspended: Bool = false) {
         self.system = system
         self.layout = layout
         self.pictureAspect = pictureAspect
@@ -2496,6 +2537,7 @@ struct TouchControlsHost: UIViewRepresentable {
         self.onOverlapState = onOverlapState
         self.skinArtwork = skinArtwork
         self.skinScreenNormalized = skinScreenNormalized
+        self.editingHitsSuspended = editingHitsSuspended
     }
 
     func makeUIView(context: Context) -> TouchControlsView {
@@ -2508,6 +2550,7 @@ struct TouchControlsHost: UIViewRepresentable {
         view.skinArtwork = skinArtwork
         view.skinScreenNormalized = skinScreenNormalized
         view.isEditing = isEditing
+        view.editingHitsSuspended = editingHitsSuspended
         input.view = view
         return view
     }
@@ -2519,6 +2562,9 @@ struct TouchControlsHost: UIViewRepresentable {
         // re-apply the old one. Both paths end in `setNeedsLayout`, so the order only decides
         // which value the opacity is read from, not whether a pass happens.
         view.isEditing = isEditing
+        // Before layout, so a touch that arrives in the same turn as the list opening already
+        // sees the gate. Assigning it does not itself mark the view dirty.
+        view.editingHitsSuspended = editingHitsSuspended
         view.layout = layout
         view.pictureAspect = pictureAspect
         view.onDiagnostic = onDiagnostic

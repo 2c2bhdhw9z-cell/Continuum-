@@ -8,7 +8,12 @@
 //
 // Layouts are PER SYSTEM: switching the preview console loads that console's saved arrangement.
 // Import .deltaskin maps Delta info.json item frames onto the inferred (or current preview)
-// system's layout. Skin art is not drawn yet; cancel / empty pick fails with a panel message.
+// system's layout. Cancel / empty pick fails with a panel message.
+//
+// The system menu is NOT inside the scrolling part of the panel. On build 98 a tap on another
+// system did not change the layout: the menu lived in that scroller, so the row's action never
+// ran, and a row drawn over a pad outline was also claimed by the pad. `selectPreviewSystem`
+// is unchanged. The menu stays the first row under the header, where it already was.
 
 import SwiftUI
 
@@ -40,6 +45,10 @@ struct TouchLayoutEditor: View {
     @State private var skinPicker = DeltaSkinPicker()
     /// Bumps when import/clear changes art so the pad remounts with new UIImage.
     @State private var skinEpoch: UInt = 0
+    /// True from the moment the system list appears until it is gone, including a tap that
+    /// dismisses it without choosing a console. While this is set the pad claims no touches,
+    /// so a row that lands on a button underneath still reaches `selectPreviewSystem`.
+    @State private var systemMenuOpen = false
 
     init(layoutFor: @escaping (GameSystem) -> TouchLayout,
          onCommit: @escaping (GameSystem, TouchLayout) -> Void,
@@ -123,7 +132,8 @@ struct TouchLayoutEditor: View {
                 DispatchQueue.main.async { self.overlapWarning = line }
             },
             skinArtwork: skinImageFor(previewSystem),
-            skinScreenNormalized: skinScreenFor(previewSystem)
+            skinScreenNormalized: skinScreenFor(previewSystem),
+            editingHitsSuspended: systemMenuOpen
         )
         // Remount when the preview console or imported art changes so chip labels and skin
         // UIImage cannot keep a previous system's names or a stale texture.
@@ -149,9 +159,19 @@ struct TouchLayoutEditor: View {
                 Rectangle()
                     .fill(ShellPalette.hairline)
                     .frame(height: 1)
+                // The menu used to be the first child of the ScrollView below. A menu inside
+                // that scroller does not deliver its row action, which is why tapping another
+                // system left the layout where it was. It stays the first row: 14pt under the
+                // hairline, 14pt above the size slider, inset 14pt from the card edges, the
+                // same insets the scrolling stack used. It is not moved to another part of the
+                // screen. The scroller's max height gives those 72pt back so the card does not
+                // grow by a row.
+                systemRow
+                    .padding(.horizontal, 14)
+                    .padding(.top, 14)
+                    .padding(.bottom, 14)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        systemRow
                         sizeSlider
                         opacitySlider
                         HStack(spacing: 10) {
@@ -186,9 +206,10 @@ struct TouchLayoutEditor: View {
                             warning(overlapWarning)
                         }
                     }
-                    .padding(14)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
                 }
-                .frame(maxHeight: maxBodyHeight)
+                .frame(maxHeight: max(80, maxBodyHeight - Self.previewMenuBlock))
             }
         }
         .background(
@@ -250,32 +271,35 @@ struct TouchLayoutEditor: View {
         .padding(.vertical, 10)
     }
 
+    /// 14pt top inset + 44pt capsule + 14pt gap under it. Taken back off the scroller's max
+    /// height so pulling the menu out of the scroller does not lengthen the card.
+    private static let previewMenuBlock: CGFloat = 72
+
+    /// The system list. Same names, same capsule, same place on the card as the old menu.
+    ///
+    /// Tap path, which is the whole bug: a tap on a row has to reach `selectPreviewSystem`.
+    /// Two things were stopping it. The list was inside the panel `ScrollView`, and a menu
+    /// there does not run its row action. And when the open list overlaps a pad outline, the
+    /// pad's `point(inside:)` answered yes and took the touch (`claimsEditingHit`). This row
+    /// is a sibling of the scroller, not a child of it, and `onMenuVisible` tells the pad to
+    /// claim nothing until the list closes. Choosing a row still only calls
+    /// `selectPreviewSystem`; that function was not the fault and is not changed here.
     private var systemRow: some View {
         HStack(spacing: 10) {
             Text("Preview")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.white)
             Spacer(minLength: 8)
-            Menu {
-                ForEach(GameSystem.allCases, id: \.self) { system in
-                    Button(system.displayName) { selectPreviewSystem(system) }
+            PreviewSystemMenu(
+                current: previewSystem,
+                onSelect: { selectPreviewSystem($0) },
+                onMenuVisible: { open in
+                    if systemMenuOpen != open { systemMenuOpen = open }
                 }
-            } label: {
-                HStack(spacing: 6) {
-                    Text(previewSystem.badge)
-                        .font(.system(size: 14, weight: .bold))
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 11, weight: .bold))
-                }
-                .foregroundStyle(ShellPalette.metadata)
-                .padding(.horizontal, 14)
-                .frame(minWidth: 96, minHeight: 44)
-                .background(ShellPalette.surfaceStrong, in: Capsule())
-                .contentShape(Capsule())
-            }
-            .accessibilityLabel("Preview another system's controls")
-            .accessibilityValue(previewSystem.displayName)
+            )
+            .fixedSize()
         }
+        .frame(maxWidth: .infinity)
     }
 
     private var sizeSlider: some View {
@@ -428,3 +452,119 @@ struct TouchLayoutEditor: View {
         "\(Int((value * 100).rounded()))%"
     }
 }
+
+// MARK: - System menu
+
+/// The preview-console menu. A system `UIButton` menu, not a new control.
+///
+/// SwiftUI `Menu` cannot say when its list is open, and the pad has to ignore taps for that
+/// whole time: a row drawn over an outline is otherwise delivered to the pad and
+/// `selectPreviewSystem` never runs. The closed control is the same capsule the editor already
+/// showed (badge, chevron, metadata colour, 44pt tall, at least 96pt wide). The open list is
+/// the system menu of `GameSystem.displayName`, in the same order, and each row calls the same
+/// select function. It is placed by the editor as the first row of the panel, outside the
+/// scroller, which is where that capsule already sat.
+private struct PreviewSystemMenu: UIViewRepresentable {
+    let current: GameSystem
+    let onSelect: (GameSystem) -> Void
+    let onMenuVisible: (Bool) -> Void
+
+    func makeUIView(context: Context) -> PreviewSystemMenuButton {
+        let button = PreviewSystemMenuButton()
+        button.onSelect = onSelect
+        button.onMenuVisible = onMenuVisible
+        button.setCurrent(current)
+        return button
+    }
+
+    func updateUIView(_ button: PreviewSystemMenuButton, context: Context) {
+        // Refresh the closures. Do not rebuild the menu here: this runs because the list
+        // opened (the visibility flag changed), and assigning `menu` again would dismiss the
+        // list the user just asked for.
+        button.onSelect = onSelect
+        button.onMenuVisible = onMenuVisible
+        button.setCurrent(current)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize,
+                      uiView: PreviewSystemMenuButton,
+                      context: Context) -> CGSize? {
+        uiView.intrinsicContentSize
+    }
+}
+
+/// Tap opens the system list. `showsMenuAsPrimaryAction` is what makes it a tap rather than a
+/// long press, which is how the previous menu opened. The two context-menu callbacks are the
+/// only reason this is a `UIButton` subclass: the button is the menu's delegate, and these are
+/// how it reports the list appearing and going away, including a tap that picks nothing.
+private final class PreviewSystemMenuButton: UIButton {
+    var onSelect: ((GameSystem) -> Void)?
+    var onMenuVisible: ((Bool) -> Void)?
+    private var displayed: GameSystem?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        showsMenuAsPrimaryAction = true
+        menu = UIMenu(children: GameSystem.allCases.map { system in
+            UIAction(title: system.displayName) { [weak self] _ in
+                self?.onSelect?(system)
+            }
+        })
+        accessibilityLabel = "Preview another system's controls"
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .vertical)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not supported") }
+
+    /// Badge text only. Skips work when the console has not changed, so the list opening
+    /// (which re-renders the editor) does not rebuild the capsule under the open menu.
+    func setCurrent(_ system: GameSystem) {
+        guard displayed != system else { return }
+        displayed = system
+        var config = UIButton.Configuration.plain()
+        config.title = system.badge
+        config.image = UIImage(systemName: "chevron.up.chevron.down")
+        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 11, weight: .bold)
+        config.imagePlacement = .trailing
+        config.imagePadding = 6
+        config.baseForegroundColor = UIColor(ShellPalette.metadata)
+        config.background.backgroundColor = UIColor(ShellPalette.surfaceStrong)
+        config.cornerStyle = .capsule
+        config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14)
+        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = .systemFont(ofSize: 14, weight: .bold)
+            return outgoing
+        }
+        configuration = config
+        accessibilityValue = system.displayName
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let fitted = super.intrinsicContentSize
+        return CGSize(width: max(96, ceil(fitted.width)), height: 44)
+    }
+
+    override func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        willDisplayMenuFor configuration: UIContextMenuConfiguration,
+        animator: UIContextMenuInteractionAnimating?
+    ) {
+        super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
+        onMenuVisible?(true)
+    }
+
+    override func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        willEndFor configuration: UIContextMenuConfiguration,
+        animator: UIContextMenuInteractionAnimating?
+    ) {
+        super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
+        onMenuVisible?(false)
+    }
+}
+
