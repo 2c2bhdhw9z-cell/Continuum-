@@ -395,6 +395,8 @@ ios_core_config() {
       # Common/VR/OpenXRLoader.cpp is compiled into the core even when the
       # OpenXR loader is off, and it includes openxr/openxr.h. CMake always
       # adds ext/OpenXR-SDK/include. Those headers are this submodule.
+      # Core/Util/PortManager.h includes ext/miniupnp headers even when
+      # USE_MINIUPNPC is off. The calls are ifdef'd; the include is not.
       IOS_SUBMODULE_PATHS=(
         libretro/libretro-common
         ext/armips
@@ -408,6 +410,7 @@ ios_core_config() {
         ext/rapidjson
         ext/cpu_features
         ext/OpenXR-SDK
+        ext/miniupnp
       )
       IOS_DISPLAY="PSP, Vulkan, IR interpreter (no JIT, no dynarec)"
       ;;
@@ -837,7 +840,9 @@ build_ios_ppsspp_core() {
   # pass CMAKE_SYSTEM_NAME.
   #
   # USE_FFMPEG=OFF: no ffmpeg submodule, so in-game PMF video does not decode.
-  # USE_DISCORD and USE_MINIUPNPC off so those submodules are not required.
+  # USE_DISCORD off: libretro does not link discord-rpc. USE_MINIUPNPC
+  # off skips building miniupnpc, but PortManager.h still includes it, so
+  # ext/miniupnp is cloned above.
   # HEADLESS, the unit tests, and the atlas tool are extra binaries this dylib
   # does not need. LTO is not requested; the libretro entry points are kept by
   # libretro/libretro.osx.def, which the core's own CMake passes as
