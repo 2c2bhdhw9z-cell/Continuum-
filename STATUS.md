@@ -105,7 +105,7 @@ iOS, so it needed none of this.
 | 5. Recompiler measurement | **Not started** |
 | 6. **paraLLEl-N64**, the N64 | **Not started**. See the two gates below |
 | 7. ANGLE alongside MoltenVK | **Partly moot**. It existed for the DS, which was reached without it. Still needed by a GL-only core later |
-| 8. **Citra** / emuThreeDS-style, the 3DS | **Not started — not in the app**. Brett (2026-10-02) said Crash on Beetle is enough and to start 3DS now. Next IPA is 3DS **plus** the layout chunk (system list actually switches, skins, free button placement) in one install. No 3DS row in the picker yet. Interpreter-only and **expected slow**. Do not say 3DS “worked” until a core is in an IPA and a device boots a game. Step 4 GPU hook is still `installed=false` on build 98 — that fact stays; it is not a reason to hold this IPA |
+| 8. **Citra** / emuThreeDS-style, the 3DS | **Not started — not in the app**. Next IPA is 3DS **plus** the full layout chunk (system list actually switches, skins, free button placement) in one install. Brett (2026-10-02): do **not** plan it slow — as fast as the phone can go **without JIT**. No 3DS row in the picker yet. There is no software picture path, and build 98 still read hardware-render `installed=false`, so a black screen is the risk until that hook actually draws. Layout has to work either way. Do not say 3DS worked until a device shows a game |
 | 9. **PPSSPP**, the PSP | **Not started** |
 | 10. **Switch**, stage 1: the wrapper against a stub engine | **Partial**. `native/switch-wrapper/` already has the `retro_*` skeleton, the frame gate, a Vulkan stub renderer and a test harness. No Rust engine behind it |
 | 11. Switch, stage 2: a real engine behind `ISwitchEngine`, homebrew booting | **Not started** |
