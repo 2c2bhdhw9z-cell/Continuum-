@@ -222,6 +222,14 @@ paraLLEl-RDP is Vulkan compute and has no GL equivalent.
 
 ## Known problems
 
+- **Landscape gameplay layout.** The owner's new PlayStation screenshot shows the player and its
+  picture confined to the left of the sideways screen. The HUD simultaneously reads 60 fps and 0
+  dropped frames, and the diagnostics panel shows frame 2669, so the render loop was still running
+  when the screenshot was taken; this points to the player layout being too narrow, not a
+  whole-app lockup. `RootView` now
+  gives the player an explicit full-window frame so the controls and picture use the same landscape
+  space. **Code fix only; not confirmed on a phone yet.** See test 28 in [TESTING.md](TESTING.md).
+
 - **The app would not open, and it was the JIT probe.** Fixed. That probe writes a function into
   memory and calls it, and it ran at STARTUP. Executing a page the process just wrote is the one
   thing iOS terminates an app for unless the dynamic-codesigning entitlement is genuinely in force,

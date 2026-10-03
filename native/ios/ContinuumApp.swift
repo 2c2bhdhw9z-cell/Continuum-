@@ -4956,6 +4956,13 @@ struct RootView: View {
                              // anything else on the player redrawing.
                              saveStates: host.saveStates,
                              system: host.activeSystem)
+                    // Unlike the library shell, the player used to have no explicit full-window
+                    // frame. On a sideways phone SwiftUI could size this overlay to its controls'
+                    // ideal width, leaving both the HUD and the picture area trapped on the left
+                    // while the Metal canvas still occupied the whole screen. The pad reports its
+                    // picture rectangle in this view's coordinates, so keep the player and that
+                    // canvas on the same full-screen coordinate space in both orientations.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .background(.black)

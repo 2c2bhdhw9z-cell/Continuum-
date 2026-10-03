@@ -49,6 +49,7 @@ button in the player; see [Reading the diagnostic text](#reading-the-diagnostic-
 | ☐ **26. Achievements** | Settings, RETROACHIEVEMENTS, log in, play an NES or Game Boy game with a set | Banner on unlock, list on the game card | New. Not GBA yet |
 | ☐ **27. Cloud sync** | Settings, CLOUD SYNC, choose a folder in iCloud Drive. Save, go back to the library | Status says files went up | New |
 | ☐ **15. Import the skin again** | Install Continuum-109, then import the skin file again. A skin already saved on the phone only has the first hole and no circle pad | Top picture inside the top hole, bottom picture in the bottom hole, both ways you hold the phone. The circle pad moves as a stick. A button shows its pressed picture only if the file has one | Install Continuum-109. Build 108 has no file. Not done until the picture is in the hole on the phone |
+| ☐ **28. Play a game sideways** | Start the same PlayStation game in portrait, then turn the phone sideways | The player controls and game picture fit the landscape screen instead of staying in a narrow strip on the left; the frame count keeps going up | The owner's screenshot showed the player confined to the left while the HUD read 60 fps and 0 dropped frames. A full-window player frame is now in the code; this still needs a phone check |
 
 ## The big list: everything built on 3 October 2026 that no phone has tried
 
