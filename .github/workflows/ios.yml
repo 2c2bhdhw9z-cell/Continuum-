@@ -23,6 +23,8 @@ on:
       # the rest of that directory generates test ROMs and cannot affect the .ipa, and a macOS
       # runner costs ten times a Linux one.
       - "scripts/build-core.sh"
+      # Downloads, checks and stages the prebuilt cores from the libretro buildbot, and prboom.wad.
+      - "scripts/fetch-buildbot-cores.sh"
       # Continuum patches applied to unpinned core checkouts during ios-all. A patch-only
       # change must rebuild the IPA the same way a build-core.sh change does.
       - "scripts/patches/**"
@@ -183,6 +185,33 @@ jobs:
             || { echo "::error::the PS1 core is not embedded; the app would launch and fail to load PCSX ReARMed"; exit 1; }
           unzip -l "$IPA" | grep -q "mednafen_psx_hw_libretro_ios.dylib" \
             || { echo "::error::Beetle PSX HW is not embedded; step 4 SET_HW_RENDER cannot be exercised on device"; exit 1; }
+          # OPTIONAL CORES: a WARNING, never a failure. Each may be absent from a good build (a
+          # buildbot download that failed on the day, or flycast not compiling); the app then names
+          # it as not in the bundle on its cores line. One line per core naming the system.
+          LISTING="$(unzip -l "$IPA")"
+          optional() { grep -q "$1" <<<"$LISTING" || echo "::warning::$1 is not embedded; $2 games will list in the Library and say the core is missing"; }
+          optional flycast_libretro_ios.dylib "Dreamcast"
+          optional mednafen_wswan_libretro_ios.dylib "WonderSwan and WonderSwan Color"
+          optional mednafen_ngp_libretro_ios.dylib "Neo Geo Pocket and Pocket Color"
+          optional mednafen_pce_libretro_ios.dylib "PC Engine CD"
+          optional mednafen_supergrafx_libretro_ios.dylib "SuperGrafx (.sgx)"
+          optional puae_libretro_ios.dylib "Commodore Amiga"
+          optional vice_x64sc_libretro_ios.dylib "Commodore 64"
+          optional dosbox_pure_libretro_ios.dylib "DOS"
+          optional prboom_libretro_ios.dylib "DOOM (.wad)"
+          optional virtualjaguar_libretro_ios.dylib "Atari Jaguar"
+          optional handy_libretro_ios.dylib "Atari Lynx"
+          optional prosystem_libretro_ios.dylib "Atari 7800"
+          optional a5200_libretro_ios.dylib "Atari 5200"
+          optional fbneo_libretro_ios.dylib "Arcade (FinalBurn Neo, the default arcade core)"
+          optional mame2003_plus_libretro_ios.dylib "Arcade on MAME 2003-Plus"
+          optional pokemini_libretro_ios.dylib "Pokemon Mini"
+          optional mednafen_vb_libretro_ios.dylib "Virtual Boy"
+          optional yabause_libretro_ios.dylib "Sega Saturn (Yabause, the default Saturn core)"
+          optional mednafen_saturn_libretro_ios.dylib "Sega Saturn on Beetle Saturn"
+          optional picodrive_libretro_ios.dylib "Sega 32X"
+          grep -q "support/prboom.wad" <<<"$LISTING" \
+            || echo "::warning::prboom.wad is not bundled; DOOM will ask for it at launch"
           echo "ipa verified"
 
       - name: Upload the .ipa

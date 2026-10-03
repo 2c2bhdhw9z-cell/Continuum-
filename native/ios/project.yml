@@ -253,6 +253,14 @@ targets:
       - path: build/Generated
         includes:
           - "*.swift"
+      # Freely licensed support files cores need, fetched by scripts/fetch-buildbot-cores.sh into
+      # build/support and copied into the system folder at first launch (CoreSupportFiles in
+      # ContinuumApp.swift). Today that is prboom.wad (GPL) for DOOM. A folder reference, so it
+      # lands in the bundle as support/; build-engine.sh and package-ipa.sh create it even when
+      # the download failed, so this path always exists.
+      - path: build/support
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.continuum.app
@@ -344,6 +352,94 @@ targets:
       # PSP. PPSSPP libretro, Vulkan set_image, IR interpreter (compile-to-native
       # off). No JIT, no dynarec, no BIOS. See scripts/build-core.sh.
       - framework: build/lib/ppsspp_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      # OPTIONAL CORES. Same shape as every core above. Each one may be absent from a successful
+      # build (a buildbot download that failed on the day, or flycast not compiling), and
+      # package-ipa.sh removes the matching four-line entry before xcodegen runs when it is, so
+      # keep each entry exactly this shape. Prebuilt ones are listed once in
+      # scripts/fetch-buildbot-cores.sh; flycast in scripts/build-core.sh IOS_OPTIONAL_CORES.
+      #
+      # Dreamcast, built from source, interpreter only.
+      - framework: build/lib/flycast_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      # From the libretro iOS buildbot.
+      - framework: build/lib/mednafen_wswan_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/mednafen_ngp_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/mednafen_pce_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/mednafen_supergrafx_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/puae_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/vice_x64sc_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/dosbox_pure_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/prboom_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/virtualjaguar_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/handy_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/prosystem_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/a5200_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/fbneo_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/mame2003_plus_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/pokemini_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/mednafen_vb_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/yabause_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/mednafen_saturn_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/picodrive_libretro_ios.dylib
         embed: true
         link: false
         codeSign: false

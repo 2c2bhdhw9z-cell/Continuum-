@@ -97,6 +97,16 @@ WORK="$ROOT/.work"
 IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed mednafen_psx_hw melonds
            mednafen_pce_fast stella2023 parallel_n64 azahar ppsspp)
 
+# Cores built from source that are ALLOWED TO FAIL. `ios-all` builds them after the required
+# ones, reports a failure as a warning and still exits 0 for them, and `ios-names` does not list
+# them (that list is what build-engine.sh hard-fails on). `ios-optional-names` lists them instead,
+# so build-engine.sh warns, package-ipa.sh drops the missing embed from project.yml, the CI verify
+# step prints a warning, and the app's cores line names the dylib as not in the bundle.
+#
+# flycast (Dreamcast) is here because the libretro iOS buildbot does not carry it and nobody has
+# built it on this runner yet. Interpreter only (TARGET_NO_REC); see its ios_core_config entry.
+IOS_OPTIONAL_CORES=(flycast)
+
 # mednafen_psx_hw (Beetle PSX HW) is in ios-all so Mac CI embeds the dylib in the IPA.
 # Build is Mac/CI-only (`make platform=ios-arm64 HAVE_HW=1`); Linux hosts cannot cross-compile
 # it. Step 4 stays Partial until a phone shows a Beetle HW frame through SET_HW_RENDER.
@@ -414,6 +424,43 @@ ios_core_config() {
       )
       IOS_DISPLAY="PSP, Vulkan, IR interpreter (no JIT, no dynarec)"
       ;;
+    flycast)
+      # Dreamcast. NOT on the libretro iOS buildbot, so it is built here, and it is OPTIONAL
+      # (IOS_OPTIONAL_CORES): a failure leaves the .ipa without it rather than failing the job.
+      #
+      # Read from flycast's own CMakeLists.txt and core/build.h:
+      #   - LIBRETRO=ON makes `flycast_libretro` a SHARED library exported through
+      #     shell/libretro/libretro.osx.def, so the dylib is upstream's and is only renamed.
+      #   - With CMAKE_SYSTEM_NAME=iOS, CMake sets IOS, and the libretro branch then compiles
+      #     GLES3 and links OpenGLES. USE_VULKAN stays ON, so the core can take the Vulkan context
+      #     this host prefers, the same set_image path Azahar and PPSSPP use.
+      #   - core/build.h defines FEAT_SHREC, FEAT_AREC and FEAT_DSPREC as DYNAREC_NONE when
+      #     TARGET_NO_REC is defined. That is the interpreter for the SH4, the ARM7 and the DSP:
+      #     no executable memory at all. It is passed in the C and C++ flags because build.h only
+      #     sets it by itself for the simulator.
+      #   - Upstream's own libretro iOS job passes -DUSE_OPENMP=OFF; kept. Lua, breakpad and
+      #     discord are off because none of them is used by a libretro core.
+      # Submodules: only the ones the libretro target add_subdirectory's or includes. SDL, oboe,
+      # googletest, freetype, breakpad and the Windows-only ones are not fetched.
+      IOS_REPO="https://github.com/flyinghead/flycast"
+      IOS_DYLIB_NAME="flycast_libretro_ios.dylib"
+      IOS_KIND="cmake-flycast"
+      IOS_CMAKE_TARGET="flycast_libretro"
+      IOS_SUBMODULES=1
+      IOS_SUBMODULE_PATHS=(
+        core/deps/libchdr
+        core/deps/Vulkan-Headers
+        core/deps/VulkanMemoryAllocator
+        core/deps/glslang
+        core/deps/rcheevos
+        core/deps/asio
+        core/deps/libjuice
+        core/deps/websocketpp
+        core/deps/tinygettext
+        core/deps/luabridge
+      )
+      IOS_DISPLAY="Dreamcast, interpreter only (TARGET_NO_REC), optional"
+      ;;
     *)
       return 1
       ;;
@@ -431,6 +478,34 @@ ios_print_names() {
   done
 }
 
+# The optional from-source cores, same shape as ios_print_names. Separate so the required list
+# keeps meaning "the build fails without this".
+ios_print_optional_names() {
+  local core
+  for core in "${IOS_OPTIONAL_CORES[@]}"; do
+    ios_core_config "$core"
+    echo "$IOS_DYLIB_NAME"
+  done
+}
+
+# Mach-O tools. Apple's on a Mac; LLVM's spellings of the same tools anywhere else, which is what
+# lets `ios-stage-prebuilt` check and fix a downloaded dylib on a Linux host too. Same output
+# format for the two flags used here (`nm -gU`, `otool -D`).
+ios_tool() {
+  local name="$1"
+  if command -v "$name" >/dev/null 2>&1 && [[ "$(uname -s)" == "Darwin" ]]; then
+    echo "$name"
+    return
+  fi
+  case "$name" in
+    nm) command -v llvm-nm >/dev/null 2>&1 && { echo llvm-nm; return; } ;;
+    otool) command -v llvm-otool >/dev/null 2>&1 && { echo llvm-otool; return; } ;;
+    install_name_tool)
+      command -v llvm-install-name-tool >/dev/null 2>&1 && { echo llvm-install-name-tool; return; } ;;
+  esac
+  echo "$name"
+}
+
 ios_usage() {
   cat <<EOF
 scripts/build-core.sh - build the libretro cores the iOS app dlopens.
@@ -441,6 +516,12 @@ scripts/build-core.sh - build the libretro cores the iOS app dlopens.
   ios-names     print the canonical .dylib filenames and exit. Works on any host,
                 which is why build-engine.sh and package-ipa.sh read the names from
                 here rather than repeating them and drifting.
+  ios-optional-names
+                the same for the optional from-source cores (${IOS_OPTIONAL_CORES[*]}),
+                which may be missing from a successful build.
+  ios-stage-prebuilt <dylib> <name>
+                check a dylib this script did not build (all libretro entry points),
+                set its @rpath install name and stage it. Any host.
 
 'ios' and 'ios-all' need a macOS host with the Xcode command line tools.
 EOF
@@ -565,7 +646,7 @@ ios_stage_dylib() {
   # is free to internalise any symbol the link does not reference, so "some of the API survived"
   # is a state this build can actually produce.
   local exported
-  exported="$(nm -gU "$built" 2>/dev/null | awk '{ print $NF }')"
+  exported="$("$(ios_tool nm)" -gU "$built" 2>/dev/null | awk '{ print $NF }')"
   local missing=()
   local symbol
   for symbol in "${IOS_REQUIRED_SYMBOLS[@]}"; do
@@ -582,10 +663,10 @@ ios_stage_dylib() {
   fi
 
   local install_name
-  install_name="$(otool -D "$built" 2>/dev/null | tail -n +2 | head -1 || true)"
+  install_name="$("$(ios_tool otool)" -D "$built" 2>/dev/null | tail -n +2 | head -1 || true)"
   if [[ "$install_name" != "@rpath/$canonical" ]]; then
     echo "==> setting install_name to @rpath/$canonical (was: ${install_name:-none})"
-    install_name_tool -id "@rpath/$canonical" "$built"
+    "$(ios_tool install_name_tool)" -id "@rpath/$canonical" "$built"
   fi
 
   cp "$built" "$IOS_OUT_DIR/$canonical"
@@ -875,6 +956,55 @@ build_ios_ppsspp_core() {
   ios_stage_dylib "$staged" "$IOS_DYLIB_NAME"
 }
 
+# flycast's libretro target, which its CMake emits as a shared library.
+#
+# Its own path because the flags are its own: TARGET_NO_REC for the interpreter (core/build.h),
+# USE_OPENMP off as upstream's libretro iOS job has it, and the bundled libzip because there is no
+# host libzip in the iphoneos SDK. LTO is not requested, and the exports come from
+# shell/libretro/libretro.osx.def, which flycast's CMake passes as -exported_symbols_list.
+build_ios_flycast_core() {
+  local core="$1"
+  command -v cmake >/dev/null 2>&1 || {
+    echo "error: $core needs cmake on the host (brew install cmake)" >&2
+    exit 1
+  }
+
+  local build_dir="$IOS_SRC_DIR/build-ios"
+  echo "==> configuring $core with cmake for iOS ($IOS_DISPLAY)"
+  rm -rf "$build_dir"
+  cmake -G "Unix Makefiles" -S "$IOS_SRC_DIR" -B "$build_dir" \
+    -DLIBRETRO=ON \
+    -DCMAKE_SYSTEM_NAME=iOS \
+    -DCMAKE_OSX_ARCHITECTURES=arm64 \
+    -DCMAKE_OSX_SYSROOT="$IOSSDK" \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_MIN_VERSION" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_FLAGS="-DTARGET_NO_REC" \
+    -DCMAKE_CXX_FLAGS="-DTARGET_NO_REC" \
+    -DUSE_OPENMP=OFF \
+    -DUSE_LUA=OFF \
+    -DUSE_BREAKPAD=OFF \
+    -DUSE_DISCORD=OFF \
+    -DUSE_HOST_LIBZIP=OFF \
+    -DUSE_HOST_LIBCHDR=OFF \
+    -DENABLE_CTEST=OFF
+
+  echo "==> building $IOS_CMAKE_TARGET"
+  cmake --build "$build_dir" --target "$IOS_CMAKE_TARGET" -j"$(ios_jobs)"
+
+  local built
+  built="$(find "$build_dir" -name 'flycast_libretro*.dylib' -type f | head -1 || true)"
+  [[ -n "$built" && -f "$built" ]] || {
+    echo "error: $core: cmake finished but left no flycast_libretro dylib under $build_dir" >&2
+    find "$build_dir" -name '*.dylib' -type f >&2 || true
+    exit 1
+  }
+  echo "==> upstream produced $(basename "$built"); staging as $IOS_DYLIB_NAME"
+  local staged="$build_dir/$IOS_DYLIB_NAME"
+  cp "$built" "$staged"
+  ios_stage_dylib "$staged" "$IOS_DYLIB_NAME"
+}
+
 # Continuum-owned edits to unpinned upstream core checkouts.
 #
 # Cores clone at HEAD with no pin (see ios_record_source_version). When upstream behaviour
@@ -1020,6 +1150,7 @@ build_ios_core() {
     cmake) build_ios_cmake_core "$core" ;;
     cmake-shared) build_ios_cmake_shared_core "$core" ;;
     cmake-ppsspp) build_ios_ppsspp_core "$core" ;;
+    cmake-flycast) build_ios_flycast_core "$core" ;;
     *) echo "error: $core: unknown iOS build kind '$IOS_KIND'" >&2; exit 1 ;;
   esac
 }
@@ -1059,9 +1190,25 @@ build_all_ios_cores() {
     fi
   done
 
+  # Optional cores: same separate-process build, but a failure is a warning. The .ipa ships
+  # without the core and every downstream consumer reports it as missing rather than failing.
+  local optional_failed=""
+  for core in "${IOS_OPTIONAL_CORES[@]}"; do
+    echo
+    echo "======================================================== ios (optional): $core"
+    if bash "$IOS_SELF" ios "$core"; then
+      echo "==> $core ok"
+    else
+      echo "!!! optional core $core FAILED; the .ipa will ship without it" >&2
+      optional_failed="$optional_failed $core"
+      ios_core_config "$core"
+      rm -f "$IOS_OUT_DIR/$IOS_DYLIB_NAME"
+    fi
+  done
+
   echo
   echo "==> iOS core summary (native/ios/build/lib)"
-  for core in "${IOS_CORES[@]}"; do
+  for core in "${IOS_CORES[@]}" "${IOS_OPTIONAL_CORES[@]}"; do
     ios_core_config "$core"
     if [[ -f "$IOS_OUT_DIR/$IOS_DYLIB_NAME" ]]; then
       echo "      ok       $IOS_DYLIB_NAME"
@@ -1069,6 +1216,9 @@ build_all_ios_cores() {
       echo "      MISSING  $IOS_DYLIB_NAME"
     fi
   done
+  if [[ -n "$optional_failed" ]]; then
+    echo "warning: optional core(s) not built:$optional_failed" >&2
+  fi
 
   if [[ "$failed_count" -gt 0 ]]; then
     echo "error: $failed_count iOS core(s) failed to build:$failed" >&2
@@ -1097,6 +1247,23 @@ case "${1:-}" in
     ;;
   ios-names)
     ios_print_names
+    exit 0
+    ;;
+  ios-optional-names)
+    ios_print_optional_names
+    exit 0
+    ;;
+  ios-stage-prebuilt)
+    # Runs the SAME staged-dylib check every from-source core goes through (all twenty entry
+    # points, the @rpath install name, the copy into native/ios/build/lib) on a dylib this script
+    # did not build. scripts/fetch-buildbot-cores.sh calls it for every downloaded core, so a
+    # prebuilt dylib cannot reach the .ipa on a weaker check than a compiled one. Any host: the
+    # Mach-O tools fall back to LLVM's off a Mac (see ios_tool).
+    if [[ "$#" -lt 3 ]]; then
+      echo "error: 'ios-stage-prebuilt' needs <dylib path> <canonical name>" >&2
+      exit 1
+    fi
+    ios_stage_dylib "$2" "$3"
     exit 0
     ;;
   "$IOS_LEGACY_ALIAS")

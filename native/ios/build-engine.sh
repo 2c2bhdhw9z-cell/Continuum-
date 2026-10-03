@@ -182,9 +182,22 @@ printf '%s\n' "$CORE_NAMES" | sed 's/^/      /'
 # contain, and ContinuumApp.swift decides what the app looks for in Frameworks/. A typo in any of
 # them produces a build that goes green and an app that cannot find a core. Checked HERE, before
 # twenty minutes of core compiles, because a wrong string should cost seconds.
+# The OPTIONAL cores: flycast from source (build-core.sh ios-optional-names) and every prebuilt
+# core from the libretro buildbot (fetch-buildbot-cores.sh names). Read from their one definition
+# each, like the required list. They are checked for spelling exactly like the required ones, and
+# a missing one at the end is a warning rather than a failure: see fetch-buildbot-cores.sh.
+OPTIONAL_CORE_NAMES="$("$ROOT/scripts/build-core.sh" ios-optional-names)
+$("$ROOT/scripts/fetch-buildbot-cores.sh" names)"
+MALFORMED="$(printf '%s\n' "$OPTIONAL_CORE_NAMES" | grep -v '_libretro_ios\.dylib$' || true)"
+[ -z "$MALFORMED" ] || {
+  echo "error: the optional core lists returned entries that are not core dylibs:" >&2
+  printf '%s\n' "$MALFORMED" >&2
+  exit 1
+}
+
 echo "==> checking the core filenames agree across project.yml, ios.yml and ContinuumApp.swift"
 DIVERGED=""
-for core_dylib in $CORE_NAMES; do
+for core_dylib in $CORE_NAMES $OPTIONAL_CORE_NAMES; do
   for consumer in "$HERE/project.yml" \
                   "$ROOT/.github/workflows/ios.yml" \
                   "$HERE/ContinuumApp.swift"; do
@@ -201,7 +214,7 @@ done
 }
 # Counted rather than spelled, so adding a core cannot leave this line claiming a number it no
 # longer checks. The list comes from `ios-names`, which is the one definition.
-echo "      all $(echo "$CORE_NAMES" | wc -w | tr -d ' ') names present in all three"
+echo "      all $(echo "$CORE_NAMES $OPTIONAL_CORE_NAMES" | wc -w | tr -d ' ') names present in all three"
 
 echo "==> building $(echo "$CORE_NAMES" | wc -w | tr -d ' ') libretro cores for iOS"
 "$ROOT/scripts/build-core.sh" ios-all
@@ -222,6 +235,30 @@ done
   echo "error: missing iOS core dylib(s):$MISSING" >&2
   exit 1
 }
+
+# ------------------------------------------- 5. the prebuilt cores, AFTER the from-source ones
+
+# Downloaded from the libretro iOS buildbot, checked with the same staged-dylib check as every
+# core above (plus arm64 and a minimum iOS no newer than 16.0), install name reset, and recorded
+# with their sha256 in core-sources.txt. Never fails the build: a core that did not arrive is a
+# warning here, a warning in the CI verify step, and a "not in the bundle" entry on the app's
+# cores line. Also fetches prboom.wad into build/support/.
+echo "==> fetching the prebuilt cores from the libretro buildbot"
+"$ROOT/scripts/fetch-buildbot-cores.sh"
+
+OPTIONAL_MISSING=""
+for core_dylib in $OPTIONAL_CORE_NAMES; do
+  if [ -f "$LIBDIR/$core_dylib" ]; then
+    echo "==> $LIBDIR/$core_dylib ($(du -h "$LIBDIR/$core_dylib" | cut -f1))"
+  else
+    OPTIONAL_MISSING="$OPTIONAL_MISSING $core_dylib"
+  fi
+done
+if [ -n "$OPTIONAL_MISSING" ]; then
+  echo "warning: optional core(s) not in this build, the .ipa ships without them:$OPTIONAL_MISSING" >&2
+fi
+# project.yml bundles this folder; it must exist even when the download failed.
+mkdir -p "$OUT/support"
 
 cat <<EOF
 

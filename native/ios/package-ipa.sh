@@ -84,6 +84,43 @@ with open(path, "w", encoding="utf-8") as handle:
 print(f"CFBundleVersion set to {build}")
 PY
 
+# OPTIONAL CORES THAT DID NOT ARRIVE ARE TAKEN OUT OF project.yml HERE, before XcodeGen reads it.
+# Xcode's embed phase fails the whole build on a framework path that does not exist, so a prebuilt
+# core whose download failed on the day, or a flycast that did not compile, would otherwise turn a
+# good .ipa into no .ipa. The names come from their one definition each. Rewritten in place like
+# CFBundleVersion above, and each removal is printed, so the log says exactly what is not shipped.
+OPTIONAL_CORE_NAMES="$("$ROOT/scripts/build-core.sh" ios-optional-names)
+$("$ROOT/scripts/fetch-buildbot-cores.sh" names)"
+OPTIONAL_ABSENT=""
+for core_dylib in $OPTIONAL_CORE_NAMES; do
+  [ -f "$OUT/lib/$core_dylib" ] || OPTIONAL_ABSENT="$OPTIONAL_ABSENT $core_dylib"
+done
+if [ -n "$OPTIONAL_ABSENT" ]; then
+  echo "==> dropping embeds for optional cores not in this build:$OPTIONAL_ABSENT"
+  python3 - "$HERE/project.yml" $OPTIONAL_ABSENT <<'PY'
+import re
+import sys
+
+path, names = sys.argv[1], sys.argv[2:]
+with open(path, "r", encoding="utf-8") as handle:
+    text = handle.read()
+for name in names:
+    pattern = re.compile(
+        r'^\s*- framework: build/lib/' + re.escape(name) + r'\n'
+        r'(?:^\s+(?:embed|link|codeSign): \w+\n)+',
+        re.MULTILINE,
+    )
+    text, count = pattern.subn("", text)
+    if count != 1:
+        sys.exit(f"error: expected one project.yml embed for {name}, removed {count}")
+    print(f"removed the embed for {name}")
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(text)
+PY
+fi
+# project.yml bundles build/support (prboom.wad); the folder must exist even when it is empty.
+mkdir -p "$OUT/support"
+
 echo "==> xcodegen generate"
 (cd "$HERE" && xcodegen generate --spec project.yml --project .)
 
@@ -146,6 +183,15 @@ for core_dylib in $CORE_NAMES; do
     echo "error: $OUT/lib/$core_dylib is missing; run build-engine.sh first" >&2
     exit 1
   }
+  if [ ! -f "$BUNDLE/Frameworks/$core_dylib" ]; then
+    echo "==> embedding $core_dylib (Xcode did not)"
+    cp "$OUT/lib/$core_dylib" "$BUNDLE/Frameworks/"
+  fi
+done
+# The same fallback for the optional cores that did arrive. One that did not is simply absent:
+# the app's cores line names it, and the CI verify step warns.
+for core_dylib in $OPTIONAL_CORE_NAMES; do
+  [ -f "$OUT/lib/$core_dylib" ] || continue
   if [ ! -f "$BUNDLE/Frameworks/$core_dylib" ]; then
     echo "==> embedding $core_dylib (Xcode did not)"
     cp "$OUT/lib/$core_dylib" "$BUNDLE/Frameworks/"
