@@ -279,6 +279,12 @@ targets:
         embed: true
         link: false
         codeSign: false
+      # PSP. PPSSPP libretro, Vulkan set_image, IR interpreter (compile-to-native
+      # off). No JIT, no dynarec, no BIOS. See scripts/build-core.sh.
+      - framework: build/lib/ppsspp_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
       # MoltenVK: Vulkan on Metal, and the gate on every hardware rendered system. Embedded but
       # NOT LINKED, deliberately. It is reached by `dlopen` from vulkan_probe.rs so that a missing
       # or broken MoltenVK is a line on the diagnostics panel rather than an app that will not

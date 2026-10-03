@@ -88,6 +88,8 @@ enum SystemArtwork {
         // The directory listing at Nintendo - Nintendo 3DS / Named_Boxarts answers 200.
         // A wrong name only 404s the cover; it does not affect whether the game runs.
         case .n3ds: return "Nintendo - Nintendo 3DS"
+        // The directory listing at Sony - PlayStation Portable / Named_Boxarts answers 200.
+        case .psp: return "Sony - PlayStation Portable"
         }
     }
 
@@ -131,6 +133,8 @@ enum SystemArtwork {
         case .n64: return 145
         // Widest remaining gap under the N64's 145 was 18 to 45, so this takes 32.
         case .n3ds: return 32
+        // Widest remaining gap under the sixteen values above was 88 to 126, so this takes 107.
+        case .psp: return 107
         }
     }
 
