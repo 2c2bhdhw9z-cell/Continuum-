@@ -18,6 +18,9 @@
 use bytemuck::{Pod, Zeroable};
 
 use super::convert;
+use super::screen_layout::{
+    self, DualScreenConfig, DualScreenGeometry, ScreenPlacement, TargetRole, TouchRegion,
+};
 use crate::error::GfxError;
 use crate::frame::FrameView;
 
@@ -143,8 +146,22 @@ struct BlitUniforms {
 struct FrameTarget {
     texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
+    /// The same texture bound to the companion uniform buffer, for the phone while a TV is the
+    /// main target. Two bind groups rather than one buffer rewritten between submits, so the two
+    /// draws can never read each other's placements.
+    companion_bind_group: wgpu::BindGroup,
     width: u32,
     height: u32,
+}
+
+/// The phone's surface while an external display is the main target.
+///
+/// Kept configured rather than dropped, because the phone still shows the controls and, for the
+/// DS and the 3DS, the touch screen. Same device, same pipeline: only the target differs.
+struct CompanionSurface {
+    surface: wgpu::Surface<'static>,
+    config: wgpu::SurfaceConfiguration,
+    needs_reconfigure: bool,
 }
 
 pub struct Renderer {
@@ -192,6 +209,17 @@ pub struct Renderer {
     frames_dropped: u64,
     /// Set when the surface reports a size/format mismatch; reconfigured next frame.
     needs_reconfigure: bool,
+    /// Where the two screens sit in the framebuffer, for the DS and the 3DS. `None` for every
+    /// one-screen system, which keeps them on the single-quad path untouched.
+    dual_geometry: Option<DualScreenGeometry>,
+    /// The user's layout, swap and TV choices for a two-screen system.
+    dual_config: DualScreenConfig,
+    /// Framebuffer size declared at launch, used for layout before the first frame arrives.
+    frame_hint: (u32, u32),
+    /// The phone's surface while an external display is `surface`. `None` without a TV.
+    companion: Option<CompanionSurface>,
+    /// Uniforms for the companion draw. See [`FrameTarget::companion_bind_group`].
+    companion_uniform_buffer: wgpu::Buffer,
 }
 
 impl Renderer {
@@ -344,6 +372,12 @@ impl Renderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let companion_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("frame-blit-companion-uniforms"),
+            size: core::mem::size_of::<BlitUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         let sampler_nearest = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("frame-sampler-nearest"),
@@ -386,6 +420,11 @@ impl Renderer {
             frames_presented: 0,
             frames_dropped: 0,
             needs_reconfigure: false,
+            dual_geometry: None,
+            dual_config: DualScreenConfig::default(),
+            frame_hint: (0, 0),
+            companion: None,
+            companion_uniform_buffer,
         })
     }
 
@@ -451,6 +490,222 @@ impl Renderer {
         self.skin_holes = if holes.is_empty() { None } else { Some(holes) };
     }
 
+    /// Which two-screen geometry the running core has, if any. `None` for one-screen systems.
+    pub fn set_dual_geometry(&mut self, geometry: Option<DualScreenGeometry>) {
+        self.dual_geometry = geometry;
+    }
+
+    pub fn dual_geometry(&self) -> Option<DualScreenGeometry> {
+        self.dual_geometry
+    }
+
+    /// The layout, swap and TV choice. Takes effect on the next present.
+    pub fn set_dual_config(&mut self, config: DualScreenConfig) {
+        self.dual_config = config;
+    }
+
+    pub fn dual_config(&self) -> DualScreenConfig {
+        self.dual_config
+    }
+
+    /// The framebuffer size the core declared, so layout and touch are right before frame one.
+    pub fn set_frame_hint(&mut self, width: u32, height: u32) {
+        self.frame_hint = (width, height);
+    }
+
+    /// Whether an external display is the main target right now.
+    pub fn external_active(&self) -> bool {
+        self.companion.is_some()
+    }
+
+    /// Makes `surface` (a TV's layer) the main target and keeps the phone's as the companion.
+    ///
+    /// Same instance, same adapter, same device, same pipeline: the one-MTLDevice rule holds
+    /// because nothing here creates a device. Refused when the TV's surface cannot take the
+    /// format the pipeline was built for, rather than building a second pipeline.
+    pub fn attach_external_surface(
+        &mut self,
+        surface: wgpu::Surface<'static>,
+        width: u32,
+        height: u32,
+    ) -> Result<(), GfxError> {
+        let caps = surface.get_capabilities(&self._adapter);
+        if !caps.formats.contains(&self.config.format) {
+            return Err(GfxError::SurfaceIncompatible);
+        }
+        let mut config = self.config.clone();
+        config.width = width.max(1);
+        config.height = height.max(1);
+        surface.configure(&self.device, &config);
+
+        // If a TV was already attached it is simply replaced; the phone stays the companion.
+        if self.companion.is_some() {
+            self.surface = surface;
+            self.config = config;
+            self.needs_reconfigure = false;
+            return Ok(());
+        }
+        let phone_surface = core::mem::replace(&mut self.surface, surface);
+        let phone_config = core::mem::replace(&mut self.config, config);
+        self.companion = Some(CompanionSurface {
+            surface: phone_surface,
+            config: phone_config,
+            // The phone's view changes shape when the picture leaves it, so it reconfigures.
+            needs_reconfigure: true,
+        });
+        self.needs_reconfigure = false;
+        Ok(())
+    }
+
+    /// Drops the TV's surface and makes the phone's the main target again. Returns whether there
+    /// was a TV to drop.
+    pub fn detach_external_surface(&mut self) -> bool {
+        let Some(phone) = self.companion.take() else {
+            return false;
+        };
+        self.surface = phone.surface;
+        self.config = phone.config;
+        self.needs_reconfigure = true;
+        true
+    }
+
+    /// Resizes the TV's surface. A no-op without one.
+    pub fn resize_external(&mut self, width: u32, height: u32) {
+        if self.companion.is_none() {
+            return;
+        }
+        let width = width.max(1);
+        let height = height.max(1);
+        if width == self.config.width && height == self.config.height && !self.needs_reconfigure {
+            return;
+        }
+        self.config.width = width;
+        self.config.height = height;
+        self.surface.configure(&self.device, &self.config);
+        self.needs_reconfigure = false;
+    }
+
+    /// Where the touch screen is drawn on the PHONE, for a view of `view_w x view_h`.
+    ///
+    /// The same placements the phone's draw uses, so a tap and a pixel cannot disagree. `None`
+    /// for a one-screen system, or when the phone is not showing the touch screen.
+    pub fn touch_region(&self, view_w: f32, view_h: f32) -> Option<TouchRegion> {
+        let geometry = self.dual_geometry?;
+        let role = if self.external_active() {
+            TargetRole::PhoneCompanion
+        } else {
+            TargetRole::Phone
+        };
+        let placements = self.placements_for(role, view_w, view_h);
+        screen_layout::touch_region(&placements, &geometry)
+    }
+
+    /// Width over height of what the phone shows, for a two-screen system with a layout the
+    /// single quad does not already draw. `None` means use the core's own aspect.
+    pub fn phone_arrangement_aspect(&self) -> Option<f32> {
+        let geometry = self.dual_geometry?;
+        if self.skin_holes.is_some() {
+            return None;
+        }
+        let (fb_w, fb_h) = self.frame_size();
+        if self.external_active() {
+            return screen_layout::arrangement_aspect(
+                &geometry,
+                &self.dual_config,
+                TargetRole::PhoneCompanion,
+                fb_w,
+                fb_h,
+            );
+        }
+        if self.dual_config.is_hardware_default() {
+            return None;
+        }
+        screen_layout::arrangement_aspect(&geometry, &self.dual_config, TargetRole::Phone, fb_w, fb_h)
+    }
+
+    /// Whether the current skin has a top hole and a bottom hole for the swap to trade.
+    pub fn skin_can_swap(&self) -> bool {
+        let (Some(geometry), Some(holes)) = (self.dual_geometry, self.skin_holes.as_ref()) else {
+            return false;
+        };
+        let (fb_w, fb_h) = self.frame_size();
+        screen_layout::skin_can_swap(holes, &geometry, fb_w, fb_h)
+    }
+
+    /// Framebuffer size: the live texture, else the declared one, else a unit square.
+    fn frame_size(&self) -> (f32, f32) {
+        if let Some(target) = &self.frame_target {
+            return (target.width as f32, target.height as f32);
+        }
+        match self.frame_hint {
+            (w, h) if w > 0 && h > 0 => (w as f32, h as f32),
+            _ => (1.0, 1.0),
+        }
+    }
+
+    /// Skin holes with the swap applied, for a two-screen system.
+    fn effective_holes(&self, fb_w: f32, fb_h: f32) -> Option<Vec<SkinHole>> {
+        let holes = self.skin_holes.as_ref().filter(|h| !h.is_empty())?;
+        match self.dual_geometry {
+            Some(geometry) if self.dual_config.swapped => {
+                Some(screen_layout::swap_skin_holes(holes, &geometry, fb_w, fb_h))
+            }
+            _ => Some(holes.clone()),
+        }
+    }
+
+    /// Whether a target in this role uses the two-screen layout rather than the single quad.
+    fn uses_dual_layout(&self, role: TargetRole) -> Option<DualScreenGeometry> {
+        let geometry = self.dual_geometry?;
+        let wanted = match role {
+            TargetRole::Phone => !self.dual_config.is_hardware_default(),
+            TargetRole::External => {
+                self.dual_config.touch_on_phone || !self.dual_config.is_hardware_default()
+            }
+            TargetRole::PhoneCompanion => true,
+        };
+        wanted.then_some(geometry)
+    }
+
+    /// What a target in this role shows, as placements. Used by touch; the draw builds the same
+    /// thing as uniforms in [`Self::uniforms_for`].
+    fn placements_for(&self, role: TargetRole, target_w: f32, target_h: f32) -> Vec<ScreenPlacement> {
+        let (fb_w, fb_h) = self.frame_size();
+        if role != TargetRole::External {
+            if let Some(holes) = self.effective_holes(fb_w, fb_h) {
+                if role == TargetRole::Phone {
+                    return screen_layout::hole_placements(&holes, fb_w, fb_h);
+                }
+                if let Some(geometry) = self.dual_geometry {
+                    if self.dual_config.touch_on_phone {
+                        let touch = screen_layout::touch_holes(&holes, &geometry, fb_w, fb_h);
+                        if !touch.is_empty() {
+                            return screen_layout::hole_placements(&touch, fb_w, fb_h);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(geometry) = self.uses_dual_layout(role) {
+            return screen_layout::dual_placements(
+                &geometry,
+                &self.dual_config,
+                role,
+                fb_w,
+                fb_h,
+                target_w,
+                target_h,
+                self.scale_mode,
+            );
+        }
+        if role == TargetRole::PhoneCompanion {
+            return Vec::new();
+        }
+        let tw = target_w.max(1.0).round() as u32;
+        let th = target_h.max(1.0).round() as u32;
+        vec![screen_layout::single_placement(self.compute_scale(fb_w, fb_h, tw, th))]
+    }
+
     pub fn set_scale_mode(&mut self, mode: ScaleMode) {
         self.scale_mode = mode;
     }
@@ -470,6 +725,17 @@ impl Renderer {
     pub fn resize(&mut self, width: u32, height: u32) {
         let width = width.max(1);
         let height = height.max(1);
+        // The phone's layer always reports here. While a TV is the main target that layer is the
+        // companion, and resizing the TV's surface to the phone's size would be a wrong picture.
+        if let Some(phone) = &mut self.companion {
+            if width != phone.config.width || height != phone.config.height || phone.needs_reconfigure {
+                phone.config.width = width;
+                phone.config.height = height;
+                phone.surface.configure(&self.device, &phone.config);
+                phone.needs_reconfigure = false;
+            }
+            return;
+        }
         if width == self.config.width && height == self.config.height && !self.needs_reconfigure {
             return;
         }
@@ -486,10 +752,12 @@ impl Renderer {
     /// by wgpu and imported into Vulkan — and this path samples it with no CPU upload.
     /// Replaces any previous frame target.
     pub fn adopt_frame_texture(&mut self, texture: wgpu::Texture, width: u32, height: u32) {
-        let bind_group = self.build_bind_group(&texture);
+        let bind_group = self.build_bind_group(&texture, &self.uniform_buffer);
+        let companion_bind_group = self.build_bind_group(&texture, &self.companion_uniform_buffer);
         self.frame_target = Some(FrameTarget {
             texture,
             bind_group,
+            companion_bind_group,
             width,
             height,
         });
@@ -512,6 +780,9 @@ impl Renderer {
     /// after resuming reconfigures only because it happens to fail first.
     pub fn invalidate_surface(&mut self) {
         self.needs_reconfigure = true;
+        if let Some(phone) = &mut self.companion {
+            phone.needs_reconfigure = true;
+        }
     }
 
     /// The wgpu device, for the platform layer that needs the backend object underneath.
@@ -524,6 +795,13 @@ impl Renderer {
     /// Apple-only feature for no reason other than where the accessor happened to live.
     pub(crate) fn wgpu_device(&self) -> &wgpu::Device {
         &self.device
+    }
+
+    /// The instance the renderer's surfaces come from, so an external display's layer gets a
+    /// surface on the SAME instance, adapter and device rather than a second one.
+    #[cfg(target_vendor = "apple")]
+    pub(crate) fn wgpu_instance(&self) -> &wgpu::Instance {
+        &self._instance
     }
 
     #[cfg(target_vendor = "apple")]
@@ -608,17 +886,89 @@ impl Renderer {
                 multiview_mask: None,
             });
 
-            if let Some(target) = &self.frame_target {
+            if let (Some(target), true) = (&self.frame_target, self.screen_count > 0) {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &target.bind_group, &[]);
-                pass.draw(0..6, 0..self.screen_count.max(1));
+                pass.draw(0..6, 0..self.screen_count);
             }
         }
 
         self.queue.submit(Some(encoder.finish()));
         self.queue.present(surface_texture);
         self.frames_presented += 1;
+
+        // The phone, while a TV has the picture: the touch screen, or a plain clear behind the
+        // controls. Its failures are absorbed rather than returned, because the TV frame above
+        // already went out and a phone drawable hiccup is not a lost frame.
+        self.present_companion();
         Ok(())
+    }
+
+    fn present_companion(&mut self) {
+        let Some(phone) = self.companion.as_mut() else {
+            return;
+        };
+        if phone.needs_reconfigure {
+            phone.surface.configure(&self.device, &phone.config);
+            phone.needs_reconfigure = false;
+        }
+        let surface_texture = match phone.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(t) => t,
+            wgpu::CurrentSurfaceTexture::Suboptimal(t) => {
+                phone.needs_reconfigure = true;
+                t
+            }
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                phone.needs_reconfigure = true;
+                return;
+            }
+            _ => return,
+        };
+        let (tw, th) = (phone.config.width, phone.config.height);
+        let (screens, count) = self.uniforms_for(TargetRole::PhoneCompanion, tw, th);
+        let (fb_width, fb_height) = self.frame_size();
+        let uniforms = BlitUniforms {
+            frame_size: [fb_width, fb_height],
+            screen_count: count,
+            _padding: 0,
+            screens,
+        };
+        self.queue
+            .write_buffer(&self.companion_uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+
+        let target_view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("frame-blit-companion-encoder"),
+            });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("frame-blit-companion-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            if let (Some(target), true) = (&self.frame_target, count > 0) {
+                pass.set_pipeline(&self.pipeline);
+                pass.set_bind_group(0, &target.companion_bind_group, &[]);
+                pass.draw(0..6, 0..count);
+            }
+        }
+        self.queue.submit(Some(encoder.finish()));
+        self.queue.present(surface_texture);
     }
 
     /// Uploads a frame without presenting it.
@@ -686,10 +1036,12 @@ impl Renderer {
             view_formats: &[],
         });
 
-        let bind_group = self.build_bind_group(&texture);
+        let bind_group = self.build_bind_group(&texture, &self.uniform_buffer);
+        let companion_bind_group = self.build_bind_group(&texture, &self.companion_uniform_buffer);
         self.frame_target = Some(FrameTarget {
             texture,
             bind_group,
+            companion_bind_group,
             width,
             height,
         });
@@ -697,7 +1049,7 @@ impl Renderer {
         self.convert_scratch = Vec::new();
     }
 
-    fn build_bind_group(&self, texture: &wgpu::Texture) -> wgpu::BindGroup {
+    fn build_bind_group(&self, texture: &wgpu::Texture, uniforms: &wgpu::Buffer) -> wgpu::BindGroup {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = match self.filter {
             ScaleFilter::Nearest => &self.sampler_nearest,
@@ -709,7 +1061,7 @@ impl Renderer {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: self.uniform_buffer.as_entire_binding(),
+                    resource: uniforms.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -725,9 +1077,12 @@ impl Renderer {
 
     fn rebuild_bind_group(&mut self) {
         if let Some(target) = self.frame_target.take() {
-            let bind_group = self.build_bind_group(&target.texture);
+            let bind_group = self.build_bind_group(&target.texture, &self.uniform_buffer);
+            let companion_bind_group =
+                self.build_bind_group(&target.texture, &self.companion_uniform_buffer);
             self.frame_target = Some(FrameTarget {
                 bind_group,
+                companion_bind_group,
                 ..target
             });
         }
@@ -742,23 +1097,13 @@ impl Renderer {
     /// [`Self::write_uniforms`] so an offscreen capture can be framed for its own
     /// dimensions rather than the swapchain's.
     fn write_uniforms_for(&mut self, target_width: u32, target_height: u32) {
-        let (fb_width, fb_height) = self
-            .frame_target
-            .as_ref()
-            .map(|t| (t.width as f32, t.height as f32))
-            .unwrap_or((1.0, 1.0));
-
-        let (screens, count) = if let Some(holes) = &self.skin_holes {
-            if !holes.is_empty() {
-                Self::layout_skin_holes(holes, fb_width, fb_height)
-            } else {
-                let fitted = self.compute_scale(fb_width, fb_height, target_width, target_height);
-                (Self::screen_layout(self.screen_split, fitted), self.screen_split.count())
-            }
+        let (fb_width, fb_height) = self.frame_size();
+        let role = if self.external_active() {
+            TargetRole::External
         } else {
-            let fitted = self.compute_scale(fb_width, fb_height, target_width, target_height);
-            (Self::screen_layout(self.screen_split, fitted), self.screen_split.count())
+            TargetRole::Phone
         };
+        let (screens, count) = self.uniforms_for(role, target_width, target_height);
         // Cached because the draw needs it and the draw does not write uniforms: this and
         // `screens` are produced together, so a count that disagreed with the array would mean
         // drawing an instance whose placement was never written.
@@ -772,6 +1117,73 @@ impl Renderer {
         };
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+    }
+
+    /// The uniform array and instance count for one target.
+    ///
+    /// The one-screen path is exactly what it always was: `compute_scale` then `screen_layout`.
+    /// Skin holes come next, then the two-screen layouts, so a DS on its default Stacked layout
+    /// with no skin still draws through the single quad and is pinned by the same guard test.
+    fn uniforms_for(
+        &self,
+        role: TargetRole,
+        target_width: u32,
+        target_height: u32,
+    ) -> ([ScreenUniform; MAX_SCREENS], u32) {
+        let (fb_width, fb_height) = self.frame_size();
+
+        if role != TargetRole::External {
+            if let Some(holes) = self.effective_holes(fb_width, fb_height) {
+                if role == TargetRole::Phone {
+                    return Self::layout_skin_holes(&holes, fb_width, fb_height);
+                }
+                if let Some(geometry) = self.dual_geometry {
+                    if self.dual_config.touch_on_phone {
+                        let touch =
+                            screen_layout::touch_holes(&holes, &geometry, fb_width, fb_height);
+                        if !touch.is_empty() {
+                            return Self::layout_skin_holes(&touch, fb_width, fb_height);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(geometry) = self.uses_dual_layout(role) {
+            let placements = screen_layout::dual_placements(
+                &geometry,
+                &self.dual_config,
+                role,
+                fb_width,
+                fb_height,
+                target_width as f32,
+                target_height as f32,
+                self.scale_mode,
+            );
+            return Self::placement_uniforms(&placements);
+        }
+
+        if role == TargetRole::PhoneCompanion {
+            // A one-screen game on a TV: the phone shows only the controls.
+            return ([ScreenUniform::identity(); MAX_SCREENS], 0);
+        }
+
+        let fitted = self.compute_scale(fb_width, fb_height, target_width, target_height);
+        (Self::screen_layout(self.screen_split, fitted), self.screen_split.count())
+    }
+
+    /// Placements as the shader's uniform array. Pure, for the tests.
+    fn placement_uniforms(placements: &[ScreenPlacement]) -> ([ScreenUniform; MAX_SCREENS], u32) {
+        let mut screens = [ScreenUniform::identity(); MAX_SCREENS];
+        let count = placements.len().min(MAX_SCREENS);
+        for (slot, placement) in screens.iter_mut().zip(placements.iter()) {
+            let (d, src) = (placement.dest, placement.src);
+            *slot = ScreenUniform {
+                dest: Self::dest_clip(d.x, d.y, d.w, d.h),
+                source: [src.w, src.h, src.x, src.y],
+            };
+        }
+        (screens, count as u32)
     }
 
     /// Divides an already-fitted rectangle into one placement per screen.
@@ -1063,10 +1475,10 @@ impl Renderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if let Some(target) = &self.frame_target {
+            if let (Some(target), true) = (&self.frame_target, self.screen_count > 0) {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &target.bind_group, &[]);
-                pass.draw(0..6, 0..self.screen_count.max(1));
+                pass.draw(0..6, 0..self.screen_count);
             }
         }
 

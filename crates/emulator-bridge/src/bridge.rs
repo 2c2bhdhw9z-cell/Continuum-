@@ -18,6 +18,7 @@
 use crate::audio::{AudioSink, AudioSpec, AudioStats, NullAudioSink, RingAudioSink, CHANNELS};
 use crate::cores::{ContentHint, CoreDescriptor, CoreRegistry, CoreState, EmulatorCore};
 use crate::error::BridgeError;
+use crate::gfx::screen_layout::{DualScreenConfig, DualScreenGeometry, TouchRegion};
 use crate::gfx::{Renderer, ScaleFilter, ScaleMode, SkinHole};
 use crate::input::{Button, GamepadBridge, PadKind, PadSource};
 use crate::rewind::RewindBuffer;
@@ -167,6 +168,11 @@ pub struct EmulatorBridge {
     /// Skin holes last requested. Kept even when the renderer is not attached yet, so the
     /// first layout — which can land before the Metal layer — is not thrown away.
     skin_holes: Vec<crate::gfx::SkinHole>,
+    /// Two-screen layout, swap and TV choice. Survives the renderer and every session, and is
+    /// pushed into the renderer whenever either changes. See `gfx::screen_layout`.
+    dual_config: DualScreenConfig,
+    /// The running core's two-screen geometry, from its declared systems. `None` otherwise.
+    dual_geometry: Option<DualScreenGeometry>,
 }
 
 impl Default for EmulatorBridge {
@@ -201,6 +207,11 @@ impl EmulatorBridge {
             frames_since_snapshot: 0,
             rewinding: false,
             skin_holes: Vec::new(),
+            dual_config: DualScreenConfig {
+                touch_on_phone: true,
+                ..DualScreenConfig::default()
+            },
+            dual_geometry: None,
         }
     }
 
@@ -216,6 +227,8 @@ impl EmulatorBridge {
         renderer.set_scale_mode(self.scale_mode);
         renderer.set_filter(self.filter);
         renderer.set_skin_holes(self.skin_holes.clone());
+        renderer.set_dual_config(self.dual_config);
+        renderer.set_dual_geometry(self.dual_geometry);
         self.renderer = Some(renderer);
     }
 
@@ -350,10 +363,22 @@ impl EmulatorBridge {
         // start at 1x with the wrong filter and then visibly correct itself.
         self.pacer.set_speed(self.speed);
         self.apply_audio_speed();
+        // A DS or a 3DS has two screens in its one framebuffer. Read from what the core says it
+        // runs rather than from its id, so a second DS core needs nothing here.
+        self.dual_geometry = descriptor
+            .systems
+            .iter()
+            .find_map(|system| DualScreenGeometry::for_system(system));
         if let Some(renderer) = &mut self.renderer {
             renderer.set_aspect_ratio(descriptor.geometry.aspect_ratio);
             renderer.set_scale_mode(self.scale_mode);
             renderer.set_filter(self.filter);
+            renderer.set_dual_geometry(self.dual_geometry);
+            renderer.set_dual_config(self.dual_config);
+            renderer.set_frame_hint(
+                descriptor.geometry.base_width,
+                descriptor.geometry.base_height,
+            );
         }
         self.gamepads.release_all();
         self.state_scratch = Vec::with_capacity(core.state_size());
@@ -410,7 +435,9 @@ impl EmulatorBridge {
         self.gamepads.release_all();
         if let Some(renderer) = &mut self.renderer {
             renderer.release_frame_target();
+            renderer.set_dual_geometry(None);
         }
+        self.dual_geometry = None;
         // A GBA save state is ~500 KB; keeping that buffer alive while the user browses
         // their library is pure waste.
         self.state_scratch = Vec::new();
@@ -598,14 +625,22 @@ impl EmulatorBridge {
         // 1. Input — snapshot once so every catch-up step of this tick sees a
         //    coherent controller state, and so a real core querying `input_state`
         //    mid-frame cannot observe a button changing underneath it.
-        let snapshot = gamepads.snapshot();
+        let mut snapshot = gamepads.snapshot();
 
         // 2. Core steps (0..=4, decided by the pacer).
         let plan = pacer.plan(now_ms);
         for _ in 0..plan.steps {
             session.core.run_frame(&snapshot)?;
+            // Relative mouse motion belongs to the first step only. See
+            // `InputSnapshot::consume_mouse_motion`.
+            snapshot.consume_mouse_motion();
             // 3. Audio — drained straight into the ring, no intermediate buffer.
             session.core.drain_audio(sink.as_mut());
+        }
+        // Motion a frame read is spent. With no step this tick it is kept for the next one,
+        // so a drag during a skipped frame is not lost.
+        if plan.steps > 0 {
+            gamepads.end_mouse_frame();
         }
 
         // 3b. Rewind tape. Counted in core steps rather than ticks, so the spacing between
@@ -681,6 +716,72 @@ impl EmulatorBridge {
     /// arithmetic because only the host knows where it drew the picture.
     pub fn set_pointer(&mut self, port: usize, source: PadSource, x: f32, y: f32, pressed: bool) {
         self.gamepads.set_pointer(port, source, x, y, pressed);
+    }
+
+    /// Relative mouse motion, buttons and wheel for one layer. See `input::MouseState`.
+    pub fn add_mouse_motion(&mut self, port: usize, source: PadSource, dx: f32, dy: f32) {
+        self.gamepads.add_mouse_motion(port, source, dx, dy);
+    }
+
+    pub fn set_mouse_buttons(
+        &mut self,
+        port: usize,
+        source: PadSource,
+        left: bool,
+        right: bool,
+        middle: bool,
+    ) {
+        self.gamepads
+            .set_mouse_buttons(port, source, left, right, middle);
+    }
+
+    pub fn add_mouse_wheel(&mut self, port: usize, source: PadSource, vertical: i32, horizontal: i32) {
+        self.gamepads.add_mouse_wheel(port, source, vertical, horizontal);
+    }
+
+    /// Tells the running core which device is plugged into a port. See
+    /// [`EmulatorCore::set_controller_port_device`].
+    pub fn set_controller_port_device(&mut self, port: u32, device: u32) -> Result<(), BridgeError> {
+        let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
+        session.core.set_controller_port_device(port, device)
+    }
+
+    /// The device ids the running core declared for a port through `SET_CONTROLLER_INFO`.
+    pub fn controller_types(&self, port: u32) -> Vec<(String, u32)> {
+        self.session
+            .as_ref()
+            .map(|s| s.core.controller_types(port))
+            .unwrap_or_default()
+    }
+
+    /// Switches a port between the joypad and a mouse for the touch screen's trackpad mode.
+    ///
+    /// Returns a plain line for the HUD either way. The input layer answers `RETRO_DEVICE_MOUSE`
+    /// queries whatever the port's device is, so a core that reads the mouse without being told
+    /// (melonDS in its mouse touch mode, a computer core) works even when the port switch is
+    /// refused. A core that DECLARED a mouse type for the port (the SNES mouse, the PlayStation
+    /// mouse) is switched to it, because those only read the mouse once told it is plugged in.
+    pub fn set_mouse_mode(&mut self, port: u32, enabled: bool) -> String {
+        if self.session.is_none() {
+            return "mouse mode: no game is running".into();
+        }
+        let types = self.controller_types(port);
+        let choice = if enabled {
+            crate::cores::pick_mouse_device(&types)
+        } else {
+            Some(crate::cores::pick_joypad_device(&types))
+        };
+        let player = port + 1;
+        match choice {
+            None => format!(
+                "mouse mode on; this core declares no mouse for player {player}, so only games that read the mouse directly will see it"
+            ),
+            Some((name, device)) => match self.set_controller_port_device(port, device) {
+                Ok(()) if enabled => format!("mouse mode on: player {player} is now \"{name}\""),
+                Ok(()) => format!("mouse mode off: player {player} is back to \"{name}\""),
+                Err(error) => format!("mouse mode: could not switch player {player} to \"{name}\": {error}"),
+            },
+        }
     }
 
     /// Releases one source, e.g. when the touch overlay is dismissed.
@@ -893,6 +994,83 @@ impl EmulatorBridge {
         self.skin_holes = holes.clone();
         if let Some(renderer) = &mut self.renderer {
             renderer.set_skin_holes(holes);
+        }
+    }
+
+    // ------------------------------------------------------------ two screens
+
+    /// Sets the two-screen layout, swap, orientation hint and TV choice in one go.
+    ///
+    /// Remembered across sessions and renderer re-targets. Harmless for one-screen systems: with
+    /// no geometry the renderer never reads it.
+    pub fn set_dual_screen_config(&mut self, config: DualScreenConfig) {
+        self.dual_config = config;
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_dual_config(config);
+        }
+    }
+
+    pub fn dual_screen_config(&self) -> DualScreenConfig {
+        self.dual_config
+    }
+
+    /// The one-tap swap. Returns the new swapped state.
+    pub fn toggle_screen_swap(&mut self) -> bool {
+        let mut config = self.dual_config;
+        config.swapped = !config.swapped;
+        self.set_dual_screen_config(config);
+        config.swapped
+    }
+
+    /// Whether the running game has two screens.
+    pub fn has_dual_screens(&self) -> bool {
+        self.dual_geometry.is_some()
+    }
+
+    /// Whether the current skin has a top hole and a bottom hole for the swap to trade.
+    pub fn skin_can_swap(&self) -> bool {
+        self.renderer.as_ref().is_some_and(Renderer::skin_can_swap)
+    }
+
+    /// Where the touch screen is on the phone's picture view of `view_w x view_h`.
+    pub fn touch_region(&self, view_w: f32, view_h: f32) -> Option<TouchRegion> {
+        self.renderer.as_ref()?.touch_region(view_w, view_h)
+    }
+
+    /// A point on the phone's picture view, as fractions of it, to the framebuffer fraction the
+    /// pointer API takes. `None` when it is not on the touch screen and `clamp` is false.
+    pub fn map_touch(
+        &self,
+        view_w: f32,
+        view_h: f32,
+        x: f32,
+        y: f32,
+        clamp: bool,
+    ) -> Option<(f32, f32)> {
+        let region = self.touch_region(view_w, view_h)?;
+        crate::gfx::screen_layout::map_touch(&region, x, y, clamp)
+    }
+
+    /// Width over height of what the phone shows, when that is not the core's own aspect.
+    pub fn phone_arrangement_aspect(&self) -> Option<f32> {
+        self.renderer.as_ref()?.phone_arrangement_aspect()
+    }
+
+    /// Whether a TV is the main target.
+    pub fn external_display_active(&self) -> bool {
+        self.renderer.as_ref().is_some_and(Renderer::external_active)
+    }
+
+    /// Drops the TV's surface. Returns whether there was one.
+    pub fn detach_external_display(&mut self) -> bool {
+        self.renderer
+            .as_mut()
+            .is_some_and(Renderer::detach_external_surface)
+    }
+
+    pub fn resize_external_display(&mut self, width: u32, height: u32) {
+        if let Some(renderer) = &mut self.renderer {
+            renderer.resize_external(width, height);
         }
     }
 
@@ -1109,6 +1287,7 @@ impl EmulatorBridge {
             renderer,
             sink,
             pacer,
+            gamepads,
             ..
         } = self;
         let session = session
@@ -1119,6 +1298,7 @@ impl EmulatorBridge {
             session.core.run_frame(&snapshot)?;
             session.core.drain_audio(sink.as_mut());
             sink.flush();
+            gamepads.end_mouse_frame();
         }
 
         // Presented either way. Reaching the start of the tape stops the motion but must not

@@ -7,6 +7,7 @@ pub mod hw;
 pub mod moltenvk;
 pub mod moltenvk_device;
 mod renderer;
+pub mod screen_layout;
 pub mod vulkan_hw;
 
 /// Metal surface construction and `MTLDevice` hand-off. iOS and macOS only.

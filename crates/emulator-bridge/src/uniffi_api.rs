@@ -255,6 +255,79 @@ pub struct SkinScreenPlacement {
     pub src_h: f32,
 }
 
+/// Where the two screens of a DS or a 3DS go. Mirrors `gfx::screen_layout::DualLayout` for the
+/// reason [`ScaleModeOption`] mirrors its gfx counterpart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum ScreenLayoutOption {
+    /// Top over bottom, as the hardware has them. The default.
+    Stacked,
+    /// Top on the left, bottom on the right.
+    SideBySide,
+    /// The top screen big and the bottom one small.
+    BigTop,
+    /// The bottom screen big and the top one small.
+    BigBottom,
+    /// Only the top screen.
+    TopOnly,
+    /// Only the bottom screen.
+    BottomOnly,
+}
+
+impl From<ScreenLayoutOption> for crate::gfx::screen_layout::DualLayout {
+    fn from(layout: ScreenLayoutOption) -> Self {
+        match layout {
+            ScreenLayoutOption::Stacked => Self::Stacked,
+            ScreenLayoutOption::SideBySide => Self::SideBySide,
+            ScreenLayoutOption::BigTop => Self::BigTop,
+            ScreenLayoutOption::BigBottom => Self::BigBottom,
+            ScreenLayoutOption::TopOnly => Self::TopOnly,
+            ScreenLayoutOption::BottomOnly => Self::BottomOnly,
+        }
+    }
+}
+
+impl From<crate::gfx::screen_layout::DualLayout> for ScreenLayoutOption {
+    fn from(layout: crate::gfx::screen_layout::DualLayout) -> Self {
+        use crate::gfx::screen_layout::DualLayout;
+        match layout {
+            DualLayout::Stacked => Self::Stacked,
+            DualLayout::SideBySide => Self::SideBySide,
+            DualLayout::BigTop => Self::BigTop,
+            DualLayout::BigBottom => Self::BigBottom,
+            DualLayout::TopOnly => Self::TopOnly,
+            DualLayout::BottomOnly => Self::BottomOnly,
+        }
+    }
+}
+
+/// Everything about the two screens, as one record so Swift sets it in one call.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct DualScreenSettings {
+    pub layout: ScreenLayoutOption,
+    /// The swap: which screen goes in which place, and in a skin which picture goes in which hole.
+    pub swapped: bool,
+    /// The window is wider than tall. The big + small layouts go side by side when it is.
+    pub landscape: bool,
+    /// With a TV connected, keep the touch screen on the phone.
+    pub touch_on_phone: bool,
+}
+
+/// A rect as fractions of the phone's picture view, origin top left.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ViewRect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// A point as fractions of the WHOLE framebuffer, origin top left: what `apply_pointer` takes.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct FramebufferPoint {
+    pub x: f32,
+    pub y: f32,
+}
+
 /// How a game's pixels are sampled when scaled up. See [`ScaleModeOption`] on why this
 /// mirrors [`crate::gfx::ScaleFilter`] instead of being it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -792,6 +865,41 @@ impl ContinuumEngine {
             .set_pointer(port as usize, source.into(), x, y, pressed);
     }
 
+    /// Moves the mouse by a relative amount and sets its buttons, for the touch screen's trackpad
+    /// mode. `dx`/`dy` are in the core's mouse units (roughly guest pixels), accumulated until the
+    /// next core frame reads them; the remainder of a unit carries over, so a slow drag moves.
+    ///
+    /// Buttons are levels: send `left: true` for as long as the click is held. Call every frame
+    /// with zero motion to keep a held button held.
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_mouse(
+        &self,
+        port: u32,
+        source: InputSource,
+        dx: f32,
+        dy: f32,
+        left: bool,
+        right: bool,
+        middle: bool,
+    ) {
+        let mut guard = self.lock();
+        guard.add_mouse_motion(port as usize, source.into(), dx, dy);
+        guard.set_mouse_buttons(port as usize, source.into(), left, right, middle);
+    }
+
+    /// Wheel steps. Positive is up (or right). Each is one frame's pulse.
+    pub fn apply_mouse_wheel(&self, port: u32, source: InputSource, vertical: i32, horizontal: i32) {
+        self.lock()
+            .add_mouse_wheel(port as usize, source.into(), vertical, horizontal);
+    }
+
+    /// Turns trackpad mode on or off for a port, switching the core's port to a mouse it declared
+    /// (and back). Returns a plain HUD line saying what happened, including when the core has no
+    /// mouse to switch to.
+    pub fn set_mouse_mode(&self, port: u32, enabled: bool) -> String {
+        self.lock().set_mouse_mode(port, enabled)
+    }
+
     /// Releases one layer, leaving the others untouched.
     ///
     /// For a controller being unplugged, or the on-screen pad going away when the player
@@ -966,6 +1074,142 @@ impl ContinuumEngine {
             })
             .collect();
         self.lock().set_skin_holes(holes);
+    }
+
+    // --------------------------------------------------------------- two screens
+
+    /// Sets the DS / 3DS layout, swap, orientation hint and TV choice. Remembered by the engine
+    /// across launches; the host stores it per system and sends it before launching.
+    pub fn set_dual_screen_settings(&self, settings: DualScreenSettings) {
+        self.lock()
+            .set_dual_screen_config(crate::gfx::screen_layout::DualScreenConfig {
+                layout: settings.layout.into(),
+                swapped: settings.swapped,
+                landscape: settings.landscape,
+                touch_on_phone: settings.touch_on_phone,
+            });
+    }
+
+    pub fn dual_screen_settings(&self) -> DualScreenSettings {
+        let config = self.lock().dual_screen_config();
+        DualScreenSettings {
+            layout: config.layout.into(),
+            swapped: config.swapped,
+            landscape: config.landscape,
+            touch_on_phone: config.touch_on_phone,
+        }
+    }
+
+    /// The one-tap swap. Returns whether the screens are now swapped.
+    pub fn toggle_screen_swap(&self) -> bool {
+        self.lock().toggle_screen_swap()
+    }
+
+    /// Whether the running game has two screens.
+    pub fn has_dual_screens(&self) -> bool {
+        self.lock().has_dual_screens()
+    }
+
+    /// Whether the current skin has a top hole and a bottom hole for the swap to trade.
+    pub fn skin_can_swap(&self) -> bool {
+        self.lock().skin_can_swap()
+    }
+
+    /// Where the touch screen is drawn in the phone's picture view of `view_width x
+    /// view_height` (points are fine; only the shape matters), or `None` when the phone is not
+    /// showing one. Fractions of the view.
+    pub fn touch_screen_rect(&self, view_width: f32, view_height: f32) -> Option<ViewRect> {
+        self.lock()
+            .touch_region(view_width, view_height)
+            .map(|region| ViewRect {
+                x: region.dest.x,
+                y: region.dest.y,
+                width: region.dest.w,
+                height: region.dest.h,
+            })
+    }
+
+    /// A point on the phone's picture view (fractions of it) to the framebuffer fraction
+    /// `apply_pointer` takes, through the same layout the picture was drawn with. `None` when
+    /// the point is off the touch screen and `clamp` is false.
+    pub fn map_touch(
+        &self,
+        view_width: f32,
+        view_height: f32,
+        x: f32,
+        y: f32,
+        clamp: bool,
+    ) -> Option<FramebufferPoint> {
+        self.lock()
+            .map_touch(view_width, view_height, x, y, clamp)
+            .map(|(x, y)| FramebufferPoint { x, y })
+    }
+
+    /// The width over height the phone's picture should be sized to, when a two-screen layout
+    /// (or a TV) changes it from the core's own aspect. `None` means use the core's aspect.
+    pub fn phone_picture_aspect(&self) -> Option<f32> {
+        self.lock().phone_arrangement_aspect()
+    }
+
+    // ---------------------------------------------------------- external display
+
+    /// Moves the game picture to an external display's `CAMetalLayer` (AirPlay or a cable).
+    ///
+    /// The phone's layer stays configured as a second target: it shows the touch screen of a
+    /// DS or 3DS when the settings keep it on the phone, and a plain clear behind the controls
+    /// otherwise. Same `MTLDevice` throughout: the TV's surface is created on the renderer's own
+    /// instance and configured with its own device. Returns a HUD line on success.
+    pub fn attach_external_display(
+        &self,
+        layer: u64,
+        width: u32,
+        height: u32,
+    ) -> Result<String, EngineError> {
+        #[cfg(target_vendor = "apple")]
+        {
+            let mut guard = self.lock();
+            let Some(renderer) = guard.renderer_mut() else {
+                return Err(EngineError::Graphics {
+                    reason: "no renderer attached yet; the phone's view has not attached".into(),
+                });
+            };
+            // SAFETY: Swift passes the backing layer of the external window's view and detaches
+            // before releasing it. Checked for null inside.
+            unsafe {
+                crate::gfx::metal::attach_external_layer(
+                    renderer,
+                    layer as *mut core::ffi::c_void,
+                    width,
+                    height,
+                )
+            }
+            .map_err(|error| EngineError::Graphics {
+                reason: error.to_string(),
+            })?;
+            Ok(format!("TV connected: game on the external display ({width}x{height})"))
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        {
+            let _ = (layer, width, height);
+            Err(EngineError::Graphics {
+                reason: "external displays are only available on Apple targets".into(),
+            })
+        }
+    }
+
+    /// Reports the external display's drawable size in pixels.
+    pub fn resize_external_display(&self, width: u32, height: u32) {
+        self.lock().resize_external_display(width, height);
+    }
+
+    /// Moves the picture back to the phone. Returns whether a TV was attached. Call BEFORE
+    /// releasing the external window, so the engine never presents into a dead layer.
+    pub fn detach_external_display(&self) -> bool {
+        self.lock().detach_external_display()
+    }
+
+    pub fn external_display_active(&self) -> bool {
+        self.lock().external_display_active()
     }
 
     /// Sets pixel sampling. See [`ScaleFilterOption`].
