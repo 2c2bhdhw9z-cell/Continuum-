@@ -294,6 +294,11 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
     if let Some(handled) = unsafe { vulkan_hw::try_environment(cmd, data) } {
         return handled;
     }
+    // Microphone and camera (GET_MICROPHONE_INTERFACE, GET_CAMERA_INTERFACE). Their own module,
+    // their own constants; see `crate::peripherals`.
+    if let Some(handled) = unsafe { crate::peripherals::try_environment(cmd, data) } {
+        return handled;
+    }
     match cmd {
         ENV_GET_SYSTEM_DIRECTORY | ENV_GET_SAVE_DIRECTORY => {
             let guard = match DIRECTORIES.lock() {
@@ -761,6 +766,10 @@ impl NativeLibretroCore {
         // loaded after a Vulkan one (or the reverse) does not keep the old contract.
         vulkan_hw::reset();
         gl_hw::reset();
+        // Same for the microphone handle and the camera registration: a core is handed both
+        // during `retro_set_environment` or `retro_load_game`, and nothing the last core held may
+        // be honoured for this one.
+        crate::peripherals::reset_for_load();
 
         // Order matters and is specified by libretro: the environment callback must be
         // installed before `retro_init`, because cores query it during
@@ -998,6 +1007,10 @@ impl EmulatorCore for NativeLibretroCore {
         // host has no GL context.
         gl_hw::prepare_frame();
 
+        // A camera frame captured since the last frame goes to the core HERE, on the core's own
+        // thread, because libretro.h:1209 says that is where the camera callback runs.
+        crate::peripherals::before_retro_run();
+
         unsafe { (self.symbols.run)() };
 
         EXCHANGE.with(|cell| {
@@ -1229,6 +1242,8 @@ impl EmulatorCore for NativeLibretroCore {
 
 impl Drop for NativeLibretroCore {
     fn drop(&mut self) {
+        // The camera's `deinitialized` before the game goes, and the mic handle forgotten.
+        crate::peripherals::before_unload();
         if self.content_loaded {
             unsafe { (self.symbols.unload_game)() };
         }
@@ -1711,5 +1726,65 @@ mod tests {
         };
         assert!(ok);
         assert_eq!(value, crate::gfx::hw::HwContextType::Vulkan as c_uint);
+    }
+
+    #[test]
+    fn microphone_interface_is_answered_through_environment() {
+        use crate::peripherals::mic;
+        let _guard = match mic::TEST_LOCK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        mic::hub().reset_core_side();
+        let mut interface = mic::RetroMicrophoneInterface {
+            interface_version: mic::MICROPHONE_INTERFACE_VERSION,
+            open_mic: None,
+            close_mic: None,
+            get_params: None,
+            set_mic_state: None,
+            get_mic_state: None,
+            read_mic: None,
+        };
+        let ok = unsafe {
+            on_environment(
+                mic::ENV_GET_MICROPHONE_INTERFACE,
+                &mut interface as *mut _ as *mut c_void,
+            )
+        };
+        assert!(ok, "GET_MICROPHONE_INTERFACE must be answered");
+        assert_eq!(interface.interface_version, 1);
+        assert!(interface.read_mic.is_some());
+        mic::hub().reset_core_side();
+    }
+
+    #[test]
+    fn camera_interface_is_answered_through_environment() {
+        use crate::peripherals::camera;
+        let _guard = match camera::TEST_LOCK.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        camera::hub().reset_core_side();
+        unsafe extern "C" fn frame(_: *const u32, _: c_uint, _: c_uint, _: usize) {}
+        let mut callback = camera::RetroCameraCallback {
+            caps: 1 << camera::CAMERA_BUFFER_RAW_FRAMEBUFFER,
+            width: 0,
+            height: 0,
+            start: None,
+            stop: None,
+            frame_raw_framebuffer: Some(frame),
+            frame_opengl_texture: None,
+            initialized: None,
+            deinitialized: None,
+        };
+        let ok = unsafe {
+            on_environment(
+                camera::ENV_GET_CAMERA_INTERFACE,
+                &mut callback as *mut _ as *mut c_void,
+            )
+        };
+        assert!(ok, "GET_CAMERA_INTERFACE must be answered for a raw framebuffer core");
+        assert!(callback.start.is_some() && callback.stop.is_some());
+        camera::hub().reset_core_side();
     }
 }

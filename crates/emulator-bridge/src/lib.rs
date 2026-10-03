@@ -31,6 +31,7 @@
 //! - [`timing`] — frame pacing between display refresh and core refresh.
 //! - [`frame`] — geometry and pixel formats.
 //! - [`rewind`] — the bounded tape of save states behind the rewind button.
+//! - [`peripherals`]: microphone, camera and Amiibo files for cores that ask.
 //! - [`uniffi_api`] — the Swift-facing facade (feature `uniffi-bindings`).
 //!
 //! ## Invariants
@@ -53,6 +54,9 @@ pub mod frame;
 pub mod gfx;
 pub mod input;
 pub mod jit_probe;
+// Microphone, camera and Amiibo files. Self-contained so it merges cleanly beside other
+// environment work in cores/native_core.rs; see the module header.
+pub mod peripherals;
 pub mod vulkan_probe;
 pub mod rewind;
 pub mod timing;
@@ -84,6 +88,11 @@ uniffi::setup_scaffolding!();
 
 #[cfg(feature = "uniffi-bindings")]
 pub mod uniffi_api;
+
+// The microphone, camera and Amiibo methods on `ContinuumEngine`, in their own export block so
+// they merge cleanly beside other workers' additions to uniffi_api.rs.
+#[cfg(feature = "uniffi-bindings")]
+pub mod uniffi_peripherals;
 
 pub use bridge::{BridgeStatus, EmulatorBridge, TickReport};
 pub use error::{BridgeError, GfxError};
