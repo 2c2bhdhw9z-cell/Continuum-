@@ -1668,6 +1668,39 @@ mod screen_layout_tests {
     }
 
     #[test]
+    fn a_layout_placement_becomes_the_same_uniform_the_single_quad_uses() {
+        // The touch path describes the single quad as a placement; turned back into a uniform it
+        // must be the quad the guard test above pins, or touch and picture would disagree.
+        let fitted = [0.75, 1.0];
+        let (screens, count) = Renderer::placement_uniforms(&[super::screen_layout::single_placement(fitted)]);
+        assert_eq!(count, 1);
+        let single = layout(ScreenSplit::Single, fitted);
+        for i in 0..4 {
+            assert!((screens[0].dest[i] - single[0].dest[i]).abs() < 1e-6);
+            assert!((screens[0].source[i] - single[0].source[i]).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn the_ds_stacked_layout_is_the_vertical_pair() {
+        // Two placements from the layout module, for a view the DS frame's own shape, draw the same
+        // two quads the compositor's VerticalPair split does.
+        use super::screen_layout::{dual_placements, DualScreenConfig, DualScreenGeometry, TargetRole};
+        let placements = dual_placements(&DualScreenGeometry::NINTENDO_DS, &DualScreenConfig::default(),
+                                         TargetRole::Phone, 256.0, 384.0, 256.0, 384.0,
+                                         super::ScaleMode::AspectFit);
+        let (screens, count) = Renderer::placement_uniforms(&placements);
+        assert_eq!(count, 2);
+        let pair = layout(ScreenSplit::VerticalPair, [1.0, 1.0]);
+        for slot in 0..2 {
+            for i in 0..4 {
+                assert!((screens[slot].dest[i] - pair[slot].dest[i]).abs() < 1e-6, "slot {slot} dest {i}");
+                assert!((screens[slot].source[i] - pair[slot].source[i]).abs() < 1e-6, "slot {slot} source {i}");
+            }
+        }
+    }
+
+    #[test]
     fn unused_slots_hold_the_identity_rather_than_zeroes() {
         // A zeroed slot is a degenerate triangle, which draws nothing and looks identical to a
         // draw that never happened. The identity draws the frame, so a count that ever ran long

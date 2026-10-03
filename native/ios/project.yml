@@ -89,6 +89,16 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # AirPlay / cable TV output. Only the external display role is declared: the app's own
+        # scene stays SwiftUI's WindowGroup. Without this entry iOS mirrors the phone instead of
+        # giving the app a scene for the TV. The class name is fixed with @objc in
+        # ScreenModes.swift, so no module prefix is needed.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleExternalDisplayNonInteractive:
+              - UISceneConfigurationName: External Display
+                UISceneDelegateClassName: ExternalDisplaySceneDelegate
     # EVERY SWIFT FILE THE APP NEEDS MUST BE LISTED HERE, BY NAME. This list is explicit, not a
     # directory glob, so a new file that is not added below is simply never compiled: the app
     # builds, installs and launches, and the feature in that file does not exist, with no error
@@ -127,6 +137,11 @@ targets:
       # .deltaskin button compiles against missing types and the build breaks in TouchLayoutEditor.
       - path: DeltaSkinImport.swift
       - path: SkinScreens.swift
+      # DS / 3DS layout and swap choices, the TV (external display scene and the hub that
+      # retargets the engine to it), trackpad mode, and their Settings section. WITHOUT THIS LINE
+      # the build breaks in ContinuumApp.swift, which names ScreenModes, and the Info.plist scene
+      # entry would name a delegate class that does not exist.
+      - path: ScreenModes.swift
       # The player screen's chrome, and the diagnostics panel both screens share.
       - path: PlayerScreen.swift
       # Stage 2, the library shell. The tab shell, the top bar, the hero and the shelves.
