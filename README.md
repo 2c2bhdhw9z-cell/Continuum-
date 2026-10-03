@@ -2,7 +2,7 @@
 
 One app for the iPhone. It plays games from older consoles. You install `Continuum.ipa` yourself. It is not on the App Store.
 
-The current install is [Continuum-102](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-102-31b6729/Continuum-102.ipa). Newer links get posted in chat when a build is ready. Ignore any older note that says the file is about 5 MB or that it only has five cores.
+The newest file on the releases page is [Continuum-107](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-107-53240a8/Continuum-107.ipa). That one is the older PSP compile. It does not contain the skin fix. Do not install it for skins. The skin install is not up yet. The link gets posted in chat when it is.
 
 This install is **not** signed with a JIT. Heavier systems here run on an interpreter.
 
