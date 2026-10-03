@@ -13,6 +13,8 @@
 
 mod diagnostic;
 mod registry;
+pub mod options;
+pub mod disk;
 
 // A libretro core from a shared library, which is now the only way a real core loads.
 // Feature-gated rather than unconditional so the host test suite does not acquire a
@@ -237,6 +239,26 @@ pub trait EmulatorCore: crate::MaybeSend {
     /// `SET_CONTROLLER_INFO`. Empty when it declared none.
     fn controller_types(&self, _port: u32) -> Vec<(String, u32)> {
         Vec::new()
+    }
+
+    /// Quarter turns counter-clockwise the core asked for with `SET_ROTATION`. 0 by default.
+    fn rotation(&self) -> u32 {
+        0
+    }
+
+    /// The core's disc table, when it registered a disk control interface.
+    fn disk_status(&self) -> Option<disk::DiskStatus> {
+        None
+    }
+
+    /// Opens the tray, selects disc `index`, closes it.
+    fn disk_insert(&mut self, _index: u32) -> Result<String, String> {
+        Err("this core has no disc control".to_owned())
+    }
+
+    /// Asks the core to refresh which of its options are visible. False when it cannot.
+    fn refresh_option_visibility(&mut self) -> bool {
+        false
     }
 
     /// Frames emulated since load. Used for the HUD and state metadata.

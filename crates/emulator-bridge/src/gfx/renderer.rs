@@ -44,6 +44,130 @@ pub enum ScaleMode {
     Stretch,
 }
 
+/// A post-process look applied while the frame is drawn. All of them are one fragment shader
+/// selected by a uniform, so switching is free.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PostEffect {
+    /// Plain pixels, sampled with the user's filter choice.
+    #[default]
+    None,
+    /// Bilinear.
+    Smooth,
+    /// Nearest inside each pixel with a one-pixel blend at the edges: sharp at any scale.
+    SharpBilinear,
+    /// Dark gaps between source rows.
+    Scanlines,
+    /// Curved tube, scanlines, an aperture mask and a vignette.
+    Crt,
+    /// A grid between source pixels, the look of a handheld's LCD.
+    LcdGrid,
+    /// The Game Boy's dot matrix: round dots on a pale backing.
+    DotMatrix,
+}
+
+impl PostEffect {
+    pub const ALL: [PostEffect; 7] = [
+        PostEffect::None,
+        PostEffect::Smooth,
+        PostEffect::SharpBilinear,
+        PostEffect::Scanlines,
+        PostEffect::Crt,
+        PostEffect::LcdGrid,
+        PostEffect::DotMatrix,
+    ];
+
+    /// The number `frame_blit.wgsl` switches on (`EFFECT_*`).
+    pub const fn shader_id(self) -> u32 {
+        match self {
+            PostEffect::None => 0,
+            PostEffect::Smooth => 1,
+            PostEffect::SharpBilinear => 2,
+            PostEffect::Scanlines => 3,
+            PostEffect::Crt => 4,
+            PostEffect::LcdGrid => 5,
+            PostEffect::DotMatrix => 6,
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            PostEffect::None => "None",
+            PostEffect::Smooth => "Smooth",
+            PostEffect::SharpBilinear => "Sharp bilinear",
+            PostEffect::Scanlines => "Scanlines",
+            PostEffect::Crt => "CRT",
+            PostEffect::LcdGrid => "LCD grid",
+            PostEffect::DotMatrix => "Dot matrix",
+        }
+    }
+
+    /// Whether this look wants the bilinear sampler. The grids want hard texels to draw lines
+    /// between; the rest leave it to the user's own filter choice.
+    pub fn wants_linear(self, user: ScaleFilter) -> bool {
+        match self {
+            PostEffect::Smooth | PostEffect::SharpBilinear | PostEffect::Crt => true,
+            PostEffect::LcdGrid | PostEffect::DotMatrix => false,
+            PostEffect::None | PostEffect::Scanlines => user == ScaleFilter::Linear,
+        }
+    }
+
+    /// The look suggested for a system: a dot matrix for the Game Boy, a grid for the other
+    /// handhelds, scanlines for the home consoles of the CRT era, nothing for 3D-era systems.
+    pub fn suggested_for(system: &str) -> PostEffect {
+        match system {
+            "gb" | "pokemini" => PostEffect::DotMatrix,
+            "gbc" | "gba" | "gg" | "ngp" | "wswan" | "lynx" | "vb" => PostEffect::LcdGrid,
+            "nes" | "fds" | "snes" | "sms" | "genesis" | "sg1000" | "tg16" | "pcecd" | "sgx"
+            | "atari2600" | "atari7800" | "atari5200" | "segacd" | "sega32x" | "arcade" => {
+                PostEffect::Scanlines
+            }
+            _ => PostEffect::None,
+        }
+    }
+}
+
+/// Strengths for the looks, all in 0..=1 except brightness.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PostSettings {
+    pub effect: PostEffect,
+    /// Multiplier on the final colour. 1.0 leaves it alone.
+    pub brightness: f32,
+    pub curvature: f32,
+    /// Scanline darkness, or the grid's for the LCD and dot matrix.
+    pub line_strength: f32,
+    pub mask_strength: f32,
+    pub vignette: f32,
+}
+
+impl Default for PostSettings {
+    fn default() -> Self {
+        Self {
+            effect: PostEffect::None,
+            brightness: 1.0,
+            curvature: 0.08,
+            line_strength: 0.45,
+            mask_strength: 0.25,
+            vignette: 0.35,
+        }
+    }
+}
+
+impl PostSettings {
+    /// Clamped into the ranges the shader is written for.
+    pub fn sanitized(self) -> Self {
+        let unit = |v: f32, d: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { d };
+        let d = Self::default();
+        Self {
+            effect: self.effect,
+            brightness: if self.brightness.is_finite() { self.brightness.clamp(0.2, 2.0) } else { 1.0 },
+            curvature: if self.curvature.is_finite() { self.curvature.clamp(0.0, 0.3) } else { d.curvature },
+            line_strength: unit(self.line_strength, d.line_strength),
+            mask_strength: unit(self.mask_strength, d.mask_strength),
+            vignette: unit(self.vignette, d.vignette),
+        }
+    }
+}
+
 /// How a core's single framebuffer is divided into screens.
 ///
 /// Every system shipping today is [`ScreenSplit::Single`], and the reason this enum exists
@@ -129,10 +253,23 @@ impl ScreenUniform {
     }
 }
 
-/// Uniform block consumed by `frame_blit.wgsl`. 144 bytes.
+/// The `Post` block of `frame_blit.wgsl`: three 16-byte rows after the screens.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
+struct PostUniform {
+    /// `[effect, quarter turns, 0, 0]`.
+    mode: [u32; 4],
+    /// `[brightness, curvature, line strength, mask strength]`.
+    params: [f32; 4],
+    /// `[target width px, target height px, vignette, 0]`.
+    target_size: [f32; 4],
+}
+
+/// Uniform block consumed by `frame_blit.wgsl`. 192 bytes.
 ///
 /// The field order is not cosmetic: `screens` has to start at a 16-byte boundary for the array
-/// alignment rule above, and the three scalars before it add up to exactly 16.
+/// alignment rule above, and the three scalars before it add up to exactly 16. `post` comes last
+/// so nothing before it moved when it was added.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct BlitUniforms {
@@ -140,6 +277,7 @@ struct BlitUniforms {
     screen_count: u32,
     _padding: u32,
     screens: [ScreenUniform; MAX_SCREENS],
+    post: PostUniform,
 }
 
 /// GPU-side framebuffer, rebuilt only when the core's output geometry changes.
@@ -220,6 +358,14 @@ pub struct Renderer {
     companion: Option<CompanionSurface>,
     /// Uniforms for the companion draw. See [`FrameTarget::companion_bind_group`].
     companion_uniform_buffer: wgpu::Buffer,
+    /// The look and its strengths.
+    post: PostSettings,
+    /// Quarter turns counter-clockwise: the core's SET_ROTATION plus the user's rotate action.
+    rotation: u32,
+    /// The TV's own fit. `None` follows the phone.
+    tv_scale_mode: Option<ScaleMode>,
+    /// The TV's own two-screen layout. `None` follows the phone.
+    tv_layout: Option<screen_layout::DualLayout>,
 }
 
 impl Renderer {
@@ -301,7 +447,8 @@ impl Renderer {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    // The fragment stage reads the post block; the vertex stage the placements.
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -425,6 +572,10 @@ impl Renderer {
             frame_hint: (0, 0),
             companion: None,
             companion_uniform_buffer,
+            post: PostSettings::default(),
+            rotation: 0,
+            tv_scale_mode: None,
+            tv_layout: None,
         })
     }
 
@@ -461,6 +612,60 @@ impl Renderer {
 
     pub fn filter(&self) -> ScaleFilter {
         self.filter
+    }
+
+    /// Sets the look. Rebuilds the bind group only when the sampler it needs changes.
+    pub fn set_post(&mut self, post: PostSettings) {
+        let post = post.sanitized();
+        let resample = post.effect.wants_linear(self.filter) != self.post.effect.wants_linear(self.filter);
+        self.post = post;
+        if resample {
+            self.rebuild_bind_group();
+        }
+    }
+
+    pub fn post(&self) -> PostSettings {
+        self.post
+    }
+
+    /// Quarter turns counter-clockwise, 0..=3. Takes effect on the next present.
+    pub fn set_rotation(&mut self, quarter_turns: u32) {
+        self.rotation = quarter_turns % 4;
+    }
+
+    pub fn rotation(&self) -> u32 {
+        self.rotation
+    }
+
+    /// The TV's own fit and two-screen layout. `None` follows the phone.
+    pub fn set_tv_overrides(&mut self, scale: Option<ScaleMode>, layout: Option<screen_layout::DualLayout>) {
+        self.tv_scale_mode = scale;
+        self.tv_layout = layout;
+    }
+
+    /// The scale mode a target in this role uses.
+    fn scale_mode_for(&self, role: TargetRole) -> ScaleMode {
+        match role {
+            TargetRole::External => self.tv_scale_mode.unwrap_or(self.scale_mode),
+            _ => self.scale_mode,
+        }
+    }
+
+    /// The two-screen choices a target in this role uses.
+    fn dual_config_for(&self, role: TargetRole) -> DualScreenConfig {
+        match (role, self.tv_layout) {
+            (TargetRole::External, Some(layout)) => DualScreenConfig { layout, ..self.dual_config },
+            _ => self.dual_config,
+        }
+    }
+
+    fn post_uniform(&self, target_width: u32, target_height: u32) -> PostUniform {
+        let p = self.post;
+        PostUniform {
+            mode: [p.effect.shader_id(), self.rotation, 0, 0],
+            params: [p.brightness, p.curvature, p.line_strength, p.mask_strength],
+            target_size: [target_width.max(1) as f32, target_height.max(1) as f32, p.vignette, 0.0],
+        }
     }
 
     /// Sets how the framebuffer is divided into screens. See [`ScreenSplit`].
@@ -660,7 +865,8 @@ impl Renderer {
         let wanted = match role {
             TargetRole::Phone => !self.dual_config.is_hardware_default(),
             TargetRole::External => {
-                self.dual_config.touch_on_phone || !self.dual_config.is_hardware_default()
+                let config = self.dual_config_for(role);
+                config.touch_on_phone || !config.is_hardware_default()
             }
             TargetRole::PhoneCompanion => true,
         };
@@ -689,13 +895,13 @@ impl Renderer {
         if let Some(geometry) = self.uses_dual_layout(role) {
             return screen_layout::dual_placements(
                 &geometry,
-                &self.dual_config,
+                &self.dual_config_for(role),
                 role,
                 fb_w,
                 fb_h,
                 target_w,
                 target_h,
-                self.scale_mode,
+                self.scale_mode_for(role),
             );
         }
         if role == TargetRole::PhoneCompanion {
@@ -703,7 +909,7 @@ impl Renderer {
         }
         let tw = target_w.max(1.0).round() as u32;
         let th = target_h.max(1.0).round() as u32;
-        vec![screen_layout::single_placement(self.compute_scale(fb_w, fb_h, tw, th))]
+        vec![screen_layout::single_placement(self.compute_scale_for(role, fb_w, fb_h, tw, th))]
     }
 
     pub fn set_scale_mode(&mut self, mode: ScaleMode) {
@@ -932,6 +1138,7 @@ impl Renderer {
             screen_count: count,
             _padding: 0,
             screens,
+            post: self.post_uniform(tw, th),
         };
         self.queue
             .write_buffer(&self.companion_uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
@@ -1051,9 +1258,10 @@ impl Renderer {
 
     fn build_bind_group(&self, texture: &wgpu::Texture, uniforms: &wgpu::Buffer) -> wgpu::BindGroup {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = match self.filter {
-            ScaleFilter::Nearest => &self.sampler_nearest,
-            ScaleFilter::Linear => &self.sampler_linear,
+        let sampler = if self.post.effect.wants_linear(self.filter) {
+            &self.sampler_linear
+        } else {
+            &self.sampler_nearest
         };
         self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("frame-blit-bind-group"),
@@ -1114,6 +1322,7 @@ impl Renderer {
             screen_count: self.screen_count,
             _padding: 0,
             screens,
+            post: self.post_uniform(target_width, target_height),
         };
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
@@ -1152,13 +1361,13 @@ impl Renderer {
         if let Some(geometry) = self.uses_dual_layout(role) {
             let placements = screen_layout::dual_placements(
                 &geometry,
-                &self.dual_config,
+                &self.dual_config_for(role),
                 role,
                 fb_width,
                 fb_height,
                 target_width as f32,
                 target_height as f32,
-                self.scale_mode,
+                self.scale_mode_for(role),
             );
             return Self::placement_uniforms(&placements);
         }
@@ -1168,7 +1377,7 @@ impl Renderer {
             return ([ScreenUniform::identity(); MAX_SCREENS], 0);
         }
 
-        let fitted = self.compute_scale(fb_width, fb_height, target_width, target_height);
+        let fitted = self.compute_scale_for(role, fb_width, fb_height, target_width, target_height);
         (Self::screen_layout(self.screen_split, fitted), self.screen_split.count())
     }
 
@@ -1282,9 +1491,28 @@ impl Renderer {
         [sw, sh, x0, y0]
     }
 
-    /// Clip-space scale that fits the framebuffer into a target of the given size.
-    fn compute_scale(
+    /// [`Self::compute_scale`] for one target, with that target's fit, and with the frame turned
+    /// on its side when the rotation is a quarter turn: the aspect inverts and the pixel axes swap.
+    fn compute_scale_for(
         &self,
+        role: TargetRole,
+        fb_width: f32,
+        fb_height: f32,
+        target_width: u32,
+        target_height: u32,
+    ) -> [f32; 2] {
+        let (fb_width, fb_height, aspect) = if self.rotation % 2 == 1 {
+            (fb_height, fb_width, 1.0 / self.aspect_ratio)
+        } else {
+            (fb_width, fb_height, self.aspect_ratio)
+        };
+        Self::fit(self.scale_mode_for(role), aspect, fb_width, fb_height, target_width, target_height)
+    }
+
+    /// The fit itself. Pure, so the rotated and TV cases are testable without a GPU.
+    fn fit(
+        mode: ScaleMode,
+        aspect_ratio: f32,
         fb_width: f32,
         fb_height: f32,
         target_width: u32,
@@ -1296,15 +1524,15 @@ impl Renderer {
             return [1.0, 1.0];
         }
 
-        match self.scale_mode {
+        match mode {
             ScaleMode::Stretch => [1.0, 1.0],
             ScaleMode::AspectFit => {
                 let surface_aspect = surface_w / surface_h;
-                if self.aspect_ratio > surface_aspect {
+                if aspect_ratio > surface_aspect {
                     // Content is wider: full width, bars top and bottom.
-                    [1.0, surface_aspect / self.aspect_ratio]
+                    [1.0, surface_aspect / aspect_ratio]
                 } else {
-                    [self.aspect_ratio / surface_aspect, 1.0]
+                    [aspect_ratio / surface_aspect, 1.0]
                 }
             }
             ScaleMode::IntegerScale => {
@@ -1312,7 +1540,7 @@ impl Renderer {
                 // non-square pixels), then take the largest whole multiple that
                 // fits both the corrected width and the raw pixel width — so a
                 // 320x240 frame stretched to 4:3 still lands on whole pixels.
-                let corrected_w = fb_height * self.aspect_ratio;
+                let corrected_w = fb_height * aspect_ratio;
                 let widest = corrected_w.max(fb_width);
                 let k = (surface_w / widest)
                     .min(surface_h / fb_height)
@@ -1324,10 +1552,10 @@ impl Renderer {
                     // Surface smaller than one whole pixel multiple: fall back to
                     // aspect-fit rather than overflowing the canvas.
                     let surface_aspect = surface_w / surface_h;
-                    return if self.aspect_ratio > surface_aspect {
-                        [1.0, surface_aspect / self.aspect_ratio]
+                    return if aspect_ratio > surface_aspect {
+                        [1.0, surface_aspect / aspect_ratio]
                     } else {
-                        [self.aspect_ratio / surface_aspect, 1.0]
+                        [aspect_ratio / surface_aspect, 1.0]
                     };
                 }
                 [draw_w / surface_w, draw_h / surface_h]
@@ -1568,6 +1796,7 @@ mod tests {
 #[cfg(test)]
 mod screen_layout_tests {
     use super::{BlitUniforms, Renderer, ScreenSplit, ScreenUniform, SkinHole, MAX_SCREENS};
+    use bytemuck::Zeroable;
 
     /// The compositor's placement arithmetic, called for real rather than reimplemented.
     ///
@@ -1780,7 +2009,7 @@ mod screen_layout_tests {
         // the shader reads every placement from the wrong offset: the geometry is garbage and
         // nothing reports an error, because both sides still compile.
         assert_eq!(core::mem::size_of::<ScreenUniform>(), 32);
-        assert_eq!(core::mem::size_of::<BlitUniforms>(), 16 + 32 * MAX_SCREENS);
+        assert_eq!(core::mem::size_of::<BlitUniforms>(), 16 + 32 * MAX_SCREENS + 48);
 
         // `screens` has to begin exactly one 16-byte block in.
         let uniforms = BlitUniforms {
@@ -1788,10 +2017,13 @@ mod screen_layout_tests {
             screen_count: 0,
             _padding: 0,
             screens: [ScreenUniform::identity(); MAX_SCREENS],
+            post: super::PostUniform::zeroed(),
         };
         let base = &uniforms as *const _ as usize;
         let screens = &uniforms.screens as *const _ as usize;
         assert_eq!(screens - base, 16, "screens must start at a 16-byte boundary");
+        let post = &uniforms.post as *const _ as usize;
+        assert_eq!(post - base, 16 + 32 * MAX_SCREENS, "post follows the screens directly");
     }
 }
 
@@ -1869,5 +2101,75 @@ mod shader_tests {
             .collect();
         assert!(names.contains(&"vs_main"), "expected a vs_main entry point, found {names:?}");
         assert!(names.contains(&"fs_main"), "expected an fs_main entry point, found {names:?}");
+    }
+}
+
+
+#[cfg(test)]
+mod post_tests {
+    use super::{PostEffect, PostSettings, Renderer, ScaleFilter, ScaleMode};
+
+    #[test]
+    fn every_effect_has_a_distinct_shader_id_the_shader_knows() {
+        let source = include_str!("frame_blit.wgsl");
+        let mut seen = std::collections::BTreeSet::new();
+        for effect in PostEffect::ALL {
+            assert!(seen.insert(effect.shader_id()), "{effect:?} shares an id");
+            let line = format!("= {}u;", effect.shader_id());
+            assert!(source.contains(&line), "the shader has no EFFECT_* constant {}", effect.shader_id());
+        }
+    }
+
+    #[test]
+    fn grids_sample_hard_pixels_and_smooth_looks_bilinear() {
+        assert!(!PostEffect::LcdGrid.wants_linear(ScaleFilter::Linear));
+        assert!(!PostEffect::DotMatrix.wants_linear(ScaleFilter::Linear));
+        assert!(PostEffect::Smooth.wants_linear(ScaleFilter::Nearest));
+        assert!(PostEffect::Crt.wants_linear(ScaleFilter::Nearest));
+        assert!(!PostEffect::None.wants_linear(ScaleFilter::Nearest));
+        assert!(PostEffect::None.wants_linear(ScaleFilter::Linear));
+    }
+
+    #[test]
+    fn settings_are_clamped_into_what_the_shader_expects() {
+        let wild = PostSettings {
+            effect: PostEffect::Crt,
+            brightness: 9.0,
+            curvature: f32::NAN,
+            line_strength: -1.0,
+            mask_strength: 4.0,
+            vignette: 0.5,
+        }
+        .sanitized();
+        assert_eq!(wild.brightness, 2.0);
+        assert_eq!(wild.curvature, PostSettings::default().curvature);
+        assert_eq!(wild.line_strength, 0.0);
+        assert_eq!(wild.mask_strength, 1.0);
+    }
+
+    #[test]
+    fn suggestions_follow_the_system() {
+        assert_eq!(PostEffect::suggested_for("gb"), PostEffect::DotMatrix);
+        assert_eq!(PostEffect::suggested_for("gba"), PostEffect::LcdGrid);
+        assert_eq!(PostEffect::suggested_for("snes"), PostEffect::Scanlines);
+        assert_eq!(PostEffect::suggested_for("n64"), PostEffect::None);
+    }
+
+    #[test]
+    fn a_quarter_turn_fits_the_tall_picture() {
+        // A 224x144 WonderSwan frame at 14:9, turned on its side, on a 1000x1000 target: it is now
+        // taller than wide, so it fills the height.
+        let upright = Renderer::fit(ScaleMode::AspectFit, 224.0 / 144.0, 224.0, 144.0, 1000, 1000);
+        let turned = Renderer::fit(ScaleMode::AspectFit, 144.0 / 224.0, 144.0, 224.0, 1000, 1000);
+        assert!((upright[0] - 1.0).abs() < 1e-6 && upright[1] < 1.0);
+        assert!((turned[1] - 1.0).abs() < 1e-6 && turned[0] < 1.0);
+        assert!((upright[1] - turned[0]).abs() < 1e-6, "the same picture, on its side");
+    }
+
+    #[test]
+    fn the_unrotated_fit_is_the_one_the_single_screen_test_pins() {
+        // The single-screen guard pins [0.75, 1.0] for a 4:3 picture on a 16:12 * 4/3 target.
+        let fitted = Renderer::fit(ScaleMode::AspectFit, 4.0 / 3.0, 320.0, 240.0, 1600, 900);
+        assert!((fitted[0] - 0.75).abs() < 1e-6 && (fitted[1] - 1.0).abs() < 1e-6);
     }
 }

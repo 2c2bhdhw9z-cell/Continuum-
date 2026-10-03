@@ -200,12 +200,14 @@ unsafe extern "C" fn on_input_state(
 // Environment command numbers. Every value below was machine-checked against
 // `.work/hdr/libretro/libretro.h` (SESSION_HANDOFF §1 records that a dropped experimental
 // bit produces a case that can never match, so the experimental commands keep theirs).
+const ENV_SET_ROTATION: c_uint = 1; // libretro.h:743 RETRO_ENVIRONMENT_SET_ROTATION
 const ENV_GET_CAN_DUPE: c_uint = 3; // libretro.h:767 RETRO_ENVIRONMENT_GET_CAN_DUPE
 const ENV_SET_MESSAGE: c_uint = 6; // libretro.h:807 RETRO_ENVIRONMENT_SET_MESSAGE
 const ENV_SET_PERFORMANCE_LEVEL: c_uint = 8; // libretro.h:836 RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL
 const ENV_GET_SYSTEM_DIRECTORY: c_uint = 9; // libretro.h:854 RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY
 const ENV_SET_PIXEL_FORMAT: c_uint = 10; // libretro.h:869 RETRO_ENVIRONMENT_SET_PIXEL_FORMAT
 const ENV_SET_INPUT_DESCRIPTORS: c_uint = 11; // libretro.h:886 RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS
+const ENV_SET_DISK_CONTROL_INTERFACE: c_uint = 13; // libretro.h:924 RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE
 const ENV_GET_VARIABLE: c_uint = 15; // libretro.h:970 RETRO_ENVIRONMENT_GET_VARIABLE
 const ENV_SET_VARIABLES: c_uint = 16; // libretro.h:1020 RETRO_ENVIRONMENT_SET_VARIABLES
 const ENV_GET_VARIABLE_UPDATE: c_uint = 17; // libretro.h:1038 RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE
@@ -220,12 +222,24 @@ const ENV_GET_CORE_OPTIONS_VERSION: c_uint = 52; // libretro.h:1854 RETRO_ENVIRO
 const ENV_SET_CORE_OPTIONS: c_uint = 53; // libretro.h:1928 RETRO_ENVIRONMENT_SET_CORE_OPTIONS
 const ENV_SET_CORE_OPTIONS_INTL: c_uint = 54; // libretro.h:1951 RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL
 const ENV_SET_CORE_OPTIONS_DISPLAY: c_uint = 55; // libretro.h:1980 RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY
+const ENV_GET_DISK_CONTROL_INTERFACE_VERSION: c_uint = 57; // libretro.h:2020
+const ENV_SET_DISK_CONTROL_EXT_INTERFACE: c_uint = 58; // libretro.h:2038
 const ENV_SET_MESSAGE_EXT: c_uint = 60; // libretro.h:2079 RETRO_ENVIRONMENT_SET_MESSAGE_EXT
 const ENV_SET_MINIMUM_AUDIO_LATENCY: c_uint = 63; // libretro.h:2154 RETRO_ENVIRONMENT_SET_MINIMUM_AUDIO_LATENCY
 const ENV_SET_CONTENT_INFO_OVERRIDE: c_uint = 65; // libretro.h:2183 RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE
 const ENV_SET_CORE_OPTIONS_V2: c_uint = 67; // libretro.h:2345 RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
 const ENV_SET_CORE_OPTIONS_V2_INTL: c_uint = 68; // libretro.h:2362 RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL
 const ENV_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: c_uint = 69; // libretro.h:2383
+const ENV_SET_VARIABLE: c_uint = 70; // libretro.h:2417 RETRO_ENVIRONMENT_SET_VARIABLE
+
+/// The rotation the core last asked for with `SET_ROTATION`, 0..=3 quarter turns counter-clockwise
+/// (libretro.h:735). A process global for the `DIRECTORIES` reason; reset at every core load.
+static ROTATION: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// The rotation the running core asked for.
+pub fn requested_rotation() -> u32 {
+    ROTATION.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 /// `struct retro_rumble_interface`, libretro.h:5649. One field, and its order is the layout.
 #[repr(C)]
@@ -359,25 +373,121 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
             }
         }
         ENV_GET_VARIABLE => {
-            // data is `struct retro_variable { const char *key; const char *value; }`.
-            // The default answer is still "unset, use your default" — null value, false —
-            // which is what PCSX ReARMed's 73 reads expect. The exception is the small
-            // override table the loaded core installed; see `option_overrides`.
+            // data is `struct retro_variable { const char *key; const char *value; }`. Answered with
+            // the user's choice, else the engine's default, else the core's own declared default;
+            // refused (null value, false) only for keys nobody declared and for the engine's locked
+            // refusals. See `cores::options`.
             if data.is_null() {
                 return false;
             }
-            let key_slot = data as *mut *const c_char;
-            // Offset of `value` is one pointer past `key`.
-            let value_slot = unsafe { key_slot.add(1) };
-            let key_ptr = unsafe { *key_slot };
+            let var = data as *mut super::options::RetroVariable;
+            let key_ptr = unsafe { (*var).key };
             if !key_ptr.is_null() {
-                if let Some(value) = lookup_option(unsafe { CStr::from_ptr(key_ptr) }) {
-                    unsafe { *value_slot = value };
+                let key = unsafe { CStr::from_ptr(key_ptr) }.to_string_lossy();
+                if let Some(value) = super::options::answer(&key) {
+                    unsafe { (*var).value = value };
                     return true;
                 }
             }
-            unsafe { *value_slot = std::ptr::null() };
+            unsafe { (*var).value = std::ptr::null() };
             false
+        }
+        ENV_SET_VARIABLES => {
+            // libretro.h:1020: `const struct retro_variable *`, "Desc; a|b|c", ending at NULL.
+            let table = unsafe { super::options::parse_v0(data as *const super::options::RetroVariable) };
+            super::options::declare(table);
+            true
+        }
+        ENV_SET_CORE_OPTIONS => {
+            let table = unsafe {
+                super::options::parse_v1(data as *const super::options::RetroCoreOptionDefinition)
+            };
+            super::options::declare(table);
+            true
+        }
+        ENV_SET_CORE_OPTIONS_INTL => {
+            let table = unsafe {
+                super::options::parse_v1_intl(data as *const super::options::RetroCoreOptionsIntl)
+            };
+            super::options::declare(table);
+            true
+        }
+        ENV_SET_CORE_OPTIONS_V2 => {
+            let table =
+                unsafe { super::options::parse_v2(data as *const super::options::RetroCoreOptionsV2) };
+            super::options::declare(table);
+            // libretro.h:2333: true means "and the frontend supports categories", which it does.
+            true
+        }
+        ENV_SET_CORE_OPTIONS_V2_INTL => {
+            let table = unsafe {
+                super::options::parse_v2_intl(data as *const super::options::RetroCoreOptionsV2Intl)
+            };
+            super::options::declare(table);
+            true
+        }
+        ENV_SET_CORE_OPTIONS_DISPLAY => {
+            // libretro.h:1980: NULL only asks whether the call exists.
+            if !data.is_null() {
+                let display = unsafe { &*(data as *const super::options::RetroCoreOptionDisplay) };
+                if !display.key.is_null() {
+                    let key = unsafe { CStr::from_ptr(display.key) }.to_string_lossy();
+                    super::options::set_visible(&key, display.visible);
+                }
+            }
+            true
+        }
+        ENV_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK => {
+            let callback = if data.is_null() {
+                None
+            } else {
+                unsafe {
+                    (*(data as *const super::options::RetroCoreOptionsUpdateDisplayCallback)).callback
+                }
+            };
+            super::options::set_display_callback(callback);
+            true
+        }
+        ENV_SET_VARIABLE => {
+            // libretro.h:2417: NULL asks whether the call exists.
+            if data.is_null() {
+                return true;
+            }
+            let var = unsafe { &*(data as *const super::options::RetroVariable) };
+            if var.key.is_null() || var.value.is_null() {
+                return false;
+            }
+            let key = unsafe { CStr::from_ptr(var.key) }.to_string_lossy();
+            let value = unsafe { CStr::from_ptr(var.value) }.to_string_lossy();
+            super::options::core_sets(&key, &value)
+        }
+        ENV_SET_ROTATION => {
+            if data.is_null() {
+                return false;
+            }
+            let quarter_turns = unsafe { *(data as *const c_uint) };
+            if quarter_turns > 3 {
+                return false;
+            }
+            ROTATION.store(quarter_turns, std::sync::atomic::Ordering::Relaxed);
+            true
+        }
+        ENV_SET_DISK_CONTROL_INTERFACE => {
+            unsafe { super::disk::register_basic(data as *const super::disk::RetroDiskControlCallback) };
+            true
+        }
+        ENV_SET_DISK_CONTROL_EXT_INTERFACE => {
+            unsafe {
+                super::disk::register_ext(data as *const super::disk::RetroDiskControlExtCallback)
+            };
+            true
+        }
+        ENV_GET_DISK_CONTROL_INTERFACE_VERSION => {
+            if data.is_null() {
+                return false;
+            }
+            unsafe { *(data as *mut c_uint) = super::disk::INTERFACE_VERSION };
+            true
         }
         ENV_SET_CONTROLLER_INFO => {
             // Recorded, so trackpad mode can switch a port to a mouse the core actually offers.
@@ -410,7 +520,10 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
             true
         }
         ENV_GET_VARIABLE_UPDATE => {
-            unsafe { *(data as *mut bool) = false };
+            if data.is_null() {
+                return false;
+            }
+            unsafe { *(data as *mut bool) = super::options::take_update() };
             true
         }
         ENV_GET_LOG_INTERFACE => {
@@ -431,13 +544,6 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
         // second makes the core fall back to per-id input_state, which InputSnapshot serves.
         ENV_SET_SUPPORT_NO_GAME
         | ENV_SET_CONTENT_INFO_OVERRIDE
-        | ENV_SET_VARIABLES
-        | ENV_SET_CORE_OPTIONS
-        | ENV_SET_CORE_OPTIONS_INTL
-        | ENV_SET_CORE_OPTIONS_DISPLAY
-        | ENV_SET_CORE_OPTIONS_V2
-        | ENV_SET_CORE_OPTIONS_V2_INTL
-        | ENV_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK
         | ENV_SET_INPUT_DESCRIPTORS
         | ENV_SET_PERFORMANCE_LEVEL
         | ENV_SET_SYSTEM_AV_INFO
@@ -446,10 +552,12 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
         | ENV_SET_MESSAGE_EXT
         | ENV_SET_MINIMUM_AUDIO_LATENCY => true,
         ENV_GET_CORE_OPTIONS_VERSION => {
-            // Report core-options API version 0: we accept the SET_CORE_OPTIONS* families
-            // as no-ops but implement none of their query surface, so 0 is the honest
-            // answer and keeps the core on the SET_VARIABLES-era path.
-            unsafe { *(data as *mut c_uint) = 0 };
+            // Version 2: categories, the v2 tables and SET_CORE_OPTIONS_DISPLAY are all read
+            // (libretro.h:1854). See `cores::options`.
+            if data.is_null() {
+                return false;
+            }
+            unsafe { *(data as *mut c_uint) = 2 };
             true
         }
         _ => false,
@@ -546,138 +654,9 @@ struct Directories {
 static DIRECTORIES: std::sync::Mutex<Option<Directories>> = std::sync::Mutex::new(None);
 
 // ------------------------------------------------------------------ core options
-
-/// Core options this host answers, by core id.
-///
-/// Everything not listed here stays refused, which is the right default: a core's own
-/// defaults are chosen by people who know the core, and a frontend inventing values is how
-/// you end up debugging someone else's emulator. An entry earns its place only when the
-/// core cannot do something we ship without it.
-///
-/// THE DS TOUCH SCREEN IS THE FIRST SUCH CASE, and the reason is not the one the option's
-/// declared default suggests. `melonds_touch_mode` advertises `"Mouse"`, so refusing the
-/// read looks harmless. But the core's code is:
-///
-/// ```c
-/// TouchMode new_touch_mode = TouchMode::Disabled;
-/// var.key = "melonds_touch_mode";
-/// if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) { ...parse... }
-/// ```
-///
-/// The advertised default is only ever applied by a frontend that implements the options
-/// UI and hands the value back. Refuse the read and the variable keeps its C initialiser,
-/// `Disabled`, and `input.cpp` then forces `touching = false` every frame. So without this
-/// entry the DS touch screen is not merely mismapped, it is switched off inside the core,
-/// and no amount of correct pointer data from our side could ever reach `NDS::TouchScreen`.
-fn option_overrides(core_id: &str) -> &'static [(&'static str, &'static str)] {
-    match core_id {
-        "melonds" => &[
-            // `Touch` is the mode that reads RETRO_DEVICE_POINTER. The alternatives move a
-            // cursor with a mouse or the right stick, neither of which is what a finger on a
-            // phone screen is, and `Disabled` is what refusing the read actually selects.
-            ("melonds_touch_mode", "Touch"),
-            // The SECOND option whose C initialiser is not its advertised default, found the
-            // same way and just as load-bearing: `int DirectBoot = 0` in the core's
-            // config.cpp, against an advertised `"enabled"`. Refuse the read and the core
-            // boots the DS firmware menu instead of the cartridge.
-            //
-            // That path cannot work in this app, and the core's own option description says
-            // why: booting to the menu needs real BIOS and firmware dumps. We ship none, so
-            // the core falls back to its built-in FreeBIOS and a generated firmware, and a
-            // generated firmware has no boot menu to reach the cartridge from. The symptom
-            // would be a DS that loads a game and then sits there.
-            ("melonds_boot_directly", "enabled"),
-        ],
-        // THE THIRD INSTANCE OF THE SAME TRAP, and this one froze the app rather than disabling a
-        // feature. parallel_n64 picks its renderer from `parallel-n64-gfxplugin`. Upstream nests the
-        // `gfx_plugin = GFX_ANGRYLION` assign under `if (!strcmp(..., "auto"))` (TODO: logic wrong),
-        // so answering that key with "angrylion" never sets the plugin at all. `gfx_plugin` stays
-        // at its zero initialiser — GFX_GLIDE64 in Graphics/plugin.h — an OpenGL renderer in a
-        // HAVE_OPENGL=0 build. Force-angrylion therefore leaves GFX_GLIDE64=0 and the app hangs
-        // on the GL gate / first frame.
-        //
-        // Refuse `parallel-n64-gfxplugin` instead. That lets the core hit
-        // `core_settings_autoselect_gfx_plugin()`, which picks angrylion (the software rasteriser,
-        // the only viable choice without GL). Naming "angrylion" ourselves is the bug.
-        //
-        // RSP HLE is named explicitly (faster pairing with the soft path). angrylion multithread
-        // must be "off" — refusing selects all threads, which hangs under the display-link tick.
-        // cached_interpreter is the CPU core for this soft path without dynarec iOS issues.
-        "parallel_n64" => &[
-            ("parallel-n64-rspplugin", "hle"),
-            // Refusing this read selects "all threads". Under the display-link tick that
-            // worker pool hangs the app on the first frame; force single-threaded soft path.
-            ("parallel-n64-angrylion-multithread", "off"),
-            ("parallel-n64-cpucore", "cached_interpreter"),
-        ],
-        // PPSSPP's advertised default for ppsspp_cpu_core is "JIT", the dynarec.
-        // Refusing the read does NOT select that default: retro_load_game sets
-        // iCpuCore to INTERPRETER before the read, and only the read changes it.
-        // That slow interpreter is not what this row is. The value "IR JIT" is
-        // the core's own name for CPUCore::IR_INTERPRETER, constructed as
-        // IRJit(state, false), and that false is compile-to-native off. No
-        // PROT_EXEC. The dynarec string is "JIT", which this table does not
-        // answer. On iOS, if a later read did say "JIT", System_GetPropertyBool
-        // (SYSPROP_CAN_JIT) asks RETRO_ENVIRONMENT_GET_JIT_CAPABLE, which this
-        // host does not implement, so the core forces the IR interpreter anyway.
-        "ppsspp" => &[("ppsspp_cpu_core", "IR JIT")],
-        _ => &[],
-    }
-}
-
-/// The installed overrides, as C strings the core can hold a pointer to.
-///
-/// A process global for the same lifetime reason as [`DIRECTORIES`], and with one extra
-/// requirement: `GET_VARIABLE` hands the core a `*const c_char` INTO this table, so the
-/// string has to outlive the call that returned it. Keeping the owned `CString`s here means
-/// the pointer stays valid until the next core load replaces the table, which is strictly
-/// longer than the core that received it lives.
-static OPTIONS: std::sync::Mutex<Vec<(CString, CString)>> = std::sync::Mutex::new(Vec::new());
-
-/// Replaces the option table for a core about to be loaded.
-fn install_options(core_id: &str) {
-    let mut guard = match OPTIONS.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    guard.clear();
-    for (key, value) in option_overrides(core_id) {
-        // A key or value that cannot be made into a CString would be a typo in the table
-        // above, since both are literals. Skipping is still better than unwrapping: the
-        // cost is one option quietly reverting to the core's default, not a crash on load.
-        if let (Ok(key), Ok(value)) = (CString::new(*key), CString::new(*value)) {
-            guard.push((key, value));
-        }
-    }
-    if !guard.is_empty() {
-        log::info!(
-            "core '{}' gets {} option override(s): {}",
-            core_id,
-            guard.len(),
-            guard
-                .iter()
-                .map(|(key, value)| format!(
-                    "{}={}",
-                    key.to_string_lossy(),
-                    value.to_string_lossy()
-                ))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-    }
-}
-
-/// The value for a key the core asked about, or `None` to leave it at the core's default.
-fn lookup_option(key: &CStr) -> Option<*const c_char> {
-    let guard = match OPTIONS.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    guard
-        .iter()
-        .find(|(candidate, _)| candidate.as_c_str() == key)
-        .map(|(_, value)| value.as_ptr())
-}
+//
+// Live in `cores::options`, including the engine's own rules for melonDS, parallel_n64 and PPSSPP
+// that used to be the override table here.
 
 // ------------------------------------------------------------------ the core
 
@@ -916,7 +895,9 @@ impl NativeLibretroCore {
         // Installed AGAIN at `load_content`, and that is the one that actually matters for the DS:
         // melonDS reads `melonds_touch_mode` from `check_variables` during `retro_load_game`, not
         // here. See the note there.
-        install_options(&descriptor.id);
+        super::options::install(&descriptor.id, None, true);
+        super::disk::reset_for_core(&descriptor.id);
+        ROTATION.store(0, std::sync::atomic::Ordering::Relaxed);
 
         // Fresh HW-render negotiation per core load. Both doors, so a GL core
         // loaded after a Vulkan one (or the reverse) does not keep the old contract.
@@ -1128,14 +1109,18 @@ impl EmulatorCore for NativeLibretroCore {
         };
 
         // Re-installed here, not only at load, because THIS is where the options that matter are
-        // read. `OPTIONS` is a process global, so it holds whatever the last core to be opened
-        // installed, and the core running a session is not necessarily that core. Today they
-        // coincide, but only because of three facts in other files: retention defaults to `Drop`,
-        // `launch` stops and unloads before loading, and the host re-opens the dylib each time. A
-        // change to any one of them would have silently reverted the DS to a disabled touch screen
-        // and a firmware boot, with nothing anywhere saying so. Installing it next to the call
-        // that reads it makes the guarantee local to the code that depends on it.
-        install_options(&self.descriptor.id);
+        // read (melonDS reads its touch mode in `retro_load_game`), and the core running a session
+        // is not necessarily the last one opened once retention keeps cores resident.
+        // The game's own choices join the core-wide ones here, before `retro_load_game` reads
+        // them. The file name is the game's identity for its `.opt` file.
+        let game_name = hint
+            .full_path
+            .as_deref()
+            .and_then(|p| Path::new(p).file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| hint.name.clone());
+        super::options::install(&self.descriptor.id, Some(&game_name), false);
+        ROTATION.store(0, std::sync::atomic::Ordering::Relaxed);
 
         // A core negotiates its pixel format from inside `retro_load_game`. Clear any stale
         // value first, then read back whatever it chose so `video()` reports the truth.
@@ -1191,6 +1176,7 @@ impl EmulatorCore for NativeLibretroCore {
         crate::peripherals::before_retro_run();
 
         unsafe { (self.symbols.run)() };
+        super::options::note_frame();
 
         EXCHANGE.with(|cell| {
             let mut exchange = cell.borrow_mut();
@@ -1442,6 +1428,46 @@ impl EmulatorCore for NativeLibretroCore {
         controller_info_for(port)
     }
 
+    fn rotation(&self) -> u32 {
+        requested_rotation()
+    }
+
+    fn core_options(&self) -> Vec<super::CoreOption> {
+        super::options::list(&self.descriptor.id)
+            .into_iter()
+            .map(|view| super::CoreOption {
+                key: view.key,
+                label: view.label,
+                value: view.current,
+                values: view.values.into_iter().map(|v| v.value).collect(),
+            })
+            .collect()
+    }
+
+    fn set_core_option(&mut self, key: &str, value: &str) -> Result<(), BridgeError> {
+        super::options::set(&self.descriptor.id, key, value, false)
+            .map(|_| ())
+            .map_err(BridgeError::CoreOption)
+    }
+
+    fn disk_status(&self) -> Option<super::disk::DiskStatus> {
+        if !self.content_loaded {
+            return None;
+        }
+        super::disk::status(&self.descriptor.id)
+    }
+
+    fn disk_insert(&mut self, index: u32) -> Result<String, String> {
+        if !self.content_loaded {
+            return Err("no game is running".to_owned());
+        }
+        super::disk::insert(&self.descriptor.id, index)
+    }
+
+    fn refresh_option_visibility(&mut self) -> bool {
+        super::options::refresh_visibility(&self.descriptor.id)
+    }
+
     fn frame_count(&self) -> u64 {
         self.frame_count
     }
@@ -1451,6 +1477,9 @@ impl Drop for NativeLibretroCore {
     fn drop(&mut self) {
         // The camera's `deinitialized` before the game goes, and the mic handle forgotten.
         crate::peripherals::before_unload();
+        // The option display callback and the disk table point into this dylib.
+        super::options::forget_core(&self.descriptor.id);
+        super::disk::forget_core(&self.descriptor.id);
         if self.content_loaded {
             unsafe { (self.symbols.unload_game)() };
         }
@@ -1542,207 +1571,185 @@ mod tests {
         assert_eq!(take_negotiated_format(), None);
     }
 
-    #[test]
-    fn get_variable_returns_false_and_nulls_value() {
-        // `retro_variable { key, value }`. The handler must not fabricate an option
-        // string: it nulls `value` and returns false, meaning "use your default".
-        #[repr(C)]
-        struct RetroVariable {
-            key: *const c_char,
-            value: *const c_char,
-        }
-        let key = CString::new("pcsx_rearmed_rgb32_output").unwrap();
-        // Seed `value` with a non-null sentinel so a passing test proves it was cleared.
-        let mut var = RetroVariable {
-            key: key.as_ptr(),
-            value: key.as_ptr(),
-        };
-        let ok = unsafe {
-            on_environment(
-                ENV_GET_VARIABLE,
-                &mut var as *mut RetroVariable as *mut c_void,
-            )
-        };
-        assert!(
-            !ok,
-            "GET_VARIABLE must return false so the core uses its default"
-        );
-        assert!(var.value.is_null(), "value must be nulled, not fabricated");
-    }
-
-    /// `retro_variable`, redeclared for the option tests below.
-    #[repr(C)]
-    struct RetroVariableProbe {
-        key: *const c_char,
-        value: *const c_char,
-    }
-
     /// Asks the environment callback for one option the way a core does.
-    ///
-    /// Returns the answer and the string the host handed back, if any.
     fn ask_option(key: &str) -> (bool, Option<String>) {
         let key = CString::new(key).unwrap();
-        let mut var = RetroVariableProbe {
+        let mut var = super::super::options::RetroVariable {
             key: key.as_ptr(),
             // A non-null sentinel, so "value was cleared" is provable rather than assumed.
             value: key.as_ptr(),
         };
         let ok = unsafe {
-            on_environment(
-                ENV_GET_VARIABLE,
-                &mut var as *mut RetroVariableProbe as *mut c_void,
-            )
+            on_environment(ENV_GET_VARIABLE, &mut var as *mut _ as *mut c_void)
         };
         let value = if var.value.is_null() {
             None
         } else {
-            Some(
-                unsafe { CStr::from_ptr(var.value) }
-                    .to_string_lossy()
-                    .into_owned(),
-            )
+            Some(unsafe { CStr::from_ptr(var.value) }.to_string_lossy().into_owned())
         };
         (ok, value)
     }
 
-    /// `OPTIONS` is a process global, so the tests that install into it have to take turns.
-    /// Without this they race: one clears the table while another is asserting on it.
-    static OPTION_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    fn option_test_guard() -> std::sync::MutexGuard<'static, ()> {
-        match OPTION_TEST_LOCK.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        }
+    fn declare_v0(entries: &[(&str, &str)]) {
+        let owned: Vec<(CString, CString)> = entries
+            .iter()
+            .map(|(k, v)| (CString::new(*k).unwrap(), CString::new(*v).unwrap()))
+            .collect();
+        let mut vars: Vec<super::super::options::RetroVariable> = owned
+            .iter()
+            .map(|(k, v)| super::super::options::RetroVariable { key: k.as_ptr(), value: v.as_ptr() })
+            .collect();
+        vars.push(super::super::options::RetroVariable { key: std::ptr::null(), value: std::ptr::null() });
+        let ok = unsafe { on_environment(ENV_SET_VARIABLES, vars.as_mut_ptr() as *mut c_void) };
+        assert!(ok);
     }
 
     #[test]
-    fn ds_touch_mode_is_served_to_the_core() {
-        let _guard = option_test_guard();
-        install_options("melonds");
-        let (ok, value) = ask_option("melonds_touch_mode");
-        // The whole DS touch screen rests on this pair of assertions. If the host refuses
-        // this read, the core leaves `new_touch_mode` at its C initialiser `Disabled` and
-        // forces `touching = false` every frame, so the screen is dead inside the core no
-        // matter how good the pointer data is. See `option_overrides`.
-        assert!(ok, "the DS touch mode must be answered, not refused");
-        assert_eq!(value.as_deref(), Some("Touch"));
-    }
-
-    #[test]
-    fn ds_boots_the_cartridge_rather_than_the_firmware_menu() {
-        let _guard = option_test_guard();
-        install_options("melonds");
-        let (ok, value) = ask_option("melonds_boot_directly");
-        // The other half of "a DS game actually starts". Refusing this read leaves the core's
-        // `int DirectBoot = 0` in place, which sends it to a firmware menu that a generated
-        // firmware cannot launch a cartridge from. See `option_overrides`.
-        assert!(ok, "direct boot must be answered, not refused");
-        assert_eq!(value.as_deref(), Some("enabled"));
-    }
-
-    #[test]
-    fn ds_gets_no_other_options_invented_for_it() {
-        let _guard = option_test_guard();
-        install_options("melonds");
-        // Loading the DS must not turn the host into one that answers every option.
-        //
-        // The screen layout is the one to justify rather than assume, because the whole
-        // coordinate contract rests on it: 256x384 stacked is what `CoreSpec::melonDS`, the
-        // letterbox and the pointer's split at y = 0.5 all assume. Refusing it is safe here for
-        // a reason that was READ rather than inferred from the advertised default, which the
-        // comment on `option_overrides` explains is worth nothing: the core's own line is
-        //
-        //     ScreenLayout layout = ScreenLayout::TopBottom;
-        //
-        // so the initialiser and the advertised default agree, and refusing selects the layout
-        // we want. Were that initialiser anything else, this option would need answering too.
-        let (ok, value) = ask_option("melonds_screen_layout");
-        assert!(!ok, "unlisted options stay refused");
+    fn get_variable_answers_the_cores_own_default_once_declared() {
+        let _guard = super::super::options::test_guard();
+        super::super::options::reset_for_tests();
+        super::super::options::install("pcsx_rearmed", None, true);
+        // Undeclared keys are still refused with a nulled value.
+        let (ok, value) = ask_option("pcsx_rearmed_rgb32_output");
+        assert!(!ok);
         assert!(value.is_none(), "value must be nulled, not fabricated");
+        declare_v0(&[("pcsx_rearmed_rgb32_output", "RGB32 output; disabled|enabled")]);
+        let (ok, value) = ask_option("pcsx_rearmed_rgb32_output");
+        assert!(ok, "a declared option is answered");
+        assert_eq!(value.as_deref(), Some("disabled"), "with the first value, the v0 default");
+        super::super::options::reset_for_tests();
     }
 
     #[test]
-    fn the_n64_gets_the_software_rasteriser_rather_than_a_missing_gl_one() {
-        let _guard = option_test_guard();
-        install_options("parallel_n64");
+    fn ds_touch_mode_and_direct_boot_are_answered_even_before_the_table() {
+        let _guard = super::super::options::test_guard();
+        super::super::options::reset_for_tests();
+        super::super::options::install("melonds", None, true);
+        // Refusing `melonds_touch_mode` leaves the C initialiser `Disabled` and a dead touch
+        // screen; refusing direct boot sends the core to a firmware menu it cannot leave.
+        assert_eq!(ask_option("melonds_touch_mode"), (true, Some("Touch".into())));
+        assert_eq!(ask_option("melonds_boot_directly"), (true, Some("enabled".into())));
+        // With the table declared, still the engine's default rather than the advertised "Mouse".
+        declare_v0(&[("melonds_touch_mode", "Touch mode; Mouse|Touch|Joystick")]);
+        assert_eq!(ask_option("melonds_touch_mode"), (true, Some("Touch".into())));
+        super::super::options::reset_for_tests();
+    }
 
-        // Host must REFUSE gfxplugin so the core hits `core_settings_autoselect_gfx_plugin()` and
-        // picks angrylion. Answering "angrylion" never sets `gfx_plugin` — upstream nests that
-        // assign under `if (!strcmp(..., "auto"))` — leaving GFX_GLIDE64=0 and the GL hang. See
-        // `option_overrides`.
+    #[test]
+    fn the_n64_keeps_the_software_rasteriser_and_the_interpreter() {
+        let _guard = super::super::options::test_guard();
+        super::super::options::reset_for_tests();
+        super::super::options::install("parallel_n64", None, true);
+        declare_v0(&[
+            ("parallel-n64-gfxplugin", "GFX Plugin; angrylion"),
+            ("parallel-n64-cpucore", "CPU; dynamic_recompiler|cached_interpreter|pure_interpreter"),
+        ]);
+        // Refused even though declared, so the core's autoselect picks angrylion.
         let (ok, value) = ask_option("parallel-n64-gfxplugin");
-        assert!(
-            !ok,
-            "gfxplugin must be refused so the core can autoselect angrylion"
-        );
-        assert!(value.is_none(), "value must be nulled, not fabricated");
-
-        let (ok, value) = ask_option("parallel-n64-rspplugin");
-        assert!(ok, "the N64 RSP must be named hle");
-        assert_eq!(value.as_deref(), Some("hle"));
-
-        // Refuse selects "all threads", which hangs under the display-link tick. Name "off" so
-        // angrylion stays on the emulator thread.
-        let (ok, value) = ask_option("parallel-n64-angrylion-multithread");
-        assert!(
-            ok,
-            "angrylion multithread must be named off, not left to all threads"
-        );
-        assert_eq!(value.as_deref(), Some("off"));
-
-        let (ok, value) = ask_option("parallel-n64-cpucore");
-        assert!(ok, "N64 CPU core must be cached_interpreter");
-        assert_eq!(value.as_deref(), Some("cached_interpreter"));
+        assert!(!ok);
+        assert!(value.is_none());
+        assert_eq!(ask_option("parallel-n64-rspplugin"), (true, Some("hle".into())));
+        assert_eq!(ask_option("parallel-n64-angrylion-multithread"), (true, Some("off".into())));
+        assert_eq!(ask_option("parallel-n64-cpucore"), (true, Some("cached_interpreter".into())));
+        super::super::options::reset_for_tests();
     }
 
     #[test]
     fn ppsspp_cpu_is_the_ir_interpreter_not_the_dynarec() {
-        let _guard = option_test_guard();
-        install_options("ppsspp");
-        let (ok, value) = ask_option("ppsspp_cpu_core");
-        // "IR JIT" is the core's value string for CPUCore::IR_INTERPRETER with
-        // compile-to-native off. "JIT" is the dynarec and must not be answered.
-        assert!(ok, "the PSP CPU core must be named, or the read stays the slow interpreter");
-        assert_eq!(value.as_deref(), Some("IR JIT"));
-        let (ok, _) = ask_option("ppsspp_backend");
-        assert!(!ok, "graphics backend stays the core's own choice");
+        let _guard = super::super::options::test_guard();
+        super::super::options::reset_for_tests();
+        super::super::options::install("ppsspp", None, true);
+        assert_eq!(ask_option("ppsspp_cpu_core"), (true, Some("IR JIT".into())));
+        super::super::options::reset_for_tests();
     }
 
     #[test]
-    fn other_cores_keep_every_default() {
-        let _guard = option_test_guard();
-        for core_id in [
-            "fceumm",
-            "mgba",
-            "genesis_plus_gx",
-            "snes9x",
-            "pcsx_rearmed",
-        ] {
-            install_options(core_id);
-            let (ok, value) = ask_option("melonds_touch_mode");
-            assert!(!ok, "{core_id} must not be handed the DS option");
-            assert!(value.is_none());
-            assert!(
-                option_overrides(core_id).is_empty(),
-                "{core_id} is expected to run on its own defaults"
-            );
-        }
-    }
-
-    #[test]
-    fn installing_options_replaces_rather_than_accumulates() {
-        let _guard = option_test_guard();
-        install_options("melonds");
-        // Loading a second core must not leave the first core's answers behind. This is the
-        // in-session core switch: play a DS game, go back to the library, start an NES game.
-        install_options("fceumm");
+    fn a_previous_cores_answers_do_not_survive_the_next_load() {
+        let _guard = super::super::options::test_guard();
+        super::super::options::reset_for_tests();
+        super::super::options::install("melonds", None, true);
+        super::super::options::install("fceumm", None, true);
         let (ok, value) = ask_option("melonds_touch_mode");
-        assert!(
-            !ok,
-            "a previous core's overrides must not survive the next load"
-        );
+        assert!(!ok, "a previous core's engine defaults must not survive the next load");
         assert!(value.is_none());
+        super::super::options::reset_for_tests();
+    }
+
+    #[test]
+    fn a_user_change_is_reported_once_through_get_variable_update() {
+        let _guard = super::super::options::test_guard();
+        super::super::options::reset_for_tests();
+        super::super::options::install("mgba", None, true);
+        declare_v0(&[("mgba_gb_colors", "Palette; Grayscale|DMG Green")]);
+        let mut changed = true;
+        let poll = |changed: &mut bool| unsafe {
+            on_environment(ENV_GET_VARIABLE_UPDATE, changed as *mut bool as *mut c_void)
+        };
+        assert!(poll(&mut changed));
+        assert!(!changed);
+        super::super::options::set("mgba", "mgba_gb_colors", "DMG Green", false).unwrap();
+        assert!(poll(&mut changed));
+        assert!(changed, "the change is reported");
+        assert!(poll(&mut changed));
+        assert!(!changed, "and only once");
+        assert_eq!(ask_option("mgba_gb_colors"), (true, Some("DMG Green".into())));
+        super::super::options::reset_for_tests();
+    }
+
+    #[test]
+    fn set_variable_from_the_core_is_accepted_for_its_own_options() {
+        let _guard = super::super::options::test_guard();
+        super::super::options::reset_for_tests();
+        super::super::options::install("fakecore", None, true);
+        declare_v0(&[("fake_mode", "Mode; a|b")]);
+        let key = CString::new("fake_mode").unwrap();
+        let value = CString::new("b").unwrap();
+        let mut var = super::super::options::RetroVariable { key: key.as_ptr(), value: value.as_ptr() };
+        assert!(unsafe { on_environment(ENV_SET_VARIABLE, &mut var as *mut _ as *mut c_void) });
+        assert_eq!(ask_option("fake_mode"), (true, Some("b".into())));
+        assert!(unsafe { on_environment(ENV_SET_VARIABLE, std::ptr::null_mut()) }, "NULL asks support");
+        super::super::options::reset_for_tests();
+    }
+
+    #[test]
+    fn display_toggles_reach_the_option_state() {
+        let _guard = super::super::options::test_guard();
+        super::super::options::reset_for_tests();
+        super::super::options::install("fakecore", None, true);
+        declare_v0(&[("fake_a", "A; x|y")]);
+        let key = CString::new("fake_a").unwrap();
+        let mut display = super::super::options::RetroCoreOptionDisplay { key: key.as_ptr(), visible: false };
+        assert!(unsafe { on_environment(ENV_SET_CORE_OPTIONS_DISPLAY, &mut display as *mut _ as *mut c_void) });
+        assert!(!super::super::options::list("fakecore")[0].visible);
+        super::super::options::reset_for_tests();
+    }
+
+    #[test]
+    fn set_rotation_is_stored_and_out_of_range_refused() {
+        let mut quarter: c_uint = 1;
+        assert!(unsafe { on_environment(ENV_SET_ROTATION, &mut quarter as *mut c_uint as *mut c_void) });
+        assert_eq!(requested_rotation(), 1);
+        let mut bad: c_uint = 4;
+        assert!(!unsafe { on_environment(ENV_SET_ROTATION, &mut bad as *mut c_uint as *mut c_void) });
+        assert_eq!(requested_rotation(), 1);
+        ROTATION.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    #[test]
+    fn disk_control_version_is_one_and_both_tables_register() {
+        let _guard = match super::super::disk::TEST_LOCK.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        let mut version: c_uint = 0;
+        assert!(unsafe {
+            on_environment(ENV_GET_DISK_CONTROL_INTERFACE_VERSION, &mut version as *mut c_uint as *mut c_void)
+        });
+        assert_eq!(version, 1);
+        super::super::disk::reset_for_core("x");
+        assert!(unsafe { on_environment(ENV_SET_DISK_CONTROL_INTERFACE, std::ptr::null_mut()) });
+        assert!(unsafe { on_environment(ENV_SET_DISK_CONTROL_EXT_INTERFACE, std::ptr::null_mut()) });
+        assert!(!super::super::disk::available("x"));
     }
 
     #[test]
@@ -1764,19 +1771,6 @@ mod tests {
         assert!(!cb.log.is_null(), "log callback pointer must be filled in");
         // Callable with no prior core log (empty or whatever a previous test left).
         let _ = last_core_log_line();
-    }
-
-    #[test]
-    fn get_variable_update_reports_no_change() {
-        let mut changed = true;
-        let ok = unsafe {
-            on_environment(
-                ENV_GET_VARIABLE_UPDATE,
-                &mut changed as *mut bool as *mut c_void,
-            )
-        };
-        assert!(ok);
-        assert!(!changed, "no options change between polls in this host");
     }
 
     #[test]
@@ -1815,6 +1809,7 @@ mod tests {
 
     #[test]
     fn option_and_message_families_are_accepted_as_noops() {
+        let _guard = super::super::options::test_guard();
         for cmd in [
             ENV_SET_VARIABLES,
             ENV_SET_CORE_OPTIONS,
@@ -1886,7 +1881,7 @@ mod tests {
     }
 
     #[test]
-    fn get_core_options_version_reports_zero() {
+    fn get_core_options_version_reports_two() {
         let mut version: c_uint = 999;
         let ok = unsafe {
             on_environment(
@@ -1895,7 +1890,7 @@ mod tests {
             )
         };
         assert!(ok);
-        assert_eq!(version, 0);
+        assert_eq!(version, 2, "v2 tables with categories are read");
     }
 
     #[test]

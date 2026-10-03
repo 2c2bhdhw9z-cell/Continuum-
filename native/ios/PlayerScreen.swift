@@ -102,6 +102,8 @@ struct PlayerScreen: View {
     @State private var showingCheats = false
     /// The online play sheet, opened from the save-state menu.
     @State private var showNetplay = false
+    /// Core settings, filters and the disc list, opened by the in-game actions.
+    @ObservedObject private var coreActions = CoreActionsModel.shared
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -191,6 +193,9 @@ struct PlayerScreen: View {
         .onChange(of: controllers.hidesOnScreenPadNow) { _ in
             host.pictureArea = nil
             host.applySkinHoles([])
+        }
+        .sheet(item: $coreActions.sheet) { sheet in
+            CoreActionSheet(host: host, sheet: sheet)
         }
         .sheet(isPresented: $showNetplay) {
             NetplaySheet(netplay: host.netplay,
@@ -344,6 +349,9 @@ struct PlayerScreen: View {
             // already draws, so there is no alert and nothing to dismiss. Capturing while PAUSED
             // works and is the better way to use it: the engine refreshes from the core before it
             // reads the surface, so a game paused on its title screen gives up exactly that frame.
+            // Core settings, filters, discs, palettes, speeds, rotation and the TV.
+            CoreActionsMenuSection(host: host, system: system)
+
             Section("Online play") {
                 Button {
                     showNetplay = true

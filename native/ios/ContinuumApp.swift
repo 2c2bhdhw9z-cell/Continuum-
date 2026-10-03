@@ -2807,6 +2807,8 @@ final class EngineHost: ObservableObject {
         cloudSync.attach(host: self)
         netplay.attach(host: self)
         importCenter.attach(host: self)
+        // Where core settings live, and the TV's own fit and layout. See CoreSettingsScreen.swift.
+        configureCoreActions()
         // Sync trigger one of three: the app opening. The others are returning to the library
         // (`leavePlayer`) and the Sync now button in Settings.
         cloudSync.syncIfConfigured(reason: "the app opened")
@@ -3662,6 +3664,8 @@ final class EngineHost: ObservableObject {
             // over a session that does not exist.
             activeEntry = entry
             activeCoreId = spec.coreId
+            // The system's own filter and brightness. See CoreSettingsScreen.swift.
+            applyCoreActionPreferences()
             // Beetle device-proof crumb: stay Partial until hardwareFrame flips on a phone.
             // Soft cores leave this false; telemetry paints the first Vulkan frame when it arrives.
             sawHardwareFrame = false
@@ -3826,6 +3830,10 @@ final class EngineHost: ObservableObject {
         guard !activeCoreId.isEmpty,
               let spec = CoreCatalog.core(id: activeCoreId),
               spec.aspectRatio > 0 else { return nil }
+        // A quarter turn (SET_ROTATION or the rotate action) stands the picture on its side.
+        if engine.screenRotation() % 2 == 1 {
+            return CGFloat(1 / spec.aspectRatio)
+        }
         return CGFloat(spec.aspectRatio)
     }
 

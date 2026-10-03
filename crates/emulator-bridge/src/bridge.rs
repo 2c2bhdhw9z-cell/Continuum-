@@ -30,6 +30,8 @@ use crate::timing::FramePacer;
 // without widening them; the protocol itself is in `crate::netplay` and knows nothing of this.
 #[path = "netplay/bridge_glue.rs"]
 mod netplay_glue;
+#[path = "bridge_actions.rs"]
+pub mod actions;
 
 /// Video frames of audio to buffer. Three is the usual compromise between
 /// robustness against a slow tick and audible input-to-sound latency.
@@ -193,6 +195,9 @@ pub struct EmulatorBridge {
     /// (see `netplay_glue`), and rewind, fast forward, reset, cheats and state loads are refused,
     /// because any of them on one phone and not the other is a desync.
     netplay: Option<crate::netplay::NetplaySession>,
+    /// Speed presets, console switches, rotation, the look and the TV's choices. See
+    /// `bridge_actions.rs`.
+    actions: actions::ActionState,
 }
 
 impl Default for EmulatorBridge {
@@ -235,6 +240,7 @@ impl EmulatorBridge {
             },
             dual_geometry: None,
             netplay: None,
+            actions: actions::ActionState::default(),
         }
     }
 
@@ -253,6 +259,7 @@ impl EmulatorBridge {
         renderer.set_dual_config(self.dual_config);
         renderer.set_dual_geometry(self.dual_geometry);
         self.renderer = Some(renderer);
+        self.push_actions_to_renderer();
     }
 
     pub fn has_renderer(&self) -> bool {
@@ -433,6 +440,19 @@ impl EmulatorBridge {
             pokes: Vec::new(),
             search: None,
         });
+        let content_name = hint
+            .full_path
+            .as_deref()
+            .and_then(|p| std::path::Path::new(p).file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| format!("{}.{}", hint.name, hint.extension));
+        self.actions.new_session(&content_name);
+        // Slow motion and a speed preset are the user's, and survive a new game.
+        let wanted = self.actions.effective_speed();
+        if (wanted - 1.0).abs() > 1e-9 {
+            self.set_speed(wanted);
+        }
+        self.push_actions_to_renderer();
         Ok(())
     }
 
@@ -639,6 +659,7 @@ impl EmulatorBridge {
             frames_since_snapshot,
             #[cfg(feature = "native-core")]
             achievements,
+            actions,
             ..
         } = self;
 
@@ -693,7 +714,9 @@ impl EmulatorBridge {
         for _ in 0..plan.steps {
             // Turbo is the one part of input that is meant to differ between catch-up steps:
             // it pulses per CORE frame, so its rate holds at 120 Hz and under fast forward.
-            let step = gamepads.turbo_step(&snapshot);
+            let mut step = gamepads.turbo_step(&snapshot);
+            // Presses the engine makes itself: the Atari switches and the FDS side flip.
+            actions.pulse_step(&mut step);
             session.core.run_frame(&step)?;
             // 2a. Achievements, against memory exactly as the game left it this frame, before
             //     any poke rewrites it.
@@ -743,6 +766,8 @@ impl EmulatorBridge {
         // frame proves the full chain.
         let mut presented = false;
         if let Some(renderer) = renderer.as_mut() {
+            // A core may call SET_ROTATION at any time; these are plain field writes.
+            actions.push_to(renderer, session.core.rotation());
             if plan.steps > 0 {
                 if let Err(err) = crate::gfx::vulkan_hw::apply_pending_to_renderer(renderer) {
                     log::debug!("vulkan HW adopt skipped: {err}");
