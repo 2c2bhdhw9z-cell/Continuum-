@@ -45,6 +45,7 @@
 //! 4. The steady-state tick does not allocate: framebuffers, audio rings and
 //!    conversion scratch are sized when a session starts.
 
+pub mod achievements;
 pub mod audio;
 pub mod bridge;
 pub mod cheats;

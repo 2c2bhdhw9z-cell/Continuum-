@@ -36,6 +36,8 @@ use std::sync::Mutex;
 // Battery saves, RAM search, pokes, `.cht` import, the state export file and the slot plan.
 // A child module so it can use `lock()`; see its header.
 mod saves_api;
+// RetroAchievements: login, the HTTP queue Swift services, events and the list.
+mod achievements_api;
 
 use crate::audio::CHANNELS;
 use crate::bridge::EmulatorBridge;
@@ -67,6 +69,8 @@ pub enum EngineError {
     CoreOption { reason: String },
     #[error("memory access failed: {reason}")]
     Memory { reason: String },
+    #[error("achievements: {reason}")]
+    Achievements { reason: String },
     #[error("graphics failure: {reason}")]
     Graphics { reason: String },
     #[error("{reason}")]
@@ -106,6 +110,7 @@ impl From<BridgeError> for EngineError {
             BridgeError::Cheat(reason) => Self::Cheat { reason },
             BridgeError::CoreOption(reason) => Self::CoreOption { reason },
             BridgeError::Memory(reason) => Self::Memory { reason },
+            BridgeError::Achievements(reason) => Self::Achievements { reason },
             BridgeError::NotImplemented(what) => Self::Other {
                 reason: format!("not implemented: {what}"),
             },

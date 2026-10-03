@@ -174,6 +174,10 @@ pub struct EmulatorBridge {
     /// Skin holes last requested. Kept even when the renderer is not attached yet, so the
     /// first layout — which can land before the Metal layer — is not thrown away.
     skin_holes: Vec<crate::gfx::SkinHole>,
+    /// RetroAchievements. Created on the first achievements call and kept across sessions, so a
+    /// login survives leaving a game. Native builds only: rcheevos is compiled with the core host.
+    #[cfg(feature = "native-core")]
+    achievements: Option<crate::achievements::Achievements>,
 }
 
 impl Default for EmulatorBridge {
@@ -208,6 +212,8 @@ impl EmulatorBridge {
             frames_since_snapshot: 0,
             rewinding: false,
             skin_holes: Vec::new(),
+            #[cfg(feature = "native-core")]
+            achievements: None,
         }
     }
 
@@ -393,6 +399,14 @@ impl EmulatorBridge {
     /// Ends the session and returns its core to the registry, kept warm so
     /// relaunching the same system does not re-fetch the module.
     pub fn stop(&mut self) {
+        // Before the core goes: rcheevos holds pointers into its memory until told otherwise.
+        #[cfg(feature = "native-core")]
+        if let Some(achievements) = self.achievements.as_mut() {
+            achievements.clear_memory();
+            if achievements.is_game_loaded() {
+                achievements.unload_game();
+            }
+        }
         if let Some(session) = self.session.take() {
             let core_id = session.core_id.clone();
             log::info!(
@@ -493,6 +507,7 @@ impl EmulatorBridge {
         Self::push_cheats(session)?;
         self.sink.flush();
         self.gamepads.release_all();
+        self.achievements_reset();
         // Everything on the rewind tape is from before the reset, so rewinding would undo
         // the reset itself.
         self.rewind.clear();
@@ -566,6 +581,8 @@ impl EmulatorBridge {
             rewind,
             rewind_interval,
             frames_since_snapshot,
+            #[cfg(feature = "native-core")]
+            achievements,
             ..
         } = self;
 
@@ -586,6 +603,12 @@ impl EmulatorBridge {
         };
 
         if session.paused {
+            #[cfg(feature = "native-core")]
+            if let Some(achievements) = achievements.as_mut() {
+                if achievements.is_game_loaded() {
+                    achievements.idle();
+                }
+            }
             // Re-present the existing texture: still responsive to resizes, but no
             // emulation and no audio.
             let presented = match renderer.as_mut() {
@@ -613,6 +636,10 @@ impl EmulatorBridge {
         let plan = pacer.plan(now_ms);
         for _ in 0..plan.steps {
             session.core.run_frame(&snapshot)?;
+            // 2a. Achievements, against memory exactly as the game left it this frame, before
+            //     any poke rewrites it.
+            #[cfg(feature = "native-core")]
+            Self::achievements_frame(achievements.as_mut(), session);
             // 2b. RAM pokes, AFTER the frame. The game wrote its own value during the frame;
             //     writing ours afterwards means the value the game reads at the start of the next
             //     frame is ours, which is what "infinite lives" has to mean.
@@ -1077,6 +1104,8 @@ impl EmulatorBridge {
         Self::push_cheats(session)?;
         // The audio backlog belongs to the abandoned timeline.
         self.sink.flush();
+        // Achievement progress was measured on that timeline too.
+        self.achievements_reset();
         // So does the rewind tape. Every snapshot on it describes a future that no longer
         // follows from the present, and rewinding into it would jump the player somewhere
         // they never were.
@@ -1235,6 +1264,7 @@ impl EmulatorBridge {
         outcome?;
 
         self.sink.flush();
+        self.achievements_reset();
         // The next snapshot is a full interval away from the point just restored, not from
         // wherever the counter happened to be when the button was pressed.
         self.frames_since_snapshot = 0;
@@ -1556,6 +1586,74 @@ impl EmulatorBridge {
                 poke.apply(ram);
             }
         }
+    }
+
+    // ------------------------------------------------------------- achievements
+
+    /// One `rc_client_do_frame`, with its memory pointed at the core's regions as they are now.
+    /// Refreshed every frame because a core may move a region (a disc swap, a mapper change), and
+    /// three slice lookups cost nothing next to a frame.
+    #[cfg(feature = "native-core")]
+    fn achievements_frame(
+        achievements: Option<&mut crate::achievements::Achievements>,
+        session: &Session,
+    ) {
+        let Some(achievements) = achievements else {
+            return;
+        };
+        if !achievements.is_game_loaded() {
+            return;
+        }
+        let core = &session.core;
+        achievements.set_memory(|id| core.memory_region(id).map(|r| (r.as_ptr(), r.len())));
+        achievements.do_frame();
+    }
+
+    /// Tells rcheevos the machine jumped (reset, state load). A no-op without a loaded set.
+    fn achievements_reset(&mut self) {
+        #[cfg(feature = "native-core")]
+        if let Some(achievements) = self.achievements.as_mut() {
+            if achievements.is_game_loaded() {
+                achievements.reset();
+            }
+        }
+    }
+
+    /// The achievements client, created on first use.
+    #[cfg(feature = "native-core")]
+    pub fn achievements_mut(
+        &mut self,
+    ) -> Result<&mut crate::achievements::Achievements, BridgeError> {
+        if self.achievements.is_none() {
+            let created = crate::achievements::Achievements::new().map_err(BridgeError::Achievements)?;
+            self.achievements = Some(created);
+        }
+        Ok(self
+            .achievements
+            .as_mut()
+            .expect("created immediately above"))
+    }
+
+    /// The achievements client if one exists, without creating it.
+    #[cfg(feature = "native-core")]
+    pub fn achievements(&self) -> Option<&crate::achievements::Achievements> {
+        self.achievements.as_ref()
+    }
+
+    /// Identifies the running game and loads its set. Needs a session (so the memory being read
+    /// is the game's) and a login (rcheevos refuses otherwise, and says so through an event).
+    #[cfg(feature = "native-core")]
+    pub fn achievements_load_game(&mut self, system: &str, path: &str) -> Result<(), BridgeError> {
+        if self.session.is_none() {
+            return Err(BridgeError::NoSession);
+        }
+        let achievements = self.achievements_mut()?;
+        if achievements.is_game_loaded() {
+            achievements.unload_game();
+        }
+        achievements
+            .load_game(system, path, &[])
+            .map_err(BridgeError::Achievements)
     }
 
     /// Starts a session with no renderer, for tests that need a running core.

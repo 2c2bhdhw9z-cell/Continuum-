@@ -48,6 +48,9 @@ pub enum BridgeError {
     #[error("memory error: {0}")]
     Memory(String),
 
+    #[error("achievements: {0}")]
+    Achievements(String),
+
     #[error("not implemented yet: {0}")]
     NotImplemented(&'static str),
 }
