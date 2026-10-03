@@ -13,6 +13,8 @@
 
 mod diagnostic;
 mod registry;
+pub mod options;
+pub mod disk;
 
 // A libretro core from a shared library, which is now the only way a real core loads.
 // Feature-gated rather than unconditional so the host test suite does not acquire a
