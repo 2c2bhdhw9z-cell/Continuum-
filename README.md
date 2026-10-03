@@ -40,9 +40,7 @@ In the tree, not on a phone (`ee307b8`): each screen in the hole the skin names,
 
 Not built: swapping which screen is big, AirPlay, extra buttons you place yourself, editing an imported skin in the app, touch as a mouse, camera, microphone, Amiibo, haptics, a 50-slot save manager, exporting a save, cheat search, importing a cheat file, online play, achievements, and cloud sync. Typing a cheat code does exist.
 
-The line-by-line table is in [STATUS.md](STATUS.md).
-
-The full table, including what is only half done, is [STATUS.md](STATUS.md). [TESTING.md](TESTING.md) is the live checklist. Old notes live in `docs/archive/`. `.kiro` is still in the repo and is outdated.
+The line-by-line table is in [STATUS.md](STATUS.md). [TESTING.md](TESTING.md) is the live checklist. Old notes live in `docs/archive/`. `.kiro` is still in the repo and is outdated.
 
 ## How to add games
 
