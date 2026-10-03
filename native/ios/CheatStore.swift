@@ -182,6 +182,14 @@ final class CheatStore: ObservableObject {
         self.host = host
     }
 
+    /// Re-reads the list after cloud sync replaced or merged it. See `CloudSync`.
+    func reloadFromDisk() {
+        let (stored, failure) = CheatDisk.read()
+        cheats = stored.filter { !$0.code.isEmpty && !$0.gameId.isEmpty }
+        line = failure.map { "cheats: \($0)" }
+            ?? "cheats: \(cheats.count) stored for \(gameCount) game(s), reloaded after cloud sync"
+    }
+
     // MARK: Reading
 
     var gameCount: Int { Set(cheats.map { $0.gameId }).count }

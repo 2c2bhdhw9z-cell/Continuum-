@@ -80,6 +80,12 @@ targets:
         UIApplicationSupportsIndirectInputEvents: true
         UIStatusBarHidden: true
         UIViewControllerBasedStatusBarAppearance: false
+        # Online play (Netplay.swift): the host listens on the local network and advertises over
+        # Bonjour, and the guest browses for it. iOS shows this sentence in the Local Network
+        # permission prompt, and refuses to browse a service type not listed below.
+        NSLocalNetworkUsageDescription: "Continuum uses the local network to find and connect to another phone for two-player online play."
+        NSBonjourServices:
+          - _continuum._tcp
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -186,6 +192,12 @@ targets:
       # text the user typed and a state is an opaque blob a core wrote, and only one of those two
       # can corrupt a session.
       - path: CheatStore.swift
+      # Cloud folder sync of saves, cheats, cover choices and settings through a bookmarked folder
+      # and NSFileCoordinator. The rules are in Rust (crates/emulator-bridge/src/sync).
+      - path: CloudSync.swift
+      # Online play transport (NWListener, NWConnection, NWBrowser) over the Rust lockstep
+      # protocol (crates/emulator-bridge/src/netplay).
+      - path: Netplay.swift
       # The UniFFI-generated Swift facade. Written by build-engine.sh, never committed: a
       # stale checked-in binding that disagrees with the Rust compiles, links, and then
       # corrupts arguments at runtime, which is the worst failure mode in this stack.

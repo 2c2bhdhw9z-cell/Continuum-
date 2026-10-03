@@ -31,6 +31,8 @@
 //! - [`timing`] — frame pacing between display refresh and core refresh.
 //! - [`frame`] — geometry and pixel formats.
 //! - [`rewind`] — the bounded tape of save states behind the rewind button.
+//! - [`netplay`]: two-player online play: lockstep protocol and state machine.
+//! - [`sync`]: the rules for two-way folder sync of saves and settings.
 //! - [`uniffi_api`] — the Swift-facing facade (feature `uniffi-bindings`).
 //!
 //! ## Invariants
@@ -53,8 +55,10 @@ pub mod frame;
 pub mod gfx;
 pub mod input;
 pub mod jit_probe;
+pub mod netplay;
 pub mod vulkan_probe;
 pub mod rewind;
+pub mod sync;
 pub mod timing;
 
 /// `Send`, and now unconditionally so.

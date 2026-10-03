@@ -215,11 +215,10 @@ pub fn resize_for_core(max_width: u32, max_height: u32) {
 
 /// Makes the ES context current before `retro_run`, when there is one.
 pub fn prepare_frame() {
-    if !status().accepted {
-        return;
+    if status().accepted {
+        #[cfg(target_os = "ios")]
+        ios::make_current();
     }
-    #[cfg(target_os = "ios")]
-    ios::make_current();
 }
 
 /// Reads the GL color target and returns top-left RGBA8 for the compositor upload.
@@ -431,7 +430,7 @@ unsafe extern "C" fn frontend_get_proc_address(symbol: *const c_char) -> *const 
     }
     #[cfg(target_os = "ios")]
     {
-        return ios::proc_address(symbol);
+        ios::proc_address(symbol)
     }
     #[cfg(not(target_os = "ios"))]
     {
@@ -949,7 +948,7 @@ mod tests {
     fn unknown_symbol_name_is_not_read() {
         // Null symbol must not crash. The CStr path is the other branch.
         assert!(unsafe { frontend_get_proc_address(std::ptr::null()) }.is_null());
-        let name = std::ffi::CStr::from_bytes_with_nul(b"glClear\0").unwrap();
+        let name = c"glClear";
         // On the host this is null. On iOS it may resolve; either is a real answer.
         let _ = unsafe { frontend_get_proc_address(name.as_ptr()) };
     }

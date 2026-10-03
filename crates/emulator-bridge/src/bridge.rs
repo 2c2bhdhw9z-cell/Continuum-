@@ -23,6 +23,11 @@ use crate::input::{Button, GamepadBridge, PadKind, PadSource};
 use crate::rewind::RewindBuffer;
 use crate::timing::FramePacer;
 
+// The lockstep half of online play. A child module so it can reach the private fields above
+// without widening them; the protocol itself is in `crate::netplay` and knows nothing of this.
+#[path = "netplay/bridge_glue.rs"]
+mod netplay_glue;
+
 /// Video frames of audio to buffer. Three is the usual compromise between
 /// robustness against a slow tick and audible input-to-sound latency.
 const AUDIO_LATENCY_FRAMES: usize = 3;
@@ -167,6 +172,10 @@ pub struct EmulatorBridge {
     /// Skin holes last requested. Kept even when the renderer is not attached yet, so the
     /// first layout — which can land before the Metal layer — is not thrown away.
     skin_holes: Vec<crate::gfx::SkinHole>,
+    /// Two-player online session, if one exists. While it is live the tick runs in lockstep
+    /// (see `netplay_glue`), and rewind, fast forward, reset, cheats and state loads are refused,
+    /// because any of them on one phone and not the other is a desync.
+    netplay: Option<crate::netplay::NetplaySession>,
 }
 
 impl Default for EmulatorBridge {
@@ -201,6 +210,7 @@ impl EmulatorBridge {
             frames_since_snapshot: 0,
             rewinding: false,
             skin_holes: Vec::new(),
+            netplay: None,
         }
     }
 
@@ -319,6 +329,9 @@ impl EmulatorBridge {
         // End any existing session first, which also frees its core under the default
         // retention policy.
         self.stop();
+        // Online play belongs to one game. Whatever the last one left behind (a finished or
+        // abandoned session kept only for its status line) is forgotten here.
+        self.netplay = None;
 
         // Free every other resident core *before* instantiating this one, so peak
         // memory during a system switch is one core, not two.
@@ -384,6 +397,11 @@ impl EmulatorBridge {
     /// Ends the session and returns its core to the registry, kept warm so
     /// relaunching the same system does not re-fetch the module.
     pub fn stop(&mut self) {
+        if let Some(netplay) = self.netplay.as_mut() {
+            // Kept, not dropped, so the host can still flush the goodbye and show why the
+            // session ended. `netplay_stop` is what forgets it.
+            netplay.leave("the game was closed");
+        }
         if let Some(session) = self.session.take() {
             let core_id = session.core_id.clone();
             log::info!(
@@ -475,6 +493,7 @@ impl EmulatorBridge {
     }
 
     pub fn reset(&mut self) -> Result<(), BridgeError> {
+        self.refuse_during_netplay("reset")?;
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
         session.core.reset()?;
         // Cheats are re-pushed after a reset. Several cores clear their cheat list in
@@ -538,6 +557,11 @@ impl EmulatorBridge {
     /// The unified step: input → core → audio → GPU. Called once per
     /// `requestAnimationFrame` and from nowhere else.
     pub fn tick(&mut self, now_ms: f64) -> Result<TickReport, BridgeError> {
+        // Online play owns the whole step while it is live: frames run only when both players'
+        // inputs have arrived. See `netplay_glue`.
+        if self.netplay_owns_tick() {
+            return self.tick_netplay(now_ms);
+        }
         // Rewind replaces the normal step entirely rather than running alongside it. Doing
         // it from the host instead - calling a rewind method and then `tick` - would advance
         // the core and then jump it back within the same frame, so the two would fight and
@@ -904,6 +928,9 @@ impl EmulatorBridge {
     /// 4x however large a multiplier is asked for. Anything beyond that is forfeited and
     /// shows up as a climbing dropped-step count rather than as extra speed.
     pub fn set_speed(&mut self, speed: f64) {
+        // Fast forward on one phone would run that phone ahead of the other; lockstep would
+        // only stall it, so the request is ignored rather than half-honoured.
+        let speed = if self.netplay_is_live() { 1.0 } else { speed };
         self.pacer.set_speed(speed);
         // Read back rather than storing the argument, so what is remembered is what the
         // pacer actually accepted after clamping.
@@ -1057,6 +1084,13 @@ impl EmulatorBridge {
     }
 
     pub fn load_state(&mut self, data: &[u8]) -> Result<(), BridgeError> {
+        self.refuse_during_netplay("loading a state")?;
+        self.load_state_unchecked(data)
+    }
+
+    /// The load itself, shared by [`Self::load_state`] and the netplay handshake (which is the
+    /// one state load online play needs).
+    fn load_state_unchecked(&mut self, data: &[u8]) -> Result<(), BridgeError> {
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
         session.core.load_state(data)?;
         // A save state can carry the memory a cheat was patching, so the list is
@@ -1147,7 +1181,7 @@ impl EmulatorBridge {
     /// Starts or stops walking backwards. Held-button shaped: set it true on press, false on
     /// release, and the engine handles the rest inside its own tick.
     pub fn set_rewinding(&mut self, rewinding: bool) {
-        self.rewinding = rewinding;
+        self.rewinding = rewinding && !self.netplay_is_live();
     }
 
     pub fn is_rewinding(&self) -> bool {
@@ -1201,6 +1235,7 @@ impl EmulatorBridge {
         if self.session.is_none() {
             return Err(BridgeError::NoSession);
         }
+        self.refuse_during_netplay("rewind")?;
         let Some(snapshot) = self.rewind.pop() else {
             return Ok(false);
         };
@@ -1246,6 +1281,11 @@ impl EmulatorBridge {
         codes: Vec<String>,
         enabled: &[u8],
     ) -> Result<usize, BridgeError> {
+        if self.netplay_is_live() {
+            return Err(BridgeError::Cheat(
+                "changing cheats is switched off during online play".into(),
+            ));
+        }
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
         if !session.core.supports_cheats() {
             return Err(BridgeError::Cheat(format!(

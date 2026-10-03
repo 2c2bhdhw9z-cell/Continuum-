@@ -55,6 +55,15 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
 
+	<!-- Online play: Local Network permission text, and the Bonjour type the host advertises and
+	     the guest browses. Mirrors project.yml info.properties. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Continuum uses the local network to find and connect to another phone for two-player online play.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_continuum._tcp</string>
+	</array>
+
 	<!-- Landscape as well as portrait: emulated output is wider than it is tall, and the
 	     stub renders 1280x720. -->
 	<key>UISupportedInterfaceOrientations</key>

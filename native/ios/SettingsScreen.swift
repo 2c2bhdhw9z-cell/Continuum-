@@ -98,6 +98,11 @@ struct SettingsScreen: View {
                     storageSection
                     notYetWiredSection
                 }
+                // A third group for the same ten-children reason as the two above.
+                Group {
+                    CloudSyncSection(sync: host.cloudSync)
+                    OnlinePlaySettingsSection(netplay: host.netplay)
+                }
             }
             .padding(.bottom, 24)
         }
