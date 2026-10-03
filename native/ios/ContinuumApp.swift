@@ -1197,6 +1197,8 @@ final class EngineHost: ObservableObject {
             touchSkinsBySystem.removeAll()
             touchSkinImages.removeAll()
             UserDefaults.standard.removeObject(forKey: Self.touchSkinsKey)
+            skinEditsBySystem.removeAll()
+            UserDefaults.standard.removeObject(forKey: Self.skinEditsKey)
             touchSkinsVersion &+= 1
         }
     }
@@ -1249,7 +1251,12 @@ final class EngineHost: ObservableObject {
     }
 
     func skinScreenOutput(for system: GameSystem) -> DeltaSkinNormalizedRect? {
-        touchSkinsBySystem[system.rawValue]?.screenOutput
+        // Through the edit overlay, so a hole moved in the skin editor is where the picture goes.
+        if let face = skinEditableFace(for: system, landscape: false, edited: true),
+           let first = face.screens.first {
+            return first.output
+        }
+        return touchSkinsBySystem[system.rawValue]?.screenOutput
     }
 
     func skinMapping(for system: GameSystem) -> CGSize {
@@ -1276,7 +1283,11 @@ final class EngineHost: ObservableObject {
     }
 
     func skinLandscapeScreen(for system: GameSystem) -> DeltaSkinNormalizedRect? {
-        touchSkinsBySystem[system.rawValue]?.landscape?.screenOutput
+        if let face = skinEditableFace(for: system, landscape: true, edited: true),
+           let first = face.screens.first {
+            return first.output
+        }
+        return touchSkinsBySystem[system.rawValue]?.landscape?.screenOutput
     }
 
     func skinLandscapeMapping(for system: GameSystem) -> CGSize {
@@ -1355,6 +1366,8 @@ final class EngineHost: ObservableObject {
         }
         persistTouchSkins()
         writeSkinPieces(result.pieces, for: system)
+        // A new file: the old overlay's indices point into a skin that is gone.
+        dropSkinEdits(for: system)
         touchSkinsVersion &+= 1
     }
 
@@ -1368,24 +1381,95 @@ final class EngineHost: ObservableObject {
         removeSkinAssetFiles(for: system, landscape: true)
         removePieceFiles(for: system)
         persistTouchSkins()
+        dropSkinEdits(for: system)
         touchSkinsVersion &+= 1
     }
 
     /// Portrait or landscape controls, with images loaded from the pieces saved at import.
     func skinPadFace(for system: GameSystem, landscape: Bool) -> SkinPadFace {
         let _ = touchSkinsVersion
-        guard let visual = touchSkinsBySystem[system.rawValue] else { return SkinPadFace() }
-        if landscape {
-            guard let face = visual.landscape else { return SkinPadFace() }
-            return makePadFace(screens: face.effectiveScreens, buttons: face.buttons,
-                               sticks: face.sticks, dpadFrame: face.dpadFrame,
-                               system: system,
-                               mapping: CGSize(width: face.mappingWidth, height: face.mappingHeight))
+        // The file's values with the in-app skin editor's overlay laid over them. The stored
+        // import is never rewritten; see SkinEdits.swift.
+        guard let face = skinEditableFace(for: system, landscape: landscape, edited: true) else {
+            return SkinPadFace()
         }
-        return makePadFace(screens: visual.effectiveScreens, buttons: visual.buttons,
-                           sticks: visual.sticks, dpadFrame: visual.dpadFrame,
-                           system: system,
-                           mapping: CGSize(width: visual.mappingWidth, height: visual.mappingHeight))
+        var made = makePadFace(screens: face.screens, buttons: face.buttons,
+                               sticks: face.sticks, dpadFrame: face.dpadFrame,
+                               system: system, mapping: face.mapping)
+        made.opacity = face.opacity
+        return made
+    }
+
+    // MARK: Skin edits (an overlay on the imported file)
+
+    private var skinEditsBySystem: [String: SkinEdits] = [:]
+
+    /// One orientation of the imported skin, as the file has it (`edited` false) or with the
+    /// overlay applied (`edited` true). Nil when there is no skin, or no such orientation.
+    func skinEditableFace(for system: GameSystem, landscape: Bool,
+                          edited: Bool) -> SkinEditableFace? {
+        guard let visual = touchSkinsBySystem[system.rawValue] else { return nil }
+        let original: SkinEditableFace
+        if landscape {
+            guard let face = visual.landscape, face.mappingWidth > 0, face.mappingHeight > 0
+            else { return nil }
+            original = SkinEditableFace(
+                mapping: CGSize(width: face.mappingWidth, height: face.mappingHeight),
+                screens: face.effectiveScreens, buttons: face.buttons,
+                sticks: face.sticks, dpadFrame: face.dpadFrame)
+        } else {
+            guard visual.mappingWidth > 0, visual.mappingHeight > 0 else { return nil }
+            original = SkinEditableFace(
+                mapping: CGSize(width: visual.mappingWidth, height: visual.mappingHeight),
+                screens: visual.effectiveScreens, buttons: visual.buttons,
+                sticks: visual.sticks, dpadFrame: visual.dpadFrame)
+        }
+        guard edited, let edits = skinEditsBySystem[system.rawValue]?.face(landscape: landscape)
+        else { return original }
+        return edits.applied(to: original)
+    }
+
+    func skinEdits(for system: GameSystem, landscape: Bool) -> SkinFaceEdits {
+        skinEditsBySystem[system.rawValue]?.face(landscape: landscape) ?? SkinFaceEdits()
+    }
+
+    /// Stores one orientation's overlay and tells the pad. An empty overlay is the same as none.
+    func setSkinEdits(_ edits: SkinFaceEdits, for system: GameSystem, landscape: Bool) {
+        var all = skinEditsBySystem[system.rawValue] ?? SkinEdits()
+        guard all.face(landscape: landscape) != edits else { return }
+        all.setFace(edits, landscape: landscape)
+        if all.isEmpty {
+            skinEditsBySystem.removeValue(forKey: system.rawValue)
+        } else {
+            skinEditsBySystem[system.rawValue] = all
+        }
+        persistSkinEdits()
+        touchSkinsVersion &+= 1
+    }
+
+    private func dropSkinEdits(for system: GameSystem) {
+        guard skinEditsBySystem.removeValue(forKey: system.rawValue) != nil else { return }
+        persistSkinEdits()
+    }
+
+    private func persistSkinEdits() {
+        if skinEditsBySystem.isEmpty {
+            UserDefaults.standard.removeObject(forKey: Self.skinEditsKey)
+            return
+        }
+        guard let data = try? JSONEncoder().encode(skinEditsBySystem) else {
+            status = "skin edits could not be saved; they still apply until the app quits"
+            return
+        }
+        UserDefaults.standard.set(data, forKey: Self.skinEditsKey)
+    }
+
+    private func loadSkinEdits(from defaults: UserDefaults) {
+        guard let data = defaults.data(forKey: Self.skinEditsKey),
+              let decoded = try? JSONDecoder().decode([String: SkinEdits].self, from: data)
+        else { return }
+        // Only for skins that are still there. An overlay without its file is dropped.
+        skinEditsBySystem = decoded.filter { touchSkinsBySystem[$0.key] != nil }
     }
 
     private var pieceImageCache: [String: UIImage] = [:]
@@ -1689,6 +1773,8 @@ final class EngineHost: ObservableObject {
     private static let touchLayoutsKey = "continuum.controls.touchLayouts.v2"
     /// Per-system Delta skin visuals (screens + asset metadata). Bytes live under Skins/.
     private static let touchSkinsKey = "continuum.controls.touchSkins.v1"
+    /// In-app skin editor overlays, per system and orientation. Never merged into the key above.
+    private static let skinEditsKey = "continuum.controls.skinEdits.v1"
     /// Last N64 start-path crumb, flushed synchronously so a hard freeze still leaves it on disk.
     private static let lastN64CrumbKey = "continuum.n64.lastCrumb.v1"
 
@@ -1983,6 +2069,7 @@ final class EngineHost: ObservableObject {
         let legacy = TouchLayout.restored(from: defaults.data(forKey: Self.touchLayoutKey))
         touchLayoutFallback = legacy.isStandard ? nil : legacy
         loadTouchSkins(from: defaults)
+        loadSkinEdits(from: defaults)
         // Restored before surface attach so a force-quit mid-N64 leaves a readable line on reopen.
         // Status is set to the "Last N64: …" form here; surfaceAttached keeps it when present.
         lastN64Crumb = defaults.string(forKey: Self.lastN64CrumbKey) ?? ""
@@ -2004,6 +2091,13 @@ final class EngineHost: ObservableObject {
         // refused load or a failed auto-save has to be said out loud.
         saveStates.attach(host: self)
         cheats.attach(host: self)
+
+        // Extra on-screen buttons that run an app action rather than press a game button. Wired
+        // here because the actions reach the save states, the emulation settings and the status
+        // line, all of which the host owns. See `performPadAction`.
+        padInput.onAppAction = { [weak self] action, pressed in
+            self?.performPadAction(action, pressed: pressed)
+        }
 
         // Wired after `init` has finished with `self`, for the same reason. A pad connecting or
         // disconnecting is exactly the kind of thing the always-visible status line is for: it is
@@ -2941,6 +3035,97 @@ final class EngineHost: ObservableObject {
         saveStates.saveToNewSlot()
     }
 
+    /// Runs an extra on-screen button's app action. `pressed` is true on the press and false on
+    /// the release; only fast forward and rewind act on the release, the rest act once, on press.
+    ///
+    /// Every branch says what happened on the status line, including the refusals, because a
+    /// button that silently does nothing is the failure this app has a rule against.
+    func performPadAction(_ action: PadAppAction, pressed: Bool) {
+        switch action {
+        case .fastForward:
+            if pressed { emulation.beginFastForward() } else { emulation.endFastForward() }
+            return
+        case .rewind:
+            if pressed {
+                guard emulation.rewindEnabled else {
+                    status = "rewind button: rewind is off in Settings, so there is nothing to rewind"
+                    return
+                }
+                emulation.beginRewind()
+            } else {
+                emulation.endRewind()
+            }
+            return
+        default:
+            break
+        }
+        guard pressed else { return }
+        guard running, let entry = activeEntry else {
+            status = "\(action.title): no game is running"
+            return
+        }
+        switch action {
+        case .quickSave:
+            saveStates.saveToNewSlot()
+        case .quickLoad:
+            // Newest first, which is the order the store keeps, and that includes the auto-save.
+            guard let newest = saveStates.states(for: entry).first else {
+                status = "quick load: \(entry.name) has no saved state yet"
+                return
+            }
+            if !saveStates.load(newest) {
+                // The store has already said why on the status line.
+                return
+            }
+        case .screenshot:
+            captureScreenshot(of: entry)
+        case .menu:
+            togglePause()
+        case .fastForward, .rewind:
+            break
+        }
+    }
+
+    /// Saves the picture as a PNG in Documents/Screenshots, where the Files app can reach it
+    /// (`UIFileSharingEnabled` is already on). No Photos permission is needed for that, which is
+    /// why it goes there rather than to the photo library.
+    private func captureScreenshot(of entry: LibraryEntry) {
+        let frame: CapturedFrame
+        do {
+            frame = try engine.captureFrame(width: 0, height: 0)
+        } catch {
+            status = "screenshot failed: the frame could not be captured (\(error))"
+            return
+        }
+        let name = entry.name
+        Task {
+            let (png, failure) = await CapturedCover.pngData(width: frame.width,
+                                                             height: frame.height,
+                                                             rgba: frame.rgba)
+            guard let png else {
+                self.status = "screenshot failed: \(failure ?? "the picture could not be encoded")"
+                return
+            }
+            guard let documents = FileManager.default.urls(for: .documentDirectory,
+                                                           in: .userDomainMask).first else {
+                self.status = "screenshot failed: there is no Documents folder"
+                return
+            }
+            let folder = documents.appendingPathComponent("Screenshots", isDirectory: true)
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
+            let safe = name.replacingOccurrences(of: "/", with: "-")
+            let url = folder.appendingPathComponent("\(safe) \(formatter.string(from: Date())).png")
+            do {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try png.write(to: url, options: .atomic)
+                self.status = "screenshot saved to Files, Continuum/Screenshots/\(url.lastPathComponent)"
+            } catch {
+                self.status = "screenshot failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
     /// Launches a game and immediately loads one of its states.
     ///
     /// The detail sheet's "play from this state", and the reason `launch` takes `resumingAuto`. A
@@ -3630,6 +3815,11 @@ struct RootView: View {
                     // graph is up but nothing is playing" becomes visible, which on a sideloaded
                     // build is the difference between a diagnosis and a guess.
                     host.refreshAudioReadout()
+                    // A game's rumble, played on the phone and on any controller with motors.
+                    // After the tick, so this frame's requests are the ones read. Takes no engine
+                    // lock; see `ContinuumEngine.rumbleState`.
+                    RumblePlayer.shared.poll(engine: host.engine,
+                                             active: host.running && !host.paused)
                 }
             )
             .frame(width: max(1, area.width), height: max(1, area.height))

@@ -38,6 +38,8 @@ struct TouchLayoutEditor: View {
     let landscapeLayoutFor: (GameSystem) -> TouchLayout?
     let onLandscapeLayout: (GameSystem, TouchLayout) -> Void
     let onClearSkin: (GameSystem) -> Void
+    /// Reaches the in-app skin editor's overlay store. Nil hides the "Edit this skin" button.
+    let skinEditAccess: SkinEditAccess?
     let onClose: () -> Void
 
     @State private var draft: TouchLayout
@@ -56,6 +58,8 @@ struct TouchLayoutEditor: View {
     /// dismisses it without choosing a console. While this is set the pad claims no touches,
     /// so a row that lands on a button underneath still reaches `selectPreviewSystem`.
     @State private var systemMenuOpen = false
+    /// The in-app editor for an imported skin. See SkinEditor.swift.
+    @State private var showSkinEditor = false
 
     init(layoutFor: @escaping (GameSystem) -> TouchLayout,
          onCommit: @escaping (GameSystem, TouchLayout) -> Void,
@@ -69,6 +73,7 @@ struct TouchLayoutEditor: View {
          landscapeLayoutFor: @escaping (GameSystem) -> TouchLayout? = { _ in nil },
          onLandscapeLayout: @escaping (GameSystem, TouchLayout) -> Void = { _, _ in },
          onClearSkin: @escaping (GameSystem) -> Void,
+         skinEditAccess: SkinEditAccess? = nil,
          onClose: @escaping () -> Void) {
         self.layoutFor = layoutFor
         self.onCommit = onCommit
@@ -82,6 +87,7 @@ struct TouchLayoutEditor: View {
         self.landscapeLayoutFor = landscapeLayoutFor
         self.onLandscapeLayout = onLandscapeLayout
         self.onClearSkin = onClearSkin
+        self.skinEditAccess = skinEditAccess
         self.onClose = onClose
         let start = layoutFor(.ps1).sanitised
         _draft = State(initialValue: start)
@@ -99,6 +105,16 @@ struct TouchLayoutEditor: View {
             let finished = draft
             let system = previewSystem
             DispatchQueue.main.async { onCommit(system, finished) }
+            FloatingButtonStore.shared.selectedID = nil
+        }
+        .fullScreenCover(isPresented: $showSkinEditor) {
+            if let skinEditAccess {
+                SkinEditor(system: previewSystem, access: skinEditAccess) {
+                    showSkinEditor = false
+                    // Remount the preview so it picks up the edited faces.
+                    skinEpoch &+= 1
+                }
+            }
         }
     }
 
@@ -173,13 +189,14 @@ struct TouchLayoutEditor: View {
     private var panel: some View {
         GeometryReader { proxy in
             VStack(spacing: 0) {
-                card(maxBodyHeight: max(100, proxy.size.height * 0.36))
+                card(maxBodyHeight: max(100, proxy.size.height * 0.36),
+                     landscape: proxy.size.width > proxy.size.height)
                 Spacer(minLength: 0)
             }
         }
     }
 
-    private func card(maxBodyHeight: CGFloat) -> some View {
+    private func card(maxBodyHeight: CGFloat, landscape: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if panelExpanded {
@@ -226,9 +243,19 @@ struct TouchLayoutEditor: View {
                                 skinMessageIsError = false
                             }
                         }
+                        if skinEditAccess != nil,
+                           skinMappingFor(previewSystem).width > 0 || landscapeMappingFor(previewSystem).width > 0 {
+                            SettingsButton(title: "Edit this skin (hit areas, screens, opacity)",
+                                           role: .normal) {
+                                showSkinEditor = true
+                            }
+                        }
                         if let skinMessage {
                             skinBanner(skinMessage, isError: skinMessageIsError)
                         }
+                        // Extra floating buttons for this console and the way the phone is held
+                        // right now. Placed on the pad itself: tap to select, drag, pinch.
+                        FloatingButtonsPanel(system: previewSystem, landscape: landscape)
                         if let overlapWarning {
                             warning(overlapWarning)
                         }
@@ -413,6 +440,7 @@ struct TouchLayoutEditor: View {
         guard system != previewSystem else { return }
         onCommit(previewSystem, draft.sanitised)
         previewSystem = system
+        FloatingButtonStore.shared.selectedID = nil
         let loaded = layoutFor(system).sanitised
         draft = loaded
         committed = loaded

@@ -210,6 +210,7 @@ const ENV_GET_VARIABLE: c_uint = 15; // libretro.h:970 RETRO_ENVIRONMENT_GET_VAR
 const ENV_SET_VARIABLES: c_uint = 16; // libretro.h:1020 RETRO_ENVIRONMENT_SET_VARIABLES
 const ENV_GET_VARIABLE_UPDATE: c_uint = 17; // libretro.h:1038 RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE
 const ENV_SET_SUPPORT_NO_GAME: c_uint = 18; // libretro.h:1055 RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME
+const ENV_GET_RUMBLE_INTERFACE: c_uint = 23; // libretro.h:1147 RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE
 const ENV_GET_SAVE_DIRECTORY: c_uint = 31; // libretro.h:1330 RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY
 const ENV_GET_LOG_INTERFACE: c_uint = 27; // libretro.h:1247 RETRO_ENVIRONMENT_GET_LOG_INTERFACE
 const ENV_SET_SYSTEM_AV_INFO: c_uint = 32; // libretro.h:1369 RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO
@@ -225,6 +226,22 @@ const ENV_SET_CONTENT_INFO_OVERRIDE: c_uint = 65; // libretro.h:2183 RETRO_ENVIR
 const ENV_SET_CORE_OPTIONS_V2: c_uint = 67; // libretro.h:2345 RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
 const ENV_SET_CORE_OPTIONS_V2_INTL: c_uint = 68; // libretro.h:2362 RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL
 const ENV_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: c_uint = 69; // libretro.h:2383
+
+/// `struct retro_rumble_interface`, libretro.h:5649. One field, and its order is the layout.
+#[repr(C)]
+struct RetroRumbleInterface {
+    set_rumble_state: unsafe extern "C" fn(c_uint, c_uint, u16) -> bool,
+}
+
+/// `retro_set_rumble_state_t` (libretro.h:5642): `bool (*)(unsigned port,
+/// enum retro_rumble_effect effect, uint16_t strength)`.
+///
+/// The enum is passed as `c_uint`: `retro_rumble_effect` carries `RETRO_RUMBLE_DUMMY = INT_MAX`
+/// precisely so it is `int`-sized, and its only real values are 0 and 1, which read the same
+/// signed or unsigned. Stored in the process-global table the host polls; see `input::rumble`.
+unsafe extern "C" fn on_set_rumble_state(port: c_uint, effect: c_uint, strength: u16) -> bool {
+    crate::input::rumble::RUMBLE.set(port, effect, strength)
+}
 
 /// Stores the pixel format a core negotiated via `SET_PIXEL_FORMAT`.
 ///
@@ -359,6 +376,22 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
         }
         ENV_GET_CAN_DUPE => {
             unsafe { *(data as *mut bool) = true };
+            true
+        }
+        ENV_GET_RUMBLE_INTERFACE => {
+            // data is `struct retro_rumble_interface { retro_set_rumble_state_t
+            // set_rumble_state; }` (libretro.h:5649): one function pointer, filled in here.
+            // Answered true whether or not the user has Rumble on, which is what libretro.h
+            // says the return value means ("available, even if the current device doesn't
+            // support vibration"). The setting is honoured per call instead, by
+            // `set_rumble_state` returning false, so switching it on mid-game works without
+            // the core having to ask again.
+            if data.is_null() {
+                return false;
+            }
+            unsafe {
+                (*(data as *mut RetroRumbleInterface)).set_rumble_state = on_set_rumble_state
+            };
             true
         }
         ENV_GET_VARIABLE_UPDATE => {
@@ -1555,6 +1588,40 @@ mod tests {
         };
         assert!(ok);
         assert!(!changed, "no options change between polls in this host");
+    }
+
+    #[test]
+    fn rumble_interface_is_handed_to_the_core() {
+        unsafe extern "C" fn placeholder(_: c_uint, _: c_uint, _: u16) -> bool {
+            false
+        }
+        let mut interface = RetroRumbleInterface {
+            set_rumble_state: placeholder,
+        };
+        let ok = unsafe {
+            on_environment(
+                ENV_GET_RUMBLE_INTERFACE,
+                &mut interface as *mut RetroRumbleInterface as *mut c_void,
+            )
+        };
+        assert!(ok, "rumble is available");
+        assert_eq!(
+            interface.set_rumble_state as usize, on_set_rumble_state as usize,
+            "the core must be given the host's callback"
+        );
+        // Refusals do not touch the shared table, so they are safe to assert from a parallel
+        // test run. The table's own behaviour is covered in `input::rumble`.
+        let set = interface.set_rumble_state;
+        assert!(!unsafe { set(99, crate::input::rumble::RETRO_RUMBLE_STRONG, 1) });
+        assert!(!unsafe { set(0, 7, 1) });
+        // A null pointer is refused rather than written through.
+        assert!(!unsafe { on_environment(ENV_GET_RUMBLE_INTERFACE, std::ptr::null_mut()) });
+    }
+
+    #[test]
+    fn rumble_command_number_matches_libretro_h() {
+        // libretro.h:1147 `#define RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE 23`.
+        assert_eq!(ENV_GET_RUMBLE_INTERFACE, 23);
     }
 
     #[test]

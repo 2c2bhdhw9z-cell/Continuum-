@@ -32,7 +32,7 @@ pub const HW_RENDER_NEGOTIATION_INTERFACE_VULKAN_VERSION: u32 = 2;
 
 static STATE: Mutex<VulkanHwState> = Mutex::new(VulkanHwState::new());
 static QUEUE_LOCKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-const HANDLE_TOKEN: *mut c_void = 1 as *mut c_void;
+const HANDLE_TOKEN: *mut c_void = std::ptr::dangling_mut::<c_void>();
 
 fn lock_state() -> std::sync::MutexGuard<'static, VulkanHwState> {
     match STATE.lock() {
@@ -244,6 +244,10 @@ impl VulkanHwState {
     }
 }
 
+/// # Safety
+///
+/// `data` must be the pointer libretro passed with `cmd`, valid for the struct that command
+/// names (or null where the command allows it).
 pub unsafe fn try_environment(cmd: u32, data: *mut c_void) -> Option<bool> {
     match cmd {
         ENV_SET_HW_RENDER => Some(unsafe { on_set_hw_render(data) }),

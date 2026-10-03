@@ -57,6 +57,9 @@ struct SettingsScreen: View {
     /// clusters live at. A card cannot show you where a control sits relative to a screen it does
     /// not cover.
     @State private var showControlEditor = false
+    /// Button taps, rumble and the turbo rate. A shared object rather than a parameter, because
+    /// the pad deep under the player reads the same one. See Haptics.swift.
+    @ObservedObject private var feel = ControlFeel.shared
 
     var body: some View {
         ScrollView {
@@ -80,6 +83,7 @@ struct SettingsScreen: View {
                     speedSection
                     controllerSection
                     controlsSection
+                    feelSection
                     // In this group rather than the second one, along the seam the note above
                     // describes: a cheat changes how the game itself behaves.
                     cheatsSection
@@ -124,6 +128,7 @@ struct SettingsScreen: View {
                 landscapeLayoutFor: { system in host.skinLandscapeLayout(for: system) },
                 onLandscapeLayout: { system, layout in host.setLandscapeSkinLayout(layout, for: system) },
                 onClearSkin: { system in host.clearSkin(for: system) },
+                skinEditAccess: host.skinEditAccess,
                 onClose: { showControlEditor = false }
             )
         }
@@ -337,7 +342,10 @@ struct SettingsScreen: View {
                 "Opens the pad full screen. Pick a preview console, then drag face buttons, "
                 + "shoulders, SELECT, or START. Size and opacity, left-handed swap, and Import "
                 + ".deltaskin (layout, art, and game screen hole). Each console's layout and skin "
-                + "are remembered on their own between launches."
+                + "are remembered on their own between launches. Extra buttons (combos, turbo, "
+                + "quick save and load, fast forward, rewind, screenshot, menu) are added there "
+                + "too, per console and per orientation, and an imported skin can be edited "
+                + "without changing the file."
             )
 
             // Reachable from here as well as inside the editor, on the same reasoning as the
@@ -358,6 +366,52 @@ struct SettingsScreen: View {
                 + "bands. The pad reports overlapping controls on the diagnostic line. Importing "
                 + "a .deltaskin also draws its PDF/PNG art and places the game picture from "
                 + "screens[] when the pack includes them."
+            )
+        }
+    }
+
+    // MARK: Feel
+
+    /// How the controls answer a thumb: a tap per press, a game's rumble, and the turbo rate.
+    private var feelSection: some View {
+        SettingsSection(title: "HAPTICS AND TURBO") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Tap on a button press")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                SegmentedChoice(options: ButtonHapticStrength.allCases,
+                                title: { $0.label },
+                                selection: $feel.buttonHaptics)
+            }
+
+            Toggle(isOn: $feel.rumbleEnabled) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Rumble")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text(feel.rumbleEnabled
+                         ? "On. A game that rumbles plays it on the phone, and on a controller with motors."
+                         : "Off. The game is told rumble is not available.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(ShellPalette.secondaryText)
+                }
+            }
+            .tint(ShellPalette.accent)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Turbo speed")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                SegmentedChoice(options: TurboRate.allCases,
+                                title: { $0.label },
+                                selection: $feel.turboRate)
+            }
+
+            SettingsNote(
+                "The tap plays when a finger lands on an on-screen button or slides into a new "
+                + "D-pad direction. Rumble only happens in games whose core asks for it. Turbo "
+                + "applies to extra buttons set to Turbo in the control editor: Slow is about 4 "
+                + "presses a second, Normal 7, Fast 15."
             )
         }
     }
