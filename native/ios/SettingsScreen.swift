@@ -115,6 +115,8 @@ struct SettingsScreen: View {
                     // Arcade and Saturn core choice, beside the PlayStation one in spirit; here
                     // because the group above already holds SwiftUI's ten children.
                     systemCoresSection
+                    // Controller types, button mapping profiles, motion. See InputExtras.swift.
+                    InputSettingsSection(host: host, extras: host.inputExtras)
                 }
             }
             .padding(.bottom, 24)

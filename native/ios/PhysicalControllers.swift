@@ -70,9 +70,9 @@
 //   - `microGamepad`, the Siri Remote. Two buttons and no shoulders is not a game pad. Such a
 //     device is still reported as attached, because "I plugged something in and nothing happened"
 //     deserves an answer, and it is reported as unable to play rather than counted as a pad.
-//   - Button remapping. The mapping below is the W3C standard layout, which is the wire format the
-//     engine documents, and a remapping UI is a feature of its own rather than a detail of this
-//     one.
+//   - Button remapping HERE. The mapping below is the W3C standard layout, which is the wire format
+//     the engine documents. Remapping happens after it, in the engine (input/remap.rs), per profile,
+//     and its editor is the Controllers screen in InputExtras.swift.
 
 import Foundation
 import GameController
@@ -430,6 +430,51 @@ final class PhysicalControllers: ObservableObject {
                 controller.playerIndex = index
             }
         }
+    }
+
+    // MARK: Ports, for the Controllers screen
+
+    /// One attached device and the engine port it is on, nil when it has none.
+    struct PadAssignment: Identifiable {
+        let id: ObjectIdentifier
+        let name: String
+        let port: Int?
+    }
+
+    /// Every attached device, in attached order, with its port. Read by the Controllers screen,
+    /// which redraws through `summary` whenever this changes.
+    var portAssignments: [PadAssignment] {
+        attached.map { controller in
+            PadAssignment(id: ObjectIdentifier(controller),
+                          name: Self.name(of: controller),
+                          port: pads.firstIndex { $0 === controller })
+        }
+    }
+
+    /// Swaps the controllers on two ports. Ports are dense (player 1 to N for N pads), so a move to
+    /// a port no pad is on is refused with a reason rather than leaving a gap.
+    ///
+    /// Done by swapping the two in `attached`, whose order `refresh` preserves, so the new order
+    /// survives the next connect or disconnect exactly as the first-come order did. `refresh`
+    /// then releases the whole gamepad layer because the ports changed, for the reason given there.
+    func movePad(from: Int, to: Int) -> String {
+        guard pads.indices.contains(from) else {
+            return "controls: there is no controller on player \(from + 1)"
+        }
+        guard pads.indices.contains(to) else {
+            return "controls: \(pads.count) controller(s) connected, so players run from 1 to "
+                + "\(pads.count); player \(to + 1) needs another controller"
+        }
+        let moving = pads[from]
+        let other = pads[to]
+        guard let a = attached.firstIndex(where: { $0 === moving }),
+              let b = attached.firstIndex(where: { $0 === other }) else {
+            return "controls: that controller has just gone away"
+        }
+        attached.swapAt(a, b)
+        refresh()
+        onChange?(statusSentence)
+        return "controls: \(Self.name(of: moving)) is now player \(to + 1)"
     }
 
     // MARK: The frame loop

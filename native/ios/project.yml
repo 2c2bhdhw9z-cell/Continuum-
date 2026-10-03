@@ -308,6 +308,12 @@ targets:
       # line out. The GameController framework itself needs no entry here, because Swift autolinks
       # what it imports; AVFoundation in AudioOutput.swift is listed nowhere either.
       - path: PhysicalControllers.swift
+      # Keyboards (GCKeyboard, UIPress, the on-screen keyboard), CoreMotion for tilt games, the
+      # Controllers screen (ports, controller type, button mapping profiles, motion settings) and
+      # the EngineHost methods shake, toggleAnalogMode, toggleDSLid, blowIntoMic, pressHomeButton,
+      # showControllers, cycleTriggerProfile and showButtonBinding. WITHOUT THIS LINE the build
+      # breaks in PlayerScreen and SettingsScreen, which name types from it.
+      - path: InputExtras.swift
       # The layout editor: the full-screen screen that moves the on-screen controls. It mounts the
       # REAL pad in edit mode rather than a drawing of one, so what is dragged is what a game gets.
       # Without this line the button in Settings has nothing to open and the layout is fixed again,

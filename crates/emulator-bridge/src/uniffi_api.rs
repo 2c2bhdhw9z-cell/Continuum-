@@ -1589,3 +1589,8 @@ impl ContinuumEngine {
 // Online play and cloud sync. A child module so it can use `ContinuumEngine::lock`.
 #[path = "uniffi_online.rs"]
 mod online;
+
+// Keyboard, motion, controller types, remapping and console actions. A child module so it can use
+// `ContinuumEngine::lock`.
+#[path = "uniffi_input.rs"]
+mod input_api;

@@ -515,7 +515,7 @@ mod tests {
         a.pulses.push_back(Pulse::button(0, Button::L));
         let mut pressed = Vec::new();
         for _ in 0..14 {
-            let mut snap = InputSnapshot { ports: [PortState::default(); crate::input::MAX_PORTS] };
+            let mut snap = InputSnapshot { ports: [PortState::default(); crate::input::MAX_PORTS], keys: Default::default() };
             a.pulse_step(&mut snap);
             pressed.push(snap.ports[0].buttons);
         }

@@ -13,9 +13,65 @@
 //! with no translation layer in between.
 
 mod gamepad;
+pub mod keyboard;
+pub mod remap;
 pub mod rumble;
+pub mod sensors;
 
-pub use gamepad::{GamepadBridge, PadKind, PadSource, DEFAULT_TURBO_HALF_PERIOD};
+pub use gamepad::{GamepadBridge, InputSessionState, PadKind, PadSource, DEFAULT_TURBO_HALF_PERIOD};
+pub use keyboard::{KeyboardState, RETRO_DEVICE_KEYBOARD};
+
+use std::ffi::{c_uint, c_void};
+
+/// `RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES` (libretro.h:1187).
+pub const ENV_GET_INPUT_DEVICE_CAPABILITIES: c_uint = 24;
+
+/// The devices `input_state` answers, as `1 << RETRO_DEVICE_*`: joypad, mouse, keyboard, analog,
+/// pointer. A core that checks before reading the keyboard (several computer cores do) finds it.
+pub const DEVICE_CAPABILITIES: u64 = (1 << RETRO_DEVICE_JOYPAD)
+    | (1 << RETRO_DEVICE_MOUSE)
+    | (1 << RETRO_DEVICE_KEYBOARD)
+    | (1 << RETRO_DEVICE_ANALOG)
+    | (1 << RETRO_DEVICE_POINTER);
+
+/// Answers the environment commands the input module owns, or `None` for any other.
+///
+/// Self-contained like `crate::peripherals`: `cores/native_core.rs` calls this at the top of
+/// `on_environment`, [`reset_for_load`] before a core is initialised, and [`before_retro_run`]
+/// before every `retro_run`.
+///
+/// # Safety
+/// `data` is whatever the core passed to the environment callback for `cmd`.
+pub unsafe fn try_environment(cmd: c_uint, data: *mut c_void) -> Option<bool> {
+    match cmd {
+        keyboard::ENV_SET_KEYBOARD_CALLBACK => {
+            Some(unsafe { keyboard::answer_set_keyboard_callback(data) })
+        }
+        sensors::ENV_GET_SENSOR_INTERFACE => Some(unsafe { sensors::answer_interface(data) }),
+        ENV_GET_INPUT_DEVICE_CAPABILITIES => {
+            if data.is_null() {
+                return Some(false);
+            }
+            unsafe { *(data as *mut u64) = DEVICE_CAPABILITIES };
+            Some(true)
+        }
+        _ => None,
+    }
+}
+
+/// Before `retro_set_environment` for a new core: the last core's keyboard callback and sensor
+/// requests are forgotten.
+pub fn reset_for_load() {
+    keyboard::reset_for_load();
+    sensors::SENSORS.reset_core_side();
+}
+
+/// On the core's thread, immediately before `retro_run`: queued key events go to the core's
+/// keyboard callback, and a shake burst advances one frame.
+pub fn before_retro_run() {
+    keyboard::deliver_pending();
+    sensors::SENSORS.advance_frame();
+}
 
 /// Supported local players. Four covers every Phase 1 system (PS1 multitap aside).
 pub const MAX_PORTS: usize = 4;
@@ -183,6 +239,8 @@ impl PortState {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct InputState {
     ports: [PortState; MAX_PORTS],
+    /// The keyboard this layer holds. One per layer, not per port: libretro has one keyboard.
+    keys: KeyboardState,
 }
 
 impl InputState {
@@ -275,18 +333,33 @@ impl InputState {
     /// stick down while the tab is in the background.
     pub fn release_all(&mut self) {
         self.ports = [PortState::default(); MAX_PORTS];
+        self.keys = KeyboardState::default();
+    }
+
+    /// Sets one key on this layer. See [`keyboard`].
+    pub fn set_key(&mut self, keycode: u32, down: bool) {
+        self.keys.set(keycode, down);
+    }
+
+    pub fn keys(&self) -> &KeyboardState {
+        &self.keys
     }
 
     /// Freezes the current state for one core step. Taking a snapshot keeps input
     /// coherent across the catch-up steps of a single tick.
     pub fn snapshot(&self) -> InputSnapshot {
-        InputSnapshot { ports: self.ports }
+        InputSnapshot {
+            ports: self.ports,
+            keys: self.keys,
+        }
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct InputSnapshot {
     pub ports: [PortState; MAX_PORTS],
+    /// Every layer's keyboard, merged.
+    pub keys: KeyboardState,
 }
 
 impl InputSnapshot {
@@ -403,6 +476,9 @@ impl InputSnapshot {
                     _ => 0,
                 }
             }
+            // One keyboard, whatever port asks: libretro has no per-player keyboard, and cores
+            // differ on which port they query. `index` is unused for the keyboard.
+            RETRO_DEVICE_KEYBOARD => i16::from(self.keys.is_down(id)),
             RETRO_DEVICE_POINTER => {
                 // ONE POINTER, so anything past index 0 is absent rather than clamped. A core
                 // that supports multi-touch asks for index 1 and must be told there is nothing
@@ -714,5 +790,233 @@ mod mouse_tests {
         state.add_mouse_motion(0, f32::NAN, 1.0);
         state.add_mouse_motion(0, 2.0, 1.0);
         assert_eq!(state.snapshot().libretro_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_MOUSE_X), 2);
+    }
+}
+
+#[cfg(test)]
+mod keyboard_tests {
+    use super::keyboard::{self, RetroKeyboardCallback, RETROK_LSHIFT, RETROKMOD_SHIFT};
+    use super::{GamepadBridge, PadSource, RETRO_DEVICE_KEYBOARD};
+    use std::ffi::{c_uint, c_void};
+    use std::sync::Mutex;
+
+    static EVENTS: Mutex<Vec<(bool, u32, u32, u16)>> = Mutex::new(Vec::new());
+
+    unsafe extern "C" fn record(down: bool, key: c_uint, character: u32, mods: u16) {
+        EVENTS.lock().unwrap().push((down, key, character, mods));
+    }
+
+    fn with_callback<F: FnOnce()>(f: F) {
+        let _g = match keyboard::TEST_LOCK.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        keyboard::reset_for_load();
+        EVENTS.lock().unwrap().clear();
+        let mut cb = RetroKeyboardCallback { callback: Some(record) };
+        assert!(unsafe {
+            keyboard::answer_set_keyboard_callback(&mut cb as *mut _ as *mut c_void)
+        });
+        f();
+        keyboard::reset_for_load();
+    }
+
+    fn polled(pads: &GamepadBridge, key: u32) -> i16 {
+        pads.snapshot().libretro_state(0, RETRO_DEVICE_KEYBOARD, 0, key)
+    }
+
+    #[test]
+    fn a_key_is_polled_on_any_port_until_released() {
+        let _g = match keyboard::TEST_LOCK.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        keyboard::reset_for_load();
+        let mut pads = GamepadBridge::new();
+        pads.set_key(PadSource::Keyboard, 32, true, ' ' as u32);
+        assert_eq!(polled(&pads, 32), 1);
+        assert_eq!(pads.snapshot().libretro_state(1, RETRO_DEVICE_KEYBOARD, 0, 32), 1);
+        assert_eq!(polled(&pads, 33), 0);
+        pads.set_key(PadSource::Keyboard, 32, false, 0);
+        assert_eq!(polled(&pads, 32), 0);
+    }
+
+    #[test]
+    fn the_two_keyboards_merge_and_a_pad_poll_does_not_touch_them() {
+        let _g = match keyboard::TEST_LOCK.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        keyboard::reset_for_load();
+        let mut pads = GamepadBridge::new();
+        pads.set_key(PadSource::Keyboard, 97, true, 0);
+        pads.set_key(PadSource::Touch, 98, true, 0);
+        pads.apply_standard_gamepad_from(0, PadSource::Touch, &[false; 16], &[]);
+        assert_eq!(polled(&pads, 97), 1);
+        assert_eq!(polled(&pads, 98), 1);
+        pads.release_source(PadSource::Touch);
+        assert_eq!(polled(&pads, 98), 0);
+        assert_eq!(polled(&pads, 97), 1, "the hardware keyboard survives");
+    }
+
+    #[test]
+    fn the_callback_hears_each_press_once_with_its_character_and_modifiers() {
+        with_callback(|| {
+            let mut pads = GamepadBridge::new();
+            pads.set_key(PadSource::Keyboard, RETROK_LSHIFT, true, 0);
+            pads.set_key(PadSource::Keyboard, 97, true, 'A' as u32);
+            // The same key on the other keyboard is not a second press.
+            pads.set_key(PadSource::Touch, 97, true, 'A' as u32);
+            pads.set_key(PadSource::Keyboard, 97, false, 0);
+            pads.set_key(PadSource::Touch, 97, false, 0);
+            assert!(EVENTS.lock().unwrap().is_empty(), "nothing before the frame");
+            keyboard::deliver_pending();
+            let events = EVENTS.lock().unwrap().clone();
+            assert_eq!(
+                events,
+                vec![
+                    (true, RETROK_LSHIFT, 0, RETROKMOD_SHIFT),
+                    (true, 97, 'A' as u32, RETROKMOD_SHIFT),
+                    (false, 97, 0, RETROKMOD_SHIFT),
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn releasing_everything_tells_the_core_every_key_went_up() {
+        with_callback(|| {
+            let mut pads = GamepadBridge::new();
+            pads.set_key(PadSource::Keyboard, 100, true, 'd' as u32);
+            pads.set_key(PadSource::Touch, 101, true, 'e' as u32);
+            keyboard::deliver_pending();
+            EVENTS.lock().unwrap().clear();
+            pads.release_all();
+            keyboard::deliver_pending();
+            let ups: Vec<u32> = EVENTS
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| !e.0)
+                .map(|e| e.1)
+                .collect();
+            assert_eq!(ups, vec![100, 101]);
+            assert_eq!(polled(&pads, 100), 0);
+        });
+    }
+
+    #[test]
+    fn the_environment_answers_keyboard_sensor_and_capabilities() {
+        let _g = match keyboard::TEST_LOCK.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
+        let mut caps: u64 = 0;
+        assert_eq!(
+            unsafe {
+                super::try_environment(
+                    super::ENV_GET_INPUT_DEVICE_CAPABILITIES,
+                    &mut caps as *mut u64 as *mut c_void,
+                )
+            },
+            Some(true)
+        );
+        assert_ne!(caps & (1 << RETRO_DEVICE_KEYBOARD), 0);
+        assert_eq!(unsafe { super::try_environment(9999, std::ptr::null_mut()) }, None);
+        let mut cb = RetroKeyboardCallback { callback: Some(record) };
+        assert_eq!(
+            unsafe {
+                super::try_environment(
+                    keyboard::ENV_SET_KEYBOARD_CALLBACK,
+                    &mut cb as *mut _ as *mut c_void,
+                )
+            },
+            Some(true)
+        );
+        assert!(keyboard::has_callback());
+        super::reset_for_load();
+        assert!(!keyboard::has_callback());
+    }
+}
+
+#[cfg(test)]
+mod remap_bridge_tests {
+    use super::remap::{InputAction, RemapTable, Target};
+    use super::{Button, GamepadBridge, PadSource, RETRO_DEVICE_ANALOG};
+
+    #[test]
+    fn a_remapped_poll_reaches_the_core_remapped() {
+        let mut pads = GamepadBridge::new();
+        let mut table = RemapTable::default();
+        table.set(Button::L, Target::Button(Button::L2));
+        pads.set_remap(PadSource::Gamepad, table);
+        let mut w3c = [false; 16];
+        w3c[4] = true; // left shoulder = retro L
+        pads.apply_standard_gamepad_from(0, PadSource::Gamepad, &w3c, &[]);
+        let s = pads.snapshot();
+        assert!(s.button(0, Button::L2) && !s.button(0, Button::L));
+    }
+
+    #[test]
+    fn stick_to_dpad_can_be_turned_off_and_the_deadzone_shapes_the_stick() {
+        let mut pads = GamepadBridge::new();
+        let table = RemapTable {
+            stick_to_dpad: false,
+            deadzone: 0.5,
+            ..RemapTable::default()
+        };
+        pads.set_remap(PadSource::Gamepad, table);
+        pads.apply_standard_gamepad_from(0, PadSource::Gamepad, &[], &[-0.9, 0.0]);
+        let s = pads.snapshot();
+        assert!(!s.button(0, Button::Left));
+        assert!(s.libretro_state(0, RETRO_DEVICE_ANALOG, 0, 0) < -20000);
+        pads.apply_standard_gamepad_from(0, PadSource::Gamepad, &[], &[0.4, 0.0]);
+        assert_eq!(pads.snapshot().libretro_state(0, RETRO_DEVICE_ANALOG, 0, 0), 0);
+    }
+
+    #[test]
+    fn an_action_fires_once_per_press_and_held_is_visible() {
+        let mut pads = GamepadBridge::new();
+        let mut table = RemapTable::default();
+        table.set(Button::R3, Target::Action(InputAction::Blow));
+        table.set(Button::L3, Target::Action(InputAction::Shake));
+        pads.set_remap(PadSource::Touch, table);
+        let mut w3c = [false; 16];
+        w3c[10] = true; // L3
+        w3c[11] = true; // R3
+        for _ in 0..5 {
+            pads.apply_standard_gamepad_from(0, PadSource::Touch, &w3c, &[]);
+        }
+        assert_eq!(pads.take_actions(), vec![InputAction::Shake, InputAction::Blow]);
+        assert!(pads.action_held(InputAction::Blow));
+        pads.apply_standard_gamepad_from(0, PadSource::Touch, &[false; 16], &[]);
+        assert!(!pads.action_held(InputAction::Blow));
+        assert!(pads.take_actions().is_empty());
+    }
+
+    #[test]
+    fn latched_and_pulsed_buttons_ride_every_core_frame() {
+        let mut pads = GamepadBridge::new();
+        pads.set_latched(0, 1 << Button::L3 as u32, true);
+        pads.pulse(0, 1 << Button::L as u32, 2);
+        let base = pads.snapshot();
+        let frames: Vec<(bool, bool)> = (0..4)
+            .map(|_| {
+                let s = pads.turbo_step(&base);
+                (s.button(0, Button::L3), s.button(0, Button::L))
+            })
+            .collect();
+        assert_eq!(frames, vec![(true, true), (true, true), (true, false), (true, false)]);
+        pads.set_latched(0, 1 << Button::L3 as u32, false);
+        assert!(!pads.turbo_step(&base).button(0, Button::L3));
+    }
+
+    #[test]
+    fn the_keyboard_layer_is_never_remapped() {
+        let mut pads = GamepadBridge::new();
+        let mut table = RemapTable::default();
+        table.set(Button::A, Target::None);
+        pads.set_remap(PadSource::Keyboard, table);
+        assert!(pads.remap(PadSource::Keyboard).is_identity());
     }
 }

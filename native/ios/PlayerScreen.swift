@@ -172,6 +172,10 @@ struct PlayerScreen: View {
 
             // Unlock banners. Takes no touches; see `AchievementToastOverlay`.
             AchievementToastOverlay(store: host.achievements)
+
+            // Hardware key capture, the on-screen keyboard and the Controllers sheet.
+            // See InputExtras.swift.
+            InputPlayerLayer(host: host, extras: host.inputExtras, system: system)
         }
         .sheet(isPresented: $showingSlots) {
             if let entry = host.activeEntry {
@@ -352,6 +356,45 @@ struct PlayerScreen: View {
             // Core settings, filters, discs, palettes, speeds, rotation and the TV.
             CoreActionsMenuSection(host: host, system: system)
 
+            Section("Controls") {
+                Button {
+                    host.showControllers()
+                } label: {
+                    Label("Controllers and button mapping...", systemImage: "gamecontroller")
+                }
+                Button {
+                    host.toggleOnScreenKeyboard()
+                } label: {
+                    Label("Keyboard", systemImage: "keyboard")
+                }
+                if system == .ps1 {
+                    Button {
+                        host.toggleAnalogMode()
+                    } label: {
+                        Label(host.isAnalogMode() ? "Analog pad: on" : "Analog pad: off",
+                              systemImage: "l.joystick")
+                    }
+                }
+                if system == .ds {
+                    Button {
+                        host.toggleDSLid()
+                    } label: {
+                        Label("Close or open the lid", systemImage: "laptopcomputer")
+                    }
+                }
+                if system == .n3ds {
+                    Button {
+                        host.pressHomeButton()
+                    } label: {
+                        Label("HOME button", systemImage: "house")
+                    }
+                }
+                Button {
+                    host.shake()
+                } label: {
+                    Label("Shake", systemImage: "iphone.radiowaves.left.and.right")
+                }
+            }
             Section("Online play") {
                 Button {
                     showNetplay = true

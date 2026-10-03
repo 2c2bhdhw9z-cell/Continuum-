@@ -3675,6 +3675,9 @@ final class EngineHost: ObservableObject {
             // stops "hide the on-screen pad" unmounting the overlay for a system whose touch
             // screen lives on it; see `PhysicalControllers.runningSystemNeedsOverlay`.
             controllers.noteRunningSystem(activeSystem)
+            // The remap profile and controller types for this system, after the load (the core
+            // declares its controller types while loading). See InputExtras.swift.
+            inputSessionDidStart()
             if spec.coreId == CoreCatalog.mednafenPsxHw.coreId {
                 status = "\(entry.name) on Beetle PSX HW — waiting for first Vulkan frame"
             }
@@ -4773,6 +4776,9 @@ struct RootView: View {
                     // Starts or stops the microphone and camera when the core's wish changes.
                     // Atomic reads in Rust, no engine lock, so it is cheap enough for every frame.
                     host.peripherals.poll()
+                    // CoreMotion on and off as the core asks, and host actions from remapped
+                    // buttons (show keyboard). See InputExtras.swift.
+                    host.inputFramePoll()
                     // Sends what this tick's lockstep step produced. Cheap and early-out when
                     // online play is off.
                     host.netplay.afterTick()
