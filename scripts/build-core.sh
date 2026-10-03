@@ -351,6 +351,11 @@ ios_core_config() {
       IOS_KIND="cmake-shared"
       IOS_CMAKE_TARGET="citra_libretro"
       IOS_SUBMODULES=1
+      # Continuum patch (scripts/patches/azahar-do-not-wait-on-pipeline-compile.patch):
+      # RasterizerVulkan waits on every new pipeline because async_shader_compilation
+      # defaults off (wait_built is then always true) and BindPipeline calls WaitDone.
+      # That is the post-transition hitch. The patch skips the draw instead of waiting.
+      # No JIT, no dynarec, no executable memory.
       IOS_DISPLAY="Nintendo 3DS, Vulkan, interpreter CPU (no JIT)"
       ;;
     *)
@@ -769,6 +774,9 @@ ios_apply_core_patches() {
       ios_apply_parallel_n64_aarch64_hot_state_gate_patch
       ios_apply_parallel_n64_first_tick_patch
       ;;
+    azahar)
+      ios_apply_azahar_pipeline_wait_patch
+      ;;
   esac
 }
 
@@ -838,6 +846,38 @@ ios_apply_parallel_n64_first_tick_patch() {
 
   grep -qF "$marker" "$src" || {
     echo "error: parallel_n64: patch reported success but the Continuum marker is missing" >&2
+    exit 1
+  }
+}
+
+ios_apply_azahar_pipeline_wait_patch() {
+  local src="$IOS_SRC_DIR/src/video_core/renderer_vulkan/vk_rasterizer.cpp"
+  local patch="$ROOT/scripts/patches/azahar-do-not-wait-on-pipeline-compile.patch"
+  local marker="Continuum: do not block the emulation thread on Vulkan pipeline compile."
+
+  [[ -f "$src" ]] || {
+    echo "error: azahar: expected $src after clone; upstream layout changed" >&2
+    exit 1
+  }
+  [[ -f "$patch" ]] || {
+    echo "error: azahar: missing Continuum patch at $patch" >&2
+    exit 1
+  }
+
+  if grep -qF "$marker" "$src"; then
+    echo "==> azahar: Continuum pipeline-wait patch already present"
+    return
+  fi
+
+  echo "==> azahar: applying Continuum pipeline-wait patch (do not WaitDone on new pipelines)"
+  if ! patch -p1 --forward -d "$IOS_SRC_DIR" < "$patch"; then
+    echo "error: azahar: Continuum pipeline-wait patch failed to apply." >&2
+    echo "       Upstream likely moved wait_built in vk_rasterizer.cpp; refresh the patch." >&2
+    exit 1
+  fi
+
+  grep -qF "$marker" "$src" || {
+    echo "error: azahar: patch reported success but the Continuum marker is missing" >&2
     exit 1
   }
 }

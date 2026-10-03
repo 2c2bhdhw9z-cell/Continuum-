@@ -3,8 +3,9 @@
 // Shows the REAL pad (`TouchControlsHost` with `isEditing` true) so what you drag is what you get.
 // Every face button, shoulder (L/R/L1/L2/R1/R2), and SELECT/START has its own outline and drag.
 // The D-pad stays one surface. Preview remounts on console change so labels match that system.
-// Every value goes through `TouchLayout.sanitised` before commit. Landscape still overrides D-pad
-// y (thumbs sit mid-edge); free buttons and SELECT/START stay free in both orientations.
+// Every value goes through `TouchLayout.sanitised` before commit. Without a skin, landscape
+// still overrides D-pad y (thumbs sit mid-edge). An imported skin keeps portrait and landscape
+// and swaps them when the phone rotates; that skin's stored y is not overridden.
 //
 // Layouts are PER SYSTEM: switching the preview console loads that console's saved arrangement.
 // Import .deltaskin maps Delta info.json item frames onto the inferred (or current preview)
@@ -30,6 +31,12 @@ struct TouchLayoutEditor: View {
     let onSkinImported: (GameSystem, DeltaSkinImportResult) -> Void
     let skinImageFor: (GameSystem) -> UIImage?
     let skinScreenFor: (GameSystem) -> DeltaSkinNormalizedRect?
+    let skinMappingFor: (GameSystem) -> CGSize
+    let landscapeImageFor: (GameSystem) -> UIImage?
+    let landscapeScreenFor: (GameSystem) -> DeltaSkinNormalizedRect?
+    let landscapeMappingFor: (GameSystem) -> CGSize
+    let landscapeLayoutFor: (GameSystem) -> TouchLayout?
+    let onLandscapeLayout: (GameSystem, TouchLayout) -> Void
     let onClearSkin: (GameSystem) -> Void
     let onClose: () -> Void
 
@@ -55,6 +62,12 @@ struct TouchLayoutEditor: View {
          onSkinImported: @escaping (GameSystem, DeltaSkinImportResult) -> Void,
          skinImageFor: @escaping (GameSystem) -> UIImage?,
          skinScreenFor: @escaping (GameSystem) -> DeltaSkinNormalizedRect?,
+         skinMappingFor: @escaping (GameSystem) -> CGSize = { _ in .zero },
+         landscapeImageFor: @escaping (GameSystem) -> UIImage? = { _ in nil },
+         landscapeScreenFor: @escaping (GameSystem) -> DeltaSkinNormalizedRect? = { _ in nil },
+         landscapeMappingFor: @escaping (GameSystem) -> CGSize = { _ in .zero },
+         landscapeLayoutFor: @escaping (GameSystem) -> TouchLayout? = { _ in nil },
+         onLandscapeLayout: @escaping (GameSystem, TouchLayout) -> Void = { _, _ in },
          onClearSkin: @escaping (GameSystem) -> Void,
          onClose: @escaping () -> Void) {
         self.layoutFor = layoutFor
@@ -62,6 +75,12 @@ struct TouchLayoutEditor: View {
         self.onSkinImported = onSkinImported
         self.skinImageFor = skinImageFor
         self.skinScreenFor = skinScreenFor
+        self.skinMappingFor = skinMappingFor
+        self.landscapeImageFor = landscapeImageFor
+        self.landscapeScreenFor = landscapeScreenFor
+        self.landscapeMappingFor = landscapeMappingFor
+        self.landscapeLayoutFor = landscapeLayoutFor
+        self.onLandscapeLayout = onLandscapeLayout
         self.onClearSkin = onClearSkin
         self.onClose = onClose
         let start = layoutFor(.ps1).sanitised
@@ -133,6 +152,14 @@ struct TouchLayoutEditor: View {
             },
             skinArtwork: skinImageFor(previewSystem),
             skinScreenNormalized: skinScreenFor(previewSystem),
+            skinMapping: skinMappingFor(previewSystem),
+            landscapeArtwork: landscapeImageFor(previewSystem),
+            landscapeScreen: landscapeScreenFor(previewSystem),
+            landscapeMapping: landscapeMappingFor(previewSystem),
+            landscapeLayout: landscapeLayoutFor(previewSystem),
+            onLandscapeLayoutEdited: { layout, settled in
+                if settled { self.onLandscapeLayout(self.previewSystem, layout) }
+            },
             editingHitsSuspended: systemMenuOpen
         )
         // Remount when the preview console or imported art changes so chip labels and skin
@@ -191,7 +218,7 @@ struct TouchLayoutEditor: View {
                         SettingsButton(title: "Import .deltaskin", role: .normal) {
                             beginSkinImport()
                         }
-                        if skinImageFor(previewSystem) != nil || skinScreenFor(previewSystem) != nil {
+                        if skinImageFor(previewSystem) != nil || skinScreenFor(previewSystem) != nil || landscapeMappingFor(previewSystem).width > 0 {
                             SettingsButton(title: "Clear this system's skin art", role: .destructive) {
                                 onClearSkin(previewSystem)
                                 skinEpoch &+= 1

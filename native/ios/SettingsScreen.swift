@@ -116,6 +116,12 @@ struct SettingsScreen: View {
                 onSkinImported: { system, result in host.applyImportedSkin(result, for: system) },
                 skinImageFor: { system in host.skinImage(for: system) },
                 skinScreenFor: { system in host.skinScreenOutput(for: system) },
+                skinMappingFor: { system in host.skinMapping(for: system) },
+                landscapeImageFor: { system in host.skinLandscapeImage(for: system) },
+                landscapeScreenFor: { system in host.skinLandscapeScreen(for: system) },
+                landscapeMappingFor: { system in host.skinLandscapeMapping(for: system) },
+                landscapeLayoutFor: { system in host.skinLandscapeLayout(for: system) },
+                onLandscapeLayout: { system, layout in host.setLandscapeSkinLayout(layout, for: system) },
                 onClearSkin: { system in host.clearSkin(for: system) },
                 onClose: { showControlEditor = false }
             )

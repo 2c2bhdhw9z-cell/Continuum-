@@ -36,6 +36,27 @@ struct DeltaSkinNormalizedRect: Codable, Equatable, Sendable {
         )
     }
 
+    /// Letterboxes `mapping` inside `bounds`. The skin's own aspect is kept, so a portrait
+    /// hole rotated onto a wide phone stays a portrait hole instead of being stretched.
+    static func aspectFitCanvas(mapping: CGSize, in bounds: CGRect) -> CGRect {
+        guard mapping.width > 0, mapping.height > 0,
+              bounds.width > 0, bounds.height > 0 else { return bounds }
+        let scale = min(bounds.width / mapping.width, bounds.height / mapping.height)
+        let width = mapping.width * scale
+        let height = mapping.height * scale
+        return CGRect(
+            x: bounds.midX - width / 2,
+            y: bounds.midY - height / 2,
+            width: width,
+            height: height
+        )
+    }
+
+    /// The screen hole in view space, aspect-fit, never stretched to `bounds`.
+    func placed(mapping: CGSize, in bounds: CGRect) -> CGRect {
+        cgRect(in: Self.aspectFitCanvas(mapping: mapping, in: bounds))
+    }
+
     static func from(frame: CGRect, mappingSize: CGSize) -> DeltaSkinNormalizedRect? {
         guard mappingSize.width > 0, mappingSize.height > 0,
               frame.width > 0, frame.height > 0 else { return nil }
@@ -54,6 +75,16 @@ enum DeltaSkinAssetKind: String, Codable, Sendable {
     case png
 }
 
+/// One orientation of an imported skin: its own mapping, hole, art, and button layout.
+struct DeltaSkinFace: Codable, Equatable, Sendable {
+    var mappingWidth: Double
+    var mappingHeight: Double
+    var screenOutput: DeltaSkinNormalizedRect?
+    var assetFileName: String?
+    var assetKind: DeltaSkinAssetKind?
+    var layout: TouchLayout
+}
+
 /// Artwork + screen hole from one imported representation (persisted per console).
 struct DeltaSkinVisual: Codable, Equatable, Sendable {
     var skinName: String
@@ -64,6 +95,9 @@ struct DeltaSkinVisual: Codable, Equatable, Sendable {
     var screenOutput: DeltaSkinNormalizedRect?
     var assetFileName: String?
     var assetKind: DeltaSkinAssetKind?
+    /// Landscape representation, when the package had one. Nil on skins imported before both
+    /// orientations were kept, and on packages that only ship portrait.
+    var landscape: DeltaSkinFace?
 }
 
 /// What importing one Delta skin package produced.
@@ -80,6 +114,8 @@ struct DeltaSkinImportResult: Sendable {
     let visual: DeltaSkinVisual
     /// Raw PDF or PNG bytes from the package, when an asset file was present and readable.
     let assetData: Data?
+    /// Landscape art bytes, when that representation named a file that was in the package.
+    let landscapeAssetData: Data?
 }
 
 /// Why a skin import did not produce a layout.
@@ -158,9 +194,14 @@ enum DeltaSkinImporter {
         guard let representations = root["representations"] as? [String: Any] else {
             throw DeltaSkinImportError.noUsableRepresentation
         }
-        guard let chosen = pickRepresentation(from: representations) else {
+        let orientations = pickOrientations(from: representations)
+        // Portrait is the editor's stored layout. Landscape is kept beside it and swapped
+        // in when the phone is wider than it is tall. A package with only one orientation
+        // still imports; the missing half is not invented.
+        guard let chosen = orientations.portrait ?? orientations.landscape else {
             throw DeltaSkinImportError.noUsableRepresentation
         }
+        let landscapeChoice = orientations.portrait == nil ? nil : orientations.landscape
 
         let mapping = chosen.mappingSize
         guard mapping.width > 0, mapping.height > 0 else {
@@ -186,6 +227,16 @@ enum DeltaSkinImporter {
             }
         }
 
+        var landscapeFace: DeltaSkinFace?
+        var landscapeAssetData: Data?
+        if let landscapeChoice {
+            let built = buildFace(landscapeChoice, assetLookup: assetLookup)
+            if built.applied > 0 {
+                landscapeFace = built.face
+                landscapeAssetData = built.assetData
+            }
+        }
+
         var summaryBits = [
             "\(name)",
             "via \(sourceName)",
@@ -202,6 +253,12 @@ enum DeltaSkinImporter {
         } else {
             summaryBits.append("no screens[] — picture keeps free band")
         }
+        if landscapeFace != nil {
+            summaryBits.append("landscape kept")
+            if landscapeFace?.screenOutput != nil {
+                summaryBits.append("landscape screen hole")
+            }
+        }
         if assetData != nil, let assetPick {
             summaryBits.append("art \(assetPick.name)")
         } else if assetPick != nil {
@@ -217,7 +274,8 @@ enum DeltaSkinImporter {
             mappingHeight: Double(mapping.height),
             screenOutput: screenOutput,
             assetFileName: assetPick?.name,
-            assetKind: assetKind
+            assetKind: assetKind,
+            landscape: landscapeFace
         )
 
         return DeltaSkinImportResult(
@@ -226,7 +284,8 @@ enum DeltaSkinImporter {
             previewSystem: preview,
             summary: summaryBits.joined(separator: " · "),
             visual: visual,
-            assetData: assetData
+            assetData: assetData,
+            landscapeAssetData: landscapeAssetData
         )
     }
 
@@ -295,47 +354,80 @@ enum DeltaSkinImporter {
         let translucent: Bool
     }
 
-    private static func pickRepresentation(from representations: [String: Any]) -> ChosenOrientation? {
+    private struct OrientationPick {
+        var portrait: ChosenOrientation?
+        var landscape: ChosenOrientation?
+    }
+
+    /// Best portrait and best landscape, independently. iPhone edge-to-edge wins over
+    /// standard, which wins over iPad. Finding portrait does not throw landscape away.
+    private static func pickOrientations(from representations: [String: Any]) -> OrientationPick {
         let deviceOrder = ["iphone", "ipad"]
         let sizeOrder = ["edgeToEdge", "standard", "splitView"]
-        let orientationOrder = ["portrait", "landscape"]
+        var bestPortraitRank = Int.max
+        var bestLandscapeRank = Int.max
+        var picked = OrientationPick()
 
-        var fallback: ChosenOrientation?
-
-        for device in deviceOrder {
+        for (deviceIndex, device) in deviceOrder.enumerated() {
             guard let deviceNode = representations[device] as? [String: Any] else { continue }
-            for size in sizeOrder {
+            for (sizeIndex, size) in sizeOrder.enumerated() {
                 guard let sizeNode = deviceNode[size] as? [String: Any] else { continue }
-                for orientation in orientationOrder {
+                let rank = deviceIndex * 10 + sizeIndex
+                for orientation in ["portrait", "landscape"] {
                     guard let node = sizeNode[orientation] as? [String: Any],
                           let mapping = readSize(node["mappingSize"]),
                           let items = node["items"] as? [[String: Any]],
                           !items.isEmpty else { continue }
-                    let path = "\(device)/\(size)/\(orientation)"
-                    let screens = node["screens"] as? [[String: Any]] ?? []
-                    let assets = node["assets"] as? [String: Any] ?? [:]
-                    let translucent = (node["translucent"] as? Bool) ?? false
                     let chosen = ChosenOrientation(
-                        path: path,
+                        path: "\(device)/\(size)/\(orientation)",
                         mappingSize: mapping,
                         items: items,
-                        screens: screens,
-                        assets: assets,
-                        translucent: translucent
+                        screens: node["screens"] as? [[String: Any]] ?? [],
+                        assets: node["assets"] as? [String: Any] ?? [:],
+                        translucent: (node["translucent"] as? Bool) ?? false
                     )
-                    if device == "iphone", size == "edgeToEdge", orientation == "portrait" {
-                        return chosen
+                    if orientation == "portrait", rank < bestPortraitRank {
+                        picked.portrait = chosen
+                        bestPortraitRank = rank
                     }
-                    if device == "iphone", size == "standard", orientation == "portrait",
-                       fallback == nil {
-                        fallback = chosen
-                    } else if fallback == nil {
-                        fallback = chosen
+                    if orientation == "landscape", rank < bestLandscapeRank {
+                        picked.landscape = chosen
+                        bestLandscapeRank = rank
                     }
                 }
             }
         }
-        return fallback
+        return picked
+    }
+
+    private struct BuiltFace {
+        var face: DeltaSkinFace
+        var assetData: Data?
+        var applied: Int
+    }
+
+    private static func buildFace(
+        _ chosen: ChosenOrientation,
+        assetLookup: (String) -> Data?
+    ) -> BuiltFace {
+        let mapping = chosen.mappingSize
+        let mapped = mapItems(chosen.items, mappingSize: mapping)
+        let assetPick = pickAssetFileName(from: chosen.assets)
+        var assetData: Data?
+        var assetKind: DeltaSkinAssetKind?
+        if let assetPick, let bytes = assetLookup(assetPick.name), !bytes.isEmpty {
+            assetData = bytes
+            assetKind = assetPick.kind
+        }
+        let face = DeltaSkinFace(
+            mappingWidth: Double(mapping.width),
+            mappingHeight: Double(mapping.height),
+            screenOutput: firstScreenOutput(from: chosen.screens, mappingSize: mapping),
+            assetFileName: assetData == nil ? nil : assetPick?.name,
+            assetKind: assetKind,
+            layout: mapped.layout.sanitised
+        )
+        return BuiltFace(face: face, assetData: assetData, applied: mapped.appliedCount)
     }
 
     private static func firstScreenOutput(

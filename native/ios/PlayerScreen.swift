@@ -124,7 +124,12 @@ struct PlayerScreen: View {
                     onDiagnostic: { line in host.noteControlLayout(line) },
                     onPictureArea: { rect in host.updatePictureArea(rect) },
                     skinArtwork: host.skinImage(for: system),
-                    skinScreenNormalized: host.skinScreenOutput(for: system)
+                    skinScreenNormalized: host.skinScreenOutput(for: system),
+                    skinMapping: host.skinMapping(for: system),
+                    landscapeArtwork: host.skinLandscapeImage(for: system),
+                    landscapeScreen: host.skinLandscapeScreen(for: system),
+                    landscapeMapping: host.skinLandscapeMapping(for: system),
+                    landscapeLayout: host.skinLandscapeLayout(for: system)
                 )
                 .ignoresSafeArea()
             }

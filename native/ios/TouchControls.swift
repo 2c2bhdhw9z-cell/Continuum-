@@ -1223,6 +1223,71 @@ final class TouchControlsView: UIView {
         }
     }
 
+    /// Portrait (or only) representation's mappingSize. Zero means no imported skin canvas,
+    /// and the procedural layout is used.
+    var skinMapping: CGSize = .zero {
+        didSet { if oldValue != skinMapping { setNeedsLayout() } }
+    }
+
+    /// Landscape representation. Used only when the view is wider than it is tall.
+    var landscapeArtwork: UIImage? {
+        didSet {
+            guard landscapeArtwork !== oldValue else { return }
+            applyOpacity()
+            setNeedsLayout()
+        }
+    }
+    var landscapeScreen: DeltaSkinNormalizedRect? {
+        didSet { if oldValue != landscapeScreen { setNeedsLayout() } }
+    }
+    var landscapeMapping: CGSize = .zero {
+        didSet { if oldValue != landscapeMapping { setNeedsLayout() } }
+    }
+    var landscapeLayout: TouchLayout? {
+        didSet { if oldValue != landscapeLayout { setNeedsLayout() } }
+    }
+
+    /// Landscape-skin drags. Portrait drags still use `onLayoutEdited`.
+    var onLandscapeLayoutEdited: ((TouchLayout, Bool) -> Void)?
+
+    /// True while a landscape skin's own layout is what the last pass placed.
+    private var placingLandscapeSkin = false
+
+    var isClusterDragging: Bool { clusterDrag != nil }
+
+    private struct ResolvedSkin {
+        var artwork: UIImage?
+        var screen: DeltaSkinNormalizedRect?
+        var mapping: CGSize
+        var layout: TouchLayout
+        var usesLandscapeLayout: Bool
+    }
+
+    /// The skin face for the current orientation. Portrait fractions are never applied to a
+    /// landscape view: the canvas is aspect-fit, and a stored landscape face replaces it.
+    private func resolvedSkin() -> ResolvedSkin? {
+        let wide = bounds.width > bounds.height
+        if wide, landscapeMapping.width > 0, landscapeMapping.height > 0 {
+            return ResolvedSkin(
+                artwork: landscapeArtwork,
+                screen: landscapeScreen,
+                mapping: landscapeMapping,
+                layout: landscapeLayout ?? layout,
+                usesLandscapeLayout: landscapeLayout != nil
+            )
+        }
+        if skinMapping.width > 0, skinMapping.height > 0 {
+            return ResolvedSkin(
+                artwork: skinArtwork,
+                screen: skinScreenNormalized,
+                mapping: skinMapping,
+                layout: layout,
+                usesLandscapeLayout: false
+            )
+        }
+        return nil
+    }
+
     /// Drawn under the procedural chips so a Delta PDF/PNG shows through.
     private let skinImageView: UIImageView = {
         let view = UIImageView()
@@ -1451,7 +1516,7 @@ final class TouchControlsView: UIView {
     /// the real setting, which is the point of previewing it at all.
     private func applyOpacity() {
         let previewed = CGFloat(layout.sanitised.opacity)
-        let hasSkin = skinArtwork != nil
+        let hasSkin = skinArtwork != nil || landscapeArtwork != nil
         // Skin art stays fully opaque; procedural chrome fades so Delta PDFs are visible.
         // In the editor, keep chips readable enough to drag (floor 0.35) even with a skin.
         skinImageView.alpha = 1
@@ -1484,14 +1549,24 @@ final class TouchControlsView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
 
-        // Skin fills the whole pad view (Delta mappingSize matches the representation's screen).
-        if !skinImageView.isHidden {
+        let safe = bounds.inset(by: safeAreaInsets)
+        let safePlay = safe.insetBy(dx: Self.edgeMargin, dy: Self.edgeMargin)
+        let skin = resolvedSkin()
+        let skinCanvas = skin.map {
+            DeltaSkinNormalizedRect.aspectFitCanvas(mapping: $0.mapping, in: bounds)
+        }
+        if let skinCanvas {
+            skinImageView.image = skin?.artwork
+            skinImageView.isHidden = skin?.artwork == nil
+            skinImageView.frame = skinCanvas
+            sendSubviewToBack(skinImageView)
+        } else if !skinImageView.isHidden {
+            skinImageView.image = skinArtwork
             skinImageView.frame = bounds
             sendSubviewToBack(skinImageView)
         }
 
-        let safe = bounds.inset(by: safeAreaInsets)
-        let play = safe.insetBy(dx: Self.edgeMargin, dy: Self.edgeMargin)
+        let play = skinCanvas ?? safePlay
         guard play.width > 0, play.height > 0 else {
             // Nothing sane to lay out. Report it rather than leaving invisible controls that
             // silently swallow nothing: a zero play area means the safe area consumed the view.
@@ -1517,15 +1592,19 @@ final class TouchControlsView: UIView {
             return
         }
 
-        let landscape = bounds.width > bounds.height
-        let unit = self.unit(in: play, landscape: landscape)
+        let orientLandscape = bounds.width > bounds.height
+        // A skin already names where the thumbs sit. Do not restack them with the
+        // procedural landscape grip, and do not reserve a portrait strip inside the canvas.
+        let landscape = orientLandscape && skinCanvas == nil
+        placingLandscapeSkin = skin?.usesLandscapeLayout ?? false
+        let unit = self.unit(in: play, landscape: landscape || (orientLandscape && skinCanvas != nil))
         let faceExtent = self.faceHalfExtent()
 
         // PORTRAIT keeps a clear strip for the game above every control. SELECT and START are no
         // longer pinned to a reserved bottom row; they use the same play-area fractions as the
         // thumb clusters. Without a floor the shoulders of a low cluster used to climb inside the
         // top fifth of a tall phone and the picture publisher fell back to full-height draw.
-        let clearTop = landscape ? 0 : play.height * Self.minClearPortraitFraction
+        let clearTop = (landscape || skinCanvas != nil) ? 0 : play.height * Self.minClearPortraitFraction
         let controlArea = CGRect(x: play.minX, y: play.minY + clearTop,
                                  width: play.width,
                                  height: max(0, play.height - clearTop))
@@ -1533,7 +1612,9 @@ final class TouchControlsView: UIView {
         let dpadHalf = Self.dpadSpan * unit / 2
         // In landscape the clusters sit higher in their columns, because a landscape grip puts the
         // thumbs at the middle of the edge rather than at the bottom corner.
-        let live = layout.sanitised
+        var live = (skin?.layout ?? layout).sanitised
+        live.scale = layout.sanitised.scale
+        live.opacity = layout.sanitised.opacity
         let clusterY: CGFloat? = landscape ? Self.landscapeClusterY : nil
         // Shoulder stacks hang ABOVE the cluster centres. Count them into the top half-extent so
         // clamping into `controlArea` keeps the whole group under the portrait clear strip, not
@@ -1565,7 +1646,7 @@ final class TouchControlsView: UIView {
 
         dpadRect = CGRect(x: dpadCentre.x - dpadHalf, y: dpadCentre.y - dpadHalf,
                           width: dpadHalf * 2, height: dpadHalf * 2)
-        dpadRect = Self.clamp(dpadRect, into: landscape ? play : controlArea)
+        dpadRect = Self.clamp(dpadRect, into: (landscape || skinCanvas != nil) ? play : controlArea)
         dpad.frame = dpadRect
         dpadCentreNow = CGPoint(x: dpadRect.midX, y: dpadRect.midY)
 
@@ -1637,7 +1718,7 @@ final class TouchControlsView: UIView {
             var rect = CGRect(x: centre.x - size.width / 2, y: centre.y - size.height / 2,
                               width: size.width, height: size.height)
             // Last line of defence: stay on screen, and in portrait stay out of the game strip.
-            rect = Self.clamp(rect, into: landscape ? play : controlArea)
+            rect = Self.clamp(rect, into: (landscape || skinCanvas != nil) ? play : controlArea)
             chip.frame = rect
             chipRects.append(rect)
             chipCentreNow.append(CGPoint(x: rect.midX, y: rect.midY))
@@ -1650,7 +1731,7 @@ final class TouchControlsView: UIView {
         layoutHandles()
 
         verifyNoOverlap()
-        publishPictureArea(landscape: landscape)
+        publishPictureArea(landscape: orientLandscape, skinCanvas: skinCanvas, skinScreen: skin?.screen)
     }
 
     /// Works out what each drag would carry, and outlines it.
@@ -1699,11 +1780,14 @@ final class TouchControlsView: UIView {
     /// portrait the picture takes everything above the topmost control; in landscape it takes the
     /// column between the left group and the right group. Either way no control sits on the game,
     /// which is the requirement docs/mobile-player.png failed.
-    private func publishPictureArea(landscape: Bool) {
-        // Delta skins name the game hole explicitly. Prefer that over the free-band heuristic
-        // so a bezel PDF and the Metal canvas agree on the same rectangle.
-        if let screen = skinScreenNormalized {
-            let area = screen.cgRect(in: bounds)
+    private func publishPictureArea(landscape: Bool, skinCanvas: CGRect? = nil,
+                                    skinScreen: DeltaSkinNormalizedRect? = nil) {
+        // The hole is a fraction of the skin's mapping, drawn inside the aspect-fit canvas.
+        // Mapping it onto the raw view is what stretched a portrait Game Boy into a wide bar.
+        let screen = skinScreen ?? (skinCanvas == nil ? skinScreenNormalized : nil)
+        let space = skinCanvas ?? bounds
+        if let screen {
+            let area = screen.cgRect(in: space)
             if area.width >= 1, area.height >= 1 {
                 updateTouchScreenRect(in: area)
                 deliverPictureArea(area)
@@ -1732,11 +1816,21 @@ final class TouchControlsView: UIView {
             // A degenerate column means the controls met in the middle. Fall back to the whole
             // view rather than handing the engine a zero or negative surface, and say so: a
             // surface of nothing would read on device as a black screen with no explanation.
-            if width < bounds.width * 0.2 {
-                report("touch layout: no clear column for the picture in landscape, "
-                       + "the controls span \(Int(bounds.width - width)) of "
-                       + "\(Int(bounds.width)) points; drawing full width instead")
-                area = bounds
+            let limitWidth = skinCanvas?.width ?? bounds.width
+            if width < limitWidth * 0.2 {
+                if let skinCanvas {
+                    // The buttons met, but the game stays in the skin canvas. Giving it the
+                    // whole phone is what put PlayStation full-bleed under the controls.
+                    area = skinCanvas
+                } else {
+                    report("touch layout: no clear column for the picture in landscape, "
+                           + "the controls span \(Int(bounds.width - width)) of "
+                           + "\(Int(bounds.width)) points; drawing full width instead")
+                    area = bounds
+                }
+            } else if let skinCanvas {
+                let top = skinCanvas.minY
+                area = CGRect(x: leftEdge, y: top, width: width, height: skinCanvas.height)
             } else {
                 area = CGRect(x: leftEdge, y: bounds.minY, width: width, height: bounds.height)
             }
@@ -2269,7 +2363,12 @@ final class TouchControlsView: UIView {
         guard next != drag.layout else { return }
         drag.layout = next
         clusterDrag = drag
-        onLayoutEdited?(next, false)
+        if placingLandscapeSkin {
+            landscapeLayout = next
+            onLandscapeLayoutEdited?(next, false)
+        } else {
+            onLayoutEdited?(next, false)
+        }
     }
 
     private func endDrag(_ touches: Set<UITouch>) {
@@ -2282,7 +2381,12 @@ final class TouchControlsView: UIView {
         // alternative, staying silent, would lose the ONE case that matters: a drag whose last move
         // was clamped, where the value the caller has is the one to keep and it needs to be told
         // that it is final.
-        onLayoutEdited?(drag.layout, true)
+        if placingLandscapeSkin {
+            landscapeLayout = drag.layout
+            onLandscapeLayoutEdited?(drag.layout, true)
+        } else {
+            onLayoutEdited?(drag.layout, true)
+        }
     }
 
     private func setActiveHandle(_ target: DragTarget?) {
@@ -2311,7 +2415,7 @@ final class TouchControlsView: UIView {
     /// drag on a still-clustered face/shoulder button stores a `buttonFrees` entry and leaves its
     /// siblings on the cluster.
     private func layoutMovingCentre(of target: DragTarget, to point: CGPoint) -> TouchLayout {
-        var next = layout.sanitised
+        var next = (placingLandscapeSkin ? (landscapeLayout ?? layout) : layout).sanitised
         let area = editPlayArea
         guard area.width > 0, area.height > 0 else { return next }
 
@@ -2322,7 +2426,10 @@ final class TouchControlsView: UIView {
         switch target {
         case .dpad:
             next.dpadX = fractionX
-            if !landscape { next.dpadY = fractionY }
+            // A skin stores the D-pad's y. The procedural override only applies when there
+            // is no skin canvas, which is the only time `placingLandscapeSkin` is false
+            // and landscape still ignores y.
+            if placingLandscapeSkin || !landscape { next.dpadY = fractionY }
         case .chip(let index):
             guard index >= 0, index < chips.count else { return next }
             let control = chips[index].control
@@ -2534,6 +2641,12 @@ struct TouchControlsHost: UIViewRepresentable {
     let skinArtwork: UIImage?
     /// Delta `screens` outputFrame as fractions of mappingSize, when the pack named one.
     let skinScreenNormalized: DeltaSkinNormalizedRect?
+    let skinMapping: CGSize
+    let landscapeArtwork: UIImage?
+    let landscapeScreen: DeltaSkinNormalizedRect?
+    let landscapeMapping: CGSize
+    let landscapeLayout: TouchLayout?
+    let onLandscapeLayoutEdited: (TouchLayout, Bool) -> Void
 
     /// True while the editor's system list is open. See `TouchControlsView.editingHitsSuspended`.
     /// Default false so the player, which never opens that list, does not have to mention it.
@@ -2558,6 +2671,12 @@ struct TouchControlsHost: UIViewRepresentable {
          onOverlapState: @escaping (String?) -> Void = { _ in },
          skinArtwork: UIImage? = nil,
          skinScreenNormalized: DeltaSkinNormalizedRect? = nil,
+         skinMapping: CGSize = .zero,
+         landscapeArtwork: UIImage? = nil,
+         landscapeScreen: DeltaSkinNormalizedRect? = nil,
+         landscapeMapping: CGSize = .zero,
+         landscapeLayout: TouchLayout? = nil,
+         onLandscapeLayoutEdited: @escaping (TouchLayout, Bool) -> Void = { _, _ in },
          editingHitsSuspended: Bool = false) {
         self.system = system
         self.layout = layout
@@ -2570,6 +2689,12 @@ struct TouchControlsHost: UIViewRepresentable {
         self.onOverlapState = onOverlapState
         self.skinArtwork = skinArtwork
         self.skinScreenNormalized = skinScreenNormalized
+        self.skinMapping = skinMapping
+        self.landscapeArtwork = landscapeArtwork
+        self.landscapeScreen = landscapeScreen
+        self.landscapeMapping = landscapeMapping
+        self.landscapeLayout = landscapeLayout
+        self.onLandscapeLayoutEdited = onLandscapeLayoutEdited
         self.editingHitsSuspended = editingHitsSuspended
     }
 
@@ -2582,6 +2707,14 @@ struct TouchControlsHost: UIViewRepresentable {
         view.onOverlapState = onOverlapState
         view.skinArtwork = skinArtwork
         view.skinScreenNormalized = skinScreenNormalized
+        view.skinMapping = skinMapping
+        view.landscapeArtwork = landscapeArtwork
+        view.landscapeScreen = landscapeScreen
+        view.landscapeMapping = landscapeMapping
+        if !view.isClusterDragging {
+            view.landscapeLayout = landscapeLayout
+        }
+        view.onLandscapeLayoutEdited = onLandscapeLayoutEdited
         view.isEditing = isEditing
         view.editingHitsSuspended = editingHitsSuspended
         input.view = view
@@ -2606,6 +2739,14 @@ struct TouchControlsHost: UIViewRepresentable {
         view.onOverlapState = onOverlapState
         view.skinArtwork = skinArtwork
         view.skinScreenNormalized = skinScreenNormalized
+        view.skinMapping = skinMapping
+        view.landscapeArtwork = landscapeArtwork
+        view.landscapeScreen = landscapeScreen
+        view.landscapeMapping = landscapeMapping
+        if !view.isClusterDragging {
+            view.landscapeLayout = landscapeLayout
+        }
+        view.onLandscapeLayoutEdited = onLandscapeLayoutEdited
         // Re-pointed on every update because SwiftUI may hand back a different instance after a
         // rebuild, and a stale box would silently report a released pad forever.
         input.view = view
@@ -2618,6 +2759,7 @@ struct TouchControlsHost: UIViewRepresentable {
         view.onDiagnostic = nil
         view.onPictureArea = nil
         view.onLayoutEdited = nil
+        view.onLandscapeLayoutEdited = nil
         view.onOverlapState = nil
     }
 

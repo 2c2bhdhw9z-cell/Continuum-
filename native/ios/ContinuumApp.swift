@@ -1146,7 +1146,8 @@ final class EngineHost: ObservableObject {
         if hadSkins {
             for key in Array(touchSkinsBySystem.keys) {
                 if let system = GameSystem(rawValue: key) {
-                    removeSkinAssetFiles(for: system)
+                    removeSkinAssetFiles(for: system, landscape: false)
+                    removeSkinAssetFiles(for: system, landscape: true)
                 }
             }
             touchSkinsBySystem.removeAll()
@@ -1207,6 +1208,58 @@ final class EngineHost: ObservableObject {
         touchSkinsBySystem[system.rawValue]?.screenOutput
     }
 
+    func skinMapping(for system: GameSystem) -> CGSize {
+        guard let visual = touchSkinsBySystem[system.rawValue],
+              visual.mappingWidth > 0, visual.mappingHeight > 0 else { return .zero }
+        return CGSize(width: visual.mappingWidth, height: visual.mappingHeight)
+    }
+
+    func skinLandscapeImage(for system: GameSystem) -> UIImage? {
+        let _ = touchSkinsVersion
+        let key = landscapeSkinCacheKey(system)
+        if let cached = touchSkinImages[key] {
+            return cached
+        }
+        guard let face = touchSkinsBySystem[system.rawValue]?.landscape,
+              let kind = face.assetKind else { return nil }
+        let url = skinAssetURL(for: system, kind: kind, landscape: true)
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        let mapping = CGSize(width: face.mappingWidth, height: face.mappingHeight)
+        guard let image = DeltaSkinImporter.makeUIImage(from: data, kind: kind, mappingSize: mapping)
+        else { return nil }
+        touchSkinImages[key] = image
+        return image
+    }
+
+    func skinLandscapeScreen(for system: GameSystem) -> DeltaSkinNormalizedRect? {
+        touchSkinsBySystem[system.rawValue]?.landscape?.screenOutput
+    }
+
+    func skinLandscapeMapping(for system: GameSystem) -> CGSize {
+        guard let face = touchSkinsBySystem[system.rawValue]?.landscape,
+              face.mappingWidth > 0, face.mappingHeight > 0 else { return .zero }
+        return CGSize(width: face.mappingWidth, height: face.mappingHeight)
+    }
+
+    func skinLandscapeLayout(for system: GameSystem) -> TouchLayout? {
+        touchSkinsBySystem[system.rawValue]?.landscape?.layout.sanitised
+    }
+
+    func setLandscapeSkinLayout(_ layout: TouchLayout, for system: GameSystem) {
+        guard var visual = touchSkinsBySystem[system.rawValue], var face = visual.landscape else { return }
+        let clean = layout.sanitised
+        if face.layout == clean { return }
+        face.layout = clean
+        visual.landscape = face
+        touchSkinsBySystem[system.rawValue] = visual
+        persistTouchSkins()
+        touchSkinsVersion &+= 1
+    }
+
+    private func landscapeSkinCacheKey(_ system: GameSystem) -> String {
+        system.rawValue + "#landscape"
+    }
+
     /// Applies an imported .deltaskin package's art + screens under one console.
     func applyImportedSkin(_ result: DeltaSkinImportResult, for system: GameSystem) {
         var visual = result.visual
@@ -1220,7 +1273,7 @@ final class EngineHost: ObservableObject {
 
         if let data = result.assetData, let kind = visual.assetKind {
             do {
-                try persistSkinAsset(data, for: system, kind: kind)
+                try persistSkinAsset(data, for: system, kind: kind, landscape: false)
                 let mapping = CGSize(width: visual.mappingWidth, height: visual.mappingHeight)
                 if let image = DeltaSkinImporter.makeUIImage(from: data, kind: kind, mappingSize: mapping) {
                     touchSkinImages[system.rawValue] = image
@@ -1232,7 +1285,28 @@ final class EngineHost: ObservableObject {
                 touchSkinsBySystem[system.rawValue] = visual
             }
         } else {
-            removeSkinAssetFiles(for: system)
+            removeSkinAssetFiles(for: system, landscape: false)
+        }
+        if var face = visual.landscape {
+            if let data = result.landscapeAssetData, let kind = face.assetKind {
+                do {
+                    try persistSkinAsset(data, for: system, kind: kind, landscape: true)
+                    let mapping = CGSize(width: face.mappingWidth, height: face.mappingHeight)
+                    if let image = DeltaSkinImporter.makeUIImage(from: data, kind: kind, mappingSize: mapping) {
+                        touchSkinImages[landscapeSkinCacheKey(system)] = image
+                    }
+                } catch {
+                    status = "landscape skin art could not be saved for \(system.displayName): \(error.localizedDescription)"
+                    face.assetFileName = nil
+                    face.assetKind = nil
+                    visual.landscape = face
+                    touchSkinsBySystem[system.rawValue] = visual
+                }
+            } else {
+                removeSkinAssetFiles(for: system, landscape: true)
+            }
+        } else {
+            removeSkinAssetFiles(for: system, landscape: true)
         }
         persistTouchSkins()
         touchSkinsVersion &+= 1
@@ -1242,7 +1316,9 @@ final class EngineHost: ObservableObject {
     func clearSkin(for system: GameSystem) {
         guard touchSkinsBySystem.removeValue(forKey: system.rawValue) != nil else { return }
         touchSkinImages.removeValue(forKey: system.rawValue)
-        removeSkinAssetFiles(for: system)
+        touchSkinImages.removeValue(forKey: landscapeSkinCacheKey(system))
+        removeSkinAssetFiles(for: system, landscape: false)
+        removeSkinAssetFiles(for: system, landscape: true)
         persistTouchSkins()
         touchSkinsVersion &+= 1
     }
@@ -1274,26 +1350,27 @@ final class EngineHost: ObservableObject {
         return dir
     }
 
-    private func skinAssetURL(for system: GameSystem, kind: DeltaSkinAssetKind) -> URL {
+    private func skinAssetURL(for system: GameSystem, kind: DeltaSkinAssetKind, landscape: Bool = false) -> URL {
         let ext = kind == .pdf ? "pdf" : "png"
+        let suffix = landscape ? "-landscape" : ""
         let base = skinsDirectory() ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("\(system.rawValue).\(ext)", isDirectory: false)
+        return base.appendingPathComponent("\(system.rawValue)\(suffix).\(ext)", isDirectory: false)
     }
 
-    private func persistSkinAsset(_ data: Data, for system: GameSystem, kind: DeltaSkinAssetKind) throws {
+    private func persistSkinAsset(_ data: Data, for system: GameSystem, kind: DeltaSkinAssetKind, landscape: Bool) throws {
         guard skinsDirectory() != nil else {
             throw NSError(domain: "ContinuumSkins", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "no Application Support directory"])
         }
-        // Only one asset file per system; remove the other extension if present.
-        removeSkinAssetFiles(for: system)
-        try data.write(to: skinAssetURL(for: system, kind: kind), options: .atomic)
+        // Only one asset file per orientation; remove the other extension if present.
+        removeSkinAssetFiles(for: system, landscape: landscape)
+        try data.write(to: skinAssetURL(for: system, kind: kind, landscape: landscape), options: .atomic)
     }
 
-    private func removeSkinAssetFiles(for system: GameSystem) {
+    private func removeSkinAssetFiles(for system: GameSystem, landscape: Bool) {
         let fm = FileManager.default
         for kind in [DeltaSkinAssetKind.pdf, .png] {
-            let url = skinAssetURL(for: system, kind: kind)
+            let url = skinAssetURL(for: system, kind: kind, landscape: landscape)
             try? fm.removeItem(at: url)
         }
     }

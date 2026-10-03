@@ -1,0 +1,22 @@
+--- a/src/video_core/renderer_vulkan/vk_rasterizer.cpp
++++ b/src/video_core/renderer_vulkan/vk_rasterizer.cpp
+@@ -540,7 +540,11 @@ bool RasterizerVulkan::AccelerateDrawBatchInternal(bool is_indexed) {
+         SetupIndexArray();
+     }
+ 
+-    const bool wait_built = !async_shaders || regs.pipeline.num_vertices <= 6;
++    // Continuum: do not block the emulation thread on Vulkan pipeline compile.
++    // async_shader_compilation defaults off, so wait_built was always true, and
++    // BindPipeline then calls WaitDone. A track load compiles new pipelines on
++    // that wait. Skip the draw until the worker finishes. Not a JIT.
++    const bool wait_built = async_shaders && false;
+     if (!pipeline_cache.BindPipeline(pipeline_info, wait_built)) {
+         return true;
+     }
+@@ -620,4 +624,5 @@ bool RasterizerVulkan::Draw(bool accelerate, bool is_indexed) {
+     if (accelerate) {
+         succeeded = AccelerateDrawBatchInternal(is_indexed);
+     } else {
+-        pipeline_cache.BindPipeline(pipeline_info, true);
++        // Continuum: do not block the emulation thread on Vulkan pipeline compile.
++        pipeline_cache.BindPipeline(pipeline_info, false);
