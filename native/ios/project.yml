@@ -200,7 +200,7 @@ targets:
         SWIFT_INCLUDE_PATHS: "$(SRCROOT)/build/Generated"
         HEADER_SEARCH_PATHS: "$(inherited) $(SRCROOT)/build/Generated"
         LIBRARY_SEARCH_PATHS: "$(inherited) $(SRCROOT)/build/lib"
-        OTHER_LDFLAGS: "$(inherited) -lemulator_bridge -lc++"
+        OTHER_LDFLAGS: "$(inherited) -lemulator_bridge -lc++ -framework OpenGLES"
     dependencies:
       # The C++ libretro wrapper, dlopened at runtime rather than linked. `embed` puts it in
       # Frameworks/; `codeSign: false` because package-ipa.sh signs everything in one pass

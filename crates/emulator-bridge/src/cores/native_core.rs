@@ -28,7 +28,7 @@ use crate::audio::AudioSink;
 use crate::error::BridgeError;
 use crate::frame::{FrameView, PixelFormat};
 use crate::gfx::hw::{classify_video_refresh, VideoRefreshKind};
-use crate::gfx::vulkan_hw;
+use crate::gfx::{gl_hw, vulkan_hw};
 use crate::input::InputSnapshot;
 
 // ---------------------------------------------------------------- libretro ABI
@@ -596,6 +596,9 @@ pub struct NativeLibretroCore {
     last_height: u32,
     last_pitch: usize,
     last_was_hardware: bool,
+    /// The last hardware frame was an OpenGL readback already packed as top-left RGBA8.
+    /// `video()` reports that format instead of the core's software pixel format.
+    present_as_rgba: bool,
     audio: Vec<i16>,
     /// Frames the core reported as dupes. Worth counting rather than discarding: a core
     /// duping steadily is the signature of a stalled hardware path.
@@ -743,8 +746,10 @@ impl NativeLibretroCore {
         // here. See the note there.
         install_options(&descriptor.id);
 
-        // Fresh HW-render negotiation per core load.
+        // Fresh HW-render negotiation per core load. Both doors, so a GL core
+        // loaded after a Vulkan one (or the reverse) does not keep the old contract.
         vulkan_hw::reset();
+        gl_hw::reset();
 
         // Order matters and is specified by libretro: the environment callback must be
         // installed before `retro_init`, because cores query it during
@@ -811,6 +816,7 @@ impl NativeLibretroCore {
             last_height: 0,
             last_pitch: 0,
             last_was_hardware: false,
+            present_as_rgba: false,
             audio: Vec::new(),
             duped_frames: 0,
             negotiated_format,
@@ -951,6 +957,15 @@ impl EmulatorCore for NativeLibretroCore {
         self.content_loaded = true;
         self.frame_count = 0;
         self.sync_descriptor_from_core();
+        // GL cores declare SET_HW_RENDER during load, before max geometry exists.
+        // Grow the FBO to that size now so the first retro_run is not clipped to
+        // the placeholder, and tell the core if the target changed.
+        if gl_hw::status().accepted {
+            gl_hw::resize_for_core(
+                self.descriptor.geometry.max_width,
+                self.descriptor.geometry.max_height,
+            );
+        }
         Ok(())
     }
 
@@ -967,6 +982,11 @@ impl EmulatorCore for NativeLibretroCore {
             exchange.input = Some(*input);
         });
 
+        // OpenGL cores draw during retro_run. The ES context has to be current
+        // on this thread first. No-op when the request was Vulkan, or when this
+        // host has no GL context.
+        gl_hw::prepare_frame();
+
         unsafe { (self.symbols.run)() };
 
         EXCHANGE.with(|cell| {
@@ -979,12 +999,33 @@ impl EmulatorCore for NativeLibretroCore {
                 self.last_width = exchange.width;
                 self.last_height = exchange.height;
                 self.last_pitch = exchange.pitch;
+                self.present_as_rgba = false;
             } else if exchange.hardware_frame {
                 self.last_width = exchange.width;
                 self.last_height = exchange.height;
-                // set_image does not carry size; video_refresh does. Tell vulkan_hw so
-                // the compositor can adopt the VkImage at the right dimensions.
-                vulkan_hw::note_frame_size(exchange.width, exchange.height);
+                if gl_hw::status().accepted {
+                    // OpenGL picture: read the FBO and hand RGBA to the same upload
+                    // the software cores use. Vulkan's set_image path is not this.
+                    match gl_hw::read_presented_rgba(exchange.width, exchange.height) {
+                        Some(frame) => {
+                            self.last_width = frame.width;
+                            self.last_height = frame.height;
+                            self.last_pitch = frame.width as usize * 4;
+                            self.last_pixels = frame.rgba;
+                            self.last_was_hardware = false;
+                            self.present_as_rgba = true;
+                        }
+                        None => {
+                            self.present_as_rgba = false;
+                            self.last_was_hardware = true;
+                        }
+                    }
+                } else {
+                    self.present_as_rgba = false;
+                    // set_image does not carry size; video_refresh does. Tell vulkan_hw so
+                    // the compositor can adopt the VkImage at the right dimensions.
+                    vulkan_hw::note_frame_size(exchange.width, exchange.height);
+                }
             }
             std::mem::swap(&mut self.audio, &mut exchange.audio);
         });
@@ -994,9 +1035,19 @@ impl EmulatorCore for NativeLibretroCore {
     }
 
     fn video(&self) -> Option<FrameView<'_>> {
-        // A hardware frame is not in `last_pixels` — it is in a texture the compositor
-        // already has. Returning `None` here is what routes presentation through
-        // `FrameSourceKind::Texture` instead of an upload.
+        // A Vulkan hardware frame is not in `last_pixels` — it is in a texture the
+        // compositor already has, adopted from `set_image`. Returning `None` here is
+        // what leaves that texture up. An OpenGL readback is the opposite: the pixels
+        // are in `last_pixels` as top-left RGBA8 and go through the normal upload.
+        if self.present_as_rgba && !self.last_pixels.is_empty() {
+            return Some(FrameView {
+                data: &self.last_pixels,
+                width: self.last_width,
+                height: self.last_height,
+                stride_bytes: self.last_pitch,
+                format: PixelFormat::Rgba8888,
+            });
+        }
         if self.last_was_hardware || self.last_pixels.is_empty() {
             return None;
         }
@@ -1279,7 +1330,10 @@ mod tests {
                 &mut var as *mut RetroVariable as *mut c_void,
             )
         };
-        assert!(!ok, "GET_VARIABLE must return false so the core uses its default");
+        assert!(
+            !ok,
+            "GET_VARIABLE must return false so the core uses its default"
+        );
         assert!(var.value.is_null(), "value must be nulled, not fabricated");
     }
 
@@ -1309,7 +1363,11 @@ mod tests {
         let value = if var.value.is_null() {
             None
         } else {
-            Some(unsafe { CStr::from_ptr(var.value) }.to_string_lossy().into_owned())
+            Some(
+                unsafe { CStr::from_ptr(var.value) }
+                    .to_string_lossy()
+                    .into_owned(),
+            )
         };
         (ok, value)
     }
@@ -1381,7 +1439,10 @@ mod tests {
         // assign under `if (!strcmp(..., "auto"))` — leaving GFX_GLIDE64=0 and the GL hang. See
         // `option_overrides`.
         let (ok, value) = ask_option("parallel-n64-gfxplugin");
-        assert!(!ok, "gfxplugin must be refused so the core can autoselect angrylion");
+        assert!(
+            !ok,
+            "gfxplugin must be refused so the core can autoselect angrylion"
+        );
         assert!(value.is_none(), "value must be nulled, not fabricated");
 
         let (ok, value) = ask_option("parallel-n64-rspplugin");
@@ -1391,7 +1452,10 @@ mod tests {
         // Refuse selects "all threads", which hangs under the display-link tick. Name "off" so
         // angrylion stays on the emulator thread.
         let (ok, value) = ask_option("parallel-n64-angrylion-multithread");
-        assert!(ok, "angrylion multithread must be named off, not left to all threads");
+        assert!(
+            ok,
+            "angrylion multithread must be named off, not left to all threads"
+        );
         assert_eq!(value.as_deref(), Some("off"));
 
         let (ok, value) = ask_option("parallel-n64-cpucore");
@@ -1402,7 +1466,13 @@ mod tests {
     #[test]
     fn other_cores_keep_every_default() {
         let _guard = option_test_guard();
-        for core_id in ["fceumm", "mgba", "genesis_plus_gx", "snes9x", "pcsx_rearmed"] {
+        for core_id in [
+            "fceumm",
+            "mgba",
+            "genesis_plus_gx",
+            "snes9x",
+            "pcsx_rearmed",
+        ] {
             install_options(core_id);
             let (ok, value) = ask_option("melonds_touch_mode");
             assert!(!ok, "{core_id} must not be handed the DS option");
@@ -1422,7 +1492,10 @@ mod tests {
         // in-session core switch: play a DS game, go back to the library, start an NES game.
         install_options("fceumm");
         let (ok, value) = ask_option("melonds_touch_mode");
-        assert!(!ok, "a previous core's overrides must not survive the next load");
+        assert!(
+            !ok,
+            "a previous core's overrides must not survive the next load"
+        );
         assert!(value.is_none());
     }
 
@@ -1529,12 +1602,17 @@ mod tests {
         let path = ContentHint::from_filename("/var/mobile/roms/Crash.bin");
         assert_eq!(path.extension, "bin");
         assert_eq!(path.name, "Crash");
-        assert_eq!(path.full_path.as_deref(), Some("/var/mobile/roms/Crash.bin"));
+        assert_eq!(
+            path.full_path.as_deref(),
+            Some("/var/mobile/roms/Crash.bin")
+        );
     }
 
     #[test]
     fn set_hw_render_vulkan_is_accepted_through_environment() {
+        let _guard = vulkan_hw::test_guard();
         vulkan_hw::reset();
+        gl_hw::reset();
         let mut callback = crate::gfx::vulkan_hw::RetroHwRenderCallback {
             context_type: crate::gfx::hw::HwContextType::Vulkan as u32,
             context_reset: None,
@@ -1555,15 +1633,21 @@ mod tests {
                 &mut callback as *mut _ as *mut c_void,
             )
         };
-        assert!(ok, "Vulkan SET_HW_RENDER must be accepted by the native host");
+        assert!(
+            ok,
+            "Vulkan SET_HW_RENDER must be accepted by the native host"
+        );
         assert!(callback.get_current_framebuffer.is_some());
         assert!(callback.get_proc_address.is_some());
         vulkan_hw::reset();
+        gl_hw::reset();
     }
 
     #[test]
-    fn set_hw_render_gl_is_refused_through_environment() {
+    fn set_hw_render_gl_is_accepted_through_environment() {
+        let _guard = vulkan_hw::test_guard();
         vulkan_hw::reset();
+        gl_hw::reset();
         let mut callback = crate::gfx::vulkan_hw::RetroHwRenderCallback {
             context_type: crate::gfx::hw::HwContextType::OpenGlEs3 as u32,
             context_reset: None,
@@ -1584,8 +1668,12 @@ mod tests {
                 &mut callback as *mut _ as *mut c_void,
             )
         };
-        assert!(!ok, "GL SET_HW_RENDER must be refused (Vulkan-only frontend)");
+        assert!(ok, "GL SET_HW_RENDER must be accepted");
+        assert!(callback.get_current_framebuffer.is_some());
+        assert!(gl_hw::status().accepted);
+        assert!(!vulkan_hw::status().set_hw_render_accepted);
         vulkan_hw::reset();
+        gl_hw::reset();
     }
 
     #[test]

@@ -5,7 +5,8 @@
 //! contract should fail on a PlayStation title whose software path (`pcsx_rearmed`)
 //! already works on device.
 //!
-//! Accepts Vulkan only; fills frontend callbacks; answers preferred = Vulkan; stores
+//! Accepts Vulkan. OpenGL and OpenGL ES are accepted by [`super::gl_hw`] instead of
+//! being refused here. Preferred stays Vulkan. Fills frontend callbacks; stores
 //! negotiation; serves `GET_HW_RENDER_INTERFACE` once a context is marked ready; records
 //! `set_image` for the compositor. Live MoltenVK handles come from
 //! [`crate::gfx::moltenvk_device`] after Metal attach (`prepare_vulkan_hw`); install runs
@@ -160,7 +161,8 @@ struct RetroHwRenderInterfaceVulkan {
     get_instance_proc_addr: Option<unsafe extern "C" fn(u64, *const c_char) -> *const c_void>,
     queue: u64,
     queue_index: u32,
-    set_image: Option<unsafe extern "C" fn(*mut c_void, *const RetroVulkanImage, u32, *const u64, u32)>,
+    set_image:
+        Option<unsafe extern "C" fn(*mut c_void, *const RetroVulkanImage, u32, *const u64, u32)>,
     get_sync_index: Option<unsafe extern "C" fn(*mut c_void) -> u32>,
     get_sync_index_mask: Option<unsafe extern "C" fn(*mut c_void) -> u32>,
     set_command_buffers: Option<unsafe extern "C" fn(*mut c_void, u32, *const u64)>,
@@ -266,13 +268,19 @@ unsafe fn on_set_hw_render(data: *mut c_void) -> bool {
         );
         return false;
     };
+    if context_type.is_gl() {
+        return crate::gfx::gl_hw::accept(callback);
+    }
     if context_type != HwContextType::Vulkan {
         log::info!(
-            "SET_HW_RENDER refused: {:?} (Vulkan only on this frontend)",
+            "SET_HW_RENDER refused: {:?} (not Vulkan or OpenGL)",
             context_type
         );
         return false;
     }
+    // This request is the Vulkan door. A previous GL accept must not keep eating
+    // hardware frames.
+    crate::gfx::gl_hw::note_vulkan_took_over();
     callback.get_current_framebuffer = Some(frontend_get_current_framebuffer);
     callback.get_proc_address = Some(frontend_get_proc_address);
     let mut state = lock_state();
@@ -522,16 +530,23 @@ unsafe extern "C" fn frontend_unlock_queue(_handle: *mut c_void) {
 unsafe extern "C" fn frontend_set_signal_semaphore(_h: *mut c_void, _s: u64) {}
 
 #[cfg(test)]
+pub(crate) fn test_guard() -> std::sync::MutexGuard<'static, ()> {
+    match TEST_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+#[cfg(test)]
+static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::mem::{align_of, offset_of, size_of};
 
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
     fn guard() -> std::sync::MutexGuard<'static, ()> {
-        match TEST_LOCK.lock() {
-            Ok(g) => g,
-            Err(p) => p.into_inner(),
-        }
+        super::test_guard()
     }
 
     #[test]
@@ -539,7 +554,10 @@ mod tests {
         assert_eq!(size_of::<RetroHwRenderCallback>(), 64);
         assert_eq!(offset_of!(RetroHwRenderCallback, context_type), 0);
         assert_eq!(offset_of!(RetroHwRenderCallback, context_reset), 8);
-        assert_eq!(offset_of!(RetroHwRenderCallback, get_current_framebuffer), 16);
+        assert_eq!(
+            offset_of!(RetroHwRenderCallback, get_current_framebuffer),
+            16
+        );
         assert_eq!(offset_of!(RetroHwRenderCallback, get_proc_address), 24);
         assert_eq!(offset_of!(RetroHwRenderCallback, depth), 32);
         assert_eq!(offset_of!(RetroHwRenderCallback, stencil), 33);
@@ -555,13 +573,22 @@ mod tests {
     #[test]
     fn vulkan_interface_handle_is_third_field() {
         assert_eq!(offset_of!(RetroHwRenderInterfaceVulkan, interface_type), 0);
-        assert_eq!(offset_of!(RetroHwRenderInterfaceVulkan, interface_version), 4);
+        assert_eq!(
+            offset_of!(RetroHwRenderInterfaceVulkan, interface_version),
+            4
+        );
         assert_eq!(offset_of!(RetroHwRenderInterfaceVulkan, handle), 8);
         assert_eq!(offset_of!(RetroHwRenderInterfaceVulkan, instance), 16);
         assert_eq!(offset_of!(RetroHwRenderInterfaceVulkan, gpu), 24);
         assert_eq!(offset_of!(RetroHwRenderInterfaceVulkan, device), 32);
-        assert_eq!(offset_of!(RetroHwRenderInterfaceVulkan, get_device_proc_addr), 40);
-        assert_eq!(offset_of!(RetroHwRenderInterfaceVulkan, get_instance_proc_addr), 48);
+        assert_eq!(
+            offset_of!(RetroHwRenderInterfaceVulkan, get_device_proc_addr),
+            40
+        );
+        assert_eq!(
+            offset_of!(RetroHwRenderInterfaceVulkan, get_instance_proc_addr),
+            48
+        );
         assert_eq!(offset_of!(RetroHwRenderInterfaceVulkan, queue), 56);
         assert_eq!(offset_of!(RetroHwRenderInterfaceVulkan, queue_index), 64);
         assert_eq!(offset_of!(RetroHwRenderInterfaceVulkan, set_image), 72);
@@ -570,7 +597,10 @@ mod tests {
     #[test]
     fn experimental_bits_are_required_on_41_and_43() {
         assert_eq!(ENV_GET_HW_RENDER_INTERFACE, 41 | 0x1_0000);
-        assert_eq!(ENV_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE, 43 | 0x1_0000);
+        assert_eq!(
+            ENV_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE,
+            43 | 0x1_0000
+        );
         assert_ne!(ENV_GET_HW_RENDER_INTERFACE, 41);
         assert_eq!(ENV_SET_HW_RENDER, 14);
         assert_eq!(ENV_GET_PREFERRED_HW_RENDER, 56);
@@ -607,16 +637,11 @@ mod tests {
     }
 
     #[test]
-    fn set_hw_render_refuses_gl_and_d3d() {
+    fn set_hw_render_refuses_d3d() {
         let _g = guard();
         reset();
-        for bad in [
-            HwContextType::OpenGl as u32,
-            HwContextType::OpenGlEs3 as u32,
-            HwContextType::OpenGlCore as u32,
-            7u32,
-            9u32,
-        ] {
+        // OpenGL is no longer in this list. gl_hw accepts it. Direct3D stays refused.
+        for bad in [7u32, 9u32] {
             let mut callback = RetroHwRenderCallback {
                 context_type: bad,
                 context_reset: None,
