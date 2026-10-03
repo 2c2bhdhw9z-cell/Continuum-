@@ -2,7 +2,7 @@
 
 One app for the iPhone. It plays games from older consoles. You install `Continuum.ipa` yourself. It is not on the App Store.
 
-The newest file on the releases page is [Continuum-107](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-107-53240a8/Continuum-107.ipa). That one is the older PSP compile. Do not install it for skins. Build 108 failed and there is no 108 file. The two compile errors from that run are fixed, and the next install is compiling. There is still no skin install file.
+The skin install is [Continuum-109](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-109-05ee4df/Continuum-109.ipa). Build 108 failed and has no file. Do not install 107 for skins. 109 is not done until the picture is in the hole on the phone. Import the skin file again after installing.
 
 This install is **not** signed with a JIT. Heavier systems here run on an interpreter.
 
@@ -20,7 +20,7 @@ This install is **not** signed with a JIT. Heavier systems here run on an interp
 
 - PlayStation GPU handoff (Beetle). The BIOS boot above is real. What is not finished is the GPU handoff, not the boot. The other PlayStation option still runs with no BIOS.
 - Nintendo 3DS (Mario Kart) runs. The open problem is the skin, below.
-- On-screen control skins. On the last phone report, Game Boy Color sideways works and other systems do not: the 3DS picture sits above the skin and the bottom screen stays empty. A fix is in the tree (`ee307b8`) and is not installed yet. Not done until the picture is in the hole on the phone.
+- On-screen control skins. On the last phone report, Game Boy Color sideways works and other systems do not: the 3DS picture sits above the skin and the bottom screen stays empty. The file to install is Continuum-109. It is not proven on a phone. Not done until the picture is in the hole on the phone.
 
 **In the app, not tried on a phone**
 
@@ -37,7 +37,7 @@ This install is **not** signed with a JIT. Heavier systems here run on an interp
 
 Done on a phone: rewind, and fast forward at about 4x (not 5x).
 
-In the tree, not on a phone (`ee307b8`): each screen in the hole the skin names, a circle pad as a real stick, and a pressed button picture when the file has one. Import the skin again after installing, or the old save keeps a single hole and no stick.
+In 109, not proven on a phone: each screen in the hole the skin names, a circle pad as a real stick, and a pressed button picture when the file has one. Import the skin again after installing, or the old save keeps a single hole and no stick.
 
 Not built: swapping which screen is big, AirPlay, extra buttons you place yourself, editing an imported skin in the app, touch as a mouse, camera, microphone, Amiibo, haptics, a 50-slot save manager, exporting a save, cheat search, importing a cheat file, online play, achievements, and cloud sync. Typing a cheat code does exist.
 
