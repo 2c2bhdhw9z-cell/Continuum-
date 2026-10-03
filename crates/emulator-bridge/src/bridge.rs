@@ -31,6 +31,11 @@ use crate::timing::FramePacer;
 #[path = "netplay/bridge_glue.rs"]
 mod netplay_glue;
 
+// Controller types, remap profiles and the console actions (shake, analog, DS lid, blow, HOME).
+// A child module for the same reason as `netplay_glue`.
+#[path = "input/bridge_glue.rs"]
+mod input_glue;
+
 /// Video frames of audio to buffer. Three is the usual compromise between
 /// robustness against a slow tick and audible input-to-sound latency.
 const AUDIO_LATENCY_FRAMES: usize = 3;
@@ -613,6 +618,9 @@ impl EmulatorBridge {
     /// The unified step: input → core → audio → GPU. Called once per
     /// `requestAnimationFrame` and from nowhere else.
     pub fn tick(&mut self, now_ms: f64) -> Result<TickReport, BridgeError> {
+        // Actions remapped buttons pressed since the last tick (shake, DS lid, profile cycle...),
+        // before this tick's snapshot so their effect lands on this frame.
+        self.process_input_actions();
         // Online play owns the whole step while it is live: frames run only when both players'
         // inputs have arrived. See `netplay_glue`.
         if self.netplay_owns_tick() {
@@ -848,7 +856,7 @@ impl EmulatorBridge {
             None => format!(
                 "mouse mode on; this core declares no mouse for player {player}, so only games that read the mouse directly will see it"
             ),
-            Some((name, device)) => match self.set_controller_port_device(port, device) {
+            Some((name, device)) => match self.switch_port_device(port, device) {
                 Ok(()) if enabled => format!("mouse mode on: player {player} is now \"{name}\""),
                 Ok(()) => format!("mouse mode off: player {player} is back to \"{name}\""),
                 Err(error) => format!("mouse mode: could not switch player {player} to \"{name}\": {error}"),

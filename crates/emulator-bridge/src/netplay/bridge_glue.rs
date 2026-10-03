@@ -193,6 +193,7 @@ impl EmulatorBridge {
                     Step::Run(inputs) => {
                         let mut snapshot = InputSnapshot {
                             ports: [PortState::default(); MAX_PORTS],
+                            keys: Default::default(),
                         };
                         snapshot.ports[0] = inputs[0].to_port();
                         snapshot.ports[1] = inputs[1].to_port();

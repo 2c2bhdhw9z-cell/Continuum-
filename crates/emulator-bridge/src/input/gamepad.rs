@@ -27,6 +27,8 @@
 //! buttons are OR-ed, and for axes the largest magnitude wins. A full poll can then
 //! overwrite its own source without touching anyone else's.
 
+use super::keyboard::{self, KeyEvent, KeyboardState};
+use super::remap::{InputAction, InputConfig, RemapTable};
 use super::{Button, InputSnapshot, InputState, PortState, AXIS_COUNT, MAX_PORTS};
 
 /// Below this magnitude a stick is treated as centred. Cheap drift rejection, and the
@@ -127,6 +129,32 @@ pub const DEFAULT_TURBO_HALF_PERIOD: u32 = 4;
 /// The slowest rate a host may ask for: half a second each way at 60 Hz.
 const MAX_TURBO_HALF_PERIOD: u32 = 30;
 
+/// What the input side knows about the running game, and the user's input configuration.
+///
+/// Lives on the bridge rather than in the session so the configuration survives between games,
+/// and is reset (apart from `config`) when a game starts. See `bridge/input_glue.rs`.
+#[derive(Debug, Default)]
+pub struct InputSessionState {
+    /// Every remap profile and controller-type choice. Persisted by the host as text.
+    pub config: InputConfig,
+    /// Shared system id of the running game, empty when none.
+    pub system: String,
+    /// Content id of the running game, empty when none.
+    pub game: String,
+    /// Name of the profile in force.
+    pub profile: String,
+    /// The device id each port was last switched to, `None` for the core's default (the joypad).
+    pub port_devices: [Option<u32>; MAX_PORTS],
+    /// The DS lid, closed by the action or the API.
+    pub lid_closed: bool,
+    /// "Blow" asked for through the API (a held on-screen button), as opposed to a remapped one.
+    pub blow_requested: bool,
+    /// Host-side actions (show keyboard, menu) waiting for the host to collect.
+    pub host_actions: Vec<InputAction>,
+    /// The last thing an action did, for the host's status line.
+    pub last_action_line: String,
+}
+
 #[derive(Debug)]
 pub struct GamepadBridge {
     /// One independent input layer per source; merged on snapshot.
@@ -141,6 +169,23 @@ pub struct GamepadBridge {
     /// Core frames since turbo was last picked up from nothing. Counted in core frames rather
     /// than display ticks so the rate is the same at 60 and 120 Hz and under fast forward.
     turbo_clock: u64,
+    /// The remap table in force for each source. The keyboard layer is never remapped: its
+    /// buttons are a keyboard pretending to be a pad, which is a mapping already.
+    remap: [RemapTable; SOURCE_COUNT],
+    /// Actions each source/port was holding at its last poll, for edge detection.
+    held_actions: [[u32; MAX_PORTS]; SOURCE_COUNT],
+    /// Actions pressed since the engine last collected them, in order.
+    pending_actions: Vec<InputAction>,
+    /// Buttons held on a port by the app rather than a hand: the DS lid (L3 on melonDS) and the
+    /// microphone noise (L2). Added to every core frame after remapping, so a profile cannot
+    /// move them.
+    latched: [u32; MAX_PORTS],
+    /// Buttons pressed by the app for a few core frames: the 3DS HOME button, the Pokemon Mini
+    /// shake. `pulse_left` counts the frames down.
+    pulse: [u32; MAX_PORTS],
+    pulse_left: [u32; MAX_PORTS],
+    /// See [`InputSessionState`].
+    pub session: InputSessionState,
 }
 
 impl Default for GamepadBridge {
@@ -151,6 +196,13 @@ impl Default for GamepadBridge {
             turbo: [0; MAX_PORTS],
             turbo_half_period: DEFAULT_TURBO_HALF_PERIOD,
             turbo_clock: 0,
+            remap: [RemapTable::default(); SOURCE_COUNT],
+            held_actions: [[0; MAX_PORTS]; SOURCE_COUNT],
+            pending_actions: Vec::new(),
+            latched: [0; MAX_PORTS],
+            pulse: [0; MAX_PORTS],
+            pulse_left: [0; MAX_PORTS],
+            session: InputSessionState::default(),
         }
     }
 }
@@ -202,6 +254,18 @@ impl GamepadBridge {
     /// the pulse on top, which is the one part of input that is meant to change between steps.
     pub fn turbo_step(&mut self, base: &InputSnapshot) -> InputSnapshot {
         let mut out = *base;
+        // The app's own holds and pulses, per core frame like turbo, so a pulse lasts the same
+        // number of emulated frames at any display rate and under fast forward.
+        for port in 0..MAX_PORTS {
+            out.ports[port].buttons |= self.latched[port];
+            if self.pulse_left[port] > 0 {
+                out.ports[port].buttons |= self.pulse[port];
+                self.pulse_left[port] -= 1;
+                if self.pulse_left[port] == 0 {
+                    self.pulse[port] = 0;
+                }
+            }
+        }
         if self.turbo.iter().any(|m| *m != 0) {
             let half = u64::from(self.turbo_half_period.max(1));
             let down = (self.turbo_clock / half) % 2 == 0;
@@ -213,6 +277,104 @@ impl GamepadBridge {
             self.turbo_clock = self.turbo_clock.wrapping_add(1);
         }
         out
+    }
+
+    // ------------------------------------------------------- holds and pulses
+
+    /// Holds (or lets go of) buttons on a port on the app's behalf. See `latched`.
+    pub fn set_latched(&mut self, port: usize, buttons: u32, held: bool) {
+        if let Some(slot) = self.latched.get_mut(port) {
+            if held {
+                *slot |= buttons;
+            } else {
+                *slot &= !buttons;
+            }
+        }
+    }
+
+    pub fn latched(&self, port: usize) -> u32 {
+        self.latched.get(port).copied().unwrap_or(0)
+    }
+
+    /// Presses buttons on a port for `frames` core frames.
+    pub fn pulse(&mut self, port: usize, buttons: u32, frames: u32) {
+        if port < MAX_PORTS {
+            self.pulse[port] |= buttons;
+            self.pulse_left[port] = self.pulse_left[port].max(frames);
+        }
+    }
+
+    // ----------------------------------------------------------------- remapping
+
+    /// Puts a remap table in force for one source. The keyboard layer ignores this.
+    pub fn set_remap(&mut self, source: PadSource, table: RemapTable) {
+        if source != PadSource::Keyboard {
+            self.remap[source as usize] = table;
+        }
+    }
+
+    pub fn remap(&self, source: PadSource) -> RemapTable {
+        self.remap[source as usize]
+    }
+
+    /// The actions pressed since the last call, in order, each once per press.
+    pub fn take_actions(&mut self) -> Vec<InputAction> {
+        std::mem::take(&mut self.pending_actions)
+    }
+
+    /// Whether any source on any port is holding `action` right now.
+    pub fn action_held(&self, action: InputAction) -> bool {
+        let bit = 1u32 << action as u8;
+        self.held_actions
+            .iter()
+            .any(|ports| ports.iter().any(|mask| mask & bit != 0))
+    }
+
+    // ------------------------------------------------------------------ keyboard
+
+    /// Every layer's keyboard, merged.
+    pub fn merged_keys(&self) -> KeyboardState {
+        let mut keys = KeyboardState::default();
+        for source in &self.sources {
+            keys.merge(source.keys());
+        }
+        keys
+    }
+
+    /// One key, from one layer: a hardware keyboard on `Keyboard`, the on-screen one on `Touch`.
+    ///
+    /// The polled state changes here, and the core's keyboard callback, if it registered one, is
+    /// told on its next frame. It is told only when the MERGED state changes, so the same key
+    /// held on both keyboards is one press and one release, not two. `character` is the UTF-32
+    /// text the key typed, 0 for none; it is sent with the press only.
+    pub fn set_key(&mut self, source: PadSource, keycode: u32, down: bool, character: u32) {
+        let before = self.merged_keys();
+        self.sources[source as usize].set_key(keycode, down);
+        let after = self.merged_keys();
+        if before.is_down(keycode) == after.is_down(keycode) {
+            return;
+        }
+        keyboard::queue(KeyEvent {
+            down,
+            keycode,
+            character: if down { character } else { 0 },
+            modifiers: after.held_modifiers(),
+        });
+    }
+
+    /// Tells the core about every key that a release just let go of.
+    fn queue_key_releases(&self, before: &KeyboardState) {
+        let after = self.merged_keys();
+        for key in before.held_keys() {
+            if !after.is_down(key) {
+                keyboard::queue(KeyEvent {
+                    down: false,
+                    keycode: key,
+                    character: 0,
+                    modifiers: after.held_modifiers(),
+                });
+            }
+        }
     }
 
     // ------------------------------------------------------------- connections
@@ -310,10 +472,13 @@ impl GamepadBridge {
 
     /// Releases every button on every port, across all sources.
     pub fn release_all(&mut self) {
+        let keys = self.merged_keys();
         for source in &mut self.sources {
             source.release_all();
         }
         self.turbo = [0; MAX_PORTS];
+        self.held_actions = [[0; MAX_PORTS]; SOURCE_COUNT];
+        self.queue_key_releases(&keys);
     }
 
     /// Releases one source, e.g. when the touch overlay is hidden.
@@ -321,7 +486,10 @@ impl GamepadBridge {
     /// Releasing the touch layer also drops turbo, because only the on-screen pad holds turbo
     /// buttons, and an overlay taken away mid-hold would otherwise leave a button firing forever.
     pub fn release_source(&mut self, source: PadSource) {
+        let keys = self.merged_keys();
         self.sources[source as usize].release_all();
+        self.held_actions[source as usize] = [0; MAX_PORTS];
+        self.queue_key_releases(&keys);
         if source == PadSource::Touch {
             self.turbo = [0; MAX_PORTS];
         }
@@ -366,7 +534,10 @@ impl GamepadBridge {
                 merged.mouse.hwheel = merged.mouse.hwheel.saturating_add(layer.mouse.hwheel);
             }
         }
-        InputSnapshot { ports }
+        InputSnapshot {
+            ports,
+            keys: self.merged_keys(),
+        }
     }
 
     /// Applies one poll of a W3C standard gamepad.
@@ -415,36 +586,64 @@ impl GamepadBridge {
             mouse: self.sources[source as usize].ports[port].mouse,
             ..PortState::default()
         };
+        let mut raw = 0u32;
         for (index, button) in STANDARD_GAMEPAD_MAP {
             if buttons.get(index).copied().unwrap_or(false) {
-                state.buttons |= 1 << button as u32;
+                raw |= 1 << button as u32;
             }
         }
 
-        // Analog axes pass through for cores that read them...
+        // The profile in force for this source: buttons to buttons, to nothing, or to actions.
+        let table = self.remap[source as usize];
+        let mapped = table.apply(raw);
+        state.buttons = mapped.buttons;
+        self.note_actions(source, port, mapped.actions);
+
+        // Analog axes pass through for cores that read them, through the profile's deadzone...
         for axis in 0..AXIS_COUNT {
             state.axes[axis] = axes.get(axis).copied().unwrap_or(0.0).clamp(-1.0, 1.0);
         }
+        let (lx, ly) = table.shape_stick(state.axes[0], state.axes[1]);
+        let (rx, ry) = table.shape_stick(state.axes[2], state.axes[3]);
+        state.axes = [lx, ly, rx, ry];
 
         // ...and the left stick additionally drives the D-pad, because most retro
         // cores only read the D-pad while a player on a modern controller reaches for
-        // the stick first.
-        let x = state.axes[0];
-        let y = state.axes[1];
-        if x <= -AXIS_DEADZONE {
-            state.buttons |= 1 << Button::Left as u32;
-        }
-        if x >= AXIS_DEADZONE {
-            state.buttons |= 1 << Button::Right as u32;
-        }
-        if y <= -AXIS_DEADZONE {
-            state.buttons |= 1 << Button::Up as u32;
-        }
-        if y >= AXIS_DEADZONE {
-            state.buttons |= 1 << Button::Down as u32;
+        // the stick first. A profile can turn that off. The threshold is the larger of the
+        // usual one and the profile's deadzone, measured on the raw stick.
+        if table.stick_to_dpad {
+            let threshold = AXIS_DEADZONE.max(table.deadzone);
+            let x = axes.first().copied().unwrap_or(0.0).clamp(-1.0, 1.0);
+            let y = axes.get(1).copied().unwrap_or(0.0).clamp(-1.0, 1.0);
+            if x <= -threshold {
+                state.buttons |= 1 << Button::Left as u32;
+            }
+            if x >= threshold {
+                state.buttons |= 1 << Button::Right as u32;
+            }
+            if y <= -threshold {
+                state.buttons |= 1 << Button::Up as u32;
+            }
+            if y >= threshold {
+                state.buttons |= 1 << Button::Down as u32;
+            }
         }
 
         self.sources[source as usize].ports[port] = state;
+    }
+
+    /// Records which actions a source/port now holds, queuing each newly pressed one.
+    fn note_actions(&mut self, source: PadSource, port: usize, actions: u32) {
+        let previous = self.held_actions[source as usize][port];
+        let pressed = actions & !previous;
+        if pressed != 0 {
+            for action in InputAction::ALL {
+                if pressed & (1 << action as u8) != 0 && self.pending_actions.len() < 64 {
+                    self.pending_actions.push(action);
+                }
+            }
+        }
+        self.held_actions[source as usize][port] = actions;
     }
 
     /// Pass-through for a controller whose layout is not the standard one: button

@@ -316,6 +316,10 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
     if let Some(handled) = unsafe { crate::peripherals::try_environment(cmd, data) } {
         return handled;
     }
+    // Keyboard callback, sensor interface, input device capabilities. See `crate::input`.
+    if let Some(handled) = unsafe { crate::input::try_environment(cmd, data) } {
+        return handled;
+    }
     match cmd {
         ENV_GET_SYSTEM_DIRECTORY | ENV_GET_SAVE_DIRECTORY => {
             let guard = match DIRECTORIES.lock() {
@@ -928,6 +932,8 @@ impl NativeLibretroCore {
         // during `retro_set_environment` or `retro_load_game`, and nothing the last core held may
         // be honoured for this one.
         crate::peripherals::reset_for_load();
+        // The last core's keyboard callback and sensor requests.
+        crate::input::reset_for_load();
 
         // Order matters and is specified by libretro: the environment callback must be
         // installed before `retro_init`, because cores query it during
@@ -1189,6 +1195,9 @@ impl EmulatorCore for NativeLibretroCore {
         // A camera frame captured since the last frame goes to the core HERE, on the core's own
         // thread, because libretro.h:1209 says that is where the camera callback runs.
         crate::peripherals::before_retro_run();
+        // Key events queued by the host go to the core's keyboard callback HERE, on its own
+        // thread inside the frame, never from a UIKit handler.
+        crate::input::before_retro_run();
 
         unsafe { (self.symbols.run)() };
 
@@ -1451,6 +1460,8 @@ impl Drop for NativeLibretroCore {
     fn drop(&mut self) {
         // The camera's `deinitialized` before the game goes, and the mic handle forgotten.
         crate::peripherals::before_unload();
+        // A callback into an unloaded library must never be made.
+        crate::input::reset_for_load();
         if self.content_loaded {
             unsafe { (self.symbols.unload_game)() };
         }
