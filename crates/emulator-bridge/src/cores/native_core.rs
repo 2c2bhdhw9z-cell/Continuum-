@@ -489,6 +489,17 @@ fn option_overrides(core_id: &str) -> &'static [(&'static str, &'static str)] {
             ("parallel-n64-angrylion-multithread", "off"),
             ("parallel-n64-cpucore", "cached_interpreter"),
         ],
+        // PPSSPP's advertised default for ppsspp_cpu_core is "JIT", the dynarec.
+        // Refusing the read does NOT select that default: retro_load_game sets
+        // iCpuCore to INTERPRETER before the read, and only the read changes it.
+        // That slow interpreter is not what this row is. The value "IR JIT" is
+        // the core's own name for CPUCore::IR_INTERPRETER, constructed as
+        // IRJit(state, false), and that false is compile-to-native off. No
+        // PROT_EXEC. The dynarec string is "JIT", which this table does not
+        // answer. On iOS, if a later read did say "JIT", System_GetPropertyBool
+        // (SYSPROP_CAN_JIT) asks RETRO_ENVIRONMENT_GET_JIT_CAPABLE, which this
+        // host does not implement, so the core forces the IR interpreter anyway.
+        "ppsspp" => &[("ppsspp_cpu_core", "IR JIT")],
         _ => &[],
     }
 }
@@ -1461,6 +1472,19 @@ mod tests {
         let (ok, value) = ask_option("parallel-n64-cpucore");
         assert!(ok, "N64 CPU core must be cached_interpreter");
         assert_eq!(value.as_deref(), Some("cached_interpreter"));
+    }
+
+    #[test]
+    fn ppsspp_cpu_is_the_ir_interpreter_not_the_dynarec() {
+        let _guard = option_test_guard();
+        install_options("ppsspp");
+        let (ok, value) = ask_option("ppsspp_cpu_core");
+        // "IR JIT" is the core's value string for CPUCore::IR_INTERPRETER with
+        // compile-to-native off. "JIT" is the dynarec and must not be answered.
+        assert!(ok, "the PSP CPU core must be named, or the read stays the slow interpreter");
+        assert_eq!(value.as_deref(), Some("IR JIT"));
+        let (ok, _) = ask_option("ppsspp_backend");
+        assert!(!ok, "graphics backend stays the core's own choice");
     }
 
     #[test]

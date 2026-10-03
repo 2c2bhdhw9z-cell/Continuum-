@@ -24,11 +24,11 @@ This install is **not** signed with a JIT. Heavier systems here run on an interp
 **In the app, not tried on a phone**
 
 - Plain Game Boy (`.gb`), Master System, Famicom Disk System, SG-1000, TurboGrafx-16, Atari 2600
+- PSP (PPSSPP). IR interpreter, no JIT, no dynarec, no executable memory, no BIOS. `.cso` only. `.iso`, `.chd` and `.pbp` stay PlayStation. Not device-proven. Someone else's PPSSPP running smoothly is not this phone. It is not done until a game runs here.
 - The OpenGL door (build 101). A core that asks for OpenGL is no longer turned away. The picture is copied onto the screen. No phone has shown that frame. The phone could do OpenGL; the app only built this second door later. Crash’s frames are not proof the picture went through Vulkan.
 
 **Not in the app**
 
-- PSP. Next, not in 102. No JIT. Other people saying PSP “runs fine” is not this app. It is not done until a game runs here.
 - Switch. Not built. It is a system to emulate, not a device this app runs on.
 
 The full table, including what is only half done, is [STATUS.md](STATUS.md). [TESTING.md](TESTING.md) is the live checklist. Old notes live in `docs/archive/`. `.kiro` is still in the repo and is outdated.
@@ -38,5 +38,7 @@ The full table, including what is only half done, is [STATUS.md](STATUS.md). [TE
 Open the app, tap Import, and pick the game files. For a PlayStation disc, pick the `.cue` and every `.bin` in the same go. You can also drop files in the iPhone Files app under On My iPhone, Continuum.
 
 A 3DS game has to be a decrypted `.3ds`, `.3dsx`, `.cci`, or `.cxi`. A store copy can also need Nintendo system files this app does not include. Without those, the screen can stay black.
+
+A PSP game in this build is a `.cso`. An `.iso` is still PlayStation. Renaming an `.iso` to `.cso` does not make it one.
 
 The Beetle PlayStation option needs `scph1001.bin` in that same Continuum folder.

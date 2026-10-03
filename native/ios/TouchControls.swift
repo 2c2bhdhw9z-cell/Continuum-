@@ -257,6 +257,10 @@ enum GameSystem: String, Sendable, CaseIterable {
     /// The Circle Pad is an analog stick, same problem as the N64, so the D-pad drives the
     /// left stick. The C-stick is the right stick and is not drawn.
     case n3ds
+    /// The PlayStation Portable. The face buttons are the PlayStation's, and the
+    /// analog nub is the left stick, so the D-pad surface drives that stick the
+    /// same way the N64 and the 3DS already do.
+    case psp
 
     /// The short code a library card badges itself with.
     var badge: String {
@@ -277,12 +281,13 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .atari2600: return "2600"
         case .n64: return "N64"
         case .n3ds: return "3DS"
+        case .psp: return "PSP"
         }
     }
 
     /// Whether the D-pad surface should also report an ANALOG STICK deflection.
     ///
-    /// True for the N64 and the 3DS, and it is the difference between those systems being
+    /// True for the N64, the 3DS and the PSP, and it is the difference between those systems being
     /// playable and looking broken. Almost every N64 game reads the Control Stick and ignores
     /// the D-pad entirely: Mario 64 does not move at all from the D-pad. A 3DS game reads the
     /// Circle Pad the same way. The core maps that stick to the LEFT analog axes, which this
@@ -305,6 +310,10 @@ enum GameSystem: String, Sendable, CaseIterable {
             // only reads that stick would not move from a digital D-pad, which is the N64
             // failure this flag already exists to prevent. The digital bits are still sent.
             return true
+        case .psp:
+            // PPSSPP's descriptors name the left analog, and most PSP games read that
+            // nub rather than the D-pad. The same surface sends both, as on the N64.
+            return true
         }
     }
 
@@ -325,7 +334,7 @@ enum GameSystem: String, Sendable, CaseIterable {
     var touchScreen: CGRect? {
         switch self {
         case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .fds, .sg1000,
-             .tg16, .atari2600, .n64:
+             .tg16, .atari2600, .n64, .psp:
             return nil
         case .ds:
             return CGRect(x: 0, y: 0.5, width: 1, height: 0.5)
@@ -356,6 +365,7 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .atari2600: return "Atari 2600"
         case .n64: return "Nintendo 64"
         case .n3ds: return "Nintendo 3DS"
+        case .psp: return "PlayStation Portable"
         }
     }
 
@@ -488,6 +498,16 @@ enum GameSystem: String, Sendable, CaseIterable {
                                     bottom: (.b, "B"), left: (.y, "Y"))
                 + Self.shoulders(left: [(.l, "L"), (.l2, "ZL")],
                                  right: [(.r, "R"), (.r2, "ZR")])
+                + Self.selectStart
+
+        case .psp:
+            // Read from PPSSPP's own descriptors in libretro.cpp: retro B/A/X/Y are
+            // Cross/Circle/Triangle/Square, the same slots the PS1 pad uses. L and R
+            // are the only shoulders. The analog nub is not a button; see
+            // `dpadDrivesAnalogStick`. There is no second stick on the hardware.
+            return Self.diamondFace(top: (.x, "Triangle"), right: (.a, "Circle"),
+                                    bottom: (.b, "Cross"), left: (.y, "Square"))
+                + Self.shoulders(left: [(.l, "L")], right: [(.r, "R")])
                 + Self.selectStart
 
         case .ds:
