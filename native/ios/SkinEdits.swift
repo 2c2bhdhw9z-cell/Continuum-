@@ -57,6 +57,7 @@ struct SkinFaceEdits: Equatable, Sendable {
         for (key, slot) in buttonSlots {
             guard let index = Int(key), out.buttons.indices.contains(index),
                   out.buttons[index].slot != "dpad",
+                  out.buttons[index].function == nil,
                   PadSlot.allCases.contains(where: { $0.layoutKey == slot }) else { continue }
             out.buttons[index].slot = slot
         }

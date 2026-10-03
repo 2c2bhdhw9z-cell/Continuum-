@@ -110,6 +110,7 @@ struct SettingsScreen: View {
                 }
                 // A third group for the same ten-children reason as the two above.
                 Group {
+                    SkinLibrarySettingsSection(host: host)
                     CloudSyncSection(sync: host.cloudSync)
                     OnlinePlaySettingsSection(netplay: host.netplay)
                     // Arcade and Saturn core choice, beside the PlayStation one in spirit; here

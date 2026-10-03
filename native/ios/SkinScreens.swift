@@ -49,10 +49,24 @@ struct DeltaSkinButton: Codable, Equatable, Sendable {
     var normalKind: DeltaSkinAssetKind?
     var pressedFileName: String?
     var pressedKind: DeltaSkinAssetKind?
+    /// A Manic function (`SkinFunction` raw value) this button runs instead of a game input.
+    /// `slot` is then "function". Nil on every game button and on skins saved before functions.
+    var function: String? = nil
+    /// Manic switch fields: the "on" picture, the knob's two frames, momentary or latching.
+    var toggle: DeltaSkinSwitch? = nil
+    /// Further slots held together with `slot` (a skin item naming several buttons, such as
+    /// A+B). Nil or empty for a single button.
+    var comboSlots: [String]? = nil
 
     var frame: DeltaSkinNormalizedRect {
         DeltaSkinNormalizedRect(x: x, y: y, width: width, height: height)
     }
+
+    /// The function, when this button runs one.
+    var skinFunction: SkinFunction? { function.flatMap(SkinFunction.named) }
+
+    /// True for a button the pad drives through the function/switch path rather than as a chip.
+    var isSpecial: Bool { function != nil || toggle != nil || !(comboSlots ?? []).isEmpty }
 }
 
 /// What one info.json item was, before it is mapped onto a system's slots.
@@ -70,6 +84,10 @@ struct DeltaSkinRawItem: Sendable, Equatable {
     var normalFileName: String?
     var pressedFileName: String?
     var stickAssetFileName: String?
+    /// Every input name the item listed, so a combo or a function is not cut down to one name.
+    var names: [String] = []
+    /// Manic switch fields, when the item is a switch.
+    var toggle: DeltaSkinSwitch? = nil
 }
 
 /// Bytes for a per-button or thumbstick image pulled out of the package.
@@ -134,11 +152,16 @@ enum SkinControls {
                                         stickAssetFileName: nil)
             }
         }
-        let names = inputNames(item["inputs"])
+        let names = ManicItems.inputNames(item["inputs"])
         guard let first = names.first else { return nil }
+        let toggle = ManicItems.toggle(item, itemFrame: frame)
+        // A switch's `selected` picture is its "on" position, not a pressed picture.
+        let pressed = toggle == nil
+            ? art.pressed
+            : assetNames(item["asset"], pressedKeys: ["pressed", "highlight", "highlighted"]).pressed
         return DeltaSkinRawItem(kind: .button(first), frame: normalized,
-                                normalFileName: art.normal, pressedFileName: art.pressed,
-                                stickAssetFileName: nil)
+                                normalFileName: art.normal, pressedFileName: pressed,
+                                stickAssetFileName: nil, names: names, toggle: toggle)
     }
 
     struct Resolved {
@@ -147,6 +170,11 @@ enum SkinControls {
         var sticks: [DeltaSkinStick]
         var dpadFrame: DeltaSkinNormalizedRect?
         var applied: Int
+        /// One plain line per item that was left out on purpose (a function mixed with inputs).
+        var refused: [String] = []
+        /// How many buttons run a function, and how many are switches.
+        var functions: Int = 0
+        var switches: Int = 0
     }
 
     /// Maps the skin's own controls onto the slots this system actually has.
@@ -159,6 +187,9 @@ enum SkinControls {
         var sticks: [DeltaSkinStick] = []
         var dpad: DeltaSkinNormalizedRect?
         var applied = 0
+        var refused: [String] = []
+        var functionCount = 0
+        var switchCount = 0
 
         for item in items {
             let centreX = item.frame.x + item.frame.width / 2
@@ -192,7 +223,54 @@ enum SkinControls {
             case .touch:
                 break
             case .button(let name):
-                guard let slot = slot(forSkinName: name, system: system) else { continue }
+                let names = item.names.isEmpty ? [name] : item.names
+                if let refusal = ManicItems.refusal(for: names, systemID: system.rawValue) {
+                    refused.append(refusal)
+                    continue
+                }
+                if let function = ManicItems.function(for: names, systemID: system.rawValue) {
+                    buttons.append(DeltaSkinButton(
+                        slot: "function",
+                        x: item.frame.x, y: item.frame.y,
+                        width: item.frame.width, height: item.frame.height,
+                        normalFileName: item.normalFileName,
+                        normalKind: item.normalFileName.map(assetKind),
+                        pressedFileName: item.pressedFileName,
+                        pressedKind: item.pressedFileName.map(assetKind),
+                        function: function.rawValue,
+                        toggle: item.toggle
+                    ))
+                    functionCount += 1
+                    if item.toggle != nil { switchCount += 1 }
+                    applied += 1
+                    continue
+                }
+                var slots: [PadSlot] = []
+                for each in names {
+                    if let found = slot(forSkinName: each, system: system), !slots.contains(found) {
+                        slots.append(found)
+                    }
+                }
+                guard let slot = slots.first else { continue }
+                let combo = slots.dropFirst().map(\.layoutKey)
+                if !combo.isEmpty || item.toggle != nil {
+                    // A combo or a switch is its own control. It does not move the chip that
+                    // the single button of the same name would use.
+                    buttons.append(DeltaSkinButton(
+                        slot: slot.layoutKey,
+                        x: item.frame.x, y: item.frame.y,
+                        width: item.frame.width, height: item.frame.height,
+                        normalFileName: item.normalFileName,
+                        normalKind: item.normalFileName.map(assetKind),
+                        pressedFileName: item.pressedFileName,
+                        pressedKind: item.pressedFileName.map(assetKind),
+                        toggle: item.toggle,
+                        comboSlots: combo.isEmpty ? nil : Array(combo)
+                    ))
+                    if item.toggle != nil { switchCount += 1 }
+                    applied += 1
+                    continue
+                }
                 switch slot {
                 case .select:
                     layout.selectX = centreX
@@ -221,7 +299,8 @@ enum SkinControls {
         }
         layout.buttonFrees = frees
         return Resolved(layout: layout.sanitised, buttons: buttons, sticks: sticks,
-                        dpadFrame: dpad, applied: applied)
+                        dpadFrame: dpad, applied: applied, refused: refused,
+                        functions: functionCount, switches: switchCount)
     }
 
     /// The real slot for a name the skin used, on this system.
@@ -324,11 +403,12 @@ enum SkinControls {
         return parts.map { canonical($0) }.joined(separator: " ")
     }
 
-    private static func assetNames(_ value: Any?) -> (normal: String?, pressed: String?) {
+    private static func assetNames(_ value: Any?,
+                                   pressedKeys: [String] = pressedAssetKeys) -> (normal: String?, pressed: String?) {
         guard let box = value as? [String: Any] else { return (nil, nil) }
         let normal = (box["normal"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         var pressed: String?
-        for key in pressedAssetKeys {
+        for key in pressedKeys {
             if let name = (box[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                !name.isEmpty {
                 pressed = name
@@ -353,20 +433,6 @@ enum SkinControls {
             }
         }
         return nil
-    }
-
-    private static func inputNames(_ value: Any?) -> [String] {
-        if let list = value as? [String] {
-            return list.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        }
-        if let single = value as? String {
-            let trimmed = single.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? [] : [trimmed]
-        }
-        if let dict = value as? [String: Any] {
-            return dict.values.compactMap { $0 as? String }.filter { !$0.isEmpty }
-        }
-        return []
     }
 
     private static func readFrame(_ value: Any?) -> CGRect? {
@@ -414,6 +480,8 @@ enum SkinPicturePlacement {
 struct SkinButtonImages {
     var normal: UIImage?
     var pressed: UIImage?
+    /// A switch's "on" picture (`asset.selected`). Nil on plain buttons.
+    var selected: UIImage? = nil
 }
 
 /// Everything the pad needs from one orientation of a skin, besides the background image.
@@ -428,4 +496,11 @@ struct SkinPadFace {
     var dpadPressedImage: UIImage?
     /// Skin art opacity from the in-app skin editor (`SkinFaceEdits.opacity`). 1 is the file.
     var opacity: Double = 1
+    /// Images per button INDEX in `buttons`. Two buttons naming the same slot (or two function
+    /// buttons) each keep their own picture.
+    var imagesByIndex: [Int: SkinButtonImages] = [:]
+    /// The skin this face came from, so a switch's remembered position belongs to one skin.
+    var skinID: String = ""
+    /// The skin's `sound.caf`, played on every press while Settings allows it. Nil for none.
+    var soundURL: URL? = nil
 }

@@ -192,6 +192,12 @@ final class PadInputSource {
     /// button tapped there cannot save a state.
     var onAppAction: ((PadAppAction, Bool) -> Void)?
 
+    /// Where a skin function button goes (SkinFunctions.swift), press and release. Set once by
+    /// `EngineHost.wireSkinFunctions`.
+    var onSkinFunction: ((SkinFunction, Bool) -> Void)?
+    /// The real on/off state a switch bound to a function shows. Nil for a function with none.
+    var skinFunctionState: ((SkinFunction) -> Bool?)?
+
     /// The state for the frame about to run. Released when there is no control surface.
     func currentFrame() -> PadFrame {
         view?.currentFrame() ?? .released
@@ -1728,6 +1734,9 @@ final class TouchControlsView: UIView {
         case stick(side: String, local: CGPoint)
         /// A skin button that this system's procedural pad does not draw (3DS Home / menu).
         case skinSlot(PadSlot)
+        /// A skin button that runs a function, is a switch, or holds a combo. The index is into
+        /// the face's `buttons`, looked up again on every recompute.
+        case special(Int)
         /// An extra button the player placed (`FloatingButtons.swift`). Sticky like a chip. Keyed
         /// by the button's id rather than its index, so a relayout cannot move a held finger onto
         /// a different button.
@@ -1979,6 +1988,34 @@ final class TouchControlsView: UIView {
     private var stickHits: [(side: String, rect: CGRect)] = []
     /// Skin buttons with no procedural chip (Home / menu). 
     private var extraHits: [(slot: PadSlot, rect: CGRect)] = []
+    /// Skin buttons that run a function, are switches, or hold a combo, by index in the face.
+    private var specialHits: [(index: Int, rect: CGRect)] = []
+    private var specialButtons: [Int: DeltaSkinButton] = [:]
+    /// Where each special button's art was laid out, so a switch's knob can be moved later.
+    private var specialRects: [Int: CGRect] = [:]
+    /// Special buttons held on the last recompute, so press and release are each acted on once.
+    private var lastSpecialHeld: Set<Int> = []
+    /// Switch positions, keyed by `switchKey`. Bound switches are re-read from the real state on
+    /// every layout, so they show the truth when the skin loads.
+    private var switchOn: [String: Bool] = [:]
+    /// Which skin and orientation the switches belong to, part of every `switchKey`.
+    private var switchScope = ""
+    /// Which slots an art view stands for, and which special button.
+    private var artSlots: [String: [PadSlot]] = [:]
+    private var artSpecial: [String: Int] = [:]
+    /// A switch's "on" picture, by art key.
+    private var artSelected: [String: UIImage] = [:]
+    /// Art views currently drawn pressed by the press animation.
+    private var artDown: Set<String> = []
+    /// The skin editor's opacity, the alpha art returns to after a press.
+    private var currentSkinAlpha: CGFloat = 1
+    /// The sound the current skin plays on a press.
+    private var skinSoundURL: URL?
+    /// The hidden-controls state last applied, so a change re-applies the opacities once.
+    private var hiddenApplied = false
+    /// Where a skin function goes. Wired by `TouchControlsHost` to the `PadInputSource` box.
+    var onSkinFunction: ((SkinFunction, Bool) -> Void)?
+    var skinFunctionState: ((SkinFunction) -> Bool?)?
     /// Per-button and stick images. Hidden when the skin did not name a file.
     private var artViews: [String: UIImageView] = [:]
     /// Which images a press may swap to. Nil pressed means the normal image stays.
@@ -2161,12 +2198,45 @@ final class TouchControlsView: UIView {
                 chip.alpha = 1
             }
         }
+        applyHiddenControls()
+    }
+
+    /// True while the `toggleControlls` function has hidden the controls. Never in the editor.
+    private var controlsHiddenNow: Bool {
+        !isEditing && SkinRuntime.shared.controlsHidden
+    }
+
+    /// Hidden controls are invisible, not gone: every control still answers a touch where it is,
+    /// and the button that hides them stays visible so the player can bring them back. The view
+    /// itself keeps its alpha, because a view below 0.01 stops receiving touches at all.
+    private func applyHiddenControls() {
+        guard controlsHiddenNow else { return }
+        skinImageView.alpha = 0
+        dpad.alpha = 0
+        for chip in chips {
+            chip.alpha = 0
+        }
+        for (key, view) in artViews {
+            view.alpha = keepsVisibleWhenHidden(key) ? currentSkinAlpha : 0
+        }
+    }
+
+    private func keepsVisibleWhenHidden(_ key: String) -> Bool {
+        guard let index = artSpecial[key] else { return false }
+        return specialButtons[index]?.skinFunction == .toggleControlls
     }
 
     // ------------------------------------------------------------------ layout
 
     override func layoutSubviews() {
         super.layoutSubviews()
+
+        // Hiding or showing the controls re-applies every opacity once, both ways.
+        let hidden = controlsHiddenNow
+        if hidden != hiddenApplied {
+            hiddenApplied = hidden
+            applyOpacity()
+        }
 
         let safe = bounds.inset(by: safeAreaInsets)
         let safePlay = safe.insetBy(dx: Self.edgeMargin, dy: Self.edgeMargin)
@@ -2816,6 +2886,9 @@ final class TouchControlsView: UIView {
         if stickHit(at: point) != nil {
             return true
         }
+        if specialHit(at: point) != nil {
+            return true
+        }
         if dpadRect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
             return true
         }
@@ -2930,6 +3003,10 @@ final class TouchControlsView: UIView {
             } else if let hit = stickHit(at: point) {
                 let local = CGPoint(x: point.x - hit.rect.minX, y: point.y - hit.rect.minY)
                 grabs[ObjectIdentifier(touch)] = .stick(side: hit.side, local: local)
+            } else if let index = specialHit(at: point) {
+                // Before the D-pad and the chips: a function or switch the skin drew is the
+                // thing under the finger, and the procedural controls behind it are hidden.
+                grabs[ObjectIdentifier(touch)] = .special(index)
             } else if dpadRect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
                 grabs[ObjectIdentifier(touch)] = .dpad(touch.location(in: dpad))
             } else if let index = chipIndex(at: point) {
@@ -2980,7 +3057,7 @@ final class TouchControlsView: UIView {
                     grabs.removeValue(forKey: key)
                 }
                 changed = true
-            case .chip, .skinSlot, .floating:
+            case .chip, .skinSlot, .floating, .special:
                 break
             case .stick(let side, _):
                 guard let hit = stickHits.first(where: { $0.side == side }) else {
@@ -3184,6 +3261,7 @@ final class TouchControlsView: UIView {
         var turbo = Set<PadSlot>()
         var floatingHeld = Set<UUID>()
         var actionsHeld: [UUID: PadAppAction] = [:]
+        var specialHeld = Set<Int>()
 
         for grab in grabs.values {
             switch grab {
@@ -3208,6 +3286,13 @@ final class TouchControlsView: UIView {
                 }
             case .skinSlot(let slot):
                 pressed.insert(slot)
+            case .special(let index):
+                guard let button = specialButtons[index] else { break }
+                specialHeld.insert(index)
+                if button.skinFunction == nil, button.toggle == nil {
+                    // A combo: every slot the item named, held together.
+                    pressed.formUnion(Self.slots(of: button))
+                }
             case .stick(let side, let local):
                 guard let hit = stickHits.first(where: { $0.side == side }) else { break }
                 let vector = Self.stickVector(at: local, in: CGRect(origin: .zero, size: hit.rect.size))
@@ -3242,6 +3327,28 @@ final class TouchControlsView: UIView {
         if left { pressed.insert(.left) }
         if right { pressed.insert(.right) }
 
+        // Skin functions and switches: a release is always acted on (so entering the editor with
+        // a held fast forward still ends it), a press only while playing.
+        let specialsDown = isEditing ? Set<Int>() : specialHeld.subtracting(lastSpecialHeld)
+        for index in lastSpecialHeld.subtracting(specialHeld).sorted() {
+            specialReleased(index)
+        }
+        for index in specialsDown.sorted() {
+            specialPressed(index)
+        }
+        lastSpecialHeld = isEditing ? [] : specialHeld
+        // Switches that send game buttons: a latching one holds them while on, a momentary one
+        // while the finger is down.
+        if !isEditing {
+            for (index, button) in specialButtons where button.skinFunction == nil {
+                guard let toggle = button.toggle else { continue }
+                let on = toggle.selfRetracting
+                    ? specialHeld.contains(index)
+                    : (switchOn[switchKey(index)] ?? false)
+                if on { pressed.formUnion(Self.slots(of: button)) }
+            }
+        }
+
         // Remembered so a release reports the point the finger lifted from rather than the origin.
         // The engine keeps the last position too, for the same reason, but the frame it publishes
         // has to be consistent on its own: a released frame carrying (0, 0) would be a lie about
@@ -3274,10 +3381,16 @@ final class TouchControlsView: UIView {
         // The tap. Only for something NEWLY down, so a held button does not buzz on every move
         // of another finger, and never in the editor, where a touch is a drag.
         let downNow = pressed.union(turbo)
+        let newGameDown = !downNow.subtracting(lastHapticPressed).isEmpty
         if !isEditing,
-           !downNow.subtracting(lastHapticPressed).isEmpty
-            || !floatingHeld.subtracting(lastHapticFloating).isEmpty {
+           newGameDown
+            || !floatingHeld.subtracting(lastHapticFloating).isEmpty
+            || !specialsDown.isEmpty {
             ButtonHaptics.shared.tap()
+        }
+        // The skin's own click (`sound.caf`), on a new press of a skin control.
+        if !isEditing, skinSoundURL != nil, newGameDown || !specialsDown.isEmpty {
+            SkinButtonSound.shared.play(skinSoundURL)
         }
         lastHapticPressed = isEditing ? [] : downNow
         lastHapticFloating = isEditing ? [] : floatingHeld
@@ -3289,7 +3402,116 @@ final class TouchControlsView: UIView {
         for chip in chips {
             chip.setPressed(pressed.contains(chip.control.slot))
         }
-        refreshPressedArt(pressed: pressed, stickLeft: stickLeftDown, stickRight: stickRightDown)
+        refreshPressedArt(pressed: pressed, stickLeft: stickLeftDown, stickRight: stickRightDown,
+                          specialHeld: specialHeld)
+    }
+
+    // MARK: Skin functions and switches
+
+    /// The slots a skin button holds: its own and any combo partners.
+    private static func slots(of button: DeltaSkinButton) -> [PadSlot] {
+        let keys = [button.slot] + (button.comboSlots ?? [])
+        return keys.compactMap { key in PadSlot.allCases.first { $0.layoutKey == key } }
+    }
+
+    private func switchKey(_ index: Int) -> String {
+        switchScope + "#\(index)"
+    }
+
+    private func specialPressed(_ index: Int) {
+        guard let button = specialButtons[index] else { return }
+        let function = button.skinFunction
+        guard let toggle = button.toggle else {
+            if let function { onSkinFunction?(function, true) }
+            return
+        }
+        let key = switchKey(index)
+        let now = toggle.selfRetracting ? true : !(switchOn[key] ?? false)
+        switchOn[key] = now
+        if let function {
+            // A held function on a latching switch is held for as long as the switch is on.
+            if function.isHold && !toggle.selfRetracting {
+                onSkinFunction?(function, now)
+            } else {
+                onSkinFunction?(function, true)
+            }
+            rereadBoundSwitch(index)
+        }
+        placeSwitchArt(index, animated: true)
+    }
+
+    private func specialReleased(_ index: Int) {
+        guard let button = specialButtons[index] else { return }
+        let function = button.skinFunction
+        guard let toggle = button.toggle else {
+            if let function { onSkinFunction?(function, false) }
+            return
+        }
+        guard toggle.selfRetracting else { return }
+        switchOn[switchKey(index)] = false
+        if let function { onSkinFunction?(function, false) }
+        placeSwitchArt(index, animated: true)
+    }
+
+    /// A bound switch shows the real state, read right after its function ran and again a moment
+    /// later, because some functions (a sheet, the engine) settle on the next turn.
+    private func rereadBoundSwitch(_ index: Int) {
+        guard let function = specialButtons[index]?.skinFunction,
+              function.boundState != nil else { return }
+        let key = switchKey(index)
+        if let real = skinFunctionState?(function) { switchOn[key] = real }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard let self, self.switchKey(index) == key,
+                  let real = self.skinFunctionState?(function),
+                  real != self.switchOn[key] else { return }
+            self.switchOn[key] = real
+            self.placeSwitchArt(index, animated: true)
+        }
+    }
+
+    /// Moves a switch's knob to its begin (off) or end (on) frame, spring-animated when the skin
+    /// asks for a spring, and swaps to the "on" picture when the skin has one.
+    private func placeSwitchArt(_ index: Int, animated: Bool) {
+        let key = "btn-\(index)"
+        guard let toggle = specialButtons[index]?.toggle,
+              let rect = specialRects[index],
+              let view = artViews[key] else { return }
+        let on = switchOn[switchKey(index)] ?? false
+        let full = DeltaSkinNormalizedRect(x: 0, y: 0, width: 1, height: 1)
+        let knob = (on ? toggle.end : toggle.begin) ?? full
+        let target = CGRect(x: rect.minX + CGFloat(knob.x) * rect.width,
+                            y: rect.minY + CGFloat(knob.y) * rect.height,
+                            width: CGFloat(knob.width) * rect.width,
+                            height: CGFloat(knob.height) * rect.height)
+        view.image = on ? (artSelected[key] ?? artNormal[key]) : (artNormal[key] ?? artSelected[key])
+        view.isHidden = view.image == nil
+        view.transform = .identity
+        guard animated else {
+            view.frame = target
+            return
+        }
+        if toggle.spring {
+            UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.55,
+                           initialSpringVelocity: 0.8,
+                           options: [.beginFromCurrentState, .allowUserInteraction]) {
+                view.frame = target
+            }
+        } else {
+            UIView.animate(withDuration: 0.18, delay: 0,
+                           options: [.beginFromCurrentState, .allowUserInteraction]) {
+                view.frame = target
+            }
+        }
+    }
+
+    private func specialHit(at point: CGPoint) -> Int? {
+        // Last drawn wins, the way the art stacks.
+        for hit in specialHits.reversed()
+        where hit.rect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
+            return hit.index
+        }
+        return nil
     }
 
     /// A point on the glass as a fraction of the WHOLE framebuffer, origin top left.
@@ -3400,31 +3622,69 @@ final class TouchControlsView: UIView {
         var usedArt = Set<String>()
         stickHits = []
         extraHits = []
+        specialHits = []
+        specialButtons = [:]
+        specialRects = [:]
+        artSlots = [:]
+        artSpecial = [:]
+        artSelected = [:]
         var chipHidden = Set<Int>()
+        let wide = bounds.width > bounds.height && landscapeMapping.width > 0
+            && landscapeMapping.height > 0
+        switchScope = skin.face.skinID + (wide ? "#landscape" : "#portrait")
+        if skinSoundURL != skin.face.soundURL {
+            skinSoundURL = skin.face.soundURL
+            SkinButtonSound.shared.prepare(skinSoundURL)
+        }
 
-        for button in skin.face.buttons where button.slot != "dpad" {
+        for (index, button) in skin.face.buttons.enumerated() where button.slot != "dpad" {
             let rect = button.frame.cgRect(in: canvas)
             guard rect.width >= 1, rect.height >= 1 else { continue }
-            let images = skin.face.buttonImages[button.slot]
-            if let index = chips.firstIndex(where: { $0.control.slot.layoutKey == button.slot }) {
-                chips[index].frame = rect
-                if index < chipRects.count { chipRects[index] = rect }
-                if index < chipCentreNow.count {
-                    chipCentreNow[index] = CGPoint(x: rect.midX, y: rect.midY)
+            let images = skin.face.imagesByIndex[index] ?? skin.face.buttonImages[button.slot]
+            let key = "btn-\(index)"
+            if button.isSpecial {
+                specialHits.append((index, rect))
+                specialButtons[index] = button
+                specialRects[index] = rect
+                artSpecial[key] = index
+                if let selected = images?.selected { artSelected[key] = selected }
+                if let function = button.skinFunction, button.toggle != nil,
+                   function.boundState != nil, let real = skinFunctionState?(function) {
+                    // The real state, every time the skin is laid out, so a switch never shows
+                    // a position the game is not in.
+                    switchOn[switchKey(index)] = real
+                }
+                if let art = images?.normal ?? images?.selected {
+                    showArt(key: key, image: art, pressed: images?.pressed, frame: rect)
+                    if images?.normal == nil { artNormal.removeValue(forKey: key) }
+                    usedArt.insert(key)
+                    if button.toggle != nil { placeSwitchArt(index, animated: false) }
+                }
+                continue
+            }
+            if let chipIndex = chips.firstIndex(where: { $0.control.slot.layoutKey == button.slot }) {
+                chips[chipIndex].frame = rect
+                if chipIndex < chipRects.count { chipRects[chipIndex] = rect }
+                if chipIndex < chipCentreNow.count {
+                    chipCentreNow[chipIndex] = CGPoint(x: rect.midX, y: rect.midY)
                 }
                 if images?.normal != nil {
-                    chipHidden.insert(index)
-                    showArt(key: "btn-" + button.slot, image: images?.normal, pressed: images?.pressed, frame: rect)
-                    usedArt.insert("btn-" + button.slot)
+                    chipHidden.insert(chipIndex)
+                    showArt(key: key, image: images?.normal, pressed: images?.pressed, frame: rect)
+                    artSlots[key] = Self.slots(of: button)
+                    usedArt.insert(key)
                 }
             } else if let slot = PadSlot.allCases.first(where: { $0.layoutKey == button.slot }) {
                 extraHits.append((slot, rect))
                 if images?.normal != nil {
-                    showArt(key: "btn-" + button.slot, image: images?.normal, pressed: images?.pressed, frame: rect)
-                    usedArt.insert("btn-" + button.slot)
+                    showArt(key: key, image: images?.normal, pressed: images?.pressed, frame: rect)
+                    artSlots[key] = [slot]
+                    usedArt.insert(key)
                 }
             }
         }
+        // A special button whose index left the face (a different skin) is not held any more.
+        lastSpecialHeld = lastSpecialHeld.filter { specialButtons[$0] != nil }
 
         for index in chips.indices {
             chips[index].isHidden = chipHidden.contains(index)
@@ -3463,16 +3723,25 @@ final class TouchControlsView: UIView {
         // The skin editor's overall opacity. Applied to the background art and every piece, so
         // the whole skin fades together; hit areas are unaffected.
         let skinAlpha = CGFloat(min(1, max(0.05, skin.face.opacity)))
+        currentSkinAlpha = skinAlpha
         skinImageView.alpha = skinAlpha
-        for view in artViews.values {
-            view.alpha = skinAlpha
+        for (key, view) in artViews {
+            view.alpha = artDown.contains(key) ? skinAlpha * 0.7 : skinAlpha
         }
+        applyHiddenControls()
     }
 
     /// Editor drags and a pad with no skin use the procedural controls, not skin images.
     private func clearDeclaredSkinArt() {
         stickHits = []
         extraHits = []
+        specialHits = []
+        specialButtons = [:]
+        specialRects = [:]
+        artSlots = [:]
+        artSpecial = [:]
+        artSelected = [:]
+        artDown = []
         skinImageView.alpha = 1
         dpad.isHidden = false
         for chip in chips { chip.isHidden = false }
@@ -3492,6 +3761,9 @@ final class TouchControlsView: UIView {
             return created
         }()
         view.image = image
+        // Identity first: a frame set under a press animation's scale would be the wrong size.
+        view.transform = .identity
+        artDown.remove(key)
         view.frame = frame
         view.isHidden = false
         artNormal[key] = image
@@ -3583,29 +3855,51 @@ final class TouchControlsView: UIView {
         return nil
     }
 
-    /// Swaps a skin image to its pressed asset while the finger is down. No pressed asset
-    /// means the normal image stays — nothing is drawn that the file did not include.
-    private func refreshPressedArt(pressed: Set<PadSlot>, stickLeft: Bool, stickRight: Bool) {
+    /// Shows a press on the skin's own art. A pressed picture in the file is swapped in; without
+    /// one, the button's own layer is pushed in (scaled down and dimmed) and springs back on
+    /// release, the way Manic animates `asset.normal`. Sticks keep their picture, and a switch's
+    /// feedback is its knob moving.
+    private func refreshPressedArt(pressed: Set<PadSlot>, stickLeft: Bool, stickRight: Bool,
+                                   specialHeld: Set<Int>) {
         for (key, view) in artViews where !view.isHidden {
             let down: Bool
+            var animates = true
             if key == "dpad" {
                 down = pressed.contains(.up) || pressed.contains(.down)
                     || pressed.contains(.left) || pressed.contains(.right)
-            } else if key.hasPrefix("btn-") {
-                let slotKey = String(key.dropFirst(4))
-                down = pressed.contains { $0.layoutKey == slotKey }
+            } else if let slots = artSlots[key] {
+                down = slots.contains { pressed.contains($0) }
+            } else if let index = artSpecial[key] {
+                if specialButtons[index]?.toggle != nil { continue }
+                down = specialHeld.contains(index)
             } else if key == "stick-left" {
                 down = stickLeft
+                animates = false
             } else if key == "stick-right" {
                 down = stickRight
+                animates = false
             } else {
                 down = false
             }
-            if down, let pressedImage = artPressed[key] {
-                view.image = pressedImage
+            if let pressedImage = artPressed[key] {
+                view.image = down ? pressedImage : artNormal[key]
+            } else if animates {
+                animatePress(key: key, view: view, down: down)
             } else {
                 view.image = artNormal[key]
             }
+        }
+    }
+
+    private func animatePress(key: String, view: UIImageView, down: Bool) {
+        guard artDown.contains(key) != down else { return }
+        if down { artDown.insert(key) } else { artDown.remove(key) }
+        let hidden = controlsHiddenNow && !keepsVisibleWhenHidden(key)
+        let base = hidden ? 0 : currentSkinAlpha
+        UIView.animate(withDuration: down ? 0.05 : 0.14, delay: 0,
+                       options: [.beginFromCurrentState, .allowUserInteraction]) {
+            view.transform = down ? CGAffineTransform(scaleX: 0.9, y: 0.9) : .identity
+            view.alpha = down ? base * 0.7 : base
         }
     }
 
@@ -3749,6 +4043,12 @@ struct TouchControlsHost: UIViewRepresentable {
         view.trackpadEnabled = trackpadEnabled && !isEditing
         view.onAppAction = { [weak input] action, pressed in
             input?.onAppAction?(action, pressed)
+        }
+        view.onSkinFunction = { [weak input] function, pressed in
+            input?.onSkinFunction?(function, pressed)
+        }
+        view.skinFunctionState = { [weak input] function in
+            input?.skinFunctionState?(function)
         }
         input.view = view
         return view

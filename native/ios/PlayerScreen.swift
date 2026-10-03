@@ -201,6 +201,8 @@ struct PlayerScreen: View {
         .sheet(item: $coreActions.sheet) { sheet in
             CoreActionSheet(host: host, sheet: sheet)
         }
+        // Sheets the skin function buttons open (SkinFunctions.swift, SkinLibraryScreen.swift).
+        .modifier(SkinFunctionSheets(host: host))
         .sheet(isPresented: $showNetplay) {
             NetplaySheet(netplay: host.netplay,
                          gameName: host.activeEntry?.name ?? "no game") {
@@ -313,6 +315,17 @@ struct PlayerScreen: View {
                 showingCheats = true
             } label: {
                 Label("Cheats and RAM search...", systemImage: "wand.and.stars")
+            }
+            // Switching skin mid-game, the same sheet the `skins` skin button opens.
+            Button {
+                SkinRuntime.shared.sheet = .skins
+            } label: {
+                Label("Skin...", systemImage: "paintpalette")
+            }
+            Button {
+                SkinRuntime.shared.sheet = .functions
+            } label: {
+                Label("All functions...", systemImage: "square.grid.3x3")
             }
 
             let states = host.activeEntry.map { saveStates.states(for: $0) } ?? []

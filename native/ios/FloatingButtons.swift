@@ -5,7 +5,7 @@
 //
 //   - one or more of the system's buttons at once (a combo such as A+B),
 //   - one or more buttons as TURBO, pulsed by the engine while held (`ContinuumEngine.applyTurbo`),
-//   - or an app action: quick save, quick load, fast forward, rewind, screenshot, menu.
+//   - or an app action: any skin function (SkinFunctions.swift), or menu (pause).
 //
 // Stored PER SYSTEM AND PER ORIENTATION, because a button placed for a portrait GBA layout has
 // nowhere sensible to go on a landscape one, and a PS1 turbo button has no meaning on an NES.
@@ -24,45 +24,8 @@ import UIKit
 
 // MARK: - Model
 
-/// Something an extra button can do that is not a game input.
-enum PadAppAction: String, Codable, CaseIterable, Identifiable, Sendable {
-    case quickSave
-    case quickLoad
-    case fastForward
-    case rewind
-    case screenshot
-    case menu
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .quickSave: return "Quick save"
-        case .quickLoad: return "Quick load"
-        case .fastForward: return "Fast forward (hold)"
-        case .rewind: return "Rewind (hold)"
-        case .screenshot: return "Screenshot"
-        case .menu: return "Menu (pause)"
-        }
-    }
-
-    /// What the circle says. Short, because the button may be small.
-    var caption: String {
-        switch self {
-        case .quickSave: return "SAVE"
-        case .quickLoad: return "LOAD"
-        case .fastForward: return "FF"
-        case .rewind: return "REW"
-        case .screenshot: return "SHOT"
-        case .menu: return "MENU"
-        }
-    }
-
-    /// Held actions act for as long as the finger is down; the rest act once, on the press.
-    var isHold: Bool {
-        self == .fastForward || self == .rewind
-    }
-}
+// `PadAppAction`, what an action button runs, lives in SkinFunctions.swift: it is the skin
+// function list plus `menu`, and both go through one dispatcher.
 
 /// One extra button.
 struct FloatingButton: Equatable, Identifiable, Sendable {
