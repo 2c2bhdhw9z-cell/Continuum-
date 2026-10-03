@@ -19,7 +19,7 @@ This install is **not** signed with a JIT. Heavier systems here run on an interp
 
 - PlayStation GPU option (Beetle). Crash did boot with a real `scph1001.bin`. That is not proof the GPU handoff is done. The other PlayStation option still runs with no BIOS.
 - Nintendo 3DS (Mario Kart) runs. The open problem is the skin, below.
-- On-screen control skins. Game Boy Color sideways works. Other imported skins do not. On 3DS the hole was not read, so the picture sits above the skin instead of inside it, and the bottom screen stays empty. A stick or circle pad on the skin still has to work as a real stick. Debug text is still on the picture. Not done until the skin does the whole job.
+- On-screen control skins. On the last phone report, Game Boy Color sideways works and other systems do not: the 3DS picture sits above the skin and the bottom screen stays empty. A fix is in the tree (`ee307b8`) and is not installed yet. Not done until the picture is in the hole on the phone.
 
 **In the app, not tried on a phone**
 
