@@ -43,7 +43,7 @@ Built after 109, in the next install, and not tried on a phone: swapping which s
 
 Built but held back by the cores, not the app: the camera (the 3DS core never asks for it) and Amiibo (the 3DS core has no way to take one). Achievements are partial: Game Boy Advance sets will not trigger correctly yet.
 
-The line-by-line table is in [STATUS.md](STATUS.md). [TESTING.md](TESTING.md) is the live checklist. What the owner wants built, and what the project will and will not become, is in [docs/PRODUCT_SCOPE.md](docs/PRODUCT_SCOPE.md). Old notes live in `docs/archive/`. `.kiro` is still in the repo and is outdated.
+The line-by-line table is in [STATUS.md](STATUS.md). [TESTING.md](TESTING.md) is the live checklist. What the owner wants built, and what the project will and will not become, is in [docs/PRODUCT_SCOPE.md](docs/PRODUCT_SCOPE.md). Old notes live in `docs/archive/`. `.kiro/steering/owner-rules.md` holds the owner's rules, which Kiro reads at the start of every session. [docs/MANIC_PARITY.md](docs/MANIC_PARITY.md) is the checklist for doing everything Manic EMU does.
 
 ## How to add games
 

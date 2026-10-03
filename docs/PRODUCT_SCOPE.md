@@ -113,6 +113,12 @@ The replacement, when it is written, must be native:
 
 ## Systems
 
+**The owner's goal (October 2026): Continuum does everything Manic EMU does, and more.** That
+widens the system list well past the one below. The checklist, and the decisions behind it (prebuilt
+cores from the libretro iOS buildbot, answering core settings, Flash and J2ME in a bundled player
+view), is [MANIC_PARITY.md](MANIC_PARITY.md). JIT stays out.
+
+
 Shipping in the `.ipa` today, six cores, TWELVE systems: NES + Famicom Disk System (fceumm),
 SNES (snes9x), GBA/GB/GBC (mgba), Genesis/Master System/Game Gear/SG-1000 (genesis_plus_gx),
 PS1 (pcsx_rearmed), DS (melonDS).
