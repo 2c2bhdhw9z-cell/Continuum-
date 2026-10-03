@@ -127,9 +127,10 @@ runs showed:
 | Genesis / Mega Drive | Mortal Kombat 3 (USA) | genesis_plus_gx | 2354 |
 | Game Gear | Simpsons: Krusty's Fun House (U) | genesis_plus_gx | 2188 |
 | PlayStation 1 | Crash Bandicoot (USA) | pcsx_rearmed | 2390 |
+| PlayStation 1, Beetle | Crash Bandicoot | Beetle PSX HW | about 2900, with `scph1001.bin`, build 98 |
 
 Alongside those: five games imported in one go (`imported 5 of 5`), a PlayStation `.cue` and its
-`.bin` imported together and booted with no BIOS present, the Crash Bandicoot row showing the
+`.bin` imported together and booted with no BIOS on the original core, the Crash Bandicoot row showing the
 size of the whole game as `CUE · 602.8 MB · pcsx_rearmed`, and the Library reading
 `library: 6 game(s) of 7 file(s) in Documents`, which is correct: the seventh file is that `.bin`
 track, and it is deliberately not a row you can tap.
@@ -287,7 +288,9 @@ and the frame counter climbing.
 ## Test 4: does a PlayStation game work
 
 **Already passed.** Crash Bandicoot, imported as a `.cue` plus its `.bin` in one go, played with
-no BIOS file present at all.
+no BIOS file on the original core. A later run also booted Crash on Beetle with `scph1001.bin`
+(build 98, about 60 fps, about 2900 frames). That BIOS boot happened. The no-BIOS result is only
+the older option, and those frames are not proof the GPU handoff is done.
 
 It has an extra way to fail that has nothing to do with emulation, so on a fresh build it is
 still worth leaving until the cartridge systems work.
