@@ -159,6 +159,20 @@ targets:
       # overlay over the file in skinPadFace, which is how the player uses the edited values.
       - path: SkinEdits.swift
       - path: SkinEditor.swift
+      # The skin library (many skins per system, default per system, skin per game, sharing
+      # across related systems, Manic and Delta identifiers), Manic's item extras (functions,
+      # switches, sound.caf), the ONE function dispatcher that skin buttons and extra buttons
+      # share (it also defines PadAppAction, so FloatingButtons.swift needs it), the button
+      # sound, and the library / game card / player sheets. WITHOUT THESE LINES TouchControls.swift,
+      # SkinScreens.swift and FloatingButtons.swift fail to compile.
+      - path: SkinLibrary.swift
+      - path: ManicSkinItems.swift
+      - path: SkinFunctions.swift
+      # TEMPORARY: stand-ins for EngineHost methods other workers provide. Each stub is deleted
+      # when its real method merges; the file and this line go when the last one does.
+      - path: SkinFunctionPending.swift
+      - path: SkinButtonSound.swift
+      - path: SkinLibraryScreen.swift
       # Extra buttons the player places anywhere: combos, turbo and app actions, per system and
       # per orientation. The pad draws and hit-tests them through FloatingButtonLayer; the editor
       # panel adds, retypes, resizes and deletes them. WITHOUT THESE LINES TouchControls.swift

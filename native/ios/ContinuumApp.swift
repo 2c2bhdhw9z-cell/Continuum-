@@ -51,6 +51,10 @@ import UniformTypeIdentifiers
 
 @main
 struct ContinuumApp: App {
+    /// Answers the orientation lock (SkinFunctions.swift). SwiftUI allows one app delegate, so
+    /// anything else that needs one adds its methods to `ContinuumAppDelegate`.
+    @UIApplicationDelegateAdaptor(ContinuumAppDelegate.self) private var appDelegate
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -1186,7 +1190,7 @@ final class EngineHost: ObservableObject {
     /// Clears every per-system override and the migrated global fallback.
     func resetAllTouchLayouts() {
         let hadLayouts = !touchLayoutsBySystem.isEmpty || touchLayoutFallback != nil
-        let hadSkins = !touchSkinsBySystem.isEmpty
+        let hadSkins = !touchSkinsByID.isEmpty
         guard hadLayouts || hadSkins else { return }
         touchLayoutsBySystem.removeAll()
         touchLayoutFallback = nil
@@ -1194,17 +1198,15 @@ final class EngineHost: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Self.touchLayoutKey)
         touchLayoutsVersion &+= 1
         if hadSkins {
-            for key in Array(touchSkinsBySystem.keys) {
-                if let system = GameSystem(rawValue: key) {
-                    removeSkinAssetFiles(for: system, landscape: false)
-                    removeSkinAssetFiles(for: system, landscape: true)
-                    removePieceFiles(for: system)
-                }
+            for key in Array(touchSkinsByID.keys) {
+                removeSkinFiles(id: key)
             }
-            touchSkinsBySystem.removeAll()
+            touchSkinsByID.removeAll()
             touchSkinImages.removeAll()
             UserDefaults.standard.removeObject(forKey: Self.touchSkinsKey)
-            skinEditsBySystem.removeAll()
+            skinLibrary = SkinLibraryIndex()
+            UserDefaults.standard.removeObject(forKey: Self.skinLibraryKey)
+            skinEditsByID.removeAll()
             UserDefaults.standard.removeObject(forKey: Self.skinEditsKey)
             touchSkinsVersion &+= 1
         }
@@ -1230,30 +1232,64 @@ final class EngineHost: ObservableObject {
         UserDefaults.standard.set(encoded, forKey: Self.touchLayoutsKey)
     }
 
-    // MARK: Per-system Delta skin art
+    // MARK: The skin library (many skins per system, one per game, Manic and Delta files)
+    //
+    // Every imported skin is stored under its own id: its visual here, its art, pieces and sound
+    // under Skins/ named after the id. `skinLibrary` (SkinLibrary.swift) says which id a system
+    // or a game uses. Every reader below takes a `GameSystem` and resolves the id through the
+    // library, so the player, the layout editor and the skin editor all draw the same skin.
+    //
+    // Skins from before the library were keyed by system id. That key is now their skin id, so
+    // their files (Skins/gba.pdf, Skins/pieces/gba/...) are found where they always were.
 
-    private var touchSkinsBySystem: [String: DeltaSkinVisual] = [:]
-    /// Decoded UIImage cache keyed by system rawValue. Cleared when a skin is replaced or reset.
+    private var touchSkinsByID: [String: DeltaSkinVisual] = [:]
+    /// Decoded UIImage cache keyed by skin id. Cleared when a skin is replaced or removed.
     private var touchSkinImages: [String: UIImage] = [:]
     @Published private(set) var touchSkinsVersion: UInt = 0
+    /// Which skin each system and each game uses. Persisted beside the visuals.
+    private(set) var skinLibrary = SkinLibraryIndex()
+
+    /// The skin drawn on `system` right now: the running game's own choice when that game is on
+    /// this system, then the system's default, then the sharing rules. Nil is the built-in pad.
+    func activeSkinID(for system: GameSystem) -> String? {
+        let gameKey: String?
+        if let entry = activeEntry, activeSystem == system {
+            gameKey = Self.skinGameKey(entry)
+        } else {
+            gameKey = nil
+        }
+        guard let id = skinLibrary.resolve(system: system.rawValue, gameKey: gameKey),
+              touchSkinsByID[id] != nil else { return nil }
+        return id
+    }
+
+    /// Games are keyed by file name, which survives a reinstall that moves the sandbox path.
+    static func skinGameKey(_ entry: LibraryEntry) -> String { entry.name }
+
+    private func activeVisual(for system: GameSystem) -> (id: String, visual: DeltaSkinVisual)? {
+        guard let id = activeSkinID(for: system), let visual = touchSkinsByID[id] else { return nil }
+        return (id, visual)
+    }
 
     func skinVisual(for system: GameSystem) -> DeltaSkinVisual? {
-        touchSkinsBySystem[system.rawValue]
+        activeVisual(for: system)?.visual
     }
 
     func skinImage(for system: GameSystem) -> UIImage? {
         let _ = touchSkinsVersion
-        if let cached = touchSkinImages[system.rawValue] {
+        guard let found = activeVisual(for: system) else { return nil }
+        let id = found.id
+        let visual = found.visual
+        if let cached = touchSkinImages[id] {
             return cached
         }
-        guard let visual = touchSkinsBySystem[system.rawValue],
-              let kind = visual.assetKind else { return nil }
-        let url = skinAssetURL(for: system, kind: kind)
+        guard let kind = visual.assetKind else { return nil }
+        let url = skinAssetURL(id: id, kind: kind)
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
         let mapping = CGSize(width: visual.mappingWidth, height: visual.mappingHeight)
         guard let image = DeltaSkinImporter.makeUIImage(from: data, kind: kind, mappingSize: mapping)
         else { return nil }
-        touchSkinImages[system.rawValue] = image
+        touchSkinImages[id] = image
         return image
     }
 
@@ -1263,24 +1299,26 @@ final class EngineHost: ObservableObject {
            let first = face.screens.first {
             return first.output
         }
-        return touchSkinsBySystem[system.rawValue]?.screenOutput
+        return skinVisual(for: system)?.screenOutput
     }
 
     func skinMapping(for system: GameSystem) -> CGSize {
-        guard let visual = touchSkinsBySystem[system.rawValue],
+        guard let visual = skinVisual(for: system),
               visual.mappingWidth > 0, visual.mappingHeight > 0 else { return .zero }
         return CGSize(width: visual.mappingWidth, height: visual.mappingHeight)
     }
 
     func skinLandscapeImage(for system: GameSystem) -> UIImage? {
         let _ = touchSkinsVersion
-        let key = landscapeSkinCacheKey(system)
+        guard let found = activeVisual(for: system) else { return nil }
+        let id = found.id
+        let visual = found.visual
+        let key = landscapeSkinCacheKey(id)
         if let cached = touchSkinImages[key] {
             return cached
         }
-        guard let face = touchSkinsBySystem[system.rawValue]?.landscape,
-              let kind = face.assetKind else { return nil }
-        let url = skinAssetURL(for: system, kind: kind, landscape: true)
+        guard let face = visual.landscape, let kind = face.assetKind else { return nil }
+        let url = skinAssetURL(id: id, kind: kind, landscape: true)
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
         let mapping = CGSize(width: face.mappingWidth, height: face.mappingHeight)
         guard let image = DeltaSkinImporter.makeUIImage(from: data, kind: kind, mappingSize: mapping)
@@ -1294,102 +1332,216 @@ final class EngineHost: ObservableObject {
            let first = face.screens.first {
             return first.output
         }
-        return touchSkinsBySystem[system.rawValue]?.landscape?.screenOutput
+        return skinVisual(for: system)?.landscape?.screenOutput
     }
 
     func skinLandscapeMapping(for system: GameSystem) -> CGSize {
-        guard let face = touchSkinsBySystem[system.rawValue]?.landscape,
+        guard let face = skinVisual(for: system)?.landscape,
               face.mappingWidth > 0, face.mappingHeight > 0 else { return .zero }
         return CGSize(width: face.mappingWidth, height: face.mappingHeight)
     }
 
     func skinLandscapeLayout(for system: GameSystem) -> TouchLayout? {
-        touchSkinsBySystem[system.rawValue]?.landscape?.layout.sanitised
+        skinVisual(for: system)?.landscape?.layout.sanitised
     }
 
     func setLandscapeSkinLayout(_ layout: TouchLayout, for system: GameSystem) {
-        guard var visual = touchSkinsBySystem[system.rawValue], var face = visual.landscape else { return }
+        guard let found = activeVisual(for: system) else { return }
+        let id = found.id
+        var visual = found.visual
+        guard var face = visual.landscape else { return }
         let clean = layout.sanitised
         if face.layout == clean { return }
         face.layout = clean
         visual.landscape = face
-        touchSkinsBySystem[system.rawValue] = visual
+        touchSkinsByID[id] = visual
         persistTouchSkins()
         touchSkinsVersion &+= 1
     }
 
-    private func landscapeSkinCacheKey(_ system: GameSystem) -> String {
-        system.rawValue + "#landscape"
+    private func landscapeSkinCacheKey(_ id: String) -> String {
+        id + "#landscape"
     }
 
-    /// Applies an imported .deltaskin package's art + screens under one console.
+    /// Adds an imported .manicskin or .deltaskin to the library and makes it `system`'s default
+    /// (and the default of every other system the file names that has none yet).
+    ///
+    /// Importing a skin whose `identifier` is already in the library for the same systems
+    /// replaces that one rather than adding a twin, so an updated skin file is an update.
     func applyImportedSkin(_ result: DeltaSkinImportResult, for system: GameSystem) {
         let result = result.applying(system: system)
+        var systems = [system.rawValue]
+        for other in result.systemIDs where !systems.contains(other) {
+            systems.append(other)
+        }
+        let id: String
+        if !result.identifier.isEmpty,
+           let twin = skinLibrary.records.values.first(where: {
+               $0.identifier == result.identifier && Set($0.systems) == Set(systems)
+           }) {
+            id = twin.id
+            removeSkinFiles(id: id)
+        } else {
+            id = SkinLibraryIndex.newID()
+        }
+
         var visual = result.visual
         // Drop asset metadata if bytes failed to load — avoid a "present" skin with no picture.
         if result.assetData == nil {
             visual.assetFileName = nil
             visual.assetKind = nil
         }
-        touchSkinsBySystem[system.rawValue] = visual
-        touchSkinImages.removeValue(forKey: system.rawValue)
+        touchSkinsByID[id] = visual
+        touchSkinImages.removeValue(forKey: id)
+        touchSkinImages.removeValue(forKey: landscapeSkinCacheKey(id))
 
         if let data = result.assetData, let kind = visual.assetKind {
             do {
-                try persistSkinAsset(data, for: system, kind: kind, landscape: false)
+                try persistSkinAsset(data, id: id, kind: kind, landscape: false)
                 let mapping = CGSize(width: visual.mappingWidth, height: visual.mappingHeight)
                 if let image = DeltaSkinImporter.makeUIImage(from: data, kind: kind, mappingSize: mapping) {
-                    touchSkinImages[system.rawValue] = image
+                    touchSkinImages[id] = image
                 }
             } catch {
                 status = "skin art could not be saved for \(system.displayName): \(error.localizedDescription)"
                 visual.assetFileName = nil
                 visual.assetKind = nil
-                touchSkinsBySystem[system.rawValue] = visual
+                touchSkinsByID[id] = visual
             }
-        } else {
-            removeSkinAssetFiles(for: system, landscape: false)
         }
         if var face = visual.landscape {
             if let data = result.landscapeAssetData, let kind = face.assetKind {
                 do {
-                    try persistSkinAsset(data, for: system, kind: kind, landscape: true)
+                    try persistSkinAsset(data, id: id, kind: kind, landscape: true)
                     let mapping = CGSize(width: face.mappingWidth, height: face.mappingHeight)
                     if let image = DeltaSkinImporter.makeUIImage(from: data, kind: kind, mappingSize: mapping) {
-                        touchSkinImages[landscapeSkinCacheKey(system)] = image
+                        touchSkinImages[landscapeSkinCacheKey(id)] = image
                     }
                 } catch {
                     status = "landscape skin art could not be saved for \(system.displayName): \(error.localizedDescription)"
                     face.assetFileName = nil
                     face.assetKind = nil
                     visual.landscape = face
-                    touchSkinsBySystem[system.rawValue] = visual
+                    touchSkinsByID[id] = visual
                 }
-            } else {
-                removeSkinAssetFiles(for: system, landscape: true)
             }
-        } else {
-            removeSkinAssetFiles(for: system, landscape: true)
         }
+        writeSkinPieces(result.pieces, id: id)
+        var hasSound = false
+        if let sound = result.soundData {
+            do {
+                let url = soundURL(id: id)
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                        withIntermediateDirectories: true)
+                try sound.write(to: url, options: .atomic)
+                hasSound = true
+            } catch {
+                status = "the skin's button sound could not be saved: \(error.localizedDescription)"
+            }
+        }
+        let record = SkinRecord(id: id, name: result.skinName, identifier: result.identifier,
+                                gameTypeIdentifier: result.gameTypeIdentifier, systems: systems,
+                                importedAt: Date(), sourceFileName: result.sourceName,
+                                format: result.format, hasSound: hasSound)
+        let newDefaults = systems.filter { $0 == system.rawValue || skinLibrary.defaults[$0] == nil }
+        skinLibrary.add(record, makeDefaultFor: newDefaults)
         persistTouchSkins()
-        writeSkinPieces(result.pieces, for: system)
         // A new file: the old overlay's indices point into a skin that is gone.
-        dropSkinEdits(for: system)
+        dropSkinEdits(id: id)
+        touchSkinsVersion &+= 1
+        if !result.refused.isEmpty {
+            status = "skin \(result.skinName): " + result.refused.joined(separator: "; ")
+        }
+    }
+
+    /// The layout editor's "clear": this system goes back to the built-in pad. The skin stays in
+    /// the library, where it can be deleted or chosen again.
+    func clearSkin(for system: GameSystem) {
+        skinLibrary.setDefault(.none, for: system.rawValue)
+        persistTouchSkins()
         touchSkinsVersion &+= 1
     }
 
-    /// Clears skin art + screen frame for one console (layout stays).
-    func clearSkin(for system: GameSystem) {
-        guard touchSkinsBySystem.removeValue(forKey: system.rawValue) != nil else { return }
-        touchSkinImages.removeValue(forKey: system.rawValue)
-        touchSkinImages.removeValue(forKey: landscapeSkinCacheKey(system))
-        pieceImageCache.removeAll()
-        removeSkinAssetFiles(for: system, landscape: false)
-        removeSkinAssetFiles(for: system, landscape: true)
-        removePieceFiles(for: system)
+    // MARK: Library management (the skin library screen, the game card, the player)
+
+    /// Every skin that may be drawn on `system`, its own first.
+    func skinRecords(for system: GameSystem) -> [SkinRecord] {
+        let _ = touchSkinsVersion
+        return skinLibrary.skins(for: system.rawValue).filter { touchSkinsByID[$0.id] != nil }
+    }
+
+    /// Every skin, newest first.
+    var allSkinRecords: [SkinRecord] {
+        let _ = touchSkinsVersion
+        return skinLibrary.records.values
+            .filter { touchSkinsByID[$0.id] != nil }
+            .sorted { $0.importedAt > $1.importedAt }
+    }
+
+    func skinRecord(id: String) -> SkinRecord? { skinLibrary.records[id] }
+
+    func defaultSkinChoice(for systemID: String) -> SkinChoice {
+        skinLibrary.defaultChoice(for: systemID)
+    }
+
+    func setDefaultSkin(_ choice: SkinChoice, for systemID: String) {
+        skinLibrary.setDefault(choice, for: systemID)
         persistTouchSkins()
-        dropSkinEdits(for: system)
         touchSkinsVersion &+= 1
+    }
+
+    func gameSkinChoice(for entry: LibraryEntry) -> SkinChoice {
+        skinLibrary.gameChoice(for: Self.skinGameKey(entry))
+    }
+
+    /// The game card's and the player's choice. Mid-game it takes effect on the next frame.
+    func setGameSkin(_ choice: SkinChoice, for entry: LibraryEntry) {
+        skinLibrary.setGame(choice, for: Self.skinGameKey(entry))
+        persistTouchSkins()
+        touchSkinsVersion &+= 1
+        let words: String
+        switch choice {
+        case .automatic: words = "the system default skin"
+        case .none: words = "the built-in pad"
+        case .skin(let id): words = "skin \(skinLibrary.records[id]?.name ?? id)"
+        }
+        status = "\(entry.name) now uses \(words)"
+    }
+
+    func renameSkin(id: String, to name: String) {
+        guard skinLibrary.rename(id, to: name) else {
+            status = "rename refused: a skin name cannot be empty"
+            return
+        }
+        if var visual = touchSkinsByID[id] {
+            visual.skinName = skinLibrary.records[id]?.name ?? visual.skinName
+            touchSkinsByID[id] = visual
+        }
+        persistTouchSkins()
+        touchSkinsVersion &+= 1
+        status = "skin renamed to \(skinLibrary.records[id]?.name ?? name)"
+    }
+
+    func deleteSkin(id: String) {
+        let name = skinLibrary.records[id]?.name ?? id
+        guard touchSkinsByID.removeValue(forKey: id) != nil || skinLibrary.records[id] != nil else {
+            status = "delete refused: that skin is no longer in the library"
+            return
+        }
+        skinLibrary.delete(id)
+        removeSkinFiles(id: id)
+        dropSkinEdits(id: id)
+        persistTouchSkins()
+        touchSkinsVersion &+= 1
+        status = "deleted skin \(name)"
+    }
+
+    /// The active skin's `sound.caf` for `system`, when it has one.
+    func skinSoundURL(for system: GameSystem) -> URL? {
+        guard let id = activeSkinID(for: system), skinLibrary.records[id]?.hasSound == true
+        else { return nil }
+        let url = soundURL(id: id)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
 
     /// Portrait or landscape controls, with images loaded from the pieces saved at import.
@@ -1397,25 +1549,31 @@ final class EngineHost: ObservableObject {
         let _ = touchSkinsVersion
         // The file's values with the in-app skin editor's overlay laid over them. The stored
         // import is never rewritten; see SkinEdits.swift.
-        guard let face = skinEditableFace(for: system, landscape: landscape, edited: true) else {
+        guard let face = skinEditableFace(for: system, landscape: landscape, edited: true),
+              let id = activeSkinID(for: system) else {
             return SkinPadFace()
         }
         var made = makePadFace(screens: face.screens, buttons: face.buttons,
                                sticks: face.sticks, dpadFrame: face.dpadFrame,
-                               system: system, mapping: face.mapping)
+                               id: id, mapping: face.mapping)
         made.opacity = face.opacity
+        made.skinID = id
+        made.soundURL = skinSoundURL(for: system)
         return made
     }
 
     // MARK: Skin edits (an overlay on the imported file)
 
-    private var skinEditsBySystem: [String: SkinEdits] = [:]
+    /// Keyed by skin id, so each skin in the library keeps its own edits.
+    private var skinEditsByID: [String: SkinEdits] = [:]
 
     /// One orientation of the imported skin, as the file has it (`edited` false) or with the
     /// overlay applied (`edited` true). Nil when there is no skin, or no such orientation.
     func skinEditableFace(for system: GameSystem, landscape: Bool,
                           edited: Bool) -> SkinEditableFace? {
-        guard let visual = touchSkinsBySystem[system.rawValue] else { return nil }
+        guard let found = activeVisual(for: system) else { return nil }
+        let id = found.id
+        let visual = found.visual
         let original: SkinEditableFace
         if landscape {
             guard let face = visual.landscape, face.mappingWidth > 0, face.mappingHeight > 0
@@ -1431,40 +1589,45 @@ final class EngineHost: ObservableObject {
                 screens: visual.effectiveScreens, buttons: visual.buttons,
                 sticks: visual.sticks, dpadFrame: visual.dpadFrame)
         }
-        guard edited, let edits = skinEditsBySystem[system.rawValue]?.face(landscape: landscape)
+        guard edited, let edits = skinEditsByID[id]?.face(landscape: landscape)
         else { return original }
         return edits.applied(to: original)
     }
 
     func skinEdits(for system: GameSystem, landscape: Bool) -> SkinFaceEdits {
-        skinEditsBySystem[system.rawValue]?.face(landscape: landscape) ?? SkinFaceEdits()
+        guard let id = activeSkinID(for: system) else { return SkinFaceEdits() }
+        return skinEditsByID[id]?.face(landscape: landscape) ?? SkinFaceEdits()
     }
 
     /// Stores one orientation's overlay and tells the pad. An empty overlay is the same as none.
     func setSkinEdits(_ edits: SkinFaceEdits, for system: GameSystem, landscape: Bool) {
-        var all = skinEditsBySystem[system.rawValue] ?? SkinEdits()
+        guard let id = activeSkinID(for: system) else {
+            status = "skin edit ignored: \(system.displayName) has no skin in use"
+            return
+        }
+        var all = skinEditsByID[id] ?? SkinEdits()
         guard all.face(landscape: landscape) != edits else { return }
         all.setFace(edits, landscape: landscape)
         if all.isEmpty {
-            skinEditsBySystem.removeValue(forKey: system.rawValue)
+            skinEditsByID.removeValue(forKey: id)
         } else {
-            skinEditsBySystem[system.rawValue] = all
+            skinEditsByID[id] = all
         }
         persistSkinEdits()
         touchSkinsVersion &+= 1
     }
 
-    private func dropSkinEdits(for system: GameSystem) {
-        guard skinEditsBySystem.removeValue(forKey: system.rawValue) != nil else { return }
+    private func dropSkinEdits(id: String) {
+        guard skinEditsByID.removeValue(forKey: id) != nil else { return }
         persistSkinEdits()
     }
 
     private func persistSkinEdits() {
-        if skinEditsBySystem.isEmpty {
+        if skinEditsByID.isEmpty {
             UserDefaults.standard.removeObject(forKey: Self.skinEditsKey)
             return
         }
-        guard let data = try? JSONEncoder().encode(skinEditsBySystem) else {
+        guard let data = try? JSONEncoder().encode(skinEditsByID) else {
             status = "skin edits could not be saved; they still apply until the app quits"
             return
         }
@@ -1475,8 +1638,9 @@ final class EngineHost: ObservableObject {
         guard let data = defaults.data(forKey: Self.skinEditsKey),
               let decoded = try? JSONDecoder().decode([String: SkinEdits].self, from: data)
         else { return }
-        // Only for skins that are still there. An overlay without its file is dropped.
-        skinEditsBySystem = decoded.filter { touchSkinsBySystem[$0.key] != nil }
+        // Only for skins that are still there. An overlay without its file is dropped. Older
+        // overlays were keyed by system id, which is also that older skin's id.
+        skinEditsByID = decoded.filter { touchSkinsByID[$0.key] != nil }
     }
 
     private var pieceImageCache: [String: UIImage] = [:]
@@ -1515,45 +1679,62 @@ final class EngineHost: ObservableObject {
 
     private func makePadFace(screens: [DeltaSkinScreen], buttons: [DeltaSkinButton],
                              sticks: [DeltaSkinStick], dpadFrame: DeltaSkinNormalizedRect?,
-                             system: GameSystem, mapping: CGSize) -> SkinPadFace {
+                             id: String, mapping: CGSize) -> SkinPadFace {
         var images: [String: SkinButtonImages] = [:]
+        var byIndex: [Int: SkinButtonImages] = [:]
         var dpadImage: UIImage?
         var dpadPressed: UIImage?
-        for button in buttons {
+        for (index, button) in buttons.enumerated() {
             let point = CGSize(width: max(button.width * mapping.width, 1),
                                height: max(button.height * mapping.height, 1))
-            let normal = pieceImage(system: system, fileName: button.normalFileName,
+            let normal = pieceImage(id: id, fileName: button.normalFileName,
                                     kind: button.normalKind, pointSize: point)
-            let pressed = pieceImage(system: system, fileName: button.pressedFileName,
+            let pressed = pieceImage(id: id, fileName: button.pressedFileName,
                                      kind: button.pressedKind, pointSize: point)
             if button.slot == "dpad" {
                 dpadImage = normal
                 dpadPressed = pressed
             } else {
-                images[button.slot] = SkinButtonImages(normal: normal, pressed: pressed)
+                var selected: UIImage?
+                if let toggle = button.toggle, let name = toggle.selectedFileName {
+                    let kind: DeltaSkinAssetKind = name.lowercased().hasSuffix(".pdf") ? .pdf : .png
+                    // The "on" picture is drawn at the knob's END frame, so it is rendered at
+                    // that size rather than the whole item's.
+                    let knob = toggle.end ?? DeltaSkinNormalizedRect(x: 0, y: 0, width: 1, height: 1)
+                    let knobPoint = CGSize(width: max(point.width * knob.width, 1),
+                                           height: max(point.height * knob.height, 1))
+                    selected = pieceImage(id: id, fileName: name, kind: kind, pointSize: knobPoint)
+                }
+                let set = SkinButtonImages(normal: normal, pressed: pressed, selected: selected)
+                byIndex[index] = set
+                if !button.isSpecial {
+                    images[button.slot] = set
+                }
             }
         }
         var stickImages: [String: UIImage] = [:]
         for stick in sticks {
             let point = CGSize(width: max(stick.width * mapping.width, 1),
                                height: max(stick.height * mapping.height, 1))
-            if let image = pieceImage(system: system, fileName: stick.assetFileName,
+            if let image = pieceImage(id: id, fileName: stick.assetFileName,
                                       kind: stick.assetKind, pointSize: point) {
                 stickImages[stick.side] = image
             }
         }
-        return SkinPadFace(screens: screens, buttons: buttons, sticks: sticks,
-                           dpadFrame: dpadFrame, buttonImages: images,
-                           stickImages: stickImages, dpadImage: dpadImage,
-                           dpadPressedImage: dpadPressed)
+        var face = SkinPadFace(screens: screens, buttons: buttons, sticks: sticks,
+                               dpadFrame: dpadFrame, buttonImages: images,
+                               stickImages: stickImages, dpadImage: dpadImage,
+                               dpadPressedImage: dpadPressed)
+        face.imagesByIndex = byIndex
+        return face
     }
 
-    private func pieceImage(system: GameSystem, fileName: String?, kind: DeltaSkinAssetKind?,
+    private func pieceImage(id: String, fileName: String?, kind: DeltaSkinAssetKind?,
                             pointSize: CGSize) -> UIImage? {
         guard let fileName, let kind else { return nil }
-        let key = "\(system.rawValue)/\(fileName)/\(Int(pointSize.width))x\(Int(pointSize.height))"
+        let key = "\(id)/\(fileName)/\(Int(pointSize.width))x\(Int(pointSize.height))"
         if let cached = pieceImageCache[key] { return cached }
-        let url = pieceURL(for: system, fileName: fileName)
+        let url = pieceURL(id: id, fileName: fileName)
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
         guard let image = DeltaSkinImporter.makeUIImage(from: data, kind: kind, mappingSize: pointSize)
         else { return nil }
@@ -1561,10 +1742,10 @@ final class EngineHost: ObservableObject {
         return image
     }
 
-    private func writeSkinPieces(_ pieces: [DeltaSkinPiece], for system: GameSystem) {
-        removePieceFiles(for: system)
+    private func writeSkinPieces(_ pieces: [DeltaSkinPiece], id: String) {
+        removePieceFiles(id: id)
         for piece in pieces {
-            let url = pieceURL(for: system, fileName: piece.fileName)
+            let url = pieceURL(id: id, fileName: piece.fileName)
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                      withIntermediateDirectories: true)
             try? piece.data.write(to: url, options: .atomic)
@@ -1572,36 +1753,66 @@ final class EngineHost: ObservableObject {
         pieceImageCache.removeAll()
     }
 
-    private func pieceURL(for system: GameSystem, fileName: String) -> URL {
+    private func pieceURL(id: String, fileName: String) -> URL {
         let cleaned = fileName.replacingOccurrences(of: "..", with: "")
         let root = (skinsDirectory() ?? FileManager.default.temporaryDirectory)
-            .appendingPathComponent("pieces/\(system.rawValue)", isDirectory: true)
+            .appendingPathComponent("pieces/\(id)", isDirectory: true)
         return root.appendingPathComponent(cleaned)
     }
 
-    private func removePieceFiles(for system: GameSystem) {
+    private func removePieceFiles(id: String) {
         let root = (skinsDirectory() ?? FileManager.default.temporaryDirectory)
-            .appendingPathComponent("pieces/\(system.rawValue)", isDirectory: true)
+            .appendingPathComponent("pieces/\(id)", isDirectory: true)
         try? FileManager.default.removeItem(at: root)
     }
 
+    private func soundURL(id: String) -> URL {
+        (skinsDirectory() ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("sounds/\(id).caf", isDirectory: false)
+    }
+
+    /// Every file a skin id owns: art in both orientations, pieces and sound.
+    private func removeSkinFiles(id: String) {
+        removeSkinAssetFiles(id: id, landscape: false)
+        removeSkinAssetFiles(id: id, landscape: true)
+        removePieceFiles(id: id)
+        try? FileManager.default.removeItem(at: soundURL(id: id))
+        touchSkinImages.removeValue(forKey: id)
+        touchSkinImages.removeValue(forKey: landscapeSkinCacheKey(id))
+        pieceImageCache.removeAll()
+    }
+
     private func persistTouchSkins() {
-        guard !touchSkinsBySystem.isEmpty else {
+        if touchSkinsByID.isEmpty {
             UserDefaults.standard.removeObject(forKey: Self.touchSkinsKey)
-            return
-        }
-        guard let encoded = try? JSONEncoder().encode(touchSkinsBySystem) else {
+        } else if let encoded = try? JSONEncoder().encode(touchSkinsByID) {
+            UserDefaults.standard.set(encoded, forKey: Self.touchSkinsKey)
+        } else {
             status = "could not save skin art metadata; it still applies to this session"
-            return
         }
-        UserDefaults.standard.set(encoded, forKey: Self.touchSkinsKey)
+        if let index = try? JSONEncoder().encode(skinLibrary) {
+            UserDefaults.standard.set(index, forKey: Self.skinLibraryKey)
+        } else {
+            status = "could not save the skin library; it still applies to this session"
+        }
     }
 
     private func loadTouchSkins(from defaults: UserDefaults) {
-        guard let blob = defaults.data(forKey: Self.touchSkinsKey),
-              let decoded = try? JSONDecoder().decode([String: DeltaSkinVisual].self, from: blob)
-        else { return }
-        touchSkinsBySystem = decoded
+        if let blob = defaults.data(forKey: Self.touchSkinsKey),
+           let decoded = try? JSONDecoder().decode([String: DeltaSkinVisual].self, from: blob) {
+            touchSkinsByID = decoded
+        }
+        if let blob = defaults.data(forKey: Self.skinLibraryKey),
+           let decoded = try? JSONDecoder().decode(SkinLibraryIndex.self, from: blob) {
+            skinLibrary = decoded
+        }
+        // Skins saved before the library: one per system, keyed by the system id.
+        let before = skinLibrary
+        skinLibrary.adoptLegacy(touchSkinsByID.mapValues(\.skinName))
+        skinLibrary.keepOnly(Set(touchSkinsByID.keys))
+        if skinLibrary != before {
+            persistTouchSkins()
+        }
     }
 
     private func skinsDirectory() -> URL? {
@@ -1612,27 +1823,27 @@ final class EngineHost: ObservableObject {
         return dir
     }
 
-    private func skinAssetURL(for system: GameSystem, kind: DeltaSkinAssetKind, landscape: Bool = false) -> URL {
+    private func skinAssetURL(id: String, kind: DeltaSkinAssetKind, landscape: Bool = false) -> URL {
         let ext = kind == .pdf ? "pdf" : "png"
         let suffix = landscape ? "-landscape" : ""
         let base = skinsDirectory() ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("\(system.rawValue)\(suffix).\(ext)", isDirectory: false)
+        return base.appendingPathComponent("\(id)\(suffix).\(ext)", isDirectory: false)
     }
 
-    private func persistSkinAsset(_ data: Data, for system: GameSystem, kind: DeltaSkinAssetKind, landscape: Bool) throws {
+    private func persistSkinAsset(_ data: Data, id: String, kind: DeltaSkinAssetKind, landscape: Bool) throws {
         guard skinsDirectory() != nil else {
             throw NSError(domain: "ContinuumSkins", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "no Application Support directory"])
         }
         // Only one asset file per orientation; remove the other extension if present.
-        removeSkinAssetFiles(for: system, landscape: landscape)
-        try data.write(to: skinAssetURL(for: system, kind: kind, landscape: landscape), options: .atomic)
+        removeSkinAssetFiles(id: id, landscape: landscape)
+        try data.write(to: skinAssetURL(id: id, kind: kind, landscape: landscape), options: .atomic)
     }
 
-    private func removeSkinAssetFiles(for system: GameSystem, landscape: Bool) {
+    private func removeSkinAssetFiles(id: String, landscape: Bool) {
         let fm = FileManager.default
         for kind in [DeltaSkinAssetKind.pdf, .png] {
-            let url = skinAssetURL(for: system, kind: kind, landscape: landscape)
+            let url = skinAssetURL(id: id, kind: kind, landscape: landscape)
             try? fm.removeItem(at: url)
         }
     }
@@ -1801,8 +2012,10 @@ final class EngineHost: ObservableObject {
     private static let touchLayoutsKey = "continuum.controls.touchLayouts.v2"
     /// Per-system Delta skin visuals (screens + asset metadata). Bytes live under Skins/.
     private static let touchSkinsKey = "continuum.controls.touchSkins.v1"
-    /// In-app skin editor overlays, per system and orientation. Never merged into the key above.
+    /// In-app skin editor overlays, per skin and orientation. Never merged into the key above.
     private static let skinEditsKey = "continuum.controls.skinEdits.v1"
+    /// The skin library index (SkinLibrary.swift): records, defaults per system, choice per game.
+    private static let skinLibraryKey = "continuum.skins.library.v1"
     /// Last N64 start-path crumb, flushed synchronously so a hard freeze still leaves it on disk.
     private static let lastN64CrumbKey = "continuum.n64.lastCrumb.v1"
 
@@ -2144,6 +2357,8 @@ final class EngineHost: ObservableObject {
         padInput.onAppAction = { [weak self] action, pressed in
             self?.performPadAction(action, pressed: pressed)
         }
+        // Skin function buttons, switch states and the skin's button sound. SkinFunctions.swift.
+        wireSkinFunctions()
 
         // Wired after `init` has finished with `self`, for the same reason. A pad connecting or
         // disconnecting is exactly the kind of thing the always-visible status line is for: it is
@@ -3035,6 +3250,8 @@ final class EngineHost: ObservableObject {
         // overlay and the setting starts working again for the next game.
         controllers.noteRunningSystem(nil)
         padInput.view?.releaseAll()
+        // Hidden controls and an open function sheet belong to the game that just ended.
+        SkinRuntime.shared.gameEnded()
         refreshAudioReadout()
         suppressAutoSave = false
     }
@@ -3198,55 +3415,24 @@ final class EngineHost: ObservableObject {
     /// Every branch says what happened on the status line, including the refusals, because a
     /// button that silently does nothing is the failure this app has a rule against.
     func performPadAction(_ action: PadAppAction, pressed: Bool) {
-        switch action {
-        case .fastForward:
-            if pressed { emulation.beginFastForward() } else { emulation.endFastForward() }
-            return
-        case .rewind:
-            if pressed {
-                guard emulation.rewindEnabled else {
-                    status = "rewind button: rewind is off in Settings, so there is nothing to rewind"
-                    return
-                }
-                emulation.beginRewind()
-            } else {
-                emulation.endRewind()
-            }
-            return
-        default:
-            break
-        }
-        guard pressed else { return }
-        guard running, let entry = activeEntry else {
-            status = "\(action.title): no game is running"
-            return
-        }
-        switch action {
-        case .quickSave:
-            saveStates.saveToNewSlot()
-        case .quickLoad:
-            // Newest first, which is the order the store keeps, and that includes the auto-save.
-            guard let newest = saveStates.states(for: entry).first else {
-                status = "quick load: \(entry.name) has no saved state yet"
+        // Every action but pause is a skin function, and there is ONE dispatcher for those
+        // (SkinFunctions.swift), shared with skin buttons.
+        guard let function = action.skinFunction else {
+            guard pressed else { return }
+            guard running else {
+                status = "\(action.title): no game is running"
                 return
             }
-            if !saveStates.load(newest) {
-                // The store has already said why on the status line.
-                return
-            }
-        case .screenshot:
-            captureScreenshot(of: entry)
-        case .menu:
             togglePause()
-        case .fastForward, .rewind:
-            break
+            return
         }
+        performSkinFunction(function, pressed: pressed)
     }
 
     /// Saves the picture as a PNG in Documents/Screenshots, where the Files app can reach it
     /// (`UIFileSharingEnabled` is already on). No Photos permission is needed for that, which is
     /// why it goes there rather than to the photo library.
-    private func captureScreenshot(of entry: LibraryEntry) {
+    func captureScreenshot(of entry: LibraryEntry) {
         let frame: CapturedFrame
         do {
             frame = try engine.captureFrame(width: 0, height: 0)
@@ -3479,7 +3665,7 @@ final class EngineHost: ObservableObject {
     var hasCustomControlsOrSkins: Bool {
         let _ = touchLayoutsVersion
         let _ = touchSkinsVersion
-        return !touchLayoutsBySystem.isEmpty || touchLayoutFallback != nil || !touchSkinsBySystem.isEmpty
+        return !touchLayoutsBySystem.isEmpty || touchLayoutFallback != nil || !touchSkinsByID.isEmpty
     }
 
     var touchLayoutLine: String {

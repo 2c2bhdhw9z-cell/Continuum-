@@ -175,7 +175,8 @@ struct SkinEditor: View {
                 }
                 ForEach(Array(face.buttons.enumerated()), id: \.offset) { index, button in
                     outline(.button(index), rect: button.frame, canvas: fitted,
-                            colour: .cyan, caption: caption(forSlot: button.slot))
+                            colour: button.function == nil ? .cyan : .orange,
+                            caption: caption(for: button))
                 }
                 ForEach(Array(face.sticks.enumerated()), id: \.offset) { index, stick in
                     outline(.stick(index), rect: stick.frame, canvas: fitted,
@@ -270,7 +271,7 @@ struct SkinEditor: View {
                     selectedPanel(selection, face: face)
                 } else {
                     Text("Tap an outline to select it. Drag it to move, drag its corner to resize. "
-                         + "Blue is a button, green a stick, red a screen hole.")
+                         + "Blue is a button, orange a function button, green a stick, red a screen hole.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -331,6 +332,13 @@ struct SkinEditor: View {
                 .foregroundStyle(ShellPalette.accent)
 
             if case .button(let index) = item, face.buttons.indices.contains(index),
+               let function = face.buttons[index].skinFunction {
+                Text("RUNS: \(function.title.uppercased())"
+                     + (face.buttons[index].toggle != nil ? " (SWITCH)" : ""))
+                    .font(.system(size: 10, weight: .bold))
+                    .tracking(1.1)
+                    .foregroundStyle(Color.white.opacity(0.65))
+            } else if case .button(let index) = item, face.buttons.indices.contains(index),
                face.buttons[index].slot != "dpad" {
                 Text("SENDS")
                     .font(.system(size: 10, weight: .bold))
@@ -417,13 +425,20 @@ struct SkinEditor: View {
         switch item {
         case .button(let index):
             guard face.buttons.indices.contains(index) else { return "BUTTON" }
-            return "BUTTON: " + caption(forSlot: face.buttons[index].slot)
+            return "BUTTON: " + caption(for: face.buttons[index])
         case .stick(let index):
             return index < face.sticks.count && face.sticks[index].side == "right"
                 ? "RIGHT STICK" : "ANALOG STICK"
         case .screen(let index):
             return "SCREEN HOLE \(index + 1)"
         }
+    }
+
+    /// A function button says what it runs; a combo names every button it holds.
+    private func caption(for button: DeltaSkinButton) -> String {
+        if let function = button.skinFunction { return function.caption }
+        let all = [button.slot] + (button.comboSlots ?? [])
+        return all.map { caption(forSlot: $0) }.joined(separator: "+")
     }
 
     private func caption(forSlot key: String) -> String {

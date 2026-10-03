@@ -1,7 +1,9 @@
 // Continuum - Delta .deltaskin package import for on-screen control layouts.
 //
-// A .deltaskin is a ZIP with a flat info.json (Delta Custom Skins docs). This file:
-//   1. Opens a document picker for .deltaskin / .zip / bare info.json
+// A .deltaskin is a ZIP with a flat info.json (Delta Custom Skins docs). A Manic EMU .manicskin is
+// the same package with Manic's extra item fields (functions, switches, sound.caf), read by
+// ManicSkinItems.swift. This file:
+//   1. Opens a document picker for .manicskin / .deltaskin / .zip / bare info.json
 //   2. Extracts and parses info.json
 //   3. Maps item frames into a TouchLayout (buttonFrees + cluster centres)
 //   4. Loads PDF/PNG assets and `screens` outputFrame for the game picture
@@ -270,6 +272,20 @@ struct DeltaSkinImportResult: Sendable {
     let landscapeItems: [DeltaSkinRawItem]
     /// Per-button and thumbstick images named by those items.
     let pieces: [DeltaSkinPiece]
+    /// Every Continuum system id the file's `gameTypeIdentifier` names (Manic or Delta). Empty
+    /// when the identifier is unknown. Strings, so a system with no enum case yet is kept.
+    var systemIDs: [String] = []
+    var gameTypeIdentifier: String = ""
+    /// The skin's own `identifier` from info.json.
+    var identifier: String = ""
+    /// The file the skin came from, for the library list.
+    var sourceName: String = ""
+    /// "manic" or "delta", from the identifier and the file extension.
+    var format: String = "delta"
+    /// `sound.caf` from the package root, when there was one.
+    var soundData: Data?
+    /// Lines for items left out on purpose (a function mixed with other inputs).
+    var refused: [String] = []
 
     /// Layout, button frames and sticks for `system`. Screen holes do not change.
     func applying(system: GameSystem) -> DeltaSkinImportResult {
@@ -288,7 +304,7 @@ struct DeltaSkinImportResult: Sendable {
             face.dpadFrame = land.dpadFrame
             visual.landscape = face
         }
-        return DeltaSkinImportResult(
+        var out = DeltaSkinImportResult(
             layout: portrait.layout,
             skinName: skinName,
             previewSystem: previewSystem,
@@ -300,6 +316,14 @@ struct DeltaSkinImportResult: Sendable {
             landscapeItems: landscapeItems,
             pieces: pieces
         )
+        out.systemIDs = systemIDs
+        out.gameTypeIdentifier = gameTypeIdentifier
+        out.identifier = identifier
+        out.sourceName = sourceName
+        out.format = format
+        out.soundData = soundData
+        out.refused = portrait.refused
+        return out
     }
 }
 
@@ -325,13 +349,13 @@ enum DeltaSkinImportError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .noFileSelected:
-            return "No skin selected. Pick a .deltaskin, .zip, or info.json."
+            return "No skin selected. Pick a .manicskin, .deltaskin, .zip, or info.json."
         case .cancelled:
             return "Import cancelled — no skin selected."
         case .unreadable(let detail):
             return "Could not read the skin package: \(detail)"
         case .missingInfoJSON:
-            return "No info.json in that package. A .deltaskin must contain a flat info.json."
+            return "No info.json in that package. A .manicskin or .deltaskin must contain a flat info.json."
         case .invalidJSON(let detail):
             return "info.json is not valid: \(detail)"
         case .noUsableRepresentation:
@@ -384,6 +408,9 @@ enum DeltaSkinImporter {
             ?? "Untitled skin"
         let gameType = root["gameTypeIdentifier"] as? String
         let preview = GameSystem.fromDeltaGameType(gameType)
+        let systemIDs = SkinGameTypes.systemIDs(forGameType: gameType)
+        let isManic = SkinGameTypes.isManic(gameType)
+            || sourceName.lowercased().hasSuffix(".manicskin")
 
         guard let representations = root["representations"] as? [String: Any] else {
             throw DeltaSkinImportError.noUsableRepresentation
@@ -442,9 +469,24 @@ enum DeltaSkinImporter {
         var summaryBits = [
             "\(name)",
             "via \(sourceName)",
+            isManic ? "Manic skin" : "Delta skin",
             "\(chosen.path)",
             "\(mapped.applied) control(s)",
         ]
+        if systemIDs.isEmpty {
+            summaryBits.append("console not named by the file")
+        } else {
+            summaryBits.append("for " + systemIDs.joined(separator: "/"))
+        }
+        if mapped.functions > 0 {
+            summaryBits.append("\(mapped.functions) function button(s)")
+        }
+        if mapped.switches > 0 {
+            summaryBits.append("\(mapped.switches) switch(es)")
+        }
+        if !mapped.refused.isEmpty {
+            summaryBits.append("\(mapped.refused.count) refused: " + mapped.refused.joined(separator: "; "))
+        }
         if screens.count > 1 {
             summaryBits.append("\(screens.count) screen holes")
         } else if screenOutput != nil {
@@ -491,8 +533,12 @@ enum DeltaSkinImporter {
             }
         }
         let pieces = Self.pieces(for: portraitItems + landscapeItems, assetLookup: assetLookup)
+        let sound = assetLookup(ManicItems.soundFileName).flatMap { $0.isEmpty ? nil : $0 }
+        if sound != nil {
+            summaryBits.append("button sound kept")
+        }
 
-        return DeltaSkinImportResult(
+        var result = DeltaSkinImportResult(
             layout: mapped.layout,
             skinName: name,
             previewSystem: preview,
@@ -504,6 +550,14 @@ enum DeltaSkinImporter {
             landscapeItems: landscapeItems,
             pieces: pieces
         )
+        result.systemIDs = systemIDs
+        result.gameTypeIdentifier = gameType ?? ""
+        result.identifier = (root["identifier"] as? String) ?? ""
+        result.sourceName = sourceName
+        result.format = isManic ? "manic" : "delta"
+        result.soundData = sound
+        result.refused = mapped.refused
+        return result
     }
 
     // MARK: Package bytes
@@ -525,7 +579,7 @@ enum DeltaSkinImporter {
             return LoadedPackage(infoJSON: data, assetLookup: { _ in nil })
         }
 
-        if ext == "deltaskin" || ext == "zip" {
+        if ext == "deltaskin" || ext == "manicskin" || ext == "zip" {
             let bytes: Data
             do {
                 bytes = try Data(contentsOf: url)
@@ -556,7 +610,7 @@ enum DeltaSkinImporter {
             throw DeltaSkinImportError.unreadable(error.localizedDescription)
         }
         throw DeltaSkinImportError.unreadable(
-            "expected a .deltaskin, .zip, or info.json (got .\(ext.isEmpty ? "unknown" : ext))"
+            "expected a .manicskin, .deltaskin, .zip, or info.json (got .\(ext.isEmpty ? "unknown" : ext))"
         )
     }
 
@@ -632,7 +686,8 @@ enum DeltaSkinImporter {
         var seen = Set<String>()
         var out: [DeltaSkinPiece] = []
         for item in items {
-            for name in [item.normalFileName, item.pressedFileName, item.stickAssetFileName] {
+            for name in [item.normalFileName, item.pressedFileName, item.stickAssetFileName,
+                         item.toggle?.selectedFileName] {
                 guard let name, !name.isEmpty, seen.insert(name).inserted else { continue }
                 guard let data = assetLookup(name), !data.isEmpty else { continue }
                 out.append(DeltaSkinPiece(fileName: name, kind: assetKind(for: name), data: data))
@@ -863,40 +918,9 @@ enum DeltaSkinImporter {
 extension GameSystem {
     /// Continuum system for a Delta `gameTypeIdentifier`, when Continuum has that console.
     static func fromDeltaGameType(_ identifier: String?) -> GameSystem? {
-        guard let raw = identifier?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-              !raw.isEmpty else { return nil }
-        switch raw {
-        case "com.rileytestut.delta.game.gb", "public.aoshuang.game.gb":
-            return .gb
-        case "com.rileytestut.delta.game.gbc", "public.aoshuang.game.gbc":
-            return .gbc
-        case "com.rileytestut.delta.game.gba", "public.aoshuang.game.gba":
-            return .gba
-        case "com.rileytestut.delta.game.ds", "public.aoshuang.game.ds":
-            return .ds
-        case "com.rileytestut.delta.game.nes", "public.aoshuang.game.nes":
-            return .nes
-        case "com.rileytestut.delta.game.snes", "public.aoshuang.game.snes":
-            return .snes
-        case "com.rileytestut.delta.game.n64", "public.aoshuang.game.n64":
-            return .n64
-        case "com.rileytestut.delta.game.genesis", "public.aoshuang.game.md":
-            return .genesis
-        case "public.aoshuang.game.3ds":
-            return .n3ds
-        case "public.aoshuang.game.ps1":
-            return .ps1
-        case "public.aoshuang.game.psp":
-            return .psp
-        case "public.aoshuang.game.ms":
-            return .sms
-        case "public.aoshuang.game.gg":
-            return .gg
-        case "public.aoshuang.game.sg1000":
-            return .sg1000
-        default:
-            return nil
-        }
+        // Strings first (SkinLibrary.swift), so an id for a console this build has no case for
+        // is simply skipped here and still kept on the skin's record.
+        SkinGameTypes.systemIDs(forGameType: identifier).lazy.compactMap(GameSystem.init(rawValue:)).first
     }
 }
 
@@ -972,6 +996,9 @@ final class DeltaSkinPicker: NSObject, UIDocumentPickerDelegate, UIAdaptivePrese
         var types: [UTType] = []
         if let delta = UTType(filenameExtension: "deltaskin") {
             types.append(delta)
+        }
+        if let manic = UTType(filenameExtension: "manicskin") {
+            types.append(manic)
         }
         types.append(.zip)
         types.append(.json)
