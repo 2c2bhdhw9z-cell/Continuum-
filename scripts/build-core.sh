@@ -95,7 +95,7 @@ WORK="$ROOT/.work"
 # The iOS cores, in build order. Never empty, which matters: macOS ships bash 3.2,
 # where an empty array expanded under `set -u` is an error rather than nothing.
 IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed mednafen_psx_hw melonds
-           mednafen_pce_fast stella2023 parallel_n64 azahar ppsspp)
+           mednafen_pce_fast stella2023 parallel_n64 azahar)
 
 # mednafen_psx_hw (Beetle PSX HW) is in ios-all so Mac CI embeds the dylib in the IPA.
 # Build is Mac/CI-only (`make platform=ios-arm64 HAVE_HW=1`); Linux hosts cannot cross-compile
@@ -176,10 +176,6 @@ ios_core_config() {
   # Extra `VAR=value` arguments for a make-based core, as an ARRAY so a value containing a space
   # cannot split. Empty for every core that builds correctly with its own defaults.
   IOS_MAKE_VARS=()
-  # Selected submodule paths. Empty means "all of them" when IOS_SUBMODULES=1.
-  # A non-empty list is a shallow clone plus only those paths, so a core whose
-  # full recursive tree is ffmpeg and MoltenVK does not download either.
-  IOS_SUBMODULE_PATHS=()
   IOS_DISPLAY=""
   case "$1" in
     fceumm)
@@ -362,48 +358,6 @@ ios_core_config() {
       # No JIT, no dynarec, no executable memory.
       IOS_DISPLAY="Nintendo 3DS, Vulkan, interpreter CPU (no JIT)"
       ;;
-    ppsspp)
-      # Official libretro iOS job (ppsspp .gitlab-ci.yml): cmake with
-      # cmake/Toolchains/ios.cmake and -DLIBRETRO=ON. The Makefile's ios-arm64
-      # block is not that job. It forces -DARMv5_ONLY -DARM and -marm even for
-      # arm64, which is a 32-bit compile of a 64-bit core. Do not use it.
-      #
-      # CPU is the IR interpreter, not the dynarec. The host answers
-      # ppsspp_cpu_core with the core's own value "IR JIT", which libretro.cpp
-      # stores as CPUCore::IR_INTERPRETER and constructs as IRJit(state, false).
-      # That false is compile-to-native off: no PROT_EXEC, no dynarec. The
-      # dynarec value is the separate string "JIT". On iOS the core also asks
-      # RETRO_ENVIRONMENT_GET_JIT_CAPABLE, which this host does not implement,
-      # so a later switch to "JIT" is forced back to the IR interpreter.
-      # Vertex-decoder JIT uses the same flag and stays off.
-      #
-      # Picture is Vulkan. The toolchain builds with GLES2, the host's preferred
-      # hardware context is Vulkan, and CreateGraphicsContext tries Vulkan for
-      # that answer. Frames are the same set_image path Azahar uses. No BIOS.
-      #
-      # USE_FFMPEG=OFF so the ffmpeg submodule (prebuilt blobs for every
-      # platform) is not cloned. PMF video in a game will not decode. The
-      # selected submodule list is what the libretro target's CMake actually
-      # add_subdirectory's.
-      IOS_REPO="https://github.com/hrydgard/ppsspp"
-      IOS_DYLIB_NAME="ppsspp_libretro_ios.dylib"
-      IOS_KIND="cmake-ppsspp"
-      IOS_CMAKE_TARGET="ppsspp_libretro"
-      IOS_SUBMODULES=1
-      IOS_SUBMODULE_PATHS=(
-        libretro/libretro-common
-        ext/armips
-        ext/glslang
-        ext/SPIRV-Cross
-        ext/libchdr
-        ext/zstd
-        ext/lua
-        ext/rcheevos
-        ext/aemu_postoffice
-        ext/rapidjson
-      )
-      IOS_DISPLAY="PSP, Vulkan, IR interpreter (no JIT, no dynarec)"
-      ;;
     *)
       return 1
       ;;
@@ -476,25 +430,17 @@ ios_clone() {
   mkdir -p "$IOS_WORK"
   if [[ ! -d "$IOS_SRC_DIR/.git" ]]; then
     echo "==> cloning $core for iOS"
-    if [[ "$IOS_SUBMODULES" == "1" && ${#IOS_SUBMODULE_PATHS[@]} -eq 0 ]]; then
-      # No --depth when every submodule is initialised. A shallow parent and a
-      # recursive submodule update fight each other, and several cores need the
-      # whole tree (pcsx_rearmed, parallel_n64, azahar).
+    if [[ "$IOS_SUBMODULES" == "1" ]]; then
+      # No --depth: a shallow clone and recursive submodules are a bad combination, and
+      # this is the one core that has submodules.
       git clone "$IOS_REPO" "$IOS_SRC_DIR"
     else
-      # Depth 1 is fine when there are no submodules, and when the list below
-      # names exactly which ones to fetch: those gitlinks are in this commit.
       git clone --depth 1 "$IOS_REPO" "$IOS_SRC_DIR"
     fi
   fi
   if [[ "$IOS_SUBMODULES" == "1" ]]; then
-    if (( ${#IOS_SUBMODULE_PATHS[@]} > 0 )); then
-      echo "==> initialising selected submodules for $core: ${IOS_SUBMODULE_PATHS[*]}"
-      ( cd "$IOS_SRC_DIR" && git submodule update --init --recursive "${IOS_SUBMODULE_PATHS[@]}" )
-    else
-      echo "==> initialising submodules for $core"
-      ( cd "$IOS_SRC_DIR" && git submodule update --init --recursive )
-    fi
+    echo "==> initialising submodules for $core"
+    ( cd "$IOS_SRC_DIR" && git submodule update --init --recursive )
   fi
   ios_record_source_version "$core"
 }
@@ -811,58 +757,6 @@ build_ios_cmake_shared_core() {
   ios_stage_dylib "$staged" "$IOS_DYLIB_NAME"
 }
 
-# PPSSPP's own libretro iOS CI: the ios toolchain plus -DLIBRETRO=ON.
-# Not the azahar cmake function. That one passes -DIOS and Citra flags, and
-# finding the dylib is hardcoded to azahar_libretro.
-build_ios_ppsspp_core() {
-  local core="$1"
-  command -v cmake >/dev/null 2>&1 || {
-    echo "error: $core needs cmake on the host (brew install cmake)" >&2
-    exit 1
-  }
-
-  local build_dir="$IOS_SRC_DIR/build-ios"
-  echo "==> configuring $core with cmake for iOS ($IOS_DISPLAY)"
-  rm -rf "$build_dir"
-  # The toolchain sets IOS, arm64, GLES2, and the iphoneos SDK. Passing
-  # CMAKE_SYSTEM_NAME=iOS ourselves would fight that file: PPSSPP's iOS
-  # detection is the toolchain's IOS variable, and its libretro job does not
-  # pass CMAKE_SYSTEM_NAME.
-  #
-  # USE_FFMPEG=OFF: no ffmpeg submodule, so in-game PMF video does not decode.
-  # USE_DISCORD and USE_MINIUPNPC off so those submodules are not required.
-  # HEADLESS, the unit tests, and the atlas tool are extra binaries this dylib
-  # does not need. LTO is not requested; the libretro entry points are kept by
-  # libretro/libretro.osx.def, which the core's own CMake passes as
-  # -exported_symbols_list.
-  cmake -G "Unix Makefiles" -S "$IOS_SRC_DIR" -B "$build_dir" \
-    -DCMAKE_TOOLCHAIN_FILE="$IOS_SRC_DIR/cmake/Toolchains/ios.cmake" \
-    -DLIBRETRO=ON \
-    -DUSE_FFMPEG=OFF \
-    -DUSE_DISCORD=OFF \
-    -DUSE_MINIUPNPC=OFF \
-    -DHEADLESS=OFF \
-    -DUNITTEST=OFF \
-    -DATLAS_TOOL=OFF \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_MIN_VERSION"
-
-  echo "==> building $IOS_CMAKE_TARGET"
-  cmake --build "$build_dir" --target "$IOS_CMAKE_TARGET" -j"$(ios_jobs)"
-
-  local built
-  built="$(find "$build_dir" -name 'ppsspp_libretro*.dylib' -type f | head -1 || true)"
-  [[ -n "$built" && -f "$built" ]] || {
-    echo "error: $core: cmake finished but left no ppsspp_libretro dylib under $build_dir" >&2
-    find "$build_dir" -name '*.dylib' -type f >&2 || true
-    exit 1
-  }
-  echo "==> upstream produced $(basename "$built"); staging as $IOS_DYLIB_NAME"
-  local staged="$build_dir/$IOS_DYLIB_NAME"
-  cp "$built" "$staged"
-  ios_stage_dylib "$staged" "$IOS_DYLIB_NAME"
-}
-
 # Continuum-owned edits to unpinned upstream core checkouts.
 #
 # Cores clone at HEAD with no pin (see ios_record_source_version). When upstream behaviour
@@ -1007,7 +901,6 @@ build_ios_core() {
     make) build_ios_make_core "$core" ;;
     cmake) build_ios_cmake_core "$core" ;;
     cmake-shared) build_ios_cmake_shared_core "$core" ;;
-    cmake-ppsspp) build_ios_ppsspp_core "$core" ;;
     *) echo "error: $core: unknown iOS build kind '$IOS_KIND'" >&2; exit 1 ;;
   esac
 }

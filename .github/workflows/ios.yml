@@ -44,14 +44,13 @@ permissions:
 jobs:
   ipa:
     runs-on: macos-latest
-    # Raised from 60, then from 120 when Azahar joined ios-all, then to 240 when PPSSPP
-    # joined. Azahar is a full-depth clone with recursive submodules. PPSSPP is another
-    # large C++ cmake build on top of the cores already here (mgba's CMake link,
-    # pcsx_rearmed's submodules). Nothing is cached between runs
+    # Raised from 60, then from 120 when Azahar joined ios-all. That core is a full-depth
+    # clone with recursive submodules and a large C++ build, on top of the cores already
+    # here (mgba's CMake link, pcsx_rearmed's submodules). Nothing is cached between runs
     # except cargo. A timeout is the worst failure this job has: it produces no artefact
     # and no ::error:: annotation, so it reads like an infrastructure hang rather than a
     # build that simply needed longer. The job is billed by the minute either way.
-    timeout-minutes: 240
+    timeout-minutes: 180
 
     steps:
       - uses: actions/checkout@v4
@@ -172,8 +171,6 @@ jobs:
             || { echo "::error::the N64 core is not embedded; .n64, .z64 and .v64 files would list in the Library and fail to launch"; exit 1; }
           unzip -l "$IPA" | grep -q "azahar_libretro_ios.dylib" \
             || { echo "::error::the 3DS core is not embedded; .3ds, .3dsx, .cci and .cxi files would list in the Library and fail to launch"; exit 1; }
-          unzip -l "$IPA" | grep -q "ppsspp_libretro_ios.dylib" \
-            || { echo "::error::the PSP core is not embedded; .cso files would list in the Library and fail to launch"; exit 1; }
           # Not a core. MoltenVK is the gate on every hardware rendered system, and because it is
           # dlopened rather than linked, its absence would not fail the build or the launch: it would
           # surface only as the Vulkan line reporting NOT AVAILABLE on a phone.

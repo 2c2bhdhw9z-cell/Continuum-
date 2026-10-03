@@ -406,44 +406,10 @@ enum CoreCatalog {
         biosNames: []
     )
 
-    /// PSP, on PPSSPP's libretro core.
-    ///
-    /// CPU is the IR interpreter. The core's option value is the string "IR JIT",
-    /// which `libretro.cpp` stores as `CPUCore::IR_INTERPRETER` and constructs as
-    /// `IRJit(state, false)`. That false means compile-to-native is off: no
-    /// executable pages, no dynarec. The dynarec is the other value, "JIT", and
-    /// the host does not answer `RETRO_ENVIRONMENT_GET_JIT_CAPABLE`, so iOS code
-    /// inside the core forces a JIT selection back to the IR interpreter. The
-    /// vertex decoder uses the same flag and stays off.
-    ///
-    /// Picture is Vulkan `set_image`. The host's preferred hardware context is
-    /// Vulkan, and PPSSPP tries that first. Geometry here is the PSP's own
-    /// 480x272; the iOS default internal resolution is 2x (960x544), and the
-    /// engine re-reads geometry after load. XRGB8888 is pixelFormat 1. 44100 Hz
-    /// is the core's `SAMPLERATE`. No BIOS: PPSSPP does not ask for one, and
-    /// none is bundled.
-    ///
-    /// Not device-proven. A game on this phone is the only thing that would
-    /// make this row Done.
-    static let ppsspp = CoreSpec(
-        coreId: "ppsspp",
-        displayName: "PPSSPP (PSP)",
-        systems: ["psp"],
-        library: "ppsspp_libretro_ios.dylib",
-        width: 480, height: 272,
-        maxWidth: 960, maxHeight: 544,
-        aspectRatio: 480.0 / 272.0,
-        fps: 59.94,
-        sampleRate: 44100,
-        pixelFormat: 1,
-        priority: 0,
-        biosNames: []
-    )
-
     /// Every core, in the order the HUD reports them.
     static let all: [CoreSpec] = [
         fceumm, snes9x, mgba, genesisPlusGx, pcsxReARMed, mednafenPsxHw, melonDS,
-        mednafenPceFast, stella, parallelN64, azahar, ppsspp,
+        mednafenPceFast, stella, parallelN64, azahar,
     ]
 
     static let byId: [String: CoreSpec] = Dictionary(
@@ -474,7 +440,6 @@ enum CoreCatalog {
     ///     genesis_plus_gx   m3u mdx md smd gen bin cue iso chd bms sms gg sg 68k sgd
     ///     pcsx_rearmed      bin cue img mdf pbp toc cbn m3u chd iso exe
     ///     melonDS           nds ids dsi
-    ///     ppsspp            elf iso cso prx pbp chd
     ///
     /// Reading that list is what turned up TWO WHOLE SYSTEMS this app already had the emulator for
     /// and was refusing to open: the Famicom Disk System through fceumm, and the SG-1000 through
@@ -564,14 +529,6 @@ enum CoreCatalog {
         "3dsx": Route(coreId: azahar.coreId, system: .n3ds),
         "cci": Route(coreId: azahar.coreId, system: .n3ds),
         "cxi": Route(coreId: azahar.coreId, system: .n3ds),
-        // PPSSPP declares elf, iso, cso, prx, pbp, chd. Only cso is routed.
-        // iso, chd and pbp are already PlayStation routes, and taking them
-        // would make a PS1 disc look like a PSP game. elf is a raw executable,
-        // the same reason the 3DS does not route it. prx is a plugin, not a
-        // game. A PSP image that is only .iso, .chd or .pbp is not a Library
-        // row. Renaming an .iso to .cso does not make it one: .cso is a
-        // compressed format, and this app will not steal .iso from PlayStation.
-        "cso": Route(coreId: ppsspp.coreId, system: .psp),
     ]
 
     /// Extension to core id, DERIVED from the table above and never restated.

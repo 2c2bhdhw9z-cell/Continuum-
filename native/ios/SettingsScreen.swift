@@ -89,7 +89,6 @@ struct SettingsScreen: View {
                     layoutSection
                     diagnosticsSection
                     coresSection
-                    pspSection
                     biosSection
                     coreOptionsSection
                     // Beside STORAGE on purpose: the two read-outs are about the same disk, and the
@@ -465,19 +464,6 @@ struct SettingsScreen: View {
         }
     }
 
-    /// PSP. One note, not a picker: there is one core and it is not optional.
-    private var pspSection: some View {
-        SettingsSection(title: "PSP") {
-            SettingsNote(
-                "PSP games run on PPSSPP. The CPU is the IR interpreter: no JIT, no dynarec, "
-                + "and no executable memory. The picture is Vulkan. PPSSPP does not need a BIOS, "
-                + "and this app does not ship one. A .cso opens here. .iso, .chd and .pbp stay "
-                + "PlayStation, because those extensions were already routed there. Renaming an "
-                + ".iso to .cso does not make it a .cso. This has not been tried on a phone."
-            )
-        }
-    }
-
     // MARK: BIOS
 
     private var biosSection: some View {
@@ -522,9 +508,8 @@ struct SettingsScreen: View {
                 + "Developer Mode being switched off. iOS has refused development-signed apps "
                 + "without it since iOS 16. Turn it on in Settings, Privacy & Security, Developer "
                 + "Mode, then restart the phone.\n\nNothing currently playable depends on any of "
-                + "this. The cores in this build, including PSP, run on interpreters. The PSP "
-                + "core does not allocate executable memory. The entitlement is not what makes "
-                + "a PSP game start."
+                + "this. All fourteen systems in this build run on interpreters; the entitlement "
+                + "only matters for N64, PSP, 3DS and Switch, and none of those are here yet."
             )
 
             SettingsNote(
