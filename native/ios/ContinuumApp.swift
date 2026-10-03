@@ -1908,6 +1908,9 @@ final class EngineHost: ObservableObject {
     /// The per-game cheat lists, and the one path that pushes them into a core.
     let cheats: CheatStore
 
+    /// RetroAchievements: the account, the HTTP loop for rcheevos, unlock notices.
+    let achievements: AchievementsStore
+
     init() {
         engine = ContinuumEngine()
         // Built here, with that engine, and never rebuilt. The graph itself is not started until
@@ -1948,6 +1951,9 @@ final class EngineHost: ObservableObject {
         // Reads the stored cheat lists as it is built. Nothing is pushed to a core here: a cheat
         // table belongs to a session, so the push happens on launch.
         cheats = CheatStore(engine: engine)
+        // Logs back in with a stored token, if there is one, as it is built. Nothing else: a game
+        // is identified on launch.
+        achievements = AchievementsStore(engine: engine)
 
         // The remembered preferences, read before anything can display. Each one falls back to its
         // default rather than to nil, so a first launch and a corrupted value behave the same way.
@@ -2004,6 +2010,7 @@ final class EngineHost: ObservableObject {
         // refused load or a failed auto-save has to be said out loud.
         saveStates.attach(host: self)
         cheats.attach(host: self)
+        achievements.attach(host: self)
 
         // Wired after `init` has finished with `self`, for the same reason. A pad connecting or
         // disconnecting is exactly the kind of thing the always-visible status line is for: it is
@@ -2784,7 +2791,14 @@ final class EngineHost: ObservableObject {
             // is restored into a machine that already has the cheats the user expects. The engine
             // re-pushes the table itself after a reset and after a state load, so this is the only
             // place Swift has to do it.
+            //
+            // The battery save first: libretro leaves persisting SAVE_RAM to the frontend, and it
+            // has to be back in the cartridge before the first frame, when the game reads it.
+            saveStates.restoreBatterySave(for: entry)
             cheats.push(for: entry)
+            // Identify the game for RetroAchievements when someone is logged in. Asynchronous: the
+            // answer arrives as a notice and is shown on the status line and in the player.
+            achievements.gameStarted(entry: entry, system: CoreCatalog.system(forExtension: entry.ext))
 
             // The resume, LAST, so it can overwrite the "running" line above with what actually
             // happened. It is synchronous: see `SaveStates.load` for why nothing here is awaited.
@@ -2832,6 +2846,8 @@ final class EngineHost: ObservableObject {
         // does nothing when there is no session, so a half-started launch that reaches here writes
         // nothing. It is silent on success on purpose, because the line a user is reading when they
         // leave a game is the one `leavePlayer` is about to write.
+        // The game's own battery save, before the core is unloaded, for the same reason.
+        saveStates.persistBatterySave(reason: "the game was left")
         saveStates.writeAutoSave(reason: "the game was left")
         if running {
             engine.stop()

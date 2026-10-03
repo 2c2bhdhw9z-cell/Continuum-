@@ -1898,6 +1898,89 @@ mod tests {
         assert_eq!(bridge.read_memory(MEMORY_SYSTEM_RAM, health, 1).unwrap(), vec![98]);
     }
 
+    /// A core that takes cheats and records every call, so the table the engine builds is visible.
+    struct CheatRecorder {
+        descriptor: CoreDescriptor,
+        calls: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl EmulatorCore for CheatRecorder {
+        fn descriptor(&self) -> &CoreDescriptor {
+            &self.descriptor
+        }
+        fn load_content(&mut self, _: &[u8], _: &ContentHint) -> Result<(), BridgeError> {
+            Ok(())
+        }
+        fn run_frame(&mut self, _: &crate::input::InputSnapshot) -> Result<(), BridgeError> {
+            Ok(())
+        }
+        fn video(&self) -> Option<crate::frame::FrameView<'_>> {
+            None
+        }
+        fn drain_audio(&mut self, _: &mut dyn AudioSink) {}
+        fn reset(&mut self) -> Result<(), BridgeError> {
+            Ok(())
+        }
+        fn reset_cheats(&mut self) -> Result<(), BridgeError> {
+            self.calls.lock().unwrap().push("reset".into());
+            Ok(())
+        }
+        fn set_cheat(&mut self, index: u32, enabled: bool, code: &str) -> Result<(), BridgeError> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(format!("{index}:{enabled}:{code}"));
+            Ok(())
+        }
+        fn supports_cheats(&self) -> bool {
+            true
+        }
+        fn frame_count(&self) -> u64 {
+            0
+        }
+    }
+
+    #[test]
+    fn pokes_are_split_out_and_the_core_table_stays_whole_and_in_order() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut bridge = EmulatorBridge::new();
+        bridge.declare_core(descriptor("rec", "test"));
+        bridge
+            .attach_core(
+                "rec",
+                Box::new(CheatRecorder {
+                    descriptor: descriptor("rec", "test"),
+                    calls: calls.clone(),
+                }),
+            )
+            .unwrap();
+        bridge.launch_headless_for_test("rec", b"rom").unwrap();
+        let codes = vec![
+            "AAAA".to_string(),
+            "poke:0010:63:1".to_string(),
+            "BBBB".to_string(),
+            "poke:0020:01:1".to_string(),
+            "CCCC".to_string(),
+        ];
+        // The second poke is off, the middle code is off.
+        let active = bridge.apply_cheats(codes, &[1, 1, 0, 0, 1]).unwrap();
+        assert_eq!(active, 3, "two codes and one poke are on");
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec!["reset", "0:true:AAAA", "1:false:BBBB", "2:true:CCCC"],
+            "the core sees only codes, numbered without gaps, disabled ones included"
+        );
+        assert_eq!(bridge.session.as_ref().unwrap().pokes.len(), 1);
+
+        // A malformed poke refuses the whole update and leaves the previous list in force.
+        calls.lock().unwrap().clear();
+        assert!(bridge
+            .apply_cheats(vec!["DDDD".into(), "poke:nope".into()], &[1, 1])
+            .is_err());
+        assert!(calls.lock().unwrap().is_empty());
+        assert_eq!(bridge.active_cheat_count(), 3);
+    }
+
     #[test]
     fn muting_discards_queued_audio() {
         let mut bridge = EmulatorBridge::new();

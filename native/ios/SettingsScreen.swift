@@ -83,6 +83,7 @@ struct SettingsScreen: View {
                     // In this group rather than the second one, along the seam the note above
                     // describes: a cheat changes how the game itself behaves.
                     cheatsSection
+                    AchievementsSettingsSection(store: host.achievements)
                 }
                 Group {
                     artworkSection

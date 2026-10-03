@@ -186,6 +186,14 @@ targets:
       # text the user typed and a state is an opaque blob a core wrote, and only one of those two
       # can corrupt a session.
       - path: CheatStore.swift
+      # The 50-slot save manager, plus the share sheet and document picker that export and import
+      # state files, battery saves (.srm) and .cht cheat files.
+      - path: SaveSlotsScreen.swift
+      # RAM search and the in-game cheat sheet. The search itself is in the Rust engine.
+      - path: CheatSearch.swift
+      # RetroAchievements: Keychain token, the URLSession half of rcheevos, unlock banners, the
+      # Settings login and the game card list. rcheevos itself is in the Rust engine.
+      - path: Achievements.swift
       # The UniFFI-generated Swift facade. Written by build-engine.sh, never committed: a
       # stale checked-in binding that disagrees with the Rust compiles, links, and then
       # corrupts arguments at runtime, which is the worst failure mode in this stack.

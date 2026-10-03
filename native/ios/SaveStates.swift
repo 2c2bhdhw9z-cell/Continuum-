@@ -30,9 +30,16 @@
 // small JSON file, read once when this object is built, and a payload is only ever read at the
 // moment a state is actually being loaded.
 //
-// ## Numbered slots, plus exactly one auto-save per game
+// ## Fifty fixed slots, plus exactly one auto-save per game
 //
-// Manual saves take numbered slots and accumulate. The auto-save lives in its own namespace
+// Manual saves live in slots 1 to 50 (`saveSlotCount()`, from the engine, so Android gets the same
+// grid). Saving into a filled slot overwrites it, after the UI has asked. States written by the
+// older accumulating scheme (slot numbers past 50) are moved into free slots by
+// `migrateIntoSlots()` the first time this build reads the index, with the placement decided by the
+// engine's `planSaveSlots`; if a game has more than 50, the extras stay as they are, listed under
+// the grid, loadable and deletable. NOTHING IS DELETED BY THE MIGRATION.
+//
+// Earlier text, still true for the auto-save: manual saves took numbered slots and accumulated. The auto-save lives in its own namespace
 // (`autoSlot`, which is -1, the same sentinel the browser build used) and is overwritten in place.
 // Keeping the two apart means an auto-save can never consume a slot number the user was using,
 // and the resume path never has to guess which of several records is the newest.
@@ -102,12 +109,15 @@ struct SaveStateRecord: Identifiable, Codable, Hashable {
     /// The core's own `library_version` string at the time of the save.
     let coreVersion: String?
 
+    /// The user's name for this state. Empty means unnamed, and the slot number is shown alone.
+    var label: String
+
     /// Unique per game and slot, which is also the identity the UI needs: saving over the
     /// auto-save replaces a record rather than adding one.
     var id: String { isAuto ? "\(gameId)#auto" : "\(gameId)#\(slot)" }
 
     init(gameId: String, slot: Int, isAuto: Bool, createdAt: Date, frame: UInt64,
-         byteCount: Int, coreId: String?, coreVersion: String?) {
+         byteCount: Int, coreId: String?, coreVersion: String?, label: String = "") {
         self.gameId = gameId
         self.slot = slot
         self.isAuto = isAuto
@@ -116,12 +126,20 @@ struct SaveStateRecord: Identifiable, Codable, Hashable {
         self.byteCount = byteCount
         self.coreId = coreId
         self.coreVersion = coreVersion
+        self.label = label
+    }
+
+    /// The same state under another slot number. Used by the migration and nothing else.
+    func renumbered(to newSlot: Int) -> SaveStateRecord {
+        SaveStateRecord(gameId: gameId, slot: newSlot, isAuto: false, createdAt: createdAt,
+                        frame: frame, byteCount: byteCount, coreId: coreId,
+                        coreVersion: coreVersion, label: label)
     }
 
     // MARK: Storage
 
     private enum CodingKeys: String, CodingKey {
-        case gameId, slot, isAuto, createdAt, frame, byteCount, coreId, coreVersion
+        case gameId, slot, isAuto, createdAt, frame, byteCount, coreId, coreVersion, label
     }
 
     /// Decodes field by field, each one falling back rather than throwing, exactly as
@@ -154,6 +172,8 @@ struct SaveStateRecord: Identifiable, Codable, Hashable {
         // that differs from every real one and would refuse a state that is probably fine.
         coreId = try box.decodeIfPresent(String.self, forKey: .coreId)
         coreVersion = try box.decodeIfPresent(String.self, forKey: .coreVersion)
+        // Absent in every record written before slots could be named.
+        label = try box.decodeIfPresent(String.self, forKey: .label) ?? ""
     }
 
     func encode(to encoder: Encoder) throws {
@@ -166,12 +186,35 @@ struct SaveStateRecord: Identifiable, Codable, Hashable {
         try box.encode(byteCount, forKey: .byteCount)
         try box.encodeIfPresent(coreId, forKey: .coreId)
         try box.encodeIfPresent(coreVersion, forKey: .coreVersion)
+        try box.encode(label, forKey: .label)
     }
 
     // MARK: Display
 
     /// "Auto" or "Slot 3". The auto-save is never given a number, because the number would be -1.
     var slotLabel: String { isAuto ? "Auto" : "Slot \(slot)" }
+
+    /// "Slot 3, before the boss", or just "Slot 3".
+    var displayName: String { label.isEmpty ? slotLabel : "\(slotLabel), \(label)" }
+
+    /// "snes9x 1.62.3", or whatever part of that was recorded.
+    var coreLine: String {
+        switch (coreId, coreVersion) {
+        case let (id?, version?): return "\(id) \(version)"
+        case let (id?, nil): return id
+        case let (nil, version?): return "core version \(version)"
+        default: return "core not recorded"
+        }
+    }
+
+    /// The date and time it was taken, for a slot cell.
+    var dateText: String {
+        if createdAt.timeIntervalSince1970 <= 0 { return "date not recorded" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: createdAt)
+    }
 
     var sizeText: String {
         if byteCount <= 0 { return "unknown size" }
@@ -200,7 +243,7 @@ struct SaveStateRecord: Identifiable, Codable, Hashable {
 
     /// One line for a menu or a list row.
     var summaryLine: String {
-        "\(slotLabel), \(ageText), \(sizeText), frame \(frame)"
+        "\(displayName), \(ageText), \(sizeText), frame \(frame)"
     }
 }
 
@@ -348,6 +391,84 @@ enum SaveStateDisk {
     static func remove(gameId: String, slot: Int, isAuto: Bool) -> Bool {
         guard let url = payloadURL(gameId: gameId, slot: slot, isAuto: isAuto) else { return false }
         return (try? FileManager.default.removeItem(at: url)) != nil
+    }
+
+    /// `<hash>-<slot>.png`: the picture shown in a slot. Optional in every sense: a state with no
+    /// thumbnail is still a state, and the slot draws a plain card instead.
+    static func thumbnailURL(gameId: String, slot: Int, isAuto: Bool) -> URL? {
+        let key = ArtworkDisk.key(forPath: gameId)
+        let suffix = isAuto ? "auto" : String(slot)
+        return directory()?.appendingPathComponent("\(key)-\(suffix).png")
+    }
+
+    static func writeThumbnail(_ png: Data, gameId: String, slot: Int, isAuto: Bool) {
+        guard let url = thumbnailURL(gameId: gameId, slot: slot, isAuto: isAuto) else { return }
+        try? png.write(to: url, options: .atomic)
+    }
+
+    static func removeThumbnail(gameId: String, slot: Int, isAuto: Bool) {
+        guard let url = thumbnailURL(gameId: gameId, slot: slot, isAuto: isAuto) else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Moves a manual state's payload (and thumbnail, if any) to another slot number.
+    ///
+    /// Returns true when the payload is now at the new number, or when there was no payload to move
+    /// (a record whose file is already gone is renumbered all the same, and still says it is gone).
+    /// Refuses to overwrite: the migration only ever moves into a slot it has established is free,
+    /// and a file already sitting there means something else is wrong, so nothing is touched.
+    static func move(gameId: String, from oldSlot: Int, to newSlot: Int) -> Bool {
+        guard let source = payloadURL(gameId: gameId, slot: oldSlot, isAuto: false),
+              let target = payloadURL(gameId: gameId, slot: newSlot, isAuto: false) else {
+            return false
+        }
+        let files = FileManager.default
+        if files.fileExists(atPath: target.path) { return false }
+        if files.fileExists(atPath: source.path) {
+            do {
+                try files.moveItem(at: source, to: target)
+            } catch {
+                return false
+            }
+        }
+        if let oldThumb = thumbnailURL(gameId: gameId, slot: oldSlot, isAuto: false),
+           let newThumb = thumbnailURL(gameId: gameId, slot: newSlot, isAuto: false),
+           files.fileExists(atPath: oldThumb.path) {
+            try? files.moveItem(at: oldThumb, to: newThumb)
+        }
+        return true
+    }
+
+    /// Where the frontend keeps a game's battery save (`SAVE_RAM`, the `.srm`).
+    ///
+    /// Its own directory, not the save directory handed to the cores: a core that writes its own
+    /// save files there must never find one of ours under the same name.
+    static func batteryURL(gameId: String) -> URL? {
+        guard let support = FileManager.default.urls(for: .applicationSupportDirectory,
+                                                     in: .userDomainMask).first else {
+            return nil
+        }
+        let directory = support.appendingPathComponent("BatterySaves", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: directory.path) {
+            try? FileManager.default.createDirectory(at: directory,
+                                                     withIntermediateDirectories: true)
+        }
+        return directory.appendingPathComponent("\(gameId).srm")
+    }
+
+    /// A scratch directory for files about to be handed to the share sheet. Emptied each time, so
+    /// exports do not pile up in the container.
+    static func exportDirectory() -> URL? {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ContinuumExports", isDirectory: true)
+        try? FileManager.default.removeItem(at: directory)
+        do {
+            try FileManager.default.createDirectory(at: directory,
+                                                    withIntermediateDirectories: true)
+        } catch {
+            return nil
+        }
+        return directory
     }
 
     /// Writes the index. Returns nil on success, or a sentence.
@@ -536,6 +657,7 @@ final class SaveStates: ObservableObject {
         let usable = stored.filter { !$0.gameId.isEmpty }
         let dropped = stored.count - usable.count
         records = Self.sortedNewestFirst(usable)
+        let migration = migrateIntoSlots()
         refreshMissingCount()
 
         var parts: [String] = []
@@ -550,7 +672,58 @@ final class SaveStates: ObservableObject {
         if missingPayloads > 0 {
             parts.append("\(missingPayloads) payload(s) not on disk")
         }
+        if let migration {
+            parts.append(migration)
+        }
         line = parts.joined(separator: ", ")
+    }
+
+    /// Moves states from the old accumulating numbering into the 50-slot grid. See the file header.
+    ///
+    /// Idempotent: once every manual state is in 1...50 there is nothing for it to do, so it costs
+    /// one pass over the index on every launch after the first. Returns a phrase for the read-out
+    /// when it did something, nil when it did not.
+    private func migrateIntoSlots() -> String? {
+        let limit = Self.slotCount
+        var updated = records
+        var moved = 0
+        var stuck = 0
+        var overflow = 0
+        for gameId in Set(records.map { $0.gameId }) {
+            let manual = records.filter { $0.gameId == gameId && !$0.isAuto }
+            guard manual.contains(where: { $0.slot < 1 || $0.slot > limit }) else { continue }
+            let plan = planSaveSlots(existing: manual.map {
+                ExistingSlot(slot: Int64($0.slot), createdAt: $0.createdAt.timeIntervalSince1970)
+            })
+            for (record, placement) in zip(manual, plan) {
+                switch placement {
+                case .keep:
+                    continue
+                case .move(_, let to):
+                    let target = Int(to)
+                    if SaveStateDisk.move(gameId: gameId, from: record.slot, to: target) {
+                        updated = updated.map { $0.id == record.id ? record.renumbered(to: target) : $0 }
+                        moved += 1
+                    } else {
+                        // Left exactly where it was, under its old number, still loadable.
+                        stuck += 1
+                    }
+                case .overflow:
+                    overflow += 1
+                }
+            }
+        }
+        guard moved > 0 || stuck > 0 || overflow > 0 else { return nil }
+        if moved > 0 {
+            records = Self.sortedNewestFirst(updated)
+            if let failure = SaveStateDisk.writeIndex(records) {
+                return "moved \(moved) state(s) into slots, but \(failure)"
+            }
+        }
+        var parts = ["moved \(moved) state(s) into the 50 slots"]
+        if overflow > 0 { parts.append("\(overflow) kept as extras past slot 50") }
+        if stuck > 0 { parts.append("\(stuck) could not be moved and kept their old number") }
+        return parts.joined(separator: ", ")
     }
 
     /// The two triggers, plus the reason each one is here.
@@ -574,7 +747,13 @@ final class SaveStates: ObservableObject {
             // not always do in time.
             centre.addObserver(forName: UIApplication.willResignActiveNotification,
                                object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.writeAutoSave(reason: "the app was leaving the front") }
+                Task { @MainActor in
+                    // The battery save first and unconditionally: it is the game's own save, and
+                    // unlike the auto-save it has no switch, because losing an in-game save is
+                    // never something a user chose.
+                    self?.persistBatterySave(reason: "the app was leaving the front")
+                    self?.writeAutoSave(reason: "the app was leaving the front")
+                }
             },
             // The backstop. A transient interruption that never became a background transition has
             // already been covered above, and the frame comparison makes this second trigger free
@@ -633,15 +812,43 @@ final class SaveStates: ObservableObject {
         SaveStateDisk.exists(gameId: record.gameId, slot: record.slot, isAuto: record.isAuto)
     }
 
-    /// The next free numbered slot for a game.
+    // MARK: The grid
+
+    /// Manual slots per game. From the engine, so every platform has the same grid.
+    static var slotCount: Int { Int(saveSlotCount()) }
+
+    /// The state in one slot, or nil when it is empty.
+    func manualState(forGameId gameId: String, slot: Int) -> SaveStateRecord? {
+        records.first { $0.gameId == gameId && !$0.isAuto && $0.slot == slot }
+    }
+
+    /// States outside 1...50: only ever the extras of a game that had more than 50 before the
+    /// grid existed. Listed under the grid so they are never invisible.
+    func overflowStates(forGameId gameId: String) -> [SaveStateRecord] {
+        records.filter {
+            $0.gameId == gameId && !$0.isAuto && ($0.slot < 1 || $0.slot > Self.slotCount)
+        }
+    }
+
+    /// The lowest empty slot, or nil when all 50 are taken.
     ///
-    /// The highest number seen plus one, rather than the lowest unused number. Recycling a number
-    /// means a state the user deleted is replaced by an unrelated one under a name they still
-    /// recognise, and the slot number is shown in a list, so it is a name. Monotonic numbering
-    /// leaves gaps, and a gap is a much cheaper thing to explain.
-    private func nextSlot(forGameId gameId: String) -> Int {
-        let numbered = states(forGameId: gameId).filter { !$0.isAuto }.map { $0.slot }
-        return (numbered.max() ?? 0) + 1
+    /// The LOWEST, now that the numbers are a fixed grid rather than a running count: "save to a
+    /// new slot" fills the grid from the top, and a slot freed by a delete is a hole the user can
+    /// see and expects to be reused.
+    func firstFreeSlot(forGameId gameId: String) -> Int? {
+        let used = Set(states(forGameId: gameId).filter { !$0.isAuto }.map { $0.slot })
+        return (1...Self.slotCount).first { !used.contains($0) }
+    }
+
+    /// Bumped whenever a thumbnail lands, so a slot grid that is on screen redraws its pictures.
+    @Published private(set) var thumbnailGeneration = 0
+
+    /// The thumbnail for a state, if one was captured.
+    func thumbnail(for record: SaveStateRecord) -> UIImage? {
+        guard let url = SaveStateDisk.thumbnailURL(gameId: record.gameId, slot: record.slot,
+                                                   isAuto: record.isAuto),
+              let data = try? Data(contentsOf: url) else { return nil }
+        return UIImage(data: data)
     }
 
     // MARK: The gate
@@ -722,11 +929,52 @@ final class SaveStates: ObservableObject {
             return
         }
         let gameId = Self.gameId(for: entry)
-        write(gameId: gameId, slot: nextSlot(forGameId: gameId), isAuto: false,
+        guard let slot = firstFreeSlot(forGameId: gameId) else {
+            report("all \(Self.slotCount) slots for \(gameId) are full, so nothing was saved; open "
+                   + "Save slots and overwrite or delete one")
+            return
+        }
+        saveToSlot(slot)
+    }
+
+    /// Saves the running game into one slot, replacing whatever was there.
+    ///
+    /// THE CALLER HAS ALREADY ASKED. The slot grid confirms before overwriting a filled slot; this
+    /// method is the write, and a name the user gave the old state is kept for the new one, since
+    /// they asked to save "into" that slot rather than to start a different one.
+    func saveToSlot(_ slot: Int) {
+        guard let entry = runningEntry() else {
+            report("save state ignored: no game is running")
+            return
+        }
+        guard (1...Self.slotCount).contains(slot) else {
+            report("slot \(slot) is outside the \(Self.slotCount) slots, so nothing was saved")
+            return
+        }
+        let gameId = Self.gameId(for: entry)
+        let previous = manualState(forGameId: gameId, slot: slot)
+        write(gameId: gameId, slot: slot, isAuto: false, label: previous?.label ?? "",
               describe: { record in
-                  "saved \(record.slotLabel.lowercased()) for \(gameId), \(record.sizeText) "
-                      + "at frame \(record.frame)"
+                  "\(previous == nil ? "saved" : "overwrote") \(record.slotLabel.lowercased()) for "
+                      + "\(gameId), \(record.sizeText) at frame \(record.frame)"
               })
+    }
+
+    /// Names a state. An empty name clears it.
+    func rename(_ record: SaveStateRecord, to name: String) {
+        let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(60))
+        guard let index = records.firstIndex(where: { $0.id == record.id }) else {
+            report("that state is no longer in the list, so it was not renamed")
+            return
+        }
+        records[index].label = trimmed
+        if let failure = SaveStateDisk.writeIndex(records) {
+            report("renamed \(record.slotLabel.lowercased()), but \(failure)")
+        } else {
+            report(trimmed.isEmpty
+                   ? "cleared the name of \(record.slotLabel.lowercased())"
+                   : "named \(record.slotLabel.lowercased()) \"\(trimmed)\"")
+        }
     }
 
     /// Writes this game's auto-save, overwriting the previous one.
@@ -777,7 +1025,7 @@ final class SaveStates: ObservableObject {
     /// leave the index claiming a state that was never stored, which is a row that fails when it is
     /// tapped, and the whole point of keeping metadata separate is that the list can be trusted.
     @discardableResult
-    private func write(gameId: String, slot: Int, isAuto: Bool,
+    private func write(gameId: String, slot: Int, isAuto: Bool, label: String = "",
                        describe: (SaveStateRecord) -> String,
                        announce: Bool = true) -> SaveStateRecord? {
         guard engine.saveStateSize() > 0 else {
@@ -818,7 +1066,8 @@ final class SaveStates: ObservableObject {
             // whole gate, and reading them back from a live engine at load time would be comparing
             // the core against itself.
             coreId: engine.currentCoreId(),
-            coreVersion: engine.coreVersion()
+            coreVersion: engine.coreVersion(),
+            label: label
         )
 
         // Replaces any record with the same identity, which is how the auto-save is overwritten in
@@ -838,7 +1087,30 @@ final class SaveStates: ObservableObject {
 
         refreshMissingCount()
         report(describe(record), announce: announce)
+        // AFTER the payload and the index are safely written, and never for the auto-save: the
+        // auto-save runs while the app is leaving the front, and a GPU readback is the last thing to
+        // add to that window. A manual save is a tap with the game on screen.
+        if !isAuto {
+            captureThumbnail(gameId: gameId, slot: slot)
+        }
         return record
+    }
+
+    /// Captures the frame on screen as a slot's picture.
+    ///
+    /// The readback itself is synchronous and brief (it is the same call the cover capture uses);
+    /// the PNG encode runs off the main actor. A failure costs only the picture, so it is not
+    /// reported over the save's own line.
+    private func captureThumbnail(gameId: String, slot: Int) {
+        SaveStateDisk.removeThumbnail(gameId: gameId, slot: slot, isAuto: false)
+        guard let frame = try? engine.captureFrame(width: 192, height: 144) else { return }
+        Task { [weak self] in
+            let (png, _) = await CapturedCover.pngData(width: frame.width, height: frame.height,
+                                                       rgba: frame.rgba)
+            guard let png else { return }
+            SaveStateDisk.writeThumbnail(png, gameId: gameId, slot: slot, isAuto: false)
+            self?.thumbnailGeneration += 1
+        }
     }
 
     /// Recounts the records whose payload is not on disk. Called after every mutation, because the
@@ -954,6 +1226,8 @@ final class SaveStates: ObservableObject {
     func delete(_ record: SaveStateRecord) {
         let removed = SaveStateDisk.remove(gameId: record.gameId, slot: record.slot,
                                            isAuto: record.isAuto)
+        SaveStateDisk.removeThumbnail(gameId: record.gameId, slot: record.slot,
+                                      isAuto: record.isAuto)
         records = records.filter { $0.id != record.id }
         let indexFailure = SaveStateDisk.writeIndex(records)
         refreshMissingCount()
@@ -976,6 +1250,8 @@ final class SaveStates: ObservableObject {
         guard !doomed.isEmpty else { return }
         for record in doomed {
             SaveStateDisk.remove(gameId: record.gameId, slot: record.slot, isAuto: record.isAuto)
+            SaveStateDisk.removeThumbnail(gameId: record.gameId, slot: record.slot,
+                                          isAuto: record.isAuto)
         }
         records = records.filter { $0.gameId != gameId }
         let failure = SaveStateDisk.writeIndex(records)
@@ -1003,6 +1279,14 @@ final class SaveStates: ObservableObject {
                 bytes += Int64(size)
             }
         }
+        // Thumbnails too; they are not counted as states.
+        if let directory = SaveStateDisk.directory(),
+           let contents = try? FileManager.default.contentsOfDirectory(
+               at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+            for url in contents where url.pathExtension == "png" {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
         records = []
         missingPayloads = 0
         let failure = SaveStateDisk.writeIndex(records)
@@ -1015,6 +1299,251 @@ final class SaveStates: ObservableObject {
             text += ", but \(failure)"
         }
         report(text)
+    }
+
+    // MARK: Export and import
+
+    /// Writes one state, with every fact the gate checks, to a `.continuumstate` file for the share
+    /// sheet. Returns the file, or nil with the reason on the status line.
+    ///
+    /// The container is built by the engine (`packStateExport`), so the format is the same one an
+    /// Android build will read.
+    func exportFile(for record: SaveStateRecord) -> URL? {
+        guard let payload = SaveStateDisk.read(gameId: record.gameId, slot: record.slot,
+                                               isAuto: record.isAuto) else {
+            report("export failed: \(SaveStateRefusal.payloadMissing.message)")
+            return nil
+        }
+        let meta = StateExportRecord(
+            gameId: record.gameId,
+            coreId: record.coreId,
+            coreVersion: record.coreVersion,
+            byteCount: UInt64(payload.count),
+            frame: record.frame,
+            createdAt: record.createdAt.timeIntervalSince1970,
+            slot: Int64(record.slot),
+            label: record.label
+        )
+        let packed = packStateExport(meta: meta, payload: payload)
+        guard let directory = SaveStateDisk.exportDirectory() else {
+            report("export failed: there is no temporary directory to write the file into")
+            return nil
+        }
+        let stem = (record.gameId as NSString).deletingPathExtension
+        let name = record.isAuto ? "\(stem) auto" : "\(stem) slot \(record.slot)"
+        let url = directory.appendingPathComponent("\(Self.safeFileName(name)).continuumstate")
+        do {
+            try packed.write(to: url, options: .atomic)
+        } catch {
+            report("export failed: the file could not be written: \(error.localizedDescription)")
+            return nil
+        }
+        report("exported \(record.displayName.lowercased()) for \(record.gameId), "
+               + "\(SaveStates.byteText(Int64(packed.count)))")
+        return url
+    }
+
+    /// Imports a `.continuumstate` file into the first free slot of `gameId`.
+    ///
+    /// THE SAME GATE AS EVERY OTHER STATE. The import stores the core id, core version and length
+    /// the file carries, exactly as a state saved on this device stores them, so `refusal(for:)`
+    /// checks it on load with nothing special-cased. When that game is running right now the gate
+    /// is also run immediately, so the answer to "will this load" is on screen at once.
+    ///
+    /// Refused outright when the file belongs to a different game: two games on the same core pass
+    /// every other check, and that is the one mix-up the gate cannot see.
+    @discardableResult
+    func importState(_ data: Data, named fileName: String, intoGameId gameId: String) -> Bool {
+        let unpacked: UnpackedStateExport
+        do {
+            unpacked = try unpackStateExport(bytes: data)
+        } catch {
+            report("import failed: \(fileName): \(error)")
+            return false
+        }
+        let meta = unpacked.meta
+        guard meta.gameId == gameId else {
+            report("import refused: that state belongs to \(meta.gameId), not \(gameId). Open "
+                   + "that game's slots to import it.")
+            return false
+        }
+        guard let slot = firstFreeSlot(forGameId: gameId) else {
+            report("import refused: all \(Self.slotCount) slots for \(gameId) are full; delete one "
+                   + "first")
+            return false
+        }
+        if let failure = SaveStateDisk.write(unpacked.payload, gameId: gameId, slot: slot,
+                                             isAuto: false) {
+            report("import failed: the state for \(gameId) was not kept: \(failure)")
+            return false
+        }
+        let record = SaveStateRecord(
+            gameId: gameId,
+            slot: slot,
+            isAuto: false,
+            createdAt: meta.createdAt > 0 ? Date(timeIntervalSince1970: meta.createdAt) : Date(),
+            frame: meta.frame,
+            byteCount: unpacked.payload.count,
+            coreId: meta.coreId,
+            coreVersion: meta.coreVersion,
+            label: meta.label.isEmpty ? "imported" : meta.label
+        )
+        var updated = records.filter { $0.id != record.id }
+        updated.append(record)
+        records = Self.sortedNewestFirst(updated)
+        if let failure = SaveStateDisk.writeIndex(records) {
+            report("imported into \(record.slotLabel.lowercased()), but \(failure), so it will not "
+                   + "survive a relaunch")
+            return false
+        }
+        refreshMissingCount()
+        var text = "imported \(fileName) into \(record.slotLabel.lowercased()) for "
+            + "\(gameId), written by \(record.coreLine)"
+        if let entry = runningEntry(), Self.gameId(for: entry) == gameId,
+           let refusal = refusal(for: record) {
+            text += ". It will not load into the game running now (\(refusal.tag)): "
+                + refusal.message
+        }
+        report(text)
+        return true
+    }
+
+    // MARK: Battery saves
+
+    /// Puts the game's stored battery save back into its save RAM. Called by the launch path right
+    /// after the game boots and before the first frame, which is when a frontend has to do it.
+    ///
+    /// Written to `line` and not the status line on success, because the launch path's own line
+    /// follows; a failure is said on the status line, since a game that boots without its save
+    /// looks exactly like lost progress.
+    func restoreBatterySave(for entry: LibraryEntry) {
+        let gameId = Self.gameId(for: entry)
+        guard let url = SaveStateDisk.batteryURL(gameId: gameId) else { return }
+        do {
+            if let bytes = try engine.loadBatterySaveFile(path: url.path) {
+                line = "battery save: restored \(SaveStates.byteText(Int64(bytes))) for \(gameId)"
+            }
+        } catch {
+            report("the battery save for \(gameId) was not restored: \(error)")
+        }
+    }
+
+    /// Writes the running game's battery save to disk. Synchronous for the same reason the
+    /// auto-save is: it runs while the app is being put away.
+    func persistBatterySave(reason: String) {
+        guard let entry = runningEntry() else { return }
+        let gameId = Self.gameId(for: entry)
+        guard let url = SaveStateDisk.batteryURL(gameId: gameId) else { return }
+        do {
+            let bytes = try engine.persistBatterySave(path: url.path)
+            if bytes > 0 {
+                line = "battery save: wrote \(SaveStates.byteText(Int64(bytes))) for \(gameId) "
+                    + "(\(reason))"
+            }
+        } catch {
+            report("the battery save for \(gameId) was not written: \(error)")
+        }
+    }
+
+    /// Whether a battery save is stored for this game.
+    func hasBatterySave(for entry: LibraryEntry) -> Bool {
+        guard let url = SaveStateDisk.batteryURL(gameId: Self.gameId(for: entry)) else {
+            return false
+        }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    /// The game's battery save as a `<name>.srm` file for the share sheet, the name every other
+    /// libretro frontend uses. Read live from the running game when it is running, so the export
+    /// is the save as it is now and not as it was at the last write.
+    func exportBatteryFile(for entry: LibraryEntry) -> URL? {
+        let gameId = Self.gameId(for: entry)
+        var data: Data?
+        if let running = runningEntry(), Self.gameId(for: running) == gameId {
+            do {
+                data = try engine.batterySave()
+            } catch {
+                report("battery save export failed: \(error)")
+                return nil
+            }
+        } else if let url = SaveStateDisk.batteryURL(gameId: gameId) {
+            data = try? Data(contentsOf: url)
+        }
+        guard let data, !data.isEmpty else {
+            report("\(gameId) has no battery save yet. Not every game has one: it is the game's "
+                   + "own save, the one made from its menu, and many cartridges had no battery.")
+            return nil
+        }
+        guard let directory = SaveStateDisk.exportDirectory() else {
+            report("battery save export failed: no temporary directory")
+            return nil
+        }
+        let stem = (gameId as NSString).deletingPathExtension
+        let url = directory.appendingPathComponent("\(Self.safeFileName(stem)).srm")
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            report("battery save export failed: \(error.localizedDescription)")
+            return nil
+        }
+        report("exported the battery save for \(gameId), \(SaveStates.byteText(Int64(data.count)))")
+        return url
+    }
+
+    /// Replaces a game's battery save with a `.srm` file.
+    ///
+    /// The previous save is kept beside it as `.srm.bak` first, so an import of the wrong file is
+    /// one rename from undone. When the game is running the bytes go straight into its save RAM
+    /// (the engine refuses a file larger than the cartridge's RAM, which is almost always a
+    /// different game's save), and the game has to be reset to notice, because a game reads its
+    /// battery RAM when it boots.
+    @discardableResult
+    func importBatterySave(_ data: Data, named fileName: String, for entry: LibraryEntry) -> Bool {
+        let gameId = Self.gameId(for: entry)
+        guard let target = SaveStateDisk.batteryURL(gameId: gameId) else {
+            report("battery save import failed: no Application Support directory")
+            return false
+        }
+        guard !data.isEmpty else {
+            report("battery save import refused: \(fileName) is empty")
+            return false
+        }
+        if let running = runningEntry(), Self.gameId(for: running) == gameId {
+            do {
+                _ = try engine.restoreBatterySave(data: data)
+            } catch {
+                report("battery save import refused: \(error)")
+                return false
+            }
+        }
+        let files = FileManager.default
+        if files.fileExists(atPath: target.path) {
+            let backup = target.appendingPathExtension("bak")
+            try? files.removeItem(at: backup)
+            try? files.copyItem(at: target, to: backup)
+        }
+        do {
+            try data.write(to: target, options: .atomic)
+        } catch {
+            report("battery save import failed: it could not be written: "
+                   + error.localizedDescription)
+            return false
+        }
+        if let running = runningEntry(), Self.gameId(for: running) == gameId {
+            report("imported the battery save for \(gameId). Reset the game so it reads it; the "
+                   + "previous save is kept as a .bak file")
+        } else {
+            report("imported the battery save for \(gameId); the game reads it the next time it "
+                   + "starts. The previous save is kept as a .bak file")
+        }
+        return true
+    }
+
+    /// A filename that the Files app and every other OS will accept.
+    private static func safeFileName(_ name: String) -> String {
+        let banned = CharacterSet(charactersIn: "/\\:?%*|\"<>")
+        let cleaned = name.unicodeScalars.map { banned.contains($0) ? "_" : String($0) }.joined()
+        return cleaned.isEmpty ? "save" : cleaned
     }
 
     // MARK: Read-outs
@@ -1064,6 +1593,12 @@ final class SaveStates: ObservableObject {
     private func runningEntry() -> LibraryEntry? {
         guard let host, host.running else { return nil }
         return host.activeEntry
+    }
+
+    /// Puts a sentence on both lines, for a screen that has something to say about the store (a
+    /// cancelled picker, a tap on an empty slot with no game running).
+    func reportOnly(_ text: String) {
+        report(text)
     }
 
     /// Writes this object's read-out, and the host's status line unless told not to.

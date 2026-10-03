@@ -97,6 +97,10 @@ struct PlayerScreen: View {
     /// launch path should already have refused, so it is reported rather than silently ignored.
     let system: GameSystem?
 
+    /// The 50-slot manager and the cheat sheet, opened from the menu.
+    @State private var showingSlots = false
+    @State private var showingCheats = false
+
     var body: some View {
         ZStack(alignment: .top) {
             // Controls first, so the chrome's buttons sit above them in the z-order. They only
@@ -153,6 +157,21 @@ struct PlayerScreen: View {
             }
             .padding(.horizontal, 12)
             .padding(.top, 6)
+
+            // Unlock banners. Takes no touches; see `AchievementToastOverlay`.
+            AchievementToastOverlay(store: host.achievements)
+        }
+        .sheet(isPresented: $showingSlots) {
+            if let entry = host.activeEntry {
+                SaveSlotsSheet(entry: entry, host: host, saveStates: saveStates,
+                               onDone: { showingSlots = false })
+            }
+        }
+        .sheet(isPresented: $showingCheats) {
+            if let entry = host.activeEntry {
+                PlayerCheatsSheet(entry: entry, host: host, cheats: host.cheats,
+                                  onDone: { showingCheats = false })
+            }
         }
         // The overlay is the thing that reports how much room the picture may have, so when it goes
         // away the last rect it reported is a lie: the picture would keep a letterbox reserved for
@@ -244,7 +263,17 @@ struct PlayerScreen: View {
             Button {
                 host.saveStateToSlot()
             } label: {
-                Label("Save to a new slot", systemImage: "square.and.arrow.down")
+                Label("Save to the next free slot", systemImage: "square.and.arrow.down")
+            }
+            Button {
+                showingSlots = true
+            } label: {
+                Label("Save slots...", systemImage: "square.grid.2x2")
+            }
+            Button {
+                showingCheats = true
+            } label: {
+                Label("Cheats and RAM search...", systemImage: "wand.and.stars")
             }
 
             let states = host.activeEntry.map { saveStates.states(for: $0) } ?? []

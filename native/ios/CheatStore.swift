@@ -146,7 +146,7 @@ enum CheatDisk {
 final class CheatStore: ObservableObject {
 
     /// Plenty for any real game, low enough that a runaway paste is caught.
-    private static let maxPerGame = 128
+    static let maxPerGame = 128
     private static let maxCodeLength = 2048
     private static let maxLabelLength = 120
 
@@ -242,6 +242,109 @@ final class CheatStore: ObservableObject {
         persist(describing: "added a cheat for \(gameId), \(existing.count + 1) in the list")
         pushIfRunning(gameId: gameId)
         return nil
+    }
+
+    // MARK: Importing a file
+
+    /// Adds every cheat in a RetroArch `.cht` file to a game's list, in the file's order.
+    ///
+    /// Parsed by the engine (`parseChtFile`), so the format is read the same way on every platform.
+    /// The 128 cap and the duplicate rule are the same ones a typed code meets: the file is read
+    /// in order until the list is full, a code already in the list is skipped, and the summary says
+    /// how many of each. The list is then pushed ONCE, whole and in order, rather than once per
+    /// cheat, so the core's table is rebuilt a single time and matches the list exactly.
+    ///
+    /// Each imported cheat keeps the file's on/off flag, which for most RetroArch files is off: the
+    /// files are libraries, not selections.
+    @discardableResult
+    func importChtFile(_ data: Data, named fileName: String, forGameId gameId: String) -> String {
+        // .cht files are ASCII in practice; Latin-1 is the fallback because it can decode any
+        // byte, so a file with one stray accented description still imports.
+        let text = String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .isoLatin1)
+            ?? String(decoding: data, as: UTF8.self)
+        let parsed = parseChtFile(text: text)
+        var added = 0
+        var duplicates = 0
+        var overCap = 0
+        var unusable = 0
+        for entry in parsed.cheats {
+            switch append(code: entry.code, label: entry.description, enabled: entry.enabled,
+                          forGameId: gameId) {
+            case .added: added += 1
+            case .duplicate: duplicates += 1
+            case .full: overCap += 1
+            case .invalid: unusable += 1
+            }
+        }
+        var parts = ["imported \(added) cheat(s) from \(fileName) for \(gameId)"]
+        if duplicates > 0 { parts.append("\(duplicates) already in the list") }
+        if unusable > 0 { parts.append("\(unusable) with an empty or overlong code") }
+        if overCap > 0 { parts.append("\(overCap) left out because \(Self.maxPerGame) is the limit") }
+        if !parsed.warnings.isEmpty {
+            parts.append("\(parsed.warnings.count) skipped: "
+                         + parsed.warnings.prefix(3).joined(separator: "; "))
+        }
+        if parsed.cheats.isEmpty && parsed.warnings.isEmpty {
+            parts = ["\(fileName) has no cheats in it that Continuum could read; a "
+                     + ".cht file has lines like cheat0_code = \"...\""]
+        }
+        let summary = parts.joined(separator: ", ")
+        persist(describing: summary)
+        if added > 0 {
+            pushIfRunning(gameId: gameId)
+        }
+        return summary
+    }
+
+    // MARK: RAM pokes
+
+    /// Adds a cheat that writes `value` at `address` in system RAM every frame. Made from a RAM
+    /// search result. Stored in the same list as typed codes, as a `poke:` code the engine applies
+    /// itself and never hands to the core; see `cheats::poke` in the engine.
+    @discardableResult
+    func addPoke(address: UInt32, value: UInt32, bytes: UInt8, label: String,
+                 forGameId gameId: String) -> String? {
+        let code: String
+        do {
+            code = try makePokeCode(address: address, value: value, bytes: bytes)
+        } catch {
+            return "\(error)"
+        }
+        return add(code: code, label: label, forGameId: gameId)
+    }
+
+    /// "RAM $00C0 = 99 (8-bit)" for a poke, nil for an ordinary code.
+    static func pokeSummary(for code: String) -> String? {
+        guard let poke = describePokeCode(code: code) else { return nil }
+        let hex = String(poke.address, radix: 16, uppercase: true)
+        let padded = String(repeating: "0", count: max(0, 4 - hex.count)) + hex
+        return "RAM $\(padded) = \(poke.value) (\(Int(poke.bytes) * 8)-bit), written every frame"
+    }
+
+    private enum AppendOutcome {
+        case added, duplicate, full, invalid
+    }
+
+    /// The shared half of `add` and the file import: validates and appends, does not persist or
+    /// push, so a batch is one write and one push.
+    private func append(code rawCode: String, label rawLabel: String, enabled: Bool,
+                        forGameId gameId: String) -> AppendOutcome {
+        let code = Self.normalise(rawCode)
+        guard !code.isEmpty, code.count <= Self.maxCodeLength else { return .invalid }
+        let existing = cheats(forGameId: gameId)
+        guard existing.count < Self.maxPerGame else { return .full }
+        guard !existing.contains(where: { $0.code.lowercased() == code.lowercased() }) else {
+            return .duplicate
+        }
+        let label = String(rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(Self.maxLabelLength))
+        cheats.append(Cheat(gameId: gameId,
+                            id: "\(gameId)#\(ArtworkDisk.key(forPath: code))#\(existing.count)",
+                            label: label,
+                            code: code,
+                            enabled: enabled))
+        return .added
     }
 
     func setEnabled(_ enabled: Bool, for cheat: Cheat) {

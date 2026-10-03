@@ -42,6 +42,11 @@ struct GameDetailSheet: View {
     /// answer is always something about the code that is still on screen, and an alert would hide it.
     @State private var cheatProblem = ""
 
+    /// The 50-slot manager, opened from the save states block.
+    @State private var showingSlots = false
+    /// What the last `.cht` import did.
+    @State private var chtLine = ""
+
     /// The artwork section's own state, owned by this sheet and nothing else.
     ///
     /// A @StateObject here rather than properties on the store, and that is deliberate: the library
@@ -62,6 +67,7 @@ struct GameDetailSheet: View {
                 facts
                 saveStatesBlock
                 cheatsBlock
+                AchievementsCardBlock(entry: entry, host: host, store: host.achievements)
                 artworkBlock
                 dangerZone
             }
@@ -69,6 +75,10 @@ struct GameDetailSheet: View {
         }
         .background(Color.black.ignoresSafeArea())
         .presentationDragIndicator(.visible)
+        .sheet(isPresented: $showingSlots) {
+            SaveSlotsSheet(entry: entry, host: host, saveStates: saveStates,
+                           onDone: { showingSlots = false })
+        }
     }
 
     // MARK: Header
@@ -180,6 +190,10 @@ struct GameDetailSheet: View {
                 .tracking(1.6)
                 .foregroundStyle(ShellPalette.secondaryText)
 
+            SettingsButton(title: "Save slots, export and import", role: .normal) {
+                showingSlots = true
+            }
+
             let states = saveStates.states(for: entry)
 
             if states.isEmpty {
@@ -221,7 +235,7 @@ struct GameDetailSheet: View {
         let stored = saveStates.isStored(record)
         return HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(record.isAuto ? "Auto-save" : record.slotLabel)
+                Text(record.isAuto ? "Auto-save" : record.displayName)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
                 Text("\(record.ageText) \u{00B7} \(record.sizeText) \u{00B7} frame \(record.frame)")
@@ -313,6 +327,14 @@ struct GameDetailSheet: View {
 
             cheatEntryField
 
+            ChtImportButton(gameId: SaveStates.gameId(for: entry), cheats: cheats, line: $chtLine)
+
+            SettingsNote(
+                "To find a cheat yourself, start the game and open Cheats and RAM search from the "
+                + "menu at the top of the player. A RAM search reads the running game's memory, so "
+                + "it lives there rather than here."
+            )
+
             SettingsNote(
                 "Codes are stored exactly as typed, because every system has its own convention: "
                 + "Game Genie letters on the NES and SNES, Action Replay pairs on the Game Boy "
@@ -339,7 +361,7 @@ struct GameDetailSheet: View {
                 Text(cheat.label.isEmpty ? "Unnamed cheat" : cheat.label)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(cheat.enabled ? Color.white : ShellPalette.secondaryText)
-                Text(cheat.code)
+                Text(CheatStore.pokeSummary(for: cheat.code) ?? cheat.code)
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(ShellPalette.secondaryText)
                     .lineLimit(2)
