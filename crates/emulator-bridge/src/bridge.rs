@@ -18,7 +18,7 @@
 use crate::audio::{AudioSink, AudioSpec, AudioStats, NullAudioSink, RingAudioSink, CHANNELS};
 use crate::cores::{ContentHint, CoreDescriptor, CoreRegistry, CoreState, EmulatorCore};
 use crate::error::BridgeError;
-use crate::gfx::{Renderer, ScaleFilter, ScaleMode};
+use crate::gfx::{Renderer, ScaleFilter, ScaleMode, SkinHole};
 use crate::input::{Button, GamepadBridge, PadKind, PadSource};
 use crate::rewind::RewindBuffer;
 use crate::timing::FramePacer;
@@ -164,6 +164,9 @@ pub struct EmulatorBridge {
     frames_since_snapshot: u32,
     /// True while the rewind button is held. Diverts `tick` entirely.
     rewinding: bool,
+    /// Skin holes last requested. Kept even when the renderer is not attached yet, so the
+    /// first layout — which can land before the Metal layer — is not thrown away.
+    skin_holes: Vec<crate::gfx::SkinHole>,
 }
 
 impl Default for EmulatorBridge {
@@ -197,6 +200,7 @@ impl EmulatorBridge {
             rewind_interval: DEFAULT_REWIND_INTERVAL_FRAMES,
             frames_since_snapshot: 0,
             rewinding: false,
+            skin_holes: Vec::new(),
         }
     }
 
@@ -211,6 +215,7 @@ impl EmulatorBridge {
         // should have to depend on, so the wanted values are pushed in either order.
         renderer.set_scale_mode(self.scale_mode);
         renderer.set_filter(self.filter);
+        renderer.set_skin_holes(self.skin_holes.clone());
         self.renderer = Some(renderer);
     }
 
@@ -881,6 +886,14 @@ impl EmulatorBridge {
 
     pub fn scale_mode(&self) -> ScaleMode {
         self.scale_mode
+    }
+
+    /// Skin screen holes for the current orientation. Empty restores aspect-fit.
+    pub fn set_skin_holes(&mut self, holes: Vec<SkinHole>) {
+        self.skin_holes = holes.clone();
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_skin_holes(holes);
+        }
     }
 
     /// Sets the speed multiplier. `1.0` is native; above it is fast-forward.

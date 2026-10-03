@@ -134,6 +134,7 @@ struct PadFrame: Sendable, Equatable {
     /// `GameSystem.dpadDrivesAnalogStick` for why the N64 cannot do without it.
     init(pressed: Set<PadSlot>,
          stick: CGPoint = .zero,
+         rightStick: CGPoint = .zero,
          pointer: CGPoint = .zero,
          pointerPressed: Bool = false) {
         self.pointer = pointer
@@ -144,20 +145,14 @@ struct PadFrame: Sendable, Equatable {
         }
         buttons = slots
 
-        // Left stick in 0 and 1, right stick left at zero: nothing here drives a right stick, and
-        // on the N64 the core reads the right stick as its C buttons, which are real buttons on
-        // this pad instead.
-        //
-        // A CENTRED STICK CANNOT CANCEL A D-PAD PRESS, which is what makes sending both safe:
-        // `apply_standard_gamepad` ORs the stick-derived directions ONTO the button bits and only
-        // past AXIS_DEADZONE (0.35), so zeroes contribute nothing. That was the reason these were
-        // four explicit zeroes before any system needed a stick, and it is the reason a real
-        // deflection can now be sent alongside the same digital bits.
+        // Left stick in 0 and 1. Right stick in 2 and 3 (the 3DS C-stick). A centred stick
+        // cannot cancel a D-pad press: `apply_standard_gamepad` ORs stick-derived directions
+        // onto the button bits only past AXIS_DEADZONE, so zeroes contribute nothing.
         axes = [
             Float(stick.x).clampedToStick,
             Float(stick.y).clampedToStick,
-            0,
-            0,
+            Float(rightStick.x).clampedToStick,
+            Float(rightStick.y).clampedToStick,
         ]
     }
 }
@@ -1270,6 +1265,18 @@ final class TouchControlsView: UIView {
     /// Landscape-skin drags. Portrait drags still use `onLayoutEdited`.
     var onLandscapeLayoutEdited: ((TouchLayout, Bool) -> Void)?
 
+    /// Buttons, sticks and screen holes for the portrait skin. Empty when there is no skin.
+    var portraitFace = SkinPadFace() {
+        didSet { setNeedsLayout() }
+    }
+    /// Same, for the landscape representation. Used only when the view is wider than it is tall.
+    var landscapeFace = SkinPadFace() {
+        didSet { setNeedsLayout() }
+    }
+    /// The holes to cut, in skin fractions. The player forwards these to the renderer.
+    /// Empty means aspect-fit the whole framebuffer again.
+    var onSkinHoles: (([DeltaSkinScreen]) -> Void)?
+
     /// True while a landscape skin's own layout is what the last pass placed.
     private var placingLandscapeSkin = false
 
@@ -1281,6 +1288,7 @@ final class TouchControlsView: UIView {
         var mapping: CGSize
         var layout: TouchLayout
         var usesLandscapeLayout: Bool
+        var face: SkinPadFace
     }
 
     /// The skin face for the current orientation. Portrait fractions are never applied to a
@@ -1288,21 +1296,33 @@ final class TouchControlsView: UIView {
     private func resolvedSkin() -> ResolvedSkin? {
         let wide = bounds.width > bounds.height
         if wide, landscapeMapping.width > 0, landscapeMapping.height > 0 {
+            var face = landscapeFace
+            if face.screens.isEmpty, let landscapeScreen {
+                face.screens = [DeltaSkinScreen(output: landscapeScreen, inputX: 0, inputY: 0,
+                                                inputWidth: 0, inputHeight: 0)]
+            }
             return ResolvedSkin(
                 artwork: landscapeArtwork,
-                screen: landscapeScreen,
+                screen: face.screens.first?.output ?? landscapeScreen,
                 mapping: landscapeMapping,
                 layout: landscapeLayout ?? layout,
-                usesLandscapeLayout: landscapeLayout != nil
+                usesLandscapeLayout: landscapeLayout != nil,
+                face: face
             )
         }
         if skinMapping.width > 0, skinMapping.height > 0 {
+            var face = portraitFace
+            if face.screens.isEmpty, let skinScreenNormalized {
+                face.screens = [DeltaSkinScreen(output: skinScreenNormalized, inputX: 0, inputY: 0,
+                                                inputWidth: 0, inputHeight: 0)]
+            }
             return ResolvedSkin(
                 artwork: skinArtwork,
-                screen: skinScreenNormalized,
+                screen: face.screens.first?.output ?? skinScreenNormalized,
                 mapping: skinMapping,
                 layout: layout,
-                usesLandscapeLayout: false
+                usesLandscapeLayout: false,
+                face: face
             )
         }
         return nil
@@ -1336,6 +1356,11 @@ final class TouchControlsView: UIView {
         /// Deliberately NOT sticky: a finger that leaves the touch screen lifts the stylus, because
         /// sliding off the digitiser is a release on the hardware too.
         case pointer(CGPoint)
+        /// A finger on a skin's analog stick. The point is in that stick's local coordinates
+        /// (origin top-left of the stick rect). `side` is "left" or "right".
+        case stick(side: String, local: CGPoint)
+        /// A skin button that this system's procedural pad does not draw (3DS Home / menu).
+        case skinSlot(PadSlot)
     }
 
     /// Keyed on `UITouch` identity, which is stable across began, moved, ended and cancelled and
@@ -1421,6 +1446,19 @@ final class TouchControlsView: UIView {
     /// The last place the stylus was, as a framebuffer fraction, so a released frame reports where
     /// the finger lifted instead of the top-left corner.
     private var lastPointerFraction: CGPoint = .zero
+
+    /// Skin analog sticks, in this view's coordinates. Hit before the D-pad so a circle pad
+    /// is not the digital pad underneath it.
+    private var stickHits: [(side: String, rect: CGRect)] = []
+    /// Skin buttons with no procedural chip (Home / menu). 
+    private var extraHits: [(slot: PadSlot, rect: CGRect)] = []
+    /// Per-button and stick images. Hidden when the skin did not name a file.
+    private var artViews: [String: UIImageView] = [:]
+    /// Which images a press may swap to. Nil pressed means the normal image stays.
+    private var artNormal: [String: UIImage] = [:]
+    private var artPressed: [String: UIImage] = [:]
+    /// The holes last reported, so a layout that did not move them does not reset the renderer.
+    private var lastHoleSignature: String = ""
 
     // ------------------------------------------------------------------ life cycle
 
@@ -1751,7 +1789,12 @@ final class TouchControlsView: UIView {
         layoutHandles()
 
         verifyNoOverlap()
-        publishPictureArea(landscape: orientLandscape, skinCanvas: skinCanvas, skinScreen: skin?.screen)
+        if let skin, let skinCanvas, !isEditing {
+            applyDeclaredSkinControls(skin: skin, canvas: skinCanvas)
+        } else {
+            clearDeclaredSkinArt()
+        }
+        publishPictureArea(landscape: orientLandscape, skinCanvas: skinCanvas, skin: skin)
     }
 
     /// Works out what each drag would carry, and outlines it.
@@ -1801,20 +1844,24 @@ final class TouchControlsView: UIView {
     /// column between the left group and the right group. Either way no control sits on the game,
     /// which is the requirement docs/mobile-player.png failed.
     private func publishPictureArea(landscape: Bool, skinCanvas: CGRect? = nil,
-                                    skinScreen: DeltaSkinNormalizedRect? = nil) {
-        // The hole is a fraction of the skin's mapping, drawn inside the aspect-fit canvas.
-        // Mapping it onto the raw view is what stretched a portrait Game Boy into a wide bar.
-        let screen = skinScreen ?? (skinCanvas == nil ? skinScreenNormalized : nil)
-        let space = skinCanvas ?? bounds
-        if let screen {
-            let area = screen.cgRect(in: space)
-            if area.width >= 1, area.height >= 1 {
-                updateTouchScreenRect(in: area)
-                deliverPictureArea(area)
-                return
-            }
+                                    skin: ResolvedSkin? = nil) {
+        // A hole is a fraction of the skin's mapping, drawn inside the aspect-fit canvas.
+        // The metal view is that canvas, and each hole is a crop of the framebuffer inside
+        // it. Publishing only the first hole was what left the bottom screen empty and let
+        // the fallback strip float above the skin.
+        let screens = skin?.face.screens ?? []
+        if let skinCanvas, !screens.isEmpty {
+            maskSkinArtwork(canvas: skinCanvas, screens: screens)
+            placeDigitiser(on: screens, canvas: skinCanvas)
+            deliverPictureArea(skinCanvas)
+            deliverSkinHoles(screens)
+            return
         }
+        skinImageView.layer.mask = nil
+        deliverSkinHoles([])
 
+        // No hole in the file: the fallback strip above the buttons. That strip is not used
+        // once a hole exists (the branch above returned).
         var allRects = chipRects
         allRects.append(dpadRect)
         let occupied = allRects.filter { !$0.isEmpty }
@@ -2173,10 +2220,16 @@ final class TouchControlsView: UIView {
                 menuListOpen: editingHitsSuspended
             )
         }
+        if stickHit(at: point) != nil {
+            return true
+        }
         if dpadRect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
             return true
         }
         if chipIndex(at: point) != nil {
+            return true
+        }
+        if extraHit(at: point) != nil {
             return true
         }
         // The emulated touch screen, on the systems that have one. No hit slop: this is a region
@@ -2263,10 +2316,15 @@ final class TouchControlsView: UIView {
         }
         for touch in touches {
             let point = touch.location(in: self)
-            if dpadRect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
+            if let hit = stickHit(at: point) {
+                let local = CGPoint(x: point.x - hit.rect.minX, y: point.y - hit.rect.minY)
+                grabs[ObjectIdentifier(touch)] = .stick(side: hit.side, local: local)
+            } else if dpadRect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
                 grabs[ObjectIdentifier(touch)] = .dpad(touch.location(in: dpad))
             } else if let index = chipIndex(at: point) {
                 grabs[ObjectIdentifier(touch)] = .chip(index)
+            } else if let slot = extraHit(at: point) {
+                grabs[ObjectIdentifier(touch)] = .skinSlot(slot)
             } else if let touchScreenRect, touchScreenRect.contains(point) {
                 // Tested last, so a control that happens to sit over the picture still wins. The
                 // layout keeps them apart, but the order costs nothing and means a future layout
@@ -2302,8 +2360,18 @@ final class TouchControlsView: UIView {
                     grabs.removeValue(forKey: key)
                 }
                 changed = true
-            case .chip:
+            case .chip, .skinSlot:
                 break
+            case .stick(let side, _):
+                guard let hit = stickHits.first(where: { $0.side == side }) else {
+                    grabs.removeValue(forKey: key)
+                    changed = true
+                    break
+                }
+                let point = touch.location(in: self)
+                let local = CGPoint(x: point.x - hit.rect.minX, y: point.y - hit.rect.minY)
+                grabs[key] = .stick(side: side, local: local)
+                changed = true
             }
         }
         if changed {
@@ -2485,6 +2553,12 @@ final class TouchControlsView: UIView {
 
         var stylus: CGPoint?
         var stick = CGPoint.zero
+        var rightStick = CGPoint.zero
+        var stickLeftDown = false
+        var stickRightDown = false
+        // A skin circle pad is the analog stick. The D-pad stays digital when that pad exists,
+        // so the two are not the same control.
+        let skinLeftStick = stickHits.contains { $0.side != "right" }
 
         for grab in grabs.values {
             switch grab {
@@ -2494,15 +2568,27 @@ final class TouchControlsView: UIView {
                 if index >= 0 && index < chips.count {
                     pressed.insert(chips[index].control.slot)
                 }
+            case .skinSlot(let slot):
+                pressed.insert(slot)
+            case .stick(let side, let local):
+                guard let hit = stickHits.first(where: { $0.side == side }) else { break }
+                let vector = Self.stickVector(at: local, in: CGRect(origin: .zero, size: hit.rect.size))
+                if side == "right" {
+                    rightStick = vector
+                    stickRightDown = true
+                } else {
+                    stick = vector
+                    stickLeftDown = true
+                }
             case .dpad(let point):
                 let d = Self.directions(at: point, in: dpad.bounds)
                 up = up || d.up
                 down = down || d.down
                 left = left || d.left
                 right = right || d.right
-                // Only asked for when the running system has a stick, so every other system's
-                // frame is bit-for-bit what it was before this existed.
-                if system.dpadDrivesAnalogStick {
+                // Only asked for when the running system has a stick AND the skin did not
+                // declare its own. A declared circle pad is the stick; the D-pad stays digital.
+                if system.dpadDrivesAnalogStick && !skinLeftStick {
                     stick = Self.stickVector(at: point, in: dpad.bounds)
                 }
             case .pointer(let point):
@@ -2527,6 +2613,7 @@ final class TouchControlsView: UIView {
         }
         padState = PadFrame(pressed: pressed,
                             stick: stick,
+                            rightStick: rightStick,
                             pointer: lastPointerFraction,
                             pointerPressed: stylus != nil)
 
@@ -2534,6 +2621,7 @@ final class TouchControlsView: UIView {
         for chip in chips {
             chip.setPressed(pressed.contains(chip.control.slot))
         }
+        refreshPressedArt(pressed: pressed, stickLeft: stickLeftDown, stickRight: stickRightDown)
     }
 
     /// A point on the glass as a fraction of the WHOLE framebuffer, origin top left.
@@ -2629,6 +2717,210 @@ final class TouchControlsView: UIView {
     }
 }
 
+// MARK: - Skin holes, analog sticks, pressed art
+
+    /// Puts every declared control on the rectangle the skin measured.
+    ///
+    /// Procedural chips stay as the hit target when the file has no image for that button.
+    /// When it does, the chip is hidden and the image is shown, and a press swaps to the
+    /// pressed image only if the file named one.
+    private func applyDeclaredSkinControls(skin: ResolvedSkin, canvas: CGRect) {
+        var usedArt = Set<String>()
+        stickHits = []
+        extraHits = []
+        var chipHidden = Set<Int>()
+
+        for button in skin.face.buttons where button.slot != "dpad" {
+            let rect = button.frame.cgRect(in: canvas)
+            guard rect.width >= 1, rect.height >= 1 else { continue }
+            let images = skin.face.buttonImages[button.slot]
+            if let index = chips.firstIndex(where: { $0.control.slot.layoutKey == button.slot }) {
+                chips[index].frame = rect
+                if index < chipRects.count { chipRects[index] = rect }
+                if index < chipCentreNow.count {
+                    chipCentreNow[index] = CGPoint(x: rect.midX, y: rect.midY)
+                }
+                if images?.normal != nil {
+                    chipHidden.insert(index)
+                    showArt(key: "btn-" + button.slot, image: images?.normal, pressed: images?.pressed, frame: rect)
+                    usedArt.insert("btn-" + button.slot)
+                }
+            } else if let slot = PadSlot.allCases.first(where: { $0.layoutKey == button.slot }) {
+                extraHits.append((slot, rect))
+                if images?.normal != nil {
+                    showArt(key: "btn-" + button.slot, image: images?.normal, pressed: images?.pressed, frame: rect)
+                    usedArt.insert("btn-" + button.slot)
+                }
+            }
+        }
+
+        for index in chips.indices {
+            chips[index].isHidden = chipHidden.contains(index)
+        }
+
+        if let frame = skin.face.dpadFrame {
+            let rect = frame.cgRect(in: canvas)
+            if rect.width >= 1, rect.height >= 1 {
+                dpad.frame = rect
+                dpadRect = rect
+                dpadCentreNow = CGPoint(x: rect.midX, y: rect.midY)
+            }
+        }
+        if let normal = skin.face.dpadImage {
+            showArt(key: "dpad", image: normal, pressed: skin.face.dpadPressedImage, frame: dpadRect)
+            usedArt.insert("dpad")
+            dpad.isHidden = true
+        } else {
+            dpad.isHidden = false
+        }
+
+        for stick in skin.face.sticks {
+            let rect = stick.frame.cgRect(in: canvas)
+            guard rect.width >= 1, rect.height >= 1 else { continue }
+            stickHits.append((stick.side, rect))
+            if let image = skin.face.stickImages[stick.side] {
+                showArt(key: "stick-" + stick.side, image: image, pressed: nil, frame: rect)
+                usedArt.insert("stick-" + stick.side)
+            }
+        }
+
+        for (key, view) in artViews where !usedArt.contains(key) {
+            view.isHidden = true
+        }
+    }
+
+    /// Editor drags and a pad with no skin use the procedural controls, not skin images.
+    private func clearDeclaredSkinArt() {
+        stickHits = []
+        extraHits = []
+        dpad.isHidden = false
+        for chip in chips { chip.isHidden = false }
+        for view in artViews.values { view.isHidden = true }
+        artNormal.removeAll()
+        artPressed.removeAll()
+    }
+
+    private func showArt(key: String, image: UIImage?, pressed: UIImage?, frame: CGRect) {
+        guard let image else { return }
+        let view = artViews[key] ?? {
+            let created = UIImageView()
+            created.contentMode = .scaleToFill
+            created.isUserInteractionEnabled = false
+            addSubview(created)
+            artViews[key] = created
+            return created
+        }()
+        view.image = image
+        view.frame = frame
+        view.isHidden = false
+        artNormal[key] = image
+        if let pressed {
+            artPressed[key] = pressed
+        } else {
+            artPressed.removeValue(forKey: key)
+        }
+    }
+
+    /// Cuts the skin image at every hole so the canvas behind it shows through.
+    private func maskSkinArtwork(canvas: CGRect, screens: [DeltaSkinScreen]) {
+        guard skinImageView.image != nil, canvas.width > 1, canvas.height > 1 else {
+            skinImageView.layer.mask = nil
+            return
+        }
+        let path = UIBezierPath(rect: skinImageView.bounds)
+        for screen in screens {
+            let hole = screen.output.cgRect(in: canvas)
+            let local = convert(hole, to: skinImageView)
+            path.append(UIBezierPath(rect: local))
+        }
+        path.usesEvenOddFillRule = true
+        let mask = CAShapeLayer()
+        mask.frame = skinImageView.bounds
+        mask.path = path.cgPath
+        mask.fillRule = .evenOdd
+        skinImageView.layer.mask = mask
+    }
+
+    /// The bottom screen is the digitiser. Its hole maps straight onto `touchScreen`,
+    /// not through a letterbox of the stacked picture.
+    private func placeDigitiser(on screens: [DeltaSkinScreen], canvas: CGRect) {
+        guard system.touchScreen != nil, screens.count >= 2 else {
+            // One screen, or a system with no digitiser: nothing to point at inside a hole.
+            if system.touchScreen == nil || screens.count < 2 {
+                clearTouchScreenRect()
+                return
+            }
+            return
+        }
+        let bottom = screens.max { lhs, rhs in
+            if lhs.cropsFramebuffer && rhs.cropsFramebuffer {
+                if lhs.inputY != rhs.inputY { return lhs.inputY < rhs.inputY }
+            }
+            return lhs.output.y < rhs.output.y
+        }
+        guard let bottom else {
+            clearTouchScreenRect()
+            return
+        }
+        let hole = bottom.output.cgRect(in: canvas)
+        guard hole.width >= 1, hole.height >= 1 else {
+            clearTouchScreenRect()
+            return
+        }
+        touchScreenRect = hole
+        revalidatePointerGrabs()
+    }
+
+    private func deliverSkinHoles(_ screens: [DeltaSkinScreen]) {
+        let signature = screens.map { screen in
+            "\(screen.output.x),\(screen.output.y),\(screen.output.width),\(screen.output.height),"
+                + "\(screen.inputX),\(screen.inputY),\(screen.inputWidth),\(screen.inputHeight)"
+        }.joined(separator: "|")
+        guard signature != lastHoleSignature else { return }
+        lastHoleSignature = signature
+        onSkinHoles?(screens)
+    }
+
+    private func stickHit(at point: CGPoint) -> (side: String, rect: CGRect)? {
+        for hit in stickHits where hit.rect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
+            return hit
+        }
+        return nil
+    }
+
+    private func extraHit(at point: CGPoint) -> PadSlot? {
+        for hit in extraHits where hit.rect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
+            return hit.slot
+        }
+        return nil
+    }
+
+    /// Swaps a skin image to its pressed asset while the finger is down. No pressed asset
+    /// means the normal image stays — nothing is drawn that the file did not include.
+    private func refreshPressedArt(pressed: Set<PadSlot>, stickLeft: Bool, stickRight: Bool) {
+        for (key, view) in artViews where !view.isHidden {
+            let down: Bool
+            if key == "dpad" {
+                down = pressed.contains(.up) || pressed.contains(.down)
+                    || pressed.contains(.left) || pressed.contains(.right)
+            } else if key.hasPrefix("btn-") {
+                let slotKey = String(key.dropFirst(4))
+                down = pressed.contains { $0.layoutKey == slotKey }
+            } else if key == "stick-left" {
+                down = stickLeft
+            } else if key == "stick-right" {
+                down = stickRight
+            } else {
+                down = false
+            }
+            if down, let pressedImage = artPressed[key] {
+                view.image = pressedImage
+            } else {
+                view.image = artNormal[key]
+            }
+        }
+    }
+
 // MARK: - SwiftUI bridge
 
 /// Puts `TouchControlsView` in a SwiftUI tree and links it to the render loop's `PadInputSource`.
@@ -2667,6 +2959,9 @@ struct TouchControlsHost: UIViewRepresentable {
     let landscapeMapping: CGSize
     let landscapeLayout: TouchLayout?
     let onLandscapeLayoutEdited: (TouchLayout, Bool) -> Void
+    let portraitFace: SkinPadFace
+    let landscapeFace: SkinPadFace
+    let onSkinHoles: ([DeltaSkinScreen]) -> Void
 
     /// True while the editor's system list is open. See `TouchControlsView.editingHitsSuspended`.
     /// Default false so the player, which never opens that list, does not have to mention it.
@@ -2697,6 +2992,9 @@ struct TouchControlsHost: UIViewRepresentable {
          landscapeMapping: CGSize = .zero,
          landscapeLayout: TouchLayout? = nil,
          onLandscapeLayoutEdited: @escaping (TouchLayout, Bool) -> Void = { _, _ in },
+         portraitFace: SkinPadFace = SkinPadFace(),
+         landscapeFace: SkinPadFace = SkinPadFace(),
+         onSkinHoles: @escaping ([DeltaSkinScreen]) -> Void = { _ in },
          editingHitsSuspended: Bool = false) {
         self.system = system
         self.layout = layout
@@ -2715,6 +3013,9 @@ struct TouchControlsHost: UIViewRepresentable {
         self.landscapeMapping = landscapeMapping
         self.landscapeLayout = landscapeLayout
         self.onLandscapeLayoutEdited = onLandscapeLayoutEdited
+        self.portraitFace = portraitFace
+        self.landscapeFace = landscapeFace
+        self.onSkinHoles = onSkinHoles
         self.editingHitsSuspended = editingHitsSuspended
     }
 
@@ -2735,6 +3036,9 @@ struct TouchControlsHost: UIViewRepresentable {
             view.landscapeLayout = landscapeLayout
         }
         view.onLandscapeLayoutEdited = onLandscapeLayoutEdited
+        view.portraitFace = portraitFace
+        view.landscapeFace = landscapeFace
+        view.onSkinHoles = onSkinHoles
         view.isEditing = isEditing
         view.editingHitsSuspended = editingHitsSuspended
         input.view = view
@@ -2767,6 +3071,9 @@ struct TouchControlsHost: UIViewRepresentable {
             view.landscapeLayout = landscapeLayout
         }
         view.onLandscapeLayoutEdited = onLandscapeLayoutEdited
+        view.portraitFace = portraitFace
+        view.landscapeFace = landscapeFace
+        view.onSkinHoles = onSkinHoles
         // Re-pointed on every update because SwiftUI may hand back a different instance after a
         // rebuild, and a stale box would silently report a released pad forever.
         input.view = view
@@ -2781,6 +3088,8 @@ struct TouchControlsHost: UIViewRepresentable {
         view.onLayoutEdited = nil
         view.onLandscapeLayoutEdited = nil
         view.onOverlapState = nil
+        view.onSkinHoles?([])
+        view.onSkinHoles = nil
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }

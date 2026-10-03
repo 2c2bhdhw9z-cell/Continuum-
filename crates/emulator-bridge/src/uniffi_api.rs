@@ -238,6 +238,23 @@ impl From<crate::gfx::ScaleMode> for ScaleModeOption {
     }
 }
 
+
+/// One skin hole in the metal view.
+///
+/// Destination is a fraction of the view, origin top-left. Source is framebuffer pixels;
+/// a non-positive width or height means the whole texture.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SkinScreenPlacement {
+    pub dest_x: f32,
+    pub dest_y: f32,
+    pub dest_w: f32,
+    pub dest_h: f32,
+    pub src_x: f32,
+    pub src_y: f32,
+    pub src_w: f32,
+    pub src_h: f32,
+}
+
 /// How a game's pixels are sampled when scaled up. See [`ScaleModeOption`] on why this
 /// mirrors [`crate::gfx::ScaleFilter`] instead of being it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -927,6 +944,28 @@ impl ContinuumEngine {
 
     pub fn scale_mode(&self) -> ScaleModeOption {
         self.lock().scale_mode().into()
+    }
+
+    /// Places each imported skin hole. Empty clears them and aspect-fits again.
+    ///
+    /// `src_w` or `src_h` <= 0 samples the whole framebuffer (one-screen skins). Otherwise
+    /// those are pixels of the core's buffer: the top screen and the bottom screen are
+    /// different crops, not one picture stuffed into the first hole.
+    pub fn set_skin_screens(&self, screens: Vec<SkinScreenPlacement>) {
+        let holes = screens
+            .into_iter()
+            .map(|screen| crate::gfx::SkinHole {
+                dest_x: screen.dest_x,
+                dest_y: screen.dest_y,
+                dest_w: screen.dest_w,
+                dest_h: screen.dest_h,
+                src_x: screen.src_x,
+                src_y: screen.src_y,
+                src_w: screen.src_w,
+                src_h: screen.src_h,
+            })
+            .collect();
+        self.lock().set_skin_holes(holes);
     }
 
     /// Sets pixel sampling. See [`ScaleFilterOption`].

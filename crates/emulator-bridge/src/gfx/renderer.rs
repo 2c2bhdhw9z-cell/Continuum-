@@ -73,6 +73,24 @@ impl ScreenSplit {
     }
 }
 
+/// One skin hole: where a piece of the framebuffer is drawn, in the view.
+///
+/// `dest_*` is a fraction of the swapchain with the origin at the top left, which is the
+/// skin's `outputFrame` once the metal view is the skin canvas. `src_*` is that crop in
+/// framebuffer pixels. A non-positive `src_w` or `src_h` means the whole texture, which is
+/// what a one-screen skin (no `inputFrame`) asks for.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SkinHole {
+    pub dest_x: f32,
+    pub dest_y: f32,
+    pub dest_w: f32,
+    pub dest_h: f32,
+    pub src_x: f32,
+    pub src_y: f32,
+    pub src_w: f32,
+    pub src_h: f32,
+}
+
 /// Upper bound on screens in one composite pass. Matches `MAX_SCREENS` in `frame_blit.wgsl`.
 ///
 /// Four rather than two. The DS and the 3DS need two, and a fixed-size uniform array costs 32
@@ -153,6 +171,9 @@ pub struct Renderer {
     uniform_buffer: wgpu::Buffer,
     /// How the framebuffer is divided into screens. See [`ScreenSplit`].
     screen_split: ScreenSplit,
+    /// Skin holes, when an imported skin named them. `None` keeps the ordinary aspect fit.
+    /// An empty `Some` is the same as `None`: the fallback framing, not a blank frame.
+    skin_holes: Option<Vec<SkinHole>>,
     /// Instances the next draw issues, kept in step with the uniform array by
     /// `write_uniforms_for`. Cached because the draw does not write uniforms, and a count that
     /// disagreed with the array would draw an instance whose placement was never written.
@@ -352,6 +373,7 @@ impl Renderer {
             bind_group_layout,
             uniform_buffer,
             screen_split: ScreenSplit::Single,
+            skin_holes: None,
             screen_count: 1,
             sampler_nearest,
             sampler_linear,
@@ -419,6 +441,14 @@ impl Renderer {
 
     pub fn screen_split(&self) -> ScreenSplit {
         self.screen_split
+    }
+
+    /// Draws each skin hole instead of aspect-fitting the whole framebuffer into the view.
+    ///
+    /// Pass an empty slice to go back to [`ScreenSplit`]. The metal view is the skin canvas,
+    /// so these fractions are already in that view. Takes effect on the next present.
+    pub fn set_skin_holes(&mut self, holes: Vec<SkinHole>) {
+        self.skin_holes = if holes.is_empty() { None } else { Some(holes) };
     }
 
     pub fn set_scale_mode(&mut self, mode: ScaleMode) {
@@ -718,12 +748,21 @@ impl Renderer {
             .map(|t| (t.width as f32, t.height as f32))
             .unwrap_or((1.0, 1.0));
 
-        let fitted = self.compute_scale(fb_width, fb_height, target_width, target_height);
-        let screens = Self::screen_layout(self.screen_split, fitted);
+        let (screens, count) = if let Some(holes) = &self.skin_holes {
+            if !holes.is_empty() {
+                Self::layout_skin_holes(holes, fb_width, fb_height)
+            } else {
+                let fitted = self.compute_scale(fb_width, fb_height, target_width, target_height);
+                (Self::screen_layout(self.screen_split, fitted), self.screen_split.count())
+            }
+        } else {
+            let fitted = self.compute_scale(fb_width, fb_height, target_width, target_height);
+            (Self::screen_layout(self.screen_split, fitted), self.screen_split.count())
+        };
         // Cached because the draw needs it and the draw does not write uniforms: this and
         // `screens` are produced together, so a count that disagreed with the array would mean
         // drawing an instance whose placement was never written.
-        self.screen_count = self.screen_split.count();
+        self.screen_count = count;
 
         let uniforms = BlitUniforms {
             frame_size: [fb_width, fb_height],
@@ -774,6 +813,61 @@ impl Renderer {
             }
         }
         screens
+    }
+
+    /// Places each skin hole in the view and crops the framebuffer to that hole's pixels.
+    ///
+    /// Pure so a two-screen skin can be checked without a GPU. The top hole is not the
+    /// whole texture, and the bottom hole is not dropped: each dest is that hole, and each
+    /// source is that hole's `inputFrame` (or the whole texture when the skin named none).
+    fn layout_skin_holes(
+        holes: &[SkinHole],
+        fb_width: f32,
+        fb_height: f32,
+    ) -> ([ScreenUniform; MAX_SCREENS], u32) {
+        let mut screens = [ScreenUniform::identity(); MAX_SCREENS];
+        let count = holes.len().min(MAX_SCREENS) as u32;
+        for (index, hole) in holes.iter().take(MAX_SCREENS).enumerate() {
+            screens[index] = ScreenUniform {
+                dest: Self::dest_clip(hole.dest_x, hole.dest_y, hole.dest_w, hole.dest_h),
+                source: Self::source_crop(hole, fb_width, fb_height),
+            };
+        }
+        (screens, count.max(1))
+    }
+
+    /// Clip-space scale and offset for a top-left fraction rect.
+    ///
+    /// A rect that fills the view is `[1, 1, 0, 0]`, the same dest the single-quad path uses,
+    /// so a one-screen skin that happens to name the whole view does not move.
+    fn dest_clip(x: f32, y: f32, w: f32, h: f32) -> [f32; 4] {
+        let x0 = x * 2.0 - 1.0;
+        let x1 = (x + w) * 2.0 - 1.0;
+        // Clip space is y-up. `y` is down from the top of the view.
+        let y_top = 1.0 - y * 2.0;
+        let y_bot = 1.0 - (y + h) * 2.0;
+        [
+            (x1 - x0) * 0.5,
+            (y_top - y_bot) * 0.5,
+            (x0 + x1) * 0.5,
+            (y_top + y_bot) * 0.5,
+        ]
+    }
+
+    fn source_crop(hole: &SkinHole, fb_width: f32, fb_height: f32) -> [f32; 4] {
+        if hole.src_w <= 0.0 || hole.src_h <= 0.0 || fb_width <= 0.0 || fb_height <= 0.0 {
+            return [1.0, 1.0, 0.0, 0.0];
+        }
+        let x0 = (hole.src_x / fb_width).clamp(0.0, 1.0);
+        let y0 = (hole.src_y / fb_height).clamp(0.0, 1.0);
+        let x1 = ((hole.src_x + hole.src_w) / fb_width).clamp(0.0, 1.0);
+        let y1 = ((hole.src_y + hole.src_h) / fb_height).clamp(0.0, 1.0);
+        let sw = (x1 - x0).max(0.0);
+        let sh = (y1 - y0).max(0.0);
+        if sw <= 0.0 || sh <= 0.0 {
+            return [1.0, 1.0, 0.0, 0.0];
+        }
+        [sw, sh, x0, y0]
     }
 
     /// Clip-space scale that fits the framebuffer into a target of the given size.
@@ -1061,7 +1155,7 @@ mod tests {
 
 #[cfg(test)]
 mod screen_layout_tests {
-    use super::{BlitUniforms, Renderer, ScreenSplit, ScreenUniform, MAX_SCREENS};
+    use super::{BlitUniforms, Renderer, ScreenSplit, ScreenUniform, SkinHole, MAX_SCREENS};
 
     /// The compositor's placement arithmetic, called for real rather than reimplemented.
     ///
@@ -1084,6 +1178,69 @@ mod screen_layout_tests {
     fn source_span(screen: &ScreenUniform) -> (f32, f32) {
         let (scale, offset) = (screen.source[1], screen.source[3]);
         (offset, offset + scale)
+    }
+
+    #[test]
+    fn a_skin_hole_is_that_rect_and_not_the_full_view() {
+        // The fallback strip is the top of the view. A hole lower down must not become it,
+        // and it must not be the whole framebuffer squeezed into one quad.
+        let hole = SkinHole {
+            dest_x: 8.0 / 375.0,
+            dest_y: 55.0 / 812.0,
+            dest_w: 359.0 / 375.0,
+            dest_h: 323.0 / 812.0,
+            src_x: 0.0,
+            src_y: 0.0,
+            src_w: -1.0,
+            src_h: -1.0,
+        };
+        let (screens, count) = Renderer::layout_skin_holes(&[hole], 160.0, 144.0);
+        assert_eq!(count, 1);
+        assert_eq!(screens[0].source, [1.0, 1.0, 0.0, 0.0]);
+        let (bottom, top) = vertical_span(&screens[0]);
+        // Top of this hole is below the top of the view, so it is not the fallback strip.
+        assert!(top < 1.0 - 1e-4, "hole must not start at the top edge");
+        assert!(bottom > -1.0 + 1e-3, "hole must not run to the bottom edge");
+        assert!(screens[0].dest[0] < 1.0 - 1e-4, "hole must not be full width");
+    }
+
+    #[test]
+    fn two_holes_keep_top_and_bottom_crops() {
+        // 3DS-style: top 400x240 at y=0, bottom 400x240 at y=240, in a 400x480 buffer.
+        // The bottom hole is not discarded and the whole texture is not drawn in the top hole.
+        let top = SkinHole {
+            dest_x: 0.02, dest_y: 0.07, dest_w: 0.96, dest_h: 0.26,
+            src_x: 0.0, src_y: 0.0, src_w: 400.0, src_h: 240.0,
+        };
+        let bottom = SkinHole {
+            dest_x: 0.10, dest_y: 0.34, dest_w: 0.80, dest_h: 0.27,
+            src_x: 0.0, src_y: 240.0, src_w: 400.0, src_h: 240.0,
+        };
+        let (screens, count) = Renderer::layout_skin_holes(&[top, bottom], 400.0, 480.0);
+        assert_eq!(count, 2);
+        let (top_bot, top_top) = vertical_span(&screens[0]);
+        let (_bot_bot, bot_top) = vertical_span(&screens[1]);
+        assert!(top_bot >= bot_top - 1e-4, "top hole must sit above the bottom hole");
+        assert!(top_top < 1.0 - 1e-3, "top hole is not the fallback strip at the top edge");
+        // Source: top samples the top half, bottom the bottom half. Not the whole texture.
+        let (top_v0, top_v1) = source_span(&screens[0]);
+        let (bot_v0, bot_v1) = source_span(&screens[1]);
+        assert!((top_v0 - 0.0).abs() < 1e-4);
+        assert!((top_v1 - 0.5).abs() < 1e-4);
+        assert!((bot_v0 - 0.5).abs() < 1e-4);
+        assert!((bot_v1 - 1.0).abs() < 1e-4);
+        assert_ne!(screens[0].source, [1.0, 1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn a_full_view_hole_matches_the_single_quad() {
+        let hole = SkinHole {
+            dest_x: 0.0, dest_y: 0.0, dest_w: 1.0, dest_h: 1.0,
+            src_x: 0.0, src_y: 0.0, src_w: 0.0, src_h: 0.0,
+        };
+        let (screens, _) = Renderer::layout_skin_holes(&[hole], 256.0, 240.0);
+        assert_eq!(screens[0].dest, [1.0, 1.0, 0.0, 0.0]);
+        assert_eq!(screens[0].source, [1.0, 1.0, 0.0, 0.0]);
     }
 
     #[test]

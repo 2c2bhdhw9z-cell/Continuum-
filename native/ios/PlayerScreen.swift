@@ -129,17 +129,23 @@ struct PlayerScreen: View {
                     landscapeArtwork: host.skinLandscapeImage(for: system),
                     landscapeScreen: host.skinLandscapeScreen(for: system),
                     landscapeMapping: host.skinLandscapeMapping(for: system),
-                    landscapeLayout: host.skinLandscapeLayout(for: system)
+                    landscapeLayout: host.skinLandscapeLayout(for: system),
+                    portraitFace: host.skinPadFace(for: system, landscape: false),
+                    landscapeFace: host.skinPadFace(for: system, landscape: true),
+                    onSkinHoles: { screens in host.applySkinHoles(screens) }
                 )
                 .ignoresSafeArea()
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 topBar
-                telemetryStrip
-                statusLine
-                if host.showDiagnostics {
-                    DiagnosticsPanel(host: host, emulation: emulation, saveStates: saveStates)
+                // A skin hole is the picture. FPS and the status line used to sit on top of it.
+                if !host.skinHolesActive {
+                    telemetryStrip
+                    statusLine
+                    if host.showDiagnostics {
+                        DiagnosticsPanel(host: host, emulation: emulation, saveStates: saveStates)
+                    }
                 }
                 // Claims the rest of the height without claiming any touches, so everything below
                 // reaches the controls.
@@ -155,6 +161,7 @@ struct PlayerScreen: View {
         // rect on its first layout pass, so the way back needs nothing extra.
         .onChange(of: controllers.hidesOnScreenPadNow) { _ in
             host.pictureArea = nil
+            host.applySkinHoles([])
         }
     }
 

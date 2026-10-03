@@ -13,4 +13,4 @@ pub mod vulkan_hw;
 #[cfg(target_vendor = "apple")]
 pub mod metal;
 
-pub use renderer::{FrameCapture, Renderer, ScaleFilter, ScaleMode, ScreenSplit};
+pub use renderer::{FrameCapture, Renderer, ScaleFilter, ScaleMode, ScreenSplit, SkinHole};

@@ -454,11 +454,14 @@ struct TouchLayoutEditor: View {
             switch result {
             case .success(let imported):
                 let target = imported.previewSystem ?? previewSystem
-                let clean = imported.layout.sanitised
+                // Map shoulders and the circle pad onto the console already selected when the
+                // skin's own id is one this app does not name. Do not ask them to pick again.
+                let resolved = imported.applying(system: target)
+                let clean = resolved.layout.sanitised
                 // Save under the skin's console, then show that console without re-loading an
                 // older layout for it (selectPreviewSystem would layoutFor and wipe the import).
                 onCommit(target, clean)
-                onSkinImported(target, imported)
+                onSkinImported(target, resolved)
                 if target != previewSystem {
                     onCommit(previewSystem, draft.sanitised)
                     previewSystem = target

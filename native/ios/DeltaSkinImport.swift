@@ -75,29 +75,177 @@ enum DeltaSkinAssetKind: String, Codable, Sendable {
     case png
 }
 
-/// One orientation of an imported skin: its own mapping, hole, art, and button layout.
-struct DeltaSkinFace: Codable, Equatable, Sendable {
+/// One orientation of an imported skin: its own mapping, holes, art, and button layout.
+struct DeltaSkinFace: Equatable, Sendable {
     var mappingWidth: Double
     var mappingHeight: Double
     var screenOutput: DeltaSkinNormalizedRect?
     var assetFileName: String?
     var assetKind: DeltaSkinAssetKind?
     var layout: TouchLayout
+    /// Every screen hole, top first. Empty on skins saved before both holes were kept;
+    /// `screenOutput` is then the only hole.
+    var screens: [DeltaSkinScreen] = []
+    var sticks: [DeltaSkinStick] = []
+    var buttons: [DeltaSkinButton] = []
+    var dpadFrame: DeltaSkinNormalizedRect?
+
+    init(mappingWidth: Double, mappingHeight: Double,
+         screenOutput: DeltaSkinNormalizedRect?, assetFileName: String?,
+         assetKind: DeltaSkinAssetKind?, layout: TouchLayout,
+         screens: [DeltaSkinScreen] = [], sticks: [DeltaSkinStick] = [],
+         buttons: [DeltaSkinButton] = [], dpadFrame: DeltaSkinNormalizedRect? = nil) {
+        self.mappingWidth = mappingWidth
+        self.mappingHeight = mappingHeight
+        self.screenOutput = screenOutput
+        self.assetFileName = assetFileName
+        self.assetKind = assetKind
+        self.layout = layout
+        self.screens = screens
+        self.sticks = sticks
+        self.buttons = buttons
+        self.dpadFrame = dpadFrame
+    }
+
+    /// Holes to draw. A skin saved before `screens` existed still has `screenOutput`.
+    var effectiveScreens: [DeltaSkinScreen] {
+        if !screens.isEmpty { return screens }
+        if let screenOutput {
+            return [DeltaSkinScreen(output: screenOutput, inputX: 0, inputY: 0,
+                                    inputWidth: 0, inputHeight: 0)]
+        }
+        return []
+    }
 }
 
-/// Artwork + screen hole from one imported representation (persisted per console).
-struct DeltaSkinVisual: Codable, Equatable, Sendable {
+extension DeltaSkinFace: Codable {
+    enum CodingKeys: String, CodingKey {
+        case mappingWidth, mappingHeight, screenOutput, assetFileName, assetKind, layout
+        case screens, sticks, buttons, dpadFrame
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mappingWidth = try c.decode(Double.self, forKey: .mappingWidth)
+        mappingHeight = try c.decode(Double.self, forKey: .mappingHeight)
+        screenOutput = try c.decodeIfPresent(DeltaSkinNormalizedRect.self, forKey: .screenOutput)
+        assetFileName = try c.decodeIfPresent(String.self, forKey: .assetFileName)
+        assetKind = try c.decodeIfPresent(DeltaSkinAssetKind.self, forKey: .assetKind)
+        layout = try c.decode(TouchLayout.self, forKey: .layout)
+        screens = try c.decodeIfPresent([DeltaSkinScreen].self, forKey: .screens) ?? []
+        sticks = try c.decodeIfPresent([DeltaSkinStick].self, forKey: .sticks) ?? []
+        buttons = try c.decodeIfPresent([DeltaSkinButton].self, forKey: .buttons) ?? []
+        dpadFrame = try c.decodeIfPresent(DeltaSkinNormalizedRect.self, forKey: .dpadFrame)
+        if screens.isEmpty, let screenOutput {
+            screens = [DeltaSkinScreen(output: screenOutput, inputX: 0, inputY: 0,
+                                       inputWidth: 0, inputHeight: 0)]
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(mappingWidth, forKey: .mappingWidth)
+        try c.encode(mappingHeight, forKey: .mappingHeight)
+        try c.encodeIfPresent(screenOutput, forKey: .screenOutput)
+        try c.encodeIfPresent(assetFileName, forKey: .assetFileName)
+        try c.encodeIfPresent(assetKind, forKey: .assetKind)
+        try c.encode(layout, forKey: .layout)
+        try c.encode(screens, forKey: .screens)
+        try c.encode(sticks, forKey: .sticks)
+        try c.encode(buttons, forKey: .buttons)
+        try c.encodeIfPresent(dpadFrame, forKey: .dpadFrame)
+    }
+}
+
+/// Artwork + screen holes from one imported representation (persisted per console).
+struct DeltaSkinVisual: Equatable, Sendable {
     var skinName: String
     var translucent: Bool
     var mappingWidth: Double
     var mappingHeight: Double
-    /// First `screens[].outputFrame`, as fractions of mappingSize. Nil keeps Continuum's free band.
+    /// First hole. Kept so a skin saved before `screens` still has somewhere to draw.
     var screenOutput: DeltaSkinNormalizedRect?
     var assetFileName: String?
     var assetKind: DeltaSkinAssetKind?
     /// Landscape representation, when the package had one. Nil on skins imported before both
     /// orientations were kept, and on packages that only ship portrait.
     var landscape: DeltaSkinFace?
+    var screens: [DeltaSkinScreen] = []
+    var sticks: [DeltaSkinStick] = []
+    var buttons: [DeltaSkinButton] = []
+    var dpadFrame: DeltaSkinNormalizedRect?
+
+    init(skinName: String, translucent: Bool, mappingWidth: Double, mappingHeight: Double,
+         screenOutput: DeltaSkinNormalizedRect?, assetFileName: String?,
+         assetKind: DeltaSkinAssetKind?, landscape: DeltaSkinFace?,
+         screens: [DeltaSkinScreen] = [], sticks: [DeltaSkinStick] = [],
+         buttons: [DeltaSkinButton] = [], dpadFrame: DeltaSkinNormalizedRect? = nil) {
+        self.skinName = skinName
+        self.translucent = translucent
+        self.mappingWidth = mappingWidth
+        self.mappingHeight = mappingHeight
+        self.screenOutput = screenOutput
+        self.assetFileName = assetFileName
+        self.assetKind = assetKind
+        self.landscape = landscape
+        self.screens = screens
+        self.sticks = sticks
+        self.buttons = buttons
+        self.dpadFrame = dpadFrame
+    }
+
+    var effectiveScreens: [DeltaSkinScreen] {
+        if !screens.isEmpty { return screens }
+        if let screenOutput {
+            return [DeltaSkinScreen(output: screenOutput, inputX: 0, inputY: 0,
+                                    inputWidth: 0, inputHeight: 0)]
+        }
+        return []
+    }
+}
+
+extension DeltaSkinVisual: Codable {
+    enum CodingKeys: String, CodingKey {
+        case skinName, translucent, mappingWidth, mappingHeight, screenOutput
+        case assetFileName, assetKind, landscape
+        case screens, sticks, buttons, dpadFrame
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        skinName = try c.decode(String.self, forKey: .skinName)
+        translucent = try c.decodeIfPresent(Bool.self, forKey: .translucent) ?? false
+        mappingWidth = try c.decode(Double.self, forKey: .mappingWidth)
+        mappingHeight = try c.decode(Double.self, forKey: .mappingHeight)
+        screenOutput = try c.decodeIfPresent(DeltaSkinNormalizedRect.self, forKey: .screenOutput)
+        assetFileName = try c.decodeIfPresent(String.self, forKey: .assetFileName)
+        assetKind = try c.decodeIfPresent(DeltaSkinAssetKind.self, forKey: .assetKind)
+        landscape = try c.decodeIfPresent(DeltaSkinFace.self, forKey: .landscape)
+        screens = try c.decodeIfPresent([DeltaSkinScreen].self, forKey: .screens) ?? []
+        sticks = try c.decodeIfPresent([DeltaSkinStick].self, forKey: .sticks) ?? []
+        buttons = try c.decodeIfPresent([DeltaSkinButton].self, forKey: .buttons) ?? []
+        dpadFrame = try c.decodeIfPresent(DeltaSkinNormalizedRect.self, forKey: .dpadFrame)
+        if screens.isEmpty, let screenOutput {
+            screens = [DeltaSkinScreen(output: screenOutput, inputX: 0, inputY: 0,
+                                       inputWidth: 0, inputHeight: 0)]
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(skinName, forKey: .skinName)
+        try c.encode(translucent, forKey: .translucent)
+        try c.encode(mappingWidth, forKey: .mappingWidth)
+        try c.encode(mappingHeight, forKey: .mappingHeight)
+        try c.encodeIfPresent(screenOutput, forKey: .screenOutput)
+        try c.encodeIfPresent(assetFileName, forKey: .assetFileName)
+        try c.encodeIfPresent(assetKind, forKey: .assetKind)
+        try c.encodeIfPresent(landscape, forKey: .landscape)
+        try c.encode(screens, forKey: .screens)
+        try c.encode(sticks, forKey: .sticks)
+        try c.encode(buttons, forKey: .buttons)
+        try c.encodeIfPresent(dpadFrame, forKey: .dpadFrame)
+    }
 }
 
 /// What importing one Delta skin package produced.
@@ -116,6 +264,52 @@ struct DeltaSkinImportResult: Sendable {
     let assetData: Data?
     /// Landscape art bytes, when that representation named a file that was in the package.
     let landscapeAssetData: Data?
+    /// Items before they are mapped onto a system. `applying(system:)` is what makes
+    /// shoulders and the circle pad belong to the console the skin was imported for.
+    let portraitItems: [DeltaSkinRawItem]
+    let landscapeItems: [DeltaSkinRawItem]
+    /// Per-button and thumbstick images named by those items.
+    let pieces: [DeltaSkinPiece]
+
+    /// Layout, button frames and sticks for `system`. Screen holes do not change.
+    func applying(system: GameSystem) -> DeltaSkinImportResult {
+        let kind: (String) -> DeltaSkinAssetKind = { name in
+            name.lowercased().hasSuffix(".pdf") ? .pdf : .png
+        }
+        let portrait = SkinControls.resolve(portraitItems, system: system, assetKind: kind)
+        var visual = self.visual
+        visual.layoutStandIn(portrait)
+        let landscapeItems = self.landscapeItems
+        if var face = visual.landscape {
+            let land = SkinControls.resolve(landscapeItems, system: system, assetKind: kind)
+            face.layout = land.layout
+            face.buttons = land.buttons
+            face.sticks = land.sticks
+            face.dpadFrame = land.dpadFrame
+            visual.landscape = face
+        }
+        return DeltaSkinImportResult(
+            layout: portrait.layout,
+            skinName: skinName,
+            previewSystem: previewSystem,
+            summary: summary,
+            visual: visual,
+            assetData: assetData,
+            landscapeAssetData: landscapeAssetData,
+            portraitItems: portraitItems,
+            landscapeItems: landscapeItems,
+            pieces: pieces
+        )
+    }
+}
+
+private extension DeltaSkinVisual {
+    mutating func layoutStandIn(_ resolved: SkinControls.Resolved) {
+        // TouchLayout lives on the import result. The face fields are the ones the pad reads.
+        buttons = resolved.buttons
+        sticks = resolved.sticks
+        dpadFrame = resolved.dpadFrame
+    }
 }
 
 /// Why a skin import did not produce a layout.
@@ -211,12 +405,20 @@ enum DeltaSkinImporter {
             throw DeltaSkinImportError.noUsableRepresentation
         }
 
-        let mapped = mapItems(chosen.items, mappingSize: mapping)
-        guard mapped.appliedCount > 0 else {
-            throw DeltaSkinImportError.noMappableItems
+        let portraitItems = chosen.items.compactMap {
+            SkinControls.classify($0, mappingSize: mapping)
         }
+        let usable = portraitItems.contains { item in
+            if case .touch = item.kind { return false }
+            return true
+        }
+        guard usable else { throw DeltaSkinImportError.noMappableItems }
+        let mapSystem = preview ?? .gbc
+        let mapped = SkinControls.resolve(portraitItems, system: mapSystem, assetKind: Self.assetKind(for:))
+        guard mapped.applied > 0 else { throw DeltaSkinImportError.noMappableItems }
 
-        let screenOutput = firstScreenOutput(from: chosen.screens, mappingSize: mapping)
+        let screens = SkinControls.screens(from: chosen.screens, mappingSize: mapping)
+        let screenOutput = screens.first?.output
         let assetPick = pickAssetFileName(from: chosen.assets)
         var assetData: Data?
         var assetKind: DeltaSkinAssetKind?
@@ -241,21 +443,21 @@ enum DeltaSkinImporter {
             "\(name)",
             "via \(sourceName)",
             "\(chosen.path)",
-            "\(mapped.appliedCount) control(s)",
+            "\(mapped.applied) control(s)",
         ]
-        if !mapped.skipped.isEmpty {
-            let skipList = mapped.skipped.prefix(4).joined(separator: ", ")
-            let more = mapped.skipped.count > 4 ? "…" : ""
-            summaryBits.append("skipped \(skipList)\(more)")
-        }
-        if screenOutput != nil {
+        if screens.count > 1 {
+            summaryBits.append("\(screens.count) screen holes")
+        } else if screenOutput != nil {
             summaryBits.append("game screen frame applied")
         } else {
             summaryBits.append("no screens[] — picture keeps free band")
         }
+        if !mapped.sticks.isEmpty {
+            summaryBits.append("\(mapped.sticks.count) analog stick(s)")
+        }
         if landscapeFace != nil {
             summaryBits.append("landscape kept")
-            if landscapeFace?.screenOutput != nil {
+            if landscapeFace?.effectiveScreens.isEmpty == false {
                 summaryBits.append("landscape screen hole")
             }
         }
@@ -275,17 +477,32 @@ enum DeltaSkinImporter {
             screenOutput: screenOutput,
             assetFileName: assetPick?.name,
             assetKind: assetKind,
-            landscape: landscapeFace
+            landscape: landscapeFace,
+            screens: screens,
+            sticks: mapped.sticks,
+            buttons: mapped.buttons,
+            dpadFrame: mapped.dpadFrame
         )
 
+        var landscapeItems: [DeltaSkinRawItem] = []
+        if let landscapeChoice {
+            landscapeItems = landscapeChoice.items.compactMap {
+                SkinControls.classify($0, mappingSize: landscapeChoice.mappingSize)
+            }
+        }
+        let pieces = Self.pieces(for: portraitItems + landscapeItems, assetLookup: assetLookup)
+
         return DeltaSkinImportResult(
-            layout: mapped.layout.sanitised,
+            layout: mapped.layout,
             skinName: name,
             previewSystem: preview,
             summary: summaryBits.joined(separator: " · "),
             visual: visual,
             assetData: assetData,
-            landscapeAssetData: landscapeAssetData
+            landscapeAssetData: landscapeAssetData,
+            portraitItems: portraitItems,
+            landscapeItems: landscapeItems,
+            pieces: pieces
         )
     }
 
@@ -406,12 +623,34 @@ enum DeltaSkinImporter {
         var applied: Int
     }
 
+    private static func assetKind(for name: String) -> DeltaSkinAssetKind {
+        name.lowercased().hasSuffix(".pdf") ? .pdf : .png
+    }
+
+    private static func pieces(for items: [DeltaSkinRawItem],
+                               assetLookup: (String) -> Data?) -> [DeltaSkinPiece] {
+        var seen = Set<String>()
+        var out: [DeltaSkinPiece] = []
+        for item in items {
+            for name in [item.normalFileName, item.pressedFileName, item.stickAssetFileName] {
+                guard let name, !name.isEmpty, seen.insert(name).inserted else { continue }
+                guard let data = assetLookup(name), !data.isEmpty else { continue }
+                out.append(DeltaSkinPiece(fileName: name, kind: assetKind(for: name), data: data))
+            }
+        }
+        return out
+    }
+
     private static func buildFace(
         _ chosen: ChosenOrientation,
         assetLookup: (String) -> Data?
     ) -> BuiltFace {
         let mapping = chosen.mappingSize
-        let mapped = mapItems(chosen.items, mappingSize: mapping)
+        let raw = chosen.items.compactMap { SkinControls.classify($0, mappingSize: mapping) }
+        // Placeholder system. `applying(system:)` rewrites buttons and sticks for the console
+        // the skin is actually saved under. Screens do not depend on that.
+        let mapped = SkinControls.resolve(raw, system: .gbc, assetKind: assetKind(for:))
+        let screens = SkinControls.screens(from: chosen.screens, mappingSize: mapping)
         let assetPick = pickAssetFileName(from: chosen.assets)
         var assetData: Data?
         var assetKind: DeltaSkinAssetKind?
@@ -422,12 +661,20 @@ enum DeltaSkinImporter {
         let face = DeltaSkinFace(
             mappingWidth: Double(mapping.width),
             mappingHeight: Double(mapping.height),
-            screenOutput: firstScreenOutput(from: chosen.screens, mappingSize: mapping),
+            screenOutput: screens.first?.output,
             assetFileName: assetData == nil ? nil : assetPick?.name,
             assetKind: assetKind,
-            layout: mapped.layout.sanitised
+            layout: mapped.layout,
+            screens: screens,
+            sticks: mapped.sticks,
+            buttons: mapped.buttons,
+            dpadFrame: mapped.dpadFrame
         )
-        return BuiltFace(face: face, assetData: assetData, applied: mapped.appliedCount)
+        let kept = raw.contains { item in
+            if case .touch = item.kind { return false }
+            return true
+        }
+        return BuiltFace(face: face, assetData: assetData, applied: kept ? max(mapped.applied, 1) : 0)
     }
 
     private static func firstScreenOutput(
@@ -619,20 +866,34 @@ extension GameSystem {
         guard let raw = identifier?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
               !raw.isEmpty else { return nil }
         switch raw {
-        case "com.rileytestut.delta.game.gbc":
+        case "com.rileytestut.delta.game.gb", "public.aoshuang.game.gb":
+            return .gb
+        case "com.rileytestut.delta.game.gbc", "public.aoshuang.game.gbc":
             return .gbc
-        case "com.rileytestut.delta.game.gba":
+        case "com.rileytestut.delta.game.gba", "public.aoshuang.game.gba":
             return .gba
-        case "com.rileytestut.delta.game.ds":
+        case "com.rileytestut.delta.game.ds", "public.aoshuang.game.ds":
             return .ds
-        case "com.rileytestut.delta.game.nes":
+        case "com.rileytestut.delta.game.nes", "public.aoshuang.game.nes":
             return .nes
-        case "com.rileytestut.delta.game.snes":
+        case "com.rileytestut.delta.game.snes", "public.aoshuang.game.snes":
             return .snes
-        case "com.rileytestut.delta.game.n64":
+        case "com.rileytestut.delta.game.n64", "public.aoshuang.game.n64":
             return .n64
-        case "com.rileytestut.delta.game.genesis":
+        case "com.rileytestut.delta.game.genesis", "public.aoshuang.game.md":
             return .genesis
+        case "public.aoshuang.game.3ds":
+            return .n3ds
+        case "public.aoshuang.game.ps1":
+            return .ps1
+        case "public.aoshuang.game.psp":
+            return .psp
+        case "public.aoshuang.game.ms":
+            return .sms
+        case "public.aoshuang.game.gg":
+            return .gg
+        case "public.aoshuang.game.sg1000":
+            return .sg1000
         default:
             return nil
         }

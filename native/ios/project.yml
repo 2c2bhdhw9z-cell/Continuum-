@@ -126,6 +126,7 @@ targets:
       # and the UIDocumentPicker entry the layout editor calls. WITHOUT THIS LINE the Import
       # .deltaskin button compiles against missing types and the build breaks in TouchLayoutEditor.
       - path: DeltaSkinImport.swift
+      - path: SkinScreens.swift
       # The player screen's chrome, and the diagnostics panel both screens share.
       - path: PlayerScreen.swift
       # Stage 2, the library shell. The tab shell, the top bar, the hero and the shelves.

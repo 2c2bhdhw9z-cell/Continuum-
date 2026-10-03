@@ -1191,6 +1191,7 @@ final class EngineHost: ObservableObject {
                 if let system = GameSystem(rawValue: key) {
                     removeSkinAssetFiles(for: system, landscape: false)
                     removeSkinAssetFiles(for: system, landscape: true)
+                    removePieceFiles(for: system)
                 }
             }
             touchSkinsBySystem.removeAll()
@@ -1305,6 +1306,7 @@ final class EngineHost: ObservableObject {
 
     /// Applies an imported .deltaskin package's art + screens under one console.
     func applyImportedSkin(_ result: DeltaSkinImportResult, for system: GameSystem) {
+        let result = result.applying(system: system)
         var visual = result.visual
         // Drop asset metadata if bytes failed to load — avoid a "present" skin with no picture.
         if result.assetData == nil {
@@ -1352,6 +1354,7 @@ final class EngineHost: ObservableObject {
             removeSkinAssetFiles(for: system, landscape: true)
         }
         persistTouchSkins()
+        writeSkinPieces(result.pieces, for: system)
         touchSkinsVersion &+= 1
     }
 
@@ -1360,10 +1363,135 @@ final class EngineHost: ObservableObject {
         guard touchSkinsBySystem.removeValue(forKey: system.rawValue) != nil else { return }
         touchSkinImages.removeValue(forKey: system.rawValue)
         touchSkinImages.removeValue(forKey: landscapeSkinCacheKey(system))
+        pieceImageCache.removeAll()
         removeSkinAssetFiles(for: system, landscape: false)
         removeSkinAssetFiles(for: system, landscape: true)
+        removePieceFiles(for: system)
         persistTouchSkins()
         touchSkinsVersion &+= 1
+    }
+
+    /// Portrait or landscape controls, with images loaded from the pieces saved at import.
+    func skinPadFace(for system: GameSystem, landscape: Bool) -> SkinPadFace {
+        let _ = touchSkinsVersion
+        guard let visual = touchSkinsBySystem[system.rawValue] else { return SkinPadFace() }
+        if landscape {
+            guard let face = visual.landscape else { return SkinPadFace() }
+            return makePadFace(screens: face.effectiveScreens, buttons: face.buttons,
+                               sticks: face.sticks, dpadFrame: face.dpadFrame,
+                               system: system,
+                               mapping: CGSize(width: face.mappingWidth, height: face.mappingHeight))
+        }
+        return makePadFace(screens: visual.effectiveScreens, buttons: visual.buttons,
+                           sticks: visual.sticks, dpadFrame: visual.dpadFrame,
+                           system: system,
+                           mapping: CGSize(width: visual.mappingWidth, height: visual.mappingHeight))
+    }
+
+    private var pieceImageCache: [String: UIImage] = [:]
+    /// Last hole list sent to the renderer. Empty means the picture is aspect-fit again.
+    private var skinHoleSignature = ""
+
+    /// True while a skin hole, not the fallback strip, is where the picture is drawn.
+    /// Debug text stays off the picture for that whole time.
+    @Published var skinHolesActive = false
+
+    func applySkinHoles(_ screens: [DeltaSkinScreen]) {
+        let signature = screens.map { screen in
+            "\(screen.output.x),\(screen.output.y),\(screen.output.width),\(screen.output.height),"
+                + "\(screen.inputX),\(screen.inputY),\(screen.inputWidth),\(screen.inputHeight)"
+        }.joined(separator: "|")
+        let active = !screens.isEmpty
+        if skinHolesActive != active {
+            skinHolesActive = active
+        }
+        guard signature != skinHoleSignature else { return }
+        skinHoleSignature = signature
+        let placements = screens.map { screen in
+            SkinScreenPlacement(
+                destX: Float(screen.output.x),
+                destY: Float(screen.output.y),
+                destW: Float(screen.output.width),
+                destH: Float(screen.output.height),
+                srcX: Float(screen.inputX),
+                srcY: Float(screen.inputY),
+                srcW: Float(screen.cropsFramebuffer ? screen.inputWidth : 0),
+                srcH: Float(screen.cropsFramebuffer ? screen.inputHeight : 0)
+            )
+        }
+        engine.setSkinScreens(screens: placements)
+    }
+
+    private func makePadFace(screens: [DeltaSkinScreen], buttons: [DeltaSkinButton],
+                             sticks: [DeltaSkinStick], dpadFrame: DeltaSkinNormalizedRect?,
+                             system: GameSystem, mapping: CGSize) -> SkinPadFace {
+        var images: [String: SkinButtonImages] = [:]
+        var dpadImage: UIImage?
+        var dpadPressed: UIImage?
+        for button in buttons {
+            let point = CGSize(width: max(button.width * mapping.width, 1),
+                               height: max(button.height * mapping.height, 1))
+            let normal = pieceImage(system: system, fileName: button.normalFileName,
+                                    kind: button.normalKind, pointSize: point)
+            let pressed = pieceImage(system: system, fileName: button.pressedFileName,
+                                     kind: button.pressedKind, pointSize: point)
+            if button.slot == "dpad" {
+                dpadImage = normal
+                dpadPressed = pressed
+            } else {
+                images[button.slot] = SkinButtonImages(normal: normal, pressed: pressed)
+            }
+        }
+        var stickImages: [String: UIImage] = [:]
+        for stick in sticks {
+            let point = CGSize(width: max(stick.width * mapping.width, 1),
+                               height: max(stick.height * mapping.height, 1))
+            if let image = pieceImage(system: system, fileName: stick.assetFileName,
+                                      kind: stick.assetKind, pointSize: point) {
+                stickImages[stick.side] = image
+            }
+        }
+        return SkinPadFace(screens: screens, buttons: buttons, sticks: sticks,
+                           dpadFrame: dpadFrame, buttonImages: images,
+                           stickImages: stickImages, dpadImage: dpadImage,
+                           dpadPressedImage: dpadPressed)
+    }
+
+    private func pieceImage(system: GameSystem, fileName: String?, kind: DeltaSkinAssetKind?,
+                            pointSize: CGSize) -> UIImage? {
+        guard let fileName, let kind else { return nil }
+        let key = "\(system.rawValue)/\(fileName)/\(Int(pointSize.width))x\(Int(pointSize.height))"
+        if let cached = pieceImageCache[key] { return cached }
+        let url = pieceURL(for: system, fileName: fileName)
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        guard let image = DeltaSkinImporter.makeUIImage(from: data, kind: kind, mappingSize: pointSize)
+        else { return nil }
+        pieceImageCache[key] = image
+        return image
+    }
+
+    private func writeSkinPieces(_ pieces: [DeltaSkinPiece], for system: GameSystem) {
+        removePieceFiles(for: system)
+        for piece in pieces {
+            let url = pieceURL(for: system, fileName: piece.fileName)
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                     withIntermediateDirectories: true)
+            try? piece.data.write(to: url, options: .atomic)
+        }
+        pieceImageCache.removeAll()
+    }
+
+    private func pieceURL(for system: GameSystem, fileName: String) -> URL {
+        let cleaned = fileName.replacingOccurrences(of: "..", with: "")
+        let root = (skinsDirectory() ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("pieces/\(system.rawValue)", isDirectory: true)
+        return root.appendingPathComponent(cleaned)
+    }
+
+    private func removePieceFiles(for system: GameSystem) {
+        let root = (skinsDirectory() ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("pieces/\(system.rawValue)", isDirectory: true)
+        try? FileManager.default.removeItem(at: root)
     }
 
     private func persistTouchSkins() {
@@ -2717,6 +2845,7 @@ final class EngineHost: ObservableObject {
         n64AwaitingFirstTick = false
         paused = false
         pictureArea = nil
+        applySkinHoles([])
         // After `activeEntry` is cleared, so a DS session ending releases the hold it had on the
         // overlay and the setting starts working again for the next game.
         controllers.noteRunningSystem(nil)
@@ -3457,10 +3586,16 @@ struct RootView: View {
         let controllers = host.controllers
         return GeometryReader { proxy in
             let region = host.pictureArea ?? CGRect(origin: .zero, size: proxy.size)
-            // Centred in the free region and shaped like the game, rather than stretched across a
-            // region whose shape has nothing to do with the picture. See `PictureFit`.
-            let area = host.activePictureAspect
-                .map { PictureFit.rect(aspect: $0, in: region) } ?? region
+            // A skin hole already says which part of this view is the picture, and the
+            // renderer crops each framebuffer into those holes. Letterboxing the whole
+            // stacked frame inside the canvas would put both screens in the top hole.
+            let area: CGRect
+            if host.skinHolesActive {
+                area = region
+            } else {
+                area = host.activePictureAspect
+                    .map { PictureFit.rect(aspect: $0, in: region) } ?? region
+            }
             MetalCanvasView(
                 engine: host.engine,
                 // Captured as a local reference so this closure touches the box and nothing else,
