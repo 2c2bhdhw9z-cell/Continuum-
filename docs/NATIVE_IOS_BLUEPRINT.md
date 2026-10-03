@@ -1,10 +1,10 @@
 > **Status: design intent plus history, not a to-do list.** Parts of this blueprint are built. The
 > `.ipa` exists, it is produced by `.github/workflows/ios.yml`, and it ships five libretro cores
 > as `dlopen`ed dylibs covering nine systems. Read the sections below for the reasoning and the
-> target shape, but check `SESSION_HANDOFF.md` §16 and §17 for what is actually done before
+> target shape, but check `docs/archive/SESSION_HANDOFF.md` §16 and §17 for what is actually done before
 > treating anything here as outstanding work. At least one claim was reversed by implementation:
 > ownership of the `MTLDevice` runs the other way, wgpu creates it and Swift reads it back
-> (`SESSION_HANDOFF.md` §16). What has not happened is a confirmed game on screen on a device.
+> (`docs/archive/SESSION_HANDOFF.md` §16). What has not happened is a confirmed game on screen on a device.
 > For scope see `.kiro/steering/product-scope.md`.
 
 # Phase 5 — Wrapping the Rust engine in a native iOS app
@@ -13,7 +13,7 @@ Architectural blueprint for taking `crates/emulator-bridge` from a wasm module i
 a UniFFI-bound static library inside a SwiftUI app, and for what that has to look like
 before PS1, N64, PSP, DS, 3DS and Switch cores can run on it.
 
-Written against the audit in `SESSION_HANDOFF.md` §9: the engine already type-checks and
+Written against the audit in `docs/archive/SESSION_HANDOFF.md` §9: the engine already type-checks and
 lints clean for `aarch64-apple-ios` and `aarch64-apple-darwin`, 4,896 of 6,308 lines are
 platform-neutral, and there are exactly six `cfg` gates. That audit is what makes this a
 port rather than a rewrite — but it deliberately proved only that the code *compiles* for

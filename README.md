@@ -208,7 +208,7 @@ approached.
 
 The deep technical material lives in these documents, deliberately, so this page stays readable.
 
-- [SESSION_HANDOFF.md](SESSION_HANDOFF.md) is the full engineering handoff: the architecture, the
+- [SESSION_HANDOFF.md](docs/archive/SESSION_HANDOFF.md) is the full engineering handoff: the architecture, the
   reasoning behind each subsystem, every trap already paid for, and the list of things not to
   undo. Read this first before changing code. Sections 16 and 17 cover the iOS build and the
   five-core `.ipa`, and section 18 records the on-device verification of all five cores.
@@ -220,7 +220,7 @@ The deep technical material lives in these documents, deliberately, so this page
   place: the `.ipa` is the only deliverable, there will be no web target, Android is the one other
   planned facade over the same engine, the Switch is a system to emulate and not a device to run
   on, and the deleted browser UI's screenshots remain the design reference for the iOS UI.
-- [CLAUDE.md](CLAUDE.md) holds the working conventions for agents in this repository.
+- [CLAUDE.md](docs/archive/CLAUDE.md) holds the working conventions for agents in this repository.
 
 The quick checks that run anywhere, including on Linux:
 
