@@ -1729,6 +1729,21 @@ final class EngineHost: ObservableObject {
     /// exists.
     let artwork = ArtworkStore()
 
+    /// Cloud folder sync of saves, cheats, cover choices and settings. See `CloudSync.swift`.
+    let cloudSync = CloudSync()
+
+    /// Two-player online play: the transport over the engine's lockstep protocol. See
+    /// `Netplay.swift`.
+    let netplay: NetplayController
+
+    /// True while online play is live, so the player hides rewind, fast forward, reset and state
+    /// loading. The engine refuses all of them anyway; this keeps the buttons honest.
+    @Published var netplayLive = false
+
+    /// Set when this phone joined another phone's game: the running state is the host's from then
+    /// until the session stops, so the auto-save must not write it over this player's own slot.
+    var suppressAutoSave = false
+
     /// The artwork read-out, mirrored from the store so the diagnostics panel can show it without
     /// observing a second object. Never empty.
     @Published var artworkLine: String = "artwork: nothing looked up yet"
@@ -2012,6 +2027,10 @@ final class EngineHost: ObservableObject {
 
     init() {
         engine = ContinuumEngine()
+        // Settings a cloud sync brought down last time are applied BEFORE any store below reads
+        // its stored values, which is the only moment that cannot race them. See `CloudSync`.
+        CloudSync.applyPendingSettings()
+        netplay = NetplayController(engine: engine)
         // Built here, with that engine, and never rebuilt. The graph itself is not started until
         // a game launches: holding an active `AVAudioSession` while the user browses their
         // library would duck whatever music they had playing for no reason at all.
@@ -2103,6 +2122,9 @@ final class EngineHost: ObservableObject {
         // Scan up front so the Library is populated even if the Metal attach later fails.
         // An attach failure must not also hide the games the user already imported.
         refreshLibrary()
+        // Cover choices from the cloud are re-keyed onto this phone's paths now that the library
+        // is known, and before the artwork store attaches.
+        CloudSync.applyPendingArtwork(library: library)
 
         // Wired last, because it hands the store a reference to a fully initialised host. The store
         // writes its read-out through `artworkLine`, and a network failure through `status`, so an
@@ -2131,6 +2153,12 @@ final class EngineHost: ObservableObject {
         controllers.onChange = { [weak self] line in
             self?.status = line
         }
+
+        cloudSync.attach(host: self)
+        netplay.attach(host: self)
+        // Sync trigger one of three: the app opening. The others are returning to the library
+        // (`leavePlayer`) and the Sync now button in Settings.
+        cloudSync.syncIfConfigured(reason: "the app opened")
     }
 
     // MARK: Directories
@@ -2767,6 +2795,13 @@ final class EngineHost: ObservableObject {
         let opening = "opening \(entry.name)..."
         status = opening
 
+        // A sync that is still copying battery saves and save-state lists must finish before a
+        // core starts writing the same files. It is seconds at most.
+        if cloudSync.isSyncing {
+            status = "cloud sync is still running; tap \(entry.name) again in a moment"
+            return
+        }
+
         // Routing, from the one table the Library row also reads. Resolved BEFORE the stop
         // below on purpose: an unmapped extension is a tap that should change nothing, so a
         // running game is not torn down to report it.
@@ -2955,6 +2990,9 @@ final class EngineHost: ObservableObject {
     /// which no longer exists anywhere in this file: imported content lives in our own sandbox,
     /// so there is no scope to balance and no half-wired lifecycle left behind.
     func stopSession() {
+        // Online play first, while the session still exists, so the other phone is told why rather
+        // than timing out ten seconds later.
+        netplay.endForLeavingGame()
         // Audio down FIRST, before `engine.stop()` frees the sink. Ordering matters for the same
         // reason the teardown order inside the bridge does: stopping the engine first would leave
         // a render block being called against a ring whose contents belong to a session that no
@@ -2998,6 +3036,7 @@ final class EngineHost: ObservableObject {
         controllers.noteRunningSystem(nil)
         padInput.view?.releaseAll()
         refreshAudioReadout()
+        suppressAutoSave = false
     }
 
     // MARK: The player session
@@ -3104,6 +3143,8 @@ final class EngineHost: ObservableObject {
             status = "left the player with no session running"
         }
         refreshLibrary()
+        // Back in the library is when battery saves and the auto-save are freshly on disk.
+        cloudSync.syncIfConfigured(reason: "back in the library")
     }
 
     func togglePause() {
@@ -3961,6 +4002,9 @@ struct RootView: View {
                     // Starts or stops the microphone and camera when the core's wish changes.
                     // Atomic reads in Rust, no engine lock, so it is cheap enough for every frame.
                     host.peripherals.poll()
+                    // Sends what this tick's lockstep step produced. Cheap and early-out when
+                    // online play is off.
+                    host.netplay.afterTick()
                 }
             )
             .frame(width: max(1, area.width), height: max(1, area.height))

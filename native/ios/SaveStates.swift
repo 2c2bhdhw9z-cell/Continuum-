@@ -648,6 +648,11 @@ final class SaveStates: ObservableObject {
         self.host = host
     }
 
+    /// Re-reads the index after cloud sync replaced or merged it. See `CloudSync`.
+    func reloadFromDisk() {
+        hydrate()
+    }
+
     /// Reads the index once. Payloads are deliberately not touched beyond asking whether each one
     /// exists, which is a stat and not a read.
     private func hydrate() {
@@ -991,6 +996,9 @@ final class SaveStates: ObservableObject {
         // say that something the user switched off had not happened.
         guard autoSavesEnabled else { return }
         guard !writingAuto else { return }
+        // After joining someone else's online game the running state is THEIRS, and writing it
+        // over this phone's auto slot would replace this player's own progress. See `Netplay.swift`.
+        guard host?.suppressAutoSave != true else { return }
         guard let entry = runningEntry() else { return }
         let gameId = Self.gameId(for: entry)
 

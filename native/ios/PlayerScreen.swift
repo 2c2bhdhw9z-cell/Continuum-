@@ -100,6 +100,8 @@ struct PlayerScreen: View {
     /// The 50-slot manager and the cheat sheet, opened from the menu.
     @State private var showingSlots = false
     @State private var showingCheats = false
+    /// The online play sheet, opened from the save-state menu.
+    @State private var showNetplay = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -148,6 +150,9 @@ struct PlayerScreen: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 topBar
+                // Outside the skin-hole condition on purpose: a stalled or desynced online game has
+                // to say so even when the picture fills a skin hole.
+                NetplayHUDLine(netplay: host.netplay)
                 // A skin hole is the picture. FPS and the status line used to sit on top of it.
                 if !host.skinHolesActive {
                     telemetryStrip
@@ -187,6 +192,12 @@ struct PlayerScreen: View {
             host.pictureArea = nil
             host.applySkinHoles([])
         }
+        .sheet(isPresented: $showNetplay) {
+            NetplaySheet(netplay: host.netplay,
+                         gameName: host.activeEntry?.name ?? "no game") {
+                showNetplay = false
+            }
+        }
     }
 
     // MARK: Top bar
@@ -212,24 +223,31 @@ struct PlayerScreen: View {
 
             Spacer(minLength: 4)
 
-            if emulation.rewindEnabled {
+            // Rewind, fast forward and reset are hidden during online play: on one phone and not
+            // the other they would split the two games apart. The engine refuses them as well.
+            if emulation.rewindEnabled && !host.netplayLive {
                 holdButton("backward.fill",
                            label: "Rewind",
                            active: emulation.isRewinding,
                            onPress: { emulation.beginRewind() },
                            onRelease: { emulation.endRewind() })
             }
-            holdButton("forward.fill",
-                       label: "Fast forward",
-                       active: emulation.isFastForwarding,
-                       onPress: { emulation.beginFastForward() },
-                       onRelease: { emulation.endFastForward() })
-            sessionButton(host.paused ? "play.fill" : "pause.fill",
-                          label: host.paused ? "Resume" : "Pause") {
-                host.togglePause()
+            if !host.netplayLive {
+                holdButton("forward.fill",
+                           label: "Fast forward",
+                           active: emulation.isFastForwarding,
+                           onPress: { emulation.beginFastForward() },
+                           onRelease: { emulation.endFastForward() })
             }
-            sessionButton("arrow.clockwise", label: "Reset") {
-                host.resetGame()
+            // Pause too: a paused phone stops sending input, which leaves the other one stalled.
+            if !host.netplayLive {
+                sessionButton(host.paused ? "play.fill" : "pause.fill",
+                              label: host.paused ? "Resume" : "Pause") {
+                    host.togglePause()
+                }
+                sessionButton("arrow.clockwise", label: "Reset") {
+                    host.resetGame()
+                }
             }
             // DS and 3DS only: which screen is the big one. One tap, and the touch screen
             // follows the picture because the engine maps touches through the same layout.
@@ -289,7 +307,10 @@ struct PlayerScreen: View {
             }
 
             let states = host.activeEntry.map { saveStates.states(for: $0) } ?? []
-            if states.isEmpty {
+            if host.netplayLive {
+                Button("Loading a state is off during online play") {}
+                    .disabled(true)
+            } else if states.isEmpty {
                 // Disabled and explicit rather than absent. An empty menu reads as a broken
                 // control, and "there is nothing to load yet" is the answer to the question the
                 // user just asked by opening it.
@@ -323,6 +344,16 @@ struct PlayerScreen: View {
             // already draws, so there is no alert and nothing to dismiss. Capturing while PAUSED
             // works and is the better way to use it: the engine refreshes from the core before it
             // reads the surface, so a game paused on its title screen gives up exactly that frame.
+            Section("Online play") {
+                Button {
+                    showNetplay = true
+                } label: {
+                    Label(host.netplayLive ? "Online play: status and leave"
+                                           : "Play online with a second phone",
+                          systemImage: "person.2")
+                }
+            }
+
             if let entry = host.activeEntry {
                 Section("Cover art") {
                     Button {

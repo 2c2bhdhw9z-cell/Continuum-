@@ -32,6 +32,8 @@
 //! - [`frame`] — geometry and pixel formats.
 //! - [`rewind`] — the bounded tape of save states behind the rewind button.
 //! - [`peripherals`]: microphone, camera and Amiibo files for cores that ask.
+//! - [`netplay`]: two-player online play: lockstep protocol and state machine.
+//! - [`sync`]: the rules for two-way folder sync of saves and settings.
 //! - [`uniffi_api`] — the Swift-facing facade (feature `uniffi-bindings`).
 //!
 //! ## Invariants
@@ -63,6 +65,8 @@ pub mod peripherals;
 pub mod vulkan_probe;
 pub mod rewind;
 pub mod saves;
+pub mod netplay;
+pub mod sync;
 pub mod timing;
 
 /// `Send`, and now unconditionally so.

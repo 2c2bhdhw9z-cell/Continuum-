@@ -295,11 +295,9 @@ mod ios_aarch64 {
         // answer depends on how the app was signed and which entitlements survived, so it is a
         // property of the installed copy rather than of this source.
         match attempt(MAP_PRIVATE | MAP_ANON | MAP_JIT) {
-            Ok(()) => {
-                return "JIT: working with MAP_JIT. An executable page was mapped, written, \
-                        invalidated and called."
-                    .to_string()
-            }
+            Ok(()) => "JIT: working with MAP_JIT. An executable page was mapped, written, \
+                       invalidated and called."
+                .to_string(),
             Err(with_jit) => {
                 // Without MAP_JIT. Worth trying, because a plain read-write-execute mapping is
                 // permitted on some configurations and is all a recompiler needs; if this is the
