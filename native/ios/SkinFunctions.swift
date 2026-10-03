@@ -306,7 +306,8 @@ enum SkinFunction: String, CaseIterable, Codable, Sendable {
         case .tvType: return .pending("toggleTVType")
         case .leftDifficulty, .rightDifficulty: return .pending("toggleDifficulty")
         case .screenScaling: return .pending("cycleScreenScaling")
-        case .j2meSettings, .dosSettings, .coreSettings: return .pending("showCoreSettings")
+        case .j2meSettings: return .existing("showJ2MESettings")
+        case .dosSettings, .coreSettings: return .pending("showCoreSettings")
         case .rewind: return .existing("emulation.beginRewind/endRewind")
         case .slowMotion: return .pending("toggleSlowMotion")
         case .wswanRotation: return .pending("rotateScreen")
@@ -566,8 +567,16 @@ extension EngineHost {
     /// plain line on the status strip, refusals included.
     func performSkinFunction(_ function: SkinFunction, pressed: Bool) {
         if !function.isHold && !pressed { return }
-        guard running, activeEntry != nil else {
+        guard running || webPlayer != nil, activeEntry != nil else {
             if pressed { status = "\(function.title): no game is running" }
+            return
+        }
+        // A bundled player (Flash, J2ME) has no engine session behind it, so the functions that
+        // need one say so here, plainly, before any arm below reaches for the engine. The rest
+        // (quit, restart, screenshot, volume, hide controls, skins, the J2ME settings) run through
+        // their arms like any game's. The table is WebPlayerKind.refusal in WebPlayerCore.swift.
+        if let player = webPlayer, let refusal = player.kind.refusal(for: function) {
+            if pressed { status = refusal }
             return
         }
         if function.refusedOnline && netplayLive {
@@ -673,7 +682,9 @@ extension EngineHost {
             status = toggleDifficulty(left: false)
         case .screenScaling:
             status = cycleScreenScaling()
-        case .j2meSettings, .dosSettings, .coreSettings:
+        case .j2meSettings:
+            status = showJ2MESettings()
+        case .dosSettings, .coreSettings:
             status = showCoreSettings()
         case .rewind:
             if pressed {

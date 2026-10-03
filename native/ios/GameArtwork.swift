@@ -115,6 +115,8 @@ enum SystemArtwork {
         case .segacd: return "Sega - Mega-CD - Sega CD"
         case .sega32x: return "Sega - 32X"
         case .dreamcast: return "Sega - Dreamcast"
+        // libretro has no thumbnail folders for these, so they keep their generated plate.
+        case .flash, .j2me: return nil
         }
     }
 
@@ -182,6 +184,9 @@ enum SystemArtwork {
         case .segacd: return 25
         case .sega32x: return 136
         case .dreamcast: return 192
+        // The two widest gaps left: 310 to 333 and 165 to 185.
+        case .flash: return 322
+        case .j2me: return 175
         }
     }
 

@@ -25,6 +25,8 @@ on:
       - "scripts/build-core.sh"
       # Downloads, checks and stages the prebuilt cores from the libretro buildbot, and prboom.wad.
       - "scripts/fetch-buildbot-cores.sh"
+      # Fetches and checks the bundled Flash (Ruffle) and J2ME (J2meJS) players.
+      - "scripts/fetch-players.sh"
       # Continuum patches applied to unpinned core checkouts during ios-all. A patch-only
       # change must rebuild the IPA the same way a build-core.sh change does.
       - "scripts/patches/**"
@@ -214,6 +216,11 @@ jobs:
           optional picodrive_libretro_ios.dylib "Sega 32X"
           grep -q "support/prboom.wad" <<<"$LISTING" \
             || echo "::warning::prboom.wad is not bundled; DOOM will ask for it at launch"
+          # The bundled players (scripts/fetch-players.sh), optional like the buildbot cores.
+          grep -q "support/players/ruffle/ruffle.js" <<<"$LISTING" \
+            || echo "::warning::the Ruffle player is not bundled; Flash (.swf) games will say the player is not in this build"
+          grep -q "support/players/j2me/bld/main-all.js" <<<"$LISTING" \
+            || echo "::warning::the J2meJS player is not bundled; J2ME (.jar) games will say the player is not in this build"
           echo "ipa verified"
 
       - name: Upload the .ipa

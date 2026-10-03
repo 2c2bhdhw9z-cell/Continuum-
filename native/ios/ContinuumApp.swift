@@ -44,6 +44,7 @@
 // exactly one copy and that `engine.coreState` is the only thing ever asked whether a core is
 // resident.
 
+import Combine
 import QuartzCore
 import SwiftUI
 import UIKit
@@ -908,6 +909,11 @@ enum CoreCatalog {
         // Dreamcast disc images that nothing else uses.
         "cdi": on(.dreamcast),
         "gdi": on(.dreamcast),
+        // The bundled players, NOT libretro cores: their "core id" is a player id that `byId`
+        // does not know, so `core(for:)` is nil for them and `player(forPath:)` below is what the
+        // launch reads. See WebPlayers.swift.
+        "swf": on(.flash),
+        "jar": on(.j2me),
     ]
 
     /// Extensions more than one system uses. The resolver is asked about these (and about every
@@ -969,6 +975,9 @@ enum CoreCatalog {
         .saturn: yabause.coreId,
         .sega32x: picodrive.coreId,
         .dreamcast: flycast.coreId,
+        // Player ids, not core ids (see `player(forPath:)`).
+        .flash: WebPlayerKind.flash.engineId,
+        .j2me: WebPlayerKind.j2me.engineId,
     ]
 
     /// Systems with more than one core, default first. Settings offers a choice for each; the
@@ -1166,6 +1175,9 @@ enum CoreCatalog {
     static func route(forPath path: String) -> Route? {
         let url = URL(fileURLWithPath: path)
         let ext = url.pathExtension.lowercased()
+        // A J2ME .jad only describes a game; the .jar beside it is what plays. The resolver
+        // names .jad as j2me, so it is stopped here rather than listed as a game of its own.
+        if ext == "jad" { return nil }
         if let resolver = systemResolver,
            let answer = resolver(url),
            let system = GameSystem(rawValue: answer),
@@ -1176,6 +1188,13 @@ enum CoreCatalog {
             return Route(coreId: coreId, system: system)
         }
         return routeTable[ext]
+    }
+
+    /// The bundled player a file opens in (Flash, J2ME), or nil for a libretro game. Read from the
+    /// SAME route as everything else, so a .swf's pad, plate and launch cannot disagree.
+    static func player(forPath path: String) -> WebPlayerKind? {
+        guard let route = route(forPath: path) else { return nil }
+        return WebPlayerKind(engineId: route.coreId)
     }
 
     /// Which system a file is, resolver first. Nil when nothing claims it.
@@ -1217,7 +1236,8 @@ enum CoreCatalog {
 
     /// The same label for a file, resolver first.
     static func routeLabel(forPath path: String, ps1CoreId: String? = nil) -> String {
-        core(forPath: path, ps1CoreId: ps1CoreId)?.coreId ?? "no core"
+        if let player = player(forPath: path) { return player.engineId }
+        return core(forPath: path, ps1CoreId: ps1CoreId)?.coreId ?? "no core"
     }
 
     // MARK: Firmware a system cannot start without
@@ -1664,6 +1684,14 @@ final class EngineHost: ObservableObject {
     /// which pad to draw, and holding the entry means neither has to be looked up a second time or
     /// stored twice. Set only on `launch`'s success path, cleared only in `stopSession`.
     @Published var activeEntry: LibraryEntry?
+    /// The bundled player (Flash, J2ME) running the active game, or nil. See WebPlayers.swift.
+    @Published var webPlayer: WebPlayerSession?
+    /// That player's picture aspect (movie stage or phone screen), 0 when none.
+    @Published var webPlayerAspect: CGFloat = 0
+    /// The Flash / J2ME settings sheet.
+    @Published var webPlayerSettingsOpen = false
+    /// Forwards the volume and mute settings to the running player.
+    var webPlayerVolumeWatch: AnyCancellable?
 
     /// Whether the engine is paused. Kept in step with `engine.pause()` and `engine.resume(...)`
     /// so the control can show which of the two it will do next.
@@ -3009,6 +3037,8 @@ final class EngineHost: ObservableObject {
         }
         // Skin function buttons, switch states and the skin's button sound. SkinFunctions.swift.
         wireSkinFunctions()
+        // The save-format screens reach the bundled players through this (SaveFormats.swift).
+        EngineHost.shared = self
 
         // Wired after `init` has finished with `self`, for the same reason. A pad connecting or
         // disconnecting is exactly the kind of thing the always-visible status line is for: it is
@@ -3762,6 +3792,16 @@ final class EngineHost: ObservableObject {
             return
         }
 
+        // THE BUNDLED PLAYERS (Flash, J2ME) branch off here and never reach `engine.launch`: they
+        // are not libretro cores, they run in their own web view (WebPlayers.swift). Taking them
+        // out before the core lookup is what keeps the one `engine.launch` call below the only one,
+        // and keeps everything libretro-only (firmware, ensureCoreLoaded, cheats, save states)
+        // away from them.
+        if let player = CoreCatalog.player(forPath: entry.path) {
+            launchWebPlayer(entry: entry, kind: player)
+            return
+        }
+
         // Routing, from the one table the Library row also reads. Resolved BEFORE the stop
         // below on purpose: an unmapped extension is a tap that should change nothing, so a
         // running game is not torn down to report it.
@@ -3818,8 +3858,8 @@ final class EngineHost: ObservableObject {
         // else is the bug.
         status = "\(opening) on \(spec.coreId)"
 
-        // Re-entrancy: a fresh tap replaces any running session.
-        if running {
+        // Re-entrancy: a fresh tap replaces any running session, a bundled player's included.
+        if running || webPlayer != nil {
             stopSession()
         }
 
@@ -3974,6 +4014,10 @@ final class EngineHost: ObservableObject {
         // Online play first, while the session still exists, so the other phone is told why rather
         // than timing out ten seconds later.
         netplay.endForLeavingGame()
+        // A bundled player (Flash, J2ME) saves and closes its own view. Nothing below applies to
+        // it, because it never started the engine; it is here so leaving, quitting and a new
+        // launch all end it through the one stop.
+        stopWebPlayer()
         // Audio down FIRST, before `engine.stop()` frees the sink. Ordering matters for the same
         // reason the teardown order inside the bridge does: stopping the engine first would leave
         // a render block being called against a ring whose contents belong to a session that no
@@ -4040,6 +4084,10 @@ final class EngineHost: ObservableObject {
     /// two. Nil while the Library is up, which is what keeps the canvas full bleed behind it
     /// exactly as it always was. See `PictureFit` for what this is used for.
     var activePictureAspect: CGFloat? {
+        // A bundled player's picture: the movie's stage (Flash) or the phone screen (J2ME).
+        if webPlayer != nil, webPlayerAspect > 0 {
+            return webPlayerAspect
+        }
         // Read so SwiftUI re-asks when a layout, a swap or a TV changed the shape.
         let _ = screenLayoutVersion
         // A two-screen layout (or a TV taking the top screen) changes the shape the phone shows.
@@ -4135,6 +4183,12 @@ final class EngineHost: ObservableObject {
     }
 
     func togglePause() {
+        if let player = webPlayer {
+            player.setPaused(!player.paused)
+            paused = player.paused
+            status = (paused ? "paused " : "resumed ") + (activeEntry?.name ?? "the game")
+            return
+        }
         guard running else {
             status = "pause ignored: no game is running"
             return
@@ -4154,6 +4208,12 @@ final class EngineHost: ObservableObject {
     }
 
     func resetGame() {
+        if let player = webPlayer {
+            status = "restarting \(activeEntry?.name ?? "the game"); its save is kept"
+            _ = player
+            restartWebPlayer()
+            return
+        }
         guard running else {
             status = "reset ignored: no game is running"
             return
@@ -4176,6 +4236,10 @@ final class EngineHost: ObservableObject {
     /// the header of SaveStates.swift for that argument and for the compatibility gate, which is the
     /// part that could not exist at all while a state carried no metadata.
     func saveStateToSlot() {
+        if let player = webPlayer {
+            status = player.kind.saveStatesUnavailable
+            return
+        }
         saveStates.saveToNewSlot()
     }
 
@@ -4189,7 +4253,7 @@ final class EngineHost: ObservableObject {
         // (SkinFunctions.swift), shared with skin buttons.
         guard let function = action.skinFunction else {
             guard pressed else { return }
-            guard running else {
+            guard running || webPlayer != nil else {
                 status = "\(action.title): no game is running"
                 return
             }
@@ -4203,6 +4267,10 @@ final class EngineHost: ObservableObject {
     /// (`UIFileSharingEnabled` is already on). No Photos permission is needed for that, which is
     /// why it goes there rather than to the photo library.
     func captureScreenshot(of entry: LibraryEntry) {
+        if let player = webPlayer {
+            captureWebPlayerScreenshot(player, of: entry)
+            return
+        }
         let frame: CapturedFrame
         do {
             frame = try engine.captureFrame(width: 0, height: 0)
@@ -4972,6 +5040,13 @@ struct RootView: View {
             )
             .frame(width: max(1, area.width), height: max(1, area.height))
             .position(x: area.midX, y: area.midY)
+            // A bundled player (Flash, J2ME) draws its picture in its own web view, in the same
+            // rect the canvas would use.
+            if let player = host.webPlayer {
+                WebPlayerSurface(session: player)
+                    .frame(width: max(1, area.width), height: max(1, area.height))
+                    .position(x: area.midX, y: area.midY)
+            }
         }
         .ignoresSafeArea()
     }

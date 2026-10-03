@@ -198,6 +198,11 @@ struct PlayerScreen: View {
             host.pictureArea = nil
             host.applySkinHoles([])
         }
+        .sheet(isPresented: $host.webPlayerSettingsOpen) {
+            if let player = host.webPlayer {
+                WebPlayerSettingsSheet(host: host, session: player)
+            }
+        }
         .sheet(item: $coreActions.sheet) { sheet in
             CoreActionSheet(host: host, sheet: sheet)
         }
@@ -236,14 +241,14 @@ struct PlayerScreen: View {
 
             // Rewind, fast forward and reset are hidden during online play: on one phone and not
             // the other they would split the two games apart. The engine refuses them as well.
-            if emulation.rewindEnabled && !host.netplayLive {
+            if emulation.rewindEnabled && !host.netplayLive && host.webPlayer == nil {
                 holdButton("backward.fill",
                            label: "Rewind",
                            active: emulation.isRewinding,
                            onPress: { emulation.beginRewind() },
                            onRelease: { emulation.endRewind() })
             }
-            if !host.netplayLive {
+            if !host.netplayLive && host.webPlayer == nil {
                 holdButton("forward.fill",
                            label: "Fast forward",
                            active: emulation.isFastForwarding,
@@ -267,7 +272,15 @@ struct PlayerScreen: View {
                     host.swapScreens()
                 }
             }
-            saveStateControl
+            if host.webPlayer != nil {
+                // Flash and J2ME: their settings (keys, phone, save file) instead of save states,
+                // which these players cannot make.
+                sessionButton("slider.horizontal.3", label: "Player settings") {
+                    host.showWebPlayerSettings()
+                }
+            } else {
+                saveStateControl
+            }
             sessionButton(host.showDiagnostics ? "info.circle.fill" : "info.circle",
                           label: "Diagnostics") {
                 host.showDiagnostics.toggle()

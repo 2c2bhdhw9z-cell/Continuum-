@@ -198,9 +198,11 @@ for state in SkinFunctionState.allCases {
 }
 reached.formUnion(SkinFunctionPendingNames.menuOnly)
 expect(reached == pendingAll, "every pending method is used: missing \(pendingAll.subtracting(reached))")
-for function in [SkinFunction.j2meSettings, .dosSettings, .coreSettings] {
+for function in [SkinFunction.dosSettings, .coreSettings] {
     expect(function.route == .pending("showCoreSettings"), "\(function) opens core settings")
 }
+expect(SkinFunction.j2meSettings.route == .existing("showJ2MESettings"),
+       "j2meSettings opens the J2ME player's settings")
 let bound: [SkinFunction: SkinFunctionState] = [
     .reverseScreens: .screensSwapped, .volume: .muted, .toggleControlls: .controlsHidden,
     .toggleAnalog: .analogMode, .tvType: .tvColour, .leftDifficulty: .leftDifficultyA,
@@ -265,7 +267,10 @@ for function in SkinFunction.allCases {
         expect(hit, "\(function.rawValue) reaches existing code \(name)")
     }
 }
-expect(dispatcher.contains("guard running, activeEntry != nil"), "no game: refused with a line")
+expect(dispatcher.contains("guard running || webPlayer != nil, activeEntry != nil"),
+       "no game: refused with a line")
+expect(dispatcher.contains("player.kind.refusal(for: function)"),
+       "a bundled player refuses the functions it cannot do, with a line")
 expect(dispatcher.contains("refusedOnline && netplayLive"), "online play refusals")
 
 // MARK: 5. The temporary stubs

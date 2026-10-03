@@ -246,6 +246,12 @@ done
 echo "==> fetching the prebuilt cores from the libretro buildbot"
 "$ROOT/scripts/fetch-buildbot-cores.sh"
 
+# The bundled players for Flash (Ruffle) and J2ME (J2meJS), into build/support/players/, pinned
+# and checked, recorded in core-sources.txt. Never fails the build either: a player that did not
+# arrive is a warning here and in the CI verify step, and the app says so when such a game opens.
+echo "==> fetching the bundled Flash and J2ME players"
+"$ROOT/scripts/fetch-players.sh"
+
 OPTIONAL_MISSING=""
 for core_dylib in $OPTIONAL_CORE_NAMES; do
   if [ -f "$LIBDIR/$core_dylib" ]; then

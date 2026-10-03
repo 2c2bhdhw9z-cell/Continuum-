@@ -449,6 +449,10 @@ targets:
       # Core settings, filters, palettes, speeds, discs, rotation and the TV's own choices: the
       # in-game actions and their screens (engine side: cores/options.rs, bridge_actions.rs).
       - path: CoreSettingsScreen.swift
+      # Flash (Ruffle) and J2ME (J2meJS) in a bundled local-only web player view: pure logic,
+      # then the web view, scheme handler, input poll and settings sheet.
+      - path: WebPlayerCore.swift
+      - path: WebPlayers.swift
       # The UniFFI-generated Swift facade. Written by build-engine.sh, never committed: a
       # stale checked-in binding that disagrees with the Rust compiles, links, and then
       # corrupts arguments at runtime, which is the worst failure mode in this stack.

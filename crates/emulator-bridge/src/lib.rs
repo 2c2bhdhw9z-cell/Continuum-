@@ -64,6 +64,8 @@ pub mod memory;
 // Microphone, camera and Amiibo files. Self-contained so it merges cleanly beside other
 // environment work in cores/native_core.rs; see the module header.
 pub mod peripherals;
+// Flash and J2ME in the bundled player view: key tables, remaps and the two save formats.
+pub mod players;
 pub mod vulkan_probe;
 pub mod rewind;
 pub mod saves;
@@ -108,6 +110,10 @@ pub mod uniffi_peripherals;
 // functions: none of it touches a core or the engine lock.
 #[cfg(feature = "uniffi-bindings")]
 pub mod uniffi_import;
+
+// Flash and J2ME player helpers (src/players), free functions like the import ones.
+#[cfg(feature = "uniffi-bindings")]
+pub mod uniffi_players;
 
 pub use bridge::{BridgeStatus, EmulatorBridge, TickReport};
 pub use error::{BridgeError, GfxError};

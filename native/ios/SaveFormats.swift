@@ -28,6 +28,13 @@ extension SaveStates {
     @discardableResult
     func importSaveFile(_ data: Data, named name: String, for entry: LibraryEntry,
                         system: String) -> String {
+        // Flash and J2ME saves are the bundled players' own (WebPlayers.swift), Manic's .json and
+        // .J2meJS.srm, not a core's battery save.
+        if let kind = WebPlayerKind(systemId: system), let host = EngineHost.shared {
+            let text = host.importWebPlayerSave(data, named: name, for: entry, kind: kind)
+            reportOnly(text)
+            return text
+        }
         let gameId = Self.gameId(for: entry)
         let stem = (entry.name as NSString).deletingPathExtension
         let current = SaveStateDisk.batteryURL(gameId: gameId)
@@ -100,6 +107,11 @@ extension SaveStates {
 
     /// The save of `entry` converted to `format`, as a file for the share sheet.
     func exportSaveFile(for entry: LibraryEntry, system: String, format: String) -> URL? {
+        if let kind = WebPlayerKind(systemId: system), let host = EngineHost.shared {
+            let (url, text) = host.exportWebPlayerSave(for: entry, kind: kind)
+            reportOnly(text)
+            return url
+        }
         let stem = (entry.name as NSString).deletingPathExtension
         let location = saveFileLocation(system: system, gameStem: stem)
         guard let outDir = SaveStateDisk.exportDirectory() else {
@@ -178,7 +190,8 @@ struct SaveFileButtons: View {
             choosingFormat = true
         }
         .confirmationDialog("Export the save as", isPresented: $choosingFormat, titleVisibility: .visible) {
-            ForEach(saveFileFormats(system: system ?? ""), id: \.self) { format in
+            ForEach(EngineHost.webPlayerSaveFormats(system: system ?? "")
+                    ?? saveFileFormats(system: system ?? ""), id: \.self) { format in
                 Button(".\(format)") {
                     if let system, let url = saveStates.exportSaveFile(for: entry, system: system, format: format) {
                         FileShare.present(url)

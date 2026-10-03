@@ -352,6 +352,12 @@ enum GameSystem: String, Sendable, CaseIterable {
     case sega32x
     /// Sega Dreamcast, on Flycast.
     case dreamcast
+    /// Adobe Flash (.swf), in the bundled Ruffle player view, not a libretro core. See
+    /// WebPlayers.swift. The pad sends keyboard keys, remappable per game.
+    case flash
+    /// J2ME phone games (.jar), in the bundled J2meJS player view, not a libretro core. The pad
+    /// is a phone keypad: D-pad, OK, the two soft keys and the number keys.
+    case j2me
 
     /// The short code a library card badges itself with.
     var badge: String {
@@ -392,6 +398,8 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .segacd: return "MCD"
         case .sega32x: return "32X"
         case .dreamcast: return "DC"
+        case .flash: return "FLASH"
+        case .j2me: return "J2ME"
         }
     }
 
@@ -435,6 +443,9 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .wswan, .ngp, .pcecd, .sgx, .amiga, .c64, .dos, .doom, .jaguar, .lynx,
              .atari7800, .arcade, .pokemini, .vb, .saturn, .segacd, .sega32x:
             return false
+        case .flash, .j2me:
+            // Keys, not sticks: the bundled players read key presses.
+            return false
         }
     }
 
@@ -460,6 +471,10 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .wswan, .ngp, .pcecd, .sgx, .amiga, .c64, .dos, .doom, .jaguar, .lynx,
              .atari7800, .atari5200, .arcade, .pokemini, .vb, .saturn, .segacd, .sega32x,
              .dreamcast:
+            return nil
+        case .flash, .j2me:
+            // The whole picture takes taps, but as the web view's own touches (mouse clicks for
+            // Flash, the touch screen for J2ME), never through the engine's pointer.
             return nil
         case .ds:
             return CGRect(x: 0, y: 0.5, width: 1, height: 0.5)
@@ -510,6 +525,8 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .segacd: return "Sega CD"
         case .sega32x: return "Sega 32X"
         case .dreamcast: return "Dreamcast"
+        case .flash: return "Flash"
+        case .j2me: return "J2ME"
         }
     }
 
@@ -527,7 +544,7 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .ds, .fds, .sg1000,
              .tg16, .atari2600, .n64, .n3ds, .psp, .wswan, .ngp, .pcecd, .sgx, .doom, .jaguar,
              .lynx, .atari7800, .atari5200, .arcade, .pokemini, .vb, .saturn, .segacd,
-             .sega32x, .dreamcast:
+             .sega32x, .dreamcast, .flash, .j2me:
             return false
         }
     }
@@ -863,6 +880,31 @@ enum GameSystem: String, Sendable, CaseIterable {
                 + Self.shoulders(left: [(.l2, "L")], right: [(.r2, "R")])
                 + [PadControl(slot: .start, label: "START", cluster: .system,
                               shape: .pill, offset: CGPoint(x: 0, y: 0))]
+
+        case .flash:
+            // Not a core: each slot sends a KEYBOARD key, from the per-game table in Rust
+            // (players/keys.rs). Labelled by position rather than by key, because the keys are
+            // remappable per game and a label naming the default would then be wrong; the Flash
+            // settings sheet says what each one sends. Defaults: A Space, B Z, X X, Y C, L Shift,
+            // R Ctrl, Select Esc, Start Enter, D-pad the arrows.
+            return Self.diamondFace(top: (.x, "X"), right: (.a, "A"),
+                                    bottom: (.b, "B"), left: (.y, "Y"))
+                + Self.shoulders(left: [(.l, "L")], right: [(.r, "R")])
+                + Self.selectStart
+
+        case .j2me:
+            // A phone keypad around OK, slots per players/keys.rs: 1 and 3 above, 7, 0 and 9
+            // below, * and # on the shoulders, the soft keys where Select and Start sit. 2, 4, 6
+            // and 8 are the D-pad when the game's phone type is "standard" (J2ME settings); on the
+            // default Nokia type the D-pad sends the arrow keys most games read. Every centre is
+            // more than 1.4 units from its neighbours (the closest pairs are 1.45 apart).
+            return Self.place([
+                (.y, "1", -1.45, -1.45), (.x, "3", 1.45, -1.45),
+                (.a, "OK", 0, 0),
+                (.l2, "7", -1.45, 1.45), (.b, "0", 0, 1.45), (.r2, "9", 1.45, 1.45),
+            ])
+                + Self.shoulders(left: [(.l, "*")], right: [(.r, "#")])
+                + Self.systemPair(select: "LSK", start: "RSK")
         }
     }
 
