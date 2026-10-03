@@ -332,6 +332,13 @@ struct PlayerScreen: View {
                     }
                 }
             }
+
+            // The Amiibo picker, for the 3DS only: the only system here with an NFC reader. The
+            // answer to a tap arrives on the status line, like the cover capture above.
+            if system == .n3ds {
+                AmiiboMenuSection(peripherals: host.peripherals,
+                                  report: { host.status = $0 })
+            }
         } label: {
             // `ellipsis` rather than the save glyph, because this control no longer does one thing.
             Image(systemName: "ellipsis.circle")
@@ -557,6 +564,11 @@ struct DiagnosticsPanel: View {
                     Text(host.displayLine)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                // Whether the running core asked for the microphone or the camera, and what iOS
+                // said when they were started. "The game cannot hear me" has five different
+                // causes, and this line names which one it is.
+                Text(host.peripherals.statusLine)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .font(.system(.caption2, design: .monospaced))

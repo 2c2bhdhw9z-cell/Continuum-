@@ -93,6 +93,10 @@ struct SettingsScreen: View {
                     AchievementsSettingsSection(store: host.achievements)
                     // How the game is shown and touched: the DS / 3DS screens, the TV, the mouse.
                     ScreenModesSettingsSection(modes: screenModes)
+                    // The microphone, camera and Amiibo card. Its own view so it can observe
+                    // `Peripherals` directly; see Peripherals.swift.
+                    PeripheralsSettingsSection(peripherals: host.peripherals,
+                                               report: { host.status = $0 })
                 }
                 Group {
                     artworkSection

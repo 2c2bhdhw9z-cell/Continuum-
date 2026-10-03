@@ -476,11 +476,16 @@ final class AudioOutput {
         // `.playback` rather than `.ambient` or `.soloAmbient`, because a game with its sound
         // switched off by the ringer switch reads as the feature being broken. `.playback` also
         // survives the screen locking, which matters for a long RPG session.
+        //
+        // Asked of `AudioSessionPolicy` rather than hardcoded, because while a game holds the
+        // microphone the category is `.playAndRecord` (Peripherals.swift), and a rebuild here after
+        // a route change must not knock the session back out of record mode under the input tap.
         do {
-            try session.setCategory(.playback, mode: .default, options: [])
+            try AudioSessionPolicy.apply(to: session)
         } catch {
             isRunning = false
-            status = "audio: the session would not take the playback category: \(error)"
+            status = "audio: the session would not take the \(AudioSessionPolicy.categoryName) "
+                + "category: \(error)"
             return false
         }
 

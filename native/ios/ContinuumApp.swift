@@ -1704,6 +1704,12 @@ final class EngineHost: ObservableObject {
     /// so a pad being plugged in changes what is on screen without this type mirroring every field.
     let controllers: PhysicalControllers
 
+    /// The microphone, the camera and the Amiibo folder. Owned here for the app's lifetime for the
+    /// same reasons `audio` and `controllers` are: it holds an input tap, a capture session and
+    /// observers that a SwiftUI rebuild must never replace, and the display link polls it every
+    /// frame. See Peripherals.swift.
+    let peripherals: Peripherals
+
     /// The launchable games found in Documents, newest scan wins.
     @Published var library: [LibraryEntry] = []
     /// The Library's own status line, kept separate from `status` on purpose.
@@ -2038,6 +2044,9 @@ final class EngineHost: ObservableObject {
         // that can wait for a frame: a pad unplugged mid-press has no further poll coming, so
         // whatever it was holding would stay held for the rest of the session.
         controllers = PhysicalControllers(engine: engine)
+        // Reads its two switches and pushes them into the engine as it is built. Nothing is
+        // captured here: the microphone and camera only start when a running core asks.
+        peripherals = Peripherals(engine: engine)
         // Reads its metadata index as it is built, so the library can tell which games have an
         // auto-save before anything is launched, and registers the two notification observers that
         // write the auto-save when the app stops being the thing in front of the user.
@@ -2951,6 +2960,10 @@ final class EngineHost: ObservableObject {
         // a render block being called against a ring whose contents belong to a session that no
         // longer exists. Unconditional, and outside the `running` guard, so a half-started launch
         // cannot leave a live audio graph behind it.
+        //
+        // The microphone and camera go first of all, so the session leaves record mode while it is
+        // still active and the output graph below is torn down in the plain playback category.
+        peripherals.stopCapture()
         audio.stop()
         // Both held controls released before the engine stops, for the same reason the pad state
         // is cleared below: a finger still down on fast-forward or rewind when a session ends
@@ -3945,6 +3958,9 @@ struct RootView: View {
                     // lock; see `ContinuumEngine.rumbleState`.
                     RumblePlayer.shared.poll(engine: host.engine,
                                              active: host.running && !host.paused)
+                    // Starts or stops the microphone and camera when the core's wish changes.
+                    // Atomic reads in Rust, no engine lock, so it is cheap enough for every frame.
+                    host.peripherals.poll()
                 }
             )
             .frame(width: max(1, area.width), height: max(1, area.height))
