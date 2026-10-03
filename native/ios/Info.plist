@@ -50,6 +50,10 @@
 
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Games that listen, such as 3DS games you blow into, can hear the microphone while you play. Only used when Allow microphone in games is on.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Games that use a camera, such as 3DS camera games, can see the camera while you play. Only used when Allow camera in games is on.</string>
 	<key>UIStatusBarHidden</key>
 	<true/>
 	<key>UIViewControllerBasedStatusBarAppearance</key>

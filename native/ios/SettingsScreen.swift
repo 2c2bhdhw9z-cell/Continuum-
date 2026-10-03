@@ -83,6 +83,10 @@ struct SettingsScreen: View {
                     // In this group rather than the second one, along the seam the note above
                     // describes: a cheat changes how the game itself behaves.
                     cheatsSection
+                    // The microphone, camera and Amiibo card. Its own view so it can observe
+                    // `Peripherals` directly; see Peripherals.swift.
+                    PeripheralsSettingsSection(peripherals: host.peripherals,
+                                               report: { host.status = $0 })
                 }
                 Group {
                     artworkSection
