@@ -112,6 +112,44 @@ impl Button {
 /// Analog sticks: `(left_x, left_y, right_x, right_y)`, each in `-1.0..=1.0`.
 pub const AXIS_COUNT: usize = 4;
 
+/// A mouse, as the touch screen's trackpad mode drives it.
+///
+/// Motion is RELATIVE, which is libretro's contract for `RETRO_DEVICE_MOUSE`: the core reads how
+/// far the mouse moved since the last poll and tracks the position itself. So motion accumulates
+/// between frames and is consumed by the frame that reads it ([`MouseState::end_frame`]). The
+/// fraction of a unit that did not make a whole step is kept, so a slow drag still moves.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct MouseState {
+    /// Accumulated motion since the last consumed frame, in the core's mouse units.
+    pub dx: f32,
+    pub dy: f32,
+    /// Bit 0 left, bit 1 right, bit 2 middle.
+    pub buttons: u8,
+    /// Wheel steps since the last consumed frame. Positive is up / right.
+    pub wheel: i32,
+    pub hwheel: i32,
+}
+
+impl MouseState {
+    pub const LEFT: u8 = 1;
+    pub const RIGHT: u8 = 2;
+    pub const MIDDLE: u8 = 4;
+
+    /// Whole units of motion this frame delivers, toward zero. The rest stays for later.
+    pub fn delivered(&self) -> (i32, i32) {
+        (self.dx.trunc() as i32, self.dy.trunc() as i32)
+    }
+
+    /// The frame read its motion: drop what was delivered, keep the remainder, clear the wheel.
+    /// Buttons are levels, not events, so they stay.
+    pub fn end_frame(&mut self) {
+        self.dx = self.dx.fract();
+        self.dy = self.dy.fract();
+        self.wheel = 0;
+        self.hwheel = 0;
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PortState {
     /// Bitfield indexed by [`Button`].
@@ -130,6 +168,8 @@ pub struct PortState {
     /// position and pressed state as two different queries, and a release has to keep the last
     /// position rather than snapping it to a corner, or the final frame of a drag jumps.
     pub pointer_pressed: bool,
+    /// The mouse on this port. See [`MouseState`].
+    pub mouse: MouseState,
 }
 
 impl PortState {
@@ -195,6 +235,41 @@ impl InputState {
         }
     }
 
+    /// Adds relative mouse motion. Non-finite input is ignored rather than poisoning the sum.
+    pub fn add_mouse_motion(&mut self, port: usize, dx: f32, dy: f32) {
+        if let Some(p) = self.ports.get_mut(port) {
+            if dx.is_finite() && dy.is_finite() {
+                // Bounded so a runaway caller cannot build an unbounded backlog of motion.
+                p.mouse.dx = (p.mouse.dx + dx).clamp(-32767.0, 32767.0);
+                p.mouse.dy = (p.mouse.dy + dy).clamp(-32767.0, 32767.0);
+            }
+        }
+    }
+
+    /// Sets which mouse buttons are held.
+    pub fn set_mouse_buttons(&mut self, port: usize, left: bool, right: bool, middle: bool) {
+        if let Some(p) = self.ports.get_mut(port) {
+            p.mouse.buttons = (u8::from(left) * MouseState::LEFT)
+                | (u8::from(right) * MouseState::RIGHT)
+                | (u8::from(middle) * MouseState::MIDDLE);
+        }
+    }
+
+    /// Adds wheel steps. Positive is up (or right).
+    pub fn add_mouse_wheel(&mut self, port: usize, vertical: i32, horizontal: i32) {
+        if let Some(p) = self.ports.get_mut(port) {
+            p.mouse.wheel = p.mouse.wheel.saturating_add(vertical);
+            p.mouse.hwheel = p.mouse.hwheel.saturating_add(horizontal);
+        }
+    }
+
+    /// The frame consumed the mouse motion. See [`MouseState::end_frame`].
+    pub fn end_mouse_frame(&mut self) {
+        for port in &mut self.ports {
+            port.mouse.end_frame();
+        }
+    }
+
     /// Releases everything. Called on blur/visibility loss so a held key cannot
     /// stick down while the tab is in the background.
     pub fn release_all(&mut self) {
@@ -212,6 +287,37 @@ impl InputState {
 pub struct InputSnapshot {
     pub ports: [PortState; MAX_PORTS],
 }
+
+impl InputSnapshot {
+    /// Zeroes the mouse motion and wheel in this snapshot, keeping the buttons.
+    ///
+    /// One tick can run up to four core frames from one snapshot. Relative motion belongs to the
+    /// FIRST of them; handing it to all four would move the cursor four times as far while
+    /// fast-forwarding. Called by the tick after the first step.
+    pub fn consume_mouse_motion(&mut self) {
+        for port in &mut self.ports {
+            port.mouse.dx = 0.0;
+            port.mouse.dy = 0.0;
+            port.mouse.wheel = 0;
+            port.mouse.hwheel = 0;
+        }
+    }
+}
+
+/// `RETRO_DEVICE_MOUSE` (libretro.h:202).
+pub const RETRO_DEVICE_MOUSE: u32 = 2;
+/// `RETRO_DEVICE_ID_MOUSE_*` (libretro.h:398-408).
+pub const RETRO_MOUSE_X: u32 = 0;
+pub const RETRO_MOUSE_Y: u32 = 1;
+pub const RETRO_MOUSE_LEFT: u32 = 2;
+pub const RETRO_MOUSE_RIGHT: u32 = 3;
+pub const RETRO_MOUSE_WHEELUP: u32 = 4;
+pub const RETRO_MOUSE_WHEELDOWN: u32 = 5;
+pub const RETRO_MOUSE_MIDDLE: u32 = 6;
+pub const RETRO_MOUSE_HORIZ_WHEELUP: u32 = 7;
+pub const RETRO_MOUSE_HORIZ_WHEELDOWN: u32 = 8;
+/// The base device of a subclassed id: `RETRO_DEVICE_MASK` (libretro.h:178 area, 0xff).
+pub const RETRO_DEVICE_MASK: u32 = 0xff;
 
 /// `RETRO_DEVICE_JOYPAD`.
 pub const RETRO_DEVICE_JOYPAD: u32 = 1;
@@ -257,7 +363,8 @@ impl InputSnapshot {
     /// between. Unknown devices return 0, which libretro defines as "not present".
     pub fn libretro_state(&self, port: u32, device: u32, index: u32, id: u32) -> i16 {
         let port = port as usize;
-        match device {
+        // A subclassed device id (an SNES mouse is `MOUSE | 1 << 8`) is answered as its base.
+        match device & RETRO_DEVICE_MASK {
             RETRO_DEVICE_JOYPAD => match Button::from_u32(id) {
                 Some(button) if self.button(port, button) => 1,
                 _ => 0,
@@ -273,6 +380,27 @@ impl InputSnapshot {
                 };
                 let value = self.port(port).axes[axis];
                 (value.clamp(-1.0, 1.0) * 32767.0) as i16
+            }
+            RETRO_DEVICE_MOUSE => {
+                if index != 0 {
+                    return 0;
+                }
+                let mouse = self.port(port).mouse;
+                let (dx, dy) = mouse.delivered();
+                let clamp = |v: i32| v.clamp(-32767, 32767) as i16;
+                match id {
+                    // Relative to the last poll, as libretro defines it. Never an absolute spot.
+                    RETRO_MOUSE_X => clamp(dx),
+                    RETRO_MOUSE_Y => clamp(dy),
+                    RETRO_MOUSE_LEFT => i16::from(mouse.buttons & MouseState::LEFT != 0),
+                    RETRO_MOUSE_RIGHT => i16::from(mouse.buttons & MouseState::RIGHT != 0),
+                    RETRO_MOUSE_MIDDLE => i16::from(mouse.buttons & MouseState::MIDDLE != 0),
+                    RETRO_MOUSE_WHEELUP => i16::from(mouse.wheel > 0),
+                    RETRO_MOUSE_WHEELDOWN => i16::from(mouse.wheel < 0),
+                    RETRO_MOUSE_HORIZ_WHEELUP => i16::from(mouse.hwheel > 0),
+                    RETRO_MOUSE_HORIZ_WHEELDOWN => i16::from(mouse.hwheel < 0),
+                    _ => 0,
+                }
             }
             RETRO_DEVICE_POINTER => {
                 // ONE POINTER, so anything past index 0 is absent rather than clamped. A core
@@ -459,5 +587,131 @@ mod pointer_tests {
         let snapshot = state.snapshot();
         assert!(snapshot.button(0, super::Button::A));
         assert_eq!(snapshot.libretro_state(0, RETRO_DEVICE_POINTER, 0, RETRO_POINTER_PRESSED), 1);
+    }
+}
+
+
+#[cfg(test)]
+mod mouse_tests {
+    use super::{
+        GamepadBridge, InputState, PadSource, RETRO_DEVICE_MOUSE, RETRO_MOUSE_LEFT,
+        RETRO_MOUSE_MIDDLE, RETRO_MOUSE_RIGHT, RETRO_MOUSE_WHEELDOWN, RETRO_MOUSE_WHEELUP,
+        RETRO_MOUSE_X, RETRO_MOUSE_Y,
+    };
+
+    fn ask(pads: &GamepadBridge, id: u32) -> i16 {
+        pads.snapshot().libretro_state(0, RETRO_DEVICE_MOUSE, 0, id)
+    }
+
+    #[test]
+    fn motion_is_relative_and_resets_each_frame() {
+        let mut pads = GamepadBridge::new();
+        pads.add_mouse_motion(0, PadSource::Touch, 5.0, -3.0);
+        pads.add_mouse_motion(0, PadSource::Touch, 2.0, -1.0);
+        assert_eq!(ask(&pads, RETRO_MOUSE_X), 7);
+        assert_eq!(ask(&pads, RETRO_MOUSE_Y), -4);
+        pads.end_mouse_frame();
+        // The next frame has no motion until more arrives. A mouse that kept reporting the last
+        // delta would drift forever.
+        assert_eq!(ask(&pads, RETRO_MOUSE_X), 0);
+        assert_eq!(ask(&pads, RETRO_MOUSE_Y), 0);
+    }
+
+    #[test]
+    fn a_slow_drag_still_moves_through_the_remainder() {
+        let mut pads = GamepadBridge::new();
+        // Three quarter-unit frames deliver nothing each, but are not lost: the fourth quarter
+        // completes a whole unit.
+        for _ in 0..3 {
+            pads.add_mouse_motion(0, PadSource::Touch, 0.25, 0.0);
+            assert_eq!(ask(&pads, RETRO_MOUSE_X), 0);
+            pads.end_mouse_frame();
+        }
+        pads.add_mouse_motion(0, PadSource::Touch, 0.25, 0.0);
+        assert_eq!(ask(&pads, RETRO_MOUSE_X), 1);
+    }
+
+    #[test]
+    fn buttons_are_levels_and_survive_the_frame() {
+        let mut pads = GamepadBridge::new();
+        pads.set_mouse_buttons(0, PadSource::Touch, true, false, false);
+        pads.end_mouse_frame();
+        assert_eq!(ask(&pads, RETRO_MOUSE_LEFT), 1);
+        assert_eq!(ask(&pads, RETRO_MOUSE_RIGHT), 0);
+        pads.set_mouse_buttons(0, PadSource::Touch, false, true, true);
+        assert_eq!(ask(&pads, RETRO_MOUSE_LEFT), 0);
+        assert_eq!(ask(&pads, RETRO_MOUSE_RIGHT), 1);
+        assert_eq!(ask(&pads, RETRO_MOUSE_MIDDLE), 1);
+    }
+
+    #[test]
+    fn the_wheel_is_a_pulse() {
+        let mut pads = GamepadBridge::new();
+        pads.add_mouse_wheel(0, PadSource::Touch, 1, 0);
+        assert_eq!(ask(&pads, RETRO_MOUSE_WHEELUP), 1);
+        assert_eq!(ask(&pads, RETRO_MOUSE_WHEELDOWN), 0);
+        pads.end_mouse_frame();
+        assert_eq!(ask(&pads, RETRO_MOUSE_WHEELUP), 0);
+        pads.add_mouse_wheel(0, PadSource::Touch, -2, 0);
+        assert_eq!(ask(&pads, RETRO_MOUSE_WHEELDOWN), 1);
+    }
+
+    #[test]
+    fn sources_merge() {
+        // A trackpad on the glass and (one day) a real mouse: motion adds, buttons OR.
+        let mut pads = GamepadBridge::new();
+        pads.add_mouse_motion(0, PadSource::Touch, 3.0, 0.0);
+        pads.add_mouse_motion(0, PadSource::Gamepad, 4.0, 0.0);
+        pads.set_mouse_buttons(0, PadSource::Gamepad, true, false, false);
+        assert_eq!(ask(&pads, RETRO_MOUSE_X), 7);
+        assert_eq!(ask(&pads, RETRO_MOUSE_LEFT), 1);
+    }
+
+    #[test]
+    fn a_gamepad_poll_does_not_wipe_the_mouse() {
+        let mut pads = GamepadBridge::new();
+        pads.set_mouse_buttons(0, PadSource::Touch, true, false, false);
+        pads.add_mouse_motion(0, PadSource::Touch, 6.0, 2.0);
+        pads.apply_standard_gamepad_from(0, PadSource::Touch, &[false; 16], &[]);
+        assert_eq!(ask(&pads, RETRO_MOUSE_LEFT), 1);
+        assert_eq!(ask(&pads, RETRO_MOUSE_X), 6);
+    }
+
+    #[test]
+    fn only_the_first_step_of_a_tick_moves() {
+        let mut pads = GamepadBridge::new();
+        pads.add_mouse_motion(0, PadSource::Touch, 9.0, 9.0);
+        pads.set_mouse_buttons(0, PadSource::Touch, true, false, false);
+        let mut snapshot = pads.snapshot();
+        assert_eq!(snapshot.libretro_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_MOUSE_X), 9);
+        snapshot.consume_mouse_motion();
+        assert_eq!(snapshot.libretro_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_MOUSE_X), 0);
+        assert_eq!(snapshot.libretro_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_MOUSE_LEFT), 1);
+    }
+
+    #[test]
+    fn a_subclassed_mouse_device_is_answered() {
+        let mut state = InputState::default();
+        state.add_mouse_motion(0, -12.0, 0.0);
+        let snes_mouse = RETRO_DEVICE_MOUSE | (1 << 8);
+        assert_eq!(state.snapshot().libretro_state(0, snes_mouse, 0, RETRO_MOUSE_X), -12);
+    }
+
+    #[test]
+    fn release_lets_go_of_the_buttons_and_the_motion() {
+        let mut pads = GamepadBridge::new();
+        pads.set_mouse_buttons(0, PadSource::Touch, true, true, false);
+        pads.add_mouse_motion(0, PadSource::Touch, 5.0, 5.0);
+        pads.release_source(PadSource::Touch);
+        assert_eq!(ask(&pads, RETRO_MOUSE_LEFT), 0);
+        assert_eq!(ask(&pads, RETRO_MOUSE_X), 0);
+    }
+
+    #[test]
+    fn non_finite_motion_is_ignored() {
+        let mut state = InputState::default();
+        state.add_mouse_motion(0, f32::NAN, 1.0);
+        state.add_mouse_motion(0, 2.0, 1.0);
+        assert_eq!(state.snapshot().libretro_state(0, RETRO_DEVICE_MOUSE, 0, RETRO_MOUSE_X), 2);
     }
 }

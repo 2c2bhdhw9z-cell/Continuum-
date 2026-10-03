@@ -448,7 +448,8 @@ struct LibraryShell: View {
                        emulation: host.emulation,
                        controllers: host.controllers,
                        saveStates: host.saveStates,
-                       cheats: host.cheats)
+                       cheats: host.cheats,
+                       screenModes: host.screenModes)
             .padding(.top, topBarHeight + max(metrics.insets.top, 8) + 6)
             .padding(.bottom, bottomBarHeight)
     }

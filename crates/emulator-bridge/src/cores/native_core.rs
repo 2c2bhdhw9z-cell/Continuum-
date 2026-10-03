@@ -357,6 +357,16 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
             unsafe { *value_slot = std::ptr::null() };
             false
         }
+        ENV_SET_CONTROLLER_INFO => {
+            // Recorded, so trackpad mode can switch a port to a mouse the core actually offers.
+            // Still accepted with a null pointer, as before, because accepting is all a core
+            // needs to hear.
+            if !data.is_null() {
+                let ports = unsafe { read_controller_info(data as *const RetroControllerInfo) };
+                store_controller_info(ports);
+            }
+            true
+        }
         ENV_GET_CAN_DUPE => {
             unsafe { *(data as *mut bool) = true };
             true
@@ -391,7 +401,6 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
         | ENV_SET_CORE_OPTIONS_V2_INTL
         | ENV_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK
         | ENV_SET_INPUT_DESCRIPTORS
-        | ENV_SET_CONTROLLER_INFO
         | ENV_SET_PERFORMANCE_LEVEL
         | ENV_SET_SYSTEM_AV_INFO
         | ENV_SET_GEOMETRY
@@ -407,6 +416,80 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
         }
         _ => false,
     }
+}
+
+/// `struct retro_controller_description` (libretro.h:4451).
+#[repr(C)]
+struct RetroControllerDescription {
+    desc: *const c_char,
+    id: c_uint,
+}
+
+/// `struct retro_controller_info` (libretro.h:4476). An array of these, one per port, ends with a
+/// zeroed entry.
+#[repr(C)]
+struct RetroControllerInfo {
+    types: *const RetroControllerDescription,
+    num_types: c_uint,
+}
+
+/// Ports read before giving up on a missing terminator. Libretro has no port limit, but no core
+/// here declares more than eight, and an unterminated array must not walk off into memory.
+const MAX_CONTROLLER_PORTS: usize = 16;
+/// Types per port, for the same reason.
+const MAX_CONTROLLER_TYPES: usize = 64;
+
+/// Copies a core's controller table out of its memory.
+///
+/// # Safety
+///
+/// `info` must point at a `retro_controller_info` array terminated by a zeroed entry, as
+/// libretro.h:1502 requires.
+unsafe fn read_controller_info(info: *const RetroControllerInfo) -> Vec<Vec<(String, u32)>> {
+    let mut ports = Vec::new();
+    for port in 0..MAX_CONTROLLER_PORTS {
+        let entry = unsafe { &*info.add(port) };
+        if entry.types.is_null() && entry.num_types == 0 {
+            break;
+        }
+        let mut types = Vec::new();
+        if !entry.types.is_null() {
+            for index in 0..(entry.num_types as usize).min(MAX_CONTROLLER_TYPES) {
+                let description = unsafe { &*entry.types.add(index) };
+                let name = if description.desc.is_null() {
+                    format!("device {}", description.id)
+                } else {
+                    unsafe { CStr::from_ptr(description.desc) }
+                        .to_string_lossy()
+                        .into_owned()
+                };
+                types.push((name, description.id));
+            }
+        }
+        ports.push(types);
+    }
+    ports
+}
+
+/// The last controller table a core declared. A process global for the reason [`DIRECTORIES`]
+/// is: the core calls this from `retro_load_game` or `retro_set_environment`, under the bridge
+/// lock and possibly on another thread. Cleared at every core load.
+static CONTROLLER_INFO: std::sync::Mutex<Vec<Vec<(String, u32)>>> = std::sync::Mutex::new(Vec::new());
+
+fn store_controller_info(ports: Vec<Vec<(String, u32)>>) {
+    let mut guard = match CONTROLLER_INFO.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    *guard = ports;
+}
+
+fn controller_info_for(port: u32) -> Vec<(String, u32)> {
+    let guard = match CONTROLLER_INFO.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    guard.get(port as usize).cloned().unwrap_or_default()
 }
 
 #[derive(Default)]
@@ -604,6 +687,10 @@ struct Symbols {
     // `retro_serialize` for this project's whole early life.
     get_memory_data: Option<unsafe extern "C" fn(c_uint) -> *mut c_void>,
     get_memory_size: Option<unsafe extern "C" fn(c_uint) -> usize>,
+    /// `retro_set_controller_port_device` (libretro.h:8557). Optional: every libretro core is
+    /// supposed to export it, but a missing one costs only trackpad mode's port switch, so it is
+    /// not worth refusing the core over.
+    set_controller_port_device: Option<unsafe extern "C" fn(c_uint, c_uint)>,
 }
 
 pub struct NativeLibretroCore {
@@ -749,6 +836,12 @@ impl NativeLibretroCore {
                     .ok()
                     .map(|raw| *raw)
             },
+            set_controller_port_device: unsafe {
+                library
+                    .get::<unsafe extern "C" fn(c_uint, c_uint)>(b"retro_set_controller_port_device")
+                    .ok()
+                    .map(|raw| *raw)
+            },
         };
         if symbols.get_memory_data.is_none() || symbols.get_memory_size.is_none() {
             log::warn!(
@@ -791,6 +884,8 @@ impl NativeLibretroCore {
         // loaded after a Vulkan one (or the reverse) does not keep the old contract.
         vulkan_hw::reset();
         gl_hw::reset();
+        // A previous core's controller table must not describe this one's ports.
+        store_controller_info(Vec::new());
 
         // Order matters and is specified by libretro: the environment callback must be
         // installed before `retro_init`, because cores query it during
@@ -1287,6 +1382,20 @@ impl EmulatorCore for NativeLibretroCore {
         Some(unsafe { std::slice::from_raw_parts_mut(pointer, len) })
     }
 
+    fn set_controller_port_device(&mut self, port: u32, device: u32) -> Result<(), BridgeError> {
+        let Some(set) = self.symbols.set_controller_port_device else {
+            return Err(BridgeError::NotImplemented(
+                "this core does not export retro_set_controller_port_device",
+            ));
+        };
+        unsafe { set(port as c_uint, device as c_uint) };
+        Ok(())
+    }
+
+    fn controller_types(&self, port: u32) -> Vec<(String, u32)> {
+        controller_info_for(port)
+    }
+
     fn frame_count(&self) -> u64 {
         self.frame_count
     }
@@ -1646,6 +1755,34 @@ mod tests {
             let ok = unsafe { on_environment(cmd, std::ptr::null_mut()) };
             assert!(ok, "command {cmd} should be accepted as a no-op");
         }
+    }
+
+    #[test]
+    fn controller_info_is_recorded_per_port() {
+        let joypad = CString::new("RetroPad").unwrap();
+        let mouse = CString::new("SNES Mouse").unwrap();
+        let types = [
+            RetroControllerDescription { desc: joypad.as_ptr(), id: 1 },
+            RetroControllerDescription { desc: mouse.as_ptr(), id: 2 | (1 << 8) },
+        ];
+        let table = [
+            RetroControllerInfo { types: types.as_ptr(), num_types: 2 },
+            RetroControllerInfo { types: types.as_ptr(), num_types: 1 },
+            RetroControllerInfo { types: std::ptr::null(), num_types: 0 },
+        ];
+        let ok = unsafe { on_environment(ENV_SET_CONTROLLER_INFO, table.as_ptr() as *mut c_void) };
+        assert!(ok);
+        assert_eq!(
+            controller_info_for(0),
+            vec![("RetroPad".to_string(), 1), ("SNES Mouse".to_string(), 2 | (1 << 8))]
+        );
+        assert_eq!(controller_info_for(1), vec![("RetroPad".to_string(), 1)]);
+        assert!(controller_info_for(2).is_empty());
+        assert_eq!(
+            crate::cores::pick_mouse_device(&controller_info_for(0)).map(|(_, id)| id),
+            Some(2 | (1 << 8))
+        );
+        store_controller_info(Vec::new());
     }
 
     #[test]

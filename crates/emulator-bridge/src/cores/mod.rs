@@ -228,6 +228,17 @@ pub trait EmulatorCore: crate::MaybeSend {
         None
     }
 
+    /// Tells the core which device is in a port (`retro_set_controller_port_device`).
+    fn set_controller_port_device(&mut self, _port: u32, _device: u32) -> Result<(), BridgeError> {
+        Err(BridgeError::NotImplemented("set_controller_port_device"))
+    }
+
+    /// The `(description, device id)` pairs the core declared for a port through
+    /// `SET_CONTROLLER_INFO`. Empty when it declared none.
+    fn controller_types(&self, _port: u32) -> Vec<(String, u32)> {
+        Vec::new()
+    }
+
     /// Frames emulated since load. Used for the HUD and state metadata.
     fn frame_count(&self) -> u64;
 
@@ -240,6 +251,33 @@ pub trait EmulatorCore: crate::MaybeSend {
     fn memory_bytes(&self) -> Option<u64> {
         None
     }
+}
+
+/// The first declared type whose base device is a mouse, for trackpad mode.
+///
+/// `None` when the core declared none for the port, which is answered by leaving the port alone:
+/// switching a port to a device id the core never offered is how a pad stops working.
+pub fn pick_mouse_device(types: &[(String, u32)]) -> Option<(String, u32)> {
+    types
+        .iter()
+        .find(|(_, id)| id & crate::input::RETRO_DEVICE_MASK == crate::input::RETRO_DEVICE_MOUSE)
+        .cloned()
+}
+
+/// What to put back when trackpad mode ends: the plain joypad if declared, else the first
+/// declared type, else the plain joypad anyway (libretro's default for every port).
+pub fn pick_joypad_device(types: &[(String, u32)]) -> (String, u32) {
+    let joypad = crate::input::RETRO_DEVICE_JOYPAD;
+    types
+        .iter()
+        .find(|(_, id)| *id == joypad)
+        .or_else(|| {
+            types
+                .iter()
+                .find(|(_, id)| id & crate::input::RETRO_DEVICE_MASK == joypad)
+        })
+        .cloned()
+        .unwrap_or_else(|| ("RetroPad".to_string(), joypad))
 }
 
 /// Verifies a fetched module looks like a WebAssembly binary before instantiating.
@@ -283,6 +321,20 @@ mod tests {
     fn rejects_html_error_page() {
         let err = validate_wasm_module("x", b"<!DOCTYPE html><html>404").unwrap_err();
         assert!(matches!(err, BridgeError::InvalidCoreModule { .. }));
+    }
+
+    #[test]
+    fn the_mouse_type_is_picked_from_what_the_core_declared() {
+        // snes9x declares the SNES mouse as a subclass of RETRO_DEVICE_MOUSE.
+        let types = vec![
+            ("SNES Joypad".to_string(), 1),
+            ("SNES Mouse".to_string(), 2 | (1 << 8)),
+            ("Multitap".to_string(), 1 | (1 << 8)),
+        ];
+        assert_eq!(pick_mouse_device(&types), Some(("SNES Mouse".to_string(), 2 | (1 << 8))));
+        assert_eq!(pick_joypad_device(&types), ("SNES Joypad".to_string(), 1));
+        assert_eq!(pick_mouse_device(&[("Pad".into(), 1)]), None);
+        assert_eq!(pick_joypad_device(&[]).1, 1);
     }
 
     #[test]

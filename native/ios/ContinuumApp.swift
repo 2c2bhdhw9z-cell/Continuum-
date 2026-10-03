@@ -1048,6 +1048,13 @@ final class EngineHost: ObservableObject {
     /// target do not survive a session. See `EmulationSettings`.
     let emulation: EmulationSettings
 
+    /// DS / 3DS layout and swap, the TV, and trackpad mode. See ScreenModes.swift.
+    let screenModes: ScreenModes
+
+    /// Bumped whenever the engine moved a screen (layout, swap, orientation, a TV), so the picture
+    /// area and the touch screen are asked for again.
+    @Published var screenLayoutVersion = 0
+
     @Published var frameCount: UInt64 = 0
     @Published var displayFps: Double = 0
     @Published var dropped: UInt32 = 0
@@ -1920,6 +1927,7 @@ final class EngineHost: ObservableObject {
         // Reads its own stored preferences and pushes them into the engine as it is built, so
         // the first frame of the first game already looks and sounds the way the user left it.
         emulation = EmulationSettings(engine: engine)
+        screenModes = ScreenModes(engine: engine)
         // One page mapped and unmapped, nothing written to it and nothing run from it. Done here so
         // the answer is on the HUD before any game is launched, because it has to be readable
         // without a core running.
@@ -2739,6 +2747,11 @@ final class EngineHost: ObservableObject {
             paintStatusNow("N64 load…")
         }
 
+        // The two-screen layout for THIS system goes in before the launch, so the first frame is
+        // already drawn where the user left it. Harmless for one-screen systems.
+        let launchingSystem = CoreCatalog.system(forExtension: entry.ext)
+        screenModes.apply(for: launchingSystem)
+
         do {
             try engine.launch(
                 coreId: spec.coreId,
@@ -2784,6 +2797,17 @@ final class EngineHost: ObservableObject {
             } else {
                 status = "running: \(entry.name) on \(spec.coreId)"
             }
+            // Trackpad mode switches the core's first port to a mouse it declared, and says what
+            // happened either way, including when the core has none.
+            if let launchingSystem, screenModes.trackpad(for: launchingSystem) {
+                let line = engine.setMouseMode(port: 0, enabled: true)
+                if isN64 {
+                    controlNote = line
+                } else {
+                    status += "; \(line)"
+                }
+            }
+            screenLayoutVersion &+= 1
 
             // AFTER the launch, because a cheat table belongs to a session: the core builds it on
             // `retro_load_game` and it dies with the session, so it has to be pushed again every
@@ -2887,10 +2911,73 @@ final class EngineHost: ObservableObject {
     /// two. Nil while the Library is up, which is what keeps the canvas full bleed behind it
     /// exactly as it always was. See `PictureFit` for what this is used for.
     var activePictureAspect: CGFloat? {
+        // Read so SwiftUI re-asks when a layout, a swap or a TV changed the shape.
+        let _ = screenLayoutVersion
+        // A two-screen layout (or a TV taking the top screen) changes the shape the phone shows.
+        // The engine says what it is; nil means the core's own aspect below.
+        if !activeCoreId.isEmpty, let arranged = engine.phonePictureAspect(), arranged > 0 {
+            return CGFloat(arranged)
+        }
         guard !activeCoreId.isEmpty,
               let spec = CoreCatalog.core(id: activeCoreId),
               spec.aspectRatio > 0 else { return nil }
         return CGFloat(spec.aspectRatio)
+    }
+
+    /// The last thing the external display did, for the diagnostics panel.
+    @Published var displayLine = ""
+
+    /// True while the engine is drawing the game on a TV.
+    @Published var externalDisplayActive = false
+
+    /// Whether the running game has two screens, so the player can offer the swap.
+    var activeSystemHasTwoScreens: Bool {
+        guard let system = activeSystem else { return false }
+        return ScreenModes.dualScreenSystems.contains(system)
+    }
+
+    /// The player's swap button.
+    func swapScreens() {
+        guard running, let system = activeSystem else {
+            status = "swap ignored: no game is running"
+            return
+        }
+        guard ScreenModes.dualScreenSystems.contains(system) else {
+            status = "swap ignored: \(system.displayName) has one screen"
+            return
+        }
+        status = screenModes.toggleSwap(for: system)
+    }
+
+    /// Whether the running system uses the picture as a trackpad.
+    var activeTrackpad: Bool {
+        guard running, let system = activeSystem else { return false }
+        return screenModes.trackpad(for: system)
+    }
+
+    /// The engine's answer for where the touch screen is, for the systems that have one.
+    func touchMapper(for system: GameSystem) -> TouchScreenMapper? {
+        guard system.touchScreen != nil else { return nil }
+        let engine = self.engine
+        return TouchScreenMapper(
+            rect: { size in
+                guard let rect = engine.touchScreenRect(viewWidth: Float(size.width),
+                                                        viewHeight: Float(size.height)) else {
+                    return nil
+                }
+                return CGRect(x: CGFloat(rect.x), y: CGFloat(rect.y),
+                              width: CGFloat(rect.width), height: CGFloat(rect.height))
+            },
+            map: { size, point in
+                guard let mapped = engine.mapTouch(viewWidth: Float(size.width),
+                                                   viewHeight: Float(size.height),
+                                                   x: Float(point.x), y: Float(point.y),
+                                                   clamp: true) else {
+                    return nil
+                }
+                return CGPoint(x: CGFloat(mapped.x), y: CGFloat(mapped.y))
+            }
+        )
     }
 
     /// Leaves the running game and goes back to the Library.
@@ -2997,6 +3084,9 @@ final class EngineHost: ObservableObject {
             // changed. The unmount path cannot be relied on to stay silent: a view being removed can
             // still be laid out on the way out.
             guard !self.controllers.hidesOnScreenPadNow else { return }
+            // The big + small layouts put the small screen beside the big one when there is more
+            // width than height. The free area is the honest measure of that.
+            self.screenModes.setLandscape(rect.width > rect.height)
             guard self.pictureArea != rect else { return }
             self.pictureArea = rect
         }
@@ -3369,6 +3459,24 @@ final class EngineHost: ObservableObject {
         switch result {
         case .success(let summary):
             gpu = summary
+            // The engine has a renderer now, so a TV that is (or becomes) connected can take the
+            // picture. Every line it writes is a HUD line.
+            screenModes.onLayoutChanged = { [weak self] in
+                self?.screenLayoutVersion &+= 1
+            }
+            ExternalDisplayHub.shared.bind(
+                engine: engine,
+                wanted: { [weak self] in self?.screenModes.useTV ?? false },
+                report: { [weak self] line in
+                    self?.status = line
+                    self?.displayLine = line
+                },
+                onRetarget: { [weak self] in
+                    guard let self else { return }
+                    self.externalDisplayActive = self.engine.externalDisplayActive()
+                    self.screenLayoutVersion &+= 1
+                }
+            )
             // Step 3 of the graphics road, the half that needs the MTLDevice. The startup line
             // only asked whether MoltenVK loads; this draws a triangle into an MTLTexture and
             // hands it to the compositor. Safe: every failure is a string. Replaces the startup
@@ -3622,6 +3730,7 @@ struct RootView: View {
                 // keeps the gamepad layer untouched rather than being told "nothing held" sixty
                 // times a second.
                 controllerSource: { controllers.poll() },
+                mouseSource: { padInput.takeMouse() },
                 // Handed over so the display link can pump it immediately after each step. The
                 // object is owned by the host, so a SwiftUI rebuild of this view cannot take the
                 // audio graph down with it.
@@ -3665,6 +3774,8 @@ struct MetalCanvasView: UIViewRepresentable {
     /// Every attached physical controller, read in the same tick and pushed to the engine's OTHER
     /// input layer. See `MetalCanvas.controllerSource` for why the two must not share one.
     let controllerSource: () -> [ControllerFrame]
+    /// The trackpad mouse, consumed once per tick. See `MetalCanvas.mouseSource`.
+    let mouseSource: () -> MouseFrame?
     /// The device audio path, pumped from the display link. Owned by the host; see
     /// `MetalCanvas.audio` for why the push has to happen there and not on the audio thread.
     let audio: AudioOutput
@@ -3682,6 +3793,7 @@ struct MetalCanvasView: UIViewRepresentable {
         canvas.onTelemetry = onTelemetry
         canvas.gamepadSource = gamepadSource
         canvas.controllerSource = controllerSource
+        canvas.mouseSource = mouseSource
         canvas.audio = audio
         canvas.start()
         context.coordinator.observe(canvas)
@@ -3694,6 +3806,7 @@ struct MetalCanvasView: UIViewRepresentable {
         canvas.onAfterTick = onAfterTick
         canvas.gamepadSource = gamepadSource
         canvas.controllerSource = controllerSource
+        canvas.mouseSource = mouseSource
         canvas.audio = audio
     }
 

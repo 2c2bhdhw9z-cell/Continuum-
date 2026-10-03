@@ -195,6 +195,33 @@ impl GamepadBridge {
         self.sources[source as usize].set_axis(port, axis, value);
     }
 
+    /// Adds relative mouse motion to one layer. See [`crate::input::MouseState`].
+    pub fn add_mouse_motion(&mut self, port: usize, source: PadSource, dx: f32, dy: f32) {
+        self.sources[source as usize].add_mouse_motion(port, dx, dy);
+    }
+
+    pub fn set_mouse_buttons(
+        &mut self,
+        port: usize,
+        source: PadSource,
+        left: bool,
+        right: bool,
+        middle: bool,
+    ) {
+        self.sources[source as usize].set_mouse_buttons(port, left, right, middle);
+    }
+
+    pub fn add_mouse_wheel(&mut self, port: usize, source: PadSource, vertical: i32, horizontal: i32) {
+        self.sources[source as usize].add_mouse_wheel(port, vertical, horizontal);
+    }
+
+    /// A core frame read the mouse: every layer drops the motion it delivered.
+    pub fn end_mouse_frame(&mut self) {
+        for source in &mut self.sources {
+            source.end_mouse_frame();
+        }
+    }
+
     /// Releases every button on every port, across all sources.
     pub fn release_all(&mut self) {
         for source in &mut self.sources {
@@ -236,6 +263,14 @@ impl GamepadBridge {
                     // leaves the stylus where it was rather than snapping it to a corner.
                     merged.pointer = layer.pointer;
                 }
+                // Mouse: whole units of motion add across layers (each layer keeps its own
+                // remainder), buttons OR, wheel steps add.
+                let (dx, dy) = layer.mouse.delivered();
+                merged.mouse.dx += dx as f32;
+                merged.mouse.dy += dy as f32;
+                merged.mouse.buttons |= layer.mouse.buttons;
+                merged.mouse.wheel = merged.mouse.wheel.saturating_add(layer.mouse.wheel);
+                merged.mouse.hwheel = merged.mouse.hwheel.saturating_add(layer.mouse.hwheel);
             }
         }
         InputSnapshot { ports }
@@ -283,6 +318,8 @@ impl GamepadBridge {
         let mut state = PortState {
             pointer: self.sources[source as usize].ports[port].pointer,
             pointer_pressed: self.sources[source as usize].ports[port].pointer_pressed,
+            // The mouse shares the touch layer for the same reason the stylus does.
+            mouse: self.sources[source as usize].ports[port].mouse,
             ..PortState::default()
         };
         for (index, button) in STANDARD_GAMEPAD_MAP {
@@ -331,6 +368,7 @@ impl GamepadBridge {
             pointer: self.sources[PadSource::Gamepad as usize].ports[port].pointer,
             pointer_pressed: self.sources[PadSource::Gamepad as usize].ports[port]
                 .pointer_pressed,
+            mouse: self.sources[PadSource::Gamepad as usize].ports[port].mouse,
             ..PortState::default()
         };
         for (index, pressed) in buttons.iter().enumerate() {

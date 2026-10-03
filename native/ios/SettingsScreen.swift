@@ -44,6 +44,9 @@ struct SettingsScreen: View {
     /// Observed for the same reason: the cheat read-out counts what is stored across every game.
     @ObservedObject var cheats: CheatStore
 
+    /// Two-screen layouts, the TV and trackpad mode.
+    @ObservedObject var screenModes: ScreenModes
+
     /// Read fresh from the engine when this screen appears, never cached across appearances. The
     /// core's option list changes per core and a stale list is worse than none.
     @State private var coreOptions: [CoreOptionRecord] = []
@@ -84,6 +87,8 @@ struct SettingsScreen: View {
                     // describes: a cheat changes how the game itself behaves.
                     cheatsSection
                     AchievementsSettingsSection(store: host.achievements)
+                    // How the game is shown and touched: the DS / 3DS screens, the TV, the mouse.
+                    ScreenModesSettingsSection(modes: screenModes)
                 }
                 Group {
                     artworkSection

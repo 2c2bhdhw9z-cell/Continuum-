@@ -177,6 +177,37 @@ final class PadInputSource {
     func currentFrame() -> PadFrame {
         view?.currentFrame() ?? .released
     }
+
+    /// The trackpad's mouse for the frame about to run, consuming the motion since the last call.
+    /// Nil while trackpad mode is off or no pad is on screen, so the engine is not told about a
+    /// mouse nobody is using.
+    func takeMouse() -> MouseFrame? {
+        view?.takeMouseFrame()
+    }
+}
+
+/// One frame of the touch screen used as a trackpad: relative motion in the core's mouse units
+/// and which buttons are down. See `ContinuumEngine.applyMouse`.
+struct MouseFrame: Sendable, Equatable {
+    var dx: Float
+    var dy: Float
+    var left: Bool
+    var right: Bool
+    var middle: Bool
+}
+
+/// Where the emulated touch screen is, answered by the engine.
+///
+/// THE ENGINE OWNS THIS ARITHMETIC. The DS and 3DS screens can be stacked, side by side, one big
+/// and one small, one alone, swapped, or cut into a skin's holes, and only the engine knows which
+/// layout it drew. Both closures take the size of the picture view the fractions belong to (the
+/// Metal view's rect, or the skin canvas), and work in fractions of it.
+struct TouchScreenMapper {
+    /// The touch screen's rect as fractions of a picture view of this size, or nil for none.
+    let rect: (CGSize) -> CGRect?
+    /// A point as fractions of that view, to the framebuffer fraction `applyPointer` takes.
+    /// Clamped to the screen's edge.
+    let map: (CGSize, CGPoint) -> CGPoint?
 }
 
 // MARK: - What each system's pad actually has
@@ -1447,6 +1478,162 @@ final class TouchControlsView: UIView {
     /// the finger lifted instead of the top-left corner.
     private var lastPointerFraction: CGPoint = .zero
 
+    /// The picture view the engine's touch fractions are relative to, in this view's coordinates.
+    /// Set together with `touchScreenRect` when a `touchMapper` placed it.
+    private var touchPictureRect: CGRect?
+
+    /// Asks the engine where the touch screen is. Nil falls back to `system.touchScreen`, which is
+    /// the hardware's stacked layout and nothing else.
+    /// Not observed: closures cannot be compared, and re-laying out on every SwiftUI update would
+    /// be churn. Changes that matter arrive with `screenLayoutVersion`.
+    var touchMapper: TouchScreenMapper?
+
+    /// Bumped by the host when the engine's screen layout changed (swap, layout choice, a TV
+    /// connecting), so the touch screen is re-asked even though nothing here moved.
+    var screenLayoutVersion: Int = 0 {
+        didSet {
+            guard screenLayoutVersion != oldValue else { return }
+            lastHoleSignature = ""
+            setNeedsLayout()
+        }
+    }
+
+    // ------------------------------------------------------------------ trackpad mode
+
+    /// The picture as a trackpad: drag moves the mouse, tap is a left click, two-finger tap is a
+    /// right click, three-finger tap a middle click, and press-and-hold then drag holds the left
+    /// button. Controls still win wherever they are.
+    var trackpadEnabled = false {
+        didSet {
+            guard trackpadEnabled != oldValue else { return }
+            // Switching off mid-click must still deliver one released frame, or the core keeps
+            // the button the last frame said was down.
+            owesMouseRelease = oldValue
+            trackpadTouches.removeAll()
+            pendingMouse = .zero
+            leftPulse = 0
+            rightPulse = 0
+            middlePulse = 0
+        }
+    }
+
+    private struct TrackpadTouch {
+        var last: CGPoint
+        let start: CGPoint
+        let began: TimeInterval
+        var moved: Bool
+        var holding: Bool
+    }
+
+    private var trackpadTouches: [ObjectIdentifier: TrackpadTouch] = [:]
+    /// Set when trackpad mode was switched off, so one released mouse frame is still sent.
+    private var owesMouseRelease = false
+    /// Most fingers down at once during the current trackpad gesture.
+    private var trackpadFingers = 0
+    /// Whether any finger in the current gesture moved past the tap slop.
+    private var trackpadGestureMoved = false
+    private var pendingMouse = CGPoint.zero
+    private var leftPulse = 0
+    private var rightPulse = 0
+    private var middlePulse = 0
+
+    /// Mouse units per point of finger travel.
+    static let trackpadSensitivity: CGFloat = 1.0
+    /// Travel under this is still a tap.
+    static let trackpadTapSlop: CGFloat = 8
+    /// A tap is shorter than this.
+    static let trackpadTapTime: TimeInterval = 0.3
+    /// Still for this long, then drag: the left button is held for the drag.
+    static let trackpadHoldTime: TimeInterval = 0.45
+    /// Frames a click is held for, so a core polling once a frame cannot miss it.
+    static let trackpadClickFrames = 3
+
+    /// The area the trackpad answers in: the picture, or the skin canvas.
+    private var trackpadArea: CGRect? {
+        guard trackpadEnabled else { return nil }
+        return lastPictureArea
+    }
+
+    /// The mouse for the frame about to run. Consumes the motion and one frame of any click.
+    func takeMouseFrame() -> MouseFrame? {
+        guard trackpadEnabled else {
+            if owesMouseRelease {
+                owesMouseRelease = false
+                return MouseFrame(dx: 0, dy: 0, left: false, right: false, middle: false)
+            }
+            return nil
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        var holding = false
+        for (key, touch) in trackpadTouches {
+            var touch = touch
+            if !touch.moved && trackpadFingers == 1 && now - touch.began >= Self.trackpadHoldTime {
+                touch.holding = true
+                trackpadTouches[key] = touch
+            }
+            holding = holding || touch.holding
+        }
+        let frame = MouseFrame(dx: Float(pendingMouse.x),
+                               dy: Float(pendingMouse.y),
+                               left: holding || leftPulse > 0,
+                               right: rightPulse > 0,
+                               middle: middlePulse > 0)
+        pendingMouse = .zero
+        leftPulse = max(0, leftPulse - 1)
+        rightPulse = max(0, rightPulse - 1)
+        middlePulse = max(0, middlePulse - 1)
+        return frame
+    }
+
+    private func trackpadBegan(_ touch: UITouch, at point: CGPoint) {
+        if trackpadTouches.isEmpty {
+            trackpadFingers = 0
+            trackpadGestureMoved = false
+        }
+        trackpadTouches[ObjectIdentifier(touch)] = TrackpadTouch(
+            last: point, start: point, began: touch.timestamp, moved: false, holding: false)
+        trackpadFingers = max(trackpadFingers, trackpadTouches.count)
+    }
+
+    private func trackpadMoved(_ touch: UITouch) {
+        let key = ObjectIdentifier(touch)
+        guard var state = trackpadTouches[key] else { return }
+        let point = touch.location(in: self)
+        // One finger steers. With two or more down the gesture is a click being formed, and
+        // moving the cursor while the second finger lands would put the click in the wrong place.
+        if trackpadTouches.count == 1 {
+            pendingMouse.x += (point.x - state.last.x) * Self.trackpadSensitivity
+            pendingMouse.y += (point.y - state.last.y) * Self.trackpadSensitivity
+        }
+        state.last = point
+        let travel = hypot(point.x - state.start.x, point.y - state.start.y)
+        if !state.moved && travel > Self.trackpadTapSlop {
+            state.moved = true
+            trackpadGestureMoved = true
+            if trackpadFingers == 1 && touch.timestamp - state.began >= Self.trackpadHoldTime {
+                state.holding = true
+            }
+        }
+        trackpadTouches[key] = state
+    }
+
+    private func trackpadEnded(_ touch: UITouch) {
+        let key = ObjectIdentifier(touch)
+        guard let state = trackpadTouches.removeValue(forKey: key) else { return }
+        guard trackpadTouches.isEmpty else { return }
+        // The whole gesture is over. A short one that never moved is a click.
+        let short = touch.timestamp - state.began < Self.trackpadTapTime
+        if !trackpadGestureMoved && !state.holding && short {
+            switch trackpadFingers {
+            case 1: leftPulse = Self.trackpadClickFrames
+            case 2: rightPulse = Self.trackpadClickFrames
+            default: middlePulse = Self.trackpadClickFrames
+            }
+        }
+        trackpadFingers = 0
+        trackpadGestureMoved = false
+    }
+
     /// Skin analog sticks, in this view's coordinates. Hit before the D-pad so a circle pad
     /// is not the digital pad underneath it.
     private var stickHits: [(side: String, rect: CGRect)] = []
@@ -1505,6 +1692,11 @@ final class TouchControlsView: UIView {
     /// foreground, and whenever the control set changes under a finger.
     func releaseAll() {
         grabs.removeAll()
+        trackpadTouches.removeAll()
+        pendingMouse = .zero
+        leftPulse = 0
+        rightPulse = 0
+        middlePulse = 0
         // A drag is abandoned rather than settled. Nothing is published, because the value the
         // caller already has from the last move is the last thing the user actually saw, and
         // reporting a settle from a teardown would persist a layout on the way out of a screen the
@@ -1852,9 +2044,11 @@ final class TouchControlsView: UIView {
         let screens = skin?.face.screens ?? []
         if let skinCanvas, !screens.isEmpty {
             maskSkinArtwork(canvas: skinCanvas, screens: screens)
+            // Holes first, so the engine already has them when it is asked where the touch
+            // screen landed.
+            deliverSkinHoles(screens)
             placeDigitiser(on: screens, canvas: skinCanvas)
             deliverPictureArea(skinCanvas)
-            deliverSkinHoles(screens)
             return
         }
         skinImageView.layer.mask = nil
@@ -1939,6 +2133,13 @@ final class TouchControlsView: UIView {
             clearTouchScreenRect()
             return
         }
+        if let touchMapper {
+            // The engine drew it, so the engine says where it is. `picture` is exactly the rect
+            // RootView gives the Metal view, so the engine's fractions are fractions of it.
+            placeMappedTouchScreen(touchMapper, in: picture)
+            return
+        }
+        touchPictureRect = nil
         touchScreenRect = CGRect(
             x: picture.minX + fraction.minX * picture.width,
             y: picture.minY + fraction.minY * picture.height,
@@ -1951,6 +2152,23 @@ final class TouchControlsView: UIView {
     /// Drops the touch screen, and any finger that was resting on it.
     private func clearTouchScreenRect() {
         touchScreenRect = nil
+        touchPictureRect = nil
+        revalidatePointerGrabs()
+    }
+
+    /// Places the touch screen where the engine says it is inside `picture`.
+    private func placeMappedTouchScreen(_ mapper: TouchScreenMapper, in picture: CGRect) {
+        guard let fraction = mapper.rect(picture.size), fraction.width > 0, fraction.height > 0 else {
+            clearTouchScreenRect()
+            return
+        }
+        touchPictureRect = picture
+        touchScreenRect = CGRect(
+            x: picture.minX + fraction.minX * picture.width,
+            y: picture.minY + fraction.minY * picture.height,
+            width: fraction.width * picture.width,
+            height: fraction.height * picture.height
+        )
         revalidatePointerGrabs()
     }
 
@@ -2244,6 +2462,11 @@ final class TouchControlsView: UIView {
         if let touchScreenRect, touchScreenRect.contains(point) {
             return true
         }
+        // Trackpad mode claims the whole picture. The player's chrome sits above this view in
+        // the z-order, so the back button and the session buttons still get their taps first.
+        if let trackpadArea, trackpadArea.contains(point) {
+            return true
+        }
         return false
     }
 
@@ -2325,6 +2548,10 @@ final class TouchControlsView: UIView {
                 grabs[ObjectIdentifier(touch)] = .chip(index)
             } else if let slot = extraHit(at: point) {
                 grabs[ObjectIdentifier(touch)] = .skinSlot(slot)
+            } else if let trackpadArea, trackpadArea.contains(point) {
+                // Before the stylus: a user who switched the picture to a trackpad asked for a
+                // mouse, even on a system that has a touch screen.
+                trackpadBegan(touch, at: point)
             } else if let touchScreenRect, touchScreenRect.contains(point) {
                 // Tested last, so a control that happens to sit over the picture still wins. The
                 // layout keeps them apart, but the order costs nothing and means a future layout
@@ -2343,6 +2570,10 @@ final class TouchControlsView: UIView {
         var changed = false
         for touch in touches {
             let key = ObjectIdentifier(touch)
+            if trackpadTouches[key] != nil {
+                trackpadMoved(touch)
+                continue
+            }
             guard let grab = grabs[key] else { continue }
             // A D-pad and a stylus grab track movement. A chip grab is sticky by design: see `Grab`.
             switch grab {
@@ -2397,6 +2628,7 @@ final class TouchControlsView: UIView {
         }
         for touch in touches {
             grabs.removeValue(forKey: ObjectIdentifier(touch))
+            trackpadEnded(touch)
         }
         recompute()
     }
@@ -2635,6 +2867,11 @@ final class TouchControlsView: UIView {
     /// Clamped, because a finger can sit a fraction of a point outside the rect it was grabbed in
     /// and a fraction outside 0...1 is not a place on the framebuffer.
     private func pointerFraction(of point: CGPoint) -> CGPoint {
+        if let touchMapper, let picture = touchPictureRect, picture.width >= 1, picture.height >= 1 {
+            let inView = CGPoint(x: (point.x - picture.minX) / picture.width,
+                                 y: (point.y - picture.minY) / picture.height)
+            return touchMapper.map(picture.size, inView) ?? lastPointerFraction
+        }
         guard let rect = touchScreenRect,
               let fraction = system.touchScreen,
               rect.width >= 1, rect.height >= 1 else { return lastPointerFraction }
@@ -2843,6 +3080,13 @@ final class TouchControlsView: UIView {
     /// The bottom screen is the digitiser. Its hole maps straight onto `touchScreen`,
     /// not through a letterbox of the stacked picture.
     private func placeDigitiser(on screens: [DeltaSkinScreen], canvas: CGRect) {
+        if let touchMapper, system.touchScreen != nil {
+            // The holes have just been handed to the engine (see `publishPictureArea`), and with
+            // the swap a hole's picture may be the other screen, so the engine says which hole
+            // holds the touch screen and which part of that hole it is.
+            placeMappedTouchScreen(touchMapper, in: canvas)
+            return
+        }
         guard system.touchScreen != nil, screens.count >= 2 else {
             // One screen, or a system with no digitiser: nothing to point at inside a hole.
             if system.touchScreen == nil || screens.count < 2 {
@@ -2968,6 +3212,13 @@ struct TouchControlsHost: UIViewRepresentable {
     /// Default false so the player, which never opens that list, does not have to mention it.
     let editingHitsSuspended: Bool
 
+    /// The engine's answer for where the touch screen is. See `TouchScreenMapper`.
+    let touchMapper: TouchScreenMapper?
+    /// Bumped when the engine's screen layout changes. See `TouchControlsView.screenLayoutVersion`.
+    let screenLayoutVersion: Int
+    /// The picture as a trackpad. See `TouchControlsView.trackpadEnabled`.
+    let trackpadEnabled: Bool
+
     /// Spelled out rather than left to the synthesized memberwise initialiser.
     ///
     /// Two reasons, and the second is the load-bearing one. It lets the three editing parameters
@@ -2996,7 +3247,10 @@ struct TouchControlsHost: UIViewRepresentable {
          portraitFace: SkinPadFace = SkinPadFace(),
          landscapeFace: SkinPadFace = SkinPadFace(),
          onSkinHoles: @escaping ([DeltaSkinScreen]) -> Void = { _ in },
-         editingHitsSuspended: Bool = false) {
+         editingHitsSuspended: Bool = false,
+         touchMapper: TouchScreenMapper? = nil,
+         screenLayoutVersion: Int = 0,
+         trackpadEnabled: Bool = false) {
         self.system = system
         self.layout = layout
         self.pictureAspect = pictureAspect
@@ -3018,6 +3272,9 @@ struct TouchControlsHost: UIViewRepresentable {
         self.landscapeFace = landscapeFace
         self.onSkinHoles = onSkinHoles
         self.editingHitsSuspended = editingHitsSuspended
+        self.touchMapper = touchMapper
+        self.screenLayoutVersion = screenLayoutVersion
+        self.trackpadEnabled = trackpadEnabled
     }
 
     func makeUIView(context: Context) -> TouchControlsView {
@@ -3042,6 +3299,9 @@ struct TouchControlsHost: UIViewRepresentable {
         view.onSkinHoles = onSkinHoles
         view.isEditing = isEditing
         view.editingHitsSuspended = editingHitsSuspended
+        view.touchMapper = touchMapper
+        view.screenLayoutVersion = screenLayoutVersion
+        view.trackpadEnabled = trackpadEnabled && !isEditing
         input.view = view
         return view
     }
@@ -3075,6 +3335,9 @@ struct TouchControlsHost: UIViewRepresentable {
         view.portraitFace = portraitFace
         view.landscapeFace = landscapeFace
         view.onSkinHoles = onSkinHoles
+        view.touchMapper = touchMapper
+        view.screenLayoutVersion = screenLayoutVersion
+        view.trackpadEnabled = trackpadEnabled && !isEditing
         // Re-pointed on every update because SwiftUI may hand back a different instance after a
         // rebuild, and a stale box would silently report a released pad forever.
         input.view = view

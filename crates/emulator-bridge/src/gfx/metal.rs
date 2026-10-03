@@ -113,3 +113,36 @@ pub fn metal_handles(renderer: &Renderer) -> Option<MetalHandles> {
         queue: queue_ptr as *const c_void as u64,
     })
 }
+
+/// Points the renderer at a second `CAMetalLayer`: an external display (AirPlay or a cable).
+///
+/// No new device and no new instance. The surface is created on the instance the renderer already
+/// owns and configured with the device it already owns, so the one-`MTLDevice` rule holds: the
+/// TV's layer has its `device` set by `configure` to the same device as the phone's. The phone's
+/// surface is kept as the companion target, see [`Renderer::attach_external_surface`].
+///
+/// # Safety
+///
+/// `layer` must be a live `CAMetalLayer` that outlives its use by the renderer, which means until
+/// [`Renderer::detach_external_surface`] is called. Swift holds it as the backing layer of the
+/// external window's view and detaches before releasing that window.
+pub unsafe fn attach_external_layer(
+    renderer: &mut Renderer,
+    layer: *mut c_void,
+    width: u32,
+    height: u32,
+) -> Result<(), GfxError> {
+    if layer.is_null() {
+        return Err(GfxError::SurfaceCreation(
+            "attach_external_display was given a null CAMetalLayer".into(),
+        ));
+    }
+    // SAFETY: delegated to this function's contract.
+    let surface = unsafe {
+        renderer
+            .wgpu_instance()
+            .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(layer))
+    }
+    .map_err(|error| GfxError::SurfaceCreation(error.to_string()))?;
+    renderer.attach_external_surface(surface, width, height)
+}

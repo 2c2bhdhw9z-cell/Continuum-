@@ -136,7 +136,12 @@ struct PlayerScreen: View {
                     landscapeLayout: host.skinLandscapeLayout(for: system),
                     portraitFace: host.skinPadFace(for: system, landscape: false),
                     landscapeFace: host.skinPadFace(for: system, landscape: true),
-                    onSkinHoles: { screens in host.applySkinHoles(screens) }
+                    onSkinHoles: { screens in host.applySkinHoles(screens) },
+                    // Where the touch screen is comes from the engine, which drew it: a layout,
+                    // a swap or a TV can all move it.
+                    touchMapper: host.touchMapper(for: system),
+                    screenLayoutVersion: host.screenLayoutVersion,
+                    trackpadEnabled: host.activeTrackpad
                 )
                 .ignoresSafeArea()
             }
@@ -225,6 +230,13 @@ struct PlayerScreen: View {
             }
             sessionButton("arrow.clockwise", label: "Reset") {
                 host.resetGame()
+            }
+            // DS and 3DS only: which screen is the big one. One tap, and the touch screen
+            // follows the picture because the engine maps touches through the same layout.
+            if host.activeSystemHasTwoScreens {
+                sessionButton("rectangle.2.swap", label: "Swap screens") {
+                    host.swapScreens()
+                }
             }
             saveStateControl
             sessionButton(host.showDiagnostics ? "info.circle.fill" : "info.circle",
@@ -538,6 +550,11 @@ struct DiagnosticsPanel: View {
                 // fact about the installed build, and this panel is where those live.
                 if !host.vulkanLine.isEmpty {
                     Text(host.vulkanLine)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                // The TV: connected, disconnected, or why the picture could not move to it.
+                if !host.displayLine.isEmpty {
+                    Text(host.displayLine)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

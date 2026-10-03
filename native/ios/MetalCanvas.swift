@@ -80,6 +80,12 @@ final class MetalCanvas: UIView {
     /// no controller there is nothing for the gamepad layer to be told.
     var controllerSource: (() -> [ControllerFrame])?
 
+    /// The touch screen as a trackpad, when that mode is on. Nil, or a nil frame, means no mouse
+    /// is in use and the engine is not told about one. Read once per tick, because it CONSUMES the
+    /// motion since the last read: the engine accumulates relative motion until a core frame reads
+    /// it, so reading twice would hand over the same drag twice.
+    var mouseSource: (() -> MouseFrame?)?
+
     /// The device audio path, pumped from the tick below.
     ///
     /// Pushed from here rather than pulled by the audio thread, and that is the whole design:
@@ -264,6 +270,11 @@ final class MetalCanvas: UIView {
                                 x: Float(pad.pointer.x),
                                 y: Float(pad.pointer.y),
                                 pressed: pad.pointerPressed)
+        }
+        if let mouse = mouseSource?() {
+            // The touch layer, like the stylus: a finger on the glass is one input device.
+            engine.applyMouse(port: 0, source: .touch, dx: mouse.dx, dy: mouse.dy,
+                              left: mouse.left, right: mouse.right, middle: mouse.middle)
         }
         if let controllerSource {
             for pad in controllerSource() {
