@@ -47,11 +47,6 @@ struct SettingsScreen: View {
     /// Two-screen layouts, the TV and trackpad mode.
     @ObservedObject var screenModes: ScreenModes
 
-    /// Read fresh from the engine when this screen appears, never cached across appearances. The
-    /// core's option list changes per core and a stale list is worse than none.
-    @State private var coreOptions: [CoreOptionRecord] = []
-    @State private var coreOptionsNote = "not read yet"
-
     /// Whether the control layout editor is up.
     ///
     /// Presented full screen rather than as a sheet, and that is the one thing about it that is not
@@ -105,7 +100,8 @@ struct SettingsScreen: View {
                     coresSection
                     pspSection
                     biosSection
-                    coreOptionsSection
+                    // Every core's own settings, and the TV's fit and layout. See CoreSettingsScreen.swift.
+                    CoreSettingsSettingsSection(host: host)
                     // Beside STORAGE on purpose: the two read-outs are about the same disk, and the
                     // note in STORAGE now has to explain three directories rather than two.
                     saveStatesSection
@@ -121,7 +117,6 @@ struct SettingsScreen: View {
             .padding(.bottom, 24)
         }
         .onAppear {
-            refreshCoreOptions()
             // Read on appearance rather than continuously: this is a sentence about the rewind
             // tape, not telemetry, and polling the engine for it every frame would take the
             // engine lock sixty times a second to redraw text that barely changes.
@@ -606,73 +601,6 @@ struct SettingsScreen: View {
                 + ". No BIOS is bundled with this app, because shipping a console BIOS is a "
                 + "copyright violation."
             )
-        }
-    }
-
-    // MARK: Core options
-
-    private var coreOptionsSection: some View {
-        SettingsSection(title: "CORE OPTIONS") {
-            SettingsReadout(label: "Core", value: coreOptionsNote)
-
-            if coreOptions.isEmpty {
-                SettingsNote(
-                    "Core options are declared by the core itself, so there is nothing to show "
-                    + "unless a core is resident. Leaving a game hands the core back to the "
-                    + "registry and unloads it, which is what keeps one emulator in memory instead "
-                    + "of five, so this list is normally populated only while a game is running."
-                )
-            } else {
-                ForEach(coreOptions, id: \.key) { option in
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(option.label.isEmpty ? option.key : option.label)
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(.white)
-                            Text(option.key)
-                                .font(.system(.caption2, design: .monospaced))
-                                .foregroundStyle(ShellPalette.secondaryText)
-                        }
-                        Spacer(minLength: 8)
-                        Menu {
-                            ForEach(option.values, id: \.self) { value in
-                                Button(value) {
-                                    host.applyCoreOption(key: option.key, value: value,
-                                                         label: option.label)
-                                    refreshCoreOptions()
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(option.value)
-                                    .font(.system(size: 13, weight: .semibold))
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 10, weight: .bold))
-                            }
-                            .foregroundStyle(ShellPalette.metadata)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(ShellPalette.surface, in: Capsule())
-                        }
-                    }
-                }
-            }
-
-            SettingsButton(title: "Read the options again", role: .normal) {
-                refreshCoreOptions()
-            }
-        }
-    }
-
-    private func refreshCoreOptions() {
-        // Residency is asked of the engine, never of a cached flag. See `EngineHost.residentCore`.
-        if let resident = host.residentCore() {
-            coreOptions = host.coreOptionRecords()
-            coreOptionsNote = "\(resident.spec.coreId) is resident (state \(resident.state)), "
-                + "\(coreOptions.count) option(s) declared"
-        } else {
-            coreOptions = []
-            coreOptionsNote = "no core is resident right now"
         }
     }
 

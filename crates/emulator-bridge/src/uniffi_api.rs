@@ -38,6 +38,8 @@ use std::sync::Mutex;
 mod saves_api;
 // RetroAchievements: login, the HTTP queue Swift services, events and the list.
 mod achievements_api;
+// Core settings, filters, palettes, speeds, discs, rotation and the TV's own choices.
+mod core_settings_api;
 
 use crate::audio::CHANNELS;
 use crate::bridge::EmulatorBridge;

@@ -1428,6 +1428,46 @@ impl EmulatorCore for NativeLibretroCore {
         controller_info_for(port)
     }
 
+    fn rotation(&self) -> u32 {
+        requested_rotation()
+    }
+
+    fn core_options(&self) -> Vec<super::CoreOption> {
+        super::options::list(&self.descriptor.id)
+            .into_iter()
+            .map(|view| super::CoreOption {
+                key: view.key,
+                label: view.label,
+                value: view.current,
+                values: view.values.into_iter().map(|v| v.value).collect(),
+            })
+            .collect()
+    }
+
+    fn set_core_option(&mut self, key: &str, value: &str) -> Result<(), BridgeError> {
+        super::options::set(&self.descriptor.id, key, value, false)
+            .map(|_| ())
+            .map_err(BridgeError::CoreOption)
+    }
+
+    fn disk_status(&self) -> Option<super::disk::DiskStatus> {
+        if !self.content_loaded {
+            return None;
+        }
+        super::disk::status(&self.descriptor.id)
+    }
+
+    fn disk_insert(&mut self, index: u32) -> Result<String, String> {
+        if !self.content_loaded {
+            return Err("no game is running".to_owned());
+        }
+        super::disk::insert(&self.descriptor.id, index)
+    }
+
+    fn refresh_option_visibility(&mut self) -> bool {
+        super::options::refresh_visibility(&self.descriptor.id)
+    }
+
     fn frame_count(&self) -> u64 {
         self.frame_count
     }

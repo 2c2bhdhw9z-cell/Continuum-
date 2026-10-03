@@ -2039,6 +2039,8 @@ final class EngineHost: ObservableObject {
         // the first frame of the first game already looks and sounds the way the user left it.
         emulation = EmulationSettings(engine: engine)
         screenModes = ScreenModes(engine: engine)
+        // Where core settings live, and the TV's own fit and layout. See CoreSettingsScreen.swift.
+        configureCoreActions()
         // One page mapped and unmapped, nothing written to it and nothing run from it. Done here so
         // the answer is on the HUD before any game is launched, because it has to be readable
         // without a core running.
@@ -2903,6 +2905,8 @@ final class EngineHost: ObservableObject {
             // over a session that does not exist.
             activeEntry = entry
             activeCoreId = spec.coreId
+            // The system's own filter and brightness. See CoreSettingsScreen.swift.
+            applyCoreActionPreferences()
             // Beetle device-proof crumb: stay Partial until hardwareFrame flips on a phone.
             // Soft cores leave this false; telemetry paints the first Vulkan frame when it arrives.
             sawHardwareFrame = false
@@ -3067,6 +3071,10 @@ final class EngineHost: ObservableObject {
         guard !activeCoreId.isEmpty,
               let spec = CoreCatalog.core(id: activeCoreId),
               spec.aspectRatio > 0 else { return nil }
+        // A quarter turn (SET_ROTATION or the rotate action) stands the picture on its side.
+        if engine.screenRotation() % 2 == 1 {
+            return CGFloat(1 / spec.aspectRatio)
+        }
         return CGFloat(spec.aspectRatio)
     }
 

@@ -1560,7 +1560,7 @@ mod tests {
         reset_for_tests();
         install("melonds", None, true);
         let mut s = Strings(Vec::new());
-        let vars = vec![
+        let vars = [
             RetroVariable { key: s.p("melonds_touch_mode"), value: s.p("Touch mode; Mouse|Touch|Joystick") },
             RetroVariable { key: s.p("melonds_other"), value: s.p("Other; a|b") },
             RetroVariable { key: null(), value: null() },
@@ -1575,7 +1575,7 @@ mod tests {
         assert!(list("melonds")[1].visible);
 
         install("ppsspp", None, true);
-        let vars = vec![
+        let vars = [
             RetroVariable { key: s.p("ppsspp_cpu_core"), value: s.p("CPU; JIT|IR JIT|Interpreter") },
             RetroVariable { key: null(), value: null() },
         ];

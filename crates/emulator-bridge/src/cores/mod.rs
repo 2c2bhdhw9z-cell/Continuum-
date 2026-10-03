@@ -241,6 +241,26 @@ pub trait EmulatorCore: crate::MaybeSend {
         Vec::new()
     }
 
+    /// Quarter turns counter-clockwise the core asked for with `SET_ROTATION`. 0 by default.
+    fn rotation(&self) -> u32 {
+        0
+    }
+
+    /// The core's disc table, when it registered a disk control interface.
+    fn disk_status(&self) -> Option<disk::DiskStatus> {
+        None
+    }
+
+    /// Opens the tray, selects disc `index`, closes it.
+    fn disk_insert(&mut self, _index: u32) -> Result<String, String> {
+        Err("this core has no disc control".to_owned())
+    }
+
+    /// Asks the core to refresh which of its options are visible. False when it cannot.
+    fn refresh_option_visibility(&mut self) -> bool {
+        false
+    }
+
     /// Frames emulated since load. Used for the HUD and state metadata.
     fn frame_count(&self) -> u64;
 

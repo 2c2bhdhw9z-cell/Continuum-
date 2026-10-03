@@ -247,6 +247,9 @@ targets:
       # Online play transport (NWListener, NWConnection, NWBrowser) over the Rust lockstep
       # protocol (crates/emulator-bridge/src/netplay).
       - path: Netplay.swift
+      # Core settings, filters, palettes, speeds, discs, rotation and the TV's own choices: the
+      # in-game actions and their screens (engine side: cores/options.rs, bridge_actions.rs).
+      - path: CoreSettingsScreen.swift
       # The UniFFI-generated Swift facade. Written by build-engine.sh, never committed: a
       # stale checked-in binding that disagrees with the Rust compiles, links, and then
       # corrupts arguments at runtime, which is the worst failure mode in this stack.
