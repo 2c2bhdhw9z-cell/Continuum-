@@ -75,15 +75,16 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Screen fit and scaling | **Done** | |
 | Fast forward | **Done** | Tops out near 4x. Past that the engine drops frames instead of going faster, and the menu stops at 4x. That is not 5x |
 | Rewind | **Done** | |
-| Save states, slots, delete | **Partial** | Numbered slots accumulate, plus one auto-save. There is no 50-slot manager and no export of the state file. The slot list was reported failing on some games; claimed fixed in code, **not retested on a device**. Do not treat as Done until someone proves slots on the phone |
+| Save states, slots, delete | **In the tree, not on a phone** | 50 fixed slots per game plus the auto-save, each with a picture, date and core. Save, load, overwrite (asks first), rename, delete. Old numbered saves move into free slots and nothing is deleted. Export and import a state file, and the game's own battery save (`.srm`). Not on a phone |
 | Auto-save and resume | **Done** | |
-| Cheats | **Partial** | You type a code and a name, then toggle it. No cheat search, and no import of a cheat file. Up to 128 codes per game |
+| Cheats | **In the tree, not on a phone** | Typing a code works on a phone. New and not on a phone: import a RetroArch `.cht` file, and a RAM search (lives, money and so on) that turns an address into a cheat. Up to 128 codes per game |
 | On-screen control layout editor | **Partial** | **Done bar (Brett):** every control in the skin file works, not only the ones he names. Picture in the screen hole both ways you hold the phone. Two screens when the skin has two. A joystick or circle pad is a real stick, not a dead picture. Shoulders too. Debug text off the picture. **Device:** Game Boy Color sideways import works. Other systems do not. 3DS: the top hole is empty. The picture floats above the skin (sideways it is a small picture in the corner) because the hole was not read and the game was parked in the strip above the buttons. The bottom screen stays empty. Debug text is still on the picture. Buttons overlap the picture. He already had 3DS selected. That was not the bug. **Code (`ee307b8`), not on a phone yet:** each screen goes in its own hole, a thumbstick is an analog stick, shoulders are mapped, and a button shows its pressed picture only when the skin file has one. The last phone report above still stands until he installs. Do **not** stamp Done until the picture is in the hole on the phone |
+| Battery saves (the game's own save) | **In the tree, not on a phone** | Found broken while building the save manager: in-game saves (Pokemon, Zelda, PS1 memory card) were never written to disk, so they only survived inside a save state. Now restored before the first frame and written when you leave or switch apps |
 | Save state compatibility refusal | **Built, cannot be tested deliberately** | Only fires for a state from a different core or build |
 | Honouring what a core wants its content as | **Done** | Every core used to be handed a file path and no bytes. That worked for the first six by luck, and would have given Stella a zero-byte ROM, because it copies straight from the data pointer with no path fallback. The engine now reads what each core declares and loads the file when the core wants bytes, so the next such core needs no change |
 | File formats per system | **Done** | Every extension is now taken from the cores' own declared lists rather than a hand-written one. That added the two systems above plus `.smd`, `.swc`, `.fig`, `.unf`, `.unif`, `.sgb`, `.mdf` and `.toc`, which were being refused despite being supported |
 | Core setting overrides | **Done** | The host refuses a core's requests for its settings, so every core keeps its own defaults. Two DS settings had to be answered because they do not start at the default they advertise; everything else, for every core, is still refused |
-| Multi-screen compositor | **Done, unused** | Draws N regions of one texture to N places. Nothing selects more than one yet: it exists for rearranging the DS screens and for hardware-rendered cores. Skin holes are a different path (`ee307b8`) and are not proven on a phone |
+| Multi-screen compositor | **In use, not on a phone** | Now drives the DS and 3DS layouts and the screen swap. Skin holes are a different path (`ee307b8`) and are not proven on a phone |
 | Android `.apk` | **Not started** | The one other PLATFORM, and the only one after the iPhone. Next in order, still far off in time. Everything new goes in the Rust engine so Android inherits it |
 | Switch wrapper (to EMULATE the Switch) | **Partial** | `native/switch-wrapper/` has the frame gate, a Vulkan stub and a test harness, with no engine behind it. Steps 10 to 12 of the road below |
 
@@ -97,25 +98,25 @@ Build 108 failed and has no file. The compile fix is in `05ee4df`, and the insta
 | What | State | Notes |
 | --- | --- | --- |
 | Two screens, each placed where the skin file says | **In 109, not on a phone** | Last phone report: the top hole is empty and the bottom screen stays empty. Not done until a new import shows both |
-| Swap which screen is the big one | **Not built** | Next, after 109 is on the phone. Not in 109 |
-| AirPlay: game on the TV, touch screen on the phone | **Not built** | |
+| Swap which screen is the big one | **In the tree, not on a phone** | DS and 3DS. Six layouts in Settings (stacked, side by side, big top, big bottom, top only, bottom only) and a swap button in the player. Touch follows the bottom screen. With a two-hole skin the pictures trade holes |
+| AirPlay: game on the TV, touch screen on the phone | **In the tree, not on a phone** | AirPlay or a cable. Game on the TV, controls on the phone. On DS and 3DS the phone keeps the touch screen. Two switches in Settings |
 | Button shows a pressed picture | **In 109, not on a phone** | Only when the skin file has that picture. Not on a phone |
-| Extra buttons you place yourself | **Not built** | The built-in pad can be dragged. That is not extra floating triggers |
-| Edit an imported skin inside the app | **Not built** | Dragging the built-in pad is a different editor |
+| Extra buttons you place yourself | **In the tree, not on a phone** | In the layout editor: add a button, a combo, a turbo button, or an action (quick save, quick load, fast forward, rewind, screenshot, pause). Drag, resize, fade, delete. Per system and per way you hold the phone |
+| Edit an imported skin inside the app | **In the tree, not on a phone** | Move and resize every button, stick and screen hole, change what a button presses, fade the skin, reset to the file. The imported file is never changed |
 | Circle pad or joystick as a real stick | **In 109, not on a phone** | Not a D-pad. Not on a phone. Import the skin again |
-| Touch screen as a mouse | **Not built** | |
-| iPhone camera into a 3DS game | **Not built** | |
-| iPhone microphone | **Not built** | |
-| Amiibo file | **Not built** | |
-| Haptics on a button press | **Not built** | |
+| Touch screen as a mouse | **In the tree, not on a phone** | Per system in Settings. Drag moves, tap clicks, two fingers right click. Only games that support a mouse respond (Mario Paint, PlayStation mouse games) |
+| iPhone camera into a 3DS game | **App side built, no core uses it** | The app can feed the camera to a core, front or back. The 3DS core (Azahar) never asks for a camera, so no game sees it yet |
+| iPhone microphone | **In the tree, not on a phone** | 3DS games that listen (Azahar asks for it). Switch in Settings, off by default. DS games do not use it: melonDS only fakes a blow on its L2 button |
+| Amiibo file | **Partial** | Import and pick Amiibo files in the 3DS menu. The 3DS core (Azahar) has no way to receive one yet, and the app says so when you tap |
+| Haptics on a button press | **In the tree, not on a phone** | Off, light, medium or strong in Settings. Also game rumble on the phone and on controllers, with its own switch |
 | JIT | **Out on purpose** | Not in this signed app. Do not add it to close this list |
 | Rewind | **Done** | |
 | Fast forward | **Done** | About 4x, not 5x |
-| Save slots, including export | **Partial** | Numbered slots plus one auto-save. No 50-slot manager and no export. Slots are not retested on a phone |
-| Cheats: search, and importing a file | **Partial** | Typing a code works. Search does not. Importing a cheat file does not |
-| Online play | **Not built** | |
-| Achievements | **Not built** | |
-| Cloud sync | **Not built** | |
+| Save slots, including export | **In the tree, not on a phone** | 50 slots plus the auto-save, export and import of states and battery saves |
+| Cheats: search, and importing a file | **In the tree, not on a phone** | RAM search and `.cht` import are built. Typing a code already worked |
+| Online play | **In the tree, not on a phone** | Two phones, same game. Host or join on the same Wi-Fi (nearby list) or by address. Over the internet the host must open TCP port 55435. No rollback, so lag shows as short stalls. Rewind, fast forward and loading states are off while online |
+| Achievements | **Partial** | RetroAchievements login, unlock banners and a list on the game card. Never tried against the real server. Game Boy Advance achievements will not trigger correctly yet |
+| Cloud sync | **In the tree, not on a phone** | Pick any folder in Files (iCloud Drive, Google Drive, Dropbox) once. Saves, battery saves, cheats, settings and covers sync both ways. Conflicts keep both copies. Nothing is ever only deleted |
 
 
 ---

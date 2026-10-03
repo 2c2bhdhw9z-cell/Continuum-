@@ -36,6 +36,18 @@ button in the player; see [Reading the diagnostic text](#reading-the-diagnostic-
 | ☐ **12. TurboGrafx-16** | Import a `.pce` file and tap it | Plays, own shelf called TurboGrafx-16 | A seventh core, and it needs nothing from you. Only HuCard games: PC Engine CD needs a BIOS that cannot ship. If the two buttons feel swapped, tell me — I took I and II from the core's own list rather than from the names, and they are the opposite way round from how they read |
 | ☐ **13. Atari 2600** | Import a `.a26` file and tap it | Plays, one FIRE button plus SELECT and RESET | An eighth core, also needing nothing. **It must be named `.a26`, not `.bin`** — rename it if yours is `.bin`, because `.bin` belongs to PlayStation discs here. This is also the first core that needed the game loaded into memory rather than opened from disk, so if it shows a black screen say so: that would be the new code path and not the emulator |
 | ☐ **14. NINTENDO 64** | Import a `.n64`, `.z64` or `.v64` file and tap it | It boots and you can move | **Expect it to be SLOW.** This core renders in software and interprets every instruction, because that is the only way the N64 runs without the JIT permission we do not have. Slow is the expected result; a black screen or a crash is not. The D-pad surface drives the **analog Control Stick**, not just the D-pad, because almost no N64 game reads the D-pad — Mario would not move otherwise. Tell me roughly what frame rate the counter shows |
+| ☐ **16. Battery saves** | Save inside a game (Pokemon, Zelda), leave, open it again | The in-game save is still there | Before this build in-game saves were never written to disk |
+| ☐ **17. Save slots** | Player menu, Save slots. Save to a few, rename, overwrite, load, delete. Export one and import it back | All work, pictures show | New 50-slot manager |
+| ☐ **18. Cheats** | Import a RetroArch `.cht` file from the game card. Then Player menu, Cheats and RAM search: start, lose a life, filter Less, repeat, Make cheat | Imported cheats toggle; the made cheat holds the value | New |
+| ☐ **19. DS and 3DS screens** | Tap the swap button in the player. Try the layouts in Settings, TWO SCREENS, TV AND MOUSE | Screens move, and touch lands where you tap | New |
+| ☐ **20. TV** | AirPlay or a cable during a game | Game on the TV, controls on the phone | New |
+| ☐ **21. Extra buttons and skin editor** | Settings, Move the on-screen controls: + Button, + Turbo, + Action. With a skin, Edit this skin | Buttons work in play; skin edits show in play | New |
+| ☐ **22. Haptics and rumble** | Settings, HAPTICS AND TURBO. Press buttons; try a game with vibration | You feel taps; rumble games buzz | New |
+| ☐ **23. Mouse** | Settings, turn on mouse for SNES, play Mario Paint | Drag moves, tap clicks | New |
+| ☐ **24. 3DS microphone** | Settings, allow microphone, play a 3DS game that listens | The game hears you | New |
+| ☐ **25. Online play** | Two phones, same Wi-Fi, same game. Menu, Play online, Host on one, join from Nearby on the other | Both say connected, player 2 controls player 2 | New |
+| ☐ **26. Achievements** | Settings, RETROACHIEVEMENTS, log in, play an NES or Game Boy game with a set | Banner on unlock, list on the game card | New. Not GBA yet |
+| ☐ **27. Cloud sync** | Settings, CLOUD SYNC, choose a folder in iCloud Drive. Save, go back to the library | Status says files went up | New |
 | ☐ **15. Import the skin again** | Install Continuum-109, then import the skin file again. A skin already saved on the phone only has the first hole and no circle pad | Top picture inside the top hole, bottom picture in the bottom hole, both ways you hold the phone. The circle pad moves as a stick. A button shows its pressed picture only if the file has one | Install Continuum-109. Build 108 has no file. Not done until the picture is in the hole on the phone |
 
 ### Answered without a device: the DS needs no BIOS files
@@ -97,15 +109,8 @@ wrong, so it matters, but there is no reasonable way to ask you to trigger it.
 
 These are not tests. They are not in the app. JIT is out on purpose.
 
-- Swap which screen is the big one (next, not in 109)
-- AirPlay (game on the TV, touch screen stays on the phone)
-- Extra buttons you place yourself
-- Editing an imported skin inside the app (dragging the built-in pad is a different thing)
-- Touch as a mouse
-- Camera, microphone, Amiibo, haptics on a button
-- A 50-slot save manager, and exporting a save file
-- Cheat search, and importing a cheat file (typing a code is separate, and it has worked)
-- Online play, achievements, cloud sync
+- Camera and Amiibo reaching a 3DS game: the app side is built, the 3DS core cannot take them yet
+- Online play over the internet without opening a port, and rollback
 - JIT
 
 

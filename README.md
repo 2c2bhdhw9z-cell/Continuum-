@@ -39,7 +39,9 @@ Done on a phone: rewind, and fast forward at about 4x (not 5x).
 
 In 109, not proven on a phone: each screen in the hole the skin names, a circle pad as a real stick, and a pressed button picture when the file has one. Import the skin again after installing, or the old save keeps a single hole and no stick.
 
-Not built, and next after 109: swapping which screen is big. Also not built: AirPlay, extra buttons you place yourself, editing an imported skin in the app, touch as a mouse, camera, microphone, Amiibo, haptics, a 50-slot save manager, exporting a save, cheat search, importing a cheat file, online play, achievements, and cloud sync. Typing a cheat code does exist.
+Built after 109, in the next install, and not tried on a phone: swapping which screen is big (six DS and 3DS layouts), AirPlay to a TV, extra buttons you place yourself (combos, turbo, quick save and more), editing an imported skin in the app, touch as a mouse, the microphone for 3DS games, haptics and game rumble, a 50-slot save manager, exporting and importing saves, cheat search, importing a cheat file, online play for two phones, RetroAchievements, and cloud sync through any folder in Files. In-game battery saves are now written to disk too; before this they only lived inside save states.
+
+Built but held back by the cores, not the app: the camera (the 3DS core never asks for it) and Amiibo (the 3DS core has no way to take one). Achievements are partial: Game Boy Advance sets will not trigger correctly yet.
 
 The line-by-line table is in [STATUS.md](STATUS.md). [TESTING.md](TESTING.md) is the live checklist. What the owner wants built, and what the project will and will not become, is in [docs/PRODUCT_SCOPE.md](docs/PRODUCT_SCOPE.md). Old notes live in `docs/archive/`. `.kiro` is still in the repo and is outdated.
 
