@@ -593,6 +593,17 @@ struct Symbols {
     unserialize: unsafe extern "C" fn(*const c_void, usize) -> bool,
     cheat_reset: unsafe extern "C" fn(),
     cheat_set: unsafe extern "C" fn(c_uint, bool, *const c_char),
+    // `RETRO_API void *retro_get_memory_data(unsigned id);` libretro.h line 8710, and
+    // `RETRO_API size_t retro_get_memory_size(unsigned id);` libretro.h line 8724.
+    //
+    // OPTIONAL, unlike every symbol above, on purpose. Both are part of the mandatory API and
+    // every core shipped today exports them, but nothing that fails to resolve here should stop a
+    // game from booting: without them a game still plays, it just has no battery save export, no
+    // RAM search and no achievements, and each of those says so on its own status line. Logged at
+    // warn when absent, because "the feature is quietly missing" is exactly the failure that hid
+    // `retro_serialize` for this project's whole early life.
+    get_memory_data: Option<unsafe extern "C" fn(c_uint) -> *mut c_void>,
+    get_memory_size: Option<unsafe extern "C" fn(c_uint) -> usize>,
 }
 
 pub struct NativeLibretroCore {
@@ -726,7 +737,26 @@ impl NativeLibretroCore {
                 "retro_cheat_set",
                 unsafe extern "C" fn(c_uint, bool, *const c_char)
             ),
+            get_memory_data: unsafe {
+                library
+                    .get::<unsafe extern "C" fn(c_uint) -> *mut c_void>(b"retro_get_memory_data")
+                    .ok()
+                    .map(|raw| *raw)
+            },
+            get_memory_size: unsafe {
+                library
+                    .get::<unsafe extern "C" fn(c_uint) -> usize>(b"retro_get_memory_size")
+                    .ok()
+                    .map(|raw| *raw)
+            },
         };
+        if symbols.get_memory_data.is_none() || symbols.get_memory_size.is_none() {
+            log::warn!(
+                "core '{}' does not export retro_get_memory_data/size: no battery save, RAM search \
+                 or achievements for it",
+                descriptor.id
+            );
+        }
 
         // Checked before anything else runs: a core built against a different libretro
         // major version will otherwise misread every struct it is handed.
@@ -843,6 +873,27 @@ impl NativeLibretroCore {
 
     pub fn duped_frames(&self) -> u64 {
         self.duped_frames
+    }
+
+    /// The raw pointer and length of one memory region, or `None`.
+    ///
+    /// Only asked once content is loaded: before `retro_load_game` a core has no cartridge and
+    /// several return a dangling or stale pointer with a nonzero size. A null pointer or a zero
+    /// size both mean "this region does not exist", which libretro permits for every id.
+    fn raw_memory(&self, id: u32) -> Option<(*mut u8, usize)> {
+        if !self.content_loaded {
+            return None;
+        }
+        let (data, size) = (self.symbols.get_memory_data?, self.symbols.get_memory_size?);
+        let len = unsafe { size(id) };
+        if len == 0 {
+            return None;
+        }
+        let pointer = unsafe { data(id) }.cast::<u8>();
+        if pointer.is_null() {
+            return None;
+        }
+        Some((pointer, len))
     }
 
     fn sync_descriptor_from_core(&mut self) {
@@ -1220,6 +1271,20 @@ impl EmulatorCore for NativeLibretroCore {
 
     fn supports_cheats(&self) -> bool {
         true
+    }
+
+    // SAFETY for both: the pointer and length come from the core for a region it owns for as long
+    // as the game is loaded. The borrow ties the slice to `self`, and every caller is inside the
+    // engine lock between frames, so the core is not running and cannot move or free it while the
+    // slice is alive. `memory_region_mut` takes `&mut self`, so the two can never alias.
+    fn memory_region(&self, id: u32) -> Option<&[u8]> {
+        let (pointer, len) = self.raw_memory(id)?;
+        Some(unsafe { std::slice::from_raw_parts(pointer, len) })
+    }
+
+    fn memory_region_mut(&mut self, id: u32) -> Option<&mut [u8]> {
+        let (pointer, len) = self.raw_memory(id)?;
+        Some(unsafe { std::slice::from_raw_parts_mut(pointer, len) })
     }
 
     fn frame_count(&self) -> u64 {

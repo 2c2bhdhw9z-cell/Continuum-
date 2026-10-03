@@ -33,6 +33,10 @@
 
 use std::sync::Mutex;
 
+// Battery saves, RAM search, pokes, `.cht` import, the state export file and the slot plan.
+// A child module so it can use `lock()`; see its header.
+mod saves_api;
+
 use crate::audio::CHANNELS;
 use crate::bridge::EmulatorBridge;
 use crate::error::BridgeError;
@@ -61,6 +65,8 @@ pub enum EngineError {
     Cheat { reason: String },
     #[error("core option failed: {reason}")]
     CoreOption { reason: String },
+    #[error("memory access failed: {reason}")]
+    Memory { reason: String },
     #[error("graphics failure: {reason}")]
     Graphics { reason: String },
     #[error("{reason}")]
@@ -99,6 +105,7 @@ impl From<BridgeError> for EngineError {
             BridgeError::SaveState(reason) => Self::SaveState { reason },
             BridgeError::Cheat(reason) => Self::Cheat { reason },
             BridgeError::CoreOption(reason) => Self::CoreOption { reason },
+            BridgeError::Memory(reason) => Self::Memory { reason },
             BridgeError::NotImplemented(what) => Self::Other {
                 reason: format!("not implemented: {what}"),
             },

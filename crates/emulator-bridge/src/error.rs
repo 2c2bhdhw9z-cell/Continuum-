@@ -44,6 +44,10 @@ pub enum BridgeError {
     #[error("core option error: {0}")]
     CoreOption(String),
 
+    /// Core memory access: battery saves, RAM search, pokes, achievements.
+    #[error("memory error: {0}")]
+    Memory(String),
+
     #[error("not implemented yet: {0}")]
     NotImplemented(&'static str),
 }

@@ -16,6 +16,8 @@
 //! thread, a worker or a timer.
 
 use crate::audio::{AudioSink, AudioSpec, AudioStats, NullAudioSink, RingAudioSink, CHANNELS};
+use crate::cheats::poke::Poke;
+use crate::cheats::search::{RamSearch, SearchFilter, SearchHit, SearchWidth};
 use crate::cores::{ContentHint, CoreDescriptor, CoreRegistry, CoreState, EmulatorCore};
 use crate::error::BridgeError;
 use crate::gfx::{Renderer, ScaleFilter, ScaleMode, SkinHole};
@@ -109,6 +111,11 @@ struct Session {
     /// a state load. Lives on the session rather than the bridge because cheats belong
     /// to a game: ending the session is what forgets them.
     cheats: Vec<Cheat>,
+    /// RAM pokes split out of the same list (see [`EmulatorBridge::apply_cheats`]), enabled ones
+    /// only. Written into `SYSTEM_RAM` after every `run_frame`.
+    pokes: Vec<Poke>,
+    /// The RAM search in progress, if one was started. Belongs to the game, so it ends with it.
+    search: Option<RamSearch>,
 }
 
 /// One cheat as the user entered it, plus whether it is switched on.
@@ -377,6 +384,8 @@ impl EmulatorBridge {
             // A fresh core has no cheats. The front end pushes the game's saved list
             // after launch, which is also what makes cheats survive a relaunch.
             cheats: Vec::new(),
+            pokes: Vec::new(),
+            search: None,
         });
         Ok(())
     }
@@ -604,6 +613,10 @@ impl EmulatorBridge {
         let plan = pacer.plan(now_ms);
         for _ in 0..plan.steps {
             session.core.run_frame(&snapshot)?;
+            // 2b. RAM pokes, AFTER the frame. The game wrote its own value during the frame;
+            //     writing ours afterwards means the value the game reads at the start of the next
+            //     frame is ours, which is what "infinite lives" has to mean.
+            Self::apply_pokes(session);
             // 3. Audio — drained straight into the ring, no intermediate buffer.
             session.core.drain_audio(sink.as_mut());
         }
@@ -1117,6 +1130,7 @@ impl EmulatorBridge {
 
         if stepped_back {
             session.core.run_frame(&snapshot)?;
+            Self::apply_pokes(session);
             session.core.drain_audio(sink.as_mut());
             sink.flush();
         }
@@ -1254,31 +1268,46 @@ impl EmulatorBridge {
             )));
         }
 
-        // Blank lines are dropped here rather than skipped during the push, because
-        // skipping would leave gaps in the index sequence the core is given.
-        session.cheats = codes
-            .into_iter()
-            .enumerate()
-            .filter_map(|(i, code)| {
-                let code = code.trim().to_string();
-                if code.is_empty() {
-                    return None;
+        // RAM pokes (`poke:ADDRESS:VALUE:BYTES`, see `cheats::poke`) live in the same list the
+        // user sees, and are split out HERE so the core never receives a code it would misread.
+        // They are not part of the core's indexed table at all, so taking them out cannot
+        // renumber it: the core's table is still the typed codes, whole and in their list order.
+        //
+        // Every poke is parsed before anything is changed, so one malformed entry refuses the
+        // whole update and leaves the previous list in force rather than half-applying a new one.
+        let mut core_cheats = Vec::new();
+        let mut pokes = Vec::new();
+        let mut enabled_pokes = 0usize;
+        for (i, code) in codes.into_iter().enumerate() {
+            let code = code.trim().to_string();
+            // Blank lines are dropped here rather than skipped during the push, because
+            // skipping would leave gaps in the index sequence the core is given.
+            if code.is_empty() {
+                continue;
+            }
+            let on = enabled.get(i).copied().unwrap_or(0) != 0;
+            if Poke::is_poke_code(&code) {
+                let poke = Poke::parse(&code).map_err(BridgeError::Cheat)?;
+                if on {
+                    pokes.push(poke);
+                    enabled_pokes += 1;
                 }
-                Some(Cheat {
-                    code,
-                    enabled: enabled.get(i).copied().unwrap_or(0) != 0,
-                })
-            })
-            .collect();
+                continue;
+            }
+            core_cheats.push(Cheat { code, enabled: on });
+        }
+        session.cheats = core_cheats;
+        session.pokes = pokes;
 
         Self::push_cheats(session)?;
-        Ok(session.cheats.iter().filter(|cheat| cheat.enabled).count())
+        Ok(session.cheats.iter().filter(|cheat| cheat.enabled).count() + enabled_pokes)
     }
 
     /// Clears every cheat, in the core and in our record of it.
     pub fn clear_cheats(&mut self) -> Result<(), BridgeError> {
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
         session.cheats.clear();
+        session.pokes.clear();
         if session.core.supports_cheats() {
             session.core.reset_cheats()?;
         }
@@ -1295,7 +1324,7 @@ impl EmulatorBridge {
     /// How many cheats are currently switched on.
     pub fn active_cheat_count(&self) -> usize {
         self.session.as_ref().map_or(0, |session| {
-            session.cheats.iter().filter(|cheat| cheat.enabled).count()
+            session.cheats.iter().filter(|cheat| cheat.enabled).count() + session.pokes.len()
         })
     }
 
@@ -1317,6 +1346,249 @@ impl EmulatorBridge {
     pub fn set_core_option(&mut self, key: &str, value: &str) -> Result<(), BridgeError> {
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
         session.core.set_core_option(key, value)
+    }
+
+    // ------------------------------------------------------------------- memory
+
+    /// Size in bytes of one of the running core's memory regions, `0` when it has none.
+    pub fn memory_size(&self, region: u32) -> usize {
+        self.session
+            .as_ref()
+            .and_then(|session| session.core.memory_region(region))
+            .map_or(0, <[u8]>::len)
+    }
+
+    /// Copies `len` bytes of a memory region starting at `offset`.
+    pub fn read_memory(&self, region: u32, offset: u64, len: u64) -> Result<Vec<u8>, BridgeError> {
+        let session = self.session.as_ref().ok_or(BridgeError::NoSession)?;
+        let memory = session
+            .core
+            .memory_region(region)
+            .ok_or_else(|| Self::no_region(session, region))?;
+        let range = crate::memory::checked_range(memory.len(), offset, len)
+            .map_err(|why| BridgeError::Memory(format!("{}: {why}", crate::memory::region_name(region))))?;
+        Ok(memory[range].to_vec())
+    }
+
+    /// Writes `bytes` into a memory region at `offset`. All or nothing: a write that would run
+    /// past the end is refused before a byte is changed.
+    pub fn write_memory(&mut self, region: u32, offset: u64, bytes: &[u8]) -> Result<(), BridgeError> {
+        let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
+        let core_name = session.core.descriptor().display_name.clone();
+        let Some(memory) = session.core.memory_region_mut(region) else {
+            return Err(BridgeError::Memory(format!(
+                "{core_name} exposes no {}",
+                crate::memory::region_name(region)
+            )));
+        };
+        let range = crate::memory::checked_range(memory.len(), offset, bytes.len() as u64)
+            .map_err(|why| BridgeError::Memory(format!("{}: {why}", crate::memory::region_name(region))))?;
+        memory[range].copy_from_slice(bytes);
+        Ok(())
+    }
+
+    fn no_region(session: &Session, region: u32) -> BridgeError {
+        BridgeError::Memory(format!(
+            "{} exposes no {}",
+            session.core.descriptor().display_name,
+            crate::memory::region_name(region)
+        ))
+    }
+
+    // ------------------------------------------------------------ battery save
+
+    /// The running game's battery save (`SAVE_RAM`), byte for byte. This is the `.srm` file
+    /// every libretro frontend writes, so it is also what an export hands to another emulator.
+    pub fn battery_save(&self) -> Result<Vec<u8>, BridgeError> {
+        let size = self.memory_size(crate::memory::MEMORY_SAVE_RAM);
+        if size == 0 {
+            let session = self.session.as_ref().ok_or(BridgeError::NoSession)?;
+            return Err(Self::no_region(session, crate::memory::MEMORY_SAVE_RAM));
+        }
+        self.read_memory(crate::memory::MEMORY_SAVE_RAM, 0, size as u64)
+    }
+
+    /// Replaces the running game's battery save. Returns the region's size.
+    ///
+    /// A file SHORTER than the region is accepted and written over its start, because several
+    /// emulators trim trailing unused bytes from `.srm` files and a 32 KB SRAM cartridge saved by
+    /// one of them is still that cartridge's save. A file LONGER than the region is refused: it is
+    /// almost certainly a different game's save (or a save state), and truncating it would be
+    /// writing garbage into the cartridge.
+    ///
+    /// A game reads its battery RAM when it boots, so a restore into a game that is already past
+    /// its title screen generally needs a reset before the game notices. The caller says so.
+    pub fn restore_battery_save(&mut self, data: &[u8]) -> Result<usize, BridgeError> {
+        let size = self.memory_size(crate::memory::MEMORY_SAVE_RAM);
+        if size == 0 {
+            let session = self.session.as_ref().ok_or(BridgeError::NoSession)?;
+            return Err(Self::no_region(session, crate::memory::MEMORY_SAVE_RAM));
+        }
+        if data.is_empty() {
+            return Err(BridgeError::Memory("that battery save is empty".into()));
+        }
+        if data.len() > size {
+            return Err(BridgeError::Memory(format!(
+                "that battery save is {} bytes and this game's save RAM is {size}, so it belongs \
+                 to a different game or is not a battery save",
+                data.len()
+            )));
+        }
+        self.write_memory(crate::memory::MEMORY_SAVE_RAM, 0, data)?;
+        Ok(size)
+    }
+
+    /// Writes the battery save to `path` atomically (a temporary file, then a rename), so an app
+    /// killed mid-write leaves the previous save intact rather than a truncated one.
+    ///
+    /// THE FRONTEND OWNS THIS FILE. libretro hands battery RAM to the frontend through
+    /// `retro_get_memory_data(RETRO_MEMORY_SAVE_RAM)` and expects the frontend to persist it; most
+    /// cores (fceumm, snes9x, mGBA, Genesis Plus GX) never write a save file of their own. Until
+    /// this existed, an in-game save survived only inside a save state.
+    ///
+    /// Returns the bytes written, `0` when the game has no battery RAM (not an error: most NES
+    /// games have none).
+    pub fn persist_battery_save(&self, path: &str) -> Result<usize, BridgeError> {
+        if self.memory_size(crate::memory::MEMORY_SAVE_RAM) == 0 {
+            return Ok(0);
+        }
+        let data = self.battery_save()?;
+        let target = std::path::Path::new(path);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|err| {
+                BridgeError::Memory(format!("could not create {}: {err}", parent.display()))
+            })?;
+        }
+        let temporary = target.with_extension("srm.writing");
+        std::fs::write(&temporary, &data)
+            .and_then(|()| std::fs::rename(&temporary, target))
+            .map_err(|err| BridgeError::Memory(format!("could not write {path}: {err}")))?;
+        Ok(data.len())
+    }
+
+    /// Reads a battery save from `path` into the running game. `Ok(None)` when there is no file,
+    /// which is a game that has never saved rather than a failure.
+    pub fn load_battery_save_file(&mut self, path: &str) -> Result<Option<usize>, BridgeError> {
+        if self.memory_size(crate::memory::MEMORY_SAVE_RAM) == 0 {
+            return Ok(None);
+        }
+        let data = match std::fs::read(path) {
+            Ok(data) => data,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(err) => {
+                return Err(BridgeError::Memory(format!("could not read {path}: {err}")));
+            }
+        };
+        self.restore_battery_save(&data).map(|_| Some(data.len()))
+    }
+
+    // --------------------------------------------------------------- RAM search
+
+    /// Starts a RAM search over `SYSTEM_RAM`, replacing any search in progress.
+    /// Returns the number of candidates, which is every address.
+    pub fn search_start(&mut self, width: SearchWidth, aligned: bool) -> Result<usize, BridgeError> {
+        let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
+        let ram = session
+            .core
+            .memory_region(crate::memory::MEMORY_SYSTEM_RAM)
+            .ok_or_else(|| Self::no_region(session, crate::memory::MEMORY_SYSTEM_RAM))?;
+        let search = RamSearch::start(ram, width, aligned).map_err(BridgeError::Memory)?;
+        let count = search.count();
+        session.search = Some(search);
+        Ok(count)
+    }
+
+    /// Applies one filter to the search in progress. Returns how many candidates survive.
+    pub fn search_filter(&mut self, filter: SearchFilter) -> Result<usize, BridgeError> {
+        let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
+        let Session { core, search, .. } = session;
+        let search = search
+            .as_mut()
+            .ok_or_else(|| BridgeError::Memory("no RAM search is running; start one first".into()))?;
+        let ram = core.memory_region(crate::memory::MEMORY_SYSTEM_RAM).ok_or_else(|| {
+            BridgeError::Memory("the system RAM went away during the search".into())
+        })?;
+        search.filter(ram, filter).map_err(BridgeError::Memory)
+    }
+
+    /// Candidates left, or `None` when no search is running.
+    pub fn search_count(&self) -> Option<usize> {
+        self.session.as_ref()?.search.as_ref().map(RamSearch::count)
+    }
+
+    /// The width the running search reads at.
+    pub fn search_width(&self) -> Option<SearchWidth> {
+        self.session.as_ref()?.search.as_ref().map(RamSearch::width)
+    }
+
+    /// Up to `limit` surviving addresses with their current and previous values.
+    pub fn search_results(&self, limit: usize) -> Vec<SearchHit> {
+        let Some(session) = self.session.as_ref() else {
+            return Vec::new();
+        };
+        let (Some(search), Some(ram)) = (
+            session.search.as_ref(),
+            session.core.memory_region(crate::memory::MEMORY_SYSTEM_RAM),
+        ) else {
+            return Vec::new();
+        };
+        search.results(ram, limit)
+    }
+
+    /// Ends the search and frees its two snapshots.
+    pub fn search_clear(&mut self) {
+        if let Some(session) = self.session.as_mut() {
+            session.search = None;
+        }
+    }
+
+    /// Writes every enabled poke into `SYSTEM_RAM`. Called after each `run_frame`.
+    ///
+    /// A poke that does not fit the region is skipped rather than failing the frame, for the
+    /// reason on [`Poke::apply`].
+    fn apply_pokes(session: &mut Session) {
+        if session.pokes.is_empty() {
+            return;
+        }
+        let Session { core, pokes, .. } = session;
+        if let Some(ram) = core.memory_region_mut(crate::memory::MEMORY_SYSTEM_RAM) {
+            for poke in pokes.iter() {
+                poke.apply(ram);
+            }
+        }
+    }
+
+    /// Starts a session with no renderer, for tests that need a running core.
+    #[cfg(test)]
+    pub(crate) fn launch_headless_for_test(
+        &mut self,
+        core_id: &str,
+        content: &[u8],
+    ) -> Result<(), BridgeError> {
+        let mut core = self.registry.take_for_session(core_id)?;
+        core.load_content(content, &ContentHint::from_filename("test.rom"))?;
+        self.session = Some(Session {
+            core_id: core_id.to_string(),
+            content_id: "test.rom".into(),
+            core,
+            paused: false,
+            cheats: Vec::new(),
+            pokes: Vec::new(),
+            search: None,
+        });
+        Ok(())
+    }
+
+    /// Runs `frames` core frames with no renderer, the way `tick` does (frame, then pokes).
+    #[cfg(test)]
+    pub(crate) fn step_headless_for_test(&mut self, frames: u32) -> Result<(), BridgeError> {
+        let snapshot = self.gamepads.snapshot();
+        let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
+        for _ in 0..frames {
+            session.core.run_frame(&snapshot)?;
+            Self::apply_pokes(session);
+        }
+        Ok(())
     }
 
     /// Pushes the session's recorded list into the core: reset, then set each in order.
@@ -1424,6 +1696,108 @@ mod tests {
         bridge.set_output_sample_rate(44_100);
         assert_eq!(bridge.output_sample_rate(), 44_100);
         assert_eq!(bridge.audio_spec().output_rate, 44_100);
+    }
+
+    fn running_diagnostic() -> EmulatorBridge {
+        let mut bridge = EmulatorBridge::new();
+        bridge.declare_core(descriptor("diag", "test"));
+        bridge.attach_core_module("diag", MODULE).unwrap();
+        bridge.launch_headless_for_test("diag", b"rom").unwrap();
+        bridge
+    }
+
+    #[test]
+    fn memory_access_needs_a_session_and_a_region() {
+        use crate::memory::*;
+        let mut bridge = EmulatorBridge::new();
+        assert!(matches!(
+            bridge.read_memory(MEMORY_SYSTEM_RAM, 0, 1),
+            Err(BridgeError::NoSession)
+        ));
+        assert_eq!(bridge.memory_size(MEMORY_SYSTEM_RAM), 0);
+        bridge = running_diagnostic();
+        assert_eq!(bridge.memory_size(MEMORY_SYSTEM_RAM), 2048);
+        assert_eq!(bridge.memory_size(MEMORY_VIDEO_RAM), 0);
+        let err = bridge.read_memory(MEMORY_VIDEO_RAM, 0, 1).unwrap_err();
+        assert!(err.to_string().contains("video RAM"), "{err}");
+    }
+
+    #[test]
+    fn read_and_write_memory_round_trip_and_bounds_check() {
+        use crate::memory::*;
+        let mut bridge = running_diagnostic();
+        bridge.write_memory(MEMORY_SYSTEM_RAM, 0x100, &[1, 2, 3]).unwrap();
+        assert_eq!(bridge.read_memory(MEMORY_SYSTEM_RAM, 0x100, 3).unwrap(), vec![1, 2, 3]);
+        assert!(bridge.write_memory(MEMORY_SYSTEM_RAM, 2047, &[1, 2]).is_err());
+        assert!(bridge.read_memory(MEMORY_SYSTEM_RAM, 2040, 9).is_err());
+        // A refused write changed nothing.
+        assert_eq!(bridge.read_memory(MEMORY_SYSTEM_RAM, 2047, 1).unwrap(), vec![0]);
+    }
+
+    #[test]
+    fn battery_save_round_trips_through_a_file() {
+        let dir = std::env::temp_dir().join(format!("continuum-srm-{}", std::process::id()));
+        let path = dir.join("game.srm");
+        let path = path.to_str().unwrap().to_string();
+        let mut bridge = running_diagnostic();
+        assert_eq!(bridge.load_battery_save_file(&path).unwrap(), None);
+        bridge
+            .write_memory(crate::memory::MEMORY_SAVE_RAM, 0, &[0x5A, 0xA5])
+            .unwrap();
+        assert_eq!(bridge.persist_battery_save(&path).unwrap(), 8192);
+        let mut fresh = running_diagnostic();
+        assert_eq!(fresh.battery_save().unwrap()[0], 0);
+        assert_eq!(fresh.load_battery_save_file(&path).unwrap(), Some(8192));
+        assert_eq!(&fresh.battery_save().unwrap()[..2], &[0x5A, 0xA5]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn battery_restore_accepts_shorter_and_refuses_longer() {
+        let mut bridge = running_diagnostic();
+        assert_eq!(bridge.restore_battery_save(&[7; 100]).unwrap(), 8192);
+        assert_eq!(bridge.battery_save().unwrap()[99], 7);
+        assert!(bridge.restore_battery_save(&vec![1; 8193]).is_err());
+        assert!(bridge.restore_battery_save(&[]).is_err());
+    }
+
+    #[test]
+    fn ram_search_finds_the_health_byte_through_the_bridge() {
+        use crate::cores::DiagnosticCore;
+        let mut bridge = running_diagnostic();
+        bridge.step_headless_for_test(1).unwrap();
+        assert_eq!(bridge.search_start(SearchWidth::Bits8, false).unwrap(), 2048);
+        bridge.step_headless_for_test(1).unwrap();
+        bridge.search_filter(SearchFilter::DecreasedBy(1)).unwrap();
+        bridge.step_headless_for_test(3).unwrap();
+        let left = bridge.search_filter(SearchFilter::LessThanPrevious).unwrap();
+        // Health drops one a frame; the frame counter's low byte rises. Only health is left.
+        assert_eq!(left, 1);
+        let hits = bridge.search_results(10);
+        assert_eq!(hits[0].address as usize, DiagnosticCore::HEALTH_OFFSET);
+        assert_eq!(hits[0].current, 95);
+        bridge.search_clear();
+        assert_eq!(bridge.search_count(), None);
+        assert!(bridge.search_filter(SearchFilter::Changed).is_err());
+    }
+
+    #[test]
+    fn a_poke_pins_the_value_every_frame_and_is_not_sent_to_the_core() {
+        use crate::cores::DiagnosticCore;
+        use crate::memory::MEMORY_SYSTEM_RAM;
+        let mut bridge = running_diagnostic();
+        let poke = Poke::new(DiagnosticCore::HEALTH_OFFSET as u32, 99, 1).unwrap();
+        // The diagnostic core does not take core cheats, so a list of only pokes must still be
+        // refused there: that is the existing contract for cores without cheat support.
+        assert!(bridge.apply_cheats(vec![poke.code()], &[1]).is_err());
+        let health = DiagnosticCore::HEALTH_OFFSET as u64;
+        bridge.session.as_mut().unwrap().pokes = vec![poke];
+        bridge.step_headless_for_test(10).unwrap();
+        assert_eq!(bridge.read_memory(MEMORY_SYSTEM_RAM, health, 1).unwrap(), vec![99]);
+        assert_eq!(bridge.active_cheat_count(), 1);
+        bridge.session.as_mut().unwrap().pokes.clear();
+        bridge.step_headless_for_test(1).unwrap();
+        assert_eq!(bridge.read_memory(MEMORY_SYSTEM_RAM, health, 1).unwrap(), vec![98]);
     }
 
     #[test]

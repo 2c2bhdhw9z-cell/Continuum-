@@ -47,14 +47,17 @@
 
 pub mod audio;
 pub mod bridge;
+pub mod cheats;
 pub mod cores;
 pub mod error;
 pub mod frame;
 pub mod gfx;
 pub mod input;
 pub mod jit_probe;
+pub mod memory;
 pub mod vulkan_probe;
 pub mod rewind;
+pub mod saves;
 pub mod timing;
 
 /// `Send`, and now unconditionally so.

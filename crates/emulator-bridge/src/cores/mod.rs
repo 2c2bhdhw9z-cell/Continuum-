@@ -213,6 +213,21 @@ pub trait EmulatorCore: crate::MaybeSend {
         Err(BridgeError::NotImplemented("set_core_option"))
     }
 
+    /// One of the core's memory regions (`retro_get_memory_data` / `retro_get_memory_size`).
+    ///
+    /// `id` is a libretro region id from [`crate::memory`]: save RAM, RTC, system RAM or video
+    /// RAM. `None` means the core does not expose that region, which is common and not an error
+    /// (a cartridge with no battery has no save RAM). The slice is the core's own memory, so it is
+    /// only valid while content is loaded and only until the next `run_frame`.
+    fn memory_region(&self, _id: u32) -> Option<&[u8]> {
+        None
+    }
+
+    /// The same region, writable. Used for battery-save restore, RAM pokes and nothing else.
+    fn memory_region_mut(&mut self, _id: u32) -> Option<&mut [u8]> {
+        None
+    }
+
     /// Frames emulated since load. Used for the HUD and state metadata.
     fn frame_count(&self) -> u64;
 

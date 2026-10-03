@@ -42,9 +42,32 @@ pub struct DiagnosticCore {
     /// instead of drifting by a few samples a second.
     sample_debt: f64,
     audio_scratch: Vec<f32>,
+    // --- memory, so RAM search, pokes, battery saves and achievements are testable ---
+    /// A pretend work RAM with a fixed, documented layout. See [`DiagnosticCore::SYSTEM_RAM_LAYOUT`].
+    system_ram: Vec<u8>,
+    /// A pretend battery save. Byte 0 counts presses of A, so a test can tell a restored save
+    /// from a fresh one.
+    save_ram: Vec<u8>,
+    /// Whether A was held last frame, so the save RAM counter moves on a press and not per frame.
+    a_was_held: bool,
 }
 
 impl DiagnosticCore {
+    /// Bytes of pretend system RAM.
+    pub const SYSTEM_RAM_BYTES: usize = 2048;
+    /// Bytes of pretend battery save.
+    pub const SAVE_RAM_BYTES: usize = 8192;
+    /// What lives where in the pretend system RAM. Written every `run_frame`:
+    ///
+    /// - `0x00..0x08`: the frame counter, u64 little endian
+    /// - `0x10`: "health", starts at 100 and drops by one every frame, saturating at 0. The thing a
+    ///   RAM search finds by "decreased" and a poke pins.
+    /// - `0x20..0x22`: the reticle's x position in thousandths, u16 little endian
+    /// - everything else: zero, and never touched, which is what "unchanged" filters keep
+    pub const SYSTEM_RAM_LAYOUT: &'static str = "frame u64 @0x00, health u8 @0x10, x u16 @0x20";
+    pub const HEALTH_OFFSET: usize = 0x10;
+    pub const RETICLE_X_OFFSET: usize = 0x20;
+
     pub fn new(descriptor: CoreDescriptor) -> Self {
         let width = descriptor.geometry.base_width.max(1);
         let height = descriptor.geometry.base_height.max(1);
@@ -69,7 +92,31 @@ impl DiagnosticCore {
             tone_phase: 0.0,
             sample_debt: 0.0,
             audio_scratch: Vec::with_capacity(audio_capacity),
+            system_ram: Self::fresh_system_ram(),
+            save_ram: vec![0; Self::SAVE_RAM_BYTES],
+            a_was_held: false,
         }
+    }
+
+    fn fresh_system_ram() -> Vec<u8> {
+        let mut ram = vec![0; Self::SYSTEM_RAM_BYTES];
+        ram[Self::HEALTH_OFFSET] = 100;
+        ram
+    }
+
+    /// Writes this frame's values into the pretend RAM. See [`Self::SYSTEM_RAM_LAYOUT`].
+    fn update_ram(&mut self, input: &InputSnapshot) {
+        self.system_ram[0..8].copy_from_slice(&self.frame_count.to_le_bytes());
+        let health = self.system_ram[Self::HEALTH_OFFSET];
+        self.system_ram[Self::HEALTH_OFFSET] = health.saturating_sub(1);
+        let x = (self.reticle.0.clamp(0.0, 1.0) * 1000.0).round() as u16;
+        self.system_ram[Self::RETICLE_X_OFFSET..Self::RETICLE_X_OFFSET + 2]
+            .copy_from_slice(&x.to_le_bytes());
+        let a = input.button(0, Button::A);
+        if a && !self.a_was_held {
+            self.save_ram[0] = self.save_ram[0].wrapping_add(1);
+        }
+        self.a_was_held = a;
     }
 
     /// Enables a quiet reference tone. Off by default — an emulator that beeps at
@@ -191,6 +238,7 @@ impl EmulatorCore for DiagnosticCore {
 
         self.render_pattern(input);
         self.frame_count += 1;
+        self.update_ram(input);
         Ok(())
     }
 
@@ -234,6 +282,10 @@ impl EmulatorCore for DiagnosticCore {
         self.reticle = (0.5, 0.5);
         self.tone_phase = 0.0;
         self.sample_debt = 0.0;
+        // Work RAM is wiped by a reset on real hardware; battery RAM is not, which is the point
+        // of a battery.
+        self.system_ram = Self::fresh_system_ram();
+        self.a_was_held = false;
         Ok(())
     }
 
@@ -271,6 +323,22 @@ impl EmulatorCore for DiagnosticCore {
         self.reticle.1 = f32::from_le_bytes(src[12..16].try_into().unwrap());
         self.tone_phase = f64::from_le_bytes(src[16..24].try_into().unwrap());
         Ok(())
+    }
+
+    fn memory_region(&self, id: u32) -> Option<&[u8]> {
+        match id {
+            crate::memory::MEMORY_SYSTEM_RAM => Some(&self.system_ram),
+            crate::memory::MEMORY_SAVE_RAM => Some(&self.save_ram),
+            _ => None,
+        }
+    }
+
+    fn memory_region_mut(&mut self, id: u32) -> Option<&mut [u8]> {
+        match id {
+            crate::memory::MEMORY_SYSTEM_RAM => Some(&mut self.system_ram),
+            crate::memory::MEMORY_SAVE_RAM => Some(&mut self.save_ram),
+            _ => None,
+        }
     }
 
     fn frame_count(&self) -> u64 {
@@ -348,6 +416,44 @@ mod tests {
         assert_eq!(core.frame_count(), 0);
         core.load_state(&state).unwrap();
         assert_eq!(core.frame_count(), 10);
+    }
+
+    #[test]
+    fn exposes_system_and_save_ram_and_nothing_else() {
+        use crate::memory::*;
+        let mut core = DiagnosticCore::new(descriptor());
+        let input = InputState::default().snapshot();
+        core.run_frame(&input).unwrap();
+        let ram = core.memory_region(MEMORY_SYSTEM_RAM).unwrap();
+        assert_eq!(ram.len(), DiagnosticCore::SYSTEM_RAM_BYTES);
+        assert_eq!(u64::from_le_bytes(ram[0..8].try_into().unwrap()), 1);
+        assert_eq!(ram[DiagnosticCore::HEALTH_OFFSET], 99);
+        assert_eq!(
+            core.memory_region(MEMORY_SAVE_RAM).unwrap().len(),
+            DiagnosticCore::SAVE_RAM_BYTES
+        );
+        assert!(core.memory_region(MEMORY_VIDEO_RAM).is_none());
+        assert!(core.memory_region(MEMORY_RTC).is_none());
+        // Writable, and the write is what the next read sees.
+        core.memory_region_mut(MEMORY_SYSTEM_RAM).unwrap()[5] = 0xAB;
+        assert_eq!(core.memory_region(MEMORY_SYSTEM_RAM).unwrap()[5], 0xAB);
+    }
+
+    #[test]
+    fn save_ram_counts_presses_and_survives_reset() {
+        use crate::memory::MEMORY_SAVE_RAM;
+        let mut core = DiagnosticCore::new(descriptor());
+        let mut state = InputState::default();
+        state.set_button(0, Button::A, true);
+        core.run_frame(&state.snapshot()).unwrap();
+        core.run_frame(&state.snapshot()).unwrap(); // held, not a second press
+        state.set_button(0, Button::A, false);
+        core.run_frame(&state.snapshot()).unwrap();
+        state.set_button(0, Button::A, true);
+        core.run_frame(&state.snapshot()).unwrap();
+        assert_eq!(core.memory_region(MEMORY_SAVE_RAM).unwrap()[0], 2);
+        core.reset().unwrap();
+        assert_eq!(core.memory_region(MEMORY_SAVE_RAM).unwrap()[0], 2);
     }
 
     #[test]
