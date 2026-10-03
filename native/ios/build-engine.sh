@@ -49,6 +49,11 @@ rustup target add "$TARGET"
 # the process. It is a *custom* profile, so cargo writes its artefacts to
 # `target/$TARGET/ios/`, not `.../release/` — hence RUST_OUT below. See Cargo.toml.
 echo "==> cargo build --profile ios --target $TARGET --features $FEATURES"
+# ONE iOS version for Rust and for the C the engine compiles (the log shim and rcheevos).
+# Without it rustc links for its default (iOS 10) while cc compiles for the SDK's own version, and
+# the link then fails on a symbol that only exists in the newer libSystem (`___chkstk_darwin`,
+# pulled in by rcheevos). 16.0 is the app's deploymentTarget in project.yml; keep them equal.
+export IPHONEOS_DEPLOYMENT_TARGET="16.0"
 # Builds every crate-type at once: the .a is what Xcode links, and the .dylib is what
 # UniFFI reads metadata out of. One build, both artefacts.
 (cd "$ROOT" && cargo build --profile ios --target "$TARGET" --features "$FEATURES")
