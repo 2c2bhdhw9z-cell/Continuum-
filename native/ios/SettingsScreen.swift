@@ -116,6 +116,8 @@ struct SettingsScreen: View {
                 Group {
                     CloudSyncSection(sync: host.cloudSync)
                     OnlinePlaySettingsSection(netplay: host.netplay)
+                    // Controller types, button mapping profiles, motion. See InputExtras.swift.
+                    InputSettingsSection(host: host, extras: host.inputExtras)
                 }
             }
             .padding(.bottom, 24)

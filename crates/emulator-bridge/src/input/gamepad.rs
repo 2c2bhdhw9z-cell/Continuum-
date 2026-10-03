@@ -401,6 +401,8 @@ impl GamepadBridge {
         }
         // Only the gamepad layer: a keyboard player on the same port keeps playing.
         self.sources[PadSource::Gamepad as usize].ports[port] = PortState::default();
+        // A remapped "blow" held on the pad that left must not stay held.
+        self.held_actions[PadSource::Gamepad as usize][port] = 0;
     }
 
     pub fn is_connected(&self, port: usize) -> bool {
