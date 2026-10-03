@@ -87,6 +87,8 @@ impl WireInput {
                 f32::from(self.pointer[1]) / 65535.0,
             ],
             pointer_pressed: self.pointer_pressed,
+            // The mouse is not sent online: trackpad mode is a local-only aid.
+            mouse: Default::default(),
         }
     }
 
@@ -547,6 +549,7 @@ mod tests {
             axes: [0.333, -0.9999, 1.5, f32::NAN],
             pointer: [0.25, 0.75],
             pointer_pressed: true,
+            ..PortState::default()
         };
         let once = WireInput::from_port(&port);
         let twice = WireInput::from_port(&once.to_port());

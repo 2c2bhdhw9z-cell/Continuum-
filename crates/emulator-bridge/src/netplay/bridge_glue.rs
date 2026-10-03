@@ -336,6 +336,8 @@ mod tests {
             core: Box::new(LockstepCore::new(seed)),
             paused: false,
             cheats: Vec::new(),
+            pokes: Vec::new(),
+            search: None,
         });
         bridge
     }

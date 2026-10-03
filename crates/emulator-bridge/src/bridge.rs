@@ -446,7 +446,6 @@ impl EmulatorBridge {
             if achievements.is_game_loaded() {
                 achievements.unload_game();
             }
-            }
         }
         if let Some(netplay) = self.netplay.as_mut() {
             // Kept, not dropped, so the host can still flush the goodbye and show why the
