@@ -390,6 +390,8 @@ ios_core_config() {
       IOS_KIND="cmake-ppsspp"
       IOS_CMAKE_TARGET="ppsspp_libretro"
       IOS_SUBMODULES=1
+      # ext/cpu_features is required. ext/cmake/cpu_features configure_file's
+      # ext/cpu_features/cmake/CpuFeaturesConfig.cmake.in. It is not vendored.
       IOS_SUBMODULE_PATHS=(
         libretro/libretro-common
         ext/armips
@@ -401,6 +403,7 @@ ios_core_config() {
         ext/rcheevos
         ext/aemu_postoffice
         ext/rapidjson
+        ext/cpu_features
       )
       IOS_DISPLAY="PSP, Vulkan, IR interpreter (no JIT, no dynarec)"
       ;;
