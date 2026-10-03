@@ -36,6 +36,7 @@ button in the player; see [Reading the diagnostic text](#reading-the-diagnostic-
 | ☐ **12. TurboGrafx-16** | Import a `.pce` file and tap it | Plays, own shelf called TurboGrafx-16 | A seventh core, and it needs nothing from you. Only HuCard games: PC Engine CD needs a BIOS that cannot ship. If the two buttons feel swapped, tell me — I took I and II from the core's own list rather than from the names, and they are the opposite way round from how they read |
 | ☐ **13. Atari 2600** | Import a `.a26` file and tap it | Plays, one FIRE button plus SELECT and RESET | An eighth core, also needing nothing. **It must be named `.a26`, not `.bin`** — rename it if yours is `.bin`, because `.bin` belongs to PlayStation discs here. This is also the first core that needed the game loaded into memory rather than opened from disk, so if it shows a black screen say so: that would be the new code path and not the emulator |
 | ☐ **14. NINTENDO 64** | Import a `.n64`, `.z64` or `.v64` file and tap it | It boots and you can move | **Expect it to be SLOW.** This core renders in software and interprets every instruction, because that is the only way the N64 runs without the JIT permission we do not have. Slow is the expected result; a black screen or a crash is not. The D-pad surface drives the **analog Control Stick**, not just the D-pad, because almost no N64 game reads the D-pad — Mario would not move otherwise. Tell me roughly what frame rate the counter shows |
+| ☐ **15. Import the skin again** | After the next install, import the skin file again. A skin already saved on the phone only has the first hole and no circle pad | Top picture inside the top hole, bottom picture in the bottom hole, both ways you hold the phone. The circle pad moves as a stick. A button shows its pressed picture only if the file has one | `ee307b8` is in the tree and not on a phone. The last phone report still stands until this is tried |
 
 ### Answered without a device: the DS needs no BIOS files
 
@@ -91,6 +92,23 @@ wrong, so it matters, but there is no reasonable way to ask you to trigger it.
 `.sms` and `.gb` files. Every other extension has been imported and played. See
 [Test 3](#test-3-the-other-cartridge-systems).
 
+
+### Not built
+
+These are not tests. They are not in the app. JIT is out on purpose.
+
+- Swap which screen is the big one
+- AirPlay (game on the TV, touch screen stays on the phone)
+- Extra buttons you place yourself
+- Editing an imported skin inside the app (dragging the built-in pad is a different thing)
+- Touch as a mouse
+- Camera, microphone, Amiibo, haptics on a button
+- A 50-slot save manager, and exporting a save file
+- Cheat search, and importing a cheat file (typing a code is separate, and it has worked)
+- Online play, achievements, cloud sync
+- JIT
+
+
 ---
 
 ## What is already confirmed working
@@ -133,6 +151,8 @@ Everything below has since been confirmed on a device as well, in the order it w
 | Bluetooth controller | Works |
 | Controller and thumbs together | Works, which was the hard part of the input rewrite |
 | Library layout, Grid and List | Works |
+
+Two of those lines are narrower than they sound. Cheats means a code you type, not a search and not a file import. Fast forward is about 4x, not 5x. Save slots are back in the queue and are not a 50-slot manager.
 
 So this checklist is no longer asking whether any of it works. **It is a regression check.** Each
 test below says what already passed, and if one of those fails on a new build then something that
