@@ -260,6 +260,10 @@ final class MetalCanvas: UIView {
         if let gamepadSource {
             let pad = gamepadSource()
             engine.applyGamepadFrom(port: 0, source: .touch, buttons: pad.buttons, axes: pad.axes)
+            // Extra buttons held as turbo. Every frame, like the pad, so a release is delivered;
+            // the engine pulses these per core frame rather than this loop toggling them, so the
+            // rate holds at 120 Hz and under fast forward.
+            engine.applyTurbo(port: 0, buttons: pad.turbo)
             // The stylus rides the same frame as the buttons, on the same layer, because on a DS a
             // tap and a button press are frequently one action and splitting them across two ticks
             // would be a frame of skew between halves of the same input. Pushed unconditionally

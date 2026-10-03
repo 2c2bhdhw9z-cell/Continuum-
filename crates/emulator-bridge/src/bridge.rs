@@ -394,6 +394,8 @@ impl EmulatorBridge {
             );
         }
         self.gamepads.release_all();
+        // A new session starts with every motor still. See `input::rumble::Rumble::clear`.
+        crate::input::rumble::RUMBLE.clear();
         self.state_scratch = Vec::with_capacity(core.state_size());
 
         log::info!(
@@ -456,6 +458,8 @@ impl EmulatorBridge {
         // input, then GPU resources.
         self.sink = Box::new(NullAudioSink::new());
         self.gamepads.release_all();
+        // A core torn down mid-rumble never sends the zero that would end it.
+        crate::input::rumble::RUMBLE.clear();
         if let Some(renderer) = &mut self.renderer {
             renderer.release_frame_target();
             renderer.set_dual_geometry(None);
@@ -535,6 +539,7 @@ impl EmulatorBridge {
         self.sink.flush();
         self.gamepads.release_all();
         self.achievements_reset();
+        crate::input::rumble::RUMBLE.clear();
         // Everything on the rewind tape is from before the reset, so rewinding would undo
         // the reset itself.
         self.rewind.clear();
@@ -662,7 +667,10 @@ impl EmulatorBridge {
         // 2. Core steps (0..=4, decided by the pacer).
         let plan = pacer.plan(now_ms);
         for _ in 0..plan.steps {
-            session.core.run_frame(&snapshot)?;
+            // Turbo is the one part of input that is meant to differ between catch-up steps:
+            // it pulses per CORE frame, so its rate holds at 120 Hz and under fast forward.
+            let step = gamepads.turbo_step(&snapshot);
+            session.core.run_frame(&step)?;
             // 2a. Achievements, against memory exactly as the game left it this frame, before
             //     any poke rewrites it.
             #[cfg(feature = "native-core")]
@@ -827,6 +835,22 @@ impl EmulatorBridge {
     /// Releases one source, e.g. when the touch overlay is dismissed.
     pub fn release_input_source(&mut self, source: PadSource) {
         self.gamepads.release_source(source);
+    }
+
+    /// Which buttons the on-screen pad is holding as TURBO on `port`, W3C standard order. See
+    /// [`GamepadBridge::apply_turbo_standard`].
+    pub fn apply_turbo(&mut self, port: usize, buttons: &[bool]) {
+        self.gamepads.apply_turbo_standard(port, buttons);
+    }
+
+    /// Core frames down, then up, per turbo cycle. See
+    /// [`GamepadBridge::set_turbo_half_period`].
+    pub fn set_turbo_half_period(&mut self, frames: u32) {
+        self.gamepads.set_turbo_half_period(frames);
+    }
+
+    pub fn turbo_half_period(&self) -> u32 {
+        self.gamepads.turbo_half_period()
     }
 
     /// Applies one poll of a W3C standard gamepad. See

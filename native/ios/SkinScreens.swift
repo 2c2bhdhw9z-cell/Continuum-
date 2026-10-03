@@ -426,4 +426,6 @@ struct SkinPadFace {
     var stickImages: [String: UIImage] = [:]
     var dpadImage: UIImage?
     var dpadPressedImage: UIImage?
+    /// Skin art opacity from the in-app skin editor (`SkinFaceEdits.opacity`). 1 is the file.
+    var opacity: Double = 1
 }

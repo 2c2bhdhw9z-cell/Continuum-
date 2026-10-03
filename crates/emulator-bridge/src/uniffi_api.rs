@@ -432,6 +432,18 @@ pub struct RewindStatsSnapshot {
     pub interval_frames: u32,
 }
 
+/// What a core last asked one controller port's motors to do.
+///
+/// Each motor is a `0.0..=1.0` fraction of libretro's `0..=0xffff`. `generation` moves whenever
+/// any motor on any port changed, so a host polling every frame can skip work while it holds
+/// still, and can tell a fresh pulse at the same strength from a motor that never stopped.
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct RumbleReading {
+    pub strong: f32,
+    pub weak: f32,
+    pub generation: u64,
+}
+
 /// The engine, as Swift holds it.
 #[derive(uniffi::Object)]
 pub struct ContinuumEngine {
@@ -924,6 +936,59 @@ impl ContinuumEngine {
 
     pub fn connected_pads(&self) -> u32 {
         self.lock().connected_pads() as u32
+    }
+
+    // --------------------------------------------------------------------- turbo
+
+    /// Which buttons the on-screen pad is holding as TURBO on `port`.
+    ///
+    /// **W3C standard gamepad order, the same array shape as `apply_gamepad_from`**, so the host
+    /// builds it with the table it already has. A turbo button must NOT also be sent as pressed
+    /// through `apply_gamepad_from`, or it is simply held. The engine pulses it per core frame,
+    /// so the rate is the same at 60 Hz, at 120 Hz and under fast forward, and an Android host
+    /// gets the same behaviour by calling the same thing.
+    ///
+    /// Replaces the port's turbo set, like a poll. Releasing the touch layer clears it.
+    pub fn apply_turbo(&self, port: u32, buttons: Vec<bool>) {
+        self.lock().apply_turbo(port as usize, &buttons);
+    }
+
+    /// Core frames a turbo button stays down, then up. `4` (7.5 presses a second at 60 Hz) is
+    /// the default; clamped to `1..=30`.
+    pub fn set_turbo_half_period(&self, frames: u32) {
+        self.lock().set_turbo_half_period(frames);
+    }
+
+    pub fn turbo_half_period(&self) -> u32 {
+        self.lock().turbo_half_period()
+    }
+
+    // -------------------------------------------------------------------- rumble
+
+    /// The motors a core last asked for on `port`, for the host to play on its own haptics.
+    ///
+    /// TAKES NO ENGINE LOCK, so it is safe to poll from the display link every frame: the core
+    /// writes this table from inside `retro_run` through `RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE`
+    /// and the table has its own tiny lock. Idle (both zero) when no core has asked, when
+    /// rumble is switched off, and after the session stops.
+    pub fn rumble_state(&self, port: u32) -> RumbleReading {
+        let rumble = &crate::input::rumble::RUMBLE;
+        let motors = rumble.reading(port);
+        RumbleReading {
+            strong: motors.strong_fraction(),
+            weak: motors.weak_fraction(),
+            generation: rumble.generation(),
+        }
+    }
+
+    /// The user's Rumble setting. Off makes the core's rumble calls return false and stops
+    /// whatever is playing at once.
+    pub fn set_rumble_enabled(&self, enabled: bool) {
+        crate::input::rumble::RUMBLE.set_enabled(enabled);
+    }
+
+    pub fn rumble_enabled(&self) -> bool {
+        crate::input::rumble::RUMBLE.is_enabled()
     }
 
     // --------------------------------------------------------------------- audio

@@ -13,8 +13,9 @@
 //! with no translation layer in between.
 
 mod gamepad;
+pub mod rumble;
 
-pub use gamepad::{GamepadBridge, PadKind, PadSource};
+pub use gamepad::{GamepadBridge, PadKind, PadSource, DEFAULT_TURBO_HALF_PERIOD};
 
 /// Supported local players. Four covers every Phase 1 system (PS1 multitap aside).
 pub const MAX_PORTS: usize = 4;

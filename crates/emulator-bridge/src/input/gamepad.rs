@@ -117,16 +117,102 @@ const STANDARD_GAMEPAD_MAP: [(usize, Button); 16] = [
     (15, Button::Right),
 ];
 
-#[derive(Debug, Default)]
+/// Core frames a turbo button stays down, and then up, unless the host asks for another rate.
+///
+/// Four on and four off is 7.5 presses a second at 60 Hz, which is the "fast but countable"
+/// rate most frontends ship as their default. Faster than about 2 frames each way and many games
+/// stop seeing the release at all, because they sample input once every other frame.
+pub const DEFAULT_TURBO_HALF_PERIOD: u32 = 4;
+
+/// The slowest rate a host may ask for: half a second each way at 60 Hz.
+const MAX_TURBO_HALF_PERIOD: u32 = 30;
+
+#[derive(Debug)]
 pub struct GamepadBridge {
     /// One independent input layer per source; merged on snapshot.
     sources: [InputState; SOURCE_COUNT],
     connections: [Option<Connection>; MAX_PORTS],
+    /// Buttons held as TURBO, per port, as a `Button` bitfield. Not a source layer: a turbo
+    /// button is not pressed, it is pulsed, so it is added to each core frame's snapshot by
+    /// [`Self::turbo_step`] rather than merged in [`Self::snapshot`].
+    turbo: [u32; MAX_PORTS],
+    /// Core frames per half cycle (down for this many, then up for this many).
+    turbo_half_period: u32,
+    /// Core frames since turbo was last picked up from nothing. Counted in core frames rather
+    /// than display ticks so the rate is the same at 60 and 120 Hz and under fast forward.
+    turbo_clock: u64,
+}
+
+impl Default for GamepadBridge {
+    fn default() -> Self {
+        Self {
+            sources: Default::default(),
+            connections: Default::default(),
+            turbo: [0; MAX_PORTS],
+            turbo_half_period: DEFAULT_TURBO_HALF_PERIOD,
+            turbo_clock: 0,
+        }
+    }
 }
 
 impl GamepadBridge {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    // ------------------------------------------------------------------- turbo
+
+    /// Which buttons on `port` are being held as turbo, in the same W3C standard order as
+    /// [`Self::apply_standard_gamepad_from`], so the host builds this array with the same table
+    /// it already builds its pad array with.
+    ///
+    /// Replaces that port's turbo set wholesale, like a poll. When turbo goes from nothing held
+    /// to something held, the clock restarts so the first frame after the press is a DOWN frame:
+    /// a turbo button that sometimes waited four frames before doing anything would feel laggy.
+    pub fn apply_turbo_standard(&mut self, port: usize, buttons: &[bool]) {
+        if port >= MAX_PORTS {
+            return;
+        }
+        let mut mask = 0u32;
+        for (index, button) in STANDARD_GAMEPAD_MAP {
+            if buttons.get(index).copied().unwrap_or(false) {
+                mask |= 1 << button as u32;
+            }
+        }
+        let was_idle = self.turbo.iter().all(|m| *m == 0);
+        self.turbo[port] = mask;
+        if was_idle && mask != 0 {
+            self.turbo_clock = 0;
+        }
+    }
+
+    /// Frames down (and then up) per turbo cycle. Clamped to `1..=30`.
+    pub fn set_turbo_half_period(&mut self, frames: u32) {
+        self.turbo_half_period = frames.clamp(1, MAX_TURBO_HALF_PERIOD);
+    }
+
+    pub fn turbo_half_period(&self) -> u32 {
+        self.turbo_half_period
+    }
+
+    /// The input for ONE core frame: `base` plus whichever turbo buttons are in their down phase.
+    ///
+    /// Advances the turbo clock, so it must be called exactly once per `run_frame`. The tick
+    /// still snapshots once and shares that snapshot across its catch-up steps; this only adds
+    /// the pulse on top, which is the one part of input that is meant to change between steps.
+    pub fn turbo_step(&mut self, base: &InputSnapshot) -> InputSnapshot {
+        let mut out = *base;
+        if self.turbo.iter().any(|m| *m != 0) {
+            let half = u64::from(self.turbo_half_period.max(1));
+            let down = (self.turbo_clock / half) % 2 == 0;
+            if down {
+                for (port, mask) in self.turbo.iter().enumerate() {
+                    out.ports[port].buttons |= *mask;
+                }
+            }
+            self.turbo_clock = self.turbo_clock.wrapping_add(1);
+        }
+        out
     }
 
     // ------------------------------------------------------------- connections
@@ -227,11 +313,18 @@ impl GamepadBridge {
         for source in &mut self.sources {
             source.release_all();
         }
+        self.turbo = [0; MAX_PORTS];
     }
 
     /// Releases one source, e.g. when the touch overlay is hidden.
+    ///
+    /// Releasing the touch layer also drops turbo, because only the on-screen pad holds turbo
+    /// buttons, and an overlay taken away mid-hold would otherwise leave a button firing forever.
     pub fn release_source(&mut self, source: PadSource) {
         self.sources[source as usize].release_all();
+        if source == PadSource::Touch {
+            self.turbo = [0; MAX_PORTS];
+        }
     }
 
     /// Freezes the merged state of every source for one frame.
@@ -532,5 +625,103 @@ mod tests {
         assert_eq!(pads.first_free_port(), Some(0));
         pads.connect(0, PadKind::StandardGamepad, "one");
         assert_eq!(pads.first_free_port(), Some(1));
+    }
+
+    /// W3C index 1 is retro A (see `STANDARD_GAMEPAD_MAP`).
+    fn turbo_a() -> Vec<bool> {
+        let mut buttons = vec![false; 16];
+        buttons[1] = true;
+        buttons
+    }
+
+    fn a_pattern(pads: &mut GamepadBridge, frames: usize) -> Vec<bool> {
+        let base = pads.snapshot();
+        (0..frames)
+            .map(|_| pads.turbo_step(&base).button(0, Button::A))
+            .collect()
+    }
+
+    #[test]
+    fn turbo_pulses_at_the_half_period() {
+        let mut pads = GamepadBridge::new();
+        pads.set_turbo_half_period(2);
+        pads.apply_turbo_standard(0, &turbo_a());
+        assert_eq!(
+            a_pattern(&mut pads, 8),
+            vec![true, true, false, false, true, true, false, false]
+        );
+    }
+
+    #[test]
+    fn turbo_starts_on_a_down_frame() {
+        let mut pads = GamepadBridge::new();
+        pads.set_turbo_half_period(3);
+        pads.apply_turbo_standard(0, &turbo_a());
+        let _ = a_pattern(&mut pads, 4); // part way into an up phase
+        pads.apply_turbo_standard(0, &[]);
+        pads.apply_turbo_standard(0, &turbo_a());
+        assert!(
+            a_pattern(&mut pads, 1)[0],
+            "a fresh press must fire at once"
+        );
+    }
+
+    #[test]
+    fn turbo_does_not_touch_ordinary_buttons_or_other_ports() {
+        let mut pads = GamepadBridge::new();
+        pads.set_button(0, PadSource::Touch, Button::B, true);
+        pads.apply_turbo_standard(0, &turbo_a());
+        let base = pads.snapshot();
+        assert!(
+            !base.button(0, Button::A),
+            "turbo is not part of the merged layers"
+        );
+        for _ in 0..12 {
+            let step = pads.turbo_step(&base);
+            assert!(step.button(0, Button::B), "a held button stays held");
+            assert!(!step.button(1, Button::A));
+        }
+    }
+
+    #[test]
+    fn idle_turbo_leaves_the_snapshot_alone() {
+        let mut pads = GamepadBridge::new();
+        pads.set_button(0, PadSource::Touch, Button::Start, true);
+        let base = pads.snapshot();
+        let step = pads.turbo_step(&base);
+        assert_eq!(step.ports[0].buttons, base.ports[0].buttons);
+    }
+
+    #[test]
+    fn releasing_touch_or_everything_drops_turbo() {
+        let mut pads = GamepadBridge::new();
+        pads.apply_turbo_standard(0, &turbo_a());
+        pads.release_source(PadSource::Touch);
+        assert!(a_pattern(&mut pads, 8).iter().all(|down| !down));
+        pads.apply_turbo_standard(0, &turbo_a());
+        pads.release_source(PadSource::Gamepad);
+        assert!(
+            a_pattern(&mut pads, 1)[0],
+            "a controller unplug is not the overlay"
+        );
+        pads.release_all();
+        assert!(a_pattern(&mut pads, 8).iter().all(|down| !down));
+    }
+
+    #[test]
+    fn turbo_rate_is_clamped() {
+        let mut pads = GamepadBridge::new();
+        assert_eq!(pads.turbo_half_period(), DEFAULT_TURBO_HALF_PERIOD);
+        pads.set_turbo_half_period(0);
+        assert_eq!(pads.turbo_half_period(), 1);
+        pads.set_turbo_half_period(1000);
+        assert_eq!(pads.turbo_half_period(), MAX_TURBO_HALF_PERIOD);
+    }
+
+    #[test]
+    fn turbo_ignores_an_out_of_range_port() {
+        let mut pads = GamepadBridge::new();
+        pads.apply_turbo_standard(MAX_PORTS, &turbo_a());
+        assert!(a_pattern(&mut pads, 4).iter().all(|down| !down));
     }
 }

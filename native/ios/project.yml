@@ -142,6 +142,20 @@ targets:
       # the build breaks in ContinuumApp.swift, which names ScreenModes, and the Info.plist scene
       # entry would name a delegate class that does not exist.
       - path: ScreenModes.swift
+      # Edits to an imported skin, kept as an overlay on top of the file (never written into it),
+      # and the full-screen editor that drags hit areas and screen holes. EngineHost lays the
+      # overlay over the file in skinPadFace, which is how the player uses the edited values.
+      - path: SkinEdits.swift
+      - path: SkinEditor.swift
+      # Extra buttons the player places anywhere: combos, turbo and app actions, per system and
+      # per orientation. The pad draws and hit-tests them through FloatingButtonLayer; the editor
+      # panel adds, retypes, resizes and deletes them. WITHOUT THESE LINES TouchControls.swift
+      # fails to compile, which is loud, but the panel file alone would be silent.
+      - path: FloatingButtons.swift
+      - path: FloatingButtonsPanel.swift
+      # The tap on an on-screen press, a core's rumble played on the phone and on controllers,
+      # and the three settings for them (button haptics, Rumble, turbo speed).
+      - path: Haptics.swift
       # The player screen's chrome, and the diagnostics panel both screens share.
       - path: PlayerScreen.swift
       # Stage 2, the library shell. The tab shell, the top bar, the hero and the shelves.

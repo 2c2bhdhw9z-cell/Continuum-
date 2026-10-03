@@ -120,6 +120,13 @@ struct PadFrame: Sendable, Equatable {
     let pointer: CGPoint
     let pointerPressed: Bool
 
+    /// Buttons held as TURBO by an extra button, in the same W3C order as `buttons`.
+    ///
+    /// Sent through `engine.applyTurbo(port:buttons:)`, never through `buttons`: a turbo slot that
+    /// was also in `buttons` would simply be held, and the pulse would never be seen. The engine
+    /// pulses it per core frame. See `GamepadBridge::turbo_step`.
+    let turbo: [Bool]
+
     /// Nothing held. What is pushed when no game is running, so a button cannot survive a
     /// session ending while a finger was down.
     ///
@@ -136,7 +143,8 @@ struct PadFrame: Sendable, Equatable {
          stick: CGPoint = .zero,
          rightStick: CGPoint = .zero,
          pointer: CGPoint = .zero,
-         pointerPressed: Bool = false) {
+         pointerPressed: Bool = false,
+         turbo: Set<PadSlot> = []) {
         self.pointer = pointer
         self.pointerPressed = pointerPressed
         var slots = [Bool](repeating: false, count: PadSlot.arrayLength)
@@ -144,6 +152,11 @@ struct PadFrame: Sendable, Equatable {
             slots[slot.rawValue] = true
         }
         buttons = slots
+        var pulsed = [Bool](repeating: false, count: PadSlot.arrayLength)
+        for slot in turbo {
+            pulsed[slot.rawValue] = true
+        }
+        self.turbo = pulsed
 
         // Left stick in 0 and 1. Right stick in 2 and 3 (the 3DS C-stick). A centred stick
         // cannot cancel a D-pad press: `apply_standard_gamepad` ORs stick-derived directions
@@ -172,6 +185,12 @@ private extension Float {
 /// "no controls on screen" a released pad rather than a missing value to handle.
 final class PadInputSource {
     weak var view: TouchControlsView?
+
+    /// Where an extra button's app action goes (quick save, fast forward and the rest), with
+    /// `pressed` true on the press and false on the release. Set once by `EngineHost`, which owns
+    /// both this box and everything the actions reach. Nil in the layout editor, which is why a
+    /// button tapped there cannot save a state.
+    var onAppAction: ((PadAppAction, Bool) -> Void)?
 
     /// The state for the frame about to run. Released when there is no control surface.
     func currentFrame() -> PadFrame {
@@ -1202,9 +1221,15 @@ final class TouchControlsView: UIView {
             // pressed with no touch left to release it, and leaving mid-drag would keep a handle
             // lit over a cluster nobody is carrying.
             releaseAll()
+            floatingPinch?.isEnabled = isEditing
             applyOpacity()
             setNeedsLayout()
         }
+    }
+
+    @objc private func floatingPinched(_ recogniser: UIPinchGestureRecognizer) {
+        guard isEditing else { return }
+        floating.pinch(scale: recogniser.scale, state: recogniser.state)
     }
 
     /// True while the layout editor's system list is on screen.
@@ -1392,6 +1417,10 @@ final class TouchControlsView: UIView {
         case stick(side: String, local: CGPoint)
         /// A skin button that this system's procedural pad does not draw (3DS Home / menu).
         case skinSlot(PadSlot)
+        /// An extra button the player placed (`FloatingButtons.swift`). Sticky like a chip. Keyed
+        /// by the button's id rather than its index, so a relayout cannot move a held finger onto
+        /// a different button.
+        case floating(UUID)
     }
 
     /// Keyed on `UITouch` identity, which is stable across began, moved, ended and cancelled and
@@ -1647,12 +1676,35 @@ final class TouchControlsView: UIView {
     /// The holes last reported, so a layout that did not move them does not reset the renderer.
     private var lastHoleSignature: String = ""
 
+    /// Extra buttons the player placed. Draws, hit-tests and (in the editor) drags them.
+    private let floating: FloatingButtonLayer
+    /// Resizes the selected extra button in the editor. Disabled while playing.
+    private var floatingPinch: UIPinchGestureRecognizer?
+    /// Where an extra button's app action goes. Wired by `TouchControlsHost` to the
+    /// `PadInputSource` box, so the player screen needed no new parameter.
+    var onAppAction: ((PadAppAction, Bool) -> Void)?
+    /// Action buttons held on the last recompute, so a press and a release are each sent once.
+    private var heldActionButtons: [UUID: PadAppAction] = [:]
+    /// What was down on the last recompute, so a tap is played on a NEW press only.
+    private var lastHapticPressed: Set<PadSlot> = []
+    private var lastHapticFloating: Set<UUID> = []
+
     // ------------------------------------------------------------------ life cycle
 
     init(system: GameSystem, layout: TouchLayout) {
         self.system = system
         self.layout = layout.sanitised
+        self.floating = FloatingButtonLayer()
         super.init(frame: .zero)
+        floating.attach(to: self)
+        floating.onChange = { [weak self] in self?.setNeedsLayout() }
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(floatingPinched(_:)))
+        // Off until the editor turns it on: a pinch recogniser over a live pad would cancel the
+        // touches of a player who happens to press two buttons and spread their thumbs.
+        pinch.isEnabled = false
+        pinch.cancelsTouchesInView = false
+        addGestureRecognizer(pinch)
+        floatingPinch = pinch
         // The reason this class exists. Without it UIKit delivers one touch and holding a
         // direction while pressing a face button, which is most of playing a game, is impossible.
         isMultipleTouchEnabled = true
@@ -1675,6 +1727,11 @@ final class TouchControlsView: UIView {
         // because no touch callback is coming.
         if newWindow == nil {
             releaseAll()
+        } else {
+            // Read once so the stored strength is applied, then spin the Taptic Engine up so the
+            // first press of the session is not the slow one.
+            _ = ControlFeel.shared
+            ButtonHaptics.shared.prepare()
         }
     }
 
@@ -1702,6 +1759,7 @@ final class TouchControlsView: UIView {
         // reporting a settle from a teardown would persist a layout on the way out of a screen the
         // user may have been leaving to get away from it.
         clusterDrag = nil
+        floating.cancelEdit()
         dpadHandle.setActive(false)
         for handle in chipHandles {
             handle.setActive(false)
@@ -1987,6 +2045,8 @@ final class TouchControlsView: UIView {
             clearDeclaredSkinArt()
         }
         publishPictureArea(landscape: orientLandscape, skinCanvas: skinCanvas, skin: skin)
+        // Last, so extra buttons sit above the pad, the skin art and the editing outlines.
+        floating.layout(in: bounds, system: system, editing: isEditing)
     }
 
     /// Works out what each drag would carry, and outlines it.
@@ -2434,9 +2494,13 @@ final class TouchControlsView: UIView {
             // leave the user unable to reach Done; a pad that swallowed a menu row drawn on
             // top of an outline would leave the preview console stuck.
             return Self.claimsEditingHit(
-                onOutline: dragTarget(at: point) != nil,
+                onOutline: dragTarget(at: point) != nil || floating.index(at: point, slop: 8) != nil
+                    || floating.claimsPinch(at: point),
                 menuListOpen: editingHitsSuspended
             )
+        }
+        if floating.index(at: point) != nil {
+            return true
         }
         if stickHit(at: point) != nil {
             return true
@@ -2534,12 +2598,25 @@ final class TouchControlsView: UIView {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         if isEditing {
+            // An extra button is on top of everything, so it is offered the touch first. Only
+            // when no extra button took it does it become a cluster drag.
+            if clusterDrag == nil, !editingHitsSuspended,
+               touches.contains(where: { floating.beginEdit($0, in: self) }) {
+                return
+            }
+            // A second finger during an extra button's drag is the other half of a pinch, not
+            // the start of a cluster drag underneath it.
+            if floating.isDragging { return }
             beginDrag(touches)
             return
         }
         for touch in touches {
             let point = touch.location(in: self)
-            if let hit = stickHit(at: point) {
+            if let index = floating.index(at: point), let button = floating.button(at: index) {
+                // Tested first because it is drawn on top: an extra button placed over the D-pad
+                // is the thing the finger can see.
+                grabs[ObjectIdentifier(touch)] = .floating(button.id)
+            } else if let hit = stickHit(at: point) {
                 let local = CGPoint(x: point.x - hit.rect.minX, y: point.y - hit.rect.minY)
                 grabs[ObjectIdentifier(touch)] = .stick(side: hit.side, local: local)
             } else if dpadRect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
@@ -2564,6 +2641,7 @@ final class TouchControlsView: UIView {
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         if isEditing {
+            if floating.continueEdit(touches, in: self) { return }
             continueDrag(touches)
             return
         }
@@ -2591,7 +2669,7 @@ final class TouchControlsView: UIView {
                     grabs.removeValue(forKey: key)
                 }
                 changed = true
-            case .chip, .skinSlot:
+            case .chip, .skinSlot, .floating:
                 break
             case .stick(let side, _):
                 guard let hit = stickHits.first(where: { $0.side == side }) else {
@@ -2623,6 +2701,7 @@ final class TouchControlsView: UIView {
 
     private func endTouches(_ touches: Set<UITouch>) {
         if isEditing {
+            if floating.endEdit(touches) { return }
             endDrag(touches)
             return
         }
@@ -2791,9 +2870,25 @@ final class TouchControlsView: UIView {
         // A skin circle pad is the analog stick. The D-pad stays digital when that pad exists,
         // so the two are not the same control.
         let skinLeftStick = stickHits.contains { $0.side != "right" }
+        var turbo = Set<PadSlot>()
+        var floatingHeld = Set<UUID>()
+        var actionsHeld: [UUID: PadAppAction] = [:]
 
         for grab in grabs.values {
             switch grab {
+            case .floating(let id):
+                // Looked up by id each time, so a button deleted or retyped under a finger is
+                // answered from what it is NOW.
+                guard let button = floating.buttons.first(where: { $0.id == id }) else { break }
+                floatingHeld.insert(id)
+                switch button.kind {
+                case .press:
+                    pressed.formUnion(button.padSlots)
+                case .turbo:
+                    turbo.formUnion(button.padSlots)
+                case .action:
+                    if let action = button.action { actionsHeld[id] = action }
+                }
             case .chip(let index):
                 // The control set can change while a finger is down, so the index is checked
                 // rather than trusted.
@@ -2843,11 +2938,41 @@ final class TouchControlsView: UIView {
         if let stylus {
             lastPointerFraction = pointerFraction(of: stylus)
         }
+        // A slot both held and turbo is held: holding wins, because that is what the player is
+        // doing with the other finger.
+        turbo.subtract(pressed)
         padState = PadFrame(pressed: pressed,
                             stick: stick,
                             rightStick: rightStick,
                             pointer: lastPointerFraction,
-                            pointerPressed: stylus != nil)
+                            pointerPressed: stylus != nil,
+                            turbo: turbo)
+
+        // Extra buttons that run an app action: one call on the press, one on the release.
+        // Released ones first, so a held fast forward ends before anything new begins.
+        if !isEditing {
+            for (id, action) in heldActionButtons where actionsHeld[id] == nil {
+                onAppAction?(action, false)
+            }
+            for (id, action) in actionsHeld where heldActionButtons[id] == nil {
+                onAppAction?(action, true)
+            }
+        }
+        heldActionButtons = isEditing ? [:] : actionsHeld
+
+        // The tap. Only for something NEWLY down, so a held button does not buzz on every move
+        // of another finger, and never in the editor, where a touch is a drag.
+        let downNow = pressed.union(turbo)
+        if !isEditing,
+           !downNow.subtracting(lastHapticPressed).isEmpty
+            || !floatingHeld.subtracting(lastHapticFloating).isEmpty {
+            ButtonHaptics.shared.tap()
+        }
+        lastHapticPressed = isEditing ? [] : downNow
+        lastHapticFloating = isEditing ? [] : floatingHeld
+        floating.setPressed(Set(floating.buttons.indices.filter {
+            floatingHeld.contains(floating.buttons[$0].id)
+        }))
 
         dpad.setDirections(up: up, down: down, left: left, right: right)
         for chip in chips {
@@ -3023,12 +3148,21 @@ final class TouchControlsView: UIView {
         for (key, view) in artViews where !usedArt.contains(key) {
             view.isHidden = true
         }
+
+        // The skin editor's overall opacity. Applied to the background art and every piece, so
+        // the whole skin fades together; hit areas are unaffected.
+        let skinAlpha = CGFloat(min(1, max(0.05, skin.face.opacity)))
+        skinImageView.alpha = skinAlpha
+        for view in artViews.values {
+            view.alpha = skinAlpha
+        }
     }
 
     /// Editor drags and a pad with no skin use the procedural controls, not skin images.
     private func clearDeclaredSkinArt() {
         stickHits = []
         extraHits = []
+        skinImageView.alpha = 1
         dpad.isHidden = false
         for chip in chips { chip.isHidden = false }
         for view in artViews.values { view.isHidden = true }
@@ -3302,6 +3436,9 @@ struct TouchControlsHost: UIViewRepresentable {
         view.touchMapper = touchMapper
         view.screenLayoutVersion = screenLayoutVersion
         view.trackpadEnabled = trackpadEnabled && !isEditing
+        view.onAppAction = { [weak input] action, pressed in
+            input?.onAppAction?(action, pressed)
+        }
         input.view = view
         return view
     }
