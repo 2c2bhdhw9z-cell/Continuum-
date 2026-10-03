@@ -12,7 +12,7 @@ import SwiftUI
 
 /// Which sheet the actions want on screen. A shared object rather than a property on EngineHost,
 /// so the player screen and Settings can both observe it without EngineHost growing stored state.
-@MainActor
+/// Only ever written from the main thread (the actions are main-actor methods).
 final class CoreActionsModel: ObservableObject {
     static let shared = CoreActionsModel()
 

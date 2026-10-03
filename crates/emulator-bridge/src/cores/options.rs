@@ -217,6 +217,11 @@ pub fn host_rules(core_id: &str) -> &'static [(&'static str, HostRule)] {
         // Refusing does not give the advertised default either: the core sets the slow interpreter
         // before the read. Locked so nobody can pick the dynarec.
         "ppsspp" => &[("ppsspp_cpu_core", HostRule::Locked("IR JIT"))],
+        // Beetle PSX HW: refusing `beetle_psx_hw_renderer` left `hw_renderer = false` (libretro.c),
+        // so every PlayStation frame a phone has shown on this core came from the SOFTWARE
+        // renderer. The advertised default is "hardware", whose Vulkan hand-over has not been seen
+        // on a phone. The engine keeps software as the default; the user may pick hardware.
+        "mednafen_psx_hw" => &[("beetle_psx_hw_renderer", HostRule::Default("software"))],
         _ => &[],
     }
 }
@@ -1436,6 +1441,16 @@ mod tests {
         core.insert("melonds_touch_mode".to_string(), "Mouse".to_string());
         assert_eq!(resolve("melonds", None, &empty, &empty, &core, "melonds_touch_mode").as_deref(), Some("Mouse"));
         assert!(!is_locked("melonds", "melonds_touch_mode"));
+    }
+
+    #[test]
+    fn beetle_psx_keeps_the_software_renderer_a_phone_has_shown() {
+        let empty = BTreeMap::new();
+        assert_eq!(
+            resolve("mednafen_psx_hw", None, &empty, &empty, &empty, "beetle_psx_hw_renderer").as_deref(),
+            Some("software")
+        );
+        assert!(!is_locked("mednafen_psx_hw", "beetle_psx_hw_renderer"));
     }
 
     #[test]

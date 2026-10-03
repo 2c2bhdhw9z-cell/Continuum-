@@ -2039,8 +2039,6 @@ final class EngineHost: ObservableObject {
         // the first frame of the first game already looks and sounds the way the user left it.
         emulation = EmulationSettings(engine: engine)
         screenModes = ScreenModes(engine: engine)
-        // Where core settings live, and the TV's own fit and layout. See CoreSettingsScreen.swift.
-        configureCoreActions()
         // One page mapped and unmapped, nothing written to it and nothing run from it. Done here so
         // the answer is on the HUD before any game is launched, because it has to be readable
         // without a core running.
@@ -2158,6 +2156,8 @@ final class EngineHost: ObservableObject {
 
         cloudSync.attach(host: self)
         netplay.attach(host: self)
+        // Where core settings live, and the TV's own fit and layout. See CoreSettingsScreen.swift.
+        configureCoreActions()
         // Sync trigger one of three: the app opening. The others are returning to the library
         // (`leavePlayer`) and the Sync now button in Settings.
         cloudSync.syncIfConfigured(reason: "the app opened")
