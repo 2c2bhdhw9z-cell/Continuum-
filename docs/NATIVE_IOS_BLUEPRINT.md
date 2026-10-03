@@ -5,7 +5,7 @@
 > treating anything here as outstanding work. At least one claim was reversed by implementation:
 > ownership of the `MTLDevice` runs the other way, wgpu creates it and Swift reads it back
 > (`docs/archive/SESSION_HANDOFF.md` §16). What has not happened is a confirmed game on screen on a device.
-> For scope see `.kiro/steering/product-scope.md`.
+> For scope see `docs/PRODUCT_SCOPE.md`.
 
 # Phase 5 — Wrapping the Rust engine in a native iOS app
 

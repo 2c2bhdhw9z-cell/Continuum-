@@ -9,6 +9,9 @@ One page, kept current, so nothing has to be inferred from a commit log. Three s
 
 If a row says Partial, the note says exactly what is absent. Nothing here is rounded up.
 
+For what the owner wants built, and the scope rules this page works inside, see
+[docs/PRODUCT_SCOPE.md](docs/PRODUCT_SCOPE.md).
+
 ---
 
 ## Systems

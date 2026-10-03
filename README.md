@@ -41,7 +41,7 @@ In 109, not proven on a phone: each screen in the hole the skin names, a circle 
 
 Not built, and next after 109: swapping which screen is big. Also not built: AirPlay, extra buttons you place yourself, editing an imported skin in the app, touch as a mouse, camera, microphone, Amiibo, haptics, a 50-slot save manager, exporting a save, cheat search, importing a cheat file, online play, achievements, and cloud sync. Typing a cheat code does exist.
 
-The line-by-line table is in [STATUS.md](STATUS.md). [TESTING.md](TESTING.md) is the live checklist. Old notes live in `docs/archive/`. `.kiro` is still in the repo and is outdated.
+The line-by-line table is in [STATUS.md](STATUS.md). [TESTING.md](TESTING.md) is the live checklist. What the owner wants built, and what the project will and will not become, is in [docs/PRODUCT_SCOPE.md](docs/PRODUCT_SCOPE.md). Old notes live in `docs/archive/`. `.kiro` is still in the repo and is outdated.
 
 ## How to add games
 

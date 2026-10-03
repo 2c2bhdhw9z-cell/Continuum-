@@ -7,7 +7,7 @@
 > target. The web material in this document is retained for its engineering history, because the
 > reasoning, the traps paid for and the invariants it records are the same ones the native build
 > depends on. Anything below that calls the project a PWA is describing that history, not the
-> plan. Authoritative scope: `.kiro/steering/product-scope.md`. Plain-language overview for the
+> plan. Authoritative scope: `docs/PRODUCT_SCOPE.md`. Plain-language overview for the
 > repo owner: `README.md`. On-device test checklist: `TESTING.md`.
 
 State of the project at tag `v0.6.0-library` for the web material, plus §16 and §17 for the iOS
