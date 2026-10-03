@@ -392,6 +392,9 @@ ios_core_config() {
       IOS_SUBMODULES=1
       # ext/cpu_features is required. ext/cmake/cpu_features configure_file's
       # ext/cpu_features/cmake/CpuFeaturesConfig.cmake.in. It is not vendored.
+      # Common/VR/OpenXRLoader.cpp is compiled into the core even when the
+      # OpenXR loader is off, and it includes openxr/openxr.h. CMake always
+      # adds ext/OpenXR-SDK/include. Those headers are this submodule.
       IOS_SUBMODULE_PATHS=(
         libretro/libretro-common
         ext/armips
@@ -404,6 +407,7 @@ ios_core_config() {
         ext/aemu_postoffice
         ext/rapidjson
         ext/cpu_features
+        ext/OpenXR-SDK
       )
       IOS_DISPLAY="PSP, Vulkan, IR interpreter (no JIT, no dynarec)"
       ;;
