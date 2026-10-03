@@ -94,7 +94,7 @@ Build 108 failed and has no file. The compile fix is in `05ee4df`, and the insta
 | What | State | Notes |
 | --- | --- | --- |
 | Two screens, each placed where the skin file says | **In 109, not on a phone** | Last phone report: the top hole is empty and the bottom screen stays empty. Not done until a new import shows both |
-| Swap which screen is the big one | **Not built** | |
+| Swap which screen is the big one | **Not built** | Next, after 109 is on the phone. Not in 109 |
 | AirPlay: game on the TV, touch screen on the phone | **Not built** | |
 | Button shows a pressed picture | **In 109, not on a phone** | Only when the skin file has that picture. Not on a phone |
 | Extra buttons you place yourself | **Not built** | The built-in pad can be dragged. That is not extra floating triggers |
