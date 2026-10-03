@@ -132,10 +132,16 @@ struct GameDetailSheet: View {
     private var facts: some View {
         VStack(alignment: .leading, spacing: 10) {
             SettingsReadout(label: "On disk as", value: entry.name)
-            SettingsReadout(label: "Detail", value: entry.detail)
+            SettingsReadout(
+                label: "Detail",
+                value: entry.routedDetail(ps1CoreId: host.ps1CoreChoice.coreId)
+            )
             SettingsReadout(
                 label: "Runs on",
-                value: CoreCatalog.core(forExtension: entry.ext)?.displayName
+                value: CoreCatalog.core(
+                    forExtension: entry.ext,
+                    ps1CoreId: host.ps1CoreChoice.coreId
+                )?.displayName
                     ?? "no core is mapped to .\(entry.ext)"
             )
             if !entry.cueNotes.isEmpty {

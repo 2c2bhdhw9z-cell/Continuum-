@@ -161,12 +161,17 @@ must never be tappable.
 
 ---
 
-## 3DS: the core does not build, but the system is not impossible
-
-Both statements are true and collapsing them is the mistake to avoid.
+## 3DS: upstream libretro citra does not build; Azahar does
 
 **The libretro citra core does not build for iOS.** Its makefile has platform blocks for unix, osx,
 libnx and MSVC and none for iOS, it uses GLAD to load OpenGL, and it is absent from the buildbot.
+That is still true, and it is not the core this app ships.
+
+**Azahar** (the maintained Citra fork) has an iOS arm64 libretro job. Its Apple build turns OpenGL
+off and Vulkan on, presents with `retro_vulkan_image` `set_image`, and compiles the CPU JIT out
+under `IOS`. That is the core in the IPA (`azahar_libretro_ios.dylib`). It is not device-proven.
+An OpenGL 3DS core would still boot a black screen here: this host refuses every `SET_HW_RENDER`
+context that is not Vulkan.
 
 **Standalone 3DS emulators for iPhone exist and ship**, which is direct proof the system itself is
 viable on this hardware:
@@ -177,18 +182,17 @@ viable on this hardware:
   readable rather than guessed at.
 - **Manic EMU** — another current App Store option with 3DS support.
 
-So a 3DS port is a real project rather than a dead end. What it would need here:
+Folium, emuThreeDS and Manic remain proof the system runs on an iPhone at all. What this app
+actually shipped is narrower:
 
-1. **A graphics path for a hardware-rendered core**, which this app does not have yet. Citra renders
-   through OpenGL or Vulkan and has no software rasterizer, so it cannot use the pixel path all
-   fourteen current systems use. That is steps 3 and 4 of
-   [SET_HW_RENDER_DESIGN.md](SET_HW_RENDER_DESIGN.md) section 13, and neither is started.
-2. **An iOS build target** for the core, which upstream does not provide.
-3. **JIT for playable speed.** Citra uses dynarmic. There is an interpreter fallback, so it would
-   run without JIT, in the same sense N64 will: slowly.
+1. **Vulkan `set_image`**, which steps 3 and 4 already accept. Azahar asks for that context.
+   OpenGL is compiled out of the iOS core, so this row cannot fall through to a context the
+   host refuses.
+2. **Azahar's own iOS libretro target**, not a new port of upstream citra.
+3. **No JIT.** Dynarmic stays off. The fast interpreter is the speed this signed IPA can have.
+   Do not turn JIT on to make it faster.
 
-The honest sequencing is that 1 blocks everything else, and 1 is the same work N64's *fast* path
-would need. N64's *slow* path needs none of it, which is why N64 comes first.
+Not device-proven. See STATUS.
 
 ---
 
@@ -196,8 +200,8 @@ would need. N64's *slow* path needs none of it, which is why N64 comes first.
 
 | Needs nothing new | Needs the graphics path | Needs graphics AND a core port |
 | --- | --- | --- |
-| **N64** (software + interpreter) | Dreamcast, PSP | **3DS** |
-| Saturn, Neo Geo, CPS1/2/3, MAME | | GameCube, Wii |
+| **N64** (software + interpreter). **3DS** is in the IPA via Azahar Vulkan, untested, no JIT | Dreamcast, PSP | GameCube, Wii (3DS no longer sits here) |
+| Saturn, Neo Geo, CPS1/2/3, MAME | | |
 | Sega CD, 32X, and the 8/16-bit long tail | | |
 
 ---

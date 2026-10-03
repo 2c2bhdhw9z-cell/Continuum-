@@ -373,10 +373,43 @@ enum CoreCatalog {
         biosNames: []
     )
 
+    /// Nintendo 3DS, on Azahar's libretro core.
+    ///
+    /// Picture path is Vulkan `set_image`, the only hardware hook this host accepts.
+    /// Azahar's Apple build compiles OpenGL out (`ENABLE_OPENGL` is off on Apple) and
+    /// leaves Vulkan on. With the graphics option left at its default of auto, the core
+    /// asks `GET_PREFERRED_HW_RENDER`, this host answers Vulkan, and `retro_load_game`
+    /// then calls `SET_HW_RENDER` with `RETRO_HW_CONTEXT_VULKAN`. Frames arrive as
+    /// `retro_vulkan_image` with `create_info.image` filled, which is the same adopt
+    /// path Beetle already uses. Do not force the Software option: that is the slow
+    /// rasterizer, and it is not the picture path this row is here for.
+    ///
+    /// CPU JIT is compiled out. Azahar's own `ParseCpuOptions` sets `use_cpu_jit` false
+    /// under `IOS`, and the shader JIT the same way. The fast interpreter stays on,
+    /// which is as fast as this core goes without executable memory. No dynarec and no
+    /// `get-task-allow`. Not device-proven: a retail cartridge often still needs the
+    /// 3DS system archives in the system directory, and a missing one can look like a
+    /// black screen because `SET_MESSAGE` is not shown. Decrypted `.3ds` / `.3dsx` /
+    /// `.cci` / `.cxi` only.
+    static let azahar = CoreSpec(
+        coreId: "azahar",
+        displayName: "Azahar (Nintendo 3DS)",
+        systems: ["n3ds"],
+        library: "azahar_libretro_ios.dylib",
+        width: 400, height: 480,
+        maxWidth: 800, maxHeight: 480,
+        aspectRatio: 400.0 / 480.0,
+        fps: 60,
+        sampleRate: 32728,
+        pixelFormat: 1,
+        priority: 0,
+        biosNames: []
+    )
+
     /// Every core, in the order the HUD reports them.
     static let all: [CoreSpec] = [
         fceumm, snes9x, mgba, genesisPlusGx, pcsxReARMed, mednafenPsxHw, melonDS,
-        mednafenPceFast, stella, parallelN64,
+        mednafenPceFast, stella, parallelN64, azahar,
     ]
 
     static let byId: [String: CoreSpec] = Dictionary(
@@ -487,6 +520,15 @@ enum CoreCatalog {
         "n64": Route(coreId: parallelN64.coreId, system: .n64),
         "z64": Route(coreId: parallelN64.coreId, system: .n64),
         "v64": Route(coreId: parallelN64.coreId, system: .n64),
+        // Decrypted 3DS only. Azahar also names elf, axf, app, and the encrypted z* wrappers.
+        // elf/axf/app are not a console, and an encrypted cartridge cannot boot here, so none
+        // of those is a Library row. `.bin` and `.zip` stay out for the same reason they do
+        // on the N64: they already belong to something else, or to an archive this app does
+        // not open.
+        "3ds": Route(coreId: azahar.coreId, system: .n3ds),
+        "3dsx": Route(coreId: azahar.coreId, system: .n3ds),
+        "cci": Route(coreId: azahar.coreId, system: .n3ds),
+        "cxi": Route(coreId: azahar.coreId, system: .n3ds),
     ]
 
     /// Extension to core id, DERIVED from the table above and never restated.
@@ -619,8 +661,11 @@ enum CoreCatalog {
     }
 
     /// What a Library row shows, so a wrong route is legible before anything is launched.
-    static func routeLabel(forExtension ext: String) -> String {
-        core(forExtension: ext)?.coreId ?? "no core"
+    ///
+    /// `ps1CoreId` is the same override launch uses. Without it a PlayStation row always
+    /// named `pcsx_rearmed`, including while Beetle was the core that actually ran.
+    static func routeLabel(forExtension ext: String, ps1CoreId: String? = nil) -> String {
+        core(forExtension: ext, ps1CoreId: ps1CoreId)?.coreId ?? "no core"
     }
 
     /// ".nes, .sfc, .smc, ..." for the HUD lines that have to say what is accepted.
@@ -775,9 +820,18 @@ struct LibraryEntry: Identifiable, Hashable, Sendable {
     /// tap, instead of as a game that boots on the wrong emulator. Whatever else gets inserted,
     /// the core name stays LAST, so that affordance is where it has always been.
     var detail: String {
+        routedDetail(ps1CoreId: nil)
+    }
+
+    /// Same line as `detail`, but a PlayStation row names the core Settings will launch.
+    ///
+    /// Nil keeps the table default, which is PCSX ReARMed. Passing the Settings choice is
+    /// what stops a Beetle session from being labelled ReARMed on the game page and in the
+    /// Library. Every other system ignores the override, inside `routeLabel`.
+    func routedDetail(ps1CoreId: String?) -> String {
         var parts = [ext.uppercased(), sizeText]
         parts.append(contentsOf: cueNotes)
-        parts.append(CoreCatalog.routeLabel(forExtension: ext))
+        parts.append(CoreCatalog.routeLabel(forExtension: ext, ps1CoreId: ps1CoreId))
         return parts.joined(separator: " · ")
     }
 

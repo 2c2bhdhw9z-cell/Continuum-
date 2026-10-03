@@ -85,6 +85,9 @@ enum SystemArtwork {
         // Checked against the live server like the rest. "Nintendo" twice again, for the same
         // reason the DS and the NES have it: manufacturer then system name.
         case .n64: return "Nintendo - Nintendo 64"
+        // The directory listing at Nintendo - Nintendo 3DS / Named_Boxarts answers 200.
+        // A wrong name only 404s the cover; it does not affect whether the game runs.
+        case .n3ds: return "Nintendo - Nintendo 3DS"
         }
     }
 
@@ -126,6 +129,8 @@ enum SystemArtwork {
         case .atari2600: return 289
         // Widest remaining gap in the fourteen values above was 126 to 165, so this takes 145.
         case .n64: return 145
+        // Widest remaining gap under the N64's 145 was 18 to 45, so this takes 32.
+        case .n3ds: return 32
         }
     }
 

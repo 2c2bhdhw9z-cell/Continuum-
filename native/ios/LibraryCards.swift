@@ -196,7 +196,7 @@ struct HeroCard: View {
             // The raw filename and the row detail, which is the honest substitute for the
             // description a store page would have. It names the file the core is actually handed,
             // the real size, any missing cue track, and the core the tap will route to.
-            Text("Imported \(entry.name) \u{00B7} \(entry.detail)")
+            Text("Imported \(entry.name) \u{00B7} \(entry.routedDetail(ps1CoreId: host.ps1CoreChoice.coreId))")
                 .font(.system(size: 13))
                 .foregroundStyle(Color.white.opacity(0.78))
                 .lineLimit(2)
@@ -387,7 +387,7 @@ struct GameListRow: View {
                     .truncationMode(.middle)
                 // Exactly what the debug list's second line carried, core id last: a routing
                 // mistake is visible across the whole library at a glance rather than after a tap.
-                Text(entry.detail)
+                Text(entry.routedDetail(ps1CoreId: host.ps1CoreChoice.coreId))
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(ShellPalette.secondaryText)
                     .lineLimit(1)

@@ -95,7 +95,7 @@ WORK="$ROOT/.work"
 # The iOS cores, in build order. Never empty, which matters: macOS ships bash 3.2,
 # where an empty array expanded under `set -u` is an error rather than nothing.
 IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed mednafen_psx_hw melonds
-           mednafen_pce_fast stella2023 parallel_n64)
+           mednafen_pce_fast stella2023 parallel_n64 azahar)
 
 # mednafen_psx_hw (Beetle PSX HW) is in ios-all so Mac CI embeds the dylib in the IPA.
 # Build is Mac/CI-only (`make platform=ios-arm64 HAVE_HW=1`); Linux hosts cannot cross-compile
@@ -339,6 +339,19 @@ ios_core_config() {
       #    ruled it out as the hang cause, but still correct for angrylion multithread-off):
       #    reapply update_variables(false) after InitiateGFX / n64video_config_init.
       IOS_DISPLAY="Nintendo 64, software rasteriser and interpreter"
+      ;;
+    azahar)
+      # Azahar is the maintained Citra fork. Its libretro target builds for iOS
+      # (their own libretro-ios job). Apple builds turn OpenGL OFF and Vulkan ON,
+      # and the core presents with retro_vulkan_image set_image — the only hardware
+      # picture hook this host accepts. CPU JIT is compiled out by -DIOS (no
+      # dynarec, no executable memory). The fast interpreter stays on.
+      IOS_REPO="https://github.com/azahar-emu/azahar"
+      IOS_DYLIB_NAME="azahar_libretro_ios.dylib"
+      IOS_KIND="cmake-shared"
+      IOS_CMAKE_TARGET="citra_libretro"
+      IOS_SUBMODULES=1
+      IOS_DISPLAY="Nintendo 3DS, Vulkan, interpreter CPU (no JIT)"
       ;;
     *)
       return 1
@@ -682,6 +695,63 @@ build_ios_cmake_core() {
   ios_stage_dylib "$built" "$IOS_DYLIB_NAME"
 }
 
+
+# A libretro core whose own CMake emits a shared library, not an archive we relink.
+#
+# mgba is the other cmake core and it is NOT this path: it asks for a static archive
+# and this script links the dylib, because that is how mgba's iOS build is shaped.
+# Azahar's libretro target already emits azahar_libretro.dylib. Relinking that the
+# mgba way would drop the Vulkan driver and every other library the core linked.
+build_ios_cmake_shared_core() {
+  local core="$1"
+  command -v cmake >/dev/null 2>&1 || {
+    echo "error: $core needs cmake on the host (brew install cmake)" >&2
+    exit 1
+  }
+
+  local build_dir="$IOS_SRC_DIR/build-ios"
+  echo "==> configuring $core with cmake for iOS ($IOS_DISPLAY)"
+  rm -rf "$build_dir"
+  # Flags follow Azahar's own libretro-ios job, plus this app's deployment target
+  # and SDK. -DIOS is what their sources test to compile the CPU JIT out. OpenGL
+  # stays off because Azahar's CMake forces ENABLE_OPENGL off on Apple; Vulkan
+  # stays on. Warnings-as-errors is off so a newer AppleClang diagnostic cannot
+  # fail a core whose own CI is green on a different Xcode. LTO is off so the
+  # libretro entry points cannot be internalised the way mgba's were.
+  cmake -G "Unix Makefiles" -S "$IOS_SRC_DIR" -B "$build_dir" \
+    -DENABLE_LIBRETRO=ON \
+    -DIOS=ON \
+    -DCMAKE_SYSTEM_NAME=iOS \
+    -DCMAKE_OSX_ARCHITECTURES=arm64 \
+    -DCMAKE_OSX_SYSROOT="$IOSSDK" \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_MIN_VERSION" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DCMAKE_C_FLAGS="-DIOS" \
+    -DCMAKE_CXX_FLAGS="-DIOS" \
+    -DCITRA_USE_PRECOMPILED_HEADERS=OFF \
+    -DCITRA_WARNINGS_AS_ERRORS=OFF \
+    -DENABLE_LTO=OFF \
+    -DENABLE_OPT=OFF
+
+  echo "==> building $IOS_CMAKE_TARGET"
+  cmake --build "$build_dir" --target "$IOS_CMAKE_TARGET" -j"$(ios_jobs)"
+
+  local built
+  built="$(find "$build_dir" -name 'azahar_libretro*.dylib' -type f | head -1 || true)"
+  [[ -n "$built" && -f "$built" ]] || {
+    echo "error: $core: cmake finished but left no azahar_libretro dylib under $build_dir" >&2
+    find "$build_dir" -name '*.dylib' -type f >&2 || true
+    exit 1
+  }
+  echo "==> upstream produced $(basename "$built"); staging as $IOS_DYLIB_NAME"
+  # Stage from a copy so install_name_tool does not rewrite the build tree's
+  # output, and so a name that is not the canonical one still lands under it.
+  local staged="$build_dir/$IOS_DYLIB_NAME"
+  cp "$built" "$staged"
+  ios_stage_dylib "$staged" "$IOS_DYLIB_NAME"
+}
+
 # Continuum-owned edits to unpinned upstream core checkouts.
 #
 # Cores clone at HEAD with no pin (see ios_record_source_version). When upstream behaviour
@@ -790,6 +860,7 @@ build_ios_core() {
   case "$IOS_KIND" in
     make) build_ios_make_core "$core" ;;
     cmake) build_ios_cmake_core "$core" ;;
+    cmake-shared) build_ios_cmake_shared_core "$core" ;;
     *) echo "error: $core: unknown iOS build kind '$IOS_KIND'" >&2; exit 1 ;;
   esac
 }

@@ -253,6 +253,10 @@ enum GameSystem: String, Sendable, CaseIterable {
     /// The Nintendo 64. The first system here whose primary control is an ANALOG STICK rather than
     /// a D-pad, which is why `dpadDrivesAnalogStick` exists.
     case n64
+    /// The Nintendo 3DS. The raw value cannot start with a digit, so the case is `n3ds`.
+    /// The Circle Pad is an analog stick, same problem as the N64, so the D-pad drives the
+    /// left stick. The C-stick is the right stick and is not drawn.
+    case n3ds
 
     /// The short code a library card badges itself with.
     var badge: String {
@@ -272,16 +276,17 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .tg16: return "TG16"
         case .atari2600: return "2600"
         case .n64: return "N64"
+        case .n3ds: return "3DS"
         }
     }
 
     /// Whether the D-pad surface should also report an ANALOG STICK deflection.
     ///
-    /// True only for the N64, and it is the difference between that system being playable and
-    /// looking broken. Almost every N64 game reads the Control Stick and ignores the D-pad
-    /// entirely: Mario 64 does not move at all from the D-pad. The core maps the stick to the LEFT
-    /// analog axes, which this app has always sent as zeroes because no system before this one had
-    /// a stick.
+    /// True for the N64 and the 3DS, and it is the difference between those systems being
+    /// playable and looking broken. Almost every N64 game reads the Control Stick and ignores
+    /// the D-pad entirely: Mario 64 does not move at all from the D-pad. A 3DS game reads the
+    /// Circle Pad the same way. The core maps that stick to the LEFT analog axes, which this
+    /// app used to send as zeroes because no earlier system had a stick.
     ///
     /// The surface is already a continuous touch point rather than four buttons, so the deflection
     /// is real analog rather than eight fixed directions. See `Self.stickVector(at:in:)`.
@@ -294,6 +299,11 @@ enum GameSystem: String, Sendable, CaseIterable {
              .tg16, .atari2600:
             return false
         case .n64:
+            return true
+        case .n3ds:
+            // Azahar binds the Circle Pad to analog axis 0, the left stick. A 3DS game that
+            // only reads that stick would not move from a digital D-pad, which is the N64
+            // failure this flag already exists to prevent. The digital bits are still sent.
             return true
         }
     }
@@ -319,6 +329,12 @@ enum GameSystem: String, Sendable, CaseIterable {
             return nil
         case .ds:
             return CGRect(x: 0, y: 0.5, width: 1, height: 0.5)
+        case .n3ds:
+            // Stacked default: both screens are 240 tall in a 480-tall frame, and the bottom
+            // screen is 320 wide inside a 400-wide frame, centred. Only that screen is a
+            // digitiser. A side-by-side layout option would put the touch screen somewhere
+            // else; the core's default is stacked, and this matches that.
+            return CGRect(x: 0.1, y: 0.5, width: 0.8, height: 0.5)
         }
     }
 
@@ -339,6 +355,7 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .tg16: return "TurboGrafx-16"
         case .atari2600: return "Atari 2600"
         case .n64: return "Nintendo 64"
+        case .n3ds: return "Nintendo 3DS"
         }
     }
 
@@ -456,6 +473,22 @@ enum GameSystem: String, Sendable, CaseIterable {
                 + Self.shoulders(left: [(.l2, "Z"), (.select, "L")], right: [(.r2, "R")])
                 + [PadControl(slot: .start, label: "START", cluster: .system,
                               shape: .pill, offset: CGPoint(x: 0, y: 0))]
+
+        case .n3ds:
+            // Read from Azahar's own descriptors in citra_libretro.cpp: retro A/B/X/Y are
+            // 3DS A/B/X/Y, so the diamond is Nintendo's (X top, A right, B bottom, Y left),
+            // the same arrangement as the DS. L2 and R2 are ZL and ZR. The Circle Pad is
+            // not a button: `dpadDrivesAnalogStick` sends it as the left stick.
+            //
+            // Not drawn, on purpose. The C-stick is the right analog and this pad has no
+            // second stick surface. Home is retro L3; a third system pill has nowhere to
+            // sit without covering Select or Start. The touch screen is the digitiser in
+            // `touchScreen`, not a button.
+            return Self.diamondFace(top: (.x, "X"), right: (.a, "A"),
+                                    bottom: (.b, "B"), left: (.y, "Y"))
+                + Self.shoulders(left: [(.l, "L"), (.l2, "ZL")],
+                                 right: [(.r, "R"), (.r2, "ZR")])
+                + Self.selectStart
 
         case .ds:
             // The DS diamond is the Super Nintendo's arrangement, not the PlayStation's: A sits on

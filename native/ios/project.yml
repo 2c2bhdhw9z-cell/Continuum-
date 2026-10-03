@@ -273,6 +273,12 @@ targets:
         embed: true
         link: false
         codeSign: false
+      # Nintendo 3DS. Azahar's libretro dylib, Vulkan set_image, CPU interpreter (IOS
+      # compiles the JIT out). OpenGL is not in this build. See scripts/build-core.sh.
+      - framework: build/lib/azahar_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
       # MoltenVK: Vulkan on Metal, and the gate on every hardware rendered system. Embedded but
       # NOT LINKED, deliberately. It is reached by `dlopen` from vulkan_probe.rs so that a missing
       # or broken MoltenVK is a line on the diagnostics panel rather than an app that will not
