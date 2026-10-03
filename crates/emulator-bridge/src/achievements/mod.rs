@@ -21,8 +21,11 @@
 //! slow motion, each of which is a feature of this app. rcheevos is told so at creation.
 
 pub mod console;
+pub mod disc;
 pub mod memory_map;
 
+#[cfg(feature = "native-core")]
+mod cdreader;
 #[cfg(feature = "native-core")]
 mod client;
 #[cfg(feature = "native-core")]

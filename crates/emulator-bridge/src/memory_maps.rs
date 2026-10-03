@@ -218,13 +218,16 @@ pub fn preprocess(table: &mut [MemoryDescriptor]) -> bool {
             desc.select = top_addr & !inflate(add_bits_down(desc.len - 1), desc.disconnect);
         }
         if desc.len == 0 {
-            desc.len = add_bits_down(reduce(top_addr & !desc.select, desc.disconnect)).wrapping_add(1);
+            desc.len =
+                add_bits_down(reduce(top_addr & !desc.select, desc.disconnect)).wrapping_add(1);
         }
         if desc.start & !desc.select != 0 {
             return false;
         }
         let highest_reachable = inflate(desc.len.wrapping_sub(1), desc.disconnect);
-        while highest_bit(top_addr & !desc.select & !desc.disconnect) > highest_bit(highest_reachable) {
+        while highest_bit(top_addr & !desc.select & !desc.disconnect)
+            > highest_bit(highest_reachable)
+        {
             desc.disconnect |= highest_bit(top_addr & !desc.select & !desc.disconnect);
         }
     }
@@ -269,7 +272,8 @@ fn find_declared(table: &[MemoryDescriptor], real_address: u32) -> Option<(usize
     let address = real_address as usize;
     table.iter().enumerate().find_map(|(index, desc)| {
         let end = desc.start.checked_add(desc.declared_len)?;
-        (desc.ptr != 0 && address >= desc.start && address < end).then(|| (index, address - desc.start))
+        (desc.ptr != 0 && address >= desc.start && address < end)
+            .then(|| (index, address - desc.start))
     })
 }
 
@@ -356,7 +360,8 @@ pub unsafe fn descriptor_bytes<'a>(desc: &MemoryDescriptor, len: usize) -> Optio
 ///
 /// As [`descriptor_bytes`], and nothing else may be borrowing the core's memory.
 pub unsafe fn write_through(table: &[MemoryDescriptor], address: u32, bytes: &[u8]) -> bool {
-    let Some((index, offset)) = find(table, address).or_else(|| find_declared(table, address)) else {
+    let Some((index, offset)) = find(table, address).or_else(|| find_declared(table, address))
+    else {
         return false;
     };
     let desc = &table[index];
@@ -390,7 +395,9 @@ pub mod fixtures {
     }
 
     fn filled(len: usize, seed: u8) -> Vec<u8> {
-        (0..len).map(|i| seed.wrapping_add((i % 251) as u8)).collect()
+        (0..len)
+            .map(|i| seed.wrapping_add((i % 251) as u8))
+            .collect()
     }
 
     /// mGBA's `_setupMaps` for the GBA (libretro/mgba `src/platform/libretro/libretro.c`), with
@@ -410,20 +417,34 @@ pub mod fixtures {
                 filled(0x400, 9),
             ],
         };
-        let d = |flags: u64, ptr: usize, start: usize, select: usize, len: usize| RetroMemoryDescriptor {
-            flags,
-            ptr: ptr as *mut c_void,
-            offset: 0,
-            start,
-            select,
-            disconnect: 0,
-            len,
-            addrspace: std::ptr::null(),
+        let d = |flags: u64, ptr: usize, start: usize, select: usize, len: usize| {
+            RetroMemoryDescriptor {
+                flags,
+                ptr: ptr as *mut c_void,
+                offset: 0,
+                start,
+                select,
+                disconnect: 0,
+                len,
+                addrspace: std::ptr::null(),
+            }
         };
         let save_ptr = if save_len > 0 { buffers.ptr(2) } else { 0 };
         let table = vec![
-            d(MEMDESC_SYSTEM_RAM, buffers.ptr(0), 0x0300_0000, 0xFF00_0000, 0x8000),
-            d(MEMDESC_SYSTEM_RAM, buffers.ptr(1), 0x0200_0000, 0xFF00_0000, 0x40000),
+            d(
+                MEMDESC_SYSTEM_RAM,
+                buffers.ptr(0),
+                0x0300_0000,
+                0xFF00_0000,
+                0x8000,
+            ),
+            d(
+                MEMDESC_SYSTEM_RAM,
+                buffers.ptr(1),
+                0x0200_0000,
+                0xFF00_0000,
+                0x40000,
+            ),
             d(0, save_ptr, 0x0E00_0000, 0, save_len),
             d(MEMDESC_CONST, buffers.ptr(3), 0x0800_0000, 0, rom_len),
             d(MEMDESC_CONST, buffers.ptr(3), 0x0A00_0000, 0, rom_len),
@@ -442,25 +463,36 @@ pub mod fixtures {
     /// publishes none. Buffers: 0 work RAM, 1 PRG RAM, 2 word RAM.
     pub fn gpgx_segacd() -> (Buffers, Vec<RetroMemoryDescriptor>, Vec<std::ffi::CString>) {
         let buffers = Buffers {
-            blocks: vec![filled(0x10000, 10), filled(0x80000, 20), filled(0x40000, 30)],
+            blocks: vec![
+                filled(0x10000, 10),
+                filled(0x80000, 20),
+                filled(0x40000, 30),
+            ],
         };
         let names: Vec<std::ffi::CString> = ["68KRAM", "PRGRAM", "WORDRAM"]
             .iter()
             .map(|n| std::ffi::CString::new(*n).unwrap())
             .collect();
-        let d = |ptr: usize, start: usize, len: usize, name: &std::ffi::CString| RetroMemoryDescriptor {
-            flags: MEMDESC_SYSTEM_RAM,
-            ptr: ptr as *mut c_void,
-            offset: 0,
-            start,
-            select: 0,
-            disconnect: 0,
-            len,
-            addrspace: name.as_ptr(),
+        let d = |ptr: usize, start: usize, len: usize, name: &std::ffi::CString| {
+            RetroMemoryDescriptor {
+                flags: MEMDESC_SYSTEM_RAM,
+                ptr: ptr as *mut c_void,
+                offset: 0,
+                start,
+                select: 0,
+                disconnect: 0,
+                len,
+                addrspace: name.as_ptr(),
+            }
         };
         let table = vec![
             d(buffers.ptr(0), 0xFF_0000, 0x10000, &names[0]),
-            d(buffers.ptr(1), (1usize << 31) | 0x02_0000, 0x80000, &names[1]),
+            d(
+                buffers.ptr(1),
+                (1usize << 31) | 0x02_0000,
+                0x80000,
+                &names[1],
+            ),
             d(buffers.ptr(2), 0x20_0000, 0x40000, &names[2]),
         ];
         (buffers, table, names)
@@ -474,10 +506,21 @@ pub mod fixtures {
     /// Buffers: 0 work RAM, 1 SRAM, 2 ROM.
     pub fn snes9x2010_lorom() -> (Buffers, Vec<RetroMemoryDescriptor>) {
         let buffers = Buffers {
-            blocks: vec![filled(0x20000, 40), filled(0x2000, 50), filled(0x10_0000, 60)],
+            blocks: vec![
+                filled(0x20000, 40),
+                filled(0x2000, 50),
+                filled(0x10_0000, 60),
+            ],
         };
-        let lib = |flags: u64, ptr: usize, offset: usize, disconnect: usize, len: usize,
-                   bank_s: usize, bank_e: usize, addr_s: usize, addr_e: usize| {
+        let lib = |flags: u64,
+                   ptr: usize,
+                   offset: usize,
+                   disconnect: usize,
+                   len: usize,
+                   bank_s: usize,
+                   bank_e: usize,
+                   addr_s: usize,
+                   addr_e: usize| {
             let start = bank_s << 16 | addr_s;
             let select = (start ^ (bank_e << 16 | addr_e)) ^ 0xFF_FFFF;
             RetroMemoryDescriptor {
@@ -497,10 +540,50 @@ pub mod fixtures {
         wram.disconnect &= !0x1_0000;
         let table = vec![
             wram,
-            lib(0, buffers.ptr(0), 0, 0xFF_0000, 0, 0x00, 0x3F, 0x0000, 0x1FFF),
-            lib(0, buffers.ptr(0), 0, 0xFF_0000, 0, 0x80, 0xBF, 0x0000, 0x1FFF),
-            lib(0, buffers.ptr(1), 0, 0x8000, 0x2000, 0x70, 0x7F, 0x0000, 0x7FFF),
-            lib(MEMDESC_CONST, buffers.ptr(2), 0, 0x8000, 0x10_0000, 0x00, 0x3F, 0x8000, 0xFFFF),
+            lib(
+                0,
+                buffers.ptr(0),
+                0,
+                0xFF_0000,
+                0,
+                0x00,
+                0x3F,
+                0x0000,
+                0x1FFF,
+            ),
+            lib(
+                0,
+                buffers.ptr(0),
+                0,
+                0xFF_0000,
+                0,
+                0x80,
+                0xBF,
+                0x0000,
+                0x1FFF,
+            ),
+            lib(
+                0,
+                buffers.ptr(1),
+                0,
+                0x8000,
+                0x2000,
+                0x70,
+                0x7F,
+                0x0000,
+                0x7FFF,
+            ),
+            lib(
+                MEMDESC_CONST,
+                buffers.ptr(2),
+                0,
+                0x8000,
+                0x10_0000,
+                0x00,
+                0x3F,
+                0x8000,
+                0xFFFF,
+            ),
         ];
         (buffers, table)
     }
@@ -525,7 +608,10 @@ mod tests {
         let word = std::mem::size_of::<usize>();
         assert_eq!(std::mem::size_of::<RetroMemoryDescriptor>(), 8 + 7 * word);
         assert_eq!(std::mem::offset_of!(RetroMemoryDescriptor, ptr), 8);
-        assert_eq!(std::mem::offset_of!(RetroMemoryDescriptor, addrspace), 8 + 6 * word);
+        assert_eq!(
+            std::mem::offset_of!(RetroMemoryDescriptor, addrspace),
+            8 + 6 * word
+        );
         assert_eq!(std::mem::offset_of!(RetroMemoryMap, num_descriptors), word);
         assert_eq!(MEMDESC_CONST, 1);
         assert_eq!(MEMDESC_BIGENDIAN, 2);
@@ -582,7 +668,15 @@ mod tests {
         let starts: Vec<usize> = regions.iter().map(|r| r.start).collect();
         assert_eq!(
             starts,
-            vec![0x0300_0000, 0x0200_0000, 0x0E00_0000, 0x0600_0000, 0x0500_0000, 0x0700_0000, 0x0400_0000]
+            vec![
+                0x0300_0000,
+                0x0200_0000,
+                0x0E00_0000,
+                0x0600_0000,
+                0x0500_0000,
+                0x0700_0000,
+                0x0400_0000
+            ]
         );
         assert_eq!(regions[0].name, "System RAM");
         assert_eq!(regions[0].len, 0x8000);
@@ -632,9 +726,18 @@ mod tests {
         let table = copy(&raw);
         unsafe {
             assert!(write_through(&table, 0x0300_0010, &[0xAA, 0xBB]));
-            assert!(!write_through(&table, 0x0800_0000, &[1]), "ROM is read-only");
-            assert!(!write_through(&table, 0x0100_0000, &[1]), "nothing is mapped there");
-            assert!(!write_through(&table, 0x0300_7FFF, &[1, 2]), "runs off the end");
+            assert!(
+                !write_through(&table, 0x0800_0000, &[1]),
+                "ROM is read-only"
+            );
+            assert!(
+                !write_through(&table, 0x0100_0000, &[1]),
+                "nothing is mapped there"
+            );
+            assert!(
+                !write_through(&table, 0x0300_7FFF, &[1, 2]),
+                "runs off the end"
+            );
         }
         assert_eq!(&buffers.blocks[0][0x10..0x12], &[0xAA, 0xBB]);
     }

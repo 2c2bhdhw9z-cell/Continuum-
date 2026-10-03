@@ -367,6 +367,9 @@ unsafe impl Send for Achievements {}
 
 impl Achievements {
     pub fn new() -> Result<Self, String> {
+        // CHD and CSO hashing (rcheevos only reads cue/bin, gdi and iso itself). Process-wide,
+        // once; every later hash picks it up.
+        super::cdreader::install();
         let shared = Box::new(RefCell::new(Shared::default()));
         let ctx = &*shared as *const RefCell<Shared> as *mut c_void;
         let client = unsafe {
