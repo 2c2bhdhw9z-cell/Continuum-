@@ -80,9 +80,40 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Honouring what a core wants its content as | **Done** | Every core used to be handed a file path and no bytes. That worked for the first six by luck, and would have given Stella a zero-byte ROM, because it copies straight from the data pointer with no path fallback. The engine now reads what each core declares and loads the file when the core wants bytes, so the next such core needs no change |
 | File formats per system | **Done** | Every extension is now taken from the cores' own declared lists rather than a hand-written one. That added the two systems above plus `.smd`, `.swc`, `.fig`, `.unf`, `.unif`, `.sgb`, `.mdf` and `.toc`, which were being refused despite being supported |
 | Core setting overrides | **Done** | The host refuses a core's requests for its settings, so every core keeps its own defaults. Two DS settings had to be answered because they do not start at the default they advertise; everything else, for every core, is still refused |
-| Multi-screen compositor | **Done, unused** | Draws N regions of one texture to N places. Nothing selects more than one yet: it exists for rearranging the DS screens and for hardware-rendered cores |
+| Multi-screen compositor | **Done, unused** | Draws N regions of one texture to N places. Nothing selects more than one yet: it exists for rearranging the DS screens and for hardware-rendered cores. Skin holes are a different path (`ee307b8`) and are not proven on a phone |
 | Android `.apk` | **Not started** | The one other PLATFORM, and the only one after the iPhone. Next in order, still far off in time. Everything new goes in the Rust engine so Android inherits it |
 | Switch wrapper (to EMULATE the Switch) | **Partial** | `native/switch-wrapper/` has the frame gate, a Vulkan stub and a test harness, with no engine behind it. Steps 10 to 12 of the road below |
+
+
+## The other app's list
+
+This is the bar. A line is **Done** only when a phone showed it. **In the tree** means the code is on master and no phone has run it. **Not built** means it is not in the app. JIT is **out on purpose**, not a missing feature.
+
+A skin already saved on the phone only has the first hole and no circle pad. After the next install, import that skin file again.
+
+| What | State | Notes |
+| --- | --- | --- |
+| Two screens, each placed where the skin file says | **In the tree** (`ee307b8`) | Last phone report: the top hole is empty and the bottom screen stays empty. Not done until a new import shows both |
+| Swap which screen is the big one | **Not built** | |
+| AirPlay: game on the TV, touch screen on the phone | **Not built** | |
+| Button shows a pressed picture | **In the tree** (`ee307b8`) | Only when the skin file has that picture. Not on a phone |
+| Extra buttons you place yourself | **Not built** | The built-in pad can be dragged. That is not extra floating triggers |
+| Edit an imported skin inside the app | **Not built** | Dragging the built-in pad is a different editor |
+| Circle pad or joystick as a real stick | **In the tree** (`ee307b8`) | Not a D-pad. Not on a phone. Import the skin again |
+| Touch screen as a mouse | **Not built** | |
+| iPhone camera into a 3DS game | **Not built** | |
+| iPhone microphone | **Not built** | |
+| Amiibo file | **Not built** | |
+| Haptics on a button press | **Not built** | |
+| JIT | **Out on purpose** | Not in this signed app. Do not add it to close this list |
+| Rewind | **Done** | |
+| Fast forward | **Done** | About 4x, not 5x |
+| Save slots, including export | **Partial** | Numbered slots plus one auto-save. No 50-slot manager and no export. Slots are not retested on a phone |
+| Cheats: search, and importing a file | **Partial** | Typing a code works. Search does not. Importing a cheat file does not |
+| Online play | **Not built** | |
+| Achievements | **Not built** | |
+| Cloud sync | **Not built** | |
+
 
 ---
 
