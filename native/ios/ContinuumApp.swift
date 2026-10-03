@@ -138,11 +138,6 @@ struct CoreSpec: Sendable {
 /// same routing table the launch path does. A second copy of that mapping is precisely the bug
 /// this type exists to prevent: it would stay invisible until a .sms opened on the wrong core.
 enum CoreCatalog {
-    /// Names the system of a file whose extension several systems share (.cue, .chd, .zip, ...),
-    /// by looking inside it. Nil means "use the extension table". Installed by ImportCenter (the
-    /// Rust detector plus the user's remembered answers); declared here by the import lane.
-    static var systemResolver: ((URL) -> String?)?
-
     /// NES. Note for anyone reading a device log: the iOS makefile for this core forces
     /// WANT_32BPP, so on device it negotiates XRGB8888 even though it is declared RGB565 here
     /// and built RGB565 for the web. The negotiation inside `retro_load_game` settles it and
