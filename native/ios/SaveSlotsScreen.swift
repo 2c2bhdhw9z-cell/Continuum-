@@ -383,6 +383,9 @@ struct SaveSlotsSheet: View {
                     saveStates.reportOnly("battery save import failed: \(reason)")
                 })
             }
+            // Every other emulator's save format (.dsv .mcr .gme .eep .sra .vmu ...), converted in
+            // Rust and written through the battery save path above. See SaveFormats.swift.
+            SaveFileButtons(entry: entry, host: host, saveStates: saveStates)
             SettingsNote(
                 "A state file carries the core and core version that wrote it, so an imported state "
                 + "is checked exactly like one saved here and is refused with the reason if the core "

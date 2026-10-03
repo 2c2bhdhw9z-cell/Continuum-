@@ -67,6 +67,7 @@ struct GameDetailSheet: View {
                 facts
                 saveStatesBlock
                 cheatsBlock
+                GameplayManualBlock(entry: entry, host: host)
                 AchievementsCardBlock(entry: entry, host: host, store: host.achievements)
                 artworkBlock
                 dangerZone
