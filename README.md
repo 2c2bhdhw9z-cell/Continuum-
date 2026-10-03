@@ -13,11 +13,12 @@ This install is **not** signed with a JIT. Heavier systems here run on an interp
 - NES, SNES, Game Boy Color, Game Boy Advance, Game Gear, Genesis
 - Nintendo DS (Mario Kart DS and Pokémon SoulSilver)
 - Nintendo 64, software only (Smash reached the character select, about 60 fps, build 97). No JIT.
-- PlayStation, the original core (Crash, no BIOS file)
+- PlayStation, the original core, ran Crash with no BIOS file.
+- PlayStation Beetle ran Crash on the phone with `scph1001.bin` (build 98). That BIOS boot happened.
 
 **In the app, not finished**
 
-- PlayStation GPU option (Beetle). Crash did boot with a real `scph1001.bin`. That is not proof the GPU handoff is done. The other PlayStation option still runs with no BIOS.
+- PlayStation GPU handoff (Beetle). The BIOS boot above is real. What is not finished is the GPU handoff, not the boot. The other PlayStation option still runs with no BIOS.
 - Nintendo 3DS (Mario Kart) runs. The open problem is the skin, below.
 - On-screen control skins. On the last phone report, Game Boy Color sideways works and other systems do not: the 3DS picture sits above the skin and the bottom screen stays empty. A fix is in the tree (`ee307b8`) and is not installed yet. Not done until the picture is in the hole on the phone.
 
