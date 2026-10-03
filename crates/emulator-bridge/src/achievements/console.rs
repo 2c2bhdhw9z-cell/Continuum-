@@ -25,6 +25,25 @@ pub fn console_id(system: &str) -> Option<u32> {
         "psp" => 41,           // RC_CONSOLE_PSP, line 56
         "n3ds" => 62,          // RC_CONSOLE_NINTENDO_3DS, line 77
         "fds" => 81,           // RC_CONSOLE_FAMICOM_DISK_SYSTEM, line 96
+        // SuperGrafx games are hashed and listed under the PC Engine on RetroAchievements.
+        "sgx" => 8,        // RC_CONSOLE_PC_ENGINE, line 23
+        "segacd" => 9,     // RC_CONSOLE_SEGA_CD, line 24
+        "sega32x" => 10,   // RC_CONSOLE_SEGA_32X, line 25
+        "lynx" => 13,      // RC_CONSOLE_ATARI_LYNX, line 28
+        "ngp" => 14,       // RC_CONSOLE_NEOGEO_POCKET, line 29
+        "jaguar" => 17,    // RC_CONSOLE_ATARI_JAGUAR, line 32
+        "pokemini" => 24,  // RC_CONSOLE_POKEMON_MINI, line 39
+        "dos" => 26,       // RC_CONSOLE_MS_DOS, line 41
+        "arcade" => 27,    // RC_CONSOLE_ARCADE, line 42
+        "vb" => 28,        // RC_CONSOLE_VIRTUAL_BOY, line 43
+        "c64" => 30,       // RC_CONSOLE_COMMODORE_64, line 45
+        "amiga" => 35,     // RC_CONSOLE_AMIGA, line 50
+        "saturn" => 39,    // RC_CONSOLE_SATURN, line 54
+        "dreamcast" => 40, // RC_CONSOLE_DREAMCAST, line 55
+        "atari5200" => 50, // RC_CONSOLE_ATARI_5200, line 65
+        "atari7800" => 51, // RC_CONSOLE_ATARI_7800, line 66
+        "wswan" => 53,     // RC_CONSOLE_WONDERSWAN, line 68
+        "pcecd" => 76,     // RC_CONSOLE_PC_ENGINE_CD, line 91
         _ => return None,
     })
 }
@@ -42,5 +61,19 @@ mod tests {
             assert!(console_id(system).is_some(), "{system}");
         }
         assert_eq!(console_id("switch"), None);
+    }
+
+    #[test]
+    fn wave_two_systems_map_to_their_consoles() {
+        for (system, id) in [
+            ("wswan", 53), ("ngp", 14), ("pcecd", 76), ("sgx", 8), ("amiga", 35), ("c64", 30),
+            ("dos", 26), ("jaguar", 17), ("lynx", 13), ("atari7800", 51), ("atari5200", 50),
+            ("arcade", 27), ("pokemini", 24), ("vb", 28), ("saturn", 39), ("segacd", 9),
+            ("sega32x", 10), ("dreamcast", 40),
+        ] {
+            assert_eq!(console_id(system), Some(id), "{system}");
+        }
+        // DOOM is not a console RetroAchievements tracks.
+        assert_eq!(console_id("doom"), None);
     }
 }

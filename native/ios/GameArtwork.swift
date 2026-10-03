@@ -90,6 +90,31 @@ enum SystemArtwork {
         case .n3ds: return "Nintendo - Nintendo 3DS"
         // The directory listing at Sony - PlayStation Portable / Named_Boxarts answers 200.
         case .psp: return "Sony - PlayStation Portable"
+        // Wave two. EVERY ONE of these answered 200 for /<name>/Named_Boxarts/ on the live server
+        // from the build host. Where the server splits a system the app keeps as one (WonderSwan
+        // and Color, Neo Geo Pocket and Color), the larger library's folder is used; the index
+        // tier still finds a cover filed under the other one by title.
+        case .wswan: return "Bandai - WonderSwan Color"
+        case .ngp: return "SNK - Neo Geo Pocket Color"
+        case .pcecd: return "NEC - PC Engine CD - TurboGrafx-CD"
+        case .sgx: return "NEC - PC Engine SuperGrafx"
+        case .amiga: return "Commodore - Amiga"
+        case .c64: return "Commodore - 64"
+        case .dos: return "DOS"
+        case .doom: return "DOOM"
+        case .jaguar: return "Atari - Jaguar"
+        case .lynx: return "Atari - Lynx"
+        case .atari7800: return "Atari - 7800"
+        case .atari5200: return "Atari - 5200"
+        // FinalBurn Neo is the default arcade core, and its set names are what this folder uses.
+        case .arcade: return "FBNeo - Arcade Games"
+        case .pokemini: return "Nintendo - Pokemon Mini"
+        case .vb: return "Nintendo - Virtual Boy"
+        case .saturn: return "Sega - Saturn"
+        // The server's own spelling, both regional names in one directory.
+        case .segacd: return "Sega - Mega-CD - Sega CD"
+        case .sega32x: return "Sega - 32X"
+        case .dreamcast: return "Sega - Dreamcast"
         }
     }
 
@@ -135,6 +160,28 @@ enum SystemArtwork {
         case .n3ds: return 32
         // Widest remaining gap under the sixteen values above was 88 to 126, so this takes 107.
         case .psp: return 107
+        // Wave two. Nineteen more systems cannot all sit in wide gaps, so these are spread on the
+        // half-way points of the existing seventeen and paired so systems that share a shelf
+        // (the Sega family, the Atari family) land far apart from each other.
+        case .wswan: return 5
+        case .ngp: return 56
+        case .pcecd: return 76
+        case .sgx: return 58
+        case .amiga: return 185
+        case .c64: return 230
+        case .dos: return 252
+        case .doom: return 0
+        case .jaguar: return 300
+        case .lynx: return 117
+        case .atari7800: return 278
+        case .atari5200: return 155
+        case .arcade: return 340
+        case .pokemini: return 98
+        case .vb: return 348
+        case .saturn: return 210
+        case .segacd: return 25
+        case .sega32x: return 136
+        case .dreamcast: return 192
         }
     }
 

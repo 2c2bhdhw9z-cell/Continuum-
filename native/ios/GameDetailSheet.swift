@@ -56,7 +56,7 @@ struct GameDetailSheet: View {
     @StateObject private var chooser = ArtworkChooserModel()
 
     private var system: GameSystem? {
-        CoreCatalog.system(forExtension: entry.ext)
+        CoreCatalog.system(for: entry)
     }
 
     var body: some View {
@@ -149,7 +149,7 @@ struct GameDetailSheet: View {
             SettingsReadout(
                 label: "Runs on",
                 value: CoreCatalog.core(
-                    forExtension: entry.ext,
+                    forPath: entry.path,
                     ps1CoreId: host.ps1CoreChoice.coreId
                 )?.displayName
                     ?? "no core is mapped to .\(entry.ext)"

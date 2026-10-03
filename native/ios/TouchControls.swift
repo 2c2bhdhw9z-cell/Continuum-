@@ -307,6 +307,46 @@ enum GameSystem: String, Sendable, CaseIterable {
     /// same way the N64 and the 3DS already do.
     case psp
 
+    // Wave two. Raw values are the shared system ids in wt-notes/wave2/BRIEF.md, exactly.
+    /// Bandai WonderSwan and WonderSwan Color, one system as the core sees it.
+    case wswan
+    /// SNK Neo Geo Pocket and Pocket Color.
+    case ngp
+    /// PC Engine CD (TurboGrafx-CD), on the full Beetle PCE. HuCards stay `tg16`.
+    case pcecd
+    /// PC Engine SuperGrafx HuCards (.sgx).
+    case sgx
+    /// Commodore Amiga.
+    case amiga
+    /// Commodore 64.
+    case c64
+    /// MS-DOS.
+    case dos
+    /// DOOM-engine games (IWADs and PWADs) on PrBoom.
+    case doom
+    /// Atari Jaguar.
+    case jaguar
+    /// Atari Lynx.
+    case lynx
+    /// Atari 7800 ProSystem.
+    case atari7800
+    /// Atari 5200.
+    case atari5200
+    /// Arcade romsets (FinalBurn Neo by default, MAME 2003-Plus as a choice).
+    case arcade
+    /// Nintendo Pokemon Mini.
+    case pokemini
+    /// Nintendo Virtual Boy.
+    case vb
+    /// Sega Saturn (Yabause by default, Beetle Saturn as a choice).
+    case saturn
+    /// Sega Mega-CD / Sega CD, on Genesis Plus GX.
+    case segacd
+    /// Sega 32X, on PicoDrive.
+    case sega32x
+    /// Sega Dreamcast, on Flycast.
+    case dreamcast
+
     /// The short code a library card badges itself with.
     var badge: String {
         switch self {
@@ -327,6 +367,25 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .n64: return "N64"
         case .n3ds: return "3DS"
         case .psp: return "PSP"
+        case .wswan: return "WS"
+        case .ngp: return "NGP"
+        case .pcecd: return "PCECD"
+        case .sgx: return "SGX"
+        case .amiga: return "AMIGA"
+        case .c64: return "C64"
+        case .dos: return "DOS"
+        case .doom: return "DOOM"
+        case .jaguar: return "JAG"
+        case .lynx: return "LYNX"
+        case .atari7800: return "7800"
+        case .atari5200: return "5200"
+        case .arcade: return "ARC"
+        case .pokemini: return "MINI"
+        case .vb: return "VB"
+        case .saturn: return "SAT"
+        case .segacd: return "MCD"
+        case .sega32x: return "32X"
+        case .dreamcast: return "DC"
         }
     }
 
@@ -359,6 +418,17 @@ enum GameSystem: String, Sendable, CaseIterable {
             // PPSSPP's descriptors name the left analog, and most PSP games read that
             // nub rather than the D-pad. The same surface sends both, as on the N64.
             return true
+        case .dreamcast:
+            // Flycast's descriptors put the Dreamcast stick on the left analog, and 3D games
+            // read only that. The digital D-pad bits still go too, as on the N64.
+            return true
+        case .atari5200:
+            // a5200's DEFAULT descriptors are "Joystick X/Y (Analog)" on the left stick: the
+            // 5200 stick was analog. The digital directions are sent alongside.
+            return true
+        case .wswan, .ngp, .pcecd, .sgx, .amiga, .c64, .dos, .doom, .jaguar, .lynx,
+             .atari7800, .arcade, .pokemini, .vb, .saturn, .segacd, .sega32x:
+            return false
         }
     }
 
@@ -380,6 +450,10 @@ enum GameSystem: String, Sendable, CaseIterable {
         switch self {
         case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .fds, .sg1000,
              .tg16, .atari2600, .n64, .psp:
+            return nil
+        case .wswan, .ngp, .pcecd, .sgx, .amiga, .c64, .dos, .doom, .jaguar, .lynx,
+             .atari7800, .atari5200, .arcade, .pokemini, .vb, .saturn, .segacd, .sega32x,
+             .dreamcast:
             return nil
         case .ds:
             return CGRect(x: 0, y: 0.5, width: 1, height: 0.5)
@@ -411,6 +485,44 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .n64: return "Nintendo 64"
         case .n3ds: return "Nintendo 3DS"
         case .psp: return "PlayStation Portable"
+        case .wswan: return "WonderSwan"
+        case .ngp: return "Neo Geo Pocket"
+        case .pcecd: return "PC Engine CD"
+        case .sgx: return "SuperGrafx"
+        case .amiga: return "Commodore Amiga"
+        case .c64: return "Commodore 64"
+        case .dos: return "DOS"
+        case .doom: return "DOOM"
+        case .jaguar: return "Atari Jaguar"
+        case .lynx: return "Atari Lynx"
+        case .atari7800: return "Atari 7800"
+        case .atari5200: return "Atari 5200"
+        case .arcade: return "Arcade"
+        case .pokemini: return "Pokemon Mini"
+        case .vb: return "Virtual Boy"
+        case .saturn: return "Sega Saturn"
+        case .segacd: return "Sega CD"
+        case .sega32x: return "Sega 32X"
+        case .dreamcast: return "Dreamcast"
+        }
+    }
+
+    /// Whether this system is played with a computer KEYBOARD as well as a pad.
+    ///
+    /// THE SPOT THE KEYBOARD ATTACHES TO. The input worker's on-screen and hardware keyboard
+    /// reads this to decide whether to offer itself; nothing in this file draws a keyboard. The
+    /// pads below give each of these systems a joystick with fire buttons, plus the core's own
+    /// on-screen keyboard toggle where the core has one (VICE and PUAE on Select, DOSBox Pure on
+    /// L3), so they are playable before the keyboard exists.
+    var wantsKeyboard: Bool {
+        switch self {
+        case .c64, .amiga, .dos:
+            return true
+        case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .ds, .fds, .sg1000,
+             .tg16, .atari2600, .n64, .n3ds, .psp, .wswan, .ngp, .pcecd, .sgx, .doom, .jaguar,
+             .lynx, .atari7800, .atari5200, .arcade, .pokemini, .vb, .saturn, .segacd,
+             .sega32x, .dreamcast:
+            return false
         }
     }
 
@@ -572,7 +684,206 @@ enum GameSystem: String, Sendable, CaseIterable {
                                     bottom: (.b, "B"), left: (.y, "Y"))
                 + Self.shoulders(left: [(.l, "L")], right: [(.r, "R")])
                 + Self.selectStart
+
+        // ------------------------------------------------------------ wave two
+        //
+        // EVERY SLOT BELOW WAS READ FROM THE CORE'S OWN INPUT DESCRIPTORS (or, where a core maps
+        // through core options, from the option's default value), not from the button's name.
+        // The source file is named on each case. Labels are what the hardware printed.
+
+        case .wswan:
+            // beetle-wswan libretro.c, horizontal layout: the X pad is the D-pad; the Y pad is
+            // retro L (left), R2 (up), L2 (down), R (right); A and B are retro A and B; Start;
+            // Select is "Rotate screen + active D-Pad". Both pads sit on the left of the real
+            // console; here the Y pad is the small diamond beside A and B so a thumb can reach it.
+            return Self.place([
+                (.r2, "Y\u{2191}", -1.3, -1.15), (.r, "Y\u{2192}", -0.15, 0),
+                (.l2, "Y\u{2193}", -1.3, 1.15), (.l, "Y\u{2190}", -2.45, 0),
+                (.b, "B", 1.2, 1.1), (.a, "A", 1.7, -0.6),
+            ])
+                + Self.systemPair(select: "ROTATE", start: "START")
+
+        case .ngp:
+            // beetle-ngp libretro.c: retro B is "A", retro A is "B", Start is "Option".
+            return Self.twoFace(right: (.a, "B"), left: (.b, "A"))
+                + [PadControl(slot: .start, label: "OPTION", cluster: .system,
+                              shape: .pill, offset: CGPoint(x: 0, y: 0))]
+
+        case .pcecd, .sgx:
+            // beetle-pce libretro.cpp and beetle-supergrafx libretro.cpp, same descriptors as
+            // the Fast core: JOYPAD_A is "I", JOYPAD_B is "II", Select, Run.
+            return Self.twoFace(right: (.a, "I"), left: (.b, "II"))
+                + Self.systemPair(select: "SELECT", start: "RUN")
+
+        case .amiga:
+            // libretro-uae libretro-core.c: B is "Fire / Red", A "2nd fire / Blue"; the
+            // puae_mapper_x default is RETROK_SPACE and puae_mapper_select's is TOGGLE_VKBD, the
+            // core's own on-screen keyboard.
+            return Self.place([
+                (.b, "FIRE", -0.85, 0.45), (.a, "FIRE 2", 0.85, -0.45),
+                (.x, "SPACE", 0.85, 1.25),
+            ])
+                + Self.systemPair(select: "KEYS", start: "START")
+
+        case .c64:
+            // vice-libretro libretro-core.c: B is "Fire", A is the 2nd fire; vice_mapper_x
+            // defaults to RETROK_SPACE, vice_mapper_l2 to RETROK_ESCAPE (RUN/STOP), r2 to
+            // RETROK_RETURN, and Select to TOGGLE_VKBD, VICE's own on-screen keyboard.
+            return Self.place([
+                (.b, "FIRE", -0.85, 0.45), (.a, "FIRE 2", 0.85, -0.45),
+                (.x, "SPACE", 0.85, 1.25),
+            ])
+                + Self.shoulders(left: [(.l2, "RUN/STOP")], right: [(.r2, "RETURN")])
+                + Self.systemPair(select: "KEYS", start: "START")
+
+        case .dos:
+            // dosbox-pure dosbox_pure_pad.h: the joystick presets put DOS button 1 on retro B and
+            // button 2 on Y or A depending on the preset the core picks per game, so both are
+            // drawn; L3 is the core's own menu and on-screen keyboard (its "Always bind L3"
+            // option, on by default in core_options.h).
+            return Self.place([
+                (.b, "FIRE 1", -0.85, 0.45), (.a, "FIRE 2", 0.85, -0.45),
+                (.y, "FIRE 3", -0.85, -1.25), (.x, "FIRE 4", 0.85, 1.25),
+            ])
+                + Self.shoulders(left: [], right: [(.l3, "MENU")])
+                + Self.selectStart
+
+        case .doom:
+            // libretro-prboom libretro.c gp_classic (the default device): X Fire, A Use, B Strafe,
+            // Y Run, L/R strafe left and right, L2/R2 previous and next weapon, Select the map,
+            // Start the menu. The D-pad moves and turns.
+            return Self.diamondFace(top: (.x, "FIRE"), right: (.a, "USE"),
+                                    bottom: (.b, "STRAFE"), left: (.y, "RUN"))
+                + Self.shoulders(left: [(.l, "STRAFE \u{25C0}"), (.l2, "WEAPON -")],
+                                 right: [(.r, "STRAFE \u{25B6}"), (.r2, "WEAPON +")])
+                + Self.systemPair(select: "MAP", start: "MENU")
+
+        case .jaguar:
+            // virtualjaguar libretro_core_options.h defaults: retro A is Jaguar A, B is B, Y is
+            // C, Select is Pause, Start is Option, and the keypad: X 0, L 1, R 2, L2 3, R2 4,
+            // L3 5, R3 6. Keypad 7, 8, 9, * and # are reachable only from a keyboard (the core's
+            // numpad-to-keyboard option), which the keyboard worker adds.
+            return Self.threeFace(left: (.a, "A"), middle: (.b, "B"), right: (.y, "C"))
+                + Self.place([(.x, "0", 0, -1.6)])
+                + Self.shoulders(left: [(.l, "1"), (.l2, "3"), (.l3, "5")],
+                                 right: [(.r, "2"), (.r2, "4"), (.r3, "6")])
+                + Self.systemPair(select: "PAUSE", start: "OPTION")
+
+        case .lynx:
+            // libretro-handy libretro.cpp btn_map_no_rot: A, B, L Option 1, R Option 2,
+            // Start Pause.
+            return Self.twoFace(right: (.a, "A"), left: (.b, "B"))
+                + Self.shoulders(left: [(.l, "OPT 1")], right: [(.r, "OPT 2")])
+                + [PadControl(slot: .start, label: "PAUSE", cluster: .system,
+                              shape: .pill, offset: CGPoint(x: 0, y: 0))]
+
+        case .atari7800:
+            // prosystem-libretro core/libretro.c: B "1", A "2", X "Console Reset", Select
+            // "Console Select", Start "Console Pause", L and R the difficulty switches.
+            return Self.twoFace(right: (.a, "2"), left: (.b, "1"))
+                + Self.place([(.x, "RESET", 0, -1.7)])
+                + Self.shoulders(left: [(.l, "DIFF L")], right: [(.r, "DIFF R")])
+                + Self.systemPair(select: "SELECT", start: "PAUSE")
+
+        case .atari5200:
+            // a5200 libretro.c: A "Fire 1", B "Fire 2", X "#", Y "*", R "0", R2 "1", L2 "3",
+            // R3 "5", L3 "7", L "Show/Hide OSK" (the core's own on-screen keypad, which has every
+            // key), Select "Pause", Start "Start".
+            return Self.place([
+                (.b, "FIRE 2", -0.85, 0.45), (.a, "FIRE 1", 0.85, -0.45),
+                (.y, "*", -1.0, -1.3), (.x, "#", 1.0, 1.3),
+            ])
+                + Self.shoulders(left: [(.l, "KEYPAD"), (.l2, "3"), (.l3, "7")],
+                                 right: [(.r, "0"), (.r2, "1"), (.r3, "5")])
+                + Self.systemPair(select: "PAUSE", start: "START")
+
+        case .arcade:
+            // FBNeo's retro_input.cpp maps per game, so these labels are positions rather than
+            // a promise about any one game: six buttons in the arrangement its fighting-game maps
+            // use (Y X L over B A R), Select is Coin and Start is Start, which both FBNeo and
+            // MAME 2003-Plus use for every set.
+            return Self.sixFace(top: [(.y, "3"), (.x, "4"), (.l, "5")],
+                                bottom: [(.b, "1"), (.a, "2"), (.r, "6")])
+                + Self.systemPair(select: "COIN", start: "START")
+
+        case .pokemini:
+            // PokeMini libretro.c: B "B", A "A", R "C", L "Shake", Select "Power". The phone's
+            // motion sensor will press Shake too once the input worker wires it; the pill is the
+            // fallback that always works.
+            return Self.threeFace(left: (.b, "B"), middle: (.a, "A"), right: (.r, "C"))
+                + Self.shoulders(left: [(.l, "SHAKE")], right: [])
+                + [PadControl(slot: .select, label: "POWER", cluster: .system,
+                              shape: .pill, offset: CGPoint(x: 0, y: 0))]
+
+        case .vb:
+            // beetle-vb libretro.cpp: the left D-pad is the D-pad; the RIGHT D-pad is retro L2
+            // up, L3 down, R2 left, R3 right, which no name would have guessed. A and B, L and
+            // R, Select and Start are themselves.
+            return Self.place([
+                (.l2, "R\u{2191}", 0, -1.15), (.r3, "R\u{2192}", 1.15, 0),
+                (.l3, "R\u{2193}", 0, 1.15), (.r2, "R\u{2190}", -1.15, 0),
+                (.a, "A", 2.3, 0.9), (.b, "B", 1.2, 2.2),
+            ])
+                + Self.shoulders(left: [(.l, "L")], right: [(.r, "R")])
+                + Self.selectStart
+
+        case .saturn:
+            // yabause libretro.c and beetle-saturn input.c agree: B "A", A "B", R "C",
+            // Y "X", X "Y", L "Z", L2 "L", R2 "R", Start.
+            return Self.sixFace(top: [(.y, "X"), (.x, "Y"), (.l, "Z")],
+                                bottom: [(.b, "A"), (.a, "B"), (.r, "C")])
+                + Self.shoulders(left: [(.l2, "L")], right: [(.r2, "R")])
+                + [PadControl(slot: .start, label: "START", cluster: .system,
+                              shape: .pill, offset: CGPoint(x: 0, y: 0))]
+
+        case .segacd:
+            // Genesis Plus GX, the same pad as the Mega Drive: retro Y, B, A are A, B, C.
+            return Self.threeFace(left: (.y, "A"), middle: (.b, "B"), right: (.a, "C"))
+                + [PadControl(slot: .start, label: "START", cluster: .system,
+                              shape: .pill, offset: CGPoint(x: 0, y: 0))]
+
+        case .sega32x:
+            // picodrive libretro.c: Y "A", B "B", A "C", L "X", X "Y", R "Z", Select "Mode".
+            return Self.sixFace(top: [(.l, "X"), (.x, "Y"), (.r, "Z")],
+                                bottom: [(.y, "A"), (.b, "B"), (.a, "C")])
+                + Self.systemPair(select: "MODE", start: "START")
+
+        case .dreamcast:
+            // flycast shell/libretro/libretro.cpp: B "A", A "B", X "Y", Y "X", L2 "L Trigger",
+            // R2 "R Trigger", Start. The stick is the left analog, which the D-pad surface drives
+            // (`dpadDrivesAnalogStick`).
+            return Self.diamondFace(top: (.x, "Y"), right: (.a, "B"),
+                                    bottom: (.b, "A"), left: (.y, "X"))
+                + Self.shoulders(left: [(.l2, "L")], right: [(.r2, "R")])
+                + [PadControl(slot: .start, label: "START", cluster: .system,
+                              shape: .pill, offset: CGPoint(x: 0, y: 0))]
         }
+    }
+
+    /// Round face buttons at explicit offsets, for the layouts no template covers. Offsets are
+    /// in face units like every template, and each list here was checked to keep centres more
+    /// than 1.4 units (one button) apart.
+    private static func place(_ items: [(PadSlot, String, CGFloat, CGFloat)]) -> [PadControl] {
+        items.map {
+            PadControl(slot: $0.0, label: $0.1, cluster: .face, shape: .round,
+                       offset: CGPoint(x: $0.2, y: $0.3))
+        }
+    }
+
+    /// Six buttons in two rows of three, the Saturn / six-button Mega Drive / arcade shape.
+    /// Columns 1.6 apart and rows 1.6 apart, so every pair clears 1.4.
+    private static func sixFace(top: [(PadSlot, String)],
+                                bottom: [(PadSlot, String)]) -> [PadControl] {
+        var out: [PadControl] = []
+        for (index, entry) in top.prefix(3).enumerated() {
+            out.append(PadControl(slot: entry.0, label: entry.1, cluster: .face, shape: .round,
+                                  offset: CGPoint(x: -1.6 + 1.6 * CGFloat(index), y: -0.8)))
+        }
+        for (index, entry) in bottom.prefix(3).enumerated() {
+            out.append(PadControl(slot: entry.0, label: entry.1, cluster: .face, shape: .round,
+                                  offset: CGPoint(x: -1.6 + 1.6 * CGFloat(index), y: 0.8)))
+        }
+        return out
     }
 
     /// How many controls this system draws, D-pad excluded. Used by the diagnostic line so the

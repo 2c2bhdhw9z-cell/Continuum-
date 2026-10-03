@@ -331,7 +331,7 @@ struct ShelfRow: View {
                     ForEach(entries) { entry in
                         CoverCard(
                             entry: entry,
-                            system: CoreCatalog.system(forExtension: entry.ext),
+                            system: CoreCatalog.system(for: entry),
                             store: store,
                             generation: generation,
                             isFavourite: favourites.contains(entry.id),

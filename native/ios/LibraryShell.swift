@@ -338,7 +338,7 @@ struct LibraryShell: View {
                 if let hero = heroEntry {
                     HeroCard(
                         entry: hero,
-                        system: CoreCatalog.system(forExtension: hero.ext),
+                        system: CoreCatalog.system(for: hero),
                         store: artwork,
                         generation: artwork.generation,
                         isFavourite: host.favourites.contains(hero.id),
@@ -502,7 +502,7 @@ struct LibraryShell: View {
                 ForEach(entries) { entry in
                     CoverCard(
                         entry: entry,
-                        system: CoreCatalog.system(forExtension: entry.ext),
+                        system: CoreCatalog.system(for: entry),
                         store: artwork,
                         generation: artwork.generation,
                         isFavourite: host.favourites.contains(entry.id),
@@ -528,7 +528,7 @@ struct LibraryShell: View {
                 // silently do nothing.
                 GameListRow(
                     entry: entry,
-                    system: CoreCatalog.system(forExtension: entry.ext),
+                    system: CoreCatalog.system(for: entry),
                     store: artwork,
                     generation: artwork.generation,
                     isFavourite: host.favourites.contains(entry.id),
@@ -662,7 +662,7 @@ struct LibraryShell: View {
         var bySystem: [GameSystem: [LibraryEntry]] = [:]
         var unrouted: [LibraryEntry] = []
         for entry in host.library {
-            if let system = CoreCatalog.system(forExtension: entry.ext) {
+            if let system = CoreCatalog.system(for: entry) {
                 bySystem[system, default: []].append(entry)
             } else {
                 unrouted.append(entry)

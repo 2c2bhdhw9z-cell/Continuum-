@@ -707,7 +707,7 @@ final class ArtworkStore: ObservableObject {
             // check deliberately does NOT decode: see `ArtworkDisk.hasCover`.
             if memory.object(forKey: key as NSString) != nil { continue }
             if isKnownMiss(key) { continue }
-            guard let system = CoreCatalog.system(forExtension: entry.ext),
+            guard let system = CoreCatalog.system(for: entry),
                   SystemArtwork.hasThumbnails(for: system) else { continue }
             if await ArtworkDisk.hasCover(key: key) { continue }
 

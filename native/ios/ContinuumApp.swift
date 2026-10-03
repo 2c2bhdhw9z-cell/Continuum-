@@ -125,6 +125,11 @@ struct CoreSpec: Sendable {
     /// for a core that needs none, which is every core here except PCSX ReARMed. Never
     /// bundled: shipping a console BIOS is a copyright violation.
     let biosNames: [String]
+    /// True when this core cannot boot ANY game without one of `biosNames` (Beetle Saturn).
+    /// False, the default, for a core that falls back to a built-in replacement when the file is
+    /// absent (PCSX ReARMed's HLE, Handy, a5200, Yabause, Flycast). Only changes the HUD wording;
+    /// the launch gate is `CoreCatalog.requiredFirmware`, which is per system.
+    var biosRequired: Bool = false
 }
 
 /// The five cores, and THE extension-to-core routing table.
@@ -198,7 +203,10 @@ enum CoreCatalog {
     static let genesisPlusGx = CoreSpec(
         coreId: "genesis_plus_gx",
         displayName: "Genesis Plus GX (Mega Drive, Master System, Game Gear)",
-        systems: ["genesis", "sms", "gg", "sg1000"],
+        // "segacd" too: the Mega-CD runs on this core (bios_CD_U/E/J.bin required, see
+        // `requiredFirmware`). Its disc formats are shared, so it is reached through
+        // `systemResolver`.
+        systems: ["genesis", "sms", "gg", "sg1000", "segacd"],
         library: "genesis_plus_gx_libretro_ios.dylib",
         width: 320, height: 224,
         maxWidth: 348, maxHeight: 240,
@@ -440,10 +448,217 @@ enum CoreCatalog {
         biosNames: []
     )
 
+    // MARK: Wave two: the prebuilt buildbot cores, and flycast
+    //
+    // EVERY ONE OF THESE IS OPTIONAL IN THE .ipa (scripts/fetch-buildbot-cores.sh, and
+    // IOS_OPTIONAL_CORES in scripts/build-core.sh). A core that did not arrive is simply absent
+    // from Frameworks/, `declareAllCores` names it on the cores line as not in the bundle, and a
+    // tap on one of its games says that dylib is missing. Nothing here changes for that case.
+    //
+    // The geometry, rate and pixel format below are pre-load seeds, exactly as the note on
+    // `CoreSpec` says: each core reports its own through `retro_get_system_av_info` and
+    // SET_PIXEL_FORMAT one call later. The library names are the buildbot's own filenames
+    // (`<core>_libretro_ios.dylib`), byte for byte.
+
+    /// WonderSwan and WonderSwan Color. 224x144, rotated to 144x224 for vertical games, so the
+    /// ceiling is square. 75.47 Hz is the real refresh.
+    static let mednafenWswan = CoreSpec(
+        coreId: "mednafen_wswan", displayName: "Beetle WonderSwan",
+        systems: ["wswan"], library: "mednafen_wswan_libretro_ios.dylib",
+        width: 224, height: 144, maxWidth: 224, maxHeight: 224,
+        aspectRatio: 14.0 / 9.0, fps: 75.47, sampleRate: 44100, pixelFormat: 0,
+        priority: 0, biosNames: []
+    )
+
+    /// Neo Geo Pocket and Pocket Color. No BIOS: the core carries its own.
+    static let mednafenNgp = CoreSpec(
+        coreId: "mednafen_ngp", displayName: "Beetle NeoPop (Neo Geo Pocket)",
+        systems: ["ngp"], library: "mednafen_ngp_libretro_ios.dylib",
+        width: 160, height: 152, maxWidth: 160, maxHeight: 152,
+        aspectRatio: 160.0 / 152.0, fps: 60.25, sampleRate: 44100, pixelFormat: 0,
+        priority: 0, biosNames: []
+    )
+
+    /// PC Engine CD on the FULL Beetle PCE. HuCards stay on Beetle PCE Fast (`tg16`). CD games
+    /// need a System Card; the core's default option is System Card 3, hence the name order.
+    static let mednafenPce = CoreSpec(
+        coreId: "mednafen_pce", displayName: "Beetle PCE (PC Engine CD)",
+        systems: ["pcecd"], library: "mednafen_pce_libretro_ios.dylib",
+        width: 256, height: 243, maxWidth: 512, maxHeight: 243,
+        aspectRatio: 4.0 / 3.0, fps: 59.82, sampleRate: 44100, pixelFormat: 0,
+        priority: 0,
+        biosNames: ["syscard3.pce", "syscard2.pce", "syscard1.pce", "gexpress.pce"],
+        biosRequired: true
+    )
+
+    /// SuperGrafx HuCards (.sgx). Its own core, because the Fast core does not declare sgx.
+    static let mednafenSupergrafx = CoreSpec(
+        coreId: "mednafen_supergrafx", displayName: "Beetle SuperGrafx",
+        systems: ["sgx"], library: "mednafen_supergrafx_libretro_ios.dylib",
+        width: 256, height: 243, maxWidth: 512, maxHeight: 243,
+        aspectRatio: 4.0 / 3.0, fps: 59.82, sampleRate: 44100, pixelFormat: 0,
+        priority: 0, biosNames: []
+    )
+
+    /// Commodore Amiga. Kickstart ROMs are optional: PUAE falls back to the built-in AROS.
+    static let puae = CoreSpec(
+        coreId: "puae", displayName: "PUAE (Amiga)",
+        systems: ["amiga"], library: "puae_libretro_ios.dylib",
+        width: 720, height: 568, maxWidth: 1440, maxHeight: 1152,
+        aspectRatio: 4.0 / 3.0, fps: 50.0, sampleRate: 44100, pixelFormat: 1,
+        priority: 0,
+        biosNames: ["kick34005.A500", "kick40063.A600", "kick40068.A1200"]
+    )
+
+    /// Commodore 64, cycle-exact VICE. Carries its own ROMs.
+    static let viceX64sc = CoreSpec(
+        coreId: "vice_x64sc", displayName: "VICE x64sc (Commodore 64)",
+        systems: ["c64"], library: "vice_x64sc_libretro_ios.dylib",
+        width: 384, height: 272, maxWidth: 800, maxHeight: 600,
+        aspectRatio: 4.0 / 3.0, fps: 50.125, sampleRate: 44100, pixelFormat: 1,
+        priority: 0, biosNames: []
+    )
+
+    /// DOS. The buildbot's iOS build has DISABLE_DYNAREC set in its makefile, so no JIT.
+    static let dosboxPure = CoreSpec(
+        coreId: "dosbox_pure", displayName: "DOSBox Pure (DOS)",
+        systems: ["dos"], library: "dosbox_pure_libretro_ios.dylib",
+        width: 640, height: 400, maxWidth: 1280, maxHeight: 1024,
+        aspectRatio: 4.0 / 3.0, fps: 60.0, sampleRate: 48000, pixelFormat: 1,
+        priority: 0, biosNames: []
+    )
+
+    /// DOOM engine games. Needs prboom.wad, which is GPL and IS bundled (see
+    /// `CoreSupportFiles`), plus the game's own IWAD, which is the file the user taps.
+    static let prboom = CoreSpec(
+        coreId: "prboom", displayName: "PrBoom (DOOM)",
+        systems: ["doom"], library: "prboom_libretro_ios.dylib",
+        width: 320, height: 200, maxWidth: 2560, maxHeight: 1600,
+        aspectRatio: 4.0 / 3.0, fps: 60.0, sampleRate: 44100, pixelFormat: 0,
+        priority: 0, biosNames: []
+    )
+
+    /// Atari Jaguar. Both boot ROMs are built into this core, so nothing is needed.
+    static let virtualJaguar = CoreSpec(
+        coreId: "virtualjaguar", displayName: "Virtual Jaguar",
+        systems: ["jaguar"], library: "virtualjaguar_libretro_ios.dylib",
+        width: 320, height: 240, maxWidth: 1024, maxHeight: 768,
+        aspectRatio: 4.0 / 3.0, fps: 60.0, sampleRate: 48000, pixelFormat: 1,
+        priority: 0, biosNames: []
+    )
+
+    /// Atari Lynx. lynxboot.img is optional: Handy boots without it (`!bios_found` in its
+    /// retro_load_game hands the system a built-in boot).
+    static let handy = CoreSpec(
+        coreId: "handy", displayName: "Handy (Atari Lynx)",
+        systems: ["lynx"], library: "handy_libretro_ios.dylib",
+        width: 160, height: 102, maxWidth: 160, maxHeight: 160,
+        aspectRatio: 160.0 / 102.0, fps: 75.0, sampleRate: 22050, pixelFormat: 0,
+        priority: 0, biosNames: ["lynxboot.img"]
+    )
+
+    /// Atari 7800. The BIOS only adds the Atari logo; ProSystem runs without it.
+    static let prosystem = CoreSpec(
+        coreId: "prosystem", displayName: "ProSystem (Atari 7800)",
+        systems: ["atari7800"], library: "prosystem_libretro_ios.dylib",
+        width: 320, height: 223, maxWidth: 320, maxHeight: 292,
+        aspectRatio: 4.0 / 3.0, fps: 60.0, sampleRate: 48000, pixelFormat: 0,
+        priority: 0, biosNames: ["7800 BIOS (U).rom", "7800 BIOS (E).rom"]
+    )
+
+    /// Atari 5200. 5200.rom is optional: a5200's load_bios falls back to its built-in BIOS.
+    static let a5200 = CoreSpec(
+        coreId: "a5200", displayName: "a5200 (Atari 5200)",
+        systems: ["atari5200"], library: "a5200_libretro_ios.dylib",
+        width: 336, height: 240, maxWidth: 336, maxHeight: 240,
+        aspectRatio: 4.0 / 3.0, fps: 59.92, sampleRate: 44100, pixelFormat: 0,
+        priority: 0, biosNames: ["5200.rom"]
+    )
+
+    /// Arcade, the default core. Romsets are zips handed over AS the zip. Neo Geo sets also need
+    /// neogeo.zip, which the install action puts in system/fbneo/ where FBNeo looks.
+    static let fbneo = CoreSpec(
+        coreId: "fbneo", displayName: "FinalBurn Neo (Arcade)",
+        systems: ["arcade"], library: "fbneo_libretro_ios.dylib",
+        width: 384, height: 224, maxWidth: 1024, maxHeight: 1024,
+        aspectRatio: 4.0 / 3.0, fps: 60.0, sampleRate: 48000, pixelFormat: 0,
+        priority: 10, biosNames: ["neogeo.zip"]
+    )
+
+    /// Arcade, the second choice (Settings, Arcade core). MAME 0.78-era romsets.
+    static let mame2003Plus = CoreSpec(
+        coreId: "mame2003_plus", displayName: "MAME 2003-Plus (Arcade)",
+        systems: ["arcade"], library: "mame2003_plus_libretro_ios.dylib",
+        width: 320, height: 240, maxWidth: 1024, maxHeight: 1024,
+        aspectRatio: 4.0 / 3.0, fps: 60.0, sampleRate: 48000, pixelFormat: 0,
+        priority: 0, biosNames: []
+    )
+
+    /// Pokemon Mini. bios.min is optional: PokeMini has a free BIOS built in.
+    static let pokemini = CoreSpec(
+        coreId: "pokemini", displayName: "PokeMini",
+        systems: ["pokemini"], library: "pokemini_libretro_ios.dylib",
+        width: 96, height: 64, maxWidth: 576, maxHeight: 384,
+        aspectRatio: 1.5, fps: 72.0, sampleRate: 44100, pixelFormat: 0,
+        priority: 0, biosNames: ["bios.min"]
+    )
+
+    /// Virtual Boy. The default 3D mode is anaglyph in one 384x224 frame.
+    static let mednafenVb = CoreSpec(
+        coreId: "mednafen_vb", displayName: "Beetle VB (Virtual Boy)",
+        systems: ["vb"], library: "mednafen_vb_libretro_ios.dylib",
+        width: 384, height: 224, maxWidth: 768, maxHeight: 448,
+        aspectRatio: 384.0 / 224.0, fps: 50.27, sampleRate: 48000, pixelFormat: 1,
+        priority: 0, biosNames: []
+    )
+
+    /// Sega Saturn, the default core. A real BIOS is optional: Yabause has an HLE BIOS and says
+    /// in its log to expect issues without one. Looked for in this order by its retro_load_game.
+    static let yabause = CoreSpec(
+        coreId: "yabause", displayName: "Yabause (Saturn)",
+        systems: ["saturn"], library: "yabause_libretro_ios.dylib",
+        width: 320, height: 224, maxWidth: 704, maxHeight: 512,
+        aspectRatio: 4.0 / 3.0, fps: 60.0, sampleRate: 44100, pixelFormat: 0,
+        priority: 10, biosNames: ["saturn_bios.bin", "sega_101.bin", "mpr-17933.bin"]
+    )
+
+    /// Sega Saturn, the selectable second core. Beetle Saturn has NO HLE BIOS: it opens
+    /// sega_101.bin for Japanese discs and mpr-17933.bin for the rest (mednafen/ss/ss.c).
+    static let mednafenSaturn = CoreSpec(
+        coreId: "mednafen_saturn", displayName: "Beetle Saturn",
+        systems: ["saturn"], library: "mednafen_saturn_libretro_ios.dylib",
+        width: 320, height: 240, maxWidth: 704, maxHeight: 576,
+        aspectRatio: 4.0 / 3.0, fps: 59.88, sampleRate: 44100, pixelFormat: 1,
+        priority: 0, biosNames: ["sega_101.bin", "mpr-17933.bin"], biosRequired: true
+    )
+
+    /// Sega 32X. PicoDrive's makefile turns its DRCs off on Apple, so no JIT. No BIOS.
+    static let picodrive = CoreSpec(
+        coreId: "picodrive", displayName: "PicoDrive (32X)",
+        systems: ["sega32x"], library: "picodrive_libretro_ios.dylib",
+        width: 320, height: 224, maxWidth: 320, maxHeight: 240,
+        aspectRatio: 4.0 / 3.0, fps: 59.92, sampleRate: 44100, pixelFormat: 0,
+        priority: 0, biosNames: []
+    )
+
+    /// Dreamcast, built from source because the iOS buildbot does not carry it, interpreter only
+    /// (TARGET_NO_REC). dc_boot.bin and dc_flash.bin are optional: Flycast has an HLE BIOS. The
+    /// install action puts them in system/dc/, where Flycast looks. OPTIONAL in the .ipa.
+    static let flycast = CoreSpec(
+        coreId: "flycast", displayName: "Flycast (Dreamcast)",
+        systems: ["dreamcast"], library: "flycast_libretro_ios.dylib",
+        width: 640, height: 480, maxWidth: 1920, maxHeight: 1440,
+        aspectRatio: 4.0 / 3.0, fps: 59.94, sampleRate: 44100, pixelFormat: 1,
+        priority: 0, biosNames: ["dc_boot.bin", "dc_flash.bin"]
+    )
+
     /// Every core, in the order the HUD reports them.
     static let all: [CoreSpec] = [
         fceumm, snes9x, mgba, genesisPlusGx, pcsxReARMed, mednafenPsxHw, melonDS,
         mednafenPceFast, stella, parallelN64, azahar, ppsspp,
+        mednafenWswan, mednafenNgp, mednafenPce, mednafenSupergrafx, puae, viceX64sc,
+        dosboxPure, prboom, virtualJaguar, handy, prosystem, a5200, fbneo, mame2003Plus,
+        pokemini, mednafenVb, yabause, mednafenSaturn, picodrive, flycast,
     ]
 
     static let byId: [String: CoreSpec] = Dictionary(
@@ -572,7 +787,213 @@ enum CoreCatalog {
         // row. Renaming an .iso to .cso does not make it one: .cso is a
         // compressed format, and this app will not steal .iso from PlayStation.
         "cso": Route(coreId: ppsspp.coreId, system: .psp),
+
+        // ---------------------------------------------------------------- wave two
+        //
+        // Every Manic EMU extension in docs/MANIC_PARITY.md that belongs to ONE system, plus the
+        // extras for systems already here. Routed through `on(_:)`, so the core is the system's
+        // default from `defaultCoreBySystem` rather than restated, and a Settings core choice
+        // (arcade, Saturn) applies to every extension of that system at once.
+        //
+        // Extensions SHARED by several systems are not here; they are `sharedExtensions`, decided
+        // by `systemResolver` first and only then by the fallback rows above (cue, chd, iso, pbp,
+        // toc to the PlayStation, exactly as before).
+
+        // Extras for systems already in the app.
+        "fc": on(.nes),
+        "snes": on(.snes),
+        "ds": on(.ds),
+        // Master System BIOS-style images Genesis Plus GX declares as `bms`.
+        "bms": on(.sms),
+        // 3DS installables. Azahar declares both. A CIA must be decrypted like any 3DS file.
+        "app": on(.n3ds),
+        "cia": on(.n3ds),
+        // A PSP PRX module, which PPSSPP opens directly.
+        "prx": on(.psp),
+        "32x": on(.sega32x),
+        // WonderSwan: ws, wsc, and the Pocket Challenge V2's pc2 and pcv2.
+        "ws": on(.wswan),
+        "wsc": on(.wswan),
+        "pc2": on(.wswan),
+        "pcv2": on(.wswan),
+        // Neo Geo Pocket and Color.
+        "ngp": on(.ngp),
+        "ngc": on(.ngp),
+        "ngpc": on(.ngp),
+        "npc": on(.ngp),
+        // SuperGrafx HuCards. Plain .pce HuCards stay on Beetle PCE Fast above.
+        "sgx": on(.sgx),
+        // Amiga floppies, hard disk images, WHDLoad and CD32. PUAE declares all of them except
+        // rp9, which Manic accepts and PUAE opens as a zip.
+        "adf": on(.amiga),
+        "adz": on(.amiga),
+        "dms": on(.amiga),
+        "fdi": on(.amiga),
+        "ipf": on(.amiga),
+        "hdf": on(.amiga),
+        "hdz": on(.amiga),
+        "lha": on(.amiga),
+        "slave": on(.amiga),
+        "info": on(.amiga),
+        "nrg": on(.amiga),
+        "uae": on(.amiga),
+        "rp9": on(.amiga),
+        // Commodore 64: VICE's own valid_extensions, less the shared ones. prg and cmd are also
+        // Jaguar and arcade extensions in Manic's list; the C64 is by far the usual owner, and the
+        // resolver is asked first for every file, so it can still say otherwise.
+        "d64": on(.c64),
+        "d71": on(.c64),
+        "d80": on(.c64),
+        "d81": on(.c64),
+        "d82": on(.c64),
+        "g64": on(.c64),
+        "g41": on(.c64),
+        "x64": on(.c64),
+        "t64": on(.c64),
+        "tap": on(.c64),
+        "prg": on(.c64),
+        "p00": on(.c64),
+        "crt": on(.c64),
+        "gz": on(.c64),
+        "d6z": on(.c64),
+        "d7z": on(.c64),
+        "d8z": on(.c64),
+        "g6z": on(.c64),
+        "g4z": on(.c64),
+        "x6z": on(.c64),
+        "cmd": on(.c64),
+        "vfl": on(.c64),
+        "vsf": on(.c64),
+        "nib": on(.c64),
+        "nbz": on(.c64),
+        "d2m": on(.c64),
+        "d4m": on(.c64),
+        // DOS. dosz is DOSBox Pure's own zip; exe, com and bat run directly. A .zip of a DOS game
+        // is shared with arcade and Amiga and goes through the resolver.
+        "dosz": on(.dos),
+        "exe": on(.dos),
+        "com": on(.dos),
+        "bat": on(.dos),
+        "ima": on(.dos),
+        "vhd": on(.dos),
+        "jrc": on(.dos),
+        "tc": on(.dos),
+        "conf": on(.dos),
+        // DOOM IWADs and PWADs. prboom.wad itself is a support file and never a Library row; see
+        // `isLaunchable`.
+        "wad": on(.doom),
+        "iwad": on(.doom),
+        "pwad": on(.doom),
+        // Atari Jaguar. bin and prg are shared.
+        "j64": on(.jaguar),
+        "jag": on(.jaguar),
+        "rom": on(.jaguar),
+        "abs": on(.jaguar),
+        "cof": on(.jaguar),
+        // Atari Lynx. Handy declares lnx, lyx and o.
+        "lnx": on(.lynx),
+        "lyx": on(.lynx),
+        "o": on(.lynx),
+        // Atari 7800 and 5200. Their .bin dumps are shared.
+        "a78": on(.atari7800),
+        "cdf": on(.atari7800),
+        "a52": on(.atari5200),
+        "min": on(.pokemini),
+        "vb": on(.vb),
+        "vboy": on(.vb),
+        // Dreamcast disc images that nothing else uses.
+        "cdi": on(.dreamcast),
+        "gdi": on(.dreamcast),
     ]
+
+    /// Extensions more than one system uses. The resolver is asked about these (and about every
+    /// other file too); with no answer, a shared extension falls back to the `routeTable` row it
+    /// has, if any (the PlayStation's cue, chd, iso, pbp), or stays unlaunchable as it was.
+    ///
+    /// `bin` is here and has NO fallback row, and that is the rule that keeps a PlayStation cue
+    /// sheet's tracks from ever appearing as games. Only a resolver answer naming a CARTRIDGE
+    /// system (Atari 2600, 7800, 5200, Jaguar, Virtual Boy, C64, Mega Drive and the like) turns a
+    /// .bin into a Library row.
+    static let sharedExtensions: Set<String> = [
+        "cue", "chd", "iso", "bin", "m3u", "zip", "7z", "ccd", "img", "elf", "pbp", "mds", "toc",
+    ]
+
+    /// Systems whose games are disc images, for which a `.bin` is a track and never a game.
+    static let discSystems: Set<GameSystem> = [
+        .ps1, .psp, .pcecd, .saturn, .segacd, .dreamcast, .amiga, .dos,
+    ]
+
+    /// THE SYSTEM HOOK another worker fills in: given a file, the `GameSystem` raw value it is,
+    /// or nil when it cannot tell. Nil by default, which leaves today's behaviour exactly as it
+    /// was. Consulted FIRST for every file, before the extension table.
+    ///
+    /// It must be cheap enough to call while the Library is listed (it is called per row), so an
+    /// implementation that reads a disc header should cache its answers by path.
+    static var systemResolver: ((URL) -> String?)?
+
+    /// The core each system launches on unless Settings chose another one. The single place a
+    /// system is tied to a core: the wave-two rows above derive from it through `on(_:)`, and a
+    /// resolver answer is turned into a core through it.
+    static let defaultCoreBySystem: [GameSystem: String] = [
+        .nes: fceumm.coreId, .fds: fceumm.coreId,
+        .snes: snes9x.coreId,
+        .gb: mgba.coreId, .gbc: mgba.coreId, .gba: mgba.coreId,
+        .sms: genesisPlusGx.coreId, .gg: genesisPlusGx.coreId, .genesis: genesisPlusGx.coreId,
+        .sg1000: genesisPlusGx.coreId, .segacd: genesisPlusGx.coreId,
+        .ps1: pcsxReARMed.coreId,
+        .ds: melonDS.coreId,
+        .tg16: mednafenPceFast.coreId,
+        .atari2600: stella.coreId,
+        .n64: parallelN64.coreId,
+        .n3ds: azahar.coreId,
+        .psp: ppsspp.coreId,
+        .wswan: mednafenWswan.coreId,
+        .ngp: mednafenNgp.coreId,
+        .pcecd: mednafenPce.coreId,
+        .sgx: mednafenSupergrafx.coreId,
+        .amiga: puae.coreId,
+        .c64: viceX64sc.coreId,
+        .dos: dosboxPure.coreId,
+        .doom: prboom.coreId,
+        .jaguar: virtualJaguar.coreId,
+        .lynx: handy.coreId,
+        .atari7800: prosystem.coreId,
+        .atari5200: a5200.coreId,
+        .arcade: fbneo.coreId,
+        .pokemini: pokemini.coreId,
+        .vb: mednafenVb.coreId,
+        .saturn: yabause.coreId,
+        .sega32x: picodrive.coreId,
+        .dreamcast: flycast.coreId,
+    ]
+
+    /// Systems with more than one core, default first. Settings offers a choice for each; the
+    /// PlayStation keeps its own long-standing `Ps1CoreChoice` control and storage key.
+    static let coreChoices: [GameSystem: [String]] = [
+        .ps1: [pcsxReARMed.coreId, mednafenPsxHw.coreId],
+        .arcade: [fbneo.coreId, mame2003Plus.coreId],
+        .saturn: [yabause.coreId, mednafenSaturn.coreId],
+    ]
+
+    /// The UserDefaults key a system's core choice is stored under (not the PlayStation's).
+    static func coreChoiceKey(for system: GameSystem) -> String {
+        "continuum.coreChoice.\(system.rawValue)"
+    }
+
+    /// The stored core choice for a system, when it is a valid alternative for that system.
+    static func storedCoreChoice(for system: GameSystem) -> String? {
+        guard system != .ps1,
+              let options = coreChoices[system],
+              let stored = UserDefaults.standard.string(forKey: coreChoiceKey(for: system)),
+              options.contains(stored) else { return nil }
+        return stored
+    }
+
+    /// A route for a system on its default core. An unknown system gets an empty core id, which
+    /// `byId` does not know, so the launch says "no core is mapped" instead of crashing.
+    private static func on(_ system: GameSystem) -> Route {
+        Route(coreId: defaultCoreBySystem[system] ?? "", system: system)
+    }
 
     /// Extension to core id, DERIVED from the table above and never restated.
     ///
@@ -619,7 +1040,11 @@ enum CoreCatalog {
         let firmwareExtensions = installableFirmwareNames.map {
             ($0 as NSString).pathExtension.lowercased()
         }
-        for ext in launchableExtensions + [trackExtension] + firmwareExtensions
+        // The shared extensions too (zip, 7z, m3u, ccd, img, elf, mds...), so a file the resolver
+        // can place gets into Documents to be asked about at all. Sorted so the list shown to
+        // the user is stable.
+        for ext in launchableExtensions + [trackExtension] + sharedExtensions.sorted()
+            + firmwareExtensions
         where !ext.isEmpty && seen.insert(ext).inserted {
             names.append(ext)
         }
@@ -655,7 +1080,15 @@ enum CoreCatalog {
     ///
     /// The copy-across reads BOTH lists for that reason. Anything a system might need has to be
     /// here or the file can never reach the directory the cores actually read.
-    static let extraFirmwareNames: [String] = ["disksys.rom"]
+    static let extraFirmwareNames: [String] = {
+        // disksys.rom, and every name a system-level requirement lists (the Mega-CD BIOSes and
+        // prboom.wad are not declared on a core for the same reason disksys.rom is not).
+        var names = ["disksys.rom"]
+        for system in GameSystem.allCases {
+            names += requiredFirmware[system]?.names ?? []
+        }
+        return names
+    }()
 
     /// Every firmware filename the install action will move across, from either list.
     static let installableFirmwareNames: [String] = {
@@ -686,22 +1119,89 @@ enum CoreCatalog {
     /// bad preference cannot blank the launch.
     static func core(forExtension ext: String, ps1CoreId: String? = nil) -> CoreSpec? {
         guard let route = routeTable[ext.lowercased()] else { return nil }
+        return core(for: route, ps1CoreId: ps1CoreId)
+    }
+
+    /// The core a route launches on, after the Settings choice for its system.
+    ///
+    /// `ps1CoreId` overrides the PlayStation (the long-standing Beetle switch); other systems with
+    /// two cores read their stored choice. An unknown or foreign override is ignored, so a bad
+    /// preference cannot blank the launch.
+    static func core(for route: Route, ps1CoreId: String? = nil) -> CoreSpec? {
         if route.system == .ps1,
            let overrideId = ps1CoreId,
            let override = byId[overrideId],
            override.systems.contains("ps1") {
             return override
         }
+        if let chosen = storedCoreChoice(for: route.system), let spec = byId[chosen] {
+            return spec
+        }
         return byId[route.coreId]
     }
 
     /// Which system a file with this extension is, or nil when nothing is mapped.
     ///
-    /// Read from the SAME table the core was resolved from, so the pad on screen and the core
-    /// running it can never disagree about what console this is.
+    /// Extension only, with no resolver. Prefer `system(forPath:)` wherever there is a file,
+    /// because a shared extension (.zip, .cue, .bin) can only be told apart by looking at it.
     static func system(forExtension ext: String) -> GameSystem? {
         routeTable[ext.lowercased()]?.system
     }
+
+    // MARK: Routing a FILE, resolver first
+
+    /// Where one file goes: the resolver's answer first, then the extension table.
+    ///
+    /// THIS is what launch, the Library rows, the pad and cover art all read, so a resolver answer
+    /// changes every one of them together. A resolver answer naming a system this build has no
+    /// core for, or an unknown id, is ignored and the extension decides, as it always did.
+    ///
+    /// `.bin`: with no answer it has no route at all (a cue sheet's track). With an answer it is
+    /// routed ONLY when the system is a cartridge system; a resolver that says "ps1" about a .bin
+    /// still gets nothing, because the launch target for a disc is its .cue.
+    static func route(forPath path: String) -> Route? {
+        let url = URL(fileURLWithPath: path)
+        let ext = url.pathExtension.lowercased()
+        if let resolver = systemResolver,
+           let answer = resolver(url),
+           let system = GameSystem(rawValue: answer),
+           let coreId = defaultCoreBySystem[system] {
+            if ext == trackExtension && discSystems.contains(system) {
+                return nil
+            }
+            return Route(coreId: coreId, system: system)
+        }
+        return routeTable[ext]
+    }
+
+    /// Which system a file is, resolver first. Nil when nothing claims it.
+    static func system(forPath path: String) -> GameSystem? {
+        route(forPath: path)?.system
+    }
+
+    /// Which system a Library row is. The same answer the launch path gets.
+    static func system(for entry: LibraryEntry) -> GameSystem? {
+        system(forPath: entry.path)
+    }
+
+    /// The core a file launches on, resolver first, then the Settings choice for its system.
+    static func core(forPath path: String, ps1CoreId: String? = nil) -> CoreSpec? {
+        guard let route = route(forPath: path) else { return nil }
+        return core(for: route, ps1CoreId: ps1CoreId)
+    }
+
+    /// Whether a file in Documents is a Library row: something routes it, and it is not a
+    /// firmware or support file a core reads from the system folder (disksys.rom is a .rom,
+    /// bios.min is a .min, prboom.wad is a .wad, neogeo.zip is a .zip, and none is a game).
+    static func isLaunchable(path: String) -> Bool {
+        let name = (path as NSString).lastPathComponent.lowercased()
+        if firmwareNameSet.contains(name) { return false }
+        return route(forPath: path) != nil
+    }
+
+    private static let firmwareNameSet: Set<String> = Set(
+        installableFirmwareNames.map { $0.lowercased() }
+    )
 
     /// What a Library row shows, so a wrong route is legible before anything is launched.
     ///
@@ -711,10 +1211,75 @@ enum CoreCatalog {
         core(forExtension: ext, ps1CoreId: ps1CoreId)?.coreId ?? "no core"
     }
 
+    /// The same label for a file, resolver first.
+    static func routeLabel(forPath path: String, ps1CoreId: String? = nil) -> String {
+        core(forPath: path, ps1CoreId: ps1CoreId)?.coreId ?? "no core"
+    }
+
+    // MARK: Firmware a system cannot start without
+
+    /// One firmware requirement: ANY of `names` in the system folder (or in `subfolder` of it)
+    /// satisfies it, and the first name is the one the launch failure names.
+    struct FirmwareNeed: Sendable {
+        let names: [String]
+        let subfolder: String?
+        /// What the file is, for the failure line.
+        let what: String
+    }
+
+    /// Per SYSTEM, like the Disk System's check always was, because a core like Genesis Plus GX
+    /// runs cartridges that need nothing and the Mega-CD that cannot start without a BIOS.
+    /// Systems whose core falls back to a built-in replacement are deliberately absent.
+    /// Names read from each core's own source: genesis_plus_gx's libretro.c (bios_CD_U/E/J.bin),
+    /// beetle-pce's System Card option (syscard3.pce default), beetle-saturn's mednafen/ss/ss.c
+    /// (sega_101.bin Japan, mpr-17933.bin elsewhere), and prboom's I_FindFile (system/prboom,
+    /// then system).
+    static let requiredFirmware: [GameSystem: FirmwareNeed] = [
+        .fds: FirmwareNeed(names: ["disksys.rom"], subfolder: nil,
+                           what: "Nintendo's own Disk System startup file"),
+        .segacd: FirmwareNeed(names: ["bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin"],
+                              subfolder: nil,
+                              what: "a Mega-CD / Sega CD BIOS (U is USA, E is Europe, J is Japan)"),
+        .pcecd: FirmwareNeed(names: ["syscard3.pce", "syscard2.pce", "syscard1.pce",
+                                     "gexpress.pce"],
+                             subfolder: nil, what: "the PC Engine CD System Card 3"),
+        .doom: FirmwareNeed(names: ["prboom.wad"], subfolder: "prboom",
+                            what: "PrBoom's own data file, which the app normally installs itself"),
+    ]
+
+    /// Firmware the chosen CORE needs regardless of system: Beetle Saturn has no HLE BIOS.
+    static let requiredCoreFirmware: [String: FirmwareNeed] = [
+        mednafenSaturn.coreId: FirmwareNeed(names: ["sega_101.bin", "mpr-17933.bin"],
+                                            subfolder: nil,
+                                            what: "a Saturn BIOS (sega_101.bin for Japanese "
+                                                + "discs, mpr-17933.bin for the rest)"),
+    ]
+
+    /// Where the install action ALSO puts a firmware file, because that core looks in a
+    /// subfolder of the system directory rather than at its top.
+    static let firmwareSubfolders: [String: String] = [
+        "neogeo.zip": "fbneo",
+        "dc_boot.bin": "dc",
+        "dc_flash.bin": "dc",
+        "prboom.wad": "prboom",
+    ]
+
     /// ".nes, .sfc, .smc, ..." for the HUD lines that have to say what is accepted.
     static func extensionList(_ extensions: [String]) -> String {
         extensions.map { ".\($0)" }.joined(separator: ", ")
     }
+}
+
+/// Support files that are FREELY LICENSED and therefore DO ship inside the .ipa, unlike a
+/// console BIOS. Fetched in CI by scripts/fetch-buildbot-cores.sh into native/ios/build/support,
+/// bundled by project.yml as the app's support/ folder, and copied into the system folder by
+/// `EngineHost.installBundledSupportFiles` when the cores are declared.
+enum CoreSupportFiles {
+    /// File name, and the subfolder of the system directory its core reads it from.
+    /// prboom.wad is GPL, from libretro-prboom; PrBoom's I_FindFile looks in system/prboom first.
+    static let bundled: [(name: String, subfolder: String?)] = [
+        (name: "prboom.wad", subfolder: "prboom"),
+    ]
 }
 
 // MARK: - One row of the Library
@@ -874,7 +1439,7 @@ struct LibraryEntry: Identifiable, Hashable, Sendable {
     func routedDetail(ps1CoreId: String?) -> String {
         var parts = [ext.uppercased(), sizeText]
         parts.append(contentsOf: cueNotes)
-        parts.append(CoreCatalog.routeLabel(forExtension: ext, ps1CoreId: ps1CoreId))
+        parts.append(CoreCatalog.routeLabel(forPath: path, ps1CoreId: ps1CoreId))
         return parts.joined(separator: " · ")
     }
 
@@ -1119,6 +1684,72 @@ final class EngineHost: ObservableObject {
             // BIOS line must name Beetle vs ReARMed honestly when the picker flips.
             refreshBiosReadoutForSelectedPs1()
         }
+    }
+
+    /// Bumped when a non-PlayStation core choice changes, so rows that name a core re-read it.
+    /// The choice itself lives in UserDefaults (`CoreCatalog.storedCoreChoice`), because the
+    /// routing functions that read it are static and run outside this object.
+    @Published private(set) var coreChoiceVersion: UInt = 0
+
+    /// The core a system with two cores launches on: the stored choice, or its default.
+    func coreChoice(for system: GameSystem) -> String {
+        if system == .ps1 { return ps1CoreChoice.coreId }
+        return CoreCatalog.storedCoreChoice(for: system)
+            ?? CoreCatalog.coreChoices[system]?.first
+            ?? ""
+    }
+
+    /// Chooses the core a system launches on from its `CoreCatalog.coreChoices` list. Takes
+    /// effect at the next launch, and says so, including when the choice was refused.
+    func setCoreChoice(_ coreId: String, for system: GameSystem) {
+        if system == .ps1 {
+            if let choice = Ps1CoreChoice(rawValue: coreId) { ps1CoreChoice = choice }
+            return
+        }
+        guard let options = CoreCatalog.coreChoices[system], options.contains(coreId) else {
+            status = "\(coreId) is not a core for \(system.displayName); the choice is unchanged"
+            return
+        }
+        guard coreChoice(for: system) != coreId else { return }
+        UserDefaults.standard.set(coreId, forKey: CoreCatalog.coreChoiceKey(for: system))
+        coreChoiceVersion &+= 1
+        let name = CoreCatalog.core(id: coreId)?.displayName ?? coreId
+        status = "\(system.displayName) games now launch on \(name), from the next launch"
+    }
+
+    /// One line per system or core that uses firmware, for the Settings BIOS section: what is
+    /// there, what is missing, and whether missing means "will not start" or "built-in
+    /// replacement used". Read fresh from the system folder each time Settings asks.
+    func firmwareChecklist() -> [(label: String, value: String)] {
+        let dir = systemDirectory()
+        func present(_ names: [String], _ subfolder: String?) -> [String] {
+            guard let dir else { return [] }
+            return names.filter { Self.firmwarePresent($0, subfolder: subfolder, in: dir) }
+        }
+        var rows: [(label: String, value: String)] = []
+        for system in GameSystem.allCases {
+            guard let need = CoreCatalog.requiredFirmware[system] else { continue }
+            let found = present(need.names, need.subfolder)
+            rows.append((label: system.displayName,
+                         value: found.isEmpty
+                            ? "MISSING, will not start: needs \(need.names.joined(separator: " or "))"
+                            : "found \(found.joined(separator: ", "))"))
+        }
+        for spec in CoreCatalog.all where !spec.biosNames.isEmpty {
+            let found = spec.biosNames.filter { name in
+                present([name], CoreCatalog.firmwareSubfolders[name]).isEmpty == false
+            }
+            let value: String
+            if !found.isEmpty {
+                value = "found \(found.joined(separator: ", "))"
+            } else if spec.biosRequired || spec.coreId == CoreCatalog.mednafenPsxHw.coreId {
+                value = "MISSING, will not start: needs \(spec.biosNames.joined(separator: " or "))"
+            } else {
+                value = "none, optional (\(spec.biosNames.joined(separator: ", ")))"
+            }
+            rows.append((label: spec.displayName, value: value))
+        }
+        return rows
     }
 
     /// What the SAFE half of the JIT probe found, read once at startup.
@@ -1936,12 +2567,24 @@ final class EngineHost: ObservableObject {
             }
             guard let resolved else { continue }
 
-            let destination = systemDir.appendingPathComponent(name)
+            // The top of the system folder always, and ALSO the subfolder its core reads when it
+            // has one (neogeo.zip in fbneo/, the Dreamcast files in dc/, prboom.wad in prboom/).
+            var destinations = [systemDir.appendingPathComponent(name)]
+            if let subfolder = CoreCatalog.firmwareSubfolders[name] {
+                destinations.append(systemDir.appendingPathComponent(subfolder)
+                    .appendingPathComponent(name))
+            }
             do {
-                if FileManager.default.fileExists(atPath: destination.path) {
-                    try FileManager.default.removeItem(at: destination)
+                for destination in destinations {
+                    try FileManager.default.createDirectory(
+                        at: destination.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
+                    if FileManager.default.fileExists(atPath: destination.path) {
+                        try FileManager.default.removeItem(at: destination)
+                    }
+                    try FileManager.default.copyItem(at: resolved, to: destination)
                 }
-                try FileManager.default.copyItem(at: resolved, to: destination)
                 installed.append(name)
             } catch {
                 failures.append("\(name): \(error.localizedDescription)")
@@ -2212,28 +2855,61 @@ final class EngineHost: ObservableObject {
     /// The PlayStation boots on pcsx_rearmed's HLE, which reimplements the BIOS in code, and the DS
     /// boots on melonDS's FreeBIOS, which is a clean-room replacement. Both are open source, so
     /// both ship. The Disk System has no equivalent.
-    private func missingRequiredBios(for entry: LibraryEntry) -> String? {
-        let system = CoreCatalog.system(forExtension: entry.ext)
-        if system == .fds {
-            let name = "disksys.rom"
-            guard let dir = systemDirectory() else { return name }
-            return FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path)
-                ? nil
-                : name
+    /// The firmware this game cannot start without, when it is absent: the exact file name to
+    /// ask for and what that file is. Nil when nothing is missing.
+    ///
+    /// Two tables, both in `CoreCatalog`: `requiredFirmware` per SYSTEM (Disk System, Mega-CD,
+    /// PC Engine CD, DOOM) and `requiredCoreFirmware` per CORE (Beetle Saturn, which has no HLE
+    /// BIOS while Yabause does). Beetle PSX HW keeps its own check below.
+    func missingFirmware(for entry: LibraryEntry) -> (name: String, what: String)? {
+        let system = CoreCatalog.system(for: entry)
+        var needs: [CoreCatalog.FirmwareNeed] = []
+        if let system, let need = CoreCatalog.requiredFirmware[system] {
+            needs.append(need)
+        }
+        if let spec = CoreCatalog.core(forPath: entry.path, ps1CoreId: ps1CoreChoice.coreId),
+           let need = CoreCatalog.requiredCoreFirmware[spec.coreId] {
+            needs.append(need)
+        }
+        for need in needs {
+            guard let first = need.names.first else { continue }
+            guard let dir = systemDirectory() else { return (first, need.what) }
+            let found = need.names.contains { name in
+                Self.firmwarePresent(name, subfolder: need.subfolder, in: dir)
+            }
+            if !found { return (first, need.what) }
         }
         // Beetle PSX HW has no HLE BIOS. Soft PCSX ReARMed still boots without one; Beetle
         // does not. Gate here so the HUD names the file and the install button, instead of an
         // opaque retro_load_game refusal after SET_HW_RENDER work already looks fine.
         if system == .ps1, ps1CoreChoice == .beetlePsxHw {
+            let what = "a real PlayStation BIOS"
             let names = CoreCatalog.mednafenPsxHw.biosNames
-            guard let first = names.first else { return "a PlayStation BIOS" }
-            guard let dir = systemDirectory() else { return first }
+            guard let first = names.first else { return ("a PlayStation BIOS", what) }
+            guard let dir = systemDirectory() else { return (first, what) }
             let found = names.contains { name in
                 FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path)
             }
-            return found ? nil : first
+            if found { return nil }
+            return (name: first, what: what)
         }
         return nil
+    }
+
+    /// Whether a firmware file is in the system folder, at its top or in the subfolder its core
+    /// reads, matched case-insensitively at the top (a user's SEGA_101.BIN is the right file).
+    static func firmwarePresent(_ name: String, subfolder: String?, in dir: URL) -> Bool {
+        let manager = FileManager.default
+        var places = [dir]
+        if let subfolder { places.append(dir.appendingPathComponent(subfolder)) }
+        for place in places {
+            if manager.fileExists(atPath: place.appendingPathComponent(name).path) { return true }
+            if let contents = try? manager.contentsOfDirectory(atPath: place.path),
+               contents.contains(where: { $0.lowercased() == name.lowercased() }) {
+                return true
+            }
+        }
+        return false
     }
 
     private func biosStatus(for spec: CoreSpec, in systemDir: URL?) -> String {
@@ -2258,7 +2934,14 @@ final class EngineHost: ObservableObject {
         if spec.coreId == CoreCatalog.mednafenPsxHw.coreId {
             return "BIOS (\(spec.coreId)): none — Beetle needs a real BIOS (no HLE)"
         }
-        return "BIOS (\(spec.coreId)): none, HLE fallback"
+        if spec.biosRequired {
+            return "BIOS (\(spec.coreId)): none, and this core needs one of "
+                + spec.biosNames.joined(separator: ", ")
+        }
+        if spec.coreId == CoreCatalog.pcsxReARMed.coreId {
+            return "BIOS (\(spec.coreId)): none, HLE fallback"
+        }
+        return "BIOS (\(spec.coreId)): none, the core's built-in replacement is used"
     }
 
     /// Prefers the PlayStation core Settings currently selects so Beetle never inherits a false
@@ -2318,8 +3001,42 @@ final class EngineHost: ObservableObject {
     /// The existence check is the other half of the point. A core whose dylib did not make it
     /// into Frameworks/ is named here, on the HUD, before the user taps anything, because from
     /// the Library a missing dylib and a broken core look exactly the same.
+    /// Copies the freely licensed support files the .ipa bundles (support/ in the app, filled by
+    /// scripts/fetch-buildbot-cores.sh) into the system folder, where the cores read them. Today
+    /// that is prboom.wad for DOOM. Copies only a file that is not there yet, so a user's own
+    /// copy is never overwritten, and returns a line for the cores readout when it did anything.
+    @discardableResult
+    func installBundledSupportFiles() -> String {
+        guard let support = Bundle.main.resourceURL?.appendingPathComponent("support"),
+              let systemDir = systemDirectory() else { return "" }
+        let manager = FileManager.default
+        var installed: [String] = []
+        var failed: [String] = []
+        for (name, subfolder) in CoreSupportFiles.bundled {
+            let source = support.appendingPathComponent(name)
+            guard manager.fileExists(atPath: source.path) else { continue }
+            let folder = subfolder.map { systemDir.appendingPathComponent($0) } ?? systemDir
+            let destination = folder.appendingPathComponent(name)
+            if manager.fileExists(atPath: destination.path) { continue }
+            do {
+                try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+                try manager.copyItem(at: source, to: destination)
+                installed.append(name)
+            } catch {
+                failed.append("\(name): \(error.localizedDescription)")
+            }
+        }
+        var line = ""
+        if !installed.isEmpty { line += "installed bundled \(Self.nameList(installed))" }
+        if !failed.isEmpty {
+            line += (line.isEmpty ? "" : "; ") + "bundled file copy failed: \(Self.nameList(failed))"
+        }
+        return line
+    }
+
     @discardableResult
     func declareAllCores() -> Bool {
+        let supportLine = installBundledSupportFiles()
         guard let frameworks = Bundle.main.privateFrameworksURL else {
             cores = "cores: no Frameworks directory in the bundle, so none could be declared"
             return false
@@ -2354,6 +3071,9 @@ final class EngineHost: ObservableObject {
         }
         if !failed.isEmpty {
             line += " | declare failed: \(Self.nameList(failed))"
+        }
+        if !supportLine.isEmpty {
+            line += " | \(supportLine)"
         }
         cores = line
 
@@ -2499,7 +3219,7 @@ final class EngineHost: ObservableObject {
         // Only launch targets are listed. The .bin tracks are still right there on disk and
         // the core still opens them; they are simply not things to tap.
         let entries = contents
-            .filter { CoreCatalog.launchableExtensions.contains($0.pathExtension.lowercased()) }
+            .filter { CoreCatalog.isLaunchable(path: $0.path) }
             .map { LibraryEntry(url: $0) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         library = entries
@@ -2806,7 +3526,7 @@ final class EngineHost: ObservableObject {
         // below on purpose: an unmapped extension is a tap that should change nothing, so a
         // running game is not torn down to report it.
         guard let spec = CoreCatalog.core(
-            forExtension: entry.ext,
+            forPath: entry.path,
             ps1CoreId: ps1CoreChoice.coreId
         ) else {
             let extLabel = entry.ext.isEmpty ? "no extension" : ".\(entry.ext)"
@@ -2821,19 +3541,35 @@ final class EngineHost: ObservableObject {
         // the app and no free reimplementation of it the way melonDS carries FreeBIOS for the DS.
         // Without this check the core simply refuses the content and the HUD says "retro_load_game
         // rejected the content", which names neither the cause nor the cure.
-        if let missing = missingRequiredBios(for: entry) {
+        if let missing = missingFirmware(for: entry) {
             // Names the file AND the two steps, because the folder the Files app shows is not the
             // folder the core reads: dropping the file in is necessary but not sufficient, and
             // Settings has the one button that crosses the gap. See `installBiosFromDocuments`.
-            if CoreCatalog.system(forExtension: entry.ext) == .ps1 {
-                status = "\(entry.name) on Beetle PSX HW needs \(missing), a real PlayStation "
+            let launchSystem = CoreCatalog.system(for: entry)
+            if launchSystem == .ps1 {
+                status = "\(entry.name) on Beetle PSX HW needs \(missing.name), a real PlayStation "
                     + "BIOS (Beetle has no HLE). Put it in the Continuum folder in Files, then "
-                    + "Settings → Install a BIOS from the Continuum folder. Or switch PlayStation "
+                    + "Settings, Install a BIOS from the Continuum folder. Or switch PlayStation "
                     + "core back to PCSX ReARMed, which can boot without one."
+            } else if launchSystem == .fds {
+                status = "\(entry.name) needs \(missing.name), which is Nintendo's own startup "
+                    + "file and cannot ship with the app. Put it in the Continuum folder in Files, "
+                    + "then use Settings, Install a BIOS from the Continuum folder"
+            } else if launchSystem == .doom {
+                status = "\(entry.name) needs \(missing.name), \(missing.what). It was not found "
+                    + "in the system folder. Put prboom.wad in the Continuum folder in Files, then "
+                    + "use Settings, Install a BIOS from the Continuum folder"
+            } else if launchSystem == .saturn {
+                status = "\(entry.name) on Beetle Saturn needs \(missing.name) or mpr-17933.bin, "
+                    + "\(missing.what), and cannot ship with the app. Put it in the Continuum "
+                    + "folder in Files, then use Settings, Install a BIOS from the Continuum "
+                    + "folder. Or switch the Saturn core back to Yabause, which can boot without one."
             } else {
-                status = "\(entry.name) needs \(missing), which is Nintendo's own startup file and "
-                    + "cannot ship with the app. Put it in the Continuum folder in Files, then use "
-                    + "Settings, Install a BIOS from the Continuum folder"
+                let systemName = launchSystem?.displayName ?? "this system"
+                status = "\(entry.name) needs \(missing.name), \(missing.what), which \(systemName) "
+                    + "cannot start without and which cannot ship with the app. Put it in the "
+                    + "Continuum folder in Files, then use Settings, Install a BIOS from the "
+                    + "Continuum folder"
             }
             return
         }
@@ -2887,7 +3623,7 @@ final class EngineHost: ObservableObject {
 
         // The two-screen layout for THIS system goes in before the launch, so the first frame is
         // already drawn where the user left it. Harmless for one-screen systems.
-        let launchingSystem = CoreCatalog.system(forExtension: entry.ext)
+        let launchingSystem = CoreCatalog.system(for: entry)
         screenModes.apply(for: launchingSystem)
 
         do {
@@ -2960,7 +3696,7 @@ final class EngineHost: ObservableObject {
             cheats.push(for: entry)
             // Identify the game for RetroAchievements when someone is logged in. Asynchronous: the
             // answer arrives as a notice and is shown on the status line and in the player.
-            achievements.gameStarted(entry: entry, system: CoreCatalog.system(forExtension: entry.ext))
+            achievements.gameStarted(entry: entry, system: CoreCatalog.system(for: entry))
 
             // The resume, LAST, so it can overwrite the "running" line above with what actually
             // happened. It is synchronous: see `SaveStates.load` for why nothing here is awaited.
@@ -3046,8 +3782,8 @@ final class EngineHost: ObservableObject {
     /// Resolved through the SAME routing table the core was resolved through, so the controls on
     /// screen and the core behind them cannot disagree about what console this is.
     var activeSystem: GameSystem? {
-        guard let ext = activeEntry?.ext else { return nil }
-        return CoreCatalog.system(forExtension: ext)
+        guard let entry = activeEntry else { return nil }
+        return CoreCatalog.system(for: entry)
     }
 
     /// The display aspect ratio of the running game, or nil when nothing is running.

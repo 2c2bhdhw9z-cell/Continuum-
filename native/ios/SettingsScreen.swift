@@ -116,6 +116,9 @@ struct SettingsScreen: View {
                 Group {
                     CloudSyncSection(sync: host.cloudSync)
                     OnlinePlaySettingsSection(netplay: host.netplay)
+                    // Arcade and Saturn core choice, beside the PlayStation one in spirit; here
+                    // because the group above already holds SwiftUI's ten children.
+                    systemCoresSection
                 }
             }
             .padding(.bottom, 24)
@@ -534,6 +537,32 @@ struct SettingsScreen: View {
         }
     }
 
+    /// Every other system with two cores (`CoreCatalog.coreChoices`): Arcade and Saturn today.
+    /// The choice is stored per system and applies from the next launch of that system.
+    private var systemCoresSection: some View {
+        SettingsSection(title: "ARCADE AND SATURN CORES") {
+            let _ = host.coreChoiceVersion
+            ForEach([GameSystem.arcade, GameSystem.saturn], id: \.self) { system in
+                SettingsLabel("Core for \(system.displayName) games")
+                SegmentedChoice(
+                    options: CoreCatalog.coreChoices[system] ?? [],
+                    title: { CoreCatalog.core(id: $0)?.displayName ?? $0 },
+                    selection: Binding(
+                        get: { host.coreChoice(for: system) },
+                        set: { host.setCoreChoice($0, for: system) }
+                    )
+                )
+            }
+            SettingsNote(
+                "FinalBurn Neo is the default arcade core and MAME 2003-Plus the second choice; "
+                + "a romset made for one often does not run on the other. Yabause is the default "
+                + "Saturn core and runs without a BIOS file. Beetle Saturn is more accurate and "
+                + "needs a real Saturn BIOS (sega_101.bin or mpr-17933.bin). Each choice applies "
+                + "from the next game you open."
+            )
+        }
+    }
+
     /// PSP. One note, not a picker: there is one core and it is not optional.
     private var pspSection: some View {
         SettingsSection(title: "PSP") {
@@ -564,6 +593,13 @@ struct SettingsScreen: View {
 
             SettingsButton(title: "Install a BIOS from the Continuum folder", role: .normal) {
                 host.installBiosFromDocuments()
+            }
+
+            // One row per system or core that uses a file from the system folder, read fresh.
+            // `status` is read so the list re-renders after the install button above.
+            let _ = host.status
+            ForEach(Array(host.firmwareChecklist().enumerated()), id: \.offset) { _, row in
+                SettingsReadout(label: row.label, value: row.value)
             }
 
             SettingsReadout(label: "JIT", value: host.jitLine.isEmpty ? "not probed" : host.jitLine)
