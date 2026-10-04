@@ -2828,9 +2828,22 @@ final class TouchControlsView: UIView {
     }
 
     private func report(_ line: String) {
+        // Once per line per view size. These lines are written from inside `layoutSubviews`, the
+        // host publishes them, the player screen re-renders, `updateUIView` marks this view dirty
+        // again, and the same pass reports the same line again: an endless layout loop on the
+        // main thread. That was the landscape freeze with no skin imported, where the built-in pad
+        // reports "no clear column" on every pass. A new size (a rotation) allows them again.
+        if bounds.size != reportedForSize {
+            reportedForSize = bounds.size
+            reportedLines.removeAll()
+        }
+        guard reportedLines.insert(line).inserted else { return }
         NSLog("[continuum] %@", line)
         onDiagnostic?(line)
     }
+
+    private var reportedLines: Set<String> = []
+    private var reportedForSize: CGSize = .zero
 
     // ------------------------------------------------------------------ shape geometry
 

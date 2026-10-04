@@ -112,12 +112,22 @@ struct SaveStateRecord: Identifiable, Codable, Hashable {
     /// The user's name for this state. Empty means unnamed, and the slot number is shown alone.
     var label: String
 
+    /// The core's option values the game was RUNNING WITH when this was saved, key to value.
+    ///
+    /// A state is a snapshot of the emulated machine, and several core options change what that
+    /// machine is: Azahar's 3DS model, its audio emulation, its renderer. Loading a New 3DS state
+    /// into an Old 3DS, or an LLE-audio state into HLE, crashes the core outright, and because
+    /// every launch resumes the auto-save, changing such a setting and restarting crashed the app
+    /// every time that game was opened. Nil for records written before this was stored.
+    var coreOptions: [String: String]?
+
     /// Unique per game and slot, which is also the identity the UI needs: saving over the
     /// auto-save replaces a record rather than adding one.
     var id: String { isAuto ? "\(gameId)#auto" : "\(gameId)#\(slot)" }
 
     init(gameId: String, slot: Int, isAuto: Bool, createdAt: Date, frame: UInt64,
-         byteCount: Int, coreId: String?, coreVersion: String?, label: String = "") {
+         byteCount: Int, coreId: String?, coreVersion: String?, label: String = "",
+         coreOptions: [String: String]? = nil) {
         self.gameId = gameId
         self.slot = slot
         self.isAuto = isAuto
@@ -127,19 +137,21 @@ struct SaveStateRecord: Identifiable, Codable, Hashable {
         self.coreId = coreId
         self.coreVersion = coreVersion
         self.label = label
+        self.coreOptions = coreOptions
     }
 
     /// The same state under another slot number. Used by the migration and nothing else.
     func renumbered(to newSlot: Int) -> SaveStateRecord {
         SaveStateRecord(gameId: gameId, slot: newSlot, isAuto: false, createdAt: createdAt,
                         frame: frame, byteCount: byteCount, coreId: coreId,
-                        coreVersion: coreVersion, label: label)
+                        coreVersion: coreVersion, label: label, coreOptions: coreOptions)
     }
 
     // MARK: Storage
 
     private enum CodingKeys: String, CodingKey {
         case gameId, slot, isAuto, createdAt, frame, byteCount, coreId, coreVersion, label
+        case coreOptions
     }
 
     /// Decodes field by field, each one falling back rather than throwing, exactly as
@@ -174,6 +186,8 @@ struct SaveStateRecord: Identifiable, Codable, Hashable {
         coreVersion = try box.decodeIfPresent(String.self, forKey: .coreVersion)
         // Absent in every record written before slots could be named.
         label = try box.decodeIfPresent(String.self, forKey: .label) ?? ""
+        // `try?` so a malformed map costs only the settings check, never the index.
+        coreOptions = (try? box.decodeIfPresent([String: String].self, forKey: .coreOptions)) ?? nil
     }
 
     func encode(to encoder: Encoder) throws {
@@ -187,6 +201,7 @@ struct SaveStateRecord: Identifiable, Codable, Hashable {
         try box.encodeIfPresent(coreId, forKey: .coreId)
         try box.encodeIfPresent(coreVersion, forKey: .coreVersion)
         try box.encode(label, forKey: .label)
+        try box.encodeIfPresent(coreOptions, forKey: .coreOptions)
     }
 
     // MARK: Display
@@ -268,6 +283,8 @@ enum SaveStateRefusal {
     /// Shorter than the running core needs, which is the only direction that is a fault. See the
     /// note in `SaveStates.refusal(for:)` on why a LONGER state is accepted.
     case tooShort(saved: Int, expected: Int)
+    /// Saved under different core settings than the game is running with now.
+    case settingsChanged(changed: [String])
 
     var message: String {
         switch self {
@@ -284,6 +301,11 @@ enum SaveStateRefusal {
             return "This state is shorter than the core can read (it is \(saved) bytes and the "
                 + "core needs at least \(expected)), so it was cut short when it was written or it "
                 + "came from a different core."
+        case .settingsChanged(let changed):
+            let list = changed.isEmpty ? "the core settings" : changed.joined(separator: ", ")
+            return "This state was saved with different core settings (\(list)). Loading it under "
+                + "the new settings can crash the core, so it was not loaded. Set them back to "
+                + "load it; the state is kept."
         }
     }
 
@@ -294,6 +316,7 @@ enum SaveStateRefusal {
         case .coreMismatch: return "different core"
         case .versionMismatch: return "core rebuilt"
         case .tooShort: return "state too short"
+        case .settingsChanged: return "core settings changed"
         }
     }
 }
@@ -612,6 +635,76 @@ final class SaveStates: ObservableObject {
     private var writingAuto = false
 
     private static let resumeKey = "continuum.saveStates.autoResume.v1"
+
+    // MARK: Core settings a state depends on
+
+    /// The option values the core was actually started with, taken once per launch by
+    /// `noteSessionOptions()`. Changing a "restart required" option mid-game updates the stored
+    /// value straight away, but the core keeps running with the old one until the restart, so
+    /// a state taken in between belongs to the OLD value. This is what tells the two apart.
+    private var sessionOptions: [String: String]?
+
+    /// Options a 3DS state cannot survive a change of: the console model, the audio engine and
+    /// the renderer all change what the core serializes. Loading a state across one of these was
+    /// crashing the app after "Restart to apply".
+    private static let stateSensitiveKeys: Set<String> = [
+        "citra_is_new_3ds", "citra_audio_emulation", "citra_graphics_api",
+        "citra_use_fastinterp", "citra_use_hw_shader", "citra_resolution_factor",
+    ]
+
+    /// Called by the host right after a core has loaded, before any resume.
+    func noteSessionOptions() {
+        guard let core = engine.currentCoreId(), !core.isEmpty else {
+            sessionOptions = nil
+            return
+        }
+        var snapshot: [String: String] = [:]
+        for e in engine.coreOptionEntries(coreId: core) {
+            snapshot[e.key] = e.current
+        }
+        sessionOptions = snapshot
+    }
+
+    /// The values a state written right now depends on.
+    func optionsInEffect() -> [String: String]? {
+        guard let core = engine.currentCoreId(), !core.isEmpty else { return sessionOptions }
+        var out: [String: String] = [:]
+        for e in engine.coreOptionEntries(coreId: core) {
+            out[e.key] = e.needsRestart ? (sessionOptions?[e.key] ?? e.current) : e.current
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    private static func isStateSensitive(_ e: CoreOptionEntry) -> Bool {
+        if stateSensitiveKeys.contains(e.key) { return true }
+        let text = (e.info + " " + e.label).lowercased()
+        return text.contains("restart") || text.contains("(reload")
+    }
+
+    /// The labels of the state-sensitive options that differ between the state and the running
+    /// session, or nil when it is safe. A record from before this check has no options stored;
+    /// for those only the 3DS keys are compared, against their defaults.
+    func settingsDifference(for record: SaveStateRecord) -> [String]? {
+        guard let core = engine.currentCoreId(), !core.isEmpty,
+              record.coreId == nil || record.coreId == core else { return nil }
+        let entries = engine.coreOptionEntries(coreId: core)
+        var changed: [String] = []
+        for e in entries {
+            let running = sessionOptions?[e.key] ?? e.current
+            let saved: String
+            if let stored = record.coreOptions {
+                guard Self.isStateSensitive(e), let value = stored[e.key] else { continue }
+                saved = value
+            } else {
+                guard Self.stateSensitiveKeys.contains(e.key) else { continue }
+                saved = e.defaultValue
+            }
+            if saved != running {
+                changed.append(e.label.isEmpty ? e.key : e.label)
+            }
+        }
+        return changed.isEmpty ? nil : changed
+    }
     private static let autoSaveKey = "continuum.saveStates.autoSave.v1"
 
     // MARK: Lifecycle
@@ -893,6 +986,10 @@ final class SaveStates: ObservableObject {
                                     saved: saved, running: running)
         }
 
+        if let changed = settingsDifference(for: record) {
+            return .settingsChanged(changed: changed)
+        }
+
         // `saveStateSize()` is what the core expects RIGHT NOW: it is asked of the live session
         // rather than remembered from the launch, because it is the only figure here that can be
         // read straight from the machine the state is about to be pushed into. Zero means the core
@@ -1075,7 +1172,8 @@ final class SaveStates: ObservableObject {
             // the core against itself.
             coreId: engine.currentCoreId(),
             coreVersion: engine.coreVersion(),
-            label: label
+            label: label,
+            coreOptions: optionsInEffect()
         )
 
         // Replaces any record with the same identity, which is how the auto-save is overwritten in

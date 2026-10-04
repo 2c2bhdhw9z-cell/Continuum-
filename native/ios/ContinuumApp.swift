@@ -3988,6 +3988,7 @@ final class EngineHost: ObservableObject {
             // A refusal is never fatal, it writes its reason and the game carries on from the
             // beginning, which is the only sensible outcome when the alternative is a state that
             // might corrupt the machine.
+            saveStates.noteSessionOptions()
             if resumingAuto {
                 saveStates.resumeIfPossible(entry: entry)
             }
@@ -4326,10 +4327,16 @@ final class EngineHost: ObservableObject {
     /// docs/mobile-player.png captured. It lands in its own field so it cannot be overwritten by
     /// the next status line.
     func noteControlLayout(_ line: String) {
-        controlNote = line
-        // Surfaced on the always-visible line too, because a layout fault is not something to
-        // find only after opening the diagnostics panel.
-        status = line
+        // Hopped to the next run loop turn and skipped when unchanged, for the same reason as
+        // `updatePictureArea`: this arrives from inside a UIKit layout pass, and a published write
+        // there re-renders the player, which lays the pad out again, which reports again.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.controlNote != line else { return }
+            self.controlNote = line
+            // Surfaced on the always-visible line too, because a layout fault is not something to
+            // find only after opening the diagnostics panel.
+            self.status = line
+        }
     }
 
     /// Records the area the picture may use, as reported by the control surface.
