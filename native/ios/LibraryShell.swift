@@ -214,13 +214,14 @@ struct LibraryShell: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// The import affordance. Opens the Import screen, whose first row is the EXISTING
-    /// `presentImportPicker()`, unchanged: that path is device-verified, including its retained
-    /// delegate and its multi-select of a .cue with every .bin track. The other rows (Wi-Fi, the
-    /// clipboard, WebDAV, SMB) all end in the same `importFiles`.
+    /// The import affordance. A tap opens the Files picker directly through the device-verified
+    /// `presentImportPicker()` (retained delegate, multi-select of a .cue with every .bin track).
+    /// Routing the tap through the Import sheet first was a regression reported on device: the
+    /// sheet's Files row dismisses, sleeps, then presents, and the picker did not come up.
+    /// The other sources (Wi-Fi, clipboard, WebDAV, SMB) stay reachable from a long press.
     private var importButton: some View {
         Button {
-            host.showImportScreen = true
+            host.presentImportPicker()
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 17, weight: .semibold))
@@ -229,6 +230,18 @@ struct LibraryShell: View {
                 .background(ShellPalette.surfaceStrong, in: Circle())
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                host.presentImportPicker()
+            } label: {
+                Label("Files", systemImage: "folder")
+            }
+            Button {
+                host.showImportScreen = true
+            } label: {
+                Label("Other sources (Wi-Fi, clipboard, servers)", systemImage: "square.and.arrow.down")
+            }
+        }
         .accessibilityLabel("Import games")
     }
 
