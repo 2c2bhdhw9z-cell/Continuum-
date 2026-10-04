@@ -471,6 +471,8 @@ struct SettingsScreen: View {
 
     private var diagnosticsSection: some View {
         SettingsSection(title: "DIAGNOSTICS") {
+            AppleOverlayToggle()
+
             Toggle(isOn: $host.showDiagnostics) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Show the diagnostic block")

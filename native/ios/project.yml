@@ -284,6 +284,9 @@ targets:
     sources:
       - path: ContinuumApp.swift
       - path: MetalCanvas.swift
+      # The switch that hides Apple's Metal Performance HUD (Settings > Diagnostics).
+      # WITHOUT THIS LINE the build breaks in MetalCanvas, ScreenModes and SettingsScreen.
+      - path: AppleOverlay.swift
       # Sound. The AVAudioSession and AVAudioEngine graph, and the lock-free single-producer
       # single-consumer ring between the display link that drains the engine and the render block
       # that plays it. IF THIS LINE GOES MISSING THE APP IS SILENT AND NOTHING SAYS WHY, which is

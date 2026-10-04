@@ -328,6 +328,7 @@ final class ExternalMetalView: UIView {
         super.init(frame: frame)
         backgroundColor = .black
         metalLayer.presentsWithTransaction = false
+        AppleOverlay.apply(to: metalLayer)
         label.textColor = UIColor(white: 1, alpha: 0.7)
         label.font = .monospacedSystemFont(ofSize: 22, weight: .regular)
         label.numberOfLines = 0

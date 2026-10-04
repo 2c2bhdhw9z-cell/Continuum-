@@ -1,166 +1,206 @@
 # What to test, and what to tell me
 
-This file has two halves and the first one is the one to look at.
+Last updated 4 October 2026, for **build 121 or newer**. The newest install is always on the
+[Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
+`Continuum-<number>.ipa`.
 
-**[The queue](#the-queue-what-still-needs-testing)** is the short list of things that have been
-built and never tried on a device. It is meant to be worked through and ticked off, and it is the
-only part that changes often.
+This file has two halves. **The list right below is the one to work through.** Everything in it is
+built and no phone has confirmed it yet. Further down is a record of what already works, kept only
+so a new build that breaks an old thing gets noticed.
 
-**[The regression checklist](#what-is-already-confirmed-working)** is everything that has already
-been confirmed. It is not asking whether the app works any more; it is there so that if a new
-build breaks something that used to work, there is a written record of what "used to work" meant.
+**How to report:** say the test number and what happened. If something goes wrong, a screenshot of
+the whole screen is the best thing you can send. The line of small text near the top of the player
+is the app's only "error log", so it usually explains the problem.
+
+**Confirmed on your phone recently (no need to test again):** the **+** button opens Files
+(build 119), the **⋯** menu in a game opens (119), TV/AirPlay picture is sharper (119), turning to
+landscape with no skin no longer freezes (120), the layout editor, the system pickers and a DS game.
 
 ---
 
-# The queue: what still needs testing
+# The list: what still needs testing
 
-Nothing in here has been confirmed on a device. Tick a line when it works, or tell me what it did
-instead. **The most useful reply is the exact text from the diagnostics panel**, which is the ⓘ
-button in the player; see [Reading the diagnostic text](#reading-the-diagnostic-text).
+## A. Fixes from the last two builds (do these first)
 
-| | What to do | What it should do | Why it is in the queue |
+**A1. Azahar (3DS) setting change no longer crashes**
+1. Open a 3DS game and play for a few seconds.
+2. Tap **⋯** → **Core settings...** and change a setting that says it needs a restart
+   (for example **New 3DS / Old 3DS**).
+3. Tap **Restart the game now**.
+4. ✅ Good: the game starts again and the small text says the save "was saved with different core
+   settings" and was not loaded. The game starts from the beginning instead.
+5. ❌ Bad: the app closes. Tell me which setting you changed.
+6. Bonus: change the setting back, restart again. Your old spot should load again.
+
+**A2. Apple performance overlay switch (new in build 121)**
+1. Open **Settings** → scroll to **DIAGNOSTICS** → the top switch, **Apple performance overlay**.
+2. Leave it **off**, then open a game.
+3. ✅ Good: Apple's grey box of FPS / GPU numbers is gone.
+4. If it is still there: swipe Continuum away in the app switcher, open it again, and check again.
+5. Turn it **on**, open a game: the box should come back (it may also need the app reopened).
+6. Tell me if it never goes away. That would mean it is a different Apple overlay (for example the
+   Game Mode one) and needs a different fix.
+
+## B. Getting games in
+
+**B1. Wi-Fi transfer** — Library → hold your finger on **+** → **Other sources (Wi-Fi, clipboard,
+servers)** → Wi-Fi transfer. Type the address it shows into a computer browser on the same Wi-Fi,
+upload a game. ✅ The game appears in the library.
+
+**B2. Paste** — In the Files app, copy a game. In Continuum, hold **+** → Other sources → **Paste
+from the clipboard**. ✅ The game appears.
+
+**B3. Open in** — In the Files app, share a `.gba` file and pick Continuum. ✅ It is imported.
+
+**B4. Zip / 7z** — Import a game inside a `.zip`. ✅ It shows up as the game, not as a zip.
+
+**B5. Unknown disc** — Import a disc file the app cannot identify. ✅ It asks which system once, and
+remembers your answer.
+
+**B6. Save files from other emulators** — Open a game's card → **Save slots, export and import** →
+import a save from another emulator (DS `.dsv` or PS1 `.mcr`). Start the game. ✅ The save is there.
+
+**B7. WebDAV server (only if you have a NAS/computer sharing files)** — Hold **+** → Other sources →
+add a server, browse it, import a game. (SMB is not in this build.)
+
+## C. New systems — import one game each, tap it, see if it plays
+
+For each one: ✅ cover shows, its own controls show, the game moves. ❌ Send the small text line.
+
+| # | System | File type | Needs anything extra? |
 | --- | --- | --- | --- |
-| ☑ **1. Does the app open at all** | — | — | **PASSED.** Opens and stays open, signed with a DISTRIBUTION certificate in ESign with "Auto modify jailbreak dependencies" on. The launch crash really was the JIT probe executing code at startup. Confirmed on the same run: `cores: 8 of 8 declared`, `Apple A19 Pro GPU / Metal`, `library: 17 game(s) of 19 file(s)`, and every cover present |
-| ☑ **1b. The JIT entitlement** | — | — | **ANSWERED, and the answer is no.** The app read its own signature: `get-task-allow is MISSING, so nothing can attach a debugger and no recompiler can run.` Expected for a distribution certificate, which cannot carry that entitlement. Also reported `MAP_JIT refused, plain executable mapping accepted`, which is a mapping result and not permission to execute. **Do not press the execute button** — without `get-task-allow` it can only close the app |
-| ☐ **1c. Development signing, when you feel like it** | Enable Settings → Privacy & Security → **Developer Mode**, reboot, then re-sign with the Development cert | Installs, and the JIT line changes to "get-task-allow is present" | Development signing failed with an integrity/verification error, and the usual cause is Developer Mode being off: iOS has refused development-signed apps without it since iOS 16. StikDebug needs it enabled too. **Nothing you can play depends on this.** PSP in this build is the IR interpreter and does not need executable memory |
-| ☐ **2. Save state slots** | Save twice in one game, then open that game's card and load the older one | Both saves listed newest first, and loading either works | Loading used to fail on some games and not others. That was my bug: I refused any state whose length was not exactly what the core reported at that instant, and cores are allowed to change that figure. Now only a state **shorter** than the core needs is refused |
-| ☐ **4. Cover from the game** | In the player, tap **⋯** → Use this frame as the cover | That game's cover becomes the frame you were on | Last time there was no button, because it was hidden behind a long press. A plain tap opens the menu now. Pausing first on a title screen is the best way to use it |
-| ☐ **6. Auto-hide the pad** | Connect a controller, then Settings → Hide the on-screen pad | On-screen pad disappears, picture takes the space | Reported as not working, and nothing is wrong: it cannot act until a controller is attached, and it was tested without one. It now says **On, but waiting** in that state |
-| ☐ **8. The DS touch screen** | In a DS game, tap and drag on the **lower** screen | The game responds where you touched, and dragging drags | The control the DS is defined by, and it is new in this build. Only the lower screen responds, which is the hardware: the top screen was never a digitiser. If touches land in the wrong place, **say whether they were offset by a little or landed on the wrong screen entirely** — those are different bugs. If nothing happens at all, say whether the buttons still work |
-| ☐ **9. Two new systems, no new emulators** | Import a `.sg` (Sega SG-1000) file and tap it | Boots, on its own shelf called Sega SG-1000 | Reading the six cores' own lists of supported file types showed the app was refusing files it could already run. The SG-1000 needs nothing extra, so this is the one to try first |
-| ☐ **10. A `.smd` Mega Drive file** | Import a `.smd` and tap it | Plays like any other Mega Drive game | Same cause. `.smd` is an older but very common Mega Drive format and the app was turning it away. Also newly accepted: `.swc` and `.fig` for SNES, `.unf`/`.unif` for NES, `.sgb`, and `.mdf`/`.toc` for PlayStation |
-| ☐ **11. Famicom Disk System** | Import a `.fds` file and tap it | Either it plays, or it names `disksys.rom` | The Disk System cannot start without a startup file that is Nintendo's own code, so the app cannot include it. If you have not added that file, the message should tell you the exact filename to put in the Continuum folder. **Getting that message is a pass** — it means the check works |
-| ☐ **12. TurboGrafx-16** | Import a `.pce` file and tap it | Plays, own shelf called TurboGrafx-16 | A seventh core, and it needs nothing from you. Only HuCard games: PC Engine CD needs a BIOS that cannot ship. If the two buttons feel swapped, tell me — I took I and II from the core's own list rather than from the names, and they are the opposite way round from how they read |
-| ☐ **13. Atari 2600** | Import a `.a26` file and tap it | Plays, one FIRE button plus SELECT and RESET | An eighth core, also needing nothing. **It must be named `.a26`, not `.bin`** — rename it if yours is `.bin`, because `.bin` belongs to PlayStation discs here. This is also the first core that needed the game loaded into memory rather than opened from disk, so if it shows a black screen say so: that would be the new code path and not the emulator |
-| ☐ **14. NINTENDO 64** | Import a `.n64`, `.z64` or `.v64` file and tap it | It boots and you can move | **Expect it to be SLOW.** This core renders in software and interprets every instruction, because that is the only way the N64 runs without the JIT permission we do not have. Slow is the expected result; a black screen or a crash is not. The D-pad surface drives the **analog Control Stick**, not just the D-pad, because almost no N64 game reads the D-pad — Mario would not move otherwise. Tell me roughly what frame rate the counter shows |
-| ☐ **16. Battery saves** | Save inside a game (Pokemon, Zelda), leave, open it again | The in-game save is still there | Before this build in-game saves were never written to disk |
-| ☐ **17. Save slots** | Player menu, Save slots. Save to a few, rename, overwrite, load, delete. Export one and import it back | All work, pictures show | New 50-slot manager |
-| ☐ **18. Cheats** | Import a RetroArch `.cht` file from the game card. Then Player menu, Cheats and RAM search: start, lose a life, filter Less, repeat, Make cheat | Imported cheats toggle; the made cheat holds the value | New |
-| ☐ **19. DS and 3DS screens** | Tap the swap button in the player. Try the layouts in Settings, TWO SCREENS, TV AND MOUSE | Screens move, and touch lands where you tap | New |
-| ☐ **20. TV** | AirPlay or a cable during a game | Game on the TV, controls on the phone | New |
-| ☐ **21. Extra buttons and skin editor** | Settings, Move the on-screen controls: + Button, + Turbo, + Action. With a skin, Edit this skin | Buttons work in play; skin edits show in play | New |
-| ☐ **22. Haptics and rumble** | Settings, HAPTICS AND TURBO. Press buttons; try a game with vibration | You feel taps; rumble games buzz | New |
-| ☐ **23. Mouse** | Settings, turn on mouse for SNES, play Mario Paint | Drag moves, tap clicks | New |
-| ☐ **24. 3DS microphone** | Settings, allow microphone, play a 3DS game that listens | The game hears you | New |
-| ☐ **25. Online play** | Two phones, same Wi-Fi, same game. Menu, Play online, Host on one, join from Nearby on the other | Both say connected, player 2 controls player 2 | New |
-| ☐ **26. Achievements** | Settings, RETROACHIEVEMENTS, log in, play an NES or Game Boy game with a set | Banner on unlock, list on the game card | New. Not GBA yet |
-| ☐ **27. Cloud sync** | Settings, CLOUD SYNC, choose a folder in iCloud Drive. Save, go back to the library | Status says files went up | New |
-| ☐ **15. Import the skin again** | Install Continuum-109, then import the skin file again. A skin already saved on the phone only has the first hole and no circle pad | Top picture inside the top hole, bottom picture in the bottom hole, both ways you hold the phone. The circle pad moves as a stick. A button shows its pressed picture only if the file has one | Install Continuum-109. Build 108 has no file. Not done until the picture is in the hole on the phone |
+| C1 | Game Boy (original) | `.gb` | No |
+| C2 | Master System | `.sms` | No |
+| C3 | SG-1000 | `.sg` | No |
+| C4 | TurboGrafx-16 | `.pce` | No |
+| C5 | Atari 2600 | `.a26` (rename `.bin` to `.a26`) | No |
+| C6 | Famicom Disk System | `.fds` | `disksys.rom` in the Continuum folder. Getting a message naming that file counts as a pass |
+| C7 | WonderSwan | `.ws` / `.wsc` | No |
+| C8 | Neo Geo Pocket | `.ngp` / `.ngc` | No |
+| C9 | Lynx | `.lnx` | Maybe `lynxboot.img` — the app names it if so |
+| C10 | Atari 7800 / 5200 | `.a78` / `.a52` | 5200 may name a BIOS file |
+| C11 | Virtual Boy | `.vb` | No |
+| C12 | Pokemon Mini | `.min` | No |
+| C13 | 32X / SuperGrafx | `.32x` / `.sgx` | No |
+| C14 | Jaguar | `.j64` | No. Tell me how fast it feels |
+| C15 | Saturn, Sega CD, PC Engine CD | `.cue` + all `.bin` together | A BIOS. The app names the exact file |
+| C16 | Arcade | game zip like `mslug.zip` | Neo Geo games need `neogeo.zip` |
+| C17 | C64, Amiga, DOS | DOS as a `.zip` | Amiga may need a Kickstart file. The **Keyboard** button opens a keyboard |
+| C18 | DOOM | `.wad` | No |
+| C19 | Dreamcast | `.gdi` or `.chd` | Maybe BIOS files. Tell me the speed |
+| C20 | PSP | `.cso` | No. Expect it to be slowish |
+| C21 | Nintendo 64 | `.z64` / `.n64` / `.v64` | No. Already ran Smash; just check it still does |
+| C22 | Flash | `.swf` | No. Pad acts as arrows and Space |
+| C23 | J2ME (old phone games) | `.jar` | No. Leave and come back: the save should still be there |
 
-## The big list: everything built on 3 October 2026 that no phone has tried
+## D. Saves
 
-Install Continuum-116 (or a newer build). Numbers 31 and 32 need build 117 or later.
+**D1. Battery saves** — Save inside a game (Pokemon, Zelda), go back to the library, open it again.
+✅ Your in-game save is still there.
 
-1. **New systems open.** Settings, Diagnostics: the cores line should say about 32 declared, and name any missing one.
-2. **Each new system plays.** Import one game each for WonderSwan, Neo Geo Pocket, Lynx, Atari 7800, Atari 5200, Virtual Boy, Pokemon Mini, 32X and SuperGrafx. Each should show its cover and its own pad, and play.
-3. **Disc systems.** Import a Saturn, Sega CD and PC Engine CD game (cue and bins together). It should pick the right system on its own. With no BIOS it names the exact file to add.
-4. **Computers.** Play a C64, Amiga and DOS game (DOS as a .zip). The keyboard button opens the on-screen keyboard; a Bluetooth keyboard should type too.
-5. **DOOM.** Import a .wad. It should start with no extra files.
-6. **Arcade.** Import a game zip like mslug.zip. Neo Geo games need neogeo.zip in the Continuum folder.
-7. **Jaguar.** Import a .j64 and check the speed.
-8. **Dreamcast.** Only if the cores line lists flycast. Import a .gdi or .chd and check the speed.
-9. **Unsure files.** Import a disc the app cannot identify. It should ask which system once, and remember.
-10. **Wi-Fi transfer.** Library, +, Wi-Fi transfer. Type the address shown into a computer browser on the same Wi-Fi and upload a game.
-11. **Paste.** Copy a game in Files, then Import, Paste from the clipboard.
-12. **Drag and drop.** Drag a game from Files onto the library in split view.
-13. **Open in.** In Files, share a .gba to Continuum.
-14. **NAS.** Add a WebDAV or SMB server in Import, browse it, and import a game.
-15. **Save files from other emulators.** Game card, Save slots, Import a save file (a DS .dsv or PS1 .mcr). Launch: the save is there.
-16. **Manic skins.** Import a .manicskin. Buttons work, press animations show, switches slide, and you hear button sounds unless the phone is on silent.
-17. **Skin per game.** Game card, Skin: pick one. In game, menu, Skin: switch it live.
-18. **Function buttons.** On a skin or an extra button, try quick save, fast forward 2x, filters, palette, screenshot, hide controls and quit.
-19. **Core settings.** Menu, Core settings: change an option. If it says a restart is needed, restart the game.
-20. **Filters.** Menu, Filters: try CRT, LCD grid and dot matrix.
-21. **Palettes.** On a Game Boy game, menu, Next palette.
-22. **Speeds.** Menu, Speed: try 2x, 3x, 4x and slow motion. The sound slows down too.
-23. **Discs.** On a multi-disc PS1 .m3u, use Next disc. On a Famicom Disk game, Next disc flips the side.
-24. **Rotate.** Menu, Rotate picture. Also try a vertical WonderSwan game.
-25. **Atari 2600 switches.** Menu, TV type and the difficulty switches.
-26. **Tilt.** Play Yoshi Topsy-Turvy or WarioWare Twisted (GBA) and tilt the phone.
-27. **Shake.** Menu, Shake. On Pokemon Mini it shakes the game.
-28. **PlayStation analog.** Menu, Analog pad on, then an analog game.
-29. **DS lid and blow; 3DS HOME.** DS menu: Close the lid. Hold the mic button in a blowing game. On 3DS, menu, HOME button.
-30. **Controllers and remapping.** Menu, Controllers: swap players, map a button to another, make a second profile and switch to it.
-31. **Flash.** Import a .swf. It plays, and the pad acts as arrows and Space.
-32. **J2ME.** Import a .jar. The phone keypad works, and saves are still there after you leave and come back.
-33. **Achievements on GBA.** Log in to RetroAchievements and play a GBA game that has achievements. Unlocks should pop up.
-34. **RAM search on GBA.** Menu, Cheats and RAM search: pick IWRAM or EWRAM, search for lives, and make a cheat.
-35. **TV settings.** With AirPlay on, menu, TV scaling and TV layout.
+**D2. Save slots** — In a game: **⋯** → **Save slots...**. Save into two slots, rename one,
+overwrite one (it should ask first), load the older one, delete one. ✅ All work and show pictures.
 
-Also still untried from earlier: steps 16 to 27 in the queue table above, and the skin hole test (15).
+**D3. Export and import a state** — Same screen: export a slot, import it back. ✅ It loads.
 
-### Answered without a device: the DS needs no BIOS files
+**D4. Quick save** — **⋯** → **Save to the next free slot**. ✅ A new slot appears in Save slots.
 
-This was question 8 in the queue and it is now settled by reading the core's own source, so it
-does not need a test of its own.
+## E. Skins and controls
 
-**No `bios7.bin`, `bios9.bin` or `firmware.bin` required.** This build of melonDS carries a
-FreeBIOS and generates a default firmware when the real dumps are absent. Settings → BIOS still
-lists those three names and reports which are present, and it is fine for it to say none.
+**E1. Skin holes** — Import a `.deltaskin` (re-import any old one). ✅ The game picture sits inside
+the skin's screen area, both upright and sideways. On DS/3DS skins both screens are in their holes.
+A circle pad works as a stick.
 
-Finding that out turned up two faults that would each have cost a wasted test, both the same
-mistake in different clothes. This app refuses to answer a core's requests for its settings, on
-the principle that a core's own defaults are better than values a frontend invents. But two of
-melonDS's settings do not start at the default they advertise; they start at whatever their C
-variable was initialised to, and the advertised default is only ever applied by a frontend that
-answers. So:
+**E2. Manic skins** — Import a `.manicskin`. ✅ Buttons work, press animations show, switches slide,
+button sounds play (unless the phone is on silent).
 
-- the **touch screen** advertises mouse control and starts at *disabled*, which meant the screen
-  was switched off inside the core and no amount of correct data from the app could have reached
-  it;
-- **boot game directly** advertises enabled and starts at *off*, which would have sent the core to
-  the DS firmware menu. A generated firmware has no menu that can launch a cartridge, so a game
-  would have loaded and then sat there.
+**E3. Skin per game** — Game card → pick a skin. In a game: **⋯** → **Skin...** to switch live.
 
-Both are now answered explicitly for this one core, and every other setting of every core is still
-left alone.
+**E4. Skin buttons that do things** — On a skin or an extra button, try quick save, fast forward,
+filters, palette, screenshot, hide controls and quit.
 
-### Fixed since the last build: the mgba flake
+**E5. Extra buttons** — **Settings** → **Move the on-screen controls** → add a button, a turbo
+button and an action. ✅ They work in a game.
 
-**Diagnosed, so this should stop happening.** One build produced an mgba core with no emulator API
-in it at all, and the next build of the identical commit was fine. The cause was link-time
-optimisation being allowed to delete the very functions the app looks for, because nothing in that
-link mentioned them by name, and whether it deleted them depended on how the compiler happened to
-split the work across cores. They are now named explicitly, so there is nothing left to chance.
+**E6. Edit a skin** — With a skin imported, use Edit this skin, move a button. ✅ The change shows in
+a game.
 
-Two things follow from it that are worth knowing:
+**E7. Haptics and rumble** — **Settings** → **HAPTICS AND TURBO**. ✅ You feel button taps; a game
+with vibration buzzes.
 
-- The build used to check that a core had **one** of the twenty functions the app needs. It now
-  checks all twenty. A core that loses one of them fails the build instead of failing on your
-  phone, which is what happened for months with save states.
-- If a build ever does fail mentioning a core and a missing entry point, that is this check doing
-  its job. Tell me which core and I will look at it; a retry is no longer the expected fix.
+**E8. Controller auto-hide** — Connect a controller. **Settings** → **Hide the on-screen pad while a
+controller is connected**. ✅ The pad disappears and the picture gets bigger.
 
-### Cannot be tested on purpose
+**E9. Controllers and remapping** — **⋯** → **Controllers and button mapping...**: map one button to
+another, make a second profile, switch to it. ✅ The new mapping works.
 
-**The save-state compatibility refusal.** It only fires when a state is loaded by a different core,
-or by a different build of the same core, than the one that wrote it. You would have to engineer
-that. It is what stops a state loading "successfully" into a game whose insides are then quietly
-wrong, so it matters, but there is no reasonable way to ask you to trigger it.
+**E10. Keyboard, tilt, shake** — Computers: **⋯** → **Keyboard**. GBA tilt games (Yoshi
+Topsy-Turvy): tilt the phone. Pokemon Mini: **⋯** → **Shake**.
 
-### Never tried at all
+## F. In-game menu (**⋯**)
 
-`.sms` and `.gb` files. Every other extension has been imported and played. See
-[Test 3](#test-3-the-other-cartridge-systems).
+**F1. Core settings** — **⋯** → **Core settings...** on a few systems (not just 3DS). Change one;
+if it says restart, tap **Restart the game now**. ✅ No crash, and the change shows.
 
+**F2. Filters** — **⋯** → **Filters...**: try CRT, LCD grid, dot matrix.
 
-### Not built
+**F3. Speed** — **⋯** → **Speed**: 2x, 3x, 4x and slow motion. Sound follows.
 
-These are not tests. They are not in the app. JIT is out on purpose.
+**F4. Palette, rotate, discs** — Game Boy: **Next palette**. Any game: **Rotate picture**.
+Multi-disc PS1 (`.m3u`): **Next disc**.
 
-- Camera and Amiibo reaching a 3DS game: the app side is built, the 3DS core cannot take them yet
-- Online play over the internet without opening a port, and rollback
-- JIT
+**F5. Cover from the game** — **⋯** → **Use this frame as the cover**. ✅ The game's cover changes.
 
+**F6. DS and 3DS extras** — DS: **Close or open the lid**, **Blow into the microphone**. 3DS:
+**HOME button**. PlayStation: **Analog pad**.
+
+**F7. Cheats** — **⋯** → **Cheats and RAM search...**. Import a RetroArch `.cht`, or do a RAM
+search (start, lose a life, filter "less", repeat, make cheat). ✅ The cheat holds.
+
+## G. Two screens, TV and mouse
+
+**G1. Swap screens** — In a DS/3DS game tap **Swap screens**. Also try the six layouts in
+**Settings** → **TWO SCREENS, TV AND MOUSE**. ✅ Touch still lands where you tap.
+
+**G2. DS touch** — Tap and drag on the lower screen. ✅ The game reacts exactly where you touch.
+
+**G3. TV** — AirPlay or a cable during a game. ✅ Game on the TV, controls on the phone. Then **⋯**
+→ **TV scaling** and **TV layout**.
+
+**G4. Mouse** — Turn on mouse for SNES in Settings, play Mario Paint. ✅ Drag moves, tap clicks.
+
+**G5. 3DS microphone** — Settings → allow microphone, play a 3DS game that listens.
+
+## H. Online and accounts
+
+**H1. Online play** — Two phones, same Wi-Fi, same game. **⋯** → **Play online with a second
+phone**. Host on one, join from Nearby on the other. ✅ Both say connected.
+
+**H2. Achievements** — **Settings** → **RETROACHIEVEMENTS**, log in, play an NES, SNES or GBA game
+with achievements. ✅ A banner pops up on unlock.
+
+**H3. Cloud sync** — **Settings** → **CLOUD SYNC**, pick an iCloud Drive folder. Save in a game, go
+back to the library. ✅ The status says files were sent.
+
+## Known not working or not built (no need to test)
+
+- SMB (NAS shares) is out of this build. WebDAV works.
+- GameCube and Wii: not possible without JIT.
+- Camera and Amiibo do not reach 3DS games (the 3DS core cannot take them).
+- `.cht` RAM cheats on GBA may read the wrong memory.
+- Online play over the internet needs port 55435 opened on the host's router.
+- JIT is left out on purpose.
 
 ---
+
+# Already confirmed
 
 ## What is already confirmed working
 
-This build has been run on an iPhone 17 Pro Max and it plays games. Five cores each ran a real
-game at 60 fps with 0 dropped frames. The sixth core, the DS, was added later and is still in the
-queue above, so the `cores:` line now reads **6 of 6 declared** rather than the 5 of 5 that these
-runs showed:
+This app has been run on an iPhone 17 Pro Max and it plays games. The first cores each ran a real
+game at 60 fps with 0 dropped frames. The app now carries **32 cores**, so the `cores:` line should
+read about **32 of 32 declared**. DS (Mario Kart DS, SoulSilver), N64 (Smash) and 3DS (Mario Kart)
+have also run since:
 
 | System | Game that ran | Core | Frames counted in the screenshot |
 | --- | --- | --- | --- |
@@ -197,7 +237,7 @@ Everything below has since been confirmed on a device as well, in the order it w
 | Controller and thumbs together | Works, which was the hard part of the input rewrite |
 | Library layout, Grid and List | Works |
 
-Two of those lines are narrower than they sound. Cheats means a code you type, not a search and not a file import. Fast forward is about 4x, not 5x. Save slots are back in the queue and are not a 50-slot manager.
+Two of those lines are narrower than they sound. Cheats means a code you type, not a search and not a file import. Fast forward is about 4x, not 5x. The 50-slot save manager is in the list above (D2).
 
 So this checklist is no longer asking whether any of it works. **It is a regression check.** Each
 test below says what already passed, and if one of those fails on a new build then something that
@@ -223,8 +263,7 @@ tried to do.
 
 ## Test 1: does the app install and open
 
-**Already passed**, when there were five cores. It reported 5 of 5 declared; with the DS added it
-should now say 6 of 6.
+**Already passed.** It used to report 5 of 5 declared; it should now say 32 of 32.
 
 **Do this**
 
@@ -238,9 +277,9 @@ should now say 6 of 6.
 - A block of small text at the top. Its first line names the build. Under that there is a status
   line, a line starting `cores:`, a line starting `BIOS`, a line about the graphics device, and a
   line counting frames and fps.
-- The status line should say something close to `surface ready - tap Import Games to add a game`.
-- The `cores:` line should say **6 of 6 declared**.
-- Below the text block there is a **Library** heading with an **Import Games** button.
+- The status line should say something close to `surface ready - tap + to add a game`.
+- The `cores:` line should say **32 of 32 declared**.
+- The **Library**, with a **+** button that opens Files.
 
 **Tell me if it did not work**
 
@@ -249,7 +288,7 @@ should now say 6 of 6.
   different installers keep or strip the app's special permissions, and that changes what is
   likely wrong.
 - If it opened: the screenshot.
-- If the `cores:` line says fewer than 6, send that whole line word for word. It names the
+- If the `cores:` line says fewer than 32, send that whole line word for word. It names the
   missing piece, and that means the build is at fault, not your phone.
 - If there is no line about the graphics device, say so. That is a specific failure and it is
   useful to know.
@@ -267,7 +306,7 @@ it was just the multi-file part.
 **Do this**
 
 1. Put a `.nes` or `.gba` file somewhere your phone can reach it, such as Files or iCloud Drive.
-2. Open Continuum and tap **Import Games**.
+2. Open Continuum and tap **+** (it opens Files).
 3. Pick the file and tap **Open**.
 4. The game should now appear in the Library list.
 5. Tap it.
@@ -342,7 +381,7 @@ still worth leaving until the cartridge systems work.
 **Do this**
 
 1. Find a PlayStation game made of a `.cue` file plus one or more `.bin` files.
-2. Tap **Import Games**.
+2. Tap **+**.
 3. In the picker tap **Select**, then tap the `.cue` **and every `.bin`**, then tap **Open**.
    They must go in together, in one import.
 4. Tap the `.cue` in the Library.
@@ -398,7 +437,7 @@ Rough guide to the lines, top to bottom:
 | --- | --- |
 | First line | Names the build. Confirms you are running what you think you are running. |
 | Status line | The most recent thing the app did or tried to do. **This is the line to report.** |
-| `cores:` | How many of the six emulator cores are actually inside the app. Should be 6 of 6. |
+| `cores:` | How many of the emulator cores are actually inside the app. Should be 32 of 32. |
 | `BIOS (...)` | Only relevant to PlayStation. `none, HLE fallback` is normal. |
 | `library:` | How many games the app found, and how many files that came from. A PlayStation `.bin` track counts as a file and not as a game, so `6 game(s) of 7 file(s)` is right for six games where one of them is a `.cue` with one track. |
 | Graphics line | Describes the graphics device. If this line is missing, drawing never started. |

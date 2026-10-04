@@ -106,6 +106,12 @@ final class MetalCanvas: UIView {
 
     private var metalLayer: CAMetalLayer { layer as! CAMetalLayer }
 
+    private var hudObserver: NSObjectProtocol?
+
+    deinit {
+        if let hudObserver { NotificationCenter.default.removeObserver(hudObserver) }
+    }
+
     init(engine: ContinuumEngine) {
         self.engine = engine
         super.init(frame: .zero)
@@ -119,6 +125,13 @@ final class MetalCanvas: UIView {
         // Presented as soon as the frame is ready rather than waiting for the next Core
         // Animation transaction. wgpu does not touch this.
         metalLayer.presentsWithTransaction = false
+        AppleOverlay.apply(to: metalLayer)
+        hudObserver = NotificationCenter.default.addObserver(
+            forName: AppleOverlay.changed, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            AppleOverlay.apply(to: self.metalLayer)
+        }
 
         // Everything else that used to be set here (device, pixelFormat, framebufferOnly,
         // colorspace and maximumDrawableCount) is set by the engine's `Surface::configure`.

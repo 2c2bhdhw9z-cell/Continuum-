@@ -130,6 +130,11 @@ https://buildbot.libretro.com/nightly/apple/ios-arm64/latest/
 
 Check this list before promising or refusing a system. It is one `curl` away.
 
+**Re-checked 4 October 2026:** still 178 cores, and azahar/citra, flycast, ppsspp and dolphin are
+still absent. Continuum does not depend on the buildbot for those: CI compiles **azahar**,
+**flycast** and **ppsspp** from source (`scripts/build-core.sh`), and all three are in the IPA
+(32 cores in build 120). Dolphin is not built (see docs/HARD_SYSTEMS.md).
+
 **Continuum ships `mednafen_psx_hw` (Beetle PSX HW) through `IOS_CORES` / `ios-all`.** The
 dylib is built only on a Mac host or the GitHub Actions `macos-latest` runner
 (`make platform=ios-arm64 HAVE_HW=1`); a Linux box cannot cross-compile it. Soft

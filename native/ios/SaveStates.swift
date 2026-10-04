@@ -646,7 +646,7 @@ final class SaveStates: ObservableObject {
 
     /// Options a 3DS state cannot survive a change of: the console model, the audio engine and
     /// the renderer all change what the core serializes. Loading a state across one of these was
-    /// crashing the app after "Restart to apply".
+    /// crashing the app after "Restart the game now".
     private static let stateSensitiveKeys: Set<String> = [
         "citra_is_new_3ds", "citra_audio_emulation", "citra_graphics_api",
         "citra_use_fastinterp", "citra_use_hw_shader", "citra_resolution_factor",

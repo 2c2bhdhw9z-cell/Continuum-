@@ -1,6 +1,10 @@
 # What is finished, and what is not
 
-One page, kept current, so nothing has to be inferred from a commit log. Three states only:
+One page, kept current, so nothing has to be inferred from a commit log. Last updated
+4 October 2026 (build 121). The install is always the newest file on the
+[Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
+
+Three states only:
 
 - **Done** means built, in the `.ipa`, and confirmed working on a device.
 - **Built, untested** means it is in the app and should work, and nobody has tried it yet. Those
@@ -16,7 +20,9 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 ## Systems
 
-**Twelve** cores, **seventeen** systems, shipping today. The sixteenth is the **Nintendo 3DS**. The seventeenth is the **PSP**, on PPSSPP. Two of the older systems cost no new emulator at all, both having been supported already by cores in the app and simply not wired up. One system is still ahead and is not in this
+**32 cores** are in the IPA as of build 120 (checked in the file itself). The table below is the
+first seventeen systems; the 3 October batch below adds the rest. Original note:
+**Twelve** cores, **seventeen** systems, at the time this table was written. The sixteenth is the **Nintendo 3DS**. The seventeenth is the **PSP**, on PPSSPP. Two of the older systems cost no new emulator at all, both having been supported already by cores in the app and simply not wired up. One system is still ahead and is not in this
 table: **the Switch**, hardest last. The N64 arrived by the software-renderer trick. The 3DS did not: it is Azahar's Vulkan `set_image` path, the same hook Beetle uses, with the CPU JIT compiled out. It is in the IPA. **Device (Brett, builds 100 and 101):** Mario Kart runs, then stutters after a transition and comes back. It does not stay locked. **Not Done.** PSP is in the IPA as Partial. It has not been tried on a phone.
 
 | System | Core | State | What is missing |
@@ -35,7 +41,7 @@ table: **the Switch**, hardest last. The N64 arrived by the software-renderer tr
 | **Nintendo 64** | parallel_n64 | **Done** | Device-proven on build 97 (`258a828`): past `N64 first tick…`, frames climbing, ~60 fps into Smash character select. Soft/interp only (no JIT on this signed IPA). `.n64`, `.z64`, `.v64` |
 | **TurboGrafx-16** | mednafen_pce_fast | **Built, untested** | HuCard games only. PC Engine CD needs a system card BIOS that cannot ship |
 | **Atari 2600** | stella2023 | **Built, untested** | `.a26` only. A 2600 ROM named `.bin` has to be renamed, because `.bin` belongs to the PlayStation here as a disc track |
-| **Nintendo 3DS** | azahar | **Partial** | A game runs (Mario Kart). The open fail is the skin: the picture is not in the top screen hole, and the bottom screen stays empty. The install is Continuum-109 (`05ee4df`). It is not proven on a phone. No JIT. Decrypted `.3ds`, `.3dsx`, `.cci`, `.cxi` only. A retail game can still need 3DS system archives this app does not ship |
+| **Nintendo 3DS** | azahar | **Partial** | A game runs (Mario Kart). Skin holes for 3DS are built and not confirmed on a phone. Build 119 crashed when a game was reopened after changing a "restart required" Azahar setting; the likely cause was the auto-save from the old settings being loaded. Build 120 refuses such a state with a message instead. Not yet confirmed on a phone. No JIT. Decrypted `.3ds`, `.3dsx`, `.cci`, `.cxi` only. A retail game can still need 3DS system archives this app does not ship |
 | **Nintendo DS** | melonDS | **Done** | Confirmed on device (build 80): Mario Kart DS and Pokémon SoulSilver, dual screens live, ~60 fps, 0 dropped |
 | **PlayStation Portable** | ppsspp | **Partial** | In the IPA as `ppsspp_libretro_ios.dylib`. CPU is the IR interpreter: the core's option value "IR JIT" is `CPUCore::IR_INTERPRETER` with compile-to-native off. No dynarec, no executable memory. Picture is Vulkan `set_image`, the same hook as the 3DS. No BIOS is shipped; PPSSPP does not need one. `.cso` only. `.iso`, `.chd` and `.pbp` stay PlayStation. **Not device-proven.** Do not claim a game runs or quote a frame rate |
 
@@ -80,7 +86,10 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Cheats | **In the tree, not on a phone** | Typing a code works on a phone. New and not on a phone: import a RetroArch `.cht` file, and a RAM search (lives, money and so on) that turns an address into a cheat. Up to 128 codes per game |
 | On-screen control layout editor | **Partial** | **Done bar (Brett):** every control in the skin file works, not only the ones he names. Picture in the screen hole both ways you hold the phone. Two screens when the skin has two. A joystick or circle pad is a real stick, not a dead picture. Shoulders too. Debug text off the picture. **Device:** Game Boy Color sideways import works. Other systems do not. 3DS: the top hole is empty. The picture floats above the skin (sideways it is a small picture in the corner) because the hole was not read and the game was parked in the strip above the buttons. The bottom screen stays empty. Debug text is still on the picture. Buttons overlap the picture. He already had 3DS selected. That was not the bug. **Code (`ee307b8`), not on a phone yet:** each screen goes in its own hole, a thumbstick is an analog stick, shoulders are mapped, and a button shows its pressed picture only when the skin file has one. The last phone report above still stands until he installs. Do **not** stamp Done until the picture is in the hole on the phone |
 | Battery saves (the game's own save) | **In the tree, not on a phone** | Found broken while building the save manager: in-game saves (Pokemon, Zelda, PS1 memory card) were never written to disk, so they only survived inside a save state. Now restored before the first frame and written when you leave or switch apps |
-| Save state compatibility refusal | **Built, cannot be tested deliberately** | Only fires for a state from a different core or build |
+| Save state compatibility refusal | **Built, partly testable** | Refuses a state from a different core or core build. Since build 120 it also refuses a state saved under different restart-required core settings (Azahar's console model, audio, renderer and so on), with a message naming the setting. That case is testable: TESTING.md A1 |
+| Apple performance overlay switch | **Built, untested** | Build 121. Settings → DIAGNOSTICS. Hides Apple's Metal Performance HUD on the game layers and turns off the launch-time request for it. May need the app reopened |
+| Landscape with no skin | **Done** | Froze in build 119 (an endless layout loop from a repeated warning line). Fixed in build 120 and confirmed on the phone |
+| **+** opens Files, the ⋯ menu, TV picture quality | **Done** | Confirmed on build 119 |
 | Honouring what a core wants its content as | **Done** | Every core used to be handed a file path and no bytes. That worked for the first six by luck, and would have given Stella a zero-byte ROM, because it copies straight from the data pointer with no path fallback. The engine now reads what each core declares and loads the file when the core wants bytes, so the next such core needs no change |
 | File formats per system | **Done** | Every extension is now taken from the cores' own declared lists rather than a hand-written one. That added the two systems above plus `.smd`, `.swc`, `.fig`, `.unf`, `.unif`, `.sgb`, `.mdf` and `.toc`, which were being refused despite being supported |
 | Core setting overrides | **Done** | The host refuses a core's requests for its settings, so every core keeps its own defaults. Two DS settings had to be answered because they do not start at the default they advertise; everything else, for every core, is still refused |
@@ -93,13 +102,13 @@ Broken out rather than left as one row. Device-proven on build 80:
 
 This is the bar. A line is **Done** only when a phone showed it. **In the tree** means the code is on master and no phone has run it. **Not built** means it is not in the app. JIT is **out on purpose**, not a missing feature.
 
-The install is [Continuum-111](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-111-cdae676/Continuum-111.ipa) (`cdae676`). It carries 109's skin work and every row below marked In the tree. Build 110 failed at the link and has no file. None of it is proven on a phone. A skin already saved on the phone only has the first hole and no circle pad, so import the skin file again.
+Every row below is in the current install (newest on the Releases page). A skin saved on the phone before build 109 only has the first hole and no circle pad, so import the skin file again.
 
 | What | State | Notes |
 | --- | --- | --- |
 | Two screens, each placed where the skin file says | **In 109, not on a phone** | Last phone report: the top hole is empty and the bottom screen stays empty. Not done until a new import shows both |
 | Swap which screen is the big one | **In the tree, not on a phone** | DS and 3DS. Six layouts in Settings (stacked, side by side, big top, big bottom, top only, bottom only) and a swap button in the player. Touch follows the bottom screen. With a two-hole skin the pictures trade holes |
-| AirPlay: game on the TV, touch screen on the phone | **In the tree, not on a phone** | AirPlay or a cable. Game on the TV, controls on the phone. On DS and 3DS the phone keeps the touch screen. Two switches in Settings |
+| AirPlay: game on the TV, touch screen on the phone | **Partial** | Build 119: the TV picture is confirmed sharper on the phone. TV scaling/layout options not confirmed yet. | AirPlay or a cable. Game on the TV, controls on the phone. On DS and 3DS the phone keeps the touch screen. Two switches in Settings |
 | Button shows a pressed picture | **In 109, not on a phone** | Only when the skin file has that picture. Not on a phone |
 | Extra buttons you place yourself | **In the tree, not on a phone** | In the layout editor: add a button, a combo, a turbo button, or an action (quick save, quick load, fast forward, rewind, screenshot, pause). Drag, resize, fade, delete. Per system and per way you hold the phone |
 | Edit an imported skin inside the app | **In the tree, not on a phone** | Move and resize every button, stick and screen hole, change what a button presses, fade the skin, reset to the file. The imported file is never changed |
@@ -121,9 +130,21 @@ The install is [Continuum-111](https://github.com/2c2bhdhw9z-cell/Continuum-/rel
 
 ---
 
+## Builds 117 to 121 (4 October 2026)
+
+- **117** closed on launch: the SMB library was linked but not packed into the app. SMB removed; CI
+  now fails any build that links a framework it does not carry.
+- **118** failed to build (Dreamcast core, wrong OpenGL header). Fixed.
+- **119**: Dreamcast (flycast) in the IPA, **+** opens Files directly (Import sheet on long press),
+  the ⋯ menu no longer rebuilds every frame, sharper TV/AirPlay picture. Confirmed on the phone.
+- **120**: no-skin landscape freeze fixed (confirmed); save states saved under different
+  restart-required core settings are refused instead of crashing Azahar (not yet confirmed).
+- **121**: switch to hide Apple's performance overlay; docs brought up to date.
+
 ## Built 3 October 2026, not on a phone yet
 
-Everything below is on master and in Continuum-116 unless it says otherwise. TESTING.md has a numbered list for trying each one.
+Everything below is on master and in the current install. TESTING.md has an easy numbered list for
+trying each one.
 
 - **19 new systems:** WonderSwan, Neo Geo Pocket, PC Engine CD, SuperGrafx, Amiga, C64, DOS, DOOM, Jaguar, Lynx, Atari 7800, Atari 5200, Arcade, Pokemon Mini, Virtual Boy, Saturn, Sega CD, 32X, and Dreamcast (optional, never compiled before build 116).
 - **Getting games in:** Wi-Fi transfer, paste, drag and drop, Open in, WebDAV, SMB, zip and 7z files, automatic system detection, and save files in other emulators' formats.
@@ -131,7 +152,7 @@ Everything below is on master and in Continuum-116 unless it says otherwise. TES
 - **Core settings for every core:** filters, palettes, 2x/3x/4x and slow motion, disc swap, rotation, and separate TV settings.
 - **Controls:** a keyboard, tilt and shake, controller types, remapping profiles, DS lid and blow, and the 3DS HOME button.
 - **Gameplay manuals:** PDF manuals attached to a game.
-- **Not in 116, waiting on build 117:** Flash, J2ME, memory maps (GBA achievements and RAM search on GBA), and better disc hashing for achievements.
+- **Also in the current install:** Flash, J2ME, memory maps (GBA achievements and RAM search on GBA), and better disc hashing for achievements.
 
 ### Not done
 
@@ -144,7 +165,7 @@ Everything below is on master and in Continuum-116 unless it says otherwise. TES
 - Camera and Amiibo do not reach a 3DS game, because the 3DS core cannot take them.
 - DS games do not hear the real microphone; the blow button stands in for it.
 - Online play over the internet needs port 55435 opened on the host's router.
-- docs/PLATFORM_LIMITS.md is out of date: the iOS buildbot now carries dolphin, flycast, ppsspp and azahar.
+- The libretro iOS buildbot still does NOT carry azahar/citra, flycast, ppsspp or dolphin (checked 4 October 2026). Continuum compiles azahar, flycast and ppsspp itself in CI; dolphin is not built.
 
 
 ## The road to the rest of the systems
@@ -263,5 +284,5 @@ paraLLEl-RDP is Vulkan compute and has no GL equivalent.
 Not forgotten, and not bugs:
 
 - iOS deployment target stays at 16 rather than 18, and Swift stays at language mode 5.
-- Per-orientation control layouts for the procedural pad (no imported skin). Imported Delta skins do swap portrait and landscape.
+- Separate saved control layouts per orientation for the built-in pad (no imported skin). It does re-arrange itself for landscape. Imported skins swap portrait and landscape.
 - **PSP (PPSSPP)** is step 9 and is **in this IPA as Partial**, not Done. The CPU is the IR interpreter, no JIT and no dynarec. It has not been tried on a phone. App Store PPSSPP is also interpreter-only; lighter games are reported smooth there and heavy games hitch. That report is not a Continuum result. Nothing to do with Switch is deferred; it is steps 10 to 12. 3DS is in the app as Partial (a game runs, then stutters), not deferred.

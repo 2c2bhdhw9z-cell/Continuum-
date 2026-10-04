@@ -56,6 +56,11 @@ struct ContinuumApp: App {
     /// anything else that needs one adds its methods to `ContinuumAppDelegate`.
     @UIApplicationDelegateAdaptor(ContinuumAppDelegate.self) private var appDelegate
 
+    init() {
+        // Apple's performance HUD switch: the launch-time half (see AppleOverlay.swift).
+        AppleOverlay.syncLaunchDefault()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -4783,7 +4788,7 @@ final class EngineHost: ObservableObject {
                 status = "surface ready, but not every core is in the bundle - read the cores line"
             } else {
                 status = library.isEmpty
-                    ? "surface ready - tap Import Games to add a game"
+                    ? "surface ready - tap + to add a game"
                     : "surface ready - tap a game in the Library"
             }
         case .failure(let error):
