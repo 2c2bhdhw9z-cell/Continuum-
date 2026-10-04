@@ -646,7 +646,10 @@ struct DiscPickerScreen: View {
 
 /// The in-game menu section: every action this file adds, for the system on screen.
 struct CoreActionsMenuSection: View {
-    @ObservedObject var host: EngineHost
+    /// A plain reference, not observed: observing the host re-ran this body (and its engine
+    /// queries) on every telemetry tick while the menu was open. `PlayerActionsMenu` decides
+    /// when the menu is rebuilt.
+    let host: EngineHost
     let system: GameSystem?
 
     var body: some View {

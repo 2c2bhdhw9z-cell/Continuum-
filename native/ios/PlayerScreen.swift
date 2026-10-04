@@ -313,157 +313,24 @@ struct PlayerScreen: View {
     /// 44 POINTS, not the 38 the other session buttons use, because this is the one that opens
     /// something rather than doing something, and a menu that fails to open reads as a dead button.
     private var saveStateControl: some View {
-        Menu {
-            Button {
-                host.saveStateToSlot()
-            } label: {
-                Label("Save to the next free slot", systemImage: "square.and.arrow.down")
-            }
-            Button {
-                showingSlots = true
-            } label: {
-                Label("Save slots...", systemImage: "square.grid.2x2")
-            }
-            Button {
-                showingCheats = true
-            } label: {
-                Label("Cheats and RAM search...", systemImage: "wand.and.stars")
-            }
-            // Switching skin mid-game, the same sheet the `skins` skin button opens.
-            Button {
-                SkinRuntime.shared.sheet = .skins
-            } label: {
-                Label("Skin...", systemImage: "paintpalette")
-            }
-            Button {
-                SkinRuntime.shared.sheet = .functions
-            } label: {
-                Label("All functions...", systemImage: "square.grid.3x3")
-            }
-
-            let states = host.activeEntry.map { saveStates.states(for: $0) } ?? []
-            if host.netplayLive {
-                Button("Loading a state is off during online play") {}
-                    .disabled(true)
-            } else if states.isEmpty {
-                // Disabled and explicit rather than absent. An empty menu reads as a broken
-                // control, and "there is nothing to load yet" is the answer to the question the
-                // user just asked by opening it.
-                Button("No saved states for this game yet") {}
-                    .disabled(true)
-            } else {
-                // Newest first, which is the order the store keeps. Capped, because this is a menu
-                // over a running game and not the management screen: the detail sheet lists every
-                // state with its size and frame, and a menu long enough to scroll would be a worse
-                // version of that list. The cap is a hard limit rather than a page, so the wording
-                // below has to stay honest about it.
-                Section("Load a state") {
-                    ForEach(states.prefix(Self.menuStateLimit)) { record in
-                        Button {
-                            saveStates.load(record)
-                        } label: {
-                            Label(record.summaryLine, systemImage: record.isAuto
-                                  ? "clock.arrow.circlepath"
-                                  : "tray.and.arrow.up")
-                        }
-                    }
-                }
-            }
-
-            // Its own section, because it is not a save state and a row loose among them would read
-            // as one. Offered only with a game on screen: the player is never mounted without one,
-            // so this is the optional being unwrapped rather than a condition anybody can hit, and
-            // `captureCover` guards the session itself for the paths that can.
-            //
-            // THE ANSWER ARRIVES ON THE STATUS LINE under the telemetry strip, which this screen
-            // already draws, so there is no alert and nothing to dismiss. Capturing while PAUSED
-            // works and is the better way to use it: the engine refreshes from the core before it
-            // reads the surface, so a game paused on its title screen gives up exactly that frame.
-            // Core settings, filters, discs, palettes, speeds, rotation and the TV.
-            CoreActionsMenuSection(host: host, system: system)
-
-            Section("Controls") {
-                Button {
-                    host.showControllers()
-                } label: {
-                    Label("Controllers and button mapping...", systemImage: "gamecontroller")
-                }
-                Button {
-                    host.toggleOnScreenKeyboard()
-                } label: {
-                    Label("Keyboard", systemImage: "keyboard")
-                }
-                if system == .ps1 {
-                    Button {
-                        host.toggleAnalogMode()
-                    } label: {
-                        Label(host.isAnalogMode() ? "Analog pad: on" : "Analog pad: off",
-                              systemImage: "l.joystick")
-                    }
-                }
-                if system == .ds {
-                    Button {
-                        host.toggleDSLid()
-                    } label: {
-                        Label("Close or open the lid", systemImage: "laptopcomputer")
-                    }
-                }
-                if system == .n3ds {
-                    Button {
-                        host.pressHomeButton()
-                    } label: {
-                        Label("HOME button", systemImage: "house")
-                    }
-                }
-                Button {
-                    host.shake()
-                } label: {
-                    Label("Shake", systemImage: "iphone.radiowaves.left.and.right")
-                }
-            }
-            Section("Online play") {
-                Button {
-                    showNetplay = true
-                } label: {
-                    Label(host.netplayLive ? "Online play: status and leave"
-                                           : "Play online with a second phone",
-                          systemImage: "person.2")
-                }
-            }
-
-            if let entry = host.activeEntry {
-                Section("Cover art") {
-                    Button {
-                        host.artwork.captureCover(for: entry)
-                    } label: {
-                        Label("Use this frame as the cover", systemImage: "camera.viewfinder")
-                    }
-                }
-            }
-
-            // The Amiibo picker, for the 3DS only: the only system here with an NFC reader. The
-            // answer to a tap arrives on the status line, like the cover capture above.
-            if system == .n3ds {
-                AmiiboMenuSection(peripherals: host.peripherals,
-                                  report: { host.status = $0 })
-            }
-        } label: {
-            // `ellipsis` rather than the save glyph, because this control no longer does one thing.
-            Image(systemName: "ellipsis.circle")
-                .font(.system(size: 17, weight: .semibold))
-                .frame(width: 44, height: 44)
-                .background(Color.white.opacity(0.12), in: Circle())
-                .contentShape(Circle())
-        }
-        // One literal rather than a concatenation, like every other label in this file: the
-        // concatenated form resolves to a different overload of this modifier than a plain string
-        // does, and on a build whose only compiler is CI that is not a thing to find out remotely.
-        .accessibilityLabel("Save states and cover art")
+        // Isolated in its own Equatable view. PlayerScreen observes the whole EngineHost, which
+        // publishes frameCount and displayFps on every telemetry tick, so an inline Menu had its
+        // content rebuilt (engine queries included) every frame while it was open, which froze
+        // the open menu, worst in landscape. The menu now re-evaluates only when something it
+        // shows changes: the game, online play, the pause state, the status line (every action
+        // in it reports there) or the save list.
+        PlayerActionsMenu(host: host,
+                          saveStates: saveStates,
+                          system: system,
+                          entryID: host.activeEntry?.id,
+                          netplayLive: host.netplayLive,
+                          paused: host.paused,
+                          status: host.status,
+                          showingSlots: $showingSlots,
+                          showingCheats: $showingCheats,
+                          showNetplay: $showNetplay)
+            .equatable()
     }
-
-    /// How many states the in-game menu offers. Six is about what fits without scrolling on the
-    /// shortest screen this app supports, and the detail sheet is the place that shows them all.
-    private static let menuStateLimit = 6
 
     private func sessionButton(_ symbol: String, label: String,
                                action: @escaping () -> Void) -> some View {
@@ -548,6 +415,188 @@ struct PlayerScreen: View {
             // toggle. See `DiagnosticsPanel`.
             .allowsHitTesting(false)
     }
+}
+
+// MARK: - The in-game actions menu
+
+/// The ellipsis menu on the player's top bar. See `PlayerScreen.saveStateControl` for why this
+/// is its own Equatable view holding the host as a plain reference rather than observing it.
+struct PlayerActionsMenu: View, Equatable {
+    let host: EngineHost
+    @ObservedObject var saveStates: SaveStates
+    let system: GameSystem?
+    let entryID: LibraryEntry.ID?
+    let netplayLive: Bool
+    let paused: Bool
+    let status: String
+    let showingSlots: Binding<Bool>
+    let showingCheats: Binding<Bool>
+    let showNetplay: Binding<Bool>
+
+    // saveStates is left out: it is observed above, so a change to the list redraws the menu on
+    // its own. Only `let` values of Sendable types are read, so this can be nonisolated as
+    // Equatable requires.
+    nonisolated static func == (lhs: PlayerActionsMenu, rhs: PlayerActionsMenu) -> Bool {
+        lhs.host === rhs.host
+            && lhs.system == rhs.system
+            && lhs.entryID == rhs.entryID
+            && lhs.netplayLive == rhs.netplayLive
+            && lhs.paused == rhs.paused
+            && lhs.status == rhs.status
+    }
+
+    var body: some View {
+        Menu {
+            Button {
+                host.saveStateToSlot()
+            } label: {
+                Label("Save to the next free slot", systemImage: "square.and.arrow.down")
+            }
+            Button {
+                showingSlots.wrappedValue = true
+            } label: {
+                Label("Save slots...", systemImage: "square.grid.2x2")
+            }
+            Button {
+                showingCheats.wrappedValue = true
+            } label: {
+                Label("Cheats and RAM search...", systemImage: "wand.and.stars")
+            }
+            // Switching skin mid-game, the same sheet the `skins` skin button opens.
+            Button {
+                SkinRuntime.shared.sheet = .skins
+            } label: {
+                Label("Skin...", systemImage: "paintpalette")
+            }
+            Button {
+                SkinRuntime.shared.sheet = .functions
+            } label: {
+                Label("All functions...", systemImage: "square.grid.3x3")
+            }
+
+            let states = host.activeEntry.map { saveStates.states(for: $0) } ?? []
+            if netplayLive {
+                Button("Loading a state is off during online play") {}
+                    .disabled(true)
+            } else if states.isEmpty {
+                // Disabled and explicit rather than absent. An empty menu reads as a broken
+                // control, and "there is nothing to load yet" is the answer to the question the
+                // user just asked by opening it.
+                Button("No saved states for this game yet") {}
+                    .disabled(true)
+            } else {
+                // Newest first, which is the order the store keeps. Capped, because this is a menu
+                // over a running game and not the management screen: the detail sheet lists every
+                // state with its size and frame, and a menu long enough to scroll would be a worse
+                // version of that list. The cap is a hard limit rather than a page, so the wording
+                // below has to stay honest about it.
+                Section("Load a state") {
+                    ForEach(states.prefix(Self.menuStateLimit)) { record in
+                        Button {
+                            saveStates.load(record)
+                        } label: {
+                            Label(record.summaryLine, systemImage: record.isAuto
+                                  ? "clock.arrow.circlepath"
+                                  : "tray.and.arrow.up")
+                        }
+                    }
+                }
+            }
+
+            // Its own section, because it is not a save state and a row loose among them would read
+            // as one. Offered only with a game on screen: the player is never mounted without one,
+            // so this is the optional being unwrapped rather than a condition anybody can hit, and
+            // `captureCover` guards the session itself for the paths that can.
+            //
+            // THE ANSWER ARRIVES ON THE STATUS LINE under the telemetry strip, which this screen
+            // already draws, so there is no alert and nothing to dismiss. Capturing while PAUSED
+            // works and is the better way to use it: the engine refreshes from the core before it
+            // reads the surface, so a game paused on its title screen gives up exactly that frame.
+            // Core settings, filters, discs, palettes, speeds, rotation and the TV.
+            CoreActionsMenuSection(host: host, system: system)
+
+            Section("Controls") {
+                Button {
+                    host.showControllers()
+                } label: {
+                    Label("Controllers and button mapping...", systemImage: "gamecontroller")
+                }
+                Button {
+                    host.toggleOnScreenKeyboard()
+                } label: {
+                    Label("Keyboard", systemImage: "keyboard")
+                }
+                if system == .ps1 {
+                    Button {
+                        host.toggleAnalogMode()
+                    } label: {
+                        Label(host.isAnalogMode() ? "Analog pad: on" : "Analog pad: off",
+                              systemImage: "l.joystick")
+                    }
+                }
+                if system == .ds {
+                    Button {
+                        host.toggleDSLid()
+                    } label: {
+                        Label("Close or open the lid", systemImage: "laptopcomputer")
+                    }
+                }
+                if system == .n3ds {
+                    Button {
+                        host.pressHomeButton()
+                    } label: {
+                        Label("HOME button", systemImage: "house")
+                    }
+                }
+                Button {
+                    host.shake()
+                } label: {
+                    Label("Shake", systemImage: "iphone.radiowaves.left.and.right")
+                }
+            }
+            Section("Online play") {
+                Button {
+                    showNetplay.wrappedValue = true
+                } label: {
+                    Label(netplayLive ? "Online play: status and leave"
+                                           : "Play online with a second phone",
+                          systemImage: "person.2")
+                }
+            }
+
+            if let entry = host.activeEntry {
+                Section("Cover art") {
+                    Button {
+                        host.artwork.captureCover(for: entry)
+                    } label: {
+                        Label("Use this frame as the cover", systemImage: "camera.viewfinder")
+                    }
+                }
+            }
+
+            // The Amiibo picker, for the 3DS only: the only system here with an NFC reader. The
+            // answer to a tap arrives on the status line, like the cover capture above.
+            if system == .n3ds {
+                AmiiboMenuSection(peripherals: host.peripherals,
+                                  report: { host.status = $0 })
+            }
+        } label: {
+            // `ellipsis` rather than the save glyph, because this control no longer does one thing.
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 17, weight: .semibold))
+                .frame(width: 44, height: 44)
+                .background(Color.white.opacity(0.12), in: Circle())
+                .contentShape(Circle())
+        }
+        // One literal rather than a concatenation, like every other label in this file: the
+        // concatenated form resolves to a different overload of this modifier than a plain string
+        // does, and on a build whose only compiler is CI that is not a thing to find out remotely.
+        .accessibilityLabel("Save states and cover art")
+    }
+
+    /// How many states the in-game menu offers. Six is about what fits without scrolling on the
+    /// shortest screen this app supports, and the detail sheet is the place that shows them all.
+    private static let menuStateLimit = 6
 }
 
 // MARK: - The diagnostics, in one place both screens use
