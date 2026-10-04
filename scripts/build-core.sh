@@ -958,6 +958,11 @@ build_ios_ppsspp_core() {
 
 # flycast's libretro target, which its CMake emits as a shared library.
 #
+# -DIOS in the C/C++ flags: CMAKE_SYSTEM_NAME=iOS sets the CMake variable IOS, but flycast only turns
+# that into TARGET_IPHONE. libretro-common's glsym/rglgen_headers.h tests the C macro IOS, and
+# without it falls to the __APPLE__ branch and includes macOS-only <OpenGL/gl3.h> (build 118:
+# "fatal error: 'OpenGL/gl3.h' file not found"). libretro's own ios-cmake CI template passes -DIOS.
+#
 # Its own path because the flags are its own: TARGET_NO_REC for the interpreter (core/build.h),
 # USE_OPENMP off as upstream's libretro iOS job has it, and the bundled libzip because there is no
 # host libzip in the iphoneos SDK. LTO is not requested, and the exports come from
@@ -979,8 +984,8 @@ build_ios_flycast_core() {
     -DCMAKE_OSX_SYSROOT="$IOSSDK" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_MIN_VERSION" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_FLAGS="-DTARGET_NO_REC" \
-    -DCMAKE_CXX_FLAGS="-DTARGET_NO_REC" \
+    -DCMAKE_C_FLAGS="-DIOS -DTARGET_NO_REC" \
+    -DCMAKE_CXX_FLAGS="-DIOS -DTARGET_NO_REC" \
     -DUSE_OPENMP=OFF \
     -DUSE_LUA=OFF \
     -DUSE_BREAKPAD=OFF \
