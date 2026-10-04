@@ -339,9 +339,18 @@ final class ExternalMetalView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("not supported") }
 
+    /// The TV screen's nativeScale, set by the scene delegate. Used when the view is not in a
+    /// window yet, where the old fallback of 1 sized the drawable below the TV's pixels.
+    var screenScale: CGFloat = 0
+
+    private var pixelScale: CGFloat {
+        if let scale = window?.windowScene?.screen.nativeScale, scale > 0 { return scale }
+        return screenScale > 0 ? screenScale : 1
+    }
+
     /// Device pixels, like the phone's canvas.
     var drawablePixels: CGSize {
-        let scale = window?.screen.nativeScale ?? window?.windowScene?.screen.nativeScale ?? 1
+        let scale = pixelScale
         return CGSize(width: (bounds.width * scale).rounded(), height: (bounds.height * scale).rounded())
     }
 
@@ -354,8 +363,7 @@ final class ExternalMetalView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         label.frame = bounds.insetBy(dx: 40, dy: 40)
-        let scale = window?.screen.nativeScale ?? window?.windowScene?.screen.nativeScale ?? 1
-        metalLayer.contentsScale = scale
+        metalLayer.contentsScale = pixelScale
         let size = drawablePixels
         guard size.width > 0, size.height > 0 else { return }
         if metalLayer.drawableSize != size {
@@ -383,9 +391,22 @@ final class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
                willConnectTo session: UISceneSession,
                options connectionOptions: UIScene.ConnectionOptions) {
         guard let windowScene = scene as? UIWindowScene else { return }
+        // Picture quality on the TV, before the window exists so its bounds come from the final
+        // mode. overscanCompensation defaults to .scale, which has iOS shrink and RESAMPLE the
+        // whole frame to fit an assumed overscan: every pixel the engine drew goes through a
+        // second filter, which is the soft, smeared picture reported on AirPlay. .none passes
+        // the drawable through 1:1. And the TV's preferred mode is its native resolution; the
+        // mode iOS starts an external screen in is not guaranteed to be it.
+        let screen = windowScene.screen
+        screen.overscanCompensation = .none
+        if let preferred = screen.preferredMode, screen.currentMode != preferred {
+            screen.currentMode = preferred
+        }
         let window = UIWindow(windowScene: windowScene)
         let controller = UIViewController()
         let view = ExternalMetalView(frame: windowScene.coordinateSpace.bounds)
+        // Known before the view joins the window, so the first drawable is not sized at 1x.
+        view.screenScale = screen.nativeScale
         controller.view = view
         window.rootViewController = controller
         window.isHidden = false
