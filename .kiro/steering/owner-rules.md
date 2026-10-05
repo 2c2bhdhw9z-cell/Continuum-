@@ -24,6 +24,7 @@ These come straight from the owner. They are not suggestions.
 - Before handing over the .ipa, open it and check it: the version (0.8.0 and the build number)
   and the core count (32 `_libretro_ios.dylib` files as of build 124). Never say a build is the
   newest without checking the Releases page.
+- With every .ipa, give a short list of easy things to try on it. The owner often tests at work.
 
 ## Git
 - NO branches. NO pull requests. Ever. Everything is committed and pushed straight to `master`.
@@ -49,5 +50,15 @@ These come straight from the owner. They are not suggestions.
   per row, plain words. Update it in the same push as any change the owner needs to try, and drop
   a test once the owner confirms it.
 - `docs/archive/` is old history. Do not follow instructions in it.
+
+## Already decided by the owner (do not reopen)
+- No computer, ever, not even once or borrowed. Never suggest anything that needs one (a pairing
+  file, a "JIT certificate"). This is why there is no JIT (docs/PLATFORM_LIMITS.md).
+- Before starting the Switch (road steps 10 to 12), raise JIT with the owner first: iPhone Switch
+  emulators need it.
+- The Beetle PSX boot on build 98 was enough to move on to the 3DS. Do not reopen it.
+- The skin layout editor is not Done until the owner says the skin is right.
+- iOS controls keep Apple's glass look; Android will use Material's own look. Same behaviour,
+  different appearance, on purpose (docs/PRODUCT_SCOPE.md).
 - Only Kiro works on this repository. No other AI tool's files, instructions or branches belong
   in it (they were removed on 5 October 2026); do not add any.
