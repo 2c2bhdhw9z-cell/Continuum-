@@ -199,10 +199,44 @@ pub struct WifiRequestHead {
     pub head_len: u32,
 }
 
-/// The upload page served at `/`.
+/// The upload page served at `/<code>/`. Its URLs are relative, so they stay under the code.
 #[uniffi::export]
 pub fn wifi_page_html() -> String {
     http::PAGE.to_string()
+}
+
+/// The characters a Wi-Fi transfer access code is drawn from (31, none easy to misread).
+#[uniffi::export]
+pub fn wifi_access_code_alphabet() -> String {
+    http::ACCESS_CODE_ALPHABET.to_string()
+}
+
+/// How many characters a Wi-Fi transfer access code has.
+#[uniffi::export]
+pub fn wifi_access_code_length() -> u32 {
+    http::ACCESS_CODE_LEN as u32
+}
+
+/// True when `code` is a well-formed access code (the right length, every character from the
+/// alphabet).
+#[uniffi::export]
+pub fn wifi_is_access_code(code: String) -> bool {
+    http::is_access_code(&code)
+}
+
+/// The gate every Wi-Fi transfer request goes through. `path` is the decoded path
+/// (`WifiRequestHead.path`). Returns the path after `/<code>` to route as usual (`/`,
+/// `/api/library`, ...), an empty string for `/<code>` with no slash (redirect to `/<code>/`), or
+/// None for anything else (answer a bare 404). Compared in constant time.
+#[uniffi::export]
+pub fn wifi_strip_access_code(path: String, code: String) -> Option<String> {
+    http::strip_access_code(&path, &code)
+}
+
+/// The address to show: `http://<ip>:<port>/<code>/`, always with the trailing slash.
+#[uniffi::export]
+pub fn wifi_transfer_address(ip: String, port: u16, code: String) -> String {
+    http::transfer_address(&ip, port, &code)
 }
 
 /// Parses the head at the start of `data`. None means more bytes are needed.

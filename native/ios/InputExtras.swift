@@ -196,6 +196,11 @@ final class InputExtras: ObservableObject {
         return q
     }()
     private var motionRunning = false
+    /// From `gameStarted` until `gameEnded`. The display link, and so `poll`, keeps running under
+    /// the Library (the canvas is never torn down), and the engine only forgets a core's motion
+    /// request when that core is unloaded, so without this gate a core still loaded after its game
+    /// could keep CoreMotion sampling at 100 Hz behind the Library.
+    private var gameRunning = false
     private var frameCounter = 0
     private var keyboardObservers: [NSObjectProtocol] = []
     /// Set by the host so this object can write the status line without holding the host.
@@ -250,7 +255,7 @@ final class InputExtras: ObservableObject {
     /// changes (an atomic read in Rust), keeps the screen orientation current, and carries out
     /// host-side actions a remapped button pressed.
     func poll() {
-        let wanted = engine.motionWanted()
+        let wanted = gameRunning && engine.motionWanted()
         if wanted != motionRunning {
             wanted ? startMotion() : stopMotion()
         }
@@ -269,6 +274,9 @@ final class InputExtras: ObservableObject {
             switch action {
             case "keyboard":
                 showingKeyboard.toggle()
+                // Hidden through a remapped button: latched Shift, Ctrl and Alt are let go exactly
+                // as the keyboard's own hide button lets go of them, or they stay held in the game.
+                if !showingKeyboard { keyboardHidden() }
                 report?(showingKeyboard ? "keyboard: shown" : "keyboard: hidden")
             case "menu":
                 openOnBinding = false
@@ -337,6 +345,25 @@ final class InputExtras: ObservableObject {
 
     func calibrate() -> String {
         engine.calibrateMotion()
+    }
+
+    // MARK: Session
+
+    /// A game has started. From here `poll` starts CoreMotion whenever the core asks for it.
+    func gameStarted() {
+        gameRunning = true
+    }
+
+    /// The game has ended. Stops CoreMotion now rather than leaving it to `poll`, lets go of the
+    /// on-screen keyboard's latched Shift, Ctrl and Alt, and forgets caps lock (the next core
+    /// starts with it off). Motion comes back normally for the next game that asks: it is marked
+    /// stopped here, and `gameStarted` reopens the gate `poll` checks.
+    func gameEnded() {
+        gameRunning = false
+        stopMotion()
+        showingKeyboard = false
+        keyboardHidden()
+        capsOn = false
     }
 
     // MARK: Hardware keyboards
@@ -477,7 +504,14 @@ extension EngineHost {
         let extras = inputExtras
         extras.showingKeyboard = false
         extras.commodoreLabels = ["c64", "amiga"].contains(inputSystemId)
+        extras.gameStarted()
         NSLog("[continuum] %@", line)
+    }
+
+    /// Call from `stopSession`, before `engine.stop()`. Stops CoreMotion and lets go of the
+    /// on-screen keyboard's latched keys; see `InputExtras.gameEnded`.
+    func inputSessionDidEnd() {
+        inputExtras.gameEnded()
     }
 
     /// Once per display-link frame, after the tick.

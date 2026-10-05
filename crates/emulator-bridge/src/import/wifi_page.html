@@ -30,6 +30,8 @@
 <h2>Battery saves</h2>
 <div id="saves"><small>Loading...</small></div>
 <script>
+// Every URL below is relative (no leading slash): the page lives under the access code in the
+// address, /<code>/, and everything it asks for has to carry that code too.
 const drop = document.getElementById('drop');
 const pick = document.getElementById('pick');
 const queue = document.getElementById('queue');
@@ -50,12 +52,14 @@ function upload(file) {
   row.appendChild(left); row.appendChild(state); queue.appendChild(row);
   busy = busy.then(() => new Promise(done => {
     const xhr = new XMLHttpRequest();
-    xhr.open('PUT', '/upload?name=' + encodeURIComponent(file.name));
+    xhr.open('PUT', 'upload?name=' + encodeURIComponent(file.name));
     xhr.upload.onprogress = e => { if (e.lengthComputable) { fill.style.width = (100 * e.loaded / e.total) + '%'; state.textContent = size(e.loaded) + ' of ' + size(e.total); } };
     xhr.onload = () => {
       fill.style.width = '100%';
       state.className = xhr.status < 300 ? 'ok' : 'err';
-      state.textContent = xhr.responseText || (xhr.status < 300 ? 'sent' : 'failed ' + xhr.status);
+      state.textContent = xhr.responseText || (xhr.status < 300 ? 'sent'
+        : xhr.status === 404 ? 'the phone did not accept this address: type the address shown on the phone again'
+        : 'failed ' + xhr.status);
       done(); refresh();
     };
     xhr.onerror = () => { state.className = 'err'; state.textContent = 'the phone stopped answering (is Continuum still open?)'; done(); };
@@ -82,10 +86,10 @@ function list(target, items, link) {
   }
 }
 function refresh() {
-  fetch('/api/library').then(r => r.json()).then(j => {
+  fetch('api/library').then(r => r.json()).then(j => {
     list(document.getElementById('games'), j.games || [], null);
-    list(document.getElementById('saves'), j.saves || [], '/saves/');
-  }).catch(() => { document.getElementById('games').innerHTML = '<small class="err">Could not reach the phone.</small>'; });
+    list(document.getElementById('saves'), j.saves || [], 'saves/');
+  }).catch(() => { document.getElementById('games').innerHTML = '<small class="err">Could not reach the phone. If Wi-Fi transfer was switched off and on again, type the new address shown on the phone.</small>'; });
 }
 refresh();
 </script>

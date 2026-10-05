@@ -671,6 +671,16 @@ enum CoreCatalog {
         pokemini, mednafenVb, yabause, mednafenSaturn, picodrive, flycast,
     ]
 
+    /// The twelve cores every build must carry, by id: IOS_CORES in scripts/build-core.sh, and the
+    /// CI verify step fails a build that is missing any one of them. Everything else in `all` is
+    /// optional (see "Wave two" above), so a build without one of those is still a good build, and
+    /// startup must not call it broken. `declareAllCores` is what reads this.
+    static let required: Set<String> = [
+        fceumm.coreId, snes9x.coreId, mgba.coreId, genesisPlusGx.coreId, pcsxReARMed.coreId,
+        mednafenPsxHw.coreId, melonDS.coreId, mednafenPceFast.coreId, stella.coreId,
+        parallelN64.coreId, azahar.coreId, ppsspp.coreId,
+    ]
+
     static let byId: [String: CoreSpec] = Dictionary(
         uniqueKeysWithValues: all.map { ($0.coreId, $0) }
     )
@@ -3304,6 +3314,7 @@ final class EngineHost: ObservableObject {
 
         var declared: [String] = []
         var missing: [String] = []
+        var optionalMissing: [String] = []
         var failed: [String] = []
 
         for spec in CoreCatalog.all {
@@ -3312,7 +3323,16 @@ final class EngineHost: ObservableObject {
                 // Deliberately NOT declared. An id that was never declared reads back from the
                 // engine as nil, so a later tap takes the reload path and reports the missing
                 // dylib by name instead of failing inside the loader.
-                missing.append("\(spec.coreId) (\(spec.library))")
+                //
+                // Split in two, because only one of them means the build is broken. A required
+                // core missing is a fault worth shouting about at startup; an optional one that did
+                // not arrive on the day is normal, and calling it a broken bundle trained the eye
+                // to ignore the warning that matters.
+                if CoreCatalog.required.contains(spec.coreId) {
+                    missing.append("\(spec.coreId) (\(spec.library))")
+                } else {
+                    optionalMissing.append(spec.coreId)
+                }
                 continue
             }
             do {
@@ -3327,7 +3347,10 @@ final class EngineHost: ObservableObject {
 
         var line = "cores: \(declared.count) of \(CoreCatalog.all.count) declared"
         if !missing.isEmpty {
-            line += " | not in the bundle: \(Self.nameList(missing))"
+            line += " | MISSING, this build is broken: \(Self.nameList(missing))"
+        }
+        if !optionalMissing.isEmpty {
+            line += " | optional, not in this build: \(Self.nameList(optionalMissing))"
         }
         if !failed.isEmpty {
             line += " | declare failed: \(Self.nameList(failed))"
@@ -3345,6 +3368,7 @@ final class EngineHost: ObservableObject {
         // a false "HLE fallback" line from ReARMed. `ensureCoreLoaded` still refreshes per core.
         refreshBiosReadoutForSelectedPs1()
 
+        // `missing` holds required cores only; `optionalMissing` is not a fault. See above.
         return missing.isEmpty && failed.isEmpty
     }
 
@@ -3516,6 +3540,8 @@ final class EngineHost: ObservableObject {
         var leftTracksBehind = false
 
         var statesRemoved = 0
+        // The games actually deleted, so the artwork store can forget them in one pass.
+        var deleted: [LibraryEntry] = []
 
         for index in offsets where index >= 0 && index < library.count {
             let entry = library[index]
@@ -3534,6 +3560,10 @@ final class EngineHost: ObservableObject {
                 // The cheats too, and for the plainer reason: they are a list about a game that is
                 // no longer here, and a reimport would silently inherit codes for another dump.
                 cheats.deleteAll(forGameId: gameId)
+                // The manual attachment too, keyed by the same filename; the PDF itself goes only
+                // when this app wrote it for this game alone. See `GameplayManuals.forget`.
+                GameplayManuals.forget(entry)
+                deleted.append(entry)
             } catch {
                 failures.append("\(entry.name): \(error.localizedDescription)")
             }
@@ -3559,6 +3589,9 @@ final class EngineHost: ObservableObject {
                 + "delete failed: \(Self.nameList(failures))"
         }
 
+        // Before the rescan, so a deleted game's cover, choice and any lookup still running for
+        // it are gone before another game can arrive under its path. See `ArtworkStore.forgetArtwork`.
+        artwork.forgetArtwork(for: deleted)
         refreshLibrary()
     }
 
@@ -4039,6 +4072,11 @@ final class EngineHost: ObservableObject {
         // would leave the engine in that mode with no button on screen to leave it, and the next
         // game would start fast-forwarding or winding backwards on its first frame.
         emulation.releaseHeldControls()
+        // CoreMotion off and the on-screen keyboard's latched Shift/Ctrl/Alt let go, before the
+        // engine stops, for the same reason as the held controls above. Without it the motion
+        // sensor kept sampling a hundred times a second in the Library after a tilt game.
+        // See InputExtras.swift.
+        inputSessionDidEnd()
         // THE AUTO-SAVE, AND IT HAS TO BE HERE RATHER THAN ANYWHERE LATER IN THIS FUNCTION.
         // `engine.stop()` below tears the session down and, under the Drop retention policy,
         // unloads the core: after that line there is nothing left to serialize and
@@ -4771,10 +4809,12 @@ final class EngineHost: ObservableObject {
             // the audio line has a rate to print while the Library is up, and so a device whose
             // session later reports something else makes the change visible rather than silent.
             engineOutputRate = engine.outputSampleRate()
-            // Declare all five cores and LOAD NONE OF THEM. Which core is needed is not known
+            // Declare every core and LOAD NONE OF THEM. Which core is needed is not known
             // until a game is tapped, and nothing here can be auto-booted anyway: these cores
             // need real content and hard-reject empty content. Declaring costs no dlopen, so
-            // the Library tap goes straight to loading exactly one core.
+            // the Library tap goes straight to loading exactly one core. False only when a
+            // REQUIRED core is missing or would not declare; an optional one that did not arrive
+            // is named on the cores line and is not a broken build.
             let allCoresPresent = declareAllCores()
             refreshLibrary()
             if !lastN64Crumb.isEmpty {
@@ -4785,7 +4825,8 @@ final class EngineHost: ObservableObject {
             } else if !allCoresPresent {
                 // The `cores` line already names what is wrong. Say out loud that it is worth
                 // reading rather than leaving a cheerful ready line above a broken bundle.
-                status = "surface ready, but not every core is in the bundle - read the cores line"
+                status = "surface ready, but a core this build must carry is missing - read the "
+                    + "cores line"
             } else {
                 status = library.isEmpty
                     ? "surface ready - tap + to add a game"
@@ -5048,7 +5089,9 @@ struct RootView: View {
                     // Sends what this tick's lockstep step produced. Cheap and early-out when
                     // online play is off.
                     host.netplay.afterTick()
-                }
+                },
+                // A game the player paused stays paused when they come back to the app.
+                stayPaused: { host.paused }
             )
             .frame(width: max(1, area.width), height: max(1, area.height))
             .position(x: area.midX, y: area.midY)
@@ -5084,6 +5127,8 @@ struct MetalCanvasView: UIViewRepresentable {
     let onBeforeTick: () -> Bool
     let onAfterTick: () -> Void
     let onTelemetry: (TickTelemetry) -> Void
+    /// True while the player has paused the game. See `MetalCanvas.stayPaused`.
+    let stayPaused: () -> Bool
 
     func makeUIView(context: Context) -> MetalCanvas {
         let canvas = MetalCanvas(engine: engine)
@@ -5091,6 +5136,7 @@ struct MetalCanvasView: UIViewRepresentable {
         canvas.onBeforeTick = onBeforeTick
         canvas.onAfterTick = onAfterTick
         canvas.onTelemetry = onTelemetry
+        canvas.stayPaused = stayPaused
         canvas.gamepadSource = gamepadSource
         canvas.controllerSource = controllerSource
         canvas.mouseSource = mouseSource
@@ -5102,6 +5148,7 @@ struct MetalCanvasView: UIViewRepresentable {
 
     func updateUIView(_ canvas: MetalCanvas, context: Context) {
         canvas.onTelemetry = onTelemetry
+        canvas.stayPaused = stayPaused
         canvas.onBeforeTick = onBeforeTick
         canvas.onAfterTick = onAfterTick
         canvas.gamepadSource = gamepadSource

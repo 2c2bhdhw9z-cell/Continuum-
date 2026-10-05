@@ -1,4 +1,5 @@
-// Continuum - cloud sync of save states, battery saves, cheats, artwork choices and settings.
+// Continuum - cloud sync of save states, battery saves, Flash and J2ME saves, cheats, manuals,
+// Amiibo, artwork choices and settings.
 //
 // ## Why a folder and not iCloud
 //
@@ -25,9 +26,22 @@
 //   Battery/<name>.srm (and other save extensions)            loose in <AppSupport>, where the
 //                                                             cores write them (it is their
 //                                                             save directory)
-//   Settings/defaults.plist                                   exported from UserDefaults
+//   PlayerSaves/<stem>.json, PlayerSaves/<stem>.J2meJS.srm    <AppSupport>/PlayerSaves/ (Flash
+//                                                             and J2ME saves, written by the
+//                                                             bundled players)
+//   Manuals/<name>.pdf                                        <Documents>/Manuals/
+//   Amiibo/<name>.bin                                         <Documents>/Amiibo/
+//   Settings/defaults.plist                                   exported from UserDefaults: the
+//                                                             `continuum.` keys and three older
+//                                                             ones (`includedKeys`), never the
+//                                                             per-phone ones (`excludedKeys`)
 //   Artwork/choices.json, Artwork/covers/<hash>.cover         exported artwork choices, re-keyed
 //                                                             by ROM filename
+//
+// Kept on this phone on purpose: skins (Skins/ and their settings), the RetroAchievements login,
+// favourites (stored by full path, which differs per install), the last online-play address,
+// microphone and camera consent, and the sync's own bookmark and history. `excludedKeys` and
+// `excludedPrefixes` say why for each.
 //
 // Settings and artwork choices are EXPORTED to a staging folder before each sync and IMPORTED at
 // the next launch, before any store reads them. Importing into a live app would race the objects
@@ -35,9 +49,12 @@
 //
 // ## Never the only copy
 //
-// A conflict keeps both (the loser goes to `Continuum Sync/Conflicts/` with a date). A deletion
-// moves the cloud copy into `Continuum Sync/Deleted/<date>/`, and a local copy is only removed
-// after it has been copied there. Sync never runs while a game is on screen.
+// A conflict keeps both (the loser goes to `Continuum Sync/Conflicts/` with a date). Only a
+// deleted save-state slot or cover counts as a deletion: it moves the cloud copy into
+// `Continuum Sync/Deleted/<date>/`, and a local copy is only removed after it has been copied
+// there. Any other file that goes missing on one side (a battery save, a player save, a manual,
+// an Amiibo) is copied back, because losing one by accident costs far more than having to remove
+// it from the cloud folder too. Sync never runs while a game is on screen.
 
 import Foundation
 import SwiftUI
@@ -58,6 +75,15 @@ enum CloudSyncPaths {
     static func support() -> URL? {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
     }
+
+    /// The app's Documents folder, where manuals and Amiibo live so they show in Files.
+    static func documents() -> URL? {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+    }
+
+    /// The bundled players' save extensions (`WebPlayerKind.saveExtension`), with their dot.
+    /// Spelled out here because the worker runs off the main actor and needs no player type.
+    static let playerSaveSuffixes = [".json", ".J2meJS.srm"]
 
     /// `<AppSupport>/Sync`, the sync's own bookkeeping. A directory, so the battery scan of the
     /// Application Support root (files only) never sees it.
@@ -108,6 +134,28 @@ enum CloudSyncPaths {
             }
             return support.appendingPathComponent("BatterySaves", isDirectory: true)
                 .appendingPathComponent(name)
+        case ("PlayerSaves", 2):
+            // Flash and J2ME saves, where `EngineHost.webPlayerSaveURL` puts them. Only the save
+            // itself: the `.bak` a save import leaves beside it is this phone's own undo.
+            let name = parts[1]
+            guard playerSaveSuffixes.contains(where: { name.hasSuffix($0) }) else { return nil }
+            return support.appendingPathComponent("PlayerSaves", isDirectory: true)
+                .appendingPathComponent(name)
+        case ("Manuals", 2):
+            // `GameplayManuals.folder()`. Only PDFs, the one kind the manual viewer opens.
+            let name = parts[1]
+            guard (name as NSString).pathExtension.lowercased() == "pdf",
+                  let documents = documents() else { return nil }
+            return documents.appendingPathComponent("Manuals", isDirectory: true)
+                .appendingPathComponent(name)
+        case ("Amiibo", 2):
+            // `Peripherals.amiiboFolder`. Only `.bin`: the import names every tag that way, and
+            // the Amiibo list shows nothing else.
+            let name = parts[1]
+            guard (name as NSString).pathExtension.lowercased() == "bin",
+                  let documents = documents() else { return nil }
+            return documents.appendingPathComponent("Amiibo", isDirectory: true)
+                .appendingPathComponent(name)
         case ("Settings", 2) where relative == settingsPath:
             return staging()?.appendingPathComponent(relative)
         case ("Artwork", 2) where relative == artworkChoicesPath:
@@ -154,6 +202,18 @@ enum CloudSyncPaths {
         for url in files(in: support) {
             let path = "Battery/\(url.lastPathComponent)"
             if localURL(for: path) != nil, let s = stat(url, path: path) { out.append(s) }
+        }
+        for url in files(in: support.appendingPathComponent("PlayerSaves", isDirectory: true)) {
+            let path = "PlayerSaves/\(url.lastPathComponent)"
+            if localURL(for: path) != nil, let s = stat(url, path: path) { out.append(s) }
+        }
+        if let documents = documents() {
+            for folder in ["Manuals", "Amiibo"] {
+                for url in files(in: documents.appendingPathComponent(folder, isDirectory: true)) {
+                    let path = "\(folder)/\(url.lastPathComponent)"
+                    if localURL(for: path) != nil, let s = stat(url, path: path) { out.append(s) }
+                }
+            }
         }
         if let staging = staging() {
             for path in [settingsPath, artworkChoicesPath] {
@@ -538,6 +598,38 @@ final class CloudSync: ObservableObject {
         "continuum.controls.touchSkins.",
     ]
 
+    /// Single `continuum.` keys that belong to this phone. Each would do harm on another one, and
+    /// is also refused on import, so a file exported by an older build cannot bring one in.
+    private static let excludedKeys: Set<String> = [
+        // The RetroAchievements token is in this phone's Keychain under this name. Another
+        // phone's name here would leave that token unfound and log this phone out.
+        "continuum.achievements.username.v1",
+        // Favourites are stored by the game's full path, which includes this install's own
+        // container folder. On another phone they match no game and would replace its own.
+        "continuum.favourites.v1",
+        // The skin index and the skin editor's changes, both by skin id. The skins' files live
+        // under Skins/, which does not sync, so another phone's index would drop this phone's
+        // skins from its library (the same reason as `continuum.controls.touchSkins.` above).
+        "continuum.skins.library.v1", "continuum.controls.skinEdits.v1",
+        // The address this phone last joined for online play, which is usually the other phone.
+        "continuum.netplay.lastAddress.v1",
+        // Permission to use this phone's microphone and camera is given on this phone.
+        "continuum.peripherals.microphoneAllowed", "continuum.peripherals.cameraAllowed",
+    ]
+
+    /// Settings that matter on every phone but were named before the `continuum.` prefix was the
+    /// rule. Named here rather than renamed, because a rename would lose what is already stored.
+    private static let includedKeys: Set<String> = [
+        // The answers to "which system is this file?", by file name.
+        "import.systemChoices.v1",
+        // Saved network servers. Their passwords stay in each phone's Keychain and do not sync,
+        // so a server that arrives from another phone has no password here until it is added
+        // again on this phone.
+        "remote.servers.v1",
+        // Which PDF in Manuals belongs to which game, by file name. The PDFs sync too.
+        "manuals.attached.v1",
+    ]
+
     /// The plain status line: last synced, files up and down, errors.
     @Published private(set) var line: String
     @Published private(set) var folderName: String?
@@ -699,6 +791,11 @@ final class CloudSync: ObservableObject {
         if changed.contains("Cheats/index.json") {
             host?.cheats.reloadFromDisk()
         }
+        // The Amiibo list keeps its own copy of the folder's contents, so it is refreshed here.
+        // Player saves and manuals need nothing: each is read from disk when it is opened.
+        if changed.contains(where: { $0.hasPrefix("Amiibo/") }) {
+            host?.peripherals.refreshAmiibo()
+        }
         if changed.contains(CloudSyncPaths.settingsPath) {
             defaults.set(true, forKey: Self.pendingSettingsKey)
             text += "; settings from the cloud apply the next time Continuum opens"
@@ -716,8 +813,12 @@ final class CloudSync: ObservableObject {
 
     // ---------------------------------------------------------------- settings
 
+    /// Whether a UserDefaults key travels in `Settings/defaults.plist`. Used on export AND on
+    /// import, so both directions agree.
     private static func exportable(_ key: String) -> Bool {
-        key.hasPrefix("continuum.") && !excludedPrefixes.contains { key.hasPrefix($0) }
+        if includedKeys.contains(key) { return true }
+        return key.hasPrefix("continuum.") && !excludedKeys.contains(key)
+            && !excludedPrefixes.contains { key.hasPrefix($0) }
     }
 
     /// Writes the current settings to the staging file, only when they differ from what is there,
@@ -880,12 +981,13 @@ struct CloudSyncSection: View {
                     sync.forgetFolder()
                 }
             }
-            SettingsNote("Save states, battery saves, cheats, cover choices and settings sync with a "
-                         + "\"Continuum Sync\" folder inside the folder you choose. Any folder in Files "
-                         + "works: iCloud Drive, Google Drive, Dropbox. Newest wins; a conflict keeps "
-                         + "both copies in Continuum Sync/Conflicts, and a deleted save is moved to "
-                         + "Continuum Sync/Deleted rather than removed. Sync runs when the app opens, "
-                         + "when you leave a game, and from this button.")
+            SettingsNote("Save states, battery saves, Flash and J2ME saves, cheats, manuals, Amiibo, "
+                         + "cover choices and settings sync with a \"Continuum Sync\" folder inside "
+                         + "the folder you choose. Any folder in Files works: iCloud Drive, Google "
+                         + "Drive, Dropbox. Newest wins; a conflict keeps both copies in Continuum "
+                         + "Sync/Conflicts, and a deleted save state is moved to Continuum Sync/Deleted "
+                         + "rather than removed. Sync runs when the app opens, when you leave a game, "
+                         + "and from this button.")
         }
     }
 }

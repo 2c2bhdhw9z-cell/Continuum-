@@ -66,6 +66,10 @@ final class MicrophoneCapture {
     private var observer: NSObjectProtocol?
     private(set) var running = false
     private(set) var status = "mic: not started"
+    /// Bumped by every `start` and every `stop`, on the main thread. A start that had to wait for
+    /// the permission prompt only goes ahead if nothing came after it, so a game that ended (or
+    /// stopped asking) while iOS was asking does not get a live microphone once the answer comes.
+    private var generation = 0
 
     init(engine: ContinuumEngine) {
         self.engine = engine
@@ -75,8 +79,11 @@ final class MicrophoneCapture {
         if let observer { NotificationCenter.default.removeObserver(observer) }
     }
 
-    /// Asks for permission if needed, then starts. `done` runs on the main thread with the result.
+    /// Asks for permission if needed, then starts. `done` runs on the main thread with the result,
+    /// unless `stop()` is called first: then it never runs, because whoever stopped has moved on.
     func start(done: @escaping (String) -> Void) {
+        generation += 1
+        let ticket = generation
         let session = AVAudioSession.sharedInstance()
         switch session.recordPermission {
         case .granted:
@@ -89,6 +96,9 @@ final class MicrophoneCapture {
             status = "mic: asking iOS for microphone access"
             session.requestRecordPermission { granted in
                 DispatchQueue.main.async {
+                    // Answered after a stop (the game ended while the prompt was up): the
+                    // microphone stays off and the audio session stays in playback.
+                    guard ticket == self.generation else { return }
                     if granted {
                         done(self.startGranted())
                     } else {
@@ -164,12 +174,15 @@ final class MicrophoneCapture {
         return status
     }
 
-    /// Stops the tap and puts the session back to `.playback`.
+    /// Stops the tap and puts the session back to `.playback`. Also cancels a start still waiting
+    /// on the permission prompt, which is why it does its work whether or not anything is running.
     func stop() {
-        guard running || audioEngine != nil else { return }
-        teardown()
-        restorePlayback()
+        generation += 1
+        if running || audioEngine != nil { teardown() }
         status = "mic: stopped"
+        // Checked on its own rather than only after a teardown, so the category is never left in
+        // record mode once the game is done with the microphone, whichever path got here.
+        if AudioSessionPolicy.recording { restorePlayback() }
     }
 
     private func teardown() {
@@ -203,26 +216,38 @@ final class MicrophoneCapture {
 final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     private let engine: ContinuumEngine
     private let queue = DispatchQueue(label: "app.continuum.camera")
+    /// The session the capture queue last opened. Only ever touched ON `queue`, so the work
+    /// `stop()` queues runs after any start still configuring there and always finds the session
+    /// that start opened, even though the main thread has not heard of it yet.
     private var session: AVCaptureSession?
     private(set) var running = false
+    /// Bumped by every `start` and every `stop`, on the main thread. A start only reports back
+    /// (and only counts as running) if nothing came after it.
+    private var generation = 0
 
     init(engine: ContinuumEngine) {
         self.engine = engine
     }
 
-    /// Asks for permission if needed, then starts. `done` runs on the main thread.
+    /// Asks for permission if needed, then starts. `done` runs on the main thread, unless
+    /// `stop()` is called first: then it never runs, because whoever stopped has moved on.
     func start(front: Bool, done: @escaping (String) -> Void) {
+        generation += 1
+        let ticket = generation
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
-            startAuthorised(front: front, done: done)
+            startAuthorised(front: front, ticket: ticket, done: done)
         case .denied, .restricted:
             done("camera: iOS camera access is off for Continuum (Settings, Privacy, Camera), "
                  + "so the game sees nothing")
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { granted in
                 DispatchQueue.main.async {
+                    // Answered after a stop (the game ended while the prompt was up): the
+                    // camera stays off.
+                    guard ticket == self.generation else { return }
                     if granted {
-                        self.startAuthorised(front: front, done: done)
+                        self.startAuthorised(front: front, ticket: ticket, done: done)
                     } else {
                         done("camera: camera access was refused, so the game sees nothing")
                     }
@@ -233,7 +258,7 @@ final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
     }
 
-    private func startAuthorised(front: Bool, done: @escaping (String) -> Void) {
+    private func startAuthorised(front: Bool, ticket: Int, done: @escaping (String) -> Void) {
         guard !running else {
             done("camera: already running")
             return
@@ -244,6 +269,10 @@ final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let orientation = Self.videoOrientation()
         let side = front ? "front" : "back"
         queue.async {
+            // Whatever this queue opened last is closed first, so two sessions never hold the
+            // camera at once.
+            self.session?.stopRunning()
+            self.session = nil
             let capture = AVCaptureSession()
             capture.beginConfiguration()
             if capture.canSetSessionPreset(.vga640x480) {
@@ -255,6 +284,9 @@ final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                   capture.canAddInput(input) else {
                 capture.commitConfiguration()
                 DispatchQueue.main.async {
+                    // A stop came first: it has already cleared `running`, which may by now
+                    // belong to a newer start, and nobody is waiting for this answer.
+                    guard ticket == self.generation else { return }
                     self.running = false
                     done("camera: the \(side) camera could not be opened")
                 }
@@ -270,6 +302,7 @@ final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             guard capture.canAddOutput(output) else {
                 capture.commitConfiguration()
                 DispatchQueue.main.async {
+                    guard ticket == self.generation else { return }
                     self.running = false
                     done("camera: the capture output could not be added")
                 }
@@ -282,9 +315,14 @@ final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             }
             capture.commitConfiguration()
             capture.startRunning()
+            // Recorded here, on the queue, so a `stop()` queued behind this block stops it.
+            self.session = capture
             let started = capture.isRunning
             DispatchQueue.main.async {
-                self.session = capture
+                // A stop came while this was configuring (the game ended, or the side was
+                // switched). The work it queued runs after this block and stops this session,
+                // so there is nothing to undo here; only the report is dropped.
+                guard ticket == self.generation else { return }
                 self.running = started
                 done(started
                      ? "camera: \(side) camera running"
@@ -293,13 +331,17 @@ final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
     }
 
+    /// Stops the camera, including one a start is still opening on the capture queue, and
+    /// cancels a start still waiting on the permission prompt. Safe to call when nothing runs.
     func stop() {
-        guard running || session != nil else { return }
+        generation += 1
         running = false
-        let capture = session
-        session = nil
+        // Queued rather than done here, so it runs after any start already on the queue: the
+        // session that start opens is the one stopped, rather than one left running after the
+        // game has ended.
         queue.async {
-            capture?.stopRunning()
+            self.session?.stopRunning()
+            self.session = nil
         }
     }
 
@@ -367,8 +409,12 @@ final class Peripherals: ObservableObject {
     @Published var cameraSide: CameraSide {
         didSet {
             UserDefaults.standard.set(cameraSide.rawValue, forKey: Self.cameraSideKey)
-            // A running camera is restarted on the other side at the next poll.
-            if camera.running { camera.stop() }
+            // A running (or still opening) camera is restarted on the other side at the next
+            // poll. `cameraStarting` is cleared here because the stopped start never reports.
+            if camera.running || cameraStarting {
+                cameraStarting = false
+                camera.stop()
+            }
         }
     }
 
@@ -432,7 +478,11 @@ final class Peripherals: ObservableObject {
             }
         } else if !wanted.microphoneWanted {
             micGaveUp = false
-            if microphone.running {
+            // Also while a start is still waiting on the permission prompt: `stop()` is what
+            // tells it not to switch the microphone on when the answer comes, and that start
+            // never reports, so `micStarting` is cleared here.
+            if microphone.running || micStarting {
+                micStarting = false
                 microphone.stop()
                 iosLine = microphone.status
             }
@@ -449,7 +499,10 @@ final class Peripherals: ObservableObject {
             }
         } else if !wanted.cameraWanted {
             cameraGaveUp = false
-            if camera.running {
+            // Also while a start is still waiting on the prompt or still opening the camera,
+            // for the same reason as the microphone above.
+            if camera.running || cameraStarting {
+                cameraStarting = false
                 camera.stop()
                 iosLine = "camera: stopped"
             }
@@ -475,8 +528,12 @@ final class Peripherals: ObservableObject {
         cameraStarting = false
         micGaveUp = false
         cameraGaveUp = false
-        if microphone.running { microphone.stop() }
-        if camera.running { camera.stop() }
+        // Both unconditionally, not only when `running`. A start still waiting on a permission
+        // prompt, or a camera still being opened on its queue, is not running yet, and `stop()`
+        // is what keeps it from switching on after the game has ended. The microphone's `stop()`
+        // also puts the audio session back to `.playback` if it was left in record mode.
+        microphone.stop()
+        camera.stop()
         iosLine = ""
     }
 
@@ -517,7 +574,8 @@ final class Peripherals: ObservableObject {
     }
 
     /// Opens the Files picker, checks every chosen file, copies the good ones into the Amiibo
-    /// folder under their original names, and reports one sentence.
+    /// folder under their original names (numbered when a different tag already has that name),
+    /// and reports one sentence.
     func importAmiibo(done: @escaping (String) -> Void) {
         let picker = AmiiboPicker()
         self.picker = picker
@@ -534,11 +592,18 @@ final class Peripherals: ObservableObject {
             return "amiibo import failed: no Documents directory"
         }
         var imported: [String] = []
+        var renamed: [String] = []
         var refused: [String] = []
         for url in urls {
             let name = url.lastPathComponent
             let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            defer {
+                if scoped { url.stopAccessingSecurityScopedResource() }
+                // The picker opens with asCopy: true, so this is a copy iOS made in this app's
+                // temporary inbox for this import alone. Once read it has no further use, saved
+                // or refused, and nothing else would ever clear it.
+                try? FileManager.default.removeItem(at: url)
+            }
             guard let data = try? Data(contentsOf: url) else {
                 refused.append("\(name) could not be read")
                 continue
@@ -550,23 +615,50 @@ final class Peripherals: ObservableObject {
             }
             // Always named .bin in the folder, so the picker finds it; the original name is kept.
             let fileName = url.pathExtension.lowercased() == "bin" ? name : name + ".bin"
-            let destination = folder.appendingPathComponent(fileName)
-            do {
-                if FileManager.default.fileExists(atPath: destination.path) {
-                    try FileManager.default.removeItem(at: destination)
-                }
-                try data.write(to: destination, options: .atomic)
+            // The same bytes under the same name is the same tag imported again: nothing to add.
+            if let existing = try? Data(contentsOf: folder.appendingPathComponent(fileName)),
+               existing == data {
                 imported.append(fileName)
+                continue
+            }
+            // A DIFFERENT tag already under this name is kept, and the new one takes the next
+            // free name ("Mario 2.bin"), rather than one silently replacing the other.
+            let destination = Self.unusedURL(for: fileName, in: folder)
+            do {
+                try data.write(to: destination, options: .atomic)
+                imported.append(destination.lastPathComponent)
+                if destination.lastPathComponent != fileName {
+                    renamed.append("\(fileName) as \(destination.lastPathComponent)")
+                }
             } catch {
                 refused.append("\(name) could not be saved: \(error.localizedDescription)")
             }
         }
         refreshAmiibo()
         var line = "amiibo import: \(imported.count) saved to the Amiibo folder"
+        if !renamed.isEmpty {
+            line += " (\(renamed.joined(separator: ", ")), because a different tag already had "
+                + "that name)"
+        }
         if !refused.isEmpty {
             line += ", \(refused.count) refused (\(refused.joined(separator: "; ")))"
         }
         return line
+    }
+
+    /// `fileName` in `folder` if that is free, otherwise "Name 2.bin", "Name 3.bin" and so on:
+    /// the first name nothing in the folder has yet.
+    private static func unusedURL(for fileName: String, in folder: URL) -> URL {
+        let base = (fileName as NSString).deletingPathExtension
+        let ext = (fileName as NSString).pathExtension
+        var candidate = folder.appendingPathComponent(fileName)
+        var number = 1
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            number += 1
+            let stem = "\(base) \(number)"
+            candidate = folder.appendingPathComponent(ext.isEmpty ? stem : "\(stem).\(ext)")
+        }
+        return candidate
     }
 
     /// "Taps" one Amiibo on the running game. Returns the status line, always.
@@ -698,7 +790,8 @@ struct PeripheralsSettingsSection: View {
             }
             SettingsNote(
                 "Amiibo dumps are .bin files of 540 or 572 bytes. Each file is checked and copied "
-                + "into the Amiibo folder under its own name. While a 3DS game runs, the ... menu "
+                + "into the Amiibo folder under its own name, with a number added if a different "
+                + "tag already has that name. While a 3DS game runs, the ... menu "
                 + "lists them to tap. Azahar's libretro build cannot receive an Amiibo yet, so a "
                 + "tap says that instead of reaching the game."
             )

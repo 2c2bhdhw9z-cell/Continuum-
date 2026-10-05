@@ -1195,12 +1195,16 @@ mod tests {
         out
     }
 
+    /// A fresh, empty directory for one test, under the system temp dir rather than the source
+    /// tree (cargo runs tests from the crate directory, so a relative `target/` here once put test
+    /// output into git). The process id keeps concurrent `cargo test` runs apart, and the counter
+    /// gives every call its own folder, so two tests passing the same `name` cannot share state.
     fn temp_root(name: &str) -> PathBuf {
-        let dir = std::env::current_dir()
-            .unwrap()
-            .join("target")
-            .join("options-tests")
-            .join(name);
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let dir = std::env::temp_dir()
+            .join(format!("continuum-options-tests-{}", std::process::id()))
+            .join(format!("{name}-{}", NEXT.fetch_add(1, Ordering::Relaxed)));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

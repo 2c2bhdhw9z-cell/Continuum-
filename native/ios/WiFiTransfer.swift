@@ -4,13 +4,18 @@
 //
 // The socket is NWListener (Network framework). The protocol is in Rust (import/http.rs): the
 // request head is parsed there, and the page itself is compiled into the engine, so Android serves
-// the same page. Bodies never go through Rust or memory: an upload is `PUT /upload?name=<file>`
+// the same page. Bodies never go through Rust or memory: an upload is `PUT /<code>/upload?name=<file>`
 // and its bytes are streamed to a scratch file, then handed to EngineHost.importFiles exactly like
 // a pick from the Files app.
 //
 // It stops when switched off and whenever the app leaves the foreground: iOS suspends a
 // background app's sockets anyway, and a server left listening with nobody looking at the
 // phone is not something to leave on by accident.
+//
+// Access: each time it is switched on, a fresh random code (alphabet and length from Rust) goes
+// into the shown address as a path segment, `http://192.168.1.20:8080/k7m2qx/`. Every request
+// must start with `/<code>/` (checked in Rust, wifiStripAccessCode, in constant time); anything
+// else gets a bare 404, so nobody else on the Wi-Fi can upload files or download saves.
 
 import Combine
 import Foundation
@@ -20,10 +25,12 @@ import UIKit
 @MainActor
 final class WiFiTransferServer: ObservableObject {
     @Published private(set) var isOn = false
-    /// `http://192.168.1.20:8080`, or empty while off.
+    /// `http://192.168.1.20:8080/k7m2qx/` (the access code last, then a slash), or empty while off.
     @Published private(set) var address = ""
     @Published private(set) var line = "Wi-Fi transfer is off"
 
+    /// This session's access code, or empty while off.
+    private var accessCode = ""
     private var listener: NWListener?
     private let core = WiFiServerCore()
     private weak var host: EngineHost?
@@ -66,6 +73,13 @@ final class WiFiTransferServer: ObservableObject {
 
     private func start(anyPort: Bool = false) {
         guard listener == nil else { return }
+        // A fresh code every time it is switched on, so an address seen before stops working.
+        let code = Self.newAccessCode()
+        guard wifiIsAccessCode(code: code) else {
+            line = "Wi-Fi transfer could not start: no access code could be made"
+            host?.status = line
+            return
+        }
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
         let made: NWListener
@@ -84,6 +98,10 @@ final class WiFiTransferServer: ObservableObject {
             return
         }
         listener = made
+        accessCode = code
+        // `self.` on purpose: a `let core` further down this function shadows the property, and
+        // Swift refuses a bare `core` used before that local's declaration.
+        self.core.setAccessCode(code)
         isOn = true
         line = "starting..."
         let core = self.core
@@ -101,7 +119,7 @@ final class WiFiTransferServer: ObservableObject {
         case .ready:
             let port = listener?.port?.rawValue ?? 0
             if let ip = Self.wifiAddress() {
-                address = "http://\(ip):\(port)"
+                address = wifiTransferAddress(ip: ip, port: port, code: accessCode)
                 line = "open \(address) in a browser on the same Wi-Fi"
             } else {
                 address = ""
@@ -128,10 +146,27 @@ final class WiFiTransferServer: ObservableObject {
     func stop(reason: String) {
         listener?.cancel()
         listener = nil
+        // An empty code matches nothing, so a connection still open after this gets 404s.
+        accessCode = ""
+        core.setAccessCode("")
         isOn = false
         address = ""
         line = reason
         host?.status = reason
+    }
+
+    /// A new access code: `wifiAccessCodeLength()` characters from the engine's alphabet, each
+    /// drawn with SystemRandomNumberGenerator (the system's cryptographically secure source).
+    private static func newAccessCode() -> String {
+        let alphabet = Array(wifiAccessCodeAlphabet())
+        var generator = SystemRandomNumberGenerator()
+        var code = ""
+        for _ in 0..<Int(wifiAccessCodeLength()) {
+            if let character = alphabet.randomElement(using: &generator) {
+                code.append(character)
+            }
+        }
+        return code
     }
 
     /// The phone's IPv4 address on Wi-Fi (en0), or any non-loopback IPv4 as a fallback.
@@ -163,9 +198,22 @@ final class WiFiServerCore: @unchecked Sendable {
     var importer: (@Sendable (URL, @escaping @Sendable (Int, String) -> Void) -> Void)?
     private let lock = NSLock()
     private var library: [(String, Int64)] = []
+    private var code = ""
 
     func setLibrary(_ entries: [(String, Int64)]) {
         lock.lock(); library = entries; lock.unlock()
+    }
+
+    /// The access code every request has to start with; empty (nothing matches) while off.
+    func setAccessCode(_ newCode: String) {
+        lock.lock(); code = newCode; lock.unlock()
+    }
+
+    func accessCode() -> String {
+        lock.lock()
+        let current = code
+        lock.unlock()
+        return current
     }
 
     func libraryJSON() -> Data {
@@ -234,7 +282,19 @@ final class WiFiConnection: @unchecked Sendable {
 
     private func handle(_ head: WifiRequestHead) {
         let method = head.method
-        let path = head.path
+        let code = core.accessCode()
+        // Every request starts with `/<code>`. Anything else is a bare 404 with no detail, so a
+        // guess is not even told there is something to guess. The rest routes as it always has.
+        guard let path = wifiStripAccessCode(path: head.path, code: code) else {
+            send(404, "text/plain; charset=utf-8", Data())
+            return
+        }
+        if path.isEmpty {
+            // `/<code>` without the slash: send the browser to `/<code>/`, or the page's relative
+            // URLs would resolve against `/` and lose the code.
+            send(302, "text/plain; charset=utf-8", Data(), extra: "Location: /\(code)/\r\n")
+            return
+        }
         if method == "GET" && (path == "/" || path == "/index.html") {
             send(200, "text/html; charset=utf-8", Data(wifiPageHtml().utf8))
         } else if method == "GET" && path == "/api/library" {

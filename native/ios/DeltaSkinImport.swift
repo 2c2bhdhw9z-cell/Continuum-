@@ -964,15 +964,22 @@ final class DeltaSkinPicker: NSObject, UIDocumentPickerDelegate, UIAdaptivePrese
 
     private var activePicker: UIDocumentPickerViewController?
     private var onFinish: ((Result<DeltaSkinImportResult, DeltaSkinImportError>) -> Void)?
+    /// Set instead of `onFinish` by `presentMany`, which takes every file picked.
+    private var onFinishMany: (([SkinPickOutcome]) -> Void)?
+    /// Which of the two the open picker answers. Set before it is shown.
+    private var wantsMany = false
     private var settled = false
     /// Set synchronously on the UIKit callback thread before the main-actor hop, so a later
     /// dismissal notice cannot overwrite a real pick / cancel that already started finishing.
     private var outcomeDelivered = false
 
-    /// Opens the picker. `onFinish` always runs once (success, cancel, or failure).
+    /// Opens the picker for ONE skin. `onFinish` always runs once (success, cancel, or failure).
+    /// The layout editor uses this, because it previews the one skin it imported.
     @MainActor
     func present(onFinish: @escaping (Result<DeltaSkinImportResult, DeltaSkinImportError>) -> Void) {
         self.onFinish = onFinish
+        onFinishMany = nil
+        wantsMany = false
         settled = false
         outcomeDelivered = false
 
@@ -980,16 +987,71 @@ final class DeltaSkinPicker: NSObject, UIDocumentPickerDelegate, UIAdaptivePrese
             finish(.failure(.unreadable("no root view controller to present the picker")))
             return
         }
+        presenter.present(makePicker(multiple: false), animated: true)
+    }
 
-        let types = Self.contentTypes
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
+    /// Opens the picker for ANY NUMBER of skins at once: select several in Files and every one is
+    /// imported. `onFinish` always runs once, with one outcome per picked file in the order they
+    /// were picked, or a single `.cancelled` failure when nothing was picked.
+    ///
+    /// Asked for by the owner: importing a set of skins one at a time, each through the picker
+    /// again, was the slow way round.
+    @MainActor
+    func presentMany(onFinish: @escaping ([SkinPickOutcome]) -> Void) {
+        onFinishMany = onFinish
+        self.onFinish = nil
+        wantsMany = true
+        settled = false
+        outcomeDelivered = false
+
+        guard let presenter = EngineHost.topmostViewController() else {
+            finishMany([SkinPickOutcome(
+                fileName: "",
+                result: .failure(.unreadable("no root view controller to present the picker"))
+            )])
+            return
+        }
+        presenter.present(makePicker(multiple: true), animated: true)
+    }
+
+    @MainActor
+    private func makePicker(multiple: Bool) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: Self.contentTypes,
+                                                    asCopy: true)
         picker.delegate = self
-        picker.allowsMultipleSelection = false
+        picker.allowsMultipleSelection = multiple
         picker.shouldShowFileExtensions = true
         picker.presentationController?.delegate = self
         activePicker = picker
+        return picker
+    }
 
-        presenter.present(picker, animated: true)
+    /// One picked file, imported or not.
+    private static func importOne(_ url: URL) -> Result<DeltaSkinImportResult, DeltaSkinImportError> {
+        do {
+            return .success(try DeltaSkinImporter.importPackage(at: url))
+        } catch let error as DeltaSkinImportError {
+            return .failure(error)
+        } catch {
+            return .failure(.unreadable(error.localizedDescription))
+        }
+    }
+
+    private func finishMany(_ outcomes: [SkinPickOutcome]) {
+        // Same hop as `finish`, for the same reason.
+        Task { @MainActor in
+            self.deliverMany(outcomes)
+        }
+    }
+
+    @MainActor
+    private func deliverMany(_ outcomes: [SkinPickOutcome]) {
+        guard !settled else { return }
+        settled = true
+        activePicker = nil
+        let callback = onFinishMany
+        onFinishMany = nil
+        callback?(outcomes)
     }
 
     private static var contentTypes: [UTType] {
@@ -1028,23 +1090,26 @@ final class DeltaSkinPicker: NSObject, UIDocumentPickerDelegate, UIAdaptivePrese
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         outcomeDelivered = true
+        if wantsMany {
+            guard !urls.isEmpty else {
+                finishMany([SkinPickOutcome(fileName: "", result: .failure(.noFileSelected))])
+                return
+            }
+            finishMany(urls.map { url in
+                SkinPickOutcome(fileName: url.lastPathComponent, result: Self.importOne(url))
+            })
+            return
+        }
         guard let url = urls.first else {
             finish(.failure(.noFileSelected))
             return
         }
-        do {
-            let imported = try DeltaSkinImporter.importPackage(at: url)
-            finish(.success(imported))
-        } catch let error as DeltaSkinImportError {
-            finish(.failure(error))
-        } catch {
-            finish(.failure(.unreadable(error.localizedDescription)))
-        }
+        finish(Self.importOne(url))
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
         outcomeDelivered = true
-        finish(.failure(.cancelled))
+        finishCancelled()
     }
 
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
@@ -1052,8 +1117,22 @@ final class DeltaSkinPicker: NSObject, UIDocumentPickerDelegate, UIAdaptivePrese
         // after those too).
         guard !outcomeDelivered else { return }
         outcomeDelivered = true
-        finish(.failure(.cancelled))
+        finishCancelled()
     }
+
+    private func finishCancelled() {
+        if wantsMany {
+            finishMany([SkinPickOutcome(fileName: "", result: .failure(.cancelled))])
+        } else {
+            finish(.failure(.cancelled))
+        }
+    }
+}
+
+/// One file from `DeltaSkinPicker.presentMany`: its name, and what importing it produced.
+struct SkinPickOutcome {
+    let fileName: String
+    let result: Result<DeltaSkinImportResult, DeltaSkinImportError>
 }
 
 // MARK: - Minimal ZIP reader (info.json only)

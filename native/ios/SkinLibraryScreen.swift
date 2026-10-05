@@ -108,7 +108,8 @@ struct SkinLibrarySheet: View {
                     Button {
                         importSkin()
                     } label: {
-                        Label("Import a .manicskin or .deltaskin", systemImage: "square.and.arrow.down")
+                        Label("Import skins (.manicskin, .deltaskin; pick as many as you like)",
+                              systemImage: "square.and.arrow.down")
                     }
                     if let message {
                         Text(message)
@@ -235,24 +236,44 @@ struct SkinLibrarySheet: View {
         }
     }
 
+    /// Imports every skin picked in one go. "Import for" applies to all of them; with it on "the
+    /// console the file names", each skin goes to its own console. One file that fails does not
+    /// stop the others, and the message says which ones went in and which did not.
     private func importSkin() {
-        picker.present { result in
-            switch result {
-            case .success(let imported):
-                guard let system = importFor ?? imported.previewSystem else {
-                    let named = imported.systemIDs.isEmpty
-                        ? "does not say which console it is for"
-                        : "is for \(imported.systemIDs.joined(separator: "/")), which this build cannot run yet"
-                    message = "\(imported.skinName) \(named). Pick a console under Import for, then import again."
-                    host.status = "skin import: " + (message ?? "")
-                    return
+        picker.presentMany { outcomes in
+            var done: [String] = []
+            var problems: [String] = []
+            for outcome in outcomes {
+                switch outcome.result {
+                case .success(let imported):
+                    guard let system = importFor ?? imported.previewSystem else {
+                        let named = imported.systemIDs.isEmpty
+                            ? "does not say which console it is for"
+                            : "is for \(imported.systemIDs.joined(separator: "/")), which this "
+                                + "build cannot run yet"
+                        problems.append("\(imported.skinName) \(named); pick a console under "
+                                        + "Import for and import it again")
+                        continue
+                    }
+                    host.applyImportedSkin(imported, for: system)
+                    done.append("\(imported.skinName) for \(system.displayName)")
+                case .failure(let error):
+                    // Closing the picker is not a problem to report.
+                    if case .cancelled = error { continue }
+                    let reason = error.errorDescription ?? "the skin could not be imported"
+                    problems.append(outcome.fileName.isEmpty ? reason
+                                                             : "\(outcome.fileName): \(reason)")
                 }
-                host.applyImportedSkin(imported, for: system)
-                message = "Imported for \(system.displayName): \(imported.summary)"
-            case .failure(let error):
-                message = error.errorDescription ?? "the skin could not be imported"
-                host.status = "skin import: " + (message ?? "")
             }
+            guard !done.isEmpty || !problems.isEmpty else { return }
+            var text = done.isEmpty
+                ? "No skin was imported."
+                : "Imported \(done.count) skin(s): \(done.joined(separator: ", "))."
+            if !problems.isEmpty {
+                text += " Not imported: \(problems.joined(separator: "; "))."
+            }
+            message = text
+            host.status = "skin import: " + text
         }
     }
 }

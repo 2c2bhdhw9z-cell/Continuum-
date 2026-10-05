@@ -12,6 +12,14 @@ import UIKit
 
 enum GameplayManuals {
     private static let attachedKey = "manuals.attached.v1"
+    /// The PDFs this app WROTE for an attachment: file name to the game it was written for.
+    ///
+    /// Its own key beside the attachment map rather than folded into it, because that map syncs
+    /// between phones as a plain [game: file] dictionary and other builds read it in that shape.
+    /// This one is what lets `forget` tell a copy the app made from a PDF the user put in the folder
+    /// themselves, and a phone without it (another phone, or an attachment made by an older build)
+    /// simply keeps the file, which is the safe way to be unsure.
+    private static let writtenKey = "manuals.written.v1"
 
     /// Documents/Manuals, created on first use.
     static func folder() -> URL? {
@@ -41,6 +49,45 @@ enum GameplayManuals {
         (UserDefaults.standard.dictionary(forKey: attachedKey) as? [String: String]) ?? [:]
     }
 
+    private static func writtenFiles() -> [String: String] {
+        (UserDefaults.standard.dictionary(forKey: writtenKey) as? [String: String]) ?? [:]
+    }
+
+    /// Whether the file at `url` holds exactly `data`. The size is compared first, so a different
+    /// PDF is told apart without reading it.
+    private static func holds(_ data: Data, at url: URL) -> Bool {
+        guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+              size == data.count,
+              let existing = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+            return false
+        }
+        return existing == data
+    }
+
+    /// The first of `preferred`, "<stem> - <suffix>.pdf", "<stem> - <suffix> 2.pdf", " 3" and so on
+    /// that `usable` accepts, or nil if a hundred of them are all taken.
+    ///
+    /// THE SUFFIX IS A WORD, NOT A BARE NUMBER, because a manual is found by its name with the
+    /// punctuation taken out: a second "Mega Man.pdf" kept as "Mega Man 2.pdf" would open for
+    /// Mega Man 2, and one kept as "Mega Man (2).pdf" would tie with the first for Mega Man itself,
+    /// since bracketed tags are ignored. A name that ends in a word is found by neither.
+    private static func firstUsableName(preferred: String, stem: String, suffix: String,
+                                        usable: (String) -> Bool) -> String? {
+        if usable(preferred) { return preferred }
+        var base = stem.isEmpty ? "manual" : stem
+        // Room for the suffix inside the 255-byte limit on a file name, cut by whole characters.
+        while base.utf8.count > 200 {
+            base.removeLast()
+        }
+        for number in 1...100 {
+            let name = number == 1
+                ? "\(base) - \(suffix).pdf"
+                : "\(base) - \(suffix) \(number).pdf"
+            if usable(name) { return name }
+        }
+        return nil
+    }
+
     /// The manual for a game, or nil.
     static func manual(for entry: LibraryEntry) -> URL? {
         guard let dir = folder() else { return nil }
@@ -64,16 +111,40 @@ enum GameplayManuals {
             return "\(name) is not a PDF"
         }
         guard let dir = folder() else { return "manual not saved: no Documents folder" }
-        let file = wifiSafeFileName(name: name) ?? "\(UUID().uuidString).pdf"
-        do {
-            try data.write(to: dir.appendingPathComponent(file), options: .atomic)
-        } catch {
-            return "manual not saved: \(error.localizedDescription)"
-        }
+        let preferred = wifiSafeFileName(name: name) ?? "\(UUID().uuidString).pdf"
         var map = attached()
+        // NEVER OVER ANOTHER FILE. Manuals are called "manual.pdf" more often than not, and writing
+        // the second game's over the first silently took the first game's manual away. A name is
+        // only reused when it already holds these exact bytes and no other game is attached to it;
+        // any other clash is kept beside it as "<game> - manual.pdf". Compared without case, because
+        // whether the disk tells "Manual.pdf" from "manual.pdf" is not something to bet a manual on.
+        let otherGames = Set(map.filter { $0.key != entry.name }.map { $0.value.lowercased() })
+        let stem = (entry.name as NSString).deletingPathExtension
+        let file = firstUsableName(preferred: preferred, stem: stem, suffix: "manual") { candidate in
+            guard !otherGames.contains(candidate.lowercased()) else { return false }
+            let url = dir.appendingPathComponent(candidate)
+            return !FileManager.default.fileExists(atPath: url.path) || holds(data, at: url)
+        } ?? "\(UUID().uuidString).pdf"
+        let target = dir.appendingPathComponent(file)
+        if !FileManager.default.fileExists(atPath: target.path) {
+            do {
+                try data.write(to: target, options: .atomic)
+            } catch {
+                return "manual not saved: \(error.localizedDescription)"
+            }
+            // Recorded only when this app made the file, so `forget` can tell it from a PDF that
+            // was already in the folder and merely turned out to be the same one.
+            var made = writtenFiles()
+            made[file] = entry.name
+            UserDefaults.standard.set(made, forKey: writtenKey)
+        }
         map[entry.name] = file
         UserDefaults.standard.set(map, forKey: attachedKey)
-        return "manual \(file) attached to \(entry.name)"
+        if file == preferred {
+            return "manual \(file) attached to \(entry.name)"
+        }
+        return "manual \(name) attached to \(entry.name), saved as \(file) so the \(preferred) "
+            + "already in Manuals is left as it was"
     }
 
     static func detach(from entry: LibraryEntry) {
@@ -83,16 +154,68 @@ enum GameplayManuals {
     }
 
     /// A PDF that arrived through any import method: kept in the folder, where it matches by name.
+    ///
+    /// NEVER OVER ANOTHER FILE, for the reason `attach` gives: the PDF already there under this name
+    /// may be some game's attached manual, and deleting it to make room silently took it away. The
+    /// one already there is kept and the new one goes beside it, and because a manual is found by
+    /// its name, the status line says which name it got and what that means.
     static func importLoose(_ url: URL) -> String {
         guard let dir = folder() else { return "manual not saved: no Documents folder" }
-        let target = dir.appendingPathComponent(url.lastPathComponent)
-        do {
-            try? FileManager.default.removeItem(at: target)
-            try FileManager.default.copyItem(at: url, to: target)
-        } catch {
-            return "manual \(url.lastPathComponent) not saved: \(error.localizedDescription)"
+        let fm = FileManager.default
+        let name = url.lastPathComponent
+        let stem = (name as NSString).deletingPathExtension
+        // A name already holding these exact bytes counts as free, so importing the same PDF twice
+        // finds the copy it made the first time instead of making another.
+        let file = firstUsableName(preferred: name, stem: stem, suffix: "copy") { candidate in
+            let candidateURL = dir.appendingPathComponent(candidate)
+            return !fm.fileExists(atPath: candidateURL.path)
+                || fm.contentsEqual(atPath: url.path, andPath: candidateURL.path)
+        } ?? "\(UUID().uuidString).pdf"
+        let target = dir.appendingPathComponent(file)
+        if fm.fileExists(atPath: target.path) {
+            return file == name
+                ? "manual \(name) is already in Manuals; it opens for the game with the same name"
+                : "manual \(name) is already in Manuals as \(file); attach it from the game's card, "
+                    + "or rename it in the Files app, to have a game open it"
         }
-        return "manual \(url.lastPathComponent) saved in Manuals; it opens for the game with the same name"
+        do {
+            try fm.copyItem(at: url, to: target)
+        } catch {
+            return "manual \(name) not saved: \(error.localizedDescription)"
+        }
+        if file == name {
+            return "manual \(name) saved in Manuals; it opens for the game with the same name"
+        }
+        return "manual \(name) saved in Manuals as \(file), because a different \(name) is already "
+            + "there and was kept; a manual opens for the game whose name it matches, so attach this "
+            + "one from the game's card, or rename it in the Files app"
+    }
+
+    /// Forgets a deleted game's manual. Called by the host when the user deletes the game.
+    ///
+    /// THE ATTACHMENT ALWAYS GOES. It is keyed by the game's file name, so leaving it would hand
+    /// this manual to the next game imported under that name.
+    ///
+    /// THE PDF GOES ONLY WHEN THIS APP WROTE IT FOR THIS GAME AND NO OTHER GAME IS ATTACHED TO IT.
+    /// A PDF the user put in the folder themselves is theirs, and so is one the app cannot account
+    /// for, such as an attachment made by an older build or synced from another phone: when in
+    /// doubt the file is kept, because a stray PDF costs a tap in the Files app to delete and a lost
+    /// manual cannot be undone.
+    static func forget(_ entry: LibraryEntry) {
+        var map = attached()
+        guard let file = map.removeValue(forKey: entry.name) else { return }
+        UserDefaults.standard.set(map, forKey: attachedKey)
+
+        var made = writtenFiles()
+        guard made[file] == entry.name else { return }
+        // The record goes whatever happens to the file: with this game gone, nothing says the PDF
+        // belongs to one game alone any more, so from here on it is kept like the user's own.
+        made.removeValue(forKey: file)
+        UserDefaults.standard.set(made, forKey: writtenKey)
+
+        let sharedWithAnother = map.values.contains { $0.lowercased() == file.lowercased() }
+        guard !sharedWithAnother, !file.contains("/"), let dir = folder() else { return }
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent(file))
     }
 }
 

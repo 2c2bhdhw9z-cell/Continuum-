@@ -105,6 +105,16 @@ struct PlayerScreen: View {
     /// Core settings, filters and the disc list, opened by the in-game actions.
     @ObservedObject private var coreActions = CoreActionsModel.shared
 
+    /// The player's own choice to tuck the top bar away: the game's name and every button in the
+    /// bar except Back and the button that brings them back.
+    ///
+    /// ASKED FOR FROM A SCREENSHOT. With a skin that puts the game in its own screen holes, the bar
+    /// sits on top of the picture (a 3DS skin sideways was the case), and nothing could move it.
+    /// Back stays because leaving the game must never be hidden, and the eye stays because a
+    /// hidden bar with no way back would be a trap. Remembered across games and launches, since a
+    /// player who wants a clean screen wants it every time.
+    @AppStorage("continuum.player.topBarHidden.v1") private var topBarHidden = false
+
     var body: some View {
         ZStack(alignment: .top) {
             // Controls first, so the chrome's buttons sit above them in the z-order. They only
@@ -231,62 +241,80 @@ struct PlayerScreen: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Back to the library")
 
-            Text(host.activeEntry?.name ?? "no game")
-                .font(.system(.footnote, design: .monospaced))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .foregroundStyle(Color.white.opacity(0.9))
+            // Hides or shows everything to its right. See `topBarHidden`.
+            sessionButton(topBarHidden ? "eye" : "eye.slash",
+                          label: topBarHidden ? "Show the player buttons"
+                                              : "Hide the player buttons") {
+                topBarHidden.toggle()
+            }
 
-            Spacer(minLength: 4)
-
-            // Rewind, fast forward and reset are hidden during online play: on one phone and not
-            // the other they would split the two games apart. The engine refuses them as well.
-            if emulation.rewindEnabled && !host.netplayLive && host.webPlayer == nil {
-                holdButton("backward.fill",
-                           label: "Rewind",
-                           active: emulation.isRewinding,
-                           onPress: { emulation.beginRewind() },
-                           onRelease: { emulation.endRewind() })
-            }
-            if !host.netplayLive && host.webPlayer == nil {
-                holdButton("forward.fill",
-                           label: "Fast forward",
-                           active: emulation.isFastForwarding,
-                           onPress: { emulation.beginFastForward() },
-                           onRelease: { emulation.endFastForward() })
-            }
-            // Pause too: a paused phone stops sending input, which leaves the other one stalled.
-            if !host.netplayLive {
-                sessionButton(host.paused ? "play.fill" : "pause.fill",
-                              label: host.paused ? "Resume" : "Pause") {
-                    host.togglePause()
-                }
-                sessionButton("arrow.clockwise", label: "Reset") {
-                    host.resetGame()
-                }
-            }
-            // DS and 3DS only: which screen is the big one. One tap, and the touch screen
-            // follows the picture because the engine maps touches through the same layout.
-            if host.activeSystemHasTwoScreens {
-                sessionButton("rectangle.2.swap", label: "Swap screens") {
-                    host.swapScreens()
-                }
-            }
-            if host.webPlayer != nil {
-                // Flash and J2ME: their settings (keys, phone, save file) instead of save states,
-                // which these players cannot make.
-                sessionButton("slider.horizontal.3", label: "Player settings") {
-                    host.showWebPlayerSettings()
-                }
+            if topBarHidden {
+                Spacer(minLength: 0)
             } else {
-                saveStateControl
-            }
-            sessionButton(host.showDiagnostics ? "info.circle.fill" : "info.circle",
-                          label: "Diagnostics") {
-                host.showDiagnostics.toggle()
+                topBarItems
             }
         }
         .foregroundStyle(.white)
+    }
+
+    /// Everything in the top bar after Back and the hide button: the game's name and the session
+    /// buttons. Its own builder so the eye button can take all of it away in one place.
+    @ViewBuilder
+    private var topBarItems: some View {
+        Text(host.activeEntry?.name ?? "no game")
+            .font(.system(.footnote, design: .monospaced))
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .foregroundStyle(Color.white.opacity(0.9))
+
+        Spacer(minLength: 4)
+
+        // Rewind, fast forward and reset are hidden during online play: on one phone and not
+        // the other they would split the two games apart. The engine refuses them as well.
+        if emulation.rewindEnabled && !host.netplayLive && host.webPlayer == nil {
+            holdButton("backward.fill",
+                       label: "Rewind",
+                       active: emulation.isRewinding,
+                       onPress: { emulation.beginRewind() },
+                       onRelease: { emulation.endRewind() })
+        }
+        if !host.netplayLive && host.webPlayer == nil {
+            holdButton("forward.fill",
+                       label: "Fast forward",
+                       active: emulation.isFastForwarding,
+                       onPress: { emulation.beginFastForward() },
+                       onRelease: { emulation.endFastForward() })
+        }
+        // Pause too: a paused phone stops sending input, which leaves the other one stalled.
+        if !host.netplayLive {
+            sessionButton(host.paused ? "play.fill" : "pause.fill",
+                          label: host.paused ? "Resume" : "Pause") {
+                host.togglePause()
+            }
+            sessionButton("arrow.clockwise", label: "Reset") {
+                host.resetGame()
+            }
+        }
+        // DS and 3DS only: which screen is the big one. One tap, and the touch screen
+        // follows the picture because the engine maps touches through the same layout.
+        if host.activeSystemHasTwoScreens {
+            sessionButton("rectangle.2.swap", label: "Swap screens") {
+                host.swapScreens()
+            }
+        }
+        if host.webPlayer != nil {
+            // Flash and J2ME: their settings (keys, phone, save file) instead of save states,
+            // which these players cannot make.
+            sessionButton("slider.horizontal.3", label: "Player settings") {
+                host.showWebPlayerSettings()
+            }
+        } else {
+            saveStateControl
+        }
+        sessionButton(host.showDiagnostics ? "info.circle.fill" : "info.circle",
+                      label: "Diagnostics") {
+            host.showDiagnostics.toggle()
+        }
     }
 
     /// Everything durable this screen can do to a game: save, load, and take the cover from it.
@@ -633,7 +661,9 @@ struct DiagnosticsPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Continuum \(host.buildLine)")
+            // `buildLine` already starts with "Continuum 0.8.0 (N)"; prefixing it again printed
+            // the name twice.
+            Text(host.buildLine)
                 .font(.system(.caption2, design: .monospaced)).bold()
             Text(host.status)
                 .fixedSize(horizontal: false, vertical: true)

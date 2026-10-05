@@ -9,8 +9,11 @@
 //!   metadata the compatibility gate needs, so a state that leaves the device through the share
 //!   sheet can be checked as strictly when it comes back as one that never left.
 //!
-//! The compatibility checks themselves (core id, core version, byte length) stay in the host
-//! store, where the live engine is: this module only guarantees the facts survive the round trip.
+//! The compatibility checks themselves (core id, core version, core options, byte length) stay in
+//! the host store, where the live engine is: this module only guarantees the facts survive the
+//! round trip.
+
+use std::collections::BTreeMap;
 
 /// How many manual slots each game has.
 pub const SLOT_COUNT: u32 = 50;
@@ -112,6 +115,15 @@ pub struct StateExportMeta {
     pub slot: i64,
     /// The user's name for it, may be empty.
     pub label: String,
+    /// The core option values the state was saved under, key to value. The host's gate refuses a
+    /// state saved under different "restart required" settings, because some cores (Azahar's 3DS
+    /// model, audio engine and renderer) crash loading one.
+    ///
+    /// `None` is UNKNOWN, which is not the same as an empty map: a file written before exports
+    /// carried options, or a state whose record never stored them, and the gate falls back to
+    /// checking it against defaults exactly as it does an index record with no options. A
+    /// `BTreeMap` so the written order is sorted by key and the output is deterministic.
+    pub core_options: Option<BTreeMap<String, String>>,
 }
 
 /// The first bytes of every export. Sixteen bytes, ending in a newline so `head -c` shows it.
@@ -127,6 +139,30 @@ fn escape(value: &str) -> String {
         .replace('\\', "\\\\")
         .replace('\n', "\\n")
         .replace('\r', "\\r")
+}
+
+/// A core option line is `core_option=KEY=VALUE`, so the key also escapes `=`: the first `=` that
+/// is not escaped is then the separator, whatever the key or the value contain. `unescape` already
+/// turns `\=` back into `=`, as it does any escaped character it does not otherwise know.
+fn escape_option_key(key: &str) -> String {
+    escape(key).replace('=', "\\=")
+}
+
+/// Splits a still-escaped `KEY=VALUE` at the first unescaped `=`. `None` when there is none.
+fn split_option(raw: &str) -> Option<(&str, &str)> {
+    let mut escaped = false;
+    for (at, c) in raw.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match c {
+            '\\' => escaped = true,
+            '=' => return Some((&raw[..at], &raw[at + 1..])),
+            _ => {}
+        }
+    }
+    None
 }
 
 fn unescape(value: &str) -> String {
@@ -152,6 +188,11 @@ fn unescape(value: &str) -> String {
 ///
 /// A text header rather than a binary struct, so a file someone has on their computer can be read
 /// with a text editor to see which game and core it belongs to. Little-endian lengths.
+///
+/// Core options, when known, follow the fixed lines: `core_option_count=N`, then one
+/// `core_option=KEY=VALUE` per option sorted by key (see [`escape_option_key`]). Still format
+/// version 1, because every build that reads version 1 ignores keys it does not know, so an older
+/// build imports a newer file and only loses the options. When unknown neither line is written.
 pub fn pack_state_export(meta: &StateExportMeta, payload: &[u8]) -> Vec<u8> {
     let mut header = String::new();
     let mut line = |key: &str, value: &str| {
@@ -174,6 +215,24 @@ pub fn pack_state_export(meta: &StateExportMeta, payload: &[u8]) -> Vec<u8> {
     line("created_at", &meta.created_at.to_string());
     line("slot", &meta.slot.to_string());
     line("label", &meta.label);
+
+    if let Some(options) = &meta.core_options {
+        let mut section = format!("core_option_count={}\n", options.len());
+        for (key, value) in options {
+            section.push_str("core_option=");
+            section.push_str(&escape_option_key(key));
+            section.push('=');
+            section.push_str(&escape(value));
+            section.push('\n');
+        }
+        // Same rule as `byte_count`: never write a file this build's own unpack would refuse. A
+        // header past the limit would make the whole state unimportable, so the options are left
+        // out instead and the state imports with them unknown, the same as a file from an older
+        // build. Real option sets are a few kilobytes, so this is a guard, not a path.
+        if header.len() + section.len() <= MAX_HEADER {
+            header.push_str(&section);
+        }
+    }
 
     let mut out = Vec::with_capacity(EXPORT_MAGIC.len() + 8 + header.len() + payload.len());
     out.extend_from_slice(EXPORT_MAGIC);
@@ -215,10 +274,21 @@ pub fn unpack_state_export(bytes: &[u8]) -> Result<(StateExportMeta, Vec<u8>), S
 
     let mut meta = StateExportMeta::default();
     let mut byte_count: Option<u64> = None;
+    let mut option_count: Option<usize> = None;
+    let mut options = BTreeMap::new();
+    let mut option_lines = 0usize;
     for line in header.lines() {
         let Some((key, value)) = line.split_once('=') else {
             continue;
         };
+        if key == "core_option" {
+            // Split before unescaping: the separator is the first `=` the escaping left bare.
+            option_lines += 1;
+            if let Some((name, setting)) = split_option(value) {
+                options.insert(unescape(name), unescape(setting));
+            }
+            continue;
+        }
         let value = unescape(value);
         match key {
             "game_id" => meta.game_id = value,
@@ -229,10 +299,20 @@ pub fn unpack_state_export(bytes: &[u8]) -> Result<(StateExportMeta, Vec<u8>), S
             "created_at" => meta.created_at = value.parse().unwrap_or(0.0),
             "slot" => meta.slot = value.parse().unwrap_or(0),
             "label" => meta.label = value,
+            "core_option_count" => option_count = value.parse().ok(),
             // Unknown keys are a later build's additions, and are ignored rather than refused.
             _ => {}
         }
     }
+    // Known only when the count line is there and every option line it promises was read whole and
+    // distinct. Anything else (no count: an older build's file; a count that does not match: a
+    // damaged or hand-edited header) is UNKNOWN rather than a partial map, the same way the
+    // host's index decoder turns a malformed options map into "not recorded": a damaged options
+    // section costs the settings check its precision, never the state.
+    meta.core_options = match option_count {
+        Some(count) if count == option_lines && count == options.len() => Some(options),
+        _ => None,
+    };
     if meta.game_id.is_empty() {
         return Err("that export does not say which game it belongs to".into());
     }
@@ -352,7 +432,199 @@ mod tests {
             created_at: 1_700_000_000.5,
             slot: 7,
             label: "before the castle\nsecond line".into(),
+            core_options: None,
         }
+    }
+
+    fn options(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    /// The text header of a packed export, for tests that look at the lines themselves.
+    fn header_of(bytes: &[u8]) -> &str {
+        let len = u32::from_le_bytes(bytes[20..24].try_into().unwrap()) as usize;
+        std::str::from_utf8(&bytes[24..24 + len]).unwrap()
+    }
+
+    /// Exactly what a build from before exports carried options writes, byte for byte.
+    fn old_format_export(payload: &[u8]) -> Vec<u8> {
+        let header = format!(
+            "game_id=Super Mario World (USA).sfc\ncore_id=snes9x\ncore_version=1.62.3 abc123\n\
+             byte_count={}\nframe=12345\ncreated_at=1700000000.5\nslot=7\n\
+             label=before the castle\\nsecond line\n",
+            payload.len()
+        );
+        let mut out = EXPORT_MAGIC.to_vec();
+        out.extend_from_slice(&1u32.to_le_bytes());
+        out.extend_from_slice(&(header.len() as u32).to_le_bytes());
+        out.extend_from_slice(header.as_bytes());
+        out.extend_from_slice(payload);
+        out
+    }
+
+    #[test]
+    fn export_round_trips_core_options_with_awkward_characters() {
+        let mut meta = sample_meta();
+        meta.core_options = Some(options(&[
+            ("citra_is_new_3ds", "New 3DS"),
+            ("a=b", "c=d=e"),
+            ("==", "="),
+            ("line\nbreak", "value\nwith\r\nnewlines"),
+            ("back\\slash\\", "\\"),
+            ("ends with escape\\=", "\\n is not a newline"),
+            ("", "empty key"),
+            ("empty value", ""),
+            ("ünïcödé 3DS 🎮", "日本語=はい"),
+            // A value that tries to forge a header line must stay a value.
+            ("forge", "x\ngame_id=Other Game.sfc\nbyte_count=1"),
+        ]));
+        let bytes = pack_state_export(&meta, &[4u8; 64]);
+        let (back, payload) = unpack_state_export(&bytes).unwrap();
+        assert_eq!(payload, vec![4u8; 64]);
+        assert_eq!(back.core_options, meta.core_options);
+        assert_eq!(back.game_id, "Super Mario World (USA).sfc");
+        let mut expected = meta.clone();
+        expected.byte_count = 64;
+        assert_eq!(back, expected);
+    }
+
+    #[test]
+    fn an_old_format_export_without_options_unpacks_as_unknown() {
+        let payload = [7u8; 300];
+        let (meta, back) = unpack_state_export(&old_format_export(&payload)).unwrap();
+        assert_eq!(back, payload);
+        assert_eq!(meta.core_options, None);
+        let mut expected = sample_meta();
+        expected.byte_count = 300;
+        assert_eq!(meta, expected);
+        // And this build writes the very same bytes when the options are unknown, so nothing
+        // about an export without options changed.
+        assert_eq!(
+            pack_state_export(&sample_meta(), &payload),
+            old_format_export(&payload)
+        );
+    }
+
+    #[test]
+    fn known_but_empty_options_stay_distinct_from_unknown() {
+        let mut meta = sample_meta();
+        meta.core_options = Some(BTreeMap::new());
+        let (back, _) = unpack_state_export(&pack_state_export(&meta, &[1])).unwrap();
+        assert_eq!(back.core_options, Some(BTreeMap::new()));
+        meta.core_options = None;
+        let (back, _) = unpack_state_export(&pack_state_export(&meta, &[1])).unwrap();
+        assert_eq!(back.core_options, None);
+    }
+
+    #[test]
+    fn options_are_written_sorted_and_the_output_is_deterministic() {
+        let mut meta = sample_meta();
+        meta.label = String::new();
+        // Given out of order: the file is sorted by key whatever order the host's map was in.
+        meta.core_options = Some(options(&[("zeta", "1"), ("a=1", "x\ny")]));
+        let first = pack_state_export(&meta, &[1, 2]);
+        assert_eq!(first, pack_state_export(&meta.clone(), &[1, 2]));
+        assert_eq!(
+            header_of(&first),
+            "game_id=Super Mario World (USA).sfc\ncore_id=snes9x\ncore_version=1.62.3 abc123\n\
+             byte_count=2\nframe=12345\ncreated_at=1700000000.5\nslot=7\nlabel=\n\
+             core_option_count=2\ncore_option=a\\=1=x\\ny\ncore_option=zeta=1\n"
+        );
+    }
+
+    #[test]
+    fn an_older_reader_sees_only_unknown_keys_for_the_options() {
+        // An older build splits each line at its first `=` and ignores keys it does not know.
+        // Escaping keeps every option on one line, so it can never land on a key it does know.
+        let mut meta = sample_meta();
+        meta.core_options = Some(options(&[
+            ("game_id", "Other.sfc"),
+            ("k\nbyte_count", "9\nslot=99"),
+        ]));
+        let bytes = pack_state_export(&meta, &[1, 2, 3]);
+        let keys: Vec<&str> = header_of(&bytes)
+            .lines()
+            .map(|l| l.split_once('=').unwrap().0)
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "game_id",
+                "core_id",
+                "core_version",
+                "byte_count",
+                "frame",
+                "created_at",
+                "slot",
+                "label",
+                "core_option_count",
+                "core_option",
+                "core_option",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_damaged_options_section_degrades_to_unknown_and_still_imports() {
+        let payload = [5u8; 10];
+        let with_section = |section: &str| {
+            let mut bytes = old_format_export(&payload);
+            let header = format!("{}{section}", header_of(&bytes));
+            bytes.truncate(24);
+            bytes[20..24].copy_from_slice(&(header.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(header.as_bytes());
+            bytes.extend_from_slice(&payload);
+            bytes
+        };
+        for section in [
+            // Count says more than there are.
+            "core_option_count=2\ncore_option=a=1\n",
+            // Count says fewer.
+            "core_option_count=0\ncore_option=a=1\n",
+            // A line with no separator.
+            "core_option_count=1\ncore_option=no separator\\=here\n",
+            // The same key twice.
+            "core_option_count=2\ncore_option=a=1\ncore_option=a=2\n",
+            // A count that is not a number.
+            "core_option_count=lots\ncore_option=a=1\n",
+            // Option lines with no count at all.
+            "core_option=a=1\n",
+        ] {
+            let (meta, back) = unpack_state_export(&with_section(section)).unwrap();
+            assert_eq!(meta.core_options, None, "{section:?}");
+            assert_eq!(back, payload);
+        }
+        let (meta, _) =
+            unpack_state_export(&with_section("core_option_count=1\ncore_option=a=1\n")).unwrap();
+        assert_eq!(meta.core_options, Some(options(&[("a", "1")])));
+    }
+
+    #[test]
+    fn options_too_big_for_a_header_are_left_out_rather_than_breaking_the_file() {
+        let mut meta = sample_meta();
+        let huge = "v".repeat(MAX_HEADER);
+        meta.core_options = Some(options(&[("big", &huge)]));
+        let bytes = pack_state_export(&meta, &[1, 2, 3]);
+        let (back, payload) = unpack_state_export(&bytes).unwrap();
+        assert_eq!(payload, [1, 2, 3]);
+        assert_eq!(back.core_options, None);
+    }
+
+    #[test]
+    fn option_escaping_splits_at_the_right_equals_sign() {
+        for key in ["", "=", "a=b", "\\", "\\=", "x\\\\=y", "\n=\r", "ü="] {
+            let raw = format!("{}={}", escape_option_key(key), escape("v=w"));
+            let (k, v) = split_option(&raw).unwrap();
+            assert_eq!(
+                (unescape(k), unescape(v)),
+                (key.to_string(), "v=w".to_string())
+            );
+        }
+        assert_eq!(split_option("no separator"), None);
+        assert_eq!(split_option("escaped\\=only"), None);
     }
 
     #[test]

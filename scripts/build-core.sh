@@ -177,6 +177,9 @@ IOS_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURC
 # are defined once, here, and nowhere else in this script.
 ios_core_config() {
   IOS_REPO=""
+  # The exact upstream commit this core is built from. See "PINNED SOURCES" above ios_clone for
+  # why, for the CONTINUUM_UNPINNED=1 override, and for how to move a pin.
+  IOS_PIN=""
   IOS_DYLIB_NAME=""
   IOS_KIND=""
   IOS_MAKEFILE=""
@@ -195,6 +198,7 @@ ios_core_config() {
   case "$1" in
     fceumm)
       IOS_REPO="https://github.com/libretro/libretro-fceumm"
+      IOS_PIN="7a542dab1e87679921962a9f056186eca425c0c2"
       IOS_DYLIB_NAME="fceumm_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile.libretro"
@@ -202,6 +206,7 @@ ios_core_config() {
       ;;
     mgba)
       IOS_REPO="https://github.com/libretro/mgba"
+      IOS_PIN="7a12d6d4b9acb14c0ae62c9166b6a2f3d08007f6"
       IOS_DYLIB_NAME="mgba_libretro_ios.dylib"
       IOS_KIND="cmake"
       IOS_CMAKE_TARGET="mgba_libretro"
@@ -210,6 +215,7 @@ ios_core_config() {
       ;;
     genesis_plus_gx)
       IOS_REPO="https://github.com/libretro/Genesis-Plus-GX"
+      IOS_PIN="58c341487e5bfcf979ea68413c7987633adb0c56"
       IOS_DYLIB_NAME="genesis_plus_gx_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile.libretro"
@@ -217,6 +223,7 @@ ios_core_config() {
       ;;
     snes9x)
       IOS_REPO="https://github.com/libretro/snes9x"
+      IOS_PIN="fae2fea08f74180759ef540ee94259213f503480"
       IOS_DYLIB_NAME="snes9x_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile"
@@ -226,6 +233,7 @@ ios_core_config() {
       ;;
     pcsx_rearmed)
       IOS_REPO="https://github.com/libretro/pcsx_rearmed"
+      IOS_PIN="c8816799b50388e61cfe237fe2cdbb7d8175f20a"
       IOS_DYLIB_NAME="pcsx_rearmed_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile.libretro"
@@ -235,6 +243,7 @@ ios_core_config() {
       ;;
     melonds)
       IOS_REPO="https://github.com/libretro/melonDS"
+      IOS_PIN="66b5d2634cd0a79030562811e6e05f5532f800ba"
       IOS_DYLIB_NAME="melonds_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile"
@@ -256,6 +265,7 @@ ios_core_config() {
       ;;
     mednafen_pce_fast)
       IOS_REPO="https://github.com/libretro/beetle-pce-fast-libretro"
+      IOS_PIN="3f946f277aef3aa99a95551618bbcd1dd2bda0d9"
       IOS_DYLIB_NAME="mednafen_pce_fast_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile"
@@ -292,6 +302,7 @@ ios_core_config() {
       ;;
     stella2023)
       IOS_REPO="https://github.com/libretro/stella2023"
+      IOS_PIN="ba52c43b9eda950eb0c0eec69cda9b17dee8c39b"
       IOS_DYLIB_NAME="stella2023_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile"
@@ -311,6 +322,7 @@ ios_core_config() {
       ;;
     mednafen_psx_hw)
       IOS_REPO="https://github.com/libretro/beetle-psx-libretro"
+      IOS_PIN="5ec9909f2654fb2041315a13fac0b704c5065c0e"
       IOS_DYLIB_NAME="mednafen_psx_hw_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile"
@@ -321,6 +333,7 @@ ios_core_config() {
       ;;
     parallel_n64)
       IOS_REPO="https://github.com/libretro/parallel-n64"
+      IOS_PIN="0bd516ee793bb87b57e9eef19993b37ac0098d74"
       IOS_DYLIB_NAME="parallel_n64_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile"
@@ -362,6 +375,7 @@ ios_core_config() {
       # picture hook this host accepts. CPU JIT is compiled out by -DIOS (no
       # dynarec, no executable memory). The fast interpreter stays on.
       IOS_REPO="https://github.com/azahar-emu/azahar"
+      IOS_PIN="065c9222ae7e8ce5535aa2672c8565e82c0a6d54"
       IOS_DYLIB_NAME="azahar_libretro_ios.dylib"
       IOS_KIND="cmake-shared"
       IOS_CMAKE_TARGET="citra_libretro"
@@ -397,6 +411,7 @@ ios_core_config() {
       # selected submodule list is what the libretro target's CMake actually
       # add_subdirectory's.
       IOS_REPO="https://github.com/hrydgard/ppsspp"
+      IOS_PIN="53fae900997fd12ac0ef8f8d82d6f25390acbc29"
       IOS_DYLIB_NAME="ppsspp_libretro_ios.dylib"
       IOS_KIND="cmake-ppsspp"
       IOS_CMAKE_TARGET="ppsspp_libretro"
@@ -444,6 +459,7 @@ ios_core_config() {
       # Submodules: only the ones the libretro target add_subdirectory's or includes. SDL, oboe,
       # googletest, freetype, breakpad and the Windows-only ones are not fetched.
       IOS_REPO="https://github.com/flyinghead/flycast"
+      IOS_PIN="59ed35a7ea7c1940d4c8ac221a662d0e6d6dc9ea"
       IOS_DYLIB_NAME="flycast_libretro_ios.dylib"
       IOS_KIND="cmake-flycast"
       IOS_CMAKE_TARGET="flycast_libretro"
@@ -525,6 +541,9 @@ scripts/build-core.sh - build the libretro cores the iOS app dlopens.
                 set its @rpath install name and stage it. Any host.
 
 'ios' and 'ios-all' need a macOS host with the Xcode command line tools.
+
+Each core is built from its pinned commit (IOS_PIN). CONTINUUM_UNPINNED=1 builds
+every core at its default branch's HEAD instead, to try newer cores on purpose.
 EOF
 }
 
@@ -562,23 +581,120 @@ ios_jobs() {
   sysctl -n hw.ncpu 2>/dev/null || echo 4
 }
 
+# PINNED SOURCES. Every from-source core is built from one exact upstream commit, IOS_PIN in
+# ios_core_config, and not from whatever its default branch says on the day CI runs.
+#
+# The pins are the commits build 121 was built from, the last build known good on a phone. This
+# project has one compiler, a macOS runner that takes ~30 minutes, and an owner who gets no app at
+# all when it goes red, so an upstream commit landing overnight must not be able to change or break
+# a build nobody touched. It also keeps the Continuum patches in scripts/patches/ applying: they
+# were written against these trees, and a moved hunk anchor fails the core.
+#
+# CONTINUUM_UNPINNED=1 in the environment builds every core at its default branch's HEAD instead,
+# exactly the old behaviour. It is for deliberately trying newer cores, never for a normal build.
+#
+# MOVING A PIN, one core at a time:
+#   1. run a build with CONTINUUM_UNPINNED=1 (locally, or for one run in the build-engine step's
+#      env in .github/workflows/ios.yml);
+#   2. check that build on a phone;
+#   3. take the core's commit from that build's core-sources.txt (third field of its line, in the
+#      ios-build-metadata artefact) and paste it into the core's IOS_PIN above;
+#   4. dry-run its patches against that commit (patch -p1 --dry-run --forward), if it has any.
+# core-sources.txt always records the commit really built, pinned or not, with a fourth field
+# saying which.
+ios_unpinned() {
+  [[ "${CONTINUUM_UNPINNED:-0}" == "1" ]]
+}
+
+# Fetches one commit (a sha, or HEAD) from origin into FETCH_HEAD, retrying a flaky network.
+# Shallow cores fetch it at depth 1; GitHub serves any reachable commit by sha, so this is the
+# whole download for them. Full-depth cores already hold their history and fetch without --depth,
+# because deepening a full clone with --depth would make it shallow under the submodule update.
+ios_fetch_commit() {
+  local full_depth="$1" ref="$2"
+  local attempt
+  for attempt in 1 2 3; do
+    if [[ "$full_depth" == "1" ]]; then
+      git -C "$IOS_SRC_DIR" fetch origin "$ref" && return 0
+    else
+      git -C "$IOS_SRC_DIR" fetch --depth 1 origin "$ref" && return 0
+    fi
+    echo "==> fetching $ref failed (attempt $attempt of 3)" >&2
+    [[ "$attempt" == "3" ]] || sleep 5
+  done
+  return 1
+}
+
+# Puts the checkout at the commit this build uses, BEFORE any submodule update, so the submodules
+# initialised afterwards (all of them, or ppsspp's and flycast's selected lists) are the ones that
+# commit names rather than the ones the default branch names today.
+ios_checkout_source() {
+  local core="$1" full_depth="$2"
+  local want
+  if ios_unpinned; then
+    echo "==> $core: CONTINUUM_UNPINNED=1, building the default branch's HEAD, not the pin $IOS_PIN"
+    ios_fetch_commit "$full_depth" HEAD || {
+      echo "error: $core: could not fetch the default branch's HEAD from $IOS_REPO" >&2
+      exit 1
+    }
+    want="$(git -C "$IOS_SRC_DIR" rev-parse FETCH_HEAD)"
+  else
+    want="$IOS_PIN"
+    [[ -n "$want" ]] || {
+      echo "error: $core has no IOS_PIN in ios_core_config (CONTINUUM_UNPINNED=1 builds HEAD)" >&2
+      exit 1
+    }
+    if ! git -C "$IOS_SRC_DIR" cat-file -e "$want^{commit}" 2>/dev/null; then
+      echo "==> $core: fetching pinned commit $want"
+      ios_fetch_commit "$full_depth" "$want" || {
+        echo "error: $core: could not fetch the pinned commit $want from $IOS_REPO." >&2
+        echo "       If upstream rewrote its history, move the pin (see PINNED SOURCES in" >&2
+        echo "       scripts/build-core.sh); CONTINUUM_UNPINNED=1 builds HEAD meanwhile." >&2
+        exit 1
+      }
+    fi
+  fi
+  local head
+  head="$(git -C "$IOS_SRC_DIR" rev-parse -q --verify 'HEAD^{commit}' 2>/dev/null || true)"
+  if [[ "$head" != "$want" ]]; then
+    # --force only matters for a reused local .work/ios/<core> already patched at another commit:
+    # it resets the tracked files, and ios_apply_core_patches puts the patches back. A fresh CI
+    # checkout has nothing to discard.
+    git -C "$IOS_SRC_DIR" -c advice.detachedHead=false checkout --quiet --force --detach "$want"
+  fi
+  head="$(git -C "$IOS_SRC_DIR" rev-parse HEAD)"
+  [[ "$head" == "$want" ]] || {
+    echo "error: $core: checkout is at $head, expected $want" >&2
+    exit 1
+  }
+}
+
 ios_clone() {
   local core="$1"
   IOS_SRC_DIR="$IOS_WORK/$core"
   mkdir -p "$IOS_WORK"
+  # No --depth when every submodule is initialised. A shallow parent and a recursive submodule
+  # update fight each other, and several cores need the whole tree (pcsx_rearmed, parallel_n64,
+  # azahar). Depth 1 is fine when there are no submodules, and when IOS_SUBMODULE_PATHS names
+  # exactly which ones to fetch: those gitlinks are in the checked-out commit.
+  local full_depth=0
+  if [[ "$IOS_SUBMODULES" == "1" && ${#IOS_SUBMODULE_PATHS[@]} -eq 0 ]]; then
+    full_depth=1
+  fi
   if [[ ! -d "$IOS_SRC_DIR/.git" ]]; then
     echo "==> cloning $core for iOS"
-    if [[ "$IOS_SUBMODULES" == "1" && ${#IOS_SUBMODULE_PATHS[@]} -eq 0 ]]; then
-      # No --depth when every submodule is initialised. A shallow parent and a
-      # recursive submodule update fight each other, and several cores need the
-      # whole tree (pcsx_rearmed, parallel_n64, azahar).
+    if [[ "$full_depth" == "1" ]]; then
       git clone "$IOS_REPO" "$IOS_SRC_DIR"
-    else
-      # Depth 1 is fine when there are no submodules, and when the list below
-      # names exactly which ones to fetch: those gitlinks are in this commit.
+    elif ios_unpinned; then
       git clone --depth 1 "$IOS_REPO" "$IOS_SRC_DIR"
+    else
+      # Pinned and shallow: an empty repository, then ios_checkout_source fetches exactly the
+      # pinned commit at depth 1, rather than cloning HEAD only to replace it.
+      git init --quiet "$IOS_SRC_DIR"
+      git -C "$IOS_SRC_DIR" remote add origin "$IOS_REPO"
     fi
   fi
+  ios_checkout_source "$core" "$full_depth"
   if [[ "$IOS_SUBMODULES" == "1" ]]; then
     if (( ${#IOS_SUBMODULE_PATHS[@]} > 0 )); then
       echo "==> initialising selected submodules for $core: ${IOS_SUBMODULE_PATHS[*]}"
@@ -591,26 +707,26 @@ ios_clone() {
   ios_record_source_version "$core"
 }
 
-# Where every core's source came from, written down.
+# Where every core's source came from, written down: "<core> <repo> <commit> pinned|unpinned".
 #
-# These clones are UNPINNED: `--depth 1` of whatever the default branch's HEAD is on the day CI
-# runs. That is a deliberate tradeoff, since pinning six cores means maintaining six pins and
-# missing their fixes, but unrecorded it makes a whole class of failure undebuggable. When a core
-# that worked last week stops working, or quietly changes behaviour, the first question is what
-# moved, and without this there is no way to answer it and nothing to bisect.
+# The commit is read back from the checkout (the one really built), not copied from IOS_PIN, so
+# the record stays true under CONTINUUM_UNPINNED=1, and it is where a new pin is taken from (see
+# PINNED SOURCES above ios_clone). Before the pins, cores were built at whatever HEAD was on the
+# day, and this file was the only way to say what moved when a core that worked last week broke.
 #
 # It is not hypothetical for the DS in particular. Two melonDS option VALUES are hardcoded in
 # `option_overrides` and matched by `strcmp` inside the core, so an upstream rename turns the DS
-# touch screen off again with no error on either side. This does not prevent that, but it does
-# make it attributable to a commit rather than to a mystery.
+# touch screen off again with no error on either side. The pin prevents that from happening by
+# itself; this makes a deliberate move attributable to a commit rather than to a mystery.
 #
 # Written to a file as well as the log because the log ages out of the Actions UI while this ships
 # in the build metadata artefact next to the entitlements and the generated Swift.
 ios_record_source_version() {
   local core="$1"
-  local sha
+  local sha state="pinned"
   sha="$(git -C "$IOS_SRC_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
-  echo "==> $core source: $IOS_REPO @ $sha"
+  [[ "$sha" == "$IOS_PIN" ]] || state="unpinned"
+  echo "==> $core source: $IOS_REPO @ $sha ($state)"
   mkdir -p "$IOS_OUT_DIR"
   local manifest="$IOS_OUT_DIR/core-sources.txt"
   # Rewritten per core rather than appended blindly, so a rebuild of one core updates its line
@@ -619,7 +735,7 @@ ios_record_source_version() {
     grep -v "^$core " "$manifest" > "$manifest.tmp" 2>/dev/null || true
     mv "$manifest.tmp" "$manifest"
   fi
-  echo "$core $IOS_REPO $sha" >> "$manifest"
+  echo "$core $IOS_REPO $sha $state" >> "$manifest"
   LC_ALL=C sort -o "$manifest" "$manifest"
 }
 
@@ -1011,16 +1127,17 @@ build_ios_flycast_core() {
   ios_stage_dylib "$staged" "$IOS_DYLIB_NAME"
 }
 
-# Continuum-owned edits to unpinned upstream core checkouts.
+# Continuum-owned edits to the upstream core checkouts.
 #
-# Cores clone at HEAD with no pin (see ios_record_source_version). When upstream behaviour
-# and Continuum's host disagree in a way that cannot be fixed from the frontend alone, the
-# fix lives here as a patch applied after clone and before make, so the next ios-all / IPA
-# rebuild picks it up without waiting on an upstream merge.
+# Cores are built at their IOS_PIN (see PINNED SOURCES above ios_clone), and these patches were
+# checked against those commits. When upstream behaviour and Continuum's host disagree in a way
+# that cannot be fixed from the frontend alone, the fix lives here as a patch applied after clone
+# and before make, so the next ios-all / IPA rebuild picks it up without waiting on an upstream
+# merge. Moving a patched core's pin means dry-running its patch against the new commit first.
 #
 # Idempotent: a re-run against a leftover .work/ios/<core> that already has the hunk skips
-# rather than failing. If the anchor moved upstream, patch fails loudly so CI goes red
-# instead of shipping an unpatched core.
+# rather than failing. If the anchor moved (a moved pin, or CONTINUUM_UNPINNED=1), patch fails
+# loudly so CI goes red instead of shipping an unpatched core.
 ios_apply_core_patches() {
   local core="$1"
   case "$core" in

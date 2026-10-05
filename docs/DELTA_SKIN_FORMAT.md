@@ -173,8 +173,13 @@ the bare `info.json` to exercise layout/screens without ZIP assets.
 
 - Landscape / iPad / splitView selection beyond the preference order above
 - CoreImage `filters`
-- Multi-screen DS layouts beyond using the first `screens[]` entry for the picture hole
-- Device proof of the import path (code only until a build is tried on a phone)
+- Device proof beyond one case: a 3DS skin sideways shows both screens in their holes on the
+  owner's phone (5 October). Upright, and DS skins, are not confirmed yet.
+- A skin saved before build 109 kept only its first screen hole. Delete it and import the same
+  file again; the app cannot re-read the original by itself.
 
-Use **Import .deltaskin** in the on-screen control layout editor, or the skin library. Cancelling the picker or
+Use **Import .deltaskin** in the on-screen control layout editor (one skin, previewed), or
+**Import skins** in the skin library, which takes any number of files picked together. With a
+skin in use, a built-in button the skin does not name is not drawn at all (and a built-in D-pad
+is left out when the skin has a stick or circle pad but no D-pad). Cancelling the picker or
 picking nothing leaves a clear error on that panel; a bad package names what failed.

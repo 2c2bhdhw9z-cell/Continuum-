@@ -1,19 +1,11 @@
-/target
+# Cargo build output, at any depth: a crate-level target/ (cargo run from inside a crate, or a test
+# writing next to its sources) was once committed because only the root one was ignored.
+target/
 **/*.rs.bk
 
-# Build output of scripts/build-wasm.sh. Regenerated from the crate, so it is not
-# source; run the script after cloning.
-/web/vendor/
-
-# Toolchains and core sources fetched by scripts/build-core.sh (wasi-sdk is ~1 GB
-# extracted, core checkouts are tens of MB). Both are reproducible from the script.
-/.tools/
+# Core sources, fetched headers and players, and other scratch fetched or built by scripts/
+# (build-core.sh, fetch-*.sh, check-*.sh). All reproducible from the scripts.
 /.work/
-
-# Core binaries are build outputs from third-party GPL/LGPL sources, not vendored
-# here: run scripts/build-core.sh <name>. The placeholder module is ours and is kept.
-/web/cores/*.wasm
-!/web/cores/diagnostic-core.wasm
 
 .DS_Store
 
@@ -27,7 +19,3 @@ native/ios/build/
 # the YAML is the source and this is output.
 native/ios/*.xcodeproj/
 native/ios/*.xcworkspace/
-
-# Task Observer local logs
-skill-observations/
-skill-updates/

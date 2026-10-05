@@ -2007,7 +2007,8 @@ impl EmulatorBridge {
         }
     }
 
-    /// Writes every enabled poke into `SYSTEM_RAM`. Called after each `run_frame`.
+    /// Writes every enabled poke into the core's memory. Called after each `run_frame`, which is
+    /// also where RetroArch runs `cheat_manager_apply_retro_cheats`.
     ///
     /// A poke that does not fit the region is skipped rather than failing the frame, for the
     /// reason on [`Poke::apply`].
@@ -2016,8 +2017,16 @@ impl EmulatorBridge {
             return;
         }
         let Session { core, pokes, .. } = session;
+        // A cheat-file poke's address is in RetroArch's cheat address space: the memory map's
+        // SYSTEM_RAM-flagged buffers end to end when it has any, else SYSTEM_RAM itself (see
+        // `memory_maps::cheat_buffers`). Decided again every frame from the current map, because
+        // RetroArch rebuilds that space whenever a core publishes a new one.
+        let cheats_through_map =
+            pokes.iter().any(|p| p.cht) && crate::memory_maps::has_cheat_ram(core.memory_map());
+        // Plain pokes, and cheat-file pokes whenever RetroArch would use SYSTEM_RAM for them too.
+        let into_system_ram = |p: &&Poke| if p.cht { !cheats_through_map } else { !p.bus };
         if let Some(ram) = core.memory_region_mut(crate::memory::MEMORY_SYSTEM_RAM) {
-            for poke in pokes.iter().filter(|p| !p.bus) {
+            for poke in pokes.iter().filter(into_system_ram) {
                 poke.apply(ram);
             }
         }
@@ -2028,6 +2037,12 @@ impl EmulatorBridge {
             // SAFETY: the map is the core's current one, the core is not running, and nothing else
             // holds a slice of its memory: `ram` above has gone out of scope.
             unsafe { crate::memory_maps::write_through(map, poke.address, &poke.value_bytes()) };
+        }
+        if cheats_through_map {
+            for poke in pokes.iter().filter(|p| p.cht) {
+                // SAFETY: as for the bus pokes above.
+                unsafe { crate::memory_maps::write_cheat(map, poke.address, &poke.value_bytes()) };
+            }
         }
     }
 
@@ -2487,6 +2502,64 @@ mod tests {
         let byte = unsafe { *((iwram.host + 0x10) as *const u8) };
         assert_eq!(byte, 7);
         assert_ne!(bridge.read_memory(crate::memory::MEMORY_SYSTEM_RAM, 0x10, 1).unwrap(), vec![7]);
+    }
+
+    #[test]
+    fn a_cht_ram_cheat_lands_where_retroarch_puts_it_on_mgba() {
+        use crate::memory::MEMORY_SYSTEM_RAM;
+        // RetroArch's cheat space on mGBA's GBA is IWRAM ($8000 bytes) then EWRAM, so the file's
+        // $8010 is EWRAM byte $10 (SYSTEM_RAM offset $10), and its $10 is IWRAM's timer byte.
+        let file = crate::cheats::cht::parse(
+            "cheats = 2\n\
+             cheat0_handler = 1\ncheat0_address = 0x8010\ncheat0_value = 0x63\n\
+             cheat0_memory_search_size = 3\ncheat0_enable = true\n\
+             cheat1_handler = 1\ncheat1_address = 0x10\ncheat1_value = 7\n\
+             cheat1_memory_search_size = 3\ncheat1_enable = true\n",
+        );
+        assert!(file.warnings.is_empty(), "{:?}", file.warnings);
+        let codes: Vec<String> = file.cheats.into_iter().map(|c| c.code).collect();
+        assert_eq!(codes, ["poke:8010:63:1:cht", "poke:0010:07:1:cht"]);
+
+        let mut bridge = running_mapped_gba();
+        let untouched = bridge.read_memory(MEMORY_SYSTEM_RAM, 0x8010, 1).unwrap();
+        assert_eq!(bridge.apply_cheats(codes, &[1, 1]).unwrap(), 2);
+        bridge.step_headless_for_test(3).unwrap();
+        assert_eq!(
+            bridge.read_memory(MEMORY_SYSTEM_RAM, 0x10, 1).unwrap(),
+            vec![0x63]
+        );
+        assert_eq!(
+            bridge.read_memory(MEMORY_SYSTEM_RAM, 0x8010, 1).unwrap(),
+            untouched,
+            "the old reading, a SYSTEM_RAM offset, would have landed 32 KB too far into EWRAM"
+        );
+        let session = bridge.session.as_ref().unwrap();
+        let iwram = crate::memory_maps::cheat_buffers(session.core.memory_map())
+            .next()
+            .unwrap();
+        // SAFETY: the fixture's IWRAM buffer, alive for the core's lifetime; the core is idle.
+        let timer = unsafe { *((iwram.host + 0x10) as *const u8) };
+        assert_eq!(timer, 7, "pinned although the core bumps it every frame");
+    }
+
+    #[test]
+    fn a_cht_poke_falls_back_to_system_ram_on_a_core_without_cheat_ram_in_its_map() {
+        use crate::cores::DiagnosticCore;
+        use crate::memory::MEMORY_SYSTEM_RAM;
+        let mut bridge = running_diagnostic();
+        let session = bridge.session.as_ref().unwrap();
+        assert!(session.core.memory_map().is_empty());
+        let health = DiagnosticCore::HEALTH_OFFSET as u64;
+        let poke = Poke::parse(&format!("poke:{health:04X}:63:1:cht")).unwrap();
+        assert!(poke.cht);
+        // The diagnostic core takes no core cheats, so the poke is installed directly, as in
+        // `a_poke_pins_the_value_every_frame_and_is_not_sent_to_the_core`.
+        bridge.session.as_mut().unwrap().pokes = vec![poke];
+        bridge.step_headless_for_test(5).unwrap();
+        assert_eq!(
+            bridge.read_memory(MEMORY_SYSTEM_RAM, health, 1).unwrap(),
+            vec![0x63]
+        );
     }
 
     #[test]

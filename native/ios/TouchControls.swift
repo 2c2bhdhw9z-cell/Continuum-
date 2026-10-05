@@ -2461,10 +2461,17 @@ final class TouchControlsView: UIView {
         // dpadCentreNow already recorded from the clamped dpad rect above.
         layoutHandles()
 
-        verifyNoOverlap()
         if let skin, let skinCanvas, !isEditing {
+            // NO OVERLAP CHECK WITH A SKIN IN PLAY. The check measures the built-in arrangement
+            // computed above, and with a skin that arrangement is not what is on screen: the next
+            // call moves every control the skin names onto the skin's own rectangle and takes the
+            // rest away. Checking first reported built-in-sized circles squeezed onto a skin's
+            // tight button spacing as "touch layout overlap" on the status line, a false alarm
+            // about controls nobody could see. The skin file decides where its buttons are.
+            setOverlapReport(nil)
             applyDeclaredSkinControls(skin: skin, canvas: skinCanvas)
         } else {
+            verifyNoOverlap()
             clearDeclaredSkinArt()
         }
         publishPictureArea(landscape: orientLandscape, skinCanvas: skinCanvas, skin: skin)
@@ -2944,7 +2951,9 @@ final class TouchControlsView: UIView {
         if specialHit(at: point) != nil {
             return true
         }
-        if dpadRect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
+        // Not an empty rect: a D-pad a skin left out is `.zero`, and growing that by the hit slop
+        // would still claim a few points in the corner of the screen.
+        if !dpadRect.isEmpty, dpadRect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
             return true
         }
         if chipIndex(at: point) != nil {
@@ -3016,7 +3025,10 @@ final class TouchControlsView: UIView {
     /// Every shape is grown by `hitSlop` first, because a thumb aiming at the edge of a button
     /// should still get it.
     private func chipIndex(at point: CGPoint) -> Int? {
-        for (index, rect) in chipRects.enumerated() where index < chips.count {
+        // An empty rect is a chip that is not on screen (a skin left it out, or there was no room
+        // to lay out), and must not answer: the circle test below would otherwise claim a few
+        // points around the screen's corner for it.
+        for (index, rect) in chipRects.enumerated() where index < chips.count && !rect.isEmpty {
             switch Self.hitShape(of: chips[index].control) {
             case .circle:
                 let dx = point.x - rect.midX
@@ -3062,7 +3074,8 @@ final class TouchControlsView: UIView {
                 // Before the D-pad and the chips: a function or switch the skin drew is the
                 // thing under the finger, and the procedural controls behind it are hidden.
                 grabs[ObjectIdentifier(touch)] = .special(index)
-            } else if dpadRect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
+            } else if !dpadRect.isEmpty,
+                      dpadRect.insetBy(dx: -Self.hitSlop, dy: -Self.hitSlop).contains(point) {
                 grabs[ObjectIdentifier(touch)] = .dpad(touch.location(in: dpad))
             } else if let index = chipIndex(at: point) {
                 grabs[ObjectIdentifier(touch)] = .chip(index)
@@ -3684,6 +3697,9 @@ final class TouchControlsView: UIView {
         artSpecial = [:]
         artSelected = [:]
         var chipHidden = Set<Int>()
+        // The built-in chips the skin names, by index. Every other one is taken off the screen
+        // below; see the loop after this one.
+        var chipNamed = Set<Int>()
         let wide = bounds.width > bounds.height && landscapeMapping.width > 0
             && landscapeMapping.height > 0
         switchScope = skin.face.skinID + (wide ? "#landscape" : "#portrait")
@@ -3718,6 +3734,7 @@ final class TouchControlsView: UIView {
                 continue
             }
             if let chipIndex = chips.firstIndex(where: { $0.control.slot.layoutKey == button.slot }) {
+                chipNamed.insert(chipIndex)
                 chips[chipIndex].frame = rect
                 if chipIndex < chipRects.count { chipRects[chipIndex] = rect }
                 if chipIndex < chipCentreNow.count {
@@ -3742,7 +3759,22 @@ final class TouchControlsView: UIView {
         lastSpecialHeld = lastSpecialHeld.filter { specialButtons[$0] != nil }
 
         for index in chips.indices {
-            chips[index].isHidden = chipHidden.contains(index)
+            // A BUILT-IN BUTTON THE SKIN DOES NOT NAME IS TAKEN AWAY, not left behind. It used to
+            // stay at its built-in spot as a faint ghost that still answered touches, and with a
+            // skin there is no clear strip any more, so those ghosts sat on top of the game's
+            // picture: touching the screen pressed buttons nobody could see. A skin is the whole
+            // layout, the way Delta and Manic treat it; a button the skin left out can still be
+            // added as an extra button in the layout editor. Its hit rectangle is emptied as well
+            // as the view hidden, because touches are answered from `chipRects`, not the view.
+            //
+            // Only when the skin places at least one built-in button itself. A skin saved by an
+            // older build can carry no button list at all and lean on the layout it was converted
+            // to, and taking every chip away from that one would leave a game with no buttons.
+            let leftOut = !chipNamed.isEmpty && !chipNamed.contains(index)
+            chips[index].isHidden = chipHidden.contains(index) || leftOut
+            if leftOut, index < chipRects.count {
+                chipRects[index] = .zero
+            }
         }
 
         if let frame = skin.face.dpadFrame {
@@ -3753,12 +3785,20 @@ final class TouchControlsView: UIView {
                 dpadCentreNow = CGPoint(x: rect.midX, y: rect.midY)
             }
         }
-        if let normal = skin.face.dpadImage {
+        // The same for the D-pad, but only when the skin gives directions some other way (a stick
+        // or circle pad). A skin with neither most likely has a D-pad this importer did not
+        // recognise, and a game with no way to move is worse than a faint D-pad.
+        let dpadLeftOut = skin.face.dpadFrame == nil && !skin.face.sticks.isEmpty
+        if dpadLeftOut {
+            dpadRect = .zero
+            dpad.frame = .zero
+        }
+        if let normal = skin.face.dpadImage, !dpadLeftOut {
             showArt(key: "dpad", image: normal, pressed: skin.face.dpadPressedImage, frame: dpadRect)
             usedArt.insert("dpad")
             dpad.isHidden = true
         } else {
-            dpad.isHidden = false
+            dpad.isHidden = dpadLeftOut
         }
 
         for stick in skin.face.sticks {

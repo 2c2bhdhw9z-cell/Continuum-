@@ -16,6 +16,10 @@
 // Wi-Fi address and port, and advertises `_continuum._tcp` over Bonjour. Join: type the address,
 // or tap a host found on the local network. The same game must be loaded on both phones; the
 // engine refuses a mismatch by name. Player 2's input goes to port 1 on both phones.
+//
+// If player 2's connection drops, the host listens and advertises again on the same port, and its
+// game runs on alone meanwhile. When player 2 connects again the host opens a fresh engine session
+// (a lost one is over for good) and the handshake sends the host's game as it is by then.
 
 import Darwin
 import Foundation
@@ -32,12 +36,33 @@ final class NetplayLink: @unchecked Sendable {
     private var connection: NWConnection?
     private var browser: NWBrowser?
 
+    // The host's side. Like the three above, only ever touched on `queue`.
+
+    /// From `listen` until `close`. While it is set, a guest whose connection drops is listened
+    /// for again rather than being the end of online play.
+    private var hosting = false
+    private var serviceName = ""
+    /// Whether the current listener ever reached `.ready`. Only one that never opened may move to
+    /// another port: once open, its port is the address player 2 has been given.
+    private var listenerReady = false
+    /// The port the last listener was open on, so a returning player 2 finds the address they know.
+    private var hostPort: UInt16 = 0
+    /// Player 2 left and this phone is listening for them again.
+    private var awaitingRejoin = false
+    /// A phone that came back, accepted but NOT started, until the controller has opened a fresh
+    /// engine session for it. See `admitReturningGuest`.
+    private var returningGuest: NWConnection?
+
     /// Written on the link queue, read on main by the controller through `snapshot`.
     private let lock = NSLock()
     private var _listeningPort: UInt16 = 0
     private var _transportNote = ""
     private var _nearby: [NetplayNearbyHost] = []
     private var _browseNote = ""
+    private var _awaitingRejoin = false
+    /// Set on the link queue when `returningGuest` is parked, cleared on main by
+    /// `claimReturningGuest`, so each return is handled exactly once.
+    private var _guestReturned = false
 
     init(engine: ContinuumEngine) {
         self.engine = engine
@@ -48,12 +73,15 @@ final class NetplayLink: @unchecked Sendable {
         let transportNote: String
         let nearby: [NetplayNearbyHost]
         let browseNote: String
+        /// The host's player 2 left and this phone is listening for them to come back.
+        let awaitingRejoin: Bool
     }
 
     func snapshot() -> Snapshot {
         lock.lock(); defer { lock.unlock() }
         return Snapshot(listeningPort: _listeningPort, transportNote: _transportNote,
-                        nearby: _nearby, browseNote: _browseNote)
+                        nearby: _nearby, browseNote: _browseNote,
+                        awaitingRejoin: _awaitingRejoin)
     }
 
     private func set(_ body: () -> Void) {
@@ -74,27 +102,36 @@ final class NetplayLink: @unchecked Sendable {
 
     func listen(serviceName: String) {
         queue.async { [self] in
-            startListener(serviceName: serviceName, fixedPort: true)
+            hosting = true
+            self.serviceName = serviceName
+            hostPort = 0
+            endRejoinWait()
+            startListener(port: netplayDefaultPort(), fallBackToAnyPort: true)
         }
     }
 
-    /// Tries the fixed port first, so the address can be typed from memory. A port already in use
-    /// does not throw here: Network.framework reports it later as `.failed`, which is where the
-    /// retry on any free port happens.
-    private func startListener(serviceName: String, fixedPort: Bool) {
+    /// Opens the listener and its Bonjour advert on `port`, or on any free port when it is nil.
+    /// The fixed port comes first, so the address can be typed from memory. With
+    /// `fallBackToAnyPort`, a port already in use moves to any free one: here when the listener
+    /// cannot be made, and in the state handler when it fails before it ever opened, because
+    /// Network.framework reports a busy port later as `.failed` rather than throwing.
+    private func startListener(port: UInt16?, fallBackToAnyPort: Bool) {
         stopListening()
+        listenerReady = false
         let parameters = Self.parameters()
         let made: NWListener?
-        if fixedPort, let port = NWEndpoint.Port(rawValue: netplayDefaultPort()) {
-            made = try? NWListener(using: parameters, on: port)
+        if let port, let fixed = NWEndpoint.Port(rawValue: port) {
+            made = try? NWListener(using: parameters, on: fixed)
         } else {
             made = try? NWListener(using: parameters)
         }
         guard let listener = made else {
-            if fixedPort {
-                startListener(serviceName: serviceName, fixedPort: false)
+            if fallBackToAnyPort {
+                startListener(port: nil, fallBackToAnyPort: false)
                 return
             }
+            hosting = false
+            endRejoinWait()
             set { _transportNote = "could not open a port to listen on" }
             engine.netplayTransportLost(reason: "this phone could not open a port to listen on")
             return
@@ -107,15 +144,24 @@ final class NetplayLink: @unchecked Sendable {
             guard let self, let listener, self.listener === listener else { return }
             switch state {
             case .ready:
+                self.listenerReady = true
+                let bound = listener.port?.rawValue ?? 0
+                if bound != 0 { self.hostPort = bound }
                 self.set {
-                    self._listeningPort = listener.port?.rawValue ?? 0
+                    self._listeningPort = bound
                     self._transportNote = ""
                 }
             case .failed(let error):
-                if fixedPort {
-                    self.set { self._transportNote = "port \(netplayDefaultPort()) is busy, using another" }
-                    self.startListener(serviceName: serviceName, fixedPort: false)
+                if fallBackToAnyPort, !self.listenerReady {
+                    let busy = port ?? netplayDefaultPort()
+                    self.set { self._transportNote = "port \(busy) is busy, using another" }
+                    self.startListener(port: nil, fallBackToAnyPort: false)
                 } else {
+                    // A listener that was open keeps its port, even failing: moving it would
+                    // silently change the address player 2 was given. It is reported instead.
+                    self.stopListening()
+                    self.hosting = false
+                    self.endRejoinWait()
                     self.set { self._transportNote = "listening failed: \(error)" }
                     self.engine.netplayTransportLost(reason: "listening failed (\(error))")
                 }
@@ -127,17 +173,55 @@ final class NetplayLink: @unchecked Sendable {
         }
         listener.newConnectionHandler = { [weak self] incoming in
             guard let self else { return }
-            if self.connection != nil {
+            if self.connection != nil || self.returningGuest != nil {
                 // One guest only. A third phone is turned away rather than replacing player 2.
                 incoming.cancel()
                 return
             }
             // Stop advertising once player 2 is here.
             self.stopListening()
-            self.adopt(incoming)
+            if self.awaitingRejoin {
+                // Player 2 coming back. The engine ended its session for good when they left,
+                // so this connection waits, not started, until the controller has opened a
+                // fresh host session for it on the main thread.
+                self.returningGuest = incoming
+                self.set { self._guestReturned = true }
+            } else {
+                self.adopt(incoming)
+            }
         }
         self.listener = listener
         listener.start(queue: queue)
+    }
+
+    /// Not waiting for a returning player 2 any more: they were let in, or hosting ended.
+    private func endRejoinWait() {
+        awaitingRejoin = false
+        set {
+            _awaitingRejoin = false
+            _guestReturned = false
+        }
+    }
+
+    /// Main thread. True once for each phone that came back while this host was waiting for it,
+    /// so the controller opens exactly one fresh engine session per return.
+    func claimReturningGuest() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard _guestReturned else { return false }
+        _guestReturned = false
+        return true
+    }
+
+    /// Starts the returning phone's connection, once the engine has a fresh host session. From
+    /// here it is a first join again: `.ready` says `netplayTransportConnected`, the guest says
+    /// hello, and the host's current state goes over as the new starting state.
+    func admitReturningGuest() {
+        queue.async { [self] in
+            guard let incoming = returningGuest else { return }
+            returningGuest = nil
+            endRejoinWait()
+            adopt(incoming)
+        }
     }
 
     private func stopListening() {
@@ -169,6 +253,9 @@ final class NetplayLink: @unchecked Sendable {
                 self.set { self._transportNote = "waiting for the network: \(error)" }
             case .failed(let error):
                 self.lost("\(error)")
+                // A failed connection still holds its resources until cancelled. `lost` has
+                // already let go of it, so the `.cancelled` this causes is ignored above.
+                connection.cancel()
             case .cancelled:
                 self.lost("the connection was closed")
             default:
@@ -182,6 +269,15 @@ final class NetplayLink: @unchecked Sendable {
         connection = nil
         engine.netplayTransportLost(reason: reason)
         set { _transportNote = reason }
+        // A host's player 2 dropped. Listen and advertise again on the same port, so they can
+        // come back from Nearby or by the address they already have. The game is not touched:
+        // the engine's session has just ended, so the host's game runs on alone until they do.
+        if hosting {
+            awaitingRejoin = true
+            set { _awaitingRejoin = true }
+            startListener(port: hostPort == 0 ? netplayDefaultPort() : hostPort,
+                          fallBackToAnyPort: true)
+        }
     }
 
     private func receive(on connection: NWConnection) {
@@ -221,9 +317,13 @@ final class NetplayLink: @unchecked Sendable {
         })
     }
 
-    /// Sends the goodbye, then closes everything.
+    /// Sends the goodbye, then closes everything, including the wait for a returning player 2.
     func close(sendingLast bytes: Data) {
         queue.async { [self] in
+            hosting = false
+            endRejoinWait()
+            returningGuest?.cancel()
+            returningGuest = nil
             stopListening()
             guard let connection else { return }
             self.connection = nil
@@ -384,6 +484,8 @@ final class NetplayController: ObservableObject {
     /// few times a second (publishing sixty times a second would rebuild the player for nothing).
     func afterTick() {
         guard isActive || engine.netplayIsLive() else { return }
+        // Before the flush, so a player 2 who came back is let in on this tick.
+        takeBackReturningGuest()
         link.flush()
         let now = CACurrentMediaTime()
         if now - lastRefresh > 0.25 {
@@ -395,9 +497,16 @@ final class NetplayController: ObservableObject {
     func refresh() {
         let status = engine.netplayStatus()
         let snap = link.snapshot()
-        kind = status.kind
+        // The engine calls this "disconnected", which reads as the end of online play. It is not:
+        // this phone is listening again (see `NetplayLink.lost`) and lets player 2 back in as soon
+        // as they reconnect, so it is shown as a wait, with the reason it ended in the detail.
+        let awaitingRejoin = snap.awaitingRejoin && status.role == .host
+            && status.kind == .disconnected
+        kind = awaitingRejoin ? .waiting : status.kind
         isHost = status.role == .host
-        var text = status.line
+        var text = awaitingRejoin
+            ? "online: the other phone left; waiting for it to rejoin (your game carries on)"
+            : status.line
         if !snap.transportNote.isEmpty, status.kind != .running {
             text += " (\(snap.transportNote))"
         }
@@ -409,15 +518,20 @@ final class NetplayController: ObservableObject {
             addressLine = addresses.isEmpty
                 ? "Hosting on port \(snap.listeningPort), but this phone has no Wi-Fi address"
                 : "Hosting at " + addresses.map { "\($0):\(snap.listeningPort)" }.joined(separator: " or ")
-        } else if status.kind == .waiting, status.role == .host {
+        } else if status.role == .host, status.kind == .waiting || awaitingRejoin {
             addressLine = "Opening a port..."
         } else {
             addressLine = ""
         }
-        let ping = status.pingMs >= 0 ? String(format: "%.0f ms", status.pingMs) : "--"
-        detailLine = "frame \(status.frame), delay \(status.inputDelay), ping \(ping), "
-            + "\(status.checksCompared) desync checks passed"
-            + (status.desyncFrame.map { ", DESYNC at frame \($0)" } ?? "")
+        if awaitingRejoin {
+            // Why the last session ended ("the other player left (...)", "refused player 2: ...").
+            detailLine = status.line
+        } else {
+            let ping = status.pingMs >= 0 ? String(format: "%.0f ms", status.pingMs) : "--"
+            detailLine = "frame \(status.frame), delay \(status.inputDelay), ping \(ping), "
+                + "\(status.checksCompared) desync checks passed"
+                + (status.desyncFrame.map { ", DESYNC at frame \($0)" } ?? "")
+        }
         if host?.netplayLive != status.live {
             host?.netplayLive = status.live
         }
@@ -434,15 +548,45 @@ final class NetplayController: ObservableObject {
     func hostGame() {
         guard let entry = gameEntry() else { return }
         do {
-            try engine.netplayHost(contentPath: entry.path, inputDelay: UInt32(max(0, inputDelay)),
-                                   checksumInterval: 60)
-            host?.emulation.releaseHeldControls()
-            // Pause is hidden while online, so a paused game is resumed rather than stranded.
-            if host?.paused == true { host?.togglePause() }
+            try openHostSession(for: entry)
             link.listen(serviceName: "Continuum \(UIDevice.current.name): \(entry.name)")
             host?.status = "online: hosting \(entry.name), waiting for player 2"
         } catch {
             line = "online: could not host: \(error)"
+        }
+        refresh()
+    }
+
+    /// A fresh host session in the engine for the running game. Shared by `hostGame` and by
+    /// taking a returning player 2 back, so both start from exactly the same place.
+    private func openHostSession(for entry: LibraryEntry) throws {
+        try engine.netplayHost(contentPath: entry.path, inputDelay: UInt32(max(0, inputDelay)),
+                               checksumInterval: 60)
+        host?.emulation.releaseHeldControls()
+        // Pause is hidden while online, so a paused game is resumed rather than stranded.
+        if host?.paused == true { host?.togglePause() }
+    }
+
+    /// Player 2 reconnected to this host after leaving. A lost connection ends the engine's
+    /// session for good (`NetplaySession::transport_lost`), so a fresh one is opened on the same
+    /// game, exactly as tapping Host does, and only then is their connection started: the
+    /// handshake and the starting state (the host's game as it is now) follow as the first time.
+    /// On the main thread, like `leave`, so a phone coming back and the host leaving can never
+    /// interleave.
+    private func takeBackReturningGuest() {
+        guard link.claimReturningGuest() else { return }
+        guard let entry = host?.activeEntry else {
+            link.close(sendingLast: Data())
+            return
+        }
+        do {
+            try openHostSession(for: entry)
+            link.admitReturningGuest()
+            host?.status = "online: the other phone is back; sending it this game as it is now"
+        } catch {
+            link.close(sendingLast: Data())
+            host?.status = "online: the other phone came back, but hosting could not restart: "
+                + "\(error)"
         }
         refresh()
     }

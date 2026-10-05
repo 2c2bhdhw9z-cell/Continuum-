@@ -8,6 +8,8 @@
 //! Every exported method is unconditional, because `#[uniffi::export]` ignores `#[cfg]` on
 //! individual methods.
 
+use std::collections::HashMap;
+
 use super::{ContinuumEngine, EngineError};
 use crate::cheats::search::{SearchFilter, SearchWidth};
 
@@ -152,6 +154,12 @@ pub struct StateExportRecord {
     pub created_at: f64,
     pub slot: i64,
     pub label: String,
+    /// The core option values the state was saved under (`SaveStateRecord.coreOptions`). `None`
+    /// is unknown, a file from a build that did not carry them, and is NOT the same as an empty
+    /// map: the gate checks an unknown against defaults. Last, and defaulted, so the Swift
+    /// initialiser only grew a trailing `coreOptions: [String: String]? = nil`.
+    #[uniffi(default = None)]
+    pub core_options: Option<HashMap<String, String>>,
 }
 
 impl From<StateExportRecord> for crate::saves::StateExportMeta {
@@ -165,6 +173,8 @@ impl From<StateExportRecord> for crate::saves::StateExportMeta {
             created_at: r.created_at,
             slot: r.slot,
             label: r.label,
+            // Into a sorted map, which is what makes the written file deterministic.
+            core_options: r.core_options.map(|o| o.into_iter().collect()),
         }
     }
 }
@@ -180,6 +190,7 @@ impl From<crate::saves::StateExportMeta> for StateExportRecord {
             created_at: m.created_at,
             slot: m.slot,
             label: m.label,
+            core_options: m.core_options.map(|o| o.into_iter().collect()),
         }
     }
 }

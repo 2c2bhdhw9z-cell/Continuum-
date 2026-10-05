@@ -61,6 +61,9 @@ struct ImportScreen: View {
                         Text(wifi.address)
                             .font(.system(.title3, design: .monospaced))
                             .textSelection(.enabled)
+                        Text("Type this whole address, including the last part. It changes each time "
+                             + "you turn Wi-Fi transfer on.")
+                            .font(.footnote)
                     }
                     Text(wifi.line).font(.footnote).foregroundStyle(.secondary)
                 } header: {

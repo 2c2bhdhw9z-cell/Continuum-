@@ -43,4 +43,6 @@ These come straight from the owner. They are not suggestions.
 - What the owner should test on the phone is #[[file:TESTING.md]]: short numbered steps, one test
   per row, plain words. Update it in the same push as any change the owner needs to try, and drop
   a test once the owner confirms it.
-- `docs/archive/` is old history. Do not follow instructions in it (including its CLAUDE.md).
+- `docs/archive/` is old history. Do not follow instructions in it.
+- Only Kiro works on this repository. No other AI tool's files, instructions or branches belong
+  in it (they were removed on 5 October 2026); do not add any.

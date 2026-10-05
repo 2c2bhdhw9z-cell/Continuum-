@@ -193,27 +193,51 @@ enum ArtworkDisk {
         return DecodedImage(image: image.preparingForDisplay() ?? image)
     }
 
-    /// The result of storing a cover: the decoded image either way, and a note when the write
-    /// failed, because a cover that displays now and is gone after a relaunch must not look like a
-    /// success.
+    /// The result of storing a cover: the decoded image, or nil when the bytes would not decode and
+    /// nothing was written, and a note when the write failed, because a cover that displays now and
+    /// is gone after a relaunch must not look like a success.
     struct StoreResult: @unchecked Sendable {
         let image: UIImage?
         let writeFailure: String?
     }
 
+    /// Decodes, and writes ONLY bytes that decoded.
+    ///
+    /// THE ORDER IS THE FIX. This used to write first and decode second, so bytes that would not
+    /// decode had already replaced the stored cover by the time anything looked at them: a chosen
+    /// cover that came back broken destroyed the one it was meant to replace, and when that was an
+    /// image picked from Files or a frame captured from the game, the only copy of it. Bytes that do
+    /// not decode now leave the file on disk exactly as it was.
+    ///
+    /// The store's own paths decode with `decode(data:)` and then call `write(data:key:)`
+    /// themselves, because they have to check something on the main actor between the two. See
+    /// `write(data:key:)`.
     static func store(data: Data, key: String) async -> StoreResult {
-        let decoded = UIImage(data: data)
-        let prepared = decoded?.preparingForDisplay() ?? decoded
+        guard let decoded = UIImage(data: data) else {
+            return StoreResult(image: nil, writeFailure: nil)
+        }
+        let prepared = decoded.preparingForDisplay() ?? decoded
+        return StoreResult(image: prepared, writeFailure: write(data: data, key: key))
+    }
+
+    /// Writes bytes that have ALREADY been decoded as a cover. Nil on success, otherwise why not.
+    ///
+    /// SYNCHRONOUS ON PURPOSE, and the one thing in this type that is. `ArtworkStore` calls it on the
+    /// main actor straight after checking that the user has not acted on the game since its lookup
+    /// started, with no suspension between the check and the write; an async write would leave a
+    /// window in which a lookup that passed the check lands on the disk AFTER a cover the user has
+    /// just chosen, and so replaces it. The expensive part, the decode, has already happened off the
+    /// main actor. What is left is one atomic file write, a few hundred kilobytes for a downloaded
+    /// cover and a megabyte or two for a captured frame, once per cover rather than once per scroll.
+    static func write(data: Data, key: String) -> String? {
         guard let url = fileURL(for: key) else {
-            return StoreResult(image: prepared,
-                               writeFailure: "no Application Support directory, so it was not kept")
+            return "no Application Support directory, so it was not kept"
         }
         do {
             try data.write(to: url, options: .atomic)
-            return StoreResult(image: prepared, writeFailure: nil)
+            return nil
         } catch {
-            return StoreResult(image: prepared,
-                               writeFailure: "could not be written: \(error.localizedDescription)")
+            return "could not be written: \(error.localizedDescription)"
         }
     }
 
@@ -244,6 +268,26 @@ enum ArtworkDisk {
     static func remove(key: String) async -> Bool {
         guard let url = fileURL(for: key) else { return false }
         return (try? FileManager.default.removeItem(at: url)) != nil
+    }
+
+    /// Deletes the stored covers whose key is not in `live`, and returns how many went.
+    ///
+    /// ONLY "<key>.cover" FILES DIRECTLY IN THIS DIRECTORY, and the narrowness is the point.
+    /// `coverFiles()` lists this directory alone and leaves out subdirectories, so the CoverLists
+    /// folder and everything in it can never be reached from here, and the name check leaves out
+    /// any file this type did not name itself: sixteen hex digits, the shape `key(forPath:)` makes.
+    static func removeCovers(notIn live: Set<String>) async -> Int {
+        var removed = 0
+        for url in coverFiles() where url.pathExtension == "cover" {
+            let key = url.deletingPathExtension().lastPathComponent
+            guard key.count == 16, key.allSatisfy({ $0.isHexDigit }), !live.contains(key) else {
+                continue
+            }
+            if (try? FileManager.default.removeItem(at: url)) != nil {
+                removed += 1
+            }
+        }
+        return removed
     }
 
     /// Whether a cover is already stored, WITHOUT reading or decoding it.
@@ -529,6 +573,15 @@ final class ArtworkStore: ObservableObject {
     /// Games row are routinely the same game on screen three times over.
     private var inFlight: [String: Task<CoverImage?, Never>] = [:]
 
+    /// How many times the user has acted on each game's cover this run, by cover key.
+    ///
+    /// THE GUARD THAT LETS THE USER WIN. A lookup takes seconds, and in that time the user can
+    /// choose, pick, capture or remove a cover for the very game it is looking up. Every lookup
+    /// notes this number when it starts and stores nothing if it has moved by the time it is about
+    /// to, so an automatic answer that arrives late can never undo what the user just did. Memory
+    /// only, because no lookup outlives the run it started in. See `userActed(onKey:)`.
+    private var userEpochs: [String: Int] = [:]
+
     // -------------------------------------- the server's own lists, once per system and folder
 
     /// The cover lists already in memory, keyed on SYSTEM AND FOLDER. Read on every list search, so
@@ -642,17 +695,48 @@ final class ArtworkStore: ObservableObject {
             return await running.value
         }
 
+        // Noted BEFORE the lookup starts, so anything the user does to this game's cover while it
+        // runs makes its answer stale. See `userEpochs`.
+        let epoch = userEpoch(forKey: key)
         // Unstructured on purpose, so a card scrolling off screen does not cancel a download that
         // is nearly finished: the cover lands in the cache and the next card that asks gets it
         // free.
         let task = Task { [weak self] () -> CoverImage? in
             guard let self else { return nil }
-            return await self.resolve(entry: entry, system: system, key: key)
+            return await self.resolve(entry: entry, system: system, key: key, epoch: epoch)
         }
         inFlight[key] = task
         let cover = await task.value
-        inFlight[key] = nil
+        // Only this lookup's own entry is cleared. A user action lets go of a lookup it has made
+        // stale (see `userActed(onKey:)`), and a fresh one may have taken the slot since.
+        if inFlight[key] == task {
+            inFlight[key] = nil
+        }
         return cover
+    }
+
+    /// The user-action count for one cover key. See `userEpochs`.
+    private func userEpoch(forKey key: String) -> Int {
+        userEpochs[key] ?? 0
+    }
+
+    /// Records that the user has just acted on this game's cover. Called synchronously, BEFORE the
+    /// action writes or removes anything, by every path a user drives: choose, pick, capture,
+    /// remove, give back to automatic, look up again, and a deleted game.
+    ///
+    /// The lookup already running for the game is let go as well as made stale, so the next card
+    /// that asks starts a fresh one instead of waiting on an answer that is going to be thrown away.
+    private func userActed(onKey key: String) {
+        userEpochs[key, default: 0] += 1
+        inFlight[key] = nil
+    }
+
+    /// What a lookup the user overtook hands back instead of its own answer: whatever the user's
+    /// action has left in memory, so a card still waiting on the old lookup is handed the new cover,
+    /// or nothing, and never the one the user just replaced.
+    private func overtaken(key: String) -> CoverImage? {
+        guard let image = memory.object(forKey: key as NSString) else { return nil }
+        return CoverImage(image: image, provenance: provenance(forKey: key) ?? "stored cover")
     }
 
     // --------------------------------------------- every game, not only the ones on screen
@@ -740,11 +824,20 @@ final class ArtworkStore: ObservableObject {
         }
     }
 
+    /// `epoch` is the game's user-action count when this lookup started; see `userEpochs`. It is
+    /// checked again after every wait that is long enough for the user to have acted, and a lookup
+    /// that has been overtaken stops there and changes nothing.
     private func resolve(entry: LibraryEntry, system: GameSystem?,
-                         key: String) async -> CoverImage? {
+                         key: String, epoch: Int) async -> CoverImage? {
         // 1. Already on disk. This is the path every launch after the first one takes, and it needs
         //    no network at all.
-        if let stored = await ArtworkDisk.load(key: key) {
+        let stored = await ArtworkDisk.load(key: key)
+        // Checked whether or not anything was found. A read that started before the user picked or
+        // removed a cover may hand back the bytes they just replaced; and one that found nothing
+        // would go on to step 1b and could take the user's brand new choice for one whose file is
+        // gone, and forget it.
+        guard userEpoch(forKey: key) == epoch else { return overtaken(key: key) }
+        if let stored {
             memory.setObject(stored.image, forKey: key as NSString,
                              cost: Self.memoryCost(of: stored.image))
             return CoverImage(image: stored.image,
@@ -758,7 +851,7 @@ final class ArtworkStore: ObservableObject {
         //     and quietly overwrite a decision the user made.
         if let choice = readChoices()[key] {
             return await restore(choice: choice, key: key,
-                                 title: GameMetadata.displayTitle(for: entry))
+                                 title: GameMetadata.displayTitle(for: entry), epoch: epoch)
         }
 
         // 2. Turned off. Not a failure, and not worth a status line per game.
@@ -791,20 +884,30 @@ final class ArtworkStore: ObservableObject {
         let outcome = await ArtworkFetcher.resolve(candidates: candidates)
         await ArtworkGate.shared.release()
 
+        // The ladder took seconds. If the user acted on this game meanwhile, nothing it found is
+        // kept, and nothing it failed to find is remembered or reported either.
+        guard userEpoch(forKey: key) == epoch else { return overtaken(key: key) }
+
         let title = GameMetadata.displayTitle(for: entry)
 
         switch outcome {
         case let .found(data, tier, source, address):
             return await keep(data: data, tier: tier, source: source, address: address,
-                              key: key, title: title)
+                              key: key, title: title, epoch: epoch)
 
         case let .noArtOnServer(probes):
             // EVERY NAME THIS BUILD CAN DERIVE IS A 404, WHICH IS NOT THE SAME AS "NO ART EXISTS".
             // "Kart Fighter.nes" is a 404 under every one of those names and the server has the
             // cover under "Kart Fighter (199x)(-)(AS)[p].png". So before a miss is believed, ask
             // the server what it actually has. This rung is the expensive one, so it is last.
-            switch await searchCoverList(entry: entry, system: system, key: key,
-                                         walked: candidates, probes: probes, title: title) {
+            let search = await searchCoverList(entry: entry, system: system, key: key,
+                                               walked: candidates, probes: probes, title: title,
+                                               epoch: epoch)
+            // Again after the search, which can take far longer than the ladder did: a miss
+            // recorded now would be remembered for a week against a game the user has just given
+            // a cover.
+            guard userEpoch(forKey: key) == epoch else { return overtaken(key: key) }
+            switch search {
             case let .found(cover):
                 return cover
             case .searchedAndAbsent:
@@ -860,10 +963,26 @@ final class ArtworkStore: ObservableObject {
     /// Shared by the ladder and by the list search, so there is ONE place that decodes, one place
     /// that writes, and one set of failure sentences. Two copies of this would be two sets of
     /// strings to keep true, and the second copy is always the one that goes stale.
+    ///
+    /// `epoch` is the lookup's starting user-action count (see `userEpochs`), and `choice` is the
+    /// choice being put back when this is called by `restore`, nil for every automatic lookup.
     private func keep(data: Data, tier: String, source: String, address: String,
-                      key: String, title: String) async -> CoverImage? {
-        let result = await ArtworkDisk.store(data: data, key: key)
-        guard let image = result.image else {
+                      key: String, title: String, epoch: Int,
+                      restoring choice: ArtworkChoice? = nil) async -> CoverImage? {
+        // DECODED BEFORE ANYTHING IS WRITTEN, off the main actor. Bytes that will not decode never
+        // reach the disk: there, `hasCover` would make the sweep skip this game for good while every
+        // card that asked downloaded it again.
+        let decoded = await ArtworkDisk.decode(data: data)
+
+        // AN AUTOMATIC ANSWER NEVER OVERRULES THE USER. If they chose, picked, captured or removed a
+        // cover for this game while this lookup ran, its answer is thrown away, and so it is if a
+        // choice exists at all: a lookup only ever starts for a game with no choice. A restore is
+        // the one caller that runs with a choice in place, and it may only put back the very choice
+        // it was started for.
+        guard userEpoch(forKey: key) == epoch, readChoices()[key] == choice else {
+            return overtaken(key: key)
+        }
+        guard let image = decoded?.image else {
             failedThisRun += 1
             reportLookupFailure(
                 reason: "the server answered with bytes that would not decode as an image",
@@ -871,6 +990,11 @@ final class ArtworkStore: ObservableObject {
             )
             return nil
         }
+        // Written HERE, synchronously, with no suspension since the check above. That is what makes
+        // the check true at the moment the file changes: every user action records itself on this
+        // actor before it writes, so it either came first and this returned above, or it comes
+        // after and its own write replaces this one. See `ArtworkDisk.write(data:key:)`.
+        let writeFailure = ArtworkDisk.write(data: data, key: key)
         memory.setObject(image, forKey: key as NSString,
                          cost: Self.memoryCost(of: image))
         clearMiss(key)
@@ -878,7 +1002,7 @@ final class ArtworkStore: ObservableObject {
         // The address as well as the readable sentence, so the chooser can mark THIS cover as the one
         // in use by comparing URLs instead of parsing English.
         recordAddress(address, forKey: key)
-        if let failure = result.writeFailure {
+        if let failure = writeFailure {
             // Showing now, gone after a relaunch. Said out loud rather than left looking permanent,
             // because a cover that silently re-downloads every launch is a bug that only shows up
             // as a data bill.
@@ -987,7 +1111,7 @@ final class ArtworkStore: ObservableObject {
     /// still costs exactly one list. Other systems come last and are bounded; see above.
     private func searchCoverList(entry: LibraryEntry, system: GameSystem, key: String,
                                  walked: [ArtworkCandidate], probes: Int,
-                                 title: String) async -> CoverListSearch {
+                                 title: String, epoch: Int) async -> CoverListSearch {
         let searchTitle = ArtworkIndexNames.searchTitle(forFilename: entry.name)
         guard !searchTitle.isEmpty else {
             // A filename that is nothing but tags has no title to search for, and an empty title
@@ -1017,7 +1141,7 @@ final class ArtworkStore: ObservableObject {
             let verdict = await consider(list: list, from: system, folder: folder,
                                          gameSystem: system, key: key, searchTitle: searchTitle,
                                          title: title, probes: probes,
-                                         walkedAddresses: walkedAddresses)
+                                         walkedAddresses: walkedAddresses, epoch: epoch)
             if let cover = verdict.cover { return .found(cover) }
             walk.ambiguous += verdict.ambiguous
             if let failure = verdict.failure { walk.failure = failure }
@@ -1027,7 +1151,8 @@ final class ArtworkStore: ObservableObject {
         let crossSystem = await searchOtherSystems(system: system, key: key,
                                                    searchTitle: searchTitle, title: title,
                                                    probes: probes,
-                                                   walkedAddresses: walkedAddresses, walk: walk)
+                                                   walkedAddresses: walkedAddresses, walk: walk,
+                                                   epoch: epoch)
         walk = crossSystem.walk
         if let cover = crossSystem.cover { return .found(cover) }
 
@@ -1054,7 +1179,8 @@ final class ArtworkStore: ObservableObject {
     /// box art lists fetched, in ascending measured size, stopping at the first hit.
     private func searchOtherSystems(system: GameSystem, key: String, searchTitle: String,
                                     title: String, probes: Int, walkedAddresses: Set<String>,
-                                    walk: ListWalk) async -> (cover: CoverImage?, walk: ListWalk) {
+                                    walk: ListWalk,
+                                    epoch: Int) async -> (cover: CoverImage?, walk: ListWalk) {
         var walk = walk
 
         // The free pass. Folder-major, so the box art of every system is searched before any title
@@ -1071,7 +1197,8 @@ final class ArtworkStore: ObservableObject {
                 let verdict = await consider(list: list, from: other, folder: folder,
                                              gameSystem: system, key: key,
                                              searchTitle: searchTitle, title: title,
-                                             probes: probes, walkedAddresses: walkedAddresses)
+                                             probes: probes, walkedAddresses: walkedAddresses,
+                                             epoch: epoch)
                 if let cover = verdict.cover { return (cover, walk) }
                 walk.ambiguous += verdict.ambiguous
                 if let failure = verdict.failure { walk.failure = failure }
@@ -1108,7 +1235,7 @@ final class ArtworkStore: ObservableObject {
             let verdict = await consider(list: list, from: other, folder: .boxart,
                                          gameSystem: system, key: key, searchTitle: searchTitle,
                                          title: title, probes: probes,
-                                         walkedAddresses: walkedAddresses)
+                                         walkedAddresses: walkedAddresses, epoch: epoch)
             if let cover = verdict.cover { return (cover, walk) }
             walk.ambiguous += verdict.ambiguous
             if let failure = verdict.failure { walk.failure = failure }
@@ -1127,7 +1254,7 @@ final class ArtworkStore: ObservableObject {
     private func consider(list: ArtworkCoverList, from listSystem: GameSystem,
                           folder: ThumbnailFolder, gameSystem: GameSystem, key: String,
                           searchTitle: String, title: String, probes: Int,
-                          walkedAddresses: Set<String>) async -> ListVerdict {
+                          walkedAddresses: Set<String>, epoch: Int) async -> ListVerdict {
         // Counted here rather than where a list is wanted, so the figure in Settings is the number
         // of searches that really happened.
         listSearchesThisRun += 1
@@ -1146,7 +1273,8 @@ final class ArtworkStore: ObservableObject {
 
         switch await claim(filename: filename, from: listSystem, folder: folder,
                            gameSystem: gameSystem, key: key, title: title, probes: probes,
-                           walkedAddresses: walkedAddresses, matchedExactly: hit.exact != nil) {
+                           walkedAddresses: walkedAddresses, matchedExactly: hit.exact != nil,
+                           epoch: epoch) {
         case let .found(cover):
             return ListVerdict(cover: cover, ambiguous: 0, failure: nil)
         case .absent:
@@ -1159,7 +1287,10 @@ final class ArtworkStore: ObservableObject {
     /// Downloads and keeps the one file a list named, and says which avenue found it.
     private func claim(filename: String, from listSystem: GameSystem, folder: ThumbnailFolder,
                        gameSystem: GameSystem, key: String, title: String, probes: Int,
-                       walkedAddresses: Set<String>, matchedExactly: Bool) async -> ListClaim {
+                       walkedAddresses: Set<String>, matchedExactly: Bool,
+                       epoch: Int) async -> ListClaim {
+        // Not worth a download once the user has acted on this game: `keep` would throw it away.
+        guard userEpoch(forKey: key) == epoch else { return .absent }
         // The listing's filenames are the server's real ones, so they are percent-encoded on the way
         // out and NOT run through the invalid-character substitution: that transform exists to turn
         // a ROM's filename into a libretro name, and this name already is one.
@@ -1190,10 +1321,14 @@ final class ArtworkStore: ObservableObject {
                 : source
             let label = crossSystem ? "\(tier)-\(listSystem.rawValue)" : tier
             guard let cover = await keep(data: data, tier: label, source: provenance,
-                                         address: address, key: key, title: title) else {
+                                         address: address, key: key, title: title,
+                                         epoch: epoch) else {
                 // `keep` has already written the specific reason it could not be kept.
                 return .failed("the cover \(listName) named could not be kept")
             }
+            // Overtaken by the user: `keep` handed back their cover rather than this one, so there
+            // is no match to count or announce, and the walk ends here.
+            guard userEpoch(forKey: key) == epoch else { return .found(cover) }
             listMatchesThisRun += 1
             if crossSystem {
                 crossSystemMatchesThisRun += 1
@@ -1467,13 +1602,22 @@ final class ArtworkStore: ObservableObject {
                    + "\(failure ?? "the reason was not reported")")
             return
         }
-        let result = await ArtworkDisk.store(data: data, key: key)
-        guard let image = result.image else {
+        // Decoded FIRST, and nothing is written unless it decodes, which is what makes "the cover
+        // was not changed" below true: the stored cover may be an image picked from Files or a frame
+        // captured from the game, and the stored copy of those is the only one.
+        guard let decoded = await ArtworkDisk.decode(data: data) else {
             report("artwork: \(option.label) for \(title) came back as bytes that would not decode "
                    + "as an image, so the cover was not changed")
             return
         }
+        let image = decoded.image
 
+        // FROM HERE TO THE CHOICE BELOW IS ONE SYNCHRONOUS STRETCH on the main actor, with no await
+        // in it. Recording the action first makes any lookup still running for this game stale, and
+        // writing before anything can suspend means no lookup can slip its file in between this
+        // write and the choice that protects it. See `keep`.
+        userActed(onKey: key)
+        let writeFailure = ArtworkDisk.write(data: data, key: key)
         memory.setObject(image, forKey: key as NSString, cost: Self.memoryCost(of: image))
         optionThumbnails.setObject(image, forKey: option.url.absoluteString as NSString,
                                    cost: Self.memoryCost(of: image))
@@ -1488,7 +1632,7 @@ final class ArtworkStore: ObservableObject {
         await refreshUsage()
         generation += 1
 
-        if let writeFailure = result.writeFailure {
+        if let writeFailure {
             report("artwork: \(title) is showing \(option.label) but it \(writeFailure), so it will "
                    + "have to be fetched again")
         } else {
@@ -1505,10 +1649,17 @@ final class ArtworkStore: ObservableObject {
                    + "automatically")
             return
         }
+        // Before anything is removed, so a lookup still running for this game cannot store its
+        // answer after the removal below and bring a cover back.
+        userActed(onKey: key)
         recordChoice(nil, forKey: key)
         memory.removeObject(forKey: key as NSString)
         Task {
             _ = await ArtworkDisk.remove(key: key)
+            // And again once the file is gone: a card that asked while it was being removed may
+            // have read the old cover back, and that must not be what it is left showing.
+            userActed(onKey: key)
+            memory.removeObject(forKey: key as NSString)
             recordProvenance(nil, forKey: key)
             recordAddress(nil, forKey: key)
             clearMiss(key)
@@ -1554,7 +1705,12 @@ final class ArtworkStore: ObservableObject {
     /// lookup would walk the ladder and quietly replace a cover the user picked. A remote choice is
     /// downloaded again. A picked file cannot be: the stored copy was the only copy, so the record is
     /// dropped and that is said out loud rather than left looking like a cover that came back wrong.
-    private func restore(choice: ArtworkChoice, key: String, title: String) async -> CoverImage? {
+    ///
+    /// `epoch` is the calling lookup's starting user-action count. The local branch runs with no
+    /// await between `resolve` reading the choice and acting on it; the remote one waits on the
+    /// network, so it checks again before it touches anything.
+    private func restore(choice: ArtworkChoice, key: String, title: String,
+                         epoch: Int) async -> CoverImage? {
         switch choice.kind {
         case .pickedFile, .capturedFrame, .unknown:
             // THE THREE LOCAL KINDS SHARE ONE PATH, because the only thing this function can act on
@@ -1609,11 +1765,18 @@ final class ArtworkStore: ObservableObject {
             let outcome = await ArtworkFetcher.resolve(candidates: [candidate])
             await ArtworkGate.shared.release()
 
+            // The user may have chosen, picked or removed a cover while this was fetched. A restore
+            // they overtook must neither put the old choice's bytes back nor, below, forget a choice
+            // that is no longer the one it set out to restore.
+            guard userEpoch(forKey: key) == epoch, readChoices()[key] == choice else {
+                return overtaken(key: key)
+            }
+
             switch outcome {
             case let .found(data, _, _, resolvedAddress):
                 return await keep(data: data, tier: "\(folder.tier)-chosen",
                                   source: "chosen: \(choice.label)", address: resolvedAddress,
-                                  key: key, title: title)
+                                  key: key, title: title, epoch: epoch, restoring: choice)
             case .noArtOnServer:
                 recordChoice(nil, forKey: key)
                 failedThisRun += 1
@@ -1679,9 +1842,15 @@ final class ArtworkStore: ObservableObject {
     ///
     /// An EMPTY library prunes nothing. A scan that could not read the directory looks exactly like a
     /// library that was emptied, and throwing away every choice a user ever made on the strength of a
-    /// failed directory read would be unforgivable. The stored cover FILES are left alone too: they
-    /// are reproducible, they are counted and clearable in Settings, and a game deleted and imported
-    /// again at the same path is the same key, so its cover is simply still there.
+    /// failed directory read would be unforgivable.
+    ///
+    /// THE STORED COVER FILES GO TOO. They used to be left, on the grounds that a game imported again
+    /// at the same path is the same key and gets its cover back. That is the problem rather than the
+    /// feature: the key is the path, so a DIFFERENT game imported later under that path inherited the
+    /// old one's cover, and in the meantime the orphans piled up in a directory nobody can see into.
+    /// Only "<key>.cover" files directly in the artwork directory are touched, never the cover lists;
+    /// see `ArtworkDisk.removeCovers(notIn:)`. The host's delete also calls `forgetArtwork(for:)`,
+    /// which does this for the deleted games at once and reaches what this cannot.
     private func pruneState(for entries: [LibraryEntry]) {
         guard !entries.isEmpty else { return }
         let live = Set(entries.map { ArtworkDisk.key(forPath: $0.path) })
@@ -1714,9 +1883,61 @@ final class ArtworkStore: ObservableObject {
 
         optionCache = optionCache.filter { live.contains($0.key) }
 
+        // Off the main actor, like every other file operation here. Behind the guard above, so an
+        // unreadable library can never empty the artwork directory.
+        Task {
+            let removed = await ArtworkDisk.removeCovers(notIn: live)
+            guard removed > 0 else { return }
+            await refreshUsage()
+            note("artwork: removed \(removed) stored cover(s) of game(s) that are no longer in the "
+                 + "library")
+        }
+
         guard dropped > 0 else { return }
         note("artwork: forgot \(dropped) piece(s) of artwork state for game(s) that are no longer in "
              + "the library")
+    }
+
+    /// Forgets everything this store holds for games the user has just deleted: the stored cover,
+    /// the decoded copy in memory, the choice, the provenance, the address, the remembered miss and
+    /// the chooser's cached options.
+    ///
+    /// CALLED BY THE HOST'S DELETE, which is the one place that knows exactly which games went.
+    /// `pruneState` catches most of this on the rescan that follows, but not all of it: it cannot
+    /// reach the decoded copy in memory, which a different game imported under the same path this
+    /// run would otherwise be handed straight back; it prunes nothing at all when the last game is
+    /// deleted, by design; and it does nothing about a lookup still running for a deleted game,
+    /// which would store its answer afterwards. Each game is recorded as acted on first, which
+    /// stops that lookup cold.
+    func forgetArtwork(for entries: [LibraryEntry]) {
+        let keys = Set(entries.map { ArtworkDisk.key(forPath: $0.path) })
+        guard !keys.isEmpty else { return }
+        for key in keys {
+            userActed(onKey: key)
+            memory.removeObject(forKey: key as NSString)
+            recordChoice(nil, forKey: key)
+            recordProvenance(nil, forKey: key)
+            recordAddress(nil, forKey: key)
+            clearMiss(key)
+            optionCache.removeValue(forKey: key)
+        }
+        Task {
+            var removed = 0
+            for key in keys {
+                if await ArtworkDisk.remove(key: key) {
+                    removed += 1
+                }
+            }
+            // Again once the files are gone, for the reason `clearArtworkChoice` gives: anything
+            // that read one back while it was being removed must not be left in memory.
+            for key in keys {
+                userActed(onKey: key)
+                memory.removeObject(forKey: key as NSString)
+            }
+            await refreshUsage()
+            guard removed > 0 else { return }
+            note("artwork: removed the stored cover(s) of \(removed) deleted game(s)")
+        }
     }
 
     // ------------------------------------------------------------------ the Settings actions
@@ -1818,9 +2039,12 @@ final class ArtworkStore: ObservableObject {
     func clearCover(for entry: LibraryEntry) {
         let key = ArtworkDisk.key(forPath: entry.path)
         let hadChoice = readChoices()[key] != nil
+        // Before anything is removed, and again after, for the reasons `clearArtworkChoice` gives.
+        userActed(onKey: key)
         recordChoice(nil, forKey: key)
         Task {
             let removed = await ArtworkDisk.remove(key: key)
+            userActed(onKey: key)
             memory.removeObject(forKey: key as NSString)
             recordProvenance(nil, forKey: key)
             recordAddress(nil, forKey: key)
@@ -1847,11 +2071,17 @@ final class ArtworkStore: ObservableObject {
     func lookUpAgain(_ entry: LibraryEntry) {
         let key = ArtworkDisk.key(forPath: entry.path)
         let hadChoice = readChoices()[key] != nil
+        // Before anything is removed, and again after, for the reasons `clearArtworkChoice` gives.
+        // A lookup already running is let go rather than waited on, so the one this asks for is a
+        // fresh one that starts after the old cover is gone.
+        userActed(onKey: key)
         recordChoice(nil, forKey: key)
         clearMiss(key)
         memory.removeObject(forKey: key as NSString)
         Task {
             _ = await ArtworkDisk.remove(key: key)
+            userActed(onKey: key)
+            memory.removeObject(forKey: key as NSString)
             recordProvenance(nil, forKey: key)
             recordAddress(nil, forKey: key)
             generation += 1
@@ -1931,12 +2161,17 @@ final class ArtworkStore: ObservableObject {
                        + "\(failure ?? "the reason was not reported")")
                 return
             }
-            let result = await ArtworkDisk.store(data: data, key: key)
-            guard let image = result.image else {
+            // Decoded first and written only if it decodes, so a file that will not decode leaves
+            // the cover this game already has exactly as it was.
+            guard let decoded = await ArtworkDisk.decode(data: data) else {
                 report("artwork: \(url.lastPathComponent) could not be decoded for \(entry.name)")
                 return
             }
-            if let writeFailure = result.writeFailure {
+            let image = decoded.image
+            // One synchronous stretch from here to the choice below, for the reason
+            // `chooseArtwork` gives: the user's cover must be the last one written.
+            userActed(onKey: key)
+            if let writeFailure = ArtworkDisk.write(data: data, key: key) {
                 report("artwork: \(url.lastPathComponent) is showing for \(entry.name) but it "
                        + "\(writeFailure)")
             } else {
@@ -2039,9 +2274,10 @@ final class ArtworkStore: ObservableObject {
         let key = ArtworkDisk.key(forPath: entry.path)
         Task {
             // Both of these run OFF the main actor, being nonisolated async functions: the bitmap and
-            // the PNG encode in the first, the write and the decode in the second. A full-screen
-            // frame is tens of megabytes of pixels, and none of that belongs on the actor that is
-            // drawing the game this frame came from.
+            // the PNG encode in the first, the decode in the second. A full-screen frame is tens of
+            // megabytes of pixels, and none of that belongs on the actor that is drawing the game
+            // this frame came from. Only the file write is left on it, for the reason
+            // `chooseArtwork` gives, and that is one PNG going to disk.
             let (png, failure) = await CapturedCover.pngData(width: width, height: height,
                                                              rgba: rgba)
             guard let png else {
@@ -2049,8 +2285,9 @@ final class ArtworkStore: ObservableObject {
                        + "\(failure ?? "the reason was not reported")")
                 return
             }
-            let result = await ArtworkDisk.store(data: png, key: key)
-            guard let image = result.image else {
+            // Decoded before it is written, so a capture that cannot be read back leaves the cover
+            // this game already has exactly as it was.
+            guard let decoded = await ArtworkDisk.decode(data: png) else {
                 // A PNG this app has just encoded and cannot decode again would mean something is
                 // wrong with the image rather than with the capture, so it is reported as its own
                 // condition rather than folded into the line above.
@@ -2058,7 +2295,11 @@ final class ArtworkStore: ObservableObject {
                        + "image, so it was not used")
                 return
             }
-            if let writeFailure = result.writeFailure {
+            let image = decoded.image
+            // One synchronous stretch from here to the choice below, for the reason
+            // `chooseArtwork` gives: the user's cover must be the last one written.
+            userActed(onKey: key)
+            if let writeFailure = ArtworkDisk.write(data: png, key: key) {
                 report("artwork: the captured frame is the cover for \(title) but it \(writeFailure)")
             } else {
                 report("artwork: a \(width) by \(height) frame is now the cover for \(title)")

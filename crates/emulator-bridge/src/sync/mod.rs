@@ -1,5 +1,6 @@
-//! The rules for two-way folder sync of save states, battery saves, cheats, artwork choices and
-//! settings, kept here so Android applies exactly the same decisions.
+//! The rules for two-way folder sync of save states, battery saves, Flash and J2ME saves, cheats,
+//! manuals, Amiibo, artwork choices and settings, kept here so Android applies exactly the same
+//! decisions.
 //!
 //! The platform does the file I/O (on iOS through a security-scoped bookmark and
 //! `NSFileCoordinator`, because the folder can be iCloud Drive, Google Drive, Dropbox or anything
@@ -10,10 +11,10 @@
 //! ## The model
 //!
 //! Every file has a path relative to the sync root, the same on both sides
-//! (`SaveStates/…`, `Battery/…`, `Cheats/index.json`, `Settings/…`, `Artwork/…`). The manifest
-//! remembers, per path, the size and modification time each side had right after the last
-//! successful sync. A side has CHANGED a file when its current size or mtime differs from that
-//! record. Then:
+//! (`SaveStates/…`, `Battery/…`, `PlayerSaves/…`, `Cheats/index.json`, `Manuals/…`, `Amiibo/…`,
+//! `Settings/…`, `Artwork/…`). The manifest remembers, per path, the size and modification time
+//! each side had right after the last successful sync. A side has CHANGED a file when its current
+//! size or mtime differs from that record. Then:
 //!
 //! | local      | cloud      | decision |
 //! | ---------- | ---------- | -------- |
@@ -204,7 +205,10 @@ pub fn is_record_file(path: &str) -> bool {
 }
 
 /// Whether deleting this kind of file on one phone should delete it on the other (into
-/// `Deleted/`, never for good). True only where a deletion is a deliberate user act.
+/// `Deleted/`, never for good). True only where a deletion is a deliberate user act. Everything
+/// else (battery and player saves, cheats, settings, manuals, Amiibo) is copied back when it goes
+/// missing on one side, because a game's only save vanishing by accident costs far more than
+/// having to remove a file from the cloud folder as well.
 pub fn propagates_deletion(path: &str) -> bool {
     (path.starts_with("SaveStates/") && (path.ends_with(".state") || path.ends_with(".png")))
         || path.starts_with("Artwork/covers/")
@@ -755,6 +759,42 @@ mod tests {
                 "{path}"
             );
         }
+    }
+
+    #[test]
+    fn player_saves_manuals_and_amiibo_are_restored_rather_than_deleted() {
+        for path in [
+            "PlayerSaves/Bloons.json",
+            "PlayerSaves/Snake.J2meJS.srm",
+            "Manuals/Super Metroid (USA).pdf",
+            "Amiibo/Mario.bin",
+        ] {
+            assert!(is_valid_path(path), "{path}");
+            assert!(!propagates_deletion(path), "{path}");
+            let base = base_of(path, Some((10, 1000)), Some((10, 5000)));
+            assert_eq!(
+                one(&[], &[st(path, 10, 5000)], &base).unwrap().kind,
+                ActionKind::Download,
+                "{path}"
+            );
+            assert_eq!(
+                one(&[st(path, 10, 1000)], &[], &base).unwrap().kind,
+                ActionKind::Upload,
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_player_save_changed_on_both_phones_keeps_both() {
+        let path = "PlayerSaves/Snake.J2meJS.srm";
+        let base = base_of(path, Some((10, 1000)), Some((10, 5000)));
+        let a = one(&[st(path, 11, 20_000)], &[st(path, 12, 9_000)], &base).unwrap();
+        assert_eq!(a.kind, ActionKind::ConflictKeepLocal);
+        assert_eq!(
+            a.aside,
+            "Conflicts/PlayerSaves/Snake.J2meJS (conflict 2023-11-14 221320 UTC from cloud).srm"
+        );
     }
 
     #[test]

@@ -17,10 +17,15 @@
 # made the app unlaunchable for several builds. So it is loaded by path at runtime and every failure
 # is a line on the diagnostics panel.
 #
-# PINNED to an exact version rather than tracking latest. This is a prebuilt binary dependency whose
-# internal layout this script depends on, and a silent reorganisation upstream would look like a
-# broken build for no reason anyone could see. The core sources are deliberately unpinned for the
-# opposite reason, which docs/PLATFORM_LIMITS.md explains.
+# PINNED to an exact version rather than tracking latest, AND to the tarball's sha256. This is a
+# prebuilt binary dependency whose internal layout this script depends on, and a silent
+# reorganisation upstream would look like a broken build for no reason anyone could see. A release
+# asset can be replaced under the same tag, so the version alone does not freeze the bytes; the
+# checksum does. The core sources are pinned the same way (scripts/build-core.sh, PINNED SOURCES).
+#
+# Moving the pin: change MOLTENVK_VERSION, and take the new MOLTENVK_SHA256 from the release asset's
+# digest (gh api repos/KhronosGroup/MoltenVK/releases/tags/<version> --jq '.assets[].digest') or
+# from `shasum -a 256` of the downloaded tarball.
 set -euo pipefail
 
 MOLTENVK_VERSION="v1.4.2"
@@ -28,6 +33,17 @@ MOLTENVK_VERSION="v1.4.2"
 # the 8 MB the design document estimated.
 TARBALL="MoltenVK-ios.tar"
 URL="https://github.com/KhronosGroup/MoltenVK/releases/download/${MOLTENVK_VERSION}/${TARBALL}"
+# sha256 of $TARBALL at $MOLTENVK_VERSION (34,535,424 bytes); matches GitHub's own asset digest.
+MOLTENVK_SHA256="b5d947b1660e6e9fed40b9cd2387e160aaab9e80b775c0cef7e14059405178c1"
+
+# macOS ships shasum and no sha256sum.
+sha256_of() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{ print $1 }'
+  else
+    sha256sum "$1" | awk '{ print $1 }'
+  fi
+}
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
@@ -52,6 +68,15 @@ curl -fsSL --retry 3 --retry-delay 2 -o "$WORK/$TARBALL" "$URL" || {
   echo "error: could not download $URL" >&2
   exit 1
 }
+
+GOT_SHA256="$(sha256_of "$WORK/$TARBALL")"
+if [ "$GOT_SHA256" != "$MOLTENVK_SHA256" ]; then
+  echo "error: $TARBALL sha256 is $GOT_SHA256, expected $MOLTENVK_SHA256 for MoltenVK $MOLTENVK_VERSION" >&2
+  echo "       (a truncated download, or the release asset was replaced upstream)" >&2
+  rm -f "$WORK/$TARBALL"
+  exit 1
+fi
+echo "==> $TARBALL sha256 matches the pin ($MOLTENVK_SHA256)"
 
 echo "==> extracting $MEMBER"
 tar xf "$WORK/$TARBALL" -C "$WORK" "$MEMBER" || {

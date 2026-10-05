@@ -1428,7 +1428,9 @@ final class SaveStates: ObservableObject {
             frame: record.frame,
             createdAt: record.createdAt.timeIntervalSince1970,
             slot: Int64(record.slot),
-            label: record.label
+            label: record.label,
+            // Nil stays nil: "not recorded" travels as not recorded, never as an empty map.
+            coreOptions: record.coreOptions
         )
         let packed = packStateExport(meta: meta, payload: payload)
         guard let directory = SaveStateDisk.exportDirectory() else {
@@ -1451,10 +1453,11 @@ final class SaveStates: ObservableObject {
 
     /// Imports a `.continuumstate` file into the first free slot of `gameId`.
     ///
-    /// THE SAME GATE AS EVERY OTHER STATE. The import stores the core id, core version and length
-    /// the file carries, exactly as a state saved on this device stores them, so `refusal(for:)`
-    /// checks it on load with nothing special-cased. When that game is running right now the gate
-    /// is also run immediately, so the answer to "will this load" is on screen at once.
+    /// THE SAME GATE AS EVERY OTHER STATE. The import stores the core id, core version, core
+    /// options and length the file carries, exactly as a state saved on this device stores them,
+    /// so `refusal(for:)` checks it on load with nothing special-cased. When that game is running
+    /// right now the gate is also run immediately, so the answer to "will this load" is on screen
+    /// at once.
     ///
     /// Refused outright when the file belongs to a different game: two games on the same core pass
     /// every other check, and that is the one mix-up the gate cannot see.
@@ -1492,7 +1495,11 @@ final class SaveStates: ObservableObject {
             byteCount: unpacked.payload.count,
             coreId: meta.coreId,
             coreVersion: meta.coreVersion,
-            label: meta.label.isEmpty ? "imported" : meta.label
+            label: meta.label.isEmpty ? "imported" : meta.label,
+            // The settings it was saved under, so `settingsDifference` checks it exactly as it
+            // checks a state that never left. Nil from a file written before exports carried them,
+            // which is checked like any other record that did not store them.
+            coreOptions: meta.coreOptions
         )
         var updated = records.filter { $0.id != record.id }
         updated.append(record)

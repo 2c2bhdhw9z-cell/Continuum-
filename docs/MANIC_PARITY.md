@@ -91,6 +91,9 @@ pick a system only when it truly cannot tell. The choice is remembered per game.
 - [x] `.manicskin` files, Manic's `public.aoshuang.game.*` identifiers, and Delta's.
 - [x] One skin used across related systems (GB/GBC, MD/MCD/32X, MS/GG/SG-1000, NES/FDS, DOS/DOOM).
 - [x] Default skin per system, a different skin per game, and switching skin mid-game.
+- [x] Import several skins in one go (skin library), build 122.
+- [x] A skin is the whole layout: built-in buttons it does not name are not drawn over the picture, build 122.
+- [x] Hide or show the player's top bar with one button, build 122 (beyond Manic; asked for by the owner).
 - [x] Press animations (`asset.normal` per button).
 - [x] Switch buttons: `selected` asset, spring `animation` begin/end, `selfRetracting`, state binding.
 - [x] Button sound (`sound.caf`).
@@ -132,13 +135,15 @@ phone and controllers.
 - [x] Dreamcast builds on CI (in the IPA since build 119). [ ] Runs on a phone: TESTING.md C19.
 - [ ] SMB file shares, done properly this time (see Ways to get games in).
 - [ ] Direct Google Drive / Dropbox / OneDrive logins (needs the owner's developer app ids).
-- [x] Achievements on Game Boy Advance (memory maps). Still to fix: .cht RAM cheats on GBA use system RAM addresses.
+- [x] Achievements on Game Boy Advance (memory maps).
+- [x] RetroArch .cht RAM cheats use RetroArch's own cheat addressing (the GBA bug), build 122. Not on a phone yet: TESTING.md F7.
 
-## Where things stand (5 October 2026, build 121)
+## Where things stand (5 October 2026, build 122)
 
-- Builds 117 to 121 are done; STATUS.md lists what each one changed. Build 121 is green, version
-  0.8.0 (121), 32 cores, and adds a Settings switch that hides Apple's performance overlay.
-- STATUS.md, TESTING.md and docs/PLATFORM_LIMITS.md are current. TESTING.md is now numbered phone
-  steps (A1 onward) instead of the old queue. The scratch-folder worker reports are no longer needed.
-- Next: whatever the owner's phone tests turn up, then the open lines above (SMB, the GBA cheat
-  addresses, Dreamcast speed if C19 shows it is slow).
+- Build 122 is the owner's batch: the top-bar hide button, several skins at once, every problem from
+  the 5 October read-through (skins over the picture, saves, cloud sync gaps, Wi-Fi transfer code,
+  sensors left on, pause, online rejoin, covers and manuals, the GBA cheat file bug), and a build
+  that is frozen at build 121's emulator versions and runs every check first. STATUS.md lists it.
+- TESTING.md A1 to A7 are the first things to try on the phone.
+- Next: whatever the owner's phone tests turn up, then the open lines above (SMB, Dreamcast speed if
+  C19 shows it is slow).

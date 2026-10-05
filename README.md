@@ -6,7 +6,7 @@ or a similar installer). It is not on the App Store.
 **The install:** always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest), named
 `Continuum-<number>.ipa`. Every push to `master` builds one automatically (about 30 minutes).
-As of 4 October 2026 that is build 121 or newer. The version shows as `0.8.0 (<number>)` in the app.
+As of 5 October 2026 that is build 122 or newer. The version shows as `0.8.0 (<number>)` in the app.
 
 This install is **not** signed with a JIT. Heavier systems run on an interpreter.
 
@@ -23,6 +23,7 @@ This install is **not** signed with a JIT. Heavier systems run on an interpreter
 - The **+** button opens Files, the in-game **⋯** menu, the layout editor, the system pickers
 - TV/AirPlay picture (sharper since build 119)
 - Landscape with no skin imported (fixed in build 120)
+- A 3DS skin sideways with both screens in their own holes (owner's screenshot, 5 October)
 
 **In the app, not confirmed on a phone yet**
 
@@ -30,8 +31,9 @@ Everything in [TESTING.md](TESTING.md)'s list, in short: 20+ more systems (32 co
 including PSP, Dreamcast, Saturn, arcade, computers, Flash and J2ME), Wi-Fi transfer and other ways
 to import, skin holes and Manic skins, extra buttons, the 50-slot save manager, battery saves,
 cheat search, two-screen layouts, online play, RetroAchievements, cloud sync, the Azahar
-settings-change crash fix (build 120) and the switch that hides Apple's performance overlay
-(build 121).
+settings-change crash fix (build 120), the switch that hides Apple's performance overlay
+(build 121), and build 122's batch: the button that hides the player's top bar, importing several
+skins at once, and the fixes listed in STATUS.md.
 
 **Not in the app**
 

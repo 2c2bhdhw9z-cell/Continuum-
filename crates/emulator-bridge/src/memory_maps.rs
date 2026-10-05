@@ -20,6 +20,11 @@
 //!   emulated address to a descriptor and an offset. Used by the achievement mapper and by pokes
 //!   made from a search over a mapped region.
 //! - [`searchable`]: the distinct writable regions of a map, for the RAM search's region picker.
+//! - [`cheat_buffers`], [`translate_cheat_address`] and [`write_cheat`]: RetroArch's cheat address
+//!   space (cheat_manager.c `cheat_manager_initialize_memory` and `translate_address`), which is
+//!   where the addresses in a `.cht` file's RAM cheats point. Not the same thing as [`find`]: a
+//!   cheat address is an offset into the `SYSTEM_RAM`-flagged buffers laid end to end, not a
+//!   console address.
 //!
 //! Numbers and layouts are checked against `libretro.h` (fetched into `.work/hdr/` by
 //! `scripts/fetch-libretro-headers.sh`); each cites its line.
@@ -374,6 +379,115 @@ pub unsafe fn write_through(table: &[MemoryDescriptor], address: u32, bytes: &[u
     }
     unsafe {
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), (host + offset) as *mut u8, bytes.len());
+    }
+    true
+}
+
+// ---- RetroArch's cheat address space (cheat_manager.c).
+
+/// Whether RetroArch's `cheat_manager_initialize_memory` takes a descriptor into its cheat address
+/// space: flagged `RETRO_MEMDESC_SYSTEM_RAM`, with a buffer and a length. Its exact test, applied
+/// to the PREPROCESSED table because that is the copy RetroArch keeps and reads (runloop.c,
+/// `SET_MEMORY_MAPS`), so a zero length that [`preprocess`] filled in counts as that length.
+fn is_cheat_ram(desc: &MemoryDescriptor) -> bool {
+    desc.flags & MEMDESC_SYSTEM_RAM != 0 && desc.ptr != 0 && desc.len > 0
+}
+
+/// Whether a map gives RetroArch's cheat manager its address space. When it does not, RetroArch
+/// falls back to `RETRO_MEMORY_SYSTEM_RAM` as the whole space, and so must the caller.
+pub fn has_cheat_ram(table: &[MemoryDescriptor]) -> bool {
+    table.iter().any(is_cheat_ram)
+}
+
+/// One buffer of RetroArch's cheat address space.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CheatBuffer {
+    /// Index of the descriptor in the table.
+    pub index: usize,
+    /// Host address of byte 0: the descriptor's `ptr`, NOT `ptr + offset`. See [`cheat_buffers`].
+    pub host: usize,
+    pub len: usize,
+    /// The cheat address of byte 0: the lengths of every buffer before this one, added up.
+    pub base: usize,
+}
+
+/// RetroArch's cheat address space over a map: the cheat-RAM descriptors' buffers laid end to end
+/// in descriptor order, which is the `memory_buf_list` / `memory_size_list` pair that
+/// `cheat_manager_initialize_memory` builds. Empty when the map has none ([`has_cheat_ram`]).
+///
+/// Two things are copied from RetroArch on purpose although they look like slips, because a `.cht`
+/// file's addresses were made against exactly this layout and mean nothing under any other:
+///
+/// - The buffer is the descriptor's `ptr` without its `offset` (`memory_buf_list[n] = core.ptr`).
+///   On mGBA's GBA both offsets are 0, so it makes no difference there. On mGBA's Game Boy the
+///   second work RAM bank is `ptr = wram, offset = 0x1000`, so RetroArch's cheat addresses
+///   `0x1000..0x2000` reach bank 0 again, and a cheat made in RetroArch writes there. `ptr` to
+///   `ptr + len` is still inside the core's buffer, because libretro.h:4236 makes `ptr` its start.
+/// - Mirrors are kept. Two descriptors over the same memory are two stretches of cheat address
+///   space, and dropping one would move every address after it.
+pub fn cheat_buffers(table: &[MemoryDescriptor]) -> impl Iterator<Item = CheatBuffer> + '_ {
+    table
+        .iter()
+        .enumerate()
+        .filter(|(_, desc)| is_cheat_ram(desc))
+        .scan(0usize, |base, (index, desc)| {
+            let buffer = CheatBuffer {
+                index,
+                host: desc.ptr,
+                len: desc.len,
+                base: *base,
+            };
+            *base = base.saturating_add(desc.len);
+            Some(buffer)
+        })
+}
+
+/// RetroArch's `translate_address` (cheat_manager.c): the buffer a cheat address falls in and how
+/// far into it, or `None` past the end of the last one.
+///
+/// RetroArch has no `None`. An address past the end leaves its buffer pointer on the FIRST buffer
+/// and its base at the total length, so it writes `address - total` bytes into the first buffer,
+/// past that buffer's end for most such addresses. That is a missing bounds check rather than
+/// something a cheat file can mean, so here it is out of range like any other.
+pub fn translate_cheat_address(
+    table: &[MemoryDescriptor],
+    address: u32,
+) -> Option<(CheatBuffer, usize)> {
+    let address = address as usize;
+    cheat_buffers(table).find_map(|buffer| {
+        let offset = address.checked_sub(buffer.base)?;
+        (offset < buffer.len).then_some((buffer, offset))
+    })
+}
+
+/// Writes `bytes` at a RetroArch cheat address through the map's cheat RAM, which is what
+/// `cheat_manager_apply_retro_cheats` does for a set-to-value cheat. The caller chooses between
+/// this and `SYSTEM_RAM` with [`has_cheat_ram`], as RetroArch does.
+///
+/// Refuses, and writes nothing, where RetroArch would write somewhere it does not mean to: past
+/// the end of the space (see [`translate_cheat_address`]), across the end of the buffer the write
+/// starts in (RetroArch carries on into whatever the host has after it rather than into the next
+/// buffer), or into a descriptor that is also flagged read-only, which no core publishes.
+///
+/// # Safety
+///
+/// As [`write_through`].
+pub unsafe fn write_cheat(table: &[MemoryDescriptor], address: u32, bytes: &[u8]) -> bool {
+    let Some((buffer, offset)) = translate_cheat_address(table, address) else {
+        return false;
+    };
+    let Some(end) = offset.checked_add(bytes.len()) else {
+        return false;
+    };
+    if end > buffer.len || table[buffer.index].is_const() {
+        return false;
+    }
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            bytes.as_ptr(),
+            (buffer.host + offset) as *mut u8,
+            bytes.len(),
+        );
     }
     true
 }
@@ -740,6 +854,135 @@ mod tests {
             );
         }
         assert_eq!(&buffers.blocks[0][0x10..0x12], &[0xAA, 0xBB]);
+    }
+
+    #[test]
+    fn mgba_cheat_space_is_iwram_then_ewram() {
+        // mGBA flags exactly IWRAM and EWRAM as SYSTEM_RAM, in that order, so RetroArch's cheat
+        // space is 32 KB of IWRAM followed by 256 KB of EWRAM.
+        let (buffers, raw) = mgba_gba(0x80_0000, 0x8000);
+        let table = copy(&raw);
+        assert!(has_cheat_ram(&table));
+        let space: Vec<CheatBuffer> = cheat_buffers(&table).collect();
+        assert_eq!(
+            space,
+            vec![
+                CheatBuffer {
+                    index: 0,
+                    host: buffers.ptr(0),
+                    len: 0x8000,
+                    base: 0
+                },
+                CheatBuffer {
+                    index: 1,
+                    host: buffers.ptr(1),
+                    len: 0x40000,
+                    base: 0x8000
+                },
+            ]
+        );
+        assert_eq!(
+            translate_cheat_address(&table, 0x10),
+            Some((space[0], 0x10))
+        );
+        assert_eq!(
+            translate_cheat_address(&table, 0x7FFF),
+            Some((space[0], 0x7FFF))
+        );
+        // Past the first buffer is the second: EWRAM byte $10, not SYSTEM_RAM's (EWRAM's) $8010.
+        assert_eq!(
+            translate_cheat_address(&table, 0x8010),
+            Some((space[1], 0x10))
+        );
+        assert_eq!(
+            translate_cheat_address(&table, 0x4_7FFF),
+            Some((space[1], 0x3FFFF))
+        );
+        assert_eq!(translate_cheat_address(&table, 0x4_8000), None);
+
+        let iwram_last = buffers.blocks[0][0x7FFF];
+        let ewram_first = buffers.blocks[1][0];
+        unsafe {
+            assert!(write_cheat(&table, 0x8010, &[0xAA, 0xBB]));
+            assert!(write_cheat(&table, 0x0004, &[0x5A]));
+            assert!(
+                !write_cheat(&table, 0x7FFF, &[1, 2]),
+                "a write may not run from IWRAM into EWRAM"
+            );
+            assert!(
+                !write_cheat(&table, 0x4_8000, &[1]),
+                "past the end of the space"
+            );
+            assert!(!write_cheat(&table, u32::MAX, &[1]));
+        }
+        assert_eq!(&buffers.blocks[1][0x10..0x12], &[0xAA, 0xBB]);
+        assert_eq!(buffers.blocks[0][4], 0x5A);
+        assert_eq!(buffers.blocks[0][0x7FFF], iwram_last);
+        assert_eq!(buffers.blocks[1][0], ewram_first);
+    }
+
+    #[test]
+    fn mgba_without_a_save_still_has_its_cheat_space() {
+        // Preprocessing gives up at the empty save descriptor, after IWRAM and EWRAM.
+        let (_buffers, raw) = mgba_gba(0x60_0000, 0);
+        let table = copy(&raw);
+        let lens: Vec<(usize, usize)> = cheat_buffers(&table).map(|b| (b.base, b.len)).collect();
+        assert_eq!(lens, vec![(0, 0x8000), (0x8000, 0x40000)]);
+    }
+
+    #[test]
+    fn a_map_with_no_system_ram_flags_leaves_retroarch_on_system_ram() {
+        // snes9x2010 flags nothing, so RetroArch's cheat manager uses RETRO_MEMORY_SYSTEM_RAM.
+        let (_buffers, raw) = snes9x2010_lorom();
+        let table = copy(&raw);
+        assert!(!has_cheat_ram(&table));
+        assert_eq!(cheat_buffers(&table).count(), 0);
+        assert_eq!(translate_cheat_address(&table, 0), None);
+        assert!(!unsafe { write_cheat(&table, 0, &[1]) });
+        assert!(!has_cheat_ram(&[]));
+    }
+
+    #[test]
+    fn cheat_space_takes_ptr_without_offset_and_keeps_mirrors() {
+        // The shape of mGBA's Game Boy map: two work RAM banks over ONE buffer, the second at
+        // offset $1000; a SYSTEM_RAM descriptor with no buffer and one with no length, which
+        // RetroArch both skips; and a contradictory read-only one.
+        let mut wram = vec![0u8; 0x8000];
+        let rom = [0u8; 0x10];
+        let base = wram.as_mut_ptr() as usize;
+        let ram = |ptr: usize, offset: usize, start: usize, len: usize| MemoryDescriptor {
+            flags: MEMDESC_SYSTEM_RAM,
+            offset,
+            ..MemoryDescriptor::new(ptr, start, len)
+        };
+        let mut table = vec![
+            MemoryDescriptor::new(base, 0x8000, 0x2000),
+            ram(base, 0, 0xC000, 0x1000),
+            ram(base, 0x1000, 0xD000, 0x1000),
+            ram(0, 0, 0xE000, 0x100),
+            ram(base, 0, 0xF000, 0),
+            ram(rom.as_ptr() as usize, 0, 0x1_0000, 0x10),
+        ];
+        table[5].flags |= MEMDESC_CONST;
+        let space: Vec<(usize, usize, usize)> = cheat_buffers(&table)
+            .map(|b| (b.index, b.base, b.host))
+            .collect();
+        assert_eq!(
+            space,
+            vec![
+                (1, 0, base),
+                (2, 0x1000, base),
+                (5, 0x2000, rom.as_ptr() as usize)
+            ]
+        );
+        unsafe {
+            assert!(write_cheat(&table, 0x1004, &[9]));
+            assert!(!write_cheat(&table, 0x2000, &[9]), "read-only");
+        }
+        // RetroArch's cheat address $1004 is bank 0 byte 4 again, not bank 1.
+        assert_eq!(wram[4], 9);
+        assert_eq!(wram[0x1004], 0);
+        assert_eq!(rom[0], 0);
     }
 
     #[test]

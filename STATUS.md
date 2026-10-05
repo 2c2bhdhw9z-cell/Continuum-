@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-4 October 2026 (build 121). The install is always the newest file on the
+5 October 2026 (build 122). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Three states only:
@@ -83,10 +83,14 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Rewind | **Done** | |
 | Save states, slots, delete | **In the tree, not on a phone** | 50 fixed slots per game plus the auto-save, each with a picture, date and core. Save, load, overwrite (asks first), rename, delete. Old numbered saves move into free slots and nothing is deleted. Export and import a state file, and the game's own battery save (`.srm`). Not on a phone |
 | Auto-save and resume | **Done** | |
-| Cheats | **In the tree, not on a phone** | Typing a code works on a phone. New and not on a phone: import a RetroArch `.cht` file, and a RAM search (lives, money and so on) that turns an address into a cheat. Up to 128 codes per game |
-| On-screen control layout editor | **Partial** | **Done bar (Brett):** every control in the skin file works, not only the ones he names. Picture in the screen hole both ways you hold the phone. Two screens when the skin has two. A joystick or circle pad is a real stick, not a dead picture. Shoulders too. Debug text off the picture. **Device:** Game Boy Color sideways import works. Other systems do not. 3DS: the top hole is empty. The picture floats above the skin (sideways it is a small picture in the corner) because the hole was not read and the game was parked in the strip above the buttons. The bottom screen stays empty. Debug text is still on the picture. Buttons overlap the picture. He already had 3DS selected. That was not the bug. **Code (`ee307b8`), not on a phone yet:** each screen goes in its own hole, a thumbstick is an analog stick, shoulders are mapped, and a button shows its pressed picture only when the skin file has one. The last phone report above still stands until he installs. Do **not** stamp Done until the picture is in the hole on the phone |
+| Cheats | **In the tree, not on a phone** | Typing a code works on a phone. New and not on a phone: import a RetroArch `.cht` file, and a RAM search (lives, money and so on) that turns an address into a cheat. Up to 128 codes per game. Build 122: a `.cht` file's RAM cheats now land where RetroArch puts them (on GBA they used to hit the wrong memory) |
+| On-screen control layout editor | **Partial** | **Done bar (Brett):** every control in the skin file works, not only the ones he names. Picture in the screen hole both ways you hold the phone. Two screens when the skin has two. A joystick or circle pad is a real stick, not a dead picture. Shoulders too. Debug text off the picture. **Device, 5 October (a 3DS skin, Mario Kart 7, sideways):** both screens are in their own holes. The only complaint left was the player's top bar (name and buttons) sitting over the picture. **Build 122, not on a phone yet:** a button next to Back hides or shows the whole top bar; built-in buttons the skin does not name are taken off the screen instead of sitting faintly on the picture; the false "touch layout overlap" line is gone when a skin is in use. Portrait and the other systems' skins are still not confirmed. Do **not** stamp Done until the owner says the skin is right |
 | Battery saves (the game's own save) | **In the tree, not on a phone** | Found broken while building the save manager: in-game saves (Pokemon, Zelda, PS1 memory card) were never written to disk, so they only survived inside a save state. Now restored before the first frame and written when you leave or switch apps |
 | Save state compatibility refusal | **Built, partly testable** | Refuses a state from a different core or core build. Since build 120 it also refuses a state saved under different restart-required core settings (Azahar's console model, audio, renderer and so on), with a message naming the setting. That case is testable: TESTING.md A1 |
+| Hide the player's top bar | **Built, untested** | Build 122. An eye button next to Back hides the game's name and every top-bar button except Back and itself; tapping it again brings them back. Remembered between games. Asked for by the owner from a 3DS skin screenshot. TESTING.md A1 |
+| Import several skins at once | **Built, untested** | Build 122. Settings, SKINS, skin library, Import skins: pick any number of `.manicskin` / `.deltaskin` files in one go. The **+** button in the Library already took several at once. TESTING.md A3 |
+| A paused game stays paused after leaving the app | **Built, untested** | Build 122. Coming back to the app used to un-pause a game the player had paused. TESTING.md A4 |
+| Wi-Fi transfer access code | **Built, untested** | Build 122. The address now ends in a short code that changes every time Wi-Fi transfer is switched on; anything without it gets nothing, so nobody else on the Wi-Fi can upload files or download saves. TESTING.md B1 |
 | Apple performance overlay switch | **Built, untested** | Build 121. Settings → DIAGNOSTICS. Hides Apple's Metal Performance HUD on the game layers and turns off the launch-time request for it. May need the app reopened |
 | Landscape with no skin | **Done** | Froze in build 119 (an endless layout loop from a repeated warning line). Fixed in build 120 and confirmed on the phone |
 | **+** opens Files, the ⋯ menu, TV picture quality | **Done** | Confirmed on build 119 |
@@ -106,7 +110,7 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 | What | State | Notes |
 | --- | --- | --- |
-| Two screens, each placed where the skin file says | **In 109, not on a phone** | Last phone report: the top hole is empty and the bottom screen stays empty. Not done until a new import shows both |
+| Two screens, each placed where the skin file says | **Shown on a phone, sideways, 3DS** | The owner's 5 October screenshot (Mario Kart 7, 3DS skin, sideways) has both screens in their holes. Upright, and DS skins, not shown yet |
 | Swap which screen is the big one | **In the tree, not on a phone** | DS and 3DS. Six layouts in Settings (stacked, side by side, big top, big bottom, top only, bottom only) and a swap button in the player. Touch follows the bottom screen. With a two-hole skin the pictures trade holes |
 | AirPlay: game on the TV, touch screen on the phone | **Partial** | Build 119: the TV picture is confirmed sharper on the phone. TV scaling/layout options not confirmed yet. | AirPlay or a cable. Game on the TV, controls on the phone. On DS and 3DS the phone keeps the touch screen. Two switches in Settings |
 | Button shows a pressed picture | **In 109, not on a phone** | Only when the skin file has that picture. Not on a phone |
@@ -123,12 +127,40 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | Fast forward | **Done** | About 4x, not 5x |
 | Save slots, including export | **In the tree, not on a phone** | 50 slots plus the auto-save, export and import of states and battery saves |
 | Cheats: search, and importing a file | **In the tree, not on a phone** | RAM search and `.cht` import are built. Typing a code already worked |
-| Online play | **In the tree, not on a phone** | Two phones, same game. Host or join on the same Wi-Fi (nearby list) or by address. Over the internet the host must open TCP port 55435. No rollback, so lag shows as short stalls. Rewind, fast forward and loading states are off while online |
+| Online play | **In the tree, not on a phone** | Two phones, same game. Host or join on the same Wi-Fi (nearby list) or by address. Over the internet the host must open TCP port 55435. No rollback, so lag shows as short stalls. Rewind, fast forward and loading states are off while online. Build 122: if player 2 drops out, the host keeps playing and lets them rejoin on the same address |
 | Achievements | **Partial** | RetroAchievements login, unlock banners and a list on the game card. Never tried against the real server. Game Boy Advance achievements will not trigger correctly yet |
-| Cloud sync | **In the tree, not on a phone** | Pick any folder in Files (iCloud Drive, Google Drive, Dropbox) once. Saves, battery saves, cheats, settings and covers sync both ways. Conflicts keep both copies. Nothing is ever only deleted |
+| Cloud sync | **In the tree, not on a phone** | Pick any folder in Files (iCloud Drive, Google Drive, Dropbox) once. Save states, battery saves, cheats, settings and covers sync both ways; since build 122 also Flash and J2ME saves, PDF manuals, Amiibo files, the remembered "which system is this" answers and saved servers (their passwords stay on each phone). Kept per phone on purpose: skins, the RetroAchievements login, favourites, the last online-play address, mic and camera permission. Conflicts keep both copies. Nothing is ever only deleted |
 
 
 ---
+
+## Build 122 (5 October 2026)
+
+- The owner's asks: an eye button that hides or shows the player's top bar, and importing several
+  skins at once.
+- Skins: built-in buttons a skin does not name no longer sit faintly over the picture, and the
+  false "touch layout overlap" line is gone while a skin is in use.
+- Saves: an exported and re-imported state keeps the core settings it was saved under, so the
+  3DS settings-change protection covers it too. Cloud sync now carries Flash and J2ME saves,
+  manuals, Amiibo and three settings it used to miss, and no longer carries the RetroAchievements
+  login name to another phone.
+- Safety and battery: Wi-Fi transfer needs the code in its address; the tilt sensor stops when a
+  game ends; the microphone and camera cannot be left on by a start that finished after the game
+  ended; Amiibo imports no longer overwrite a tag with the same name.
+- Smaller: a paused game stays paused after leaving the app; online play lets player 2 rejoin;
+  a cover that fails to download can no longer wipe a hand-picked one, and an automatic lookup
+  can no longer undo a cover the user just chose; deleting a game removes its cover and the
+  manual the app saved for it; two manuals with the same name no longer overwrite each other;
+  RetroArch `.cht` RAM cheats use RetroArch's own addressing (the GBA bug).
+- On screen: the diagnostic block's first line says "Continuum" once; startup only warns about
+  missing cores when one the build must carry is missing.
+- Build: every emulator built from source is frozen at the exact version build 121 used, and the
+  19 downloaded ones are checked against build 121's checksums (with a frozen copy kept on the
+  `core-mirror-1` pre-release), so an outside change cannot break or change a build. A second push
+  now waits for the running build instead of cancelling it. The engine's 571 tests, the Switch
+  wrapper harness and the skin and player checks now run on every build, first, on a cheap Linux
+  machine; a failure stops the build before the 30-minute Mac part.
+- Other AI tools' files and branches were removed from the repository.
 
 ## Builds 117 to 121 (4 October 2026)
 
@@ -147,7 +179,7 @@ Everything below is on master and in the current install. TESTING.md has an easy
 trying each one.
 
 - **19 new systems:** WonderSwan, Neo Geo Pocket, PC Engine CD, SuperGrafx, Amiga, C64, DOS, DOOM, Jaguar, Lynx, Atari 7800, Atari 5200, Arcade, Pokemon Mini, Virtual Boy, Saturn, Sega CD, 32X, and Dreamcast (optional, never compiled before build 116).
-- **Getting games in:** Wi-Fi transfer, paste, drag and drop, Open in, WebDAV, SMB, zip and 7z files, automatic system detection, and save files in other emulators' formats.
+- **Getting games in:** Wi-Fi transfer, paste, drag and drop, Open in, WebDAV, zip and 7z files, automatic system detection, and save files in other emulators' formats. (SMB was in this list and is out; see Not done.)
 - **Manic skins:** .manicskin files, a skin library, a skin per game, switching mid-game, press animations, switch buttons, button sounds, and all 48 function buttons.
 - **Core settings for every core:** filters, palettes, 2x/3x/4x and slow motion, disc swap, rotation, and separate TV settings.
 - **Controls:** a keyboard, tilt and shake, controller types, remapping profiles, DS lid and blow, and the 3DS HOME button.
@@ -161,7 +193,6 @@ trying each one.
 - GameCube and Wii: they cannot be playable without JIT (see docs/HARD_SYSTEMS.md).
 - Symbian / N-Gage: not started.
 - Direct Google Drive, Dropbox and OneDrive logins: they need developer app ids only the owner can register. They do work through the Files picker.
-- .cht RAM cheats on GBA read the wrong memory.
 - Camera and Amiibo do not reach a 3DS game, because the 3DS core cannot take them.
 - DS games do not hear the real microphone; the blow button stands in for it.
 - Online play over the internet needs port 55435 opened on the host's router.
@@ -269,13 +300,13 @@ paraLLEl-RDP is Vulkan compute and has no GL equivalent.
 - **`swiftc` on Linux cannot type-check.** It is a syntax pass, so a Swift type error, an actor
   isolation mistake or a wrong argument label is only caught by CI. Several builds have been spent
   on exactly that, and it is a property of the toolchain rather than carelessness.
-- **The six core sources are not pinned.** Each is cloned at whatever its default branch's HEAD is
-  on the day CI runs. Pinning six upstreams means maintaining six pins and missing their fixes, so
-  the tradeoff is deliberate, but it does mean a core that built last week can change under us. It
-  matters most for the DS, where two option VALUES are hardcoded here and compared by string inside
-  melonDS: an upstream rename would switch the touch screen off again with no error at either end.
-  Every build now records each core's repository and commit in `core-sources.txt` inside the build
-  metadata artefact, so that becomes a diff between two builds rather than a mystery.
+- **The core sources are pinned (build 122).** Every emulator built from source is checked out at the
+  exact commit build 121 was built from (`IOS_PIN` in `scripts/build-core.sh`), and the 19
+  downloaded ones must match build 121's checksums (`scripts/fetch-buildbot-cores.sh`, with a frozen
+  copy on the `core-mirror-1` pre-release). Before this, every build took whatever each upstream had
+  that day, and parallel_n64's upstream had already moved since build 121. Moving a pin is a
+  deliberate step, written down in `build-core.sh`. `core-sources.txt` in each build's metadata still
+  records exactly what was built.
 
 ---
 

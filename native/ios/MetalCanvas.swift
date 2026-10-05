@@ -102,6 +102,14 @@ final class MetalCanvas: UIView {
     /// Reports how attaching went, so the harness can show it instead of a black screen.
     var onAttach: ((Result<String, Error>) -> Void)?
 
+    /// True while the USER has paused the game. Read when the app comes back to the foreground.
+    ///
+    /// Leaving the app pauses the engine and coming back resumes it, and that resume used to be
+    /// unconditional: a game the player had paused on purpose started running again the moment
+    /// they returned, while the button still offered "Resume". A pause the player chose is theirs
+    /// to undo, so the lifecycle only resumes a game it paused itself.
+    var stayPaused: (() -> Bool)?
+
     override class var layerClass: AnyClass { CAMetalLayer.self }
 
     private var metalLayer: CAMetalLayer { layer as! CAMetalLayer }
@@ -348,7 +356,11 @@ final class MetalCanvas: UIView {
 
     func didBecomeActive() {
         start()
-        engine.resume(nowMillis: CACurrentMediaTime() * 1000.0)
+        // Not when the player paused it themselves; see `stayPaused`. The display link still
+        // starts, so a paused game keeps showing its frame and the controls stay live.
+        if stayPaused?() != true {
+            engine.resume(nowMillis: CACurrentMediaTime() * 1000.0)
+        }
         // Rebuilt rather than unpaused, inside `resume`: the route may have changed while the
         // app was away, and with it the rate the graph was built for.
         audio?.resume()

@@ -86,7 +86,7 @@ borrowed machine. That alone rules JIT out, whatever certificate is bought:
 
 - **The pairing file needs a computer next to the phone.** On iOS 26.x it is made over a USB
   cable. From iOS 27, idevice_pair can pair over Wi-Fi with no cable, but only from a computer on
-  the same local network. A cloud machine (CI, or an AI agent's VM such as Grok Bot's) can do
+  the same local network. A cloud machine (CI, or an AI agent's own computer) can do
   neither. A pairing file also grants deep access to the device, so never make or store one on a
   shared online machine.
 - **"Once" is not guaranteed.** Pairing files can expire at random and then have to be remade.

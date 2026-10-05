@@ -24,6 +24,13 @@
 //! widths, increase/decrease types, repeat counts) is skipped and named in the warnings rather
 //! than half-applied.
 //!
+//! The address in such a cheat is NOT a `SYSTEM_RAM` offset on every core: it is an offset into
+//! RetroArch's cheat address space, which on a core that publishes `SYSTEM_RAM`-flagged memory map
+//! descriptors (mGBA does, for IWRAM then EWRAM) is those buffers end to end. So the poke made from
+//! it is a cheat-file poke (`poke:ADDR:VALUE:BYTES:cht`), resolved that way when it is applied, and
+//! carries `cheatN_big_endian` along, which RetroArch honours when it writes. See
+//! [`super::poke`].
+//!
 //! ORDER IS PRESERVED and is the file's numbering, not the order lines happen to appear in,
 //! because the cheat list is pushed to the core whole and in order and the core's table is indexed.
 
@@ -185,9 +192,15 @@ pub fn parse(text: &str) -> ChtFile {
             .and_then(bytes_for_search_size);
         let address = entry.get("address").and_then(|v| parse_number(v));
         let value = entry.get("value").and_then(|v| parse_number(v));
+        // RetroArch's own test, `string_is_equal(value, "true") || string_is_equal(value, "1")`
+        // in `cheat_manager_load_cb_second_pass`, and deliberately not the looser `parse_bool`:
+        // this one decides which bytes get written, so a file must mean here what it means there.
+        let big_endian = entry
+            .get("big_endian")
+            .is_some_and(|v| matches!(v.as_str(), "true" | "1"));
         match (cheat_type, repeat, bytes, address, value) {
             (1, 0 | 1, Some(bytes), Some(address), Some(value)) => {
-                match Poke::new(address, value, bytes) {
+                match Poke::new_cht(address, value, bytes, big_endian) {
                     Ok(poke) => file.cheats.push(ChtCheat {
                         description,
                         code: poke.code(),
@@ -312,7 +325,8 @@ cheat1_cheat_type = 2
 ";
         let file = parse(text);
         assert_eq!(file.cheats.len(), 1);
-        assert_eq!(file.cheats[0].code, "poke:00C0:63:1");
+        // A cheat-file poke, not a SYSTEM_RAM one: the address is RetroArch's.
+        assert_eq!(file.cheats[0].code, "poke:00C0:63:1:cht");
         assert!(file.cheats[0].enabled);
         assert_eq!(file.warnings.len(), 1);
         assert!(file.warnings[0].contains("Rising"));
@@ -323,7 +337,43 @@ cheat1_cheat_type = 2
         let text = "cheat0_handler = 1\ncheat0_address = 0x1234\ncheat0_value = 1000\n\
                     cheat0_memory_search_size = 4\n";
         let file = parse(text);
-        assert_eq!(file.cheats[0].code, "poke:1234:03E8:2");
+        assert_eq!(file.cheats[0].code, "poke:1234:03E8:2:cht");
+        let poke = Poke::parse(&file.cheats[0].code).unwrap();
+        assert!(poke.cht && !poke.bus && !poke.big_endian);
+    }
+
+    #[test]
+    fn big_endian_is_read_the_way_retroarch_reads_it() {
+        let cheat = |n: u32, size: u32, flag: &str| {
+            format!(
+                "cheat{n}_handler = 1\ncheat{n}_address = 32784\ncheat{n}_value = 1000\n\
+                 cheat{n}_memory_search_size = {size}\ncheat{n}_big_endian = {flag}\n"
+            )
+        };
+        let text = [
+            cheat(0, 4, "\"true\""),
+            cheat(1, 4, "1"),
+            cheat(2, 4, "false"),
+            // RetroArch compares the exact strings, so this is little endian there too.
+            cheat(3, 4, "TRUE"),
+            cheat(4, 5, "true"),
+            // One byte has no order.
+            cheat(5, 3, "true"),
+        ]
+        .concat()
+        .replace("cheat5_value = 1000", "cheat5_value = 99");
+        let codes: Vec<String> = parse(&text).cheats.into_iter().map(|c| c.code).collect();
+        assert_eq!(
+            codes,
+            vec![
+                "poke:8010:03E8:2:cht:be",
+                "poke:8010:03E8:2:cht:be",
+                "poke:8010:03E8:2:cht",
+                "poke:8010:03E8:2:cht",
+                "poke:8010:000003E8:4:cht:be",
+                "poke:8010:63:1:cht",
+            ]
+        );
     }
 
     #[test]

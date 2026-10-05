@@ -27,17 +27,26 @@ on:
       - "scripts/fetch-buildbot-cores.sh"
       # Fetches and checks the bundled Flash (Ruffle) and J2ME (J2meJS) players.
       - "scripts/fetch-players.sh"
-      # Continuum patches applied to unpinned core checkouts during ios-all. A patch-only
+      # Continuum patches applied to the pinned core checkouts during ios-all. A patch-only
       # change must rebuild the IPA the same way a build-core.sh change does.
       - "scripts/patches/**"
       # Fetches MoltenVK, which package-ipa.sh runs before generating the project. A change to the
       # pinned version or the extraction has to rebuild, for the same reason build-core.sh does.
       - "scripts/fetch-moltenvk.sh"
+      # The Swift checkers the `checks` job runs before the .ipa. A change to one must run them,
+      # or a broken checker would surface only on the next unrelated push and block that build.
+      - "scripts/check-*.sh"
+      - "scripts/skin-check/**"
+      - "scripts/player-check/**"
       - ".github/workflows/ios.yml"
 
+# One build per branch at a time, and a second push QUEUES behind the running one rather than
+# cancelling it. Cancelling used to throw away a ~30 minute macOS build part-way, so two pushes close
+# together could leave the owner with no new app at all. GitHub keeps at most one pending run per
+# group: a third push replaces the queued second one, never the build already running.
 concurrency:
   group: ios-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 # `contents: write` so the build can publish a Release. Spelled out because the default for a
 # workflow token is read-only on many repositories, and a release step that cannot write fails at
@@ -46,7 +55,64 @@ permissions:
   contents: write
 
 jobs:
+  # The checks that need no Mac, on a Linux runner a tenth of the price, BEFORE the macOS build.
+  # A failure here stops the run in minutes with the failing test named, instead of after a
+  # ~30 minute .ipa build, or worse, letting a broken engine reach the phone.
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Reads the repository and nothing else; the write permission above is for the ipa job.
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          # The same pin as the ipa job (rust-toolchain.toml), so the tests run on the compiler
+          # that builds the engine in the .ipa.
+          rustup toolchain install
+          rustc --version
+          cargo --version
+
+      - name: Tool versions
+        run: |
+          # The Swift checks compile with the runner image's own swiftc (preinstalled on
+          # ubuntu-24.04), so its version is the first thing to compare if they fail here and
+          # pass on a dev machine.
+          swiftc --version
+          node --version
+          clang++ --version | head -1
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: checks-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: checks-cargo-${{ runner.os }}-
+
+      - name: Rust tests
+        run: cargo test --workspace --features emulator-bridge/native-core
+
+      - name: Wrapper harness
+        run: |
+          # The libretro wrapper built for the host and driven by its harness, which exits non-zero
+          # on any failed check, and build.sh runs under `set -e` with the harness as its last step.
+          ./scripts/fetch-libretro-headers.sh
+          ./native/switch-wrapper/build.sh host
+
+      - name: Skin checks (Swift)
+        run: ./scripts/check-skins.sh
+
+      - name: Player checks (Swift and node)
+        run: ./scripts/check-players.sh
+
   ipa:
+    needs: checks
     runs-on: macos-latest
     # Raised from 60, then from 120 when Azahar joined ios-all, then to 240 when PPSSPP
     # joined. Azahar is a full-depth clone with recursive submodules. PPSSPP is another
@@ -119,6 +185,13 @@ jobs:
           ./scripts/fetch-libretro-headers.sh
 
       - name: Build the engine, the wrapper and the UniFFI bindings
+        env:
+          # For scripts/fetch-buildbot-cores.sh: a prebuilt core or prboom.wad that had to come from
+          # upstream, and matched its pinned sha256, is uploaded to the core-mirror-1 pre-release so
+          # later builds no longer depend on upstream still serving it. Master builds only; a failed
+          # upload is a warning. Uses this job's `contents: write`.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CONTINUUM_MIRROR_UPLOAD: ${{ github.ref == 'refs/heads/master' && '1' || '0' }}
         run: ./native/ios/build-engine.sh
 
       - name: Show the generated Swift interface

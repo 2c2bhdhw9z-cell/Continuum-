@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 4 October 2026, for **build 121 or newer**. The newest install is always on the
+Last updated 5 October 2026, for **build 122 or newer**. The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 
@@ -20,9 +20,41 @@ landscape with no skin no longer freezes (120), the layout editor, the system pi
 
 # The list: what still needs testing
 
-## A. Fixes from the last two builds (do these first)
+## A. New and fixed in build 122 (do these first)
 
-**A1. Azahar (3DS) setting change no longer crashes**
+**A1. The new hide button in a game (the one you asked for)**
+1. Open any game. At the top left, right next to the back arrow, there is a new round button with
+   an eye on it.
+2. Tap it. ✅ Good: the game's name and every button along the top disappear, except the back
+   arrow and the eye.
+3. Tap the eye again. ✅ Good: they all come back.
+4. Hide them, go back to the library, open a game again. ✅ Good: they are still hidden (it
+   remembers your choice).
+
+**A2. 3DS skin sideways: nothing on top of the picture**
+1. Open a 3DS game with your 3DS skin, phone sideways (like your Mario Kart 7 screenshot).
+2. ✅ Good: no faint buttons sit on top of either screen, and the small text does not say
+   "touch layout overlap".
+3. ✅ Every button drawn on the skin still works.
+4. ❌ Bad: a button you need is gone. Tell me which one; the skin file may call it something the
+   app does not recognise.
+
+**A3. Import several skins at once**
+1. **Settings** → **SKINS** → **Open the skin library** → **Import skins**.
+2. In Files, tap **Select**, pick two or more `.manicskin` / `.deltaskin` files, tap **Open**.
+3. ✅ Good: the message lists every skin it imported and which console each went to.
+
+**A4. Pause stays paused**
+1. In a game, tap pause. Swipe up to the home screen, then come back to Continuum.
+2. ✅ Good: the game is still paused until you tap play.
+
+**A5. The small text is tidier**
+1. **Settings** → **DIAGNOSTICS** → **Show the diagnostic block**.
+2. ✅ Good: the first line reads `Continuum 0.8.0 (122) - 32 libretro cores` (the word Continuum
+   only once).
+3. ✅ The line under the Library no longer says "not every core is in the bundle".
+
+**A6. Azahar (3DS) setting change no longer crashes** (from build 120)
 1. Open a 3DS game and play for a few seconds.
 2. Tap **⋯** → **Core settings...** and change a setting that says it needs a restart
    (for example **New 3DS / Old 3DS**).
@@ -31,8 +63,10 @@ landscape with no skin no longer freezes (120), the layout editor, the system pi
    settings" and was not loaded. The game starts from the beginning instead.
 5. ❌ Bad: the app closes. Tell me which setting you changed.
 6. Bonus: change the setting back, restart again. Your old spot should load again.
+7. Bonus 2 (new in 122): in **Save slots...** export a 3DS slot and import it back. Load it. It
+   should behave exactly like the original slot did in steps 4 and 6.
 
-**A2. Apple performance overlay switch (new in build 121)**
+**A7. Apple performance overlay switch (from build 121)**
 1. Open **Settings** → scroll to **DIAGNOSTICS** → the top switch, **Apple performance overlay**.
 2. Leave it **off**, then open a game.
 3. ✅ Good: Apple's grey box of FPS / GPU numbers is gone.
@@ -44,8 +78,10 @@ landscape with no skin no longer freezes (120), the layout editor, the system pi
 ## B. Getting games in
 
 **B1. Wi-Fi transfer** — Library → hold your finger on **+** → **Other sources (Wi-Fi, clipboard,
-servers)** → Wi-Fi transfer. Type the address it shows into a computer browser on the same Wi-Fi,
-upload a game. ✅ The game appears in the library.
+servers)** → Wi-Fi transfer. Type the WHOLE address it shows into a computer browser on the same
+Wi-Fi, including the short code at the end (for example `http://192.168.1.20:8080/k7m2qx/`), and
+upload a game. ✅ The game appears in the library. ✅ The address without the code shows nothing.
+The code changes every time you switch Wi-Fi transfer on, so nobody else on the Wi-Fi can use it.
 
 **B2. Paste** — In the Files app, copy a game. In Continuum, hold **+** → Other sources → **Paste
 from the clipboard**. ✅ The game appears.
@@ -107,9 +143,13 @@ overwrite one (it should ask first), load the older one, delete one. ✅ All wor
 
 ## E. Skins and controls
 
-**E1. Skin holes** — Import a `.deltaskin` (re-import any old one). ✅ The game picture sits inside
-the skin's screen area, both upright and sideways. On DS/3DS skins both screens are in their holes.
-A circle pad works as a stick.
+**E1. Skin holes** — Import a `.deltaskin`. ✅ The game picture sits inside the skin's screen area,
+both upright and sideways. On DS/3DS skins both screens are in their holes. A circle pad works as a
+stick. If a DS or 3DS skin shows BOTH screens squashed into the top screen area and nothing in the
+bottom one, that skin was imported before build 109: delete it in the skin library and import the
+same skin file again. (Older builds only kept the first screen area of a skin, and the app cannot
+read the original file again by itself.) Your Mario Kart 7 screenshot already shows both screens
+in place, so your current 3DS skin is fine.
 
 **E2. Manic skins** — Import a `.manicskin`. ✅ Buttons work, press animations show, switches slide,
 button sounds play (unless the phone is on silent).
@@ -146,16 +186,20 @@ if it says restart, tap **Restart the game now**. ✅ No crash, and the change s
 
 **F3. Speed** — **⋯** → **Speed**: 2x, 3x, 4x and slow motion. Sound follows.
 
-**F4. Palette, rotate, discs** — Game Boy: **Next palette**. Any game: **Rotate picture**.
-Multi-disc PS1 (`.m3u`): **Next disc**.
+**F4. Palette, rotate, discs** — Game Boy, Game Boy Color, NES, Famicom Disk System or Virtual
+Boy: **Next palette** (other systems do not show it). Any one-screen game: **Rotate picture** (DS
+and 3DS do not show it). Multi-disc PS1 (`.m3u`): **Next disc**.
 
 **F5. Cover from the game** — **⋯** → **Use this frame as the cover**. ✅ The game's cover changes.
 
-**F6. DS and 3DS extras** — DS: **Close or open the lid**, **Blow into the microphone**. 3DS:
-**HOME button**. PlayStation: **Analog pad**.
+**F6. DS and 3DS extras** — DS: **⋯** → **Close or open the lid**. DS blowing is NOT in the ⋯
+menu: it is a round microphone button at the top left of the DS game screen, which you hold down
+while the game asks you to blow. 3DS: **⋯** → **HOME button**. PlayStation: **⋯** → **Analog pad**.
 
 **F7. Cheats** — **⋯** → **Cheats and RAM search...**. Import a RetroArch `.cht`, or do a RAM
-search (start, lose a life, filter "less", repeat, make cheat). ✅ The cheat holds.
+search (start, lose a life, filter "less", repeat, make cheat). ✅ The cheat holds. New in 122: a
+RetroArch `.cht` file for a **Game Boy Advance** game should now work too (it used to change the
+wrong part of memory). Worth one try with a GBA cheat file.
 
 ## G. Two screens, TV and mouse
 
@@ -165,7 +209,8 @@ search (start, lose a life, filter "less", repeat, make cheat). ✅ The cheat ho
 **G2. DS touch** — Tap and drag on the lower screen. ✅ The game reacts exactly where you touch.
 
 **G3. TV** — AirPlay or a cable during a game. ✅ Game on the TV, controls on the phone. Then **⋯**
-→ **TV scaling** and **TV layout**.
+→ **TV scaling**. On a DS or 3DS game there is also **⋯** → **TV layout** (one-screen games do not
+show it).
 
 **G4. Mouse** — Turn on mouse for SNES in Settings, play Mario Paint. ✅ Drag moves, tap clicks.
 
@@ -174,21 +219,26 @@ search (start, lose a life, filter "less", repeat, make cheat). ✅ The cheat ho
 ## H. Online and accounts
 
 **H1. Online play** — Two phones, same Wi-Fi, same game. **⋯** → **Play online with a second
-phone**. Host on one, join from Nearby on the other. ✅ Both say connected.
+phone**. Host on one, join from Nearby on the other. ✅ Both say connected. New in 122: on the
+second phone, leave online play, then join again from Nearby. ✅ The first phone says the other
+phone left and is waiting, keeps its game going, and lets the second phone back in.
 
 **H2. Achievements** — **Settings** → **RETROACHIEVEMENTS**, log in, play an NES, SNES or GBA game
 with achievements. ✅ A banner pops up on unlock.
 
-**H3. Cloud sync** — **Settings** → **CLOUD SYNC**, pick an iCloud Drive folder. Save in a game, go
-back to the library. ✅ The status says files were sent.
+**H3. Cloud sync** — **Settings** → **CLOUD SYNC** → **Choose a sync folder**, and pick a folder in
+iCloud Drive. Save in a game, go back to the library. ✅ The status says files were sent. New in
+122: Flash and J2ME saves, PDF manuals, Amiibo files, your "which system is this" answers and saved
+servers are synced too.
 
 ## Known not working or not built (no need to test)
 
 - SMB (NAS shares) is out of this build. WebDAV works.
 - GameCube and Wii: not possible without JIT.
 - Camera and Amiibo do not reach 3DS games (the 3DS core cannot take them).
-- `.cht` RAM cheats on GBA may read the wrong memory.
 - Online play over the internet needs port 55435 opened on the host's router.
+- A WebDAV server that arrives on a second phone through cloud sync has no password there (passwords
+  never leave the phone they were typed on). Remove it and add it again on that phone.
 - JIT is left out on purpose.
 
 ---
