@@ -33,8 +33,9 @@ These come straight from the owner. They are not suggestions.
 ## How to work
 - Never do one small feature at a time. Do the biggest batch of remaining work possible in one go.
 - Do not stop to ask what is next. The plan is written down: read it and keep going.
-- Start every session by reading STATUS.md (its "Next up" section first) and TESTING.md section A,
-  then carry on from there. Keep "Next up" current before a session ends.
+- Start every session by reading HANDOFF.md, then STATUS.md (its "Next up" section first) and
+  TESTING.md section A, then carry on from there. Before a session ends (or when the chat gets
+  long), update HANDOFF.md and "Next up" so the next chat can pick up with no explaining.
 
 ## The goal
 - Continuum must become "the one" iPhone emulator everyone uses. It must do everything Manic EMU
