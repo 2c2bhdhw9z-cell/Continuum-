@@ -7,14 +7,13 @@ Paste this to start a new chat:
 
 ## Where things are (5 October 2026)
 
-- Newest install: build 124, release `build-124-d0df06a`, version 0.8.0 (124), 32 cores, checked.
-  Link: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-124-d0df06a/Continuum-124.ipa
-- After that, commit `870b276` cleaned up the repo (docs, old web-era leftovers, comments). It
-  became build 125 (release `build-125-870b276`), checked: 0.8.0 (125), 32 cores. It is the same
-  app as 124 apart from one permission sentence, so the owner does not need to install it.
-  Results reported against 124 apply to 125.
-- The owner is testing build 124 at home: TESTING.md section A (A1 to A7). Their answers decide
-  what comes next. Anything that fails gets fixed first.
+- Newest install: build 125, release `build-125-870b276`, version 0.8.0 (125), 32 cores, checked.
+  Link: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-125-870b276/Continuum-125.ipa
+- Build 125 is build 124's app (the bug sweep, commit `d0df06a`) plus a repo cleanup (commit
+  `870b276`: docs, old web-era leftovers, comments). Inside the app only the local-network
+  permission sentence changed.
+- **The owner is testing build 125**, working through the whole TESTING.md list (section A
+  first). Their answers come back as test numbers. Anything that fails gets fixed first.
 - Everything else that is planned is in STATUS.md "Next up" and docs/MANIC_PARITY.md "Still to do".
 
 ## How the owner works

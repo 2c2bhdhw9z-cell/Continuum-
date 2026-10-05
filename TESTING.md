@@ -1,6 +1,7 @@
 # What to test, and what to tell me
 
-Last updated 5 October 2026, for **build 124 or newer**. The newest install is always on the
+Last updated 5 October 2026, for **build 125 or newer** (125 is build 124's app; tests marked
+"new in 124" apply to it). The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 

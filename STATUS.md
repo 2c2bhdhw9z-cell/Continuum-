@@ -23,7 +23,8 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 For whoever works on this next:
 
-- The owner is testing build 124: [TESTING.md](TESTING.md) section A first, then the rest of the
+- The owner is testing build 125 (build 124's app plus a repo cleanup):
+  [TESTING.md](TESTING.md) section A first, then the rest of the
   list. Act on whatever comes back.
 - Open work from [docs/MANIC_PARITY.md](docs/MANIC_PARITY.md) "Still to do": SMB shares done
   properly (taken out after build 117 stopped the app opening), and direct Google Drive, Dropbox and OneDrive
