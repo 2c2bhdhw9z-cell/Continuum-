@@ -322,6 +322,16 @@ pub struct Renderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
+    /// The same blit, writing [`CAPTURE_FORMAT`] for screenshots, covers and save thumbnails.
+    ///
+    /// THE REASON EVERY CAPTURE CAME BACK BLACK. Captures used to draw with `pipeline`, which
+    /// writes the SCREEN's pixel format, into a texture of a different one: the screen on iOS is
+    /// BGRA (`pick_surface_format` takes the first one Metal offers), the capture texture RGBA.
+    /// A render pass whose target format differs from its pipeline's is a validation error, so
+    /// the GPU dropped the whole submission, the copy never ran, and the readback handed back the
+    /// zeroed buffer: a black picture for every save slot. A pipeline of its own, built for the
+    /// capture's format, makes the capture independent of whatever the screen uses.
+    capture_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     uniform_buffer: wgpu::Buffer,
     /// How the framebuffer is divided into screens. See [`ScreenSplit`].
@@ -483,35 +493,42 @@ impl Renderer {
             immediate_size: 0,
         });
 
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("frame-blit-pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        // One shader, one layout, two output formats. A render pipeline is fixed to the pixel
+        // format it writes, and the screen and a capture write different ones; see
+        // `capture_pipeline` on the struct.
+        let make_pipeline = |label: &str, target_format: wgpu::TextureFormat| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: target_format,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let pipeline = make_pipeline("frame-blit-pipeline", format);
+        let capture_pipeline = make_pipeline("frame-capture-pipeline", CAPTURE_FORMAT);
 
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("frame-blit-uniforms"),
@@ -551,6 +568,7 @@ impl Renderer {
             queue,
             config,
             pipeline,
+            capture_pipeline,
             bind_group_layout,
             uniform_buffer,
             screen_split: ScreenSplit::Single,
@@ -1581,6 +1599,68 @@ impl Drop for Renderer {
 /// capture buffer is usually wider than `width * 4` and must be de-padded on read.
 const COPY_ALIGNMENT: u32 = 256;
 
+/// What a capture is drawn in: tight RGBA8, the byte order every caller reads
+/// (`CapturedFrame.rgba`, the PNG encoder on iOS). See `Renderer::capture_pipeline`.
+const CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
+/// A capture at its natural size is scaled up by a whole number until its longer side reaches at
+/// least this, so a 256x224 game makes a cover or screenshot big enough to look sharp rather than
+/// a thumbnail-sized image.
+const CAPTURE_MIN_LONG_SIDE: f32 = 720.0;
+
+/// No capture side is larger than this, whatever is asked for.
+const CAPTURE_MAX_SIDE: f32 = 4096.0;
+
+/// The size a capture is drawn at. Pure, so it is tested without a GPU.
+///
+/// `fb_width`/`fb_height` are the core's framebuffer, `aspect` the shape it is SHOWN at (the
+/// core's declared aspect, which is what corrects non-square pixels such as the SNES's), and
+/// `rotation` the quarter turns applied on screen. The natural size is that shape at the
+/// framebuffer's height, turned on its side for a quarter turn.
+///
+/// - `0, 0`: the natural size, scaled up by a whole number (see [`CAPTURE_MIN_LONG_SIDE`]).
+/// - one side 0: the other side as given, and this one from the natural shape. A save thumbnail
+///   asks for a height and gets the game's own proportions, so a DS slot is tall and narrow and
+///   a NES slot is wide, rather than every game squeezed into one box with dark bars.
+/// - both given: exactly that, with the picture fitted inside.
+fn capture_size_for(
+    fb_width: f32,
+    fb_height: f32,
+    aspect: f32,
+    rotation: u32,
+    width: u32,
+    height: u32,
+) -> (u32, u32) {
+    let fb_height = if fb_height.is_finite() && fb_height >= 1.0 { fb_height } else { 1.0 };
+    let aspect = if aspect.is_finite() && aspect > 0.0 {
+        aspect
+    } else if fb_width.is_finite() && fb_width >= 1.0 {
+        fb_width / fb_height
+    } else {
+        1.0
+    };
+    let upright = ((fb_height * aspect).round().max(1.0), fb_height);
+    let (natural_w, natural_h) = if rotation % 2 == 1 {
+        (upright.1, upright.0)
+    } else {
+        upright
+    };
+    let shown = natural_w / natural_h;
+    let side = |value: f32| value.round().clamp(1.0, CAPTURE_MAX_SIDE) as u32;
+    match (width, height) {
+        (0, 0) => {
+            let longest = natural_w.max(natural_h);
+            let up = (CAPTURE_MIN_LONG_SIDE / longest).ceil().max(1.0);
+            let cap = (CAPTURE_MAX_SIDE / longest).floor().max(1.0);
+            let k = up.min(cap);
+            (side(natural_w * k), side(natural_h * k))
+        }
+        (w, 0) => (side(w as f32), side(w as f32 / shown)),
+        (0, h) => (side(h as f32 * shown), side(h as f32)),
+        (w, h) => (side(w as f32), side(h as f32)),
+    }
+}
+
 /// An in-flight readback of the presented image.
 ///
 /// Two-step by necessity: encoding and submitting is synchronous, but mapping the
@@ -1633,19 +1713,29 @@ impl FrameCapture {
 }
 
 impl Renderer {
+    /// The size [`Self::encode_capture`] draws at for a requested size, zeros meaning "the game's
+    /// own shape". See [`capture_size_for`].
+    pub fn capture_size(&self, width: u32, height: u32) -> (u32, u32) {
+        let (fb_width, fb_height) = self.frame_size();
+        capture_size_for(fb_width, fb_height, self.aspect_ratio, self.rotation, width, height)
+    }
+
     /// Renders the current frame into an offscreen texture and submits a readback.
     ///
-    /// Uses the same pipeline, bind group and scaling maths as [`Self::present`], so
-    /// what comes back is what the canvas shows — which makes this the way to verify
-    /// the GPU path without depending on the browser's canvas compositing (headless
-    /// and software WebGPU stacks frequently will not surface presented frames).
+    /// THE GAME'S PICTURE, NOT THE SCREEN'S LAYOUT. The frame is drawn whole, in the shape it is
+    /// shown at, with the filter, palette look and rotation the player chose, and nothing else: no
+    /// skin holes, no two-screen arrangement, no TV layout. Those place the picture relative to a
+    /// skin's artwork or the phone's shape, and the artwork is drawn by the app, not here, so a
+    /// capture that followed them came back as screen-shaped darkness with the game in pieces
+    /// inside it. A save thumbnail, a cover and a screenshot all want the game itself. A DS or 3DS
+    /// capture is the framebuffer as the core draws it, both screens stacked.
     ///
-    /// Also the primitive the UI will want for save-state thumbnails and
-    /// screenshots. Allocates per call, so it is a deliberate action rather than
-    /// something to run every frame.
+    /// `width`/`height` are passed through [`Self::capture_size`]. Its own pipeline (see
+    /// `capture_pipeline`) and its own uniform buffer and bind group, so the next presented frame
+    /// is untouched by a capture taken between two of them. Allocates per call, so it is a
+    /// deliberate action rather than something to run every frame.
     pub fn encode_capture(&mut self, width: u32, height: u32) -> Result<FrameCapture, GfxError> {
-        let width = width.max(1);
-        let height = height.max(1);
+        let (width, height) = self.capture_size(width, height);
 
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("frame-capture"),
@@ -1657,15 +1747,47 @@ impl Renderer {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: CAPTURE_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Frame for the capture's dimensions. The next `present` rewrites these for
-        // the swapchain, so borrowing the shared uniform buffer is safe between frames.
-        self.write_uniforms_for(width, height);
+        // One quad, the whole framebuffer, fitted to the capture in the shape it is shown at.
+        // `capture_size` already chose a target of that shape unless the caller fixed both sides,
+        // so this normally fills it exactly.
+        let (fb_width, fb_height) = self.frame_size();
+        // The shape the picture is shown at, taken from the natural size so the two can never
+        // disagree. Both sides are at least 1, see `capture_size_for`.
+        let (natural_w, natural_h) = self.capture_size(0, 0);
+        let shown_aspect = natural_w as f32 / natural_h as f32;
+        let fitted = Self::fit(
+            ScaleMode::AspectFit,
+            shown_aspect,
+            fb_width,
+            fb_height,
+            width,
+            height,
+        );
+        let uniforms = BlitUniforms {
+            frame_size: [fb_width, fb_height],
+            screen_count: 1,
+            _padding: 0,
+            screens: Self::screen_layout(ScreenSplit::Single, fitted),
+            post: self.post_uniform(width, height),
+        };
+        let uniform_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("frame-capture-uniforms"),
+            size: core::mem::size_of::<BlitUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.queue
+            .write_buffer(&uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+        let bind_group = self
+            .frame_target
+            .as_ref()
+            .map(|target| self.build_bind_group(&target.texture, &uniform_buffer));
 
         let padded_bytes_per_row =
             width * 4 + (COPY_ALIGNMENT - (width * 4) % COPY_ALIGNMENT) % COPY_ALIGNMENT;
@@ -1703,10 +1825,10 @@ impl Renderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if let (Some(target), true) = (&self.frame_target, self.screen_count > 0) {
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, &target.bind_group, &[]);
-                pass.draw(0..6, 0..self.screen_count);
+            if let Some(bind_group) = &bind_group {
+                pass.set_pipeline(&self.capture_pipeline);
+                pass.set_bind_group(0, bind_group, &[]);
+                pass.draw(0..6, 0..1);
             }
         }
 
@@ -2171,5 +2293,66 @@ mod post_tests {
         // The single-screen guard pins [0.75, 1.0] for a 4:3 picture on a 16:12 * 4/3 target.
         let fitted = Renderer::fit(ScaleMode::AspectFit, 4.0 / 3.0, 320.0, 240.0, 1600, 900);
         assert!((fitted[0] - 0.75).abs() < 1e-6 && (fitted[1] - 1.0).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod capture_tests {
+    //! The capture's size. The draw itself needs a GPU; the sizes it is drawn at do not, and they
+    //! are what decide whether a save thumbnail or a cover has the game's shape.
+    use super::{capture_size_for, CAPTURE_FORMAT, CAPTURE_MAX_SIDE, CAPTURE_MIN_LONG_SIDE};
+
+    #[test]
+    fn the_capture_format_is_what_callers_read() {
+        // `CapturedFrame.rgba` and the iOS PNG encoder both read R, G, B, A in that order.
+        assert_eq!(CAPTURE_FORMAT, wgpu::TextureFormat::Rgba8Unorm);
+    }
+
+    #[test]
+    fn natural_size_keeps_the_shown_shape_and_scales_up_by_a_whole_number() {
+        // NES at 4:3: 320x240 shown, three times to pass 720.
+        assert_eq!(capture_size_for(256.0, 240.0, 4.0 / 3.0, 0, 0, 0), (960, 720));
+        // A DS framebuffer, both screens stacked, at its own shape.
+        assert_eq!(capture_size_for(256.0, 384.0, 256.0 / 384.0, 0, 0, 0), (512, 768));
+        // A frame already large enough is not scaled.
+        assert_eq!(capture_size_for(1280.0, 960.0, 4.0 / 3.0, 0, 0, 0), (1280, 960));
+        let (w, h) = capture_size_for(160.0, 144.0, 10.0 / 9.0, 0, 0, 0);
+        assert!(w.max(h) as f32 >= CAPTURE_MIN_LONG_SIDE, "{w}x{h}");
+    }
+
+    #[test]
+    fn non_square_pixels_are_corrected() {
+        // SNES 256x224 shown at 4:3 is 299x224 wide, not 256 wide.
+        let (w, h) = capture_size_for(256.0, 224.0, 4.0 / 3.0, 0, 0, 0);
+        assert!((w as f32 / h as f32 - 4.0 / 3.0).abs() < 0.01, "{w}x{h}");
+    }
+
+    #[test]
+    fn a_quarter_turn_swaps_the_shape() {
+        let (w, h) = capture_size_for(256.0, 240.0, 4.0 / 3.0, 1, 0, 0);
+        assert!(h > w, "{w}x{h}");
+        assert_eq!(capture_size_for(256.0, 240.0, 4.0 / 3.0, 1, 0, 288), (216, 288));
+    }
+
+    #[test]
+    fn one_side_is_taken_from_the_shape() {
+        // The save thumbnail asks for a height.
+        assert_eq!(capture_size_for(256.0, 240.0, 4.0 / 3.0, 0, 0, 288), (384, 288));
+        assert_eq!(capture_size_for(256.0, 384.0, 256.0 / 384.0, 0, 0, 288), (192, 288));
+        assert_eq!(capture_size_for(256.0, 240.0, 4.0 / 3.0, 0, 400, 0), (400, 300));
+        // Both given is exactly that.
+        assert_eq!(capture_size_for(256.0, 384.0, 0.5, 0, 192, 144), (192, 144));
+    }
+
+    #[test]
+    fn nonsense_never_makes_an_empty_or_huge_capture() {
+        let max = CAPTURE_MAX_SIDE as u32;
+        for (fw, fh, a) in [(0.0, 0.0, 0.0), (f32::NAN, 1.0, f32::NAN), (1.0, 1.0, 1000.0)] {
+            let (w, h) = capture_size_for(fw, fh, a, 0, 0, 0);
+            assert!(w >= 1 && h >= 1 && w <= max && h <= max, "{w}x{h}");
+        }
+        // No core reported an aspect: the framebuffer's own shape is used.
+        assert_eq!(capture_size_for(256.0, 384.0, 0.0, 0, 0, 288), (192, 288));
+        assert_eq!(capture_size_for(256.0, 240.0, 4.0 / 3.0, 0, 99_999, 99_999), (max, max));
     }
 }

@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 5 October 2026, for **build 122 or newer**. The newest install is always on the
+Last updated 5 October 2026, for **build 123 or newer**. The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 
@@ -15,58 +15,31 @@ is the app's only "error log", so it usually explains the problem.
 **Confirmed on your phone recently (no need to test again):** the **+** button opens Files
 (build 119), the **⋯** menu in a game opens (119), TV/AirPlay picture is sharper (119), turning to
 landscape with no skin no longer freezes (120), the layout editor, the system pickers and a DS game.
+On 5 October with build 122: the eye button that hides the top bar (and that it remembers), a
+paused game staying paused after leaving the app, a 3DS skin sideways with nothing on the picture,
+importing several skins at once, the tidier small text, changing a 3DS "restart" setting without a
+crash, fast forward at 2x, the CRT filter, and taking a cover from the game.
 
 ---
 
 # The list: what still needs testing
 
-## A. New and fixed in build 122 (do these first)
+## A. New in build 123 (do this first)
 
-**A1. The new hide button in a game (the one you asked for)**
-1. Open any game. At the top left, right next to the back arrow, there is a new round button with
-   an eye on it.
-2. Tap it. ✅ Good: the game's name and every button along the top disappear, except the back
-   arrow and the eye.
-3. Tap the eye again. ✅ Good: they all come back.
-4. Hide them, go back to the library, open a game again. ✅ Good: they are still hidden (it
-   remembers your choice).
+**A1. Save slot pictures (it was black in 122)**
+1. In any game: **⋯** → **Save to the next free slot**, then **⋯** → **Save slots...**.
+2. ✅ Good: the new slot shows a picture of the game, in the game's own shape (a DS slot is tall
+   and narrow, a NES or GBA slot is wide). Slots saved in 122 stay black; save over one to fix it.
+3. Bonus: **⋯** → **Use this frame as the cover**. ✅ The cover is a sharp picture of the game
+   alone, without the skin around it.
 
-**A2. 3DS skin sideways: nothing on top of the picture**
-1. Open a 3DS game with your 3DS skin, phone sideways (like your Mario Kart 7 screenshot).
-2. ✅ Good: no faint buttons sit on top of either screen, and the small text does not say
-   "touch layout overlap".
-3. ✅ Every button drawn on the skin still works.
-4. ❌ Bad: a button you need is gone. Tell me which one; the skin file may call it something the
-   app does not recognise.
+**A2. 3DS state export keeps its protection** (new in 122)
+1. In a 3DS game: **⋯** → **Save slots...** → tap a slot → **Export**, then **Import a state file**
+   and pick the file you just made.
+2. ✅ Good: the imported slot loads like the original. If you then change **New 3DS / Old 3DS**
+   and restart, it is refused with a message instead of the app closing.
 
-**A3. Import several skins at once**
-1. **Settings** → **SKINS** → **Open the skin library** → **Import skins**.
-2. In Files, tap **Select**, pick two or more `.manicskin` / `.deltaskin` files, tap **Open**.
-3. ✅ Good: the message lists every skin it imported and which console each went to.
-
-**A4. Pause stays paused**
-1. In a game, tap pause. Swipe up to the home screen, then come back to Continuum.
-2. ✅ Good: the game is still paused until you tap play.
-
-**A5. The small text is tidier**
-1. **Settings** → **DIAGNOSTICS** → **Show the diagnostic block**.
-2. ✅ Good: the first line reads `Continuum 0.8.0 (122) - 32 libretro cores` (the word Continuum
-   only once).
-3. ✅ The line under the Library no longer says "not every core is in the bundle".
-
-**A6. Azahar (3DS) setting change no longer crashes** (from build 120)
-1. Open a 3DS game and play for a few seconds.
-2. Tap **⋯** → **Core settings...** and change a setting that says it needs a restart
-   (for example **New 3DS / Old 3DS**).
-3. Tap **Restart the game now**.
-4. ✅ Good: the game starts again and the small text says the save "was saved with different core
-   settings" and was not loaded. The game starts from the beginning instead.
-5. ❌ Bad: the app closes. Tell me which setting you changed.
-6. Bonus: change the setting back, restart again. Your old spot should load again.
-7. Bonus 2 (new in 122): in **Save slots...** export a 3DS slot and import it back. Load it. It
-   should behave exactly like the original slot did in steps 4 and 6.
-
-**A7. Apple performance overlay switch (from build 121)**
+**A3. Apple performance overlay switch (from build 121)**
 1. Open **Settings** → scroll to **DIAGNOSTICS** → the top switch, **Apple performance overlay**.
 2. Leave it **off**, then open a game.
 3. ✅ Good: Apple's grey box of FPS / GPU numbers is gone.
@@ -139,7 +112,7 @@ overwrite one (it should ask first), load the older one, delete one. ✅ All wor
 
 **D3. Export and import a state** — Same screen: export a slot, import it back. ✅ It loads.
 
-**D4. Quick save** — **⋯** → **Save to the next free slot**. ✅ A new slot appears in Save slots.
+**D4. Quick save** — confirmed working in 122 (the slot appears); its picture is test A1.
 
 ## E. Skins and controls
 
@@ -182,15 +155,15 @@ Topsy-Turvy): tilt the phone. Pokemon Mini: **⋯** → **Shake**.
 **F1. Core settings** — **⋯** → **Core settings...** on a few systems (not just 3DS). Change one;
 if it says restart, tap **Restart the game now**. ✅ No crash, and the change shows.
 
-**F2. Filters** — **⋯** → **Filters...**: try CRT, LCD grid, dot matrix.
+**F2. Filters** — **⋯** → **Filters...**: CRT works (122). Try LCD grid and dot matrix.
 
-**F3. Speed** — **⋯** → **Speed**: 2x, 3x, 4x and slow motion. Sound follows.
+**F3. Speed** — **⋯** → **Speed**: 2x works (122). Try 3x, 4x and slow motion. Sound follows.
 
 **F4. Palette, rotate, discs** — Game Boy, Game Boy Color, NES, Famicom Disk System or Virtual
 Boy: **Next palette** (other systems do not show it). Any one-screen game: **Rotate picture** (DS
 and 3DS do not show it). Multi-disc PS1 (`.m3u`): **Next disc**.
 
-**F5. Cover from the game** — **⋯** → **Use this frame as the cover**. ✅ The game's cover changes.
+**F5. Cover from the game** — confirmed in 122. Build 123 changes what it takes (the game alone, sharper): test A1 step 3.
 
 **F6. DS and 3DS extras** — DS: **⋯** → **Close or open the lid**. DS blowing is NOT in the ⋯
 menu: it is a round microphone button at the top left of the DS game screen, which you hold down

@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-5 October 2026 (build 122). The install is always the newest file on the
+5 October 2026 (build 123). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Three states only:
@@ -73,7 +73,7 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Library, cover art, the detail card | **Done** | |
 | Cover art from the internet | **Done** | |
 | Cover art from your own file | **Done** | |
-| Cover art captured from the running game | **Built, untested** | |
+| Cover art captured from the running game | **Done** | Confirmed on the phone with build 122. Build 123 makes it a sharp picture of the game alone (no skin layout around it); that version is TESTING.md A1 step 3 |
 | On-screen controls | **Done** | |
 | Physical controllers | **Done** | Including a controller and thumbs at the same time |
 | Sound | **Done** | |
@@ -81,15 +81,15 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Screen fit and scaling | **Done** | |
 | Fast forward | **Done** | Tops out near 4x. Past that the engine drops frames instead of going faster, and the menu stops at 4x. That is not 5x |
 | Rewind | **Done** | |
-| Save states, slots, delete | **In the tree, not on a phone** | 50 fixed slots per game plus the auto-save, each with a picture, date and core. Save, load, overwrite (asks first), rename, delete. Old numbered saves move into free slots and nothing is deleted. Export and import a state file, and the game's own battery save (`.srm`). Not on a phone |
+| Save states, slots, delete | **In the tree, not on a phone** | 50 fixed slots per game plus the auto-save, each with a picture, date and core. Save, load, overwrite (asks first), rename, delete. Old numbered saves move into free slots and nothing is deleted. Export and import a state file, and the game's own battery save (`.srm`). Saving to the next free slot confirmed on the phone (build 122). Every slot picture was black in 122 (the picture was drawn in a format the drawing step was not built for, so it was thrown away); fixed in build 123, TESTING.md A1. Rename, overwrite, load, delete, export and import not on a phone yet |
 | Auto-save and resume | **Done** | |
 | Cheats | **In the tree, not on a phone** | Typing a code works on a phone. New and not on a phone: import a RetroArch `.cht` file, and a RAM search (lives, money and so on) that turns an address into a cheat. Up to 128 codes per game. Build 122: a `.cht` file's RAM cheats now land where RetroArch puts them (on GBA they used to hit the wrong memory) |
 | On-screen control layout editor | **Partial** | **Done bar (Brett):** every control in the skin file works, not only the ones he names. Picture in the screen hole both ways you hold the phone. Two screens when the skin has two. A joystick or circle pad is a real stick, not a dead picture. Shoulders too. Debug text off the picture. **Device, 5 October (a 3DS skin, Mario Kart 7, sideways):** both screens are in their own holes. The only complaint left was the player's top bar (name and buttons) sitting over the picture. **Build 122, not on a phone yet:** a button next to Back hides or shows the whole top bar; built-in buttons the skin does not name are taken off the screen instead of sitting faintly on the picture; the false "touch layout overlap" line is gone when a skin is in use. Portrait and the other systems' skins are still not confirmed. Do **not** stamp Done until the owner says the skin is right |
 | Battery saves (the game's own save) | **In the tree, not on a phone** | Found broken while building the save manager: in-game saves (Pokemon, Zelda, PS1 memory card) were never written to disk, so they only survived inside a save state. Now restored before the first frame and written when you leave or switch apps |
-| Save state compatibility refusal | **Built, partly testable** | Refuses a state from a different core or core build. Since build 120 it also refuses a state saved under different restart-required core settings (Azahar's console model, audio, renderer and so on), with a message naming the setting. That case is testable: TESTING.md A1 |
-| Hide the player's top bar | **Built, untested** | Build 122. An eye button next to Back hides the game's name and every top-bar button except Back and itself; tapping it again brings them back. Remembered between games. Asked for by the owner from a 3DS skin screenshot. TESTING.md A1 |
-| Import several skins at once | **Built, untested** | Build 122. Settings, SKINS, skin library, Import skins: pick any number of `.manicskin` / `.deltaskin` files in one go. The **+** button in the Library already took several at once. TESTING.md A3 |
-| A paused game stays paused after leaving the app | **Built, untested** | Build 122. Coming back to the app used to un-pause a game the player had paused. TESTING.md A4 |
+| Save state compatibility refusal | **Done** for the 3DS settings case | Refuses a state from a different core or core build, and (since build 120) one saved under different restart-required core settings. Confirmed on the phone 5 October: changing a 3DS restart setting no longer closes the app. Exported and re-imported states carry their settings since build 122 (TESTING.md A2, not on a phone yet) |
+| Hide the player's top bar | **Done** | Build 122, confirmed on the phone 5 October: the eye button next to Back hides and shows the top bar, and the choice is remembered between games |
+| Import several skins at once | **Done** | Build 122, confirmed on the phone 5 October (skin library, Import skins) |
+| A paused game stays paused after leaving the app | **Done** | Build 122, confirmed on the phone 5 October |
 | Wi-Fi transfer access code | **Built, untested** | Build 122. The address now ends in a short code that changes every time Wi-Fi transfer is switched on; anything without it gets nothing, so nobody else on the Wi-Fi can upload files or download saves. TESTING.md B1 |
 | Apple performance overlay switch | **Built, untested** | Build 121. Settings → DIAGNOSTICS. Hides Apple's Metal Performance HUD on the game layers and turns off the launch-time request for it. May need the app reopened |
 | Landscape with no skin | **Done** | Froze in build 119 (an endless layout loop from a repeated warning line). Fixed in build 120 and confirmed on the phone |
@@ -133,6 +133,17 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 
 ---
+
+## Build 123 (5 October 2026)
+
+- Save slot pictures were black: every capture (slot pictures, and on some screens covers and
+  screenshots) was drawn with the screen's drawing step into a picture of a different format, which
+  the phone refuses, so nothing was drawn. Captures now have their own drawing step, and take the
+  game's picture alone in its own shape rather than the skin's layout. Slot pictures are sharper
+  (288 pixels tall, was 144).
+- Build 122 confirmed on the phone: the top-bar hide button, pause staying paused, the 3DS skin
+  sideways with nothing on the picture, several skins at once, the tidier small text, the 3DS
+  settings change, fast forward, the CRT filter and the cover from the game.
 
 ## Build 122 (5 October 2026)
 

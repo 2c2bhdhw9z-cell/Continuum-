@@ -1395,11 +1395,12 @@ impl ContinuumEngine {
         self.lock().state_size() as u64
     }
 
-    /// Captures what is on screen as RGBA8. See [`CapturedFrame`].
+    /// Captures the game's picture as RGBA8. See [`CapturedFrame`].
     ///
-    /// `width` and `height` of `0` mean the current surface size. The capture goes through the
-    /// same pipeline as a present, so the scale mode, the filter and the aspect ratio all apply:
-    /// it is a picture of the game as displayed, not the core's raw framebuffer.
+    /// The picture in the shape it is shown at, with the player's filter and rotation, without the
+    /// skin or two-screen layout around it. `width` and `height` of `0` mean the game's natural
+    /// size, scaled up to a sharp size; one of them `0` takes that side from the game's shape (a
+    /// save thumbnail asks for a height). The returned width and height are the real ones.
     ///
     /// **Blocks for a few milliseconds while the GPU finishes.** A readback cannot be instant,
     /// because the copy has to complete before the bytes exist. Call it from a deliberate user

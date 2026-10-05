@@ -1202,14 +1202,18 @@ final class SaveStates: ObservableObject {
         return record
     }
 
-    /// Captures the frame on screen as a slot's picture.
+    /// Captures the game's picture as a slot's picture.
     ///
     /// The readback itself is synchronous and brief (it is the same call the cover capture uses);
     /// the PNG encode runs off the main actor. A failure costs only the picture, so it is not
     /// reported over the save's own line.
+    ///
+    /// A HEIGHT ONLY, and the width is the engine's: the game's own proportions, so a DS slot is
+    /// tall and a NES slot is wide instead of every game squeezed into one 4:3 box. 288 rows so the
+    /// picture is still sharp on a Retina screen, where the old 144 was soft.
     private func captureThumbnail(gameId: String, slot: Int) {
         SaveStateDisk.removeThumbnail(gameId: gameId, slot: slot, isAuto: false)
-        guard let frame = try? engine.captureFrame(width: 192, height: 144) else { return }
+        guard let frame = try? engine.captureFrame(width: 0, height: 288) else { return }
         Task { [weak self] in
             let (png, _) = await CapturedCover.pngData(width: frame.width, height: frame.height,
                                                        rgba: frame.rgba)

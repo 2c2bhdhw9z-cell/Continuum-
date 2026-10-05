@@ -1271,10 +1271,10 @@ impl EmulatorBridge {
 
     /// Captures the current frame as tightly packed RGBA8, returning its width and height too.
     ///
-    /// `width`/`height` of zero mean "the current surface size". The image is rendered through the
-    /// same pipeline and bind group as a normal present, so the active scale mode, filter and
-    /// aspect ratio all apply: what comes back is what is on screen, not the core's raw
-    /// framebuffer.
+    /// The game's picture in the shape it is shown at, with the player's filter, look and
+    /// rotation, and without the skin or two-screen layout around it (see
+    /// `Renderer::encode_capture` for why). A zero `width` or `height` is taken from that shape;
+    /// both zero is its natural size, scaled up to a sharp size.
     ///
     /// **This blocks until the GPU has finished, and that is safe here in a way it was not in the
     /// browser.** A readback is inherently two-step, because the copy has to complete before the
@@ -1341,8 +1341,9 @@ impl EmulatorBridge {
 
     /// Submits a GPU readback of the presented image.
     ///
-    /// `width`/`height` of zero mean "the current surface size". The caller awaits
-    /// the buffer map and then calls [`crate::gfx::FrameCapture::take_rgba`].
+    /// A zero `width` or `height` means "from the game's own shape" (both zero: its natural
+    /// size, scaled up; see `Renderer::capture_size`). The caller awaits the buffer map and then
+    /// calls [`crate::gfx::FrameCapture::take_rgba`].
     pub fn encode_capture(
         &mut self,
         width: u32,
@@ -1362,9 +1363,9 @@ impl EmulatorBridge {
             }
         }
 
-        let (surface_width, surface_height) = renderer.surface_size();
-        let width = if width == 0 { surface_width } else { width };
-        let height = if height == 0 { surface_height } else { height };
+        // A zero side means "the game's own shape", resolved by the renderer AFTER the upload
+        // above, so it is the current frame's size that decides it. See
+        // `Renderer::capture_size`.
         Ok(renderer.encode_capture(width, height)?)
     }
 
