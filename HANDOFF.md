@@ -10,9 +10,9 @@ Paste this to start a new chat:
 - Newest install: build 124, release `build-124-d0df06a`, version 0.8.0 (124), 32 cores, checked.
   Link: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-124-d0df06a/Continuum-124.ipa
 - After that, commit `870b276` cleaned up the repo (docs, old web-era leftovers, comments). It
-  starts build 125, which should be the same app as 124. Check that it built. If it failed, read
-  the log, fix it and push. If it passed, check the .ipa (0.8.0 (125), 32 cores), but the owner
-  does not need to install it unless something else changes.
+  became build 125 (release `build-125-870b276`), checked: 0.8.0 (125), 32 cores. It is the same
+  app as 124 apart from one permission sentence, so the owner does not need to install it.
+  Results reported against 124 apply to 125.
 - The owner is testing build 124 at home: TESTING.md section A (A1 to A7). Their answers decide
   what comes next. Anything that fails gets fixed first.
 - Everything else that is planned is in STATUS.md "Next up" and docs/MANIC_PARITY.md "Still to do".
