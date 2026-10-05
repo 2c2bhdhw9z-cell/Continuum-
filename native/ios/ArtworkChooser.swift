@@ -156,6 +156,53 @@ enum ArtworkOptions {
             return text + ". The one in use is marked."
         }
     }
+
+    /// The sentence the card shows, and `ArtworkStore.chooseArtwork` refuses with, while cover
+    /// lookups are switched off.
+    ///
+    /// ONE CONSTANT FOR BOTH, so the refusal on the status line and the line on the card can never
+    /// disagree about what the switch does. It names the two things that still work, because both
+    /// are local: a picked image and a captured frame never touch the server.
+    static let lookupsOffLine = "Cover lookups are off in Settings, so no cover list and no cover "
+        + "is downloaded from the server. An image from Files still works, and so does a frame "
+        + "captured from the running game."
+
+    /// The one sentence under the row when some of the lists could not be had.
+    ///
+    /// NOT `summary`, because every sentence that one writes is a claim about the WHOLE set: "No
+    /// cover was found in its own system's lists" is false when the lists were never downloaded,
+    /// and "One cover exists" is false when two of the three were not searched. This says what was
+    /// found, that it may not be everything, why, and what to do about it.
+    static func incompleteSummary(for options: [ArtworkOption], reason: String) -> String {
+        switch options.count {
+        case 0:
+            return "The cover lists could not be downloaded (\(reason)), so there is nothing to "
+                + "choose from yet. Try again when online."
+        case 1:
+            return "One cover was found, but some of the cover lists could not be downloaded "
+                + "(\(reason)), so there may be more. Try again when online."
+        default:
+            return "\(options.count) covers were found, but some of the cover lists could not be "
+                + "downloaded (\(reason)), so there may be more. Try again when online."
+        }
+    }
+}
+
+/// What one enumeration for the card produced.
+///
+/// FOUR OUTCOMES, because only ONE of them is a complete answer, and only a complete answer may be
+/// cached: a partial list kept as though it were the whole set would tell the user, for the rest of
+/// the run, that the server has no cover for a game whose lists simply could not be fetched.
+enum ArtworkEnumeration: Sendable {
+    /// Every list the enumeration wanted was searched. The one outcome the store caches.
+    case complete([ArtworkOption])
+    /// At least one list could not be had, so these are the options found in the others. Shown,
+    /// never cached.
+    case incomplete([ArtworkOption], reason: String)
+    /// Cover lookups are off in Settings, so nothing was asked of the server.
+    case lookupsOff
+    /// The card closed while this ran. Nothing to show and nothing kept.
+    case cancelled
 }
 
 // MARK: - What is remembered
@@ -351,20 +398,36 @@ final class ArtworkChooserModel: ObservableObject {
 
     /// Set the first time `load` runs, so a body re-evaluation cannot re-enumerate.
     private var loaded = false
-    /// Everything started here, so closing the sheet stops it. A thumbnail already in flight is left
-    /// to finish and cache: it is cheaper than asking for it again.
+    /// The enumeration and the thumbnails, so closing the sheet stops them. Cancelling one cancels
+    /// its download too, and one still queued for a slot gives it back without asking; see
+    /// `ArtworkStore.downloadOption`. A CHOSEN cover is deliberately not in here: see `choose`.
     private var tasks: [Task<Void, Never>] = []
 
     /// Enumerates and starts resolving, once.
+    ///
+    /// Called again by the sheet whenever the lookups switch changes, which is why the switch is
+    /// checked BEFORE `loaded`: a card opened with lookups off is not marked as loaded, so turning
+    /// them on loads it then, and turning them off says so instead of leaving a stale summary.
     func load(entry: LibraryEntry, system: GameSystem?, store: ArtworkStore) {
-        guard !loaded else { return }
-        loaded = true
-
         guard let system, SystemArtwork.hasThumbnails(for: system) else {
+            loaded = true
             line = "This app has no thumbnail directory for \(system?.displayName ?? "this format"), "
                 + "so there is nothing to choose from. An image from Files still works."
             return
         }
+
+        // LOOKUPS OFF MEANS NOTHING FROM THE SERVER, from this card as from everywhere else. The
+        // enumeration downloads up to three multi megabyte lists and then a thumbnail per cover, so
+        // starting it with the switch off would send this game's name to the server the user has
+        // just told this app not to talk to.
+        guard store.fetchEnabled else {
+            loaded = false
+            line = ArtworkOptions.lookupsOffLine
+            return
+        }
+
+        guard !loaded else { return }
+        loaded = true
 
         // What a previous open of this card found, straight away and for nothing. The run below still
         // happens, and every thumbnail it asks for is a cache hit, so reopening a card costs nothing
@@ -390,6 +453,12 @@ final class ArtworkChooserModel: ObservableObject {
     /// first, and adds whatever they name.
     func searchOtherSystems(entry: LibraryEntry, system: GameSystem?, store: ArtworkStore) {
         guard let system, SystemArtwork.hasThumbnails(for: system) else { return }
+        // The sheet hides this button while lookups are off. Checked here as well, because this is
+        // the download of up to nine lists and the button is not the only thing that can call it.
+        guard store.fetchEnabled else {
+            line = ArtworkOptions.lookupsOffLine
+            return
+        }
         guard !isWorking else {
             line = "Still looking through the lists this device already has. Try again in a moment."
             return
@@ -405,13 +474,25 @@ final class ArtworkChooserModel: ObservableObject {
 
     /// Chooses one cover. The store does the downloading, the storing and the remembering.
     func choose(_ option: ArtworkOption, entry: LibraryEntry, store: ArtworkStore) {
+        // The row is hidden while lookups are off, and a chosen cover is a download like any other.
+        guard store.fetchEnabled else {
+            line = ArtworkOptions.lookupsOffLine
+            return
+        }
         guard !isWorking else {
             line = "One cover at a time: \(option.label) was not used because something else is "
                 + "still running."
             return
         }
         isWorking = true
-        let task = Task { [weak self] in
+        // NOT APPENDED TO `tasks`, AND THAT IS THE FIX. `stop()` cancels everything in there when the
+        // card closes, and closing the card straight after tapping a cover used to abort the very
+        // download the user had just asked for, with "the lookup was cancelled" on the status line.
+        // A tap on a cover is a decision rather than a preview, so it runs to the end whether or not
+        // the card is still open, and the store reports how it ended on the main status line, which
+        // is still on screen when this card is not. An unstructured task inherits no cancellation
+        // from anything, and nothing holds this one in order to cancel it.
+        Task { [weak self] in
             await store.chooseArtwork(option, for: entry)
             guard let self else { return }
             self.isWorking = false
@@ -421,20 +502,26 @@ final class ArtworkChooserModel: ObservableObject {
             // the sheet along with every card.
             self.line = store.line
         }
-        tasks.append(task)
     }
 
     /// Drops the choice and lets automatic resolution have the game back.
     func useAutomatic(entry: LibraryEntry, store: ArtworkStore) {
         store.clearArtworkChoice(for: entry)
         // Said here rather than copied from the store's line, because the store finishes the removal
-        // in a task of its own and its line is still the previous sentence at this instant.
-        line = "Back to automatic artwork for this game. It will be looked up again, and a cover can "
-            + "be chosen here at any time."
+        // in a task of its own and its line is still the previous sentence at this instant. Two
+        // sentences, because "it will be looked up again" is false while lookups are off.
+        if store.fetchEnabled {
+            line = "Back to automatic artwork for this game. It will be looked up again, and a cover "
+                + "can be chosen here at any time."
+        } else {
+            line = "Back to automatic artwork for this game. It keeps its generated plate until "
+                + "cover lookups are turned back on in Settings."
+        }
     }
 
-    /// Stops everything this sheet started. Called from the view's `onDisappear`, because a
-    /// @MainActor class cannot cancel its own tasks from `deinit`.
+    /// Stops what this sheet started in order to SHOW something: the enumeration and the thumbnails.
+    /// Called from the view's `onDisappear`, because a @MainActor class cannot cancel its own tasks
+    /// from `deinit`. A cover the user chose is not among them and is not stopped; see `choose`.
     func stop() {
         for task in tasks {
             task.cancel()
@@ -445,18 +532,34 @@ final class ArtworkChooserModel: ObservableObject {
     private func run(entry: LibraryEntry, system: GameSystem, store: ArtworkStore,
                      includeCrossSystemDownloads: Bool) async {
         isWorking = true
-        let found = await store.enumerateArtworkOptions(
+        let outcome = await store.enumerateArtworkOptions(
             for: entry,
             system: system,
             includeCrossSystemDownloads: includeCrossSystemDownloads
         )
-        guard !Task.isCancelled else {
-            isWorking = false
+        isWorking = false
+        guard !Task.isCancelled else { return }
+
+        let found: [ArtworkOption]
+        switch outcome {
+        case let .complete(complete):
+            found = complete
+            line = ArtworkOptions.summary(for: complete, searchedOtherSystems: searchedOtherSystems)
+        case let .incomplete(partial, reason):
+            found = partial
+            line = ArtworkOptions.incompleteSummary(for: partial, reason: reason)
+            // The other systems were NOT all searched, so the button comes back: "try again" has to
+            // be something this card can actually do without being closed and opened again.
+            if includeCrossSystemDownloads {
+                searchedOtherSystems = false
+            }
+        case .lookupsOff:
+            line = ArtworkOptions.lookupsOffLine
+            return
+        case .cancelled:
             return
         }
         options = found
-        line = ArtworkOptions.summary(for: found, searchedOtherSystems: searchedOtherSystems)
-        isWorking = false
 
         // PROGRESSIVE, AND CAPPED BY THE GATE THE REST OF THE APP USES. One child task per option,
         // each publishing the moment its own image lands, so the sheet is usable while the rest

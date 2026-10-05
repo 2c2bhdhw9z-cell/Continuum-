@@ -522,6 +522,10 @@ final class ArtworkStore: ObservableObject {
     /// compromise a user is entitled to know about, and an ambiguous title is the one case where a
     /// game keeps its plate even though art for it plainly exists, which is only actionable if it
     /// is said out loud.
+    ///
+    /// The second one COUNTS TITLES, NOT ATTEMPTS: it is always the size of `awaitingChoice`, so a
+    /// game is counted once however many refreshes there are, and stops being counted the moment
+    /// the user does something about its cover. See `syncAwaitingChoiceCount`.
     @Published private(set) var crossSystemMatchesThisRun = 0
     @Published private(set) var ambiguousThisRun = 0
     /// The artwork line, always a complete sentence, shown in Settings and in the diagnostics
@@ -582,6 +586,19 @@ final class ArtworkStore: ObservableObject {
     /// only, because no lookup outlives the run it started in. See `userActed(onKey:)`.
     private var userEpochs: [String: Int] = [:]
 
+    /// The games whose title matched several covers this run, by cover key, so nothing could be
+    /// auto-picked and the choice is the user's.
+    ///
+    /// WHY IT IS REMEMBERED AT ALL. An ambiguous title is not a miss, so it is never written to the
+    /// week-long miss store, and before this set existed nothing stopped every library refresh from
+    /// walking its whole ladder again, up to two dozen requests, and then searching every list again
+    /// to arrive at the same two covers. Asking once per run is enough: the answer cannot change
+    /// until the server's lists do, and those are kept for a month.
+    ///
+    /// MEMORY ONLY, so a relaunch asks again, and dropped by every user action on the game through
+    /// `userActed(onKey:)`, which includes "Look it up again". Retry failed lookups empties it.
+    private var awaitingChoice = Set<String>()
+
     // -------------------------------------- the server's own lists, once per system and folder
 
     /// The cover lists already in memory, keyed on SYSTEM AND FOLDER. Read on every list search, so
@@ -598,8 +615,30 @@ final class ArtworkStore: ObservableObject {
     /// does per game. This is the property that stops ten cards becoming ten megabyte downloads.
     private var coverListTasks: [String: Task<ArtworkCoverListOutcome, Never>] = [:]
 
-    /// The key both dictionaries above are keyed on. One function, so a search and a download can
-    /// never disagree about what "the Game Gear title screens" is called.
+    /// A cover list download that failed, and when.
+    private struct ListFailure {
+        /// The sentence every caller is handed while the failure is remembered. Built once, so the
+        /// status line, which is deduplicated by reason, carries it once rather than once per game.
+        let reason: String
+        let at: Date
+    }
+
+    /// The (system, folder) lists that failed to download recently, keyed as `coverLists` is.
+    ///
+    /// THE SAME BIG LIST MUST NOT BE FETCHED AGAIN AND AGAIN. `coverListTasks` stops two downloads
+    /// running at once, but nothing used to stop the next one: a list that timed out, came back as
+    /// something other than a directory listing or named no covers at all was downloaded again by
+    /// the very next game of that system and again on every refresh, megabytes at a time, to fail
+    /// the same way. Memory only and short, because a failure is a fact about this minute's network
+    /// or server, not about the list; Retry failed lookups and forgetting the lists both clear it.
+    private var listFailures: [String: ListFailure] = [:]
+
+    /// Ten minutes. Long enough that a library refresh or a sweep cannot repeat a failed download,
+    /// short enough that a phone which has just found its signal again is not kept waiting long.
+    private static let listFailureLifetime: TimeInterval = 10 * 60
+
+    /// The key the three dictionaries above are keyed on. One function, so a search, a download and
+    /// a remembered failure can never disagree about what "the Game Gear title screens" is called.
     private func listKey(system: GameSystem, folder: ThumbnailFolder) -> String {
         "\(system.rawValue)#\(folder.rawValue)"
     }
@@ -729,6 +768,21 @@ final class ArtworkStore: ObservableObject {
     private func userActed(onKey key: String) {
         userEpochs[key, default: 0] += 1
         inFlight[key] = nil
+        // Whatever this run concluded about the game's ambiguity goes too. The user has either
+        // answered the question, or asked for the game to be looked up again, and in both cases the
+        // next automatic lookup has to be allowed to run.
+        if awaitingChoice.remove(key) != nil {
+            syncAwaitingChoiceCount()
+        }
+    }
+
+    /// Keeps `ambiguousThisRun` equal to the number of titles in `awaitingChoice`.
+    ///
+    /// Assigned only on a real change, because the property is @Published and the library shell
+    /// observes this store: every assignment, even of the same number, would rebuild it.
+    private func syncAwaitingChoiceCount() {
+        guard ambiguousThisRun != awaitingChoice.count else { return }
+        ambiguousThisRun = awaitingChoice.count
     }
 
     /// What a lookup the user overtook hands back instead of its own answer: whatever the user's
@@ -791,6 +845,8 @@ final class ArtworkStore: ObservableObject {
             // check deliberately does NOT decode: see `ArtworkDisk.hasCover`.
             if memory.object(forKey: key as NSString) != nil { continue }
             if isKnownMiss(key) { continue }
+            // Asked once already this run, and the answer was several covers. See `awaitingChoice`.
+            if awaitingChoice.contains(key) { continue }
             guard let system = CoreCatalog.system(for: entry),
                   SystemArtwork.hasThumbnails(for: system) else { continue }
             if await ArtworkDisk.hasCover(key: key) { continue }
@@ -816,8 +872,8 @@ final class ArtworkStore: ObservableObject {
             generation += 1
         }
         if considered == 0 {
-            note("artwork: every game in the library already has a cover or a remembered miss, so "
-                 + "the sweep had nothing to look up")
+            note("artwork: every game in the library already has a cover, a remembered miss or a "
+                 + "choice of covers waiting in its card, so the sweep had nothing to look up")
         } else {
             note("artwork: swept \(considered) game(s) that had no cover yet, \(resolved) "
                  + "resolved, \(unresolved) still without art")
@@ -868,6 +924,11 @@ final class ArtworkStore: ObservableObject {
 
         // 4. Recently established that the server has nothing. Expires after a week.
         if isKnownMiss(key) { return nil }
+
+        // 4b. Already established THIS RUN that several covers match and none of them may be
+        //     auto-picked. Asking again would be the whole ladder and every list search over again to
+        //     reach the same question, which only the user can answer. See `awaitingChoice`.
+        if awaitingChoice.contains(key) { return nil }
 
         let candidates = ArtworkNames.candidates(system: system, filename: entry.name)
         guard !candidates.isEmpty else {
@@ -927,12 +988,15 @@ final class ArtworkStore: ObservableObject {
                 // ART EXISTS AND NOTHING WAS PICKED, which is not a miss and must not be remembered
                 // as one. Several covers align with this title, and choosing between them by
                 // dropping a coin is exactly what the alignment guards exist to prevent. The plate
-                // stays, the card can choose, and the next launch asks again.
-                ambiguousThisRun += 1
+                // stays, the card can choose, and the next launch asks again. Within this run it is
+                // remembered, so a refresh does not walk the whole ladder and the lists again to reach
+                // the same question; see `awaitingChoice`.
+                awaitingChoice.insert(key)
+                syncAwaitingChoiceCount()
                 note("artwork: \(title) matched \(count) cover(s) on the server and none of them is "
-                     + "an unambiguous match, so it keeps its generated plate; open its card to "
-                     + "choose between them. \(ambiguousThisRun) title(s) are waiting on a choice "
-                     + "this run")
+                     + "an unambiguous match, so it keeps its generated plate and is not looked up "
+                     + "again this run; open its card to choose between them. \(ambiguousThisRun) "
+                     + "title(s) are waiting on a choice this run")
                 return nil
             case .notSearched:
                 recordMiss(key)
@@ -1376,19 +1440,58 @@ final class ArtworkStore: ObservableObject {
                                  writeFailure: nil, title: title)
                 return .ready(stored, downloadedBytes: nil, writeFailure: nil)
             }
+            // A download that failed a few minutes ago is not tried again yet, and nothing is
+            // announced for it: the reason it failed is handed back exactly as it was the first
+            // time, which already says it is not being asked for again. See `listFailures`. Checked
+            // after the disk and inside this task, so a remembered failure only ever stands in for
+            // a DOWNLOAD, and two callers cannot both get past it.
+            if let remembered = self.recentListFailure(forKey: key) {
+                return .failure(remembered)
+            }
             self.announceListDownload(system: system, folder: folder, title: title, phase: phase)
             let outcome = await ArtworkCoverLists.download(for: system, folder: folder)
-            if case let .ready(list, downloadedBytes, writeFailure) = outcome {
+            switch outcome {
+            case let .ready(list, downloadedBytes, writeFailure):
+                self.listFailures[key] = nil
                 await self.adopt(list, for: system, folder: folder,
                                  downloadedBytes: downloadedBytes, writeFailure: writeFailure,
                                  title: title)
+                return outcome
+            case let .failure(reason):
+                return .failure(self.rememberListFailure(reason, forKey: key))
             }
-            return outcome
         }
         coverListTasks[key] = task
         let outcome = await task.value
         coverListTasks[key] = nil
         return outcome
+    }
+
+    /// Records a failed list download and returns the sentence every caller gets until it expires.
+    ///
+    /// SAID ONCE, in effect: the sentence is built here, once per failure, and every later caller is
+    /// handed the identical string, so `reportLookupFailure`, which promotes a reason to the main
+    /// status line only when it differs from the last one, carries it there a single time however
+    /// many games of that system run into it.
+    private func rememberListFailure(_ reason: String, forKey key: String) -> String {
+        let remembered = reason + "; it is not asked for again for 10 minutes, or until Retry "
+            + "failed lookups in Settings"
+        listFailures[key] = ListFailure(reason: remembered, at: Date())
+        return remembered
+    }
+
+    /// The remembered failure for one list while it is still fresh, otherwise nil. An expired one is
+    /// dropped on the way, so the map never holds more than the pairs that failed recently.
+    private func recentListFailure(forKey key: String) -> String? {
+        guard let failure = listFailures[key] else { return nil }
+        let age = Date().timeIntervalSince(failure.at)
+        // A clock set backwards makes the age negative, which is treated as expired rather than as a
+        // failure that would then be remembered for however far the clock moved.
+        guard age >= 0, age < Self.listFailureLifetime else {
+            listFailures[key] = nil
+            return nil
+        }
+        return failure.reason
     }
 
     /// The list for one system's folder ONLY if it is already in memory or already on disk.
@@ -1503,36 +1606,51 @@ final class ArtworkStore: ObservableObject {
     /// them and the announce-before-download line explains the cost. The other systems are FREE ONLY:
     /// whatever is already on disk is searched, and nothing is downloaded unless
     /// `includeCrossSystemDownloads` says so, which only the explicit button in the sheet does.
+    ///
+    /// ONLY A COMPLETE ANSWER IS CACHED. A run the card's closing cut short, or one that could not
+    /// have every list it wanted, used to be cached as though it were the whole set, and reopening
+    /// the card for the rest of the run then said the server had no cover for a game whose lists
+    /// had simply not been fetched. Those now come back as `.cancelled` and `.incomplete` and are
+    /// not kept, so the next open looks again.
     func enumerateArtworkOptions(for entry: LibraryEntry, system: GameSystem,
-                                 includeCrossSystemDownloads: Bool) async -> [ArtworkOption] {
+                                 includeCrossSystemDownloads: Bool) async -> ArtworkEnumeration {
+        // THE SWITCH FIRST, before the cache and before any list. With lookups off this card fetches
+        // nothing at all, which is the promise the Settings row makes about every lookup.
+        guard fetchEnabled else { return .lookupsOff }
         let key = ArtworkDisk.key(forPath: entry.path)
         let query = ArtworkIndexNames.searchTitle(forFilename: entry.name)
-        guard !query.isEmpty else { return [] }
+        guard !query.isEmpty else { return .complete([]) }
         // Reopening a card is free. A request that may download more is never served from the cache,
         // because its whole purpose is to look further than last time.
         if !includeCrossSystemDownloads, let cached = optionCache[key] {
-            return cached
+            return .complete(cached)
         }
 
         let title = GameMetadata.displayTitle(for: entry)
         var lists: [(system: GameSystem, folder: ThumbnailFolder, titles: [String: String])] = []
+        // Why the FIRST list that could not be had could not be had: the lists are asked for in order
+        // of importance, so that is the one the sentence should name. Set means INCOMPLETE: what the
+        // other lists found is still shown, and none of it is cached.
+        var failure: String?
 
         for folder in ThumbnailFolder.allCases {
-            if Task.isCancelled { break }
-            if case let .ready(list, _, _) = await coverList(for: system, folder: folder,
-                                                            title: title, phase: .choosing) {
+            // Before every list rather than once, because each one can be megabytes, and the card
+            // can close or the switch can go off while the previous one downloads.
+            if let interrupted = enumerationInterruption() { return interrupted }
+            switch await coverList(for: system, folder: folder, title: title, phase: .choosing) {
+            case let .ready(list, _, _):
                 lists.append((system: system, folder: folder, titles: list.titles))
+            case let .failure(reason):
+                failure = failure ?? reason
             }
         }
 
         // Folder-major, so the box art of every system comes before any title screen, which is the
         // order the row should read in.
         for folder in ThumbnailFolder.allCases {
-            // Checked in BOTH loops, because a break out of the inner one would otherwise leave the
-            // outer one to start the next folder after the sheet had already closed.
-            if Task.isCancelled { break }
             for other in SystemArtwork.crossSystemListOrder where other != system {
-                if Task.isCancelled { break }
+                // A return rather than a break, so neither loop can carry on after the sheet closed.
+                if let interrupted = enumerationInterruption() { return interrupted }
                 guard SystemArtwork.hasThumbnails(for: other) else { continue }
                 guard let list = await storedList(for: other, folder: folder) else { continue }
                 lists.append((system: other, folder: folder, titles: list.titles))
@@ -1541,24 +1659,43 @@ final class ArtworkStore: ObservableObject {
 
         if includeCrossSystemDownloads {
             for other in SystemArtwork.crossSystemListOrder where other != system {
-                if Task.isCancelled { break }
+                if let interrupted = enumerationInterruption() { return interrupted }
                 guard SystemArtwork.hasThumbnails(for: other) else { continue }
                 guard !lists.contains(where: { $0.system == other && $0.folder == .boxart }) else {
                     continue
                 }
-                if case let .ready(list, _, _) = await coverList(for: other, folder: .boxart,
-                                                                title: title, phase: .choosing) {
+                switch await coverList(for: other, folder: .boxart, title: title,
+                                       phase: .choosing) {
+                case let .ready(list, _, _):
                     lists.append((system: other, folder: .boxart, titles: list.titles))
+                case let .failure(reason):
+                    failure = failure ?? reason
                 }
             }
         }
 
         // Off the main actor: see `ArtworkOptions.enumerated`.
         let options = await ArtworkOptions.enumerated(query: query, ownSystem: system, lists: lists)
+        if let failure {
+            note("artwork: \(title) has \(options.count) cover(s) to choose from so far, but "
+                 + "\(failure); that is not kept, so the card looks again the next time it is "
+                 + "opened")
+            return .incomplete(options, reason: failure)
+        }
         optionCache[key] = options
         note("artwork: \(title) has \(options.count) cover(s) to choose from across "
              + "\(lists.count) searched list(s)")
-        return options
+        return .complete(options)
+    }
+
+    /// Why the card's enumeration has to stop where it is, or nil when it may carry on.
+    ///
+    /// Cancellation first, because a closed card wants nothing at all; then the switch, because a
+    /// list that has not started yet must not start once lookups are off.
+    private func enumerationInterruption() -> ArtworkEnumeration? {
+        if Task.isCancelled { return .cancelled }
+        if !fetchEnabled { return .lookupsOff }
+        return nil
     }
 
     /// One offer's image, for the row in the sheet.
@@ -1571,8 +1708,15 @@ final class ArtworkStore: ObservableObject {
         if let cached = optionThumbnails.object(forKey: cacheKey) {
             return cached
         }
+        // One already in memory costs nothing and is served above. Anything else is a request, so
+        // none is made with lookups off, and none for a card that has already closed.
+        guard fetchEnabled, !Task.isCancelled else { return nil }
         let (data, failure) = await downloadOption(option)
         guard let data else {
+            // A thumbnail whose card closed while it queued for a slot is not a failure, and saying
+            // "could not be shown, the lookup was cancelled" for each of them would push whatever the
+            // user did next off the artwork line.
+            guard !Task.isCancelled else { return nil }
             note("artwork: \(option.label) could not be shown, "
                  + "\(failure ?? "the reason was not reported")")
             return nil
@@ -1594,6 +1738,22 @@ final class ArtworkStore: ObservableObject {
     func chooseArtwork(_ option: ArtworkOption, for entry: LibraryEntry) async {
         let key = ArtworkDisk.key(forPath: entry.path)
         let title = GameMetadata.displayTitle(for: entry)
+        // A chosen cover is a download from the same server as every other lookup, so the switch
+        // that stops those stops this too, with the same sentence the card shows.
+        guard fetchEnabled else {
+            report("artwork: \(option.label) was not used for \(title). "
+                   + ArtworkOptions.lookupsOffLine)
+            return
+        }
+
+        // RECORDED AT THE TAP, as well as at the write below, because a choice is no longer
+        // cancelled when its card closes (see `ArtworkChooserModel.choose`) and so it can still be
+        // downloading when the user does something newer: reopens the card and taps another cover,
+        // picks a file, removes the cover. The newest action has to win, and the epoch noted here
+        // is how this one finds out it is no longer the newest. Any automatic lookup still running
+        // for the game is made stale at the same moment, exactly as by every other user action.
+        userActed(onKey: key)
+        let epoch = userEpoch(forKey: key)
         report("artwork: fetching \(option.label) for \(title)...")
 
         let (data, failure) = await downloadOption(option)
@@ -1608,6 +1768,13 @@ final class ArtworkStore: ObservableObject {
         guard let decoded = await ArtworkDisk.decode(data: data) else {
             report("artwork: \(option.label) for \(title) came back as bytes that would not decode "
                    + "as an image, so the cover was not changed")
+            return
+        }
+        // Overtaken while it downloaded: something the user did after this tap has already decided
+        // this game's cover, so this one is dropped rather than written over it.
+        guard userEpoch(forKey: key) == epoch else {
+            report("artwork: \(option.label) was not used for \(title), its cover was changed again "
+                   + "while this one downloaded")
             return
         }
         let image = decoded.image
@@ -1665,7 +1832,15 @@ final class ArtworkStore: ObservableObject {
             clearMiss(key)
             await refreshUsage()
             generation += 1
-            report("artwork: \(entry.name) is back to automatic artwork and will be looked up again")
+            if fetchEnabled {
+                report("artwork: \(entry.name) is back to automatic artwork and will be looked up "
+                       + "again")
+            } else {
+                // "Will be looked up again" would be false with the switch off, which is the sentence
+                // `lookUpAgain` already uses for the same situation.
+                report("artwork: \(entry.name) is back to automatic artwork and will be looked up "
+                       + "when artwork lookups are turned back on in Settings")
+            }
         }
     }
 
@@ -1684,6 +1859,13 @@ final class ArtworkStore: ObservableObject {
             form: .indexed
         )
         await ArtworkGate.shared.acquire()
+        // Cancelled while it queued, which is every thumbnail of a card closed before its turn came:
+        // the slot goes straight back to a card that is still on screen, and no request is made only
+        // to be torn down. A chosen cover never gets here cancelled; see `ArtworkChooserModel.choose`.
+        if Task.isCancelled {
+            await ArtworkGate.shared.release()
+            return (nil, "the lookup was cancelled")
+        }
         let outcome = await ArtworkFetcher.resolve(candidates: [candidate])
         await ArtworkGate.shared.release()
 
@@ -1882,6 +2064,9 @@ final class ArtworkStore: ObservableObject {
         }
 
         optionCache = optionCache.filter { live.contains($0.key) }
+        // A deleted game is not waiting on anybody's choice, and must not be counted as though it were.
+        awaitingChoice.formIntersection(live)
+        syncAwaitingChoiceCount()
 
         // Off the main actor, like every other file operation here. Behind the guard above, so an
         // unreadable library can never empty the artwork directory.
@@ -1994,7 +2179,11 @@ final class ArtworkStore: ObservableObject {
         failedThisRun = 0
         // A title that was waiting on a choice is asked about again too, and it may well align
         // uniquely this time: the repository gains thumbnails, and a new one can settle an ambiguity.
-        ambiguousThisRun = 0
+        awaitingChoice.removeAll()
+        syncAwaitingChoiceCount()
+        // And a cover list that failed a few minutes ago may be asked for straight away, because
+        // asking again is exactly what this button is for. See `listFailures`.
+        listFailures.removeAll()
         lastNetworkReason = ""
         generation += 1
         if count == 0 {
@@ -2016,11 +2205,16 @@ final class ArtworkStore: ObservableObject {
         Task {
             let (files, bytes) = await ArtworkCoverLists.clear()
             coverLists.removeAll()
+            // The Settings note promises the next game that needs a list downloads it again, which a
+            // remembered failure would quietly refuse for up to ten minutes.
+            listFailures.removeAll()
             announcedListDownload = false
             listSearchesThisRun = 0
             listMatchesThisRun = 0
             crossSystemMatchesThisRun = 0
-            ambiguousThisRun = 0
+            // `ambiguousThisRun` is NOT reset here any more. It is the number of titles still waiting
+            // on a choice, and forgetting the lists answers none of those questions; resetting it
+            // would show nothing waiting while those games still keep their plates.
             await refreshCoverListUsage()
             if files == 0 {
                 report("artwork: there were no downloaded cover lists to forget")

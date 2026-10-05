@@ -297,7 +297,16 @@ extension EngineHost {
             return
         }
         CoreActionsModel.shared.sheet = nil
-        launch(entry: entry, resumingAuto: true)
+        // Resumes only when an auto-save was just written on the way out. With auto-save switched
+        // off, nothing is written, and resuming would load whatever auto-save was left from before
+        // it was switched off: the player sent back to an old point with no warning. So the game
+        // starts fresh instead, and the line says so.
+        let resume = saveStates.autoSavesEnabled
+        launch(entry: entry, resumingAuto: resume)
+        if !resume, running {
+            status = "restarted \(entry.name) from the beginning: auto-save is off in Settings, "
+                + "so there was no save of where you were to pick up from"
+        }
     }
 
     /// The system the running game is on, for the in-game menu.

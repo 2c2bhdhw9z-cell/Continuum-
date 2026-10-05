@@ -1885,6 +1885,11 @@ final class TouchControlsView: UIView {
         didSet {
             guard screenLayoutVersion != oldValue else { return }
             lastHoleSignature = ""
+            // The picture area too. The host bumps this on every launch, and leaving a game clears
+            // its picture area; a restart from Core settings ("Restart the game now") keeps this
+            // same view, so without the reset the area was never sent again and the game was drawn
+            // over the whole window rather than inside the skin's canvas.
+            lastPictureArea = nil
             setNeedsLayout()
         }
     }

@@ -91,9 +91,13 @@ struct ImportScreen: View {
                 } header: {
                     Text("Network")
                 } footer: {
+                    // The real reason, plainly. The package did build: build 117 linked it without
+                    // packing it into the app, so the app closed on launch, and it was taken out.
+                    // "Did not build" sent people looking for a compile failure that never existed.
                     Text(RemoteSources.smbAvailable
                          ? "Browse a NAS or router share and pick files, or import a whole folder."
-                         : "SMB is not in this build (its package did not build). WebDAV works.")
+                         : "SMB is not in this build yet; it was taken out after it stopped the app "
+                            + "opening. WebDAV works.")
                 }
 
                 Section {

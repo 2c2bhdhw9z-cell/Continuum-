@@ -343,11 +343,52 @@ impl EmulatorBridge {
         }
     }
 
+    /// Refuses a settings-screen change to `core_id`'s options while online play is live, when
+    /// the running core would pick it up. A core that is not running only has its saved file
+    /// changed, which neither game sees, so that stays allowed.
+    fn refuse_option_change(&self, core_id: &str, what: &str) -> Result<(), String> {
+        if self.session_core().as_deref() != Some(core_id) {
+            return Ok(());
+        }
+        self.netplay_refusal(what).map_or(Ok(()), Err)
+    }
+
+    /// Stores a core option from the settings screen, core-wide or for the running game. Goes
+    /// through the engine rather than straight to `options::set` so online play can refuse it:
+    /// the running core reads the new value on its next update poll, on this phone only.
+    pub fn set_core_option_value(
+        &self,
+        core_id: &str,
+        key: &str,
+        value: &str,
+        for_game: bool,
+    ) -> Result<String, String> {
+        self.refuse_option_change(core_id, "changing a core setting")?;
+        options::set(core_id, key, value, for_game)
+    }
+
+    /// Every core-wide choice back to its default. Refused online like a single change.
+    pub fn reset_core_options(&self, core_id: &str) -> Result<String, String> {
+        self.refuse_option_change(core_id, "resetting core settings")?;
+        options::reset_core(core_id)
+    }
+
+    /// The running game's own choices cleared. Refused online like a single change.
+    pub fn reset_game_options(&self, core_id: &str) -> Result<String, String> {
+        self.refuse_option_change(core_id, "resetting this game's settings")?;
+        options::reset_game(core_id)
+    }
+
     /// The palette cycle for the running game on `system`.
     pub fn cycle_palette(&mut self, system: &str) -> String {
         let Some(core) = self.session_core() else {
             return "no game is running".into();
         };
+        // The palette is a core option, and the online handshake refuses two phones whose core
+        // settings differ, so changing one mid-game makes exactly the mismatch it guards against.
+        if let Some(line) = self.netplay_refusal("changing the palette") {
+            return line;
+        }
         let Some(key) = palette_key(&core, system) else {
             return format!("{core} has no palette setting for this system");
         };
@@ -362,6 +403,10 @@ impl EmulatorBridge {
         let Some(core) = self.session_core() else {
             return "no game is running".into();
         };
+        // Also a core option, refused for the same reason as the palette.
+        if let Some(line) = self.netplay_refusal("changing the resolution") {
+            return line;
+        }
         let Some(key) = resolution_key(&core) else {
             return format!("{core} has no internal resolution setting");
         };
@@ -386,6 +431,12 @@ impl EmulatorBridge {
         if !self.is_stella() {
             return "the TV type switch is an Atari 2600 control".into();
         }
+        // The press is the engine's own, not a player's pad, so it never reaches the other phone.
+        // The lockstep tick does not run queued presses either, so it would also fire late, on
+        // this phone, the moment online play ended.
+        if let Some(line) = self.netplay_refusal("the TV type switch") {
+            return line;
+        }
         let color = !self.actions.atari_color;
         self.actions.atari_color = color;
         let button = if color { Button::L3 } else { Button::R3 };
@@ -402,6 +453,10 @@ impl EmulatorBridge {
     pub fn toggle_difficulty(&mut self, left: bool) -> String {
         if !self.is_stella() {
             return "the difficulty switches are Atari 2600 controls".into();
+        }
+        // As for the TV type switch.
+        if let Some(line) = self.netplay_refusal("the difficulty switch") {
+            return line;
         }
         let a = if left {
             self.actions.atari_left_a = !self.actions.atari_left_a;
@@ -451,6 +506,11 @@ impl EmulatorBridge {
         if self.session.is_none() {
             return "no game is running".into();
         }
+        // A disc change is the machine changing on this phone alone, and the FDS flip is engine
+        // presses that never reach the other phone. Checked before either path.
+        if let Some(line) = self.netplay_refusal("swapping discs") {
+            return line;
+        }
         if self.is_fds_session() {
             for button in [Button::R, Button::L, Button::R] {
                 self.actions.pulses.push_back(Pulse::button(0, button));
@@ -468,6 +528,10 @@ impl EmulatorBridge {
 
     /// A specific disc. For the FDS there is no list, so this ejects or inserts the disk.
     pub fn insert_disc(&mut self, index: u32) -> String {
+        // As for `swap_disc`, and reached directly from the disc list too.
+        if let Some(line) = self.netplay_refusal("changing discs") {
+            return line;
+        }
         if self.is_fds_session() {
             self.actions.pulses.push_back(Pulse::button(0, Button::R));
             return "disk: ejected or inserted".into();

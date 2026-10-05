@@ -873,6 +873,10 @@ impl EmulatorBridge {
     /// Tells the running core which device is plugged into a port. See
     /// [`EmulatorCore::set_controller_port_device`].
     pub fn set_controller_port_device(&mut self, port: u32, device: u32) -> Result<(), BridgeError> {
+        // Plugging a different device into the emulated console on one phone is a different
+        // machine. Every port switch (mouse mode, the analog toggle, the controller type) comes
+        // through here, so this is the one guard that covers them all.
+        self.refuse_during_netplay("changing the controller type")?;
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
         session.core.set_controller_port_device(port, device)
     }
@@ -895,6 +899,11 @@ impl EmulatorBridge {
     pub fn set_mouse_mode(&mut self, port: u32, enabled: bool) -> String {
         if self.session.is_none() {
             return "mouse mode: no game is running".into();
+        }
+        // Answered here rather than left to `set_controller_port_device`, whose refusal would
+        // arrive wrapped in a "could not switch" line that hides the reason.
+        if let Some(line) = self.netplay_refusal("mouse mode") {
+            return line;
         }
         let types = self.controller_types(port);
         let choice = if enabled {
@@ -1639,6 +1648,8 @@ impl EmulatorBridge {
 
     /// Clears every cheat, in the core and in our record of it.
     pub fn clear_cheats(&mut self) -> Result<(), BridgeError> {
+        // Refused online for the same reason `apply_cheats` is: the other phone keeps its cheats.
+        self.refuse_during_netplay("clearing cheats")?;
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
         session.cheats.clear();
         session.pokes.clear();
@@ -1678,6 +1689,8 @@ impl EmulatorBridge {
     /// which is most of them. A few are only consulted while loading content; those need
     /// the game restarted, and the core is the only thing that knows which is which.
     pub fn set_core_option(&mut self, key: &str, value: &str) -> Result<(), BridgeError> {
+        // A core reads its options as it runs, so one phone's change is a different machine.
+        self.refuse_during_netplay("changing a core setting")?;
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
         session.core.set_core_option(key, value)
     }
@@ -1707,6 +1720,7 @@ impl EmulatorBridge {
     /// Writes `bytes` into a memory region at `offset`. All or nothing: a write that would run
     /// past the end is refused before a byte is changed.
     pub fn write_memory(&mut self, region: u32, offset: u64, bytes: &[u8]) -> Result<(), BridgeError> {
+        self.refuse_during_netplay("writing to the game's memory")?;
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
         let core_name = session.core.descriptor().display_name.clone();
         let Some(memory) = session.core.memory_region_mut(region) else {
@@ -1753,6 +1767,8 @@ impl EmulatorBridge {
     /// A game reads its battery RAM when it boots, so a restore into a game that is already past
     /// its title screen generally needs a reset before the game notices. The caller says so.
     pub fn restore_battery_save(&mut self, data: &[u8]) -> Result<usize, BridgeError> {
+        // Checked here as well as in `write_memory` so the sentence names what the user did.
+        self.refuse_during_netplay("restoring a battery save")?;
         let size = self.memory_size(crate::memory::MEMORY_SAVE_RAM);
         if size == 0 {
             let session = self.session.as_ref().ok_or(BridgeError::NoSession)?;
@@ -1803,6 +1819,9 @@ impl EmulatorBridge {
     /// Reads a battery save from `path` into the running game. `Ok(None)` when there is no file,
     /// which is a game that has never saved rather than a failure.
     pub fn load_battery_save_file(&mut self, path: &str) -> Result<Option<usize>, BridgeError> {
+        // First, before the file is even looked for, so the answer online does not depend on
+        // whether this phone happens to have a save on disk.
+        self.refuse_during_netplay("loading a battery save")?;
         if self.memory_size(crate::memory::MEMORY_SAVE_RAM) == 0 {
             return Ok(None);
         }

@@ -320,12 +320,32 @@ final class CloudSyncWorker {
     // ---------------------------------------------------------------- copying
 
     /// Local file to a cloud path (data path or aside path).
+    ///
+    /// COPIED IN BESIDE IT FIRST, THEN RENAMED INTO PLACE, all inside the one coordinated write.
+    /// This used to remove the cloud file and then copy, so a copy that failed part way (the
+    /// provider out of space, the app suspended mid-copy) left the cloud with NO copy, and the next
+    /// sync could read that as a deletion. Now a failed copy leaves the previous cloud copy where
+    /// it was. The temporary name starts with a dot, which `syncIsValidPath` never accepts, so one
+    /// left behind by a killed app is never listed or synced back.
     private func upload(_ local: URL, to relative: String) throws {
         let destination = remoteURL(relative)
         try coordinatedWrite(destination) { url in
-            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if fm.fileExists(atPath: url.path) { try fm.removeItem(at: url) }
-            try fm.copyItem(at: local, to: url)
+            let folder = url.deletingLastPathComponent()
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            let temporary = folder.appendingPathComponent(
+                ".\(url.lastPathComponent).\(UUID().uuidString).upload")
+            do {
+                try fm.copyItem(at: local, to: temporary)
+                // Remove, then rename, as `coordinatedMove` does, rather than `replaceItemAt`: a
+                // rename within one folder works on every provider in Files, an in-place swap may
+                // not, and a swap that fails part way leaves no telling which copy is where. The
+                // new copy is already whole, so the cloud is without one only during a rename.
+                if fm.fileExists(atPath: url.path) { try fm.removeItem(at: url) }
+                try fm.moveItem(at: temporary, to: url)
+            } catch {
+                try? fm.removeItem(at: temporary)
+                throw error
+            }
         }
     }
 
@@ -336,10 +356,22 @@ final class CloudSyncWorker {
         }
         try fm.createDirectory(at: scratch, withIntermediateDirectories: true)
         let temporary = scratch.appendingPathComponent(UUID().uuidString)
+        // Removed on EVERY way out. On success `place` has already moved it, so this finds
+        // nothing; on a failed copy or a failed `place` it is the only thing that removes it, and
+        // Sync/Scratch used to keep every one of those for good.
+        defer { try? fm.removeItem(at: temporary) }
         try coordinatedRead(remoteURL(relative)) { url in
             try fm.copyItem(at: url, to: temporary)
         }
         try place(temporary, at: local)
+    }
+
+    /// Empties Sync/Scratch at the start of a run, for the files a run that never finished left
+    /// (the app killed between the copy and `place`). Only one sync runs at a time
+    /// (`CloudSync.isSyncing`), so nothing in it belongs to a live download when a run starts.
+    private func clearStaleScratch() {
+        guard let scratch = CloudSyncPaths.scratch() else { return }
+        try? fm.removeItem(at: scratch)
     }
 
     private func place(_ temporary: URL, at local: URL) throws {
@@ -476,6 +508,7 @@ final class CloudSyncWorker {
     func run() -> CloudSyncOutcome {
         var outcome = CloudSyncOutcome()
         let now = CloudSyncPaths.millis(Date())
+        clearStaleScratch()
         do {
             if !fm.fileExists(atPath: remoteRoot.path) {
                 try coordinatedWrite(remoteRoot) { url in

@@ -30,13 +30,23 @@ impl EmulatorBridge {
         self.session.is_some() && self.netplay_is_live()
     }
 
+    /// Refuses `what` while a peer is playing along. For anything that changes the emulated
+    /// machine on this phone alone: lockstep only carries the two players' pads, so the other
+    /// phone never hears about it and the two games drift apart from that frame on.
     pub(super) fn refuse_during_netplay(&self, what: &str) -> Result<(), BridgeError> {
-        if self.netplay_is_live() {
-            return Err(BridgeError::SaveState(format!(
-                "{what} is switched off during online play"
-            )));
+        match self.netplay_refusal(what) {
+            Some(sentence) => Err(BridgeError::SaveState(sentence)),
+            None => Ok(()),
         }
-        Ok(())
+    }
+
+    /// The same refusal for the actions that answer with a status line instead of a `Result`:
+    /// the sentence to show while online play is live, `None` otherwise. One wording for both, so
+    /// every refusal reads alike and says why.
+    pub(super) fn netplay_refusal(&self, what: &str) -> Option<String> {
+        self.netplay_is_live().then(|| {
+            format!("{what} is off during online play: the other phone would not do the same")
+        })
     }
 
     pub fn netplay(&self) -> Option<&NetplaySession> {
@@ -415,5 +425,222 @@ mod tests {
     fn hosting_needs_a_running_game() {
         let mut bridge = EmulatorBridge::new();
         assert!(bridge.netplay_host("", NetplayConfig::default()).is_err());
+    }
+
+    type Witnessed = std::sync::Arc<std::sync::Mutex<Vec<String>>>;
+
+    /// The lockstep core, plus a note of every change the engine makes to it from outside a frame.
+    /// So a test can show a refusal left the machine untouched, not only that an error came back,
+    /// and that the same calls do reach it once online play is over.
+    struct WitnessCore {
+        inner: LockstepCore,
+        ram: Vec<u8>,
+        log: Witnessed,
+    }
+
+    impl WitnessCore {
+        fn note(&self, what: String) {
+            self.log.lock().unwrap().push(what);
+        }
+    }
+
+    impl EmulatorCore for WitnessCore {
+        fn descriptor(&self) -> &CoreDescriptor {
+            self.inner.descriptor()
+        }
+        fn load_content(&mut self, rom: &[u8], hint: &ContentHint) -> Result<(), BridgeError> {
+            self.inner.load_content(rom, hint)
+        }
+        fn run_frame(&mut self, input: &InputSnapshot) -> Result<(), BridgeError> {
+            self.inner.run_frame(input)
+        }
+        fn video(&self) -> Option<FrameView<'_>> {
+            None
+        }
+        fn drain_audio(&mut self, _: &mut dyn crate::audio::AudioSink) {}
+        fn reset(&mut self) -> Result<(), BridgeError> {
+            self.note("reset".into());
+            Ok(())
+        }
+        fn state_size(&self) -> usize {
+            self.inner.state_size()
+        }
+        fn save_state(&self, dst: &mut [u8]) -> Result<usize, BridgeError> {
+            self.inner.save_state(dst)
+        }
+        fn load_state(&mut self, src: &[u8]) -> Result<(), BridgeError> {
+            self.inner.load_state(src)
+        }
+        fn supports_cheats(&self) -> bool {
+            true
+        }
+        fn reset_cheats(&mut self) -> Result<(), BridgeError> {
+            self.note("cheats cleared".into());
+            Ok(())
+        }
+        fn set_cheat(&mut self, index: u32, _: bool, code: &str) -> Result<(), BridgeError> {
+            self.note(format!("cheat {index} {code}"));
+            Ok(())
+        }
+        fn set_core_option(&mut self, key: &str, value: &str) -> Result<(), BridgeError> {
+            self.note(format!("option {key}={value}"));
+            Ok(())
+        }
+        fn memory_region(&self, id: u32) -> Option<&[u8]> {
+            (id == crate::memory::MEMORY_SAVE_RAM || id == crate::memory::MEMORY_SYSTEM_RAM)
+                .then_some(self.ram.as_slice())
+        }
+        fn memory_region_mut(&mut self, id: u32) -> Option<&mut [u8]> {
+            if id != crate::memory::MEMORY_SAVE_RAM && id != crate::memory::MEMORY_SYSTEM_RAM {
+                return None;
+            }
+            self.note(format!("memory {id} written"));
+            Some(self.ram.as_mut_slice())
+        }
+        fn set_controller_port_device(&mut self, port: u32, device: u32) -> Result<(), BridgeError> {
+            self.note(format!("port {port} device {device}"));
+            Ok(())
+        }
+        fn controller_types(&self, _: u32) -> Vec<(String, u32)> {
+            vec![
+                ("RetroPad".into(), crate::input::RETRO_DEVICE_JOYPAD),
+                ("Mouse".into(), crate::input::RETRO_DEVICE_MOUSE),
+                ("DualShock".into(), crate::input::RETRO_DEVICE_ANALOG),
+            ]
+        }
+        fn disk_status(&self) -> Option<crate::cores::disk::DiskStatus> {
+            Some(crate::cores::disk::DiskStatus {
+                count: 2,
+                index: 0,
+                ejected: false,
+                labels: Vec::new(),
+                extended: false,
+            })
+        }
+        fn disk_insert(&mut self, index: u32) -> Result<String, String> {
+            self.note(format!("disc {index}"));
+            Ok(format!("disc {}", index + 1))
+        }
+        fn frame_count(&self) -> u64 {
+            self.inner.frame_count()
+        }
+    }
+
+    fn witness_bridge(log: Witnessed) -> EmulatorBridge {
+        let mut bridge = bridge_with(7);
+        if let Some(session) = bridge.session.as_mut() {
+            session.core = Box::new(WitnessCore {
+                inner: LockstepCore::new(7),
+                ram: vec![0; 64],
+                log,
+            });
+        }
+        bridge
+    }
+
+    const REFUSED: &str = "is off during online play: the other phone would not do the same";
+
+    fn refused<T>(result: Result<T, BridgeError>) -> bool {
+        result.err().is_some_and(|err| err.to_string().contains(REFUSED))
+    }
+
+    #[test]
+    fn every_change_to_one_phones_machine_is_refused_while_online() {
+        let _options = crate::cores::options::test_guard();
+        crate::cores::options::reset_for_tests();
+        let log = Witnessed::default();
+        let mut bridge = witness_bridge(log.clone());
+        bridge.input_session_started("snes", "game");
+        bridge.netplay_host("", NetplayConfig::default()).unwrap();
+        assert!(bridge.netplay_is_live());
+
+        // The ones that answer with a Result.
+        assert!(refused(bridge.clear_cheats()));
+        assert!(refused(bridge.write_memory(crate::memory::MEMORY_SYSTEM_RAM, 0, &[1])));
+        assert!(refused(bridge.restore_battery_save(&[1, 2])));
+        assert!(refused(bridge.load_battery_save_file("/does/not/matter.srm")));
+        assert!(refused(bridge.set_core_option("k", "v")));
+        assert!(refused(bridge.set_controller_port_device(0, 2)));
+        assert!(refused(bridge.reset()));
+
+        // The settings screen, for the running core.
+        for result in [
+            bridge.set_core_option_value("lock", "k", "v", false),
+            bridge.reset_core_options("lock"),
+            bridge.reset_game_options("lock"),
+        ] {
+            assert!(result.unwrap_err().contains(REFUSED));
+        }
+        // A core that is not running only has its saved settings changed, which neither phone's
+        // game sees, so that is still allowed.
+        assert!(bridge.set_core_option_value("another", "k", "v", false).is_ok());
+
+        // The ones that answer with a status line.
+        for line in [
+            bridge.swap_disc(),
+            bridge.insert_disc(1),
+            bridge.cycle_palette("gb"),
+            bridge.cycle_resolution(),
+            bridge.set_mouse_mode(0, true),
+            bridge.toggle_analog_mode(),
+            bridge.shake(),
+            bridge.set_controller_type("snes", 0, "Mouse"),
+        ] {
+            assert!(line.contains(REFUSED), "{line}");
+        }
+
+        // The Atari switches and the FDS flip are presses the engine queues itself.
+        let rename = |bridge: &mut EmulatorBridge, core_id: &str| {
+            if let Some(session) = bridge.session.as_mut() {
+                session.core_id = core_id.into();
+            }
+        };
+        rename(&mut bridge, "stella2023");
+        assert!(bridge.toggle_tv_type().contains(REFUSED));
+        assert!(bridge.toggle_difficulty(true).contains(REFUSED));
+        assert!(bridge.tv_type_is_color(), "a refused switch must not flip what the UI shows");
+        rename(&mut bridge, "fceumm");
+        bridge.actions.new_session("game.fds");
+        assert!(bridge.is_fds_session());
+        assert!(bridge.swap_disc().contains(REFUSED));
+        assert!(bridge.insert_disc(0).contains(REFUSED));
+        assert_eq!(bridge.actions.pulses_pending(), 0, "no press may be left to fire later");
+        rename(&mut bridge, "lock");
+
+        assert!(log.lock().unwrap().is_empty(), "the core was changed: {:?}", log.lock().unwrap());
+
+        // Once online play is over, the same calls reach the core. Without this the silence above
+        // could just mean the test core never listens.
+        bridge.netplay_leave("done");
+        assert!(!bridge.netplay_is_live());
+        bridge.clear_cheats().unwrap();
+        bridge.write_memory(crate::memory::MEMORY_SYSTEM_RAM, 0, &[1]).unwrap();
+        bridge.set_core_option("k", "v").unwrap();
+        bridge.set_controller_port_device(0, 2).unwrap();
+        assert_eq!(bridge.insert_disc(1), "disc 2");
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec![
+                "cheats cleared".to_string(),
+                format!("memory {} written", crate::memory::MEMORY_SYSTEM_RAM),
+                "option k=v".into(),
+                "port 0 device 2".into(),
+                "disc 1".into(),
+            ]
+        );
+        crate::cores::options::reset_for_tests();
+    }
+
+    #[test]
+    fn purely_local_display_stays_allowed_while_online() {
+        let mut bridge = bridge_with(7);
+        bridge.netplay_host("", NetplayConfig::default()).unwrap();
+        // Rotation, the look, volume and the TV's fit change what this phone shows or plays, not
+        // the machine, so they are not refused.
+        assert!(!bridge.rotate_screen().contains(REFUSED));
+        bridge.set_volume(0.5);
+        assert_eq!(bridge.volume(), 0.5);
+        bridge.set_tv_scale_mode(Some(crate::gfx::ScaleMode::Stretch));
+        assert_eq!(bridge.tv_scale_mode(), Some(crate::gfx::ScaleMode::Stretch));
     }
 }

@@ -1614,6 +1614,28 @@ struct LibraryEntry: Identifiable, Hashable, Sendable {
 
 // MARK: - The engine, owned once
 
+/// How an engine refusal reads on screen. Without this, `"\(error)"` and
+/// `error.localizedDescription` (UniFFI's `errorDescription` is `String(reflecting:)`, which
+/// falls back to this) print the generated enum as code, `SaveState(reason: "…")`, in the middle
+/// of a sentence read on the phone. The sentence around it already says what was being done, so
+/// most cases are the engine's own reason and nothing else.
+extension EngineError: CustomStringConvertible {
+    public var description: String {
+        switch self {
+        case .NoSession:
+            return "no game is running"
+        case let .CoreUnavailable(coreId, reason):
+            return "the \(coreId) emulator is unavailable: \(reason)"
+        case let .ContentRejected(reason):
+            return "the game file was refused: \(reason)"
+        case let .SaveState(reason), let .Cheat(reason), let .CoreOption(reason),
+             let .Memory(reason), let .Achievements(reason), let .Graphics(reason),
+             let .Other(reason):
+            return reason
+        }
+    }
+}
+
 /// Which PlayStation core a Library launch uses.
 ///
 /// Soft PCSX ReARMed remains the everyday default. Beetle PSX HW is the step 4
@@ -2869,10 +2891,10 @@ final class EngineHost: ObservableObject {
         }
 
         // Refresh the read-out so the BIOS line reflects what was just copied rather than what was
-        // true at attach.
-        if let biosCore = CoreCatalog.all.first(where: { !$0.biosNames.isEmpty }) {
-            bios = biosStatus(for: biosCore, in: systemDir)
-        }
+        // true at attach. Through the PlayStation core Settings selects, NOT "the first core that
+        // lists a BIOS": that is always PCSX ReARMed, so with Beetle PSX HW selected the line
+        // flipped to ReARMed's "HLE fallback" wording, a soft boot Beetle does not have.
+        refreshBiosReadoutForSelectedPs1()
     }
 
     /// The import picker's delegate, retained here for the app's lifetime.
@@ -3157,8 +3179,12 @@ final class EngineHost: ObservableObject {
             let names = CoreCatalog.mednafenPsxHw.biosNames
             guard let first = names.first else { return ("a PlayStation BIOS", what) }
             guard let dir = systemDirectory() else { return (first, what) }
+            // The same lookup as the Settings checklist (`firmwarePresent`). An exact-case look at
+            // the top folder only refused a Beetle launch over SCPH1001.BIN while the checklist,
+            // reading the same folder, said "found".
             let found = names.contains { name in
-                FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path)
+                Self.firmwarePresent(name, subfolder: CoreCatalog.firmwareSubfolders[name],
+                                     in: dir)
             }
             if found { return nil }
             return (name: first, what: what)
@@ -3167,7 +3193,9 @@ final class EngineHost: ObservableObject {
     }
 
     /// Whether a firmware file is in the system folder, at its top or in the subfolder its core
-    /// reads, matched case-insensitively at the top (a user's SEGA_101.BIN is the right file).
+    /// reads, matched case-insensitively in both (a user's SEGA_101.BIN is the right file). The
+    /// ONE lookup for "is this BIOS here": the Settings checklist, the launch gate and the HUD's
+    /// BIOS line all go through it, so no two of them can disagree about the same folder.
     static func firmwarePresent(_ name: String, subfolder: String?, in dir: URL) -> Bool {
         let manager = FileManager.default
         var places = [dir]
@@ -3193,8 +3221,11 @@ final class EngineHost: ObservableObject {
             }
             return "BIOS (\(spec.coreId)): no system dir, HLE only"
         }
+        // The same lookup as the Settings checklist and the launch gate (`firmwarePresent`): any
+        // case, top folder or the core's subfolder. An exact-case look here said "none" over a
+        // SCPH1001.BIN that the checklist, reading the same folder, called "found".
         let present = spec.biosNames.first { name in
-            FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path)
+            Self.firmwarePresent(name, subfolder: CoreCatalog.firmwareSubfolders[name], in: dir)
         }
         if let present {
             return "BIOS (\(spec.coreId)): \(present)"

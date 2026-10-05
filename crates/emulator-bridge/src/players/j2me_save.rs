@@ -140,8 +140,17 @@ fn guessed_path(flat: &str) -> String {
     }
 }
 
+/// What [`decode`] says when a save unpacks to more than [`MAX_TOTAL`].
+const TOO_BIG: &str = "the save unpacks to more than 64 MB, which no phone save is";
+
 /// Reads a `.J2meJS.srm` back into files, sorted by path.
 pub fn decode(bytes: &[u8]) -> Result<Vec<PlayerFile>, String> {
+    decode_within(bytes, MAX_TOTAL)
+}
+
+/// [`decode`], with the unpacked-size limit as a parameter so the tests can prove it holds
+/// without building a 64 MB zip.
+fn decode_within(bytes: &[u8], max_total: u64) -> Result<Vec<PlayerFile>, String> {
     if bytes.len() < 4 || bytes[..2] != *b"PK" {
         return Err("not a J2ME save: a .J2meJS.srm is a zip, and this is not one".into());
     }
@@ -159,16 +168,27 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<PlayerFile>, String> {
             continue;
         }
         let name = entry.name().replace('\\', "/");
-        total = total.saturating_add(entry.size());
-        if total > MAX_TOTAL {
-            return Err("the save unpacks to more than 64 MB, which no phone save is".into());
+        // The bytes ACTUALLY read are what is counted, not the size the entry declares. The zip
+        // crate only limits the compressed bytes it reads; what they inflate to is not held to
+        // the declared size. So counting declarations let a zip that says "1 byte" for each entry
+        // buffer up to the read cap once per entry, thousands of times the limit. Each read is
+        // capped at what is left of the budget plus one byte, which is enough to tell "over"
+        // from "exactly at the limit", so no more than the limit and one byte is ever held.
+        let remaining = max_total - total;
+        // The declaration still refuses an honest but oversized save before reading any of it.
+        if entry.size() > remaining {
+            return Err(TOO_BIG.into());
         }
-        let mut bytes = Vec::with_capacity(entry.size().min(MAX_TOTAL) as usize);
+        let mut bytes = Vec::with_capacity(entry.size() as usize);
         entry
             .by_ref()
-            .take(MAX_TOTAL + 1)
+            .take(remaining + 1)
             .read_to_end(&mut bytes)
             .map_err(|e| format!("{name}: {e}"))?;
+        total += bytes.len() as u64;
+        if total > max_total {
+            return Err(TOO_BIG.into());
+        }
         if let Some(flat) = name.strip_prefix("saves/") {
             if !flat.is_empty() && !flat.contains('/') {
                 data.push((flat.to_string(), bytes));
@@ -331,6 +351,56 @@ mod tests {
         zip.write_all(br#"{"path":"/../etc/x","isDir":false}"#).unwrap();
         let bytes = zip.finish().unwrap().into_inner();
         assert!(decode(&bytes).is_err());
+    }
+
+    /// A zip of deflated all-zero `saves/` entries, `sizes` bytes each, whose headers then claim
+    /// every entry unpacks to `declared` bytes.
+    fn lying_zip(sizes: &[usize], declared: u32) -> Vec<u8> {
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (i, size) in sizes.iter().enumerate() {
+            zip.start_file(format!("saves/f{i}"), options).unwrap();
+            zip.write_all(&vec![0u8; *size]).unwrap();
+        }
+        let mut bytes = zip.finish().unwrap().into_inner();
+        // The uncompressed size sits 22 bytes into a local header and 24 into a central one.
+        // Zeros deflate to a few bytes that never spell out a signature, so a scan is safe here.
+        for at in 0..bytes.len().saturating_sub(4) {
+            let field = match &bytes[at..at + 4] {
+                b"PK\x03\x04" => at + 22,
+                b"PK\x01\x02" => at + 24,
+                _ => continue,
+            };
+            bytes[field..field + 4].copy_from_slice(&declared.to_le_bytes());
+        }
+        bytes
+    }
+
+    #[test]
+    fn a_zip_that_lies_about_its_sizes_cannot_buffer_past_the_limit() {
+        // Two entries that each claim one byte and really hold 3,000, against a 4,096-byte limit.
+        // Counting the declarations, the old way, saw two bytes in all and let both through, and
+        // could have been made to buffer the read cap once per entry. The bytes read are counted
+        // now, so the second entry tips it over.
+        let lying = lying_zip(&[3000, 3000], 1);
+        {
+            let mut archive = zip::ZipArchive::new(Cursor::new(lying.as_slice())).unwrap();
+            assert_eq!(archive.by_index(0).unwrap().size(), 1, "the test zip must really lie");
+        }
+        assert_eq!(decode_within(&lying, 4096).err().as_deref(), Some(TOO_BIG));
+        // A single liar bigger than the whole limit is refused too, after reading at most the
+        // limit and one byte.
+        assert_eq!(decode_within(&lying_zip(&[10_000], 1), 4096).err().as_deref(), Some(TOO_BIG));
+        // Exactly at the limit is fine, however the sizes are declared.
+        let at_limit = decode_within(&lying_zip(&[2048, 2048], 1), 4096).unwrap();
+        assert_eq!(at_limit.iter().map(|f| f.data.len()).sum::<usize>(), 4096);
+    }
+
+    #[test]
+    fn an_honest_zip_over_the_limit_is_refused_from_its_declaration() {
+        let honest = lying_zip(&[3000, 3000], 3000);
+        assert_eq!(decode_within(&honest, 4096).err().as_deref(), Some(TOO_BIG));
     }
 
     #[test]

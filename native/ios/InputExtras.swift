@@ -157,6 +157,35 @@ enum HIDKeys {
     }()
 }
 
+/// Whether Caps Lock is on, for the hardware keyboard.
+///
+/// TRACKED, BECAUSE GAMECONTROLLER DOES NOT SAY. `GCKeyboardInput` has no lock state:
+/// `button(forKeyCode: .capsLock)?.isPressed` is whether the key is held down this instant, not
+/// whether the lock is on. The handler used to pass `caps: false`, so letters typed with Caps
+/// Lock on arrived lowercase. So the lock is flipped on each press-down of the key, which is what
+/// the keyboard's own light does.
+///
+/// A class of its own, behind a lock, because the key handler runs on GameController's handler
+/// queue rather than on the main actor, and must not reach into `InputExtras` for one Bool.
+private final class HardwareCapsLock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var on = false
+
+    /// Notes one key change and returns whether Caps Lock is on for it.
+    func note(retro: UInt32, pressed: Bool) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if pressed && retro == RetroKey.capsLock { on.toggle() }
+        return on
+    }
+
+    func reset() {
+        lock.lock()
+        on = false
+        lock.unlock()
+    }
+}
+
 // MARK: - The object
 
 /// Everything this file keeps between frames. One per engine, reached as `host.inputExtras`.
@@ -166,7 +195,9 @@ final class InputExtras: ObservableObject {
     @Published var showingKeyboard = false
     /// The keyboard is drawn with Commodore labels (RUN/STOP, C=, RESTORE) rather than PC ones.
     @Published var commodoreLabels = false
-    /// The Controllers screen is up, and whether it opened straight on the button mapping.
+    /// The Controllers screen is up, and whether it opened straight on the button mapping. ONE
+    /// flag, two sheets: the player's presents it while a game is on screen and Settings' while
+    /// none is, never both. See the sheet in `InputPlayerLayer`.
     @Published var showingControllers = false
     @Published var openOnBinding = false
 
@@ -352,6 +383,9 @@ final class InputExtras: ObservableObject {
     /// A game has started. From here `poll` starts CoreMotion whenever the core asks for it.
     func gameStarted() {
         gameRunning = true
+        // A Controllers screen left wanted from Settings is not carried into the game: its sheet
+        // went with the Library, and the player's would otherwise open over the game unasked.
+        showingControllers = false
     }
 
     /// The game has ended. Stops CoreMotion now rather than leaving it to `poll`, lets go of the
@@ -364,6 +398,10 @@ final class InputExtras: ObservableObject {
         showingKeyboard = false
         keyboardHidden()
         capsOn = false
+        // The player's Controllers sheet goes with the player, and SwiftUI does not always say so
+        // through the binding. Left true, the flag would open the screen over Settings unasked,
+        // or leave Settings' button setting a flag already set, which opens nothing.
+        showingControllers = false
     }
 
     // MARK: Hardware keyboards
@@ -380,21 +418,40 @@ final class InputExtras: ObservableObject {
                 Task { @MainActor in
                     self?.keyboardLine = "keyboard: hardware keyboard disconnected"
                     self?.engine.releaseInputSource(source: .keyboard)
+                    // The lock went with the keyboard; the next one is assumed to start off.
+                    self?.hardwareCaps.reset()
                 }
+            },
+            // STUCK KEYS. GameController stops delivering key changes once the app is no longer
+            // active, so a key held as the app lost focus (Cmd-Tab, Control Centre, a call) never
+            // sends its release, and the game kept it held after coming back: Cmd stuck down
+            // after Cmd-Tab, a DOS character walking on its own. Everything the hardware keyboard
+            // holds is let go here, as a disconnect already does. The lock state is kept, because
+            // Caps Lock really is still on.
+            centre.addObserver(forName: UIApplication.willResignActiveNotification, object: nil,
+                               queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.engine.releaseInputSource(source: .keyboard) }
             },
         ]
         attachKeyboard()
     }
 
+    /// Caps Lock on the hardware keyboard, tracked here; see `HardwareCapsLock`.
+    private let hardwareCaps = HardwareCapsLock()
+
     private func attachKeyboard() {
         guard let input = GCKeyboard.coalesced?.keyboardInput else { return }
         let rust = engine
+        let capsLock = hardwareCaps
         input.keyChangedHandler = { keyboard, _, keyCode, pressed in
             let hid = keyCode.rawValue
             guard let entry = HIDKeys.entry(hid: hid) else { return }
+            // Noted for EVERY key change, Caps Lock's own included, before the character is
+            // worked out, so the first letter after the lock goes on is already a capital.
+            let caps = capsLock.note(retro: entry.retro, pressed: pressed)
             let shift = (keyboard.button(forKeyCode: .leftShift)?.isPressed ?? false)
                 || (keyboard.button(forKeyCode: .rightShift)?.isPressed ?? false)
-            let character = pressed ? HIDKeys.character(hid: hid, shift: shift, caps: false) : 0
+            let character = pressed ? HIDKeys.character(hid: hid, shift: shift, caps: caps) : 0
             rust.keyEvent(source: .keyboard, keycode: entry.retro, down: pressed,
                           character: character)
         }
@@ -923,7 +980,15 @@ struct InputPlayerLayer: View {
                 .transition(.move(edge: .bottom))
             }
         }
-        .sheet(isPresented: $extras.showingControllers) {
+        // ONLY WHILE A GAME IS ON SCREEN. Settings presents the same screen off the same flag
+        // (`InputSettingsSection`), and two sheets on one flag means SwiftUI tries to present it
+        // twice, which can leave the Controllers screen not opening at all. The two conditions are
+        // RootView's own (`activeEntry` is what puts up the player or the Library), so exactly one
+        // of the two can present at any moment, even mid-transition with both briefly mounted.
+        .sheet(isPresented: Binding(
+            get: { extras.showingControllers && host.activeEntry != nil },
+            set: { if !$0 { extras.showingControllers = false } }
+        )) {
             ControllersScreen(host: host, extras: extras, controllers: host.controllers,
                               startOnBinding: extras.openOnBinding) {
                 extras.showingControllers = false
@@ -1282,7 +1347,12 @@ struct InputSettingsSection: View {
             )
             SettingsReadout(label: "Motion", value: extras.motionLine)
         }
-        .sheet(isPresented: $extras.showingControllers) {
+        // Only with no game on screen; while one is, the player layer presents it. See the
+        // sheet in `InputPlayerLayer` for why the two must never both be able to.
+        .sheet(isPresented: Binding(
+            get: { extras.showingControllers && host.activeEntry == nil },
+            set: { if !$0 { extras.showingControllers = false } }
+        )) {
             ControllersScreen(host: host, extras: extras, controllers: host.controllers,
                               startOnBinding: extras.openOnBinding) {
                 extras.showingControllers = false

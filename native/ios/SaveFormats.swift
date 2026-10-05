@@ -114,17 +114,21 @@ extension SaveStates {
         }
         let stem = (entry.name as NSString).deletingPathExtension
         let location = saveFileLocation(system: system, gameStem: stem)
-        guard let outDir = SaveStateDisk.exportDirectory() else {
-            reportOnly("save export failed: no temporary directory")
-            return nil
-        }
         let safeStem = stem.replacingOccurrences(of: "/", with: "_")
+        // The export folder is asked for in each branch, once there is something to write. Asked
+        // for up front it was asked for twice on the battery path (`exportBatteryFile` asks too),
+        // and while every ask emptied the folder, that was one export deleting another's file.
+        // Each ask now gets a folder of its own (see `SaveStateDisk.exportDirectory`).
         switch location.kind {
         case .folder:
             guard let root = SaveFolders.saveDirectory() else { return nil }
             let folder = root.appendingPathComponent(location.relativePath, isDirectory: true)
             guard FileManager.default.fileExists(atPath: folder.path) else {
                 reportOnly("\(entry.name) has no saves yet in \(location.relativePath)")
+                return nil
+            }
+            guard let outDir = SaveStateDisk.exportDirectory() else {
+                reportOnly("save export failed: no temporary directory")
                 return nil
             }
             let url = outDir.appendingPathComponent("\(safeStem) saves.zip")
@@ -148,6 +152,10 @@ extension SaveStates {
             }
             guard !stored.isEmpty else {
                 reportOnly("\(entry.name) has no save yet. A save is made from the game's own menu")
+                return nil
+            }
+            guard let outDir = SaveStateDisk.exportDirectory() else {
+                reportOnly("save export failed: no temporary directory")
                 return nil
             }
             do {

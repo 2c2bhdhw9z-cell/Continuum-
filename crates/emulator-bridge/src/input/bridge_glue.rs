@@ -267,6 +267,16 @@ impl EmulatorBridge {
             );
         }
         if system == self.gamepads.session.system && self.session.is_some() {
+            // Remembered either way, but not switched while online: a different device in one
+            // phone's console is a different machine. Said here in full, because the refusal from
+            // `set_controller_port_device` would arrive inside a "could not" line.
+            if let Some(refusal) = self.netplay_refusal("changing the controller type") {
+                return format!(
+                    "controls: player {} will be \"{}\" next time a {system} game starts; {refusal}",
+                    port + 1,
+                    name.trim()
+                );
+            }
             self.apply_controller_type(port, name.trim())
         } else {
             format!(
@@ -308,6 +318,12 @@ impl EmulatorBridge {
         if self.session.is_none() {
             return "analog: no game is running".into();
         }
+        // A port switch, so `set_controller_port_device` would refuse it anyway; answered here so
+        // the line says why instead of "could not switch".
+        if let Some(line) = self.netplay_refusal("switching analog mode") {
+            self.gamepads.session.last_action_line = line.clone();
+            return line;
+        }
         let line = if self.is_analog_mode() {
             let (name, device) = crate::cores::pick_joypad_device(&self.controller_types(0));
             match self.switch_port_device(0, device) {
@@ -333,6 +349,13 @@ impl EmulatorBridge {
     pub fn shake(&mut self) -> String {
         if self.session.is_none() {
             return "shake: no game is running".into();
+        }
+        // The accelerometer burst is read by this phone's core alone, since only the pads travel
+        // between phones, and the Pokemon Mini's shake is an engine press the lockstep tick does
+        // not run. Either way the other phone would not shake.
+        if let Some(line) = self.netplay_refusal("shaking") {
+            self.gamepads.session.last_action_line = line.clone();
+            return line;
         }
         let line = if self.is_pokemini() {
             self.gamepads.pulse(0, bit(Button::L), POKEMINI_SHAKE_FRAMES);

@@ -134,6 +134,44 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 ---
 
+## Build 124 (5 October 2026)
+
+A bug sweep, nothing new to learn. TESTING.md A4 to A7.
+
+- Restarting from Core settings ("Restart the game now"): the game's picture no longer loses its
+  place in the skin. With auto-save off, the game now starts from the beginning and says so; before,
+  it could jump back to an old auto-save.
+- Error messages in the small text read as plain sentences. They used to show the engine's raw
+  form, `SaveState(reason: "...")`, inside the sentence.
+- Online play: every change that only this phone would make (core settings, palette, resolution,
+  disc swaps, the controller type, analog mode, shaking, mouse mode and so on) is now refused with
+  the same sentence, "… is off during online play: the other phone would not do the same". Before,
+  some of them went through and the two games drifted apart.
+- Crash safety in the engine: three requests a core can make without a place to write the answer
+  no longer crash; a damaged or hostile CSO or CHD disc image can no longer make the app ask for
+  more memory than the file could fill; a J2ME save is checked against the bytes actually read.
+- J2ME and Flash: a J2ME save that took close to 3 seconds to hand back as the game closed was cut
+  off and lost; the app now waits longer than the game does. A late save can no longer land on top
+  of the next session's. Exporting a running game's save gives the game as it is now, not the last
+  automatic save, and importing a save while that game is still closing waits for it.
+- RetroAchievements: the background timer runs only while logged in; a login the server turns down
+  is cleared and says to log in again, while simply being offline keeps it; the login button cannot
+  be pressed twice; drawing a game's achievement card no longer holds up the running game.
+- BIOS: a BIOS named in capitals is found by the launch check and the BIOS line, not only by the
+  Settings checklist; with Beetle selected, the BIOS line describes Beetle.
+- Import: "Which system?" no longer offers GameCube, Wii or Symbian, which cannot run here.
+- Exports: a file still open in the share sheet (AirDrop, Save to Files) was deleted the moment
+  anything else was exported. Each export now gets its own folder, cleared after 10 minutes.
+- Cloud sync: an upload used to delete the cloud copy first, so a failed copy left none, which the
+  next sync could take as a deletion. It now copies beside it and swaps it in at the end.
+- Controllers: the controllers screen opened from a game and the one opened from the Library can no
+  longer both appear; a hardware keyboard's Caps Lock is read correctly; keys are released when the
+  app goes to the background.
+- Covers: with "Look up cover art" off, nothing is downloaded anywhere, including the cover chooser;
+  closing the chooser straight after tapping a cover no longer cancels it; a list that could not be
+  downloaded is no longer reported as "no cover found", and is not retried over and over.
+- The SMB message now gives the real reason it is missing.
+
 ## Build 123 (5 October 2026)
 
 - Save slot pictures were black: every capture (slot pictures, and on some screens covers and

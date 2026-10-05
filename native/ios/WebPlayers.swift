@@ -266,7 +266,8 @@ final class WebPlayerSession: NSObject, ObservableObject, WKNavigationDelegate, 
     }
 
     /// Hands the save back, writes it, and closes the page. `then` runs once the save is on disk
-    /// (or after three seconds at most, with a line saying the last automatic save is kept).
+    /// (or after `WebPlayerTimeouts.finishSeconds` at most, with a line saying the last automatic
+    /// save is kept).
     func finish(then: (() -> Void)? = nil) {
         guard !finished else { then?(); return }
         finished = true
@@ -277,34 +278,45 @@ final class WebPlayerSession: NSObject, ObservableObject, WKNavigationDelegate, 
         Self.closing[key] = self
         if let then { Self.afterClose[key, default: []].append(then) }
         var settled = false
-        let settle: (String?) -> Void = { [weak self] line in
+        // The line comes as a closure so the save is written INSIDE the once-only check. Written
+        // before it, a late answer would still reach the disk after the wait below gave up, when
+        // the next session of this game may already have read the file, and that older copy would
+        // land on top of what the new session saves.
+        let settle: (() -> String?) -> Void = { [weak self] line in
             guard !settled else { return }
             settled = true
-            if let line { self?.report(line) }
+            if let text = line() { self?.report(text) }
             self?.tearDown()
             Self.closing[key] = nil
             let waiting = Self.afterClose.removeValue(forKey: key) ?? []
             for run in waiting { run() }
         }
         guard isReady else {
-            settle(nil)
+            settle { nil }
             return
         }
         webView.callAsyncJavaScript("return await window.continuumPlayer.finish();",
                                     arguments: [:], in: nil, in: .page) { [weak self] result in
-            guard let self else { settle(nil); return }
+            guard let self else { settle { nil }; return }
             switch result {
             case .success(let value):
-                settle(self.write(result: value, reason: "left"))
+                settle { self.write(result: value, reason: "left") }
             case .failure(let error):
-                settle("\(self.entry.name): the save could not be read back as it closed "
-                       + "(\(error.localizedDescription)); the last automatic save is kept")
+                settle { "\(self.entry.name): the save could not be read back as it closed "
+                         + "(\(error.localizedDescription)); the last automatic save is kept" }
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            settle("\(key.split(separator: "/").last.map(String.init) ?? "the game"): the save "
-                   + "took too long to read back as it closed; the last automatic save is kept")
+        // Clearly longer than the page's own wait for J2meJS's export (see WebPlayerTimeouts), so
+        // an export that ends just inside that wait still gets back here and is written.
+        DispatchQueue.main.asyncAfter(deadline: .now() + WebPlayerTimeouts.finishSeconds) {
+            settle { "\(key.split(separator: "/").last.map(String.init) ?? "the game"): the save "
+                     + "took too long to read back as it closed; the last automatic save is kept" }
         }
+    }
+
+    /// Whether a session of this game has left the screen and is still handing its save back.
+    static func isClosing(path: String) -> Bool {
+        closing[path] != nil
     }
 
     /// Runs `then` once any closing session for this game has written its save.
@@ -327,19 +339,25 @@ final class WebPlayerSession: NSObject, ObservableObject, WKNavigationDelegate, 
 
     // MARK: Saves
 
-    /// Asks the page for its storage now and writes it. Used when the app leaves the foreground.
-    func persistNow(reason: String) {
-        guard isReady, !finished else { return }
-        var task = UIBackgroundTaskIdentifier.invalid
-        task = UIApplication.shared.beginBackgroundTask(withName: "continuum.player.save") {
-            UIApplication.shared.endBackgroundTask(task)
-        }
+    /// Asks the page for its storage now and writes it. Used when the app leaves the foreground,
+    /// and before an export so the exported file is the game as it is now. `then` is told whether
+    /// the storage as it is now is on disk; it runs once, after the answer, or at once when there
+    /// is no running page to ask.
+    func persistNow(reason: String, then: ((Bool) -> Void)? = nil) {
+        guard isReady, !finished else { then?(false); return }
+        let background = BackgroundSaveTask(name: "continuum.player.save")
         webView.callAsyncJavaScript("return await window.continuumPlayer.flushNow();",
                                     arguments: [:], in: nil, in: .page) { [weak self] result in
-            if case .success(let value) = result, let line = self?.write(result: value, reason: reason) {
-                self?.report(line)
+            var saved = false
+            // Not once the game is closing: finish() reads the storage back itself, after this
+            // answer, and this older copy written later would land on top of that one.
+            if let self, !self.finished, case .success(let value) = result {
+                let line = self.write(result: value, reason: reason)
+                if let line { self.report(line) }
+                saved = line == nil
             }
-            UIApplication.shared.endBackgroundTask(task)
+            background.end()
+            then?(saved)
         }
     }
 
@@ -575,6 +593,29 @@ private final class DisplayLinkProxy: NSObject {
     weak var target: WebPlayerSession?
     init(_ target: WebPlayerSession) { self.target = target }
     @objc func tick() { MainActor.assumeIsolated { target?.tick() } }
+}
+
+/// Background time for one save, ended exactly once: by the save's answer or by iOS's expiry
+/// handler, whichever comes first (both on the main thread). Both used to end it, so the second
+/// ended an id that was already over, which UIKit reports as a misuse, and once iOS has handed the
+/// same number to a later task it would end that one instead.
+@MainActor
+private final class BackgroundSaveTask {
+    private var id = UIBackgroundTaskIdentifier.invalid
+
+    init(name: String) {
+        // The expiry handler holds this strongly, and UIKit lets go of the handler once the task
+        // has ended, so the task can still be ended there if the answer never comes.
+        id = UIApplication.shared.beginBackgroundTask(withName: name) {
+            MainActor.assumeIsolated { self.end() }
+        }
+    }
+
+    func end() {
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
+    }
 }
 
 // MARK: - On screen
@@ -923,19 +964,73 @@ extension EngineHost {
             webPlayer = nil
             webPlayerVolumeWatch = nil
             session.finish { [weak self] in
-                guard let self else { return }
-                self.status = apply() + "; restarting from it"
-                if self.activeEntry == entry, let root = Self.webPlayerRoot(kind) {
-                    self.startWebPlayerSession(entry: entry, kind: kind, root: root, saveURL: saveURL)
+                // On the next turn of the main queue: finish() calls back at once for a page that
+                // was not ready yet, and this line must land after the "closing" line returned
+                // below, not be replaced by it.
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.status = apply() + "; restarting from it"
+                    if self.activeEntry == entry, let root = Self.webPlayerRoot(kind) {
+                        self.startWebPlayerSession(entry: entry, kind: kind, root: root,
+                                                   saveURL: saveURL)
+                    }
                 }
             }
             return "importing \(name) for \(entry.name): closing the running game first"
+        }
+        // A copy that has left the screen but is still handing its save back would write that
+        // over the import as it finishes, so the import waits for it the way a launch does. Then
+        // it is decided again: a launch waiting on the same close may have started the game.
+        if WebPlayerSession.isClosing(path: entry.path) {
+            WebPlayerSession.whenClosed(path: entry.path) { [weak self] in
+                guard let self else { return }
+                self.status = self.importWebPlayerSave(data, named: name, for: entry, kind: kind)
+            }
+            return "importing \(name) for \(entry.name): waiting for the game that just closed "
+                + "to finish writing its own save"
         }
         return apply()
     }
 
     /// The save of `entry` as a file for the share sheet, in Manic's format (it is stored in it).
+    /// It cannot wait, so while that game is still open the line says the copy is its last saved
+    /// one; `exportWebPlayerSaveNow` has the game hand its storage over first.
     func exportWebPlayerSave(for entry: LibraryEntry, kind: WebPlayerKind) -> (URL?, String) {
+        let (url, text) = copyWebPlayerSave(for: entry, kind: kind)
+        let stillOpen = webPlayer?.entry == entry || WebPlayerSession.isClosing(path: entry.path)
+        guard stillOpen, url != nil else { return (url, text) }
+        return (url, text + "; the game is still open, so this is its last saved copy, a few "
+                + "seconds old at most")
+    }
+
+    /// The export the settings sheet uses. When `entry` is the game running, its page hands its
+    /// storage over first (the same flush as going to the background), so the file is the game
+    /// as it is now and not the last automatic save, two or three seconds behind. A copy that is
+    /// still closing writes its last save first.
+    func exportWebPlayerSaveNow(for entry: LibraryEntry, kind: WebPlayerKind,
+                                then done: @escaping (URL?, String) -> Void) {
+        guard let session = webPlayer, session.entry == entry else {
+            WebPlayerSession.whenClosed(path: entry.path) { [weak self] in
+                guard let self else { return }
+                let (url, text) = self.copyWebPlayerSave(for: entry, kind: kind)
+                done(url, text)
+            }
+            return
+        }
+        session.persistNow(reason: "read for an export") { [weak self] saved in
+            guard let self else { return }
+            let (url, text) = self.copyWebPlayerSave(for: entry, kind: kind)
+            guard !saved, url != nil else {
+                done(url, text)
+                return
+            }
+            done(url, text + "; the game did not hand its storage over, so this is its last "
+                 + "saved copy, a few seconds old at most")
+        }
+    }
+
+    /// Copies the stored save out for the share sheet, as it is on disk now.
+    private func copyWebPlayerSave(for entry: LibraryEntry, kind: WebPlayerKind) -> (URL?, String) {
         guard let saveURL = Self.webPlayerSaveURL(kind: kind, entry: entry),
               FileManager.default.fileExists(atPath: saveURL.path) else {
             return (nil, "\(entry.name) has no save yet. A save is made from the game's own menu, "
@@ -1086,10 +1181,14 @@ struct WebPlayerSettingsSheet: View {
     }
 
     private func exportSave() {
-        let (url, text) = host.exportWebPlayerSave(for: session.entry, kind: session.kind)
-        line = text
-        host.status = text
-        if let url { FileShare.present(url) }
+        // Through the flush, so the file shared is the game as it is now. A J2ME phone can take a
+        // few seconds to hand its files over, so the line says something is happening meanwhile.
+        line = "exporting the save for \(session.entry.name)..."
+        host.exportWebPlayerSaveNow(for: session.entry, kind: session.kind) { url, text in
+            line = text
+            host.status = text
+            if let url { FileShare.present(url) }
+        }
     }
 }
 #endif

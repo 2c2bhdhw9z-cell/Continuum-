@@ -472,8 +472,13 @@ struct GameDetailSheet: View {
                     chooser.useAutomatic(entry: entry, store: artwork)
                 }
             }
-            SettingsButton(title: "Look it up again", role: .normal) {
-                artwork.lookUpAgain(entry)
+            // A lookup, so not offered while lookups are off: a control that cannot work is not
+            // offered, and this one would also throw the stored cover away first and then find
+            // nothing to replace it with.
+            if artwork.fetchEnabled {
+                SettingsButton(title: "Look it up again", role: .normal) {
+                    artwork.lookUpAgain(entry)
+                }
             }
             SettingsButton(title: "Remove the stored cover", role: .destructive) {
                 artwork.clearCover(for: entry)
@@ -488,8 +493,10 @@ struct GameDetailSheet: View {
         .padding(14)
         .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
         // ONCE, and only on open. `task(id:)` keyed on the entry so a sheet reused for another game
-        // loads that game, and `load` itself refuses to run twice.
-        .task(id: entry.id) {
+        // loads that game, and `load` itself refuses to run twice. The lookups switch is in the key
+        // as well, so the card follows it: `load` says lookups are off without starting anything,
+        // and loads for real if they are turned back on.
+        .task(id: "\(entry.id)#\(artwork.fetchEnabled)") {
             chooser.load(entry: entry, system: system, store: artwork)
         }
         .onDisappear {
@@ -506,6 +513,31 @@ struct GameDetailSheet: View {
 
     @ViewBuilder
     private var coverChoices: some View {
+        if artwork.fetchEnabled {
+            serverCoverChoices
+        } else {
+            // LOOKUPS OFF: SAID PLAINLY, AND NOTHING FROM THE SERVER ON OFFER. No row of covers, no
+            // spinner and no "look in other systems", because every one of those is a download, and
+            // the switch is the user telling this app not to make any. What still works is local
+            // and stays below: an image from Files, and the current frame when a game is running.
+            // Decided by the store's switch rather than by the model's line, so it is true from the
+            // first frame, before `load` has run.
+            Text(ArtworkOptions.lookupsOffLine)
+                .font(.system(size: 12))
+                .foregroundStyle(ShellPalette.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            if !chooser.line.isEmpty, chooser.line != ArtworkOptions.lookupsOffLine {
+                Text(chooser.line)
+                    .font(.system(size: 12))
+                    .foregroundStyle(ShellPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Everything the cover row offers from the server, shown only while lookups are on.
+    @ViewBuilder
+    private var serverCoverChoices: some View {
         if !chooser.options.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 // Lazy for the same reason the shelves are: a game with several borrowed covers should

@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 5 October 2026, for **build 123 or newer**. The newest install is always on the
+Last updated 5 October 2026, for **build 124 or newer**. The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 
@@ -24,7 +24,7 @@ crash, fast forward at 2x, the CRT filter, and taking a cover from the game.
 
 # The list: what still needs testing
 
-## A. New in build 123 (do this first)
+## A. New in builds 123 and 124 (do this first)
 
 **A1. Save slot pictures (it was black in 122)**
 1. In any game: **⋯** → **Save to the next free slot**, then **⋯** → **Save slots...**.
@@ -47,6 +47,34 @@ crash, fast forward at 2x, the CRT filter, and taking a cover from the game.
 5. Turn it **on**, open a game: the box should come back (it may also need the app reopened).
 6. Tell me if it never goes away. That would mean it is a different Apple overlay (for example the
    Game Mode one) and needs a different fix.
+
+**A4. Restarting from Core settings** (new in 124)
+1. In a game with a skin: **⋯** → **Core settings...** → change a setting marked
+   **restart needed** → tap **Restart the game now**.
+2. ✅ Good: the game comes back inside the skin's screen area, just like before the restart.
+3. Then **Settings** → **SAVE STATES** → turn **Auto-save** off, and do step 1 again.
+4. ✅ Good: the game starts from the beginning, and the small text says it restarted from the
+   beginning because auto-save is off. (Before, it could jump back to an old auto-save.) Turn
+   Auto-save back on afterwards.
+
+**A5. Cover lookups off** (new in 124)
+1. **Settings** → **COVER ART** → turn **Look up cover art** off.
+2. In the Library, press and hold any game.
+3. ✅ Good: the cover part says "Cover lookups are off in Settings…" and nothing downloads. Turn it
+   back on afterwards.
+
+**A6. RetroAchievements login** (new in 124, only if you have an account)
+1. **Settings** → **RETROACHIEVEMENTS** → **Log in**.
+2. ✅ Good: while it works the button says **Logging in...** and tapping it again does nothing.
+
+**A7. Things to notice in passing** (new in 124, no need to set up)
+- The small text in the player should always read as plain English. If you ever see something like
+  `SaveState(reason: "...")` in it, send a screenshot.
+- When the app asks **Which system?** for a file, GameCube, Wii and Symbian are no longer offered
+  (none of them can run in this build).
+- PlayStation with **Beetle PSX HW** selected: a BIOS file whose name is in capitals (for example
+  `SCPH1001.BIN`) is now found, and the BIOS line in the small text starts
+  `BIOS (mednafen_psx_hw)`, which is Beetle, not the other PlayStation core.
 
 ## B. Getting games in
 

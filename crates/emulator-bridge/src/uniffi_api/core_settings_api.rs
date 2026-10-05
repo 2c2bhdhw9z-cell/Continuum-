@@ -208,18 +208,19 @@ impl ContinuumEngine {
         value: String,
         for_game: bool,
     ) -> Result<String, EngineError> {
-        let _engine = self.lock();
-        options::set(&core_id, &key, &value, for_game).map_err(option_error)
+        // Through the engine, not straight to `options`, so a change the running core would read
+        // is refused during online play. Still under the engine lock, as before.
+        self.lock()
+            .set_core_option_value(&core_id, &key, &value, for_game)
+            .map_err(option_error)
     }
 
     pub fn reset_core_options(&self, core_id: String) -> Result<String, EngineError> {
-        let _engine = self.lock();
-        options::reset_core(&core_id).map_err(option_error)
+        self.lock().reset_core_options(&core_id).map_err(option_error)
     }
 
     pub fn reset_game_options(&self, core_id: String) -> Result<String, EngineError> {
-        let _engine = self.lock();
-        options::reset_game(&core_id).map_err(option_error)
+        self.lock().reset_game_options(&core_id).map_err(option_error)
     }
 
     /// The game whose own choices are live for this core, if one is running.

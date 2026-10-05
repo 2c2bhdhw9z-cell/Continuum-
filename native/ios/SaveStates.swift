@@ -479,20 +479,48 @@ enum SaveStateDisk {
         return directory.appendingPathComponent("\(gameId).srm")
     }
 
-    /// A scratch directory for files about to be handed to the share sheet. Emptied each time, so
-    /// exports do not pile up in the container.
+    /// A fresh, empty directory for a file about to be handed to the share sheet:
+    /// tmp/ContinuumExports/<UUID>/, one per call.
+    ///
+    /// ONE FOLDER PER CALL, AND ONLY OLD ONES ARE SWEPT, WHICH IS THE FIX. This used to empty
+    /// ContinuumExports on every call, so an export still open in the share sheet (or still being
+    /// copied out by AirDrop or Save to Files) lost its file the moment anything else exported, and
+    /// the save-format export reaches this twice for one tap. A folder each also means two exports
+    /// under the same name (the same game's .srm, twice) can never overwrite each other. Anything
+    /// older than `exportLifetime` is removed here, so exports still do not pile up in the
+    /// container, and nothing a caller has just written is ever that old.
     static func exportDirectory() -> URL? {
-        let directory = FileManager.default.temporaryDirectory
+        let manager = FileManager.default
+        let root = manager.temporaryDirectory
             .appendingPathComponent("ContinuumExports", isDirectory: true)
-        try? FileManager.default.removeItem(at: directory)
+        let cutoff = Date().addingTimeInterval(-exportLifetime)
+        let dateKeys: Set<URLResourceKey> = [.creationDateKey, .contentModificationDateKey]
+        if let items = try? manager.contentsOfDirectory(at: root,
+                                                        includingPropertiesForKeys: Array(dateKeys),
+                                                        options: []) {
+            for item in items {
+                // The NEWER of the two dates, so an item counts as old only when both say so. No
+                // readable date means it cannot be shown to be old, so it stays; tmp is the
+                // system's to purge anyway. Loose files from the old flat layout go the same way.
+                let values = try? item.resourceValues(forKeys: dateKeys)
+                let dates = [values?.creationDate, values?.contentModificationDate]
+                    .compactMap { $0 }
+                guard let newest = dates.max(), newest < cutoff else { continue }
+                try? manager.removeItem(at: item)
+            }
+        }
+        let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         do {
-            try FileManager.default.createDirectory(at: directory,
-                                                    withIntermediateDirectories: true)
+            try manager.createDirectory(at: directory, withIntermediateDirectories: true)
         } catch {
             return nil
         }
         return directory
     }
+
+    /// How long an export stays for the share sheet before a later export may sweep it. Long
+    /// enough for a slow Save to Files or AirDrop, short enough that tmp does not fill up.
+    private static let exportLifetime: TimeInterval = 10 * 60
 
     /// Writes the index. Returns nil on success, or a sentence.
     static func writeIndex(_ records: [SaveStateRecord]) -> String? {

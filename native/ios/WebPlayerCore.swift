@@ -290,6 +290,20 @@ enum WebPlayerAddress {
     }
 }
 
+// MARK: - How long a closing game's save may take
+
+/// The two waits on a J2ME save coming back as the game closes. A pair, and the order is the
+/// point: the page gives up on J2meJS's own export first and still answers (with no files, so the
+/// last automatic save is kept and the line says so), and the app waits clearly longer than that.
+/// When the two were equal, an export that finished just inside the page's wait was cut off on its
+/// way back across WebKit's process boundary, reported as "took too long", and the save was lost.
+enum WebPlayerTimeouts {
+    /// The J2ME bridge's wait for `fs.exportStore`, in milliseconds (a JavaScript timer).
+    static let j2meExportMilliseconds = 3000
+    /// The app's wait for the page's `finish()` answer, in seconds.
+    static let finishSeconds: TimeInterval = 8
+}
+
 // MARK: - The pages
 
 enum WebPlayerPages {
@@ -569,7 +583,7 @@ enum WebPlayerScripts {
         return new Promise(function (resolve) {
           var settled = false;
           function done(value) { if (!settled) { settled = true; resolve(value); } }
-          setTimeout(function () { done(null); }, 3000);
+          setTimeout(function () { done(null); }, \#(WebPlayerTimeouts.j2meExportMilliseconds));
           try {
             if (typeof fs === 'undefined' || typeof fs.exportStore !== 'function') { done(null); return; }
             try { if (typeof myflushAll === 'function') { myflushAll(); } } catch (e) {}

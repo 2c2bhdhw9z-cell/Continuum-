@@ -283,8 +283,138 @@ struct ChdSource {
     compressed: Vec<u8>,
 }
 
+/// Hunks bigger than this are refused. A CD CHD's hunk is 19,584 bytes (eight 2,448-byte frames)
+/// and a DVD one a few KB. Both the `chd` crate and [`ChdSource::hunk`] allocate a whole hunk up
+/// front, so without a ceiling a broken header could ask for 4 GiB at once. The crate already
+/// refuses 16 MiB and over in v1 to v4 headers; it does not check v5 headers at all.
+const MAX_CHD_HUNK: u32 = 16 << 20;
+
+/// Hunks a CHD may have: a 16 GiB disc in 2 KB hunks, which is twice a dual-layer DVD cut into
+/// single sectors. The crate expands the whole hunk map into memory at open, 12 bytes a hunk for a
+/// compressed CHD, and that map is RLE-coded, so its stored size says nothing about how big it
+/// unpacks to. This caps the unpacked map at 96 MiB.
+const MAX_CHD_HUNKS: u64 = 1 << 23;
+
+/// Metadata entries read before giving up. A CD has at most 99 tracks, one entry each, plus a few
+/// others. Each entry names the next by offset, so a corrupt one can point back at itself, and
+/// collecting that chain would grow without end.
+const MAX_CHD_METADATA: usize = 1024;
+
+/// Checks a CHD header against the real file before the `chd` crate opens it.
+///
+/// The crate validates v1 to v4 headers and reads their maps entry by entry, so those stop at the
+/// end of the file on their own. A v5 header is taken on trust: opening allocates the whole hunk
+/// map from the header's sizes and a hunk-sized buffer for each codec, before anything is read. So
+/// those sizes are checked here first, and a file that lies about them is refused with a reason
+/// instead of being handed the allocation it asked for. The metadata chain is checked for every
+/// version that has one; see [`check_chd_metadata`]. Anything else is left for the crate to judge.
+fn check_chd_header<R: Read + Seek>(reader: &mut R) -> Result<(), String> {
+    let file_len = reader.seek(SeekFrom::End(0)).map_err(|e| e.to_string())?;
+    let mut header = [0u8; 64];
+    reader
+        .seek(SeekFrom::Start(0))
+        .map_err(|e| e.to_string())?;
+    if reader.read_exact(&mut header).is_err() {
+        // Too short for a v3 to v5 header; the crate says why.
+        return Ok(());
+    }
+    let be32 = |at: usize| u32::from_be_bytes(header[at..at + 4].try_into().unwrap_or_default());
+    let be64 = |at: usize| u64::from_be_bytes(header[at..at + 8].try_into().unwrap_or_default());
+    if &header[..8] != b"MComprHD" {
+        return Ok(());
+    }
+    // Where the first metadata entry is (chd.h): offset 36 in a v3 or v4 header, 48 in a v5 one.
+    // Versions 1 and 2 have no metadata.
+    let version = be32(12);
+    let first_metadata = match version {
+        3 | 4 => be64(36),
+        5 => be64(48),
+        _ => return Ok(()),
+    };
+    check_chd_metadata(reader, first_metadata)?;
+    if version != 5 {
+        return Ok(());
+    }
+    // The rest of the v5 layout: compressors at 16, logical size at 32, map offset at 40, hunk
+    // size at 56.
+    let uncompressed = be32(16) == 0;
+    let logical_bytes = be64(32);
+    let map_offset = be64(40);
+    let hunk_bytes = be32(56);
+    if hunk_bytes > MAX_CHD_HUNK {
+        return Err(format!(
+            "the CHD header asks for {hunk_bytes}-byte hunks, more than any disc uses"
+        ));
+    }
+    if hunk_bytes == 0 {
+        // Refused by the crate, which also guards its own division.
+        return Ok(());
+    }
+    let hunks = logical_bytes.div_ceil(u64::from(hunk_bytes));
+    if hunks > MAX_CHD_HUNKS {
+        return Err("the CHD says it is larger than any disc".into());
+    }
+    // The hunk itself is only capped, not held to the file's length: a compressed hunk unpacks to
+    // more than it stores, and an uncompressed CHD may leave an all-zero hunk out entirely. The
+    // map, though, is read straight out of the file, so it has to be there.
+    let past_the_end = || "the CHD's hunk map runs past the end of the file".to_string();
+    let map_end = if uncompressed {
+        // Stored as is, four bytes a hunk.
+        map_offset.checked_add(hunks * 4)
+    } else {
+        // A 16-byte header whose first field is how many bytes of coded map follow it. The crate
+        // allocates that many before reading them.
+        if map_offset.checked_add(16).is_none_or(|end| end > file_len) {
+            return Err(past_the_end());
+        }
+        let mut stored = [0u8; 4];
+        reader
+            .seek(SeekFrom::Start(map_offset))
+            .and_then(|_| reader.read_exact(&mut stored))
+            .map_err(|_| past_the_end())?;
+        map_offset
+            .checked_add(16)
+            .and_then(|start| start.checked_add(u64::from(u32::from_be_bytes(stored))))
+    };
+    if map_end.is_none_or(|end| end > file_len) {
+        return Err(past_the_end());
+    }
+    Ok(())
+}
+
+/// Follows the metadata chain from `first`, reading only each entry's 16-byte header, and refuses
+/// one that does not end within [`MAX_CHD_METADATA`] entries.
+///
+/// Needed before the crate opens the file, not just in `chd_track`: for a v3 or v4 file the crate
+/// walks this chain itself while opening (to guess the sector size) and collects every entry, so
+/// a chain that points back at itself would grow that list until the app was killed. An entry
+/// that cannot be read is where the crate stops too, so that is the end of the chain, not a loop.
+fn check_chd_metadata<R: Read + Seek>(reader: &mut R, first: u64) -> Result<(), String> {
+    let mut at = first;
+    for _ in 0..MAX_CHD_METADATA {
+        if at == 0 {
+            return Ok(());
+        }
+        let mut entry = [0u8; 16];
+        let read = reader
+            .seek(SeekFrom::Start(at))
+            .and_then(|_| reader.read_exact(&mut entry));
+        if read.is_err() {
+            return Ok(());
+        }
+        // Tag (4 bytes), flags and length (4), then the next entry's offset, 0 for none.
+        at = u64::from_be_bytes(entry[8..16].try_into().unwrap_or_default());
+    }
+    if at == 0 {
+        Ok(())
+    } else {
+        Err("the CHD's metadata list never ends".into())
+    }
+}
+
 fn chd_track(path: &Path, wanted: u32) -> Result<ChdSource, String> {
-    let file = File::open(path).map_err(|e| e.to_string())?;
+    let mut file = File::open(path).map_err(|e| e.to_string())?;
+    check_chd_header(&mut file)?;
     let mut chd = chd::Chd::open(file, None).map_err(|e| format!("not a readable CHD: {e}"))?;
     if chd.header().has_parent() {
         return Err("this CHD needs its parent CHD".into());
@@ -294,7 +424,19 @@ fn chd_track(path: &Path, wanted: u32) -> Result<ChdSource, String> {
     if unit_bytes == 0 || hunk_bytes == 0 || hunk_bytes < unit_bytes {
         return Err("the CHD header has no usable sector size".into());
     }
-    let refs: Vec<_> = chd.metadata_refs().collect();
+    // The upper bound again, for every header version, because `ChdSource::hunk` allocates
+    // `hunk_bytes` for each hunk it reads and this is the one place a `ChdSource` is made.
+    if hunk_bytes > MAX_CHD_HUNK {
+        return Err(format!(
+            "the CHD header asks for {hunk_bytes}-byte hunks, more than any disc uses"
+        ));
+    }
+    // Bounded here as well as in `check_chd_metadata`, because this is the list actually held, and
+    // a bound that lived only in a separate walk would be one edit away from not applying.
+    let refs: Vec<_> = chd.metadata_refs().take(MAX_CHD_METADATA + 1).collect();
+    if refs.len() > MAX_CHD_METADATA {
+        return Err("the CHD's metadata list never ends".into());
+    }
     let mut by_tag: [Vec<ChdTrackMeta>; 3] = [Vec::new(), Vec::new(), Vec::new()];
     let mut is_dvd = false;
     for r in refs {
@@ -343,6 +485,8 @@ fn chd_track(path: &Path, wanted: u32) -> Result<ChdSource, String> {
 }
 
 impl ChdSource {
+    /// One hunk, decoded. The buffer is `hunk_bytes` long because the crate insists on exactly
+    /// that; `chd_track`, the only constructor, has already held it to [`MAX_CHD_HUNK`].
     fn hunk(&mut self, number: u32) -> Option<&[u8]> {
         if self.cached.as_ref().map(|c| c.0) != Some(number) {
             let mut out = vec![0u8; self.hunk_bytes as usize];
@@ -443,10 +587,25 @@ impl<R: Read + Seek> Cso<R> {
         } else {
             24
         };
+        // The index is stored in the file, four bytes a block, so it can never be longer than the
+        // file is. Checked against the real length BEFORE allocating: the block cap above still
+        // allows a 256 MiB index, and a corrupt header claiming that much used to have the whole
+        // buffer allocated and only then found the file was a few bytes long. On a phone that
+        // allocation alone can get the app killed.
+        let index_bytes = (blocks + 1) * 4;
+        let file_len = reader
+            .seek(SeekFrom::End(0))
+            .map_err(|e| e.to_string())?;
+        if index_at
+            .checked_add(index_bytes)
+            .is_none_or(|end| end > file_len)
+        {
+            return Err("the CSO's block index runs past the end of the file".into());
+        }
         reader
             .seek(SeekFrom::Start(index_at))
             .map_err(|e| e.to_string())?;
-        let mut raw = vec![0u8; (blocks as usize + 1) * 4];
+        let mut raw = vec![0u8; index_bytes as usize];
         reader
             .read_exact(&mut raw)
             .map_err(|_| "the CSO's block index is cut short".to_string())?;
@@ -728,6 +887,126 @@ mod tests {
         let mut cut = tests_support::cso_of(&sample_iso(), 2048, 1);
         cut.truncate(40);
         assert!(Cso::from_reader(Cursor::new(cut)).is_err());
+    }
+
+    #[test]
+    fn a_cso_whose_index_is_longer_than_the_file_is_refused_before_allocating() {
+        // A bare 24-byte header claiming 2^26 blocks of 2 KB: within the block cap, so the old code
+        // allocated a 256 MiB index and only then found the file was over. The index has to be in
+        // the file, so the real length refuses it first.
+        let mut header = Vec::new();
+        header.extend_from_slice(b"CISO");
+        header.extend_from_slice(&24u32.to_le_bytes());
+        header.extend_from_slice(&((1u64 << 26) * 2048).to_le_bytes());
+        header.extend_from_slice(&2048u32.to_le_bytes());
+        header.extend_from_slice(&[1, 0, 0, 0]);
+        let why = Cso::from_reader(Cursor::new(header)).err().unwrap();
+        assert!(why.contains("runs past the end of the file"), "{why}");
+        // One byte short of a real index is refused the same way.
+        let mut short = tests_support::cso_of(&sample_iso(), 2048, 1);
+        short.truncate(24 + 25 * 4 - 1);
+        let why = Cso::from_reader(Cursor::new(short)).err().unwrap();
+        assert!(why.contains("runs past the end of the file"), "{why}");
+    }
+
+    /// Overwrites `len` big-endian bytes of a built CHD's header.
+    fn patch_be(chd: &mut [u8], at: usize, value: u64, len: usize) {
+        chd[at..at + len].copy_from_slice(&value.to_be_bytes()[8 - len..]);
+    }
+
+    fn a_good_chd() -> Vec<u8> {
+        chd_v5(
+            &frames_of(&raw_track(0, 24)),
+            &[(b"CHT2", "TRACK:1 TYPE:MODE1_RAW SUBTYPE:NONE FRAMES:24 PREGAP:0 PGTYPE:MODE1 PGSUB:RW POSTGAP:0")],
+        )
+    }
+
+    /// Why `chd_track` refused a CHD written to a temporary file.
+    fn chd_refusal(name: &str, bytes: &[u8]) -> String {
+        let dir = crate::import::testdir::TestDir::new(name);
+        let path = dir.write("game.chd", bytes);
+        let why = chd_track(&path, 1).err().expect("the CHD must be refused");
+        assert!(open(path.to_str().unwrap(), 1).is_none());
+        why
+    }
+
+    #[test]
+    fn the_good_chd_passes_the_header_check() {
+        assert_eq!(check_chd_header(&mut Cursor::new(a_good_chd())), Ok(()));
+    }
+
+    #[test]
+    fn a_chd_hunk_over_16_mib_is_refused_before_allocating() {
+        // The hunk size lives at offset 56 of a v5 header. Neither the crate (which does not check
+        // v5 headers) nor `ChdSource::hunk` would have refused 32 MiB; both allocate a hunk whole.
+        let mut chd = a_good_chd();
+        patch_be(&mut chd, 56, 32 << 20, 4);
+        let why = chd_refusal("rc-chd-hunk", &chd);
+        assert!(why.contains("hunks, more than any disc uses"), "{why}");
+        // Exactly 16 MiB is not over the line.
+        let mut edge = a_good_chd();
+        patch_be(&mut edge, 56, 16 << 20, 4);
+        assert_eq!(check_chd_header(&mut Cursor::new(edge)), Ok(()));
+    }
+
+    #[test]
+    fn a_chd_larger_than_any_disc_is_refused() {
+        // A logical size of 2^40 bytes in 19,584-byte hunks is 56 million hunks, whose map the
+        // crate would unpack into memory whole.
+        let mut chd = a_good_chd();
+        patch_be(&mut chd, 32, 1 << 40, 8);
+        let why = chd_refusal("rc-chd-huge", &chd);
+        assert!(why.contains("larger than any disc"), "{why}");
+    }
+
+    #[test]
+    fn a_chd_map_past_the_end_of_the_file_is_refused() {
+        // Uncompressed: the map offset moved to the last byte of the file, so four bytes a hunk
+        // cannot fit after it.
+        let mut chd = a_good_chd();
+        let last = chd.len() as u64 - 1;
+        patch_be(&mut chd, 40, last, 8);
+        let why = chd_refusal("rc-chd-map", &chd);
+        assert!(why.contains("hunk map runs past the end"), "{why}");
+        // Compressed (a codec in the first slot): the stored map length at the map offset claims
+        // 4 GiB.
+        let mut coded = a_good_chd();
+        patch_be(&mut coded, 16, u64::from(u32::from_be_bytes(*b"cdzl")), 4);
+        let map_at = u64::from_be_bytes(coded[40..48].try_into().unwrap()) as usize;
+        patch_be(&mut coded, map_at, u64::from(u32::MAX), 4);
+        let why = check_chd_header(&mut Cursor::new(coded)).err().unwrap();
+        assert!(why.contains("hunk map runs past the end"), "{why}");
+    }
+
+    #[test]
+    fn a_chd_whose_metadata_loops_is_refused() {
+        // One metadata entry whose "next" field, at bytes 8..16 of the entry, points back at
+        // itself. The crate follows it forever, so collecting it would never end.
+        let mut chd = a_good_chd();
+        let meta_at = u64::from_be_bytes(chd[48..56].try_into().unwrap());
+        patch_be(&mut chd, meta_at as usize + 8, meta_at, 8);
+        let why = chd_refusal("rc-chd-loop", &chd);
+        assert!(why.contains("metadata list never ends"), "{why}");
+    }
+
+    #[test]
+    fn a_v4_chd_whose_metadata_loops_is_refused_before_the_crate_opens_it() {
+        // A v4 header (108 bytes, first metadata entry's offset at 36) and one entry pointing at
+        // itself. The crate walks a v4 chain while opening, so this has to be caught first.
+        let mut v4 = vec![0u8; 108];
+        v4[..8].copy_from_slice(b"MComprHD");
+        patch_be(&mut v4, 8, 108, 4);
+        patch_be(&mut v4, 12, 4, 4);
+        patch_be(&mut v4, 36, 108, 8);
+        v4.extend_from_slice(b"CHT2");
+        v4.extend_from_slice(&[0x01, 0, 0, 0]);
+        v4.extend_from_slice(&108u64.to_be_bytes());
+        let why = check_chd_header(&mut Cursor::new(v4.clone())).err().unwrap();
+        assert!(why.contains("metadata list never ends"), "{why}");
+        // The same entry ending the chain is fine as far as this check goes.
+        let end = v4.len() - 8;
+        v4[end..].copy_from_slice(&0u64.to_be_bytes());
+        assert_eq!(check_chd_header(&mut Cursor::new(v4)), Ok(()));
     }
 
     /// An uncompressed CHD v5 of 2448-byte CD frames with the given metadata entries, the same

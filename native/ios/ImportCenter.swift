@@ -25,8 +25,9 @@ import UniformTypeIdentifiers
 // MARK: - System names for the picker
 
 /// The shared system ids (see the wave brief) and their names, for the "which system is this?"
-/// picker. Kept here rather than read from `GameSystem` so the picker can offer systems whose
-/// cores another lane is still adding.
+/// picker and the status lines that name a system. The NAMES are kept here rather than read from
+/// `GameSystem` because the detector reports ids nothing here runs (a GameCube disc header), and a
+/// line about one should still say "GameCube". The picker itself offers only `pickable`.
 struct SystemName: Hashable {
     let id: String
     let name: String
@@ -47,6 +48,18 @@ enum SystemNames {
         SystemName(id: "arcade", name: "Arcade"), SystemName(id: "dos", name: "DOS"), SystemName(id: "amiga", name: "Amiga"), SystemName(id: "c64", name: "Commodore 64"),
         SystemName(id: "doom", name: "Doom"), SystemName(id: "flash", name: "Flash"), SystemName(id: "j2me", name: "J2ME"), SystemName(id: "symbian", name: "Symbian"),
     ]
+
+    /// Whether a game answered as this system can launch: the app has a `GameSystem` for it, which
+    /// is what routing, the pad and the core choice all key on. GameCube, Wii and Symbian are in
+    /// `ordered` with no core behind them, and a user who picked one got a game that could not
+    /// start. Read from `GameSystem` rather than listed, so a system that gains a core is offered
+    /// the day its case lands and not after someone remembers this list.
+    static func canRun(_ id: String) -> Bool {
+        GameSystem(rawValue: id) != nil
+    }
+
+    /// What the "which system?" picker offers: `ordered` minus the ids nothing here can run.
+    static let pickable: [SystemName] = ordered.filter { canRun($0.id) }
 
     static func name(_ id: String) -> String {
         ordered.first { $0.id == id }?.name ?? id
@@ -511,6 +524,12 @@ struct SystemQuestionSheet: View {
     let question: SystemQuestion
     let onAnswer: (String?) -> Void
 
+    /// The detector's guesses that can launch here. It can guess a system with no core (a disc
+    /// that might be GameCube), and offering that at the top would import a game that cannot start.
+    private var likely: [String] {
+        question.candidates.filter { SystemNames.canRun($0) }
+    }
+
     var body: some View {
         NavigationView {
             List {
@@ -521,15 +540,15 @@ struct SystemQuestionSheet: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-                if !question.candidates.isEmpty {
+                if !likely.isEmpty {
                     Section("Most likely") {
-                        ForEach(question.candidates, id: \.self) { id in
+                        ForEach(likely, id: \.self) { id in
                             Button(SystemNames.name(id)) { onAnswer(id) }
                         }
                     }
                 }
                 Section("Every system") {
-                    ForEach(SystemNames.ordered.filter { !question.candidates.contains($0.id) }, id: \.id) { item in
+                    ForEach(SystemNames.pickable.filter { !likely.contains($0.id) }, id: \.id) { item in
                         Button(item.name) { onAnswer(item.id) }
                     }
                 }

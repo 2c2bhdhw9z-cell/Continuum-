@@ -118,7 +118,7 @@ final class RemoteSources: ObservableObject {
             return "\(address) is not an address (want \(kind == .smb ? "smb://nas.local" : "https://nas.local:5006/dav"))"
         }
         if kind == .smb && !Self.smbAvailable {
-            return "SMB is not in this build: the AMSMB2 package did not build. WebDAV still works"
+            return "SMB is not in this build yet; it was taken out after it stopped the app opening. WebDAV works"
         }
         let server = RemoteServer(kind: kind, name: name.isEmpty ? (parsed.host ?? address) : name,
                                   url: address, user: user)

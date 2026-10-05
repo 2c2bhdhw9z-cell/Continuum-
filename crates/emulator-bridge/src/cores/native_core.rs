@@ -366,6 +366,11 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
     }
     match cmd {
         ENV_GET_SYSTEM_DIRECTORY | ENV_GET_SAVE_DIRECTORY => {
+            // data is `const char **`, written below. Refused on null before anything else so a
+            // core that probes with NULL is told "no directory" instead of crashing the app.
+            if data.is_null() {
+                return false;
+            }
             let guard = match DIRECTORIES.lock() {
                 Ok(guard) => guard,
                 Err(poisoned) => poisoned.into_inner(),
@@ -548,6 +553,11 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
             true
         }
         ENV_GET_CAN_DUPE => {
+            // data is `bool *`. Checked like every other arm: writing through a null pointer
+            // here would take the whole app down on a core that merely asks the question.
+            if data.is_null() {
+                return false;
+            }
             unsafe { *(data as *mut bool) = true };
             true
         }
@@ -1973,6 +1983,75 @@ mod tests {
         };
         assert!(ok);
         assert_eq!(version, 2, "v2 tables with categories are read");
+    }
+
+    #[test]
+    fn can_dupe_answers_true_and_refuses_a_null_pointer() {
+        let mut can_dupe = false;
+        assert!(unsafe { on_environment(ENV_GET_CAN_DUPE, &mut can_dupe as *mut bool as *mut c_void) });
+        assert!(can_dupe, "dupes are supported");
+        // This arm used to write through `data` unchecked, so a core asking with NULL killed the
+        // app. It must now be refused like every other query.
+        assert!(!unsafe { on_environment(ENV_GET_CAN_DUPE, std::ptr::null_mut()) });
+    }
+
+    #[test]
+    fn every_command_that_writes_or_reads_through_data_refuses_null() {
+        // The directory arms only reach their write once a directory is known, so one is set for
+        // the length of the test and the previous value put back afterwards. Nothing else in the
+        // test suite loads a core, which is the only other writer of this global.
+        let previous = {
+            let mut guard = match DIRECTORIES.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            guard.replace(Directories {
+                system: Some(CString::new("/system").unwrap()),
+                save: Some(CString::new("/save").unwrap()),
+            })
+        };
+
+        // A real pointer still gets the path, so the null check did not break the answer.
+        let mut path: *const c_char = std::ptr::null();
+        let ok = unsafe {
+            on_environment(ENV_GET_SYSTEM_DIRECTORY, &mut path as *mut *const c_char as *mut c_void)
+        };
+        assert!(ok);
+        assert_eq!(unsafe { CStr::from_ptr(path) }.to_str().unwrap(), "/system");
+
+        for cmd in [
+            ENV_GET_CAN_DUPE,
+            ENV_GET_SYSTEM_DIRECTORY,
+            ENV_GET_SAVE_DIRECTORY,
+            ENV_SET_PIXEL_FORMAT,
+            ENV_GET_VARIABLE,
+            ENV_GET_VARIABLE_UPDATE,
+            ENV_SET_ROTATION,
+            ENV_GET_DISK_CONTROL_INTERFACE_VERSION,
+            ENV_SET_MEMORY_MAPS,
+            ENV_GET_RUMBLE_INTERFACE,
+            ENV_GET_LOG_INTERFACE,
+            ENV_GET_CORE_OPTIONS_VERSION,
+            // Answered by the modules `on_environment` asks first.
+            vulkan_hw::ENV_SET_HW_RENDER,
+            vulkan_hw::ENV_GET_HW_RENDER_INTERFACE,
+            vulkan_hw::ENV_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE,
+            vulkan_hw::ENV_GET_PREFERRED_HW_RENDER,
+            crate::input::keyboard::ENV_SET_KEYBOARD_CALLBACK,
+            crate::input::sensors::ENV_GET_SENSOR_INTERFACE,
+            crate::input::ENV_GET_INPUT_DEVICE_CAPABILITIES,
+            crate::peripherals::mic::ENV_GET_MICROPHONE_INTERFACE,
+            crate::peripherals::camera::ENV_GET_CAMERA_INTERFACE,
+        ] {
+            let ok = unsafe { on_environment(cmd, std::ptr::null_mut()) };
+            assert!(!ok, "command {cmd:#x} must refuse a null pointer, not dereference it");
+        }
+
+        let mut guard = match DIRECTORIES.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *guard = previous;
     }
 
     #[test]
