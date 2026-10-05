@@ -20,7 +20,7 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 ## Systems
 
-**32 cores** are in the IPA in builds 119, 120 and 121 (checked in the build 121 file itself). The table below is the
+**32 cores** are in the IPA in builds 119 to 122 (checked in the build 122 file itself: version 0.8.0 (122), 32 core files, every emulator at its pinned version). The table below is the
 first seventeen systems; the 3 October batch below adds the rest. Original note:
 **Twelve** cores, **seventeen** systems, at the time this table was written. The sixteenth is the **Nintendo 3DS**. The seventeenth is the **PSP**, on PPSSPP. Two of the older systems cost no new emulator at all, both having been supported already by cores in the app and simply not wired up. One system is still ahead and is not in this
 table: **the Switch**, hardest last. The N64 arrived by the software-renderer trick. The 3DS did not: it is Azahar's Vulkan `set_image` path, the same hook Beetle uses, with the CPU JIT compiled out. It is in the IPA. **Device (Brett, builds 100 and 101):** Mario Kart runs, then stutters after a transition and comes back. It does not stay locked. **Not Done.** PSP is in the IPA as Partial. It has not been tried on a phone.
