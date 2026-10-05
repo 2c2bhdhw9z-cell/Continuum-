@@ -101,8 +101,8 @@ pub const HW_FRAME_BUFFER_VALID: usize = usize::MAX;
 
 /// Classifies what a `video_refresh` callback was given.
 ///
-/// One function so both the wasm and native core hosts make the same decision, rather than
-/// each re-deriving the three-way distinction between a dupe, a hardware frame and pixels.
+/// One pure function, so the native core host's three-way distinction between a dupe, a
+/// hardware frame and pixels is made in one place and unit tested here.
 pub fn classify_video_refresh(data: usize) -> VideoRefreshKind {
     match data {
         0 => VideoRefreshKind::Duped,

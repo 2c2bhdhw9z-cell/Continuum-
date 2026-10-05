@@ -85,8 +85,8 @@ pub unsafe fn renderer_from_metal_layer(
     }
     .map_err(|error| GfxError::SurfaceCreation(error.to_string()))?;
 
-    // `from_surface` is the same constructor the browser uses, which is the point: the
-    // backend differs, the renderer does not. It is async because `request_adapter` and
+    // `from_surface` is the platform-neutral constructor, which is the point: the surface
+    // differs per platform, the renderer does not. It is async because `request_adapter` and
     // `request_device` are; on Metal both resolve without ever pending, and `attach_metal`
     // is a synchronous call from `layoutSubviews`, so it is driven to completion here rather
     // than infecting the UniFFI surface with async.

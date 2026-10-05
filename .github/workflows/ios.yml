@@ -1,7 +1,7 @@
 name: iOS
 
-# Builds the sideloadable .ipa. Separate from deploy.yml on purpose: that workflow ships the
-# web app and must stay fast, and macOS runners cost ten times what Linux ones do.
+# Builds the sideloadable .ipa, the only build this project has. The checks that need no Mac run
+# first on Linux, because macOS runners cost ten times what Linux ones do.
 #
 # `workflow_dispatch` is the important trigger here, not `push`. The only machine this
 # project is developed from is a phone, so being able to start a build from the Actions tab
@@ -19,8 +19,8 @@ on:
       - "scripts/fetch-libretro-headers.sh"
       # The script that builds and verifies every core. Its absence here was a real gap: a
       # change to the core build did not start a build, so it could only be tested by
-      # remembering to dispatch one by hand. Listed rather than globbing scripts/**, because
-      # the rest of that directory generates test ROMs and cannot affect the .ipa, and a macOS
+      # remembering to dispatch one by hand. Listed rather than globbing scripts/**, so only the
+      # scripts that build, fetch or check something in the .ipa start a run, and a macOS
       # runner costs ten times a Linux one.
       - "scripts/build-core.sh"
       # Downloads, checks and stages the prebuilt cores from the libretro buildbot, and prboom.wad.
@@ -36,6 +36,8 @@ on:
       # The Swift checkers the `checks` job runs before the .ipa. A change to one must run them,
       # or a broken checker would surface only on the next unrelated push and block that build.
       - "scripts/check-*.sh"
+      - "scripts/check-*.py"
+      - "docs/samples/**"
       - "scripts/skin-check/**"
       - "scripts/player-check/**"
       - ".github/workflows/ios.yml"
@@ -178,10 +180,9 @@ jobs:
 
       - name: Fetch the libretro headers
         run: |
-          # build.sh normally takes libretro.h from the libretro-common vendored inside the
-          # core sources, which only exist after a wasi-sdk core build. This runner does not
-          # do that, so the headers are fetched. Hand-declaring them is what put two errors
-          # in the design document last time.
+          # The wrapper's build.sh compiles against the pinned libretro-common headers this script
+          # fetches into .work/hdr, so it cannot drift from the ABI the cores are built against.
+          # Hand-declaring them is what put two errors in the design document last time.
           ./scripts/fetch-libretro-headers.sh
 
       - name: Build the engine, the wrapper and the UniFFI bindings
@@ -261,7 +262,7 @@ jobs:
           unzip -l "$IPA" | grep -q "pcsx_rearmed_libretro_ios.dylib" \
             || { echo "::error::the PS1 core is not embedded; the app would launch and fail to load PCSX ReARMed"; exit 1; }
           unzip -l "$IPA" | grep -q "mednafen_psx_hw_libretro_ios.dylib" \
-            || { echo "::error::Beetle PSX HW is not embedded; step 4 SET_HW_RENDER cannot be exercised on device"; exit 1; }
+            || { echo "::error::Beetle PSX HW is not embedded; choosing it as the PlayStation core in Settings would fail to load it"; exit 1; }
           # OPTIONAL CORES: a WARNING, never a failure. Each may be absent from a good build (a
           # buildbot download that failed on the day, or flycast not compiling); the app then names
           # it as not in the bundle on its cores line. One line per core naming the system.

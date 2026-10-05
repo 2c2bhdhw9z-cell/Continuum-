@@ -1,13 +1,12 @@
 //! `NativeLibretroCore` — a libretro core loaded from a shared library.
 //!
 //! The only real core loader: it `dlopen`s a `.dylib` from the app bundle and calls its
-//! `retro_*` exports directly. There was a sibling that drove a wasm module through a JS
-//! runtime, and it went with the browser build.
+//! `retro_*` exports directly. Every core the app runs comes through here.
 //!
-//! Step 10 of the Phase 5 sequence loads `libcontinuum_switch.dylib` — the C++ wrapper
-//! around a stub engine that renders a rotating colour — which is why this exists before
-//! any real core does: it is the piece that proves the loader, the callback plumbing and
-//! the hardware-frame handover, with nothing emulator-shaped in the way.
+//! It was first proved against `libcontinuum_switch.dylib` (Step 10 of the Phase 5
+//! sequence: the C++ wrapper around a stub engine that renders a rotating colour), which
+//! exercised the loader, the callback plumbing and the hardware-frame handover with nothing
+//! emulator-shaped in the way.
 //!
 //! ## The callback problem, and why these are statics
 //!
@@ -18,7 +17,7 @@
 //! a panic.
 //!
 //! So the callbacks write into a thread-local `EXCHANGE`, and `run_frame` collects from it
-//! afterwards. Exactly the shape `host.rs` already established.
+//! afterwards.
 
 use std::ffi::{c_char, c_uint, c_void, CStr, CString};
 use std::path::Path;
@@ -100,8 +99,8 @@ struct RetroSystemAvInfo {
 
 /// What the current frame's callbacks reported.
 ///
-/// Thread-local for the same reason as `cores/host.rs`: a callback fired from inside
-/// `retro_run` cannot reach the bridge, which is already borrowed.
+/// Thread-local because a callback fired from inside `retro_run` cannot reach the bridge,
+/// which is already borrowed (see the module header).
 #[derive(Default)]
 struct Exchange {
     /// Set when `video_refresh` was given `RETRO_HW_FRAME_BUFFER_VALID`.
@@ -185,9 +184,9 @@ unsafe extern "C" fn on_input_state(
     id: c_uint,
 ) -> i16 {
     // Delegated to `InputSnapshot::libretro_state`, which already owns the whole mapping —
-    // joypad, analog and pointer — and is the same code the wasm build's `CoreHost` calls.
-    // Re-deriving it here would be a second mapping to keep in step by hand, which is
-    // exactly what putting it in Rust in Phase 1b was meant to avoid.
+    // joypad, analog and pointer — and is unit tested on its own. Re-deriving it here would
+    // be a second mapping to keep in step by hand, which is exactly what keeping it in one
+    // place in Rust is meant to avoid.
     EXCHANGE.with(|cell| {
         let exchange = cell.borrow();
         match exchange.input.as_ref() {
@@ -2057,7 +2056,7 @@ mod tests {
     #[test]
     fn from_filename_records_full_path_only_for_paths() {
         // A bare filename has no full_path; a real path retains it verbatim for
-        // need_fullpath cores. This is what keeps the web build's behaviour identical.
+        // need_fullpath cores. The extension and name split is the same either way.
         let bare = ContentHint::from_filename("Crash.bin");
         assert_eq!(bare.extension, "bin");
         assert_eq!(bare.name, "Crash");

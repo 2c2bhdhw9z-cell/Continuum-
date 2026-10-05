@@ -19,17 +19,12 @@ MODE="${1:-host}"
 OUT="$HERE/build"
 mkdir -p "$OUT"
 
-# libretro.h comes from the same libretro-common the cores are built against, so the
-# wrapper cannot drift from the ABI the frontend uses.
-LIBRETRO_INC=""
-for candidate in \
-  "$ROOT/.work/hdr/libretro" \
-  "$ROOT/.work/fceumm/src/drivers/libretro/libretro-common/include" \
-  "$ROOT/.work/libretro-fceumm/src/drivers/libretro/libretro-common/include"; do
-  if [ -f "$candidate/libretro.h" ]; then LIBRETRO_INC="$candidate"; break; fi
-done
-if [ -z "$LIBRETRO_INC" ]; then
-  echo "error: no libretro.h found. Build a core first, or place headers in .work/hdr." >&2
+# libretro.h comes from the pinned, sha256-checked libretro-common that
+# scripts/fetch-libretro-headers.sh puts in .work/hdr/libretro, so the wrapper cannot drift
+# from the ABI the frontend uses.
+LIBRETRO_INC="$ROOT/.work/hdr/libretro"
+if [ ! -f "$LIBRETRO_INC/libretro.h" ]; then
+  echo "error: no libretro.h in .work/hdr/libretro. Run scripts/fetch-libretro-headers.sh first." >&2
   exit 1
 fi
 echo "==> libretro.h from $LIBRETRO_INC"
@@ -61,13 +56,14 @@ case "$MODE" in
   ios)
     # Vulkan is *optional* here, and that is deliberate.
     #
-    # The rotating colour reaches the screen through the software path —
-    # HostStubRenderer writes pixels, the engine uploads them, wgpu composites. That is
-    # the whole of what Phase 5 step 1 completes, and it needs no Vulkan, no MoltenVK and
-    # no ICD. Requiring MoltenVK to build the .ipa would block a working app on a
-    # dependency nothing in it uses yet.
+    # The stub's rotating colour reaches the screen through the software path —
+    # HostStubRenderer writes pixels, the engine uploads them, wgpu composites — and that
+    # needs no Vulkan, no MoltenVK and no ICD. The MoltenVK the hardware-rendered cores use
+    # is fetched and embedded separately (scripts/fetch-moltenvk.sh, package-ipa.sh); this
+    # wrapper does not link it.
     #
-    # Set MOLTENVK to also compile VulkanStubRenderer, for when the hardware path lands.
+    # Set MOLTENVK to also compile VulkanStubRenderer, which type-checks the wrapper's own
+    # Vulkan handover against the MoltenVK headers.
     SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
     IOS_MIN="${IOS_MIN:-16.0}"
     CXXFLAGS+=(-isysroot "$SDK" -target "arm64-apple-ios$IOS_MIN")
@@ -76,7 +72,7 @@ case "$MODE" in
       CXXFLAGS+=(-DCONTINUUM_HAVE_VULKAN -I"$MOLTENVK/include")
       SOURCES+=("$HERE/vulkan_stub_renderer.cpp")
     else
-      echo "==> no MOLTENVK set; software renderer only (this is what step 1 needs)"
+      echo "==> no MOLTENVK set; software renderer only (all the stub needs)"
     fi
     LIB="$OUT/libcontinuum_switch.dylib"
     # @rpath, so dlopen resolves inside the bundle. Without this it works in the

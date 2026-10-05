@@ -6,15 +6,10 @@
 // decision in it checkable by reading it. The fetching, caching and storing live in
 // ArtworkStore.swift.
 //
-// THE PORT NOTE THAT MATTERS, because it inverts the browser build's weakest tier into this
-// build's strongest. The browser could not download a thumbnail at all: thumbnails.libretro.com
-// sends no Access-Control-Allow-Origin header, so fetch in cors mode is refused, no-cors yields an
-// opaque response whose status is always 0 (so it cannot even tell a hit from a miss) and drawing
-// the image into a canvas taints it. web/src/data/boxart.js therefore probes with <img> objects
-// and persists only the resolved URL, and says plainly that scraped art is not guaranteed offline.
-// CORS is a browser policy. URLSession is not subject to it, so this build downloads the real
-// bytes, keeps them, and shows real box art with no network at all. The <img> probe workaround is
-// deliberately NOT ported: it is a scar from a restriction that does not exist here.
+// THE BYTES ARE KEPT. thumbnails.libretro.com sends no Access-Control-Allow-Origin header, which
+// would stop a web page from reading a thumbnail at all. That is a browser policy and URLSession
+// is not subject to it, so the app downloads the real bytes, keeps them (ArtworkStore.swift), and
+// shows real box art with no network at all.
 //
 // WHAT THE FIRST DEVICE RUN CHANGED IN HERE. Three games out of six got real art. The three that
 // worked were named the way libretro names things (No-Intro: "(USA)", "(USA, Europe)") and the
@@ -35,7 +30,7 @@ import SwiftUI
 /// plate is anchored on.
 ///
 /// THE DIRECTORY NAMES ARE COPIED, NOT DERIVED. Every one of them was checked against the live
-/// server for the browser build (web/src/data/boxart.js LIBRETRO_DIRS) and they are not guessable:
+/// server and they are not guessable:
 /// Master System is "Sega - Master System - Mark III", not "Sega - Master System", and a wrong
 /// directory is indistinguishable from a game having no art, because both are a 404.
 enum SystemArtwork {
@@ -122,9 +117,9 @@ enum SystemArtwork {
 
     /// The hue the system's fallback plate is anchored on, in degrees.
     ///
-    /// Copied from web/src/data/systems.js so a Game Boy plate lands in the same green family it
-    /// did in the browser build and a shelf reads as a set. Game Gear is the one value chosen
-    /// here, because the browser had no Game Gear row: 165 is a teal that sits far from Master
+    /// Each system keeps one colour family, so a Game Boy plate is always green and a shelf reads
+    /// as a set. The first eight values are the original palette; the rest were each chosen to
+    /// sit apart from what was already taken. Game Gear's 165 is a teal that sits far from Master
     /// System's 18 and Mega Drive's 220, so the three Sega systems stay apart on one shelf.
     static func hue(for system: GameSystem?) -> Double {
         guard let system else { return 210 }
@@ -138,9 +133,9 @@ enum SystemArtwork {
         case .genesis: return 220
         case .ps1: return 240
         case .gg: return 165
-        // Chosen here rather than copied, like Game Gear, because the browser build had no DS
-        // row. 310 is a magenta that sits clear of every value above it: the nearest is the SNES
-        // at 268, and 42 degrees is enough separation to read as a different system on a shelf.
+        // Chosen, like Game Gear, to sit apart from the original palette. 310 is a magenta that
+        // sits clear of every value above it: the nearest is the SNES at 268, and 42 degrees is
+        // enough separation to read as a different system on a shelf.
         case .ds: return 310
         // Both chosen here, like Game Gear and the DS, and both picked by taking the WIDEST
         // REMAINING GAP in the values above rather than by eye. Sorted, the ten existing hues leave
@@ -394,11 +389,10 @@ enum ArtworkNames {
     /// square brackets are a different convention layered on top. Dropping everything on the first
     /// retry throws the region away with the noise: "Super Mario World (USA) [!]" becomes "Super
     /// Mario World", which the server does not have, while "Super Mario World (USA)" is a 200.
-    /// Measured against the live server rather than assumed, twice now: once for the browser build
-    /// and again from the sandbox that wrote this file.
+    /// Measured against the live server rather than assumed, more than once.
     ///
-    /// An unterminated "[" is left alone, because the browser's regex required a closing bracket
-    /// to match and a half-written name must not be silently rewritten.
+    /// An unterminated "[" is left alone: only a closed bracket is a dump tag, and a half-written
+    /// name must not be silently rewritten.
     static func stripDumpTags(_ name: String) -> String {
         collapse(dropBracketed(name, openers: ["["], closers: ["]"]))
     }
@@ -636,10 +630,9 @@ enum ArtworkNames {
                    + "/\(folder.rawValue)/")
     }
 
-    /// Percent-encodes one path component the way the browser's encodeURIComponent did.
+    /// Percent-encodes one path component the way JavaScript's encodeURIComponent does.
     ///
-    /// The allowed set is encodeURIComponent's unreserved set, so the addresses this build asks
-    /// for are byte for byte the ones the browser build asked for: alphanumerics plus - _ . ! ~ *
+    /// The allowed set is encodeURIComponent's unreserved set: alphanumerics plus - _ . ! ~ *
     /// ' ( ). Parentheses stay raw, which matters because No-Intro regions are parenthesised and
     /// the server's own directory listing spells them raw too.
     static func percentEncoded(_ component: String) -> String? {
@@ -654,9 +647,8 @@ enum ArtworkNames {
 /// The procedural console plate: the fallback that means no card is ever empty, and the loading
 /// state for a cover that has not arrived yet.
 ///
-/// Ported from web/src/ui/art.js rather than reinvented. A stable FNV-1a hash of the title plus
-/// the entry id picks one of five patterns, and the SYSTEM anchors the hue, which is what makes a
-/// shelf read as a set instead of as noise. Zero requests, zero bytes, no layout shift, and it
+/// A stable FNV-1a hash of the title plus the entry id picks one of five patterns, and the SYSTEM
+/// anchors the hue, which is what makes a shelf read as a set instead of as noise. Zero requests, zero bytes, no layout shift, and it
 /// works with no network.
 ///
 /// REAL ART IS DRAWN OVER THIS, NEVER INSTEAD OF IT. That is what makes the plate the letterbox

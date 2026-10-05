@@ -23,7 +23,7 @@ impl PixelFormat {
         }
     }
 
-    /// Stable numeric encoding for the FFI facades (wasm-bindgen / UniFFI).
+    /// Stable numeric encoding for the FFI facade (UniFFI).
     pub const fn as_u32(self) -> u32 {
         match self {
             PixelFormat::Rgb565 => 0,

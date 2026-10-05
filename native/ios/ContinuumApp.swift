@@ -34,15 +34,16 @@
 // a plain fopen. A Library view lists what has been imported, which is also the only place the
 // launch decision is made now.
 //
-// FIVE CORES, ONE APP, ONE LOADED AT A TIME. The .ipa now carries every core the web build
-// has, plus PS1: fceumm (NES), snes9x (SNES), mGBA (GBA and GB/GBC), Genesis Plus GX (Mega
-// Drive, Master System, Game Gear) and PCSX ReARMed (PS1). All five are declared to the
-// engine when the surface attaches, because declaring is metadata only and loads no code, and
-// then exactly one of them is loaded: the one the tapped game needs, chosen from its file
-// extension through the single routing table in `CoreCatalog.routes`. That is the whole
-// multi-system story, and the two rules that keep it working are that the routing table has
-// exactly one copy and that `engine.coreState` is the only thing ever asked whether a core is
-// resident.
+// MANY CORES, ONE APP, ONE LOADED AT A TIME. The .ipa carries every core in `CoreCatalog.all`:
+// the required ones built from source (IOS_CORES in scripts/build-core.sh), and the optional
+// ones that may be missing from a good build (flycast from source, the rest prebuilt from the
+// libretro buildbot by scripts/fetch-buildbot-cores.sh). All of them are declared to the engine
+// when the surface attaches, because declaring is metadata only and loads no code, and then
+// exactly one of them is loaded: the one the tapped game needs, chosen through the single
+// routing table in `CoreCatalog.routeTable` (resolver first; see `CoreCatalog.route(forPath:)`).
+// That is the whole multi-system story, and the two rules that keep it working are that the
+// routing table has exactly one copy and that `engine.coreState` is the only thing ever asked
+// whether a core is resident.
 
 import Combine
 import QuartzCore
@@ -110,8 +111,9 @@ struct CoreSpec: Sendable {
     /// The registry id, and the string every HUD line names so a routing mistake is visible.
     let coreId: String
     let displayName: String
-    /// The systems this core claims. Matches web/cores/manifest.json for the four cores the
-    /// web build ships too, so the two builds cannot disagree about what runs what.
+    /// The systems this core claims, as `GameSystem` raw values. The engine registry answers
+    /// "which cores can run this system" from these, so they have to agree with the routes in
+    /// `CoreCatalog.defaultCoreBySystem` and `CoreCatalog.routeTable`.
     let systems: [String]
     /// The dylib in Frameworks/, dlopened at runtime.
     ///
@@ -142,7 +144,7 @@ struct CoreSpec: Sendable {
     var biosRequired: Bool = false
 }
 
-/// The five cores, and THE extension-to-core routing table.
+/// Every core, and THE extension-to-core routing table.
 ///
 /// Top level rather than nested privately inside `EngineHost` because the Library rows read the
 /// same routing table the launch path does. A second copy of that mapping is precisely the bug
@@ -150,7 +152,7 @@ struct CoreSpec: Sendable {
 enum CoreCatalog {
     /// NES. Note for anyone reading a device log: the iOS makefile for this core forces
     /// WANT_32BPP, so on device it negotiates XRGB8888 even though it is declared RGB565 here
-    /// and built RGB565 for the web. The negotiation inside `retro_load_game` settles it and
+    /// (the core's default elsewhere). The negotiation inside `retro_load_game` settles it and
     /// the renderer converts either, so this is correct rather than a mismatch to fix.
     static let fceumm = CoreSpec(
         coreId: "fceumm",
@@ -171,8 +173,7 @@ enum CoreCatalog {
         biosNames: []
     )
 
-    /// SNES. The max geometry is the hi-res interlaced worst case (1024x478), which is what
-    /// the web manifest declares for the same core.
+    /// SNES. The max geometry is the hi-res interlaced worst case (1024x478).
     static let snes9x = CoreSpec(
         coreId: "snes9x",
         displayName: "Snes9x (SNES)",
@@ -721,11 +722,14 @@ enum CoreCatalog {
     ///
     ///   - `bin` is claimed by two cores AND is the companion file of a `.cue`. It stays unrouted
     ///     so a PlayStation track cannot be tapped as though it were a game. See `Route`.
-    ///   - `cue`, `iso`, `chd` and `m3u` are claimed by genesis_plus_gx as well, for Sega CD. They
-    ///     stay with the PlayStation, which is far more common and needs no BIOS to boot.
-    ///   - `m3u` is NOT routed at all yet, even for the PlayStation. It is a playlist naming other
-    ///     files, and the multi-file import only understands a cue sheet's tracks, so a multi-disc
-    ///     game would import as one unopenable line. Worth doing; it is not free.
+    ///   - `cue`, `iso` and `chd` are claimed by genesis_plus_gx as well, for Sega CD. They are
+    ///     `sharedExtensions`, so the resolver looks inside first; the rows below are only the
+    ///     fallback when it has no sure answer, and that fallback stays with the PlayStation,
+    ///     which is far more common and needs no BIOS to boot.
+    ///   - `m3u` has no row at all. It is a playlist naming other files and one of the
+    ///     `sharedExtensions`: the resolver reads its first disc (`detect_m3u` in the Rust
+    ///     detector) and the playlist routes to that disc's system. With no sure answer it is not
+    ///     launchable, rather than guessed.
     ///   - `bs` and `st` are Satellaview and Sufami Turbo, which need a base cartridge to boot, and
     ///     `dsi` needs DSi firmware. An extension that always fails is worse than one that is
     ///     absent, because the first looks like a broken app.
@@ -799,13 +803,12 @@ enum CoreCatalog {
         "3dsx": Route(coreId: azahar.coreId, system: .n3ds),
         "cci": Route(coreId: azahar.coreId, system: .n3ds),
         "cxi": Route(coreId: azahar.coreId, system: .n3ds),
-        // PPSSPP declares elf, iso, cso, prx, pbp, chd. Only cso is routed.
-        // iso, chd and pbp are already PlayStation routes, and taking them
-        // would make a PS1 disc look like a PSP game. elf is a raw executable,
-        // the same reason the 3DS does not route it. prx is a plugin, not a
-        // game. A PSP image that is only .iso, .chd or .pbp is not a Library
-        // row. Renaming an .iso to .cso does not make it one: .cso is a
-        // compressed format, and this app will not steal .iso from PlayStation.
+        // PPSSPP declares elf, iso, cso, prx, pbp, chd. cso is routed here and prx in wave two
+        // below. elf is not routed: it is a raw executable, the same reason the 3DS does not
+        // route it. iso, chd and pbp are `sharedExtensions`: the resolver looks inside, and a PSP
+        // disc (PSP_GAME or UMD_DATA.BIN at its root) or a PSP EBOOT routes to the PSP. Only when
+        // it has no sure answer do the fallback rows above keep them on the PlayStation, so a PS1
+        // disc never looks like a PSP game.
         "cso": Route(coreId: ppsspp.coreId, system: .psp),
 
         // ---------------------------------------------------------------- wave two
@@ -2639,8 +2642,9 @@ final class EngineHost: ObservableObject {
     /// Cloud folder sync of saves, cheats, cover choices and settings. See `CloudSync.swift`.
     let cloudSync = CloudSync()
 
-    /// Every import method (Wi-Fi, clipboard, drag and drop, Open in, WebDAV, SMB), archives,
-    /// system detection and save formats, in front of `importFiles`. See `ImportCenter.swift`.
+    /// Every import method (Wi-Fi, clipboard, drag and drop, Open in, WebDAV; SMB is not in this
+    /// build), archives, system detection and save formats, in front of `importFiles`. See
+    /// `ImportCenter.swift`.
     let importCenter = ImportCenter()
 
     /// Whether the Import screen (the library's + button) is up.
@@ -3290,18 +3294,6 @@ final class EngineHost: ObservableObject {
         )
     }
 
-    /// Declares all five cores, and loads none of them.
-    ///
-    /// DECLARING IS NOT LOADING, WHICH IS WHY DOING ALL FIVE UP FRONT IS FREE. `declare_core`
-    /// stores a descriptor in the registry and touches no filesystem: it does not dlopen, does
-    /// not read the dylib, and does not allocate a core. Only the core a tapped game needs is
-    /// ever loaded, in `ensureCoreLoaded(coreId:)`, which is what keeps this build honest about
-    /// dynamic loading. Five resident cores would be five emulators' worth of memory for four
-    /// systems nobody asked to play.
-    ///
-    /// The existence check is the other half of the point. A core whose dylib did not make it
-    /// into Frameworks/ is named here, on the HUD, before the user taps anything, because from
-    /// the Library a missing dylib and a broken core look exactly the same.
     /// Copies the freely licensed support files the .ipa bundles (support/ in the app, filled by
     /// scripts/fetch-buildbot-cores.sh) into the system folder, where the cores read them. Today
     /// that is prboom.wad for DOOM. Copies only a file that is not there yet, so a user's own
@@ -3335,6 +3327,18 @@ final class EngineHost: ObservableObject {
         return line
     }
 
+    /// Declares every core in `CoreCatalog.all`, and loads none of them.
+    ///
+    /// DECLARING IS NOT LOADING, WHICH IS WHY DOING THEM ALL UP FRONT IS FREE. `declare_core`
+    /// stores a descriptor in the registry and touches no filesystem: it does not dlopen, does
+    /// not read the dylib, and does not allocate a core. Only the core a tapped game needs is
+    /// ever loaded, in `ensureCoreLoaded(coreId:)`, which is what keeps this build honest about
+    /// dynamic loading. Every core resident at once would be dozens of emulators' worth of
+    /// memory for systems nobody asked to play.
+    ///
+    /// The existence check is the other half of the point. A core whose dylib did not make it
+    /// into Frameworks/ is named here, on the HUD, before the user taps anything, because from
+    /// the Library a missing dylib and a broken core look exactly the same.
     @discardableResult
     func declareAllCores() -> Bool {
         let supportLine = installBundledSupportFiles()

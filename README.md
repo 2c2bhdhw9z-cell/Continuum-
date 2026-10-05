@@ -5,8 +5,10 @@ or a similar installer). It is not on the App Store.
 
 **The install:** always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest), named
-`Continuum-<number>.ipa`. Every push to `master` builds one automatically (about 30 minutes).
-As of 5 October 2026 that is build 122 or newer. The version shows as `0.8.0 (<number>)` in the app.
+`Continuum-<number>.ipa`. Pushes that change the app build one automatically: quick checks on
+Linux first, then about 30 minutes on a Mac. A second push waits for the first instead of
+cancelling it. As of 5 October 2026 that is build 124 (release `build-124-d0df06a`, about 85 MB)
+or newer. On that build the app shows its version as `0.8.0 (124)`.
 
 This install is **not** signed with a JIT. Heavier systems run on an interpreter.
 
@@ -18,22 +20,27 @@ This install is **not** signed with a JIT. Heavier systems run on an interpreter
 - Nintendo DS (Mario Kart DS and Pokémon SoulSilver)
 - Nintendo 64, software only (Smash reached the character select, about 60 fps). No JIT.
 - PlayStation, both cores (Crash, with and without a BIOS)
-- Nintendo 3DS: Mario Kart runs (it can stutter after a transition)
+- Nintendo 3DS: Mario Kart 7 runs (build 122). A stutter after transitions was seen on builds
+  100 and 101; a fix is in, not yet confirmed gone
 - Rewind, fast forward (about 4x), sound, controllers, auto-save and resume, typed cheats
 - The **+** button opens Files, the in-game **⋯** menu, the layout editor, the system pickers
 - TV/AirPlay picture (sharper since build 119)
 - Landscape with no skin imported (fixed in build 120)
-- A 3DS skin sideways with both screens in their own holes (owner's screenshot, 5 October)
+- Confirmed 5 October with build 122: the eye button that hides the player's top bar (and
+  remembers), a paused game staying paused after leaving the app, a 3DS skin sideways with both
+  screens in their holes and nothing on the picture, importing several skins at once, the tidier
+  diagnostic text, changing a 3DS restart-required setting without a crash, fast forward 2x, the
+  CRT filter, taking a cover from the running game, and Save to the next free slot
 
 **In the app, not confirmed on a phone yet**
 
-Everything in [TESTING.md](TESTING.md)'s list, in short: 20+ more systems (32 cores in total,
-including PSP, Dreamcast, Saturn, arcade, computers, Flash and J2ME), Wi-Fi transfer and other ways
-to import, skin holes and Manic skins, extra buttons, the 50-slot save manager, battery saves,
-cheat search, two-screen layouts, online play, RetroAchievements, cloud sync, the Azahar
-settings-change crash fix (build 120), the switch that hides Apple's performance overlay
-(build 121), and build 122's batch: the button that hides the player's top bar, importing several
-skins at once, and the fixes listed in STATUS.md.
+Everything in [TESTING.md](TESTING.md)'s list, in short: 28 more systems (38 in all: 32 emulator
+cores plus the Flash and J2ME players), including PSP, Dreamcast, Saturn, arcade and the
+computers; Wi-Fi transfer and other ways to import, skin holes upright and on DS skins (sideways
+3DS is confirmed), Manic skins, extra buttons, the rest of the 50-slot save manager, battery saves,
+cheat search, two-screen layouts, online play, RetroAchievements, cloud sync, the switch that hides
+Apple's performance overlay (build 121), build 122's 3DS state-export protection and Wi-Fi
+transfer code, build 123's save-slot pictures, and build 124's bug sweep (listed in STATUS.md).
 
 **Not in the app**
 
@@ -55,10 +62,11 @@ disc game, pick the `.cue` and every `.bin` in the same go. Hold your finger on 
 transfer, paste and servers. You can also drop files in the Files app under On My iPhone →
 Continuum.
 
-A 3DS game has to be a decrypted `.3ds`, `.3dsx`, `.cci`, or `.cxi`. A PSP game in this build is a
-`.cso`; an `.iso` is treated as PlayStation. BIOS files (for example `scph1001.bin` for the Beetle
-PlayStation option) go in that same Continuum folder; the app names the exact file when one is
-missing.
+A 3DS game has to be a decrypted `.3ds`, `.3dsx`, `.cci`, or `.cxi`. A PSP game can be `.cso`,
+`.iso`, `.chd`, a PSP `EBOOT.PBP`, or `.prx`; the app looks inside an `.iso`, `.chd` or `.pbp`, and
+if it cannot tell PSP from PlayStation it asks **Which system?** once and remembers. `.elf` is not
+accepted. BIOS files (for example `scph1001.bin` for the Beetle PlayStation option) go in that
+same Continuum folder; the app names the exact file when one is missing.
 
 ## Settings worth knowing
 
@@ -66,4 +74,4 @@ missing.
   that iOS can draw over games. If it still shows, close the app fully and reopen it.
 - **⋯ → Core settings...** changes a core's options. Some need **Restart the game now**. A save
   state made under different settings is not loaded (it would crash the core); set the option back
-  to load it.
+  to load it. With Auto-save off, **Restart the game now** starts the game from the beginning.

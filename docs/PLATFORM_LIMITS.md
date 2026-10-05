@@ -131,11 +131,16 @@ https://buildbot.libretro.com/nightly/apple/ios-arm64/latest/
 
 Check this list before promising or refusing a system. It is one `curl` away.
 
+This table is about what the buildbot carries, not where Continuum takes each core from:
+parallel_n64, mednafen_psx_hw, azahar, ppsspp and the rest of `IOS_CORES` in
+`scripts/build-core.sh`, plus the optional flycast, are built from source; only the other 19 come
+from the buildbot.
+
 **Re-checked 5 October 2026:** azahar, flycast, ppsspp and dolphin ARE on the buildbot. (A note
 here dated 4 October said they were absent. That was wrong.) Continuum does not take those four
 from it: CI compiles **azahar**, **flycast** and **ppsspp** from source (`scripts/build-core.sh`)
 so it controls the build (the buildbot's flycast has the dynarec and says "Cannot run without
-JIT"), and all three are in the IPA (32 cores in builds 119 to 121). Dolphin is not built (see
+JIT"), and all three are in the IPA (32 cores in builds 119 to 124). Dolphin is not built (see
 docs/HARD_SYSTEMS.md).
 
 **Continuum ships `mednafen_psx_hw` (Beetle PSX HW) through `IOS_CORES` / `ios-all`.** The
@@ -179,8 +184,8 @@ That is still true, and it is not the core this app ships.
 off and Vulkan on, presents with `retro_vulkan_image` `set_image`, and compiles the CPU JIT out
 under `IOS`. That is the core in the IPA (`azahar_libretro_ios.dylib`). On the owner's phone Mario
 Kart runs, with stutter after transitions (STATUS.md), so it is Partial, not Done.
-An OpenGL 3DS core would still boot a black screen here: this host refuses every `SET_HW_RENDER`
-context that is not Vulkan.
+An OpenGL core now gets an OpenGL ES context with a read-back copy (STATUS.md road step 7), not
+yet shown on a phone. Azahar uses Vulkan, so the 3DS does not depend on it.
 
 **Standalone 3DS emulators for iPhone exist and ship**, which is direct proof the system itself is
 viable on this hardware:
@@ -195,8 +200,7 @@ Folium, emuThreeDS and Manic remain proof the system runs on an iPhone at all. W
 actually shipped is narrower:
 
 1. **Vulkan `set_image`**, which steps 3 and 4 already accept. Azahar asks for that context.
-   OpenGL is compiled out of the iOS core, so this row cannot fall through to a context the
-   host refuses.
+   OpenGL is compiled out of the iOS core, so this row never uses the OpenGL ES copy path.
 2. **Azahar's own iOS libretro target**, not a new port of upstream citra.
 3. **No JIT.** Dynarmic stays off. The fast interpreter is the speed this signed IPA can have.
    Do not turn JIT on to make it faster.
@@ -210,8 +214,8 @@ A game runs on the phone; it is not smooth yet. See STATUS.
 | Needs nothing new | Needs the graphics path | Needs graphics AND a core port |
 | --- | --- | --- |
 | **N64** (software + interpreter), in the IPA and running. **3DS** is in the IPA via Azahar Vulkan, a game runs, no JIT | Dreamcast and PSP: both in the IPA, neither tried on a phone yet | GameCube, Wii (not built, see HARD_SYSTEMS.md) |
-| Saturn, Neo Geo, CPS1/2/3, MAME | | |
-| Sega CD, 32X, and the 8/16-bit long tail | | |
+| Saturn, Neo Geo, CPS1/2/3, MAME: in the IPA since 3 October, not on a phone yet | | |
+| Sega CD, 32X, and the 8/16-bit long tail added on 3 October: in the IPA since then, not on a phone yet | | |
 
 ---
 

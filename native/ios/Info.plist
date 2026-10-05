@@ -62,7 +62,7 @@
 	<!-- Online play: Local Network permission text, and the Bonjour type the host advertises and
 	     the guest browses. Mirrors project.yml info.properties. -->
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Continuum uses the local network for two-player online play with another phone, for Wi-Fi transfer of games and saves from a computer's browser, and to browse a NAS or computer over SMB or WebDAV.</string>
+	<string>Continuum uses the local network for two-player online play with another phone, for Wi-Fi transfer of games and saves from a computer's browser, and to browse a NAS or computer over WebDAV.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_continuum._tcp</string>

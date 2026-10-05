@@ -1,15 +1,22 @@
-> **Current state (5 October 2026, build 121) — read this before anything below.** This is the
+> **Current state (5 October 2026, build 124) — read this before anything below.** This is the
 > original design, kept for the reasoning. The app it describes is built: 32 libretro cores ship
-> as `dlopen`ed dylibs, and games run on the owner's phone (STATUS.md has which ones).
-> **Two things below are overruled:** (1) JIT is NOT always on. The owner's install has no
+> as `dlopen`ed dylibs (38 systems with the bundled Flash and J2ME players), and games run on the
+> owner's phone (STATUS.md has which ones).
+> **Three things below are overruled:** (1) JIT is NOT always on. The owner's install has no
 > debugger and no computer, so every core runs as an interpreter; see docs/PLATFORM_LIMITS.md.
 > (2) Section 7's "no interpreter fallback" rule is reversed for the same reason.
+> (3) Every mention of the web build, the PWA, `wasm.rs`, `WasmCore`, `wasm_core.rs`,
+> `core-runtime.js`, `web/`, `styles/tokens.css` or `scripts/core-abi-test.mjs` is deleted code.
+> There is no web build, only the iPhone `.ipa` (Android later). Also out of date: `uniffi.rs` is
+> now `crates/emulator-bridge/src/uniffi_api.rs`; `Cargo.toml` already has `staticlib` and the
+> `uniffi-bindings` feature; and the app links and runs ("nothing below has been linked or run"
+> is from the time of writing).
 > Older banner, kept: the `.ipa` is produced by `.github/workflows/ios.yml`; at the time it
 > shipped five cores covering nine systems. Read the sections below for the reasoning and the
-> target shape, but check `docs/archive/SESSION_HANDOFF.md` §16 and §17 for what is actually done before
+> target shape, but check `STATUS.md` for what is actually done before
 > treating anything here as outstanding work. At least one claim was reversed by implementation:
 > ownership of the `MTLDevice` runs the other way, wgpu creates it and Swift reads it back
-> (`docs/archive/SESSION_HANDOFF.md` §16). ("No confirmed game on a device" was true then; it is not now.)
+> (`docs/SET_HW_RENDER_DESIGN.md` §2). ("No confirmed game on a device" was true then; it is not now.)
 > For scope see `docs/PRODUCT_SCOPE.md`.
 
 # Phase 5 — Wrapping the Rust engine in a native iOS app
@@ -368,8 +375,7 @@ The consequence to design for is that signing identity governs *installation*, n
 a lapsed profile stops the app launching at all, which is a signing problem with a signing
 fix, not something the engine should work around.
 
-The web PWA remains the zero-friction path for the 2D tier — which is why the two share an
-engine, and why the PWA was worth keeping working.
+Historical: there is no PWA any more; the iPhone app runs every tier.
 
 ---
 
@@ -464,8 +470,9 @@ Worth stating plainly, because it is the return on the architecture:
   the mapping was put in Rust rather than JS in Phase 1b.
 - `audio/resample.rs`, `frame.rs`, `timing.rs` (`FramePacer::plan()` takes a timestamp),
   `cores/mod.rs`, `cores/registry.rs`, `cores/diagnostic.rs`, `error.rs`.
-- All 70 unit tests. None is wasm-gated, so they run in the same configuration iOS uses —
-  which is what makes the port verifiable at each step rather than at the end.
+- The engine's tests (about 590 as of build 124). None is wasm-gated, so they run in the same
+  configuration iOS uses — which is what makes the port verifiable at each step rather than at
+  the end.
 - `styles/tokens.css` → a Swift `Theme` struct. The four themes added in this phase are
   each about twenty semantic colour overrides, which is deliberately the shape a Swift
   struct wants.

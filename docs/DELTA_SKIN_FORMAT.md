@@ -53,8 +53,9 @@ has no core for yet is still imported, listed and kept.
 
 | Delta | Continuum |
 | --- | --- |
+| `com.rileytestut.delta.game.gb` | gb |
 | `com.rileytestut.delta.game.gbc` | gbc (and gb) |
-| `com.rileytestut.delta.game.gba` / `.ds` / `.nes` / `.snes` / `.n64` | same name |
+| `com.rileytestut.delta.game.gba` / `.ds` / `.nes` / `.snes` / `.n64` / `.ps1` | same name |
 | `com.rileytestut.delta.game.genesis` | genesis |
 
 Manic writes `public.aoshuang.game.<x>`:
@@ -76,6 +77,8 @@ Manic writes `public.aoshuang.game.<x>`:
 | jaguar | jaguar | 32x | sega32x | | |
 | lynx | lynx | | | | |
 
+Also accepted, though not in Manic's published list: `fds` (fds) and `sgx` (sgx).
+
 A skin also fits its related systems: GB and GBC; Mega Drive, Sega CD and 32X; Master System,
 Game Gear and SG-1000; NES and FDS; DOS and DOOM (and, beyond Manic, the PC Engine family).
 
@@ -91,8 +94,11 @@ representations
         assets, items, screens, mappingSize, extendedEdges, translucent
 ```
 
-Continuum prefers, in order: `iphone/edgeToEdge/portrait`, `iphone/standard/portrait`,
-then the first orientation that has both `mappingSize` and `items`.
+Continuum keeps the best portrait and the best landscape it finds, each chosen separately, and
+uses whichever matches how the phone is held. "Best" is the first, in this order, that has both
+`mappingSize` and at least one item: `iphone/edgeToEdge`, `iphone/standard`, `iphone/splitView`,
+then the same three under `ipad`. A skin with only one orientation still imports and uses that
+one either way; the missing one is not invented.
 
 ### One orientation object
 
@@ -121,9 +127,17 @@ centres). Coordinates use the Delta convention: origin top-left, y increases dow
 - Simple button: `"inputs": ["a"]` (several names make a combo that holds them all).
 - D-pad / stick: `"inputs": { "up": "up", "down": "down", "left": "left", "right": "right" }`
   — Continuum places the D-pad cluster from that item's frame centre.
-- Names Continuum maps today: `a`, `b`, `x`, `y`, `l`, `r`, `l2`, `r2`, `select`, `start`,
-  and the four D-pad directions. Delta-only names (`menu`, `quickSave`, `z`, C-buttons, …)
-  are functions now (see Manic EMU extensions); a name that is neither is skipped.
+- Game-button names Continuum maps today (`SkinControls.slot` in `SkinScreens.swift`; case,
+  spaces, `_` and `-` are ignored): `a`, `b`, `x`, `y`, `l` / `l1`, `r` / `r1`, `l2` / `zl`,
+  `r2` / `zr`, `l3`, `r3`, `select`, `start`, the four D-pad directions, the PlayStation
+  `triangle`, `circle`, `cross` and `square`, and the N64 `z` / `trigger` and C-buttons (`cUp`,
+  `cDown`, `cLeft`, `cRight`). A name that matches one of the system's own button labels wins
+  over these aliases (so N64 "A" is the button labelled A). On the 3DS, `menu` and `home` are
+  the Home button.
+- An item whose inputs name a thumbstick, analog stick or circle pad (or that has a `thumbstick`
+  key) becomes a real stick, not a D-pad; a right thumbstick or C-stick becomes the right stick.
+- `menu` (outside the 3DS), `quickSave` and the other function names run a function instead
+  (see Manic EMU extensions). A name that is none of these is skipped.
 
 ## Manic EMU extensions
 
@@ -171,10 +185,11 @@ the bare `info.json` to exercise layout/screens without ZIP assets.
 
 ## What still does not work
 
-- Landscape / iPad / splitView selection beyond the preference order above
+- iPad and splitView as their own targets: they are only fallbacks in the order above
 - CoreImage `filters`
-- Device proof beyond one case: a 3DS skin sideways shows both screens in their holes on the
-  owner's phone (5 October). Upright, and DS skins, are not confirmed yet.
+- Device proof beyond one case: a 3DS skin sideways shows both screens in their holes, with
+  nothing over the picture, on the owner's phone (build 122, 5 October), and importing several
+  skins at once works there. Upright, and DS skins, are not confirmed yet.
 - A skin saved before build 109 kept only its first screen hole. Delete it and import the same
   file again; the app cannot re-read the original by itself.
 

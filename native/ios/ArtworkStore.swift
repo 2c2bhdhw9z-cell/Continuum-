@@ -1,12 +1,11 @@
 // Continuum - fetching, decoding, storing and serving real cover art.
 //
 // GameArtwork.swift decides WHICH addresses are worth asking for. This file does the asking, keeps
-// what comes back, and hands it to the library. Five things in here are deliberate and each one is
-// the answer to a question the browser build had to leave open:
+// what comes back, and hands it to the library. Five things in here are deliberate:
 //
 //  1. THE BYTES ARE KEPT, NOT THE URL. URLSession is not subject to CORS, so a cover downloads
-//     once and is then shown from disk with no network at all. The browser could only persist an
-//     address and hope the HTTP cache still had the image.
+//     once and is then shown from disk with no network at all, rather than depending on an HTTP
+//     cache still having the image.
 //  2. NOTHING BLOCKS. The library renders on procedural plates immediately and covers fade in as
 //     they arrive. There is no synchronous disk read and no synchronous decode on the main actor.
 //  3. AT MOST THREE LOOKUPS AT ONCE, through an actor that hands a slot straight to whoever is
@@ -149,7 +148,7 @@ enum ArtworkDisk {
     /// length for the UserDefaults maps that sit beside the files.
     ///
     /// SIXTY-FOUR BITS HERE, THIRTY-TWO IN ArtPlate, AND THAT IS NOT AN INCONSISTENCY. The plate's
-    /// hash has to stay 32-bit FNV-1a to keep producing the same gradient the browser build did.
+    /// hash has to stay 32-bit FNV-1a so every game keeps the plate it has always had.
     /// This one is a storage key, where a collision would show one game's cover on another, so it
     /// takes the wider variant.
     static func key(forPath path: String) -> String {
@@ -481,8 +480,8 @@ final class ArtworkStore: ObservableObject {
     /// Whether lookups are allowed at all.
     ///
     /// ON by default, and the Settings row says in plain words what it does, because resolving art
-    /// sends the ROM's filename to a third party. The browser build treated that as a real
-    /// disclosure rather than an implementation detail.
+    /// sends the ROM's filename to a third party. That is a real disclosure rather than an
+    /// implementation detail.
     @Published var fetchEnabled: Bool {
         didSet {
             guard oldValue != fetchEnabled else { return }

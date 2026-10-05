@@ -5,11 +5,10 @@
 //! to two responsibilities: forward events in, call [`EmulatorBridge::tick`] once
 //! per animation frame.
 //!
-//! That split is what makes Phase 2 a UI port instead of a rewrite. This file
+//! That split is what keeps the iOS app a thin UI over this engine. This file
 //! contains no platform types at all: `uniffi_api.rs` is a thin wrapper over this
 //! API, so a second platform inherits this behaviour rather than re-implementing
-//! it. A browser facade used to sit beside it and was removed without this file
-//! changing, which is the property to preserve.
+//! it. That is the property to preserve.
 //!
 //! Single-threaded and single-loop by construction: `tick` runs input, core steps,
 //! audio submission and the GPU present in that order, and nothing here spawns a
@@ -54,11 +53,10 @@ const DEFAULT_REWIND_INTERVAL_FRAMES: u32 = 6;
 /// What happens to a core when its session ends.
 ///
 /// The default is [`CoreRetention::Drop`], which is the right default for an
-/// all-in-one emulator: cores are large (2 MB of module plus 16–32 MB of working
-/// memory), a user browsing their library is not using any of it, and Phase 2's iOS
-/// target kills processes on memory pressure rather than paging. Re-instantiating on
-/// the next launch costs a few hundred milliseconds and the module itself comes from
-/// the Cache API, not the network.
+/// all-in-one emulator: cores are large (megabytes of library plus tens of megabytes of
+/// working memory), a user browsing their library is not using any of it, and iOS kills
+/// processes on memory pressure rather than paging. Loading the core again on the next
+/// launch is a `dlopen` from the app bundle, not a download.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoreRetention {
     /// Free the core when the session ends.
@@ -80,7 +78,7 @@ impl CoreRetention {
 /// Coarse engine state, mirrored in the UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BridgeStatus {
-    /// No renderer yet: `init_gpu` has not run or WebGPU is unavailable.
+    /// No renderer yet: no Metal layer has been attached, or no GPU adapter was found.
     Uninitialised,
     /// GPU ready, no game loaded. The library-browsing state.
     Idle,
@@ -354,7 +352,10 @@ impl EmulatorBridge {
         self.registry.resident_ids().count()
     }
 
-    /// Instantiates a fetched core module. Called from the launch path only.
+    /// Test-only: attaches the built-in [`crate::cores::DiagnosticCore`] stand-in so session,
+    /// memory and registry behaviour can be tested without a real core. The bytes are a
+    /// placeholder checked by [`CoreRegistry::attach_module`]. The app never calls this: a real
+    /// core is dlopened and arrives through [`Self::attach_core`].
     pub fn attach_core_module(&mut self, core_id: &str, bytes: &[u8]) -> Result<(), BridgeError> {
         self.registry.attach_module(core_id, bytes)
     }
@@ -513,8 +514,8 @@ impl EmulatorBridge {
 
             // The core goes back to the registry first so the slot is never left
             // `Bound`, then the retention policy decides whether it survives. Dropping
-            // it here runs `WasmCore::drop` → retro_unload_game → retro_deinit → the
-            // core module's last handle released.
+            // a real core here runs `NativeLibretroCore::drop` → retro_unload_game →
+            // retro_deinit, and its library handle is released with it.
             self.registry.return_from_session(&core_id, session.core);
             if self.retention == CoreRetention::Drop {
                 if let Err(err) = self.registry.unload(&core_id) {
@@ -661,8 +662,8 @@ impl EmulatorBridge {
 
     // --------------------------------------------------------------------- tick
 
-    /// The unified step: input → core → audio → GPU. Called once per
-    /// `requestAnimationFrame` and from nowhere else.
+    /// The unified step: input → core → audio → GPU. Called once per display-link
+    /// callback (`MetalCanvas.swift`) and from nowhere else.
     pub fn tick(&mut self, now_ms: f64) -> Result<TickReport, BridgeError> {
         // Actions remapped buttons pressed since the last tick (shake, DS lid, profile cycle...),
         // before this tick's snapshot so their effect lands on this frame.
@@ -1285,14 +1286,11 @@ impl EmulatorBridge {
     /// `Renderer::encode_capture` for why). A zero `width` or `height` is taken from that shape;
     /// both zero is its natural size, scaled up to a sharp size.
     ///
-    /// **This blocks until the GPU has finished, and that is safe here in a way it was not in the
-    /// browser.** A readback is inherently two-step, because the copy has to complete before the
-    /// bytes can be read, so something has to wait. The old web facade could not wait while
-    /// holding its borrow of the engine: awaiting there yielded to the JS event loop, which let
-    /// the animation-frame callback run and try to borrow the engine again, and the second borrow
-    /// panicked. That shape is why its capture dropped the borrow before awaiting.
+    /// **This blocks until the GPU has finished, and that is safe here.** A readback is
+    /// inherently two-step, because the copy has to complete before the bytes can be read, so
+    /// something has to wait.
     ///
-    /// Here the wait is a synchronous device poll rather than an await. Nothing else runs on this
+    /// The wait is a synchronous device poll rather than an await. Nothing else runs on this
     /// thread while it blocks, so there is no re-entrancy to guard against: the display link, the
     /// UI and this call are all the main thread, and the one thread that is NOT the main thread,
     /// the audio render callback, is specifically designed never to touch this engine. So the
@@ -1589,8 +1587,8 @@ impl EmulatorBridge {
     /// what RetroArch does too, it costs microseconds, and it makes the applied state a
     /// pure function of the list the user is looking at.
     ///
-    /// `enabled` is a parallel byte array rather than `&[bool]` for the same reason as
-    /// [`Self::apply_gamepad`]: wasm-bindgen has no bool-slice ABI.
+    /// `enabled` is a parallel byte array (non-zero means on). The Swift-facing `apply_cheats`
+    /// in `uniffi_api.rs` takes a bool list and converts, so this form never reaches Swift.
     ///
     /// @returns how many cheats are switched on
     pub fn apply_cheats(

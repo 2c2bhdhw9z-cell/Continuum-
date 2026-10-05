@@ -16,11 +16,13 @@ These come straight from the owner. They are not suggestions.
   direct download link to the .ipa without being asked. Finding it is the assistant's job.
 - The iOS workflow publishes every master build as a GitHub Release named `build-<run>-<sha>`
   with `Continuum-<run>.ipa`. Watch the run, and if it fails, read the log, fix it, push again.
-- Pushing to `native/**` starts a build by itself. If the owner asks for a build, make sure one
-  has really started (check the Actions run list) instead of assuming. A build takes about 30
-  minutes.
+- Pushing to `native/**`, `crates/**`, the Cargo files, the core/fetch/check scripts or the
+  workflow starts a build by itself (a docs-only push or a commit with `[skip ci]` does not). If
+  the owner asks for a build, make sure one has really started (check the Actions run list)
+  instead of assuming. A build runs the Linux checks first, then takes about 30 minutes on the
+  Mac; a second push waits for the running build instead of cancelling it.
 - Before handing over the .ipa, open it and check it: the version (0.8.0 and the build number)
-  and the core count (32 `_libretro_ios.dylib` files as of build 121). Never say a build is the
+  and the core count (32 `_libretro_ios.dylib` files as of build 124). Never say a build is the
   newest without checking the Releases page.
 
 ## Git
@@ -31,6 +33,8 @@ These come straight from the owner. They are not suggestions.
 ## How to work
 - Never do one small feature at a time. Do the biggest batch of remaining work possible in one go.
 - Do not stop to ask what is next. The plan is written down: read it and keep going.
+- Start every session by reading STATUS.md (its "Next up" section first) and TESTING.md section A,
+  then carry on from there. Keep "Next up" current before a session ends.
 
 ## The goal
 - Continuum must become "the one" iPhone emulator everyone uses. It must do everything Manic EMU

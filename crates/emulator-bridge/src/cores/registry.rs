@@ -2,8 +2,9 @@
 //!
 //! Enforces the dynamic-loading rule structurally. A [`CoreDescriptor`] can be
 //! declared for every system the project will ever support without loading a
-//! single byte of emulator code; [`CoreRegistry::attach_module`] is the only way a
-//! core becomes runnable, and it is called from the launch path alone.
+//! single byte of emulator code; [`CoreRegistry::attach_core`] is how a real core
+//! becomes runnable, and it is called from the launch path alone.
+//! ([`CoreRegistry::attach_module`] is the test-only door for the diagnostic stand-in.)
 
 use std::collections::BTreeMap;
 
@@ -13,9 +14,9 @@ use crate::error::BridgeError;
 /// Lifecycle of one registry slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoreState {
-    /// Metadata only. Nothing has been fetched — the boot state for every core.
+    /// Metadata only. Nothing has been loaded — the boot state for every core.
     Declared,
-    /// Module fetched and instantiated, sitting idle and ready to launch.
+    /// Core loaded and attached, sitting idle and ready to launch.
     Loaded,
     /// Moved into the active session. Cannot be launched again concurrently.
     Bound,
@@ -55,7 +56,8 @@ impl Slot {
 struct Entry {
     descriptor: CoreDescriptor,
     slot: Slot,
-    /// Size of the last module handed to `attach_module`, for the debug HUD.
+    /// Size of the last placeholder module handed to `attach_module` (test-only); 0 for a
+    /// core that arrived through `attach_core`.
     module_bytes: usize,
 }
 
@@ -175,11 +177,12 @@ impl CoreRegistry {
         candidates.into_iter().next()
     }
 
-    /// Instantiates a fetched core module.
+    /// Test-only: attaches a placeholder core so registry state can be tested.
     ///
-    /// One of two transitions from declared to runnable, used for cores the engine
-    /// instantiates itself (the diagnostic stand-in). Real libretro cores are
-    /// instantiated by the platform layer and arrive via [`Self::attach_core`].
+    /// Checks the placeholder `bytes` (`validate_wasm_module`) and attaches a
+    /// [`DiagnosticCore`] carrying the declared descriptor (`instantiate`). Tests use it to put
+    /// a slot in `Loaded` or `Failed` without a real core. The app never calls it: real
+    /// libretro cores are dlopened (`native_core`) and arrive via [`Self::attach_core`].
     pub fn attach_module(&mut self, core_id: &str, bytes: &[u8]) -> Result<(), BridgeError> {
         let entry = self
             .entries
@@ -211,11 +214,11 @@ impl CoreRegistry {
 
     /// Installs a core the platform layer already built.
     ///
-    /// This is how a real libretro core enters the registry: the host instantiates the
-    /// core's wasm module (its own memory, its own imports) and hands over an
-    /// [`EmulatorCore`] wrapper. The registry does not care which of the two paths a
-    /// core arrived by — which is exactly why nothing else in the engine changed when
-    /// real cores landed.
+    /// This is how a real libretro core enters the registry: the dylib is loaded with
+    /// `dlopen` (`NativeLibretroCore::load`, called from the Swift-facing facade) and handed
+    /// over as an [`EmulatorCore`]. The registry does not care which of the two paths a core
+    /// arrived by — which is exactly why nothing else in the engine changed when real cores
+    /// landed.
     pub fn attach_core(
         &mut self,
         core_id: &str,
@@ -275,13 +278,12 @@ impl CoreRegistry {
     }
 
     /// Frees a core's memory, dropping back to declared. The registry keeps the
-    /// declaration so the same core can be re-fetched later.
+    /// declaration so the same core can be loaded again later.
     ///
     /// Dropping the `Box<dyn EmulatorCore>` is what actually releases the memory: for a
-    /// real core that runs `WasmCore::drop`, which calls `retro_unload_game`,
-    /// `retro_deinit` and frees the core's allocations, then releases the last handle to
-    /// the core's wasm module so the host can collect its entire linear memory
-    /// (16–32 MB for a GBA core).
+    /// real core that runs `NativeLibretroCore::drop`, which calls `retro_unload_game` and
+    /// `retro_deinit` so the core frees its allocations, and then the library handle is
+    /// released.
     pub fn unload(&mut self, core_id: &str) -> Result<(), BridgeError> {
         let entry = self
             .entries
@@ -301,9 +303,9 @@ impl CoreRegistry {
     /// Unloads every resident core except `keep`, returning how many were freed.
     ///
     /// Called before a launch so that switching systems never holds two cores in memory
-    /// at once. On a phone that matters: an NES core and a GBA core resident together is
-    /// tens of megabytes of wasm memory doing nothing, and iOS terminates on memory
-    /// pressure rather than paging.
+    /// at once. On a phone that matters: two cores resident together can be tens of
+    /// megabytes of memory doing nothing, and iOS terminates on memory pressure rather
+    /// than paging.
     ///
     /// A bound core (one in an active session) is skipped rather than treated as an
     /// error, since the caller may be mid-teardown.
@@ -327,17 +329,13 @@ impl CoreRegistry {
     }
 }
 
-/// Turns module bytes into a live core.
+/// Test-only: the placeholder core behind [`CoreRegistry::attach_module`].
 ///
-/// **Phase 1 placeholder.** Returns a [`DiagnosticCore`] carrying the declared
-/// descriptor, so the launch path, tick loop, renderer, audio graph and UI can all
-/// be exercised and profiled before any emulator exists.
-///
-/// TODO(phase1b): instantiate the real libretro core here —
-/// `retro_set_environment` → `retro_init` → `retro_get_system_av_info`, then wrap
-/// the instance in an `EmulatorCore` impl. On wasm the module is instantiated by
-/// the host and passed in as an imports object; natively it is dlopen'd or
-/// statically linked. Everything above this function is already agnostic to which.
+/// Returns a [`DiagnosticCore`] carrying the declared descriptor, so the launch path,
+/// tick loop, memory access and registry states can be tested with no emulator. Real
+/// libretro cores never pass through here: `NativeLibretroCore::load` runs
+/// `retro_set_environment` → `retro_init` → `retro_get_system_av_info` and the result
+/// arrives through [`CoreRegistry::attach_core`].
 fn instantiate(
     descriptor: &CoreDescriptor,
     _bytes: &[u8],

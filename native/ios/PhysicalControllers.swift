@@ -1,9 +1,9 @@
 // Continuum, physical controllers: MFi, Xbox, DualShock and DualSense, through GameController.
 //
 // This was one of the last two entries in the Settings screen's NOT WIRED list, and the thing
-// holding it back was never Apple's framework. The engine has kept ONE INDEPENDENT INPUT LAYER
-// PER SOURCE since the browser build, precisely so that a real pad and an on-screen pad could be
-// held at the same time. What was missing was an exported call that could say WHICH layer a poll
+// holding it back was never Apple's framework. The engine has always kept ONE INDEPENDENT INPUT
+// LAYER PER SOURCE, precisely so that a real pad and an on-screen pad could be held at the same
+// time. What was missing was an exported call that could say WHICH layer a poll
 // belonged to: `applyGamepad` writes the `.gamepad` layer and no other layer was addressable from
 // Swift, so a real controller and the overlay would have fought over one layer. Both halves are
 // exported now, `applyGamepadFrom(port:source:buttons:axes:)` and `releaseInputSource(source:)`,

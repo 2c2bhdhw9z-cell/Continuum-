@@ -16,10 +16,9 @@
 //!                                       └──▶ gfx::Renderer (wgpu ──▶ Metal)
 //! ```
 //!
-//! There was a second facade, `wasm.rs`, behind a browser build, and this crate's shape is
-//! the reason that cost so little to remove: the engine never knew about it. That is worth
-//! knowing because an Android build is planned, and it arrives as a third facade over this
-//! same engine rather than as a port of it.
+//! The engine knows nothing about the facade in front of it. That is worth knowing because an
+//! Android build is planned, and it arrives as a second facade over this same engine rather
+//! than as a port of it.
 //!
 //! ## Module map
 //!
@@ -40,8 +39,8 @@
 //!
 //! 1. Cores are loaded from the launch path and never at boot. A real core enters through
 //!    [`bridge::EmulatorBridge::attach_core`], which is what the iOS app uses after
-//!    `dlopen`; [`bridge::EmulatorBridge::attach_core_module`] is the other door and now
-//!    serves only the built-in diagnostic stand-in.
+//!    `dlopen`; [`bridge::EmulatorBridge::attach_core_module`] is the other door and is
+//!    test-only: it attaches the built-in diagnostic stand-in.
 //! 2. Video is presented only through [`gfx::Renderer`].
 //! 3. [`bridge::EmulatorBridge::tick`] is the only driver. No timers, no threads,
 //!    no workers.
@@ -80,13 +79,10 @@ pub mod timing;
 /// `Send`, because the Swift layer holds the bridge behind a `Mutex` and UniFFI requires an
 /// exported object to be `Send + Sync`.
 ///
-/// This used to be conditional, and the alias survives its condition on purpose. The wasm
-/// build could not satisfy `Send`: its core held a `JsValue`, which is deliberately not
-/// `Send` because a JS value belongs to one agent. That build is gone, so the bound is now
-/// the same everywhere. The name is kept rather than substituted through the code because it
-/// is the one place a future target that cannot be `Send` would be expressed again, and
-/// collapsing it into a bare `Send` at every use site would scatter that decision across the
-/// crate instead of leaving it here.
+/// The bound is the same on every target. The alias is kept rather than substituted through
+/// the code because it is the one place a future target that cannot be `Send` would be
+/// expressed, and collapsing it into a bare `Send` at every use site would scatter that
+/// decision across the crate instead of leaving it here.
 pub trait MaybeSend: Send {}
 impl<T: ?Sized + Send> MaybeSend for T {}
 

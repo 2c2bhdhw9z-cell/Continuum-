@@ -239,8 +239,8 @@ final class MetalCanvas: UIView {
 
     // MARK: - The frame loop
 
-    /// One CADisplayLink, driving the engine. The peer of the web build's single
-    /// requestAnimationFrame loop, and the same rule: there is only ever one.
+    /// One CADisplayLink, driving the engine, and there is only ever one: it is the engine's
+    /// single frame loop (`EmulatorBridge::tick` is called from here and nowhere else).
     func start() {
         guard displayLink == nil else { return }
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))

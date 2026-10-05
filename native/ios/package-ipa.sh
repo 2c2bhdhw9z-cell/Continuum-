@@ -162,12 +162,12 @@ if [ ! -f "$BUNDLE/Frameworks/libcontinuum_switch.dylib" ]; then
   cp "$OUT/lib/libcontinuum_switch.dylib" "$BUNDLE/Frameworks/"
 fi
 
-# The same fallback for every libretro core (fceumm, mgba, genesis_plus_gx, snes9x, melonds,
-# pcsx_rearmed). Each is dlopened at runtime through @executable_path/Frameworks like the
-# wrapper; if Xcode's embed phase was skipped for one, place it here so the signing loop
-# below still seals it and the app can still load that core on device. An .ipa that is
-# missing a core produces an app which launches and then cannot run that one system, which is
-# about the hardest thing to diagnose from a phone.
+# The same fallback for every required libretro core (build-core.sh ios-names). Each is
+# dlopened at runtime through @executable_path/Frameworks like the wrapper; if Xcode's embed
+# phase was skipped for one, place it here so the signing loop below still seals it and the
+# app can still load that core on device. An .ipa that is missing a core produces an app which
+# launches and then cannot run that one system, which is about the hardest thing to diagnose
+# from a phone.
 #
 # The filenames come from scripts/build-core.sh, the one place they are defined, rather than
 # being restated here.
@@ -207,11 +207,11 @@ for dylib in "$BUNDLE"/Frameworks/*.dylib; do
   codesign --force --sign - --timestamp=none "$dylib"
 done
 # FRAMEWORKS AS WELL AS BARE DYLIBS, and this loop was missing until MoltenVK arrived. Every core
-# ships as a loose .dylib, so for nine cores the glob above was the whole story; MoltenVK publishes
-# its only dynamic iOS build as a .framework, which the glob does not match. An unsigned nested
-# bundle makes the outer `codesign` of the .app fail, so its absence would not have been subtle,
-# but a nested bundle signed by nobody is exactly the kind of thing that fails on a device and
-# passes everywhere else.
+# ships as a loose .dylib, so while the bundle held only cores the glob above was the whole story;
+# MoltenVK publishes its only dynamic iOS build as a .framework, which the glob does not match.
+# An unsigned nested bundle makes the outer `codesign` of the .app fail, so its absence would not
+# have been subtle, but a nested bundle signed by nobody is exactly the kind of thing that fails
+# on a device and passes everywhere else.
 for framework in "$BUNDLE"/Frameworks/*.framework; do
   [ -d "$framework" ] || continue
   echo "==> signing nested framework $(basename "$framework")"

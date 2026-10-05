@@ -30,36 +30,27 @@ WORK="$ROOT/.work"
 
 # --------------------------------------------------------------- iOS native cores
 #
-# The iOS cores are now the only path here. They never used wasi-sdk, the RETRO_EXPORTS list,
-# the wasm import-restriction check, core-shim, or web/cores/, which is why the browser half
-# could be removed without touching any of this. Each core is compiled from source with Apple's clang for
-# aarch64-apple-ios and produces a native .dylib that the iOS app dlopens out of
-# Frameworks/ at runtime.
+# Each core is compiled from source with Apple's clang for aarch64-apple-ios and produces a
+# native .dylib that the iOS app dlopens out of Frameworks/ at runtime.
 #
-# THEY LIVE IN THEIR OWN SUBCOMMAND NAMESPACE, AND THAT IS NOT A STYLE CHOICE:
+# THE SUBCOMMANDS (the header says why they keep the `ios` prefix):
 #
-#   scripts/build-core.sh fceumm       # WASM, for the web. UNCHANGED.
-#   scripts/build-core.sh all          # WASM, all four web cores. UNCHANGED.
-#   scripts/build-core.sh ios fceumm   # one iOS dylib -> native/ios/build/lib/
-#   scripts/build-core.sh ios-all      # every iOS core
-#   scripts/build-core.sh ios-names    # print the canonical dylib filenames and stop
+#   scripts/build-core.sh ios fceumm             # one iOS dylib -> native/ios/build/lib/
+#   scripts/build-core.sh ios-all                # every iOS core
+#   scripts/build-core.sh ios-names              # print the canonical dylib filenames and stop
+#   scripts/build-core.sh ios-optional-names     # the same for the optional from-source cores
+#   scripts/build-core.sh ios-stage-prebuilt ... # check and stage a dylib built elsewhere
 #
-# A bare core name already means "build it as WASM for the web", and those spellings are
-# live and documented: web/cores/README.md, README.md, SESSION_HANDOFF.md, the buildHint
-# strings in the now-deleted web tooling all used them. Teaching `build-core.sh fceumm` to build an
-# iOS dylib would therefore break the web build, quietly, in the one place nobody looks
-# until the PWA stops loading a core. Hence the namespace.
+# A bare core name is not a subcommand. The dispatch at the end refuses it and names the
+# `ios <core>` spelling instead. The one exception is `build-core.sh pcsx_rearmed`, the spelling
+# the first iOS core was added with: it still works as an alias for `ios pcsx_rearmed`, because
+# something may still call it, but the explicit form is the one to use and
+# native/ios/build-engine.sh has been moved onto it.
 #
-# The first iOS core was added as `build-core.sh pcsx_rearmed`, which was safe only because
-# pcsx_rearmed has no WASM case block. That spelling still works as an alias for
-# `ios pcsx_rearmed`, because something may still call it, but the explicit form is the one
-# to use and native/ios/build-engine.sh has been moved onto it.
-#
-# The iOS dispatch runs BEFORE ensure_toolchain, so this path never fetches wasi-sdk and
-# never creates or writes web/cores/. `ios` and `ios-all` need a macOS host and say so
-# clearly anywhere else, the same contract as native/ios/build-engine.sh. `ios-names` is the
-# exception: it only prints the table, so it runs on any host, which is what makes the
-# filenames checkable from Linux.
+# `ios` and `ios-all` need a macOS host and say so clearly anywhere else, the same contract as
+# native/ios/build-engine.sh. `ios-names`, `ios-optional-names` and `ios-stage-prebuilt` are
+# the exceptions: they only print the table or check and copy a file, so they run on any host,
+# which is what makes the filenames checkable from Linux.
 #
 # PER-CORE GROUND TRUTH, read out of each upstream makefile rather than assumed:
 #
@@ -68,7 +59,7 @@ WORK="$ROOT/.work"
 #                    $(IOSSDK)', SHARED=-dynamiclib and TARGET=$(TARGET_NAME)_libretro_ios.dylib,
 #                    which is already the canonical filename in the table below.
 #                    Its iOS block also forces WANT_32BPP := 1, so this core renders
-#                    XRGB8888 on device where the WASM build renders RGB565. That is fine:
+#                    XRGB8888 on device rather than its default RGB565. That is fine:
 #                    the format is renegotiated through SET_PIXEL_FORMAT inside
 #                    retro_load_game and native_core.rs reports whatever the core chose.
 #   genesis_plus_gx  Makefile.libretro at the repo root. platform=ios-arm64 sets CC/CXX to
@@ -83,11 +74,11 @@ WORK="$ROOT/.work"
 #                    so this core is INTERPRETER-only: correct but slower, and with no
 #                    dependence on the JIT entitlement being honoured. Deliberate, and
 #                    unchanged from the build that already worked.
-#   mgba             Ships NO makefile at all. Its libretro core is a CMake target, which
-#                    is also why the WASM path uses CMake for it (CMake generates files the
-#                    build needs, version.c among them). So the iOS path configures CMake
-#                    for iOS, builds the static mgba_libretro archive, and links the dylib
-#                    itself. See build_ios_cmake_core for why -force_load is load-bearing.
+#   mgba             Ships NO makefile at all. Its libretro core is a CMake target, and
+#                    CMake generates files the build needs (version.c among them). So the
+#                    iOS path configures CMake for iOS, builds the static mgba_libretro
+#                    archive, and links the dylib itself. See build_ios_cmake_core for why
+#                    -force_load is load-bearing.
 #
 # All but one of the canonical filenames below are therefore exactly what upstream emits.
 # Only mgba's is ours, because only mgba's link is ours.
@@ -555,7 +546,7 @@ error: the iOS cores build only on a macOS host.
   They cross-compile real libretro cores with Apple's clang and the iphoneos SDK:
       make -f <makefile> platform=ios-arm64 IOSSDK=$(xcrun --sdk iphoneos --show-sdk-path)
   and, for mgba, a CMake configure for CMAKE_SYSTEM_NAME=iOS plus a dylib link. There is no
-  wasi-sdk fallback for any of it. Build them on the macOS runner through the ios workflow
+  non-Mac fallback for any of it. Build them on the macOS runner through the ios workflow
   (native/ios/build-engine.sh calls this), which is what it is for.
 
   `scripts/build-core.sh ios-names` does work here, and prints the filenames the .ipa
@@ -848,10 +839,9 @@ build_ios_cmake_core() {
   local build_dir="$IOS_SRC_DIR/build-ios"
   echo "==> configuring $core with cmake for iOS ($IOS_DISPLAY)"
   rm -rf "$build_dir"
-  # Everything optional is off, exactly as the WASM configure has it: no zlib, png, sqlite,
-  # ffmpeg, zip, lzma, ELF loading, scripting or debuggers. LIBRETRO_STATIC=ON asks for the
-  # archive rather than a shared library, because the link is done below where the iOS flags
-  # are ours to set. It does NOT rename any retro_* symbol; mgba's CMakeLists uses it only to
+  # Everything optional is off: no zlib, png, sqlite, ffmpeg, zip, lzma, ELF loading,
+  # scripting or debuggers. LIBRETRO_STATIC=ON asks for the archive rather than a shared
+  # library, because the link is done below where the iOS flags are ours to set. It does NOT rename any retro_* symbol; mgba's CMakeLists uses it only to
   # choose the library type.
   #
   # Two upstream details worth knowing before reading a CI log: mgba's CMakeLists forces

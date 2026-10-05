@@ -110,20 +110,21 @@ The replacement, when it is written, must be native:
   loader and assert on real frames, audio and input. This needs a host build path in
   `scripts/build-core.sh` alongside the existing `ios` one.
 - The existing `cargo test` suites cover pacing, audio, input, the registry, pixel conversion,
-  the rewind tape and more. Keep them green. (The old counts written here, 85 and 95, date from
-  before the October work and were not re-counted; CI does not run them.)
+  the rewind tape and more. Keep them green. Since build 122 the engine tests (about 590) run
+  first on every build, in the Linux "checks" job, before the Mac builds the `.ipa`.
 
 ## Systems
 
 **The owner's goal (October 2026): Continuum does everything Manic EMU does, and more.** That
-widens the system list well past the one below. The checklist, and the decisions behind it (prebuilt
-cores from the libretro iOS buildbot, answering core settings, Flash and J2ME in a bundled player
-view), is [MANIC_PARITY.md](MANIC_PARITY.md). JIT stays out.
+widens the system list well past the one below. The checklist, and the decisions behind it (19
+cores prebuilt from the libretro iOS buildbot and 13 built from source, all pinned to build 121's
+versions; answering core settings; Flash and J2ME in a bundled player view), is
+[MANIC_PARITY.md](MANIC_PARITY.md). JIT stays out.
 
-
-Shipping in the `.ipa` today (build 121): **32 cores**, covering everything in MANIC_PARITY.md's
-system table except GameCube, Wii and Symbian, plus Flash and J2ME in bundled players. STATUS.md
-has the per-system state. (This line used to say six cores and twelve systems.)
+Shipping in the `.ipa` today (build 124, about 85 MB): **32 cores and 38 systems**, covering
+everything in MANIC_PARITY.md's system table except GameCube, Wii and Symbian, plus Flash and J2ME
+in bundled players. STATUS.md has the per-system state. (This line used to say six cores and
+twelve systems.)
 
 **Check a core's own `valid_extensions` before concluding a system needs a new core.** The Disk
 System and the SG-1000 were both already supported by cores in the app and were reachable for the
@@ -134,8 +135,9 @@ it changed nothing on screen. The DS arrived early and out of order because melo
 iOS, so it needed none of the hardware-renderer work the rest of the list does.
 
 N64, PSP and 3DS have since arrived (N64 on its software renderer, PSP and 3DS through Vulkan,
-all without JIT). Still ahead, hardest last: **Switch**. `native/switch-wrapper/` is a working
-inversion-of-control frame gate with no engine behind it yet.
+all without JIT). Still ahead: Symbian/N-Gage (not started), and, hardest last, the **Switch**
+(wrapper skeleton only: `native/switch-wrapper/` is a working inversion-of-control frame gate with
+no engine behind it yet). GameCube and Wii are not built (no JIT).
 
 **The Switch is an EMULATED SYSTEM, the last and hardest one, not a platform Continuum runs on.**
 Spelled out because the name invites the other reading and an agent has already made that mistake
@@ -144,9 +146,10 @@ here. It is steps 10 to 12 of the twelve-step sequence in
 whole design: existing Switch engines are standalone applications rather than plugins, so
 `continuum_switch_libretro.cpp` wraps one behind `ISwitchEngine` and presents it to the rest of
 Continuum as an ordinary libretro core. Which devices Continuum RUNS on is the separate list
-below.
+above (iPhone, then Android).
 
 Architectural invariants (one MTLDevice owned by Rust and read back by Swift,
 `engine.coreState` as the only source of truth for core residency, import-and-copy into
-Documents with original filenames preserved, no security-scoped URLs on the launch path) are
-documented in `docs/archive/SESSION_HANDOFF.md`. Do not relitigate them.
+Documents with original filenames preserved, no security-scoped URLs on the launch path) are the
+rule. Their history is in `docs/archive/SESSION_HANDOFF.md`, which is otherwise
+out of date.

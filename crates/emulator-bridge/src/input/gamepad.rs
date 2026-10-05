@@ -1,11 +1,11 @@
 //! `GamepadBridge` — every controller, from every source, in one place.
 //!
-//! Four input sources have to end up as the same thing: a physical gamepad polled
-//! through the HTML5 Gamepad API, a keyboard pretending to be a pad, an on-screen
-//! touch pad, and (Phase 2) iOS `GameController`. The translation from each of those
-//! to a retro pad lives here, in Rust, rather than in the front end — including the
-//! W3C "standard gamepad" button layout, which would otherwise have to be
-//! reimplemented identically in Swift and inevitably drift.
+//! Three input sources have to end up as the same thing: a physical controller through
+//! iOS `GameController`, a keyboard pretending to be a pad, and the on-screen touch pad.
+//! The translation from each of those to a retro pad lives here, in Rust, rather than in
+//! the front end — including the W3C "standard gamepad" button layout, which would
+//! otherwise have to be reimplemented in Swift (and again on the next platform) and
+//! inevitably drift.
 //!
 //! What the front end sends is deliberately dumb:
 //!
@@ -544,9 +544,10 @@ impl GamepadBridge {
 
     /// Applies one poll of a W3C standard gamepad.
     ///
-    /// `buttons` is `pad.buttons.map(b => b.pressed)` and `axes` is `pad.axes`,
-    /// exactly as `navigator.getGamepads()` reports them. Missing entries are treated
-    /// as unpressed/centred, so a pad with fewer controls needs no special handling.
+    /// `buttons` (pressed or not) and `axes` are in the W3C standard gamepad order, which
+    /// the Swift layer fills from the on-screen pad and from GameController. Missing entries
+    /// are treated as unpressed/centred, so a pad with fewer controls needs no special
+    /// handling.
     ///
     /// Replaces the gamepad layer wholesale — which is correct, because a poll is a
     /// complete statement about that device — and leaves the keyboard and touch layers

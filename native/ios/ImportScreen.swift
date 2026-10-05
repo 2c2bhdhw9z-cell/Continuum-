@@ -1,6 +1,7 @@
 // The Import screen, opened from the library's + button. Every way in, on one page:
 // Files (the device-verified picker, unchanged), Wi-Fi transfer, the clipboard, network servers
-// (WebDAV and SMB), and a note for drag and drop, Open in and the cloud drives.
+// (WebDAV; SMB is not in this build and its row says so), and a note for drag and drop, Open in
+// and the cloud drives.
 //
 // Google Drive, Dropbox and OneDrive are NOT logged into directly: a direct login needs an OAuth
 // app id that only the owner can register, and a fake one would fail at the first sign-in. Their

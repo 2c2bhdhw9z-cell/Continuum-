@@ -1,13 +1,15 @@
-// Network sources: WebDAV servers and SMB shares (a NAS, router storage, a computer's shared
-// folder). Add a server once (address, user, password; the password goes in the Keychain), browse
-// its folders, and pick files or a whole folder: they download into scratch and go through the
-// SAME import path as the Files picker, so a folder holding a .cue and its .bin tracks arrives as
-// one batch.
+// Network sources: WebDAV servers (a NAS, router storage, a computer's shared folder). Add a server
+// once (address, user, password; the password goes in the Keychain), browse its folders, and pick
+// files or a whole folder: they download into scratch and go through the SAME import path as the
+// Files picker, so a folder holding a .cue and its .bin tracks arrives as one batch.
 //
 // WebDAV is URLSession with PROPFIND (Depth: 1); the XML answer is parsed in Rust
-// (import/webdav.rs). SMB is AMSMB2, a Swift package over libsmb2, added through project.yml
-// `packages:`. The SMB code is behind `#if canImport(AMSMB2)` so that if the package ever fails to
-// resolve the rest of the app still builds and the SMB row says why it is unavailable.
+// (import/webdav.rs).
+//
+// SMB is not in this build. It used AMSMB2, a Swift package over libsmb2, and was taken out after
+// build 117 stopped the app opening (Xcode linked AMSMB2.framework without embedding it; see the
+// note in project.yml). The SMB code stays here behind `#if canImport(AMSMB2)` for when it
+// returns; without the package the rest of the app builds and the SMB row says it is unavailable.
 
 import Foundation
 import Security
@@ -241,7 +243,7 @@ final class RemoteSources: ObservableObject {
         }
         .sorted { ($0.isFolder ? 0 : 1, $0.name.lowercased()) < ($1.isFolder ? 0 : 1, $1.name.lowercased()) }
         #else
-        throw RemoteError(text: "SMB is not in this build: the AMSMB2 package did not build")
+        throw RemoteError(text: "SMB is not in this build yet; it was taken out after it stopped the app opening. WebDAV works")
         #endif
     }
 

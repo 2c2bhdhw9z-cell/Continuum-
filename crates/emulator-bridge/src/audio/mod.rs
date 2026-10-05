@@ -4,8 +4,8 @@
 //!  core step            AudioSink (Rust, this module)              host
 //!  ─────────            ────────────────────────────               ────
 //!  submit_i16 ─┐                                          ┌─ drain(&mut [f32])
-//!  submit_f32 ─┴─▶ i16→f32 ─▶ resample ─▶ ring buffer ────┴─▶ AudioWorklet (web)
-//!                  (no heap)   (no heap)   (pre-allocated)     AURenderCallback (iOS)
+//!  submit_f32 ─┴─▶ i16→f32 ─▶ resample ─▶ ring buffer ────┴─▶ AVAudioSourceNode (iOS)
+//!                  (no heap)   (no heap)   (pre-allocated)
 //! ```
 //!
 //! Two properties this design protects:
@@ -13,8 +13,8 @@
 //! 1. **No per-frame allocation.** The ring is sized once per session; conversion
 //!    and resampling use fixed scratch buffers owned by the sink.
 //! 2. **The UI never sees sample rates.** Cores submit at their native rate, the
-//!    host asks for its device rate, and the sink reconciles them. The web UI and
-//!    Phase 2's Swift UI both just call `drain`.
+//!    host asks for its device rate, and the sink reconciles them. The Swift UI just
+//!    calls `drain`.
 //!
 //! Libretro's two audio callbacks map onto this directly, which is the whole point
 //! of the seam: `audio_sample(l, r)` → [`AudioSink::submit_i16`] with a 2-sample

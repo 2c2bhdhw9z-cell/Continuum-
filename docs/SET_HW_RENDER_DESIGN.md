@@ -63,18 +63,19 @@ Four obligations fall out of that struct, and all four are new work:
    cores do not use it; they go through `GET_HW_RENDER_INTERFACE` instead.
 2. **Resolve symbols.** `get_proc_address("glTexImage2D")` and friends. For a GL core this is
    `eglGetProcAddress` via ANGLE; for Vulkan it is `vkGetInstanceProcAddr` via MoltenVK.
+   (On iOS today, with no ANGLE, the GL lookup is `dlsym` into OpenGLES.)
 3. **Announce context lifetime.** Call `context_reset` after the context exists and after any
    loss; call `context_destroy` before tearing it down. Cores allocate all their GPU
    resources inside `context_reset`.
 4. **Recognise the sentinel.** After `retro_run`, a hardware core calls
    `video_refresh(RETRO_HW_FRAME_BUFFER_VALID, width, height, 0)`. That pointer is
-   `(void*)-1`, i.e. `usize::MAX`. `NULL` still means "duplicate the previous frame". Our
-   current `video_refresh` handler treats any non-null pointer as pixels and would read
-   from address `0xFFFF…FFFF` on the first hardware frame.
+   `(void*)-1`, i.e. `usize::MAX`. `NULL` still means "duplicate the previous frame". The
+   `video_refresh` handler of the time treated any non-null pointer as pixels and would have
+   read from address `0xFFFF…FFFF` on the first hardware frame; `native_core.rs` now tests
+   for the sentinel first.
 
-The web build refuses command 14 outright, with a comment explaining that a browser cannot
-give a core a GL context (`core-runtime.js`, `case ENV.SET_HW_RENDER`). That refusal stays —
-it is correct for the PWA and is what keeps the two builds honest about their capabilities.
+Historical note: the web build, since deleted, refused command 14 outright, because a browser
+cannot give a core a GL context. The iOS app accepts it (STATUS.md, road steps 4 and 7).
 
 ---
 
@@ -234,6 +235,10 @@ Both are needed, because the cores are split:
 | Citra / Lime3DS / Azahar | GLES3 | ANGLE |
 | Switch (non-libretro, §12) | Vulkan or native Metal | MoltenVK or direct |
 
+On iOS: melonDS ships software-rendered; Azahar uses Vulkan `set_image`; ANGLE is not in the
+build. (Also on iOS: parallel_n64 and pcsx_rearmed are software-rendered, Beetle PSX HW and
+PPSSPP use Vulkan through MoltenVK, flycast uses GL.)
+
 **Vulkan is the primary path** and ANGLE is the secondary, for three reasons. paraLLEl-RDP is
 a Vulkan *compute* implementation of the N64's RDP and is the only accurate-and-fast N64
 rasteriser in existence — it has no GL equivalent, so a Vulkan path is mandatory rather than
@@ -244,8 +249,11 @@ onto the better-tested path.
 
 ANGLE exists for the three cores that are GL-only: melonDS, Citra, and GLideN64.
 
-Both ship as XCFrameworks inside the bundle. That is roughly 8 MB for MoltenVK and 15 MB for
-ANGLE — worth stating, because it doubles the app's binary size and there is no way around it.
+On iOS none of those three needs it (see the note under the table), and a GL core gets an
+OpenGL ES (EAGL) context with a read-back copy instead (STATUS.md road step 7).
+
+MoltenVK ships as an XCFramework inside the bundle, about 8 MB in an app of about 85 MB
+(build 124). ANGLE is not shipped.
 
 ---
 
@@ -314,7 +322,7 @@ Two consequences worth flagging before anyone starts:
 
 - **This adds `wgpu-hal` and `metal` as direct dependencies** of `emulator-bridge`, native
   targets only, and introduces the first genuinely `unsafe` block in the graphics path. Both
-  belong behind a `hw-render` feature so the web build's dependency graph is untouched.
+  belong behind a `hw-render` feature so host test builds stay light.
 - ~~**Building a wgpu `Device` *from* an injected `MTLDevice` is the part to prototype
   first.**~~ **Answered by step 1: it is not expressible through the public API.** The
   constructor is private and `configure` overwrites the layer's device anyway (§2). Neither
@@ -560,8 +568,8 @@ Two traps:
   under a `Mutex` instead of a `RefCell` the consequence is a deadlock rather than a panic.
 - **Save state before `context_destroy`, not after.** Several cores keep emulated GPU state
   in host GPU resources; once the context is gone, that state is unrecoverable and a state
-  written afterwards is subtly incomplete. The auto-save on `visibilitychange` that the PWA
-  already does maps onto `willResignActive`, and it needs to run *first*.
+  written afterwards is subtly incomplete. The app's auto-save on leaving (`willResignActive`)
+  runs *first*.
 
 ---
 
@@ -860,8 +868,8 @@ Three environment commands this depends on, and their current state in this proj
 
 | Command | Needed for | Status |
 | --- | --- | --- |
-| `SET_CONTENT_INFO_OVERRIDE` (65) | declaring `nsp\|xci\|nca\|nro` as `need_fullpath = true` | **already implemented** — built in Phase 1b for fceumm |
-| `GET_GAME_INFO_EXT` (66) | the core reading the mounted path | **already implemented** |
+| `SET_CONTENT_INFO_OVERRIDE` (65) | declaring `nsp\|xci\|nca\|nro` as `need_fullpath = true` | **accepted** natively in `crates/emulator-bridge/src/cores/native_core.rs`, as a no-op: the engine honours the `need_fullpath` a core declares in its system info, not per-extension overrides |
+| `GET_GAME_INFO_EXT` (66) | the core reading the mounted path | **not handled yet**: `native_core.rs` refuses it (it falls through to `false`) |
 | `GET_SYSTEM_DIRECTORY` (9) | keys, firmware | **implemented** in `cores/native_core.rs` (the BIOS folder) |
 | `GET_SAVE_DIRECTORY` (31) | Switch savedata | **implemented** in `cores/native_core.rs` |
 
@@ -1248,10 +1256,15 @@ Signed with the app, embedded in `Frameworks/`, loaded by path at launch. `RPATH
 
 Each step is verifiable on its own, and the risky question is answered first.
 
+Current state of every step: STATUS.md, "The road to the rest of the systems". In short (build
+124): 1 and 2 Done; 3 Done (build 89); 4 Partial; 5 blocked (no JIT); 6 the N64 software core
+Done (build 97), Vulkan RDP not started; 7 Partial (GLES through EAGL with a copy, no ANGLE);
+8 Azahar Partial; 9 PPSSPP Partial; 10 Partial; 11 and 12 not started.
+
 | # | Step | Proves | Risk |
 | --- | --- | --- | --- |
 | 1 | ~~wgpu device adopted from an injected `MTLDevice`~~ → **done**, inverted: wgpu creates the device, Swift adopts it (§2) | The §5 unknown, before anything depends on it | ~~High~~ — resolved without raw Metal and without patching `wgpu-hal` |
-| 2 | ~~Instanced composite pass; one screen, then two with a hardcoded split~~ → **done**. `ScreenSplit` in `gfx/renderer.rs`, instanced `frame_blit.wgsl`, 7 layout tests + 3 shader tests | Rendering generalises before any HW core exists | ~~Low~~ — resolved. Single-screen geometry is asserted identical, so the nine shipping systems are untouched |
+| 2 | ~~Instanced composite pass; one screen, then two with a hardcoded split~~ → **done**. `ScreenSplit` in `gfx/renderer.rs`, instanced `frame_blit.wgsl`, 7 layout tests + 3 shader tests | Rendering generalises before any HW core exists | ~~Low~~ — resolved. Single-screen geometry is asserted identical, so the nine shipping systems (nine at the time; 38 now) are untouched |
 | 3 | MoltenVK in-process, sharing device and queue; render a triangle into an `MTLTexture` and composite it | The whole zero-copy path, with no core involved | Medium |
 | 4 | `SET_HW_RENDER` accepted for Vulkan; `GET_HW_RENDER_INTERFACE`; **Beetle PSX HW** | The full contract against the simplest real core | Medium |
 | 5 | JIT enabled for the PS1 dynarec; measure against step 4 | The reason for the whole phase | Blocked: no JIT on the owner's install |
@@ -1282,9 +1295,9 @@ no decryption, so it isolates the execution path from the content path.
 
 Genuinely unresolved, listed so they are not mistaken for decided:
 
-1. **Can wgpu adopt a pre-existing `MTLDevice` through its public API?** Step 1 answers it.
-   Fallback is a raw-Metal composite pass, which is contained but means maintaining one
-   Metal shader alongside the WGSL one.
+1. ~~**Can wgpu adopt a pre-existing `MTLDevice` through its public API?**~~ **Answered: no.**
+   wgpu creates the device and Swift adopts it (§2, step 1), so the raw-Metal fallback was not
+   needed.
 2. **One command queue for all three layers, or per-layer queues with an `MTLSharedEvent`?**
    Measure both; the shared-queue version is simpler and probably fast enough, but MoltenVK's
    internal queue management may not cooperate.

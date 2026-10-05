@@ -1,9 +1,8 @@
 // Continuum - save states: the metadata index in memory, the payloads on disk, and the gate that
 // decides whether a state may be handed back to a core at all.
 //
-// This is a rebuild of a feature the browser build had and the .ipa lost. The web app kept the
-// same shape as this file does, one index plus separate payloads, and the reasoning below is
-// carried over from it rather than invented here.
+// The shape is one index plus separate payloads, and the reasoning below is the design the
+// feature has always had rather than something invented for this file.
 //
 // ## THE COMPATIBILITY GATE IS THE WHOLE POINT OF THIS FILE
 //
@@ -40,7 +39,7 @@
 // the grid, loadable and deletable. NOTHING IS DELETED BY THE MIGRATION.
 //
 // Earlier text, still true for the auto-save: manual saves took numbered slots and accumulated. The auto-save lives in its own namespace
-// (`autoSlot`, which is -1, the same sentinel the browser build used) and is overwritten in place.
+// (`autoSlot`, a -1 sentinel no numbered slot can be) and is overwritten in place.
 // Keeping the two apart means an auto-save can never consume a slot number the user was using,
 // and the resume path never has to guess which of several records is the newest.
 //
@@ -238,7 +237,7 @@ struct SaveStateRecord: Identifiable, Codable, Hashable {
         return String(format: "%.0f KB", Double(byteCount) / 1024.0)
     }
 
-    /// How long ago it was taken, in the shape the browser build used.
+    /// How long ago it was taken, in short fixed wording ("2m ago").
     ///
     /// Hand-rolled rather than `RelativeDateTimeFormatter` so that the wording is fixed and cannot
     /// change under a locale or an OS revision. These strings sit in a list next to a slot number
@@ -591,10 +590,9 @@ final class SaveStates: ObservableObject {
 
     /// Whether launching a game restores its auto-save.
     ///
-    /// Default ON, which is what the browser build did. The argument for the default is that the
-    /// auto-save exists precisely because a phone takes the app away mid-game: a resume that has
-    /// to be asked for is a resume that has already been forgotten about by the time the user
-    /// comes back. It is a toggle rather than a fixed behaviour because starting from the
+    /// Default ON. The argument for the default is that the auto-save exists precisely because a
+    /// phone takes the app away mid-game: a resume that has to be asked for is a resume that has
+    /// already been forgotten about by the time the user comes back. It is a toggle rather than a fixed behaviour because starting from the
     /// beginning is a legitimate thing to want, and the alternative would be deleting the
     /// auto-save to get it.
     @Published var resumesAutomatically: Bool = true {
@@ -1266,8 +1264,8 @@ final class SaveStates: ObservableObject {
     ///
     /// Returns whether the load happened, because the resume path needs to know and the UI does
     /// not. Synchronous, all the way through: the payload read is one file, and doing it here
-    /// rather than in a task removes the whole class of bug the browser build needed a launch token
-    /// for, where an awaited read completes after the user has already started a different game and
+    /// rather than in a task removes a whole class of bug that would otherwise need a launch token:
+    /// an awaited read that completes after the user has already started a different game and
     /// pushes one game's state into another's core.
     @discardableResult
     func load(_ record: SaveStateRecord) -> Bool {

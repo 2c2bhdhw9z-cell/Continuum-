@@ -1,14 +1,14 @@
 //! Sample-rate conversion between a core's clock and the output device.
 //!
 //! Cores run at whatever rate their hardware did — 32040 Hz (SNES), 44100 Hz
-//! (PS1), 48000 Hz (modern) — while `AudioContext.sampleRate` is decided by the
-//! browser/OS (44100 or 48000). Something must reconcile the two, and doing it in
-//! Rust keeps the behaviour identical on web and iOS.
+//! (PS1), 48000 Hz (modern) — while the output rate is decided by the OS audio
+//! session (44100 or 48000 on iOS, depending on the route). Something must reconcile
+//! the two, and doing it in Rust keeps it out of every platform's UI code.
 //!
 //! This is a linear interpolator: cheap, allocation-free, and adequate for the
 //! scaffold. It aliases on aggressive downsampling.
 //!
-//! TODO(phase1b): replace with a windowed-sinc / polyphase FIR before shipping
+//! TODO: replace with a windowed-sinc / polyphase FIR before shipping
 //! audio quality anyone would judge. The [`Resampler`] surface stays the same.
 
 use super::CHANNELS;

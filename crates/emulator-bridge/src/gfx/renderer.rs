@@ -1,10 +1,10 @@
-//! WebGPU renderer: uploads a core framebuffer and blits it to the canvas.
+//! wgpu renderer: uploads a core framebuffer and blits it to the screen.
 //!
 //! Architectural rule: **this is the only thing that draws emulator output.** No
-//! `CanvasRenderingContext2D`, no `<img>`, no DOM-based scaling. In the browser
-//! the swapchain is a `GPUCanvasContext` obtained through `wgpu`; on iOS the same
-//! code targets a `CAMetalLayer`. The pipeline, shader and upload path are shared,
-//! which is why Phase 2 needs no renderer rewrite.
+//! platform-side scaling and no second drawing path. On iOS the swapchain is a
+//! `CAMetalLayer` surface obtained through `wgpu` (see `gfx/metal.rs`); the pipeline,
+//! shader and upload path know nothing about the platform, so another platform's
+//! surface would need no renderer rewrite.
 //!
 //! Resource lifetime is deliberately coarse:
 //!
@@ -306,14 +306,11 @@ pub struct Renderer {
     /// Instance and adapter are held for the renderer's lifetime, not just for
     /// construction.
     ///
-    /// On the WebGPU backend these own the browser-side objects the device and
-    /// surface were created from. Letting them drop lets the browser collect the
-    /// device, and the failure is silent in the worst way: submits and presents keep
-    /// returning success while the canvas stays black and buffer maps fail. Both
-    /// fields are load-bearing despite `_instance` never being read.
-    ///
-    /// Neither field is read; both exist so the browser-side objects outlive
-    /// construction. The adapter is additionally what a future device-lost recovery
+    /// Neither field is read; both exist so the objects the device and surface were
+    /// created from outlive construction. On some wgpu backends, letting them drop lets
+    /// the platform collect the device, and the failure is silent in the worst way:
+    /// submits and presents keep returning success while the screen stays black and
+    /// buffer maps fail. The adapter is additionally what a future device-lost recovery
     /// path will re-request a device from.
     _instance: wgpu::Instance,
     _adapter: wgpu::Adapter,
@@ -401,7 +398,7 @@ impl Renderer {
 
         let adapter_info = adapter.get_info();
         log::info!(
-            "WebGPU adapter: {} ({:?}, {:?})",
+            "GPU adapter: {} ({:?}, {:?})",
             adapter_info.name,
             adapter_info.backend,
             adapter_info.device_type
@@ -411,15 +408,15 @@ impl Renderer {
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("emulator-bridge-device"),
                 required_features: wgpu::Features::empty(),
-                // Ask for exactly what the adapter offers: requesting more than the
-                // browser exposes fails device creation outright.
+                // Ask for exactly what the adapter offers: requesting more than it
+                // exposes fails device creation outright.
                 required_limits: adapter.limits(),
                 ..Default::default()
             })
             .await
             .map_err(|e| GfxError::DeviceRequest(e.to_string()))?;
 
-        // Validation errors are otherwise silent on the web; surface them loudly.
+        // Validation errors are otherwise easy to miss; surface them loudly in the log.
         device.on_uncaptured_error(std::sync::Arc::new(|error| {
             log::error!("wgpu uncaptured error: {error}");
         }));
@@ -438,7 +435,7 @@ impl Renderer {
             color_space: wgpu::SurfaceColorSpace::Auto,
             width: width.max(1),
             height: height.max(1),
-            // Fifo == "present on vsync", which is what a rAF-driven loop wants;
+            // Fifo == "present on vsync", which is what a display-link-driven loop wants;
             // anything else would tear or queue frames the loop never asked for.
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
@@ -1664,9 +1661,8 @@ fn capture_size_for(
 /// An in-flight readback of the presented image.
 ///
 /// Two-step by necessity: encoding and submitting is synchronous, but mapping the
-/// staging buffer is asynchronous on WebGPU. The platform facade awaits the map
-/// (in Phase 1, by bridging `map_async` to a JS `Promise`) and then calls
-/// [`FrameCapture::take_rgba`].
+/// staging buffer is asynchronous. `EmulatorBridge::capture_rgba` waits for the map
+/// with a blocking device poll and then calls [`FrameCapture::take_rgba`].
 pub struct FrameCapture {
     buffer: wgpu::Buffer,
     width: u32,
@@ -1882,8 +1878,8 @@ fn pick_surface_format(caps: &wgpu::SurfaceCapabilities) -> wgpu::TextureFormat 
 mod tests {
     // Scaling maths is pure and worth locking down; it is the part most likely to
     // regress silently (a wrong letterbox is easy to miss, a wrong integer scale
-    // shows up as shimmer). Full renderer tests need a GPU and live in Phase 1b's
-    // browser test suite.
+    // shows up as shimmer). Full renderer tests need a GPU, so they run only on a
+    // device; the shader itself is validated with naga in a unit test.
 
     fn aspect_fit(surface: (f32, f32), content_aspect: f32) -> [f32; 2] {
         let surface_aspect = surface.0 / surface.1;

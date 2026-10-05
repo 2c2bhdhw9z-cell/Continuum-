@@ -1,7 +1,6 @@
-//! The Swift-facing facade. Peer of [`crate::wasm`], and held to the same rule: nothing in
-//! here is logic. If a function in this file does anything other than convert a type,
-//! acquire the lock and delegate, then something has leaked out of the engine and belongs
-//! back in `bridge.rs`.
+//! The Swift-facing facade, held to one rule: nothing in here is logic. If a function in this
+//! file does anything other than convert a type, acquire the lock and delegate, then
+//! something has leaked out of the engine and belongs back in `bridge.rs`.
 //!
 //! ## Why UniFFI, and what the copy costs
 //!
@@ -22,10 +21,9 @@
 //!
 //! ## `Mutex`, not `RefCell`
 //!
-//! The wasm build gets away with a `RefCell` because there is one thread. Swift will call
-//! `tick` from a `CADisplayLink` and `saveState` from a `Task`, so a `RefCell` there is a
-//! panic waiting for a scheduling hiccup. The consequence is that the re-entrancy
-//! discipline in `cores/host.rs` and `cores/native_core.rs` — callbacks never reach back
+//! Swift calls `tick` from a `CADisplayLink` and `saveState` from a `Task`, so a `RefCell`
+//! here would be a panic waiting for a scheduling hiccup. The consequence is that the
+//! re-entrancy discipline in `cores/native_core.rs` — callbacks never reach back
 //! into the bridge, because it is already borrowed during a frame — becomes a deadlock
 //! hazard rather than a panic, and is therefore load-bearing rather than tidy.
 //!
@@ -47,10 +45,9 @@ use crate::error::BridgeError;
 
 /// Ceiling on one [`ContinuumEngine::drain_audio`] call, in stereo frames.
 ///
-/// 4096 frames is about 85 ms at 48 kHz, which is deliberately the same ceiling `wasm.rs`
-/// gives itself through its 8192-sample staging buffer. Far more than one display-link tick
-/// can ever owe, so a slow frame cannot be truncated by this bound, and a caller that asks
-/// for a million frames gets a clamp rather than a 16 MB allocation.
+/// 4096 frames is about 85 ms at 48 kHz. Far more than one display-link tick can ever owe, so
+/// a slow frame cannot be truncated by this bound, and a caller that asks for a million frames
+/// gets a clamp rather than a 16 MB allocation.
 const MAX_DRAIN_FRAMES: u32 = 4096;
 
 /// Errors as Swift sees them: one variant per `BridgeError` arm that a caller can act on,
@@ -122,9 +119,8 @@ impl From<BridgeError> for EngineError {
 
 /// One tick's telemetry.
 ///
-/// A struct rather than the wasm build's shared-memory scratch array, because there is no
-/// shared linear memory here: Swift cannot read into Rust's heap, so the numbers are
-/// returned by value. Small and flat, so the copy is a handful of words.
+/// Returned by value, because Swift cannot read into Rust's heap. Small and flat, so the copy
+/// is a handful of words.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct TickTelemetry {
     pub steps: u32,
@@ -143,10 +139,8 @@ pub struct TickTelemetry {
 
 /// A core the app knows about but has not loaded.
 ///
-/// Peer of `wasm::CoreDeclaration`, and a plain record rather than a constructed object
-/// because UniFFI generates a Swift struct. Note `systems` is a real `Vec<String>`: the wasm
-/// facade takes a comma-separated string only because wasm-bindgen would otherwise emit a
-/// wrapper class per element, and that workaround should not be copied here.
+/// A plain record rather than a constructed object because UniFFI generates a Swift struct.
+/// `systems` is a real `Vec<String>`, which arrives in Swift as a plain array.
 ///
 /// Declaring is not loading. It costs a few hundred bytes and touches no filesystem, which
 /// is what lets rule 5 hold — nothing is resident until something asks for it.
@@ -696,13 +690,13 @@ impl ContinuumEngine {
 
     /// Loads a libretro core from a shared library in the app bundle and declares it.
     ///
-    /// Step 10 loads `libcontinuum_switch.dylib` — the C++ wrapper around a stub engine —
-    /// which is why this exists before any real core does.
+    /// Every real core the app runs is loaded through this. It was first proved against
+    /// `libcontinuum_switch.dylib`, the Step 10 C++ wrapper around a stub engine.
     ///
     /// `system_dir` and `save_dir` are handed straight to the core through
-    /// `GET_SYSTEM_DIRECTORY` and `GET_SAVE_DIRECTORY`. The web build refuses both, because
-    /// a browser has no filesystem to offer; natively they are how a core finds its keys and
-    /// writes its savedata, so they are required rather than optional for Switch content.
+    /// `GET_SYSTEM_DIRECTORY` and `GET_SAVE_DIRECTORY`. They are how a core finds its BIOS
+    /// files and keys and writes its savedata, so they are required rather than optional for
+    /// Switch content.
     #[cfg(feature = "native-core")]
     pub fn load_native_core(
         &self,
@@ -796,11 +790,8 @@ impl ContinuumEngine {
 
     // -------------------------------------------------------------------- cheats
 
-    /// `Vec<bool>` rather than the wasm build's `&[u8]`.
-    ///
-    /// That byte array exists only because wasm-bindgen has no bool-slice ABI. UniFFI does,
-    /// so the workaround should not be copied into Swift — someone would later wonder why
-    /// it was there.
+    /// `Vec<bool>`, converted here to the engine's byte flags, so Swift passes plain booleans
+    /// rather than a byte array someone would later wonder about.
     pub fn apply_cheats(&self, codes: Vec<String>, enabled: Vec<bool>) -> Result<u32, EngineError> {
         let flags: Vec<u8> = enabled.into_iter().map(u8::from).collect();
         Ok(self.lock().apply_cheats(codes, &flags)? as u32)
@@ -820,11 +811,8 @@ impl ContinuumEngine {
 
     // -------------------------------------------------------------- core options
 
-    /// Structured, unlike the wasm facade's flat string vector.
-    ///
-    /// `wasm.rs` flattens to groups of four because wasm-bindgen would otherwise generate a
-    /// wrapper class per element. UniFFI generates a Swift struct, so the list crosses in
-    /// the shape the UI actually wants.
+    /// Structured: UniFFI generates a Swift struct per option, so the list crosses in the
+    /// shape the UI actually wants.
     pub fn core_options(&self) -> Vec<CoreOptionRecord> {
         self.lock()
             .core_options()
@@ -997,19 +985,18 @@ impl ContinuumEngine {
 
     /// Tells the engine the rate the device actually runs at, so resampling happens here.
     ///
-    /// The peer of `wasm.rs`'s `setOutputSampleRate`, and it exists for the same reason: the
-    /// hardware rate is not knowable until the platform's audio graph is up. `EmulatorBridge`
-    /// defaults to 48000 because something has to be assumed before then, and on iOS that
-    /// assumption is wrong often enough to matter. `AVAudioSession` reports 48000 on a modern
+    /// It exists because the hardware rate is not knowable until the platform's audio graph is
+    /// up. `EmulatorBridge` defaults to 48000 because something has to be assumed before then,
+    /// and on iOS that assumption is wrong often enough to matter. `AVAudioSession` reports 48000 on a modern
     /// iPhone speaker, 44100 on some Bluetooth routes, and a headset can negotiate something
     /// else again. So Swift reads the session's real rate after activating it and reports it
     /// here.
     ///
     /// Resampling stays on this side of the boundary deliberately. `audio/resample.rs` already
-    /// reconciles a core's rate with an output rate, is already unit tested, and is already
-    /// the code the browser build has been running for a year. A second implementation in
-    /// Swift would be a second thing to keep correct, and getting it subtly wrong sounds like
-    /// a slightly out of tune game rather than like a bug.
+    /// reconciles a core's rate with an output rate, is already unit tested, and is the code
+    /// every core's audio already runs through. A second implementation in Swift would be a
+    /// second thing to keep correct, and getting it subtly wrong sounds like a slightly out of
+    /// tune game rather than like a bug.
     ///
     /// A rate change drops whatever is queued, because those samples were resampled for the
     /// old rate and playing them at the new one would pitch shift the tail.

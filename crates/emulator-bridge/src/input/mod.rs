@@ -2,8 +2,8 @@
 //!
 //! The UI's only job is to forward raw events — a key, a gamepad poll, a touch. All
 //! mapping, latching, port assignment and per-frame snapshotting lives here, so
-//! Phase 2's Swift UI inherits identical behaviour by calling the same functions
-//! rather than reimplementing them.
+//! the Swift UI inherits identical behaviour by calling the same functions rather
+//! than reimplementing them.
 //!
 //! - [`GamepadBridge`] is the live state: connections, buttons, analog axes.
 //! - [`InputSnapshot`] is one frame's frozen copy, and the thing a core queries.
@@ -73,7 +73,7 @@ pub fn before_retro_run() {
     sensors::SENSORS.advance_frame();
 }
 
-/// Supported local players. Four covers every Phase 1 system (PS1 multitap aside).
+/// Supported local players. Four covers the systems the app runs (multitaps aside).
 pub const MAX_PORTS: usize = 4;
 
 /// Digital buttons, ordered to match `RETRO_DEVICE_ID_JOYPAD_*`.

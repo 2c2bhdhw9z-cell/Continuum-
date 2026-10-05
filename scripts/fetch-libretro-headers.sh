@@ -4,11 +4,9 @@
 #   ./scripts/fetch-libretro-headers.sh
 #   FORCE=1 ./scripts/fetch-libretro-headers.sh     re-download even if present
 #
-# Why this exists: `native/switch-wrapper/build.sh` prefers the libretro-common that ships
-# inside the vendored core sources, so the wrapper cannot drift from the ABI the cores use.
-# That directory only exists after a core has been built, which happens on Linux with
-# wasi-sdk. The macOS runner that builds the .ipa never does that, so it needs the headers
-# from somewhere — and hand-declaring the structs is exactly the mistake that put two
+# Why this exists: `native/switch-wrapper/build.sh` compiles against these headers and only
+# these, both in the Linux checks job and on the macOS runner that builds the .ipa. Neither
+# has another copy to use, and hand-declaring the structs is exactly the mistake that put two
 # errors in the design document before real headers were consulted.
 #
 # PINNED to one libretro-common commit and CHECKED by sha256, so the ABI the wrapper is

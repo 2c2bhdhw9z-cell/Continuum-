@@ -2,8 +2,8 @@
 #
 # Generated rather than committed, because a .xcodeproj is a UUID-keyed property list that
 # cannot be reviewed in a diff or edited safely without Xcode, and nobody on this project
-# has Xcode. Forty lines of YAML that a tool expands is auditable; 400 lines of pbxproj is
-# not. The generated project is gitignored.
+# has Xcode. YAML that a tool expands is auditable; the pbxproj it expands into, many times
+# the size, is not. The generated project is gitignored.
 #
 # Paths are relative to this file (native/ios).
 
@@ -94,8 +94,9 @@ targets:
         # Online play (Netplay.swift): the host listens on the local network and advertises over
         # Bonjour, and the guest browses for it. iOS shows this sentence in the Local Network
         # permission prompt, and refuses to browse a service type not listed below.
-        # Also covers Wi-Fi transfer (WiFiTransfer.swift) and SMB/WebDAV browsing (RemoteSources.swift).
-        NSLocalNetworkUsageDescription: "Continuum uses the local network for two-player online play with another phone, for Wi-Fi transfer of games and saves from a computer's browser, and to browse a NAS or computer over SMB or WebDAV."
+        # Also covers Wi-Fi transfer (WiFiTransfer.swift) and WebDAV browsing (RemoteSources.swift;
+        # SMB is not in this build).
+        NSLocalNetworkUsageDescription: "Continuum uses the local network for two-player online play with another phone, for Wi-Fi transfer of games and saves from a computer's browser, and to browse a NAS or computer over WebDAV."
         NSBonjourServices:
           - _continuum._tcp
         # Open in / Share to Continuum (ImportCenter.open): every game, disc, skin, cheat and save
@@ -439,7 +440,8 @@ targets:
       - path: ImportScreen.swift
       # Wi-Fi transfer: NWListener HTTP server; the page and the head parser are in Rust.
       - path: WiFiTransfer.swift
-      # WebDAV (URLSession PROPFIND) and SMB (AMSMB2) servers, Keychain passwords, folder browser.
+      # WebDAV (URLSession PROPFIND) servers, Keychain passwords, folder browser. SMB is not in this
+      # build (see the AMSMB2 note above `targets`); its code stays behind `#if canImport(AMSMB2)`.
       - path: RemoteSources.swift
       # Save files in other emulators' formats, converted in Rust, written through the battery path.
       - path: SaveFormats.swift
@@ -526,8 +528,8 @@ targets:
         embed: true
         link: false
         codeSign: false
-      # Nintendo DS. Software renderer, so it needs nothing the other five do not: see the note in
-      # scripts/build-core.sh ios_core_config for why this core arrives before the N64.
+      # Nintendo DS. Software renderer, so it needs nothing the other software cores do not: see
+      # the note in scripts/build-core.sh ios_core_config for why this core arrives before the N64.
       - framework: build/lib/melonds_libretro_ios.dylib
         embed: true
         link: false

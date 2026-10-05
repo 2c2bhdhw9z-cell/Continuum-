@@ -2,8 +2,8 @@
 members = ["crates/emulator-bridge", "crates/uniffi-bindgen"]
 # The engine is what `cargo build`/`cargo test` with no `-p` should mean. The binding
 # generator is a build-time tool for the iOS pipeline, built explicitly by
-# `native/ios/build-engine.sh`, and keeping it out of the default set means the web CI does
-# not compile clap to deploy a PWA.
+# `native/ios/build-engine.sh`, and keeping it out of the default set means a plain
+# `cargo build` or `cargo test` does not compile clap for it.
 default-members = ["crates/emulator-bridge"]
 resolver = "2"
 
@@ -14,14 +14,12 @@ license = "MIT OR Apache-2.0"
 rust-version = "1.85"
 
 [workspace.dependencies]
-# Backends are selected per target in the crate manifests: WebGPU only for wasm,
-# Metal for iOS. Enabling them here would compile a WebGL2 fallback we explicitly
-# do not want.
+# Backends are selected in crates/emulator-bridge/Cargo.toml (metal and vulkan). Default
+# features here would add backends the iOS app does not use.
 wgpu = { version = "30.0", default-features = false }
 bytemuck = { version = "1", features = ["derive"] }
 log = "0.4"
 thiserror = "2"
-raw-window-handle = "0.6"
 
 
 [profile.release]

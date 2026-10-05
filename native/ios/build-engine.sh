@@ -134,22 +134,19 @@ echo "==> $LIBDIR/libcontinuum_switch.dylib ($(du -h "$WRAPPER" | cut -f1))"
 
 # ------------------------------------------------ 4. the libretro cores
 
-# The real cores the .ipa ships, all compiled from source for iOS by scripts/build-core.sh
-# and dlopened at runtime like the wrapper above:
+# The real cores the .ipa ships, dlopened at runtime like the wrapper above, come from two
+# places, and each list has exactly one definition:
 #
-#   fceumm           NES
-#   mgba             GBA + GB/GBC
-#   genesis_plus_gx  Mega Drive + Master System + Game Gear
-#   snes9x           SNES
-#   pcsx_rearmed     PS1, INTERPRETER-only (its makefile force-disables the JIT for iOS
-#                    arm64), which is the same build that already worked
-#   mednafen_psx_hw  PS1 Beetle HW (HAVE_HW=1), step 4 SET_HW_RENDER proof; Mac/CI only
+#   built from source   scripts/build-core.sh: the required IOS_CORES (`ios-names`) and the
+#                       optional IOS_OPTIONAL_CORES (`ios-optional-names`)
+#   prebuilt            scripts/fetch-buildbot-cores.sh: the libretro buildbot cores (`names`),
+#                       each checked and staged through `build-core.sh ios-stage-prebuilt`
 #
 # build-core.sh clones each core into .work/ios/, runs its own build for ios-arm64, fixes the
 # @rpath install_name and stages the .dylib straight into build/lib/ (this same $LIBDIR).
 # `ios-all` builds them all and deliberately keeps going after a failure, so one broken core
-# cannot hide the state of the other four; it still exits non-zero, so this script still
-# stops before an .ipa can be built with a hole in it.
+# cannot hide the state of the others; a required core that failed still makes it exit
+# non-zero, so this script still stops before an .ipa can be built with a hole in it.
 #
 # The expected filenames are READ from build-core.sh rather than restated here. They have to
 # match byte for byte in project.yml, package-ipa.sh, ios.yml and ContinuumApp.swift already,

@@ -7,6 +7,9 @@
 # The app's own files are compiled, not copies. DeltaSkinNormalizedRect is sliced out of
 # DeltaSkinImport.swift (the rest of that file needs UIKit), and EngineHost is a one-line stub so
 # SkinFunctionPending.swift can be compiled and called.
+#
+# Then scripts/check-delta-skin-sample.py checks the sample Delta skin in docs/samples: its screens
+# map to the picture placement Continuum expects and the package holds its info.json and artwork.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 ios="$root/native/ios"
@@ -31,3 +34,4 @@ swiftc -swift-version 5 -o "$work/check" \
   "$root/scripts/skin-check/EngineHostStubs.swift" \
   "$root/scripts/skin-check/main.swift"
 "$work/check" "$ios"
+python3 "$root/scripts/check-delta-skin-sample.py"

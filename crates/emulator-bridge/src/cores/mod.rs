@@ -2,14 +2,14 @@
 //!
 //! Architectural rule: **no core is loaded at boot.** The registry is populated
 //! at startup with *declarations* only — cheap metadata describing what could be
-//! loaded (a few hundred bytes each). The binary module behind a declaration is
-//! fetched by the host and handed to [`CoreRegistry::attach_module`] the first
-//! time a game using it is launched.
+//! loaded (a few hundred bytes each). The libretro dylib behind a declaration is
+//! dlopened and handed to [`CoreRegistry::attach_core`] the first time a game using
+//! it is launched.
 //!
-//! The [`EmulatorCore`] trait is the seam the libretro FFI will implement in
-//! Phase 1b. Nothing above this trait knows a core is C code, a wasm module, or
-//! a natively linked archive — which is what lets the same engine drive a
-//! browser and an iOS app.
+//! The [`EmulatorCore`] trait is the seam: `native_core` implements it over a libretro
+//! dylib, and [`DiagnosticCore`] is the built-in test stand-in. Nothing above this trait
+//! knows a core is C code — which is what lets the same engine drive the iOS app and,
+//! later, another platform's facade.
 
 mod diagnostic;
 mod registry;
@@ -40,11 +40,11 @@ pub struct ContentHint {
     pub name: String,
     /// Full, openable filesystem path when the caller has one.
     ///
-    /// `None` for the web build, which loads from memory and never has a real path, and
-    /// for callers that only know a bare filename. A `need_fullpath` native core (PCSX
-    /// ReARMed, the Switch containers) hard-requires `retro_game_info::path` to be a real
-    /// openable path — `name` alone is only the file stem, which is not one — so the
-    /// native loader reads this when the content bytes are empty. Populated by
+    /// `None` for content handed over as bytes with no file behind it, and for callers that
+    /// only know a bare filename. A `need_fullpath` native core (PCSX ReARMed, the Switch
+    /// containers) hard-requires `retro_game_info::path` to be a real openable path —
+    /// `name` alone is only the file stem, which is not one — so the native loader reads
+    /// this when the content bytes are empty. Populated by
     /// [`ContentHint::from_filename`] when the input already looks like a path.
     pub full_path: Option<String>,
 }
@@ -63,7 +63,7 @@ impl ContentHint {
     ///
     /// When the input carries a directory separator it is a path, not a bare name, so the
     /// verbatim string is retained in [`ContentHint::full_path`] for `need_fullpath` cores.
-    /// The extension/name split is unchanged, so the web build sees identical behaviour.
+    /// The extension/name split is the same either way.
     pub fn from_filename(filename: &str) -> Self {
         let name = filename.rsplit('/').next().unwrap_or(filename);
         let mut hint = match name.rsplit_once('.') {
@@ -102,8 +102,8 @@ pub struct CoreOption {
 
 /// Everything the engine needs to know about a core before it exists in memory.
 ///
-/// Declared up front by the host from `cores/manifest.json`; also returned by a
-/// loaded core so the engine can detect a mismatch between manifest and reality.
+/// Declared up front by the host (the app's `CoreCatalog`, through UniFFI); also returned
+/// by a loaded core so the engine can detect a mismatch between declaration and reality.
 #[derive(Debug, Clone)]
 pub struct CoreDescriptor {
     /// Stable identifier, e.g. `"nestopia"`. Used as the registry key.
@@ -116,7 +116,7 @@ pub struct CoreDescriptor {
     pub target_fps: f64,
     pub audio_sample_rate: u32,
     pub pixel_format: PixelFormat,
-    /// Relative URL / bundle path of the module. Fetched lazily, never at boot.
+    /// Where the core's library is (`module_path` across UniFFI). Loaded lazily, never at boot.
     pub module_url: String,
     /// Which core wins when several can run the same system. **Higher wins.**
     ///
@@ -191,11 +191,10 @@ pub trait EmulatorCore: crate::MaybeSend {
 
     /// Applies one cheat at `index` (`retro_cheat_set`).
     ///
-    /// Signature is deliberately plain — `&str`, `u32`, `bool` — because this trait
-    /// compiles for every target, including the native iOS build where there is no
-    /// `JsValue`. The code string is whatever the user typed; validating cheat syntax is
-    /// the core's job, and each core's format differs (Game Genie for the NES, raw
-    /// address:value for the Mega Drive, and so on).
+    /// Signature is deliberately plain — `&str`, `u32`, `bool` — so it carries no
+    /// platform type and maps straight onto `retro_cheat_set`. The code string is whatever
+    /// the user typed; validating cheat syntax is the core's job, and each core's format
+    /// differs (Game Genie for the NES, raw address:value for the Mega Drive, and so on).
     fn set_cheat(&mut self, _index: u32, _enabled: bool, _code: &str) -> Result<(), BridgeError> {
         Err(BridgeError::NotImplemented("set_cheat"))
     }
@@ -273,9 +272,10 @@ pub trait EmulatorCore: crate::MaybeSend {
 
     /// Bytes of memory this core holds, if it can be measured.
     ///
-    /// `None` for cores whose footprint is not separable from the engine's (the
-    /// diagnostic stand-in lives in the engine's own memory). A real core reports its
-    /// wasm module's linear memory plus the staging buffers dedicated to it, which is
+    /// `None` for cores whose footprint is not separable from the engine's, which is
+    /// every core today: the diagnostic stand-in lives in the engine's own memory, and a
+    /// dlopened libretro core allocates from the same process heap. A core that can measure
+    /// itself reports its own allocations plus the staging buffers dedicated to it, which is
     /// what a multi-core memory budget actually needs to track.
     fn memory_bytes(&self) -> Option<u64> {
         None
@@ -309,10 +309,12 @@ pub fn pick_joypad_device(types: &[(String, u32)]) -> (String, u32) {
         .unwrap_or_else(|| ("RetroPad".to_string(), joypad))
 }
 
-/// Verifies a fetched module looks like a WebAssembly binary before instantiating.
+/// Test-only: the placeholder byte check [`CoreRegistry::attach_module`] applies.
 ///
-/// Cheap guard against a CDN 404 page or a truncated download being handed to the
-/// instantiator, where the failure would be far less legible.
+/// The tests hand `attach_module` a minimal WebAssembly header as a placeholder module, and
+/// this rejects anything else (an HTML page, a truncated file), which is how those tests
+/// reach the registry's `Failed` state. Real cores are native dylibs, loaded by
+/// `native_core`, and never pass through here.
 pub(crate) fn validate_wasm_module(core_id: &str, bytes: &[u8]) -> Result<(), BridgeError> {
     const WASM_MAGIC: &[u8; 4] = b"\0asm";
     if bytes.len() < 8 {

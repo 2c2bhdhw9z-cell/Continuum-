@@ -84,7 +84,7 @@ The libretro iOS buildbot has `dolphin_libretro`, `flycast_libretro`, `ppsspp_li
   Continuum already builds flycast from source in CI with `TARGET_NO_REC`, which compiles the
   dynarec out and leaves only interpreters (SH4, ARM7 sound CPU, DSP). This is the right build.
 - **Builds for iOS arm64:** yes. It builds green in CI and `flycast_libretro_ios.dylib` has been
-  in every IPA since build 119 (checked in the build 121 file). **Nobody has played a Dreamcast
+  in every IPA since build 119 (checked in the build 124 file). **Nobody has played a Dreamcast
   game on the phone yet**: that is test C19 in TESTING.md.
 - **Without JIT:** unknown on this phone; it has to be measured. Stock flycast's interpreter is
   slow: a browser port reported "a couple of FPS" on the interpreter
@@ -108,5 +108,5 @@ The libretro iOS buildbot has `dolphin_libretro`, `flycast_libretro`, `ppsspp_li
 | System | Playable with no JIT on this phone? | Do it? |
 | --- | --- | --- |
 | Dreamcast | Likely for many games; proof needed | Yes. In the app since build 119; test it now |
-| Symbian / N-Gage | Older games likely, newer ones unlikely | Later, needs a wrapper |
-| GameCube / Wii | **No** | Only as a labelled experiment, or not at all |
+| Symbian / N-Gage | Older games likely, newer ones unlikely | Later, needs a wrapper (not started) |
+| GameCube / Wii | **No** | Not built. Only as a labelled experiment, or not at all |

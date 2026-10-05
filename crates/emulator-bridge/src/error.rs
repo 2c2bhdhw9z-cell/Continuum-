@@ -1,8 +1,8 @@
 //! Error surface for the bridge.
 //!
-//! Every fallible bridge operation funnels through [`BridgeError`]. Both facades
-//! (wasm-bindgen in Phase 1, UniFFI in Phase 2) convert this single type, so
-//! error semantics never diverge between the web and native front ends.
+//! Every fallible bridge operation funnels through [`BridgeError`]. The UniFFI facade
+//! (`uniffi_api.rs`) converts this single type into the error Swift sees, so the app reports
+//! the same failure the engine raised.
 
 use thiserror::Error;
 
@@ -57,10 +57,10 @@ pub enum BridgeError {
 
 #[derive(Debug, Error)]
 pub enum GfxError {
-    #[error("this browser does not expose a WebGPU adapter (navigator.gpu missing or blocked)")]
+    #[error("no GPU adapter was found (Metal unavailable)")]
     NoAdapter,
 
-    #[error("failed to create a WebGPU surface for the canvas: {0}")]
+    #[error("failed to create the drawing surface: {0}")]
     SurfaceCreation(String),
 
     #[error("the adapter cannot present to this surface")]

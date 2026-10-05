@@ -1,20 +1,20 @@
-//! Phase 1 stand-in core. **Contains no emulation.**
+//! Built-in stand-in core. **Contains no emulation.**
 //!
-//! Its entire purpose is to exercise the plumbing end to end before any C code
-//! exists: it produces a synthetic video pattern, optional test audio, reacts to
-//! input, and implements save-state so every path the UI touches is real.
+//! It produces a synthetic video pattern, optional test audio, reacts to input, and
+//! implements save-state, so the engine's session, input, memory and save-state paths
+//! can be exercised with no real core. The tests attach it through
+//! [`crate::bridge::EmulatorBridge::attach_core_module`]; the app never loads it.
 //!
-//! Concretely it proves, on real hardware, that:
+//! It was written, before any real core existed, to prove on real hardware that:
 //!
-//! - the WebGPU upload/draw path presents a correctly oriented, correctly scaled
+//! - the GPU upload/draw path presents a correctly oriented, correctly scaled
 //!   frame (the pattern is asymmetric on purpose — a flipped blit is obvious);
 //! - input reaches the core within the same tick that produced the frame (the
 //!   D-pad moves the reticle);
 //! - the audio ring drains to the device without clicks or drift.
 //!
-//! TODO(phase1b): [`crate::cores::registry::instantiate`] swaps this for the real
-//! libretro instance. Nothing outside that function needs to change, because both
-//! are just `EmulatorCore` implementations.
+//! Real libretro cores (`native_core`) took its place in the app without anything else
+//! in the engine changing, because both are just `EmulatorCore` implementations.
 
 use super::{ContentHint, CoreDescriptor, EmulatorCore};
 use crate::audio::{AudioSink, CHANNELS};

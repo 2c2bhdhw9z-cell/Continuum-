@@ -18,13 +18,14 @@ landscape with no skin no longer freezes (120), the layout editor, the system pi
 On 5 October with build 122: the eye button that hides the top bar (and that it remembers), a
 paused game staying paused after leaving the app, a 3DS skin sideways with nothing on the picture,
 importing several skins at once, the tidier small text, changing a 3DS "restart" setting without a
-crash, fast forward at 2x, the CRT filter, and taking a cover from the game.
+crash, fast forward at 2x, the CRT filter, taking a cover from the game, and Save to the next free
+slot.
 
 ---
 
 # The list: what still needs testing
 
-## A. New in builds 123 and 124 (do this first)
+## A. New since build 121 (do this first)
 
 **A1. Save slot pictures (it was black in 122)**
 1. In any game: **⋯** → **Save to the next free slot**, then **⋯** → **Save slots...**.
@@ -67,7 +68,7 @@ crash, fast forward at 2x, the CRT filter, and taking a cover from the game.
 1. **Settings** → **RETROACHIEVEMENTS** → **Log in**.
 2. ✅ Good: while it works the button says **Logging in...** and tapping it again does nothing.
 
-**A7. Things to notice in passing** (new in 124, no need to set up)
+**A7. Things to notice in passing** (no need to set up)
 - The small text in the player should always read as plain English. If you ever see something like
   `SaveState(reason: "...")` in it, send a screenshot.
 - When the app asks **Which system?** for a file, GameCube, Wii and Symbian are no longer offered
@@ -75,6 +76,8 @@ crash, fast forward at 2x, the CRT filter, and taking a cover from the game.
 - PlayStation with **Beetle PSX HW** selected: a BIOS file whose name is in capitals (for example
   `SCPH1001.BIN`) is now found, and the BIOS line in the small text starts
   `BIOS (mednafen_psx_hw)`, which is Beetle, not the other PlayStation core.
+- 3DS (Mario Kart 7): after a race ends or the screen changes, does the game stutter or stay
+  smooth? Tell me either way.
 
 ## B. Getting games in
 
@@ -110,7 +113,7 @@ For each one: ✅ cover shows, its own controls show, the game moves. ❌ Send t
 | C2 | Master System | `.sms` | No |
 | C3 | SG-1000 | `.sg` | No |
 | C4 | TurboGrafx-16 | `.pce` | No |
-| C5 | Atari 2600 | `.a26` (rename `.bin` to `.a26`) | No |
+| C5 | Atari 2600 | `.a26`, or a lone `.bin` (the app asks **Which system?** once; renaming to `.a26` skips the question) | No |
 | C6 | Famicom Disk System | `.fds` | `disksys.rom` in the Continuum folder. Getting a message naming that file counts as a pass |
 | C7 | WonderSwan | `.ws` / `.wsc` | No |
 | C8 | Neo Geo Pocket | `.ngp` / `.ngc` | No |
@@ -125,8 +128,7 @@ For each one: ✅ cover shows, its own controls show, the game moves. ❌ Send t
 | C17 | C64, Amiga, DOS | DOS as a `.zip` | Amiga may need a Kickstart file. The **Keyboard** button opens a keyboard |
 | C18 | DOOM | `.wad` | No |
 | C19 | Dreamcast | `.gdi` or `.chd` | Maybe BIOS files. Tell me the speed |
-| C20 | PSP | `.cso` | No. Expect it to be slowish |
-| C21 | Nintendo 64 | `.z64` / `.n64` / `.v64` | No. Already ran Smash; just check it still does |
+| C20 | PSP | `.cso`, or a PSP `.iso` / `.chd` / `EBOOT.PBP` (it should open as PSP; if it asks, pick PlayStation Portable) | No. Expect it to be slowish |
 | C22 | Flash | `.swf` | No. Pad acts as arrows and Space |
 | C23 | J2ME (old phone games) | `.jar` | No. Leave and come back: the save should still be there |
 
@@ -140,17 +142,15 @@ overwrite one (it should ask first), load the older one, delete one. ✅ All wor
 
 **D3. Export and import a state** — Same screen: export a slot, import it back. ✅ It loads.
 
-**D4. Quick save** — confirmed working in 122 (the slot appears); its picture is test A1.
-
 ## E. Skins and controls
 
-**E1. Skin holes** — Import a `.deltaskin`. ✅ The game picture sits inside the skin's screen area,
-both upright and sideways. On DS/3DS skins both screens are in their holes. A circle pad works as a
-stick. If a DS or 3DS skin shows BOTH screens squashed into the top screen area and nothing in the
-bottom one, that skin was imported before build 109: delete it in the skin library and import the
-same skin file again. (Older builds only kept the first screen area of a skin, and the app cannot
-read the original file again by itself.) Your Mario Kart 7 screenshot already shows both screens
-in place, so your current 3DS skin is fine.
+**E1. Skin holes** — A 3DS skin held sideways is already confirmed. Still to check: hold the phone
+upright with a skin, and try a DS skin. ✅ The game picture sits inside the skin's screen area, and
+on a DS skin both screens are in their own holes. A circle pad works as a stick. If a DS or 3DS
+skin shows BOTH screens squashed into the top screen area and nothing in the bottom one, that skin
+was imported before build 109: delete it in the skin library and import the same skin file again.
+(Older builds only kept the first screen area of a skin, and the app cannot read the original file
+again by itself.)
 
 **E2. Manic skins** — Import a `.manicskin`. ✅ Buttons work, press animations show, switches slide,
 button sounds play (unless the phone is on silent).
@@ -190,8 +190,6 @@ if it says restart, tap **Restart the game now**. ✅ No crash, and the change s
 **F4. Palette, rotate, discs** — Game Boy, Game Boy Color, NES, Famicom Disk System or Virtual
 Boy: **Next palette** (other systems do not show it). Any one-screen game: **Rotate picture** (DS
 and 3DS do not show it). Multi-disc PS1 (`.m3u`): **Next disc**.
-
-**F5. Cover from the game** — confirmed in 122. Build 123 changes what it takes (the game alone, sharper): test A1 step 3.
 
 **F6. DS and 3DS extras** — DS: **⋯** → **Close or open the lid**. DS blowing is NOT in the ⋯
 menu: it is a round microphone button at the top left of the DS game screen, which you hold down
@@ -250,8 +248,7 @@ servers are synced too.
 
 This app has been run on an iPhone 17 Pro Max and it plays games. The first cores each ran a real
 game at 60 fps with 0 dropped frames. The app now carries **32 cores**, so the `cores:` line should
-read about **32 of 32 declared**. DS (Mario Kart DS, SoulSilver), N64 (Smash) and 3DS (Mario Kart)
-have also run since:
+read **32 of 32 declared**. The first cores' results (DS, N64 and 3DS are in the second table):
 
 | System | Game that ran | Core | Frames counted in the screenshot |
 | --- | --- | --- | --- |
@@ -287,20 +284,37 @@ Everything below has since been confirmed on a device as well, in the order it w
 | Bluetooth controller | Works |
 | Controller and thumbs together | Works, which was the hard part of the input rewrite |
 | Library layout, Grid and List | Works |
+| Nintendo DS (build 80) | Mario Kart DS and Pokémon SoulSilver, both screens, about 60 fps, 0 dropped |
+| Nintendo 64 (build 97) | Smash reached the character select, about 60 fps, no JIT |
+| Nintendo 3DS | Mario Kart runs (builds 100 and 101, with a stutter after transitions); Mario Kart 7 on build 122 |
+| **+** opens Files (119) | Works |
+| The **⋯** menu in a game (119) | Opens |
+| Sharper TV/AirPlay picture (119) | Sharper |
+| Landscape with no skin (120) | No longer freezes |
+| The eye button that hides the top bar (122) | Hides and shows it, and remembers |
+| Pause stays paused (122) | A paused game stays paused after leaving the app |
+| 3DS skin sideways, both screens (122) | Mario Kart 7 screenshot: both screens in their holes, nothing on the picture |
+| Several skins at once (122) | Imported together |
+| Tidier small text (122) | The diagnostic text reads tidier |
+| 3DS restart setting (122) | Changed without a crash |
+| Fast forward 2x (122) | Works |
+| CRT filter (122) | Works |
+| Cover from the game (122) | Works (build 123's sharper version is test A1 step 3) |
+| Save to the next free slot (122) | The slot appears (its picture is test A1) |
 
 Two of those lines are narrower than they sound. Cheats means a code you type, not a search and not a file import. Fast forward is about 4x, not 5x. The 50-slot save manager is in the list above (D2).
 
-So this checklist is no longer asking whether any of it works. **It is a regression check.** Each
-test below says what already passed, and if one of those fails on a new build then something that
-used to work has broken, which is worth telling me straight away.
+Tests 1 to 5 below are a regression check: each says what already passed, and if one fails on a
+new build, something that used to work has broken, which is worth telling me straight away.
 
 Before you start, read [README.md](README.md) if you have not.
 
 ## The single most useful thing you can do
 
-The app has a block of small text at the top of the screen. That text is the only diagnostic
-there is. An app installed outside the App Store has no debugger attached, so there is no log,
-no crash report I can read, and no way for me to watch what happened. That text block is it.
+The app has a block of small text: near the top of the player, and in the Library behind the thin
+line above the tabs. That text is the only diagnostic there is. An app installed outside the App
+Store has no debugger attached, so there is no log, no crash report I can read, and no way for me
+to watch what happened. That text block is it.
 
 So when something does not work:
 
@@ -318,19 +332,20 @@ tried to do.
 
 **Do this**
 
-1. Install `Continuum.ipa` on the phone.
+1. Install the newest `Continuum-<number>.ipa`.
 2. Open it.
-3. Take a screenshot of whatever appears.
+3. Tap the thin line of small text just above the tabs at the bottom, so the diagnostic block
+   opens, and take a screenshot.
 
 **You should see**
 
-- A black screen.
-- A block of small text at the top. Its first line names the build. Under that there is a status
-  line, a line starting `cores:`, a line starting `BIOS`, a line about the graphics device, and a
-  line counting frames and fps.
+- The **Library** (Home, All Games, Favorites and Settings along the bottom), with a **+** button
+  that opens Files.
+- A thin line of small text above the tabs. Tapping it opens the diagnostic block. Its first line
+  names the build. Under that there is a status line, a line starting `cores:`, usually a line
+  starting `BIOS`, a line about the graphics device, and a line counting frames and fps.
 - The status line should say something close to `surface ready - tap + to add a game`.
 - The `cores:` line should say **32 of 32 declared**.
-- The **Library**, with a **+** button that opens Files.
 
 **Tell me if it did not work**
 
@@ -392,20 +407,15 @@ A screenshot covers nearly all of this at once.
 
 ## Test 3: the other cartridge systems
 
-**Mostly passed. Two rows are still untried, and they are the only gap left in this checklist.**
-Each is the same routine as Test 2, with a different file.
+**Passed on `.smc`, `.gbc`, `.md` and `.gg`. `.gb` and `.sms` are tests C1 and C2.** Each is the
+same routine as Test 2, with a different file.
 
 | File to try | Console | Core it should name | Where it stands |
 | --- | --- | --- | --- |
 | `.sfc` or `.smc` | SNES | snes9x | Passed on `.smc` with Super Mario World |
-| `.gb` or `.gbc` | Game Boy, Game Boy Color | mgba | Passed on `.gbc` with Pokemon Yellow. `.gb` not tried |
-| `.sms` | Master System | genesis_plus_gx | **Not tried yet.** Still worth doing |
+| `.gbc` | Game Boy Color | mgba | Passed on `.gbc` with Pokemon Yellow |
 | `.md` or `.gen` | Genesis / Mega Drive | genesis_plus_gx | Passed on `.md` with Mortal Kombat 3 |
 | `.gg` | Game Gear | genesis_plus_gx | Passed on `.gg` with Krusty's Fun House |
-
-The two untried rows are the ones to spend a test on. Neither is a worry: `.sms` runs on the same
-core as the `.md` and `.gg` games that played, and `.gb` runs on the same core as the `.gba` and
-`.gbc` games that played. They just have not been seen.
 
 **You should see** the same as Test 2 for each one: the right core named in the list, a picture,
 and the frame counter climbing.
@@ -423,8 +433,9 @@ and the frame counter climbing.
 
 **Already passed.** Crash Bandicoot, imported as a `.cue` plus its `.bin` in one go, played with
 no BIOS file on the original core. A later run also booted Crash on Beetle with `scph1001.bin`
-(build 98, about 60 fps, about 2900 frames). That BIOS boot happened. The no-BIOS result is only
-the older option, and those frames are not proof the GPU handoff is done.
+(build 98, about 60 fps, about 2900 frames). The no-BIOS result is only the older option. The
+Beetle frames came from its software renderer; its hardware (Vulkan) renderer has not been seen on
+a phone.
 
 It has an extra way to fail that has nothing to do with emulation, so on a fresh build it is
 still worth leaving until the cartridge systems work.
@@ -489,7 +500,7 @@ Rough guide to the lines, top to bottom:
 | First line | Names the build. Confirms you are running what you think you are running. |
 | Status line | The most recent thing the app did or tried to do. **This is the line to report.** |
 | `cores:` | How many of the emulator cores are actually inside the app. Should be 32 of 32. |
-| `BIOS (...)` | Only relevant to PlayStation. `none, HLE fallback` is normal. |
+| `BIOS (<emulator>)` | The BIOS file for the running game's system. `none, HLE fallback` is normal on the standard PlayStation emulator; Beetle and some other systems need a real file, and the line names it. |
 | `library:` | How many games the app found, and how many files that came from. A PlayStation `.bin` track counts as a file and not as a game, so `6 game(s) of 7 file(s)` is right for six games where one of them is a `.cue` with one track. |
 | Graphics line | Describes the graphics device. If this line is missing, drawing never started. |
 | `... frames · ... fps · ... dropped` | Whether the emulator is running. 0 frames means it never ran. Frames climbing with a black screen means it ran but the picture did not arrive. |

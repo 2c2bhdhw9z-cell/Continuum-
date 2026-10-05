@@ -1043,10 +1043,10 @@ enum GameSystem: String, Sendable, CaseIterable {
 
 /// The numbers that describe a control layout.
 ///
-/// Started as the same six the browser build used (`web/src/data/touch-layout.js`) for the two
-/// thumb clusters, then grew SELECT and START positions so every on-screen control the editor
-/// outlines can be dragged and persisted. Same limits as before: a control centred at 0 would be
-/// half off screen, and on iOS the outer few millimetres belong to the system's edge gestures.
+/// Started as six numbers for the two thumb clusters, then grew SELECT and START positions so
+/// every on-screen control the editor outlines can be dragged and persisted. Same limits as
+/// before: a control centred at 0 would be half off screen, and on iOS the outer few millimetres
+/// belong to the system's edge gestures.
 ///
 /// `Codable` so the editor's result survives a relaunch. Decoding is deliberately forgiving and
 /// Absolute play-area centre for one face or shoulder button that has been dragged free of its
@@ -1473,10 +1473,9 @@ final class TouchControlsView: UIView {
 
     /// Deadzone as a fraction of the D-pad's half extent. Below it, nothing is pressed.
     ///
-    /// 0.22 and 0.42 below are carried over verbatim from the browser build
-    /// (`web/src/engine/input.js`, `_attachDpadSurface`). SESSION_HANDOFF.md's appendix records
-    /// the single-surface D-pad as a decision taken there, so these are transcribed rather than
-    /// re-derived: they are the numbers that shipped and felt right.
+    /// 0.22 and 0.42 below are the numbers the single-surface D-pad has always shipped with and
+    /// that felt right (docs/archive/SESSION_HANDOFF.md's appendix records the decision), so they
+    /// are kept rather than re-derived.
     private static let dpadDeadzone: CGFloat = 0.22
 
     /// How far off-axis a press still counts as including that direction.
@@ -3652,16 +3651,16 @@ final class TouchControlsView: UIView {
     ///
     /// THE D-PAD IS ONE SURFACE, AND THAT IS THE WHOLE POINT. Four separate buttons cannot
     /// express a diagonal: a thumb resting between Up and Right would land on one of them, or
-    /// flicker between the two, and most action games would be unplayable. SESSION_HANDOFF.md's
-    /// appendix records this decision from the browser build, and this is that implementation
-    /// (`web/src/engine/input.js`, `_attachDpadSurface`) transcribed, constants included.
+    /// flicker between the two, and most action games would be unplayable.
+    /// docs/archive/SESSION_HANDOFF.md's appendix records the decision, and this is that
+    /// single-surface D-pad, constants included.
     ///
     /// The point is normalised against the pad's half extents, so it is scale independent. A
     /// direction counts when its own component dominates, or when the other component is still
     /// large enough for the press to be a genuine diagonal.
     ///
-    /// UIKit's y axis points down, exactly as the browser's `clientY` did, so `y < 0` meaning Up
-    /// is correct here and is not an inversion waiting to be noticed.
+    /// UIKit's y axis points down, so `y < 0` meaning Up is correct here and is not an inversion
+    /// waiting to be noticed.
     static func directions(at point: CGPoint,
                            in bounds: CGRect) -> (up: Bool, down: Bool, left: Bool, right: Bool) {
         let halfWidth = bounds.width / 2
