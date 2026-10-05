@@ -1,10 +1,15 @@
-> **Status: design intent plus history, not a to-do list.** Parts of this blueprint are built. The
-> `.ipa` exists, it is produced by `.github/workflows/ios.yml`, and it ships five libretro cores
-> as `dlopen`ed dylibs covering nine systems. Read the sections below for the reasoning and the
+> **Current state (5 October 2026, build 121) — read this before anything below.** This is the
+> original design, kept for the reasoning. The app it describes is built: 32 libretro cores ship
+> as `dlopen`ed dylibs, and games run on the owner's phone (STATUS.md has which ones).
+> **Two things below are overruled:** (1) JIT is NOT always on. The owner's install has no
+> debugger and no computer, so every core runs as an interpreter; see docs/PLATFORM_LIMITS.md.
+> (2) Section 7's "no interpreter fallback" rule is reversed for the same reason.
+> Older banner, kept: the `.ipa` is produced by `.github/workflows/ios.yml`; at the time it
+> shipped five cores covering nine systems. Read the sections below for the reasoning and the
 > target shape, but check `docs/archive/SESSION_HANDOFF.md` §16 and §17 for what is actually done before
 > treating anything here as outstanding work. At least one claim was reversed by implementation:
 > ownership of the `MTLDevice` runs the other way, wgpu creates it and Swift reads it back
-> (`docs/archive/SESSION_HANDOFF.md` §16). What has not happened is a confirmed game on screen on a device.
+> (`docs/archive/SESSION_HANDOFF.md` §16). ("No confirmed game on a device" was true then; it is not now.)
 > For scope see `docs/PRODUCT_SCOPE.md`.
 
 # Phase 5 — Wrapping the Rust engine in a native iOS app
@@ -352,7 +357,9 @@ Non-obvious, in rough order of how much time each will cost you:
 ### Who can actually ship this
 
 **Distribution is sideloading with custom signing, and that is settled.** App Store review is
-out of scope, so the entitlement is simply present and JIT is always on. There is **no
+out of scope, so the entitlement is simply present and JIT is always on. **[Overruled: in
+practice JIT is never on for this owner, and every core ships as an interpreter. See the banner
+at the top.]** There is **no
 interpreter fallback and no runtime capability probe** — a build that cannot map JIT pages is
 a misconfigured build, and it should fail loudly at startup rather than degrade silently into
 an unplayable interpreter.

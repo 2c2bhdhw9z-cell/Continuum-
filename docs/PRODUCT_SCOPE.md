@@ -3,7 +3,8 @@
 ## There is no PWA, and there never will be
 
 Continuum ships as **one artefact: a sideloadable iOS `.ipa`**. It is an all-in-one emulator
-for iPhone, with JIT and the increased-memory entitlements.
+for iPhone, with the increased-memory entitlement and **no JIT** (the owner's install has no
+debugger and no computer, so JIT cannot be switched on; see PLATFORM_LIMITS.md).
 
 Do not name a specific installer in documentation. The owner does not use TrollStore, and
 install instructions must stay installer-neutral.
@@ -90,10 +91,11 @@ Player screen:
   and `docs/mobile-after.png` show a layout bug of exactly that kind that was already fixed
   once on the web side; do not reintroduce it on iOS.
 
-The current SwiftUI app is a black screen with a monospace debug HUD and a plain list. That
-HUD is a diagnostic scaffold for bring-up, not the product UI. It should survive as something
-toggleable or hidden behind Settings, because on a sideloaded build with no debugger it is the
-only diagnostic there is, but it is not what the user should open the app into.
+This shell is built: the Library opens into the hero, shelves and tab bar described above. The
+old monospace diagnostic block survives behind Settings > Diagnostics ("Show the diagnostic
+block"), because on a sideloaded build with no debugger it is the only diagnostic there is. The
+same section has the switch for Apple's own performance overlay (off by default), which is iOS
+drawing over the game, not part of Continuum.
 
 ## Testing
 
@@ -107,9 +109,9 @@ The replacement, when it is written, must be native:
 - Rust integration tests that `dlopen` a host-architecture core dylib through the native core
   loader and assert on real frames, audio and input. This needs a host build path in
   `scripts/build-core.sh` alongside the existing `ios` one.
-- The existing `cargo test` suites (85 default, 95 with `--features native-core,uniffi-bindings`)
-  cover pacing, audio, input, the registry, pixel conversion and the rewind tape. Keep them
-  green, and keep both numbers accurate in documentation when they change.
+- The existing `cargo test` suites cover pacing, audio, input, the registry, pixel conversion,
+  the rewind tape and more. Keep them green. (The old counts written here, 85 and 95, date from
+  before the October work and were not re-counted; CI does not run them.)
 
 ## Systems
 
@@ -119,9 +121,9 @@ cores from the libretro iOS buildbot, answering core settings, Flash and J2ME in
 view), is [MANIC_PARITY.md](MANIC_PARITY.md). JIT stays out.
 
 
-Shipping in the `.ipa` today, six cores, TWELVE systems: NES + Famicom Disk System (fceumm),
-SNES (snes9x), GBA/GB/GBC (mgba), Genesis/Master System/Game Gear/SG-1000 (genesis_plus_gx),
-PS1 (pcsx_rearmed), DS (melonDS).
+Shipping in the `.ipa` today (build 121): **32 cores**, covering everything in MANIC_PARITY.md's
+system table except GameCube, Wii and Symbian, plus Flash and J2ME in bundled players. STATUS.md
+has the per-system state. (This line used to say six cores and twelve systems.)
 
 **Check a core's own `valid_extensions` before concluding a system needs a new core.** The Disk
 System and the SG-1000 were both already supported by cores in the app and were reachable for the
@@ -131,9 +133,9 @@ the importable list used to be a hand-written second copy and routing an extensi
 it changed nothing on screen. The DS arrived early and out of order because melonDS is software rendered on
 iOS, so it needed none of the hardware-renderer work the rest of the list does.
 
-Still ahead, hardest last: N64 (needs MoltenVK and the injected-Vulkan-context path), PSP,
-3DS, **Switch**. `native/switch-wrapper/` is a working inversion-of-control frame gate with no
-engine behind it yet.
+N64, PSP and 3DS have since arrived (N64 on its software renderer, PSP and 3DS through Vulkan,
+all without JIT). Still ahead, hardest last: **Switch**. `native/switch-wrapper/` is a working
+inversion-of-control frame gate with no engine behind it yet.
 
 **The Switch is an EMULATED SYSTEM, the last and hardest one, not a platform Continuum runs on.**
 Spelled out because the name invites the other reading and an agent has already made that mistake
@@ -147,4 +149,4 @@ below.
 Architectural invariants (one MTLDevice owned by Rust and read back by Swift,
 `engine.coreState` as the only source of truth for core residency, import-and-copy into
 Documents with original filenames preserved, no security-scoped URLs on the launch path) are
-documented in `SESSION_HANDOFF.md`. Do not relitigate them.
+documented in `docs/archive/SESSION_HANDOFF.md`. Do not relitigate them.

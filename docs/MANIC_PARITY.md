@@ -4,7 +4,7 @@ The owner's goal: Continuum is the one iPhone emulator everyone uses. Every line
 Manic EMU (or another leading iOS emulator) does. Tick it when it is on master. "Phone" means a
 phone has shown it working; until then a ticked line is only "in the code".
 
-Ticked `[x]` = on master, not yet shown on a phone unless it says so. Wave 2 (core settings, filters, speeds, discs, every import method, Manic skins and all 48 function buttons, keyboard, motion, remapping, 19 new systems) landed 3 October 2026.
+Ticked `[x]` = on master, not yet shown on a phone unless it says so. Wave 2 (core settings, filters, speeds, discs, every import method, Manic skins and all 48 function buttons, keyboard, motion, remapping, 19 new systems) landed 3 October 2026. Everything ticked is in the current install (build 121, 32 cores). The phone test steps for all of it are in [TESTING.md](../TESTING.md).
 
 Keep this file current. A new session should be able to read this and carry on.
 
@@ -56,12 +56,12 @@ DS, 3DS, PSP.
 | DS extra | melonds | .ds | [x] code |
 | NES extra | fceumm | .fc | [x] code |
 | SNES extra | snes9x | .snes | [x] code |
-| Sega Dreamcast | flycast, from source (not on the iOS buildbot) | .cdi .gdi .chd .cue .bin .m3u | [x] code, optional build |
+| Sega Dreamcast | flycast, from source (the buildbot's copy needs JIT) | .cdi .gdi .chd .cue .bin .m3u | [x] code, in the IPA since build 119 |
 | Adobe Flash | Ruffle in a bundled player view | .swf | [x] code |
 | J2ME | JavaScript J2ME engine in a bundled player view | .jar | [x] code |
-| GameCube | Dolphin interpreter, from source | .gcm .gcz .rvz .iso .dol .elf | [ ] research |
-| Wii | Dolphin interpreter, from source | .rvz .wbfs .ciso .wia .iso .wad .dol .elf | [ ] research |
-| Symbian / N-Gage | EKA2L1 | .sis .sisx .n-gage | [ ] research |
+| GameCube | Dolphin interpreter | .gcm .gcz .rvz .iso .dol .elf | [ ] researched: not playable without JIT (HARD_SYSTEMS.md) |
+| Wii | Dolphin interpreter | .rvz .wbfs .ciso .wia .iso .wad .dol .elf | [ ] researched: not playable without JIT (HARD_SYSTEMS.md) |
+| Symbian / N-Gage | EKA2L1 | .sis .sisx .n-gage | [ ] researched: needs a libretro wrapper written, later (HARD_SYSTEMS.md) |
 
 **Shared extensions** (.cue .chd .iso .bin .m3u .zip are used by several systems): the import
 looks inside the file where it can (disc header, cue contents, zip contents) and asks the user to
@@ -82,7 +82,8 @@ pick a system only when it truly cannot tell. The choice is remembered per game.
 - [x] Paste from the clipboard (works with Handoff from a Mac).
 - [x] Drag and drop into the app.
 - [x] Open in / Share to Continuum from other apps.
-- [x] WebDAV and SMB (NAS, router storage).
+- [x] WebDAV (NAS, router storage).
+- [ ] SMB: taken out after build 117 closed on launch (the SMB library was not packed into the app). Needs redoing.
 - [x] Google Drive, Dropbox, OneDrive through the Files picker. [ ] Direct logins need app ids only the owner can register with Google, Dropbox and Microsoft.
 
 ## Skins
@@ -126,17 +127,18 @@ phone and controllers.
 
 - [x] Flash (.swf) through Ruffle in a bundled player view.
 - [x] J2ME (.jar) through a bundled JavaScript J2ME engine.
-- [ ] GameCube and Wii (Dolphin interpreter): research whether it can run at all without JIT.
-- [ ] Symbian / N-Gage (EKA2L1): research; it is built around a recompiler.
-- [ ] Dreamcast: confirm flycast actually builds on CI and runs on a phone.
+- [x] GameCube and Wii research: done, docs/HARD_SYSTEMS.md. Not playable without JIT; not built.
+- [x] Symbian / N-Gage research: done, docs/HARD_SYSTEMS.md. Possible later, needs a wrapper.
+- [x] Dreamcast builds on CI (in the IPA since build 119). [ ] Runs on a phone: TESTING.md C19.
+- [ ] SMB file shares, done properly this time (see Ways to get games in).
 - [ ] Direct Google Drive / Dropbox / OneDrive logins (needs the owner's developer app ids).
 - [x] Achievements on Game Boy Advance (memory maps). Still to fix: .cht RAM cheats on GBA use system RAM addresses.
 
-## Where the last session stopped (3 October 2026)
+## Where things stand (5 October 2026, build 121)
 
-- Build 116 (`c8f7dd5`) is wave 2 and built green. Master `97a2c9b` adds Flash, J2ME, memory maps
-  and docs/HARD_SYSTEMS.md; its CI build had not finished when the session ended. Watch it, and if
-  it fails, read the log and fix it.
-- Next: update STATUS.md and TESTING.md for waves 2 and 3, refresh docs/PLATFORM_LIMITS.md (the iOS
-  buildbot now carries dolphin, flycast, ppsspp and azahar), then Dreamcast per docs/HARD_SYSTEMS.md.
-- Worker reports with phone test steps were in a scratch folder and are not in the repo.
+- Builds 117 to 121 are done; STATUS.md lists what each one changed. Build 121 is green, version
+  0.8.0 (121), 32 cores, and adds a Settings switch that hides Apple's performance overlay.
+- STATUS.md, TESTING.md and docs/PLATFORM_LIMITS.md are current. TESTING.md is now numbered phone
+  steps (A1 onward) instead of the old queue. The scratch-folder worker reports are no longer needed.
+- Next: whatever the owner's phone tests turn up, then the open lines above (SMB, the GBA cheat
+  addresses, Dreamcast speed if C19 shows it is slow).

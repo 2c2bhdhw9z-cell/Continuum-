@@ -7,8 +7,10 @@ on the GPU instead of into a CPU framebuffer.
 Assumptions fixed by the project owner and not re-litigated here:
 
 - **Distribution is sideloading with custom signing.** App Store guidelines are out of scope.
-- **JIT is unconditional.** `com.apple.security.cs.allow-jit` is always present; there is no
-  interpreter fallback path and no runtime capability probe for it.
+- ~~**JIT is unconditional.**~~ **Overruled (October 2026):** the entitlement key is still in the
+  file, but the owner's install has no debugger and no computer, so JIT can never be switched on.
+  Every core in the app runs as an interpreter, and that is the rule now (owner-rules, "no JIT").
+  Read every JIT mention below as future-only.
 - **Memory is provisioned with `com.apple.developer.kernel.increased-memory-limit` and
   `com.apple.developer.kernel.extended-virtual-addressing`**, targeting 12 GB-class hardware
   with a 6–8 GB working budget. Switch is in scope. §11 corrects the arithmetic in the
@@ -860,8 +862,8 @@ Three environment commands this depends on, and their current state in this proj
 | --- | --- | --- |
 | `SET_CONTENT_INFO_OVERRIDE` (65) | declaring `nsp\|xci\|nca\|nro` as `need_fullpath = true` | **already implemented** — built in Phase 1b for fceumm |
 | `GET_GAME_INFO_EXT` (66) | the core reading the mounted path | **already implemented** |
-| `GET_SYSTEM_DIRECTORY` (9) | keys, firmware | **currently refused** — must be implemented natively |
-| `GET_SAVE_DIRECTORY` (31) | Switch savedata | **currently refused** — must be implemented natively |
+| `GET_SYSTEM_DIRECTORY` (9) | keys, firmware | **implemented** in `cores/native_core.rs` (the BIOS folder) |
+| `GET_SAVE_DIRECTORY` (31) | Switch savedata | **implemented** in `cores/native_core.rs` |
 
 `need_fullpath = true` is the right call rather than a concession: an XCI is tens of gigabytes,
 the engine wants random access into it, and materialising it in memory to satisfy a
@@ -1252,7 +1254,7 @@ Each step is verifiable on its own, and the risky question is answered first.
 | 2 | ~~Instanced composite pass; one screen, then two with a hardcoded split~~ → **done**. `ScreenSplit` in `gfx/renderer.rs`, instanced `frame_blit.wgsl`, 7 layout tests + 3 shader tests | Rendering generalises before any HW core exists | ~~Low~~ — resolved. Single-screen geometry is asserted identical, so the nine shipping systems are untouched |
 | 3 | MoltenVK in-process, sharing device and queue; render a triangle into an `MTLTexture` and composite it | The whole zero-copy path, with no core involved | Medium |
 | 4 | `SET_HW_RENDER` accepted for Vulkan; `GET_HW_RENDER_INTERFACE`; **Beetle PSX HW** | The full contract against the simplest real core | Medium |
-| 5 | JIT enabled for the PS1 dynarec; measure against step 4 | The reason for the whole phase | Low, now unconditional |
+| 5 | JIT enabled for the PS1 dynarec; measure against step 4 | The reason for the whole phase | Blocked: no JIT on the owner's install |
 | 6 | **paraLLEl-N64** | Vulkan *compute*, and the TLB fast-mem work | High |
 | 7 | ANGLE alongside MoltenVK; **melonDS**; `ScreenGeometry` + touch mapping | GL path and dual screen together | Medium |
 | 8 | **Citra**, unequal screen widths | The 3DS asymmetry the DS does not expose | Low after step 7 |

@@ -16,6 +16,12 @@ These come straight from the owner. They are not suggestions.
   direct download link to the .ipa without being asked. Finding it is the assistant's job.
 - The iOS workflow publishes every master build as a GitHub Release named `build-<run>-<sha>`
   with `Continuum-<run>.ipa`. Watch the run, and if it fails, read the log, fix it, push again.
+- Pushing to `native/**` starts a build by itself. If the owner asks for a build, make sure one
+  has really started (check the Actions run list) instead of assuming. A build takes about 30
+  minutes.
+- Before handing over the .ipa, open it and check it: the version (0.8.0 and the build number)
+  and the core count (32 `_libretro_ios.dylib` files as of build 121). Never say a build is the
+  newest without checking the Releases page.
 
 ## Git
 - NO branches. NO pull requests. Ever. Everything is committed and pushed straight to `master`.
@@ -34,3 +40,7 @@ These come straight from the owner. They are not suggestions.
   engine, native look per platform, installer-neutral, no JIT) are in
   #[[file:docs/PRODUCT_SCOPE.md]].
 - What is actually done is #[[file:STATUS.md]]. Keep it honest: Done means a phone showed it.
+- What the owner should test on the phone is #[[file:TESTING.md]]: short numbered steps, one test
+  per row, plain words. Update it in the same push as any change the owner needs to try, and drop
+  a test once the owner confirms it.
+- `docs/archive/` is old history. Do not follow instructions in it (including its CLAUDE.md).

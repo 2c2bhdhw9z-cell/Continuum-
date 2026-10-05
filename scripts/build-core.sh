@@ -103,8 +103,9 @@ IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed mednafen_psx_hw melon
 # so build-engine.sh warns, package-ipa.sh drops the missing embed from project.yml, the CI verify
 # step prints a warning, and the app's cores line names the dylib as not in the bundle.
 #
-# flycast (Dreamcast) is here because the libretro iOS buildbot does not carry it and nobody has
-# built it on this runner yet. Interpreter only (TARGET_NO_REC); see its ios_core_config entry.
+# flycast (Dreamcast) is built here, not fetched: the libretro iOS buildbot's flycast contains the
+# ARM64 dynarec and refuses to run without JIT. Interpreter only (TARGET_NO_REC); see its
+# ios_core_config entry. It has built green and shipped in every IPA since build 119.
 IOS_OPTIONAL_CORES=(flycast)
 
 # mednafen_psx_hw (Beetle PSX HW) is in ios-all so Mac CI embeds the dylib in the IPA.

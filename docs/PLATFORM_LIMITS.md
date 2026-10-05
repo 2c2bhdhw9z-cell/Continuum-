@@ -108,7 +108,7 @@ JIT becomes a real project again, starting with the TXM protocol.
 ## Which cores actually build for iOS
 
 **The libretro buildbot is the authority, not a makefile reading.** It publishes builds for
-`ios-arm64`, and at the time of writing there are **178** of them:
+`ios-arm64`, and on 5 October 2026 there were **220** files in `latest/` (it was 178 when this was first written):
 
 ```
 https://buildbot.libretro.com/nightly/apple/ios-arm64/latest/
@@ -123,17 +123,20 @@ https://buildbot.libretro.com/nightly/apple/ios-arm64/latest/
 | `fbneo`, `fbalpha2012_cps1/2/3`, `fbalpha2012_neogeo` | Arcade, Neo Geo | yes |
 | `mame2003_plus`, `mame2010`, `mame2016`, `hbmame` | Arcade | yes |
 | `desmume` | DS | yes |
-| `citra` | **3DS** | **NO** |
-| `flycast` | Dreamcast | **NO** |
-| `ppsspp` | PSP | **NO** |
-| `dolphin` | GameCube, Wii | **NO** |
+| `citra` | 3DS (upstream) | **NO** |
+| `azahar` | **3DS** | yes |
+| `flycast` | Dreamcast | yes, but that build needs JIT |
+| `ppsspp` | PSP | yes |
+| `dolphin` | GameCube, Wii | yes |
 
 Check this list before promising or refusing a system. It is one `curl` away.
 
-**Re-checked 4 October 2026:** still 178 cores, and azahar/citra, flycast, ppsspp and dolphin are
-still absent. Continuum does not depend on the buildbot for those: CI compiles **azahar**,
-**flycast** and **ppsspp** from source (`scripts/build-core.sh`), and all three are in the IPA
-(32 cores in build 120). Dolphin is not built (see docs/HARD_SYSTEMS.md).
+**Re-checked 5 October 2026:** azahar, flycast, ppsspp and dolphin ARE on the buildbot. (A note
+here dated 4 October said they were absent. That was wrong.) Continuum does not take those four
+from it: CI compiles **azahar**, **flycast** and **ppsspp** from source (`scripts/build-core.sh`)
+so it controls the build (the buildbot's flycast has the dynarec and says "Cannot run without
+JIT"), and all three are in the IPA (32 cores in builds 119 to 121). Dolphin is not built (see
+docs/HARD_SYSTEMS.md).
 
 **Continuum ships `mednafen_psx_hw` (Beetle PSX HW) through `IOS_CORES` / `ios-all`.** The
 dylib is built only on a Mac host or the GitHub Actions `macos-latest` runner
@@ -174,7 +177,8 @@ That is still true, and it is not the core this app ships.
 
 **Azahar** (the maintained Citra fork) has an iOS arm64 libretro job. Its Apple build turns OpenGL
 off and Vulkan on, presents with `retro_vulkan_image` `set_image`, and compiles the CPU JIT out
-under `IOS`. That is the core in the IPA (`azahar_libretro_ios.dylib`). It is not device-proven.
+under `IOS`. That is the core in the IPA (`azahar_libretro_ios.dylib`). On the owner's phone Mario
+Kart runs, with stutter after transitions (STATUS.md), so it is Partial, not Done.
 An OpenGL 3DS core would still boot a black screen here: this host refuses every `SET_HW_RENDER`
 context that is not Vulkan.
 
@@ -197,7 +201,7 @@ actually shipped is narrower:
 3. **No JIT.** Dynarmic stays off. The fast interpreter is the speed this signed IPA can have.
    Do not turn JIT on to make it faster.
 
-Not device-proven. See STATUS.
+A game runs on the phone; it is not smooth yet. See STATUS.
 
 ---
 
@@ -205,7 +209,7 @@ Not device-proven. See STATUS.
 
 | Needs nothing new | Needs the graphics path | Needs graphics AND a core port |
 | --- | --- | --- |
-| **N64** (software + interpreter). **3DS** is in the IPA via Azahar Vulkan, untested, no JIT | Dreamcast, PSP | GameCube, Wii (3DS no longer sits here) |
+| **N64** (software + interpreter), in the IPA and running. **3DS** is in the IPA via Azahar Vulkan, a game runs, no JIT | Dreamcast and PSP: both in the IPA, neither tried on a phone yet | GameCube, Wii (not built, see HARD_SYSTEMS.md) |
 | Saturn, Neo Geo, CPS1/2/3, MAME | | |
 | Sega CD, 32X, and the 8/16-bit long tail | | |
 

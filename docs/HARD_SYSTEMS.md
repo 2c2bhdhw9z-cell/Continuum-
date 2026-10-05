@@ -25,9 +25,8 @@ have `get-task-allow` and that a pairing file must be imported
 install and a pairing file made with a computer. **Neither is possible for this owner.** Manic's
 GameCube, Wii and Symbian speed comes from JIT, and Continuum cannot copy that.
 
-A correction to PLATFORM_LIMITS.md: the libretro iOS buildbot now has `dolphin_libretro`,
-`flycast_libretro`, `ppsspp_libretro` and `azahar_libretro` (checked on 3 Oct 2026). Its table
-saying "NO" for dolphin and flycast is out of date.
+The libretro iOS buildbot has `dolphin_libretro`, `flycast_libretro`, `ppsspp_libretro` and
+`azahar_libretro` (checked 3 and again 5 October 2026). PLATFORM_LIMITS.md now says so too.
 
 ---
 
@@ -84,8 +83,9 @@ saying "NO" for dolphin and flycast is out of date.
   contains the ARM64 dynarec and the text "Cannot run without JIT", so it is no use here.
   Continuum already builds flycast from source in CI with `TARGET_NO_REC`, which compiles the
   dynarec out and leaves only interpreters (SH4, ARM7 sound CPU, DSP). This is the right build.
-- **Builds for iOS arm64:** set up as an optional CI core. It has not yet been confirmed on a
-  phone.
+- **Builds for iOS arm64:** yes. It builds green in CI and `flycast_libretro_ios.dylib` has been
+  in every IPA since build 119 (checked in the build 121 file). **Nobody has played a Dreamcast
+  game on the phone yet**: that is test C19 in TESTING.md.
 - **Without JIT:** unknown on this phone; it has to be measured. Stock flycast's interpreter is
   slow: a browser port reported "a couple of FPS" on the interpreter
   ([flycast-wasm](https://github.com/nasomers/flycast-wasm)), though a browser is much slower than
@@ -96,8 +96,8 @@ saying "NO" for dolphin and flycast is out of date.
   claim.
 - **Expected speed here:** my estimate: stock interpreter, light and 2D games may be near full
   speed and heavy 3D games well below it. With iFly's interpreter work, possibly full speed.
-- **What it would take:** first, a phone test of the current build (one game, look at the fps). If
-  it is too slow, try building from Provenance's JIT-less branch instead (GPL, same libretro
+- **What it would take:** first, a phone test of the current build (one game, look at the fps;
+  TESTING.md C19). If it is too slow, try building from Provenance's JIT-less branch instead (GPL, same libretro
   target), which is a CI change, not new code.
 - **Recommendation:** **the best of the three. Keep it, test it, and if slow switch to the
   Provenance interpreter branch.** It is the only one here that can plausibly be fully playable with
@@ -107,6 +107,6 @@ saying "NO" for dolphin and flycast is out of date.
 
 | System | Playable with no JIT on this phone? | Do it? |
 | --- | --- | --- |
-| Dreamcast | Likely for many games; proof needed | Yes, test now |
+| Dreamcast | Likely for many games; proof needed | Yes. In the app since build 119; test it now |
 | Symbian / N-Gage | Older games likely, newer ones unlikely | Later, needs a wrapper |
 | GameCube / Wii | **No** | Only as a labelled experiment, or not at all |
