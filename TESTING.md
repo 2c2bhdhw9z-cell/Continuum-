@@ -35,11 +35,24 @@ slot.
 3. Bonus: **⋯** → **Use this frame as the cover**. ✅ The cover is a sharp picture of the game
    alone, without the skin around it.
 
-**A2. 3DS state export keeps its protection** (new in 122)
-1. In a 3DS game: **⋯** → **Save slots...** → tap a slot → **Export**, then **Import a state file**
-   and pick the file you just made.
-2. ✅ Good: the imported slot loads like the original. If you then change **New 3DS / Old 3DS**
-   and restart, it is refused with a message instead of the app closing.
+**A2. A 3DS save copied out to a file and back in** (new in 122)
+
+Export turns a save into a file (a backup, or to move it to another phone). Import brings that file
+back in as a new slot. This checks that the copy still works and still remembers which 3DS settings
+it was made under.
+1. In a 3DS game: **⋯** → **Save to the next free slot**.
+2. **⋯** → **Save slots...** → tap the slot you just made → **Export**.
+3. Apple's share menu opens: tap **Save to Files**, pick a folder you will remember, tap **Save**.
+4. Back in **Save slots**, scroll down to **FILES** → **Import a state file** → pick the file you just
+   saved (its name ends in `.continuumstate`).
+5. A new slot appears. It has no picture yet; that is known.
+6. Tap the new slot → **Load**. ✅ Good: the game jumps to where you saved.
+7. **⋯** → **Core settings...** → switch the **New 3DS** setting to the other choice → **Restart the
+   game now**.
+8. **⋯** → **Save slots...** → tap the imported slot → **Load**. ✅ Good: the game keeps running and
+   the save is not loaded. ❌ Bad: the app closes. (With a 3DS skin on, the small text is hidden, so
+   you will not see the message saying why.)
+9. Switch the **New 3DS** setting back afterwards.
 
 **A3. Apple performance overlay switch (from build 121)**
 1. Open **Settings** → scroll to **DIAGNOSTICS** → the top switch, **Apple performance overlay**.
