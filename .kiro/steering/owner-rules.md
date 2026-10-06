@@ -10,6 +10,8 @@ These come straight from the owner. They are not suggestions.
 - The owner does not code, does not read code, and does not want to. Every reply is plain,
   everyday English. No jargon unless it is explained in normal words.
 - Never ask the owner to go look at a file, a log or a page. Read it yourself and say what it says.
+- Never ask the owner to re-test or re-answer anything they already covered, in a screenshot or an
+  earlier message. Work it out from what they sent. Never put a test back on their list.
 
 ## The .ipa
 - The .ipa is the only thing the owner cares about. Whenever a build happens, hand over the

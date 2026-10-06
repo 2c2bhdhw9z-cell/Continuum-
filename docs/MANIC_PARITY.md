@@ -117,9 +117,10 @@ pick a system only when it truly cannot tell. The choice is remembered per game.
 - [x] Filters: CRT, scanlines, LCD grid, smooth, and more. Phone (build 122, 5 Oct): CRT shown on
       a phone; others not yet.
 - [x] Palettes for Game Boy, Game Boy Color, Virtual Boy.
-- [x] Fast forward speeds 2x, 3x, 4x, cycle, and slow motion. Phone (build 122, 5 Oct): 2x shown
-      on a phone; 3x/4x/slow not yet.
-- [x] Shake (the phone's motion sensor to the core), DS lid, WonderSwan rotation.
+- [x] Fast forward speeds 2x, 3x, 4x, cycle, and slow motion. Phone: 2x (build 122), 3x, 4x and
+      slow motion (build 125).
+- [x] Shake (the phone's motion sensor to the core), DS lid, WonderSwan rotation. Phone (build
+      125): shake and tilt; the keyboard too.
 - [x] Controller type per port (DualShock and so on).
 - [x] Hide or show the controls, orientation lock.
 - [x] 3DS home menu.
@@ -143,7 +144,8 @@ phone and controllers.
 - [x] Dreamcast builds on CI (in the IPA since build 119). [ ] Runs on a phone: TESTING.md C19.
 - [ ] SMB file shares, done properly this time (see Ways to get games in).
 - [ ] Direct Google Drive / Dropbox / OneDrive logins (needs the owner's developer app ids).
-- [x] Achievements on Game Boy Advance (memory maps). Not on a phone yet (TESTING.md H2).
+- [x] Achievements on Game Boy Advance (memory maps). Phone (build 125): an unlock banner popped up
+      (the system it was on was not said).
 - [x] RetroArch .cht RAM cheats use RetroArch's own cheat addressing (the GBA bug), build 122. Not on a phone yet: TESTING.md F7.
 
 ## Where things stand (5 October 2026, build 124)

@@ -23,15 +23,20 @@ Paste this to start a new chat:
 - A2: Export and Import a state file work (Slot 2, imported, azahar 065c922). Loading it fails:
   "state too short: it is 14627226 bytes and the core needs at least 19231622", then 17504282 on
   the next try. Azahar's reported state size moves, so the "too short" check in
-  `SaveStates.refusal(for:)` (native/ios/SaveStates.swift) wrongly refuses real 3DS states. It
-  probably blocks every 3DS state, the original slot and the auto-save resume too (owner asked to
-  try loading Slot 1).
+  `SaveStates.refusal(for:)` (native/ios/SaveStates.swift) wrongly refuses real 3DS states. The
+  imported slot is byte-for-byte Slot 1 (same 14627226 bytes), so EVERY 3DS state is refused,
+  including the auto-save resume. Settled: do not ask the owner about it again.
 - Save and load (one game each) work on NES, SNES, Game Boy, GBC, GBA, Game Gear, Mega Drive,
   PS1, DS, TurboGrafx-16, Atari 2600, N64, Jaguar and Pokemon Mini. So those games run: C1, C4, C5,
   C12 and C14 pass (Jaguar speed not reported yet). Only the 3DS fails to load.
 - A3 (Apple overlay switch), A4 (restart from Core settings), A5 (cover lookups off), A6 (login
   button), B2 (paste), B3 (Open in) and B4 (zip) pass. All of the above is already ticked in
   STATUS.md and dropped from TESTING.md.
+- Also pass: A1 (sharper cover), D1 (battery saves), D2 (rename, save over, delete), D3 (export
+  and import on a non-3DS game; the imported slot has no picture), E10 (keyboard, tilt, shake), F3
+  (3x, 4x, slow motion), H2 (unlock banner). Ticked and dropped too.
+- The owner was angry at being asked again about A1 and A2. Never re-ask anything already
+  covered; work it out from what they sent.
 - The owner asked for a test list with nothing needing a computer or a second phone: B1, B7 and
   H1 now sit in their own skip section at the end of TESTING.md's list.
 - Fix after testing ends: the 3DS "too short" refusal; show the status line briefly with a skin

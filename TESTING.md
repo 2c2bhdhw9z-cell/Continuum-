@@ -23,23 +23,15 @@ crash, fast forward at 2x, the CRT filter, taking a cover from the game, and Sav
 slot. On 5 October with build 125: save slot pictures, save and load on 14 systems, exporting and
 importing a state file, the Apple overlay switch, restarting from Core settings, cover lookups off,
 the RetroAchievements login button, paste, Open in, zip files, and games on Game Boy,
-TurboGrafx-16, Atari 2600, Jaguar and Pokemon Mini.
+TurboGrafx-16, Atari 2600, Jaguar and Pokemon Mini. Also on build 125: the sharper cover from the
+game, battery saves, renaming, saving over and deleting slots, export and import on a non-3DS game,
+the keyboard, tilt and shake, 3x, 4x and slow motion, and a RetroAchievements unlock banner.
 
 ---
 
 # The list: what still needs testing
 
-## A. New since build 121 (do this first)
-
-**A1. A sharper cover from the game** (new in 123; the slot pictures are confirmed)
-1. In any game: **⋯** → **Use this frame as the cover**.
-2. ✅ Good: the cover is a sharp picture of the game alone, without the skin around it.
-
-**A2. Does an ordinary 3DS save load?** (one quick check)
-1. In a 3DS game: **⋯** → **Save to the next free slot**.
-2. **⋯** → **Save slots...** → tap that slot → **Load**.
-3. Tell me which: it loads, or it says "state too short". (An imported 3DS save says "too short" on
-   build 125. That is a known bug; the full export and import test comes back after the fix.)
+## A. Things to notice in passing
 
 **A7. Things to notice in passing** (no need to set up)
 - The small text in the player should always read as plain English. If you ever see something like
@@ -86,20 +78,6 @@ For each one: ✅ cover shows, its own controls show, the game moves. ❌ Send t
 | C22 | Flash | `.swf` | No. Pad acts as arrows and Space |
 | C23 | J2ME (old phone games) | `.jar` | No. Leave and come back: the save should still be there |
 
-## D. Saves
-
-**D1. Battery saves** — Save inside a game (Pokemon, Zelda), go back to the library, open it again.
-✅ Your in-game save is still there.
-
-**D2. Save slots** — Saving and loading are confirmed on 14 systems. Still to try, in **⋯** →
-**Save slots...** → tap a slot: **Rename**, **Save over it** (it should ask first), and **Delete**.
-✅ Each one works.
-
-**D3. Export and import, not on the 3DS** — In a NES, SNES or GBA game, do the same as the 3DS
-test: tap a slot → **Export** → **Save to Files**, then **Import a state file** and pick that file,
-then tap the new slot → **Load**. ✅ The game jumps to where you saved. (On the 3DS the import
-works but loading it is the known bug.)
-
 ## E. Skins and controls
 
 **E1. Skin holes** — A 3DS skin held sideways is already confirmed. Still to check: hold the phone
@@ -133,17 +111,12 @@ controller is connected**. ✅ The pad disappears and the picture gets bigger.
 **E9. Controllers and remapping** — **⋯** → **Controllers and button mapping...**: map one button to
 another, make a second profile, switch to it. ✅ The new mapping works.
 
-**E10. Keyboard, tilt, shake** — Computers: **⋯** → **Keyboard**. GBA tilt games (Yoshi
-Topsy-Turvy): tilt the phone. Pokemon Mini: **⋯** → **Shake**.
-
 ## F. In-game menu (**⋯**)
 
 **F1. Core settings** — **⋯** → **Core settings...** on a few systems (not just 3DS). Change one;
 if it says restart, tap **Restart the game now**. ✅ No crash, and the change shows.
 
 **F2. Filters** — **⋯** → **Filters...**: CRT works (122). Try LCD grid and dot matrix.
-
-**F3. Speed** — **⋯** → **Speed**: 2x works (122). Try 3x, 4x and slow motion. Sound follows.
 
 **F4. Palette, rotate, discs** — Game Boy, Game Boy Color, NES, Famicom Disk System or Virtual
 Boy: **Next palette** (other systems do not show it). Any one-screen game: **Rotate picture** (DS
@@ -175,9 +148,6 @@ show it).
 
 ## H. Accounts and cloud
 
-**H2. Achievements** — **Settings** → **RETROACHIEVEMENTS**, log in, play an NES, SNES or GBA game
-with achievements. ✅ A banner pops up on unlock.
-
 **H3. Cloud sync** — **Settings** → **CLOUD SYNC** → **Choose a sync folder**, and pick a folder in
 iCloud Drive. Save in a game, go back to the library. ✅ The status says files were sent. New in
 122: Flash and J2ME saves, PDF manuals, Amiibo files, your "which system is this" answers and saved
@@ -200,7 +170,8 @@ left and is waiting, keeps its game going, and lets the second phone back in.
 
 ## Known not working or not built (no need to test)
 
-- 3DS: an imported save state is refused as "too short" when you load it (build 125). Fix coming.
+- 3DS: every save state is refused as "too short" when you load it (build 125). Fix coming.
+- A save state brought in with **Import a state file** has no picture. Fix coming.
 
 - SMB (NAS shares) is out of this build. WebDAV works.
 - GameCube and Wii: not possible without JIT.
@@ -269,7 +240,7 @@ Everything below has since been confirmed on a device as well, in the order it w
 | 3DS restart setting (122) | Changed without a crash |
 | Fast forward 2x (122) | Works |
 | CRT filter (122) | Works |
-| Cover from the game (122) | Works (build 123's sharper version is test A1 step 3) |
+| Cover from the game (122) | Works |
 | Save to the next free slot (122) | The slot appears |
 | Save slot pictures (125) | A Mario Kart 7 slot shows the game, tall, both screens |
 | Save and load (125) | One game each on NES, SNES, Game Boy, GBC, GBA, Game Gear, Mega Drive, PS1, DS, TurboGrafx-16, Atari 2600, N64, Jaguar and Pokemon Mini |
@@ -280,8 +251,15 @@ Everything below has since been confirmed on a device as well, in the order it w
 | Cover lookups off (125) | Works |
 | RetroAchievements login button (125) | Says Logging in..., and a second tap does nothing |
 | Paste, Open in, zip (125) | Each one brought the game in |
+| Sharper cover from the game (125) | Works |
+| Battery saves (125) | An in-game save is still there after leaving and coming back |
+| Save slots: rename, save over, delete (125) | All work |
+| Export and import on a non-3DS game (125) | The imported slot loads (it has no picture yet) |
+| Keyboard, tilt, shake (125) | Work |
+| Speeds 3x, 4x and slow motion (125) | Work |
+| RetroAchievements (125) | The unlock banner pops up |
 
-Two of those lines are narrower than they sound. Cheats means a code you type, not a search and not a file import. Fast forward is about 4x, not 5x. The 50-slot save manager is in the list above (D2).
+Two of those lines are narrower than they sound. Cheats means a code you type, not a search and not a file import. Fast forward is about 4x, not 5x.
 
 Tests 1 to 5 below are a regression check: each says what already passed, and if one fails on a
 new build, something that used to work has broken, which is worth telling me straight away.

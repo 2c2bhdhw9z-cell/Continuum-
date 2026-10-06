@@ -34,16 +34,19 @@ This install is **not** signed with a JIT. Heavier systems run on an interpreter
 - Confirmed 5 October with build 125: Game Boy, TurboGrafx-16, Atari 2600, Jaguar and Pokemon
   Mini; save and load on 14 systems; save slot pictures; exporting and importing a state file;
   the switch that hides Apple's performance overlay; restarting from Core settings; cover lookups
-  off; paste, Open in and zip imports
-- Known bug in build 125: a 3DS save state is refused as "too short" when loaded
+  off; paste, Open in and zip imports; the sharper cover from the game; battery saves; renaming,
+  saving over and deleting slots; the keyboard, tilt and shake; 3x, 4x and slow motion; a
+  RetroAchievements unlock banner
+- Known bugs in build 125: every 3DS save state is refused as "too short" when loaded, and an
+  imported save state has no picture
 
 **In the app, not confirmed on a phone yet**
 
 Everything in [TESTING.md](TESTING.md)'s list, in short: 23 more systems (38 in all: 32 emulator
 cores plus the Flash and J2ME players), including PSP, Dreamcast, Saturn, arcade and the
 computers; Wi-Fi transfer, skin holes upright and on DS skins (sideways 3DS is confirmed), Manic
-skins, extra buttons, the rest of the 50-slot save manager, battery saves, cheat search, two-screen
-layouts, online play, RetroAchievement unlocks, cloud sync, and the rest of build 124's bug sweep
+skins, extra buttons, cheat search, two-screen
+layouts, online play, cloud sync, and the rest of build 124's bug sweep
 (listed in STATUS.md).
 
 **Not in the app**
