@@ -86,11 +86,9 @@ struct LibraryShell: View {
     /// track, and mentions the Files app fallback that UIFileSharingEnabled already provides. On a
     /// sideloaded build there is nothing else to tell the user what to do next.
     static let emptyGuidance =
-        "No games yet. Tap the plus button and select your ROM files: "
-        + CoreCatalog.extensionList(CoreCatalog.launchableExtensions)
-        + ". For a PS1 disc select the .cue together with every .bin track it names (in the "
-        + "picker: Select, tap each file, Open). Files you drop into the Continuum folder in "
-        + "the Files app show up here too."
+        "Tap Import games and pick your own game files. Zip files work too. For a disc game "
+        + "made of a .cue and .bin files, select the .cue and every .bin together. Files you put "
+        + "in the Files app under On My iPhone, Continuum show up here as well."
 
     private var topBarHeight: CGFloat { 52 }
     private var bottomBarHeight: CGFloat { 84 }
@@ -285,6 +283,18 @@ struct LibraryShell: View {
     /// On a sideloaded build this line is the only debugger there is, so it does not get traded for
     /// a tidier library. It carries the library count and the last status line, and the dot repeats
     /// the colour from the top bar so the two cannot disagree.
+    /// The game count, plus the latest status line when it is a problem or technical details are
+    /// on. An everyday line ("surface ready", "imported 3 of 3") is not worth a tester reading.
+    private var stripText: String {
+        let count = host.library.count
+        let games = count == 1 ? "1 game" : "\(count) games"
+        let everyday = StatusTint.tint(for: host.status) == ShellPalette.metadata
+        if host.showDiagnostics || !everyday {
+            return "\(games) \u{00B7} \(host.status)"
+        }
+        return games
+    }
+
     private var statusStrip: some View {
         Button {
             host.showDiagnostics.toggle()
@@ -293,7 +303,7 @@ struct LibraryShell: View {
                 Circle()
                     .fill(StatusTint.tint(for: host.status))
                     .frame(width: 6, height: 6)
-                Text("\(host.library.count) titles in library \u{00B7} \(host.status)")
+                Text(stripText)
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Color.white.opacity(0.66))
                     .lineLimit(2)

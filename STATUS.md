@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-6 October 2026 (build 127). The install is always the newest file on the
+6 October 2026 (build 128). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Five states only:
@@ -157,6 +157,20 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 
 ---
+
+## Build 128 (6 October 2026)
+
+Cleaned up for a public beta: strangers will download and test it.
+
+- The player shows no technical text over the game. Status lines show for five seconds (ten for a
+  problem) and fade; fps, frames and the full technical block are behind the (i) button.
+- Settings: Feedback first; Technical details (the old Diagnostics) and About with the version
+  last. Developer notes removed (JIT test button, graphics "step 4", PSP routing notes); the
+  PlayStation, PSP and BIOS notes rewritten for players.
+- The Library strip says how many games, and the last status line only when it is a problem.
+- Feedback goes by email to idkplswrk@gmail.com (the owner's address). Without Mail set up, the
+  share menu text starts with that address.
+- README and the Release notes are written for testers, and name no particular installer.
 
 ## Build 127 (6 October 2026)
 

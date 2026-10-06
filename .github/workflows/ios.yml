@@ -344,15 +344,20 @@ jobs:
           # backticks, and both are hazards inside a shell argument in a YAML block scalar; a heredoc
           # quoted with <<'EOF' passes them through untouched with no escaping to get wrong.
           cat > /tmp/notes.md <<'EOF'
-          **Download the numbered file**, not the plain one: its name says which build it is, so it
-          cannot be confused with an older download sitting in Files or in a signer's list. Both
-          files below are the same app.
+          **Continuum beta**: an all-in-one emulator for iPhone. Games and BIOS files are not
+          included; use your own.
 
-          Then import it into ESign or Feather and sign it with your certificate.
+          **To install:** download `Continuum-<number>.ipa` below (both .ipa files are the same app;
+          the numbered one says which build it is), then sign and install it with your usual
+          sideloading app and your own certificate. Your version is in Settings, About.
 
-          **Bookmark this if you want one permanent link:** it always redirects to the newest build,
-          but it always downloads under the same name, so check the build number in the app after
-          installing.
+          **Found a problem?** Settings, Send feedback, or in a game ⋯ then Send feedback about this
+          game. It adds the app's details and a picture for you.
+
+          Files named `get-task-allow` are optional, for signing apps that ask for an entitlements
+          file.
+
+          Always the newest build:
           EOF
           echo "$LATEST" >> /tmp/notes.md
           printf '\nBuilt from %s on %s.\n' "${{ github.sha }}" "${{ github.ref_name }}" >> /tmp/notes.md

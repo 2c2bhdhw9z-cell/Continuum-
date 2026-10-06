@@ -100,7 +100,6 @@ struct SettingsScreen: View {
                 Group {
                     artworkSection
                     layoutSection
-                    diagnosticsSection
                     coresSection
                     pspSection
                     biosSection
@@ -122,6 +121,9 @@ struct SettingsScreen: View {
                     systemCoresSection
                     // Controller types, button mapping profiles, motion. See InputExtras.swift.
                     InputSettingsSection(host: host, extras: host.inputExtras)
+                    // Last: technical details are for reporting a problem, not for setting up.
+                    diagnosticsSection
+                    aboutSection
                 }
             }
             .padding(.bottom, 24)
@@ -473,45 +475,40 @@ struct SettingsScreen: View {
 
     // MARK: Diagnostics
 
+    /// The version a tester quotes, and the plain facts about what the app is.
+    private var aboutSection: some View {
+        SettingsSection(title: "ABOUT") {
+            SettingsReadout(label: "Version", value: EngineHost.versionLabel)
+            SettingsNote(
+                "Continuum is a beta. Games and BIOS files do not come with the app: use your own. "
+                + "Found a problem? Use Send feedback at the top of Settings, or in a game, "
+                + "⋯ then Send feedback about this game."
+            )
+        }
+    }
+
     private var diagnosticsSection: some View {
-        SettingsSection(title: "DIAGNOSTICS") {
+        SettingsSection(title: "TECHNICAL DETAILS") {
             AppleOverlayToggle()
 
             Toggle(isOn: $host.showDiagnostics) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Show the diagnostic block")
+                    Text("Show technical details")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
-                    Text("The thin status line above the tabs stays either way.")
+                    Text("For reporting a problem: the app's own record of what it is doing. A "
+                         + "feedback report attaches it for you.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
                 }
             }
             .tint(ShellPalette.accent)
 
-            // The same block both screens share, shown here in full so Settings is a real home for
-            // it rather than only a switch that turns it on somewhere else.
-            DiagnosticsPanel(host: host, emulation: emulation, saveStates: saveStates)
-
-            SettingsReadout(
-                label: "Last N64",
-                value: host.lastN64Crumb.isEmpty
-                    ? "none — appears after an N64 tap that did not reach tick ok"
-                    : host.lastN64Crumb
-            )
-            SettingsNote(
-                "Persisted across force-quit. Tap an N64 game, freeze, kill the app, reopen: this "
-                + "line (and the home status strip) name the stuck crumb without starting a game."
-            )
-
-            SettingsNote(
-                "This is the only debugger a sideloaded build has: no console, no crash log and no "
-                + "attached Xcode. Each line answers a different question. No GPU line means the "
-                + "Metal attach failed. A GPU line with zero frames means the renderer is up and "
-                + "the core is not producing. A cores line naming a missing dylib means that "
-                + "system's core never reached the bundle. A running line naming the wrong core "
-                + "means the extension route is wrong."
-            )
+            // The full block, only when asked for. It is the one debugger a sideloaded build has,
+            // so it stays reachable, but a first-time tester should not open Settings onto it.
+            if host.showDiagnostics {
+                DiagnosticsPanel(host: host, emulation: emulation, saveStates: saveStates)
+            }
         }
     }
 
@@ -529,14 +526,9 @@ struct SettingsScreen: View {
             )
 
             SettingsNote(
-                "PCSX ReARMed is the software path that already boots PlayStation games. "
-                + "Beetle PSX HW is the Vulkan hardware-render core for step 4 of the graphics "
-                + "road: it ships in the IPA, and picking it here is what makes the next "
-                + "PlayStation launch load mednafen_psx_hw. After Metal attach the app prepares "
-                + "a shared MoltenVK VkDevice and installs it when SET_HW_RENDER is accepted. "
-                + "Step 4 stays Partial until a phone shows a Beetle HW frame through that "
-                + "contract; this control only selects the core. Beetle wants a real BIOS in "
-                + "the system folder (scph5501.bin and friends; no HLE like ReARMed)."
+                "PCSX ReARMed plays PlayStation games without a BIOS file. Beetle PSX HW is more "
+                + "accurate but needs a real PlayStation BIOS (for example scph5501.bin), installed "
+                + "in the BIOS section below. The choice applies from the next game you open."
             )
         }
     }
@@ -571,11 +563,9 @@ struct SettingsScreen: View {
     private var pspSection: some View {
         SettingsSection(title: "PSP") {
             SettingsNote(
-                "PSP games run on PPSSPP. The CPU is the IR interpreter: no JIT, no dynarec, "
-                + "and no executable memory. The picture is Vulkan. PPSSPP does not need a BIOS, "
-                + "and this app does not ship one. A .cso opens here. .iso, .chd and .pbp stay "
-                + "PlayStation, because those extensions were already routed there. Renaming an "
-                + ".iso to .cso does not make it a .cso. This has not been tried on a phone."
+                "PSP games run on PPSSPP and need no BIOS. Use .cso, .iso, .chd or EBOOT.PBP files; "
+                + "the app works out whether a disc is PSP or PlayStation. Heavier games can be "
+                + "slow, because iPhone apps installed this way cannot use JIT."
             )
         }
     }
@@ -589,10 +579,11 @@ struct SettingsScreen: View {
                             : host.bios)
 
             SettingsNote(
-                "PCSX ReARMed looks for a BIOS and does not require it: with none it falls back "
-                + "to HLE and still boots, at reduced accuracy. Beetle PSX HW expects a real "
-                + "BIOS (scph5501.bin and friends). A missing BIOS is a note for ReARMed and a "
-                + "likely boot failure for Beetle."
+                "A few systems need a BIOS file from the real console, which cannot come with the "
+                + "app. Put it in the Files app under On My iPhone, Continuum (or import it with "
+                + "the + button), then tap the button below. A game that needs one says which file "
+                + "when you open it. Recognised names: "
+                + CoreCatalog.biosNameList() + "."
             )
 
             SettingsButton(title: "Install a BIOS from the Continuum folder", role: .normal) {
@@ -605,47 +596,6 @@ struct SettingsScreen: View {
             ForEach(Array(host.firmwareChecklist().enumerated()), id: \.offset) { _, row in
                 SettingsReadout(label: row.label, value: row.value)
             }
-
-            SettingsReadout(label: "JIT", value: host.jitLine.isEmpty ? "not probed" : host.jitLine)
-
-            SettingsButton(title: "Test whether this build can run generated code",
-                           role: .normal) {
-                host.runJitExecutionProbe()
-            }
-
-            SettingsNote(
-                "This decides whether the Nintendo 64 is possible, because an N64 emulator needs "
-                + "to write instructions and run them. THE APP MAY CLOSE WHEN YOU PRESS IT, and "
-                + "that is the answer rather than a crash: iOS refuses a forbidden execute by "
-                + "shutting the app down, so there is nothing for it to report. Reopening is "
-                + "completely safe and nothing is lost.\n\nIf the JIT line above says "
-                + "get-task-allow is MISSING, this button can only close the app, so there is no "
-                + "point pressing it.\n\nThis used to run automatically when the app opened, which "
-                + "is why the app would not start."
-            )
-
-            SettingsNote(
-                "Getting get-task-allow means signing with a DEVELOPMENT certificate and profile; "
-                + "a distribution one cannot carry it, whatever else it can do.\n\nIf development "
-                + "signing fails with a verification or integrity error, the usual cause is "
-                + "Developer Mode being switched off. iOS has refused development-signed apps "
-                + "without it since iOS 16. Turn it on in Settings, Privacy & Security, Developer "
-                + "Mode, then restart the phone.\n\nNothing currently playable depends on any of "
-                + "this. The cores in this build, including PSP, run on interpreters. The PSP "
-                + "core does not allocate executable memory. The entitlement is not what makes "
-                + "a PSP game start."
-            )
-
-            SettingsNote(
-                "The core reads its BIOS from the app's Application Support directory, which the "
-                + "Files app does not show. The Continuum folder the Files app DOES show is the "
-                + "Documents directory, where imports land. So put a BIOS file there, by importing "
-                + "it with the plus button or by dropping it into the Continuum folder, and then "
-                + "tap the button above to copy it across. Recognised names are "
-                + CoreCatalog.biosNameList()
-                + ". No BIOS is bundled with this app, because shipping a console BIOS is a "
-                + "copyright violation."
-            )
         }
     }
 

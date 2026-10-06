@@ -167,22 +167,18 @@ struct PlayerScreen: View {
                 // Outside the skin-hole condition on purpose: a stalled or desynced online game has
                 // to say so even when the picture fills a skin hole.
                 NetplayHUDLine(netplay: host.netplay)
-                // A skin hole is the picture. FPS and the status line used to sit on top of it.
-                if !host.skinHolesActive {
-                    telemetryStrip
-                    statusLine
-                    if host.showDiagnostics {
-                        DiagnosticsPanel(host: host, emulation: emulation, saveStates: saveStates)
+                // The technical read-outs only when the (i) button asks for them: fps, frames and
+                // the whole block. The strip is left out over a skin hole, where it would sit on
+                // the picture.
+                if host.showDiagnostics {
+                    if !host.skinHolesActive {
+                        telemetryStrip
                     }
-                } else if host.showDiagnostics {
-                    // Asked for with the (i) button, so it shows even over a skin's picture. It used
-                    // to do nothing at all with such a skin, which read as a dead button.
                     DiagnosticsPanel(host: host, emulation: emulation, saveStates: saveStates)
                 } else {
-                    // The status line is the app's only error log, and with a skin like this it was
-                    // never on screen: a refused save or "restarted from the beginning" said nothing.
-                    // So each new line shows for a few seconds and fades, rather than sitting on the
-                    // picture for good.
+                    // Otherwise each new status line shows for a few seconds and fades, so what the
+                    // app did (a save, a refusal, a restart) is still said without sitting on the
+                    // game. Every line is also kept in the activity log a feedback report sends.
                     StatusFlash(text: host.status)
                 }
                 // Claims the rest of the height without claiming any touches, so everything below
@@ -821,8 +817,11 @@ struct StatusFlash: View {
     /// Which showing the pending fade belongs to, so an older timer cannot hide a newer line.
     @State private var showing = 0
 
-    /// Long enough to read two lines of small text, short enough not to sit on the game.
-    private static let seconds: Double = 5
+    /// Long enough to read two lines of small text, short enough not to sit on the game. A problem
+    /// stays twice as long, because it is the line a tester needs to read or screenshot.
+    private var seconds: Double {
+        StatusTint.tint(for: text) == ShellPalette.metadata ? 5 : 10
+    }
 
     var body: some View {
         Text(text)
@@ -844,7 +843,7 @@ struct StatusFlash: View {
         showing += 1
         let mine = showing
         visible = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.seconds) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
             if showing == mine {
                 visible = false
             }

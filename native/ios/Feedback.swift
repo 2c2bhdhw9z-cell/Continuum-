@@ -23,9 +23,9 @@ import UIKit
 
 /// Where feedback goes.
 enum FeedbackDestination {
-    /// The address the Mail screen is addressed to. Empty: no address yet, so the share menu is
-    /// used and the tester chooses who it goes to.
-    static let email = ""
+    /// The address the Mail screen is addressed to, given by the owner on 6 October 2026. Empty
+    /// would mean no address, and the share menu with the tester choosing who it goes to.
+    static let email = "idkplswrk@gmail.com"
 
     static var hasEmail: Bool { !email.isEmpty }
 }
@@ -383,8 +383,9 @@ struct FeedbackSheet: View {
 
     private var sendNote: String {
         if FeedbackDestination.hasEmail {
-            return "Opens Mail with everything ready. You see all of it before it goes. If Mail is "
-                + "not set up on this iPhone, you can pick another app instead."
+            return "Opens Mail addressed to the Continuum team (\(FeedbackDestination.email)) with "
+                + "everything ready. You see all of it before it goes. If Mail is not set up on "
+                + "this iPhone, pick another app and send it to that address."
         }
         return "Opens the share menu with everything ready: pick Mail, Messages or another app, "
             + "and send it to whoever gave you Continuum. Nothing is sent until you do."
@@ -741,7 +742,11 @@ enum FeedbackShare {
             onFinish(false, "There is no screen to show the share menu on.")
             return
         }
-        var items: [Any] = [message.subject + "\n\n" + message.body]
+        // Mail is not set up on this phone, so the tester picks another app: the address goes at
+        // the top, so they know where to send it.
+        let to = FeedbackDestination.hasEmail
+            ? "Please send this to \(FeedbackDestination.email)\n\n" : ""
+        var items: [Any] = [to + message.subject + "\n\n" + message.body]
         if let png, let image = UIImage(data: png) {
             items.append(image)
         }

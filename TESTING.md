@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 6 October 2026, for **build 127 or newer**. The newest install is always on the
+Last updated 6 October 2026, for **build 128 or newer**. The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 
@@ -34,35 +34,32 @@ a game.
 
 # The list: what still needs testing
 
-## A. New in build 127 (do these first)
+## A. New in build 128 (do these first)
 
-**A1. Changing the 3DS model** (it crashed on 126)
+**A1. A cleaner player**
+1. Open any game.
+2. ✅ Good: no fps line or small text sits on the game. After a save or other action, a short
+   message shows at the top for a few seconds, then fades.
+3. Tap **(i)** in the top bar. ✅ The fps line and the full technical block show. Tap again to hide.
+
+**A2. A cleaner Settings**
+1. Open **Settings**.
+2. ✅ Good: **FEEDBACK** is the first card, **TECHNICAL DETAILS** and **ABOUT** (with the version)
+   are the last two. The old developer notes about JIT and "step 4" are gone.
+
+**A3. Feedback goes to your email**
+1. **Settings** → **Send feedback**, type anything → **Send**.
+2. ✅ Good: Mail opens addressed to idkplswrk@gmail.com. Send it and check that inbox.
+
+**A4. The 3DS model change** (from build 127)
 1. In Mario Kart 7: **⋯** → **Core settings...** → **System Model** → **Original 3DS**.
-2. ✅ Good: the game keeps running (the change waits for a restart), and **Restart the game now**
-   appears at the top of the settings screen.
-3. Tap **Restart the game now**. ✅ The game starts again on the Original 3DS, no crash.
-4. Your old saves made on the New 3DS do not load now, and a message says why. Set it back to
-   **New 3DS** afterwards and restart.
+2. ✅ Good: the game keeps running and **Restart the game now** appears. Tap it: no crash.
+3. Set it back to **New 3DS** and restart again.
 
-**A2. Cheats switch off properly, and name your game's version**
-1. In the Pokemon game: **⋯** → **Cheats and RAM search...**.
-2. ✅ Good: a line at the top says which game and version you have (for example "Pokemon FireRed
-   (USA), version 1.1"). Tell me what it says.
-3. Turn both walk-through-walls cheats **off**, then go back to the game. ✅ It no longer freezes
-   when you move (if it froze before, load a save from before you turned the cheat on).
-
-**A3. The new feedback form, from a game**
-1. In any game: **⋯** → **Send feedback about this game...**.
-2. ✅ Good: it opens on **How it runs**, with a rating (Perfect, Playable, Problems, Won't run) and
-   buttons for what is wrong (Picture, Sound, Speed and so on).
-3. Tap **Draw on it** under the picture, draw a circle, tap **Done**. ✅ The circle is on the
-   picture.
-4. Tap **Send...** and send it to yourself. ✅ The message has your rating, what is wrong, the
-   picture with your circle, and a file called "Continuum activity" listing what the app did.
-
-**A4. Crash report** (only if the app ever closes by itself)
-1. Open Continuum again after it closed by itself.
-2. ✅ Good: it asks whether to send a report about it.
+**A5. Cheats switch off** (from build 127)
+1. In the Pokemon game: **⋯** → **Cheats and RAM search...**. A line at the top names the game and
+   version. Tell me what it says.
+2. Turn both walk-through-walls cheats off. ✅ Good: the game no longer freezes when you move.
 
 ## A (older). Things to notice in passing
 

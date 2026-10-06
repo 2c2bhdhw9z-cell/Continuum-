@@ -66,3 +66,9 @@ These come straight from the owner. They are not suggestions.
   different appearance, on purpose (docs/PRODUCT_SCOPE.md).
 - Only Kiro works on this repository. No other AI tool's files, instructions or branches belong
   in it (they were removed on 5 October 2026); do not add any.
+- Public beta from 6 October 2026: strangers download and test the app. Keep what a tester sees
+  plain: technical read-outs only behind the (i) button and Settings, Technical details; README is
+  written for testers. Feedback email is idkplswrk@gmail.com (`FeedbackDestination.email`).
+- Outside testing services are done with: QA Wolf (support never replied), Momentic (simulator
+  only, needs a full rebuild: the owner said no), Apptest.ai (rejects an .ipa without an Apple
+  certificate). Do not offer a built-in self-test either; the owner has proved most systems.
