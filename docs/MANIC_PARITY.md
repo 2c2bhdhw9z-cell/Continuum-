@@ -133,7 +133,8 @@ pick a system only when it truly cannot tell. The choice is remembered per game.
 
 Online play for two phones, cloud sync through any folder, RAM cheat search, 50 save slots with
 pictures, rewind, extra buttons placed anywhere, skin editor inside the app, game rumble on the
-phone and controllers.
+phone and controllers, a feedback form in Settings and in every game (build 126), and the cheat
+screen saying which code types each system reads (build 126).
 
 ## Still to do
 

@@ -23,9 +23,9 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 For whoever works on this next:
 
-- The owner is testing build 125 (build 124's app plus a repo cleanup). Fix nothing until they
-  say "I'm done testing for now"; the results so far are in [HANDOFF.md](HANDOFF.md). The one
-  failure so far: a 3DS save state is refused as "too short" on load.
+- Build 126 is the fix batch from the owner's build 125 testing (list below). Its tests are
+  [TESTING.md](TESTING.md) section A. The feedback form needs one answer from the owner: which
+  email address it should open Mail with (until then it uses the share menu).
 - Open work from [docs/MANIC_PARITY.md](docs/MANIC_PARITY.md) "Still to do": SMB shares done
   properly (taken out after build 117 stopped the app opening), and direct Google Drive, Dropbox and OneDrive
   logins (they need app ids only the owner can register; they already work through Files).
@@ -100,16 +100,17 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Screen fit and scaling | **Done** | |
 | Fast forward | **Done** | 2x (build 122), 3x, 4x and slow motion (build 125) confirmed. Tops out near 4x. Past that the engine drops frames instead of going faster, and the menu stops at 4x. That is not 5x |
 | Rewind | **Done** | |
-| Save states, slots, delete | **Partial** | 50 fixed slots per game plus the auto-save, each with a picture, date and core; export and import of a state file and of the game's own battery save (`.srm`). Old numbered saves move into free slots and nothing is deleted. Confirmed: Save to the next free slot (build 122); on build 125, slot pictures, save and load on 14 systems (NES, SNES, Game Boy, GBC, GBA, Game Gear, Mega Drive, PS1, DS, TurboGrafx-16, Atari 2600, N64, Jaguar, Pokemon Mini), and exporting a 3DS state to Files and importing it back as a new slot. **Bug (build 125):** the 3DS state is then refused as "too short" (14.6 MB saved, the core asking for 19.2 MB, then 17.5 MB). Not on a phone yet: rename, overwrite, delete, and loading an imported state on another system |
+| Save states, slots, delete | **Partial** | 50 fixed slots per game plus the auto-save, each with a picture, date and core; export and import of a state file and of the game's own battery save (`.srm`). Old numbered saves move into free slots and nothing is deleted. Confirmed: Save to the next free slot (build 122); on build 125, slot pictures, save and load on 14 systems (NES, SNES, Game Boy, GBC, GBA, Game Gear, Mega Drive, PS1, DS, TurboGrafx-16, Atari 2600, N64, Jaguar, Pokemon Mini), exporting a 3DS state to Files and importing it back as a new slot, rename, save over, delete, and an exported and imported state loading on a non-3DS game. **Bug in build 125, fixed in 126, not on a phone yet:** every 3DS state was refused as "too short" (14.6 MB saved, the core asking for 19.2 MB, then 17.5 MB); an imported state had no picture (TESTING.md A1, A2) |
 | Auto-save and resume | **Done** | |
-| Cheats | **Partial** | Confirmed: typed codes. Not on a phone: importing a RetroArch `.cht` file, and the RAM search (lives, money and so on) that turns an address into a cheat. Up to 128 codes per game. Build 122: a `.cht` file's RAM cheats land where RetroArch puts them (on GBA they used to hit the wrong memory) |
+| Cheats | **Partial** | Confirmed: typed codes (GameShark, Game Genie, Action Replay and the rest go straight to each system's emulator, which reads its own kinds). Build 126, not on a phone yet: a typed code can be added inside a game, and both cheat screens say which kinds that system reads or that it ignores typed codes (TESTING.md A5). Not on a phone: importing a RetroArch `.cht` file, and the RAM search (lives, money and so on) that turns an address into a cheat. Up to 128 codes per game. Build 122: a `.cht` file's RAM cheats land where RetroArch puts them (on GBA they used to hit the wrong memory) |
 | On-screen control layout editor | **Partial** | **Done bar (Brett):** every control in the skin file works, not only the ones he names. Picture in the screen hole both ways you hold the phone. Two screens when the skin has two. A joystick or circle pad is a real stick, not a dead picture. Shoulders too. Debug text off the picture. Confirmed on the phone 5 October (build 122, a 3DS skin, Mario Kart 7): both screens sit in their own holes sideways, the eye button hides and shows the top bar (remembered), nothing sits on the picture of a sideways 3DS skin, the false overlap line is gone. Portrait and the other systems' skins are still not confirmed. Do **not** stamp Done until the owner says the skin is right |
 | Battery saves (the game's own save) | **Done** | Confirmed on build 125: an in-game save is still there after leaving and coming back. Found broken while building the save manager: in-game saves (Pokemon, Zelda, PS1 memory card) were never written to disk, so they only survived inside a save state. Now restored before the first frame and written when you leave or switch apps |
-| Save state compatibility refusal | **Partial** | Refuses a state from a different core or core build, and (since build 120) one saved under different restart-required core settings. Confirmed on the phone 5 October (build 122): changing a 3DS restart setting no longer closes the app. Not on a phone: exported and re-imported 3DS states carrying their settings, because every 3DS state is refused as "too short" on build 125 (the bug in Save states above) |
+| Save state compatibility refusal | **Partial** | Refuses a state from a different core or core build, and (since build 120) one saved under different restart-required core settings. Confirmed on the phone 5 October (build 122): changing a 3DS restart setting no longer closes the app. Not on a phone: a 3DS state refused after a settings change, because every 3DS state was refused as "too short" on build 125 (fixed in 126, TESTING.md A3) |
 | Hide the player's top bar | **Done** | Build 122, confirmed on the phone 5 October: the eye button next to Back hides and shows the top bar, and the choice is remembered between games |
 | Import several skins at once | **Done** | Build 122, confirmed on the phone 5 October (skin library, Import skins) |
 | A paused game stays paused after leaving the app | **Done** | Build 122, confirmed on the phone 5 October |
 | Wi-Fi transfer access code | **Built, untested** | Build 122. The address now ends in a short code that changes every time Wi-Fi transfer is switched on; anything without it gets nothing, so nobody else on the Wi-Fi can upload files or download saves. TESTING.md B1 |
+| Feedback, in two places | **Built, untested** | Build 126, the owner's ask for beta testers. Settings (the first card) and a game's ⋯ menu. A short form plus the app's details and, from a game, its picture. Opens the share menu; it will open Mail addressed to the owner once `FeedbackDestination.email` in `native/ios/Feedback.swift` has the owner's address. TESTING.md A6 |
 | Apple performance overlay switch | **Done** | Confirmed on build 125. Build 121. Settings → DIAGNOSTICS. Hides Apple's Metal Performance HUD on the game layers and turns off the launch-time request for it. May need the app reopened |
 | Landscape with no skin | **Done** | Froze in build 119 (an endless layout loop from a repeated warning line). Fixed in build 120 and confirmed on the phone |
 | **+** opens Files, the ⋯ menu, TV picture quality | **Done** | Confirmed on build 119 |
@@ -144,7 +145,7 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | JIT | **Out on purpose** | Not in this signed app. Do not add it to close this list |
 | Rewind | **Done** | |
 | Fast forward | **Done** | About 4x, not 5x |
-| Save slots, including export | **Partial** | 50 slots plus the auto-save, export and import of states and battery saves. Save to the next free slot confirmed (122); slot pictures, save and load on 14 systems, and export and import of a 3DS state confirmed (125). A 3DS state is refused as "too short" on load (bug, build 125). Rename, overwrite and delete not on a phone yet |
+| Save slots, including export | **Partial** | 50 slots plus the auto-save, export and import of states and battery saves. Save to the next free slot confirmed (122); slot pictures, save and load on 14 systems, export and import, rename, save over and delete confirmed (125). 3DS states loading and imported slots showing their picture are fixed in 126, not on a phone yet |
 | Cheats: search, and importing a file | **Partial** | Typed codes confirmed; `.cht` import and RAM search not on a phone |
 | Online play | **Built, untested** | Two phones, same game. Host or join on the same Wi-Fi (nearby list) or by address. Over the internet the host must open TCP port 55435. No rollback, so lag shows as short stalls. Rewind, fast forward and loading states are off while online. Build 122: if player 2 drops out, the host keeps playing and lets them rejoin on the same address |
 | Achievements | **Partial** | RetroAchievements login, unlock banners and a list on the game card. Game Boy Advance achievements read mGBA's full memory map. Confirmed (build 125): logging in (the button says Logging in... and cannot be pressed twice) and the unlock banner popping up in a game. The list on the game card is not confirmed yet |
@@ -152,6 +153,31 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 
 ---
+
+## Build 126 (5 October 2026)
+
+The owner tested build 125 (results in HANDOFF.md). The fixes and the two asks. TESTING.md A1 to A6.
+
+- 3DS save states: every one was refused as "too short" (14.6 MB saved, the core asking for 19.2,
+  then 17.5). The app compared a state with the size the core reports right now, and Azahar's
+  figure moves as the game runs (so do PPSSPP's and Flycast's). No length is compared any more;
+  the engine pads a short state instead, so a core can never read past the end, and it now records
+  the core's own "my size can change" flag (`SET_SERIALIZATION_QUIRKS`, under both numbers it has
+  had, 44 and 87). Saving on the 3DS also does one full serialisation instead of two.
+- An imported save had no picture. An export now carries the slot's picture (format version 2,
+  only when there is a picture), and a slot with none gets one the first time it is loaded.
+- With a skin that puts the game in its own screen holes, the small text was never shown and the
+  (i) button did nothing. Each new status line now shows for five seconds and fades, and (i) opens
+  the full block over the game.
+- Cheats: a typed code (GameShark, Game Genie, Action Replay, CodeBreaker, CWCheat and so on) can
+  now be added from the cheat screen inside a game, not only from the game's card. Both places say
+  which kinds of code that system's emulator reads, or that it ignores typed codes (3DS, Dreamcast,
+  Atari 2600, arcade and others), from a table in the engine (`cheats::formats`) read off each
+  core's own source.
+- Feedback (the owner's ask), in two places: Settings (the first card) and a game's ⋯ menu. A short
+  form, plus the app's details and, from a game, a picture of it. It opens Apple's Mail screen
+  addressed to the owner once there is an address (`FeedbackDestination.email`), and the share
+  menu until then. Nothing is sent without the player tapping send.
 
 ## Build 124 (5 October 2026)
 

@@ -1,7 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 5 October 2026, for **build 125 or newer** (125 is build 124's app; tests marked
-"new in 124" apply to it). The newest install is always on the
+Last updated 5 October 2026, for **build 126 or newer**. The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 
@@ -33,7 +32,49 @@ rotate, swap screens and the six layouts, and the game on a TV.
 
 # The list: what still needs testing
 
-## A. Things to notice in passing
+## A. New in build 126 (do these first)
+
+**A1. 3DS saves load**
+1. In a 3DS game: **⋯** → **Save to the next free slot**.
+2. **⋯** → **Save slots...** → tap that slot → **Load**.
+3. ✅ Good: the game jumps back to where you saved. The imported Slot 2 from build 125 loads too.
+
+**A2. An imported save shows its picture**
+1. In any game: **⋯** → **Save slots...** → tap a slot that has a picture → **Export** → **Save to
+   Files** → **Save**.
+2. Same screen: **Import a state file** → pick that file.
+3. ✅ Good: the new slot shows the picture straight away.
+4. A slot with no picture (like the Slot 2 you imported on build 125) gets one the first time you
+   load it.
+
+**A3. 3DS settings protection**
+1. In a 3DS game: **⋯** → **Save to the next free slot**.
+2. **⋯** → **Core settings...** → switch **New 3DS** to the other choice → **Restart the game now**.
+3. **⋯** → **Save slots...** → tap that slot → **Load**.
+4. ✅ Good: the app stays open, the save does not load, and a message saying why shows at the top
+   for a few seconds. Switch **New 3DS** back afterwards.
+
+**A4. The small text with a skin on**
+1. In a game with your 3DS skin on: **⋯** → **Save to the next free slot**.
+2. ✅ Good: a short message shows near the top for a few seconds, then fades.
+3. Tap the **(i)** button in the top bar. ✅ The full block of small text opens over the game. Tap
+   **(i)** again to close it.
+
+**A5. Typing cheat codes inside a game**
+1. In a GBA, SNES or NES game: **⋯** → **Cheats and RAM search...**.
+2. ✅ Good: there is a box to type a code, and a line saying which codes this system takes (on a
+   GBA: GameShark, Action Replay or CodeBreaker). Type a code you know and tap **Add this cheat**.
+   ✅ It works in the game.
+3. On a 3DS game the line says typed codes do nothing there (the 3DS emulator ignores them).
+
+**A6. Feedback, two places**
+1. **Settings** → the first card, **FEEDBACK** → **Send feedback**. Type something → **Send...**.
+2. ✅ Good: the share menu opens with your message and the app's details. Send it to yourself to
+   see what a tester would send you.
+3. In a game: **⋯** → **Send feedback about this game...**. ✅ The form shows a picture of the
+   game, and the message names the game.
+
+## A (older). Things to notice in passing
 
 **A7. Things to notice in passing** (no need to set up)
 - The small text in the player should always read as plain English. If you ever see something like
@@ -156,8 +197,9 @@ left and is waiting, keeps its game going, and lets the second phone back in.
 
 ## Known not working or not built (no need to test)
 
-- 3DS: every save state is refused as "too short" when you load it (build 125). Fix coming.
-- A save state brought in with **Import a state file** has no picture. Fix coming.
+- Typed cheat codes do nothing on the 3DS, Dreamcast, Atari 2600, arcade, Saturn (Yabause),
+  Amiga, C64, Lynx, Atari 5200, Virtual Boy, PC Engine CD and Pokemon Mini: those emulators ignore
+  them. The RAM search can still make a cheat where the game's memory can be read.
 
 - SMB (NAS shares) is out of this build. WebDAV works.
 - GameCube and Wii: not possible without JIT.

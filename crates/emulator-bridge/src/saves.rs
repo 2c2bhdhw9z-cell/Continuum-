@@ -129,6 +129,13 @@ pub struct StateExportMeta {
 /// The first bytes of every export. Sixteen bytes, ending in a newline so `head -c` shows it.
 pub const EXPORT_MAGIC: &[u8; 16] = b"CONTINUUM-STATE\n";
 const EXPORT_VERSION: u32 = 1;
+/// A file that also carries the slot's picture after the payload. Only written when there IS a
+/// picture, so a state without one is still a version 1 file every older build reads. An older
+/// build given a version 2 file says "update the app" rather than misreading the picture as state.
+const EXPORT_VERSION_WITH_PICTURE: u32 = 2;
+/// A slot picture is a few hundred kilobytes at most. Anything bigger is left out of the file
+/// rather than allowed to make it enormous.
+pub const MAX_EXPORT_PICTURE: usize = 8 * 1024 * 1024;
 /// A header is a few hundred bytes. Anything claiming more is not one of ours.
 const MAX_HEADER: usize = 64 * 1024;
 
@@ -194,6 +201,19 @@ fn unescape(value: &str) -> String {
 /// version 1, because every build that reads version 1 ignores keys it does not know, so an older
 /// build imports a newer file and only loses the options. When unknown neither line is written.
 pub fn pack_state_export(meta: &StateExportMeta, payload: &[u8]) -> Vec<u8> {
+    pack_state_export_with_picture(meta, payload, None)
+}
+
+/// [`pack_state_export`], plus the slot's picture (a PNG) after the payload, so the slot shows it
+/// the moment the file is imported. `picture_bytes=N` in the header says how long it is, and the
+/// file becomes format version 2. An empty or oversized picture is left out, and the file is then
+/// exactly what [`pack_state_export`] writes.
+pub fn pack_state_export_with_picture(
+    meta: &StateExportMeta,
+    payload: &[u8],
+    picture: Option<&[u8]>,
+) -> Vec<u8> {
+    let picture = picture.filter(|p| !p.is_empty() && p.len() <= MAX_EXPORT_PICTURE);
     let mut header = String::new();
     let mut line = |key: &str, value: &str| {
         header.push_str(key);
@@ -234,17 +254,47 @@ pub fn pack_state_export(meta: &StateExportMeta, payload: &[u8]) -> Vec<u8> {
         }
     }
 
-    let mut out = Vec::with_capacity(EXPORT_MAGIC.len() + 8 + header.len() + payload.len());
+    // Last, after the options, so a header that had to drop its options still says where the
+    // picture is. Never too big to fit: one short line.
+    if let Some(picture) = picture {
+        header.push_str(&format!("picture_bytes={}\n", picture.len()));
+    }
+    let version = if picture.is_some() {
+        EXPORT_VERSION_WITH_PICTURE
+    } else {
+        EXPORT_VERSION
+    };
+
+    let extra = picture.map_or(0, <[u8]>::len);
+    let mut out =
+        Vec::with_capacity(EXPORT_MAGIC.len() + 8 + header.len() + payload.len() + extra);
     out.extend_from_slice(EXPORT_MAGIC);
-    out.extend_from_slice(&EXPORT_VERSION.to_le_bytes());
+    out.extend_from_slice(&version.to_le_bytes());
     out.extend_from_slice(&(header.len() as u32).to_le_bytes());
     out.extend_from_slice(header.as_bytes());
     out.extend_from_slice(payload);
+    if let Some(picture) = picture {
+        out.extend_from_slice(picture);
+    }
     out
 }
 
-/// Reads a file written by [`pack_state_export`]. Every failure is a sentence for the status line.
+/// One imported file: the facts, the state, and the slot's picture when the file carried one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnpackedExport {
+    pub meta: StateExportMeta,
+    pub payload: Vec<u8>,
+    pub picture: Option<Vec<u8>>,
+}
+
+/// Reads a file written by [`pack_state_export`] and drops any picture.
 pub fn unpack_state_export(bytes: &[u8]) -> Result<(StateExportMeta, Vec<u8>), String> {
+    unpack_state_export_with_picture(bytes).map(|unpacked| (unpacked.meta, unpacked.payload))
+}
+
+/// Reads a file written by [`pack_state_export_with_picture`]. Every failure is a sentence for the
+/// status line. A picture that is damaged or cut short costs only the picture, never the state.
+pub fn unpack_state_export_with_picture(bytes: &[u8]) -> Result<UnpackedExport, String> {
     if bytes.len() < EXPORT_MAGIC.len() + 8 || &bytes[..EXPORT_MAGIC.len()] != EXPORT_MAGIC {
         return Err(
             "that file is not a Continuum save state export (it does not start with the \
@@ -254,10 +304,10 @@ pub fn unpack_state_export(bytes: &[u8]) -> Result<(StateExportMeta, Vec<u8>), S
     }
     let at = EXPORT_MAGIC.len();
     let version = u32::from_le_bytes(bytes[at..at + 4].try_into().expect("4 bytes"));
-    if version != EXPORT_VERSION {
+    if version != EXPORT_VERSION && version != EXPORT_VERSION_WITH_PICTURE {
         return Err(format!(
-            "that export is format version {version}, and this build reads version \
-             {EXPORT_VERSION}; update the app"
+            "that export is format version {version}, and this build reads versions \
+             {EXPORT_VERSION} and {EXPORT_VERSION_WITH_PICTURE}; update the app"
         ));
     }
     let header_len = u32::from_le_bytes(bytes[at + 4..at + 8].try_into().expect("4 bytes")) as usize;
@@ -270,10 +320,11 @@ pub fn unpack_state_export(bytes: &[u8]) -> Result<(StateExportMeta, Vec<u8>), S
     };
     let header = std::str::from_utf8(header)
         .map_err(|_| "that export's header is not text, so it is damaged".to_string())?;
-    let payload = &bytes[body + header_len..];
+    let rest = &bytes[body + header_len..];
 
     let mut meta = StateExportMeta::default();
     let mut byte_count: Option<u64> = None;
+    let mut picture_bytes: Option<u64> = None;
     let mut option_count: Option<usize> = None;
     let mut options = BTreeMap::new();
     let mut option_lines = 0usize;
@@ -300,6 +351,7 @@ pub fn unpack_state_export(bytes: &[u8]) -> Result<(StateExportMeta, Vec<u8>), S
             "slot" => meta.slot = value.parse().unwrap_or(0),
             "label" => meta.label = value,
             "core_option_count" => option_count = value.parse().ok(),
+            "picture_bytes" => picture_bytes = value.parse().ok(),
             // Unknown keys are a later build's additions, and are ignored rather than refused.
             _ => {}
         }
@@ -319,6 +371,17 @@ pub fn unpack_state_export(bytes: &[u8]) -> Result<(StateExportMeta, Vec<u8>), S
     let Some(expected) = byte_count else {
         return Err("that export does not record its own length, so it cannot be checked".into());
     };
+    // Version 2 puts the picture after the payload. Only there, and only when the header says how
+    // long it is, is anything after `byte_count` bytes not state. A picture whose length does not
+    // match is dropped and the state still imports.
+    let (payload, picture) = match picture_bytes {
+        Some(length) if version == EXPORT_VERSION_WITH_PICTURE && rest.len() as u64 >= expected => {
+            let (payload, tail) = rest.split_at(expected as usize);
+            let fits = length > 0 && tail.len() as u64 == length && tail.len() <= MAX_EXPORT_PICTURE;
+            (payload, fits.then(|| tail.to_vec()))
+        }
+        _ => (rest, None),
+    };
     if payload.len() as u64 != expected {
         return Err(format!(
             "that export holds {} byte(s) of state and says it should hold {expected}, so it was \
@@ -330,7 +393,11 @@ pub fn unpack_state_export(bytes: &[u8]) -> Result<(StateExportMeta, Vec<u8>), S
         return Err("that export holds an empty state".into());
     }
     meta.byte_count = expected;
-    Ok((meta, payload.to_vec()))
+    Ok(UnpackedExport {
+        meta,
+        payload: payload.to_vec(),
+        picture,
+    })
 }
 
 #[cfg(test)]
@@ -671,9 +738,53 @@ mod tests {
     #[test]
     fn import_refuses_a_future_version_and_names_it() {
         let mut bytes = pack_state_export(&sample_meta(), &[1]);
-        bytes[16] = 2;
+        bytes[16] = 3;
         let err = unpack_state_export(&bytes).unwrap_err();
-        assert!(err.contains("version 2"), "{err}");
+        assert!(err.contains("version 3"), "{err}");
+    }
+
+    #[test]
+    fn a_picture_travels_with_the_state() {
+        let payload = [3u8; 500];
+        let picture = b"\x89PNG not really, but bytes".to_vec();
+        let bytes = pack_state_export_with_picture(&sample_meta(), &payload, Some(&picture));
+        assert_eq!(u32::from_le_bytes(bytes[16..20].try_into().unwrap()), 2);
+        assert!(header_of(&bytes).ends_with(&format!("picture_bytes={}\n", picture.len())));
+        let back = unpack_state_export_with_picture(&bytes).unwrap();
+        assert_eq!(back.payload, payload);
+        assert_eq!(back.picture, Some(picture.clone()));
+        let mut expected = sample_meta();
+        expected.byte_count = 500;
+        assert_eq!(back.meta, expected);
+        // The plain reader takes the state and leaves the picture.
+        let (_, plain) = unpack_state_export(&bytes).unwrap();
+        assert_eq!(plain, payload);
+    }
+
+    #[test]
+    fn no_picture_writes_the_same_version_1_file_as_before() {
+        let payload = [7u8; 300];
+        for none in [None, Some(&[][..]), Some(&vec![0u8; MAX_EXPORT_PICTURE + 1][..])] {
+            assert_eq!(
+                pack_state_export_with_picture(&sample_meta(), &payload, none),
+                old_format_export(&payload)
+            );
+        }
+        assert_eq!(unpack_state_export_with_picture(&old_format_export(&payload)).unwrap().picture, None);
+    }
+
+    #[test]
+    fn a_damaged_picture_costs_only_the_picture() {
+        let payload = [9u8; 64];
+        let picture = vec![1u8; 40];
+        let bytes = pack_state_export_with_picture(&sample_meta(), &payload, Some(&picture));
+        // Cut inside the picture: the state is whole, so it imports without one.
+        let cut = unpack_state_export_with_picture(&bytes[..bytes.len() - 5]).unwrap();
+        assert_eq!(cut.payload, payload);
+        assert_eq!(cut.picture, None);
+        // Cut inside the STATE: refused, as before.
+        let short = &bytes[..bytes.len() - picture.len() - 1];
+        assert!(unpack_state_export_with_picture(short).unwrap_err().contains("cut short"));
     }
 
     #[test]

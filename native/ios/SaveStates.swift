@@ -98,8 +98,8 @@ struct SaveStateRecord: Identifiable, Codable, Hashable {
     /// of the same game apart when both were taken in the same minute.
     let frame: UInt64
 
-    /// The payload length in bytes, as written. Checked against `saveStateSize()` before a load,
-    /// and against the real length of the file after it is read.
+    /// The payload length in bytes, as written. Checked against the real length of the file after
+    /// it is read, which is what catches a write that did not finish.
     let byteCount: Int
 
     /// The core that wrote it, for example "pcsx_rearmed". Optional: see the type's note.
@@ -266,8 +266,8 @@ struct SaveStateRecord: Identifiable, Codable, Hashable {
 /// The four reasons a state may not be loaded, each with the sentence the user is shown.
 ///
 /// ORDER MATTERS AND IS FIXED IN `SaveStates.refusal(for:)`: missing payload, then core id, then
-/// core version, then byte length. It runs cheapest and most certain first, and it ends on the one
-/// check that catches a core whose state layout moved without its version string changing.
+/// core version, then the core settings it was saved under. Cheapest and most certain first.
+/// There is no length reason any more; see the note at the end of `refusal(for:)`.
 ///
 /// Every message names the actual values. "That state cannot be loaded" teaches the user nothing
 /// and makes the app look broken; "saved by snes9x, mgba is running now" tells them what happened
@@ -279,9 +279,6 @@ enum SaveStateRefusal {
     case coreMismatch(saved: String, running: String)
     /// The same core, rebuilt since.
     case versionMismatch(core: String, saved: String, running: String)
-    /// Shorter than the running core needs, which is the only direction that is a fault. See the
-    /// note in `SaveStates.refusal(for:)` on why a LONGER state is accepted.
-    case tooShort(saved: Int, expected: Int)
     /// Saved under different core settings than the game is running with now.
     case settingsChanged(changed: [String])
 
@@ -296,10 +293,6 @@ enum SaveStateRefusal {
             return "The core has been rebuilt since this state was saved (\(core) \(saved) wrote "
                 + "it, this build is \(running)), so its internal layout may have moved. Not "
                 + "loading it, to avoid corrupting the game."
-        case .tooShort(let saved, let expected):
-            return "This state is shorter than the core can read (it is \(saved) bytes and the "
-                + "core needs at least \(expected)), so it was cut short when it was written or it "
-                + "came from a different core."
         case .settingsChanged(let changed):
             let list = changed.isEmpty ? "the core settings" : changed.joined(separator: ", ")
             return "This state was saved with different core settings (\(list)). Loading it under "
@@ -314,7 +307,6 @@ enum SaveStateRefusal {
         case .payloadMissing: return "payload missing"
         case .coreMismatch: return "different core"
         case .versionMismatch: return "core rebuilt"
-        case .tooShort: return "state too short"
         case .settingsChanged: return "core settings changed"
         }
     }
@@ -984,13 +976,12 @@ final class SaveStates: ObservableObject {
     ///   1. is the payload still on disk
     ///   2. is the running core the one that wrote it
     ///   3. is it the same BUILD of that core
-    ///   4. does the length the core expects right now match the length that was written
+    ///   4. was it saved under the same restart-required core settings
     ///
     /// Each check needs both halves to be known. A record with no stored core id, or a running core
     /// that reports no id, means that particular question cannot be answered, so it falls through
     /// to the next check rather than failing: the alternative would make every state written by an
-    /// older build permanently unloadable. Check 4 is the one that catches a core whose internal
-    /// layout moved without its version string changing, which is why it is last rather than first.
+    /// older build permanently unloadable. The length is not compared (see the end of this function).
     ///
     /// Returns nil when the state may be loaded.
     func refusal(for record: SaveStateRecord) -> SaveStateRefusal? {
@@ -1016,31 +1007,15 @@ final class SaveStates: ObservableObject {
             return .settingsChanged(changed: changed)
         }
 
-        // `saveStateSize()` is what the core expects RIGHT NOW: it is asked of the live session
-        // rather than remembered from the launch, because it is the only figure here that can be
-        // read straight from the machine the state is about to be pushed into. Zero means the core
-        // does not support states at all, which is not a mismatch and is refused by the save and
-        // load paths on their own terms.
-        //
-        // DIRECTIONAL, and it did not used to be. Refusing every length that was not exactly what
-        // the core reports this instant was wrong, and it showed up on a device as save states
-        // loading for some games and not others. `retro_serialize_size` is allowed to CHANGE: some
-        // cores report a larger figure once they have run a few frames, and a PlayStation core's
-        // figure moves with the disc state. So a state that is genuinely from this core and this
-        // build can be a different length from the one the core would write right now, and treating
-        // that as corruption broke the feature for precisely the cores that do it.
-        //
-        // Short is still refused, because that is the direction with a hazard behind it: the core
-        // reads its own structures out of the buffer, so one smaller than it expects is how it reads
-        // past the end. Longer is harmless, since it stops when it has what it needs.
-        //
-        // This was never the check doing the real protecting. The core id and the core's version
-        // above are, and both are far stronger than comparing a length.
-        let expected = Int(engine.saveStateSize())
-        if record.byteCount > 0, expected > 0, record.byteCount < expected {
-            return .tooShort(saved: record.byteCount, expected: expected)
-        }
-
+        // NO LENGTH CHECK, and there used to be one: a state shorter than the size the core reports
+        // right now was refused as "too short". That broke every 3DS state on build 125 (14.6 MB
+        // saved, the core asking for 19.2 MB, then 17.5 MB): Azahar's figure is the size of a state
+        // written THIS instant, and it moves as the game runs. PPSSPP rounds its figure up and
+        // Flycast measures, so the PSP and Dreamcast could hit it too. The engine now pads a short
+        // state instead (`plan_unserialize` in Rust), so a core can never read past the end of one,
+        // and a file cut short is still caught by the length check in `load`, against the list.
+        // Asking the size also cost the 3DS a full serialisation, and paused PPSSPP's emulation
+        // thread without resuming it.
         return nil
     }
 
@@ -1159,12 +1134,9 @@ final class SaveStates: ObservableObject {
     private func write(gameId: String, slot: Int, isAuto: Bool, label: String = "",
                        describe: (SaveStateRecord) -> String,
                        announce: Bool = true) -> SaveStateRecord? {
-        guard engine.saveStateSize() > 0 else {
-            report("save state refused: \(engine.currentCoreId() ?? "this core") does not "
-                   + "support save states", announce: announce)
-            return nil
-        }
-
+        // No separate "does this core support states" question first. The engine already refuses
+        // a core that does not, with a sentence, and asking cost the 3DS a whole extra
+        // serialisation per save: Azahar answers the size question by writing the full state.
         let bytes: Data
         do {
             // No `Data(...)` around this. UniFFI already hands back `Data` for a Rust `Vec<u8>`,
@@ -1292,11 +1264,9 @@ final class SaveStates: ObservableObject {
             report("state not loaded: \(SaveStateRefusal.payloadMissing.message)")
             return false
         }
-        // The gate compared the LENGTH THE INDEX CLAIMS against the core. This compares the length
-        // the file actually has, which is the same question asked of a different source and catches
-        // the one case the index cannot see: a payload truncated by a write that did not finish.
-        // Its own sentence rather than `SaveStateRefusal.sizeMismatch`, because that message says
-        // "this core expects", and the figure being disagreed with here is the list's, not a core's.
+        // The length the file actually has against the length the list recorded, which catches a
+        // payload truncated by a write that did not finish. Its own sentence, because the figure
+        // being disagreed with here is the list's, not a core's.
         if record.byteCount > 0, data.count != record.byteCount {
             report("state not loaded: its file is \(data.count) bytes and the list recorded "
                    + "\(record.byteCount), so the file was not written completely.")
@@ -1320,7 +1290,41 @@ final class SaveStates: ObservableObject {
         // is here so the next reader does not go looking for the missing call.
         report("loaded \(record.slotLabel.lowercased()) for \(record.gameId), taken "
                + "\(record.ageText) at frame \(record.frame)")
+        // A numbered slot with no picture (imported from a file that carried none, or saved before
+        // pictures worked) gets one now, from the game as it stands just after the load.
+        if !record.isAuto, thumbnail(for: record) == nil {
+            pictureAfterLoad(record)
+        }
         return true
+    }
+
+    /// Takes a loaded slot's missing picture once the game has drawn the loaded moment.
+    ///
+    /// Not at once: the core's last frame is still the one from before the load until it has run
+    /// again. So this waits for the frame counter to move on by a handful of frames (a paused game
+    /// simply waits, up to about a minute), and gives up if the game, or what is in that slot,
+    /// changes in the meantime.
+    private func pictureAfterLoad(_ record: SaveStateRecord) {
+        let gameId = record.gameId
+        let slot = record.slot
+        let created = record.createdAt
+        let startFrame = engine.frameCount()
+        Task { [weak self] in
+            for _ in 0..<240 {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                guard let self else { return }
+                guard let entry = self.runningEntry(), SaveStates.gameId(for: entry) == gameId,
+                      let current = self.manualState(forGameId: gameId, slot: slot),
+                      current.createdAt == created else { return }
+                if self.thumbnail(for: current) != nil { return }
+                let now = self.engine.frameCount()
+                // Either way round: a core may count from the loaded state's frame.
+                if now > startFrame + 10 || now + 10 < startFrame {
+                    self.captureThumbnail(gameId: gameId, slot: slot)
+                    return
+                }
+            }
+        }
     }
 
     /// The resume path, called by `EngineHost.launch` on a successful launch.
@@ -1462,7 +1466,14 @@ final class SaveStates: ObservableObject {
             // Nil stays nil: "not recorded" travels as not recorded, never as an empty map.
             coreOptions: record.coreOptions
         )
-        let packed = packStateExport(meta: meta, payload: payload)
+        // The slot's picture travels inside the file, so the slot it is imported into shows it at
+        // once. A slot with no picture writes the same file older builds read.
+        var picture: Data? = nil
+        if let url = SaveStateDisk.thumbnailURL(gameId: record.gameId, slot: record.slot,
+                                                isAuto: record.isAuto) {
+            picture = try? Data(contentsOf: url)
+        }
+        let packed = packStateExportWithPicture(meta: meta, payload: payload, picture: picture)
         guard let directory = SaveStateDisk.exportDirectory() else {
             report("export failed: there is no temporary directory to write the file into")
             return nil
@@ -1540,6 +1551,13 @@ final class SaveStates: ObservableObject {
             return false
         }
         refreshMissingCount()
+        // The picture the file carried, if it is one. Checked by decoding it, so a damaged picture
+        // costs only the picture; a file with none gets one the first time the slot is loaded.
+        SaveStateDisk.removeThumbnail(gameId: gameId, slot: slot, isAuto: false)
+        if let picture = unpacked.picture, UIImage(data: picture) != nil {
+            SaveStateDisk.writeThumbnail(picture, gameId: gameId, slot: slot, isAuto: false)
+            thumbnailGeneration += 1
+        }
         var text = "imported \(fileName) into \(record.slotLabel.lowercased()) for "
             + "\(gameId), written by \(record.coreLine)"
         if let entry = runningEntry(), Self.gameId(for: entry) == gameId,

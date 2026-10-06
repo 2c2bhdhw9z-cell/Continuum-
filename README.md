@@ -39,8 +39,9 @@ This install is **not** signed with a JIT. Heavier systems run on an interpreter
   RetroAchievements unlock banner; haptics and rumble; hiding the pad with a controller; the LCD
   grid and dot matrix filters; palette and rotate; swap screens and the six two-screen layouts;
   the game on a TV with TV scaling and layout
-- Known bugs in build 125: every 3DS save state is refused as "too short" when loaded, and an
-  imported save state has no picture
+- Two bugs found in build 125 are fixed in build 126 (not on a phone yet): every 3DS save state
+  was refused as "too short", and an imported save state had no picture. Build 126 also adds a
+  feedback form (Settings, and a game's ⋯ menu) and typing cheat codes inside a game
 
 **In the app, not confirmed on a phone yet**
 

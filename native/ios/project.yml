@@ -418,6 +418,9 @@ targets:
       - path: SaveSlotsScreen.swift
       # RAM search and the in-game cheat sheet. The search itself is in the Rust engine.
       - path: CheatSearch.swift
+      # The feedback form: Settings and a game's ⋯ menu. Mail or the share sheet, no server.
+      # WITHOUT THIS LINE the build breaks in SettingsScreen and PlayerScreen.
+      - path: Feedback.swift
       # RetroAchievements: Keychain token, the URLSession half of rcheevos, unlock banners, the
       # Settings login and the game card list. rcheevos itself is in the Rust engine.
       - path: Achievements.swift

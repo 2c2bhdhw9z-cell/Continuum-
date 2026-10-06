@@ -195,11 +195,14 @@ impl From<crate::saves::StateExportMeta> for StateExportRecord {
     }
 }
 
-/// An unpacked export: the facts the gate checks, and the payload.
+/// An unpacked export: the facts the gate checks, the payload, and the slot's picture (a PNG) when
+/// the file carried one.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct UnpackedStateExport {
     pub meta: StateExportRecord,
     pub payload: Vec<u8>,
+    #[uniffi(default = None)]
+    pub picture: Option<Vec<u8>>,
 }
 
 /// One existing manual state, as the slot planner needs it.
@@ -266,6 +269,25 @@ pub fn is_poke_code(code: String) -> bool {
     crate::cheats::poke::Poke::is_poke_code(&code)
 }
 
+/// What one emulator does with a typed code. See `cheats::formats`.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct CheatCodeSupport {
+    /// False when the emulator throws typed codes away (the 3DS, Dreamcast, Atari 2600 and more).
+    pub reads_typed_codes: bool,
+    /// The kinds of code it reads, in plain words. Empty when not checked.
+    pub kinds: String,
+}
+
+/// Which typed codes the core `core_id` reads.
+#[uniffi::export]
+pub fn cheat_code_support(core_id: String) -> CheatCodeSupport {
+    let support = crate::cheats::formats::code_support(&core_id);
+    CheatCodeSupport {
+        reads_typed_codes: support.reads_typed_codes,
+        kinds: support.kinds.to_string(),
+    }
+}
+
 /// Manual save slots per game.
 #[uniffi::export]
 pub fn save_slot_count() -> u32 {
@@ -292,13 +314,25 @@ pub fn pack_state_export(meta: StateExportRecord, payload: Vec<u8>) -> Vec<u8> {
     crate::saves::pack_state_export(&meta.into(), &payload)
 }
 
+/// [`pack_state_export`] with the slot's picture (a PNG) carried after the payload, so the slot
+/// shows it as soon as the file is imported. `None` writes exactly what `pack_state_export` does.
+#[uniffi::export]
+pub fn pack_state_export_with_picture(
+    meta: StateExportRecord,
+    payload: Vec<u8>,
+    picture: Option<Vec<u8>>,
+) -> Vec<u8> {
+    crate::saves::pack_state_export_with_picture(&meta.into(), &payload, picture.as_deref())
+}
+
 /// Reads a `.continuumstate` file. The compatibility gate still has to run on the result.
 #[uniffi::export]
 pub fn unpack_state_export(bytes: Vec<u8>) -> Result<UnpackedStateExport, EngineError> {
-    crate::saves::unpack_state_export(&bytes)
-        .map(|(meta, payload)| UnpackedStateExport {
-            meta: meta.into(),
-            payload,
+    crate::saves::unpack_state_export_with_picture(&bytes)
+        .map(|unpacked| UnpackedStateExport {
+            meta: unpacked.meta.into(),
+            payload: unpacked.payload,
+            picture: unpacked.picture,
         })
         .map_err(|reason| EngineError::SaveState { reason })
 }

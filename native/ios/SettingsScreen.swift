@@ -67,6 +67,10 @@ struct SettingsScreen: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
 
+                // First, so a tester finds it without scrolling. The second way in is a game's
+                // ⋯ menu. See Feedback.swift.
+                FeedbackSettingsSection(host: host)
+
                 // Grouped, and NOT for tidiness: a SwiftUI view builder accepts at most ten
                 // children, and this screen has more sections than that. Exceeding it fails with
                 // an error that points at the whole block and names no section, which on a build

@@ -10,5 +10,6 @@
 //!   becomes when the user makes a cheat out of it. Applied by the engine after each `run_frame`.
 
 pub mod cht;
+pub mod formats;
 pub mod poke;
 pub mod search;

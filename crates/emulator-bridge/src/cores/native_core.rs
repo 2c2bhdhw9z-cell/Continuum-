@@ -233,6 +233,15 @@ const ENV_SET_CORE_OPTIONS_V2: c_uint = 67; // libretro.h:2345 RETRO_ENVIRONMENT
 const ENV_SET_CORE_OPTIONS_V2_INTL: c_uint = 68; // libretro.h:2362 RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL
 const ENV_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: c_uint = 69; // libretro.h:2383
 const ENV_SET_VARIABLE: c_uint = 70; // libretro.h:2417 RETRO_ENVIRONMENT_SET_VARIABLE
+/// `RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS`, under BOTH numbers it has had. The libretro.h this
+/// project vendors (and Beetle PSX at its pin) defines it as 87; older copies, including the one
+/// Azahar builds against at its pin, define it as 44. Neither number means anything else (44 with
+/// the experimental bit is `SET_HW_SHARED_CONTEXT`, a different value), so both are answered.
+const ENV_SET_SERIALIZATION_QUIRKS: c_uint = 87;
+const ENV_SET_SERIALIZATION_QUIRKS_OLD: c_uint = 44;
+/// `RETRO_SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE`: the core's state size can change within a
+/// session, so a state from earlier can be shorter than what the core reports now.
+pub const SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE: u64 = 1 << 2;
 
 /// The memory map a core published and the `NativeLibretroCore` has not yet collected.
 ///
@@ -259,6 +268,46 @@ fn take_published_memory_map() -> Option<Vec<crate::memory_maps::MemoryDescripto
         Err(poisoned) => poisoned.into_inner(),
     };
     guard.take()
+}
+
+/// The serialization quirks the core declared with `SET_SERIALIZATION_QUIRKS`, not yet collected
+/// by the `NativeLibretroCore`. A hand-off slot for the `PUBLISHED_MEMORY_MAP` reason: cores declare
+/// them from `retro_init` or `retro_load_game` (Azahar: load), where nothing can reach the core
+/// object. Emptied before init and before every content load, and taken right after both.
+static DECLARED_SERIALIZATION_QUIRKS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+fn take_serialization_quirks() -> u64 {
+    DECLARED_SERIALIZATION_QUIRKS.swap(0, std::sync::atomic::Ordering::Relaxed)
+}
+
+/// What `load_state` does with a state of `src_len` bytes when the core reports `expected` now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnserializePlan {
+    /// Hand the bytes over as they are.
+    Direct,
+    /// Copy them into a zeroed buffer of this many bytes first, and still tell the core the real
+    /// length. See [`plan_unserialize`].
+    Padded(usize),
+}
+
+/// Never refuses on length alone. A state SHORTER than the core's current figure is normal for any
+/// core whose state size moves: Azahar (the 3DS) serialises its whole machine to answer the size
+/// question, so the answer is the size of a state written right now; PPSSPP rounds its measure up
+/// to the next 8 MB; Flycast measures. Build 125 refused every 3DS state on exactly this ("state too
+/// short: 14627226 bytes, the core needs at least 19231622, then 17504282").
+///
+/// What the old refusal guarded against was a careless core reading its fixed-size struct past
+/// the end of a short buffer. Padding answers that without refusing anything: the core is told the
+/// true length, and one that ignores it reads zeros rather than someone else's memory. A core that
+/// declared `CORE_VARIABLE_SIZE` is trusted to read the length it is given, so it is not padded and
+/// the size question (a full serialisation, for Azahar) is not even asked.
+pub fn plan_unserialize(src_len: usize, expected: usize, declared_variable: bool) -> UnserializePlan {
+    if declared_variable || expected == 0 || src_len >= expected {
+        UnserializePlan::Direct
+    } else {
+        UnserializePlan::Padded(expected)
+    }
 }
 
 /// The rotation the core last asked for with `SET_ROTATION`, 0..=3 quarter turns counter-clockwise
@@ -608,6 +657,18 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
         | ENV_SET_MESSAGE
         | ENV_SET_MESSAGE_EXT
         | ENV_SET_MINIMUM_AUDIO_LATENCY => true,
+        ENV_SET_SERIALIZATION_QUIRKS | ENV_SET_SERIALIZATION_QUIRKS_OLD => {
+            // data is `uint64_t *`, the core's quirks. Recorded so `load_state` knows whether the
+            // state size moves. The flags are handed back unchanged: in particular this does NOT
+            // set FRONT_VARIABLE_SIZE, so Beetle PSX keeps the fixed-size states it has always
+            // written here, and a core that only announces its quirks (Azahar) behaves as before.
+            if data.is_null() {
+                return false;
+            }
+            let quirks = unsafe { *(data as *const u64) };
+            DECLARED_SERIALIZATION_QUIRKS.fetch_or(quirks, std::sync::atomic::Ordering::Relaxed);
+            true
+        }
         ENV_GET_CORE_OPTIONS_VERSION => {
             // Version 2: categories, the v2 tables and SET_CORE_OPTIONS_DISPLAY are all read
             // (libretro.h:1854). See `cores::options`.
@@ -811,6 +872,8 @@ pub struct NativeLibretroCore {
     need_fullpath: bool,
     /// The core's `SET_MEMORY_MAPS` table, preprocessed. Empty when it published none.
     memory_map: Vec<crate::memory_maps::MemoryDescriptor>,
+    /// Everything the core declared through `SET_SERIALIZATION_QUIRKS`, at init and at each load.
+    serialization_quirks: u64,
 }
 
 impl NativeLibretroCore {
@@ -972,6 +1035,8 @@ impl NativeLibretroCore {
         crate::peripherals::reset_for_load();
         // The last core's keyboard callback and sensor requests.
         crate::input::reset_for_load();
+        // And its serialization quirks: this core declares its own during init, or not at all.
+        take_serialization_quirks();
 
         // Order matters and is specified by libretro: the environment callback must be
         // installed before `retro_init`, because cores query it during
@@ -1046,6 +1111,8 @@ impl NativeLibretroCore {
             need_fullpath,
             // A core may publish during `retro_set_environment` or `retro_init`; kept if so.
             memory_map: take_published_memory_map().unwrap_or_default(),
+            // Likewise the quirks a core declares from `retro_init`.
+            serialization_quirks: take_serialization_quirks(),
         })
     }
 
@@ -1192,8 +1259,11 @@ impl EmulatorCore for NativeLibretroCore {
         reset_negotiated_format();
         // A map is for one game's memory: published again (or not) by this load.
         publish_memory_map(None);
+        // Quirks declared during this load are added to the ones declared at init.
+        take_serialization_quirks();
 
         let ok = unsafe { (self.symbols.load_game)(&info) };
+        self.serialization_quirks |= take_serialization_quirks();
         if !ok {
             return Err(BridgeError::InvalidContent {
                 core_id: self.descriptor.id.clone(),
@@ -1408,8 +1478,8 @@ impl EmulatorCore for NativeLibretroCore {
     /// somewhere with no visible connection to this call. Nothing at this layer can tell the
     /// difference, which is why the checks live where the metadata does: the host records the
     /// core id, the core's reported version and the exact byte length beside every state and
-    /// refuses a mismatch before calling this. The length check below is the only defence
-    /// available here, and it is the weakest of the four.
+    /// refuses a mismatch before calling this. A length is not refused here; see
+    /// [`plan_unserialize`].
     fn load_state(&mut self, src: &[u8]) -> Result<(), BridgeError> {
         if !self.content_loaded {
             return Err(BridgeError::NoSession);
@@ -1417,41 +1487,38 @@ impl EmulatorCore for NativeLibretroCore {
         if src.is_empty() {
             return Err(BridgeError::SaveState("that save state is empty".into()));
         }
-        // DIRECTIONAL, and it did not used to be. This refused any length that was not exactly
-        // what the core reports right now, which was wrong and showed up as save states loading on
-        // some games and not others. `retro_serialize_size` is permitted to CHANGE during a
-        // session and between sessions: several cores report a larger figure once they have run a
-        // few frames, and a PlayStation core's figure moves with the disc state. So a state that is
-        // a perfectly good state, from this core and this build, can legitimately be a different
-        // length from the one the core would write this instant, and refusing it made the feature
-        // look broken for exactly the cores that do this.
-        //
-        // Too SHORT is still refused, because that is the one direction with a real hazard: the
-        // core reads its own structures out of the buffer, and a buffer smaller than it expects is
-        // how it reads past the end. Too long is harmless, since the core stops when it has what it
-        // needs, so the surplus is ignored.
+        // NO LENGTH REFUSAL. See `plan_unserialize`: a state shorter than the core's current figure
+        // is normal for every core whose state size moves (the 3DS refused every state on build
+        // 125 because of the check that used to be here), and a short buffer is padded instead, so
+        // a core that ignores the length it is told reads zeros rather than past the end.
         //
         // This is not the check that stops a state from the WRONG core being loaded. That is the
         // host's job, where the core id and the core's version are recorded beside every state, and
         // it is far stronger than comparing a length.
-        let expected = unsafe { (self.symbols.serialize_size)() };
-        if expected != 0 && src.len() < expected {
-            return Err(BridgeError::SaveState(format!(
-                "that save state is {} bytes but {} needs at least {expected}, so it is truncated \
-                 or was written by a different core",
-                src.len(),
-                self.descriptor.display_name
-            )));
-        }
-        if expected != 0 && src.len() != expected {
-            log::info!(
-                "loading a {} byte state into '{}', which currently reports {expected}; \
-                 permitted, the figure is allowed to move during a session",
-                src.len(),
-                self.descriptor.id
-            );
-        }
-        let ok = unsafe { (self.symbols.unserialize)(src.as_ptr().cast::<c_void>(), src.len()) };
+        let declared_variable =
+            self.serialization_quirks & SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE != 0;
+        let expected = if declared_variable {
+            0
+        } else {
+            unsafe { (self.symbols.serialize_size)() }
+        };
+        let padded;
+        let bytes: &[u8] = match plan_unserialize(src.len(), expected, declared_variable) {
+            UnserializePlan::Direct => src,
+            UnserializePlan::Padded(size) => {
+                log::info!(
+                    "loading a {} byte state into '{}', which reports {size} now; padded",
+                    src.len(),
+                    self.descriptor.id
+                );
+                let mut buffer = vec![0u8; size];
+                buffer[..src.len()].copy_from_slice(src);
+                padded = buffer;
+                &padded
+            }
+        };
+        // The REAL length, whatever the buffer behind it holds.
+        let ok = unsafe { (self.symbols.unserialize)(bytes.as_ptr().cast::<c_void>(), src.len()) };
         if !ok {
             return Err(BridgeError::SaveState(format!(
                 "{} rejected that save state",
@@ -1890,6 +1957,39 @@ mod tests {
         assert!(!unsafe { set(0, 7, 1) });
         // A null pointer is refused rather than written through.
         assert!(!unsafe { on_environment(ENV_GET_RUMBLE_INTERFACE, std::ptr::null_mut()) });
+    }
+
+    #[test]
+    fn a_short_state_is_padded_and_never_refused() {
+        // Build 125's 3DS numbers: never a refusal, whatever the lengths.
+        assert_eq!(
+            plan_unserialize(14_627_226, 19_231_622, false),
+            UnserializePlan::Padded(19_231_622)
+        );
+        // A core that said its size moves reads the length it is given.
+        assert_eq!(plan_unserialize(14_627_226, 19_231_622, true), UnserializePlan::Direct);
+        assert_eq!(plan_unserialize(100, 100, false), UnserializePlan::Direct);
+        assert_eq!(plan_unserialize(200, 100, false), UnserializePlan::Direct);
+        // No figure from the core: nothing to pad to.
+        assert_eq!(plan_unserialize(100, 0, false), UnserializePlan::Direct);
+    }
+
+    #[test]
+    fn serialization_quirks_are_recorded_under_both_numbers() {
+        assert_eq!(ENV_SET_SERIALIZATION_QUIRKS, 87);
+        assert_eq!(ENV_SET_SERIALIZATION_QUIRKS_OLD, 44);
+        // Not the experimental SET_HW_SHARED_CONTEXT, which shares the low bits of 44.
+        assert_ne!(ENV_SET_SERIALIZATION_QUIRKS_OLD, 44 | 0x10000);
+        for cmd in [ENV_SET_SERIALIZATION_QUIRKS, ENV_SET_SERIALIZATION_QUIRKS_OLD] {
+            take_serialization_quirks();
+            let mut quirks: u64 = SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE | 1 << 1;
+            let ok = unsafe { on_environment(cmd, &mut quirks as *mut u64 as *mut c_void) };
+            assert!(ok, "command {cmd} is answered");
+            // Handed back unchanged: FRONT_VARIABLE_SIZE (1 << 3) is not claimed.
+            assert_eq!(quirks, SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE | 1 << 1);
+            assert_ne!(take_serialization_quirks() & SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE, 0);
+            assert!(!unsafe { on_environment(cmd, std::ptr::null_mut()) });
+        }
     }
 
     #[test]

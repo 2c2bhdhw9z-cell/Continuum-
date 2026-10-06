@@ -55,16 +55,99 @@ struct PlayerCheatsSheet: View {
                 .foregroundStyle(ShellPalette.secondaryText)
             let list = cheats.cheats(forGameId: gameId)
             if list.isEmpty {
-                SettingsNote("No cheats yet. Import a RetroArch .cht file, type one on the game's "
-                             + "card, or find one with the RAM search below.")
+                SettingsNote("No cheats yet. Type a code below, import a RetroArch .cht file, or "
+                             + "find one with the RAM search.")
             }
             ForEach(list) { cheat in
                 CheatRow(cheat: cheat, cheats: cheats)
             }
+            // Typing a code used to be possible only on the game's card, with no game running, so
+            // a code found mid-game meant leaving the game to enter it.
+            CheatCodeEntry(gameId: gameId,
+                           coreId: host.activeCoreId.isEmpty ? nil : host.activeCoreId,
+                           cheats: cheats)
             ChtImportButton(gameId: gameId, cheats: cheats, line: $importLine)
         }
         .padding(14)
         .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+/// The code field, its optional name, Add, and one line saying which kinds of code this game's
+/// emulator reads (GameShark, Game Genie, Action Replay and so on), or that it ignores typed codes.
+/// Shared by the player's cheat sheet and the game's card.
+///
+/// Autocorrection and autocapitalisation are the two things that have to be got right here, and
+/// they are not a nicety: a Game Genie code is a run of letters that no dictionary has heard of,
+/// so autocorrection rewrites it into a word and the user cannot see why their cheat does nothing.
+/// Capitals are forced because codes are conventionally written in them and the duplicate check is
+/// case-insensitive either way.
+struct CheatCodeEntry: View {
+    let gameId: String
+    /// The emulator the game runs on, for the code-type line. Nil when none is mapped.
+    let coreId: String?
+    @ObservedObject var cheats: CheatStore
+
+    /// The cheat being typed. Held here rather than in the store, because a half-typed code is not
+    /// a cheat yet and a store publishing every keystroke would rebuild the whole sheet on each one.
+    @State private var draftCode = ""
+    @State private var draftLabel = ""
+    /// Why the last Add was refused, or empty. Under the field rather than in an alert, because the
+    /// answer is always about the code that is still on screen.
+    @State private var problem = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let coreId {
+                SettingsNote(Self.supportLine(coreId: coreId))
+            }
+
+            TextField("Code, for example SXIOPO", text: $draftCode)
+                .font(.system(.footnote, design: .monospaced))
+                .foregroundStyle(.white)
+                .autocorrectionDisabled(true)
+                .textInputAutocapitalization(.characters)
+                .padding(10)
+                .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 9))
+
+            TextField("What it does, optional", text: $draftLabel)
+                .font(.system(size: 13))
+                .foregroundStyle(.white)
+                .padding(10)
+                .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 9))
+
+            SettingsButton(title: "Add this cheat", role: .normal) {
+                let refused = cheats.add(code: draftCode, label: draftLabel, forGameId: gameId)
+                problem = refused ?? ""
+                if refused == nil {
+                    draftCode = ""
+                    draftLabel = ""
+                }
+            }
+
+            if !problem.isEmpty {
+                Text(problem)
+                    .font(.system(size: 12))
+                    .foregroundStyle(ShellPalette.accent)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// One sentence from the engine's table (`cheats::formats` in Rust), so Android says the same.
+    static func supportLine(coreId: String) -> String {
+        let support = cheatCodeSupport(coreId: coreId)
+        if !support.readsTypedCodes {
+            return "This system's emulator ignores typed codes (GameShark, Action Replay and the "
+                + "like), so a code added here does nothing. The RAM search in a running game "
+                + "still makes cheats, when the game's memory can be read."
+        }
+        if support.kinds.isEmpty {
+            return "Typed codes go straight to this system's emulator, which decides what they "
+                + "mean. A code that does nothing is usually for another region of the game."
+        }
+        return "Codes this system takes: \(support.kinds). A code that is several lines goes in "
+            + "one box with + between the lines."
     }
 }
 

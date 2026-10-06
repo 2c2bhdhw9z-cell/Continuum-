@@ -102,6 +102,8 @@ struct PlayerScreen: View {
     @State private var showingCheats = false
     /// The online play sheet, opened from the save-state menu.
     @State private var showNetplay = false
+    /// The feedback form, opened from the menu with this game attached.
+    @State private var showFeedback = false
     /// Core settings, filters and the disc list, opened by the in-game actions.
     @ObservedObject private var coreActions = CoreActionsModel.shared
 
@@ -172,6 +174,16 @@ struct PlayerScreen: View {
                     if host.showDiagnostics {
                         DiagnosticsPanel(host: host, emulation: emulation, saveStates: saveStates)
                     }
+                } else if host.showDiagnostics {
+                    // Asked for with the (i) button, so it shows even over a skin's picture. It used
+                    // to do nothing at all with such a skin, which read as a dead button.
+                    DiagnosticsPanel(host: host, emulation: emulation, saveStates: saveStates)
+                } else {
+                    // The status line is the app's only error log, and with a skin like this it was
+                    // never on screen: a refused save or "restarted from the beginning" said nothing.
+                    // So each new line shows for a few seconds and fades, rather than sitting on the
+                    // picture for good.
+                    StatusFlash(text: host.status)
                 }
                 // Claims the rest of the height without claiming any touches, so everything below
                 // reaches the controls.
@@ -222,6 +234,11 @@ struct PlayerScreen: View {
             NetplaySheet(netplay: host.netplay,
                          gameName: host.activeEntry?.name ?? "no game") {
                 showNetplay = false
+            }
+        }
+        .sheet(isPresented: $showFeedback) {
+            FeedbackSheet(host: host, entry: host.activeEntry) {
+                showFeedback = false
             }
         }
     }
@@ -356,7 +373,8 @@ struct PlayerScreen: View {
                           status: host.status,
                           showingSlots: $showingSlots,
                           showingCheats: $showingCheats,
-                          showNetplay: $showNetplay)
+                          showNetplay: $showNetplay,
+                          showFeedback: $showFeedback)
             .equatable()
     }
 
@@ -460,6 +478,7 @@ struct PlayerActionsMenu: View, Equatable {
     let showingSlots: Binding<Bool>
     let showingCheats: Binding<Bool>
     let showNetplay: Binding<Bool>
+    let showFeedback: Binding<Bool>
 
     // saveStates is left out: it is observed above, so a change to the list redraws the menu on
     // its own. Only `let` values of Sendable types are read, so this can be nonisolated as
@@ -604,9 +623,23 @@ struct PlayerActionsMenu: View, Equatable {
 
             // The Amiibo picker, for the 3DS only: the only system here with an NFC reader. The
             // answer to a tap arrives on the status line, like the cover capture above.
-            if system == .n3ds {
-                AmiiboMenuSection(peripherals: host.peripherals,
-                                  report: { host.status = $0 })
+            // Grouped with the feedback row so this menu has no more top-level children than it did
+            // before that row: a view builder's child limit is not something to find out on CI.
+            Group {
+                if system == .n3ds {
+                    AmiiboMenuSection(peripherals: host.peripherals,
+                                      report: { host.status = $0 })
+                }
+
+                // Last, and from inside a game on purpose: that is where a tester notices
+                // something, and the form attaches this game, its system and a picture of it.
+                Section("Feedback") {
+                    Button {
+                        showFeedback.wrappedValue = true
+                    } label: {
+                        Label("Send feedback about this game...", systemImage: "envelope")
+                    }
+                }
             }
         } label: {
             // `ellipsis` rather than the save glyph, because this control no longer does one thing.
@@ -770,5 +803,51 @@ struct DiagnosticsPanel: View {
         // full width and the controls sit high, it can reach a shoulder button too. There is
         // nothing interactive in here to lose: every child is a `Text`.
         .allowsHitTesting(false)
+    }
+}
+
+// MARK: - The status line, briefly, over a skin
+
+/// The status line for a skin that puts the game in its own screen holes, where the full line
+/// would sit on the picture for good: each new line shows for a few seconds and then fades.
+///
+/// Shown again whenever the text changes and when the player first appears (a restart lands here
+/// with its "restarted from the beginning" line already set), and takes no touches, like every
+/// read-out on this screen.
+struct StatusFlash: View {
+    let text: String
+
+    @State private var visible = false
+    /// Which showing the pending fade belongs to, so an older timer cannot hide a newer line.
+    @State private var showing = 0
+
+    /// Long enough to read two lines of small text, short enough not to sit on the game.
+    private static let seconds: Double = 5
+
+    var body: some View {
+        Text(text)
+            .font(.system(.caption2, design: .monospaced))
+            .foregroundStyle(Color.white.opacity(0.9))
+            .lineLimit(3)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 7))
+            .opacity(visible && !text.isEmpty ? 1 : 0)
+            .animation(.easeOut(duration: 0.35), value: visible)
+            .allowsHitTesting(false)
+            .onAppear { show() }
+            .onChange(of: text) { _ in show() }
+    }
+
+    private func show() {
+        showing += 1
+        let mine = showing
+        visible = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.seconds) {
+            if showing == mine {
+                visible = false
+            }
+        }
     }
 }

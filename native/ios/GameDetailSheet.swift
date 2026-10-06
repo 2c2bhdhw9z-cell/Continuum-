@@ -32,16 +32,6 @@ struct GameDetailSheet: View {
     /// Observed for the same reason: the cheat list below is edited in place.
     @ObservedObject var cheats: CheatStore
 
-    /// The cheat being typed. Held by the sheet rather than the store because a half-typed code is
-    /// not a cheat yet, and a store that published every keystroke would rebuild this whole sheet on
-    /// each one.
-    @State private var draftCode = ""
-    @State private var draftLabel = ""
-
-    /// Why the last Add was refused, or empty. A message under the field rather than an alert: the
-    /// answer is always something about the code that is still on screen, and an alert would hide it.
-    @State private var cheatProblem = ""
-
     /// The 50-slot manager, opened from the save states block.
     @State private var showingSlots = false
     /// What the last `.cht` import did.
@@ -327,7 +317,12 @@ struct GameDetailSheet: View {
                 }
             }
 
-            cheatEntryField
+            CheatCodeEntry(
+                gameId: SaveStates.gameId(for: entry),
+                coreId: CoreCatalog.core(forPath: entry.path,
+                                         ps1CoreId: host.ps1CoreChoice.coreId)?.coreId,
+                cheats: cheats
+            )
 
             ChtImportButton(gameId: SaveStates.gameId(for: entry), cheats: cheats, line: $chtLine)
 
@@ -392,48 +387,6 @@ struct GameDetailSheet: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Delete this cheat")
-        }
-    }
-
-    /// The code field, the optional name, and Add.
-    ///
-    /// Autocorrection and autocapitalisation are the two things that have to be got right here, and
-    /// they are not a nicety: a Game Genie code is a run of letters that no dictionary has heard of,
-    /// so autocorrection rewrites it into a word and the user cannot see why their cheat does
-    /// nothing. Capitals are forced because codes are conventionally written in them and the
-    /// duplicate check is case-insensitive either way.
-    private var cheatEntryField: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextField("Code, for example SXIOPO", text: $draftCode)
-                .font(.system(.footnote, design: .monospaced))
-                .foregroundStyle(.white)
-                .autocorrectionDisabled(true)
-                .textInputAutocapitalization(.characters)
-                .padding(10)
-                .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 9))
-
-            TextField("What it does, optional", text: $draftLabel)
-                .font(.system(size: 13))
-                .foregroundStyle(.white)
-                .padding(10)
-                .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 9))
-
-            SettingsButton(title: "Add this cheat", role: .normal) {
-                let problem = cheats.add(code: draftCode, label: draftLabel,
-                                         forGameId: SaveStates.gameId(for: entry))
-                cheatProblem = problem ?? ""
-                if problem == nil {
-                    draftCode = ""
-                    draftLabel = ""
-                }
-            }
-
-            if !cheatProblem.isEmpty {
-                Text(cheatProblem)
-                    .font(.system(size: 12))
-                    .foregroundStyle(ShellPalette.accent)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
     }
 
