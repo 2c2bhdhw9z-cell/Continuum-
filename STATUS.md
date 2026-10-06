@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-5 October 2026 (build 124). The install is always the newest file on the
+5 October 2026 (build 125). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Five states only:
@@ -23,9 +23,9 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 For whoever works on this next:
 
-- The owner is testing build 125 (build 124's app plus a repo cleanup):
-  [TESTING.md](TESTING.md) section A first, then the rest of the
-  list. Act on whatever comes back.
+- The owner is testing build 125 (build 124's app plus a repo cleanup). Fix nothing until they
+  say "I'm done testing for now"; the results so far are in [HANDOFF.md](HANDOFF.md). The one
+  failure so far: a 3DS save state is refused as "too short" on load.
 - Open work from [docs/MANIC_PARITY.md](docs/MANIC_PARITY.md) "Still to do": SMB shares done
   properly (taken out after build 117 stopped the app opening), and direct Google Drive, Dropbox and OneDrive
   logins (they need app ids only the owner can register; they already work through Files).
@@ -48,7 +48,7 @@ is still ahead, hardest last (road steps 10 to 12).
 | --- | --- | --- | --- |
 | NES | fceumm | **Done** | |
 | SNES | snes9x | **Done** | |
-| Game Boy | mgba | **Built, untested** | No `.gb` file has ever been imported. GBC and GBA on the same core are confirmed, so this is a formality rather than a doubt |
+| Game Boy | mgba | **Done** | Build 125: a game ran, saved and loaded |
 | Game Boy Color | mgba | **Done** | |
 | Game Boy Advance | mgba | **Done** | |
 | Master System | genesis_plus_gx | **Built, untested** | No `.sms` file has ever been imported. Game Gear and Mega Drive on the same core are confirmed |
@@ -58,8 +58,8 @@ is still ahead, hardest last (road steps 10 to 12).
 | **Famicom Disk System** | fceumm | **Built, untested** | Needs `disksys.rom`, which is Nintendo's own code and cannot ship with the app. The launch path checks for it by name and says so rather than letting the core fail |
 | **Sega SG-1000** | genesis_plus_gx | **Built, untested** | Needs nothing extra |
 | **Nintendo 64** | parallel_n64 | **Done** | Device-proven on build 97 (`258a828`): past `N64 first tick…`, frames climbing, ~60 fps into Smash character select. Soft/interp only (no JIT on this signed IPA). `.n64`, `.z64`, `.v64` |
-| **TurboGrafx-16** | mednafen_pce_fast | **Built, untested** | HuCard games (`.pce`). PC Engine CD is its own system (Beetle PCE) and needs a system card BIOS you supply (TESTING C15) |
-| **Atari 2600** | stella2023 | **Built, untested** | `.a26`, or a lone `.bin` (the app asks **Which system?** once; renaming to `.a26` skips the question). A `.bin` imported beside a `.cue` is always a disc track |
+| **TurboGrafx-16** | mednafen_pce_fast | **Done** | HuCard games (`.pce`): a game ran, saved and loaded on build 125. PC Engine CD is its own system (Beetle PCE) and needs a system card BIOS you supply (TESTING C15) |
+| **Atari 2600** | stella2023 | **Done** | A game ran, saved and loaded on build 125. `.a26`, or a lone `.bin` (the app asks **Which system?** once; renaming to `.a26` skips the question). A `.bin` imported beside a `.cue` is always a disc track |
 | **Nintendo 3DS** | azahar | **Partial** | A game runs (Mario Kart 7, again on build 122). Confirmed 5 October (build 122): skin holes sideways (Mario Kart 7), and changing a "restart required" setting no longer crashes. Upright skin holes not confirmed yet. A stutter after transitions was seen on builds 100 and 101; a fix has been in every build since 2 October and Mario Kart 7 ran on 122, but nobody has said whether the stutter is gone. No JIT. Decrypted `.3ds`, `.3dsx`, `.cci`, `.cxi` only. A retail game can still need 3DS system archives this app does not ship |
 | **Nintendo DS** | melonDS | **Done** | Confirmed on device (build 80): Mario Kart DS and Pokémon SoulSilver, dual screens live, ~60 fps, 0 dropped |
 | **PlayStation Portable** | ppsspp | **Partial** | In the IPA as `ppsspp_libretro_ios.dylib`. CPU is the IR interpreter: the core's option value "IR JIT" is `CPUCore::IR_INTERPRETER` with compile-to-native off. No dynarec, no executable memory. Picture is Vulkan `set_image`, the same hook as the 3DS. No BIOS is shipped; PPSSPP does not need one. A PSP game can be `.cso`, `.iso`, `.chd`, a PSP `EBOOT.PBP`, or `.prx`. `.cso` and `.prx` are always PSP. An `.iso`, `.chd` or `.pbp` is looked inside: a PSP disc or EBOOT opens on the PSP, a PlayStation one as PlayStation, and if the app cannot tell it asks **Which system?** once and remembers. `.elf` is not accepted. **Not tried on a phone.** Do not claim a game runs or quote a frame rate |
@@ -100,7 +100,7 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Screen fit and scaling | **Done** | |
 | Fast forward | **Done** | Tops out near 4x. Past that the engine drops frames instead of going faster, and the menu stops at 4x. That is not 5x |
 | Rewind | **Done** | |
-| Save states, slots, delete | **Partial** | 50 fixed slots per game plus the auto-save, each with a picture, date and core; export and import of a state file and of the game's own battery save (`.srm`). Old numbered saves move into free slots and nothing is deleted. Confirmed: Save to the next free slot (build 122). Slot pictures were black in 122 and are fixed in 123 (TESTING.md A1). Rename, overwrite, load, delete, export and import not on a phone yet |
+| Save states, slots, delete | **Partial** | 50 fixed slots per game plus the auto-save, each with a picture, date and core; export and import of a state file and of the game's own battery save (`.srm`). Old numbered saves move into free slots and nothing is deleted. Confirmed: Save to the next free slot (build 122); on build 125, slot pictures, save and load on 14 systems (NES, SNES, Game Boy, GBC, GBA, Game Gear, Mega Drive, PS1, DS, TurboGrafx-16, Atari 2600, N64, Jaguar, Pokemon Mini), and exporting a 3DS state to Files and importing it back as a new slot. **Bug (build 125):** the 3DS state is then refused as "too short" (14.6 MB saved, the core asking for 19.2 MB, then 17.5 MB). Not on a phone yet: rename, overwrite, delete, and loading an imported state on another system |
 | Auto-save and resume | **Done** | |
 | Cheats | **Partial** | Confirmed: typed codes. Not on a phone: importing a RetroArch `.cht` file, and the RAM search (lives, money and so on) that turns an address into a cheat. Up to 128 codes per game. Build 122: a `.cht` file's RAM cheats land where RetroArch puts them (on GBA they used to hit the wrong memory) |
 | On-screen control layout editor | **Partial** | **Done bar (Brett):** every control in the skin file works, not only the ones he names. Picture in the screen hole both ways you hold the phone. Two screens when the skin has two. A joystick or circle pad is a real stick, not a dead picture. Shoulders too. Debug text off the picture. Confirmed on the phone 5 October (build 122, a 3DS skin, Mario Kart 7): both screens sit in their own holes sideways, the eye button hides and shows the top bar (remembered), nothing sits on the picture of a sideways 3DS skin, the false overlap line is gone. Portrait and the other systems' skins are still not confirmed. Do **not** stamp Done until the owner says the skin is right |
@@ -110,12 +110,12 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Import several skins at once | **Done** | Build 122, confirmed on the phone 5 October (skin library, Import skins) |
 | A paused game stays paused after leaving the app | **Done** | Build 122, confirmed on the phone 5 October |
 | Wi-Fi transfer access code | **Built, untested** | Build 122. The address now ends in a short code that changes every time Wi-Fi transfer is switched on; anything without it gets nothing, so nobody else on the Wi-Fi can upload files or download saves. TESTING.md B1 |
-| Apple performance overlay switch | **Built, untested** | Build 121. Settings → DIAGNOSTICS. Hides Apple's Metal Performance HUD on the game layers and turns off the launch-time request for it. May need the app reopened |
+| Apple performance overlay switch | **Done** | Confirmed on build 125. Build 121. Settings → DIAGNOSTICS. Hides Apple's Metal Performance HUD on the game layers and turns off the launch-time request for it. May need the app reopened |
 | Landscape with no skin | **Done** | Froze in build 119 (an endless layout loop from a repeated warning line). Fixed in build 120 and confirmed on the phone |
 | **+** opens Files, the ⋯ menu, TV picture quality | **Done** | Confirmed on build 119 |
 | Honouring what a core wants its content as | **Done** | Every core used to be handed a file path and no bytes. That worked for the first six by luck, and would have given Stella a zero-byte ROM, because it copies straight from the data pointer with no path fallback. The engine now reads what each core declares and loads the file when the core wants bytes, so the next such core needs no change |
 | File formats per system | **Done** | Every extension is now taken from the cores' own declared lists rather than a hand-written one. That added the two systems above plus `.smd`, `.swc`, `.fig`, `.unf`, `.unif`, `.sgb`, `.mdf` and `.toc`, which were being refused despite being supported |
-| Core settings | **Partial** | Every core's options can be changed in **⋯ → Core settings…**. Confirmed: a 3DS restart-required change (build 122). Other cores not on a phone yet (TESTING.md F1). The engine pins only a few: melonDS starts with touch mode on and boots the game directly (both can be changed); parallel_n64's renderer is left to the core (it picks angrylion), with the HLE RSP, single-threaded angrylion and the cached interpreter CPU, all locked and hidden; PPSSPP's CPU is locked to the IR interpreter; Beetle PSX HW's renderer defaults to software (hardware can be picked) |
+| Core settings | **Partial** | Every core's options can be changed in **⋯ → Core settings…**. Confirmed: a 3DS restart-required change (build 122), and **Restart the game now** coming back inside the skin, starting from the beginning with auto-save off (build 125). Other cores not on a phone yet (TESTING.md F1). The engine pins only a few: melonDS starts with touch mode on and boots the game directly (both can be changed); parallel_n64's renderer is left to the core (it picks angrylion), with the HLE RSP, single-threaded angrylion and the cached interpreter CPU, all locked and hidden; PPSSPP's CPU is locked to the IR interpreter; Beetle PSX HW's renderer defaults to software (hardware can be picked) |
 | Multi-screen compositor | **Partial** | Drives the DS and 3DS layouts and the screen swap. Confirmed: DS stacked screens (since build 80), and a 3DS skin's two holes sideways (5 October). Swap and the other layouts not on a phone (TESTING.md G1) |
 | Android `.apk` | **Not built** | The one other PLATFORM, and the only one after the iPhone. Still far off: it comes after Symbian / N-Gage and the Switch (Next up). Everything new goes in the Rust engine so Android inherits it |
 | Switch wrapper (to EMULATE the Switch) | **Partial** | `native/switch-wrapper/` has the frame gate, a Vulkan stub and a test harness, with no engine behind it. Steps 10 to 12 of the road below |
@@ -144,10 +144,10 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | JIT | **Out on purpose** | Not in this signed app. Do not add it to close this list |
 | Rewind | **Done** | |
 | Fast forward | **Done** | About 4x, not 5x |
-| Save slots, including export | **Partial** | 50 slots plus the auto-save, export and import of states and battery saves. Save to the next free slot confirmed (122); slot pictures fixed in 123 (TESTING.md A1); rename, overwrite, load, delete, export, import not on a phone yet |
+| Save slots, including export | **Partial** | 50 slots plus the auto-save, export and import of states and battery saves. Save to the next free slot confirmed (122); slot pictures, save and load on 14 systems, and export and import of a 3DS state confirmed (125). A 3DS state is refused as "too short" on load (bug, build 125). Rename, overwrite and delete not on a phone yet |
 | Cheats: search, and importing a file | **Partial** | Typed codes confirmed; `.cht` import and RAM search not on a phone |
 | Online play | **Built, untested** | Two phones, same game. Host or join on the same Wi-Fi (nearby list) or by address. Over the internet the host must open TCP port 55435. No rollback, so lag shows as short stalls. Rewind, fast forward and loading states are off while online. Build 122: if player 2 drops out, the host keeps playing and lets them rejoin on the same address |
-| Achievements | **Partial** | RetroAchievements login, unlock banners and a list on the game card. Game Boy Advance achievements read mGBA's full memory map. None of it has been tried against the real server yet |
+| Achievements | **Partial** | RetroAchievements login, unlock banners and a list on the game card. Game Boy Advance achievements read mGBA's full memory map. Confirmed (build 125): the login button says Logging in... and cannot be pressed twice. Unlocks have not been tried against the real server yet (TESTING.md H2) |
 | Cloud sync | **Built, untested** | Pick any folder in Files (iCloud Drive, Google Drive, Dropbox) once. Save states, battery saves, cheats, settings and covers sync both ways; since build 122 also Flash and J2ME saves, PDF manuals, Amiibo files, the remembered "which system is this" answers and saved servers (their passwords stay on each phone). Kept per phone on purpose: skins, the RetroAchievements login, favourites, the last online-play address, mic and camera permission. Conflicts keep both copies. Nothing is ever only deleted |
 
 
@@ -247,7 +247,8 @@ A bug sweep, nothing new to learn. TESTING.md A4 to A7.
 
 Everything below is on master and in the current install, and mostly not on a phone yet. Confirmed
 since (build 122): 2x speed, the CRT filter, a 3DS core-settings change and importing several
-skins. TESTING.md has an easy numbered list for trying the rest.
+skins. Confirmed on build 125: Jaguar and Pokemon Mini each ran a game, saved and loaded; paste,
+Open in and zip imports; cover lookups off. TESTING.md has an easy numbered list for trying the rest.
 
 - **19 new systems:** WonderSwan, Neo Geo Pocket, PC Engine CD, SuperGrafx, Amiga, C64, DOS, DOOM, Jaguar, Lynx, Atari 7800, Atari 5200, Arcade, Pokemon Mini, Virtual Boy, Saturn, Sega CD, 32X, and Dreamcast (optional, never compiled before build 116).
 - **Getting games in:** Wi-Fi transfer, paste, drag and drop, Open in, WebDAV, zip and 7z files, automatic system detection, and save files in other emulators' formats. (SMB was in this list and is out; see Not done.)

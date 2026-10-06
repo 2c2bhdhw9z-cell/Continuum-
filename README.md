@@ -31,16 +31,20 @@ This install is **not** signed with a JIT. Heavier systems run on an interpreter
   screens in their holes and nothing on the picture, importing several skins at once, the tidier
   diagnostic text, changing a 3DS restart-required setting without a crash, fast forward 2x, the
   CRT filter, taking a cover from the running game, and Save to the next free slot
+- Confirmed 5 October with build 125: Game Boy, TurboGrafx-16, Atari 2600, Jaguar and Pokemon
+  Mini; save and load on 14 systems; save slot pictures; exporting and importing a state file;
+  the switch that hides Apple's performance overlay; restarting from Core settings; cover lookups
+  off; paste, Open in and zip imports
+- Known bug in build 125: a 3DS save state is refused as "too short" when loaded
 
 **In the app, not confirmed on a phone yet**
 
-Everything in [TESTING.md](TESTING.md)'s list, in short: 28 more systems (38 in all: 32 emulator
+Everything in [TESTING.md](TESTING.md)'s list, in short: 23 more systems (38 in all: 32 emulator
 cores plus the Flash and J2ME players), including PSP, Dreamcast, Saturn, arcade and the
-computers; Wi-Fi transfer and other ways to import, skin holes upright and on DS skins (sideways
-3DS is confirmed), Manic skins, extra buttons, the rest of the 50-slot save manager, battery saves,
-cheat search, two-screen layouts, online play, RetroAchievements, cloud sync, the switch that hides
-Apple's performance overlay (build 121), build 122's 3DS state-export protection and Wi-Fi
-transfer code, build 123's save-slot pictures, and build 124's bug sweep (listed in STATUS.md).
+computers; Wi-Fi transfer, skin holes upright and on DS skins (sideways 3DS is confirmed), Manic
+skins, extra buttons, the rest of the 50-slot save manager, battery saves, cheat search, two-screen
+layouts, online play, RetroAchievement unlocks, cloud sync, and the rest of build 124's bug sweep
+(listed in STATUS.md).
 
 **Not in the app**
 

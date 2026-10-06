@@ -20,7 +20,10 @@ On 5 October with build 122: the eye button that hides the top bar (and that it 
 paused game staying paused after leaving the app, a 3DS skin sideways with nothing on the picture,
 importing several skins at once, the tidier small text, changing a 3DS "restart" setting without a
 crash, fast forward at 2x, the CRT filter, taking a cover from the game, and Save to the next free
-slot.
+slot. On 5 October with build 125: save slot pictures, save and load on 14 systems, exporting and
+importing a state file, the Apple overlay switch, restarting from Core settings, cover lookups off,
+the RetroAchievements login button, paste, Open in, zip files, and games on Game Boy,
+TurboGrafx-16, Atari 2600, Jaguar and Pokemon Mini.
 
 ---
 
@@ -28,59 +31,15 @@ slot.
 
 ## A. New since build 121 (do this first)
 
-**A1. Save slot pictures (it was black in 122)**
-1. In any game: **⋯** → **Save to the next free slot**, then **⋯** → **Save slots...**.
-2. ✅ Good: the new slot shows a picture of the game, in the game's own shape (a DS slot is tall
-   and narrow, a NES or GBA slot is wide). Slots saved in 122 stay black; save over one to fix it.
-3. Bonus: **⋯** → **Use this frame as the cover**. ✅ The cover is a sharp picture of the game
-   alone, without the skin around it.
+**A1. A sharper cover from the game** (new in 123; the slot pictures are confirmed)
+1. In any game: **⋯** → **Use this frame as the cover**.
+2. ✅ Good: the cover is a sharp picture of the game alone, without the skin around it.
 
-**A2. A 3DS save copied out to a file and back in** (new in 122)
-
-Export turns a save into a file (a backup, or to move it to another phone). Import brings that file
-back in as a new slot. This checks that the copy still works and still remembers which 3DS settings
-it was made under.
+**A2. Does an ordinary 3DS save load?** (one quick check)
 1. In a 3DS game: **⋯** → **Save to the next free slot**.
-2. **⋯** → **Save slots...** → tap the slot you just made → **Export**.
-3. Apple's share menu opens: tap **Save to Files**, pick a folder you will remember, tap **Save**.
-4. Back in **Save slots**, scroll down to **FILES** → **Import a state file** → pick the file you just
-   saved (its name ends in `.continuumstate`).
-5. A new slot appears. It has no picture yet; that is known.
-6. Tap the new slot → **Load**. ✅ Good: the game jumps to where you saved.
-7. **⋯** → **Core settings...** → switch the **New 3DS** setting to the other choice → **Restart the
-   game now**.
-8. **⋯** → **Save slots...** → tap the imported slot → **Load**. ✅ Good: the game keeps running and
-   the save is not loaded. ❌ Bad: the app closes. (With a 3DS skin on, the small text is hidden, so
-   you will not see the message saying why.)
-9. Switch the **New 3DS** setting back afterwards.
-
-**A3. Apple performance overlay switch (from build 121)**
-1. Open **Settings** → scroll to **DIAGNOSTICS** → the top switch, **Apple performance overlay**.
-2. Leave it **off**, then open a game.
-3. ✅ Good: Apple's grey box of FPS / GPU numbers is gone.
-4. If it is still there: swipe Continuum away in the app switcher, open it again, and check again.
-5. Turn it **on**, open a game: the box should come back (it may also need the app reopened).
-6. Tell me if it never goes away. That would mean it is a different Apple overlay (for example the
-   Game Mode one) and needs a different fix.
-
-**A4. Restarting from Core settings** (new in 124)
-1. In a game with a skin: **⋯** → **Core settings...** → change a setting marked
-   **restart needed** → tap **Restart the game now**.
-2. ✅ Good: the game comes back inside the skin's screen area, just like before the restart.
-3. Then **Settings** → **SAVE STATES** → turn **Auto-save** off, and do step 1 again.
-4. ✅ Good: the game starts from the beginning, and the small text says it restarted from the
-   beginning because auto-save is off. (Before, it could jump back to an old auto-save.) Turn
-   Auto-save back on afterwards.
-
-**A5. Cover lookups off** (new in 124)
-1. **Settings** → **COVER ART** → turn **Look up cover art** off.
-2. In the Library, press and hold any game.
-3. ✅ Good: the cover part says "Cover lookups are off in Settings…" and nothing downloads. Turn it
-   back on afterwards.
-
-**A6. RetroAchievements login** (new in 124, only if you have an account)
-1. **Settings** → **RETROACHIEVEMENTS** → **Log in**.
-2. ✅ Good: while it works the button says **Logging in...** and tapping it again does nothing.
+2. **⋯** → **Save slots...** → tap that slot → **Load**.
+3. Tell me which: it loads, or it says "state too short". (An imported 3DS save says "too short" on
+   build 125. That is a known bug; the full export and import test comes back after the fix.)
 
 **A7. Things to notice in passing** (no need to set up)
 - The small text in the player should always read as plain English. If you ever see something like
@@ -92,30 +51,16 @@ it was made under.
   `BIOS (mednafen_psx_hw)`, which is Beetle, not the other PlayStation core.
 - 3DS (Mario Kart 7): after a race ends or the screen changes, does the game stutter or stay
   smooth? Tell me either way.
+- Jaguar: how fast did the game feel? Full speed, a bit slow, or very slow?
 
 ## B. Getting games in
-
-**B1. Wi-Fi transfer** — Library → hold your finger on **+** → **Other sources (Wi-Fi, clipboard,
-servers)** → Wi-Fi transfer. Type the WHOLE address it shows into a computer browser on the same
-Wi-Fi, including the short code at the end (for example `http://192.168.1.20:8080/k7m2qx/`), and
-upload a game. ✅ The game appears in the library. ✅ The address without the code shows nothing.
-The code changes every time you switch Wi-Fi transfer on, so nobody else on the Wi-Fi can use it.
-
-**B2. Paste** — In the Files app, copy a game. In Continuum, hold **+** → Other sources → **Paste
-from the clipboard**. ✅ The game appears.
-
-**B3. Open in** — In the Files app, share a `.gba` file and pick Continuum. ✅ It is imported.
-
-**B4. Zip / 7z** — Import a game inside a `.zip`. ✅ It shows up as the game, not as a zip.
 
 **B5. Unknown disc** — Import a disc file the app cannot identify. ✅ It asks which system once, and
 remembers your answer.
 
-**B6. Save files from other emulators** — Open a game's card → **Save slots, export and import** →
-import a save from another emulator (DS `.dsv` or PS1 `.mcr`). Start the game. ✅ The save is there.
-
-**B7. WebDAV server (only if you have a NAS/computer sharing files)** — Hold **+** → Other sources →
-add a server, browse it, import a game. (SMB is not in this build.)
+**B6. Save files from other emulators** (only if you have one) — Open a game's card → **Save slots,
+export and import** → import a save from another emulator (DS `.dsv` or PS1 `.mcr`). Start the
+game. ✅ The save is there.
 
 ## C. New systems — import one game each, tap it, see if it plays
 
@@ -123,20 +68,15 @@ For each one: ✅ cover shows, its own controls show, the game moves. ❌ Send t
 
 | # | System | File type | Needs anything extra? |
 | --- | --- | --- | --- |
-| C1 | Game Boy (original) | `.gb` | No |
 | C2 | Master System | `.sms` | No |
 | C3 | SG-1000 | `.sg` | No |
-| C4 | TurboGrafx-16 | `.pce` | No |
-| C5 | Atari 2600 | `.a26`, or a lone `.bin` (the app asks **Which system?** once; renaming to `.a26` skips the question) | No |
 | C6 | Famicom Disk System | `.fds` | `disksys.rom` in the Continuum folder. Getting a message naming that file counts as a pass |
 | C7 | WonderSwan | `.ws` / `.wsc` | No |
 | C8 | Neo Geo Pocket | `.ngp` / `.ngc` | No |
 | C9 | Lynx | `.lnx` | Maybe `lynxboot.img` — the app names it if so |
 | C10 | Atari 7800 / 5200 | `.a78` / `.a52` | 5200 may name a BIOS file |
 | C11 | Virtual Boy | `.vb` | No |
-| C12 | Pokemon Mini | `.min` | No |
 | C13 | 32X / SuperGrafx | `.32x` / `.sgx` | No |
-| C14 | Jaguar | `.j64` | No. Tell me how fast it feels |
 | C15 | Saturn, Sega CD, PC Engine CD | `.cue` + all `.bin` together | A BIOS. The app names the exact file |
 | C16 | Arcade | game zip like `mslug.zip` | Neo Geo games need `neogeo.zip` |
 | C17 | C64, Amiga, DOS | DOS as a `.zip` | Amiga may need a Kickstart file. The **Keyboard** button opens a keyboard |
@@ -151,10 +91,14 @@ For each one: ✅ cover shows, its own controls show, the game moves. ❌ Send t
 **D1. Battery saves** — Save inside a game (Pokemon, Zelda), go back to the library, open it again.
 ✅ Your in-game save is still there.
 
-**D2. Save slots** — In a game: **⋯** → **Save slots...**. Save into two slots, rename one,
-overwrite one (it should ask first), load the older one, delete one. ✅ All work and show pictures.
+**D2. Save slots** — Saving and loading are confirmed on 14 systems. Still to try, in **⋯** →
+**Save slots...** → tap a slot: **Rename**, **Save over it** (it should ask first), and **Delete**.
+✅ Each one works.
 
-**D3. Export and import a state** — Same screen: export a slot, import it back. ✅ It loads.
+**D3. Export and import, not on the 3DS** — In a NES, SNES or GBA game, do the same as the 3DS
+test: tap a slot → **Export** → **Save to Files**, then **Import a state file** and pick that file,
+then tap the new slot → **Load**. ✅ The game jumps to where you saved. (On the 3DS the import
+works but loading it is the known bug.)
 
 ## E. Skins and controls
 
@@ -221,7 +165,7 @@ wrong part of memory). Worth one try with a GBA cheat file.
 
 **G2. DS touch** — Tap and drag on the lower screen. ✅ The game reacts exactly where you touch.
 
-**G3. TV** — AirPlay or a cable during a game. ✅ Game on the TV, controls on the phone. Then **⋯**
+**G3. TV** (only if you have an AirPlay TV or a cable) — AirPlay or a cable during a game. ✅ Game on the TV, controls on the phone. Then **⋯**
 → **TV scaling**. On a DS or 3DS game there is also **⋯** → **TV layout** (one-screen games do not
 show it).
 
@@ -229,12 +173,7 @@ show it).
 
 **G5. 3DS microphone** — Settings → allow microphone, play a 3DS game that listens.
 
-## H. Online and accounts
-
-**H1. Online play** — Two phones, same Wi-Fi, same game. **⋯** → **Play online with a second
-phone**. Host on one, join from Nearby on the other. ✅ Both say connected. New in 122: on the
-second phone, leave online play, then join again from Nearby. ✅ The first phone says the other
-phone left and is waiting, keeps its game going, and lets the second phone back in.
+## H. Accounts and cloud
 
 **H2. Achievements** — **Settings** → **RETROACHIEVEMENTS**, log in, play an NES, SNES or GBA game
 with achievements. ✅ A banner pops up on unlock.
@@ -244,7 +183,24 @@ iCloud Drive. Save in a game, go back to the library. ✅ The status says files 
 122: Flash and J2ME saves, PDF manuals, Amiibo files, your "which system is this" answers and saved
 servers are synced too.
 
+## Needs a computer or a second phone (skip unless you have one)
+
+**B1. Wi-Fi transfer** (a computer) — Library → hold your finger on **+** → **Other sources (Wi-Fi,
+clipboard, servers)** → Wi-Fi transfer. Type the WHOLE address it shows into a computer browser on
+the same Wi-Fi, including the short code at the end (for example `http://192.168.1.20:8080/k7m2qx/`),
+and upload a game. ✅ The game appears in the library. ✅ The address without the code shows nothing.
+
+**B7. WebDAV server** (a NAS or computer sharing files) — Hold **+** → Other sources → add a server,
+browse it, import a game. (SMB is not in this build.)
+
+**H1. Online play** (a second phone) — Two phones, same Wi-Fi, same game. **⋯** → **Play online with
+a second phone**. Host on one, join from Nearby on the other. ✅ Both say connected. Then on the
+second phone, leave online play and join again from Nearby. ✅ The first phone says the other phone
+left and is waiting, keeps its game going, and lets the second phone back in.
+
 ## Known not working or not built (no need to test)
+
+- 3DS: an imported save state is refused as "too short" when you load it (build 125). Fix coming.
 
 - SMB (NAS shares) is out of this build. WebDAV works.
 - GameCube and Wii: not possible without JIT.
@@ -314,7 +270,16 @@ Everything below has since been confirmed on a device as well, in the order it w
 | Fast forward 2x (122) | Works |
 | CRT filter (122) | Works |
 | Cover from the game (122) | Works (build 123's sharper version is test A1 step 3) |
-| Save to the next free slot (122) | The slot appears (its picture is test A1) |
+| Save to the next free slot (122) | The slot appears |
+| Save slot pictures (125) | A Mario Kart 7 slot shows the game, tall, both screens |
+| Save and load (125) | One game each on NES, SNES, Game Boy, GBC, GBA, Game Gear, Mega Drive, PS1, DS, TurboGrafx-16, Atari 2600, N64, Jaguar and Pokemon Mini |
+| New systems (125) | Game Boy, TurboGrafx-16, Atari 2600, Jaguar and Pokemon Mini each ran a game |
+| Export and import a state file (125) | A 3DS slot went out to Files and came back as a new slot (loading it is the known 3DS bug) |
+| Apple performance overlay switch (125) | Works |
+| Restart from Core settings (125) | Comes back inside the skin; with auto-save off it starts from the beginning |
+| Cover lookups off (125) | Works |
+| RetroAchievements login button (125) | Says Logging in..., and a second tap does nothing |
+| Paste, Open in, zip (125) | Each one brought the game in |
 
 Two of those lines are narrower than they sound. Cheats means a code you type, not a search and not a file import. Fast forward is about 4x, not 5x. The 50-slot save manager is in the list above (D2).
 
@@ -421,7 +386,7 @@ A screenshot covers nearly all of this at once.
 
 ## Test 3: the other cartridge systems
 
-**Passed on `.smc`, `.gbc`, `.md` and `.gg`. `.gb` and `.sms` are tests C1 and C2.** Each is the
+**Passed on `.smc`, `.gbc`, `.md`, `.gg` and (build 125) `.gb`. `.sms` is test C2.** Each is the
 same routine as Test 2, with a different file.
 
 | File to try | Console | Core it should name | Where it stands |

@@ -29,11 +29,14 @@ Paste this to start a new chat:
 - Save and load (one game each) work on NES, SNES, Game Boy, GBC, GBA, Game Gear, Mega Drive,
   PS1, DS, TurboGrafx-16, Atari 2600, N64, Jaguar and Pokemon Mini. So those games run: C1, C4, C5,
   C12 and C14 pass (Jaguar speed not reported yet). Only the 3DS fails to load.
-- When testing ends: tick these in STATUS.md and drop them from TESTING.md (C1, C4, C5, C12, C14,
-  and the load part of D2).
-- Fix after testing ends, with: show the status line briefly with a skin that has screen holes,
-  make (i) work with such a skin, Apple overlay hide via `"mode": "disabled"`, and a picture for
-  imported slots.
+- A3 (Apple overlay switch), A4 (restart from Core settings), A5 (cover lookups off), A6 (login
+  button), B2 (paste), B3 (Open in) and B4 (zip) pass. All of the above is already ticked in
+  STATUS.md and dropped from TESTING.md.
+- The owner asked for a test list with nothing needing a computer or a second phone: B1, B7 and
+  H1 now sit in their own skip section at the end of TESTING.md's list.
+- Fix after testing ends: the 3DS "too short" refusal; show the status line briefly with a skin
+  that has screen holes; make (i) work with such a skin; a picture for imported slots. (The Apple
+  overlay switch passed, so leave AppleOverlay.swift alone.)
 
 ## How the owner works
 

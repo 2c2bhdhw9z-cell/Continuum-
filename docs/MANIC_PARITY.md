@@ -73,7 +73,7 @@ pick a system only when it truly cannot tell. The choice is remembered per game.
 ## Files
 
 - [x] .zip and .7z import: unpacked on import, except where the core wants the archive itself
-      (arcade, DOS, Amiga .zip).
+      (arcade, DOS, Amiga .zip). Phone (build 125): a game in a .zip.
 - [x] Save files in Manic's formats, import and export, per system: .srm .sav .dsv .mcd .mcr .eep
       .flash .nvr .bkr .dsg, Dreamcast VMU, PSP and 3DS save folders as zips.
 - [x] Multi-disc games: .m3u, and swap disc / insert disc in game.
@@ -83,9 +83,9 @@ pick a system only when it truly cannot tell. The choice is remembered per game.
 - [x] Files and iCloud Drive picker (already).
 - [x] Wi-Fi transfer: a switch starts a small upload page; type the whole shown address, including
       the short code at the end, into a browser on the same Wi-Fi.
-- [x] Paste from the clipboard (works with Handoff from a Mac).
+- [x] Paste from the clipboard (works with Handoff from a Mac). Phone (build 125).
 - [x] Drag and drop into the app.
-- [x] Open in / Share to Continuum from other apps.
+- [x] Open in / Share to Continuum from other apps. Phone (build 125).
 - [x] WebDAV (NAS, router storage).
 - [ ] SMB: taken out after build 117 closed on launch (the SMB library was not packed into the app). Needs redoing.
 - [x] Google Drive, Dropbox, OneDrive through the Files picker. [ ] Direct logins need app ids only the owner can register with Google, Dropbox and Microsoft.
