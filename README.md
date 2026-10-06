@@ -7,8 +7,8 @@ or a similar installer). It is not on the App Store.
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest), named
 `Continuum-<number>.ipa`. Pushes that change the app build one automatically: quick checks on
 Linux first, then about 30 minutes on a Mac. A second push waits for the first instead of
-cancelling it. As of 5 October 2026 that is build 126 (release `build-126-4b96af5`, about 85 MB)
-or newer. On that build the app shows its version as `0.8.0 (126)`.
+cancelling it. As of 6 October 2026 that is build 127 (release `build-127-a611e43`, about 85 MB)
+or newer. On that build the app shows its version as `0.8.0 (127)`.
 
 This install is **not** signed with a JIT. Heavier systems run on an interpreter.
 

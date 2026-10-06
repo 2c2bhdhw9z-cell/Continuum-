@@ -7,10 +7,10 @@ Paste this to start a new chat:
 
 ## Where things are (6 October 2026)
 
-- Build 127 was pushed 6 October: the fixes from the owner's build 126 testing and the rebuilt
-  feedback system (STATUS.md "Build 127"; TESTING.md A1 to A4). Check the Releases page for
-  whether it finished, and check the .ipa before handing it over.
-- Previous install: build 126, release `build-126-4b96af5`, 0.8.0 (126), 32 cores.
+- Newest install: build 127, release `build-127-a611e43`, 0.8.0 (127), 32 cores, checked. Link:
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-127-a611e43/Continuum-127.ipa
+- Build 127: the fixes from the owner's build 126 testing and the rebuilt feedback system
+  (STATUS.md "Build 127"; TESTING.md A1 to A4). The owner has the link, not tested yet.
 - **Waiting on the owner for one thing:** the email address the feedback form should open Mail
   with. It goes in `FeedbackDestination.email` in `native/ios/Feedback.swift` (one line), then a
   build. Until then the form opens the share menu, which works.
