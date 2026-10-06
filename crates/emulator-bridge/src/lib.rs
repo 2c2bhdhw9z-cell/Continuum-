@@ -69,6 +69,7 @@ pub mod players;
 pub mod vulkan_probe;
 pub mod rewind;
 pub mod saves;
+pub mod feedback;
 pub mod netplay;
 pub mod sync;
 pub mod timing;
@@ -111,6 +112,10 @@ pub mod uniffi_import;
 // Flash and J2ME player helpers (src/players), free functions like the import ones.
 #[cfg(feature = "uniffi-bindings")]
 pub mod uniffi_players;
+
+// Tester feedback (src/feedback.rs): the activity log, the crash marker, the load guard, reports.
+#[cfg(feature = "uniffi-bindings")]
+pub mod uniffi_feedback;
 
 pub use bridge::{BridgeStatus, EmulatorBridge, TickReport};
 pub use error::{BridgeError, GfxError};

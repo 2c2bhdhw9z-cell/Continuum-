@@ -152,10 +152,23 @@ impl OptionDef {
         self.values.is_empty() || self.values.iter().any(|v| v.value == value)
     }
 
-    /// The core said in its own words that a change only lands on the next start.
+    /// The core said in its own words that a change only lands on the next start, in the label or
+    /// in the description. Azahar says it only in the description ("System Model" ... "Restart
+    /// required."), and reading only the label is how build 126 lost the restart button for it.
     pub fn says_restart(&self) -> bool {
-        let lower = self.label.to_ascii_lowercase();
-        lower.contains("restart") || lower.contains("(reload")
+        let text = format!("{} {}", self.label, self.info).to_ascii_lowercase();
+        const NOT: [&str; 6] = [
+            "no restart",
+            "without restart",
+            "without a restart",
+            "not require a restart",
+            "n't require a restart",
+            "n't need a restart",
+        ];
+        if NOT.iter().any(|phrase| text.contains(phrase)) {
+            return false;
+        }
+        text.contains("restart") || text.contains("(reload")
     }
 }
 
@@ -861,11 +874,28 @@ pub fn refresh_visibility(core_id: &str) -> bool {
 }
 
 /// `GET_VARIABLE`. Returns the pointer to hand over, or `None` to refuse.
+///
+/// A RESTART-REQUIRED OPTION IS HELD for the rest of the session: once the core has been given a
+/// value for it, it keeps getting that value until the next load, whatever the user chose since.
+/// The core said the change needs a restart, and a core that re-reads everything on an update
+/// anyway (Azahar re-parses every option) would otherwise switch the emulated 3DS model under a
+/// running game, which crashed the app on build 126. The new choice is stored at once and lands at
+/// the next start; `list` reports it as waiting for a restart until then. A value the core forced
+/// itself (`SET_VARIABLE`) is never held, because the core expects to read it back.
 pub fn answer(key: &str) -> Option<*const c_char> {
     with_state(|s| {
         s.unread.remove(key);
         let core = s.active_core.clone();
         let table = s.cores.get(&core).map(|e| &e.table);
+        let held = table
+            .and_then(|t| t.get(key))
+            .is_some_and(OptionDef::says_restart)
+            && !s.forced.contains_key(key);
+        if held {
+            if let Some(previous) = s.answered.get(key) {
+                return Some(previous.as_ptr());
+            }
+        }
         let value = resolve(&core, table, &s.forced, &s.game_values, &s.core_values, key)?;
         let cstring = CString::new(value).ok()?;
         let reuse = s.answered.get(key).is_some_and(|old| old.as_c_str() == cstring.as_c_str());
@@ -925,6 +955,10 @@ pub struct OptionView {
     pub game_override: bool,
     /// The core will not see this change until the game restarts.
     pub needs_restart: bool,
+    /// The value the running core was last given, which is what the game is really running with.
+    /// The same as `current` unless a change is waiting (for a restart, or for the core to re-read
+    /// it). A save state belongs to this value, not to `current`.
+    pub in_effect: String,
 }
 
 /// The table for a core: live when it declared one this run, else the cached copy on disk.
@@ -980,6 +1014,19 @@ pub fn list(core_id: &str) -> Vec<OptionView> {
                 let current = resolve(core_id, Some(&table), &forced, &game_values, &core_values, &d.key)
                     .unwrap_or_else(|| d.default.clone());
                 let unread = live && s.unread.contains(&d.key);
+                // What the core was last handed this session, if it has asked.
+                let given = live
+                    .then(|| s.answered.get(&d.key))
+                    .flatten()
+                    .map(|c| c.to_string_lossy().into_owned());
+                // A held option waits for a restart for exactly as long as the user's choice
+                // differs from what the core was given. Anything else waits while the core has not
+                // re-read it a few frames after being told.
+                let needs_restart = match (&given, d.says_restart()) {
+                    (Some(given), true) if !forced.contains_key(&d.key) => *given != current,
+                    (_, says) => unread && (restart_window || says),
+                };
+                let in_effect = given.unwrap_or_else(|| current.clone());
                 OptionView {
                     key: d.key.clone(),
                     label: d.label.clone(),
@@ -990,7 +1037,8 @@ pub fn list(core_id: &str) -> Vec<OptionView> {
                     default: shown_default(core_id, d),
                     visible: !hidden.contains(&d.key),
                     game_override: game_values.contains_key(&d.key),
-                    needs_restart: unread && (restart_window || d.says_restart()),
+                    needs_restart,
+                    in_effect,
                 }
             })
             .collect()
@@ -1491,6 +1539,86 @@ mod tests {
         assert_eq!(game_file_stem("Zelda: Link/Awakening"), "Zelda_ Link_Awakening");
         assert_eq!(game_file_stem("..hidden"), "hidden");
         assert_eq!(game_file_stem(""), "game");
+    }
+
+    /// Azahar's System Model as it declares it: "Restart required." only in the description.
+    fn model_table() -> OptionTable {
+        let value = |v: &str, l: &str| OptionValue { value: v.into(), label: l.into() };
+        OptionTable {
+            version: 2,
+            categories: Vec::new(),
+            defs: vec![
+                OptionDef {
+                    key: "citra_is_new_3ds".into(),
+                    label: "System Model".into(),
+                    info: "Select whether to emulate the original 3DS or New 3DS. Restart required."
+                        .into(),
+                    category: String::new(),
+                    values: vec![value("New 3DS", "New 3DS"), value("Old 3DS", "Original 3DS")],
+                    default: "New 3DS".into(),
+                },
+                OptionDef {
+                    key: "citra_swap".into(),
+                    label: "Swap screens".into(),
+                    info: "Applied at once, no restart needed.".into(),
+                    category: String::new(),
+                    values: vec![value("Top", "Top"), value("Bottom", "Bottom")],
+                    default: "Top".into(),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn a_restart_option_is_held_until_the_next_start() {
+        let _g = test_guard();
+        reset_for_tests();
+        // A settings folder, as on the phone: a restart reads the choices back from it.
+        set_root(Some(temp_root("held-restart")));
+        install("azahar_like", None, true);
+        declare(model_table());
+        install("azahar_like", Some("Mario Kart 7.3ds"), false);
+        let ask = |key: &str| {
+            answer(key).map(|p| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned())
+        };
+        // The game starts on the New 3DS.
+        assert_eq!(ask("citra_is_new_3ds").as_deref(), Some("New 3DS"));
+        assert_eq!(ask("citra_swap").as_deref(), Some("Top"));
+
+        // Changed mid-game. The core re-reads EVERYTHING on the update, as Azahar does.
+        set("azahar_like", "citra_is_new_3ds", "Old 3DS", false).unwrap();
+        set("azahar_like", "citra_swap", "Bottom", false).unwrap();
+        assert!(take_update());
+        assert_eq!(ask("citra_is_new_3ds").as_deref(), Some("New 3DS"), "held for the session");
+        assert_eq!(ask("citra_swap").as_deref(), Some("Bottom"), "a live option changes at once");
+
+        let view = list("azahar_like");
+        let model = view.iter().find(|v| v.key == "citra_is_new_3ds").unwrap();
+        assert_eq!(model.current, "Old 3DS", "the choice is stored");
+        assert_eq!(model.in_effect, "New 3DS", "the game is still a New 3DS");
+        assert!(model.needs_restart, "so the restart button shows, even after the re-read");
+        let swap = view.iter().find(|v| v.key == "citra_swap").unwrap();
+        assert!(!swap.needs_restart);
+        assert_eq!(swap.in_effect, "Bottom");
+
+        // Changed back: nothing is waiting any more.
+        set("azahar_like", "citra_is_new_3ds", "New 3DS", false).unwrap();
+        assert!(!list("azahar_like")[0].needs_restart);
+        set("azahar_like", "citra_is_new_3ds", "Old 3DS", false).unwrap();
+
+        // The restart: a new load, and the new model is what the core gets.
+        install("azahar_like", Some("Mario Kart 7.3ds"), false);
+        assert_eq!(ask("citra_is_new_3ds").as_deref(), Some("Old 3DS"));
+        let model = list("azahar_like").into_iter().next().unwrap();
+        assert!(!model.needs_restart);
+        assert_eq!(model.in_effect, "Old 3DS");
+    }
+
+    #[test]
+    fn restart_wording_is_read_from_the_description_too() {
+        let table = model_table();
+        assert!(table.defs[0].says_restart(), "Azahar says it only in the description");
+        assert!(!table.defs[1].says_restart(), "\"no restart needed\" is not a restart");
     }
 
     #[test]

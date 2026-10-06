@@ -42,6 +42,9 @@ pub struct CoreOptionEntry {
     pub game_override: bool,
     /// Changed, and the core has not picked it up: the game needs a restart to see it.
     pub needs_restart: bool,
+    /// What the running game is really using: the value the core was last given. A save state
+    /// belongs to this, not to `current`. Equal to `current` when nothing is waiting.
+    pub in_effect: String,
 }
 
 /// A post-process look. Mirrors [`crate::gfx::PostEffect`] for the reason `ScaleModeOption`
@@ -195,6 +198,7 @@ impl ContinuumEngine {
                 visible: v.visible,
                 game_override: v.game_override,
                 needs_restart: v.needs_restart,
+                in_effect: v.in_effect,
             })
             .collect()
     }

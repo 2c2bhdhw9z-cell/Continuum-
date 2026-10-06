@@ -321,7 +321,8 @@ struct GameDetailSheet: View {
                 gameId: SaveStates.gameId(for: entry),
                 coreId: CoreCatalog.core(forPath: entry.path,
                                          ps1CoreId: host.ps1CoreChoice.coreId)?.coreId,
-                cheats: cheats
+                cheats: cheats,
+                romPath: entry.path
             )
 
             ChtImportButton(gameId: SaveStates.gameId(for: entry), cheats: cheats, line: $chtLine)
@@ -341,11 +342,10 @@ struct GameDetailSheet: View {
                 + "is usually one meant for a different region of the same game."
             )
             SettingsNote(
-                "The whole list is handed to the core each time it changes, in this order, and it "
-                + "is handed over again every time the game launches, because a core's cheat table "
-                + "lives only as long as the session does. Turning one off leaves it in the list "
-                + "and in the core's table, switched off, which is why the order here never shifts "
-                + "under you."
+                "The cheats that are switched on are handed to the game's emulator each time the "
+                + "list changes and every time the game starts. Turning one off keeps it in the "
+                + "list and takes it out of the game. A code that freezes the game is usually for "
+                + "another version of it: turn it off, then load a save state from before."
             )
         }
         .padding(14)

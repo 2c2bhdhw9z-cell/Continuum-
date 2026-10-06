@@ -2182,15 +2182,23 @@ impl EmulatorBridge {
             return Ok(());
         }
         session.core.reset_cheats()?;
-        // Collected first so the loop does not hold a borrow of `session.cheats` while
-        // calling `&mut` methods on `session.core`.
-        let list: Vec<(String, bool)> = session
+        // ONLY THE CHEATS THAT ARE ON, numbered from 0 without gaps, each sent as enabled. That is
+        // exactly what RetroArch does (`cheat_manager_apply_cheats`), and cores are written
+        // against it: mGBA's `retro_cheat_set` ignores both the index and the enabled flag and
+        // adds every code it is given, so sending a switched-off cheat with `false` left it
+        // running on the GBA and the Game Boy, and the switch did nothing. The list the user sees
+        // is kept whole in `session.cheats`; only what the core is told changed.
+        //
+        // Collected first so the loop does not hold a borrow of `session.cheats` while calling
+        // `&mut` methods on `session.core`.
+        let list: Vec<String> = session
             .cheats
             .iter()
-            .map(|cheat| (cheat.code.clone(), cheat.enabled))
+            .filter(|cheat| cheat.enabled)
+            .map(|cheat| cheat.code.clone())
             .collect();
-        for (index, (code, enabled)) in list.iter().enumerate() {
-            session.core.set_cheat(index as u32, *enabled, code)?;
+        for (index, code) in list.iter().enumerate() {
+            session.core.set_cheat(index as u32, true, code)?;
         }
         Ok(())
     }
@@ -2619,9 +2627,24 @@ mod tests {
         assert_eq!(active, 3, "two codes and one poke are on");
         assert_eq!(
             *calls.lock().unwrap(),
-            vec!["reset", "0:true:AAAA", "1:false:BBBB", "2:true:CCCC"],
-            "the core sees only codes, numbered without gaps, disabled ones included"
+            vec!["reset", "0:true:AAAA", "1:true:CCCC"],
+            "the core sees only the codes that are on, numbered without gaps (RetroArch's way)"
         );
+        // Switching the last one off leaves the core with no cheats at all.
+        calls.lock().unwrap().clear();
+        bridge
+            .apply_cheats(vec!["AAAA".into(), "CCCC".into()], &[1, 0])
+            .unwrap();
+        assert_eq!(*calls.lock().unwrap(), vec!["reset", "0:true:AAAA"]);
+        calls.lock().unwrap().clear();
+        let again = vec![
+            "AAAA".to_string(),
+            "poke:0010:63:1".to_string(),
+            "BBBB".to_string(),
+            "poke:0020:01:1".to_string(),
+            "CCCC".to_string(),
+        ];
+        assert_eq!(bridge.apply_cheats(again, &[1, 1, 0, 0, 1]).unwrap(), 3);
         assert_eq!(bridge.session.as_ref().unwrap().pokes.len(), 1);
 
         // A malformed poke refuses the whole update and leaves the previous list in force.

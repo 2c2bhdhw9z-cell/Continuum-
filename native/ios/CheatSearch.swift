@@ -65,7 +65,8 @@ struct PlayerCheatsSheet: View {
             // a code found mid-game meant leaving the game to enter it.
             CheatCodeEntry(gameId: gameId,
                            coreId: host.activeCoreId.isEmpty ? nil : host.activeCoreId,
-                           cheats: cheats)
+                           cheats: cheats,
+                           romPath: entry.path)
             ChtImportButton(gameId: gameId, cheats: cheats, line: $importLine)
         }
         .padding(14)
@@ -87,6 +88,11 @@ struct CheatCodeEntry: View {
     /// The emulator the game runs on, for the code-type line. Nil when none is mapped.
     let coreId: String?
     @ObservedObject var cheats: CheatStore
+    /// The game file, so a GBA or Game Boy game can say which exact version it is.
+    var romPath: String? = nil
+
+    /// "This game: Pokemon FireRed (USA), version 1.1", read from the file's header once.
+    @State private var identityLine = ""
 
     /// The cheat being typed. Held here rather than in the store, because a half-typed code is not
     /// a cheat yet and a store publishing every keystroke would rebuild the whole sheet on each one.
@@ -98,6 +104,12 @@ struct CheatCodeEntry: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if !identityLine.isEmpty {
+                Text(identityLine)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let coreId {
                 SettingsNote(Self.supportLine(coreId: coreId))
             }
@@ -132,6 +144,29 @@ struct CheatCodeEntry: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .onAppear {
+            if identityLine.isEmpty, let romPath {
+                identityLine = Self.identityLine(path: romPath)
+            }
+        }
+    }
+
+    /// The exact game and version, from the GBA or Game Boy header at the start of the file.
+    /// Empty for any other file.
+    static func identityLine(path: String) -> String {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return "" }
+        defer { try? handle.close() }
+        let header = handle.readData(ofLength: 0x150)
+        guard let id = identifyCartridge(header: header) else { return "" }
+        var line = "This game: \(id.title)"
+        if !id.region.isEmpty {
+            line += " (\(id.region))"
+        }
+        line += ", version \(id.version)"
+        if !id.code.isEmpty {
+            line += ", game code \(id.code)"
+        }
+        return line + ". A code has to be made for this exact game and version."
     }
 
     /// One sentence from the engine's table (`cheats::formats` in Rust), so Android says the same.
@@ -147,7 +182,8 @@ struct CheatCodeEntry: View {
                 + "mean. A code that does nothing is usually for another region of the game."
         }
         return "Codes this system takes: \(support.kinds). A code that is several lines goes in "
-            + "one box with + between the lines."
+            + "one box with + between the lines. A code made for another version of the game can "
+            + "freeze it: switch the cheat off and load a save from before."
     }
 }
 

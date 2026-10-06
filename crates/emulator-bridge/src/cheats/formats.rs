@@ -63,9 +63,157 @@ pub fn code_support(core_id: &str) -> CodeSupport {
     }
 }
 
+/// Which exact cartridge a Game Boy Advance or Game Boy file is, read from its own header.
+///
+/// Cheat codes are written for one exact game, region AND version: Pokemon FireRed's walk-through-
+/// walls code for version 1.1 freezes version 1.0 the moment the player moves, and the same code on
+/// Emerald does the same. The header says which one a file is, so the cheat screen can say it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CartridgeIdentity {
+    /// A name for the commonest games, else the header's own title.
+    pub title: String,
+    /// The four-letter game code (GBA), empty on the Game Boy.
+    pub code: String,
+    /// "USA", "Europe", "Japan" and so on, from the code's last letter. Empty when unknown.
+    pub region: String,
+    /// "1.0", "1.1" ... from the header's version byte.
+    pub version: String,
+}
+
+/// Names for the games people most often look up codes for. Anything else shows the header title.
+fn known_game(code: &str) -> Option<&'static str> {
+    match code.get(..3)? {
+        "BPR" => Some("Pokemon FireRed"),
+        "BPG" => Some("Pokemon LeafGreen"),
+        "BPE" => Some("Pokemon Emerald"),
+        "AXV" => Some("Pokemon Ruby"),
+        "AXP" => Some("Pokemon Sapphire"),
+        _ => None,
+    }
+}
+
+fn region_letter(letter: char) -> &'static str {
+    match letter {
+        'E' => "USA",
+        'P' => "Europe",
+        'J' => "Japan",
+        'D' => "Germany",
+        'F' => "France",
+        'I' => "Italy",
+        'S' => "Spain",
+        'K' => "Korea",
+        'U' => "Australia",
+        _ => "",
+    }
+}
+
+fn header_text(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .take_while(|b| **b != 0)
+        .map(|b| if b.is_ascii_graphic() || *b == b' ' { *b as char } else { '?' })
+        .collect::<String>()
+        .trim()
+        .to_owned()
+}
+
+/// Reads the header at the start of a `.gba`, `.gb` or `.gbc` file. `None` when the bytes are not
+/// one: the header's own check byte or checksum must agree, so a random file is never named.
+pub fn identify_cartridge(bytes: &[u8]) -> Option<CartridgeIdentity> {
+    // GBA: the fixed value 0x96 at 0xB2, and the complement check at 0xBD over 0xA0..=0xBC.
+    if bytes.len() >= 0xC0 && bytes[0xB2] == 0x96 {
+        let sum = bytes[0xA0..=0xBC]
+            .iter()
+            .fold(0u8, |acc, b| acc.wrapping_sub(*b))
+            .wrapping_sub(0x19);
+        if sum == bytes[0xBD] {
+            let code = header_text(&bytes[0xAC..0xB0]);
+            let region = code.chars().nth(3).map(region_letter).unwrap_or("").to_owned();
+            let title = known_game(&code)
+                .map(str::to_owned)
+                .unwrap_or_else(|| header_text(&bytes[0xA0..0xAC]));
+            return Some(CartridgeIdentity {
+                title,
+                code,
+                region,
+                version: format!("1.{}", bytes[0xBC]),
+            });
+        }
+    }
+    // Game Boy and Game Boy Color: the header checksum at 0x14D over 0x134..=0x14C.
+    if bytes.len() >= 0x150 {
+        let sum = bytes[0x134..=0x14C]
+            .iter()
+            .fold(0u8, |acc, b| acc.wrapping_sub(*b).wrapping_sub(1));
+        if sum == bytes[0x14D] {
+            // The title is 16 bytes on the original, 15 or 11 once a colour flag is there.
+            let end = if bytes[0x143] & 0x80 != 0 { 0x143 } else { 0x144 };
+            let title = header_text(&bytes[0x134..end]);
+            if !title.is_empty() {
+                return Some(CartridgeIdentity {
+                    title,
+                    code: String::new(),
+                    region: if bytes[0x14A] == 0 { "Japan".into() } else { String::new() },
+                    version: format!("1.{}", bytes[0x14C]),
+                });
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A GBA header with a correct check byte.
+    fn gba_header(title: &[u8], code: &[u8; 4], version: u8) -> Vec<u8> {
+        let mut rom = vec![0u8; 0xC0];
+        rom[0xA0..0xA0 + title.len()].copy_from_slice(title);
+        rom[0xAC..0xB0].copy_from_slice(code);
+        rom[0xB2] = 0x96;
+        rom[0xBC] = version;
+        let sum = rom[0xA0..=0xBC]
+            .iter()
+            .fold(0u8, |acc, b| acc.wrapping_sub(*b))
+            .wrapping_sub(0x19);
+        rom[0xBD] = sum;
+        rom
+    }
+
+    #[test]
+    fn a_gba_header_names_the_exact_game_and_version() {
+        let fire_red = identify_cartridge(&gba_header(b"POKEMON FIRE", b"BPRE", 1)).unwrap();
+        assert_eq!(fire_red.title, "Pokemon FireRed");
+        assert_eq!(fire_red.code, "BPRE");
+        assert_eq!(fire_red.region, "USA");
+        assert_eq!(fire_red.version, "1.1");
+        let other = identify_cartridge(&gba_header(b"SOME GAME", b"AXYP", 0)).unwrap();
+        assert_eq!(other.title, "SOME GAME");
+        assert_eq!(other.region, "Europe");
+        assert_eq!(other.version, "1.0");
+        // A wrong check byte is not a header.
+        let mut broken = gba_header(b"POKEMON FIRE", b"BPRE", 1);
+        broken[0xBD] ^= 1;
+        assert_eq!(identify_cartridge(&broken), None);
+        assert_eq!(identify_cartridge(&[0u8; 0x100]), None);
+    }
+
+    #[test]
+    fn a_game_boy_header_is_read_too() {
+        let mut rom = vec![0u8; 0x150];
+        rom[0x134..0x134 + 12].copy_from_slice(b"POKEMON YELL");
+        rom[0x143] = 0x80;
+        rom[0x14A] = 1;
+        rom[0x14C] = 0;
+        rom[0x14D] = rom[0x134..=0x14C]
+            .iter()
+            .fold(0u8, |acc, b| acc.wrapping_sub(*b).wrapping_sub(1));
+        let id = identify_cartridge(&rom).unwrap();
+        assert_eq!(id.title, "POKEMON YELL");
+        assert_eq!(id.version, "1.0");
+        assert_eq!(id.region, "");
+    }
 
     #[test]
     fn the_cores_that_throw_codes_away_say_so() {

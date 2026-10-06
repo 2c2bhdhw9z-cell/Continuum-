@@ -12,6 +12,8 @@ These come straight from the owner. They are not suggestions.
 - Never ask the owner to go look at a file, a log or a page. Read it yourself and say what it says.
 - Never ask the owner to re-test or re-answer anything they already covered, in a screenshot or an
   earlier message. Work it out from what they sent. Never put a test back on their list.
+- When handing over a build, write the full test steps out in that same reply. Never say "the
+  tests from my last message"; the owner will not scroll back for them.
 
 ## The .ipa
 - The .ipa is the only thing the owner cares about. Whenever a build happens, hand over the

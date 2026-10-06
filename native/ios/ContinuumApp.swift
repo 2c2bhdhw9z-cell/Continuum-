@@ -1687,7 +1687,10 @@ final class EngineHost: ObservableObject {
     @Published var frameCount: UInt64 = 0
     @Published var displayFps: Double = 0
     @Published var dropped: UInt32 = 0
-    @Published var status: String = "waiting for the surface"
+    @Published var status: String = "waiting for the surface" {
+        // Every line, with its time, into the activity log a feedback report sends (Feedback.swift).
+        didSet { FeedbackCenter.record(status) }
+    }
     @Published var gpu: String = ""
     /// The on-screen BIOS/HLE line. Written when the cores are declared at attach, and
     /// refreshed whenever a core loads, so a missing BIOS is a legible condition BEFORE a game
@@ -2959,6 +2962,9 @@ final class EngineHost: ObservableObject {
 
     init() {
         engine = ContinuumEngine()
+        // First, so the activity log has the whole session and the last one is judged before
+        // anything can crash this one. See Feedback.swift.
+        FeedbackCenter.shared.start()
         // Settings a cloud sync brought down last time are applied BEFORE any store below reads
         // its stored values, which is the only moment that cannot race them. See `CloudSync`.
         CloudSync.applyPendingSettings()
@@ -3992,6 +3998,8 @@ final class EngineHost: ObservableObject {
             // over a session that does not exist.
             activeEntry = entry
             activeCoreId = spec.coreId
+            // So a crash report can say which game was running.
+            feedbackSessionGame(game: entry.name)
             // The system's own filter and brightness. See CoreSettingsScreen.swift.
             applyCoreActionPreferences()
             // Beetle device-proof crumb: stay Partial until hardwareFrame flips on a phone.
@@ -4131,6 +4139,7 @@ final class EngineHost: ObservableObject {
         // session ends must not be pushed into the next one.
         activeEntry = nil
         activeCoreId = ""
+        feedbackSessionGame(game: "")
         n64AwaitingFirstTick = false
         paused = false
         pictureArea = nil
@@ -5051,6 +5060,8 @@ struct RootView: View {
         .background(ImportCenterPresenter(center: host.importCenter))
         // Open in / Share to Continuum, from Files, Mail, Safari and AirDrop.
         .onOpenURL { url in host.importCenter.open(url: url) }
+        // The app closed unexpectedly last time: offer a crash report. See Feedback.swift.
+        .modifier(CrashReportPrompt(host: host))
     }
 
     /// The one canvas, sized to the area the controls left free.

@@ -278,6 +278,27 @@ pub struct CheatCodeSupport {
     pub kinds: String,
 }
 
+/// Which exact cartridge a GBA or Game Boy file is. See `cheats::formats::identify_cartridge`.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct CartridgeIdentityRecord {
+    pub title: String,
+    pub code: String,
+    pub region: String,
+    pub version: String,
+}
+
+/// Reads the header at the start of a `.gba`, `.gb` or `.gbc` file (the first 0x150 bytes are
+/// enough). `None` when it is not one.
+#[uniffi::export]
+pub fn identify_cartridge(header: Vec<u8>) -> Option<CartridgeIdentityRecord> {
+    crate::cheats::formats::identify_cartridge(&header).map(|id| CartridgeIdentityRecord {
+        title: id.title,
+        code: id.code,
+        region: id.region,
+        version: id.version,
+    })
+}
+
 /// Which typed codes the core `core_id` reads.
 #[uniffi::export]
 pub fn cheat_code_support(core_id: String) -> CheatCodeSupport {

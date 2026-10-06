@@ -1,126 +1,194 @@
-// Continuum - feedback from players: one form, reached from two places.
+// Continuum - feedback from testers.
 //
-//   - Settings, at the top: "Send feedback", about the app in general.
-//   - A game's ⋯ menu: "Send feedback about this game...", which also attaches the game, its system,
-//     its emulator and a picture of the screen, because that is where a tester notices a problem.
+// Three ways in:
+//   - Settings, the first card: a problem, an idea, or anything else, about the app.
+//   - A game's ⋯ menu: the same form about that game, opening on "How it runs" (a rating and what
+//     is wrong), with a picture of the game the tester can draw on to point at the problem.
+//   - By itself, after a crash: when the app closed unexpectedly last time, the next start asks
+//     whether to send a report, with what the app was doing just before it closed.
 //
-// NOTHING LEAVES THE PHONE BY ITSELF. The form writes a message and hands it to Apple's Mail
-// screen, addressed to `FeedbackDestination.email`, or, when no address is set or Mail is not set
-// up on this phone, to the share sheet, where the player picks Mail, Messages or any other app.
-// Either way the player sees the whole message and taps send themselves. There is no server.
+// Every report carries, unless switched off: the app's version, the iPhone model and iOS version,
+// the game, its system and emulator, and the activity log, which is every line the app's small
+// status text showed, with its time (kept on disk by the engine, feedback.rs, so it survives a
+// crash). The log goes as a text file, the picture as an image.
+//
+// NOTHING LEAVES THE PHONE BY ITSELF. The form opens Apple's Mail screen addressed to
+// `FeedbackDestination.email`, or, when no address is set or Mail is not set up, the share menu.
+// The tester sees the whole message and taps send. There is no server.
 
 import MessageUI
+import PencilKit
 import SwiftUI
 import UIKit
 
 /// Where feedback goes.
 enum FeedbackDestination {
-    /// The address the Mail screen is addressed to. Empty: no address yet, so the share sheet is
-    /// used and the player chooses who it goes to.
+    /// The address the Mail screen is addressed to. Empty: no address yet, so the share menu is
+    /// used and the tester chooses who it goes to.
     static let email = ""
 
     static var hasEmail: Bool { !email.isEmpty }
 }
 
-/// What the message is about. Becomes the subject line.
+/// What a report is about.
 enum FeedbackKind: String, CaseIterable, Hashable {
+    case gameReport
     case problem
     case idea
     case other
+    case crash
 
+    /// On the selector.
     var title: String {
         switch self {
-        case .problem: return "A problem"
-        case .idea: return "An idea"
-        case .other: return "Something else"
+        case .gameReport: return "How it runs"
+        case .problem: return "Problem"
+        case .idea: return "Idea"
+        case .other: return "Other"
+        case .crash: return "Crash"
+        }
+    }
+
+    /// In the subject line.
+    var reportName: String {
+        switch self {
+        case .gameReport: return "Game report"
+        case .problem: return "Problem"
+        case .idea: return "Idea"
+        case .other: return "Feedback"
+        case .crash: return "Crash"
         }
     }
 }
 
-/// The form.
+/// How well a game runs.
+enum GameRating: String, CaseIterable, Hashable {
+    case perfect
+    case playable
+    case problems
+    case wontRun
+
+    var title: String {
+        switch self {
+        case .perfect: return "Perfect"
+        case .playable: return "Playable"
+        case .problems: return "Problems"
+        case .wontRun: return "Won't run"
+        }
+    }
+
+    /// In the message, where there is room for the whole thought.
+    var reportText: String {
+        switch self {
+        case .perfect: return "Perfect, no problems"
+        case .playable: return "Playable, with small problems"
+        case .problems: return "Runs, but with big problems"
+        case .wontRun: return "Does not start or cannot be played"
+        }
+    }
+}
+
+/// What can be wrong with a game.
+enum GameIssue: String, CaseIterable, Hashable, Identifiable {
+    case picture
+    case sound
+    case speed
+    case controls
+    case saves
+    case skin
+    case freezes
+    case cheats
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .picture: return "Picture"
+        case .sound: return "Sound"
+        case .speed: return "Speed"
+        case .controls: return "Controls"
+        case .saves: return "Saves"
+        case .skin: return "Skin"
+        case .freezes: return "Freezes or closes"
+        case .cheats: return "Cheats"
+        }
+    }
+}
+
+// MARK: - The form
+
 struct FeedbackSheet: View {
     @ObservedObject var host: EngineHost
-    /// The game it is about, when it was opened from a game. Nil from Settings.
+    /// The game it is about, when opened from a game. Nil from Settings and for a crash.
     let entry: LibraryEntry?
+    /// The last session, when this is a crash report.
+    let crash: FeedbackUnexpectedClose?
     var onDone: () -> Void
 
-    @State private var kind: FeedbackKind = .problem
+    @ObservedObject private var center = FeedbackCenter.shared
+
+    @State private var kind: FeedbackKind
+    @State private var rating: GameRating = .playable
+    @State private var issues: Set<GameIssue> = []
     @State private var message = ""
+    /// Remembered on this phone, so a tester types it once.
+    @AppStorage("continuum.feedback.tester.v1") private var tester = ""
     @State private var includeDetails = true
+    @State private var includeLog = true
     @State private var includePicture = true
-    /// The game's screen, taken when the form opened, before anything else changes it.
-    @State private var picture: Data? = nil
-    @State private var preview: UIImage? = nil
+    /// The game's picture, taken as the form opens, before anything else changes it.
+    @State private var picture: UIImage? = nil
+    /// The same picture with the tester's drawing on it, once they have drawn.
+    @State private var drawn: UIImage? = nil
+    @State private var showMarkup = false
     /// What happened to the last send, under the button.
     @State private var resultLine = ""
+
+    init(host: EngineHost, entry: LibraryEntry?, crash: FeedbackUnexpectedClose? = nil,
+         onDone: @escaping () -> Void) {
+        _host = ObservedObject(wrappedValue: host)
+        self.entry = entry
+        self.crash = crash
+        self.onDone = onDone
+        let first: FeedbackKind = crash != nil ? .crash : (entry != nil ? .gameReport : .problem)
+        _kind = State(initialValue: first)
+    }
+
+    /// The choices on the selector. A crash report has none.
+    private var kinds: [FeedbackKind] {
+        entry != nil ? [.gameReport, .problem, .idea] : [.problem, .idea, .other]
+    }
+
+    private var asksHowItRuns: Bool { kind == .gameReport }
+    private var asksWhatIsWrong: Bool {
+        entry != nil && (kind == .gameReport || kind == .problem)
+    }
 
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    SettingsSection(title: "WHAT IS IT ABOUT") {
-                        SegmentedChoice(options: FeedbackKind.allCases,
-                                        title: { $0.title },
-                                        selection: $kind)
-                        TextField(placeholder, text: $message, axis: .vertical)
-                            .lineLimit(4...12)
-                            .font(.system(size: 15))
-                            .foregroundStyle(.white)
-                            .padding(10)
-                            .background(ShellPalette.surfaceStrong,
-                                        in: RoundedRectangle(cornerRadius: 9))
-                    }
-
-                    SettingsSection(title: "ADDED TO THE MESSAGE") {
-                        Toggle(isOn: $includeDetails) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("The app's details")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                Text(detailsNote)
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(ShellPalette.secondaryText)
-                            }
-                        }
-                        .tint(ShellPalette.accent)
-
-                        if let preview {
-                            Toggle(isOn: $includePicture) {
-                                Text("A picture of the game")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(.white)
-                            }
-                            .tint(ShellPalette.accent)
-                            if includePicture {
-                                Image(uiImage: preview)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(maxHeight: 160)
-                                    .frame(maxWidth: .infinity)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                            }
+                    if let crash {
+                        crashCard(crash)
+                    } else {
+                        SettingsSection(title: "WHAT IS IT ABOUT") {
+                            SegmentedChoice(options: kinds, title: { $0.title }, selection: $kind)
                         }
                     }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        SettingsButton(title: FeedbackDestination.hasEmail ? "Send" : "Send...",
-                                       role: .normal) {
-                            send()
-                        }
-                        SettingsNote(sendNote)
-                        if !resultLine.isEmpty {
-                            Text(resultLine)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
+                    if asksHowItRuns {
+                        ratingCard
                     }
-                    .padding(.horizontal, 16)
+                    if asksWhatIsWrong {
+                        issuesCard
+                    }
+                    messageCard
+                    attachmentsCard
+                    sendBlock
                 }
                 .padding(.vertical, 16)
             }
             .background(Color.black.ignoresSafeArea())
-            .navigationTitle(entry == nil ? "Feedback" : "Feedback about this game")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -133,34 +201,206 @@ struct FeedbackSheet: View {
         .task {
             await takePicture()
         }
+        .sheet(isPresented: $showMarkup) {
+            if let picture {
+                FeedbackMarkup(image: picture, onDone: { marked in
+                    drawn = marked
+                    showMarkup = false
+                }, onCancel: {
+                    showMarkup = false
+                })
+            }
+        }
     }
+
+    private var title: String {
+        if crash != nil { return "Crash report" }
+        return entry == nil ? "Feedback" : "Feedback about this game"
+    }
+
+    // MARK: Cards
+
+    private func crashCard(_ crash: FeedbackUnexpectedClose) -> some View {
+        SettingsSection(title: "WHAT HAPPENED") {
+            Text(FeedbackCenter.crashSentence(crash))
+                .font(.system(size: 14))
+                .foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
+            SettingsNote("Say what you were doing just before, if you remember. The app's own "
+                         + "record of its last minutes is attached.")
+        }
+    }
+
+    private var ratingCard: some View {
+        SettingsSection(title: "HOW DOES IT RUN") {
+            if let entry {
+                Text(entry.name)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+            }
+            SegmentedChoice(options: GameRating.allCases, title: { $0.title },
+                            selection: $rating)
+            SettingsNote(rating.reportText + ".")
+        }
+    }
+
+    private var issuesCard: some View {
+        SettingsSection(title: "WHAT IS WRONG (TAP ANY)") {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
+                                GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                ForEach(GameIssue.allCases) { issue in
+                    issueChip(issue)
+                }
+            }
+        }
+    }
+
+    private func issueChip(_ issue: GameIssue) -> some View {
+        let on = issues.contains(issue)
+        return Button {
+            if on {
+                issues.remove(issue)
+            } else {
+                issues.insert(issue)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                Text(issue.title)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 14, weight: on ? .semibold : .regular))
+            .foregroundStyle(on ? Color.white : ShellPalette.secondaryText)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 10)
+            .background(on ? ShellPalette.accent.opacity(0.35) : ShellPalette.surfaceStrong,
+                        in: RoundedRectangle(cornerRadius: 9))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var messageCard: some View {
+        SettingsSection(title: "YOUR MESSAGE") {
+            TextField(placeholder, text: $message, axis: .vertical)
+                .lineLimit(4...12)
+                .font(.system(size: 15))
+                .foregroundStyle(.white)
+                .padding(10)
+                .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 9))
+            TextField("Your name (optional, remembered)", text: $tester)
+                .font(.system(size: 14))
+                .foregroundStyle(.white)
+                .padding(10)
+                .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 9))
+        }
+    }
+
+    private var attachmentsCard: some View {
+        SettingsSection(title: "SENT WITH IT") {
+            toggleRow("The app's details", note: detailsNote, isOn: $includeDetails)
+            toggleRow("What the app was doing", note: logNote, isOn: $includeLog)
+            if let picture {
+                toggleRow("A picture of the game", note: pictureNote, isOn: $includePicture)
+                if includePicture {
+                    Image(uiImage: drawn ?? picture)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxHeight: 180)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    SettingsButton(title: drawn == nil ? "Draw on it" : "Draw on it again",
+                                   role: .normal) {
+                        showMarkup = true
+                    }
+                }
+            }
+        }
+    }
+
+    private func toggleRow(_ title: String, note: String, isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text(note)
+                    .font(.system(size: 12))
+                    .foregroundStyle(ShellPalette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .tint(ShellPalette.accent)
+    }
+
+    private var sendBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SettingsButton(title: FeedbackDestination.hasEmail ? "Send" : "Send...",
+                           role: .normal) {
+                send()
+            }
+            SettingsNote(sendNote)
+            if !resultLine.isEmpty {
+                Text(resultLine)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if center.sentCount > 0 {
+                SettingsNote(center.sentLine)
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    // MARK: Words
 
     /// Out of the view body on purpose: a long concatenation inside a view builder is the kind of
     /// expression the compiler gives up on, and CI is the only compiler.
     private var detailsNote: String {
         if entry == nil {
-            return "The app's version, the iPhone model and iOS version, and the app's status text."
+            return "The app's version, the iPhone model and iOS version, and its status text."
         }
         return "The app's version, the iPhone model and iOS version, the game, its system and "
             + "emulator, and the app's status text."
     }
 
+    private var logNote: String {
+        if crash != nil {
+            return "Every line the small status text showed in the minutes before it closed, with "
+                + "the time. Attached as a text file."
+        }
+        return "Every line the small status text has shown since the app opened, with the time. "
+            + "Attached as a text file."
+    }
+
+    private var pictureNote: String {
+        "The game's screen when you opened this. Draw on it to point at the problem."
+    }
+
     private var sendNote: String {
         if FeedbackDestination.hasEmail {
-            return "Opens Mail with the message ready. You see all of it before it goes. If Mail is "
+            return "Opens Mail with everything ready. You see all of it before it goes. If Mail is "
                 + "not set up on this iPhone, you can pick another app instead."
         }
-        return "Opens the share menu with the message ready: pick Mail, Messages or another app, "
+        return "Opens the share menu with everything ready: pick Mail, Messages or another app, "
             + "and send it to whoever gave you Continuum. Nothing is sent until you do."
     }
 
     private var placeholder: String {
         switch kind {
+        case .gameReport: return "Anything else about how it runs? (optional)"
         case .problem: return "What happened, and what were you doing just before?"
         case .idea: return "What would you like Continuum to do?"
         case .other: return "Your message"
+        case .crash: return "What were you doing when it closed? (optional)"
         }
     }
+
+    // MARK: Picture
 
     /// The game's picture, through the same capture the save slots use: the game alone, without
     /// the skin, in its own shape.
@@ -170,61 +410,72 @@ struct FeedbackSheet: View {
         let (png, _) = await CapturedCover.pngData(width: frame.width, height: frame.height,
                                                    rgba: frame.rgba)
         guard let png, let image = UIImage(data: png) else { return }
-        picture = png
-        preview = image
+        picture = image
     }
 
-    private var subject: String {
-        var line = "Continuum feedback: \(kind.title)"
-        if let entry {
-            line += " - \(entry.name)"
-        }
-        return line
+    // MARK: Sending
+
+    private var systemName: String {
+        guard let entry, let system = CoreCatalog.system(for: entry) else { return "" }
+        return system.displayName
     }
 
-    /// The message as the player will see it in Mail or the app they pick.
-    private var composedMessage: String {
-        var parts: [String] = []
-        let typed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        parts.append(typed.isEmpty ? "(no message typed)" : typed)
-        if includeDetails {
-            parts.append("--\n" + FeedbackDetails.text(host: host, entry: entry))
-        }
-        return parts.joined(separator: "\n\n")
+    private func composed() -> FeedbackMessage {
+        let record = FeedbackReportRecord(
+            kind: kind.reportName,
+            message: message,
+            tester: tester,
+            game: entry?.name ?? crash?.game ?? "",
+            system: systemName,
+            rating: asksHowItRuns ? rating.reportText : "",
+            issues: asksWhatIsWrong ? GameIssue.allCases.filter { issues.contains($0) }.map(\.title)
+                : [],
+            details: includeDetails ? FeedbackDetails.lines(host: host, entry: entry, crash: crash)
+                : []
+        )
+        return feedbackCompose(report: record)
     }
 
     private func send() {
-        let attachment = (includePicture && preview != nil) ? picture : nil
+        let message = composed()
+        let image = includePicture ? (drawn ?? picture) : nil
+        let png = image?.pngData()
+        let log = includeLog ? FeedbackCenter.logText(crash: crash != nil) : ""
+        let sentKind = kind
+        let game = entry?.name ?? crash?.game ?? ""
+        let finished: (Bool, String) -> Void = { sent, line in
+            resultLine = line
+            if sent {
+                FeedbackCenter.shared.noteSent(kind: sentKind.reportName, game: game)
+            }
+        }
         if FeedbackDestination.hasEmail,
-           FeedbackMail.shared.present(to: FeedbackDestination.email, subject: subject,
-                                       body: composedMessage, png: attachment,
-                                       onFinish: { resultLine = $0 }) {
+           FeedbackMail.shared.present(to: FeedbackDestination.email, message: message, png: png,
+                                       log: log, onFinish: finished) {
             return
         }
-        FeedbackShare.present(text: subject + "\n\n" + composedMessage, png: attachment)
-        resultLine = "Pick how to send it. Thank you."
+        FeedbackShare.present(message: message, png: png, log: log, onFinish: finished)
     }
 }
 
 // MARK: - The details
 
-/// The facts a message carries when "The app's details" is on: plain text, one fact per line, so a
+/// The facts a report carries when "The app's details" is on: plain text, one fact per line, so a
 /// reader can see at once which build, phone and game it came from.
 enum FeedbackDetails {
     @MainActor
-    static func text(host: EngineHost, entry: LibraryEntry?) -> String {
+    static func lines(host: EngineHost, entry: LibraryEntry?,
+                      crash: FeedbackUnexpectedClose?) -> [String] {
         var lines: [String] = []
         lines.append(EngineHost.versionLabel)
         lines.append("iPhone: \(deviceModel), iOS \(UIDevice.current.systemVersion)")
-        if let entry {
-            var game = "Game: \(entry.name)"
-            if let system = CoreCatalog.system(for: entry) {
-                game += ", \(system.displayName)"
-            }
-            if !host.activeCoreId.isEmpty {
-                game += ", emulator \(host.activeCoreId)"
-            }
-            lines.append(game)
+        if let crash {
+            lines.append("Closed unexpectedly: \(crash.build), session started \(crash.started)")
+            if !crash.game.isEmpty { lines.append("Game at the time: \(crash.game)") }
+            if !crash.loading.isEmpty { lines.append("Loading at the time: \(crash.loading)") }
+        }
+        if entry != nil, !host.activeCoreId.isEmpty {
+            lines.append("Emulator: \(host.activeCoreId)")
         }
         lines.append("Status: \(host.status)")
         if !host.cores.isEmpty { lines.append(host.cores) }
@@ -233,7 +484,7 @@ enum FeedbackDetails {
             lines.append(host.frameLine)
         }
         if !host.gpu.isEmpty { lines.append(host.gpu) }
-        return lines.joined(separator: "\n")
+        return lines
     }
 
     /// The model identifier, for example "iPhone18,2", which names the exact phone where
@@ -249,28 +500,203 @@ enum FeedbackDetails {
     }
 }
 
+// MARK: - The log, the crash marker and what has been sent
+
+/// The time on each log line.
+enum FeedbackStamp {
+    private static let clockFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    static func now() -> String { clockFormatter.string(from: Date()) }
+    static func longNow() -> String { dayFormatter.string(from: Date()) }
+    static func day(_ date: Date) -> String { dayFormatter.string(from: date) }
+}
+
+/// The app's side of feedback.rs: starts the log and the session marker, follows the app on and
+/// off screen, offers the crash report, and counts what has been sent from this phone.
+@MainActor
+final class FeedbackCenter: ObservableObject {
+    static let shared = FeedbackCenter()
+
+    /// The last session, when it closed unexpectedly.
+    @Published private(set) var unexpectedClose: FeedbackUnexpectedClose?
+    /// The "send a report?" question on screen.
+    @Published var crashPromptShown = false
+    /// The crash report form on screen.
+    @Published var crashReportOpen = false
+    @Published private(set) var sentCount: Int
+    @Published private(set) var lastSent: Date?
+
+    private var observers: [NSObjectProtocol] = []
+    private var started = false
+
+    private static let sentCountKey = "continuum.feedback.sentCount.v1"
+    private static let lastSentKey = "continuum.feedback.lastSent.v1"
+
+    private init() {
+        let defaults = UserDefaults.standard
+        sentCount = defaults.integer(forKey: Self.sentCountKey)
+        lastSent = defaults.object(forKey: Self.lastSentKey) as? Date
+    }
+
+    /// Once, as the app starts, before anything else can happen.
+    func start() {
+        guard !started else { return }
+        started = true
+        guard let dir = Self.directory() else { return }
+        feedbackLogOpen(dir: dir.path)
+        let closed = feedbackSessionOpen(dir: dir.path, build: EngineHost.versionLabel,
+                                         started: FeedbackStamp.longNow())
+        unexpectedClose = closed
+        crashPromptShown = closed != nil
+        if let closed {
+            Self.record("the last session (\(closed.build)) closed unexpectedly")
+        }
+        // Off screen as soon as the app is not in front: the app switcher, a call, Control
+        // Centre. Being killed after that is not a crash; stopping while on screen is.
+        let centre = NotificationCenter.default
+        observers = [
+            centre.addObserver(forName: UIApplication.willResignActiveNotification,
+                               object: nil, queue: .main) { _ in
+                feedbackSessionOnScreen(onScreen: false)
+            },
+            centre.addObserver(forName: UIApplication.didBecomeActiveNotification,
+                               object: nil, queue: .main) { _ in
+                feedbackSessionOnScreen(onScreen: true)
+            },
+        ]
+    }
+
+    /// One status line into the log. Called for every change of the status text.
+    nonisolated static func record(_ line: String) {
+        feedbackLogAdd(stamp: FeedbackStamp.now(), line: line)
+    }
+
+    /// The log to send: this session's, or for a crash report the one that ended in the crash.
+    nonisolated static func logText(crash: Bool) -> String {
+        crash ? feedbackLogPreviousText(limit: 300) : feedbackLogText(limit: 300)
+    }
+
+    func noteSent(kind: String, game: String) {
+        sentCount += 1
+        lastSent = Date()
+        UserDefaults.standard.set(sentCount, forKey: Self.sentCountKey)
+        UserDefaults.standard.set(lastSent, forKey: Self.lastSentKey)
+        Self.record("feedback sent: \(kind)\(game.isEmpty ? "" : " about \(game)")")
+    }
+
+    var sentLine: String {
+        let times = sentCount == 1 ? "1 report" : "\(sentCount) reports"
+        guard let lastSent else { return "Sent from this iPhone: \(times)." }
+        return "Sent from this iPhone: \(times), the last on \(FeedbackStamp.day(lastSent))."
+    }
+
+    /// One sentence about how the last session ended, for the question and the report form.
+    nonisolated static func crashSentence(_ crash: FeedbackUnexpectedClose) -> String {
+        var line = "Continuum closed unexpectedly"
+        line += crash.game.isEmpty ? " while you were in the library"
+            : " while you were playing \(crash.game)"
+        line += " (\(crash.build), opened \(crash.started))."
+        if !crash.loading.isEmpty {
+            line += " It was loading a save at that moment, so that save will not be loaded by "
+                + "itself again."
+        }
+        return line
+    }
+
+    var crashPromptText: String {
+        guard let unexpectedClose else { return "" }
+        return Self.crashSentence(unexpectedClose)
+            + " A report with what the app was doing just before helps get it fixed."
+    }
+
+    private static func directory() -> URL? {
+        guard let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                                  in: .userDomainMask).first else { return nil }
+        let dir = base.appendingPathComponent("Feedback", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// The log as a file to attach, in a folder of its own that the system clears.
+    nonisolated static func logFile(_ text: String) -> URL? {
+        guard !text.isEmpty else { return nil }
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ContinuumFeedback-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let url = dir.appendingPathComponent("Continuum activity.txt")
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            return nil
+        }
+    }
+}
+
+/// The question after a crash, and the crash report form, over the library.
+struct CrashReportPrompt: ViewModifier {
+    @ObservedObject var host: EngineHost
+    @ObservedObject private var center = FeedbackCenter.shared
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Continuum closed unexpectedly", isPresented: $center.crashPromptShown) {
+                Button("Send a report") {
+                    // After the question has gone, so the form is not presented over it.
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 400_000_000)
+                        center.crashReportOpen = true
+                    }
+                }
+                Button("Not now", role: .cancel) {}
+            } message: {
+                Text(center.crashPromptText)
+            }
+            .sheet(isPresented: $center.crashReportOpen) {
+                FeedbackSheet(host: host, entry: nil, crash: center.unexpectedClose) {
+                    center.crashReportOpen = false
+                }
+            }
+    }
+}
+
 // MARK: - Sending
 
 /// Apple's Mail screen, addressed and filled in. Retained here, because its delegate is weak.
 final class FeedbackMail: NSObject, MFMailComposeViewControllerDelegate {
     static let shared = FeedbackMail()
 
-    private var onFinish: ((String) -> Void)?
+    private var onFinish: ((Bool, String) -> Void)?
 
     /// False when Mail is not set up on this phone or there is nothing to show it on, so the
-    /// caller can use the share sheet instead.
+    /// caller can use the share menu instead.
     @MainActor
-    func present(to address: String, subject: String, body: String, png: Data?,
-                 onFinish: @escaping (String) -> Void) -> Bool {
+    func present(to address: String, message: FeedbackMessage, png: Data?, log: String,
+                 onFinish: @escaping (Bool, String) -> Void) -> Bool {
         guard MFMailComposeViewController.canSendMail(),
               let presenter = EngineHost.topmostViewController() else { return false }
         let mail = MFMailComposeViewController()
         mail.mailComposeDelegate = self
         mail.setToRecipients([address])
-        mail.setSubject(subject)
-        mail.setMessageBody(body, isHTML: false)
+        mail.setSubject(message.subject)
+        mail.setMessageBody(message.body, isHTML: false)
         if let png {
             mail.addAttachmentData(png, mimeType: "image/png", fileName: "Continuum screen.png")
+        }
+        if !log.isEmpty, let data = log.data(using: .utf8) {
+            mail.addAttachmentData(data, mimeType: "text/plain",
+                                   fileName: "Continuum activity.txt")
         }
         self.onFinish = onFinish
         presenter.present(mail, animated: true)
@@ -279,33 +705,55 @@ final class FeedbackMail: NSObject, MFMailComposeViewControllerDelegate {
 
     func mailComposeController(_ controller: MFMailComposeViewController,
                                didFinishWith result: MFMailComposeResult, error: Error?) {
+        let sent: Bool
         let line: String
         switch result {
-        case .sent: line = "Sent. Thank you."
-        case .saved: line = "Saved in Mail's drafts, not sent yet."
-        case .cancelled: line = "Not sent."
-        case .failed: line = "Mail could not send it: "
-            + (error?.localizedDescription ?? "it gave no reason") + "."
-        @unknown default: line = "Mail closed."
+        case .sent:
+            sent = true
+            line = "Sent. Thank you."
+        case .saved:
+            sent = false
+            line = "Saved in Mail's drafts, not sent yet."
+        case .cancelled:
+            sent = false
+            line = "Not sent."
+        case .failed:
+            sent = false
+            line = "Mail could not send it: " + (error?.localizedDescription ?? "no reason given")
+        @unknown default:
+            sent = false
+            line = "Mail closed."
         }
         Task { @MainActor in
             controller.dismiss(animated: true)
-            self.onFinish?(line)
+            self.onFinish?(sent, line)
             self.onFinish = nil
         }
     }
 }
 
-/// The share sheet with the message and the picture, for any app the player picks.
+/// The share menu with the message, the picture and the log, for any app the tester picks.
 @MainActor
 enum FeedbackShare {
-    static func present(text: String, png: Data?) {
-        guard let presenter = EngineHost.topmostViewController() else { return }
-        var items: [Any] = [text]
+    static func present(message: FeedbackMessage, png: Data?, log: String,
+                        onFinish: @escaping (Bool, String) -> Void) {
+        guard let presenter = EngineHost.topmostViewController() else {
+            onFinish(false, "There is no screen to show the share menu on.")
+            return
+        }
+        var items: [Any] = [message.subject + "\n\n" + message.body]
         if let png, let image = UIImage(data: png) {
             items.append(image)
         }
+        if let file = FeedbackCenter.logFile(log) {
+            items.append(file)
+        }
         let sheet = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        sheet.completionWithItemsHandler = { _, completed, _, _ in
+            Task { @MainActor in
+                onFinish(completed, completed ? "Sent. Thank you." : "Not sent.")
+            }
+        }
         // iPad needs an anchor or it traps; the centre of the presenting view is honest enough.
         if let popover = sheet.popoverPresentationController {
             popover.sourceView = presenter.view
@@ -317,20 +765,102 @@ enum FeedbackShare {
     }
 }
 
+// MARK: - Drawing on the picture
+
+/// The game's picture with a red pen over it, to circle or point at the problem.
+struct FeedbackMarkup: View {
+    let image: UIImage
+    var onDone: (UIImage) -> Void
+    var onCancel: () -> Void
+
+    @State private var canvas = PKCanvasView()
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 14) {
+                SettingsNote("Draw on the picture with your finger to show where the problem is.")
+                    .padding(.horizontal, 16)
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    // The canvas sits exactly on the picture, so a line lands where it was drawn.
+                    .overlay(MarkupCanvas(canvas: canvas))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.horizontal, 16)
+                SettingsButton(title: "Clear the drawing", role: .normal) {
+                    canvas.drawing = PKDrawing()
+                }
+                .padding(.horizontal, 16)
+            }
+            .padding(.vertical, 14)
+            .background(Color.black.ignoresSafeArea())
+            .navigationTitle("Draw on it")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { onCancel() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { onDone(flattened()) }
+                }
+            }
+        }
+        .navigationViewStyle(.stack)
+        .preferredColorScheme(.dark)
+    }
+
+    /// The picture with the drawing on it, at the picture's own size.
+    private func flattened() -> UIImage {
+        let bounds = canvas.bounds
+        guard bounds.width > 0, bounds.height > 0, !canvas.drawing.bounds.isEmpty else {
+            return image
+        }
+        let ink = canvas.drawing.image(from: bounds, scale: UIScreen.main.scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        let rect = CGRect(origin: .zero, size: image.size)
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            image.draw(in: rect)
+            ink.draw(in: rect)
+        }
+    }
+}
+
+/// PencilKit's canvas, finger drawing on, a thick red pen, see-through.
+struct MarkupCanvas: UIViewRepresentable {
+    let canvas: PKCanvasView
+
+    func makeUIView(context: Context) -> PKCanvasView {
+        canvas.drawingPolicy = .anyInput
+        canvas.tool = PKInkingTool(.pen, color: .systemRed, width: 8)
+        canvas.backgroundColor = .clear
+        canvas.isOpaque = false
+        return canvas
+    }
+
+    func updateUIView(_ uiView: PKCanvasView, context: Context) {}
+}
+
 // MARK: - In Settings
 
 /// The first card in Settings.
 struct FeedbackSettingsSection: View {
     @ObservedObject var host: EngineHost
+    @ObservedObject private var center = FeedbackCenter.shared
     @State private var showForm = false
 
     var body: some View {
         SettingsSection(title: "FEEDBACK") {
-            SettingsNote("Found a problem, or have an idea? Send it from here. From inside a game, "
-                         + "the ⋯ menu has the same form with that game and a picture of it "
-                         + "attached.")
+            SettingsNote("Found a problem, or have an idea? Send it from here. To say how a game "
+                         + "runs, open the game and use ⋯ → Send feedback about this game: it "
+                         + "adds a rating, a picture you can draw on, and the game's details. If "
+                         + "the app ever closes by itself, it offers a report the next time it "
+                         + "opens.")
             SettingsButton(title: "Send feedback", role: .normal) {
                 showForm = true
+            }
+            if center.sentCount > 0 {
+                SettingsNote(center.sentLine)
             }
         }
         .sheet(isPresented: $showForm) {

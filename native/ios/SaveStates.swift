@@ -684,11 +684,16 @@ final class SaveStates: ObservableObject {
     }
 
     /// The values a state written right now depends on.
+    ///
+    /// `inEffect`, from the engine: what the core was actually given. Build 126 used the stored
+    /// choice whenever the engine did not flag a restart, and it stopped flagging one as soon as
+    /// Azahar re-read its options, so an auto-save from a New 3DS was stamped "Old 3DS", passed
+    /// the check after the restart, and crashed the core.
     func optionsInEffect() -> [String: String]? {
         guard let core = engine.currentCoreId(), !core.isEmpty else { return sessionOptions }
         var out: [String: String] = [:]
         for e in engine.coreOptionEntries(coreId: core) {
-            out[e.key] = e.needsRestart ? (sessionOptions?[e.key] ?? e.current) : e.current
+            out[e.key] = e.inEffect
         }
         return out.isEmpty ? nil : out
     }
@@ -708,7 +713,8 @@ final class SaveStates: ObservableObject {
         let entries = engine.coreOptionEntries(coreId: core)
         var changed: [String] = []
         for e in entries {
-            let running = sessionOptions?[e.key] ?? e.current
+            // What the running game is really using, from the engine.
+            let running = e.inEffect
             let saved: String
             if let stored = record.coreOptions {
                 guard Self.isStateSensitive(e), let value = stored[e.key] else { continue }
@@ -958,6 +964,9 @@ final class SaveStates: ObservableObject {
 
     /// Bumped whenever a thumbnail lands, so a slot grid that is on screen redraws its pictures.
     @Published private(set) var thumbnailGeneration = 0
+
+    /// Clears the load guard once the game has run on after a load. See `load`.
+    private var loadGuardTask: Task<Void, Never>?
 
     /// The thumbnail for a state, if one was captured.
     func thumbnail(for record: SaveStateRecord) -> UIImage? {
@@ -1273,16 +1282,43 @@ final class SaveStates: ObservableObject {
             return false
         }
 
+        // THE LOAD GUARD (feedback.rs). A save that was being loaded when the app closed last time
+        // is not loaded again by itself: once is a crash, every start of the game would be a crash
+        // loop. The auto-save is skipped once; a slot needs a second tap.
+        let guardKey = record.isAuto ? "auto:\(record.gameId)"
+            : "slot:\(record.gameId)#\(record.slot)"
+        if feedbackLoadBlocked(key: guardKey) {
+            if record.isAuto {
+                report("did not pick up \(record.gameId) from its auto-save: last time Continuum "
+                       + "closed straight after picking up from it, so this time the game starts "
+                       + "from the beginning. The auto-save is kept.")
+            } else {
+                report("did not load \(record.slotLabel.lowercased()): last time it was loaded, "
+                       + "Continuum closed straight after. Load it again to try anyway; it is kept.")
+            }
+            return false
+        }
+        feedbackLoadBegin(key: guardKey)
+
         do {
             // Passed straight through. UniFFI maps the Rust `Vec<u8>` to `Data` here, not to
             // `[UInt8]`, so wrapping it in `Array(...)` was both a compile error and a pointless
             // copy of up to a megabyte.
             try engine.loadState(data: data)
         } catch {
+            feedbackLoadEnd()
             // The gate passed and the core still refused. Reported rather than swallowed: this is
             // the one path that says the four checks were not enough, and it is worth knowing.
             report("\(engine.currentCoreId() ?? "the core") rejected that state: \(error)")
             return false
+        }
+        // Ten seconds of the game running on after the load clears the guard.
+        loadGuardTask?.cancel()
+        loadGuardTask = Task {
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            if !Task.isCancelled {
+                feedbackLoadEnd()
+            }
         }
 
         // The engine clears the rewind tape on a load of its own accord, because winding back past

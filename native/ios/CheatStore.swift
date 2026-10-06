@@ -413,9 +413,8 @@ final class CheatStore: ObservableObject {
             return
         }
         do {
-            // The WHOLE list, in order, including the disabled ones. A core's table is indexed, so
-            // leaving the disabled entries out would renumber everything after them; they are
-            // pushed with their flag set to false instead, which is what the flags array is for.
+            // The WHOLE list, in order, with each one's switch. The engine sends the core only the
+            // ones that are on, the way RetroArch does, because some cores (mGBA) ignore the flag.
             let applied = try engine.applyCheats(codes: list.map { $0.code },
                                                  enabled: list.map { $0.enabled })
             let on = list.filter { $0.enabled }.count

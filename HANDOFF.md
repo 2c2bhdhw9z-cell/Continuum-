@@ -5,56 +5,41 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > `HANDOFF.md`, then `STATUS.md` ("Next up" first) and `TESTING.md` section A. Then carry on.
 
-## Where things are (5 October 2026)
+## Where things are (6 October 2026)
 
-- Newest install: build 126, release `build-126-4b96af5`, 0.8.0 (126), 32 cores, checked (the new
-  feedback and cheat text is in the binary). Link:
-  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-126-4b96af5/Continuum-126.ipa
-- Build 126 is the fix batch from the owner's build 125 testing. STATUS.md "Build 126" lists it;
-  TESTING.md A1 to A6 are its tests. The owner has the link and has not tested it yet.
+- Build 127 was pushed 6 October: the fixes from the owner's build 126 testing and the rebuilt
+  feedback system (STATUS.md "Build 127"; TESTING.md A1 to A4). Check the Releases page for
+  whether it finished, and check the .ipa before handing it over.
+- Previous install: build 126, release `build-126-4b96af5`, 0.8.0 (126), 32 cores.
 - **Waiting on the owner for one thing:** the email address the feedback form should open Mail
   with. It goes in `FeedbackDestination.email` in `native/ios/Feedback.swift` (one line), then a
   build. Until then the form opens the share menu, which works.
 - Everything else that is planned is in STATUS.md "Next up" and docs/MANIC_PARITY.md "Still to do".
 
-## Build 126 test results (5 October)
+## Build 126 test results (6 October)
 
-- A1 (3DS saves load), A2 (imported save keeps its picture), A4 (status flash and (i) with a
-  skin) pass.
-- A3 fails: switching System Model New 3DS -> Original 3DS crashes again, and there is no
-  "Restart the game now" button (screenshot: Azahar Core settings, status "System Model: Old 3DS,
-  for every game", the option's own text says "Restart required.").
-- A5: the in-game code box works, but a CodeBreaker "walk through walls" for a Pokemon GBA game
-  (master code 928817AD 553B 540555A6 779B 374D7A76 7115, then 44645C94 C2DC 4D741CC0 F04D
-  4551D1E7 541F FA5AF752 09B0) freezes the game the moment the player moves.
-- A6: the owner finds the feedback form "basic" and wants a better feedback system.
+- Pass: 3DS saves load, an imported save keeps its picture, the small text flash and (i) with a
+  skin, the in-game cheat box.
+- Fail, fixed in 127: changing 3DS System Model crashed the app with no restart button; a
+  walk-through-walls cheat froze a Pokemon GBA game (it was the FireRed v1.1 CodeBreaker code, and
+  switching it off did nothing because mGBA ignores the off flag).
+- The owner called the feedback form "basic": rebuilt in 127.
+- Not answered yet: Jaguar speed, the 3DS stutter after transitions, Next disc (multi-disc PS1),
+  and which game and version the owner's Pokemon file is (TESTING.md A2 step 2 asks).
 
-## Build 125 test results (all recorded in STATUS.md and TESTING.md already)
+## Build 125 test results (recorded in STATUS.md and TESTING.md)
 
-- Passed: save slot pictures, save and load on 14 systems (NES, SNES, GB, GBC, GBA, Game Gear,
-  Mega Drive, PS1, DS, TurboGrafx-16, Atari 2600, N64, Jaguar, Pokemon Mini), five new systems
-  running (GB, TurboGrafx-16, Atari 2600, Jaguar, Pokemon Mini), the Apple overlay switch, restart
-  from Core settings, cover lookups off, the login button and an unlock banner, paste, Open in,
-  zip, the sharper cover, battery saves, rename / save over / delete, export and import on a
-  non-3DS game, keyboard / tilt / shake, 3x / 4x / slow motion, haptics and rumble, pad hiding
-  with a controller, LCD grid and dot matrix, palette and rotate, swap screens and the six
-  layouts, the game on a TV.
-- Failed, fixed in 126: every 3DS state refused as "too short"; imported slots had no picture.
-  Also fixed in 126 without a report: the small text never showing with a screen-hole skin, and
-  (i) doing nothing there.
-- Not answered yet: Jaguar speed, the 3DS stutter after transitions, Next disc (multi-disc PS1).
-- The owner was angry at being asked again about tests already covered. Never re-ask; work it out
-  from what they sent.
-- The owner asked for test lists with nothing needing a computer or a second phone: B1, B7 and H1
-  sit in their own skip section at the end of TESTING.md's list.
+Passed nearly everything; see STATUS.md and TESTING.md's "Already confirmed" table. The two
+failures (3DS states refused as "too short", imported slots with no picture) were fixed in 126 and
+confirmed.
 
 ## The owner's cheat question (answered 5 October)
 
 They asked whether normal GameShark-type codes work. Yes: a typed code goes straight to the
 system's emulator, which reads its own kinds (table in `crates/emulator-bridge/src/cheats/formats.rs`,
 read off each core's source). Some emulators ignore typed codes entirely (3DS, Dreamcast, Atari
-2600, arcade, Yabause, Amiga, C64, Lynx, 5200, Virtual Boy, PC Engine CD, Pokemon Mini); the RAM
-search still works there when the game's memory is readable.
+2600, arcade, Yabause, Amiga, C64, Lynx, 5200, Virtual Boy, PC Engine CD, Pokemon Mini). A code is
+for one exact game version; the cheat screen names the version for GBA and Game Boy games.
 
 ## How the owner works
 
@@ -63,12 +48,14 @@ search still works there when the game's memory is readable.
 - They test only the .ipa. After every build, check the .ipa and give the direct link without
   being asked, plus a short list of easy tests (they often test at work).
 - When they are testing, fix nothing until they say "I'm done testing for now"; just record.
+- Never re-ask a test they already covered, and when they ask "what do I test", give the full
+  steps right there in the reply, not a pointer to an earlier message.
 - Push straight to master: no branches, no pull requests. Save and push often, in big batches.
 - No JIT, no web build. Behaviour goes in the Rust engine. Only Kiro works on this repo.
 
 ## How to check work before pushing (the sandbox can't build the iPhone app)
 
-- `cargo test --workspace --features emulator-bridge/native-core` (598 tests)
+- `cargo test --workspace --features emulator-bridge/native-core` (606 tests)
 - `cargo clippy --workspace --features emulator-bridge/native-core`
 - `bash scripts/check-skins.sh`, `bash scripts/check-players.sh`
 - `bash scripts/fetch-libretro-headers.sh && bash native/switch-wrapper/build.sh host` (15/15)
@@ -82,3 +69,5 @@ search still works there when the game's memory is readable.
   `gh api repos/2c2bhdhw9z-cell/Continuum-/releases/latest`. Check an .ipa: count
   `_libretro_ios.dylib` files (32) and read `CFBundleShortVersionString` / `CFBundleVersion` from
   `Payload/Continuum.app/Info.plist`.
+- A wait-and-check command can time out while a build is still running; that is not the build
+  failing. Check the run itself.

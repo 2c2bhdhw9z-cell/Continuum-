@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 5 October 2026, for **build 126 or newer**. The newest install is always on the
+Last updated 6 October 2026, for **build 127 or newer**. The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 
@@ -26,53 +26,43 @@ TurboGrafx-16, Atari 2600, Jaguar and Pokemon Mini. Also on build 125: the sharp
 game, battery saves, renaming, saving over and deleting slots, export and import on a non-3DS game,
 the keyboard, tilt and shake, 3x, 4x and slow motion, a RetroAchievements unlock banner, haptics
 and rumble, hiding the pad with a controller, the LCD grid and dot matrix filters, palette and
-rotate, swap screens and the six layouts, and the game on a TV.
+rotate, swap screens and the six layouts, and the game on a TV. On build 126: 3DS saves load, an
+imported save keeps its picture, the small text and (i) with a skin, and typing a cheat code inside
+a game.
 
 ---
 
 # The list: what still needs testing
 
-## A. New in build 126 (do these first)
+## A. New in build 127 (do these first)
 
-**A1. 3DS saves load**
-1. In a 3DS game: **⋯** → **Save to the next free slot**.
-2. **⋯** → **Save slots...** → tap that slot → **Load**.
-3. ✅ Good: the game jumps back to where you saved. The imported Slot 2 from build 125 loads too.
+**A1. Changing the 3DS model** (it crashed on 126)
+1. In Mario Kart 7: **⋯** → **Core settings...** → **System Model** → **Original 3DS**.
+2. ✅ Good: the game keeps running (the change waits for a restart), and **Restart the game now**
+   appears at the top of the settings screen.
+3. Tap **Restart the game now**. ✅ The game starts again on the Original 3DS, no crash.
+4. Your old saves made on the New 3DS do not load now, and a message says why. Set it back to
+   **New 3DS** afterwards and restart.
 
-**A2. An imported save shows its picture**
-1. In any game: **⋯** → **Save slots...** → tap a slot that has a picture → **Export** → **Save to
-   Files** → **Save**.
-2. Same screen: **Import a state file** → pick that file.
-3. ✅ Good: the new slot shows the picture straight away.
-4. A slot with no picture (like the Slot 2 you imported on build 125) gets one the first time you
-   load it.
+**A2. Cheats switch off properly, and name your game's version**
+1. In the Pokemon game: **⋯** → **Cheats and RAM search...**.
+2. ✅ Good: a line at the top says which game and version you have (for example "Pokemon FireRed
+   (USA), version 1.1"). Tell me what it says.
+3. Turn both walk-through-walls cheats **off**, then go back to the game. ✅ It no longer freezes
+   when you move (if it froze before, load a save from before you turned the cheat on).
 
-**A3. 3DS settings protection**
-1. In a 3DS game: **⋯** → **Save to the next free slot**.
-2. **⋯** → **Core settings...** → switch **New 3DS** to the other choice → **Restart the game now**.
-3. **⋯** → **Save slots...** → tap that slot → **Load**.
-4. ✅ Good: the app stays open, the save does not load, and a message saying why shows at the top
-   for a few seconds. Switch **New 3DS** back afterwards.
+**A3. The new feedback form, from a game**
+1. In any game: **⋯** → **Send feedback about this game...**.
+2. ✅ Good: it opens on **How it runs**, with a rating (Perfect, Playable, Problems, Won't run) and
+   buttons for what is wrong (Picture, Sound, Speed and so on).
+3. Tap **Draw on it** under the picture, draw a circle, tap **Done**. ✅ The circle is on the
+   picture.
+4. Tap **Send...** and send it to yourself. ✅ The message has your rating, what is wrong, the
+   picture with your circle, and a file called "Continuum activity" listing what the app did.
 
-**A4. The small text with a skin on**
-1. In a game with your 3DS skin on: **⋯** → **Save to the next free slot**.
-2. ✅ Good: a short message shows near the top for a few seconds, then fades.
-3. Tap the **(i)** button in the top bar. ✅ The full block of small text opens over the game. Tap
-   **(i)** again to close it.
-
-**A5. Typing cheat codes inside a game**
-1. In a GBA, SNES or NES game: **⋯** → **Cheats and RAM search...**.
-2. ✅ Good: there is a box to type a code, and a line saying which codes this system takes (on a
-   GBA: GameShark, Action Replay or CodeBreaker). Type a code you know and tap **Add this cheat**.
-   ✅ It works in the game.
-3. On a 3DS game the line says typed codes do nothing there (the 3DS emulator ignores them).
-
-**A6. Feedback, two places**
-1. **Settings** → the first card, **FEEDBACK** → **Send feedback**. Type something → **Send...**.
-2. ✅ Good: the share menu opens with your message and the app's details. Send it to yourself to
-   see what a tester would send you.
-3. In a game: **⋯** → **Send feedback about this game...**. ✅ The form shows a picture of the
-   game, and the message names the game.
+**A4. Crash report** (only if the app ever closes by itself)
+1. Open Continuum again after it closed by itself.
+2. ✅ Good: it asks whether to send a report about it.
 
 ## A (older). Things to notice in passing
 
@@ -292,6 +282,10 @@ Everything below has since been confirmed on a device as well, in the order it w
 | Next palette and Rotate picture (125) | Work |
 | Swap screens and the six layouts (125) | Work, and touch lands where you tap |
 | Game on the TV, TV scaling and TV layout (125) | Work |
+| 3DS saves load (126) | Save and load on Mario Kart 7, and the imported slot too |
+| Imported save keeps its picture (126) | Shows straight away |
+| Small text and (i) with a skin (126) | The message flashes; (i) opens the full block |
+| Typing a cheat code in a game (126) | The box is there and takes the code |
 
 Two of those lines are narrower than they sound. Cheats means a code you type, not a search and not a file import. Fast forward is about 4x, not 5x.
 

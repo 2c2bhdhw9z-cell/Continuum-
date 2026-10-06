@@ -1,9 +1,8 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-5 October 2026 (build 125). The install is always the newest file on the
-[Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest). Build 126 (0.8.0
-(126), 32 cores) checked in the file itself.
+6 October 2026 (build 127). The install is always the newest file on the
+[Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Five states only:
 
@@ -24,7 +23,7 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 For whoever works on this next:
 
-- Build 126 is the fix batch from the owner's build 125 testing (list below). Its tests are
+- Build 127 fixes what the owner's build 126 testing found (list below). Its tests are
   [TESTING.md](TESTING.md) section A. The feedback form needs one answer from the owner: which
   email address it should open Mail with (until then it uses the share menu).
 - Open work from [docs/MANIC_PARITY.md](docs/MANIC_PARITY.md) "Still to do": SMB shares done
@@ -101,17 +100,17 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Screen fit and scaling | **Done** | |
 | Fast forward | **Done** | 2x (build 122), 3x, 4x and slow motion (build 125) confirmed. Tops out near 4x. Past that the engine drops frames instead of going faster, and the menu stops at 4x. That is not 5x |
 | Rewind | **Done** | |
-| Save states, slots, delete | **Partial** | 50 fixed slots per game plus the auto-save, each with a picture, date and core; export and import of a state file and of the game's own battery save (`.srm`). Old numbered saves move into free slots and nothing is deleted. Confirmed: Save to the next free slot (build 122); on build 125, slot pictures, save and load on 14 systems (NES, SNES, Game Boy, GBC, GBA, Game Gear, Mega Drive, PS1, DS, TurboGrafx-16, Atari 2600, N64, Jaguar, Pokemon Mini), exporting a 3DS state to Files and importing it back as a new slot, rename, save over, delete, and an exported and imported state loading on a non-3DS game. **Bug in build 125, fixed in 126, not on a phone yet:** every 3DS state was refused as "too short" (14.6 MB saved, the core asking for 19.2 MB, then 17.5 MB); an imported state had no picture (TESTING.md A1, A2) |
+| Save states, slots, delete | **Partial** | 50 fixed slots per game plus the auto-save, each with a picture, date and core; export and import of a state file and of the game's own battery save (`.srm`). Old numbered saves move into free slots and nothing is deleted. Confirmed: Save to the next free slot (build 122); on build 125, slot pictures, save and load on 14 systems (NES, SNES, Game Boy, GBC, GBA, Game Gear, Mega Drive, PS1, DS, TurboGrafx-16, Atari 2600, N64, Jaguar, Pokemon Mini), exporting a 3DS state to Files and importing it back as a new slot, rename, save over, delete, and an exported and imported state loading on a non-3DS game. Build 126, confirmed on the phone: 3DS states load (they were all refused as "too short" on 125), and an imported state keeps its picture |
 | Auto-save and resume | **Done** | |
-| Cheats | **Partial** | Confirmed: typed codes (GameShark, Game Genie, Action Replay and the rest go straight to each system's emulator, which reads its own kinds). Build 126, not on a phone yet: a typed code can be added inside a game, and both cheat screens say which kinds that system reads or that it ignores typed codes (TESTING.md A5). Not on a phone: importing a RetroArch `.cht` file, and the RAM search (lives, money and so on) that turns an address into a cheat. Up to 128 codes per game. Build 122: a `.cht` file's RAM cheats land where RetroArch puts them (on GBA they used to hit the wrong memory) |
+| Cheats | **Partial** | Confirmed: typed codes (GameShark, Game Genie, Action Replay and the rest go straight to each system's emulator, which reads its own kinds). Build 126, confirmed: a typed code can be added inside a game, and both cheat screens say which kinds that system reads. **Bug found on 126, fixed in 127, not on a phone yet:** a switched-off cheat kept running on the GBA and Game Boy (mGBA ignores the off flag), so a code for the wrong version of a game froze it with no way out; the cheat screen now also names the exact game and version from the file (TESTING.md A2). Not on a phone: importing a RetroArch `.cht` file, and the RAM search (lives, money and so on) that turns an address into a cheat. Up to 128 codes per game. Build 122: a `.cht` file's RAM cheats land where RetroArch puts them (on GBA they used to hit the wrong memory) |
 | On-screen control layout editor | **Partial** | **Done bar (Brett):** every control in the skin file works, not only the ones he names. Picture in the screen hole both ways you hold the phone. Two screens when the skin has two. A joystick or circle pad is a real stick, not a dead picture. Shoulders too. Debug text off the picture. Confirmed on the phone 5 October (build 122, a 3DS skin, Mario Kart 7): both screens sit in their own holes sideways, the eye button hides and shows the top bar (remembered), nothing sits on the picture of a sideways 3DS skin, the false overlap line is gone. Portrait and the other systems' skins are still not confirmed. Do **not** stamp Done until the owner says the skin is right |
 | Battery saves (the game's own save) | **Done** | Confirmed on build 125: an in-game save is still there after leaving and coming back. Found broken while building the save manager: in-game saves (Pokemon, Zelda, PS1 memory card) were never written to disk, so they only survived inside a save state. Now restored before the first frame and written when you leave or switch apps |
-| Save state compatibility refusal | **Partial** | Refuses a state from a different core or core build, and (since build 120) one saved under different restart-required core settings. Confirmed on the phone 5 October (build 122): changing a 3DS restart setting no longer closes the app. Not on a phone: a 3DS state refused after a settings change, because every 3DS state was refused as "too short" on build 125 (fixed in 126, TESTING.md A3) |
+| Save state compatibility refusal | **Partial** | Refuses a state from a different core or core build, and (since build 120) one saved under different restart-required core settings. Confirmed on the phone 5 October (build 122): changing a 3DS restart setting no longer closes the app. **Bug found on 126, fixed in 127, not on a phone yet:** changing the 3DS System Model mid-game crashed the app and showed no restart button (TESTING.md A1). Azahar re-reads every option on an update, so it switched models under the running game; the engine now holds a restart-required option until the next start, and every state is stamped with the value the game is really running with |
 | Hide the player's top bar | **Done** | Build 122, confirmed on the phone 5 October: the eye button next to Back hides and shows the top bar, and the choice is remembered between games |
 | Import several skins at once | **Done** | Build 122, confirmed on the phone 5 October (skin library, Import skins) |
 | A paused game stays paused after leaving the app | **Done** | Build 122, confirmed on the phone 5 October |
 | Wi-Fi transfer access code | **Built, untested** | Build 122. The address now ends in a short code that changes every time Wi-Fi transfer is switched on; anything without it gets nothing, so nobody else on the Wi-Fi can upload files or download saves. TESTING.md B1 |
-| Feedback, in two places | **Built, untested** | Build 126, the owner's ask for beta testers. Settings (the first card) and a game's ⋯ menu. A short form plus the app's details and, from a game, its picture. Opens the share menu; it will open Mail addressed to the owner once `FeedbackDestination.email` in `native/ios/Feedback.swift` has the owner's address. TESTING.md A6 |
+| Feedback for testers | **Partial** | Build 126's form was confirmed working and called "basic" by the owner. Build 127, not on a phone yet (TESTING.md A3, A4): from a game it opens on How it runs (a rating and what is wrong), the picture can be drawn on, every report attaches the activity log (every status line with its time, kept on disk so it survives a crash), the tester's name is remembered, and after the app closes by itself the next start offers a crash report. A save that was loading when the app closed is not loaded by itself again. Opens the share menu; it will open Mail addressed to the owner once `FeedbackDestination.email` in `native/ios/Feedback.swift` has the owner's address |
 | Apple performance overlay switch | **Done** | Confirmed on build 125. Build 121. Settings → DIAGNOSTICS. Hides Apple's Metal Performance HUD on the game layers and turns off the launch-time request for it. May need the app reopened |
 | Landscape with no skin | **Done** | Froze in build 119 (an endless layout loop from a repeated warning line). Fixed in build 120 and confirmed on the phone |
 | **+** opens Files, the ⋯ menu, TV picture quality | **Done** | Confirmed on build 119 |
@@ -146,7 +145,7 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | JIT | **Out on purpose** | Not in this signed app. Do not add it to close this list |
 | Rewind | **Done** | |
 | Fast forward | **Done** | About 4x, not 5x |
-| Save slots, including export | **Partial** | 50 slots plus the auto-save, export and import of states and battery saves. Save to the next free slot confirmed (122); slot pictures, save and load on 14 systems, export and import, rename, save over and delete confirmed (125). 3DS states loading and imported slots showing their picture are fixed in 126, not on a phone yet |
+| Save slots, including export | **Partial** | 50 slots plus the auto-save, export and import of states and battery saves. Save to the next free slot confirmed (122); slot pictures, save and load on 14 systems, export and import, rename, save over and delete confirmed (125). 3DS states loading and imported slots showing their picture confirmed (126) |
 | Cheats: search, and importing a file | **Partial** | Typed codes confirmed; `.cht` import and RAM search not on a phone |
 | Online play | **Built, untested** | Two phones, same game. Host or join on the same Wi-Fi (nearby list) or by address. Over the internet the host must open TCP port 55435. No rollback, so lag shows as short stalls. Rewind, fast forward and loading states are off while online. Build 122: if player 2 drops out, the host keeps playing and lets them rejoin on the same address |
 | Achievements | **Partial** | RetroAchievements login, unlock banners and a list on the game card. Game Boy Advance achievements read mGBA's full memory map. Confirmed (build 125): logging in (the button says Logging in... and cannot be pressed twice) and the unlock banner popping up in a game. The list on the game card is not confirmed yet |
@@ -154,6 +153,27 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 
 ---
+
+## Build 127 (6 October 2026)
+
+The owner tested build 126: A1, A2, A4 pass; the rest is below. TESTING.md A1 to A4.
+
+- 3DS: changing System Model (New 3DS to Original) mid-game crashed the app, with no restart
+  button. Azahar says "Restart required." only in an option's description, and the engine read
+  only the label, so nothing waited for a restart; and Azahar re-reads every option on an update,
+  so it switched the emulated console under the running game. The engine now reads the
+  description too, and holds a restart-required option at the value the game started with until
+  the next start (`cores/options.rs`, `answer`). Each option also reports the value really in
+  effect, and save states are stamped and checked with that.
+- Cheats: a switched-off cheat kept running on the GBA and Game Boy. mGBA ignores the on/off flag
+  and adds every code it is given; the engine now sends only the cheats that are on, the way
+  RetroArch does. The owner's walk-through-walls code was the FireRed version 1.1 CodeBreaker
+  code, which freezes other versions; the cheat screen now names the exact game and version from
+  the GBA or Game Boy header, and says a code for another version can freeze the game.
+- Feedback, rebuilt after the owner called it basic: a rating and what is wrong for a game, drawing
+  on the picture, the activity log attached, the tester's name, a sent count, and a crash report
+  offered after the app closes by itself (engine: `feedback.rs`). A save that was loading when the
+  app closed is skipped once, so a bad save cannot crash every start of a game.
 
 ## Build 126 (5 October 2026)
 
