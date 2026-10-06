@@ -17,6 +17,18 @@ Paste this to start a new chat:
   build. Until then the form opens the share menu, which works.
 - Everything else that is planned is in STATUS.md "Next up" and docs/MANIC_PARITY.md "Still to do".
 
+## Build 126 test results (5 October)
+
+- A1 (3DS saves load), A2 (imported save keeps its picture), A4 (status flash and (i) with a
+  skin) pass.
+- A3 fails: switching System Model New 3DS -> Original 3DS crashes again, and there is no
+  "Restart the game now" button (screenshot: Azahar Core settings, status "System Model: Old 3DS,
+  for every game", the option's own text says "Restart required.").
+- A5: the in-game code box works, but a CodeBreaker "walk through walls" for a Pokemon GBA game
+  (master code 928817AD 553B 540555A6 779B 374D7A76 7115, then 44645C94 C2DC 4D741CC0 F04D
+  4551D1E7 541F FA5AF752 09B0) freezes the game the moment the player moves.
+- A6: the owner finds the feedback form "basic" and wants a better feedback system.
+
 ## Build 125 test results (all recorded in STATUS.md and TESTING.md already)
 
 - Passed: save slot pictures, save and load on 14 systems (NES, SNES, GB, GBC, GBA, Game Gear,
