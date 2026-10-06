@@ -25,7 +25,9 @@ importing a state file, the Apple overlay switch, restarting from Core settings,
 the RetroAchievements login button, paste, Open in, zip files, and games on Game Boy,
 TurboGrafx-16, Atari 2600, Jaguar and Pokemon Mini. Also on build 125: the sharper cover from the
 game, battery saves, renaming, saving over and deleting slots, export and import on a non-3DS game,
-the keyboard, tilt and shake, 3x, 4x and slow motion, and a RetroAchievements unlock banner.
+the keyboard, tilt and shake, 3x, 4x and slow motion, a RetroAchievements unlock banner, haptics
+and rumble, hiding the pad with a controller, the LCD grid and dot matrix filters, palette and
+rotate, swap screens and the six layouts, and the game on a TV.
 
 ---
 
@@ -102,12 +104,6 @@ button and an action. ✅ They work in a game.
 **E6. Edit a skin** — With a skin imported, use Edit this skin, move a button. ✅ The change shows in
 a game.
 
-**E7. Haptics and rumble** — **Settings** → **HAPTICS AND TURBO**. ✅ You feel button taps; a game
-with vibration buzzes.
-
-**E8. Controller auto-hide** — Connect a controller. **Settings** → **Hide the on-screen pad while a
-controller is connected**. ✅ The pad disappears and the picture gets bigger.
-
 **E9. Controllers and remapping** — **⋯** → **Controllers and button mapping...**: map one button to
 another, make a second profile, switch to it. ✅ The new mapping works.
 
@@ -116,11 +112,8 @@ another, make a second profile, switch to it. ✅ The new mapping works.
 **F1. Core settings** — **⋯** → **Core settings...** on a few systems (not just 3DS). Change one;
 if it says restart, tap **Restart the game now**. ✅ No crash, and the change shows.
 
-**F2. Filters** — **⋯** → **Filters...**: CRT works (122). Try LCD grid and dot matrix.
-
-**F4. Palette, rotate, discs** — Game Boy, Game Boy Color, NES, Famicom Disk System or Virtual
-Boy: **Next palette** (other systems do not show it). Any one-screen game: **Rotate picture** (DS
-and 3DS do not show it). Multi-disc PS1 (`.m3u`): **Next disc**.
+**F4. Next disc** (only if you have a multi-disc PS1 game, as an `.m3u`) — **⋯** → **Next disc**.
+✅ The game sees the next disc. (Palette and rotate are confirmed.)
 
 **F6. DS and 3DS extras** — DS: **⋯** → **Close or open the lid**. DS blowing is NOT in the ⋯
 menu: it is a round microphone button at the top left of the DS game screen, which you hold down
@@ -133,14 +126,7 @@ wrong part of memory). Worth one try with a GBA cheat file.
 
 ## G. Two screens, TV and mouse
 
-**G1. Swap screens** — In a DS/3DS game tap **Swap screens**. Also try the six layouts in
-**Settings** → **TWO SCREENS, TV AND MOUSE**. ✅ Touch still lands where you tap.
-
 **G2. DS touch** — Tap and drag on the lower screen. ✅ The game reacts exactly where you touch.
-
-**G3. TV** (only if you have an AirPlay TV or a cable) — AirPlay or a cable during a game. ✅ Game on the TV, controls on the phone. Then **⋯**
-→ **TV scaling**. On a DS or 3DS game there is also **⋯** → **TV layout** (one-screen games do not
-show it).
 
 **G4. Mouse** — Turn on mouse for SNES in Settings, play Mario Paint. ✅ Drag moves, tap clicks.
 
@@ -258,6 +244,12 @@ Everything below has since been confirmed on a device as well, in the order it w
 | Keyboard, tilt, shake (125) | Work |
 | Speeds 3x, 4x and slow motion (125) | Work |
 | RetroAchievements (125) | The unlock banner pops up |
+| Haptics and rumble (125) | Taps felt, vibration works |
+| Hide the pad while a controller is connected (125) | Works |
+| Filters: LCD grid and dot matrix (125) | Work |
+| Next palette and Rotate picture (125) | Work |
+| Swap screens and the six layouts (125) | Work, and touch lands where you tap |
+| Game on the TV, TV scaling and TV layout (125) | Work |
 
 Two of those lines are narrower than they sound. Cheats means a code you type, not a search and not a file import. Fast forward is about 4x, not 5x.
 

@@ -36,7 +36,9 @@ This install is **not** signed with a JIT. Heavier systems run on an interpreter
   the switch that hides Apple's performance overlay; restarting from Core settings; cover lookups
   off; paste, Open in and zip imports; the sharper cover from the game; battery saves; renaming,
   saving over and deleting slots; the keyboard, tilt and shake; 3x, 4x and slow motion; a
-  RetroAchievements unlock banner
+  RetroAchievements unlock banner; haptics and rumble; hiding the pad with a controller; the LCD
+  grid and dot matrix filters; palette and rotate; swap screens and the six two-screen layouts;
+  the game on a TV with TV scaling and layout
 - Known bugs in build 125: every 3DS save state is refused as "too short" when loaded, and an
   imported save state has no picture
 

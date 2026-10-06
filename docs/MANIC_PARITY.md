@@ -114,9 +114,9 @@ pick a system only when it truly cannot tell. The choice is remembered per game.
 ## In-game features those buttons need
 
 - [x] Core settings screen per core (resolution, renderer, palettes and so on).
-- [x] Filters: CRT, scanlines, LCD grid, smooth, and more. Phone (build 122, 5 Oct): CRT shown on
-      a phone; others not yet.
-- [x] Palettes for Game Boy, Game Boy Color, Virtual Boy.
+- [x] Filters: CRT, scanlines, LCD grid, smooth, and more. Phone: CRT (build 122), LCD grid and
+      dot matrix (build 125).
+- [x] Palettes for Game Boy, Game Boy Color, Virtual Boy. Phone (build 125), with rotate picture.
 - [x] Fast forward speeds 2x, 3x, 4x, cycle, and slow motion. Phone: 2x (build 122), 3x, 4x and
       slow motion (build 125).
 - [x] Shake (the phone's motion sensor to the core), DS lid, WonderSwan rotation. Phone (build
@@ -127,7 +127,7 @@ pick a system only when it truly cannot tell. The choice is remembered per game.
 - [x] Simulated blow for DS mic games.
 - [x] Gameplay manuals (a PDF per game).
 - [x] Button remapping for skins and controllers (triggerPro-style profiles).
-- [x] AirPlay scaling and AirPlay layout choices.
+- [x] AirPlay scaling and AirPlay layout choices. Phone (build 125).
 
 ## Already ahead of Manic (keep it that way)
 

@@ -35,6 +35,9 @@ Paste this to start a new chat:
 - Also pass: A1 (sharper cover), D1 (battery saves), D2 (rename, save over, delete), D3 (export
   and import on a non-3DS game; the imported slot has no picture), E10 (keyboard, tilt, shake), F3
   (3x, 4x, slow motion), H2 (unlock banner). Ticked and dropped too.
+- Also pass: E7 (haptics, rumble), E8 (pad hides with a controller), F2 (LCD grid, dot matrix), F4
+  (palette, rotate; Next disc not tried, still listed), G1 (swap, six layouts), G3 (TV). Ticked
+  and dropped.
 - The owner was angry at being asked again about A1 and A2. Never re-ask anything already
   covered; work it out from what they sent.
 - The owner asked for a test list with nothing needing a computer or a second phone: B1, B7 and

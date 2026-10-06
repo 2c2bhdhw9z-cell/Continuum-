@@ -94,7 +94,7 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Cover art from your own file | **Done** | |
 | Cover art captured from the running game | **Done** | Confirmed on the phone with build 122. Build 123 makes it a sharp picture of the game alone (no skin layout around it); confirmed on build 125 |
 | On-screen controls | **Done** | |
-| Physical controllers | **Done** | Including a controller and thumbs at the same time |
+| Physical controllers | **Done** | Including a controller and thumbs at the same time, and (build 125) hiding the on-screen pad while a controller is connected |
 | Sound | **Done** | |
 | Volume and mute | **Done** | |
 | Screen fit and scaling | **Done** | |
@@ -116,7 +116,7 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Honouring what a core wants its content as | **Done** | Every core used to be handed a file path and no bytes. That worked for the first six by luck, and would have given Stella a zero-byte ROM, because it copies straight from the data pointer with no path fallback. The engine now reads what each core declares and loads the file when the core wants bytes, so the next such core needs no change |
 | File formats per system | **Done** | Every extension is now taken from the cores' own declared lists rather than a hand-written one. That added the two systems above plus `.smd`, `.swc`, `.fig`, `.unf`, `.unif`, `.sgb`, `.mdf` and `.toc`, which were being refused despite being supported |
 | Core settings | **Partial** | Every core's options can be changed in **⋯ → Core settings…**. Confirmed: a 3DS restart-required change (build 122), and **Restart the game now** coming back inside the skin, starting from the beginning with auto-save off (build 125). Other cores not on a phone yet (TESTING.md F1). The engine pins only a few: melonDS starts with touch mode on and boots the game directly (both can be changed); parallel_n64's renderer is left to the core (it picks angrylion), with the HLE RSP, single-threaded angrylion and the cached interpreter CPU, all locked and hidden; PPSSPP's CPU is locked to the IR interpreter; Beetle PSX HW's renderer defaults to software (hardware can be picked) |
-| Multi-screen compositor | **Partial** | Drives the DS and 3DS layouts and the screen swap. Confirmed: DS stacked screens (since build 80), and a 3DS skin's two holes sideways (5 October). Swap and the other layouts not on a phone (TESTING.md G1) |
+| Multi-screen compositor | **Done** | Drives the DS and 3DS layouts and the screen swap. Confirmed: DS stacked screens (since build 80), a 3DS skin's two holes sideways (5 October), and the swap button and the six layouts with touch landing where you tap (build 125) |
 | Android `.apk` | **Not built** | The one other PLATFORM, and the only one after the iPhone. Still far off: it comes after Symbian / N-Gage and the Switch (Next up). Everything new goes in the Rust engine so Android inherits it |
 | Switch wrapper (to EMULATE the Switch) | **Partial** | `native/switch-wrapper/` has the frame gate, a Vulkan stub and a test harness, with no engine behind it. Steps 10 to 12 of the road below |
 
@@ -130,8 +130,8 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | What | State | Notes |
 | --- | --- | --- |
 | Two screens, each placed where the skin file says | **Partial** | Confirmed sideways on a 3DS skin: the owner's 5 October screenshot (Mario Kart 7, build 122) has both screens in their holes. Upright, and DS skins, not shown yet |
-| Swap which screen is the big one | **Built, untested** | DS and 3DS. Six layouts in Settings (stacked, side by side, big top, big bottom, top only, bottom only) and a swap button in the player. Touch follows the bottom screen. With a two-hole skin the pictures trade holes |
-| AirPlay: game on the TV, touch screen on the phone | **Partial** | AirPlay or a cable. Game on the TV, controls on the phone. On DS and 3DS the phone keeps the touch screen. Two switches in Settings. Confirmed (build 119): the TV picture is sharper. TV scaling and layout options not confirmed yet (TESTING.md G3) |
+| Swap which screen is the big one | **Done** | Confirmed on build 125, with touch still landing where you tap. DS and 3DS. Six layouts in Settings (stacked, side by side, big top, big bottom, top only, bottom only) and a swap button in the player. Touch follows the bottom screen. With a two-hole skin the pictures trade holes |
+| AirPlay: game on the TV, touch screen on the phone | **Done** | AirPlay or a cable. Game on the TV, controls on the phone. On DS and 3DS the phone keeps the touch screen. Two switches in Settings. Confirmed: the sharper TV picture (build 119), and the game on the TV with TV scaling and TV layout (build 125) |
 | Button shows a pressed picture | **Built, untested** | Since build 109. Only when the skin file has that picture |
 | Extra buttons you place yourself | **Built, untested** | In the layout editor: add a button, a combo, a turbo button, or an action (quick save, quick load, fast forward, rewind, screenshot, pause). Drag, resize, fade, delete. Per system and per way you hold the phone |
 | Edit an imported skin inside the app | **Built, untested** | Move and resize every button, stick and screen hole, change what a button presses, fade the skin, reset to the file. The imported file is never changed |
@@ -140,7 +140,7 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | iPhone camera into a 3DS game | **Partial** | The app side is built (not on a phone): it can feed the camera to a core, front or back. Missing: the 3DS core (Azahar) never asks for a camera, so no game sees it |
 | iPhone microphone | **Built, untested** | 3DS games that listen (Azahar asks for it). Switch in Settings, off by default. DS games do not use it: melonDS only fakes a blow on its L2 button |
 | Amiibo file | **Partial** | Import and pick Amiibo files in the 3DS menu. The 3DS core (Azahar) has no way to receive one yet, and the app says so when you tap |
-| Haptics on a button press | **Built, untested** | Off, light, medium or strong in Settings. Also game rumble on the phone and on controllers, with its own switch |
+| Haptics on a button press | **Done** | Button taps and game rumble confirmed on build 125. Off, light, medium or strong in Settings. Also game rumble on the phone and on controllers, with its own switch |
 | JIT | **Out on purpose** | Not in this signed app. Do not add it to close this list |
 | Rewind | **Done** | |
 | Fast forward | **Done** | About 4x, not 5x |
