@@ -1,0 +1,129 @@
+# QA Wolf native iPhone testing.
+#
+# QA Wolf takes the .ipa this repository already releases; it does NOT need a .app. The same file
+# the owner installs is uploaded under the stable name Continuum.ipa, which QA Wolf treats as one
+# static mobile environment.
+#
+# Two private/account steps cannot live in this repository:
+#   1. QA Wolf must enable mobile triggers for the workspace.
+#   2. Its API key must be a GitHub Actions secret named QAWOLF_API_KEY.
+#
+# With the key present, every successful iOS build uploads its .ipa. It does not start a QA Wolf
+# run until either a manual run has "Start QA Wolf tests" checked, or the repository variable
+# QAWOLF_MOBILE_TRIGGER is 1. This lets the upload be proven before tests start automatically.
+name: QA Wolf mobile
+
+on:
+  workflow_dispatch:
+    inputs:
+      trigger_tests:
+        description: Start QA Wolf tests after uploading the newest .ipa
+        required: true
+        type: boolean
+        default: false
+  workflow_run:
+    workflows: [iOS]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qawolf-mobile
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    # A failed iOS build has no new app to test. Manual runs always use the newest Release.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check whether the private key is ready
+        id: ready
+        env:
+          QAWOLF_API_KEY: ${{ secrets.QAWOLF_API_KEY }}
+        run: |
+          if [ -z "$QAWOLF_API_KEY" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "QA Wolf is connected in the repository, but QAWOLF_API_KEY is not stored in GitHub yet." >> "$GITHUB_STEP_SUMMARY"
+            echo "Add it as a repository Actions secret, then run this workflow again." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download the .ipa that was built
+        if: steps.ready.outputs.enabled == 'true'
+        id: app
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          BUILT_RUN: ${{ github.event.workflow_run.run_number }}
+          BUILT_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            TAG="build-${BUILT_RUN}-${BUILT_SHA:0:7}"
+            SOURCE_SHA="$BUILT_SHA"
+          else
+            TAG="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+            SOURCE_SHA="${TAG##*-}"
+          fi
+          mkdir -p mobile
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern Continuum.ipa --dir mobile
+          test -s mobile/Continuum.ipa
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "path=mobile/Continuum.ipa" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the .ipa to QA Wolf
+        if: steps.ready.outputs.enabled == 'true'
+        id: upload-app
+        # Pinned from qawolf/upload-run-inputs-executable-action v1 on 6 October 2026.
+        uses: qawolf/upload-run-inputs-executable-action@fa537060bc1ce017e0456345b3212523c1db69a2
+        with:
+          qawolf-api-key: ${{ secrets.QAWOLF_API_KEY }}
+          input-file-path: ${{ steps.app.outputs.path }}
+
+      - name: Decide whether to start tests
+        if: steps.ready.outputs.enabled == 'true'
+        id: trigger
+        env:
+          MANUAL_TRIGGER: ${{ inputs.trigger_tests }}
+          AUTOMATIC_TRIGGER: ${{ vars.QAWOLF_MOBILE_TRIGGER }}
+        run: |
+          if [ "$MANUAL_TRIGGER" = "true" ] || [ "$AUTOMATIC_TRIGGER" = "1" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Uploaded ${{ steps.app.outputs.tag }} to QA Wolf; no tests were started." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Start QA Wolf mobile tests
+        if: steps.trigger.outputs.enabled == 'true'
+        id: qawolf-run
+        # Pinned from qawolf/notify-qawolf-on-deploy-action v1 on 6 October 2026.
+        uses: qawolf/notify-qawolf-on-deploy-action@f3a1f02d771e9b9d0a50d642c9b0ae373b8e974e
+        with:
+          qawolf-api-key: ${{ secrets.QAWOLF_API_KEY }}
+          sha: ${{ steps.app.outputs.sha }}
+          branch: master
+          commit-url: https://github.com/${{ github.repository }}/commit/${{ steps.app.outputs.sha }}
+          variables: >-
+            { "RUN_INPUT_PATH": "${{ steps.upload-app.outputs.destination-file-path }}" }
+
+      - name: Summarize the upload
+        if: steps.ready.outputs.enabled == 'true'
+        env:
+          TEST_RUN_ID: ${{ steps.qawolf-run.outputs.run-id }}
+        run: |
+          echo "## QA Wolf native iPhone test" >> "$GITHUB_STEP_SUMMARY"
+          echo "Uploaded: ${{ steps.app.outputs.tag }} / Continuum.ipa" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$TEST_RUN_ID" ]; then
+            echo "Started QA Wolf run: $TEST_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Upload complete; test trigger is still off." >> "$GITHUB_STEP_SUMMARY"
+          fi

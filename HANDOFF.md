@@ -15,6 +15,13 @@ Paste this to start a new chat:
   with. It goes in `FeedbackDestination.email` in `native/ios/Feedback.swift` (one line), then a
   build. Until then the form opens the share menu, which works.
 - Everything else that is planned is in STATUS.md "Next up" and docs/MANIC_PARITY.md "Still to do".
+- QA Wolf native iPhone testing was connected on 6 October: project MCP in
+  `.kiro/settings/mcp.json`, and `.github/workflows/qawolf-mobile.yml` uploads the released
+  `Continuum.ipa` (QA Wolf takes the .ipa directly, not a .app). Still needs the owner to sign in
+  to the MCP connection, have QA Wolf enable mobile triggers for the workspace, and store their
+  API key as the private GitHub Actions secret `QAWOLF_API_KEY`. The workflow can then be run by
+  hand to upload build 127; automatic test runs stay off until the repository variable
+  `QAWOLF_MOBILE_TRIGGER` is `1`.
 
 ## Build 126 test results (6 October)
 

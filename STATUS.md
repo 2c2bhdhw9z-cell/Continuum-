@@ -23,6 +23,10 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 For whoever works on this next:
 
+- QA Wolf native iPhone testing is connected in the repository: it accepts the released `.ipa`
+  directly (not a `.app`). Finish the three private/account steps: sign in to the QA Wolf MCP
+  connection, ask QA Wolf to enable mobile triggers for this workspace, and store the API key as
+  GitHub Actions secret `QAWOLF_API_KEY`. Then run **QA Wolf mobile** manually to upload build 127.
 - Build 127 fixes what the owner's build 126 testing found (list below). Its tests are
   [TESTING.md](TESTING.md) section A. The feedback form needs one answer from the owner: which
   email address it should open Mail with (until then it uses the share menu).

@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "qawolf": {
+      "url": "https://app.qawolf.com/api/mcp"
+    }
+  }
+}
