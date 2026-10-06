@@ -26,6 +26,11 @@ Paste this to start a new chat:
   `SaveStates.refusal(for:)` (native/ios/SaveStates.swift) wrongly refuses real 3DS states. It
   probably blocks every 3DS state, the original slot and the auto-save resume too (owner asked to
   try loading Slot 1).
+- Save and load (one game each) work on NES, SNES, Game Boy, GBC, GBA, Game Gear, Mega Drive,
+  PS1, DS, TurboGrafx-16, Atari 2600, N64, Jaguar and Pokemon Mini. So those games run: C1, C4, C5,
+  C12 and C14 pass (Jaguar speed not reported yet). Only the 3DS fails to load.
+- When testing ends: tick these in STATUS.md and drop them from TESTING.md (C1, C4, C5, C12, C14,
+  and the load part of D2).
 - Fix after testing ends, with: show the status line briefly with a skin that has screen holes,
   make (i) work with such a skin, Apple overlay hide via `"mode": "disabled"`, and a picture for
   imported slots.
