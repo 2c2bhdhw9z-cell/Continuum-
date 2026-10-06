@@ -15,6 +15,20 @@ Paste this to start a new chat:
 - **The owner is testing build 125**, working through the whole TESTING.md list (section A
   first). Their answers come back as test numbers. Anything that fails gets fixed first.
 - Everything else that is planned is in STATUS.md "Next up" and docs/MANIC_PARITY.md "Still to do".
+- **The owner said: fix nothing until they say "I'm done testing for now".** Collect results here.
+
+## Build 125 results so far (5 October, Mario Kart 7)
+
+- A1 passes on a 3DS slot: Slot 1 shows the game's picture, tall, both screens.
+- A2: Export and Import a state file work (Slot 2, imported, azahar 065c922). Loading it fails:
+  "state too short: it is 14627226 bytes and the core needs at least 19231622", then 17504282 on
+  the next try. Azahar's reported state size moves, so the "too short" check in
+  `SaveStates.refusal(for:)` (native/ios/SaveStates.swift) wrongly refuses real 3DS states. It
+  probably blocks every 3DS state, the original slot and the auto-save resume too (owner asked to
+  try loading Slot 1).
+- Fix after testing ends, with: show the status line briefly with a skin that has screen holes,
+  make (i) work with such a skin, Apple overlay hide via `"mode": "disabled"`, and a picture for
+  imported slots.
 
 ## How the owner works
 
