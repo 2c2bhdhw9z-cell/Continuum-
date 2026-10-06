@@ -2,7 +2,8 @@
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
 5 October 2026 (build 125). The install is always the newest file on the
-[Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
+[Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest). Build 126 (0.8.0
+(126), 32 cores) checked in the file itself.
 
 Five states only:
 

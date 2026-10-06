@@ -7,10 +7,11 @@ Paste this to start a new chat:
 
 ## Where things are (5 October 2026)
 
-- Build 126 is the fix batch from the owner's build 125 testing, pushed 5 October. STATUS.md
-  "Build 126" lists it; TESTING.md A1 to A6 are its tests. Check the Releases page for whether it
-  finished, and check the .ipa before handing it over.
-- Previous install: build 125, release `build-125-870b276`, 0.8.0 (125), 32 cores.
+- Newest install: build 126, release `build-126-4b96af5`, 0.8.0 (126), 32 cores, checked (the new
+  feedback and cheat text is in the binary). Link:
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-126-4b96af5/Continuum-126.ipa
+- Build 126 is the fix batch from the owner's build 125 testing. STATUS.md "Build 126" lists it;
+  TESTING.md A1 to A6 are its tests. The owner has the link and has not tested it yet.
 - **Waiting on the owner for one thing:** the email address the feedback form should open Mail
   with. It goes in `FeedbackDestination.email` in `native/ios/Feedback.swift` (one line), then a
   build. Until then the form opens the share menu, which works.
