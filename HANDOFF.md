@@ -19,8 +19,9 @@ Paste this to start a new chat:
   `.kiro/settings/mcp.json`, and `.github/workflows/qawolf-mobile.yml` uploads the released
   `Continuum.ipa` (QA Wolf takes the .ipa directly, not a .app). Still needs the owner to sign in
   to the MCP connection, have QA Wolf enable mobile triggers for the workspace, and store their
-  API key as the private GitHub Actions secret `QAWOLF_API_KEY`. The workflow can then be run by
-  hand to upload build 127; automatic test runs stay off until the repository variable
+  API key as the private GitHub Actions secret `QAWOLF_API_KEY`. The workflow's manual dry run
+  succeeded (`37479507235`) and correctly stopped before download/upload because the key is not
+  there yet. It can then be run by hand to upload build 127; automatic test runs stay off until the repository variable
   `QAWOLF_MOBILE_TRIGGER` is `1`.
 
 ## Build 126 test results (6 October)
