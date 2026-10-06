@@ -17,12 +17,18 @@ Paste this to start a new chat:
 - Everything else that is planned is in STATUS.md "Next up" and docs/MANIC_PARITY.md "Still to do".
 - QA Wolf native iPhone testing was connected on 6 October: project MCP in
   `.kiro/settings/mcp.json`, and `.github/workflows/qawolf-mobile.yml` uploads the released
-  `Continuum.ipa` (QA Wolf takes the .ipa directly, not a .app). Still needs the owner to sign in
-  to the MCP connection, have QA Wolf enable mobile triggers for the workspace, and store their
-  API key as the private GitHub Actions secret `QAWOLF_API_KEY`. The workflow's manual dry run
-  succeeded (`37479507235`) and correctly stopped before download/upload because the key is not
-  there yet. It can then be run by hand to upload build 127; automatic test runs stay off until the repository variable
-  `QAWOLF_MOBILE_TRIGGER` is `1`.
+  `Continuum.ipa` (QA Wolf takes the .ipa directly, not a .app). The owner added the private
+  GitHub Actions secret `QAWOLF_API_KEY`, and manual workflow run `37506142697` successfully
+  uploaded build 127's `Continuum.ipa` to QA Wolf without starting a test or using credits. Still
+  needs the owner to sign in to the MCP connection and have QA Wolf enable native iOS mobile
+  testing/triggers for the workspace. Automatic test runs stay off until the repository variable
+  `QAWOLF_MOBILE_TRIGGER` is `1`. The owner says QA Wolf support is not responding.
+- Other remote testing tried and dropped (6 October): Momentic runs only on simulators, so it would
+  need a whole simulator build (and 19 buildbot cores have no simulator version); the owner said
+  not to. Apptest.ai rejected the .ipa ("The app file is not supported") because it carries no
+  Apple certificate or provisioning profile. Offered instead: a built-in self-test in Settings that
+  boots every core with a small, legally bundleable test game and lists pass/fail. Waiting on the
+  owner's yes.
 
 ## Build 126 test results (6 October)
 
