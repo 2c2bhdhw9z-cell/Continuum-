@@ -26,9 +26,8 @@ Paste this to start a new chat:
 - Other remote testing tried and dropped (6 October): Momentic runs only on simulators, so it would
   need a whole simulator build (and 19 buildbot cores have no simulator version); the owner said
   not to. Apptest.ai rejected the .ipa ("The app file is not supported") because it carries no
-  Apple certificate or provisioning profile. Offered instead: a built-in self-test in Settings that
-  boots every core with a small, legally bundleable test game and lists pass/fail. Waiting on the
-  owner's yes.
+  Apple certificate or provisioning profile. A built-in self-test was offered and turned down: the
+  owner has already proved more than half the systems on the phone, so do not offer it again.
 
 ## Build 126 test results (6 October)
 
