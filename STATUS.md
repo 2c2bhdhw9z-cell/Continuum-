@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-6 October 2026 (build 128). The install is always the newest file on the
+6 October 2026 (build 129). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Five states only:
@@ -158,9 +158,13 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 ---
 
-## Build 128 (6 October 2026)
+## Build 129 (6 October 2026)
 
-Cleaned up for a public beta: strangers will download and test it.
+Cleaned up for a public beta: strangers will download and test it. (Build 128 was cancelled
+part-way, because the owner asked for every tester-facing line to sound human first.)
+
+- Every line a tester reads (feedback form, crash prompt, Settings notes, empty Library, cheat
+  and save messages) rewritten in a casual, first-person voice.
 
 - The player shows no technical text over the game. Status lines show for five seconds (ten for a
   problem) and fade; fps, frames and the full technical block are behind the (i) button.

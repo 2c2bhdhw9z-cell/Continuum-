@@ -86,9 +86,9 @@ struct LibraryShell: View {
     /// track, and mentions the Files app fallback that UIFileSharingEnabled already provides. On a
     /// sideloaded build there is nothing else to tell the user what to do next.
     static let emptyGuidance =
-        "Tap Import games and pick your own game files. Zip files work too. For a disc game "
-        + "made of a .cue and .bin files, select the .cue and every .bin together. Files you put "
-        + "in the Files app under On My iPhone, Continuum show up here as well."
+        "Tap Import games and pick your game files (zips work too). For disc games with a .cue "
+        + "and .bin files, select the .cue and all the .bins at once. You can also drop files "
+        + "into the Files app under On My iPhone, Continuum and they'll show up here."
 
     private var topBarHeight: CGFloat { 52 }
     private var bottomBarHeight: CGFloat { 84 }

@@ -1289,12 +1289,11 @@ final class SaveStates: ObservableObject {
             : "slot:\(record.gameId)#\(record.slot)"
         if feedbackLoadBlocked(key: guardKey) {
             if record.isAuto {
-                report("did not pick up \(record.gameId) from its auto-save: last time Continuum "
-                       + "closed straight after picking up from it, so this time the game starts "
-                       + "from the beginning. The auto-save is kept.")
+                report("Started \(record.gameId) fresh: last time, picking up from its auto-save "
+                       + "crashed the app, so I skipped it this once. The auto-save is still there.")
             } else {
-                report("did not load \(record.slotLabel.lowercased()): last time it was loaded, "
-                       + "Continuum closed straight after. Load it again to try anyway; it is kept.")
+                report("Didn't load \(record.slotLabel.lowercased()): it crashed the app last "
+                       + "time. Tap Load again if you want to try anyway.")
             }
             return false
         }

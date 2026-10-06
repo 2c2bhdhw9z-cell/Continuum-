@@ -344,18 +344,15 @@ jobs:
           # backticks, and both are hazards inside a shell argument in a YAML block scalar; a heredoc
           # quoted with <<'EOF' passes them through untouched with no escaping to get wrong.
           cat > /tmp/notes.md <<'EOF'
-          **Continuum beta**: an all-in-one emulator for iPhone. Games and BIOS files are not
-          included; use your own.
+          **Continuum beta**, an all-in-one emulator for iPhone. No games or BIOS files included,
+          you'll need your own.
 
-          **To install:** download `Continuum-<number>.ipa` below (both .ipa files are the same app;
-          the numbered one says which build it is), then sign and install it with your usual
-          sideloading app and your own certificate. Your version is in Settings, About.
+          Grab `Continuum-<number>.ipa` below (both .ipa files are the same app, the numbered one
+          just tells you which build it is) and sign it with whatever sideloading app you use.
 
-          **Found a problem?** Settings, Send feedback, or in a game ⋯ then Send feedback about this
-          game. It adds the app's details and a picture for you.
-
-          Files named `get-task-allow` are optional, for signing apps that ask for an entitlements
-          file.
+          Something broken? Settings, Send feedback, or in a game tap ⋯ then Send feedback about
+          this game. The `get-task-allow` files are only for signing apps that ask for an
+          entitlements file.
 
           Always the newest build:
           EOF

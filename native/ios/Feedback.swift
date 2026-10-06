@@ -80,10 +80,10 @@ enum GameRating: String, CaseIterable, Hashable {
     /// In the message, where there is room for the whole thought.
     var reportText: String {
         switch self {
-        case .perfect: return "Perfect, no problems"
-        case .playable: return "Playable, with small problems"
-        case .problems: return "Runs, but with big problems"
-        case .wontRun: return "Does not start or cannot be played"
+        case .perfect: return "Runs perfectly"
+        case .playable: return "Playable, a few small issues"
+        case .problems: return "Runs, but it's rough"
+        case .wontRun: return "Won't start or can't be played"
         }
     }
 }
@@ -171,7 +171,7 @@ struct FeedbackSheet: View {
                     if let crash {
                         crashCard(crash)
                     } else {
-                        SettingsSection(title: "WHAT IS IT ABOUT") {
+                        SettingsSection(title: "WHAT'S THIS ABOUT?") {
                             SegmentedChoice(options: kinds, title: { $0.title }, selection: $kind)
                         }
                     }
@@ -226,13 +226,13 @@ struct FeedbackSheet: View {
                 .font(.system(size: 14))
                 .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
-            SettingsNote("Say what you were doing just before, if you remember. The app's own "
-                         + "record of its last minutes is attached.")
+            SettingsNote("If you remember what you were doing right before, tell me below. The "
+                         + "app's own record of its last few minutes gets attached too.")
         }
     }
 
     private var ratingCard: some View {
-        SettingsSection(title: "HOW DOES IT RUN") {
+        SettingsSection(title: "HOW'S IT RUNNING?") {
             if let entry {
                 Text(entry.name)
                     .font(.system(size: 14, weight: .semibold))
@@ -246,7 +246,7 @@ struct FeedbackSheet: View {
     }
 
     private var issuesCard: some View {
-        SettingsSection(title: "WHAT IS WRONG (TAP ANY)") {
+        SettingsSection(title: "ANYTHING WRONG? (TAP ALL THAT APPLY)") {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
                                 GridItem(.flexible(), spacing: 8)], spacing: 8) {
                 ForEach(GameIssue.allCases) { issue in
@@ -291,7 +291,7 @@ struct FeedbackSheet: View {
                 .foregroundStyle(.white)
                 .padding(10)
                 .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 9))
-            TextField("Your name (optional, remembered)", text: $tester)
+            TextField("Your name or username (optional)", text: $tester)
                 .font(.system(size: 14))
                 .foregroundStyle(.white)
                 .padding(10)
@@ -301,10 +301,10 @@ struct FeedbackSheet: View {
 
     private var attachmentsCard: some View {
         SettingsSection(title: "SENT WITH IT") {
-            toggleRow("The app's details", note: detailsNote, isOn: $includeDetails)
+            toggleRow("Phone and app info", note: detailsNote, isOn: $includeDetails)
             toggleRow("What the app was doing", note: logNote, isOn: $includeLog)
             if let picture {
-                toggleRow("A picture of the game", note: pictureNote, isOn: $includePicture)
+                toggleRow("A screenshot of the game", note: pictureNote, isOn: $includePicture)
                 if includePicture {
                     Image(uiImage: drawn ?? picture)
                         .resizable()
@@ -362,40 +362,38 @@ struct FeedbackSheet: View {
     /// expression the compiler gives up on, and CI is the only compiler.
     private var detailsNote: String {
         if entry == nil {
-            return "The app's version, the iPhone model and iOS version, and its status text."
+            return "Which iPhone and iOS you're on, and the app version. Helps me track it down."
         }
-        return "The app's version, the iPhone model and iOS version, the game, its system and "
-            + "emulator, and the app's status text."
+        return "Which iPhone and iOS you're on, the app version, and which game and emulator. "
+            + "Helps me track it down."
     }
 
     private var logNote: String {
         if crash != nil {
-            return "Every line the small status text showed in the minutes before it closed, with "
-                + "the time. Attached as a text file."
+            return "The app's own notes from right before it closed. Nothing personal, just what it "
+                + "was doing."
         }
-        return "Every line the small status text has shown since the app opened, with the time. "
-            + "Attached as a text file."
+        return "The app's own notes on what it's been doing since you opened it. Nothing personal."
     }
 
     private var pictureNote: String {
-        "The game's screen when you opened this. Draw on it to point at the problem."
+        "What the game looked like when you opened this. Draw on it to circle the problem."
     }
 
     private var sendNote: String {
         if FeedbackDestination.hasEmail {
-            return "Opens Mail addressed to the Continuum team (\(FeedbackDestination.email)) with "
-                + "everything ready. You see all of it before it goes. If Mail is not set up on "
-                + "this iPhone, pick another app and send it to that address."
+            return "Opens Mail with everything filled in, going to \(FeedbackDestination.email). "
+                + "You'll see it all before it sends. No Mail app? Pick another way to send it to "
+                + "that address."
         }
-        return "Opens the share menu with everything ready: pick Mail, Messages or another app, "
-            + "and send it to whoever gave you Continuum. Nothing is sent until you do."
+        return "Opens the share menu with everything filled in. Nothing sends until you tap send."
     }
 
     private var placeholder: String {
         switch kind {
-        case .gameReport: return "Anything else about how it runs? (optional)"
-        case .problem: return "What happened, and what were you doing just before?"
-        case .idea: return "What would you like Continuum to do?"
+        case .gameReport: return "Anything else? Slowdown, glitches, what you were doing... (optional)"
+        case .problem: return "What happened? What were you doing right before?"
+        case .idea: return "What would make Continuum better?"
         case .other: return "Your message"
         case .crash: return "What were you doing when it closed? (optional)"
         }
@@ -604,13 +602,11 @@ final class FeedbackCenter: ObservableObject {
 
     /// One sentence about how the last session ended, for the question and the report form.
     nonisolated static func crashSentence(_ crash: FeedbackUnexpectedClose) -> String {
-        var line = "Continuum closed unexpectedly"
-        line += crash.game.isEmpty ? " while you were in the library"
-            : " while you were playing \(crash.game)"
-        line += " (\(crash.build), opened \(crash.started))."
+        var line = crash.game.isEmpty ? "Looks like Continuum crashed last time."
+            : "Looks like Continuum crashed last time, while you were playing \(crash.game)."
         if !crash.loading.isEmpty {
-            line += " It was loading a save at that moment, so that save will not be loaded by "
-                + "itself again."
+            line += " It was loading a save right then, so that save won't load by itself again "
+                + "(it's still there if you want to try it)."
         }
         return line
     }
@@ -618,7 +614,7 @@ final class FeedbackCenter: ObservableObject {
     var crashPromptText: String {
         guard let unexpectedClose else { return "" }
         return Self.crashSentence(unexpectedClose)
-            + " A report with what the app was doing just before helps get it fixed."
+            + " Sorry about that. Want to send a quick report? It really helps me fix it."
     }
 
     private static func directory() -> URL? {
@@ -652,7 +648,7 @@ struct CrashReportPrompt: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .alert("Continuum closed unexpectedly", isPresented: $center.crashPromptShown) {
+            .alert("Continuum crashed", isPresented: $center.crashPromptShown) {
                 Button("Send a report") {
                     // After the question has gone, so the form is not presented over it.
                     Task { @MainActor in
@@ -660,7 +656,7 @@ struct CrashReportPrompt: ViewModifier {
                         center.crashReportOpen = true
                     }
                 }
-                Button("Not now", role: .cancel) {}
+                Button("No thanks", role: .cancel) {}
             } message: {
                 Text(center.crashPromptText)
             }
@@ -711,10 +707,10 @@ final class FeedbackMail: NSObject, MFMailComposeViewControllerDelegate {
         switch result {
         case .sent:
             sent = true
-            line = "Sent. Thank you."
+            line = "Sent. Thanks, seriously, this helps a lot."
         case .saved:
             sent = false
-            line = "Saved in Mail's drafts, not sent yet."
+            line = "Saved to your Mail drafts. It hasn't been sent yet."
         case .cancelled:
             sent = false
             line = "Not sent."
@@ -756,7 +752,7 @@ enum FeedbackShare {
         let sheet = UIActivityViewController(activityItems: items, applicationActivities: nil)
         sheet.completionWithItemsHandler = { _, completed, _, _ in
             Task { @MainActor in
-                onFinish(completed, completed ? "Sent. Thank you." : "Not sent.")
+                onFinish(completed, completed ? "Sent. Thanks, seriously, this helps a lot." : "Not sent.")
             }
         }
         // iPad needs an anchor or it traps; the centre of the presenting view is honest enough.
@@ -783,7 +779,7 @@ struct FeedbackMarkup: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 14) {
-                SettingsNote("Draw on the picture with your finger to show where the problem is.")
+                SettingsNote("Draw on it with your finger to show where the problem is.")
                     .padding(.horizontal, 16)
                 Image(uiImage: image)
                     .resizable()
@@ -856,11 +852,10 @@ struct FeedbackSettingsSection: View {
 
     var body: some View {
         SettingsSection(title: "FEEDBACK") {
-            SettingsNote("Found a problem, or have an idea? Send it from here. To say how a game "
-                         + "runs, open the game and use ⋯ → Send feedback about this game: it "
-                         + "adds a rating, a picture you can draw on, and the game's details. If "
-                         + "the app ever closes by itself, it offers a report the next time it "
-                         + "opens.")
+            SettingsNote("Something broken, or got an idea? Let me know here. If it's about a "
+                         + "specific game, open the game and tap ⋯ then Send feedback about this "
+                         + "game: you can rate it and draw on a screenshot. And if the app ever "
+                         + "crashes, it'll offer to send a report next time you open it.")
             SettingsButton(title: "Send feedback", role: .normal) {
                 showForm = true
             }

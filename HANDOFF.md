@@ -11,8 +11,10 @@ Paste this to start a new chat:
   https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-127-a611e43/Continuum-127.ipa
 - Build 127: the fixes from the owner's build 126 testing and the rebuilt feedback system
   (STATUS.md "Build 127"; TESTING.md A1 to A4). The owner has the link, not tested yet.
-- Build 128 (pushed 6 October): the app cleaned up for a public beta (STATUS.md "Build 128";
-  TESTING.md A1 to A5). The owner will post it online for strangers to test. Feedback email:
+- Build 129 (pushed 6 October; 128 was cancelled for a wording pass): the app cleaned up for a
+  public beta, every tester-facing line in a human voice (STATUS.md "Build 129";
+  TESTING.md A1 to A5). The owner posts the .ipa straight into Telegram groups and Reddit, not the GitHub page, so
+  testers only ever see the app itself. Feedback email:
   idkplswrk@gmail.com. Build 127's 3DS model change and cheat-off fixes are still untested.
 - Everything else that is planned is in STATUS.md "Next up" and docs/MANIC_PARITY.md "Still to do".
 - QA Wolf native iPhone testing was connected on 6 October: project MCP in

@@ -166,24 +166,24 @@ struct CheatCodeEntry: View {
         if !id.code.isEmpty {
             line += ", game code \(id.code)"
         }
-        return line + ". A code has to be made for this exact game and version."
+        return line + ". Make sure your codes are for this exact version."
     }
 
     /// One sentence from the engine's table (`cheats::formats` in Rust), so Android says the same.
     static func supportLine(coreId: String) -> String {
         let support = cheatCodeSupport(coreId: coreId)
         if !support.readsTypedCodes {
-            return "This system's emulator ignores typed codes (GameShark, Action Replay and the "
-                + "like), so a code added here does nothing. The RAM search in a running game "
-                + "still makes cheats, when the game's memory can be read."
+            return "Heads up: this system's emulator ignores typed codes (GameShark, Action Replay "
+                + "and so on), so they won't do anything here. The RAM search below can still "
+                + "make cheats for most games."
         }
         if support.kinds.isEmpty {
-            return "Typed codes go straight to this system's emulator, which decides what they "
-                + "mean. A code that does nothing is usually for another region of the game."
+            return "Codes go straight to this system's emulator. If one does nothing, it's "
+                + "probably for a different region or version of the game."
         }
-        return "Codes this system takes: \(support.kinds). A code that is several lines goes in "
-            + "one box with + between the lines. A code made for another version of the game can "
-            + "freeze it: switch the cheat off and load a save from before."
+        return "Works with: \(support.kinds). For a multi-line code, put it all in one box with "
+            + "+ between the lines. Codes are made for one exact version of a game, and the wrong "
+            + "one can freeze it. If that happens, switch the cheat off and load an earlier save."
     }
 }
 

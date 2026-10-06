@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 6 October 2026, for **build 128 or newer**. The newest install is always on the
+Last updated 6 October 2026, for **build 129 or newer**. The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 
@@ -34,7 +34,7 @@ a game.
 
 # The list: what still needs testing
 
-## A. New in build 128 (do these first)
+## A. New in build 129 (do these first)
 
 **A1. A cleaner player**
 1. Open any game.

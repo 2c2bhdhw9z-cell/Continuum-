@@ -480,9 +480,9 @@ struct SettingsScreen: View {
         SettingsSection(title: "ABOUT") {
             SettingsReadout(label: "Version", value: EngineHost.versionLabel)
             SettingsNote(
-                "Continuum is a beta. Games and BIOS files do not come with the app: use your own. "
-                + "Found a problem? Use Send feedback at the top of Settings, or in a game, "
-                + "⋯ then Send feedback about this game."
+                "Continuum is still in beta, so expect some rough edges. Games and BIOS files "
+                + "aren't included, you'll need your own. If something breaks, Send feedback at "
+                + "the top of Settings goes straight to me."
             )
         }
     }
@@ -493,11 +493,11 @@ struct SettingsScreen: View {
 
             Toggle(isOn: $host.showDiagnostics) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Show technical details")
+                    Text("Show technical stuff")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
-                    Text("For reporting a problem: the app's own record of what it is doing. A "
-                         + "feedback report attaches it for you.")
+                    Text("FPS and what the app is doing behind the scenes. You don't need this "
+                         + "to send feedback, it's attached for you.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
                 }
@@ -526,9 +526,9 @@ struct SettingsScreen: View {
             )
 
             SettingsNote(
-                "PCSX ReARMed plays PlayStation games without a BIOS file. Beetle PSX HW is more "
-                + "accurate but needs a real PlayStation BIOS (for example scph5501.bin), installed "
-                + "in the BIOS section below. The choice applies from the next game you open."
+                "PCSX ReARMed works without a BIOS, so start with that. Beetle PSX HW is more "
+                + "accurate but needs a real PlayStation BIOS (like scph5501.bin) from the BIOS "
+                + "section below. Kicks in from the next game you open."
             )
         }
     }
@@ -563,9 +563,9 @@ struct SettingsScreen: View {
     private var pspSection: some View {
         SettingsSection(title: "PSP") {
             SettingsNote(
-                "PSP games run on PPSSPP and need no BIOS. Use .cso, .iso, .chd or EBOOT.PBP files; "
-                + "the app works out whether a disc is PSP or PlayStation. Heavier games can be "
-                + "slow, because iPhone apps installed this way cannot use JIT."
+                "PSP games don't need a BIOS. .cso, .iso, .chd and EBOOT.PBP all work, and the app "
+                + "figures out if a disc is PSP or PlayStation. Heavier games can be slow, since "
+                + "sideloaded apps can't use JIT."
             )
         }
     }
@@ -579,10 +579,10 @@ struct SettingsScreen: View {
                             : host.bios)
 
             SettingsNote(
-                "A few systems need a BIOS file from the real console, which cannot come with the "
-                + "app. Put it in the Files app under On My iPhone, Continuum (or import it with "
-                + "the + button), then tap the button below. A game that needs one says which file "
-                + "when you open it. Recognised names: "
+                "A few systems need a BIOS file from the real console, and I can't include those. "
+                + "Drop yours in the Files app under On My iPhone, Continuum (or import it with "
+                + "the + button), then tap the button below. If a game needs one, it'll tell you "
+                + "which file. Names it looks for: "
                 + CoreCatalog.biosNameList() + "."
             )
 
