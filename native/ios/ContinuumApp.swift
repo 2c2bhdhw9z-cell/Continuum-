@@ -2814,7 +2814,23 @@ final class EngineHost: ObservableObject {
         }
     }
 
-    private static let favouritesKey = "continuum.favourites.v1"
+    /// Favourites, BY FILE NAME.
+    ///
+    /// v1 held absolute paths, and that was the reason favourites were the one library setting
+    /// that could not be synced and did not survive a reinstall: a path contains this install's
+    /// own container id, so on a reinstalled app it matched no game at all and on another phone it
+    /// would have replaced that phone's own list. The owner deletes the app before every install,
+    /// so "favourites are gone again" was the guaranteed outcome, every build.
+    ///
+    /// A file name is the identity the rest of the app already uses for exactly this reason
+    /// (`skinGameKey`, `import.systemChoices.v1`, `manuals.attached.v1`), and games live flat in
+    /// Documents so a name is unique. v2 is a NEW key rather than a rewrite of v1 so that an older
+    /// build on another phone, which would read these names as paths and match nothing, cannot be
+    /// handed them by the sync: v1 stays excluded from sync forever, v2 is a plain `continuum.`
+    /// key and syncs.
+    private static let favouritesKey = "continuum.favourites.v2"
+    /// Read once, to carry an existing list over. Never written again.
+    private static let favouritesPathKey = "continuum.favourites.v1"
     /// When each game arrived, stamped by the app at import time and KEYED BY FILE NAME.
     ///
     /// Not a cosmetic addition. "Recently added" and the featured game were ordered by the ROM
@@ -2851,7 +2867,7 @@ final class EngineHost: ObservableObject {
 
     /// The favourites that are on disk right now, in the library's own order.
     var favouriteEntries: [LibraryEntry] {
-        library.filter { favourites.contains($0.id) }
+        library.filter { favourites.contains($0.name) }
     }
 
     /// Adds or removes a favourite and persists the set immediately.
@@ -2860,11 +2876,11 @@ final class EngineHost: ObservableObject {
     /// OS at any moment and a favourite that did not survive would look like the feature not
     /// working.
     func toggleFavourite(_ entry: LibraryEntry) {
-        if favourites.contains(entry.id) {
-            favourites.remove(entry.id)
+        if favourites.contains(entry.name) {
+            favourites.remove(entry.name)
             status = "removed \(entry.name) from favorites"
         } else {
-            favourites.insert(entry.id)
+            favourites.insert(entry.name)
             status = "added \(entry.name) to favorites"
         }
         UserDefaults.standard.set(Array(favourites), forKey: Self.favouritesKey)
@@ -3126,7 +3142,16 @@ final class EngineHost: ObservableObject {
         // The remembered preferences, read before anything can display. Each one falls back to its
         // default rather than to nil, so a first launch and a corrupted value behave the same way.
         let defaults = UserDefaults.standard
-        favourites = Set(defaults.stringArray(forKey: Self.favouritesKey) ?? [])
+        // v2 if it is there. If not, carry v1's absolute paths over by taking the file name off
+        // each one, which is all a path was ever used for, and write the result as v2. A path from
+        // a previous install points at a folder that no longer exists, but its LAST COMPONENT is
+        // still the game's filename, so even favourites set before a reinstall survive this.
+        if let names = defaults.stringArray(forKey: Self.favouritesKey) {
+            favourites = Set(names)
+        } else if let paths = defaults.stringArray(forKey: Self.favouritesPathKey) {
+            favourites = Set(paths.map { ($0 as NSString).lastPathComponent })
+            defaults.set(Array(favourites), forKey: Self.favouritesKey)
+        }
         // Epoch seconds back to Dates. A game with no stamp (imported before this build, or
         // dropped straight into Documents through the Files app, which never goes through
         // importFiles) simply has no entry, and the shelf falls back to its file date as before.

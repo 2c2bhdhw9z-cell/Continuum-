@@ -637,8 +637,12 @@ final class CloudSync: ObservableObject {
         // The RetroAchievements token is in this phone's Keychain under this name. Another
         // phone's name here would leave that token unfound and log this phone out.
         "continuum.achievements.username.v1",
-        // Favourites are stored by the game's full path, which includes this install's own
-        // container folder. On another phone they match no game and would replace its own.
+        // v1 ONLY, which stored the game's full path, including this install's own container
+        // folder. On another phone those match no game and would replace its own list. It is
+        // read once by `EngineHost.init` to carry an old list over and never written again.
+        // `continuum.favourites.v2` stores FILE NAMES and is deliberately absent from this list:
+        // it is the identity the rest of the app uses (`skinGameKey`, `import.systemChoices.v1`,
+        // `manuals.attached.v1`), it survives a reinstall, and it is meaningful on another phone.
         "continuum.favourites.v1",
         // The skin index and the skin editor's changes, both by skin id. The skins' files live
         // under Skins/, which does not sync, so another phone's index would drop this phone's

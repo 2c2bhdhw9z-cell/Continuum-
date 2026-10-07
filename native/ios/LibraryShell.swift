@@ -382,7 +382,7 @@ struct LibraryShell: View {
                         system: CoreCatalog.system(for: hero),
                         store: artwork,
                         generation: artwork.generation,
-                        isFavourite: host.favourites.contains(hero.id),
+                        isFavourite: host.favourites.contains(hero.name),
                         height: heroHeight,
                         host: host
                     )
@@ -564,7 +564,7 @@ struct LibraryShell: View {
                         system: CoreCatalog.system(for: entry),
                         store: artwork,
                         generation: artwork.generation,
-                        isFavourite: host.favourites.contains(entry.id),
+                        isFavourite: host.favourites.contains(entry.name),
                         width: 110,
                         host: host,
                         showsLabel: true
@@ -590,7 +590,7 @@ struct LibraryShell: View {
                     system: CoreCatalog.system(for: entry),
                     store: artwork,
                     generation: artwork.generation,
-                    isFavourite: host.favourites.contains(entry.id),
+                    isFavourite: host.favourites.contains(entry.name),
                     host: host
                 )
                 .onTapGesture {
@@ -606,7 +606,7 @@ struct LibraryShell: View {
                     Button {
                         host.toggleFavourite(entry)
                     } label: {
-                        Label(host.favourites.contains(entry.id) ? "Unstar" : "Star",
+                        Label(host.favourites.contains(entry.name) ? "Unstar" : "Star",
                               systemImage: "star")
                     }
                     .tint(.yellow)

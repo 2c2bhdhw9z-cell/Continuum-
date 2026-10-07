@@ -93,7 +93,7 @@ struct GameDetailSheet: View {
                         .foregroundStyle(.white)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
-                    FavouriteButton(isFavourite: host.favourites.contains(entry.id), size: 17) {
+                    FavouriteButton(isFavourite: host.favourites.contains(entry.name), size: 17) {
                         host.toggleFavourite(entry)
                     }
                 }

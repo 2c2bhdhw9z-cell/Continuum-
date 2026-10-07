@@ -334,7 +334,7 @@ struct ShelfRow: View {
                             system: CoreCatalog.system(for: entry),
                             store: store,
                             generation: generation,
-                            isFavourite: favourites.contains(entry.id),
+                            isFavourite: favourites.contains(entry.name),
                             width: 124,
                             host: host
                         )
