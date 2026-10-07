@@ -87,9 +87,17 @@ impl JitState {
                 "Off. Turn it on with StikDebug (or whatever JIT app you use), then come back. \
                  Everything works without it, just slower on the heavy systems."
             }
+            // This one says what to DO about it, which the first version did not. The owner read
+            // "the way this copy was signed doesn't allow JIT" on build 138 and asked what it
+            // meant — fairly, because it names a cause with no action and sounds permanent. It is
+            // not permanent: it is decided by the signing, and the get-task-allow file ships
+            // beside the app for exactly this. No file path or web page named, because testers get
+            // the app as a file in a chat group and never see a releases page.
             (JitState::CannotBeEnabled, _) => {
-                "Off. The way this copy was signed doesn't allow JIT. That's fine, everything \
-                 still works, just slower on the heavy systems."
+                "Off. This copy wasn't signed for JIT, so no JIT app can attach to it. If your \
+                 signing app takes an entitlements file, sign it again with the get-task-allow \
+                 file that comes with Continuum and you'll get the option. Everything works \
+                 without it, just slower on the heavy systems."
             }
             (JitState::NeedsPreparing, _) => {
                 "Nearly. JIT is attached and this iPhone needs one more step, which Continuum \

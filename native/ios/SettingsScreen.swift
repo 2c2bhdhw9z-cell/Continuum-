@@ -527,9 +527,12 @@ struct SettingsScreen: View {
                 Text("Use JIT when it's available")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.white)
-                Text("Makes PSP, 3DS, PlayStation and Dreamcast faster, and N64 on older "
-                     + "iPhones. If a game acts up with it, turn this off. Kicks in from the next "
-                     + "game you open.")
+                // "and N64 on older iPhones" until build 138, which is no longer true: the N64
+                // was the last system that could not use JIT on an iPhone 13 or newer running
+                // iOS 26, and it can now. Every system with a JIT build gets it on every phone
+                // that can switch JIT on.
+                Text("Makes PSP, 3DS, PlayStation, N64 and Dreamcast faster. If a game acts up "
+                     + "with it, turn this off. Kicks in from the next game you open.")
                     .font(.system(size: 12))
                     .foregroundStyle(ShellPalette.secondaryText)
             }

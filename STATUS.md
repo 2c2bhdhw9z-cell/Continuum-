@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-7 October 2026 (build 139). The install is always the newest file on the
+7 October 2026 (build 140). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Five states only:
@@ -161,6 +161,32 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | Achievements | **Partial** | RetroAchievements login, unlock banners and a list on the game card. Game Boy Advance achievements read mGBA's full memory map. Confirmed (build 125): logging in (the button says Logging in... and cannot be pressed twice) and the unlock banner popping up in a game. The list on the game card is not confirmed yet |
 | Cloud sync | **Built, untested** | Pick any folder in Files (iCloud Drive, Google Drive, Dropbox) once. Save states, battery saves, cheats, settings and covers sync both ways; since build 122 also Flash and J2ME saves, PDF manuals, Amiibo files, the remembered "which system is this" answers and saved servers (their passwords stay on each phone). Kept per phone on purpose: skins, the RetroAchievements login, favourites, the last online-play address, mic and camera permission. Conflicts keep both copies. Nothing is ever only deleted |
 
+
+---
+
+## Build 140 (7 October 2026) — two tester-facing lines that had gone wrong
+
+Both found by reading the owner's build 138 Settings screenshot, not from code.
+
+- **The JIT line now says what to do about it.** It read "Off. The way this copy was signed
+  doesn't allow JIT. That's fine, everything still works, just slower on the heavy systems." The
+  owner asked what that meant, which is fair: it names a cause, gives no action, and sounds
+  permanent. It is not permanent — it is `classify(get_task_allow: false, debugged: false, _)`,
+  decided entirely by how the .ipa was signed, and `get-task-allow.entitlements` ships beside the
+  app on every release for exactly this. So the line now tells the reader that signing it again
+  with that file gives them the option. No file path or web page is named, because testers get the
+  app as a file in a chat group and never see a releases page.
+- **"and N64 on older iPhones" was out of date the moment build 138 shipped.** The N64 was the
+  last system that could not use JIT on an iPhone 13 or newer running iOS 26, and build 138 fixed
+  that, so the qualifier was simply wrong. The line is now "Makes PSP, 3DS, PlayStation, N64 and
+  Dreamcast faster."
+
+Owner test: [TESTING.md](TESTING.md) J3. **J1 passed on build 138** (TESTING.md records the exact
+sentence and that the StikDebug button was correctly absent).
+
+Also worth recording from that screenshot: the library read **0 games**. If the owner's games were
+in the app before updating to 138, that is a bug worth chasing; if they had not imported anything
+into that install yet, it is nothing. Not yet known which.
 
 ---
 

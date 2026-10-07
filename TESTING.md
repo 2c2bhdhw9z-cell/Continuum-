@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 7 October 2026, for **build 135 or newer**. The newest install is always on the
+Last updated 7 October 2026, for **build 140 or newer**. The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 
@@ -34,9 +34,28 @@ a game.
 
 # The list: what still needs testing
 
-## A. New in build 133 (do these first)
+## A. New in build 140 (do this first)
 
-**J1. The JIT line** (your phone can't use JIT, so this only checks it says so nicely)
+**J3. The JIT line says what to do about it now**
+1. **Settings** → **TECHNICAL DETAILS** → the **JIT** row.
+2. ✅ Good: it says this copy wasn't signed for JIT, and then tells you that signing it again with
+   the **get-task-allow** file that comes with Continuum would give you the option.
+3. ✅ The **Use JIT when it's available** line below should now read "Makes PSP, 3DS, PlayStation,
+   N64 and Dreamcast faster" — with **no** "on older iPhones" on the end. The N64 stopped needing
+   that in build 138.
+
+**If you want to actually test JIT** (optional, and the only way anyone can — nothing in the JIT
+work has ever run on a phone): re-sign the .ipa with the `get-task-allow.entitlements` file that
+sits beside it, using a signing app that asks you for an entitlements file, then attach StikDebug.
+Your current copy was signed without it, which is why JIT can never switch on for that install.
+
+## A (from build 133) — J1 PASSED on build 138
+
+**J1. The JIT line** — ✅ **Passed, 7 October, build 138.** The owner's screenshot shows
+`Off. The way this copy was signed doesn't allow JIT. That's fine, everything still works, just
+slower on the heavy systems.`, the **Use JIT when it's available** switch on, and no
+"Turn on JIT with StikDebug" button — which is correct for a copy signed without `get-task-allow`.
+That sentence was reworded in build 140 because it named a cause with no action (J3 above). (your phone can't use JIT, so this only checks it says so nicely)
 1. **Settings** → scroll to **TECHNICAL DETAILS** at the bottom.
 2. ✅ Good: the first row, **JIT**, starts with **Off.** and says why in one plain sentence. Tell
    me the sentence. Under it is a switch, **Use JIT when it's available**: leave it on.
