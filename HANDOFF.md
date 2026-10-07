@@ -7,10 +7,9 @@ Paste this to start a new chat:
 
 ## Where things are (6 October 2026)
 
-- Newest install: build 127, release `build-127-a611e43`, 0.8.0 (127), 32 cores, checked. Link:
-  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-127-a611e43/Continuum-127.ipa
-- Build 127: the fixes from the owner's build 126 testing and the rebuilt feedback system
-  (STATUS.md "Build 127"; TESTING.md A1 to A4). The owner has the link, not tested yet.
+- Newest install: build 129, release `build-129-ba01974`, 0.8.0 (129), 32 cores, checked (feedback
+  email, new wording, old JIT test button gone). Link:
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-129-ba01974/Continuum-129.ipa
 - Build 129 (pushed 6 October; 128 was cancelled for a wording pass): the app cleaned up for a
   public beta, every tester-facing line in a human voice (STATUS.md "Build 129";
   TESTING.md A1 to A5). The owner posts the .ipa straight into Telegram groups and Reddit, not the GitHub page, so
