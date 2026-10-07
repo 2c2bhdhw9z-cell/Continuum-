@@ -75,6 +75,14 @@ Build 131 (part 1, done in code, untested: the owner's phone cannot use JIT):
 - All three `_jit_` builds compiled in build 131. If a later log shows one failing, fix it (it only
   warns; the .ipa still ships without it).
 
+**Build 138: the N64 now gets JIT on current iPhones too, so every system with a JIT build has it
+on every phone that can switch it on.** The reason it was listed as blocked was wrong twice over:
+parallel-n64's trampoline allocator is compiled but never called at the pinned commit (nothing
+calls `trampoline_init`), and its recompiler already has the two-address mode the Switch port uses,
+with all ~38 write-address-to-run-address translations already written. It only needed the host's
+pair wired into `base_addr` / `base_addr_rx`. See STATUS.md "Build 138". Untested on a phone, like
+all the JIT work.
+
 Part 2 (build 133, done): `crates/emulator-bridge/src/jit26.c` reserves a 512 MB region, has the
 JIT app bless it (`JIT26PrepareRegion` / `JIT26Detach`, `brk #0xf00d`, only after `CS_DEBUGGED` and
 only when the app itself asked for `universal.js`), and `vm_remap`s a writable view. Cores dlsym
@@ -85,7 +93,7 @@ gains `wptr_base()`, dynarmic's `address_space.cpp` passes it, dynarmic's A32 `c
 write address to the run address), `flycast-ios-jit-region.patch` (`FEAT_NO_RWX_PAGES` for the iOS
 jit build, `prepare_jit_block` two-address overload from the region, the three `JITWriteProtect`
 helpers become no-ops). `jit::core_may_use_jit` is the gate; the host hands out the same pair on
-non-TXM phones so there is one path. STILL TO DO: parallel-n64's trampolines (STATUS "Next up").
+non-TXM phones so there is one path. parallel-n64 joined this in build 138 (above).
 
 melonDS JIT is macOS-only code; DS is fine on the interpreter.
 

@@ -1248,6 +1248,10 @@ ios_apply_core_patches() {
       ios_apply_parallel_n64_first_tick_patch
       ios_apply_simple_patch parallel_n64_jit parallel_n64-ios-jit.patch \
         mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c "Continuum: iPhone JIT build."
+      # ORDER MATTERS: this one's context is the file as the patch above leaves it. Both were
+      # replayed from a pristine checkout of the pin, in this order, to confirm it.
+      ios_apply_simple_patch parallel_n64_jit parallel_n64-ios-jit-region.patch \
+        mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c "Continuum, part 2:"
       ;;
     pcsx_rearmed_jit)
       ios_apply_simple_patch pcsx_rearmed_jit pcsx_rearmed-ios-jit.patch \

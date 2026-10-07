@@ -321,14 +321,27 @@ pub fn device_has_txm(machine: &str, os_major: u32) -> bool {
 /// blessed (iPhone 13 and newer on iOS 26). There, a core must be able to write its code through a
 /// second address, and not all of them can:
 ///
-/// - PCSX ReARMed, flycast, PPSSPP and Azahar can, and are patched to ask the host for the pair.
-/// - parallel-n64 cannot yet: its jump trampolines are written through the same pointer they are
-///   run from, so the N64 stays on its interpreter on those phones, exactly as it is today.
+/// - PCSX ReARMed, flycast, PPSSPP, Azahar and parallel-n64 can, and are all patched to ask the
+///   host for the pair.
+///
+/// parallel-n64 was held back here until build 138, on the grounds that its jump trampolines are
+/// written through the same pointer they are run from. That was wrong twice over. Its trampoline
+/// allocator is compiled but **never called** at the pinned commit — nothing in `new_dynarec.c` or
+/// `assem_arm64.c` calls `trampoline_init`, so it never allocates anything. And its recompiler
+/// already has a two-address mode (`CACHE_ADDR == DOUBLE_CACHE_ADDR`, "RW address != RX address")
+/// that the Switch port uses, with every write-address-to-run-address translation already written:
+/// around twenty-five in `new_dynarec.c` and thirteen in `assem_arm64.c`, and all four
+/// `cache_flush` call sites already pass run addresses. So it needed no new machinery, only the
+/// host's pair wired into `base_addr` / `base_addr_rx`
+/// (`scripts/patches/parallel_n64-ios-jit-region.patch`).
 pub fn core_may_use_jit(core_id: &str, region_in_use: bool) -> bool {
     if !region_in_use {
         return true;
     }
-    matches!(core_id, "pcsx_rearmed" | "flycast" | "ppsspp" | "azahar")
+    matches!(
+        core_id,
+        "pcsx_rearmed" | "flycast" | "ppsspp" | "azahar" | "parallel_n64"
+    )
 }
 
 /// `fceumm_libretro_ios.dylib` -> `fceumm_jit_libretro_ios.dylib`. `None` for a name that is not
@@ -551,17 +564,19 @@ mod tests {
     }
 
     #[test]
-    fn the_n64_jit_build_is_held_back_only_where_code_must_live_in_the_region() {
+    fn every_patched_core_may_use_jit_inside_the_blessed_region() {
         // No blessed region (older phone, or iOS 18): every core may use JIT.
         for core in ["pcsx_rearmed", "parallel_n64", "flycast", "ppsspp", "azahar", "melonds"] {
             assert!(core_may_use_jit(core, false), "{core} without the region");
         }
-        // With it, the N64 one is held back: it writes its trampolines where it runs them.
-        assert!(!core_may_use_jit("parallel_n64", true));
-        assert!(core_may_use_jit("pcsx_rearmed", true));
-        assert!(core_may_use_jit("flycast", true));
-        assert!(core_may_use_jit("ppsspp", true));
-        assert!(core_may_use_jit("azahar", true));
+        // With it, only a core patched to take the host's two addresses may run. parallel_n64
+        // joined that list in build 138: its recompiler already had the two-address mode the
+        // Switch port uses, so it only needed the pair wired into base_addr / base_addr_rx.
+        for core in ["pcsx_rearmed", "flycast", "ppsspp", "azahar", "parallel_n64"] {
+            assert!(core_may_use_jit(core, true), "{core} inside the region");
+        }
+        // melonDS has no iOS JIT build at all: its Apple path is macOS-only.
+        assert!(!core_may_use_jit("melonds", true));
     }
 
     #[test]

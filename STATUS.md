@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-7 October 2026 (build 136). The install is always the newest file on the
+7 October 2026 (build 138). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Five states only:
@@ -23,13 +23,8 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 For whoever works on this next:
 
-- **The N64 on an iPhone 13 or newer running iOS 26.** Everything else gets JIT there as of build
-  133; the N64 does not, because parallel-n64 writes its jump trampolines through the same pointer
-  it runs them from (`trampoline_arm64.c`: `alloc_trampoline` returns one address used for both),
-  so it cannot use the two-address code memory those phones require. The fix is to give that
-  allocator a write offset the way the rest of that core already has (`base_addr` /
-  `base_addr_rx`). Until then `core_may_use_jit` holds its JIT build back and the N64 runs on its
-  interpreter there, exactly as it did before. Every older iPhone gets the N64 recompiler.
+- ~~The N64 on an iPhone 13 or newer running iOS 26.~~ **Done in build 138** (below). The reason
+  recorded here was wrong on both counts; see that entry.
 - melonDS JIT is not built: its Apple code is macOS-only (RWX `MAP_JIT` pages,
   `pthread_jit_write_protect_np`) and its fast-memory setup uses `shm_open`. DS runs full speed
   on the interpreter, so it waits.
@@ -166,6 +161,64 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | Achievements | **Partial** | RetroAchievements login, unlock banners and a list on the game card. Game Boy Advance achievements read mGBA's full memory map. Confirmed (build 125): logging in (the button says Logging in... and cannot be pressed twice) and the unlock banner popping up in a game. The list on the game card is not confirmed yet |
 | Cloud sync | **Built, untested** | Pick any folder in Files (iCloud Drive, Google Drive, Dropbox) once. Save states, battery saves, cheats, settings and covers sync both ways; since build 122 also Flash and J2ME saves, PDF manuals, Amiibo files, the remembered "which system is this" answers and saved servers (their passwords stay on each phone). Kept per phone on purpose: skins, the RetroAchievements login, favourites, the last online-play address, mic and camera permission. Conflicts keep both copies. Nothing is ever only deleted |
 
+
+---
+
+## Build 138 (7 October 2026) — the N64 gets JIT on current iPhones too
+
+The last system that could not use JIT on an iPhone 13 or newer running iOS 26 now can, so
+**every system with a JIT build gets it on every phone that can switch it on**. Not tested on a
+phone: the owner's phone cannot use JIT at all, so this is code-complete and unproven, like the
+rest of the JIT work.
+
+**The reason this was listed as blocked was wrong, in two separate ways.** It was recorded as
+"parallel-n64 writes its jump trampolines through the same pointer it runs them from, so it cannot
+use two-address code memory". Checking before writing any code:
+
+1. **That trampoline allocator is never called.** `trampoline_arm64.c` is compiled (it is in
+   `Makefile.common`), but at the pinned commit the only reference to any of its functions
+   anywhere in the core is `apple_jit_protect.c` calling `trampoline_commit()`. Nothing calls
+   `trampoline_init`, so `DataBase` and `CurrentData` stay NULL, nothing is ever allocated, and
+   `trampoline_commit()` is a no-op. `assem_arm64.c`'s three mentions of "trampoline" are all in
+   comments. It is dead code.
+2. **The recompiler already supports two addresses.** `new_dynarec.c` defines
+   `DOUBLE_CACHE_ADDR` — "Put the dynarec cache at random address with RW address != RX address" —
+   and the Switch port uses it, because the Switch has the same restriction iOS 26 does. Every
+   translation that needs is already written: about twenty-five in `new_dynarec.c` (the
+   `((intptr_t)x - (intptr_t)base_addr) + (intptr_t)base_addr_rx` pairs around the jump and hash
+   tables) and thirteen in `assem_arm64.c`, where `out_rx` is derived from `out` for every
+   PC-relative branch and for the jump table. All four `cache_flush` call sites already pass run
+   addresses.
+
+So no new machinery was needed, only the host's pair wired into the two pointers the recompiler
+already has. `scripts/patches/parallel_n64-ios-jit-region.patch`:
+
+- Asks the host for a 32 MB region (`TARGET_SIZE_2` is 25) via
+  `dlsym(RTLD_DEFAULT, "continuum_jit_region")`, the same lookup the other four core patches use.
+- Sets `base_addr` to the **write** address (`out` is based on it) and `base_addr_rx` to the
+  **run** address.
+- Leaves `jit_region` NULL in that mode, which is what makes `jit_write_enable` and
+  `jit_write_disable` no-ops: neither view's permissions ever change, so there is nothing to flip.
+- Falls back to the existing single mapping with `mprotect` flipping when no host region is
+  available, so an iPhone 12 or older behaves exactly as it did in build 133.
+- Gives the region back by its run address in `new_dynarec_cleanup` instead of unmapping memory
+  the host owns and hands to whichever core asks next.
+
+`jit::core_may_use_jit` now allows `parallel_n64` inside the region, and its test was rewritten to
+assert that every patched core is allowed and that melonDS (which has no iOS JIT build at all) is
+not.
+
+**How it was checked, since the sandbox cannot build for iPhone:** both patches were replayed onto
+a pristine checkout of the pinned commit in order, and both applied cleanly; brace balance across
+`new_dynarec.c` is unchanged; and the new C was lifted into a standalone harness and compiled with
+`clang -Wall -Wextra`, with no warnings, where it correctly took the fallback path and left
+`base_addr == base_addr_rx` when no host was present. `RTLD_DEFAULT` needs `_GNU_SOURCE` on Linux
+but is unconditional in Apple's `dlfcn.h`, and the four already-shipping core patches use the same
+call. 614 Rust tests and clippy pass.
+
+Note for whoever edits this next: `ios_apply_core_patches` applies
+`parallel_n64-ios-jit.patch` **before** `parallel_n64-ios-jit-region.patch`, and the second one's
+context is the file as the first leaves it. That order is load-bearing.
 
 ---
 

@@ -1,0 +1,131 @@
+diff --git a/mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c b/mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c
+index 0edbc2c..ef20c14 100644
+--- a/mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c
++++ b/mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c
+@@ -44,8 +44,41 @@ static int jit_writable = 0;
+    iPhone allows a page to be writable or runnable, one at a time, switched with mprotect. The
+    whole cache is switched at once, which is what the macOS per-thread toggle did too. */
+ #include <sys/mman.h>
++#include <dlfcn.h>
+ static void *jit_region = NULL;
+ static size_t jit_region_size = 0;
++/* Continuum, part 2: an iPhone 13 or newer on iOS 26 will not let one page be both writable
++   and runnable, nor let a page that has ever been writable become runnable, so the mprotect
++   flip above cannot work there at all. The host instead has the JIT app bless one region and
++   hands out TWO addresses for the same memory: one to run code from, one to write it through.
++   Looked up by name so a build with no such host just takes the mprotect path above. */
++static int continuum_jit_region_lookup(const char *owner, size_t size, void **rx, void **rw)
++{
++   typedef int (*region_fn)(const char *, size_t, void **, void **);
++   static region_fn fn;
++   static int looked_up;
++   if (!looked_up) {
++      fn = (region_fn)dlsym(RTLD_DEFAULT, "continuum_jit_region");
++      looked_up = 1;
++   }
++   return fn ? fn(owner, size, rx, rw) : 0;
++}
++static void continuum_jit_region_give_back(void *rx)
++{
++   typedef void (*release_fn)(void *);
++   static release_fn fn;
++   static int looked_up;
++   if (!looked_up) {
++      fn = (release_fn)dlsym(RTLD_DEFAULT, "continuum_jit_release");
++      looked_up = 1;
++   }
++   if (fn)
++      fn(rx);
++}
++/* Set when base_addr/base_addr_rx are the host's pair rather than one mapping of our own.
++   jit_region stays NULL in that case, which is what makes the two helpers below no-ops:
++   neither view's permissions ever change, so there is nothing to flip. */
++static int jit_from_host_region = 0;
+ static inline void jit_write_enable(void)
+ {
+    if (!jit_writable && jit_region)
+@@ -9073,20 +9106,49 @@ void new_dynarec_init(void)
+ 
+ #if defined(__APPLE__) && defined(__aarch64__) && defined(IOS)
+   {
+-    // Continuum: iPhone. Mapped writable, then switched to runnable; jit_write_enable and
+-    // jit_write_disable flip it from then on. No MAP_JIT: that flag is for macOS.
+-    base_addr = mmap(NULL, 1<<TARGET_SIZE_2,
+-                     PROT_READ | PROT_WRITE,
+-                     MAP_PRIVATE | MAP_ANONYMOUS,
+-                     -1, 0);
+-    if(base_addr == (void*)-1) { DebugMessage(M64MSG_ERROR, "mmap failed: %d", errno); }
+-    else {
+-      jit_region = base_addr;
+-      jit_region_size = (size_t)1<<TARGET_SIZE_2;
++    // Continuum: iPhone.
++    //
++    // FIRST CHOICE, and the only one that works on an iPhone 13 or newer running iOS 26:
++    // the host's prepared region, which gives two addresses for the same 32MB — one to run
++    // code from, one to write it through. Those phones refuse to make a page that has ever
++    // been writable runnable, so the mprotect flip below cannot work on them at all.
++    //
++    // This needs NO new machinery in the recompiler. It is exactly the shape the Switch port
++    // already uses (CACHE_ADDR==DOUBLE_CACHE_ADDR, "RW address != RX address"), and every
++    // write-address-to-run-address translation it needs is already written: about twenty-five
++    // in this file (the `((intptr_t)x-(intptr_t)base_addr)+(intptr_t)base_addr_rx` pairs
++    // around the jump and hash tables) and thirteen in assem_arm64.c, where `out_rx` is
++    // derived from `out` for every PC-relative branch and for the jump table. `out` is based
++    // on base_addr, so the WRITE view goes there; execution and every cache flush use
++    // base_addr_rx. All four cache_flush call sites already pass run addresses.
++    void *region_rx = NULL;
++    void *region_rw = NULL;
++    if (continuum_jit_region_lookup("parallel_n64-new_dynarec",
++                                    (size_t)1<<TARGET_SIZE_2,
++                                    &region_rx, &region_rw)) {
++      base_addr    = region_rw;  // `out` writes here
++      base_addr_rx = region_rx;  // code runs here
++      jit_from_host_region = 1;
++      // Deliberately leaving jit_region NULL: both views keep fixed permissions, so
++      // jit_write_enable and jit_write_disable have nothing to do and become no-ops.
+       jit_writable = 1;
+-      jit_write_disable();
++      DebugMessage(M64MSG_INFO, "dynarec host region: rx=%p rw=%p", region_rx, region_rw);
++    } else {
++      // SECOND CHOICE: one mapping, flipped between writable and runnable with mprotect.
++      // Works on an iPhone 12 or older, or any phone without the newer restriction.
++      base_addr = mmap(NULL, 1<<TARGET_SIZE_2,
++                       PROT_READ | PROT_WRITE,
++                       MAP_PRIVATE | MAP_ANONYMOUS,
++                       -1, 0);
++      if(base_addr == (void*)-1) { DebugMessage(M64MSG_ERROR, "mmap failed: %d", errno); }
++      else {
++        jit_region = base_addr;
++        jit_region_size = (size_t)1<<TARGET_SIZE_2;
++        jit_writable = 1;
++        jit_write_disable();
++      }
++      base_addr_rx = base_addr;
+     }
+-    base_addr_rx = base_addr;
+   }
+ #elif defined(__APPLE__) && defined(__aarch64__)
+   {
+@@ -9218,11 +9280,21 @@ void new_dynarec_cleanup(void)
+   #if defined(WIN32)
+     VirtualFree(base_addr, 0, MEM_RELEASE);
+   #elif defined(__APPLE__) && defined(__aarch64__)
+-    if (munmap (base_addr, 1<<TARGET_SIZE_2) < 0) {DebugMessage(M64MSG_ERROR, "munmap() failed");}
+     #if defined(IOS)
++    if (jit_from_host_region) {
++      /* The host owns this memory; it must be given back by its RUN address, which is the
++         handle continuum_jit_region returned. Unmapping it ourselves would be wrong: the
++         same region is handed to whichever core asks next. */
++      continuum_jit_region_give_back(base_addr_rx);
++      jit_from_host_region = 0;
++    } else if (munmap (base_addr, 1<<TARGET_SIZE_2) < 0) {
++      DebugMessage(M64MSG_ERROR, "munmap() failed");
++    }
+     jit_region = NULL;
+     jit_region_size = 0;
+     jit_writable = 0;
++    #else
++    if (munmap (base_addr, 1<<TARGET_SIZE_2) < 0) {DebugMessage(M64MSG_ERROR, "munmap() failed");}
+     #endif
+   #elif NEW_DYNAREC == NEW_DYNAREC_ARM64 && CACHE_ADDR!=FIXED_CACHE_ADDR
+     if (munmap (base_addr_rx, 1<<TARGET_SIZE_2) < 0) {DebugMessage(M64MSG_ERROR, "munmap() failed");}
