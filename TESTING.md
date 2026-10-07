@@ -44,8 +44,12 @@ a game.
    If you DO see one, tell me.
 
 **J2. Nothing got slower**
-1. Play Mario Kart 7 for a minute, then a PlayStation game, then a PSP game if you have one.
-2. ✅ Good: each runs the same as on build 129. These three changed under the hood for JIT.
+1. Play Mario Kart 7 for a minute, then a PlayStation game, then a PSP game if you have one, then
+   a Dreamcast game if you have one.
+2. ✅ Good: each runs the same as it did before. All four of those emulators changed inside for
+   JIT, so this is checking that the no-JIT way they actually run on your phone still works.
+3. Tap **(i)** while a game is running. ✅ A line starting **JIT:** says it is off and names your
+   iPhone and iOS version. Send me a screenshot of that line.
 
 ## A (from build 129)
 
