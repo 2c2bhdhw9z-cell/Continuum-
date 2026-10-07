@@ -1,0 +1,88 @@
+# Watch the seventeen other people's repositories so nobody here has to.
+#
+# Every emulator in Continuum is locked to one exact upstream commit, on purpose: a change
+# landing overnight must not be able to alter or break a build nobody touched. The cost is
+# that nothing ever says when an emulator has genuinely improved — the pins just sit there
+# ageing until somebody happens to look, and nobody was looking.
+#
+# So this looks, weekly, and writes the answer into docs/CORE_UPDATES.md. The owner does not
+# have to track anything and will never read this file: HANDOFF.md tells whoever works on the
+# project next to read that page at the start of a session and say, in plain English, whether
+# anything is worth taking.
+#
+# IT CHANGES NOTHING ABOUT THE APP. It moves no pin, builds no core and produces no .ipa.
+# Taking an update stays a deliberate edit to scripts/build-core.sh, then a build, then a test
+# on a phone.
+name: Core updates
+
+on:
+  schedule:
+    # Monday 07:00 UTC. A weekly cadence because these are emulators, not a security feed;
+    # anything more often is noise, and a commit of pure noise is worse than no commit.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+# Only one of these at a time, and never two commits to master racing each other.
+concurrency:
+  group: core-updates
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ask every emulator's repository whether it has moved
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/check-core-updates.sh
+
+      - name: Commit the page, but only if the answer actually changed
+        run: |
+          set -euo pipefail
+          PAGE=docs/CORE_UPDATES.md
+
+          if git diff --quiet -- "$PAGE"; then
+            echo "no change at all"
+            exit 0
+          fi
+
+          # The page carries a "Last checked" timestamp, so it differs on every single run even
+          # when every answer is identical. Committing that would put a meaningless commit on
+          # master every Monday for the rest of the project. So: if the timestamp line is the
+          # ONLY thing that moved, throw the change away.
+          SUBSTANCE="$(git diff --unified=0 -- "$PAGE" \
+            | grep -E '^[+-]' \
+            | grep -vE '^(\+\+\+|---)' \
+            | grep -v 'Last checked' \
+            || true)"
+
+          if [ -z "$SUBSTANCE" ]; then
+            echo "only the timestamp moved; nothing worth a commit"
+            git checkout -- "$PAGE"
+            exit 0
+          fi
+
+          echo "--- what changed ---"
+          printf '%s\n' "$SUBSTANCE"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$PAGE"
+          # [skip ci] so a documentation commit does not trigger an iOS build. Nothing about
+          # the app changed, and the owner's build queue is not for this.
+          git commit -m "Core updates: upstream has moved for one or more emulators [skip ci]" \
+                     -m "Written by scripts/check-core-updates.sh on its weekly run. Nothing has been taken: every core is still pinned exactly where it was, and moving one is a deliberate edit to scripts/build-core.sh followed by a build and a test on a phone."
+          git push origin HEAD:master
+
+      - name: Say what it found
+        if: always()
+        run: |
+          echo "### Emulator update check" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sed -n '1,40p' docs/CORE_UPDATES.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

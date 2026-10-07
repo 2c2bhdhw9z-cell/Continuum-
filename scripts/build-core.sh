@@ -557,6 +557,22 @@ ios_print_names() {
   done
 }
 
+# Every core's repository and pinned commit, for the weekly upstream update check
+# (scripts/check-core-updates.sh). Read from ios_core_config like everything else, so the
+# check can never drift from what is actually built.
+#
+# Tab separated because IOS_DISPLAY contains spaces and commas.
+ios_print_pins() {
+  local core
+  for core in "${IOS_CORES[@]}" "${IOS_OPTIONAL_CORES[@]}"; do
+    ios_core_config "$core"
+    # A core with no pin cannot be compared against upstream. There are none today; this is
+    # so adding one later is skipped rather than reported as a bogus "0 commits behind".
+    [[ -n "$IOS_REPO" && -n "$IOS_PIN" ]] || continue
+    printf '%s\t%s\t%s\t%s\n' "$core" "$IOS_REPO" "$IOS_PIN" "$IOS_DISPLAY"
+  done
+}
+
 # The optional from-source cores, same shape as ios_print_names. Separate so the required list
 # keeps meaning "the build fails without this".
 ios_print_optional_names() {
@@ -1543,6 +1559,10 @@ case "${1:-}" in
     ;;
   ios-optional-names)
     ios_print_optional_names
+    exit 0
+    ;;
+  ios-pins)
+    ios_print_pins
     exit 0
     ;;
   ios-stage-prebuilt)

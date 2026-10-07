@@ -3,7 +3,21 @@
 Paste this to start a new chat:
 
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
-> `HANDOFF.md`, then `STATUS.md` ("Next up" first) and `TESTING.md` section A. Then carry on.
+> `HANDOFF.md`, then `STATUS.md` ("Next up" first), `docs/CORE_UPDATES.md` and `TESTING.md`
+> section A. Then carry on.
+
+## Read docs/CORE_UPDATES.md at the start of every session
+
+It is written weekly by a scheduled job and says which emulators their own authors have updated
+since the version Continuum is locked to. **The owner is not tracking any of that and has said
+plainly that they refuse to.** They will never open that file either, so it is only useful if
+you read it and TELL them, in plain English, in a reply: which consoles have newer code, roughly
+how far behind we are, and whether it looks worth taking. Then let them decide. Taking an update
+is a deliberate edit to a pin in `scripts/build-core.sh`, a build, and a test on a phone — never
+automatic, and never without saying so first.
+
+As of 7 October 2026 the first run found 5 of 13 behind: PSP (132 commits), N64 (29),
+Beetle PSX HW (14), 3DS (6), Dreamcast (5).
 
 ## Where things are (7 October 2026)
 
