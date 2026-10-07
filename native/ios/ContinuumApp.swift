@@ -5253,6 +5253,8 @@ struct RootView: View {
         .onOpenURL { url in host.importCenter.open(url: url) }
         // The app closed unexpectedly last time: offer a crash report. See Feedback.swift.
         .modifier(CrashReportPrompt(host: host))
+        // Offers a backup folder, ONCE, the first time there are games to lose. See CloudSync.swift.
+        .modifier(BackupFolderPrompt(host: host, sync: host.cloudSync))
     }
 
     /// The one canvas, sized to the area the controls left free.

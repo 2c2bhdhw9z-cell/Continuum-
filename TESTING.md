@@ -46,8 +46,15 @@ a game.
 
 ## A. Deleting the app stops losing everything
 
-**Set the sync folder up BEFORE you next delete the app**, or there is nothing in the cloud to
-come back from.
+**Not in a build yet:** the app now ASKS you about this the first time you have games in it,
+instead of hiding it in Settings. One tap on "Choose a folder" and it is automatic from then on —
+it already syncs by itself when the app opens and when you leave a game.
+
+**O1. It asks on its own**
+1. Install a build with this in it and import a game.
+2. ✅ Good: Continuum asks "Keep your games and saves safe?" by itself, without you going looking.
+3. Tap **Choose a folder** and pick anywhere in Files. ✅ It syncs straight away.
+4. ✅ If you tap **Not now** it should never ask again, and the row in Settings should still work.
 
 **M1. Set it up once**
 1. **Settings** → **CLOUD SYNC** → **Choose a sync folder**. Pick anywhere in Files — iCloud Drive,

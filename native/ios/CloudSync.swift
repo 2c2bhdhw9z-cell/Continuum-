@@ -1146,6 +1146,66 @@ final class SyncFolderPickerDelegate: NSObject, UIDocumentPickerDelegate {
 
 // MARK: - Settings section
 
+/// Asks, once, whether Continuum should keep a backup — instead of waiting to be found.
+///
+/// WHY THIS EXISTS, in the owner's words: "I've never had a chance to do it before, so I'm not
+/// going to start now when this should have been one of the first things ever done in the whole
+/// project." They are right. Everything needed to survive deleting the app has been in Settings
+/// for builds, and they delete the app before every single install, and nothing ever told them.
+/// A feature nobody is told about is a feature nobody has.
+///
+/// WHY IT STILL NEEDS ONE TAP, which is the honest part. iOS deletes an app's entire sandbox when
+/// the app is deleted, and gives an app no storage outside it that survives. The one place that
+/// does survive is a folder the USER grants access to through the system picker, and that grant
+/// cannot be faked or pre-filled — it is the whole point of it. iCloud's own container would not
+/// need a picker, and is not an option here: re-signing an app on the phone strips the iCloud
+/// entitlement, which is why this sync was built around a chosen folder in the first place (see
+/// the note at the top of this file). So: one tap, asked for at the right moment, and after that
+/// it is automatic forever — `syncIfConfigured` already runs when the app opens and when a game
+/// is left.
+///
+/// ASKED WHEN THERE IS SOMETHING TO LOSE, not on a first launch with an empty library, where it
+/// would be one more dialog in front of someone who has not used the app yet. And asked once:
+/// "Not now" is remembered, and the Settings row is still there for later.
+struct BackupFolderPrompt: ViewModifier {
+    @ObservedObject var host: EngineHost
+    @ObservedObject var sync: CloudSync
+    @State private var shown = false
+
+    private static let askedKey = "continuum.sync.backupOffered.v1"
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Keep your games and saves safe?", isPresented: $shown) {
+                Button("Choose a folder") {
+                    UserDefaults.standard.set(true, forKey: Self.askedKey)
+                    sync.chooseFolder()
+                }
+                Button("Not now", role: .cancel) {
+                    UserDefaults.standard.set(true, forKey: Self.askedKey)
+                }
+            } message: {
+                Text("Deleting Continuum deletes everything in it: your games, saves, skins and "
+                     + "starred games. If you pick a folder, Continuum keeps a copy there and "
+                     + "puts it all back next time you install it.\n\nAny folder in Files works "
+                     + "— iCloud Drive, Google Drive, Dropbox. After this it happens on its own.")
+            }
+            .onChange(of: host.library.count) { _ in offerIfItIsTime() }
+            .onAppear { offerIfItIsTime() }
+    }
+
+    private func offerIfItIsTime() {
+        guard !shown,
+              !sync.isConfigured,
+              !UserDefaults.standard.bool(forKey: Self.askedKey),
+              !host.library.isEmpty,
+              // Never over a running game.
+              host.activeEntry == nil
+        else { return }
+        shown = true
+    }
+}
+
 struct CloudSyncSection: View {
     @ObservedObject var sync: CloudSync
 

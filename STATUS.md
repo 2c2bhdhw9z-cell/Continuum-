@@ -197,6 +197,30 @@ The getting-games-in work below rode along in this build.
 
 ---
 
+## Not yet built — the app ASKS about a backup instead of waiting to be found
+
+The owner's reply to being told to set a sync folder up: *"I've never had a chance to do it before,
+so I'm not going to start now when this should have been one of the first things ever done in the
+whole project."* They are right, and it is a product failure rather than their oversight.
+Everything needed to survive deleting the app has been sitting in Settings for builds; they delete
+the app before every single install; and nothing ever told them it was there. A feature nobody is
+told about is a feature nobody has.
+
+`BackupFolderPrompt` (CloudSync.swift, attached next to `CrashReportPrompt` on the root view) asks
+once, in plain words, the first time there is actually something to lose — when the library stops
+being empty, never on an empty first launch and never over a running game. "Not now" is remembered
+and the Settings row is still there.
+
+**Why it still takes one tap, which is the honest limit.** iOS deletes an app's entire sandbox with
+the app and gives it no storage outside that survives. The one place that does is a folder the USER
+grants through the system picker, and that grant cannot be pre-filled — it is the point of it.
+iCloud's own container needs no picker and is not available here: re-signing an app on the phone
+strips the iCloud entitlement, which is exactly why this sync was built around a chosen folder.
+After the one tap it is automatic forever: `syncIfConfigured` already runs when the app opens and
+when a game is left.
+
+---
+
 ## Also in build 142 — deleting the app no longer loses everything
 
 The owner deletes Continuum before installing each new build, every time, and said they hate it
