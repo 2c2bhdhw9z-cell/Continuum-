@@ -164,6 +164,55 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 ---
 
+## Not yet built (7 October 2026) — deleting the app no longer loses everything
+
+**Waiting on the owner's word before a build.** Committed and pushed, nothing left in the sandbox.
+
+The owner deletes Continuum before installing each new build, every time, and said they hate it
+but assumed it was unavoidable. It is not. Cloud sync already restored save states, battery saves,
+cheats, settings, cover choices, manuals and Amiibo. The three things it did not are now fixed, and
+every one of them turned out to rest on something fixable rather than on anything per-phone.
+
+**Favourites survive a reinstall, and sync.** They were stored by absolute path, which contains
+this install's container id, so after a reinstall they matched no game and were simply gone — and
+that same path was the stated reason they could never sync, since another phone's paths would have
+replaced its own list. Now keyed by **file name** (`continuum.favourites.v2`), the identity
+`skinGameKey`, `import.systemChoices.v1` and `manuals.attached.v1` already use, and games live flat
+in Documents so a name is unique. A new key rather than a rewrite, so an older build that would
+read a name as a path cannot be handed one; v1 stays excluded forever and is read once to migrate
+by taking each path's last component, which means favourites set *before* a reinstall come back too.
+
+**Skins sync.** The exclusion was circular: the index could not sync because the bytes did not
+sync, so an index arriving from elsewhere would name art the phone did not have. Syncing the bytes
+removes the reason. `Skins/` covers all four shapes a skin id owns — `<id>.(pdf|png)`, the
+`-landscape` variants, `sounds/<id>.caf` and `pieces/<id>/<file>` — against
+`EngineHost.skinsDirectory()`. `pieces` is a level deeper than anything else that syncs, so it is
+walked rather than listed flat, and its case checks the shape of the path rather than an extension
+because skin authors use whatever they like. With the bytes travelling,
+`continuum.skins.library.v1`, `continuum.controls.skinEdits.v1` and the
+`continuum.controls.touchSkins.` prefix all come off the exclusion lists. Skins arrive in two
+halves — files here, index in the settings plist — so the status line says they apply at the next
+launch rather than reloading an index that has not been read yet.
+
+**The games themselves, as a switch that is OFF by default.** Everything else that syncs is small;
+a shelf of PlayStation discs is tens of gigabytes, and pushing that into somebody's iCloud without
+asking would be a worse surprise than the problem it solves. With it on, `Games/` covers the top
+level of Documents. The extension test is deliberately **wider** than `CoreCatalog.isLaunchable`:
+a PlayStation `.bin` is a disc track and never a Library row, so `isLaunchable` refuses it, and a
+`.cue` restored without its tracks is a game that cannot load. Firmware is excluded **by name**
+through the new `CoreCatalog.isFirmwareName`, not by extension, because `.bin` is both a disc track
+and the extension of half the BIOS files in existence. When games arrive the Library is rescanned
+immediately, since a game is usable the moment it is on disk.
+
+No Rust rule change was needed: `propagates_deletion` is false for anything outside `SaveStates/`
+and `Artwork/covers/`, so a skin or a game missing on one side is copied back rather than deleted,
+the same as a manual. The Rust test for that now covers all four skin shapes and a disc game with
+its track (614 tests pass).
+
+Owner tests: [TESTING.md](TESTING.md) M1 to M3.
+
+---
+
 ## Build 141 (7 October 2026) — the Home screen: all your games, in the right order, scrolling better
 
 Four things, all from the owner using build 138.

@@ -34,6 +34,33 @@ a game.
 
 # The list: what still needs testing
 
+## A. Not in a build yet — deleting the app stops losing everything
+
+Needs a build, which is waiting on your word. **Set the sync folder up BEFORE you next delete the
+app**, or there is nothing in the cloud to come back from.
+
+**M1. Set it up once**
+1. **Settings** → **CLOUD SYNC** → **Choose a sync folder**. Pick anywhere in Files — iCloud Drive,
+   Google Drive, Dropbox. It makes a "Continuum Sync" folder inside whatever you pick.
+2. If you want your games backed up too, turn on **Back up the games too**. Leave it off if you are
+   short on cloud space — it can be tens of gigabytes.
+3. Tap **Sync now** and wait for the line above the buttons to say it finished.
+
+**M2. The real test: delete it and put it back**
+1. Star a couple of games, import a skin, then **Sync now**.
+2. Delete Continuum the way you normally do, install the new build, and choose the same folder.
+3. Tap **Sync now**, then **close Continuum fully and open it again** (skins and settings only load
+   at launch).
+4. ✅ Good: your save states, battery saves, cheats, settings, cover choices, manuals, **starred
+   games** and **imported skins** are all back. With the games switch on, the games are back too.
+5. ❌ Tell me anything that did NOT come back.
+
+**M3. BIOS files are not copied**
+1. If you have BIOS files in the Continuum folder, look in your cloud folder's "Continuum Sync"
+   after a sync with the games switch on.
+2. ✅ Good: your games are there, and no BIOS file is. Disc games should have their `.bin`/track
+   files beside the `.cue`, or they would not load when restored.
+
 ## A. New in build 141 (do these first)
 
 **L1. All your games show in Recently added**

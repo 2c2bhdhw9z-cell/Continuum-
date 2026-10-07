@@ -1242,6 +1242,33 @@ enum CoreCatalog {
         installableFirmwareNames.map { $0.lowercased() }
     )
 
+    /// Is this filename one of the BIOS files a core looks for? A BIOS is not a game.
+    ///
+    /// Exposes `firmwareNameSet` for the cloud sync's optional `Games/` category, which must not
+    /// treat a BIOS sitting in Documents as something to copy to the user's cloud folder.
+    static func isFirmwareName(_ name: String) -> Bool {
+        firmwareNameSet.contains((name as NSString).lastPathComponent.lowercased())
+    }
+
+    /// Every extension that is a game OR PART OF ONE, for the cloud sync's optional `Games/`
+    /// category.
+    ///
+    /// DERIVED from the same three sources the import picker uses, for the reason every list in
+    /// this type is derived: a second hand-written list would drift, and an extension that
+    /// drifted out of it would be a game that silently stopped being backed up.
+    ///
+    /// Wider than `isLaunchable` ON PURPOSE, and `trackExtension` is why. A PlayStation `.bin` is
+    /// a disc track, never a Library row, so `isLaunchable` refuses it — and a `.cue` restored
+    /// without its tracks is a game that cannot load. Firmware extensions are deliberately NOT
+    /// added: those files are excluded by name through `isFirmwareName` instead, because `.bin`
+    /// is both a disc track and the extension of half the BIOS files in existence.
+    static let syncableGameExtensions: Set<String> = {
+        var out = Set(launchableExtensions.map { $0.lowercased() })
+        out.insert(trackExtension)
+        out.formUnion(sharedExtensions)
+        return out
+    }()
+
     /// What a Library row shows, so a wrong route is legible before anything is launched.
     ///
     /// `ps1CoreId` is the same override launch uses. Without it a PlayStation row always

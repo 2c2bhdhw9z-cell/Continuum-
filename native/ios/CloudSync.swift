@@ -91,6 +91,28 @@ enum CloudSyncPaths {
         support()?.appendingPathComponent("Continuum/Skins", isDirectory: true)
     }
 
+    /// The switch behind the `Games/` category. Off unless the user turned it on.
+    ///
+    /// Read from `UserDefaults` here rather than passed in, because `listLocal` and `localURL`
+    /// are static and are called from the sync worker off the main actor. A missing key is false,
+    /// which is what makes this opt-in for every existing install.
+    static let includeGamesKey = "continuum.sync.includeGames.v1"
+    static func gamesAreIncluded() -> Bool {
+        UserDefaults.standard.bool(forKey: includeGamesKey)
+    }
+
+    /// Is this file in Documents a game or part of one?
+    ///
+    /// Deliberately WIDER than `CoreCatalog.isLaunchable`: that answers "would this be a row in
+    /// the Library", and a disc track must sync without being one. Restoring a `.cue` without its
+    /// `.bin` tracks would put back a game that cannot load, which is worse than not restoring it.
+    static func isSyncableGameFile(_ name: String) -> Bool {
+        let ext = (name as NSString).pathExtension.lowercased()
+        guard !ext.isEmpty, CoreCatalog.syncableGameExtensions.contains(ext) else { return false }
+        // Firmware is not a game. Same list the Library uses to keep BIOS files out of itself.
+        return !CoreCatalog.isFirmwareName(name)
+    }
+
     /// The app's Documents folder, where manuals and Amiibo live so they show in Files.
     static func documents() -> URL? {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
@@ -171,6 +193,23 @@ enum CloudSyncPaths {
                   let documents = documents() else { return nil }
             return documents.appendingPathComponent("Amiibo", isDirectory: true)
                 .appendingPathComponent(name)
+        // THE GAMES THEMSELVES, and the one category that is OFF unless asked for.
+        //
+        // Everything else here is small: saves, indexes, covers, a PDF. ROMs are not. A shelf of
+        // PlayStation discs is tens of gigabytes, and quietly pushing that into somebody's iCloud
+        // or Dropbox would be a far worse surprise than the problem it solves. So it is a switch
+        // in Settings, off by default, and when it is off a remote `Games/` path maps to nil and
+        // is never downloaded either — the opt-in works in both directions.
+        //
+        // The extension test is `sharedExtensions` plus every per-system one, NOT `isLaunchable`,
+        // and that difference is the whole point: a PlayStation `.bin` is a disc TRACK and never
+        // a Library row, so `isLaunchable` says no to it, and syncing a `.cue` without its tracks
+        // would restore a game that cannot load. Firmware is excluded by name: a BIOS is not a
+        // game, and the firmware list is the same one the Library uses to keep BIOS files out.
+        case ("Games", 2) where gamesAreIncluded():
+            let name = parts[1]
+            guard let documents = documents(), isSyncableGameFile(name) else { return nil }
+            return documents.appendingPathComponent(name)
         // SKINS. `EngineHost.skinsDirectory()` is `<AppSupport>/Continuum/Skins`, and one skin id
         // owns up to four shapes of file: its art in each orientation, its pieces, and its sound.
         //
@@ -254,6 +293,14 @@ enum CloudSyncPaths {
         for url in files(in: support.appendingPathComponent("PlayerSaves", isDirectory: true)) {
             let path = "PlayerSaves/\(url.lastPathComponent)"
             if localURL(for: path) != nil, let s = stat(url, path: path) { out.append(s) }
+        }
+        // The games, only when the user asked for them. Top level of Documents only: the
+        // subfolders there are Manuals and Amiibo, which have their own categories above.
+        if gamesAreIncluded(), let documents = documents() {
+            for url in files(in: documents) {
+                let path = "Games/\(url.lastPathComponent)"
+                if localURL(for: path) != nil, let s = stat(url, path: path) { out.append(s) }
+            }
         }
         // Skins: the art beside the root, then the two subfolders. `pieces` is one level deeper
         // than anything else that syncs, which is why it is walked rather than listed flat.
@@ -740,6 +787,19 @@ final class CloudSync: ObservableObject {
         "manuals.attached.v1",
     ]
 
+    /// Whether the optional `Games/` category is on. See `CloudSyncPaths.includeGamesKey`.
+    ///
+    /// Persisted on change like the other switches in this app, because a sideloaded build can be
+    /// killed at any moment and a switch that did not stick would look like the feature failing.
+    /// The sync worker reads the stored value directly, so nothing has to be threaded through.
+    @Published var includesGames: Bool = UserDefaults.standard
+        .bool(forKey: CloudSyncPaths.includeGamesKey) {
+        didSet {
+            guard oldValue != includesGames else { return }
+            UserDefaults.standard.set(includesGames, forKey: CloudSyncPaths.includeGamesKey)
+        }
+    }
+
     /// The plain status line: last synced, files up and down, errors.
     @Published private(set) var line: String
     @Published private(set) var folderName: String?
@@ -909,6 +969,12 @@ final class CloudSync: ObservableObject {
         if changed.contains(CloudSyncPaths.settingsPath) {
             defaults.set(true, forKey: Self.pendingSettingsKey)
             text += "; settings from the cloud apply the next time Continuum opens"
+        }
+        // Games that arrived are on disk but not in the Library until it is rescanned, and the
+        // Library is built from a scan of Documents rather than from an index, so this is all it
+        // takes. Done here rather than at the next launch because a game is usable immediately.
+        if changed.contains(where: { $0.hasPrefix("Games/") }) {
+            host?.refreshLibrary()
         }
         // SKINS ARRIVE IN TWO HALVES and both have to be in place before either is used: the
         // files under `Skins/`, here, and the index naming them, which travels in the settings
@@ -1099,8 +1165,27 @@ struct CloudSyncSection: View {
                     sync.forgetFolder()
                 }
             }
-            SettingsNote("Save states, battery saves, Flash and J2ME saves, cheats, manuals, Amiibo, "
-                         + "cover choices and settings sync with a \"Continuum Sync\" folder inside "
+            // OFF BY DEFAULT, and the only category that is. Everything else here is small; a
+            // shelf of PlayStation discs is tens of gigabytes, and putting that in somebody's
+            // cloud without asking would be a worse surprise than the problem it solves.
+            Toggle(isOn: $sync.includesGames) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Back up the games too")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("Off by default, because games are big: a few PlayStation discs can be "
+                         + "tens of gigabytes and it all goes in the folder you chose. With it "
+                         + "on, deleting Continuum and installing it again brings your games "
+                         + "back along with everything else. Disc games keep their track files, "
+                         + "so they still load. BIOS files are never copied.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(ShellPalette.secondaryText)
+                }
+            }
+            .tint(ShellPalette.accent)
+            SettingsNote("Save states, battery saves, Flash and J2ME saves, cheats, skins, "
+                         + "favourites, manuals, Amiibo, cover choices and settings sync with a "
+                         + "\"Continuum Sync\" folder inside "
                          + "the folder you choose. Any folder in Files works: iCloud Drive, Google "
                          + "Drive, Dropbox. Newest wins; a conflict keeps both copies in Continuum "
                          + "Sync/Conflicts, and a deleted save state is moved to Continuum Sync/Deleted "

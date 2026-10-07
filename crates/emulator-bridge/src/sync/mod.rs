@@ -762,12 +762,23 @@ mod tests {
     }
 
     #[test]
-    fn player_saves_manuals_and_amiibo_are_restored_rather_than_deleted() {
+    fn player_saves_manuals_amiibo_skins_and_games_are_restored_rather_than_deleted() {
         for path in [
             "PlayerSaves/Bloons.json",
             "PlayerSaves/Snake.J2meJS.srm",
             "Manuals/Super Metroid (USA).pdf",
             "Amiibo/Mario.bin",
+            // Skins: the four shapes one skin id owns. `pieces/<id>/<file>` is a level deeper
+            // than anything else that syncs, so it is here to prove the validator takes it.
+            "Skins/com.delta.snes.png",
+            "Skins/com.delta.snes-landscape.pdf",
+            "Skins/sounds/com.delta.snes.caf",
+            "Skins/pieces/com.delta.snes/a-button.png",
+            // Games, including a disc track, which is not a game on its own but is part of one.
+            // A `.cue` restored without its tracks is a game that cannot load.
+            "Games/Crash Bandicoot (USA).cue",
+            "Games/Crash Bandicoot (USA).bin",
+            "Games/Super Metroid (USA).sfc",
         ] {
             assert!(is_valid_path(path), "{path}");
             assert!(!propagates_deletion(path), "{path}");
