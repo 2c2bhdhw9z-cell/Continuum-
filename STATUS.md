@@ -166,8 +166,13 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 ## Build 142 (7 October 2026) — the owner's app icon, and everything below that was waiting on a build
 
-**The app has the owner's own icon.** A chrome C around a gamepad with CONTINUUM beneath it, on
-near-black. They supplied the picture; nothing about the design is the app's to argue with.
+**The app has an icon the owner supplied.** A chrome C around a gamepad with CONTINUUM beneath it,
+on near-black.
+
+**They do not like it, and said so plainly.** It is in the build because it was the last image
+their free ChatGPT allowance would generate and they decided it would do for now. Read it as a
+placeholder they are stuck with rather than a design anyone chose: a request to replace it is
+expected. What is actually settled is the pipeline around it, which takes any square picture.
 
 Source kept at `docs/app-icon-source.png`, the 13 sizes generated from it by
 `scripts/make-app-icon.py --from`. Two things that had to be done to it, both reported by the

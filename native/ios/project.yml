@@ -504,7 +504,14 @@ targets:
       # Build 134 shipped a DRAWN icon and should not have: the owner had asked to see any
       # artwork before it went into the app, it went in before they saw it, and they then
       # rejected it along with three alternatives. Build 135 took it out and the plumbing
-      # with it. This is their picture, supplied and approved, so the plumbing is back.
+      # with it.
+      #
+      # THE OWNER DOES NOT LIKE THIS ARTWORK EITHER, and said so plainly. It is here because
+      # it was the last image their free ChatGPT allowance would generate and they decided it
+      # would do for now. So it is a PLACEHOLDER they are stuck with, not a design anyone
+      # settled on: treat a request to change it as expected rather than as a surprise. What
+      # is permanent is the pipeline around it (`--from` plus these two lines), which takes
+      # any square picture.
       - path: Assets.xcassets
     settings:
       base:
