@@ -1,19 +1,31 @@
 #!/usr/bin/env python3
-"""Draw Continuum's app icon and write the whole .appiconset.
+"""Build Continuum's app icon set, from a supplied picture or from the drawing below.
 
-WHY THIS IS A SCRIPT AND NOT A HAND-DRAWN FILE
-----------------------------------------------
-Same reason the .xcodeproj is generated from project.yml: a 1024x1024 PNG cannot be
-reviewed in a diff, and nobody on this project has a drawing program. This script IS the
-artwork, in a form that can be read and argued with. The PNGs it emits are committed too,
-because the build runner has no Pillow and an icon that silently fails to generate would
-ship the blank white square we are fixing.
+STATE: THE APP SHIPS NO ICON. The drawn triangle in this file was shown to the owner as
+one of four options and rejected along with the other three, so it was taken back out of
+the app in build 135 and the catalogue it wrote is not in the repository. Nothing here
+runs by default; see USAGE at the bottom.
 
-Re-run after editing:   python3 scripts/make-app-icon.py
-Needs:                  pip install Pillow
+  python3 scripts/make-app-icon.py --from <picture>   fit a supplied picture to all sizes
+  python3 scripts/make-app-icon.py --drawn            use the triangle drawn in this file
 
-THE DESIGN, AND WHY
--------------------
+Needs: pip install Pillow
+
+THE RULE THIS FILE EXISTS UNDER
+-------------------------------
+The owner sees and approves artwork BEFORE it goes near the app. That was got wrong once:
+the drawn icon was committed and a build shipped it before they had looked at it, which is
+exactly what they had asked not to happen. Hence no default mode, and hence the project.yml
+wiring being absent rather than dormant: putting an icon in the app is now a deliberate act
+that cannot happen as a side effect of running this script.
+
+--from accepts any format and any size, reads the real format from the file's BYTES rather
+than its name, flattens transparency onto black (iOS refuses an icon with an alpha channel,
+and that is the usual reason a hand-made icon silently never shows up), and centre-crops to
+square. So "send a picture and I will fit it" is one command.
+
+THE DRAWN DESIGN, AND WHY
+-------------------------
 The colours are not invented. They are read straight out of the app:
 
   accent red    #ED2A4A   Play buttons, the active tab, the logo tile
@@ -42,6 +54,7 @@ APPLE'S RULES THIS OBEYS
 import json
 import math
 import os
+import sys
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
@@ -381,15 +394,55 @@ def check(side=1024):
     return box
 
 
-def main():
+def from_picture(path):
+    """Turn a picture the owner supplied into the icon master.
+
+    Accepts whatever it is handed. The format is read from the BYTES, never from the
+    filename, because a service that hands back a JPEG named .png is not a hypothetical:
+    one did exactly that on 7 October and poisoned a whole chat session with the
+    mismatch. Pillow reports what it really found and this prints it.
+
+    Then: flatten any transparency onto black, because iOS refuses an icon with an alpha
+    channel and that is the usual reason a hand-made icon silently never appears; and
+    centre-crop to a square, because an icon slot is square and a squashed picture looks
+    like a mistake.
+    """
+    im = Image.open(path)
+    print(f"==> {os.path.basename(path)} is really {im.format} {im.size[0]}x{im.size[1]}"
+          f" {im.mode}")
+
+    if im.mode in ("RGBA", "LA", "P"):
+        im = im.convert("RGBA")
+        flat = Image.new("RGB", im.size, BLACK)
+        flat.paste(im, (0, 0), im.split()[-1])
+        im = flat
+        print("    had see-through parts: flattened onto black, which iOS requires")
+    else:
+        im = im.convert("RGB")
+
+    w, h = im.size
+    if w != h:
+        side = min(w, h)
+        im = im.crop((
+            (w - side) // 2, (h - side) // 2,
+            (w - side) // 2 + side, (h - side) // 2 + side,
+        ))
+        print(f"    not square: centre-cropped to {side}x{side}")
+
+    biggest = max(px for _, _, _, px in ICON_SET)
+    if im.size[0] < biggest:
+        print(f"    smaller than {biggest}: the largest slot will be scaled up and will "
+              f"look a little soft")
+
+    return im
+
+
+def write_set(master):
+    """Write every size plus both Contents.json files."""
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     out = os.path.join(here, "native", "ios", "Assets.xcassets", "AppIcon.appiconset")
     os.makedirs(out, exist_ok=True)
 
-    check()
-
-    print(f"==> drawing at {SUPERSAMPLE}x{SUPERSAMPLE}")
-    master = render(SUPERSAMPLE)
     assert master.mode == "RGB", "iOS will not accept an icon with an alpha channel"
 
     images = []
@@ -397,8 +450,9 @@ def main():
     for idiom, size, scale, px in ICON_SET:
         name = f"icon-{px}.png"
         if px not in written:
-            img = master.resize((px, px), Image.LANCZOS).convert("RGB")
-            img.save(os.path.join(out, name), "PNG", optimize=True)
+            master.resize((px, px), Image.LANCZOS).convert("RGB").save(
+                os.path.join(out, name), "PNG", optimize=True
+            )
             written[px] = name
             print(f"    {name}")
         images.append(
@@ -407,21 +461,50 @@ def main():
 
     with open(os.path.join(out, "Contents.json"), "w") as f:
         json.dump(
-            {"images": images, "info": {"version": 1, "author": "xcode"}},
-            f,
-            indent=2,
+            {"images": images, "info": {"version": 1, "author": "xcode"}}, f, indent=2
         )
         f.write("\n")
 
     # The catalogue root. Xcode wants one even with a single set inside.
-    with open(
-        os.path.join(os.path.dirname(out), "Contents.json"), "w"
-    ) as f:
+    with open(os.path.join(os.path.dirname(out), "Contents.json"), "w") as f:
         json.dump({"info": {"version": 1, "author": "xcode"}}, f, indent=2)
         f.write("\n")
 
     print(f"==> {len(written)} files in {out}")
+    print("==> now add the catalogue back to native/ios/project.yml: a `- path: "
+          "Assets.xcassets` line in the target's `sources`, and "
+          "`ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon` in its `settings: base:`. "
+          "Both were removed when the drawn icon was taken out.")
+
+
+USAGE = """Continuum app icon builder.
+
+  python3 scripts/make-app-icon.py --from <picture>   use a picture the owner supplied
+  python3 scripts/make-app-icon.py --drawn            use the triangle drawn in this file
+
+THERE IS NO DEFAULT ON PURPOSE. The owner rejected the drawn icon and wants to see and
+approve any artwork BEFORE it goes near the app, so running this with no arguments must
+not quietly put a picture in the build. --drawn still works if it is ever asked for.
+"""
+
+
+def main(argv):
+    if len(argv) == 2 and argv[1] == "--drawn":
+        check()
+        print(f"==> drawing at {SUPERSAMPLE}x{SUPERSAMPLE}")
+        write_set(render(SUPERSAMPLE))
+        return 0
+
+    if len(argv) == 3 and argv[1] == "--from":
+        if not os.path.exists(argv[2]):
+            print(f"no such file: {argv[2]}")
+            return 1
+        write_set(from_picture(argv[2]))
+        return 0
+
+    print(USAGE)
+    return 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main(sys.argv))

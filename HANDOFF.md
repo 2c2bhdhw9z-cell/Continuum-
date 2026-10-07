@@ -7,10 +7,14 @@ Paste this to start a new chat:
 
 ## Where things are (7 October 2026)
 
-- Build 134 adds **the app's first icon**. Every build up to 133 had no icon file at all and
-  installed as a blank white square on the home screen. Drawn by `scripts/make-app-icon.py` into
-  `native/ios/Assets.xcassets`, preview at `docs/app-icon.png`, details in STATUS.md "Build 134",
-  owner test TESTING.md K1. The .ipa verify step now fails if the icon is missing.
+- **The app ships no icon, and that is the current state rather than an oversight.** Build 134 added
+  a drawn one; the owner had asked to see artwork before it went into the app, it went in before
+  they saw it, and they then rejected it along with three alternatives, so build 135 took it out.
+  Do not put one back without them approving the picture first. To put one in:
+  `python3 scripts/make-app-icon.py --from <picture>` (fits any picture to all 13 sizes, reads the
+  real format from the bytes, flattens transparency, centre-crops), then restore the two lines in
+  `native/ios/project.yml` the long comment there names. Details in STATUS.md "Build 135".
+  The keyless image service is a dead end: watermarked output, see STATUS.md.
 - Build 133, release `build-133-0e9a7e8`, 0.8.0 (133), 35 core dylibs (32 cores
   plus 3 JIT builds), checked. The app exports `_continuum_jit_region` / `_continuum_jit_release`,
   and ppsspp, azahar, pcsx_rearmed_jit and flycast_jit all have the lookup compiled in. Link:

@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-7 October 2026 (build 134). The install is always the newest file on the
+7 October 2026 (build 135). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Five states only:
@@ -169,32 +169,54 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 ---
 
+## Build 135 (7 October 2026)
+
+**The drawn app icon is out again, and the app ships no icon.** Nothing else changed from 134, so
+every build 133 test still applies.
+
+Build 134 added a drawn icon and should not have. The owner had asked to see artwork before it went
+into the app; it was committed and built before they saw it, and when they did see it — as one of
+four options on a sheet — they rejected all four. Shipping art they had rejected was the wrong call,
+so 135 removes it.
+
+What was taken out: `native/ios/Assets.xcassets`, the `- path: Assets.xcassets` line and
+`ASSETCATALOG_COMPILER_APPICON_NAME` in `native/ios/project.yml`, and the two preview sheets in
+`docs/`. The app installs as a blank white square again, which is the state until the owner supplies
+or approves a picture.
+
+What was kept, because it is the mechanism rather than the art:
+
+- `scripts/make-app-icon.py` **has no default mode any more**. `--from <picture>` fits any supplied
+  picture to all 13 sizes; `--drawn` uses the rejected triangle if it is ever asked for; running it
+  with no arguments prints usage and exits 1. That is deliberate: putting an icon in the app can no
+  longer happen as a side effect of running a script.
+- `--from` reads the real format from the file's **bytes** rather than its name, flattens any
+  transparency onto black (iOS refuses an icon with an alpha channel, and that is the usual reason a
+  hand-made icon silently never appears), and centre-crops to square. So "send a picture and it gets
+  fitted" is one command.
+- The `.ipa` verify step in `.github/workflows/ios.yml` still checks the icon, but **gated on
+  `native/ios/Assets.xcassets/AppIcon.appiconset` existing in the source tree**. It cannot fail a
+  build over a missing icon nobody asked for, and it cannot be quietly satisfied by one that failed
+  to arrive. Both halves are checked when there is art: `Assets.car` in the bundle, and the
+  `CFBundleIcons` keys in the built `Info.plist`. Confirmed working on build 134, which passed both.
+
+The drawing code and its comments are left in place as a record of what was tried, including three
+things measured rather than eyeballed: ramping the shape from the accent red to the metadata teal
+passes through grey because those two are near-complements, a highlight on a red surface has to be a
+brighter red rather than the complementary colour, and stroking a closed outline with Pillow's
+`joint="curve"` leaves flat caps where the polyline starts, which bit a square notch out of the
+triangle's top-left corner.
+
+Also recorded for whoever tries this next: the keyless image service (Pollinations) now answers only
+on its oldest small model, ignores the requested size and returns 768x768, and **burns a
+`pollinations.ai` watermark into the corner even with `nologo=true`**. Watermarked art cannot ship,
+so that route is closed regardless of how the output looks.
+
+---
+
 ## Build 134 (7 October 2026)
 
-**The app has an icon.** Every build up to 133 shipped with no icon file in it whatsoever, so it
-installed as a blank white square on the home screen. For a beta that is handed out as a file in
-chat groups rather than through the App Store, that reads as a broken install before the app is
-even opened. Owner test: [TESTING.md](TESTING.md) K1.
-
-- `native/ios/Assets.xcassets/AppIcon.appiconset`, wired into `project.yml` (listed in `sources`
-  plus `ASSETCATALOG_COMPILER_APPICON_NAME`). 13 PNG files covering the 18 iPhone, iPad and
-  marketing slots.
-- The art is a red play triangle with rounded corners on pure black, shaded deep at its base to
-  bright at its point, with a tight red bloom and a wide, weak teal wash off the point. The colours
-  are the app's own: accent red `#ED2A4A` (Play buttons, the active tab) and metadata teal
-  `#5CDBC9`. A preview sheet is at [docs/app-icon.png](docs/app-icon.png).
-- It is **drawn by `scripts/make-app-icon.py`**, not a hand-made file, for the same reason the
-  `.xcodeproj` is generated: a 1024x1024 PNG cannot be reviewed in a diff, and nobody on this
-  project has a drawing program. The script carries the design decisions as comments, including
-  three that were got wrong first and measured rather than eyeballed: ramping the body from red to
-  teal passes through grey (those two colours are near-complements), a highlight on a red surface
-  has to be a brighter red rather than the complementary colour, and stroking a closed outline with
-  Pillow's `joint="curve"` leaves flat caps at the start point, which bit a square notch out of the
-  triangle's top-left corner. The PNGs are committed as well, because the build runner has no
-  Pillow and an icon that silently failed to generate would ship the blank square again.
-- `.github/workflows/ios.yml` now fails the build if `Assets.car` is missing from the bundle or the
-  built `Info.plist` names no icon files. A missing icon is invisible in a build log — the app
-  builds, installs and runs perfectly without one — which is why it is checked there now.
+A drawn app icon, removed again in 135 — see above. Do not install this one for the icon.
 
 ---
 

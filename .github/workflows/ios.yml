@@ -307,25 +307,31 @@ jobs:
           for lib in $(otool -L "$APP/Continuum" | awk '/@rpath\//{print $1}' | sed 's#@rpath/##'); do
             [ -e "$APP/Frameworks/$lib" ] || { echo "::error::the app links $lib but it is not in Frameworks; it would close on launch"; exit 1; }
           done
-          # THE APP ICON. Every build up to 133 shipped without one and installed as a blank
-          # white square on the home screen. Nothing in a build log said so, and nothing
-          # would have: the app builds, installs and runs perfectly well with no icon. That
-          # is exactly the failure class this file exists to catch, so it is checked here.
+          # THE APP ICON, only if there is supposed to be one.
           #
-          # actool turns native/ios/Assets.xcassets into two separate things, and the icon is
-          # only really there if both arrived: the compiled catalogue, and the CFBundleIcons
-          # keys merged into the built Info.plist that tell iOS to look in it.
-          [ -f "$APP/Assets.car" ] \
-            || { echo "::error::no Assets.car in the bundle; the icon catalogue was not compiled and the app would install as a blank white square"; exit 1; }
-          plutil -extract CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconFiles json -o - "$APP/Info.plist" 2>/dev/null | grep -qi AppIcon \
-            || { echo "::error::the built Info.plist names no icon files; iOS would show a blank icon even with Assets.car present"; exit 1; }
-          # The loose copies Xcode drops beside the catalogue for the home screen. A WARNING,
-          # not an error: their exact filenames are an Xcode implementation detail, and a
-          # future version renaming them must not stop the owner getting an installable file.
-          LOOSE=$(ls "$APP"/AppIcon*.png 2>/dev/null | wc -l | tr -d ' ')
-          [ "$LOOSE" -gt 0 ] \
-            || echo "::warning::no loose AppIcon*.png in the bundle; the icon should still come from Assets.car, but check the home screen on a phone"
-          echo "app icon: Assets.car present, Info.plist names it, $LOOSE loose PNGs"
+          # There is not, at the moment: the app ships no icon and installs as a blank white
+          # square (see the long note in native/ios/project.yml for why). So this is gated on
+          # the catalogue actually being in the source tree, which keeps the check honest in
+          # both directions — it cannot fail a build for a missing icon nobody asked for, and
+          # it cannot be quietly satisfied by an icon that failed to arrive.
+          #
+          # When there IS one, it has to land as two separate things or it does not work:
+          # actool's compiled catalogue, and the CFBundleIcons keys merged into the built
+          # Info.plist that tell iOS to look inside it. A missing icon is invisible in a build
+          # log, because the app builds, installs and runs perfectly well without one, which
+          # is exactly the failure class this file exists to catch.
+          if [ -d native/ios/Assets.xcassets/AppIcon.appiconset ]; then
+            [ -f "$APP/Assets.car" ] \
+              || { echo "::error::native/ios/Assets.xcassets exists but no Assets.car reached the bundle; the app would install as a blank white square"; exit 1; }
+            plutil -extract CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconFiles json -o - "$APP/Info.plist" 2>/dev/null | grep -qi AppIcon \
+              || { echo "::error::the built Info.plist names no icon files; iOS would show a blank icon even with Assets.car present. Is ASSETCATALOG_COMPILER_APPICON_NAME set in project.yml?"; exit 1; }
+            LOOSE=$(ls "$APP"/AppIcon*.png 2>/dev/null | wc -l | tr -d ' ')
+            [ "$LOOSE" -gt 0 ] \
+              || echo "::warning::no loose AppIcon*.png in the bundle; the icon should still come from Assets.car, but check the home screen on a phone"
+            echo "app icon: Assets.car present, Info.plist names it, $LOOSE loose PNGs"
+          else
+            echo "app icon: none in the source tree, so none expected in the bundle"
+          fi
           echo "ipa verified"
 
       - name: Upload the .ipa
