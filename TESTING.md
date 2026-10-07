@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 7 October 2026, for **build 133 or newer**. The newest install is always on the
+Last updated 7 October 2026, for **build 134 or newer**. The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 
@@ -34,7 +34,17 @@ a game.
 
 # The list: what still needs testing
 
-## A. New in build 133 (do these first)
+## A. New in build 134 (do this first)
+
+**K1. The app finally has an icon**
+1. Install build 134 and look at your home screen.
+2. ✅ Good: the Continuum tile is a **red play triangle on black**. Every build before this one
+   had no icon file in it at all, so it installed as a blank white square.
+3. Two more places the same icon should show: the **Settings** app, scrolling down to Continuum in
+   the list of apps; and Search (swipe down on the home screen) when you type Continuum.
+4. ❌ If any of those three is still blank or white, send me a screenshot of it.
+
+## A (from build 133)
 
 **J1. The JIT line** (your phone can't use JIT, so this only checks it says so nicely)
 1. **Settings** → scroll to **TECHNICAL DETAILS** at the bottom.

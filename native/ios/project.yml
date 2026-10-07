@@ -471,10 +471,24 @@ targets:
       - path: build/support
         type: folder
         buildPhase: resources
+      # The app icon. Builds up to 133 shipped with NO icon at all, so the app installed as
+      # a blank white square on the home screen — which, for a beta handed out as a file in
+      # chat groups, looks like a broken install rather than an app.
+      #
+      # The art is drawn by scripts/make-app-icon.py (which explains the design and the
+      # colours); the PNGs it writes are committed because the build runner has no Pillow.
+      # Xcode's actool compiles this catalogue into Assets.car, copies the home-screen sizes
+      # into the bundle as loose AppIcon*.png, and merges the CFBundleIcons keys into the
+      # built Info.plist. The "Verify the .ipa" step in .github/workflows/ios.yml checks all
+      # three landed, because a missing icon is invisible in a build log.
+      - path: Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.continuum.app
         PRODUCT_NAME: Continuum
+        # Without this, the catalogue above is compiled but no icon is assigned and the app
+        # still installs blank. The name must match the .appiconset folder's name.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # The C header + modulemap UniFFI generated next to the Swift. The modulemap is
         # renamed to module.modulemap by build-engine.sh so clang finds it by directory.
         SWIFT_INCLUDE_PATHS: "$(SRCROOT)/build/Generated"

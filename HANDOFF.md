@@ -7,7 +7,11 @@ Paste this to start a new chat:
 
 ## Where things are (7 October 2026)
 
-- Newest install: build 133, release `build-133-0e9a7e8`, 0.8.0 (133), 35 core dylibs (32 cores
+- Build 134 adds **the app's first icon**. Every build up to 133 had no icon file at all and
+  installed as a blank white square on the home screen. Drawn by `scripts/make-app-icon.py` into
+  `native/ios/Assets.xcassets`, preview at `docs/app-icon.png`, details in STATUS.md "Build 134",
+  owner test TESTING.md K1. The .ipa verify step now fails if the icon is missing.
+- Build 133, release `build-133-0e9a7e8`, 0.8.0 (133), 35 core dylibs (32 cores
   plus 3 JIT builds), checked. The app exports `_continuum_jit_region` / `_continuum_jit_release`,
   and ppsspp, azahar, pcsx_rearmed_jit and flycast_jit all have the lookup compiled in. Link:
   https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-133-0e9a7e8/Continuum-133.ipa
@@ -102,6 +106,13 @@ for one exact game version; the cheat screen names the version for GBA and Game 
 - Never re-ask a test they already covered, and when they ask "what do I test", give the full
   steps right there in the reply, not a pointer to an earlier message.
 - Push straight to master: no branches, no pull requests. Save and push often, in big batches.
+- **Never open an image whose bytes you have not checked.** On 7 October a picture downloaded from
+  an image service was named `.png` but was really a JPEG inside. Looking at it put a file in the
+  chat's history whose declared type did not match its content, and from then on EVERY message the
+  owner sent was rejected in about a second, before it was ever read — the chat was dead and a new
+  one was the only cure, which cost a session and a lot of the owner's patience. Run `file` on an
+  image, or convert it, before looking at it. Better still, draw artwork with a script (as
+  `scripts/make-app-icon.py` does) so the bytes are never in doubt.
 - JIT when a user can enable it, never required; no web build. Behaviour goes in the Rust
   engine. Only Kiro works on this repo.
 

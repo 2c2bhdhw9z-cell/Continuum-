@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-7 October 2026 (build 133). The install is always the newest file on the
+7 October 2026 (build 134). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Five states only:
@@ -166,6 +166,35 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | Achievements | **Partial** | RetroAchievements login, unlock banners and a list on the game card. Game Boy Advance achievements read mGBA's full memory map. Confirmed (build 125): logging in (the button says Logging in... and cannot be pressed twice) and the unlock banner popping up in a game. The list on the game card is not confirmed yet |
 | Cloud sync | **Built, untested** | Pick any folder in Files (iCloud Drive, Google Drive, Dropbox) once. Save states, battery saves, cheats, settings and covers sync both ways; since build 122 also Flash and J2ME saves, PDF manuals, Amiibo files, the remembered "which system is this" answers and saved servers (their passwords stay on each phone). Kept per phone on purpose: skins, the RetroAchievements login, favourites, the last online-play address, mic and camera permission. Conflicts keep both copies. Nothing is ever only deleted |
 
+
+---
+
+## Build 134 (7 October 2026)
+
+**The app has an icon.** Every build up to 133 shipped with no icon file in it whatsoever, so it
+installed as a blank white square on the home screen. For a beta that is handed out as a file in
+chat groups rather than through the App Store, that reads as a broken install before the app is
+even opened. Owner test: [TESTING.md](TESTING.md) K1.
+
+- `native/ios/Assets.xcassets/AppIcon.appiconset`, wired into `project.yml` (listed in `sources`
+  plus `ASSETCATALOG_COMPILER_APPICON_NAME`). 13 PNG files covering the 18 iPhone, iPad and
+  marketing slots.
+- The art is a red play triangle with rounded corners on pure black, shaded deep at its base to
+  bright at its point, with a tight red bloom and a wide, weak teal wash off the point. The colours
+  are the app's own: accent red `#ED2A4A` (Play buttons, the active tab) and metadata teal
+  `#5CDBC9`. A preview sheet is at [docs/app-icon.png](docs/app-icon.png).
+- It is **drawn by `scripts/make-app-icon.py`**, not a hand-made file, for the same reason the
+  `.xcodeproj` is generated: a 1024x1024 PNG cannot be reviewed in a diff, and nobody on this
+  project has a drawing program. The script carries the design decisions as comments, including
+  three that were got wrong first and measured rather than eyeballed: ramping the body from red to
+  teal passes through grey (those two colours are near-complements), a highlight on a red surface
+  has to be a brighter red rather than the complementary colour, and stroking a closed outline with
+  Pillow's `joint="curve"` leaves flat caps at the start point, which bit a square notch out of the
+  triangle's top-left corner. The PNGs are committed as well, because the build runner has no
+  Pillow and an icon that silently failed to generate would ship the blank square again.
+- `.github/workflows/ios.yml` now fails the build if `Assets.car` is missing from the bundle or the
+  built `Info.plist` names no icon files. A missing icon is invisible in a build log — the app
+  builds, installs and runs perfectly without one — which is why it is checked there now.
 
 ---
 
