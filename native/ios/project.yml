@@ -488,24 +488,31 @@ targets:
       - path: build/support
         type: folder
         buildPhase: resources
-      # NO APP ICON, DELIBERATELY. The app installs as a blank white square on the home
-      # screen, and that is the current state rather than an oversight.
+      # THE APP ICON: the owner's own artwork, a chrome C around a gamepad with CONTINUUM
+      # under it. Source kept at docs/app-icon-source.png; the 13 sizes under
+      # Assets.xcassets are generated from it by `scripts/make-app-icon.py --from`, which
+      # flattens its transparency (iOS refuses an icon with an alpha channel) and trims the
+      # black border around its pre-rounded tile.
       #
-      # Build 134 shipped a drawn icon. It should not have: the owner had asked to see any
-      # artwork before it went into the app, it went in before they saw it, and when they
-      # did see it they rejected it along with three alternatives. Build 135 took it out.
+      # THAT TRIM MATTERS. The artwork arrived drawn as a rounded tile floating on black,
+      # which is what an app icon looks like — but iOS applies its OWN squircle mask, with a
+      # larger corner radius than the drawn tile's, so leaving the border would have put the
+      # system's curve on the home screen with the artwork's own narrower curve visible
+      # inside it and a black crescent between the two, at every corner. The border measured
+      # 44/40/44/51 px and was trimmed so the tile runs edge to edge and iOS rounds it once.
       #
-      # TO PUT ONE IN: run `python3 scripts/make-app-icon.py --from <picture>`, which fits
-      # any supplied picture to all 13 sizes and writes Assets.xcassets, then add BOTH of
-      # these back — a `- path: Assets.xcassets` line here in `sources`, and
-      # `ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon` in `settings: base:` below. With the
-      # catalogue but not the setting, Xcode compiles it and assigns nothing, and the app
-      # still installs blank. The .ipa verify step in .github/workflows/ios.yml notices
-      # whenever the catalogue is present in the source tree and enforces that it arrived.
+      # Build 134 shipped a DRAWN icon and should not have: the owner had asked to see any
+      # artwork before it went into the app, it went in before they saw it, and they then
+      # rejected it along with three alternatives. Build 135 took it out and the plumbing
+      # with it. This is their picture, supplied and approved, so the plumbing is back.
+      - path: Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.continuum.app
         PRODUCT_NAME: Continuum
+        # Without this the catalogue above is compiled and no icon is assigned, so the app
+        # still installs blank. The name must match the .appiconset folder.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # The C header + modulemap UniFFI generated next to the Swift. The modulemap is
         # renamed to module.modulemap by build-engine.sh so clang finds it by directory.
         SWIFT_INCLUDE_PATHS: "$(SRCROOT)/build/Generated"

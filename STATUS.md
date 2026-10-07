@@ -164,9 +164,35 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 ---
 
-## Not yet built (7 October 2026) — deleting the app no longer loses everything
+## Build 142 (7 October 2026) — the owner's app icon, and everything below that was waiting on a build
 
-**Waiting on the owner's word before a build.** Committed and pushed, nothing left in the sandbox.
+**The app has the owner's own icon.** A chrome C around a gamepad with CONTINUUM beneath it, on
+near-black. They supplied the picture; nothing about the design is the app's to argue with.
+
+Source kept at `docs/app-icon-source.png`, the 13 sizes generated from it by
+`scripts/make-app-icon.py --from`. Two things that had to be done to it, both reported by the
+script as it ran rather than assumed:
+
+- **Its transparency was flattened onto black.** The file arrived RGBA and iOS refuses an icon
+  with an alpha channel — this is the usual reason a hand-made icon silently never appears.
+- **The black border around its pre-rounded tile was trimmed**, measured at 44/40/44/51 px. This
+  is the one that would have looked wrong rather than failed: the artwork is drawn as a rounded
+  tile on black, which is what an app icon looks like, but iOS applies its own squircle mask with
+  a LARGER corner radius than the drawn tile's. Left alone, the home screen would show the
+  system's curve with the artwork's own narrower curve inside it and a black crescent between the
+  two, at every corner. Trimmed, the tile runs edge to edge and iOS rounds it once.
+  `trim_rounded_border` measures this by walking in along the middle row and column, so a
+  full-bleed picture measures zero and is left untouched.
+
+The trim leaves a 922 px master, so the 1024 `ios-marketing` slot is a mild upscale. That slot
+exists for an App Store listing and this app is not on the App Store; every size the phone
+actually uses is 180 px or smaller and downscales from 922, which is ample.
+
+The getting-games-in work below rode along in this build.
+
+---
+
+## Also in build 142 — deleting the app no longer loses everything
 
 The owner deletes Continuum before installing each new build, every time, and said they hate it
 but assumed it was unavoidable. It is not. Cloud sync already restored save states, battery saves,

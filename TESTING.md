@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 7 October 2026, for **build 141 or newer**. The newest install is always on the
+Last updated 7 October 2026, for **build 142 or newer**. The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 
@@ -34,10 +34,20 @@ a game.
 
 # The list: what still needs testing
 
-## A. Not in a build yet — deleting the app stops losing everything
+## A. New in build 142 (do these first)
 
-Needs a build, which is waiting on your word. **Set the sync folder up BEFORE you next delete the
-app**, or there is nothing in the cloud to come back from.
+**N1. The icon**
+1. Install build 142 and look at your home screen.
+2. ✅ Good: your icon is there — the C with the gamepad and CONTINUUM under it — and the corners
+   look like every other app's corners.
+3. ❌ Look hard at the CORNERS. If you can see a second, narrower rounded edge inside the normal
+   one, with a dark sliver between them, tell me: that means I trimmed the wrong amount.
+4. ✅ It should also show in the **Settings** app's list and in Search.
+
+## A. Deleting the app stops losing everything
+
+**Set the sync folder up BEFORE you next delete the app**, or there is nothing in the cloud to
+come back from.
 
 **M1. Set it up once**
 1. **Settings** → **CLOUD SYNC** → **Choose a sync folder**. Pick anywhere in Files — iCloud Drive,

@@ -394,6 +394,59 @@ def check(side=1024):
     return box
 
 
+def trim_rounded_border(im):
+    """Remove a pre-rounded tile's own black border, if the picture has one.
+
+    THE PROBLEM THIS SOLVES. Nearly every icon anyone produces — and every one an image
+    generator produces — comes drawn as a rounded tile floating on a black background,
+    because that is what an app icon LOOKS like. iOS does not want that. It applies its own
+    squircle mask, and its corner radius is larger than the drawn tile's, so the result on
+    the home screen is the system's curve with the artwork's own narrower curve visible
+    inside it and a black crescent between the two: a double border, at every corner.
+
+    So: measure how far in the artwork actually starts, and crop that border away, leaving
+    the tile running edge to edge. iOS then does all the rounding, once.
+
+    Measured rather than assumed. The border is found by walking in along the middle row
+    and the middle column until a pixel is brighter than near-black, which is reliable for
+    a tile on black and harmless otherwise: a full-bleed picture measures an inset of zero
+    and is returned untouched. The LARGEST of the four insets is used so the crop cannot
+    leave a sliver of border on one side, at the cost of trimming a little of the tile's
+    own dark edge on the others, which is invisible at any icon size.
+    """
+    px = im.load()
+    side = im.size[0]
+    mid = side // 2
+    floor = 14 * 3  # sum of the three channels; anything under this is black to the eye
+
+    def bright(p):
+        return p[0] + p[1] + p[2] > floor
+
+    def inset(samples):
+        for i, p in enumerate(samples):
+            if bright(p):
+                return i
+        return 0  # the whole line is black: no border to find
+
+    insets = [
+        inset([px[x, mid] for x in range(mid)]),                 # from the left
+        inset([px[side - 1 - x, mid] for x in range(mid)]),      # from the right
+        inset([px[mid, y] for y in range(mid)]),                 # from the top
+        inset([px[mid, side - 1 - y] for y in range(mid)]),      # from the bottom
+    ]
+    border = max(insets)
+
+    # Under 1% is noise or a deliberate hairline, not a rounded tile sitting on a card.
+    if border < max(2, side // 100):
+        print(f"    no pre-rounded border found (insets {insets}); using it full-bleed")
+        return im
+
+    print(f"    pre-rounded tile detected: insets {insets}, trimming {border}px all round")
+    print("      (iOS rounds the corners itself; leaving the border would show the "
+          "artwork's own curve inside the system's as a black crescent)")
+    return im.crop((border, border, side - border, side - border))
+
+
 def from_picture(path):
     """Turn a picture the owner supplied into the icon master.
 
@@ -428,6 +481,8 @@ def from_picture(path):
             (w - side) // 2 + side, (h - side) // 2 + side,
         ))
         print(f"    not square: centre-cropped to {side}x{side}")
+
+    im = trim_rounded_border(im)
 
     biggest = max(px for _, _, _, px in ICON_SET)
     if im.size[0] < biggest:
