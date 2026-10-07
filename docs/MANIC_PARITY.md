@@ -145,7 +145,14 @@ screen saying which code types each system reads (build 126).
 - [x] GameCube and Wii research: done, docs/HARD_SYSTEMS.md. Not playable without JIT; not built.
 - [x] Symbian / N-Gage research: done, docs/HARD_SYSTEMS.md. Possible later, needs a wrapper.
 - [x] Dreamcast builds on CI (in the IPA since build 119). [ ] Runs on a phone: TESTING.md C19.
-- [ ] SMB file shares, done properly this time (see Ways to get games in).
+- [ ] SMB file shares, done properly this time (see Ways to get games in). **Root cause of the
+      build 117 breakage now known** (7 October, from reading AMSMB2's `Package.swift` rather than
+      guessing): it declares its library product as `type: .dynamic`, which a consumer cannot
+      override, so adding it as a Swift package always produces a framework that must be embedded.
+      "Link it statically" is not an available fix. Two real options, both in the long note above
+      `targets:` in `native/ios/project.yml`: build it on CI and embed it the way
+      MoltenVK.framework already is, or vendor its Swift plus libsmb2's C into the app target so
+      there is no framework at all.
 - [ ] Direct Google Drive / Dropbox / OneDrive logins (needs the owner's developer app ids).
 - [x] Achievements on Game Boy Advance (memory maps). Phone (build 125): an unlock banner popped up
       (the system it was on was not said).

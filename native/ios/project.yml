@@ -37,8 +37,25 @@ settings:
 
 # SMB (AMSMB2) was removed after build 117: Xcode linked its framework but never embedded it, so
 # the app died at launch looking for AMSMB2.framework. RemoteSources.swift builds without it
-# (`#if canImport(AMSMB2)`) and says SMB is not in this build. Bring it back only together with a
-# proven embed, and the "every linked framework is inside the app" check in ios.yml will catch it.
+# (`#if canImport(AMSMB2)`) and says SMB is not in this build.
+#
+# WHY IT HAPPENED, found on 7 October by reading the package rather than guessing: AMSMB2's
+# Package.swift declares its library product as `type: .dynamic`. That is not a default and not
+# negotiable from the consuming side — SPM cannot be asked to link a `.dynamic` product
+# statically. So adding it as a Swift package ALWAYS produces a framework that must then be
+# embedded, and "just link it statically" is not an available fix.
+#
+# Which leaves two real options when it is brought back:
+#   1. Build it on CI as a dynamic framework and embed it exactly like MoltenVK.framework and the
+#      core dylibs already are (`embed: true`, `codeSign: false`, signed in one pass afterwards by
+#      package-ipa.sh). That pattern is proven in this project.
+#   2. Vendor AMSMB2's Swift sources and libsmb2's C into the app target so there is no framework
+#      to embed at all. More code in the repository, but no embed step to get wrong.
+#
+# Either way the failure mode must stay safe: the SMB code is behind `#if canImport(AMSMB2)`, so a
+# build without the framework compiles and says SMB is not in this build, exactly as now. And the
+# "every linked framework is inside the app" check in ios.yml catches build 117's mistake before
+# an .ipa ships rather than after it is installed.
 
 targets:
   Continuum:
