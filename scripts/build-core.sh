@@ -1406,6 +1406,39 @@ build_ios_core() {
 # core. The only thing that decided pass or fail would then be whether a .dylib exists, which a
 # stale one from an earlier run can satisfy. A separate process re-reads this script and applies
 # its own `set -euo pipefail`, so the suppression cannot cross into it.
+# Is this core's staged dylib already here AND recorded as built from the commit it is
+# pinned to? Then it does not need building again.
+#
+# WHY THIS EXISTS. Building the cores is 35 of the ~40 minutes of a CI build, every build,
+# including one that only changed a line of documentation. Worse, the owner feels that cost
+# twice: anything that goes wrong late in the job means waiting the whole 35 minutes again
+# for the retry. Every core is pinned to an exact upstream commit, so the output is a pure
+# function of (that commit + this script + the patches) and is safe to keep.
+#
+# The proof of provenance is ios_record_source_version's manifest, not the file's presence:
+# the line has to name this core's repository, its pinned sha, and the word `pinned`, which
+# that function only writes when the checkout's HEAD really was the pin. A dylib left over
+# from a different commit cannot satisfy that.
+#
+# PATCHES ARE NOT COVERED BY THE PIN, so they are covered by the CI cache key instead
+# (hashFiles over scripts/patches/** in .github/workflows/ios.yml): editing a patch throws
+# the whole cache away and everything rebuilds.
+#
+# OFF BY DEFAULT. Only CI sets CONTINUUM_CORE_CACHE=1. A build run by hand stays exactly as
+# predictable as it was, and `rm -rf native/ios/build/lib` is still the way to force
+# everything.
+ios_core_is_cached() {
+  [[ "${CONTINUUM_CORE_CACHE:-0}" == "1" ]] || return 1
+  local core="$1"
+  ios_core_config "$core"
+  [[ -n "${IOS_PIN:-}" ]] || return 1
+  [[ -f "$IOS_OUT_DIR/$IOS_DYLIB_NAME" ]] || return 1
+  local manifest="$IOS_OUT_DIR/core-sources.txt"
+  [[ -f "$manifest" ]] || return 1
+  grep -qx "$core $IOS_REPO $IOS_PIN pinned" "$manifest" || return 1
+  return 0
+}
+
 build_all_ios_cores() {
   ios_require_darwin
 
@@ -1413,10 +1446,16 @@ build_all_ios_cores() {
   # and this one is empty exactly when everything worked.
   local failed=""
   local failed_count=0
+  local reused=0
   local core
   for core in "${IOS_CORES[@]}"; do
     echo
     echo "======================================================== ios: $core"
+    if ios_core_is_cached "$core"; then
+      echo "==> $core: reusing the cached dylib, still at its pinned commit"
+      reused=$((reused + 1))
+      continue
+    fi
     if bash "$IOS_SELF" ios "$core"; then
       echo "==> $core ok"
     else
@@ -1432,6 +1471,11 @@ build_all_ios_cores() {
   for core in "${IOS_OPTIONAL_CORES[@]}"; do
     echo
     echo "======================================================== ios (optional): $core"
+    if ios_core_is_cached "$core"; then
+      echo "==> $core: reusing the cached dylib, still at its pinned commit"
+      reused=$((reused + 1))
+      continue
+    fi
     if bash "$IOS_SELF" ios "$core"; then
       echo "==> $core ok"
     else
@@ -1443,6 +1487,9 @@ build_all_ios_cores() {
   done
 
   echo
+  if [[ "$reused" -gt 0 ]]; then
+    echo "==> $reused core(s) reused from the cache, not rebuilt"
+  fi
   echo "==> iOS core summary (native/ios/build/lib)"
   for core in "${IOS_CORES[@]}" "${IOS_OPTIONAL_CORES[@]}"; do
     ios_core_config "$core"

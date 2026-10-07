@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-7 October 2026 (build 135). The install is always the newest file on the
+7 October 2026 (build 136). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Five states only:
@@ -166,6 +166,44 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | Achievements | **Partial** | RetroAchievements login, unlock banners and a list on the game card. Game Boy Advance achievements read mGBA's full memory map. Confirmed (build 125): logging in (the button says Logging in... and cannot be pressed twice) and the unlock banner popping up in a game. The list on the game card is not confirmed yet |
 | Cloud sync | **Built, untested** | Pick any folder in Files (iCloud Drive, Google Drive, Dropbox) once. Save states, battery saves, cheats, settings and covers sync both ways; since build 122 also Flash and J2ME saves, PDF manuals, Amiibo files, the remembered "which system is this" answers and saved servers (their passwords stay on each phone). Kept per phone on purpose: skins, the RetroAchievements login, favourites, the last online-play address, mic and camera permission. Conflicts keep both copies. Nothing is ever only deleted |
 
+
+---
+
+## Build 136 (7 October 2026) — the build takes ~6 minutes instead of ~40
+
+Nothing in the app changed. This is about how long a fix takes to reach the phone, which was
+the worst thing about working on it: every build, including one that only changed a line of
+documentation, spent **35 of its 40 minutes rebuilding 35 emulator cores from source**, and
+anything that went wrong late in the job meant paying all 35 again for the retry.
+
+Measured from build 134's own timings before changing anything: 35.1 min of 39.5 in one step,
+88.9% of the job, spread across the per-core builds (snes9x 1.2 min, stella2023 1.3 min,
+azahar's submodules 2.1 min, and so on). Everything else together is under 5 minutes.
+
+Every core is pinned to an exact upstream commit, so its dylib is a pure function of that
+commit, `build-core.sh` and the patches. So they are kept between runs:
+
+- `scripts/build-core.sh` gains `ios_core_is_cached`. It reuses a staged dylib only when
+  `ios_record_source_version`'s provenance manifest has a line naming that core's repository,
+  its **pinned sha**, and the word `pinned` — which that function writes only when the
+  checkout's HEAD really was the pin. A dylib left from a different commit cannot satisfy it.
+  Off unless `CONTINUUM_CORE_CACHE=1`, which only CI sets, so a build run by hand is unchanged.
+  Verified against a faked staging directory: reuses on an exact pinned match, and rebuilds
+  with the environment variable off, with no manifest, when the manifest names a different
+  commit, and when it says `unpinned`.
+- `.github/workflows/ios.yml` caches `native/ios/build/lib/*_libretro_ios.dylib` plus the
+  manifest, keyed on `hashFiles('scripts/build-core.sh', 'scripts/patches/**',
+  'scripts/fetch-buildbot-cores.sh')`. The patches are in the key because a patch changes a
+  core's output without changing any pin; editing one throws the cache away and everything
+  rebuilds, which is correct.
+- **The cache is saved with `if: always()`, immediately after the cores exist**, using
+  `actions/cache/restore` and `actions/cache/save` rather than one `actions/cache` step. The
+  combined step only saves when the whole job succeeded, which is precisely the wrong moment:
+  a job that built all 35 cores and then failed in `xcodebuild` would save nothing and the
+  retry would pay the full 35 minutes. Now a failed build still leaves the cores cached.
+
+Build 136 itself is still slow — it is the one that fills the cache, and its key changed
+because `build-core.sh` did. Builds after it are the fast ones.
 
 ---
 

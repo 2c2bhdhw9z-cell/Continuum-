@@ -185,6 +185,35 @@ jobs:
           # Hand-declaring them is what put two errors in the design document last time.
           ./scripts/fetch-libretro-headers.sh
 
+      # THE CORE CACHE, and the reason this is restore/save rather than one `actions/cache`
+      # step.
+      #
+      # Building the 35 emulator cores is 35 of this job's ~40 minutes, on EVERY build,
+      # including one that changed a line of documentation. Each core is pinned to an exact
+      # upstream commit, so its dylib is a pure function of that commit, build-core.sh and
+      # the patches, and can be kept between runs. build-core.sh only reuses one when its
+      # provenance manifest says the dylib really was built from the pin (see
+      # ios_core_is_cached), and CONTINUUM_CORE_CACHE=1 below is what switches that on.
+      #
+      # The key covers the patches as well as the pins, because a patch changes the output
+      # without changing any pin. Editing one throws the cache away and everything rebuilds,
+      # which is the correct and safe behaviour.
+      #
+      # `actions/cache` saves only when the whole job succeeded, and that is exactly the
+      # wrong moment here: a job that built all 35 cores and then failed in xcodebuild would
+      # save nothing, so the retry would pay the 35 minutes all over again. That is the
+      # single most frustrating thing about this build. So the cores are SAVED IMMEDIATELY
+      # AFTER THEY EXIST, with `if: always()`, and the save deliberately does not care
+      # whether the build that followed worked.
+      - name: Restore the built cores
+        id: core-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            native/ios/build/lib/*_libretro_ios.dylib
+            native/ios/build/lib/core-sources.txt
+          key: ios-cores-${{ runner.os }}-${{ hashFiles('scripts/build-core.sh', 'scripts/patches/**', 'scripts/fetch-buildbot-cores.sh') }}
+
       - name: Build the engine, the wrapper and the UniFFI bindings
         env:
           # For scripts/fetch-buildbot-cores.sh: a prebuilt core or prboom.wad that had to come from
@@ -193,7 +222,21 @@ jobs:
           # upload is a warning. Uses this job's `contents: write`.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CONTINUUM_MIRROR_UPLOAD: ${{ github.ref == 'refs/heads/master' && '1' || '0' }}
+          # Reuse a staged core dylib when its manifest line still names its pinned commit.
+          # Off unless set, so a build run by hand is unchanged.
+          CONTINUUM_CORE_CACHE: "1"
         run: ./native/ios/build-engine.sh
+
+      # Deliberately `always()`: see the long note above. If this job dies after this point,
+      # the next run still starts with the cores already built.
+      - name: Save the built cores
+        if: always() && steps.core-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            native/ios/build/lib/*_libretro_ios.dylib
+            native/ios/build/lib/core-sources.txt
+          key: ios-cores-${{ runner.os }}-${{ hashFiles('scripts/build-core.sh', 'scripts/patches/**', 'scripts/fetch-buildbot-cores.sh') }}
 
       - name: Show the generated Swift interface
         run: |
