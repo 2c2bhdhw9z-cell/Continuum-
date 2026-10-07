@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-7 October 2026 (build 130). The install is always the newest file on the
+7 October 2026 (build 131). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Five states only:
@@ -23,7 +23,7 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 For whoever works on this next:
 
-- **JIT, part 2: iOS 26 iPhones with TXM** (A15 and newer, most current phones). Build 130 gives
+- **JIT, part 2: iOS 26 iPhones with TXM** (A15 and newer, most current phones). Build 131 gives
   JIT to every phone where attaching a debugger is enough, and reports TXM phones as "needs a
   newer kind of JIT support". Next: the host prepares one big code region through StikJIT's
   universal protocol (`JIT26PrepareRegion`, then `JIT26Detach`, only after `CS_DEBUGGED`), hands
@@ -158,7 +158,7 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | iPhone microphone | **Built, untested** | 3DS games that listen (Azahar asks for it). Switch in Settings, off by default. DS games do not use it: melonDS only fakes a blow on its L2 button |
 | Amiibo file | **Partial** | Import and pick Amiibo files in the 3DS menu. The 3DS core (Azahar) has no way to receive one yet, and the app says so when you tap |
 | Haptics on a button press | **Done** | Button taps and game rumble confirmed on build 125. Off, light, medium or strong in Settings. Also game rumble on the phone and on controllers, with its own switch |
-| JIT | **Built, untested** | Build 130. Used by itself when JIT is on: PSP and 3DS from their regular builds, PlayStation, N64 and Dreamcast from second `_jit_` builds. Not on iOS 26 iPhones with TXM (A15 and newer) yet: they need StikJIT's region protocol. The owner's phone cannot use JIT, so a tester has to confirm it |
+| JIT | **Built, untested** | Build 131. Used by itself when JIT is on: PSP and 3DS from their regular builds, PlayStation, N64 and Dreamcast from second `_jit_` builds. Not on iOS 26 iPhones with TXM (A15 and newer) yet: they need StikJIT's region protocol. The owner's phone cannot use JIT, so a tester has to confirm it |
 | Rewind | **Done** | |
 | Fast forward | **Done** | About 4x, not 5x |
 | Save slots, including export | **Partial** | 50 slots plus the auto-save, export and import of states and battery saves. Save to the next free slot confirmed (122); slot pictures, save and load on 14 systems, export and import, rename, save over and delete confirmed (125). 3DS states loading and imported slots showing their picture confirmed (126) |
@@ -170,8 +170,9 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 ---
 
-## Build 130 (7 October 2026)
+## Build 131 (7 October 2026)
 
+(Build 130 stopped on a Swift start-up order mistake and an N64 JIT link error; both fixed.)
 JIT for everyone who can switch it on (owner, 7 October). Nothing changes on a phone without JIT,
 which includes the owner's: every core loads and runs exactly as in build 129.
 

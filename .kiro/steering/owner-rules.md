@@ -26,7 +26,7 @@ These come straight from the owner. They are not suggestions.
   instead of assuming. A build runs the Linux checks first, then takes about 30 minutes on the
   Mac; a second push waits for the running build instead of cancelling it.
 - Before handing over the .ipa, open it and check it: the version (0.8.0 and the build number)
-  and the core count (32 `_libretro_ios.dylib` files as of build 124). Never say a build is the
+  and the core count (35 `_libretro_ios.dylib` files as of build 131: 32 cores plus 3 JIT builds). Never say a build is the
   newest without checking the Releases page.
 - With every .ipa, give a short list of easy things to try on it. The owner often tests at work.
 

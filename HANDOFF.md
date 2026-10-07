@@ -7,9 +7,11 @@ Paste this to start a new chat:
 
 ## Where things are (7 October 2026)
 
-- Newest install: build 129, release `build-129-ba01974`, 0.8.0 (129), 32 cores, checked (feedback
-  email, new wording, old JIT test button gone). Link:
-  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-129-ba01974/Continuum-129.ipa
+- Newest install: build 131, release `build-131-a2776f0`, 0.8.0 (131), 35 core dylibs (32 cores
+  plus the 3 JIT builds), checked. Link:
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-131-a2776f0/Continuum-131.ipa
+- Build 131 = JIT part 1 (below). Build 130 failed (Swift init order, N64 JIT link); fixed in 131.
+  Its owner tests are TESTING.md J1 and J2; build 129's A1 to A5 are still unanswered.
 - Build 129 (pushed 6 October; 128 was cancelled for a wording pass): the app cleaned up for a
   public beta, every tester-facing line in a human voice (STATUS.md "Build 129";
   TESTING.md A1 to A5). The owner posts the .ipa straight into Telegram groups and Reddit, not the GitHub page, so
@@ -32,7 +34,7 @@ Paste this to start a new chat:
 
 ## JIT (owner, 7 October: required for everyone who can enable it, never required to work)
 
-Build 130 (part 1, done in code, untested: the owner's phone cannot use JIT):
+Build 131 (part 1, done in code, untested: the owner's phone cannot use JIT):
 - `crates/emulator-bridge/src/jit.rs` reads `CS_GET_TASK_ALLOW` / `CS_DEBUGGED` (via
   `jit_probe::ios_aarch64::signing_status`) and the phone model and iOS version (`sysctl`
   `hw.machine`, `kern.osproductversion`). JIT is usable when debugged, not on a TXM phone (iOS 26,
@@ -47,7 +49,8 @@ Build 130 (part 1, done in code, untested: the owner's phone cannot use JIT):
 - Settings, Technical details: JIT sentence, "Use JIT when it's available", StikDebug button
   (`stikdebug://enable-jit?bundle-id=&pid=`, no script, only when not TXM). `JIT:` line in (i)
   and feedback.
-- If build 130's log shows a `_jit_` build failing, fix it (it only warns; the .ipa still ships).
+- All three `_jit_` builds compiled in build 131. If a later log shows one failing, fix it (it only
+  warns; the .ipa still ships without it).
 
 Part 2, next (STATUS.md "Next up"): TXM phones. Host side: after `CS_DEBUGGED`, call
 `JIT26PrepareRegion(NULL, size)` (`mov x16,#1; brk #0xf00d`) for one large RX region, make a RW

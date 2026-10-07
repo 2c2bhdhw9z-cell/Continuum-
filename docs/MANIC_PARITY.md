@@ -21,7 +21,7 @@ Keep this file current. A new session should be able to read this and carry on.
   ran on its own defaults. Manic exposes core settings, resolution, palettes and the Atari switches,
   all of which are core settings, so the engine now answers with the core's own default unless the
   user changed it, and Settings shows each core's options.
-- **JIT when available, never required** (from build 130): PSP, 3DS, PlayStation, N64 and
+- **JIT when available, never required** (from build 131): PSP, 3DS, PlayStation, N64 and
   Dreamcast use their recompilers on a phone where JIT is on; every phone without it runs as
   before. GameCube and Wii are not built: they are not playable without JIT. Symbian
   is not started: it needs a libretro wrapper written first. See [HARD_SYSTEMS.md](HARD_SYSTEMS.md).

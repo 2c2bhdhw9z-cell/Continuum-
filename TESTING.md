@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 7 October 2026, for **build 130 or newer**. The newest install is always on the
+Last updated 7 October 2026, for **build 131 or newer**. The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 
@@ -34,7 +34,7 @@ a game.
 
 # The list: what still needs testing
 
-## A. New in build 130 (do these first)
+## A. New in build 131 (do these first)
 
 **J1. The JIT line** (your phone can't use JIT, so this only checks it says so nicely)
 1. **Settings** → scroll to **TECHNICAL DETAILS** at the bottom.
