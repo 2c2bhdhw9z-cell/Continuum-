@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-7 October 2026 (build 131). The install is always the newest file on the
+7 October 2026 (build 133). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Five states only:
@@ -23,14 +23,13 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 For whoever works on this next:
 
-- **JIT, part 2: iOS 26 iPhones with TXM** (A15 and newer, most current phones). Build 131 gives
-  JIT to every phone where attaching a debugger is enough, and reports TXM phones as "needs a
-  newer kind of JIT support". Next: the host prepares one big code region through StikJIT's
-  universal protocol (`JIT26PrepareRegion`, then `JIT26Detach`, only after `CS_DEBUGGED`), hands
-  out pieces through an exported C function, and the cores that already support a separate
-  writable copy of their code use it: PCSX ReARMed (`TC_WRITE_OFFSET`), parallel-n64
-  (`DOUBLE_CACHE_ADDR`), flycast (`FEAT_NO_RWX_PAGES` style `rx_offset`). PPSSPP and Azahar
-  (oaknut) write code where they run it, so they need a bigger port. HANDOFF.md has the detail.
+- **The N64 on an iPhone 13 or newer running iOS 26.** Everything else gets JIT there as of build
+  133; the N64 does not, because parallel-n64 writes its jump trampolines through the same pointer
+  it runs them from (`trampoline_arm64.c`: `alloc_trampoline` returns one address used for both),
+  so it cannot use the two-address code memory those phones require. The fix is to give that
+  allocator a write offset the way the rest of that core already has (`base_addr` /
+  `base_addr_rx`). Until then `core_may_use_jit` holds its JIT build back and the N64 runs on its
+  interpreter there, exactly as it did before. Every older iPhone gets the N64 recompiler.
 - melonDS JIT is not built: its Apple code is macOS-only (RWX `MAP_JIT` pages,
   `pthread_jit_write_protect_np`) and its fast-memory setup uses `shm_open`. DS runs full speed
   on the interpreter, so it waits.
@@ -158,7 +157,7 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | iPhone microphone | **Built, untested** | 3DS games that listen (Azahar asks for it). Switch in Settings, off by default. DS games do not use it: melonDS only fakes a blow on its L2 button |
 | Amiibo file | **Partial** | Import and pick Amiibo files in the 3DS menu. The 3DS core (Azahar) has no way to receive one yet, and the app says so when you tap |
 | Haptics on a button press | **Done** | Button taps and game rumble confirmed on build 125. Off, light, medium or strong in Settings. Also game rumble on the phone and on controllers, with its own switch |
-| JIT | **Built, untested** | Build 131. Used by itself when JIT is on: PSP and 3DS from their regular builds, PlayStation, N64 and Dreamcast from second `_jit_` builds. Not on iOS 26 iPhones with TXM (A15 and newer) yet: they need StikJIT's region protocol. The owner's phone cannot use JIT, so a tester has to confirm it |
+| JIT | **Built, untested** | Build 133 (part 2).  Used by itself when JIT is on: PSP and 3DS from their regular builds, PlayStation, N64 and Dreamcast from second `_jit_` builds. Not on iOS 26 iPhones with TXM (A15 and newer) yet: they need StikJIT's region protocol. The owner's phone cannot use JIT, so a tester has to confirm it |
 | Rewind | **Done** | |
 | Fast forward | **Done** | About 4x, not 5x |
 | Save slots, including export | **Partial** | 50 slots plus the auto-save, export and import of states and battery saves. Save to the next free slot confirmed (122); slot pictures, save and load on 14 systems, export and import, rename, save over and delete confirmed (125). 3DS states loading and imported slots showing their picture confirmed (126) |
@@ -169,6 +168,32 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 
 ---
+
+## Build 133 (7 October 2026)
+
+**JIT now works on current iPhones.** Build 131 only covered phones where attaching a debugger is
+the whole job, which on iOS 26 means an iPhone 12 or older: almost nobody. This build does the part
+that was missing.
+
+- An iPhone 13 or newer on iOS 26 has TXM, which means the app may only run generated code from a
+  single region that a debugger blessed, and that region stays read-and-execute for good. So the
+  engine reserves one 512 MB region, has the JIT app bless it through StikJIT's universal protocol
+  (`JIT26PrepareRegion`, then `JIT26Detach`, in `crates/emulator-bridge/src/jit26.c`), and maps a
+  second writable address for the same pages with `vm_remap`. Cores take slices of it through an
+  exported `continuum_jit_region`, getting one address to run code from and one to write through.
+- The breakpoint that protocol uses is only ever executed with the right script attached: the app
+  asks StikDebug for `universal.js` itself, waits until the kernel says a debugger is attached, and
+  only then runs it. With nothing listening that instruction would close the app, so there is also
+  a plainly labelled button for someone who attached by hand.
+- Patched to use it: **PPSSPP** (PSP), **Azahar** (3DS, through oaknut and dynarmic), **PCSX
+  ReARMed** (PlayStation) and **flycast** (Dreamcast). Each already had a separate-write-address
+  mode for the Nintendo Switch; this points it at the host's region. The host hands out the same
+  pair of addresses on older iPhones too, so there is one code path everywhere.
+- **The N64 is the exception** and stays on its interpreter on those phones; see "Next up".
+- The 3DS recompiler's code cache is 32 MB per emulated process on a phone instead of 128 MB, so
+  several fit in the region.
+- Settings says what is happening in plain words, and finishes the setup by itself after the
+  StikDebug trip. Nothing changes on a phone without JIT, including the owner's.
 
 ## Build 131 (7 October 2026)
 

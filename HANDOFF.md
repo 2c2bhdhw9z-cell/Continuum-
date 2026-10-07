@@ -7,11 +7,9 @@ Paste this to start a new chat:
 
 ## Where things are (7 October 2026)
 
-- Newest install: build 131, release `build-131-a2776f0`, 0.8.0 (131), 35 core dylibs (32 cores
-  plus the 3 JIT builds), checked. Link:
-  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-131-a2776f0/Continuum-131.ipa
-- Build 131 = JIT part 1 (below). Build 130 failed (Swift init order, N64 JIT link); fixed in 131.
-  Its owner tests are TESTING.md J1 and J2; build 129's A1 to A5 are still unanswered.
+- Newest install: build 133 (watch the run; it was queued behind 132). 0.8.0, 35 core dylibs.
+- Build 133 = JIT parts 1 and 2 (below): current iPhones included. Owner tests are TESTING.md J1
+  and J2; build 129's A1 to A5 are still unanswered.
 - Build 129 (pushed 6 October; 128 was cancelled for a wording pass): the app cleaned up for a
   public beta, every tester-facing line in a human voice (STATUS.md "Build 129";
   TESTING.md A1 to A5). The owner posts the .ipa straight into Telegram groups and Reddit, not the GitHub page, so
@@ -52,13 +50,18 @@ Build 131 (part 1, done in code, untested: the owner's phone cannot use JIT):
 - All three `_jit_` builds compiled in build 131. If a later log shows one failing, fix it (it only
   warns; the .ipa still ships without it).
 
-Part 2, next (STATUS.md "Next up"): TXM phones. Host side: after `CS_DEBUGGED`, call
-`JIT26PrepareRegion(NULL, size)` (`mov x16,#1; brk #0xf00d`) for one large RX region, make a RW
-alias with `vm_remap`, call `JIT26Detach` (`x16=0`), and export a C function the patched cores
-`dlsym` to get (rx, rw) pieces. Only do the `brk` when StikDebug's universal script is attached
-(the StikDebug URL then needs `script-name=universal.js`). Core side: PCSX ReARMed
-`TC_WRITE_OFFSET` + `BASE_ADDR_DYNAMIC`, parallel-n64 `DOUBLE_CACHE_ADDR`, flycast dual mapping
-(`prepare_jit_block(..., rx_offset)`). PPSSPP and Azahar/oaknut need a writable-alias port.
+Part 2 (build 133, done): `crates/emulator-bridge/src/jit26.c` reserves a 512 MB region, has the
+JIT app bless it (`JIT26PrepareRegion` / `JIT26Detach`, `brk #0xf00d`, only after `CS_DEBUGGED` and
+only when the app itself asked for `universal.js`), and `vm_remap`s a writable view. Cores dlsym
+`continuum_jit_region` / `continuum_jit_release`. Patches: `ppsspp-ios-jit-region.patch` (CodeBlock
+takes the pair, `PlatformIsWXExclusive` then false), `azahar-ios-jit-region.patch` (oaknut CodeBlock
+gains `wptr_base()`, dynarmic's `address_space.cpp` passes it, dynarmic's A32 `code_cache_size`
+32 MB on iOS), `pcsx_rearmed-ios-jit.patch` (`TC_WRITE_OFFSET` + region, cache flush translates the
+write address to the run address), `flycast-ios-jit-region.patch` (`FEAT_NO_RWX_PAGES` for the iOS
+jit build, `prepare_jit_block` two-address overload from the region, the three `JITWriteProtect`
+helpers become no-ops). `jit::core_may_use_jit` is the gate; the host hands out the same pair on
+non-TXM phones so there is one path. STILL TO DO: parallel-n64's trampolines (STATUS "Next up").
+
 melonDS JIT is macOS-only code; DS is fine on the interpreter.
 
 ## Build 126 test results (6 October)
