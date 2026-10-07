@@ -50,21 +50,29 @@ pub enum JitState {
     CannotBeEnabled,
     /// `get-task-allow` is there; nothing has attached yet.
     NotEnabled,
-    /// A debugger attached, but this phone needs the iOS 26 region protocol (TXM).
-    NeedsNewerMethod,
+    /// A debugger attached, and this phone needs its code region prepared first (iOS 26 + TXM).
+    /// One call away from [`JitState::On`]: see [`prepare_now`].
+    NeedsPreparing,
+    /// The region protocol was tried on this phone and did not work. Cores stay on interpreters.
+    PrepareFailed,
     /// Usable.
     On,
 }
 
 impl JitState {
-    /// A short code for logs and feedback details.
+    /// A short phrase for the technical read-out, the activity log and the feedback details.
+    ///
+    /// Words rather than codes, because the owner reads this line on the phone and nothing in the
+    /// app branches on it. "New-phone protection" is TXM: the thing that makes an iPhone 13 or
+    /// newer on iOS 26 need its code memory blessed by the debugger first.
     pub fn code(self) -> &'static str {
         match self {
-            JitState::NotThisPlatform => "not-ios",
-            JitState::Unreadable => "unreadable",
-            JitState::CannotBeEnabled => "no-get-task-allow",
-            JitState::NotEnabled => "not-enabled",
-            JitState::NeedsNewerMethod => "txm",
+            JitState::NotThisPlatform => "not an iPhone build",
+            JitState::Unreadable => "could not check this copy",
+            JitState::CannotBeEnabled => "off, this copy was not signed for JIT",
+            JitState::NotEnabled => "off, no JIT app has attached",
+            JitState::NeedsPreparing => "attached, needs setting up (new-phone protection)",
+            JitState::PrepareFailed => "attached, but setting it up failed",
             JitState::On => "on",
         }
     }
@@ -83,9 +91,14 @@ impl JitState {
                 "Off. The way this copy was signed doesn't allow JIT. That's fine, everything \
                  still works, just slower on the heavy systems."
             }
-            (JitState::NeedsNewerMethod, _) => {
-                "Off. JIT is attached, but on iOS 26 this iPhone needs a newer kind of JIT \
-                 support that Continuum doesn't have yet. Everything still works without it."
+            (JitState::NeedsPreparing, _) => {
+                "Nearly. JIT is attached and this iPhone needs one more step, which Continuum \
+                 does by itself when you turn JIT on from the button below."
+            }
+            (JitState::PrepareFailed, _) => {
+                "Off. JIT is attached but setting it up on this iPhone didn't work. Everything \
+                 still works without it, just slower on the heavy systems. Please tell me, and \
+                 say which iPhone and iOS version you're on."
             }
             (JitState::Unreadable, _) | (JitState::NotThisPlatform, _) => {
                 "Off. Couldn't check this copy, so games use the regular mode."
@@ -123,6 +136,7 @@ pub fn state() -> JitState {
             status & CS_GET_TASK_ALLOW != 0,
             status & CS_DEBUGGED != 0,
             device_has_txm(&machine, os_major),
+            region_state(),
         )
     }
     #[cfg(not(all(target_os = "ios", target_arch = "aarch64")))]
@@ -132,15 +146,127 @@ pub fn state() -> JitState {
 }
 
 /// The decision itself, apart from the system calls, so it can be tested.
-pub fn classify(get_task_allow: bool, debugged: bool, txm: bool) -> JitState {
+///
+/// `region` is what the prepared-region protocol has done so far: see [`RegionState`]. It only
+/// matters on a TXM phone, where executable memory exists solely inside that region.
+pub fn classify(get_task_allow: bool, debugged: bool, txm: bool, region: RegionState) -> JitState {
     match (get_task_allow, debugged, txm) {
         (false, false, _) => JitState::CannotBeEnabled,
         (_, false, _) => JitState::NotEnabled,
-        (_, true, true) => JitState::NeedsNewerMethod,
+        (_, true, true) => match region {
+            RegionState::Ready => JitState::On,
+            RegionState::Failed => JitState::PrepareFailed,
+            RegionState::NotPrepared => JitState::NeedsPreparing,
+        },
         // Debugged without get-task-allow cannot normally happen; if it does, the kernel already
         // allows executable memory, which is all that matters.
         (_, true, false) => JitState::On,
     }
+}
+
+/// How far the iOS 26 prepared-region protocol has got. Mirrors `continuum_jit26_state` in
+/// `jit26.c`, which owns the actual region.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegionState {
+    NotPrepared,
+    Ready,
+    Failed,
+}
+
+// ---------------------------------------------------------------- the iOS 26 region protocol
+//
+// `jit26.c` holds the region and the breakpoint calls, and its header explains the protocol. This
+// side decides WHEN it is safe to run, which is the part that matters: a breakpoint with no
+// script attached kills the app.
+
+extern "C" {
+    fn continuum_jit26_prepare(size: usize) -> bool;
+    fn continuum_jit26_state() -> i32;
+    fn continuum_jit26_region_size() -> usize;
+    fn continuum_jit26_used() -> usize;
+    /// Not called from Rust. Referenced once in [`keep_region_symbol`] so the linker cannot drop
+    /// it from the app: the cores find it by name at run time.
+    fn continuum_jit_region(
+        owner: *const core::ffi::c_char,
+        size: usize,
+        out_rx: *mut *mut core::ffi::c_void,
+        out_rw: *mut *mut core::ffi::c_void,
+    ) -> bool;
+}
+
+/// How big a region to ask for, reserved in one piece because nothing can be prepared after the
+/// debugger lets go.
+///
+/// Address space, not memory: pages cost nothing until a core writes to them. Sized for a whole
+/// session rather than one game, because a slice is kept for each core that asks (so leaving a
+/// game and coming back does not eat another slice): the PlayStation wants 16 MB, the N64 32 MB,
+/// the Dreamcast about 12 MB, the PSP 16 MB, and the 3DS 32 MB per recompiler instance after the
+/// Continuum patch that brings it down from 128 MB.
+const REGION_SIZE: usize = 512 * 1024 * 1024;
+
+/// Whether the app asked a JIT enabler for the universal script in this session.
+///
+/// THE GUARD ON RUNNING THE BREAKPOINT AT ALL. The protocol is a `brk` instruction that only the
+/// universal script answers; with an ordinary debugger attached, or no script, it terminates the
+/// process. The app cannot ask the system which script is attached, so it relies on having asked
+/// for it itself (the StikDebug button builds the URL with `script-name=universal.js`), or on the
+/// user pressing a button that says what it needs.
+static ENABLER_ASKED: AtomicBool = AtomicBool::new(false);
+
+/// Called just before opening a JIT enabler with the universal script requested.
+pub fn set_enabler_asked() {
+    ENABLER_ASKED.store(true, Ordering::SeqCst);
+}
+
+pub fn enabler_asked() -> bool {
+    ENABLER_ASKED.load(Ordering::SeqCst)
+}
+
+pub fn region_state() -> RegionState {
+    // SAFETY: a read of one `int` with no arguments.
+    match unsafe { continuum_jit26_state() } {
+        1 => RegionState::Ready,
+        2 => RegionState::Failed,
+        _ => RegionState::NotPrepared,
+    }
+}
+
+/// Makes sure the symbol the cores look up survives the link.
+///
+/// The engine is a static library inside the app's executable, and nothing in the app calls
+/// `continuum_jit_region`: the cores do, by name, at run time. Taking its address here is what
+/// keeps it in the symbol table for `dlsym` to find.
+pub fn keep_region_symbol() -> usize {
+    continuum_jit_region as *const () as usize
+}
+
+/// Runs the protocol: reserve the region, have the debugger prepare it, keep a writable view.
+///
+/// **Only call this when the universal script is attached.** The two callers are
+/// [`prepare_if_asked`], which requires that the app asked for it itself, and the explicit
+/// "set JIT up now" control. Does nothing unless the state is exactly [`JitState::NeedsPreparing`],
+/// so it cannot run on a phone that does not need it, cannot run before a debugger has attached,
+/// and cannot run twice.
+pub fn prepare_now() -> JitState {
+    if state() != JitState::NeedsPreparing {
+        return state();
+    }
+    log::info!("JIT: preparing a {} MB code region (iOS 26 protocol)", REGION_SIZE / (1024 * 1024));
+    // SAFETY: the guard above establishes the one condition the call has: a debugger is attached
+    // on a phone that needs this, so the script is listening for the breakpoint.
+    let ok = unsafe { continuum_jit26_prepare(REGION_SIZE) };
+    let after = state();
+    log::info!("JIT: region prepared: {ok}; state is now {}", after.code());
+    after
+}
+
+/// The automatic path, called whenever the app comes back to the front: if the app asked a JIT
+/// enabler for the universal script and a debugger is now attached, finish the job.
+pub fn prepare_if_asked() -> JitState {
+    if enabler_asked() {
+        return prepare_now();
+    }
+    state()
 }
 
 /// Whether this phone needs the iOS 26 region protocol, whatever its JIT state.
@@ -272,8 +398,17 @@ pub fn technical_line() -> String {
             String::new()
         }
     };
+    let region = match region_state() {
+        RegionState::NotPrepared => String::new(),
+        RegionState::Ready => {
+            // SAFETY: two reads of a `size_t`.
+            let (size, used) = unsafe { (continuum_jit26_region_size(), continuum_jit26_used()) };
+            format!(", region {} MB with {} MB handed out", size / (1024 * 1024), used / (1024 * 1024))
+        }
+        RegionState::Failed => ", region prepare failed".to_string(),
+    };
     format!(
-        "JIT: {}{}{device}",
+        "JIT: {}{}{device}{region}",
         state.code(),
         if allowed() { "" } else { ", switched off in Settings" }
     )
@@ -354,11 +489,40 @@ mod tests {
 
     #[test]
     fn the_state_follows_the_signing_flags() {
-        assert_eq!(classify(false, false, false), JitState::CannotBeEnabled);
-        assert_eq!(classify(true, false, false), JitState::NotEnabled);
-        assert_eq!(classify(true, false, true), JitState::NotEnabled);
-        assert_eq!(classify(true, true, false), JitState::On);
-        assert_eq!(classify(true, true, true), JitState::NeedsNewerMethod);
+        let fresh = RegionState::NotPrepared;
+        assert_eq!(classify(false, false, false, fresh), JitState::CannotBeEnabled);
+        assert_eq!(classify(true, false, false, fresh), JitState::NotEnabled);
+        assert_eq!(classify(true, false, true, fresh), JitState::NotEnabled);
+        // No TXM: attaching is the whole job.
+        assert_eq!(classify(true, true, false, fresh), JitState::On);
+        assert_eq!(classify(true, true, false, RegionState::Failed), JitState::On);
+        // TXM: the region decides.
+        assert_eq!(classify(true, true, true, fresh), JitState::NeedsPreparing);
+        assert_eq!(classify(true, true, true, RegionState::Ready), JitState::On);
+        assert_eq!(classify(true, true, true, RegionState::Failed), JitState::PrepareFailed);
+    }
+
+    #[test]
+    fn the_region_symbol_is_linked_in_and_does_nothing_here() {
+        // The cores find this by name at run time, so it has to survive the link.
+        assert_ne!(keep_region_symbol(), 0);
+        // Nothing is prepared on the test machine, so a core asking is told to carry on as usual.
+        assert_eq!(region_state(), RegionState::NotPrepared);
+        let mut rx = core::ptr::null_mut();
+        let mut rw = core::ptr::null_mut();
+        // SAFETY: a NUL-terminated name and two real out-pointers.
+        let given = unsafe { continuum_jit_region(c"test".as_ptr(), 4096, &mut rx, &mut rw) };
+        assert!(!given);
+    }
+
+    #[test]
+    fn preparing_does_nothing_unless_the_phone_needs_it() {
+        // Not an iPhone here, so the breakpoint path is unreachable by construction.
+        assert_eq!(prepare_now(), JitState::NotThisPlatform);
+        assert_eq!(prepare_if_asked(), JitState::NotThisPlatform);
+        set_enabler_asked();
+        assert!(enabler_asked());
+        assert_eq!(prepare_if_asked(), JitState::NotThisPlatform);
     }
 
     #[test]
@@ -393,6 +557,6 @@ mod tests {
     fn on_this_machine_jit_is_never_usable() {
         assert_eq!(state(), JitState::NotThisPlatform);
         assert!(!usable());
-        assert!(technical_line().starts_with("JIT: not-ios"));
+        assert!(technical_line().starts_with("JIT: not an iPhone build"));
     }
 }

@@ -26,6 +26,14 @@ fn main() {
         .warnings(true)
         .compile("continuum_retro_log_shim");
 
+    // The iOS 26 JIT region protocol. Its header says why it is C: two functions that are a bare
+    // breakpoint instruction, plus the Mach call that maps a writable view of prepared pages.
+    println!("cargo:rerun-if-changed=src/jit26.c");
+    cc::Build::new()
+        .file("src/jit26.c")
+        .warnings(true)
+        .compile("continuum_jit26");
+
     build_rcheevos();
 }
 
