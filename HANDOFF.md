@@ -131,7 +131,21 @@ for one exact game version; the cheat screen names the version for GBA and Game 
 - When they are testing, fix nothing until they say "I'm done testing for now"; just record.
 - Never re-ask a test they already covered, and when they ask "what do I test", give the full
   steps right there in the reply, not a pointer to an earlier message.
-- Push straight to master: no branches, no pull requests. Save and push often, in big batches.
+- Push straight to master: no branches, no pull requests.
+- **ONE BUILD PER BATCH, NEVER ONE BUILD PER FIX.** The owner is angry about a session that left
+  six builds in the Actions list, three of them cancelled because a later push superseded them.
+  That looked like builds piling up in parallel; they were not. `ios.yml` already has a
+  concurrency group (one running, at most one queued), so overlapping builds are almost always
+  too many pushes rather than a concurrency fault — check `run_started_at` before claiming
+  otherwise, and do not "fix" the workflow for what is a pushing-discipline problem.
+- **How to satisfy that AND the rule about never losing work: `[skip ci]`.** The two pull in
+  opposite directions — work must be pushed as soon as it is finished, because a session can end
+  at any moment, but every push to a watched path starts a build. So: push each finished piece as
+  it is done with `[skip ci]` in the commit message, then make the LAST push of the batch without
+  it, and that single build contains everything. Nothing is ever left only in the sandbox, and the
+  owner gets one build.
+- Only the paths listed in `ios.yml`'s `on: push: paths:` start a build at all, so a commit
+  touching only `STATUS.md`, `HANDOFF.md`, `TESTING.md` or `docs/` never needs `[skip ci]`.
 - **A build takes about 6 minutes, not 40, as of build 136.** The 35 cores are cached between
   runs (STATUS.md "Build 136"). Two things to know: editing anything in `scripts/patches/` or
   `scripts/build-core.sh` changes the cache key and the next build pays the full ~40 minutes
