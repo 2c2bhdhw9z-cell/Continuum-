@@ -29,6 +29,8 @@
 //   PlayerSaves/<stem>.json, PlayerSaves/<stem>.J2meJS.srm    <AppSupport>/PlayerSaves/ (Flash
 //                                                             and J2ME saves, written by the
 //                                                             bundled players)
+//   Skins/<id>.(pdf|png), Skins/<id>-landscape.(pdf|png),     <AppSupport>/Continuum/Skins/
+//   Skins/sounds/<id>.caf, Skins/pieces/<id>/<file>
 //   Manuals/<name>.pdf                                        <Documents>/Manuals/
 //   Amiibo/<name>.bin                                         <Documents>/Amiibo/
 //   Settings/defaults.plist                                   exported from UserDefaults: the
@@ -38,10 +40,17 @@
 //   Artwork/choices.json, Artwork/covers/<hash>.cover         exported artwork choices, re-keyed
 //                                                             by ROM filename
 //
-// Kept on this phone on purpose: skins (Skins/ and their settings), the RetroAchievements login,
-// favourites (stored by full path, which differs per install), the last online-play address,
+// Kept on this phone on purpose: the RetroAchievements login, the last online-play address,
 // microphone and camera consent, and the sync's own bookmark and history. `excludedKeys` and
 // `excludedPrefixes` say why for each.
+//
+// SKINS AND FAVOURITES USED TO BE ON THAT LIST and are not any more, because both exclusions
+// rested on something that has been fixed rather than on anything per-phone. Favourites were
+// stored by absolute path, which contains the install's container id; they are keyed by file name
+// now (`continuum.favourites.v2`). Skins were excluded because their BYTES did not sync, so an
+// index arriving from elsewhere would name art the phone did not have; the bytes sync now. Both
+// mattered for one reason: this app's owner deletes it before every install, so anything that
+// does not come back from the cloud folder is lost on every single build.
 //
 // Settings and artwork choices are EXPORTED to a staging folder before each sync and IMPORTED at
 // the next launch, before any store reads them. Importing into a live app would race the objects
@@ -74,6 +83,12 @@ enum CloudSyncPaths {
 
     static func support() -> URL? {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+    }
+
+    /// Where imported skins keep their files. Must stay in step with
+    /// `EngineHost.skinsDirectory()`, which is the only other place this path is spelled out.
+    static func skinsRoot() -> URL? {
+        support()?.appendingPathComponent("Continuum/Skins", isDirectory: true)
     }
 
     /// The app's Documents folder, where manuals and Amiibo live so they show in Files.
@@ -156,6 +171,39 @@ enum CloudSyncPaths {
                   let documents = documents() else { return nil }
             return documents.appendingPathComponent("Amiibo", isDirectory: true)
                 .appendingPathComponent(name)
+        // SKINS. `EngineHost.skinsDirectory()` is `<AppSupport>/Continuum/Skins`, and one skin id
+        // owns up to four shapes of file: its art in each orientation, its pieces, and its sound.
+        //
+        // These used to be left on the phone on purpose, and the skin index keys with them. The
+        // reason given was circular: the index could not sync because the BYTES did not sync, so
+        // another phone's index would list skins whose files it did not have. Syncing the bytes
+        // removes the reason. It also removes the thing the owner hits hardest — they delete the
+        // app before every install, so every imported skin had to be imported again, every build.
+        //
+        // A skin file is never deleted from the other side: `propagates_deletion` in the Rust
+        // rules is false for anything outside SaveStates and Artwork/covers, so a skin missing on
+        // one phone is copied back rather than removed, same as a manual or an Amiibo.
+        case ("Skins", 2):
+            // `<id>.pdf`, `<id>.png`, and the `-landscape` variants, which are just part of the
+            // name. Nothing else: the skin's own `info.json` is parsed at import and lives in the
+            // index, not on disk here.
+            let name = parts[1]
+            guard ["pdf", "png"].contains((name as NSString).pathExtension.lowercased()) else {
+                return nil
+            }
+            return skinsRoot()?.appendingPathComponent(name)
+        case ("Skins", 3) where parts[1] == "sounds":
+            // `sounds/<id>.caf`, the button sound a Manic skin can carry.
+            guard (parts[2] as NSString).pathExtension.lowercased() == "caf" else { return nil }
+            return skinsRoot()?.appendingPathComponent("sounds", isDirectory: true)
+                .appendingPathComponent(parts[2])
+        case ("Skins", 4) where parts[1] == "pieces":
+            // `pieces/<id>/<file>`, the individual button images. Extensions are whatever the
+            // skin author used, so this checks the SHAPE of the path and not the extension;
+            // `syncIsValidPath` above has already refused anything with a `..` or a leading dot.
+            return skinsRoot()?.appendingPathComponent("pieces", isDirectory: true)
+                .appendingPathComponent(parts[2], isDirectory: true)
+                .appendingPathComponent(parts[3])
         case ("Settings", 2) where relative == settingsPath:
             return staging()?.appendingPathComponent(relative)
         case ("Artwork", 2) where relative == artworkChoicesPath:
@@ -206,6 +254,28 @@ enum CloudSyncPaths {
         for url in files(in: support.appendingPathComponent("PlayerSaves", isDirectory: true)) {
             let path = "PlayerSaves/\(url.lastPathComponent)"
             if localURL(for: path) != nil, let s = stat(url, path: path) { out.append(s) }
+        }
+        // Skins: the art beside the root, then the two subfolders. `pieces` is one level deeper
+        // than anything else that syncs, which is why it is walked rather than listed flat.
+        if let skins = skinsRoot() {
+            for url in files(in: skins) {
+                let path = "Skins/\(url.lastPathComponent)"
+                if localURL(for: path) != nil, let s = stat(url, path: path) { out.append(s) }
+            }
+            for url in files(in: skins.appendingPathComponent("sounds", isDirectory: true)) {
+                let path = "Skins/sounds/\(url.lastPathComponent)"
+                if localURL(for: path) != nil, let s = stat(url, path: path) { out.append(s) }
+            }
+            let piecesRoot = skins.appendingPathComponent("pieces", isDirectory: true)
+            for skinDir in (try? fm.contentsOfDirectory(at: piecesRoot,
+                                                        includingPropertiesForKeys: [.isDirectoryKey],
+                                                        options: [.skipsHiddenFiles])) ?? [] {
+                let id = skinDir.lastPathComponent
+                for url in files(in: skinDir) {
+                    let path = "Skins/pieces/\(id)/\(url.lastPathComponent)"
+                    if localURL(for: path) != nil, let s = stat(url, path: path) { out.append(s) }
+                }
+            }
         }
         if let documents = documents() {
             for folder in ["Manuals", "Amiibo"] {
@@ -628,7 +698,8 @@ final class CloudSync: ObservableObject {
     private static let excludedPrefixes = [
         "continuum.sync.", "continuum.artwork.choice.", "continuum.artwork.address.",
         "continuum.artwork.sources.", "continuum.artwork.misses.", "continuum.n64.lastCrumb.",
-        "continuum.controls.touchSkins.",
+        // `continuum.controls.touchSkins.` was here, excluded because the skin bytes under
+        // Skins/ did not sync. They do now, so the per-system skin visuals travel with them.
     ]
 
     /// Single `continuum.` keys that belong to this phone. Each would do harm on another one, and
@@ -644,10 +715,12 @@ final class CloudSync: ObservableObject {
         // it is the identity the rest of the app uses (`skinGameKey`, `import.systemChoices.v1`,
         // `manuals.attached.v1`), it survives a reinstall, and it is meaningful on another phone.
         "continuum.favourites.v1",
-        // The skin index and the skin editor's changes, both by skin id. The skins' files live
-        // under Skins/, which does not sync, so another phone's index would drop this phone's
-        // skins from its library (the same reason as `continuum.controls.touchSkins.` above).
-        "continuum.skins.library.v1", "continuum.controls.skinEdits.v1",
+        // The skin index and the skin editor's changes used to be here, both by skin id, because
+        // the skins' FILES did not sync and so another phone's index would list skins it had no
+        // art for. The files sync now (`Skins/` above), which removes the reason: the index, the
+        // editor overlays and the per-system visuals all travel with the bytes they describe.
+        // A skin id is a Delta/Manic identifier or a hash of the file, never a path, so it means
+        // the same thing on any phone and survives a reinstall.
         // The address this phone last joined for online play, which is usually the other phone.
         "continuum.netplay.lastAddress.v1",
         // Permission to use this phone's microphone and camera is given on this phone.
@@ -836,6 +909,14 @@ final class CloudSync: ObservableObject {
         if changed.contains(CloudSyncPaths.settingsPath) {
             defaults.set(true, forKey: Self.pendingSettingsKey)
             text += "; settings from the cloud apply the next time Continuum opens"
+        }
+        // SKINS ARRIVE IN TWO HALVES and both have to be in place before either is used: the
+        // files under `Skins/`, here, and the index naming them, which travels in the settings
+        // plist above and is applied by `applyPendingSettings` at the next launch. So this says
+        // so rather than reloading now, which would otherwise leave the in-memory skin library
+        // listing ids whose index entry has not been read yet.
+        if changed.contains(where: { $0.hasPrefix("Skins/") }) {
+            text += "; skins from the cloud apply the next time Continuum opens"
         }
         if changed.contains(where: { $0.hasPrefix("Artwork/") }) {
             defaults.set(true, forKey: Self.pendingArtworkKey)
