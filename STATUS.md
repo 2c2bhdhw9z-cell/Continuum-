@@ -171,6 +171,10 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 ## Build 133 (7 October 2026)
 
+Checked in the .ipa: the app exports the two symbols the cores look up, and PPSSPP, Azahar, PCSX
+ReARMed and flycast's JIT build all have the lookup compiled in. Nobody has run it on a phone with
+JIT on yet.
+
 **JIT now works on current iPhones.** Build 131 only covered phones where attaching a debugger is
 the whole job, which on iOS 26 means an iPhone 12 or older: almost nobody. This build does the part
 that was missing.

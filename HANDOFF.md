@@ -7,7 +7,10 @@ Paste this to start a new chat:
 
 ## Where things are (7 October 2026)
 
-- Newest install: build 133 (watch the run; it was queued behind 132). 0.8.0, 35 core dylibs.
+- Newest install: build 133, release `build-133-0e9a7e8`, 0.8.0 (133), 35 core dylibs (32 cores
+  plus 3 JIT builds), checked. The app exports `_continuum_jit_region` / `_continuum_jit_release`,
+  and ppsspp, azahar, pcsx_rearmed_jit and flycast_jit all have the lookup compiled in. Link:
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-133-0e9a7e8/Continuum-133.ipa
 - Build 133 = JIT parts 1 and 2 (below): current iPhones included. Owner tests are TESTING.md J1
   and J2; build 129's A1 to A5 are still unanswered.
 - Build 129 (pushed 6 October; 128 was cancelled for a wording pass): the app cleaned up for a
