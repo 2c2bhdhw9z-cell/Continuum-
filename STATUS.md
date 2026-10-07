@@ -197,6 +197,33 @@ The getting-games-in work below rode along in this build.
 
 ---
 
+## Not yet built — the core cache was being deleted a second after it was restored
+
+**The ~6 minute build never happened, and build 142 is the proof.** Its log reads
+`Cache hit for: ios-cores-macOS-1c0a08df...` and `Cache restored successfully`, then rebuilt all
+35 cores anyway and spent 35 minutes doing it. Zero cores were reused.
+
+The cache was working perfectly. `native/ios/build-engine.sh` was throwing it away: line 39 was
+`rm -rf "$OUT"`, and `$OUT` is `native/ios/build`, whose `lib` subdirectory is exactly where the
+cache is restored to. Restore put 35 dylibs there; the next script deleted them.
+
+Diagnosed by checking rather than assuming — the two candidate explanations were a key miss and a
+failure of `ios_core_is_cached`, and the log ruled both out by reporting a hit while reusing
+nothing, which left only something removing the files in between.
+
+The clean slate stays, because a stale staticlib or a half-written dylib from an interrupted run
+must not leak into a build. The core dylibs and `core-sources.txt` now step aside and come back
+around it, and **only** under `CONTINUUM_CORE_CACHE=1`, so a build run by hand still starts from a
+genuinely empty directory. Nothing else is preserved: the engine, the wrapper and the bindings are
+rebuilt every time, because those are what a commit actually changes. Verified against a faked
+build directory: the cores and manifest survive, `libemulator_bridge.a` and stale generated
+bindings do not, and without the flag the directory comes out completely empty.
+
+Build 142 was already past that point when this was found, so it paid the full 35 minutes. The
+build after this should be the first genuinely fast one.
+
+---
+
 ## Not yet built — the app ASKS about a backup instead of waiting to be found
 
 The owner's reply to being told to set a sync folder up: *"I've never had a chance to do it before,

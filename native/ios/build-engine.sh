@@ -36,8 +36,41 @@ EOF
   exit 1
 fi
 
-rm -rf "$OUT"
-mkdir -p "$LIBDIR" "$GENDIR"
+# THE CLEAN SLATE, AND THE ONE THING THAT MUST SURVIVE IT.
+#
+# `rm -rf "$OUT"` is deliberate and stays: generated bindings, a stale staticlib or a
+# half-written dylib from an interrupted run must not be able to leak into a build.
+#
+# But `$OUT/lib` is also where the CI core cache is restored to, and this line ran a second
+# after the restore and deleted all 35 cores it had just put there. Build 142 is the proof:
+# the cache reported "Cache restored successfully", zero cores were reused, and the job spent
+# 35 minutes rebuilding every one of them. The cache was working perfectly and this line was
+# throwing it away.
+#
+# So the core dylibs and their provenance manifest step aside and come back. ONLY under
+# CONTINUUM_CORE_CACHE=1, which only CI sets, so a build run by hand still starts from a
+# genuinely empty directory and `rm -rf native/ios/build/lib` is still how to force
+# everything. Nothing else is preserved: the engine, the wrapper and the bindings are rebuilt
+# every time regardless, because those are what the commit being built actually changed.
+if [ "${CONTINUUM_CORE_CACHE:-0}" = "1" ] && [ -d "$LIBDIR" ]; then
+  KEEP="$(mktemp -d)"
+  # `|| true` on each: an empty lib directory is the normal first-build case, not an error.
+  cp -p "$LIBDIR"/*_libretro_ios.dylib "$KEEP"/ 2>/dev/null || true
+  cp -p "$LIBDIR"/core-sources.txt "$KEEP"/ 2>/dev/null || true
+  KEPT="$(ls -1 "$KEEP" 2>/dev/null | wc -l | tr -d ' ')"
+  rm -rf "$OUT"
+  mkdir -p "$LIBDIR" "$GENDIR"
+  if [ "$KEPT" -gt 0 ]; then
+    cp -p "$KEEP"/* "$LIBDIR"/ 2>/dev/null || true
+    echo "==> kept $KEPT cached core file(s) across the clean"
+  else
+    echo "==> nothing cached to keep across the clean"
+  fi
+  rm -rf "$KEEP"
+else
+  rm -rf "$OUT"
+  mkdir -p "$LIBDIR" "$GENDIR"
+fi
 
 # ---------------------------------------------------------------- 1. the engine
 
