@@ -57,7 +57,11 @@ These come straight from the owner. They are not suggestions.
 
 ## Already decided by the owner (do not reopen)
 - No computer, ever, not even once or borrowed. Never suggest anything that needs one (a pairing
-  file, a "JIT certificate"). This is why there is no JIT (docs/PLATFORM_LIMITS.md).
+  file, a "JIT certificate"). So the OWNER cannot use JIT (docs/PLATFORM_LIMITS.md).
+- JIT IS STILL REQUIRED FOR EVERYONE ELSE (owner, 7 October 2026, very angry it was missing).
+  "No JIT" only ever meant: everything must keep working without JIT. Any user who can enable JIT
+  (development-signed and a JIT enabler attached) must get the JIT speed automatically, and every
+  core that has a JIT should use it when available. Never answer "your rules say no JIT" again.
 - Before starting the Switch (road steps 10 to 12), raise JIT with the owner first: iPhone Switch
   emulators need it.
 - The Beetle PSX boot on build 98 was enough to move on to the 3DS. Do not reopen it.
