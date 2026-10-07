@@ -107,7 +107,7 @@ TEAL_BLUR = 0.130    # teal wash softness
 GLOW_SHIFT = 0.085   # how far the teal wash sits to the RIGHT
 GLOW_TEAL = 0.22     # its strength: the app's metadata teal, kept outside the shape so it
                      # never has to average with the red
-TEAL_GATE = 0.090    # the teal fades in over this distance, starting at the point
+TEAL_REACH = 0.300   # how far the teal wash reaches from the point before it is gone
 
 SUPERSAMPLE = 4096   # drawn once this big, then reduced to each real size
 
@@ -248,23 +248,37 @@ def body_shading(side):
     return img
 
 
-def right_gate(side):
-    """A full-height mask that is black up to the triangle's point and white past it.
+def tip_falloff(side):
+    """A soft round mask centred on the triangle's point, fading out with distance.
 
-    Keeps the teal halo in the one place it belongs. Without it the blurred halo reaches
-    around the top and the base of the triangle and mixes with the red bloom into haze.
+    This confines the teal wash to the one place it belongs. A straight-edged gate was
+    tried first — black left of the point, white right of it — and it left a visible
+    vertical seam down the icon where the wash began, because the blurred shape is still
+    strongly opaque there. A radial falloff has no straight edge anywhere, so the wash
+    reads as light coming off the point and nothing else.
+
+    Computed small and scaled up: it is a smooth blob, so the interpolation costs nothing
+    in quality and saves working over sixteen million pixels.
     """
-    tip_x = max(p[0] for p in triangle_points(side))
-    start = tip_x - 0.010 * side
-    width = TEAL_GATE * side
+    pts = triangle_points(side)
+    tip_x = max(p[0] for p in pts)
+    tip_y = TRI_CY * side
+    radius = TEAL_REACH * side
 
-    row = Image.new("L", (side, 1), 0)
-    p = row.load()
-    for x in range(side):
-        t = (x - start) / width
-        t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
-        p[x, 0] = int(round(255 * t))
-    return row.resize((side, side))
+    small = 256
+    img = Image.new("L", (small, small), 0)
+    px = img.load()
+    k = side / float(small)
+    for y in range(small):
+        dy = (y + 0.5) * k - tip_y
+        for x in range(small):
+            dx = (x + 0.5) * k - tip_x
+            t = 1.0 - math.sqrt(dx * dx + dy * dy) / radius
+            if t <= 0.0:
+                continue
+            # Smoothstep, so there is no edge where it reaches zero.
+            px[x, y] = int(round(255 * (t * t * (3.0 - 2.0 * t))))
+    return img.resize((side, side), Image.BICUBIC)
 
 
 def rim_light(mask, side):
@@ -333,7 +347,7 @@ def render(side):
     layer, alpha = bloom(
         mask, side, METADATA_TEAL, GLOW_TEAL, TEAL_BLUR, GLOW_SHIFT, 0.0
     )
-    canvas = Image.composite(layer, canvas, ImageChops.multiply(alpha, right_gate(side)))
+    canvas = Image.composite(layer, canvas, ImageChops.multiply(alpha, tip_falloff(side)))
 
     # The shape itself, then the cool edge along its upper side.
     canvas.paste(body_shading(side), (0, 0), mask)
