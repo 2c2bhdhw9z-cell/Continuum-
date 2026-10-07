@@ -576,6 +576,19 @@ targets:
         embed: true
         link: false
         codeSign: false
+      # The JIT builds (scripts/build-core.sh, "THE JIT BUILDS"): loaded only when JIT is on.
+      - framework: build/lib/pcsx_rearmed_jit_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/parallel_n64_jit_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/flycast_jit_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
       # From the libretro iOS buildbot.
       - framework: build/lib/mednafen_wswan_libretro_ios.dylib
         embed: true

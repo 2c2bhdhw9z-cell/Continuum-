@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-6 October 2026 (build 129). The install is always the newest file on the
+7 October 2026 (build 130). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Five states only:
@@ -12,7 +12,7 @@ Five states only:
 - **Built, untested** means it is in the app and should work, and nobody has tried it on a phone
   yet. Those are the rows in [TESTING.md](TESTING.md)'s queue.
 - **Not built** means it is not in the app.
-- **Out on purpose** means it is left out deliberately (JIT).
+- **Out on purpose** means it is left out deliberately.
 
 Nothing here is rounded up.
 
@@ -23,8 +23,17 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 For whoever works on this next:
 
-- **First: JIT for every user who can enable it** (HANDOFF.md "NEXT JOB"). Everything must still
-  work without it.
+- **JIT, part 2: iOS 26 iPhones with TXM** (A15 and newer, most current phones). Build 130 gives
+  JIT to every phone where attaching a debugger is enough, and reports TXM phones as "needs a
+  newer kind of JIT support". Next: the host prepares one big code region through StikJIT's
+  universal protocol (`JIT26PrepareRegion`, then `JIT26Detach`, only after `CS_DEBUGGED`), hands
+  out pieces through an exported C function, and the cores that already support a separate
+  writable copy of their code use it: PCSX ReARMed (`TC_WRITE_OFFSET`), parallel-n64
+  (`DOUBLE_CACHE_ADDR`), flycast (`FEAT_NO_RWX_PAGES` style `rx_offset`). PPSSPP and Azahar
+  (oaknut) write code where they run it, so they need a bigger port. HANDOFF.md has the detail.
+- melonDS JIT is not built: its Apple code is macOS-only (RWX `MAP_JIT` pages,
+  `pthread_jit_write_protect_np`) and its fast-memory setup uses `shm_open`. DS runs full speed
+  on the interpreter, so it waits.
 
 - QA Wolf native iPhone testing is connected in the repository: it accepts the released `.ipa`
   directly (not a `.app`). Finish the three private/account steps: sign in to the QA Wolf MCP
@@ -149,7 +158,7 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | iPhone microphone | **Built, untested** | 3DS games that listen (Azahar asks for it). Switch in Settings, off by default. DS games do not use it: melonDS only fakes a blow on its L2 button |
 | Amiibo file | **Partial** | Import and pick Amiibo files in the 3DS menu. The 3DS core (Azahar) has no way to receive one yet, and the app says so when you tap |
 | Haptics on a button press | **Done** | Button taps and game rumble confirmed on build 125. Off, light, medium or strong in Settings. Also game rumble on the phone and on controllers, with its own switch |
-| JIT | **Out on purpose** | Not in this signed app. Do not add it to close this list |
+| JIT | **Built, untested** | Build 130. Used by itself when JIT is on: PSP and 3DS from their regular builds, PlayStation, N64 and Dreamcast from second `_jit_` builds. Not on iOS 26 iPhones with TXM (A15 and newer) yet: they need StikJIT's region protocol. The owner's phone cannot use JIT, so a tester has to confirm it |
 | Rewind | **Done** | |
 | Fast forward | **Done** | About 4x, not 5x |
 | Save slots, including export | **Partial** | 50 slots plus the auto-save, export and import of states and battery saves. Save to the next free slot confirmed (122); slot pictures, save and load on 14 systems, export and import, rename, save over and delete confirmed (125). 3DS states loading and imported slots showing their picture confirmed (126) |
@@ -160,6 +169,27 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 
 ---
+
+## Build 130 (7 October 2026)
+
+JIT for everyone who can switch it on (owner, 7 October). Nothing changes on a phone without JIT,
+which includes the owner's: every core loads and runs exactly as in build 129.
+
+- The engine reads the app's own signing flags (`crates/emulator-bridge/src/jit.rs`): JIT is "on"
+  when a debugger has attached (`CS_DEBUGGED`) and the phone is not an iOS 26 TXM phone. Read
+  live, so StikDebug can switch it on while the app is open; nothing is ever executed to find out.
+- PSP (PPSSPP) and 3DS (Azahar) use their recompilers from their regular builds: the host now
+  answers `RETRO_ENVIRONMENT_GET_JIT_CAPABLE`, PPSSPP's CPU option defaults to "JIT" when the
+  answer is yes, and a Continuum patch makes Azahar ask instead of hard-coding the interpreter.
+- PlayStation (PCSX ReARMed), N64 (parallel-n64) and Dreamcast (flycast) get second builds with
+  their recompilers on, `<core>_jit_libretro_ios.dylib`, loaded instead of the regular build only
+  when JIT is on. Patches: PCSX ReARMed maps its code cache at run time and uses 16K pages; the
+  N64 recompiler switches pages with `mprotect` instead of the macOS-only call. Optional builds:
+  if one fails to compile, that core simply has no JIT in that build.
+- Settings, Technical details: a JIT line in plain words, "Use JIT when it's available" (on by
+  default, off sends every core back to its regular build from the next game), and "Turn on JIT
+  with StikDebug" where attaching is all it takes. The (i) panel and the feedback details carry a
+  `JIT:` line with the state, the phone and which JIT builds are in this copy.
 
 ## Build 129 (6 October 2026)
 

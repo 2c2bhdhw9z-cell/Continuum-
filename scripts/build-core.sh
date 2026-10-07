@@ -97,7 +97,14 @@ IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed mednafen_psx_hw melon
 # flycast (Dreamcast) is built here, not fetched: the libretro iOS buildbot's flycast contains the
 # ARM64 dynarec and refuses to run without JIT. Interpreter only (TARGET_NO_REC); see its
 # ios_core_config entry. It has built green and shipped in every IPA since build 119.
-IOS_OPTIONAL_CORES=(flycast)
+IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit)
+
+# THE JIT BUILDS (pcsx_rearmed_jit, parallel_n64_jit, flycast_jit). Same source and pin as the
+# core they are named after, built with its recompiler on, as <core>_jit_libretro_ios.dylib. The
+# app loads one only when JIT is really usable on the phone at that moment (crates/emulator-bridge/
+# src/jit.rs); every other phone loads the regular build, which is not touched by any of this.
+# Optional, so a JIT build that fails to compile only means that core has no JIT this build.
+# PPSSPP and Azahar need no second build: they ask the host GET_JIT_CAPABLE at run time.
 
 # mednafen_psx_hw (Beetle PSX HW) is in ios-all so Mac CI embeds the dylib in the IPA.
 # Build is Mac/CI-only (`make platform=ios-arm64 HAVE_HW=1`); Linux hosts cannot cross-compile
@@ -186,6 +193,8 @@ ios_core_config() {
   # full recursive tree is ffmpeg and MoltenVK does not download either.
   IOS_SUBMODULE_PATHS=()
   IOS_DISPLAY=""
+  # flycast only: the C/C++ defines. TARGET_NO_REC is the interpreter; the JIT build drops it.
+  IOS_FLYCAST_DEFINES="-DIOS -DTARGET_NO_REC"
   case "$1" in
     fceumm)
       IOS_REPO="https://github.com/libretro/libretro-fceumm"
@@ -231,6 +240,20 @@ ios_core_config() {
       # lightrec and libchdr, and they are needed recursively.
       IOS_SUBMODULES=1
       IOS_DISPLAY="PS1, interpreter only"
+      ;;
+    pcsx_rearmed_jit)
+      # The PCSX ReARMed recompiler (ari64, which has Apple arm64 support upstream: NO_WRITE_EXEC
+      # pages switched between writable and runnable). DYNAREC on the command line beats the ios
+      # block's `DYNAREC = 0`. NDRC_THREAD=0: no compile thread (see the host rule in options.rs).
+      # The Continuum patch maps the cache at run time and uses the iPhone's 16K page size.
+      IOS_REPO="https://github.com/libretro/pcsx_rearmed"
+      IOS_PIN="c8816799b50388e61cfe237fe2cdbb7d8175f20a"
+      IOS_DYLIB_NAME="pcsx_rearmed_jit_libretro_ios.dylib"
+      IOS_KIND="make"
+      IOS_MAKEFILE="Makefile.libretro"
+      IOS_SUBMODULES=1
+      IOS_MAKE_VARS=(DYNAREC=ari64 NDRC_THREAD=0)
+      IOS_DISPLAY="PS1, recompiler (JIT build)"
       ;;
     melonds)
       IOS_REPO="https://github.com/libretro/melonDS"
@@ -359,6 +382,28 @@ ios_core_config() {
       #    reapply update_variables(false) after InitiateGFX / n64video_config_init.
       IOS_DISPLAY="Nintendo 64, software rasteriser and interpreter"
       ;;
+    parallel_n64_jit)
+      # The N64 recompiler (new_dynarec, aarch64), as the core's own macOS arm64 block builds it,
+      # on the iOS platform block. Command-line variables replace the ios block's no-recompiler
+      # flags: WITH_DYNAREC on, PLATCFLAGS and CPUFLAGS without NO_ASM (which compiles the
+      # recompiler's setup out) and without the -D__arm__ the interpreter build carries, and the
+      # assembler wrapper the macOS arm64 block uses for linkage_arm64.S. @IOSSDK@ is filled in at
+      # build time. Patched for iOS: pages switched with mprotect instead of the macOS-only
+      # pthread_jit_write_protect_np (scripts/patches/parallel_n64-ios-jit.patch).
+      IOS_REPO="https://github.com/libretro/parallel-n64"
+      IOS_PIN="0bd516ee793bb87b57e9eef19993b37ac0098d74"
+      IOS_DYLIB_NAME="parallel_n64_jit_libretro_ios.dylib"
+      IOS_KIND="make"
+      IOS_MAKEFILE="Makefile"
+      IOS_SUBMODULES=1
+      IOS_MAKE_VARS=(
+        WITH_DYNAREC=aarch64
+        "PLATCFLAGS=-DHAVE_POSIX_MEMALIGN -DIOS -miphoneos-version-min=8.0"
+        "CPUFLAGS=-D__NEON_OPT -DARM_FIX"
+        "CC_AS=perl ./tools/gas-preprocessor-new.pl -arch arm64 -- clang -arch arm64 -isysroot @IOSSDK@"
+      )
+      IOS_DISPLAY="Nintendo 64, software rasteriser and recompiler (JIT build)"
+      ;;
     azahar)
       # Azahar is the maintained Citra fork. Its libretro target builds for iOS
       # (their own libretro-ios job). Apple builds turn OpenGL OFF and Vulkan ON,
@@ -468,6 +513,32 @@ ios_core_config() {
         core/deps/luabridge
       )
       IOS_DISPLAY="Dreamcast, interpreter only (TARGET_NO_REC), optional"
+      ;;
+    flycast_jit)
+      # Dreamcast with flycast's recompilers (SH4, ARM7, DSP): the same build without
+      # TARGET_NO_REC. On iPhone flycast already switches its code pages between writable and
+      # runnable (TARGET_IPHONE in rec_arm64.cpp and posix_vmem.cpp), which is how its own iOS app
+      # runs with JIT, so this needs no patch.
+      IOS_REPO="https://github.com/flyinghead/flycast"
+      IOS_PIN="59ed35a7ea7c1940d4c8ac221a662d0e6d6dc9ea"
+      IOS_DYLIB_NAME="flycast_jit_libretro_ios.dylib"
+      IOS_KIND="cmake-flycast"
+      IOS_CMAKE_TARGET="flycast_libretro"
+      IOS_SUBMODULES=1
+      IOS_SUBMODULE_PATHS=(
+        core/deps/libchdr
+        core/deps/Vulkan-Headers
+        core/deps/VulkanMemoryAllocator
+        core/deps/glslang
+        core/deps/rcheevos
+        core/deps/asio
+        core/deps/libjuice
+        core/deps/websocketpp
+        core/deps/tinygettext
+        core/deps/luabridge
+      )
+      IOS_FLYCAST_DEFINES="-DIOS"
+      IOS_DISPLAY="Dreamcast, recompilers (JIT build), optional"
       ;;
     *)
       return 1
@@ -804,6 +875,12 @@ build_ios_make_core() {
   # cores pass no extra variables, so the empty case is the common one. See the note at the top of
   # this file about IOS_CORES for the same hazard.
   if (( ${#IOS_MAKE_VARS[@]} > 0 )); then
+    # @IOSSDK@ is the SDK path, which is only known now (ios_core_config runs before the SDK is
+    # resolved). Only the N64 JIT build's assembler wrapper uses it.
+    local i
+    for i in "${!IOS_MAKE_VARS[@]}"; do
+      IOS_MAKE_VARS[$i]="${IOS_MAKE_VARS[$i]//@IOSSDK@/$IOSSDK}"
+    done
     echo "==> extra make variables: ${IOS_MAKE_VARS[*]}"
   fi
   ( cd "$make_dir" && make -f "$IOS_MAKEFILE" platform=ios-arm64 IOSSDK="$IOSSDK" \
@@ -1091,8 +1168,8 @@ build_ios_flycast_core() {
     -DCMAKE_OSX_SYSROOT="$IOSSDK" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_MIN_VERSION" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_FLAGS="-DIOS -DTARGET_NO_REC" \
-    -DCMAKE_CXX_FLAGS="-DIOS -DTARGET_NO_REC" \
+    -DCMAKE_C_FLAGS="$IOS_FLYCAST_DEFINES" \
+    -DCMAKE_CXX_FLAGS="$IOS_FLYCAST_DEFINES" \
     -DUSE_OPENMP=OFF \
     -DUSE_LUA=OFF \
     -DUSE_BREAKPAD=OFF \
@@ -1137,8 +1214,44 @@ ios_apply_core_patches() {
       ;;
     azahar)
       ios_apply_azahar_pipeline_wait_patch
+      ios_apply_simple_patch azahar azahar-use-jit-when-the-host-allows-it.patch \
+        src/citra_libretro/core_settings.cpp "Continuum: the recompiler when the host says JIT"
+      ;;
+    parallel_n64_jit)
+      ios_apply_parallel_n64_aarch64_hot_state_gate_patch
+      ios_apply_parallel_n64_first_tick_patch
+      ios_apply_simple_patch parallel_n64_jit parallel_n64-ios-jit.patch \
+        mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c "Continuum: iPhone JIT build."
+      ;;
+    pcsx_rearmed_jit)
+      ios_apply_simple_patch pcsx_rearmed_jit pcsx_rearmed-ios-jit.patch \
+        libpcsxcore/new_dynarec/new_dynarec_config.h "Continuum: iPhone JIT build."
       ;;
   esac
+}
+
+# One patch from scripts/patches/, applied once, failing loudly if it no longer fits.
+# Arguments: core name (for messages), patch file name, a file the patch changes, and a marker
+# string the patched file contains.
+ios_apply_simple_patch() {
+  local core="$1" name="$2" file="$3" marker="$4"
+  local src="$IOS_SRC_DIR/$file"
+  local patch="$ROOT/scripts/patches/$name"
+  [[ -f "$src" ]] || { echo "error: $core: expected $src after clone; upstream layout changed" >&2; exit 1; }
+  [[ -f "$patch" ]] || { echo "error: $core: missing Continuum patch at $patch" >&2; exit 1; }
+  if grep -qF "$marker" "$src"; then
+    echo "==> $core: $name already applied"
+    return
+  fi
+  echo "==> $core: applying $name"
+  patch -p1 --forward -d "$IOS_SRC_DIR" < "$patch" || {
+    echo "error: $core: $name failed to apply; refresh it against the pinned source" >&2
+    exit 1
+  }
+  grep -qF "$marker" "$src" || {
+    echo "error: $core: $name reported success but its marker is missing" >&2
+    exit 1
+  }
 }
 
 ios_apply_parallel_n64_aarch64_hot_state_gate_patch() {

@@ -116,7 +116,7 @@ pub fn describe_execution() -> String {
 }
 
 #[cfg(all(target_os = "ios", target_arch = "aarch64"))]
-mod ios_aarch64 {
+pub(crate) mod ios_aarch64 {
     use core::ffi::{c_char, c_void};
 
     // `csops` below is resolved at RUNTIME through `dlsym` rather than declared for the linker.
@@ -138,12 +138,13 @@ mod ios_aarch64 {
     /// The process may be attached to by a debugger. THE ENTITLEMENT THAT DECIDES WHETHER JIT IS
     /// POSSIBLE, because JIT on iOS comes from being debugged and nothing may debug a process
     /// without it. Carried only by a development provisioning profile.
-    const CS_GET_TASK_ALLOW: u32 = 0x0000_0004;
+    pub(crate) const CS_GET_TASK_ALLOW: u32 = 0x0000_0004;
     /// A debugger is attached right now, which is when executable memory is actually permitted.
-    const CS_DEBUGGED: u32 = 0x1000_0000;
+    /// Sticky: it stays set after a JIT enabler attaches and detaches again.
+    pub(crate) const CS_DEBUGGED: u32 = 0x1000_0000;
 
     /// This process's code signing status word, or `None` if it could not be read.
-    fn signing_status() -> Option<u32> {
+    pub(crate) fn signing_status() -> Option<u32> {
         type Csops = unsafe extern "C" fn(i32, u32, *mut c_void, usize) -> i32;
         // SAFETY: the name is a NUL-terminated literal, and the resolved pointer is called with
         // exactly the signature `csops` is documented to have.

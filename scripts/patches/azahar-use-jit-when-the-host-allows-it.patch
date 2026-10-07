@@ -1,0 +1,25 @@
+diff --git a/src/citra_libretro/core_settings.cpp b/src/citra_libretro/core_settings.cpp
+index c3e4a70..6638ef2 100644
+--- a/src/citra_libretro/core_settings.cpp
++++ b/src/citra_libretro/core_settings.cpp
+@@ -845,7 +845,9 @@ void RegisterCoreOptions(void) {
+ static void ParseCpuOptions(void) {
+     Settings::values.use_cpu_jit =
+ #ifdef IOS
+-        false;
++        // Continuum: the recompiler when the host says JIT is really available (a debugged
++        // iPhone without the iOS 26 region protocol), the interpreter otherwise, as before.
++        LibRetro::CanUseJIT();
+ #else
+         LibRetro::FetchVariable(config::cpu::use_cpu_jit, config::enabled) == config::enabled;
+ #endif
+@@ -984,7 +986,8 @@ static void ParseGraphicsOptions(void) {
+ 
+     Settings::values.use_shader_jit =
+ #ifdef IOS
+-        false;
++        // Continuum: same rule as the CPU recompiler above.
++        LibRetro::CanUseJIT();
+ #else
+         LibRetro::FetchVariable(config::graphics::use_shader_jit, config::enabled) ==
+         config::enabled;

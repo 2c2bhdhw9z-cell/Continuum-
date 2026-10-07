@@ -1,0 +1,131 @@
+diff --git a/mupen64plus-core/src/device/r4300/new_dynarec/arm64/apple_jit_protect.c b/mupen64plus-core/src/device/r4300/new_dynarec/arm64/apple_jit_protect.c
+index 3f12389..3b9a482 100644
+--- a/mupen64plus-core/src/device/r4300/new_dynarec/arm64/apple_jit_protect.c
++++ b/mupen64plus-core/src/device/r4300/new_dynarec/arm64/apple_jit_protect.c
+@@ -1,7 +1,7 @@
+ #include "apple_jit_protect.h"
+ #include "trampoline_arm64.h"
+ 
+-#ifdef __APPLE__
++#if defined(__APPLE__) && !defined(IOS)
+ static int Count = 0;
+ 
+ #include <pthread.h>
+diff --git a/mupen64plus-core/src/device/r4300/new_dynarec/arm64/apple_jit_protect.h b/mupen64plus-core/src/device/r4300/new_dynarec/arm64/apple_jit_protect.h
+index f30f63f..da8d093 100644
+--- a/mupen64plus-core/src/device/r4300/new_dynarec/arm64/apple_jit_protect.h
++++ b/mupen64plus-core/src/device/r4300/new_dynarec/arm64/apple_jit_protect.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+-#ifdef __APPLE__
++/* Continuum: not on iPhone, where pthread_jit_write_protect_np does not exist. */
++#if defined(__APPLE__) && !defined(IOS)
+ // Allow writing to WX pages, exec is blocked
+ // Only necessary on macOS ARM because Apple restrictions on MAP_JIT pages
+ void apple_jit_wx_unprotect_enter();
+diff --git a/mupen64plus-core/src/device/r4300/new_dynarec/arm64/assem_arm64.c b/mupen64plus-core/src/device/r4300/new_dynarec/arm64/assem_arm64.c
+index 255ae66..6791fdd 100644
+--- a/mupen64plus-core/src/device/r4300/new_dynarec/arm64/assem_arm64.c
++++ b/mupen64plus-core/src/device/r4300/new_dynarec/arm64/assem_arm64.c
+@@ -263,7 +263,9 @@ static uintptr_t jump_table_symbols[] = {
+ 
+ static void cache_flush(char* start, char* end)
+ {
+-#if defined(__APPLE__) && defined(__aarch64__)
++  /* Continuum: on iPhone the cache stays writable for the whole compile (one mprotect each way
++     in jit_write_enable/disable), so the flush below is a plain instruction cache invalidate. */
++#if defined(__APPLE__) && defined(__aarch64__) && !defined(IOS)
+     /* Apple-documented MAP_JIT pattern: switch to executable, then
+        invalidate the icache. Restore the caller's W^X mode afterwards
+        rather than unconditionally re-enabling writes: when called outside
+diff --git a/mupen64plus-core/src/device/r4300/new_dynarec/arm64/trampoline_arm64.c b/mupen64plus-core/src/device/r4300/new_dynarec/arm64/trampoline_arm64.c
+index df54749..1f300e6 100644
+--- a/mupen64plus-core/src/device/r4300/new_dynarec/arm64/trampoline_arm64.c
++++ b/mupen64plus-core/src/device/r4300/new_dynarec/arm64/trampoline_arm64.c
+@@ -320,7 +320,7 @@ void* trampoline_jump_alloc_or_find(void* func)
+    emitter_begin(&em, trampoline);
+    emit_far_jump(&em, func);
+    emitter_finish(&em);
+-#ifndef __APPLE__
++#if !defined(__APPLE__) || defined(IOS) /* Continuum: nothing batches it on iPhone */
+    /* On Apple the flush is batched in trampoline_commit(), driven by
+     * the W^X unprotect exit. Nothing drives that on other platforms,
+     * so flush the freshly written jump code immediately. */
+diff --git a/mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c b/mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c
+index 6266b8e..0edbc2c 100644
+--- a/mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c
++++ b/mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c
+@@ -39,6 +39,26 @@
+    both inside a compile session (writable) and from invalidate_all_pages()
+    on save-state load (executable). */
+ static int jit_writable = 0;
++#if defined(IOS)
++/* Continuum: iPhone JIT build. pthread_jit_write_protect_np does not exist on iOS; a debugged
++   iPhone allows a page to be writable or runnable, one at a time, switched with mprotect. The
++   whole cache is switched at once, which is what the macOS per-thread toggle did too. */
++#include <sys/mman.h>
++static void *jit_region = NULL;
++static size_t jit_region_size = 0;
++static inline void jit_write_enable(void)
++{
++   if (!jit_writable && jit_region)
++      mprotect(jit_region, jit_region_size, PROT_READ | PROT_WRITE);
++   jit_writable = 1;
++}
++static inline void jit_write_disable(void)
++{
++   if (jit_writable && jit_region)
++      mprotect(jit_region, jit_region_size, PROT_READ | PROT_EXEC);
++   jit_writable = 0;
++}
++#else
+ static inline void jit_write_enable(void)
+ {
+    pthread_jit_write_protect_np(0);
+@@ -49,6 +69,7 @@ static inline void jit_write_disable(void)
+    jit_writable = 0;
+    pthread_jit_write_protect_np(1);
+ }
++#endif
+ #else
+ static inline void jit_write_enable(void)  { }
+ static inline void jit_write_disable(void) { }
+@@ -9050,7 +9071,24 @@ void new_dynarec_init(void)
+ #define CACHE_ADDR FIXED_CACHE_ADDR
+ #endif
+ 
+-#if defined(__APPLE__) && defined(__aarch64__)
++#if defined(__APPLE__) && defined(__aarch64__) && defined(IOS)
++  {
++    // Continuum: iPhone. Mapped writable, then switched to runnable; jit_write_enable and
++    // jit_write_disable flip it from then on. No MAP_JIT: that flag is for macOS.
++    base_addr = mmap(NULL, 1<<TARGET_SIZE_2,
++                     PROT_READ | PROT_WRITE,
++                     MAP_PRIVATE | MAP_ANONYMOUS,
++                     -1, 0);
++    if(base_addr == (void*)-1) { DebugMessage(M64MSG_ERROR, "mmap failed: %d", errno); }
++    else {
++      jit_region = base_addr;
++      jit_region_size = (size_t)1<<TARGET_SIZE_2;
++      jit_writable = 1;
++      jit_write_disable();
++    }
++    base_addr_rx = base_addr;
++  }
++#elif defined(__APPLE__) && defined(__aarch64__)
+   {
+     // macOS arm64: MAP_JIT single mapping with W^X toggling.
+     base_addr = mmap(NULL, 1<<TARGET_SIZE_2,
+@@ -9181,6 +9219,11 @@ void new_dynarec_cleanup(void)
+     VirtualFree(base_addr, 0, MEM_RELEASE);
+   #elif defined(__APPLE__) && defined(__aarch64__)
+     if (munmap (base_addr, 1<<TARGET_SIZE_2) < 0) {DebugMessage(M64MSG_ERROR, "munmap() failed");}
++    #if defined(IOS)
++    jit_region = NULL;
++    jit_region_size = 0;
++    jit_writable = 0;
++    #endif
+   #elif NEW_DYNAREC == NEW_DYNAREC_ARM64 && CACHE_ADDR!=FIXED_CACHE_ADDR
+     if (munmap (base_addr_rx, 1<<TARGET_SIZE_2) < 0) {DebugMessage(M64MSG_ERROR, "munmap() failed");}
+   #else

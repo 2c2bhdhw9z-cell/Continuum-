@@ -5,7 +5,7 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > `HANDOFF.md`, then `STATUS.md` ("Next up" first) and `TESTING.md` section A. Then carry on.
 
-## Where things are (6 October 2026)
+## Where things are (7 October 2026)
 
 - Newest install: build 129, release `build-129-ba01974`, 0.8.0 (129), 32 cores, checked (feedback
   email, new wording, old JIT test button gone). Link:
@@ -30,20 +30,33 @@ Paste this to start a new chat:
   Apple certificate or provisioning profile. A built-in self-test was offered and turned down: the
   owner has already proved more than half the systems on the phone, so do not offer it again.
 
-## NEXT JOB: JIT for every user who can enable it (owner, 7 October, very angry it was missing)
+## JIT (owner, 7 October: required for everyone who can enable it, never required to work)
 
-The owner cannot use JIT (no computer), but JIT must still be built in for everyone else, used
-automatically when available, with everything still working without it. Never answer "your rules
-say no JIT". Plan, nothing started yet:
-1. Detect JIT at runtime without risk: `csops` CS_DEBUGGED (the app already reads its own
-   signature, see `jit_probe.rs`), and on iOS 26 TXM devices the StikJIT protocol
-   (JIT26PrepareRegion / JIT26Detach, `brk #0xf00d`, StikJIT INTEGRATION.md). Never execute a
-   `brk` unless a debugger is attached.
-2. Per core, from each pinned source: PPSSPP (switch `ppsspp_cpu_core` off the locked IR value
-   when JIT is on), flycast (built `TARGET_NO_REC`: needs a dynarec build that falls back), Azahar
-   (`-DIOS` compiles dynarmic out), melonDS JIT, parallel-n64 / pcsx_rearmed dynarec on Apple
-   arm64. Each must fall back safely with no JIT.
-3. Show "JIT: on/off" in Settings, Technical details, and say it in the feedback details.
+Build 130 (part 1, done in code, untested: the owner's phone cannot use JIT):
+- `crates/emulator-bridge/src/jit.rs` reads `CS_GET_TASK_ALLOW` / `CS_DEBUGGED` (via
+  `jit_probe::ios_aarch64::signing_status`) and the phone model and iOS version (`sysctl`
+  `hw.machine`, `kern.osproductversion`). JIT is usable when debugged, not on a TXM phone (iOS 26,
+  iPhone14,2+ / iPad14,5+, StikDebug's table), and the user switch is on. No `brk` is ever run.
+- PPSSPP and Azahar: host answers `GET_JIT_CAPABLE` (74), frozen per core load; PPSSPP option
+  defaults to "JIT" then (`options.rs` `host_rules_for`); Azahar patch
+  `scripts/patches/azahar-use-jit-when-the-host-allows-it.patch` uses its own `CanUseJIT()`.
+- PCSX ReARMed, parallel-n64, flycast: optional `_jit_` builds in `build-core.sh`
+  (`IOS_OPTIONAL_CORES`), embedded in `project.yml`; Swift asks `engine.coreLibraryFor` in
+  `ensureCoreLoaded`. Patches `pcsx_rearmed-ios-jit.patch` (run-time cache mapping, 16K pages)
+  and `parallel_n64-ios-jit.patch` (mprotect instead of `pthread_jit_write_protect_np`).
+- Settings, Technical details: JIT sentence, "Use JIT when it's available", StikDebug button
+  (`stikdebug://enable-jit?bundle-id=&pid=`, no script, only when not TXM). `JIT:` line in (i)
+  and feedback.
+- If build 130's log shows a `_jit_` build failing, fix it (it only warns; the .ipa still ships).
+
+Part 2, next (STATUS.md "Next up"): TXM phones. Host side: after `CS_DEBUGGED`, call
+`JIT26PrepareRegion(NULL, size)` (`mov x16,#1; brk #0xf00d`) for one large RX region, make a RW
+alias with `vm_remap`, call `JIT26Detach` (`x16=0`), and export a C function the patched cores
+`dlsym` to get (rx, rw) pieces. Only do the `brk` when StikDebug's universal script is attached
+(the StikDebug URL then needs `script-name=universal.js`). Core side: PCSX ReARMed
+`TC_WRITE_OFFSET` + `BASE_ADDR_DYNAMIC`, parallel-n64 `DOUBLE_CACHE_ADDR`, flycast dual mapping
+(`prepare_jit_block(..., rx_offset)`). PPSSPP and Azahar/oaknut need a writable-alias port.
+melonDS JIT is macOS-only code; DS is fine on the interpreter.
 
 ## Build 126 test results (6 October)
 
@@ -80,11 +93,12 @@ for one exact game version; the cheat screen names the version for GBA and Game 
 - Never re-ask a test they already covered, and when they ask "what do I test", give the full
   steps right there in the reply, not a pointer to an earlier message.
 - Push straight to master: no branches, no pull requests. Save and push often, in big batches.
-- No JIT, no web build. Behaviour goes in the Rust engine. Only Kiro works on this repo.
+- JIT when a user can enable it, never required; no web build. Behaviour goes in the Rust
+  engine. Only Kiro works on this repo.
 
 ## How to check work before pushing (the sandbox can't build the iPhone app)
 
-- `cargo test --workspace --features emulator-bridge/native-core` (606 tests)
+- `cargo test --workspace --features emulator-bridge/native-core` (611 tests)
 - `cargo clippy --workspace --features emulator-bridge/native-core`
 - `bash scripts/check-skins.sh`, `bash scripts/check-players.sh`
 - `bash scripts/fetch-libretro-headers.sh && bash native/switch-wrapper/build.sh host` (15/15)

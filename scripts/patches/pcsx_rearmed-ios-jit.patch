@@ -1,0 +1,33 @@
+diff --git a/libpcsxcore/new_dynarec/new_dynarec.c b/libpcsxcore/new_dynarec/new_dynarec.c
+index fb99df6..0408ae6 100644
+--- a/libpcsxcore/new_dynarec/new_dynarec.c
++++ b/libpcsxcore/new_dynarec/new_dynarec.c
+@@ -689,7 +689,10 @@ static void mprotect_w_x(void *start, void *end, int is_x)
+   #elif defined(TC_WRITE_OFFSET)
+   // separated rx and rw areas are always available
+   #else
+-  u_long mstart = (u_long)start & ~4095ul;
++  /* Continuum: the real page size, which is 16K on iPhone. mprotect refuses an address that is
++     not aligned to it, so rounding to 4K left code pages writable-only and crashed. */
++  u_long pmask = (u_long)sysconf(_SC_PAGESIZE) - 1;
++  u_long mstart = (u_long)start & ~pmask;
+   u_long mend = (u_long)end;
+   if (mprotect((void *)mstart, mend - mstart,
+                PROT_READ | (is_x ? PROT_EXEC : PROT_WRITE)) != 0)
+diff --git a/libpcsxcore/new_dynarec/new_dynarec_config.h b/libpcsxcore/new_dynarec/new_dynarec_config.h
+index 0781e47..947c525 100644
+--- a/libpcsxcore/new_dynarec/new_dynarec_config.h
++++ b/libpcsxcore/new_dynarec/new_dynarec_config.h
+@@ -18,6 +18,12 @@
+ #if defined(VITA) || defined(HAVE_LIBNX)
+ #define BASE_ADDR_DYNAMIC 1
+ #endif
++/* Continuum: iPhone JIT build. The translation cache is mapped at run time rather than living in
++   the .bss array, whose segment can never be made executable on iOS. It starts runnable and is
++   switched writable and back around each write (NO_WRITE_EXEC, already on for Apple). */
++#if defined(IOS) && defined(__aarch64__) && !defined(BASE_ADDR_DYNAMIC)
++#define BASE_ADDR_DYNAMIC 1
++#endif
+ #if defined(HAVE_LIBNX)
+ #define TC_WRITE_OFFSET 1
+ #endif

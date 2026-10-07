@@ -269,6 +269,11 @@ jobs:
           LISTING="$(unzip -l "$IPA")"
           optional() { grep -q "$1" <<<"$LISTING" || echo "::warning::$1 is not embedded; $2 games will list in the Library and say the core is missing"; }
           optional flycast_libretro_ios.dylib "Dreamcast"
+          for jit_build in pcsx_rearmed_jit_libretro_ios.dylib parallel_n64_jit_libretro_ios.dylib \
+                           flycast_jit_libretro_ios.dylib; do
+            grep -q "$jit_build" <<<"$LISTING" \
+              || echo "::warning::$jit_build is not embedded; that core runs without JIT even when JIT is on"
+          done
           optional mednafen_wswan_libretro_ios.dylib "WonderSwan and WonderSwan Color"
           optional mednafen_ngp_libretro_ios.dylib "Neo Geo Pocket and Pocket Color"
           optional mednafen_pce_libretro_ios.dylib "PC Engine CD"

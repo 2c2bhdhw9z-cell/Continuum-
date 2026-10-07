@@ -47,7 +47,7 @@ These come straight from the owner. They are not suggestions.
   does, and more. Anything Manic has and Continuum lacks is required work.
 - The checklist is #[[file:docs/MANIC_PARITY.md]]. Tick items off in it as they land.
 - Product rules (iPhone .ipa only, no web build of the app, Android later, behaviour in the Rust
-  engine, native look per platform, installer-neutral, no JIT) are in
+  engine, native look per platform, installer-neutral, JIT when available but never required) are in
   #[[file:docs/PRODUCT_SCOPE.md]].
 - What is actually done is #[[file:STATUS.md]]. Keep it honest: Done means a phone showed it.
 - What the owner should test on the phone is #[[file:TESTING.md]]: short numbered steps, one test

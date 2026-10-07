@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 6 October 2026, for **build 129 or newer**. The newest install is always on the
+Last updated 7 October 2026, for **build 130 or newer**. The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 
@@ -34,7 +34,18 @@ a game.
 
 # The list: what still needs testing
 
-## A. New in build 129 (do these first)
+## A. New in build 130 (do these first)
+
+**J1. The JIT line** (your phone can't use JIT, so this only checks it says so nicely)
+1. **Settings** → scroll to **TECHNICAL DETAILS** at the bottom.
+2. ✅ Good: the first row, **JIT**, starts with **Off.** and says why in one plain sentence. Tell
+   me the sentence. Under it is a switch, **Use JIT when it's available**: leave it on.
+
+**J2. Nothing got slower**
+1. Play Mario Kart 7 for a minute, then a PlayStation game, then a PSP game if you have one.
+2. ✅ Good: each runs the same as on build 129. These three changed under the hood for JIT.
+
+## A (from build 129)
 
 **A1. A cleaner player**
 1. Open any game.

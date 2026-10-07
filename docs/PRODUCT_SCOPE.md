@@ -3,8 +3,10 @@
 ## There is no PWA, and there never will be
 
 Continuum ships as **one artefact: a sideloadable iOS `.ipa`**. It is an all-in-one emulator
-for iPhone, with the increased-memory entitlement and **no JIT** (the owner's install has no
-debugger and no computer, so JIT cannot be switched on; see PLATFORM_LIMITS.md).
+for iPhone, with the increased-memory entitlement. **Everything works without JIT** (the owner's
+install has no debugger and no computer, so JIT cannot be switched on; see PLATFORM_LIMITS.md),
+and **anyone who can switch JIT on gets it automatically** in every core with a recompiler
+(owner, 7 October 2026; `crates/emulator-bridge/src/jit.rs`).
 
 Do not name a specific installer in documentation. The owner does not use TrollStore, and
 install instructions must stay installer-neutral.
@@ -119,7 +121,7 @@ The replacement, when it is written, must be native:
 widens the system list well past the one below. The checklist, and the decisions behind it (19
 cores prebuilt from the libretro iOS buildbot and 13 built from source, all pinned to build 121's
 versions; answering core settings; Flash and J2ME in a bundled player view), is
-[MANIC_PARITY.md](MANIC_PARITY.md). JIT stays out.
+[MANIC_PARITY.md](MANIC_PARITY.md). JIT is used when a user can switch it on, never required.
 
 Shipping in the `.ipa` today (build 124, about 85 MB): **32 cores and 38 systems**, covering
 everything in MANIC_PARITY.md's system table except GameCube, Wii and Symbian, plus Flash and J2ME

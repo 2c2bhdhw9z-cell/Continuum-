@@ -26,8 +26,8 @@ Games and BIOS files are **not** included. Use your own.
 | Nintendo 3DS (decrypted games) | Commodore 64, Amiga, DOS, DOOM |
 | TurboGrafx-16, Atari 2600, Jaguar, Pokemon Mini | Flash (.swf) and old phone games (.jar) |
 
-Not supported: GameCube, Wii and Switch. Heavier systems can be slow, because apps installed this
-way cannot use JIT.
+Not supported: GameCube, Wii and Switch. Heavier systems can be slow without JIT. If you can turn
+JIT on (StikDebug or similar), Continuum uses it by itself; see Settings, Technical details.
 
 ## Adding games
 

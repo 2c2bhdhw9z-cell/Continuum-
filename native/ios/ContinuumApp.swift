@@ -403,10 +403,10 @@ enum CoreCatalog {
     /// path Beetle already uses. Do not force the Software option: that is the slow
     /// rasterizer, and it is not the picture path this row is here for.
     ///
-    /// CPU JIT is compiled out. Azahar's own `ParseCpuOptions` sets `use_cpu_jit` false
-    /// under `IOS`, and the shader JIT the same way. The fast interpreter stays on,
-    /// which is as fast as this core goes without executable memory. No dynarec and no
-    /// `get-task-allow`. Not device-proven: a retail cartridge often still needs the
+    /// CPU and shader JIT follow the host: a Continuum patch makes Azahar's `ParseCpuOptions`
+    /// use its own `CanUseJIT()` (GET_JIT_CAPABLE) under `IOS` instead of a fixed false, so
+    /// dynarmic runs only when JIT is really on (crates/emulator-bridge/src/jit.rs). Otherwise
+    /// the fast interpreter, exactly as before. Not device-proven: a retail cartridge often still needs the
     /// 3DS system archives in the system directory, and a missing one can look like a
     /// black screen because `SET_MESSAGE` is not shown. Decrypted `.3ds` / `.3dsx` /
     /// `.cci` / `.cxi` only.
@@ -427,13 +427,11 @@ enum CoreCatalog {
 
     /// PSP, on PPSSPP's libretro core.
     ///
-    /// CPU is the IR interpreter. The core's option value is the string "IR JIT",
-    /// which `libretro.cpp` stores as `CPUCore::IR_INTERPRETER` and constructs as
-    /// `IRJit(state, false)`. That false means compile-to-native is off: no
-    /// executable pages, no dynarec. The dynarec is the other value, "JIT", and
-    /// the host does not answer `RETRO_ENVIRONMENT_GET_JIT_CAPABLE`, so iOS code
-    /// inside the core forces a JIT selection back to the IR interpreter. The
-    /// vertex decoder uses the same flag and stays off.
+    /// Without JIT the CPU is the IR interpreter: the option value "IR JIT", which
+    /// `libretro.cpp` constructs as `IRJit(state, false)`, compile-to-native off. With JIT on
+    /// the host answers `RETRO_ENVIRONMENT_GET_JIT_CAPABLE` yes and defaults the option to
+    /// "JIT", the real recompiler, and the vertex decoder JIT follows the same answer. PPSSPP
+    /// itself forces "JIT" back to the IR interpreter whenever that answer is no.
     ///
     /// Picture is Vulkan `set_image`. The host's preferred hardware context is
     /// Vulkan, and PPSSPP tries that first. Geometry here is the PSP's own
@@ -1843,6 +1841,66 @@ final class EngineHost: ObservableObject {
     /// the build since the beginning and had never been exercised.
     @Published var jitLine: String = ""
 
+    /// Where JIT stands right now (Settings, Technical details). Read again whenever the app comes
+    /// back to the front and before a core loads, because a JIT app can switch it on at any time.
+    @Published var jitReport: JitReport?
+
+    /// "Use JIT when it's available". On unless the user turns it off; applies from the next game.
+    @Published var useJitWhenAvailable: Bool =
+        UserDefaults.standard.object(forKey: "continuum.useJit") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(useJitWhenAvailable, forKey: "continuum.useJit")
+            engine.setJitAllowed(allowed: useJitWhenAvailable)
+            refreshJit()
+        }
+    }
+
+    /// Reads the JIT state again. Cheap: two flag reads and two sysctls, nothing runs.
+    func refreshJit() {
+        let report = engine.jitReport()
+        jitReport = report
+        let frameworks = Bundle.main.privateFrameworksURL
+        let present = Self.jitBuilds.filter { build in
+            frameworks.map {
+                FileManager.default.fileExists(atPath: $0.appendingPathComponent(build.library).path)
+            } ?? false
+        }.map { $0.system }
+        jitLine = report.technical + "; JIT builds in this copy: "
+            + (present.isEmpty ? "none" : present.joined(separator: ", "))
+            + " (PSP and 3DS use JIT from their regular build)"
+    }
+
+    /// The second builds of the cores whose recompiler is chosen when they are compiled
+    /// (scripts/build-core.sh, "THE JIT BUILDS"). The engine loads one in place of the regular
+    /// build only when JIT is on (`EmulatorBridge.coreLibraryFor`).
+    static let jitBuilds: [(system: String, library: String)] = [
+        ("PlayStation", "pcsx_rearmed_jit_libretro_ios.dylib"),
+        ("N64", "parallel_n64_jit_libretro_ios.dylib"),
+        ("Dreamcast", "flycast_jit_libretro_ios.dylib"),
+    ]
+
+    /// Asks StikDebug to attach and turn JIT on for this copy, the way StikJIT's guide describes
+    /// (bundle id and process id, no script: only offered where attaching is all it takes). If
+    /// StikDebug is not installed iOS simply does nothing.
+    func askStikDebugForJit() {
+        guard let bundleId = Bundle.main.bundleIdentifier else { return }
+        var parts = URLComponents()
+        parts.scheme = "stikdebug"
+        parts.host = "enable-jit"
+        parts.queryItems = [
+            URLQueryItem(name: "bundle-id", value: bundleId),
+            URLQueryItem(name: "pid", value: String(getpid())),
+        ]
+        guard let url = parts.url else { return }
+        UIApplication.shared.open(url) { [weak self] opened in
+            Task { @MainActor in
+                if !opened {
+                    self?.status = "Couldn't open StikDebug. Is it installed?"
+                }
+            }
+        }
+    }
+
     /// Whether MoltenVK loaded and answered, read once at startup.
     ///
     /// The gate on every system that renders through a GPU rather than in software: Dreamcast, PSP,
@@ -2977,18 +3035,17 @@ final class EngineHost: ObservableObject {
         // the first frame of the first game already looks and sounds the way the user left it.
         emulation = EmulationSettings(engine: engine)
         screenModes = ScreenModes(engine: engine)
-        // One page mapped and unmapped, nothing written to it and nothing run from it. Done here so
-        // the answer is on the HUD before any game is launched, because it has to be readable
-        // without a core running.
-        //
-        // THE MAPPING-ONLY PROBE, AND THIS LINE IS WHY THE APP OPENS AT ALL. What used to be here
-        // wrote a function into a page and called it. iOS terminates a process for executing a page
-        // it just wrote unless the dynamic-codesigning entitlement is genuinely in force, and
-        // whether it is depends on how this copy was signed and installed rather than on anything
-        // in the build. So every install whose signature did not carry it opened and was killed on
-        // this line, before drawing anything, including the line the probe existed to print. The
-        // half that runs code is a button in Settings now.
-        jitLine = engine.jitProbe()
+        // JIT: read the signing flags (nothing is mapped, written or run), and again each time the
+        // app comes back to the front, because a JIT app such as StikDebug can switch it on while
+        // Continuum is open. NEVER run code from a page here: an early build did that on launch
+        // and was killed by iOS on every install whose signature could not allow it.
+        engine.setJitAllowed(allowed: useJitWhenAvailable)
+        refreshJit()
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.refreshJit() }
+        }
         // Step 3 of the graphics road, and the question everything above software rendering waits
         // on. Safe here for the same reason the line above now is: a dlopen and two reads, with
         // every failure arriving as a string rather than as a dead app.
@@ -3465,8 +3522,15 @@ final class EngineHost: ObservableObject {
             status = "core state was \(observed); loading \(coreId)..."
         }
 
+        // The core's JIT build when JIT is usable right now and that build is in the bundle;
+        // otherwise its regular build, exactly as before. The engine decides (crate::jit).
+        refreshJit()
+        let library = engine.coreLibraryFor(
+            frameworksDir: Bundle.main.privateFrameworksPath ?? "",
+            library: spec.library
+        )
         guard let core = Bundle.main.privateFrameworksURL?
-            .appendingPathComponent(spec.library) else {
+            .appendingPathComponent(library) else {
             status = "no Frameworks directory in the bundle; \(coreId) cannot be loaded"
             return false
         }

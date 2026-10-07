@@ -117,6 +117,23 @@ impl From<BridgeError> for EngineError {
     }
 }
 
+/// Where JIT stands, for Settings and the feedback details. See [`crate::jit`].
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct JitReport {
+    /// JIT is usable and the user has not switched it off: games use it.
+    pub on: bool,
+    /// A short code: `on`, `not-enabled`, `no-get-task-allow`, `txm`, `unreadable`, `not-ios`.
+    pub state: String,
+    /// One plain sentence for a tester.
+    pub sentence: String,
+    /// The technical line for the (i) panel and feedback.
+    pub technical: String,
+    /// The user's "Use JIT when it's available" switch.
+    pub allowed: bool,
+    /// Whether asking StikDebug to attach would turn JIT on for this copy.
+    pub can_ask_enabler: bool,
+}
+
 /// One tick's telemetry.
 ///
 /// Returned by value, because Swift cannot read into Rust's heap. Small and flat, so the copy
@@ -718,6 +735,10 @@ impl ContinuumEngine {
                 reason: "not declared; declare it from the manifest first".into(),
             }
         })?;
+
+        // Before the load, because the core asks GET_JIT_CAPABLE and reads its options from
+        // inside it: this freezes that answer and records whether this is a `_jit_` build.
+        crate::jit::note_core_load(&core_id, &library_path);
 
         // SAFETY: the path comes from `Bundle.main`, so the library is co-signed and
         // shipped with the app. iOS refuses to `dlopen` anything else regardless, but the
@@ -1425,6 +1446,35 @@ impl ContinuumEngine {
     /// [`Self::jit_probe_execution`].
     pub fn jit_probe(&self) -> String {
         crate::jit_probe::describe()
+    }
+
+    /// Where JIT stands right now, read live (it can be switched on while the app is open). Takes
+    /// no lock and runs nothing: two flag reads and two `sysctl`s.
+    pub fn jit_report(&self) -> JitReport {
+        let state = crate::jit::state();
+        let allowed = crate::jit::allowed();
+        JitReport {
+            on: state == crate::jit::JitState::On && allowed,
+            state: state.code().to_string(),
+            sentence: state.sentence(allowed).to_string(),
+            technical: crate::jit::technical_line(),
+            allowed,
+            // StikDebug's button only makes sense where attaching is the whole job: the copy can
+            // be debugged, nothing is attached yet, and the phone does not need the iOS 26 region
+            // protocol (which no core here speaks). On a TXM phone it would attach for nothing.
+            can_ask_enabler: state == crate::jit::JitState::NotEnabled && !crate::jit::this_device_has_txm(),
+        }
+    }
+
+    /// The user's "Use JIT when it's available" switch. Applies from the next game opened.
+    pub fn set_jit_allowed(&self, allowed: bool) {
+        crate::jit::set_allowed(allowed);
+    }
+
+    /// The dylib to load for a core: its `_jit_` build when JIT is usable and that file is in
+    /// `frameworks_dir`, else `library` unchanged. Every phone without JIT gets `library`.
+    pub fn core_library_for(&self, frameworks_dir: String, library: String) -> String {
+        crate::jit::library_for(&frameworks_dir, &library)
     }
 
     /// Runs code from a page this process just wrote, and reports whether that worked.

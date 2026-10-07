@@ -477,6 +477,7 @@ enum FeedbackDetails {
             lines.append("Emulator: \(host.activeCoreId)")
         }
         lines.append("Status: \(host.status)")
+        if !host.jitLine.isEmpty { lines.append(host.jitLine) }
         if !host.cores.isEmpty { lines.append(host.cores) }
         if entry != nil {
             if !host.bios.isEmpty { lines.append(host.bios) }

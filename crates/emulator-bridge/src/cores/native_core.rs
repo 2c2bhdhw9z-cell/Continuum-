@@ -233,6 +233,7 @@ const ENV_SET_CORE_OPTIONS_V2: c_uint = 67; // libretro.h:2345 RETRO_ENVIRONMENT
 const ENV_SET_CORE_OPTIONS_V2_INTL: c_uint = 68; // libretro.h:2362 RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL
 const ENV_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: c_uint = 69; // libretro.h:2383
 const ENV_SET_VARIABLE: c_uint = 70; // libretro.h:2417 RETRO_ENVIRONMENT_SET_VARIABLE
+const ENV_GET_JIT_CAPABLE: c_uint = 74; // libretro.h:2476 RETRO_ENVIRONMENT_GET_JIT_CAPABLE
 /// `RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS`, under BOTH numbers it has had. The libretro.h this
 /// project vendors (and Beetle PSX at its pin) defines it as 87; older copies, including the one
 /// Azahar builds against at its pin, define it as 44. Neither number means anything else (44 with
@@ -607,6 +608,17 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
                 return false;
             }
             unsafe { *(data as *mut bool) = true };
+            true
+        }
+        ENV_GET_JIT_CAPABLE => {
+            // data is `bool *` (libretro.h:2476). PPSSPP and Azahar ask this on iOS and only use
+            // their recompilers on a yes. The answer was frozen when this core loaded (see
+            // `crate::jit::note_core_load`), and it is yes only when executable memory really is
+            // allowed right now, so a no-JIT phone keeps both cores exactly as they were.
+            if data.is_null() {
+                return false;
+            }
+            unsafe { *(data as *mut bool) = crate::jit::capable_answer() };
             true
         }
         ENV_GET_RUMBLE_INTERFACE => {
@@ -2092,6 +2104,11 @@ mod tests {
         // This arm used to write through `data` unchecked, so a core asking with NULL killed the
         // app. It must now be refused like every other query.
         assert!(!unsafe { on_environment(ENV_GET_CAN_DUPE, std::ptr::null_mut()) });
+
+        // No JIT on the test machine, so the JIT question is answered, and answered no.
+        let mut can_jit = true;
+        assert!(unsafe { on_environment(ENV_GET_JIT_CAPABLE, &mut can_jit as *mut bool as *mut c_void) });
+        assert!(!can_jit);
     }
 
     #[test]
@@ -2120,6 +2137,7 @@ mod tests {
 
         for cmd in [
             ENV_GET_CAN_DUPE,
+            ENV_GET_JIT_CAPABLE,
             ENV_GET_SYSTEM_DIRECTORY,
             ENV_GET_SAVE_DIRECTORY,
             ENV_SET_PIXEL_FORMAT,

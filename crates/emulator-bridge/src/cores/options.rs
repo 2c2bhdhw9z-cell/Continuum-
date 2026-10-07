@@ -208,6 +208,46 @@ pub enum HostRule {
 /// The engine's own rules per core. The history behind each lives in SESSION_HANDOFF and in the
 /// git log of `native_core.rs`, where this table used to be the whole of the option support.
 pub fn host_rules(core_id: &str) -> &'static [(&'static str, HostRule)] {
+    host_rules_for(
+        core_id,
+        crate::jit::core_runs_jit_build(core_id),
+        crate::jit::capable_answer(),
+    )
+}
+
+/// [`host_rules`] with the JIT facts passed in: `jit_build` is whether this core was loaded from
+/// its `_jit_` dylib, `capable` is what the host answers `GET_JIT_CAPABLE`. With both false (every
+/// phone without JIT) the rules are exactly the ones that shipped before JIT existed.
+pub fn host_rules_for(
+    core_id: &str,
+    jit_build: bool,
+    capable: bool,
+) -> &'static [(&'static str, HostRule)] {
+    match (core_id, jit_build, capable) {
+        // parallel_n64's JIT build: the recompiler CPU is the default, and the user can still pick
+        // an interpreter in Core settings. The other three locks stay for the reasons below (the
+        // parallel RSP is a second, separate JIT that this build does not port).
+        ("parallel_n64", true, _) => &[
+            ("parallel-n64-gfxplugin", HostRule::LockedRefused),
+            ("parallel-n64-rspplugin", HostRule::Locked("hle")),
+            ("parallel-n64-angrylion-multithread", HostRule::Locked("off")),
+            ("parallel-n64-cpucore", HostRule::Default("dynamic_recompiler")),
+        ],
+        // PCSX ReARMed's JIT build: recompiler on by default, and its compile thread off, because
+        // the thread writes new code while the game runs older code, which the iPhone's
+        // one-way-at-a-time pages (writable or runnable, never both) do not allow safely.
+        ("pcsx_rearmed", true, _) => &[
+            ("pcsx_rearmed_drc", HostRule::Default("enabled")),
+            ("pcsx_rearmed_drc_thread", HostRule::Locked("disabled")),
+        ],
+        // PPSSPP with JIT allowed: the real recompiler ("JIT") is the default. PPSSPP itself asks
+        // GET_JIT_CAPABLE before using it and drops back to the IR interpreter on a no.
+        ("ppsspp", _, true) => &[("ppsspp_cpu_core", HostRule::Default("JIT"))],
+        _ => host_rules_without_jit(core_id),
+    }
+}
+
+fn host_rules_without_jit(core_id: &str) -> &'static [(&'static str, HostRule)] {
     match core_id {
         // melonDS: both C initialisers differ from the advertised default. `Disabled` switches
         // the touch screen off inside the core; `DirectBoot = 0` boots a firmware menu that a
@@ -1515,6 +1555,43 @@ mod tests {
         assert_eq!(resolve("parallel_n64", None, &empty, &empty, &core, "parallel-n64-gfxplugin"), None);
         assert_eq!(resolve("parallel_n64", None, &empty, &empty, &empty, "parallel-n64-angrylion-multithread").as_deref(), Some("off"));
         assert!(is_locked("parallel_n64", "parallel-n64-cpucore"));
+    }
+
+    #[test]
+    fn jit_unlocks_the_recompilers_only_where_a_build_has_one() {
+        let rule = |core: &str, jit_build: bool, capable: bool, key: &str| {
+            host_rules_for(core, jit_build, capable)
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, r)| *r)
+        };
+        // Without JIT: exactly the old locks.
+        assert_eq!(rule("ppsspp", false, false, "ppsspp_cpu_core"), Some(HostRule::Locked("IR JIT")));
+        assert_eq!(
+            rule("parallel_n64", false, false, "parallel-n64-cpucore"),
+            Some(HostRule::Locked("cached_interpreter"))
+        );
+        assert_eq!(rule("pcsx_rearmed", false, false, "pcsx_rearmed_drc"), None);
+        // JIT allowed: PPSSPP defaults to its recompiler, and the user can still choose.
+        assert_eq!(rule("ppsspp", false, true, "ppsspp_cpu_core"), Some(HostRule::Default("JIT")));
+        // JIT allowed but the regular N64 build loaded (no JIT build in the bundle): still locked.
+        assert_eq!(
+            rule("parallel_n64", false, true, "parallel-n64-cpucore"),
+            Some(HostRule::Locked("cached_interpreter"))
+        );
+        // The JIT builds.
+        assert_eq!(
+            rule("parallel_n64", true, true, "parallel-n64-cpucore"),
+            Some(HostRule::Default("dynamic_recompiler"))
+        );
+        assert_eq!(rule("parallel_n64", true, true, "parallel-n64-rspplugin"), Some(HostRule::Locked("hle")));
+        assert_eq!(rule("pcsx_rearmed", true, true, "pcsx_rearmed_drc"), Some(HostRule::Default("enabled")));
+        assert_eq!(
+            rule("pcsx_rearmed", true, true, "pcsx_rearmed_drc_thread"),
+            Some(HostRule::Locked("disabled"))
+        );
+        // Untouched cores are untouched either way.
+        assert_eq!(rule("melonds", true, true, "melonds_touch_mode"), Some(HostRule::Default("Touch")));
     }
 
     #[test]

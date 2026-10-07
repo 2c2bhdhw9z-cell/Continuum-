@@ -58,6 +58,8 @@ pub mod gfx;
 // Getting games, saves and manuals in: system detection, zip/7z, save formats, WebDAV, Wi-Fi.
 pub mod import;
 pub mod input;
+// Whether recompilers may run right now, and which core build to load for it.
+pub mod jit;
 pub mod jit_probe;
 pub mod memory;
 pub mod memory_maps;

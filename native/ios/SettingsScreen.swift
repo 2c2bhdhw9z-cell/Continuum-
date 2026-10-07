@@ -133,6 +133,7 @@ struct SettingsScreen: View {
             // tape, not telemetry, and polling the engine for it every frame would take the
             // engine lock sixty times a second to redraw text that barely changes.
             emulation.refreshRewindReadout()
+            host.refreshJit()
         }
         .fullScreenCover(isPresented: $showControlEditor) {
             TouchLayoutEditor(
@@ -489,6 +490,8 @@ struct SettingsScreen: View {
 
     private var diagnosticsSection: some View {
         SettingsSection(title: "TECHNICAL DETAILS") {
+            jitRows
+
             AppleOverlayToggle()
 
             Toggle(isOn: $host.showDiagnostics) {
@@ -508,6 +511,33 @@ struct SettingsScreen: View {
             // so it stays reachable, but a first-time tester should not open Settings onto it.
             if host.showDiagnostics {
                 DiagnosticsPanel(host: host, emulation: emulation, saveStates: saveStates)
+            }
+        }
+    }
+
+    /// JIT: whether it is on, a switch to keep it off, and a shortcut to StikDebug where that is
+    /// all it takes. Everything works without it (owner rule); it only makes heavy systems faster.
+    @ViewBuilder
+    private var jitRows: some View {
+        let report = host.jitReport
+        SettingsReadout(label: "JIT", value: report?.sentence ?? "Checking...")
+
+        Toggle(isOn: $host.useJitWhenAvailable) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Use JIT when it's available")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text("Makes PSP, 3DS, N64, Dreamcast and PlayStation faster. If a game acts up "
+                     + "with it, turn this off. Kicks in from the next game you open.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(ShellPalette.secondaryText)
+            }
+        }
+        .tint(ShellPalette.accent)
+
+        if report?.canAskEnabler == true {
+            SettingsButton(title: "Turn on JIT with StikDebug", role: .normal) {
+                host.askStikDebugForJit()
             }
         }
     }
@@ -564,8 +594,8 @@ struct SettingsScreen: View {
         SettingsSection(title: "PSP") {
             SettingsNote(
                 "PSP games don't need a BIOS. .cso, .iso, .chd and EBOOT.PBP all work, and the app "
-                + "figures out if a disc is PSP or PlayStation. Heavier games can be slow, since "
-                + "sideloaded apps can't use JIT."
+                + "figures out if a disc is PSP or PlayStation. Heavier games can be slow unless JIT is "
+                + "on (Technical details, at the bottom)."
             )
         }
     }
