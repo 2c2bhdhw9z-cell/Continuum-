@@ -80,6 +80,9 @@ struct LibraryShell: View {
     /// The real safe-area insets and window size, measured from UIKit. See `SafeAreaProbe` for why
     /// they are not read from a GeometryProxy.
     @State private var metrics = ShellMetrics()
+    /// The Home shelves, built by `buildShelves` only when the library actually changes. See the
+    /// note there: reading them from the body re-sorted the whole library on every single redraw.
+    @State private var cachedShelves: [Shelf] = []
 
     /// The empty state, carried over from the debug library verbatim in substance. It names the
     /// accepted extensions from the one routing table, explains selecting a .cue with every .bin
@@ -394,7 +397,7 @@ struct LibraryShell: View {
                     .padding(.top, topBarHeight + max(metrics.insets.top, 8) + 12)
                 }
 
-                ForEach(shelves) { shelf in
+                ForEach(cachedShelves) { shelf in
                     ShelfRow(
                         title: shelf.title,
                         entries: shelf.entries,
@@ -410,6 +413,24 @@ struct LibraryShell: View {
         }
         // The hero runs under the top bar on purpose, which is what full-bleed means here.
         .ignoresSafeArea(edges: .top)
+        // THE SHELVES ARE BUILT HERE AND NOWHERE ELSE, so sorting and grouping the library happens
+        // when the library changes rather than on every redraw. `onAppear` covers the first draw
+        // and a return to the Home tab; the two `onChange`es cover an import, a delete, and the
+        // per-system switch in Settings. Single-parameter `onChange` on purpose: the two-parameter
+        // form is iOS 17, and this app ships to iOS 16.
+        .onAppear { rebuildShelves() }
+        .onChange(of: host.library) { _ in rebuildShelves() }
+        .onChange(of: host.showsSystemShelves) { _ in rebuildShelves() }
+        .onChange(of: host.gameArrivals) { _ in rebuildShelves() }
+    }
+
+    /// Recompute the cached shelves. Cheap to call; the point is that it is called rarely.
+    private func rebuildShelves() {
+        cachedShelves = Self.buildShelves(
+            library: host.library,
+            arrivals: host.gameArrivals,
+            systemShelves: host.showsSystemShelves
+        )
     }
 
     /// All Games: everything, searchable, in whichever layout the user chose, and the one place a
@@ -640,7 +661,11 @@ struct LibraryShell: View {
     /// used, which is stable for the same reason.
     private var heroEntry: LibraryEntry? {
         host.library.max { left, right in
-            switch (left.addedAt, right.addedAt) {
+            // Same arrival rule as the Recently added shelf, so the featured game is genuinely the
+            // newest one and not whichever ROM happened to carry the latest file date.
+            let leftAt = host.gameArrivals[left.name] ?? left.addedAt
+            let rightAt = host.gameArrivals[right.name] ?? right.addedAt
+            switch (leftAt, rightAt) {
             case let (leftDate?, rightDate?):
                 if leftDate == rightDate {
                     return left.name.localizedStandardCompare(right.name) == .orderedDescending
@@ -669,13 +694,28 @@ struct LibraryShell: View {
     /// you played" or a genre row, which would be invented. The per-system shelves can be turned
     /// off in Settings, which is part of what the user asked for when they said they wanted to
     /// change the layout.
-    private var shelves: [Shelf] {
-        guard !host.library.isEmpty else { return [] }
+    ///
+    /// Build the shelves. A PURE FUNCTION, and static, so the result can be cached in `@State`
+    /// and rebuilt only when the library or the system-shelves switch actually changes.
+    ///
+    /// This used to be a computed property read straight from the body, which meant SwiftUI
+    /// re-sorted the whole library and rebuilt the per-system grouping on EVERY redraw — and a
+    /// redraw happens whenever anything on the host publishes, including each cover that finishes
+    /// loading while you scroll. With eighty games that is an n-log-n sort plus a dictionary build
+    /// per frame, for an answer that had not changed. It is the first thing to fix for scrolling.
+    private static func buildShelves(
+        library: [LibraryEntry],
+        arrivals: [String: Date],
+        systemShelves: Bool
+    ) -> [Shelf] {
+        guard !library.isEmpty else { return [] }
         var out: [Shelf] = []
 
-        let recent = host.library
+        let recent = library
             .sorted { left, right in
-                switch (left.addedAt, right.addedAt) {
+                let leftAt = arrivals[left.name] ?? left.addedAt
+                let rightAt = arrivals[right.name] ?? right.addedAt
+                switch (leftAt, rightAt) {
                 case let (leftDate?, rightDate?):
                     if leftDate == rightDate {
                         return left.name.localizedStandardCompare(right.name) == .orderedAscending
@@ -689,17 +729,21 @@ struct LibraryShell: View {
                     return left.name.localizedStandardCompare(right.name) == .orderedAscending
                 }
             }
-        out.append(Shelf(id: "recent", title: "Recently added",
-                         entries: Array(recent.prefix(18))))
+        // NO CAP. This was `prefix(18)`, an uncommented magic number, and the owner hit it
+        // immediately: importing eighty games showed eighteen, with the shelf header reading
+        // "18 titles" as though that were the whole truth. Nothing needed the cap — the
+        // per-system shelves below have always been uncapped, and ShelfRow renders inside a
+        // LazyHStack precisely so a long shelf only builds the cards on screen.
+        out.append(Shelf(id: "recent", title: "Recently added", entries: recent))
 
-        guard host.showsSystemShelves else { return out }
+        guard systemShelves else { return out }
 
         // Grouped through the ONE routing table, so a shelf cannot claim a system the launch path
         // would disagree with. Ordered by the system's own case order, so the shelves do not
         // reshuffle when a game is added.
         var bySystem: [GameSystem: [LibraryEntry]] = [:]
         var unrouted: [LibraryEntry] = []
-        for entry in host.library {
+        for entry in library {
             if let system = CoreCatalog.system(for: entry) {
                 bySystem[system, default: []].append(entry)
             } else {

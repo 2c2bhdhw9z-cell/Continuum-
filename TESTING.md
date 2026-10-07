@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 7 October 2026, for **build 140 or newer**. The newest install is always on the
+Last updated 7 October 2026, for **build 141 or newer**. The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 
@@ -34,7 +34,29 @@ a game.
 
 # The list: what still needs testing
 
-## A. New in build 140 (do this first)
+## A. New in build 141 (do these first)
+
+**L1. All your games show in Recently added**
+1. Import a big batch of games at once (the more the better).
+2. ✅ Good: **Recently added** on Home shows **all of them**, not 18. The count beside the title
+   should match what you actually imported.
+3. ✅ Good: the newest ones are at the FRONT of the shelf, in the order they imported — not in
+   alphabetical order, and not buried behind games you added days ago.
+4. ✅ The big featured game at the top should be one you just added.
+
+**L2. Scrolling**
+1. On Home, scroll up and down through the shelves a few times, then scroll a long shelf sideways.
+2. ✅ Good: it should feel smoother than build 138, and should NOT get worse the longer you scroll
+   or the more games you have. Scrolling back to covers you already passed should be instant.
+3. Tell me if it is better, the same, or worse — "the same" is a useful answer here.
+
+**L3. The artwork should look BETTER, not worse**
+1. Look at the covers on Home, the big featured one especially, and open a game's card.
+2. ✅ Good: covers look as sharp or sharper than before, particularly the big featured one.
+3. ❌ If anything looks blurrier or softer than build 138, tell me straight away — nothing in this
+   build shrinks artwork, so that would mean I got something wrong.
+
+## A (from build 140)
 
 **J3. The JIT line says what to do about it now**
 1. **Settings** → **TECHNICAL DETAILS** → the **JIT** row.

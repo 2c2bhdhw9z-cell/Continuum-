@@ -2770,6 +2770,31 @@ final class EngineHost: ObservableObject {
     /// a favourite. `favouriteEntries` simply shows the ones that are currently there.
     @Published private(set) var favourites: Set<String> = []
 
+    /// When each game arrived, by file name. See `gameArrivalsKey` for why this exists.
+    ///
+    /// Published so the Home shelves rebuild when an import stamps new entries, and `private(set)`
+    /// because the only thing that may write it is `stampArrivals(_:)` below.
+    @Published private(set) var gameArrivals: [String: Date] = [:]
+
+    /// Record that these file names have just arrived.
+    ///
+    /// Each gets its own instant, a millisecond apart, so a batch of eighty imports has a strict
+    /// order instead of eighty identical timestamps that tie and fall back to alphabetical. An
+    /// existing stamp is overwritten, because re-importing a game is the file arriving again.
+    private func stampArrivals(_ names: [String]) {
+        guard !names.isEmpty else { return }
+        var updated = gameArrivals
+        let now = Date()
+        for (offset, name) in names.enumerated() {
+            updated[name] = now.addingTimeInterval(Double(offset) / 1000.0)
+        }
+        gameArrivals = updated
+        // Stored as epoch seconds: a plist of Dates round-trips, but seconds are what the sync's
+        // settings export can carry without caring about date formats.
+        let plain = updated.mapValues { $0.timeIntervalSince1970 }
+        UserDefaults.standard.set(plain, forKey: Self.gameArrivalsKey)
+    }
+
     /// How All Games arranges itself, and whether Home carries a shelf per system.
     ///
     /// Both persist, and both are about the LIBRARY. Moving the on-screen game controls is a
@@ -2790,6 +2815,22 @@ final class EngineHost: ObservableObject {
     }
 
     private static let favouritesKey = "continuum.favourites.v1"
+    /// When each game arrived, stamped by the app at import time and KEYED BY FILE NAME.
+    ///
+    /// Not a cosmetic addition. "Recently added" and the featured game were ordered by the ROM
+    /// file's own modification date, which is wrong in two ways that both showed up the first time
+    /// eighty games were imported at once. A copy into Documents can carry the source file's date,
+    /// so a game imported today can sort as though it were years old and never appear in the
+    /// shelf; and when a batch of copies all land inside the same second, every entry ties and the
+    /// shelf silently degenerates into alphabetical order. Stamping arrival ourselves, once per
+    /// file as it lands, fixes both: the order is the order they were imported in.
+    ///
+    /// Keyed by file name rather than by absolute path, which is the scheme `skinGameKey` already
+    /// uses and for the same stated reason — a path contains a container id that does NOT survive
+    /// the app being deleted and reinstalled, and this owner deletes the app before every install.
+    /// Being a `continuum.` key it also rides along in the settings half of cloud sync for free,
+    /// so the ordering comes back with everything else.
+    private static let gameArrivalsKey = "continuum.library.arrivedAt.v1"
     private static let layoutKey = "continuum.library.layout.v1"
     private static let systemShelvesKey = "continuum.library.systemShelves.v1"
     private static let ps1CoreKey = "continuum.cores.ps1.v1"
@@ -3086,6 +3127,12 @@ final class EngineHost: ObservableObject {
         // default rather than to nil, so a first launch and a corrupted value behave the same way.
         let defaults = UserDefaults.standard
         favourites = Set(defaults.stringArray(forKey: Self.favouritesKey) ?? [])
+        // Epoch seconds back to Dates. A game with no stamp (imported before this build, or
+        // dropped straight into Documents through the Files app, which never goes through
+        // importFiles) simply has no entry, and the shelf falls back to its file date as before.
+        if let stored = defaults.dictionary(forKey: Self.gameArrivalsKey) as? [String: Double] {
+            gameArrivals = stored.mapValues { Date(timeIntervalSince1970: $0) }
+        }
         if let stored = defaults.string(forKey: Self.layoutKey),
            let layout = LibraryLayout(rawValue: stored) {
             libraryLayout = layout
@@ -3818,6 +3865,11 @@ final class EngineHost: ObservableObject {
                     + "\(error.localizedDescription)\(lostNote) [\(error)]"
             }
         }
+
+        // Stamp arrival before the rescan, so the shelves are built with the new order already in
+        // place rather than reshuffling a moment later. `imported` is in the order the files were
+        // copied, which is the order the shelf will show them in, newest first.
+        stampArrivals(imported)
 
         // The summary replaces whatever per-file line was last written. Per-file lines are for
         // the case where the app dies mid-import; this is the line the user reads afterwards.

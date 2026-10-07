@@ -557,10 +557,25 @@ final class ArtworkStore: ObservableObject {
     /// pressure, but on a sideloaded build the OS is entitled to kill the app first. The cost limit
     /// keeps the ceiling where it can be reasoned about, and anything evicted is re-read from disk,
     /// which is a memory-mapped read rather than a network round trip.
+    ///
+    /// THE CEILING IS NOW A SHARE OF THE PHONE'S ACTUAL MEMORY rather than a flat 64 MB, because
+    /// the flat number was the cause of a real complaint: scrolling got rough with a large
+    /// library. At ~2 MB a decoded cover, 64 MB held only about THIRTY-TWO of them, so a library
+    /// of eighty evicted constantly and every card scrolled back into view paid a fresh disk read
+    /// and JPEG decode. An eighth of physical memory is ~500 MB on a 4 GB iPhone, which holds a
+    /// couple of hundred covers, while an older 2 GB phone gets ~250 MB and is not pushed harder
+    /// than the flat limit pushed it before. Clamped at both ends so neither a tiny device nor a
+    /// future enormous one produces a silly number.
+    ///
+    /// Deliberately NOT solved by shrinking the covers. Downsampling would have fixed the memory
+    /// arithmetic and made the artwork worse, and the owner's instruction was the opposite: the
+    /// art should look better, not smaller. Nothing in this file reduces a cover's resolution.
     private let memory: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = 120
-        cache.totalCostLimit = 64 * 1024 * 1024
+        cache.countLimit = 400
+        let share = ProcessInfo.processInfo.physicalMemory / 8
+        let clamped = min(max(share, 96 * 1024 * 1024), 640 * 1024 * 1024)
+        cache.totalCostLimit = Int(clamped)
         return cache
     }()
 
@@ -2777,7 +2792,17 @@ struct CoverArtView: View {
         ZStack {
             ArtPlate(entry: entry, system: system, showsCaption: showsCaption && cover == nil)
             if let cover {
+                // HIGH INTERPOLATION, and it is not cosmetic fiddling. Every cover here is
+                // scaled: libretro's box art is around 600 by 850, a shelf card draws it
+                // smaller than that and the hero draws it considerably LARGER. SwiftUI's
+                // default resampling is medium, which is visibly soft both ways — mushy
+                // downscales and blurry upscales. `.high` is a better resampling filter at
+                // the same source resolution, so it costs a little GPU time per frame and
+                // nothing in quality. Nothing here reduces a cover's resolution: the stored
+                // bytes and the decode are untouched, at full size.
                 Image(uiImage: cover.image)
+                    .interpolation(.high)
+                    .antialiased(true)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             }

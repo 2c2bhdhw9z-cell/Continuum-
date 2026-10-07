@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-7 October 2026 (build 140). The install is always the newest file on the
+7 October 2026 (build 141). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Five states only:
@@ -161,6 +161,62 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | Achievements | **Partial** | RetroAchievements login, unlock banners and a list on the game card. Game Boy Advance achievements read mGBA's full memory map. Confirmed (build 125): logging in (the button says Logging in... and cannot be pressed twice) and the unlock banner popping up in a game. The list on the game card is not confirmed yet |
 | Cloud sync | **Built, untested** | Pick any folder in Files (iCloud Drive, Google Drive, Dropbox) once. Save states, battery saves, cheats, settings and covers sync both ways; since build 122 also Flash and J2ME saves, PDF manuals, Amiibo files, the remembered "which system is this" answers and saved servers (their passwords stay on each phone). Kept per phone on purpose: skins, the RetroAchievements login, favourites, the last online-play address, mic and camera permission. Conflicts keep both copies. Nothing is ever only deleted |
 
+
+---
+
+## Build 141 (7 October 2026) — the Home screen: all your games, in the right order, scrolling better
+
+Four things, all from the owner using build 138.
+
+**"Recently added only goes to 18 even if I add 80 games at once."** It was
+`Array(recent.prefix(18))` in `LibraryShell.swift`, an uncommented magic number, and the shelf
+header read "18 titles" as though that were the whole library. The cap is gone. Nothing needed it:
+the per-system shelves have always been uncapped, and `ShelfRow` renders inside a `LazyHStack`
+precisely so a long shelf only builds the cards actually on screen.
+
+**The order was wrong too, which is worse than the cap.** The shelf and the featured game were
+sorted by the ROM file's own modification date. A copy into Documents can carry the SOURCE file's
+date, so a game imported today could sort as though it were years old and never appear at all; and
+when a batch of copies all land inside the same second, every entry ties and the sort silently
+falls back to alphabetical — so "the 18 most recent" was really "the alphabetically first 18 of
+whatever tied". The app now stamps arrival itself, one instant per file as it lands, under
+`continuum.library.arrivedAt.v1`, **keyed by file name**. That is the scheme `skinGameKey` already
+uses, and for the reason that matters here: a path holds a container id that does not survive the
+app being deleted and reinstalled, and this owner deletes the app before every install. Being a
+`continuum.` key it also rides along in cloud sync's settings half for free. Games with no stamp
+(imported before this build, or dropped into Documents through the Files app, which never goes
+through `importFiles`) fall back to the file date exactly as before.
+
+**Scrolling, part one: stop re-sorting the library on every frame.** `shelves` was a computed
+property read straight from the view body, so SwiftUI re-sorted the whole library and rebuilt the
+per-system grouping on EVERY redraw — and a redraw happens whenever anything on the host publishes,
+including each cover that finishes loading while you scroll. It is now a pure static function whose
+result is cached in `@State` and rebuilt only on an import, a delete, or the per-system switch.
+
+**Scrolling, part two: the cover cache was far too small, and the fix is NOT shrinking the art.**
+The decoded-cover `NSCache` had a flat 64 MB ceiling. A decoded libretro box art is around 2 MB, so
+that held about **thirty-two covers** — with eighty games, scrolling evicted constantly and every
+card scrolled back into view paid a fresh disk read and JPEG decode. The ceiling is now a share of
+the phone's actual memory (an eighth, clamped between 96 MB and 640 MB), which is ~500 MB on a 4 GB
+iPhone and holds a couple of hundred covers, while an older 2 GB phone is pushed no harder than the
+flat limit pushed it before.
+
+Downsampling the covers would also have fixed that arithmetic, and was explicitly rejected: the
+owner's instruction was that the art should look BETTER, not smaller. Nothing in this build reduces
+a cover's resolution. Instead the covers are now drawn with `.interpolation(.high)` and
+antialiasing, where they previously used SwiftUI's default (medium) resampling. Every cover is
+scaled — a shelf card draws box art smaller than its 600x850, the hero draws it considerably
+larger — so the default was visibly soft in both directions. Same source resolution, better filter,
+a little more GPU time per frame.
+
+Owner tests: [TESTING.md](TESTING.md) L1 to L3.
+
+### Still to do for "I delete the app before every install"
+Cloud sync already restores save states, battery saves, cheats, settings, cover choices, manuals
+and Amiibo. Three things it still does not, now written down rather than discovered again:
+**the games themselves** (never synced), **skins** (deliberately excluded), and **favourites**
+(excluded because they are stored by absolute path, while the rest of the app keys games by file
+name — the same flaw this build just fixed for arrival order). That is the next batch.
 
 ---
 
