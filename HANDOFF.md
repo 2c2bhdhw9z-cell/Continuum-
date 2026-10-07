@@ -30,6 +30,21 @@ Paste this to start a new chat:
   Apple certificate or provisioning profile. A built-in self-test was offered and turned down: the
   owner has already proved more than half the systems on the phone, so do not offer it again.
 
+## NEXT JOB: JIT for every user who can enable it (owner, 7 October, very angry it was missing)
+
+The owner cannot use JIT (no computer), but JIT must still be built in for everyone else, used
+automatically when available, with everything still working without it. Never answer "your rules
+say no JIT". Plan, nothing started yet:
+1. Detect JIT at runtime without risk: `csops` CS_DEBUGGED (the app already reads its own
+   signature, see `jit_probe.rs`), and on iOS 26 TXM devices the StikJIT protocol
+   (JIT26PrepareRegion / JIT26Detach, `brk #0xf00d`, StikJIT INTEGRATION.md). Never execute a
+   `brk` unless a debugger is attached.
+2. Per core, from each pinned source: PPSSPP (switch `ppsspp_cpu_core` off the locked IR value
+   when JIT is on), flycast (built `TARGET_NO_REC`: needs a dynarec build that falls back), Azahar
+   (`-DIOS` compiles dynarmic out), melonDS JIT, parallel-n64 / pcsx_rearmed dynarec on Apple
+   arm64. Each must fall back safely with no JIT.
+3. Show "JIT: on/off" in Settings, Technical details, and say it in the feedback details.
+
 ## Build 126 test results (6 October)
 
 - Pass: 3DS saves load, an imported save keeps its picture, the small text flash and (i) with a

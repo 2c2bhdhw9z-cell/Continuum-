@@ -23,6 +23,9 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 For whoever works on this next:
 
+- **First: JIT for every user who can enable it** (HANDOFF.md "NEXT JOB"). Everything must still
+  work without it.
+
 - QA Wolf native iPhone testing is connected in the repository: it accepts the released `.ipa`
   directly (not a `.app`). Finish the three private/account steps: sign in to the QA Wolf MCP
   connection, ask QA Wolf to enable mobile triggers for this workspace, and store the API key as
