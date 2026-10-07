@@ -199,12 +199,20 @@ jobs:
       # without changing any pin. Editing one throws the cache away and everything rebuilds,
       # which is the correct and safe behaviour.
       #
-      # `actions/cache` saves only when the whole job succeeded, and that is exactly the
-      # wrong moment here: a job that built all 35 cores and then failed in xcodebuild would
-      # save nothing, so the retry would pay the 35 minutes all over again. That is the
-      # single most frustrating thing about this build. So the cores are SAVED IMMEDIATELY
-      # AFTER THEY EXIST, with `if: always()`, and the save deliberately does not care
-      # whether the build that followed worked.
+      # `actions/cache` saves in post-job cleanup, which only happens when the whole job
+      # succeeded, and that is exactly the wrong moment here: a job that built all 35 cores
+      # and then failed in xcodebuild or at the release step would save nothing, so the retry
+      # would pay the 35 minutes all over again. That is the single most frustrating thing
+      # about this build. Hence restore/save as separate steps, with the save placed
+      # IMMEDIATELY AFTER the cores exist and before anything that might fail.
+      #
+      # Note it is NOT `if: always()`, which is what this was first written as and was wrong.
+      # The save sits before xcodebuild, so a later failure cannot reach it and no `always()`
+      # is needed for that case. All `always()` would add is saving when the core build ITSELF
+      # failed or was cancelled — exactly when the set is INCOMPLETE. And a partial set is
+      # worse than none: it would store under this key, every later run would see a cache hit,
+      # skip saving, rebuild the missing cores every time, and nothing would ever say why the
+      # build was still slow.
       - name: Restore the built cores
         id: core-cache
         uses: actions/cache/restore@v4
@@ -227,10 +235,11 @@ jobs:
           CONTINUUM_CORE_CACHE: "1"
         run: ./native/ios/build-engine.sh
 
-      # Deliberately `always()`: see the long note above. If this job dies after this point,
-      # the next run still starts with the cores already built.
+      # Placed here, before anything that can fail, rather than guarded with `always()`:
+      # see the long note above. If this job dies after this point the cores are already
+      # cached, and a core build that did not finish never gets stored.
       - name: Save the built cores
-        if: always() && steps.core-cache.outputs.cache-hit != 'true'
+        if: steps.core-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -450,13 +459,56 @@ jobs:
           # Continuum-<run>.ipa carries the build number in the FILENAME, so the right file is
           # identifiable in Files and in the signer's own list without checking a size or a hash.
           cp native/ios/build/Continuum.ipa "native/ios/build/Continuum-${{ github.run_number }}.ipa"
-          gh release create "$TAG" \
-            native/ios/build/Continuum.ipa \
-            "native/ios/build/Continuum-${{ github.run_number }}.ipa" \
-            native/ios/get-task-allow.entitlements \
-            native/ios/get-task-allow.plist \
-            --title "Continuum build ${{ github.run_number }}" \
-            --notes-file /tmp/notes.md
+
+          # RETRIED, because build 135 died right here. The .ipa was built, verified and
+          # uploaded; then GitHub's own API answered HTTP 500 to the release creation and the
+          # whole 40 minute job went red with a perfectly good app in it that the owner had no
+          # way to download — an Actions artifact needs a logged-in GitHub account, and the point
+          # of this step is the unauthenticated link. A transient 5xx from someone else's server
+          # must not cost a build.
+          #
+          # Five attempts with growing gaps. `gh release create` is not atomic: it can create the
+          # release and then fail while uploading an asset, so a retry can meet a release that
+          # already exists. That is treated as success and the assets are re-uploaded with
+          # --clobber, which is idempotent.
+          publish() {
+            gh release create "$TAG" \
+              native/ios/build/Continuum.ipa \
+              "native/ios/build/Continuum-${{ github.run_number }}.ipa" \
+              native/ios/get-task-allow.entitlements \
+              native/ios/get-task-allow.plist \
+              --title "Continuum build ${{ github.run_number }}" \
+              --notes-file /tmp/notes.md
+          }
+          upload_into_existing() {
+            gh release upload "$TAG" \
+              native/ios/build/Continuum.ipa \
+              "native/ios/build/Continuum-${{ github.run_number }}.ipa" \
+              native/ios/get-task-allow.entitlements \
+              native/ios/get-task-allow.plist \
+              --clobber
+          }
+
+          published=0
+          for attempt in 1 2 3 4 5; do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "attempt $attempt: $TAG already exists, making sure its files are the ones just built"
+              if upload_into_existing; then published=1; break; fi
+            elif publish; then
+              published=1; break
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              sleep=$((attempt * 15))
+              echo "attempt $attempt failed; retrying in ${sleep}s"
+              sleep "$sleep"
+            fi
+          done
+
+          if [ "$published" -ne 1 ]; then
+            echo "::error::could not publish $TAG after 5 attempts. The .ipa itself is fine and is attached to this run as an artifact; this is GitHub's release API refusing."
+            exit 1
+          fi
+
           echo "released $TAG with Continuum.ipa"
           echo "always-newest link: $LATEST"
 

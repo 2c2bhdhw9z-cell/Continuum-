@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-7 October 2026 (build 138). The install is always the newest file on the
+7 October 2026 (build 139). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Five states only:
@@ -164,6 +164,25 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 ---
 
+## Build 139 (7 October 2026) — a transient GitHub error no longer costs a whole build
+
+**Build 135 failed for a reason that had nothing to do with this project.** The .ipa was built,
+verified and uploaded; then GitHub's own API answered **HTTP 500** to the release creation and the
+whole 40 minute job went red with a perfectly good app inside it that the owner had no way to
+download — an Actions artifact needs a logged-in GitHub account, and the entire point of that step
+is the unauthenticated link.
+
+`Publish the .ipa as a Release` now retries five times with growing gaps. `gh release create` is
+not atomic — it can create the release and then fail while uploading an asset — so a retry that
+meets an existing release treats that as success and re-uploads the assets with `--clobber`, which
+is idempotent. If all five fail it says so and points at the artifact.
+
+The icon check added in 135 is also proven by that run: its log reads
+`app icon: none in the source tree, so none expected in the bundle`, which is the gated branch
+behaving correctly now that there is no icon.
+
+---
+
 ## Build 138 (7 October 2026) — the N64 gets JIT on current iPhones too
 
 The last system that could not use JIT on an iPhone 13 or newer running iOS 26 now can, so
@@ -276,11 +295,17 @@ goes wrong and it is the reason it had not been done before:
   'scripts/fetch-buildbot-cores.sh')`. The patches are in the key because a patch changes a
   core's output without changing any pin; editing one throws the cache away and everything
   rebuilds, which is correct.
-- **The cache is saved with `if: always()`, immediately after the cores exist**, using
-  `actions/cache/restore` and `actions/cache/save` rather than one `actions/cache` step. The
-  combined step only saves when the whole job succeeded, which is precisely the wrong moment:
-  a job that built all 35 cores and then failed in `xcodebuild` would save nothing and the
-  retry would pay the full 35 minutes. Now a failed build still leaves the cores cached.
+- **The cache is saved immediately after the cores exist**, using `actions/cache/restore` and
+  `actions/cache/save` as separate steps rather than one `actions/cache`. The combined step
+  saves in post-job cleanup, which only runs on whole-job success — precisely the wrong
+  moment: a job that built all 35 cores and then failed at `xcodebuild` or the release step
+  would save nothing and the retry would pay the full 35 minutes.
+- The save is deliberately **not** `if: always()`, which is how it was first written and was
+  wrong. Sitting before `xcodebuild` already means a later failure cannot reach it, so
+  `always()` adds nothing there — all it would add is saving when the core build ITSELF failed
+  or was cancelled, which is exactly when the set is INCOMPLETE. A partial set is worse than
+  none: it stores under this key, every later run sees a cache hit, skips saving, rebuilds the
+  missing cores every time, and nothing ever says why the build is still slow.
 
 Build 136 itself is still slow — it is the one that fills the cache, and its key changed
 because `build-core.sh` did. Builds after it are the fast ones.
