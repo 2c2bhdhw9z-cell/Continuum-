@@ -132,6 +132,10 @@ pub struct JitReport {
     pub allowed: bool,
     /// Whether asking StikDebug to attach would turn JIT on for this copy.
     pub can_ask_enabler: bool,
+    /// A debugger is attached and one more step is needed, which the app can do itself.
+    pub needs_setup: bool,
+    /// The script to ask a JIT app for, or empty when this phone needs none.
+    pub stikdebug_script: String,
 }
 
 /// One tick's telemetry.
@@ -1462,7 +1466,18 @@ impl ContinuumEngine {
             // StikDebug's button only makes sense where attaching is the whole job: the copy can
             // be debugged, nothing is attached yet, and the phone does not need the iOS 26 region
             // protocol (which no core here speaks). On a TXM phone it would attach for nothing.
-            can_ask_enabler: state == crate::jit::JitState::NotEnabled && !crate::jit::this_device_has_txm(),
+            // Offered whenever nothing has attached yet. On a phone that needs its region blessed
+            // the app asks for the universal script and then does the rest itself, so the button
+            // is useful there too -- which is the whole of what build 131 was missing.
+            can_ask_enabler: state == crate::jit::JitState::NotEnabled,
+            needs_setup: state == crate::jit::JitState::NeedsPreparing,
+            // The script a JIT app has to run for this phone, empty when it needs none. Decided
+            // here rather than in Swift because only the engine knows what the phone needs.
+            stikdebug_script: if crate::jit::this_device_has_txm() {
+                "universal.js".to_string()
+            } else {
+                String::new()
+            },
         }
     }
 
@@ -1473,8 +1488,34 @@ impl ContinuumEngine {
 
     /// The dylib to load for a core: its `_jit_` build when JIT is usable and that file is in
     /// `frameworks_dir`, else `library` unchanged. Every phone without JIT gets `library`.
-    pub fn core_library_for(&self, frameworks_dir: String, library: String) -> String {
-        crate::jit::library_for(&frameworks_dir, &library)
+    pub fn core_library_for(
+        &self,
+        core_id: String,
+        frameworks_dir: String,
+        library: String,
+    ) -> String {
+        crate::jit::library_for(&core_id, &frameworks_dir, &library)
+    }
+
+    /// Finishes turning JIT on where the phone needs its code region blessed first (iPhone 13 and
+    /// newer on iOS 26). Called when the app comes back to the front after it asked a JIT app to
+    /// attach, and by the "set it up now" control. Returns the state afterwards.
+    ///
+    /// Does nothing at all unless a debugger is attached on a phone that needs this, so it is safe
+    /// to call whenever. See [`crate::jit::prepare_now`] for the one condition that matters.
+    pub fn prepare_jit(&self, asked_for_it: bool) -> JitReport {
+        if asked_for_it {
+            crate::jit::prepare_now();
+        } else {
+            crate::jit::prepare_if_asked();
+        }
+        self.jit_report()
+    }
+
+    /// Called just before opening a JIT app, so the engine knows the universal script was asked
+    /// for and may run the region protocol when the app comes back.
+    pub fn note_jit_enabler_asked(&self) {
+        crate::jit::set_enabler_asked();
     }
 
     /// Runs code from a page this process just wrote, and reports whether that worked.

@@ -1,0 +1,148 @@
+diff --git a/Common/CodeBlock.h b/Common/CodeBlock.h
+index 04642f1..29d79e5 100644
+--- a/Common/CodeBlock.h
++++ b/Common/CodeBlock.h
+@@ -80,9 +80,21 @@ public:
+ 		region = (u8 *)jitController.rx_addr;
+ 		writableRegion = (u8 *)jitController.rw_addr;
+ #else // PPSSPP_PLATFORM(SWITCH)
+-		// The protection will be set to RW if PlatformIsWXExclusive.
+-		region = (u8 *)AllocateExecutableMemory(region_size);
+-		writableRegion = region;
++		// Continuum: the host app's prepared region first, which arrives as the same dual mapping
++		// the Switch branch above sets up. Everything below this class already copes with the two
++		// pointers differing. When there is no such region -- every platform but an iPhone that
++		// needs it -- this is the ordinary allocation, unchanged.
++		void *continuum_rx = nullptr;
++		void *continuum_rw = nullptr;
++		if (ContinuumJitRegion(region_size, &continuum_rx, &continuum_rw)) {
++			region = (u8 *)continuum_rx;
++			writableRegion = (u8 *)continuum_rw;
++			continuumRegion_ = true;
++		} else {
++			// The protection will be set to RW if PlatformIsWXExclusive.
++			region = (u8 *)AllocateExecutableMemory(region_size);
++			writableRegion = region;
++		}
+ #endif // !PPSSPP_PLATFORM(SWITCH)
+ 		T::SetCodePointer(region, writableRegion);
+ 	}
+@@ -152,8 +164,15 @@ public:
+ 	// Call this when shutting down. Don't rely on the destructor, even though it'll do the job.
+ 	void FreeCodeSpace() {
+ #if !PPSSPP_PLATFORM(SWITCH)
+-		ProtectMemoryPages(region, region_size, MEM_PROT_READ | MEM_PROT_WRITE);
+-		FreeExecutableMemory(region, region_size);
++		// Continuum: a slice of the host's region is handed back rather than unmapped, so the next
++		// game can use it again. Unmapping it would take the app's one blessed region apart.
++		if (continuumRegion_) {
++			ContinuumJitRelease(region);
++			continuumRegion_ = false;
++		} else {
++			ProtectMemoryPages(region, region_size, MEM_PROT_READ | MEM_PROT_WRITE);
++			FreeExecutableMemory(region, region_size);
++		}
+ #else // !PPSSPP_PLATFORM(SWITCH)
+ 		jitClose(&jitController);
+ 		printf("[NXJIT]: Jit closed\n");
+@@ -197,6 +216,9 @@ private:
+ 	const uint8_t *writeStart_ = nullptr;
+ 	uint8_t *writableRegion = nullptr;
+ 	size_t writeEstimated_ = 0;
++	// Continuum: this block's memory is a slice of the host's prepared region, so it is released
++	// rather than unmapped.
++	bool continuumRegion_ = false;
+ #if PPSSPP_PLATFORM(SWITCH)
+ 	Jit jitController;
+ #endif // PPSSPP_PLATFORM(SWITCH)
+diff --git a/Common/MemoryUtil.cpp b/Common/MemoryUtil.cpp
+index d4de2cf..5c1e18c 100644
+--- a/Common/MemoryUtil.cpp
++++ b/Common/MemoryUtil.cpp
+@@ -41,6 +41,52 @@
+ #include <mach/vm_param.h>
+ #endif
+ 
++// Continuum: the host app's prepared code region. See the note in MemoryUtil.h. Looked up by name
++// at run time rather than linked, because the core is a dynamic library the app loads and the
++// symbol lives in the app.
++#if PPSSPP_PLATFORM(IOS)
++#include <dlfcn.h>
++
++static bool g_continuumUsingJitRegion = false;
++
++bool ContinuumJitRegion(size_t size, void **rx, void **rw) {
++	typedef bool (*ContinuumRegionFn)(const char *, size_t, void **, void **);
++	static ContinuumRegionFn region_fn =
++		(ContinuumRegionFn)dlsym(RTLD_DEFAULT, "continuum_jit_region");
++	if (!region_fn)
++		return false;
++	// The name only has to tell one code block from another: the host hands the same slice back
++	// when the same name asks again, and reuses a released one otherwise.
++	static int counter = 0;
++	char owner[32];
++	snprintf(owner, sizeof(owner), "ppsspp-%d-%u", counter, (unsigned)(size >> 10));
++	if (!region_fn(owner, size, rx, rw))
++		return false;
++	counter++;
++	g_continuumUsingJitRegion = true;
++	return true;
++}
++
++void ContinuumJitRelease(void *rx) {
++	typedef void (*ContinuumReleaseFn)(void *);
++	static ContinuumReleaseFn release_fn =
++		(ContinuumReleaseFn)dlsym(RTLD_DEFAULT, "continuum_jit_release");
++	if (release_fn)
++		release_fn(rx);
++}
++
++bool ContinuumUsingJitRegion() { return g_continuumUsingJitRegion; }
++#else
++bool ContinuumJitRegion(size_t size, void **rx, void **rw) {
++	(void)size;
++	(void)rx;
++	(void)rw;
++	return false;
++}
++void ContinuumJitRelease(void *rx) { (void)rx; }
++bool ContinuumUsingJitRegion() { return false; }
++#endif
++
+ #ifndef _WIN32
+ #include <unistd.h>
+ #endif
+@@ -299,6 +345,12 @@ void FreeAlignedMemory(void* ptr) {
+ }
+ 
+ bool PlatformIsWXExclusive() {
++	// Continuum: with the host's prepared region in use, writing and running are two addresses for
++	// the same memory, so no page ever has to be re-protected -- the same reason the Switch build
++	// reports false here. Checked first, because every other caller of this assumes that
++	// re-protecting a code page is both possible and necessary, and on that phone it is neither.
++	if (ContinuumUsingJitRegion())
++		return false;
+ 	// Needed on platforms that disable W^X pages for security. Even without block linking, still should be much faster than IR JIT.
+ 	// This might also come in useful for UWP (Universal Windows Platform) if I'm understanding things correctly.
+ #if PPSSPP_PLATFORM(IOS) || PPSSPP_PLATFORM(UWP) || defined(__OpenBSD__)
+diff --git a/Common/MemoryUtil.h b/Common/MemoryUtil.h
+index 00dd786..31c328b 100644
+--- a/Common/MemoryUtil.h
++++ b/Common/MemoryUtil.h
+@@ -29,6 +29,16 @@
+ // Returns true if we need to avoid setting both writable and executable at the same time (W^X)
+ bool PlatformIsWXExclusive();
+ 
++// Continuum: code memory from the host app's prepared region, as two addresses for the same pages
++// (`rx` to run from, `rw` to write through) -- the same arrangement as the Switch path in
++// CodeBlock.h. On an iPhone whose JIT needs it, this is the ONLY memory that can run code; the
++// host is asked at run time, so a frontend that does not provide it is unaffected and every
++// caller falls back to the ordinary allocation.
++bool ContinuumJitRegion(size_t size, void **rx, void **rw);
++void ContinuumJitRelease(void *rx);
++// True once any code block came from that region, which also means nothing needs re-protecting.
++bool ContinuumUsingJitRegion();
++
+ #define MEM_PROT_READ  1
+ #define MEM_PROT_WRITE 2
+ #define MEM_PROT_EXEC  4

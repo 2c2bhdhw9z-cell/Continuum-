@@ -1,0 +1,197 @@
+diff --git a/externals/dynarmic/src/dynarmic/backend/arm64/address_space.cpp b/externals/dynarmic/src/dynarmic/backend/arm64/address_space.cpp
+index 2c7ae77..ef75387 100644
+--- a/externals/dynarmic/src/dynarmic/backend/arm64/address_space.cpp
++++ b/externals/dynarmic/src/dynarmic/backend/arm64/address_space.cpp
+@@ -23,7 +23,9 @@ namespace Dynarmic::Backend::Arm64 {
+ AddressSpace::AddressSpace(size_t code_cache_size)
+         : code_cache_size(code_cache_size)
+         , mem(code_cache_size)
+-        , code(mem.ptr(), mem.ptr())
++        // Continuum: write through the writable address, run at the executable one. They are the
++        // same pointer unless the host gave us a separate writable view (see oaknut's CodeBlock).
++        , code(mem.wptr_base(), mem.ptr())
+         , fastmem_manager(exception_handler) {
+     ASSERT_MSG(code_cache_size <= 128 * 1024 * 1024, "code_cache_size > 128 MiB not currently supported");
+ 
+@@ -136,7 +138,7 @@ void AddressSpace::Link(EmittedBlockInfo& block_info) {
+     using namespace oaknut::util;
+ 
+     for (auto [ptr_offset, target] : block_info.relocations) {
+-        CodeGenerator c{mem.ptr(), mem.ptr()};
++        CodeGenerator c{mem.wptr_base(), mem.ptr()};  // Continuum: see the note above
+         c.set_xptr(reinterpret_cast<u32*>(block_info.entry_point + ptr_offset));
+ 
+         switch (target) {
+@@ -276,7 +278,7 @@ void AddressSpace::LinkBlockLinks(const CodePtr entry_point, const CodePtr targe
+     using namespace oaknut::util;
+ 
+     for (auto [ptr_offset, type] : block_relocations_list) {
+-        CodeGenerator c{mem.ptr(), mem.ptr()};
++        CodeGenerator c{mem.wptr_base(), mem.ptr()};  // Continuum: see the note above
+         c.set_xptr(reinterpret_cast<u32*>(entry_point + ptr_offset));
+ 
+         switch (type) {
+diff --git a/externals/dynarmic/src/dynarmic/interface/A32/config.h b/externals/dynarmic/src/dynarmic/interface/A32/config.h
+index 360df06..d1073b2 100644
+--- a/externals/dynarmic/src/dynarmic/interface/A32/config.h
++++ b/externals/dynarmic/src/dynarmic/interface/A32/config.h
+@@ -236,7 +236,15 @@ struct UserConfig {
+ 
+     // Minimum size is about 8MiB. Maximum size is about 128MiB (arm64 host) or 2GiB (x64 host).
+     // Maximum size is limited by the maximum length of a x86_64 / arm64 jump.
++    // Continuum: 32 MB on an iPhone rather than 128. One of these exists per emulated process,
++    // and on a phone they all have to fit inside the single code region the app is allowed to run
++    // code from, so the default would use it up after three. 32 MB is more than a 3DS game fills,
++    // and the cache is cleared and reused by itself if one ever does.
++#ifdef IOS
++    size_t code_cache_size = 32 * 1024 * 1024;  // bytes
++#else
+     size_t code_cache_size = 128 * 1024 * 1024;  // bytes
++#endif
+ 
+     /// Internal use only
+     bool very_verbose_debugging_output = false;
+diff --git a/externals/oaknut/include/oaknut/code_block.hpp b/externals/oaknut/include/oaknut/code_block.hpp
+index bfa87d9..5bfcfd2 100644
+--- a/externals/oaknut/include/oaknut/code_block.hpp
++++ b/externals/oaknut/include/oaknut/code_block.hpp
+@@ -13,16 +13,55 @@
+ #    include <windows.h>
+ #elif defined(__APPLE__)
+ #    include <TargetConditionals.h>
++#    include <cstdio>
+ #    include <libkern/OSCacheControl.h>
+ #    include <pthread.h>
+ #    include <sys/mman.h>
+ #    include <unistd.h>
++#    if TARGET_OS_IPHONE
++#        include <dlfcn.h>
++#    endif
+ #else
+ #    include <sys/mman.h>
+ #endif
+ 
+ namespace oaknut {
+ 
++#if defined(__APPLE__) && TARGET_OS_IPHONE
++// Continuum: code memory from the host app, as two addresses for the same pages: one to run from
++// and one to write through. On an iPhone 13 or newer running iOS 26 the app gets a single region
++// blessed by a debugger, and that region stays read-and-execute for good, so generated code has to
++// be written through a second address. The host hands out the same pair on older iPhones too, so
++// there is one code path. Looked up by name at run time, so a host without it is unaffected and
++// the plain mapping below is used instead.
++inline bool continuum_jit_block(std::size_t size, std::uint32_t** rx, std::uint32_t** rw)
++{
++    using RegionFn = bool (*)(const char*, std::size_t, void**, void**);
++    static RegionFn region_fn = (RegionFn)dlsym(RTLD_DEFAULT, "continuum_jit_region");
++    static int counter = 0;
++    if (region_fn == nullptr)
++        return false;
++    char owner[32];
++    std::snprintf(owner, sizeof(owner), "oaknut-%d-%u", counter, (unsigned)(size >> 10));
++    void* out_rx = nullptr;
++    void* out_rw = nullptr;
++    if (!region_fn(owner, size, &out_rx, &out_rw))
++        return false;
++    counter++;
++    *rx = reinterpret_cast<std::uint32_t*>(out_rx);
++    *rw = reinterpret_cast<std::uint32_t*>(out_rw);
++    return true;
++}
++
++inline void continuum_jit_block_release(std::uint32_t* rx)
++{
++    using ReleaseFn = void (*)(void*);
++    static ReleaseFn release_fn = (ReleaseFn)dlsym(RTLD_DEFAULT, "continuum_jit_release");
++    if (release_fn != nullptr)
++        release_fn(reinterpret_cast<void*>(rx));
++}
++#endif
++
+ class CodeBlock {
+ public:
+     explicit CodeBlock(std::size_t size)
+@@ -32,7 +71,12 @@ public:
+         m_memory = (std::uint32_t*)VirtualAlloc(nullptr, size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+ #elif defined(__APPLE__)
+ #    if TARGET_OS_IPHONE
+-        m_memory = (std::uint32_t*)mmap(nullptr, size, PROT_READ | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
++        // Continuum: the host's two-address code memory first. See continuum_jit_block above.
++        if (continuum_jit_block(size, &m_memory, &m_wmemory)) {
++            m_from_host = true;
++        } else {
++            m_memory = (std::uint32_t*)mmap(nullptr, size, PROT_READ | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
++        }
+ #    else
+         m_memory = (std::uint32_t*)mmap(nullptr, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANON | MAP_PRIVATE | MAP_JIT, -1, 0);
+ #    endif
+@@ -46,6 +90,10 @@ public:
+ 
+         if (m_memory == nullptr)
+             throw std::bad_alloc{};
++
++        // Continuum: everywhere but the iPhone path above, writing and running use one address.
++        if (m_wmemory == nullptr)
++            m_wmemory = m_memory;
+     }
+ 
+     ~CodeBlock()
+@@ -53,6 +101,15 @@ public:
+         if (m_memory == nullptr)
+             return;
+ 
++#if defined(__APPLE__) && TARGET_OS_IPHONE
++        // Continuum: a slice of the host's region is handed back, never unmapped.
++        if (m_from_host) {
++            continuum_jit_block_release(m_memory);
++            m_memory = nullptr;
++            m_wmemory = nullptr;
++            return;
++        }
++#endif
+ #if defined(_WIN32)
+         VirtualFree((void*)m_memory, 0, MEM_RELEASE);
+ #else
+@@ -70,8 +127,20 @@ public:
+         return m_memory;
+     }
+ 
++    /// Continuum: where to WRITE code that will run at `ptr()`. The same address unless the host
++    /// gave us a separate writable view of the same pages.
++    std::uint32_t* wptr_base() const
++    {
++        return m_wmemory;
++    }
++
+     void protect()
+     {
++#if defined(__APPLE__) && TARGET_OS_IPHONE
++        // Continuum: both addresses stay valid, so there is nothing to switch over.
++        if (m_from_host)
++            return;
++#endif
+ #if defined(__APPLE__) && !TARGET_OS_IPHONE
+         pthread_jit_write_protect_np(1);
+ #elif defined(__APPLE__) || defined(__NetBSD__) || defined(__OpenBSD__)
+@@ -81,6 +150,10 @@ public:
+ 
+     void unprotect()
+     {
++#if defined(__APPLE__) && TARGET_OS_IPHONE
++        if (m_from_host)
++            return;
++#endif
+ #if defined(__APPLE__) && !TARGET_OS_IPHONE
+         pthread_jit_write_protect_np(0);
+ #elif defined(__APPLE__) || defined(__NetBSD__) || defined(__OpenBSD__)
+@@ -137,6 +210,10 @@ public:
+ 
+ protected:
+     std::uint32_t* m_memory;
++    // Continuum: where code is written, which is a different address from m_memory when the host
++    // provided the pair.
++    std::uint32_t* m_wmemory = nullptr;
++    bool m_from_host = false;
+     std::size_t m_size = 0;
+ };
+ 

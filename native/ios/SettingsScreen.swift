@@ -527,8 +527,9 @@ struct SettingsScreen: View {
                 Text("Use JIT when it's available")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.white)
-                Text("Makes PSP, 3DS, N64, Dreamcast and PlayStation faster. If a game acts up "
-                     + "with it, turn this off. Kicks in from the next game you open.")
+                Text("Makes PSP, 3DS, PlayStation and Dreamcast faster, and N64 on older "
+                     + "iPhones. If a game acts up with it, turn this off. Kicks in from the next "
+                     + "game you open.")
                     .font(.system(size: 12))
                     .foregroundStyle(ShellPalette.secondaryText)
             }
@@ -539,6 +540,19 @@ struct SettingsScreen: View {
             SettingsButton(title: "Turn on JIT with StikDebug", role: .normal) {
                 host.askStikDebugForJit()
             }
+        }
+
+        // Only on a phone that needs its code memory blessed and where that has not happened yet.
+        // Normally the app does this by itself on coming back from StikDebug; this is for someone
+        // who turned JIT on from StikDebug directly.
+        if report?.needsSetup == true {
+            SettingsButton(title: "Finish setting JIT up", role: .normal) {
+                host.setUpJitNow()
+            }
+            SettingsNote(
+                "Only works if you turned JIT on with StikDebug and picked the universal script. "
+                + "If you used the button above, this is already done for you."
+            )
         }
     }
 

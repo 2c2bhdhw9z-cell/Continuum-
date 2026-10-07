@@ -1855,9 +1855,13 @@ final class EngineHost: ObservableObject {
         }
     }
 
-    /// Reads the JIT state again. Cheap: two flag reads and two sysctls, nothing runs.
+    /// Reads the JIT state again, and finishes turning JIT on if this phone needed a second step
+    /// and the app is the one that asked for it.
+    ///
+    /// Cheap: two flag reads and two sysctls. The second step only ever runs on a phone that needs
+    /// it, with a JIT app attached that the app itself asked for; see `crate::jit::prepare_now`.
     func refreshJit() {
-        let report = engine.jitReport()
+        let report = engine.prepareJit(askedForIt: false)
         jitReport = report
         let frameworks = Bundle.main.privateFrameworksURL
         let present = Self.jitBuilds.filter { build in
@@ -1879,18 +1883,35 @@ final class EngineHost: ObservableObject {
         ("Dreamcast", "flycast_jit_libretro_ios.dylib"),
     ]
 
-    /// Asks StikDebug to attach and turn JIT on for this copy, the way StikJIT's guide describes
-    /// (bundle id and process id, no script: only offered where attaching is all it takes). If
-    /// StikDebug is not installed iOS simply does nothing.
+    /// Finishes turning JIT on, on a phone that needs its code memory blessed first. The button
+    /// for this says what it needs, because the step only works with the right JIT app attached.
+    func setUpJitNow() {
+        status = "setting JIT up..."
+        let report = engine.prepareJit(askedForIt: true)
+        jitReport = report
+        jitLine = report.technical
+        status = report.on ? "JIT is on. Open a game to use it." : report.sentence
+    }
+
+    /// Asks StikDebug to attach and turn JIT on for this copy, the way StikJIT's guide describes:
+    /// the bundle id, this process's id, and on a phone that needs its code memory blessed, the
+    /// name of the script that does the blessing. If StikDebug is not installed iOS does nothing.
     func askStikDebugForJit() {
         guard let bundleId = Bundle.main.bundleIdentifier else { return }
+        // Told before the app leaves the front, so that when it comes back the engine knows the
+        // right script was asked for and may finish the job by itself.
+        engine.noteJitEnablerAsked()
         var parts = URLComponents()
         parts.scheme = "stikdebug"
         parts.host = "enable-jit"
-        parts.queryItems = [
+        var items = [
             URLQueryItem(name: "bundle-id", value: bundleId),
             URLQueryItem(name: "pid", value: String(getpid())),
         ]
+        if let script = jitReport?.stikdebugScript, !script.isEmpty {
+            items.append(URLQueryItem(name: "script-name", value: script))
+        }
+        parts.queryItems = items
         guard let url = parts.url else { return }
         UIApplication.shared.open(url) { [weak self] opened in
             Task { @MainActor in
@@ -3527,6 +3548,7 @@ final class EngineHost: ObservableObject {
         // otherwise its regular build, exactly as before. The engine decides (crate::jit).
         refreshJit()
         let library = engine.coreLibraryFor(
+            coreId: coreId,
             frameworksDir: Bundle.main.privateFrameworksPath ?? "",
             library: spec.library
         )

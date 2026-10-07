@@ -1,32 +1,165 @@
 diff --git a/libpcsxcore/new_dynarec/new_dynarec.c b/libpcsxcore/new_dynarec/new_dynarec.c
-index fb99df6..0408ae6 100644
+index fb99df6..951f9f5 100644
 --- a/libpcsxcore/new_dynarec/new_dynarec.c
 +++ b/libpcsxcore/new_dynarec/new_dynarec.c
-@@ -689,7 +689,10 @@ static void mprotect_w_x(void *start, void *end, int is_x)
+@@ -155,6 +155,35 @@ static char ndrc_bss[((sizeof(*ndrc) + 65535) & ~65535) + 65536];
+ # endif
+ static long ndrc_write_ofs;
+ #define NDRC_WRITE_OFFSET(x) (void *)((char *)(x) + ndrc_write_ofs)
++#if defined(IOS)
++/* Continuum: the cache is a slice of the host app's prepared region rather than our own mapping,
++   so it is handed back on shutdown instead of being unmapped. */
++#include <dlfcn.h>
++static int ndrc_from_host_region;
++static int continuum_jit_region_lookup(const char *owner, size_t size, void **rx, void **rw)
++{
++  typedef int (*region_fn)(const char *, size_t, void **, void **);
++  static region_fn fn;
++  static int looked_up;
++  if (!looked_up) {
++    fn = (region_fn)dlsym(RTLD_DEFAULT, "continuum_jit_region");
++    looked_up = 1;
++  }
++  return fn ? fn(owner, size, rx, rw) : 0;
++}
++static void continuum_jit_region_give_back(void *rx)
++{
++  typedef void (*release_fn)(void *);
++  static release_fn fn;
++  static int looked_up;
++  if (!looked_up) {
++    fn = (release_fn)dlsym(RTLD_DEFAULT, "continuum_jit_release");
++    looked_up = 1;
++  }
++  if (fn)
++    fn(rx);
++}
++#endif
+ #else
+ #define NDRC_WRITE_OFFSET(x) (x)
+ #endif
+@@ -688,6 +717,20 @@ static void mprotect_w_x(void *start, void *end, int is_x)
+   }
    #elif defined(TC_WRITE_OFFSET)
    // separated rx and rw areas are always available
++  #if defined(IOS)
++  /* Continuum: unless there is no separate writable address on this phone, in which case the one
++     mapping is switched between writable and runnable. The real page size, which is 16K on
++     iPhones: mprotect refuses an address that is not aligned to it, and rounding to 4K left code
++     pages writable-only. */
++  if (ndrc_write_ofs == 0) {
++    u_long pmask = (u_long)sysconf(_SC_PAGESIZE) - 1;
++    u_long mstart = (u_long)start & ~pmask;
++    u_long mend = (u_long)end;
++    if (mprotect((void *)mstart, mend - mstart,
++                 PROT_READ | (is_x ? PROT_EXEC : PROT_WRITE)) != 0)
++      SysPrintf("mprotect(%c) failed: %s\n", is_x ? 'x' : 'w', strerror(errno));
++  }
++  #endif
    #else
--  u_long mstart = (u_long)start & ~4095ul;
-+  /* Continuum: the real page size, which is 16K on iPhone. mprotect refuses an address that is
-+     not aligned to it, so rounding to 4K left code pages writable-only and crashed. */
-+  u_long pmask = (u_long)sysconf(_SC_PAGESIZE) - 1;
-+  u_long mstart = (u_long)start & ~pmask;
+   u_long mstart = (u_long)start & ~4095ul;
    u_long mend = (u_long)end;
-   if (mprotect((void *)mstart, mend - mstart,
-                PROT_READ | (is_x ? PROT_EXEC : PROT_WRITE)) != 0)
+@@ -705,7 +748,15 @@ void new_dyna_clear_cache(void *start, void *end)
+   #if   defined(__BLACKBERRY_QNX__)
+   msync(start, len, MS_SYNC | MS_CACHE_ONLY | MS_INVALIDATE_ICACHE);
+   #elif defined(__MACH__)
+-  sys_cache_control(kCacheFunctionPrepareForExecution, start, len);
++  /* Continuum: with a separate writable address, the code was written through one address and
++     runs at another. Clean the data cache where it was written, then invalidate the instruction
++     cache where it will run; invalidating only the writing address leaves stale instructions. */
++  if (ndrc_write_ofs != 0) {
++    sys_dcache_flush(start, len);
++    sys_icache_invalidate((char *)start - ndrc_write_ofs, len);
++  }
++  else
++    sys_cache_control(kCacheFunctionPrepareForExecution, start, len);
+   #elif defined(VITA)
+   sceKernelSyncVMDomain(sceBlock, start, len);
+   #elif defined(_3DS)
+@@ -6720,7 +6771,22 @@ void new_dynarec_init(void)
+   extern char _end;
+   desired_addr = ((uintptr_t)&_end + 0xffffff) & ~0xffffffl;
+   #endif
+-  #ifdef TC_WRITE_OFFSET
++  #if defined(TC_WRITE_OFFSET) && defined(IOS)
++  /* Continuum: the host app's prepared code region, which arrives as two addresses for the same
++     memory. This is the only memory that can run code on an iPhone 13 or newer on iOS 26. Looked
++     up by name at run time, so a frontend without it simply falls through to the mapping below
++     and the cache behaves as it does on older iPhones. */
++  {
++    void *region_rx = NULL, *region_rw = NULL;
++    if (continuum_jit_region_lookup("pcsx_rearmed-ndrc", sizeof(*ndrc), &region_rx, &region_rw)) {
++      ndrc = (struct ndrc_mem *)region_rx;
++      ndrc_write_ofs = (char *)region_rw - (char *)region_rx;
++      ndrc_from_host_region = 1;
++      SysPrintf("ndrc: host region rx=%p rw=%p\n", region_rx, region_rw);
++      goto ndrc_mapped;
++    }
++  }
++  #elif defined(TC_WRITE_OFFSET)
+   // mostly for testing
+   fd = open("/dev/shm/pcsxr", O_CREAT | O_RDWR, 0600);
+   ftruncate(fd, sizeof(*ndrc));
+@@ -6736,9 +6802,13 @@ void new_dynarec_init(void)
+     SysPrintf("mmap() failed: %s\n", strerror(errno));
+     abort();
+   }
+-  #ifdef TC_WRITE_OFFSET
++  #if defined(TC_WRITE_OFFSET) && !defined(IOS)
+   ndrc_write_ofs = (char *)mw - (char *)ndrc;
+   #endif
++  #if defined(TC_WRITE_OFFSET) && defined(IOS)
++  ndrc_mapped:
++  ;
++  #endif
+   #endif
+ #else
+   ndrc = (struct ndrc_mem *)((size_t)(ndrc_bss + align) & ~align);
+@@ -6783,9 +6853,20 @@ void new_dynarec_cleanup(void)
+   jitClose(&g_jit);
+   ndrc = NULL;
+   #else
+-  if (munmap(ndrc, sizeof(*ndrc)) < 0)
+-    SysPrintf("munmap() failed\n");
+-  ndrc = NULL;
++  #if defined(IOS)
++  if (ndrc_from_host_region) {
++    continuum_jit_region_give_back(ndrc);
++    ndrc_from_host_region = 0;
++    ndrc_write_ofs = 0;
++    ndrc = NULL;
++  }
++  else
++  #endif
++  {
++    if (munmap(ndrc, sizeof(*ndrc)) < 0)
++      SysPrintf("munmap() failed\n");
++    ndrc = NULL;
++  }
+   #endif
+ #endif
+   for (n = 0; n < ARRAY_SIZE(blocks); n++)
 diff --git a/libpcsxcore/new_dynarec/new_dynarec_config.h b/libpcsxcore/new_dynarec/new_dynarec_config.h
-index 0781e47..947c525 100644
+index 0781e47..7ab9073 100644
 --- a/libpcsxcore/new_dynarec/new_dynarec_config.h
 +++ b/libpcsxcore/new_dynarec/new_dynarec_config.h
-@@ -18,6 +18,12 @@
+@@ -18,6 +18,20 @@
  #if defined(VITA) || defined(HAVE_LIBNX)
  #define BASE_ADDR_DYNAMIC 1
  #endif
 +/* Continuum: iPhone JIT build. The translation cache is mapped at run time rather than living in
-+   the .bss array, whose segment can never be made executable on iOS. It starts runnable and is
-+   switched writable and back around each write (NO_WRITE_EXEC, already on for Apple). */
-+#if defined(IOS) && defined(__aarch64__) && !defined(BASE_ADDR_DYNAMIC)
++   the .bss array, whose segment can never be made executable on iOS (BASE_ADDR_DYNAMIC), and the
++   cache has a separate writable address (TC_WRITE_OFFSET) because that is how the host's prepared
++   region works on an iPhone 13 or newer running iOS 26: one address to run code from, a second to
++   write it through. Where the host has no such region the offset stays zero and the pages are
++   switched between writable and runnable instead, which is what older iPhones need. */
++#if defined(IOS) && defined(__aarch64__)
++#ifndef BASE_ADDR_DYNAMIC
 +#define BASE_ADDR_DYNAMIC 1
++#endif
++#ifndef TC_WRITE_OFFSET
++#define TC_WRITE_OFFSET 1
++#endif
 +#endif
  #if defined(HAVE_LIBNX)
  #define TC_WRITE_OFFSET 1

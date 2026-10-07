@@ -75,18 +75,24 @@ static uint8_t *g_rw = NULL;
 static size_t g_size = 0;
 static size_t g_used = 0;
 
+// Whether JIT is actually on right now, set by the engine before any core loads. Nothing is
+// handed out when it is false: a core that asked anyway would be given memory it is not allowed
+// to run code from, and the failure would land inside the core rather than here.
+static bool g_live = false;
+
 // One slice per asking core, remembered by name.
 //
 // A core is unloaded and loaded again every time the user leaves a game and opens another, and it
 // asks for its code memory each time. Without this the arena would be eaten a slice at a time
 // until it ran out mid-session; with it, the same core always gets the same slice back. The names
 // are short fixed strings from the patches, so there is no allocation here.
-#define CONTINUUM_JIT_SLOTS 16
+#define CONTINUUM_JIT_SLOTS 32
 static struct {
     char owner[32];
     uint8_t *rx;
     uint8_t *rw;
     size_t size;
+    bool in_use;
 } g_slots[CONTINUUM_JIT_SLOTS];
 static int g_slot_count = 0;
 
@@ -96,6 +102,24 @@ static size_t continuum_jit_page_round(size_t value) {
         page = 16384;
     }
     return (value + page - 1) & ~(page - 1);
+}
+
+/// A writable second address for pages that are already read-and-execute. The whole trick, used
+/// both for the blessed region and for a plain mapping on a phone that needs no blessing.
+static uint8_t *continuum_jit_writable_view(uint8_t *rx, size_t size) {
+    vm_address_t writable = 0;
+    vm_prot_t current_protection = 0;
+    vm_prot_t max_protection = 0;
+    kern_return_t result =
+        vm_remap(mach_task_self(), &writable, size, 0, VM_FLAGS_ANYWHERE, mach_task_self(),
+                 (vm_address_t)rx, false, &current_protection, &max_protection, VM_INHERIT_DEFAULT);
+    if (result != KERN_SUCCESS) {
+        return NULL;
+    }
+    if (mprotect((void *)writable, size, PROT_READ | PROT_WRITE) != 0) {
+        return NULL;
+    }
+    return (uint8_t *)writable;
 }
 
 /// Reserves `size` bytes, has the debugger prepare them, and maps a writable view of the same
@@ -132,27 +156,16 @@ bool continuum_jit26_prepare(size_t size) {
 
     // A second address for the same physical memory, writable. This is what makes the region
     // usable at all: the prepared mapping itself must stay read-and-execute.
-    vm_address_t writable = 0;
-    vm_prot_t current_protection = 0;
-    vm_prot_t max_protection = 0;
-    kern_return_t result =
-        vm_remap(mach_task_self(), &writable, size, 0, VM_FLAGS_ANYWHERE, mach_task_self(),
-                 (vm_address_t)rx, false, &current_protection, &max_protection, VM_INHERIT_DEFAULT);
-    if (result != KERN_SUCCESS) {
+    uint8_t *writable = continuum_jit_writable_view(rx, size);
+    if (writable == NULL) {
         g_state = 2;
         g_error = "a writable view of the code region was refused";
         continuum_jit26_detach_call();
         return false;
     }
-    if (mprotect((void *)writable, size, PROT_READ | PROT_WRITE) != 0) {
-        g_state = 2;
-        g_error = "the writable view could not be made writable";
-        continuum_jit26_detach_call();
-        return false;
-    }
 
     g_rx = rx;
-    g_rw = (uint8_t *)writable;
+    g_rw = writable;
     g_size = size;
     g_used = 0;
     g_slot_count = 0;
@@ -168,6 +181,9 @@ bool continuum_jit26_prepare(size_t size) {
 }
 
 int continuum_jit26_state(void) { return g_state; }
+
+/// The engine says whether JIT is on, before a core is loaded.
+void continuum_jit26_set_live(bool live) { g_live = live; }
 
 const char *continuum_jit26_error(void) { return g_error; }
 
@@ -187,55 +203,90 @@ size_t continuum_jit26_used(void) { return g_used; }
 /// through `dlsym(RTLD_DEFAULT, "continuum_jit_region")`.
 __attribute__((used, visibility("default"))) bool
 continuum_jit_region(const char *owner, size_t size, void **out_rx, void **out_rw) {
-    if (g_state != 1 || out_rx == NULL || out_rw == NULL || size == 0) {
+    if (!g_live || out_rx == NULL || out_rw == NULL || size == 0) {
         return false;
     }
     const char *name = (owner != NULL) ? owner : "unnamed";
+    size = continuum_jit_page_round(size);
 
+    // A slice this core already holds, by name. A core asks again every time a game is opened, so
+    // handing the same memory back is what stops the region draining one game at a time.
     for (int i = 0; i < g_slot_count; i++) {
-        if (strncmp(g_slots[i].owner, name, sizeof(g_slots[i].owner) - 1) == 0) {
-            // Asked again after a core reload: hand back the same slice, so leaving a game and
-            // opening another does not eat the arena one slice at a time.
-            if (size <= g_slots[i].size) {
-                *out_rx = g_slots[i].rx;
-                *out_rw = g_slots[i].rw;
-                return true;
-            }
-            // It wants more than last time. Give it a fresh, larger slice and point the slot at
-            // it; the old one is simply left behind, which costs address space and no memory.
-            size = continuum_jit_page_round(size);
-            if (size > g_size - g_used) {
-                return false;
-            }
-            g_slots[i].rx = g_rx + g_used;
-            g_slots[i].rw = g_rw + g_used;
-            g_slots[i].size = size;
-            g_used += size;
+        if (g_slots[i].in_use && size <= g_slots[i].size &&
+            strncmp(g_slots[i].owner, name, sizeof(g_slots[i].owner) - 1) == 0) {
             *out_rx = g_slots[i].rx;
             *out_rw = g_slots[i].rw;
             return true;
         }
     }
 
-    size = continuum_jit_page_round(size);
-    if (size > g_size - g_used || g_slot_count >= CONTINUUM_JIT_SLOTS) {
+    // A slice someone released on shutdown, big enough to be used again.
+    for (int i = 0; i < g_slot_count; i++) {
+        if (!g_slots[i].in_use && size <= g_slots[i].size) {
+            strncpy(g_slots[i].owner, name, sizeof(g_slots[i].owner) - 1);
+            g_slots[i].owner[sizeof(g_slots[i].owner) - 1] = '\0';
+            g_slots[i].in_use = true;
+            *out_rx = g_slots[i].rx;
+            *out_rw = g_slots[i].rw;
+            return true;
+        }
+    }
+
+    if (g_slot_count >= CONTINUUM_JIT_SLOTS) {
         return false;
     }
 
-    uint8_t *rx = g_rx + g_used;
-    uint8_t *rw = g_rw + g_used;
-    g_used += size;
+    uint8_t *rx = NULL;
+    uint8_t *rw = NULL;
+    if (g_state == 1) {
+        // Carve the next slice off the blessed region. Nothing outside it can run code on this
+        // phone, so there is no fallback here.
+        if (size > g_size - g_used) {
+            return false;
+        }
+        rx = g_rx + g_used;
+        rw = g_rw + g_used;
+        g_used += size;
+    } else {
+        // A phone that needs no blessing: a mapping of its own, in the same two-address shape, so
+        // that every core takes one code path on every phone.
+        rx = (uint8_t *)mmap(NULL, size, PROT_READ | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
+        if (rx == MAP_FAILED || rx == NULL) {
+            return false;
+        }
+        rw = continuum_jit_writable_view(rx, size);
+        if (rw == NULL) {
+            munmap(rx, size);
+            return false;
+        }
+    }
 
-    strncpy(g_slots[g_slot_count].owner, name, sizeof(g_slots[g_slot_count].owner) - 1);
-    g_slots[g_slot_count].owner[sizeof(g_slots[g_slot_count].owner) - 1] = '\0';
-    g_slots[g_slot_count].rx = rx;
-    g_slots[g_slot_count].rw = rw;
-    g_slots[g_slot_count].size = size;
-    g_slot_count++;
+    int slot = g_slot_count++;
+    strncpy(g_slots[slot].owner, name, sizeof(g_slots[slot].owner) - 1);
+    g_slots[slot].owner[sizeof(g_slots[slot].owner) - 1] = '\0';
+    g_slots[slot].rx = rx;
+    g_slots[slot].rw = rw;
+    g_slots[slot].size = size;
+    g_slots[slot].in_use = true;
 
     *out_rx = rx;
     *out_rw = rw;
     return true;
+}
+
+/// Says a slice is no longer needed, so the next core to ask can have it. The patched cores call
+/// this when they shut their recompiler down. Safe with any pointer, including one that never
+/// came from here.
+__attribute__((used, visibility("default"))) void continuum_jit_release(void *rx) {
+    if (rx == NULL) {
+        return;
+    }
+    for (int i = 0; i < g_slot_count; i++) {
+        if (g_slots[i].rx == (uint8_t *)rx) {
+            g_slots[i].in_use = false;
+            return;
+        }
+    }
 }
 
 #else // not an iPhone build
@@ -246,6 +297,8 @@ bool continuum_jit26_prepare(size_t size) {
 }
 
 int continuum_jit26_state(void) { return 0; }
+
+void continuum_jit26_set_live(bool live) { (void)live; }
 
 const char *continuum_jit26_error(void) { return "not an iPhone build"; }
 
@@ -261,5 +314,7 @@ continuum_jit_region(const char *owner, size_t size, void **out_rx, void **out_r
     (void)out_rw;
     return false;
 }
+
+__attribute__((used, visibility("default"))) void continuum_jit_release(void *rx) { (void)rx; }
 
 #endif

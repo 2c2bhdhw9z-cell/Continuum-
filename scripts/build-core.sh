@@ -1216,6 +1216,16 @@ ios_apply_core_patches() {
       ios_apply_azahar_pipeline_wait_patch
       ios_apply_simple_patch azahar azahar-use-jit-when-the-host-allows-it.patch \
         src/citra_libretro/core_settings.cpp "Continuum: the recompiler when the host says JIT"
+      ios_apply_simple_patch azahar azahar-ios-jit-region.patch \
+        externals/oaknut/include/oaknut/code_block.hpp "Continuum: code memory from the host app"
+      ;;
+    ppsspp)
+      ios_apply_simple_patch ppsspp ppsspp-ios-jit-region.patch \
+        Common/MemoryUtil.h "Continuum: code memory from the host app's prepared region"
+      ;;
+    flycast_jit)
+      ios_apply_simple_patch flycast_jit flycast-ios-jit-region.patch \
+        core/build.h "Continuum: an iPhone build with the recompilers on"
       ;;
     parallel_n64_jit)
       ios_apply_parallel_n64_aarch64_hot_state_gate_patch

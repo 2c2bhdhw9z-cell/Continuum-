@@ -1,0 +1,161 @@
+diff --git a/core/build.h b/core/build.h
+index 6ea5355..40ea40d 100755
+--- a/core/build.h
++++ b/core/build.h
+@@ -63,6 +63,14 @@
+ #define FEAT_NO_RWX_PAGES
+ #endif
+ 
++/* Continuum: an iPhone build with the recompilers on. Code memory comes from the host app as two
++   addresses for the same pages, one to run from and one to write through, because that is the only
++   shape an iPhone 13 or newer on iOS 26 allows: its one blessed code region stays read-and-execute
++   for good. The host hands out the same pair on older iPhones too, so there is one code path. */
++#if defined(TARGET_IPHONE) && !defined(TARGET_NO_REC)
++#define FEAT_NO_RWX_PAGES
++#endif
++
+ //defaults
+ 
+ #ifndef FEAT_SHREC
+diff --git a/core/hw/aica/dsp_arm64.cpp b/core/hw/aica/dsp_arm64.cpp
+index 357bd84..6f9a7e2 100644
+--- a/core/hw/aica/dsp_arm64.cpp
++++ b/core/hw/aica/dsp_arm64.cpp
+@@ -44,6 +44,12 @@ static ptrdiff_t rx_offset;
+ 
+ static void JITWriteProtect(bool enable)
+ {
++#ifdef FEAT_NO_RWX_PAGES
++    // Continuum: code is written through one address and run from another, both always valid, so
++    // there is no page to switch over.
++    (void)enable;
++    return;
++#endif
+     if (enable)
+     	virtmem::region_set_exec(pCodeBuffer, CodeSize);
+     else
+diff --git a/core/hw/arm7/arm7_rec_arm64.cpp b/core/hw/arm7/arm7_rec_arm64.cpp
+index 9492f6f..c6c7dd6 100644
+--- a/core/hw/arm7/arm7_rec_arm64.cpp
++++ b/core/hw/arm7/arm7_rec_arm64.cpp
+@@ -46,6 +46,12 @@ static Arm64UnwindInfo unwinder;
+ #ifdef TARGET_IPHONE
+ static void JITWriteProtect(bool enable)
+ {
++#ifdef FEAT_NO_RWX_PAGES
++    // Continuum: code is written through one address and run from another, both always valid, so
++    // there is no page to switch over.
++    (void)enable;
++    return;
++#endif
+     if (enable)
+     	virtmem::region_set_exec(recompiler::ICache, recompiler::ICacheSize);
+     else
+diff --git a/core/linux/posix_vmem.cpp b/core/linux/posix_vmem.cpp
+index 2d42410..a232b65 100644
+--- a/core/linux/posix_vmem.cpp
++++ b/core/linux/posix_vmem.cpp
+@@ -15,6 +15,10 @@
+ #include "hw/mem/addrspace.h"
+ #include "hw/sh4/sh4_if.h"
+ #include "oslib/virtmem.h"
++#if defined(TARGET_IPHONE)
++#include <dlfcn.h>
++#include <cstdio>
++#endif
+ 
+ #ifndef MAP_NOSYNC
+ #define MAP_NOSYNC 0
+@@ -54,6 +58,35 @@ static int ashmem_create_region(const char *name, size_t size)
+ namespace virtmem
+ {
+ 
++#if defined(TARGET_IPHONE)
++// Continuum: code memory from the host app, as two addresses for the same pages (one to run from,
++// one to write through). On an iPhone 13 or newer running iOS 26 that is the only memory generated
++// code may ever live in, and the host hands out the same pair on older iPhones so there is a single
++// code path. Looked up by name at run time, so this build also works in a frontend without it.
++static bool continuum_jit_block(size_t size, void **rx, void **rw)
++{
++	typedef bool (*RegionFn)(const char *, size_t, void **, void **);
++	static RegionFn region_fn = (RegionFn)dlsym(RTLD_DEFAULT, "continuum_jit_region");
++	static int counter = 0;
++	if (region_fn == nullptr)
++		return false;
++	char owner[32];
++	snprintf(owner, sizeof(owner), "flycast-%d-%u", counter, (unsigned)(size >> 10));
++	if (!region_fn(owner, size, rx, rw))
++		return false;
++	counter++;
++	return true;
++}
++
++static void continuum_jit_block_release(void *rx)
++{
++	typedef void (*ReleaseFn)(void *);
++	static ReleaseFn release_fn = (ReleaseFn)dlsym(RTLD_DEFAULT, "continuum_jit_release");
++	if (release_fn != nullptr)
++		release_fn(rx);
++}
++#endif
++
+ bool region_lock(void *start, size_t len)
+ {
+ 	size_t inpage = (uintptr_t)start & PAGE_MASK;
+@@ -289,6 +322,24 @@ void release_jit_block(void *code_area, size_t size)
+ // Use two addr spaces: need to remap something twice, therefore use allocate_shared_filemem()
+ bool prepare_jit_block(void *code_area, size_t size, void **code_area_rw, ptrdiff_t *rx_offset)
+ {
++#if defined(TARGET_IPHONE)
++	// Continuum: from the host app, which owns the only memory an iPhone may run generated code
++	// from. `rx_offset` is how far the running address sits from the writing one, which is exactly
++	// what the recompilers already add when FEAT_NO_RWX_PAGES is set.
++	{
++		void *region_rx = nullptr;
++		void *region_rw = nullptr;
++		if (continuum_jit_block(size, &region_rx, &region_rw))
++		{
++			*code_area_rw = region_rw;
++			*rx_offset = (char *)region_rx - (char *)region_rw;
++			INFO_LOG(DYNAREC, "Code from the host region: rx %p rw %p", region_rx, region_rw);
++			return true;
++		}
++		WARN_LOG(DYNAREC, "The host has no code region, so the recompiler cannot start");
++		return false;
++	}
++#endif
+ 	int fd = allocate_shared_filemem(size);
+ 	if (fd < 0)
+ 		return false;
+@@ -319,6 +370,14 @@ bool prepare_jit_block(void *code_area, size_t size, void **code_area_rw, ptrdif
+ 
+ void release_jit_block(void *code_area1, void *code_area2, size_t size)
+ {
++#if defined(TARGET_IPHONE)
++	// Continuum: handed back to the host so the next game can use it, never unmapped: the pages
++	// belong to the app's one blessed region.
++	(void)size;
++	(void)code_area2;
++	continuum_jit_block_release(code_area1);
++	return;
++#endif
+ 	// keep code_area1 (RX) mapped since it's statically allocated
+ 	munmap(code_area2, size);
+ }
+diff --git a/core/rec-ARM64/rec_arm64.cpp b/core/rec-ARM64/rec_arm64.cpp
+index 426ddb4..c3250fd 100644
+--- a/core/rec-ARM64/rec_arm64.cpp
++++ b/core/rec-ARM64/rec_arm64.cpp
+@@ -77,6 +77,12 @@ static DynaCode *writeStoreQueue64;
+ 
+ static void jitWriteProtect(Sh4CodeBuffer &codeBuffer, bool enable)
+ {
++#ifdef FEAT_NO_RWX_PAGES
++    // Continuum: code is written through one address and run from another, both always valid, so
++    // there is no page to switch over.
++    (void)enable;
++    return;
++#endif
+ #ifdef TARGET_IPHONE
+     if (enable)
+     	virtmem::region_set_exec(codeBuffer.getBase(), codeBuffer.getSize());

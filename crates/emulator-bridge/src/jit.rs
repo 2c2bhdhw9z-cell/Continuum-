@@ -182,6 +182,7 @@ pub enum RegionState {
 extern "C" {
     fn continuum_jit26_prepare(size: usize) -> bool;
     fn continuum_jit26_state() -> i32;
+    fn continuum_jit26_set_live(live: bool);
     fn continuum_jit26_region_size() -> usize;
     fn continuum_jit26_used() -> usize;
     /// Not called from Rust. Referenced once in [`keep_region_symbol`] so the linker cannot drop
@@ -314,6 +315,22 @@ pub fn device_has_txm(machine: &str, os_major: u32) -> bool {
     true
 }
 
+/// Whether this core may use JIT on this phone.
+///
+/// Everything can, except on a phone where code may only live inside the one region the debugger
+/// blessed (iPhone 13 and newer on iOS 26). There, a core must be able to write its code through a
+/// second address, and not all of them can:
+///
+/// - PCSX ReARMed, flycast, PPSSPP and Azahar can, and are patched to ask the host for the pair.
+/// - parallel-n64 cannot yet: its jump trampolines are written through the same pointer they are
+///   run from, so the N64 stays on its interpreter on those phones, exactly as it is today.
+pub fn core_may_use_jit(core_id: &str, region_in_use: bool) -> bool {
+    if !region_in_use {
+        return true;
+    }
+    matches!(core_id, "pcsx_rearmed" | "flycast" | "ppsspp" | "azahar")
+}
+
 /// `fceumm_libretro_ios.dylib` -> `fceumm_jit_libretro_ios.dylib`. `None` for a name that is not
 /// a core dylib, or is already a JIT build.
 pub fn jit_library_name(library: &str) -> Option<String> {
@@ -333,10 +350,11 @@ pub fn is_jit_library(path: &str) -> bool {
         .is_some_and(|name| name.ends_with("_jit_libretro_ios.dylib"))
 }
 
-/// The dylib to load for a core: its JIT build when JIT is usable and that file is in
-/// `frameworks_dir`, else the ordinary one.
-pub fn library_for(frameworks_dir: &str, library: &str) -> String {
-    pick_library(library, usable(), |name| Path::new(frameworks_dir).join(name).is_file())
+/// The dylib to load for a core: its JIT build when JIT is usable for that core and that file is
+/// in `frameworks_dir`, else the ordinary one.
+pub fn library_for(core_id: &str, frameworks_dir: &str, library: &str) -> String {
+    let allowed = usable() && core_may_use_jit(core_id, region_state() == RegionState::Ready);
+    pick_library(library, allowed, |name| Path::new(frameworks_dir).join(name).is_file())
 }
 
 /// [`library_for`] without the system calls.
@@ -354,7 +372,14 @@ pub fn pick_library(library: &str, usable: bool, exists: impl Fn(&str) -> bool) 
 /// Called just before a core is loaded, with the dylib it is loaded from. Freezes the answer to
 /// `GET_JIT_CAPABLE` and records which build the option rules are talking to.
 pub fn note_core_load(core_id: &str, library_path: &str) {
-    CAPABLE_AT_LOAD.store(usable(), Ordering::SeqCst);
+    let capable = usable() && core_may_use_jit(core_id, region_state() == RegionState::Ready);
+    CAPABLE_AT_LOAD.store(capable, Ordering::SeqCst);
+    // The shim hands out no code memory unless this says JIT is really on, so a core that asks
+    // anyway is refused here rather than failing somewhere inside itself.
+    // SAFETY: setting one `bool`.
+    unsafe { continuum_jit26_set_live(capable) };
+    // Referenced so the linker keeps the symbol the cores look up by name.
+    let _ = keep_region_symbol();
     let mut guard = JIT_BUILDS.lock().unwrap_or_else(|p| p.into_inner());
     let set = guard.get_or_insert_with(HashSet::new);
     if is_jit_library(library_path) {
@@ -363,7 +388,7 @@ pub fn note_core_load(core_id: &str, library_path: &str) {
         set.remove(core_id);
     }
     log::info!(
-        "JIT {} (allowed: {}); {core_id} loads {}",
+        "JIT {} (allowed: {}); {core_id} loads {}; capable answer {capable}",
         state().code(),
         allowed(),
         if is_jit_library(library_path) { "its JIT build" } else { "its regular build" }
@@ -523,6 +548,20 @@ mod tests {
         set_enabler_asked();
         assert!(enabler_asked());
         assert_eq!(prepare_if_asked(), JitState::NotThisPlatform);
+    }
+
+    #[test]
+    fn the_n64_jit_build_is_held_back_only_where_code_must_live_in_the_region() {
+        // No blessed region (older phone, or iOS 18): every core may use JIT.
+        for core in ["pcsx_rearmed", "parallel_n64", "flycast", "ppsspp", "azahar", "melonds"] {
+            assert!(core_may_use_jit(core, false), "{core} without the region");
+        }
+        // With it, the N64 one is held back: it writes its trampolines where it runs them.
+        assert!(!core_may_use_jit("parallel_n64", true));
+        assert!(core_may_use_jit("pcsx_rearmed", true));
+        assert!(core_may_use_jit("flycast", true));
+        assert!(core_may_use_jit("ppsspp", true));
+        assert!(core_may_use_jit("azahar", true));
     }
 
     #[test]
