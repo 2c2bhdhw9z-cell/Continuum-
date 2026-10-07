@@ -3035,17 +3035,6 @@ final class EngineHost: ObservableObject {
         // the first frame of the first game already looks and sounds the way the user left it.
         emulation = EmulationSettings(engine: engine)
         screenModes = ScreenModes(engine: engine)
-        // JIT: read the signing flags (nothing is mapped, written or run), and again each time the
-        // app comes back to the front, because a JIT app such as StikDebug can switch it on while
-        // Continuum is open. NEVER run code from a page here: an early build did that on launch
-        // and was killed by iOS on every install whose signature could not allow it.
-        engine.setJitAllowed(allowed: useJitWhenAvailable)
-        refreshJit()
-        NotificationCenter.default.addObserver(
-            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.refreshJit() }
-        }
         // Step 3 of the graphics road, and the question everything above software rendering waits
         // on. Safe here for the same reason the line above now is: a dlopen and two reads, with
         // every failure arriving as a string rather than as a dead app.
@@ -3143,6 +3132,18 @@ final class EngineHost: ObservableObject {
         wireSkinFunctions()
         // The save-format screens reach the bundled players through this (SaveFormats.swift).
         EngineHost.shared = self
+
+        // JIT, once `self` is complete: read the signing flags (nothing is mapped, written or run), and again each time the
+        // app comes back to the front, because a JIT app such as StikDebug can switch it on while
+        // Continuum is open. NEVER run code from a page here: an early build did that on launch
+        // and was killed by iOS on every install whose signature could not allow it.
+        engine.setJitAllowed(allowed: useJitWhenAvailable)
+        refreshJit()
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.refreshJit() }
+        }
 
         // Wired after `init` has finished with `self`, for the same reason. A pad connecting or
         // disconnecting is exactly the kind of thing the always-visible status line is for: it is

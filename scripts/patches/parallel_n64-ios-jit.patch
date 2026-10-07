@@ -25,7 +25,7 @@ index f30f63f..da8d093 100644
  // Only necessary on macOS ARM because Apple restrictions on MAP_JIT pages
  void apple_jit_wx_unprotect_enter();
 diff --git a/mupen64plus-core/src/device/r4300/new_dynarec/arm64/assem_arm64.c b/mupen64plus-core/src/device/r4300/new_dynarec/arm64/assem_arm64.c
-index 255ae66..6791fdd 100644
+index 255ae66..c8fc49c 100644
 --- a/mupen64plus-core/src/device/r4300/new_dynarec/arm64/assem_arm64.c
 +++ b/mupen64plus-core/src/device/r4300/new_dynarec/arm64/assem_arm64.c
 @@ -263,7 +263,9 @@ static uintptr_t jump_table_symbols[] = {
@@ -39,6 +39,27 @@ index 255ae66..6791fdd 100644
      /* Apple-documented MAP_JIT pattern: switch to executable, then
         invalidate the icache. Restore the caller's W^X mode afterwards
         rather than unconditionally re-enabling writes: when called outside
+@@ -275,6 +277,9 @@ static void cache_flush(char* start, char* end)
+     sys_icache_invalidate(start, end - start);
+     if (was_writable)
+         jit_write_enable();
++#elif defined(__APPLE__) && defined(IOS)
++    /* iOS has no ___clear_cache in its runtime library; this is the Apple call for it. */
++    sys_icache_invalidate(start, end - start);
+ #elif defined(__APPLE__)
+     __builtin___clear_cache(start, end);
+ #elif !defined(WIN32)
+@@ -4647,5 +4652,10 @@ static void arch_init(void) {
+   jit_write_disable();
+ 
+   // Flush icache for the RX mapping where code will actually execute
++#if defined(__APPLE__) && defined(IOS)
++  /* Continuum: iOS has no ___clear_cache; same flush through the Apple call. */
++  sys_icache_invalidate((char *)base_addr_rx+(1<<TARGET_SIZE_2)-JUMP_TABLE_SIZE, JUMP_TABLE_SIZE);
++#else
+   __clear_cache((char *)base_addr_rx+(1<<TARGET_SIZE_2)-JUMP_TABLE_SIZE,(char *)base_addr_rx+(1<<TARGET_SIZE_2));
++#endif
+ }
 diff --git a/mupen64plus-core/src/device/r4300/new_dynarec/arm64/trampoline_arm64.c b/mupen64plus-core/src/device/r4300/new_dynarec/arm64/trampoline_arm64.c
 index df54749..1f300e6 100644
 --- a/mupen64plus-core/src/device/r4300/new_dynarec/arm64/trampoline_arm64.c
