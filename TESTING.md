@@ -34,6 +34,25 @@ a game.
 
 # The list: what still needs testing
 
+## A. Not in a build yet
+
+**P1. Scrolling, for real this time**
+1. **All Games**, in both the list and the grid layout, and **Home**. Scroll hard, up and down.
+2. ✅ Should feel smoother than 142. The previous two attempts changed nothing — this one fixes a
+   different thing: the whole library was being rebuilt dozens of times while you scrolled.
+3. "Still the same" is a useful answer. Say so and I will keep digging.
+
+**P2. Covers stop flashing**
+1. Scroll a long way down All Games, then scroll back up over covers you already passed.
+2. ✅ Good: covers are just THERE. No coloured placeholder for a moment, no fade-in.
+3. ❌ A cover the app has never fetched before still fades in once, which is correct. The bug was
+   covers it already had doing it again.
+
+**P3. The report names your phone**
+1. **Settings** → **Send feedback** → look at the lines at the bottom.
+2. ✅ Good: it says something like **iPhone 17 Pro Max (iPhone18,2)** instead of just iPhone18,2.
+   The part number stays on purpose — it is what decides the JIT rules.
+
 ## A. New in build 142 (do these first)
 
 **N1. The icon**

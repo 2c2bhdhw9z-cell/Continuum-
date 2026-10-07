@@ -75,7 +75,15 @@ enum LibraryLayout: String, CaseIterable, Identifiable {
 
 struct LibraryShell: View {
     @ObservedObject var host: EngineHost
-    @ObservedObject var artwork: ArtworkStore
+    /// A PLAIN REFERENCE, not an @ObservedObject, and that is the scrolling fix. This view read
+    /// exactly one thing from the store — `generation` — while observing all fifteen of its
+    /// published properties, most of which are diagnostic counters that change on every cover
+    /// that resolves. Observing it rebuilt the whole library (hero, shelves, grid, every visible
+    /// card) dozens of times while the user scrolled. The generation now arrives through
+    /// `artworkGeneration` below, which changes only when art is genuinely invalidated. See the
+    /// long note on `ArtworkStore.generationOnly`.
+    let artwork: ArtworkStore
+    @ObservedObject var artworkGeneration: ArtworkGeneration
 
     /// The real safe-area insets and window size, measured from UIKit. See `SafeAreaProbe` for why
     /// they are not read from a GeometryProxy.
@@ -381,7 +389,7 @@ struct LibraryShell: View {
                         entry: hero,
                         system: CoreCatalog.system(for: hero),
                         store: artwork,
-                        generation: artwork.generation,
+                        generation: artworkGeneration.value,
                         isFavourite: host.favourites.contains(hero.name),
                         height: heroHeight,
                         host: host
@@ -402,7 +410,7 @@ struct LibraryShell: View {
                         title: shelf.title,
                         entries: shelf.entries,
                         store: artwork,
-                        generation: artwork.generation,
+                        generation: artworkGeneration.value,
                         favourites: host.favourites,
                         host: host
                     )
@@ -563,7 +571,7 @@ struct LibraryShell: View {
                         entry: entry,
                         system: CoreCatalog.system(for: entry),
                         store: artwork,
-                        generation: artwork.generation,
+                        generation: artworkGeneration.value,
                         isFavourite: host.favourites.contains(entry.name),
                         width: 110,
                         host: host,
@@ -589,7 +597,7 @@ struct LibraryShell: View {
                     entry: entry,
                     system: CoreCatalog.system(for: entry),
                     store: artwork,
-                    generation: artwork.generation,
+                    generation: artworkGeneration.value,
                     isFavourite: host.favourites.contains(entry.name),
                     host: host
                 )

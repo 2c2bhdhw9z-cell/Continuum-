@@ -5231,7 +5231,8 @@ struct RootView: View {
             if host.activeEntry == nil {
                 // The library shell, opaque over the canvas. See LibraryShell.swift for why it
                 // covers the canvas rather than replacing it.
-                LibraryShell(host: host, artwork: host.artwork)
+                LibraryShell(host: host, artwork: host.artwork,
+                             artworkGeneration: host.artwork.generationOnly)
             } else {
                 PlayerScreen(host: host,
                              emulation: host.emulation,

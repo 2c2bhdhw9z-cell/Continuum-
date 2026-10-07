@@ -470,12 +470,43 @@ enum ArtworkFetcher {
 ///
 /// One instance, owned by `EngineHost` for the app's lifetime, which is also what keeps the tier 5
 /// picker's delegate alive long enough to be called back. See `artworkPickerDelegate`.
+/// One number, so a view that only needs the artwork generation does not have to observe the
+/// whole of `ArtworkStore` and every diagnostic counter on it. See `ArtworkStore.generationOnly`.
+@MainActor
+final class ArtworkGeneration: ObservableObject {
+    @Published fileprivate(set) var value = 0
+}
+
 @MainActor
 final class ArtworkStore: ObservableObject {
     /// Bumped whenever something invalidates what a card is showing: the switch changed, the cache
     /// was cleared, misses were reset, or the user picked an image. Cards key their lookup task on
     /// it, so a bump is what makes them all resolve again.
-    @Published private(set) var generation = 0
+    @Published private(set) var generation = 0 {
+        didSet { generationOnly.value = generation }
+    }
+
+    /// The generation, and NOTHING ELSE, as its own observable object.
+    ///
+    /// THIS IS THE SCROLLING FIX, and the reason the first two attempts at smoother scrolling did
+    /// nothing on any tab. This store has fifteen `@Published` properties, and most of them are
+    /// diagnostics that change on EVERY cover that resolves: `resolvedThisRun`, `missedThisRun`,
+    /// `failedThisRun`, `line`, the stored-file counts. `LibraryShell` observed this whole store
+    /// while reading exactly one thing from it, `generation` — so every counter bump invalidated
+    /// the entire library view: hero, every shelf, the grid, every visible card. With a background
+    /// sweep resolving art for all 79 games one after another, that is dozens of full rebuilds of
+    /// the library WHILE THE USER IS SCROLLING IT. Caching the shelf computation did not help
+    /// because the rebuild itself was the cost, not the sort.
+    ///
+    /// Two comments in this file already warned about exactly this hazard — one next to
+    /// `optionCache` ("the library shell observes this store, so publishing this would rebuild
+    /// every card on screen") and one on `syncAwaitingChoiceCount` ("every assignment, even of the
+    /// same number, would rebuild it"). The counters were published anyway.
+    ///
+    /// So the shell now observes THIS, which changes only when art is genuinely invalidated, and
+    /// holds the store itself as a plain reference. `generation` stays exactly as it was for the
+    /// detail sheet and Settings, which want the counters and are not being scrolled.
+    let generationOnly = ArtworkGeneration()
 
     /// Whether lookups are allowed at all.
     ///
@@ -803,6 +834,21 @@ final class ArtworkStore: ObservableObject {
     /// action has left in memory, so a card still waiting on the old lookup is handed the new cover,
     /// or nothing, and never the one the user just replaced.
     private func overtaken(key: String) -> CoverImage? {
+        guard let image = memory.object(forKey: key as NSString) else { return nil }
+        return CoverImage(image: image, provenance: provenance(forKey: key) ?? "stored cover")
+    }
+
+    /// The cover for one game IF IT IS ALREADY DECODED IN MEMORY, with no awaiting at all.
+    ///
+    /// Exists so a card can draw a cover it already has on its very first frame. `cover(for:)` is
+    /// `async`, so even a straight cache hit costs a suspension, and a Lazy container rebuilds
+    /// every card that scrolls back into view — which made a cached cover flash its plate for a
+    /// frame or two on every single scroll. See `CoverArtView.shown`.
+    ///
+    /// A nil answer means only "not in memory", never "there is no cover": the caller still runs
+    /// the real lookup. Cheap enough to call from a view body, being one `NSCache` read.
+    func cachedCover(for entry: LibraryEntry) -> CoverImage? {
+        let key = ArtworkDisk.key(forPath: entry.path)
         guard let image = memory.object(forKey: key as NSString) else { return nil }
         return CoverImage(image: image, provenance: provenance(forKey: key) ?? "stored cover")
     }
@@ -2788,10 +2834,28 @@ struct CoverArtView: View {
 
     @State private var cover: CoverImage?
 
+    /// What to draw RIGHT NOW: the cover this card has already resolved, or failing that whatever
+    /// is already decoded in memory for this game, read synchronously.
+    ///
+    /// THIS IS WHY A COVER USED TO FLASH ITS PLATE WHEN YOU SCROLLED BACK TO IT. The grid and the
+    /// shelves are Lazy containers, so a card that scrolls out of view is destroyed and a card
+    /// that scrolls back in is built fresh, with `cover` starting at nil. Resolving it went through
+    /// `store.cover(for:)`, which is `async` — so even a straight hit on the in-memory cache cost
+    /// an await, and for that hop the card drew its plate. At a tenth of a second, over a screen
+    /// of covers, that is the "cover art unloads while I scroll" the owner reported: nothing was
+    /// unloaded, every one of them was re-asked the slow way.
+    ///
+    /// `cachedCover(for:)` answers from the same `NSCache` with no suspension, so a game whose
+    /// cover is in memory draws it on the FIRST frame, with no plate and no fade. The `.task`
+    /// below still runs for anything genuinely not in memory, which is the case it is for.
+    private var shown: CoverImage? {
+        cover ?? store.cachedCover(for: entry)
+    }
+
     var body: some View {
         ZStack {
-            ArtPlate(entry: entry, system: system, showsCaption: showsCaption && cover == nil)
-            if let cover {
+            ArtPlate(entry: entry, system: system, showsCaption: showsCaption && shown == nil)
+            if let cover = shown {
                 // HIGH INTERPOLATION, and it is not cosmetic fiddling. Every cover here is
                 // scaled: libretro's box art is around 600 by 850, a shelf card draws it
                 // smaller than that and the hero draws it considerably LARGER. SwiftUI's
@@ -2808,7 +2872,11 @@ struct CoverArtView: View {
             }
         }
         .clipped()
-        .animation(.easeIn(duration: 0.18), value: cover != nil)
+        // Keyed on `shown`, not on `cover`: a cover that was already in memory is there on the
+        // first frame, so there is no nil-to-cover transition for this to animate and the card
+        // simply appears. The fade is then only what it was meant for — a cover that genuinely
+        // had to be looked up arriving a moment later.
+        .animation(.easeIn(duration: 0.18), value: shown != nil)
         // Keyed on the entry AND the generation, so clearing the cache or turning lookups on makes
         // every visible card resolve again without the library being rebuilt.
         .task(id: "\(entry.id)#\(generation)") {

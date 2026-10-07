@@ -197,6 +197,45 @@ The getting-games-in work below rode along in this build.
 
 ---
 
+## Not yet built — the real scrolling cause, the cover flash, and the device name
+
+**The first two scrolling attempts did nothing on any tab, and the owner was right to say so.**
+Both were guesses. This one was measured.
+
+`ArtworkStore` has **fifteen `@Published` properties**, and most are diagnostics that change on
+every cover that resolves: `resolvedThisRun`, `missedThisRun`, `failedThisRun`, `line`, the
+stored-file counts. `LibraryShell` observed that whole store while reading exactly **one** thing
+from it, `generation` (four call sites, nothing else). So every counter bump invalidated the entire
+library view — hero, every shelf, the grid, every visible card — and `sweepLibrary` resolves art
+for all 79 games one after another in the background, so that is dozens of full rebuilds of the
+library *while it is being scrolled*. Caching the shelf computation (build 141) could not help: the
+rebuild was the cost, not the sort, and it only touched Home while the owner was on All Games.
+
+Two comments in that file already warned about this exact hazard, next to `optionCache` and on
+`syncAwaitingChoiceCount`. The counters were published anyway.
+
+Fix: `ArtworkGeneration`, a one-property observable the shell watches instead. `LibraryShell` now
+holds the store as a plain `let`. `generation` is unchanged for the detail sheet and Settings, which
+want the counters and are not being scrolled.
+
+**The cover flash, same root area.** The owner: *"if the game isn't shown then it does what you're
+seeing... only like that for .1 seconds then fades back to the cover art."* Nothing was unloading.
+The grid is a Lazy container, so a card scrolled back into view is built fresh with `cover` nil, and
+resolving went through `cover(for:)` — which is `async`, so even a straight in-memory cache hit cost
+a suspension, and the card drew its plate for that hop. `cachedCover(for:)` now answers from the
+same `NSCache` with no awaiting, so a cover already in memory draws on the first frame, no plate and
+no fade. The fade is keyed on the new value too, so it only animates a cover that genuinely had to
+be fetched.
+
+**The device name.** The report said `iPhone: iPhone18,2`, which is a part number rather than an
+answer. It now reads `iPhone 17 Pro Max (iPhone18,2)`: the name when known, **the identifier
+always**. Both, because the identifier is what `device_has_txm` matches on to decide JIT, so a
+report without it cannot be diagnosed, and because a hand-written name table goes stale every
+September — a phone missing from it reports exactly what it did before. Names verified against
+theapplewiki's per-model pages rather than guessed.
+
+---
+
 ## Not yet built — the core cache was being deleted a second after it was restored
 
 **The ~6 minute build never happened, and build 142 is the proof.** Its log reads

@@ -467,7 +467,7 @@ enum FeedbackDetails {
                       crash: FeedbackUnexpectedClose?) -> [String] {
         var lines: [String] = []
         lines.append(EngineHost.versionLabel)
-        lines.append("iPhone: \(deviceModel), iOS \(UIDevice.current.systemVersion)")
+        lines.append("iPhone: \(deviceDescription), iOS \(UIDevice.current.systemVersion)")
         if let crash {
             lines.append("Closed unexpectedly: \(crash.build), session started \(crash.started)")
             if !crash.game.isEmpty { lines.append("Game at the time: \(crash.game)") }
@@ -486,6 +486,68 @@ enum FeedbackDetails {
         if !host.gpu.isEmpty { lines.append(host.gpu) }
         return lines
     }
+
+    /// The phone's actual name AND its identifier, for example
+    /// "iPhone 17 Pro Max (iPhone18,2)".
+    ///
+    /// The report used to carry only the identifier, and the owner's reaction to reading
+    /// "iPhone: iPhone18,2" was reasonable: it is a part number, not an answer to "which phone is
+    /// this". But the identifier cannot simply be replaced by the name, for two reasons that both
+    /// bite. It is what decides JIT behaviour — `device_has_txm` matches on `iPhone14,2` and up —
+    /// so a bug report without it is a bug report that cannot be diagnosed. And the table below
+    /// is a hand-written list that goes out of date every September, so a phone released after
+    /// this build would otherwise report a wrong name or none.
+    ///
+    /// Both, therefore: the name when it is known, the identifier always. A phone missing from the
+    /// table reports exactly what it used to, which is the worst case and is no worse than before.
+    static var deviceDescription: String {
+        let id = deviceModel
+        guard let name = Self.deviceNames[id] else { return id }
+        return "\(name) (\(id))"
+    }
+
+    /// Identifier to marketing name. Verified against theapplewiki's per-model pages rather than
+    /// guessed, because a confidently wrong phone name in a bug report is worse than a part
+    /// number. Anything absent falls back to the identifier; see `deviceDescription`.
+    private static let deviceNames: [String: String] = [
+        // iPhone 18 family
+        "iPhone19,2": "iPhone 18 Pro",
+        "iPhone19,3": "iPhone 18 Pro Max",
+        "iPhone19,7": "iPhone 18 Pro Max",
+        // iPhone 17 family and the Air
+        "iPhone18,1": "iPhone 17 Pro",
+        "iPhone18,2": "iPhone 17 Pro Max",
+        "iPhone18,3": "iPhone 17",
+        "iPhone18,4": "iPhone Air",
+        // iPhone 16 family
+        "iPhone17,1": "iPhone 16 Pro",
+        "iPhone17,2": "iPhone 16 Pro Max",
+        "iPhone17,3": "iPhone 16",
+        "iPhone17,4": "iPhone 16 Plus",
+        "iPhone17,5": "iPhone 16e",
+        // iPhone 15 family
+        "iPhone16,1": "iPhone 15 Pro",
+        "iPhone16,2": "iPhone 15 Pro Max",
+        "iPhone15,4": "iPhone 15",
+        "iPhone15,5": "iPhone 15 Plus",
+        // iPhone 14 family
+        "iPhone15,2": "iPhone 14 Pro",
+        "iPhone15,3": "iPhone 14 Pro Max",
+        "iPhone14,7": "iPhone 14",
+        "iPhone14,8": "iPhone 14 Plus",
+        // iPhone 13 family, and the SE that shipped alongside it
+        "iPhone14,2": "iPhone 13 Pro",
+        "iPhone14,3": "iPhone 13 Pro Max",
+        "iPhone14,4": "iPhone 13 mini",
+        "iPhone14,5": "iPhone 13",
+        "iPhone14,6": "iPhone SE (3rd generation)",
+        // iPhone 12 family — the oldest generation that matters here, since this is also roughly
+        // where the JIT rules start caring about the model.
+        "iPhone13,1": "iPhone 12 mini",
+        "iPhone13,2": "iPhone 12",
+        "iPhone13,3": "iPhone 12 Pro",
+        "iPhone13,4": "iPhone 12 Pro Max",
+    ]
 
     /// The model identifier, for example "iPhone18,2", which names the exact phone where
     /// `UIDevice.model` only says "iPhone".
