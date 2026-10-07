@@ -1429,6 +1429,15 @@ build_ios_core() {
 # everything.
 ios_core_is_cached() {
   [[ "${CONTINUUM_CORE_CACHE:-0}" == "1" ]] || return 1
+  # NEVER reuse anything when the run deliberately asked for newer upstream code.
+  #
+  # CONTINUUM_UNPINNED=1 exists to build every core at its default branch's HEAD instead of
+  # its pin, which is how a newer core gets tried on purpose. Without this line that request
+  # would be silently ignored: the restored manifest still says `pinned`, the check below
+  # would pass, the build would be skipped, and the run would quietly ship the OLD dylib
+  # while reporting success. Reusing a cached build is only ever correct when the run wanted
+  # the pinned commit in the first place.
+  ios_unpinned && return 1
   local core="$1"
   ios_core_config "$core"
   [[ -n "${IOS_PIN:-}" ]] || return 1

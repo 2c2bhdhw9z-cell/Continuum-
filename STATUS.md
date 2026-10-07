@@ -191,6 +191,33 @@ commit, `build-core.sh` and the patches. So they are kept between runs:
   Verified against a faked staging directory: reuses on an exact pinned match, and rebuilds
   with the environment variable off, with no manifest, when the manifest names a different
   commit, and when it says `unpinned`.
+- **It also refuses to reuse anything under `CONTINUUM_UNPINNED=1`.** That switch exists to
+  build every core at its default branch's HEAD instead of its pin, which is how a newer
+  upstream core gets tried on purpose. Without that guard the request would have been
+  silently ignored — the restored manifest still says `pinned`, so the check would pass, the
+  build would be skipped, and the run would ship the OLD dylib while reporting success. This
+  was the one way the cache could genuinely have hidden a core update, and the owner spotted
+  it before it ever ran.
+
+### Why caching the cores cannot miss a core update
+
+Worth stating plainly, because "cached build ships the old dependency" is the normal way this
+goes wrong and it is the reason it had not been done before:
+
+- **Nothing here tracks upstream.** All 16 from-source cores are pinned to a full 40-character
+  commit id in `ios_core_config` (the one empty `IOS_PIN=""` is that function's initialiser,
+  not a core). The pins are deliberate: see the note above `ios_clone` — "an upstream commit
+  landing overnight must not be able to change or break a build nobody touched". A core does
+  not change because upstream moved; it changes when someone edits a pin in this repository.
+- **Moving a pin invalidates the cache twice over.** The cache key hashes `build-core.sh`, so
+  editing a pin misses the cache entirely; and independently, the per-core manifest check
+  cannot match a dylib recorded against the old commit. Either alone would be enough.
+- **Asking for newer code on purpose bypasses the cache**, per the `CONTINUUM_UNPINNED` guard
+  above.
+- **The prebuilt cores are never cached in any meaningful sense.** `fetch_pinned` in
+  `scripts/fetch-buildbot-cores.sh` does `rm -f "$dest"` and re-downloads and re-verifies the
+  sha256 of every file on every single build. A restored copy is overwritten by a freshly
+  checksummed one, so those cannot go stale either.
 - `.github/workflows/ios.yml` caches `native/ios/build/lib/*_libretro_ios.dylib` plus the
   manifest, keyed on `hashFiles('scripts/build-core.sh', 'scripts/patches/**',
   'scripts/fetch-buildbot-cores.sh')`. The patches are in the key because a patch changes a
