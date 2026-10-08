@@ -1709,9 +1709,15 @@ final class EngineHost: ObservableObject {
     /// area and the touch screen are asked for again.
     @Published var screenLayoutVersion = 0
 
-    @Published var frameCount: UInt64 = 0
-    @Published var displayFps: Double = 0
-    @Published var dropped: UInt32 = 0
+    /// Per-frame telemetry, written by the display link on EVERY frame, so deliberately NOT
+    /// @Published: each assignment told every view watching the host to redraw, and the library
+    /// watches the host, so it redrew 60-120 times a second even with no game running.
+    /// `publishTelemetryIfDue()` tells the views about all of these at most four times a second,
+    /// and only while a game is on screen. The same goes for `hardwareFrameLive` and the audio
+    /// read-outs further down.
+    var frameCount: UInt64 = 0
+    var displayFps: Double = 0
+    var dropped: UInt32 = 0
     @Published var status: String = "waiting for the surface" {
         // Every line, with its time, into the activity log a feedback report sends (Feedback.swift).
         didSet { FeedbackCenter.record(status) }
@@ -1958,8 +1964,10 @@ final class EngineHost: ObservableObject {
 
     /// True once this session has seen `TickTelemetry.hardwareFrame` (Beetle set_image path).
     @Published var sawHardwareFrame = false
-    /// Live HW-frame bit from the latest tick. Soft cores stay false.
-    @Published var hardwareFrameLive = false
+    /// Live HW-frame bit from the latest tick. Soft cores stay false. Not @Published, like the
+    /// other per-frame values; see `frameCount`. `sawHardwareFrame` above stays published, because
+    /// it changes at most once a session.
+    var hardwareFrameLive = false
 
     /// Per-system on-screen pad layouts (Manic/Delta-style: a GBA skin must not overwrite PS1).
     ///
@@ -2172,15 +2180,24 @@ final class EngineHost: ObservableObject {
     }
 
     /// Adds an imported .manicskin or .deltaskin to the library and makes it `system`'s default
-    /// (and the default of every other system the file names that has none yet).
+    /// (and, unless another console was chosen for it, the default of every other system the file
+    /// names that has none yet).
     ///
     /// Importing a skin whose `identifier` is already in the library for the same systems
     /// replaces that one rather than adding a twin, so an updated skin file is an update.
     func applyImportedSkin(_ result: DeltaSkinImportResult, for system: GameSystem) {
+        // A console other than the file's own means "Import for" chose it, and then the skin goes
+        // to that console ONLY. Its controls are mapped for that console just below, so handing it
+        // to every console the file names as well made a GBA skin imported "for N64" GBA's default
+        // with N64 buttons. Every caller that does not choose passes `previewSystem`, so this is
+        // the signal the callers already give.
+        let chosenConsole = system != result.previewSystem
         let result = result.applying(system: system)
         var systems = [system.rawValue]
-        for other in result.systemIDs where !systems.contains(other) {
-            systems.append(other)
+        if !chosenConsole {
+            for other in result.systemIDs where !systems.contains(other) {
+                systems.append(other)
+            }
         }
         let id: String
         if !result.identifier.isEmpty,
@@ -2670,8 +2687,9 @@ final class EngineHost: ObservableObject {
     /// empties this ring into `audio`'s every frame, so the engine side sits near zero in steady
     /// state and the device side carries the buffer. Both halves are added up in `audioLine`,
     /// because what a player hears is the sum.
-    @Published var audioQueued: UInt32 = 0
-    @Published var audioUnderruns: UInt32 = 0
+    /// Per frame, so not @Published; see `frameCount`.
+    var audioQueued: UInt32 = 0
+    var audioUnderruns: UInt32 = 0
 
     /// The device audio path: the session, the graph, and the lock-free ring between the display
     /// link and the render block.
@@ -2683,14 +2701,15 @@ final class EngineHost: ObservableObject {
     let audio: AudioOutput
 
     /// Mirrored from `audio` once per frame so the HUD can read it without touching the audio
-    /// object from a view body. Every one of these is measured rather than assumed.
-    @Published var audioRunning = false
-    @Published var audioStatus = "audio: not started"
-    @Published var audioDeviceRate: Double = 0
-    @Published var audioDeviceBuffered: Int = 0
-    @Published var audioRenderUnderruns: Int = 0
-    @Published var audioRenderedFrames: Int = 0
-    @Published var audioDroppedFrames: Int = 0
+    /// object from a view body. Every one of these is measured rather than assumed. Not
+    /// @Published, for the reason `frameCount` is not.
+    var audioRunning = false
+    var audioStatus = "audio: not started"
+    var audioDeviceRate: Double = 0
+    var audioDeviceBuffered: Int = 0
+    var audioRenderUnderruns: Int = 0
+    var audioRenderedFrames: Int = 0
+    var audioDroppedFrames: Int = 0
 
     /// The engine's own view of its ring, polled once a second rather than once a frame.
     ///
@@ -2698,9 +2717,12 @@ final class EngineHost: ObservableObject {
     /// tick, so reading it per frame would take that lock sixty times a second on the same thread
     /// that already holds it for the whole of each tick. Once a second is plenty for numbers that
     /// only matter when they are non-zero.
-    @Published var audioOverruns: UInt64 = 0
-    @Published var audioSourceRate: UInt32 = 0
-    @Published var audioCapacityFrames: UInt32 = 0
+    ///
+    /// Plain rather than @Published: written once a second, game or no game, which still redrew
+    /// the library once a second. See `frameCount`.
+    var audioOverruns: UInt64 = 0
+    var audioSourceRate: UInt32 = 0
+    var audioCapacityFrames: UInt32 = 0
     private var audioStatsCountdown = 0
 
     /// The live read-through the render loop uses to fetch pad state.
@@ -2771,10 +2793,6 @@ final class EngineHost: ObservableObject {
     /// until the session stops, so the auto-save must not write it over this player's own slot.
     var suppressAutoSave = false
 
-    /// The artwork read-out, mirrored from the store so the diagnostics panel can show it without
-    /// observing a second object. Never empty.
-    @Published var artworkLine: String = "artwork: nothing looked up yet"
-
     /// The game whose detail sheet is open, or nil. The sheet is presented from this, so setting it
     /// to nil is what closes it.
     @Published var detailEntry: LibraryEntry?
@@ -2789,7 +2807,7 @@ final class EngineHost: ObservableObject {
     @Published var libraryTab: LibraryTab = .home
     @Published var librarySearch: String = ""
 
-    /// The favourited games, keyed on the SAME identity `LibraryEntry` uses: the absolute path.
+    /// The favourited games, keyed by FILE NAME (`continuum.favourites.v2`), not by path.
     ///
     /// Not an array index, because the library array is rebuilt from disk after every import and
     /// delete. Ids are never pruned on a rescan either: a file that is temporarily absent, because
@@ -2800,24 +2818,37 @@ final class EngineHost: ObservableObject {
     /// When each game arrived, by file name. See `gameArrivalsKey` for why this exists.
     ///
     /// Published so the Home shelves rebuild when an import stamps new entries, and `private(set)`
-    /// because the only thing that may write it is `stampArrivals(_:)` below.
+    /// because the only things that may write it are `stampArrivals(_:)` and `forgetArrivals(_:)`.
     @Published private(set) var gameArrivals: [String: Date] = [:]
 
     /// Record that these file names have just arrived.
     ///
     /// Each gets its own instant, a millisecond apart, so a batch of eighty imports has a strict
-    /// order instead of eighty identical timestamps that tie and fall back to alphabetical. An
-    /// existing stamp is overwritten, because re-importing a game is the file arriving again.
+    /// order instead of eighty identical timestamps that tie and fall back to alphabetical. The
+    /// FIRST file gets the newest stamp: the shelf sorts newest first, so giving later files later
+    /// stamps showed every batch back to front and featured its last file. An existing stamp is
+    /// overwritten, because re-importing a game is the file arriving again.
     private func stampArrivals(_ names: [String]) {
         guard !names.isEmpty else { return }
         var updated = gameArrivals
         let now = Date()
         for (offset, name) in names.enumerated() {
-            updated[name] = now.addingTimeInterval(Double(offset) / 1000.0)
+            updated[name] = now.addingTimeInterval(-Double(offset) / 1000.0)
         }
         gameArrivals = updated
         // Stored as epoch seconds: a plist of Dates round-trips, but seconds are what the sync's
         // settings export can carry without caring about date formats.
+        let plain = updated.mapValues { $0.timeIntervalSince1970 }
+        UserDefaults.standard.set(plain, forKey: Self.gameArrivalsKey)
+    }
+
+    /// Forget when these file names arrived, because the games were deleted. Stored the way
+    /// `stampArrivals` stores, so a deleted game's stamp does not linger, and sync, forever.
+    private func forgetArrivals(_ names: [String]) {
+        var updated = gameArrivals
+        for name in names { updated.removeValue(forKey: name) }
+        guard updated.count != gameArrivals.count else { return }
+        gameArrivals = updated
         let plain = updated.mapValues { $0.timeIntervalSince1970 }
         UserDefaults.standard.set(plain, forKey: Self.gameArrivalsKey)
     }
@@ -3231,7 +3262,7 @@ final class EngineHost: ObservableObject {
         CloudSync.applyPendingArtwork(library: library)
 
         // Wired last, because it hands the store a reference to a fully initialised host. The store
-        // writes its read-out through `artworkLine`, and a network failure through `status`, so an
+        // keeps its read-out in its own `line`, and writes a network failure through `status`, so an
         // artwork problem is legible on the strip rather than only behind the Settings tab.
         artwork.attach(host: self)
 
@@ -3263,6 +3294,14 @@ final class EngineHost: ObservableObject {
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.refreshJit() }
+        }
+        // A hold on fast forward or rewind cannot be let go while the app is not in front: Control
+        // Centre, a call or the app switcher takes the touch away without a lift. So leaving the
+        // front releases both, the way `stopSession` does when a game ends.
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.emulation.releaseHeldControls() }
         }
 
         // Wired after `init` has finished with `self`, for the same reason. A pad connecting or
@@ -3796,6 +3835,8 @@ final class EngineHost: ObservableObject {
             }
         }
 
+        // A deleted game's arrival stamp goes with it. See `forgetArrivals`.
+        forgetArrivals(removed)
         var trackNote = leftTracksBehind
             ? "; any .bin tracks it named are still in Documents"
             : ""
@@ -4056,8 +4097,9 @@ final class EngineHost: ObservableObject {
         status = opening
 
         // A sync that is still copying battery saves and save-state lists must finish before a
-        // core starts writing the same files. It is seconds at most.
-        if cloudSync.isSyncing {
+        // core starts writing the same files. A sync that is only moving games touches neither,
+        // and can take minutes, so it no longer blocks play. See `CloudSync.allowsGameLaunch`.
+        if !cloudSync.allowsGameLaunch {
             status = "cloud sync is still running; tap \(entry.name) again in a moment"
             return
         }
@@ -4719,7 +4761,7 @@ final class EngineHost: ObservableObject {
         return line + " - \(audioStatus)"
     }
 
-    /// Copies the audio object's state into published properties.
+    /// Copies the audio object's state into the read-out properties (plain, not published).
     ///
     /// Called from the telemetry callback, which runs on the main thread inside the display link,
     /// and from the launch and stop paths so the line is right the moment either happens. Reading
@@ -4750,6 +4792,23 @@ final class EngineHost: ObservableObject {
             // wrong again.
             engineOutputRate = stats.outputRate
         }
+    }
+
+    /// When the per-frame read-outs last told the views they changed. See `publishTelemetryIfDue`.
+    private var lastTelemetryPublish: CFTimeInterval = 0
+
+    /// Tells the views watching the host that the per-frame read-outs moved: at most four times a
+    /// second, and only while a game is on screen. Called by the display link after each tick.
+    ///
+    /// The values are plain stored properties (see `frameCount`), so a view reads fresh numbers
+    /// whenever it redraws for any reason; this is only the nudge for the player's strip and panel.
+    /// With no game running nothing is sent, so the library never redraws for telemetry.
+    func publishTelemetryIfDue() {
+        guard activeEntry != nil else { return }
+        let now = CACurrentMediaTime()
+        guard now - lastTelemetryPublish >= 0.25 else { return }
+        lastTelemetryPublish = now
+        objectWillChange.send()
     }
 
     /// What is driving input right now: the on-screen pad, and every physical controller.
@@ -4834,8 +4893,9 @@ final class EngineHost: ObservableObject {
     ///
     /// A fallback for the read-outs above, used only before the session has reported a rate.
     /// Read once rather than per frame for the same mutex reason as `activeCoreId`: the strip
-    /// re-renders on every tick, and `outputSampleRate()` takes the engine lock.
-    @Published var engineOutputRate: UInt32 = 0
+    /// re-renders on every tick, and `outputSampleRate()` takes the engine lock. Not @Published:
+    /// `refreshAudioReadout` writes it once a second, game or no game; see `frameCount`.
+    var engineOutputRate: UInt32 = 0
 
     /// The core id of the running session, cached at launch.
     ///
@@ -5315,6 +5375,9 @@ struct RootView: View {
                     // graph is up but nothing is playing" becomes visible, which on a sideloaded
                     // build is the difference between a diagnosis and a guess.
                     host.refreshAudioReadout()
+                    // The one notification for everything above, throttled. See
+                    // `publishTelemetryIfDue` for why the values themselves no longer publish.
+                    host.publishTelemetryIfDue()
                     // A game's rumble, played on the phone and on any controller with motors.
                     // After the tick, so this frame's requests are the ones read. Takes no engine
                     // lock; see `ContinuumEngine.rumbleState`.

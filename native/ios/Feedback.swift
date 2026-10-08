@@ -646,7 +646,15 @@ final class FeedbackCenter: ObservableObject {
 
     /// The log to send: this session's, or for a crash report the one that ended in the crash.
     nonisolated static func logText(crash: Bool) -> String {
-        crash ? feedbackLogPreviousText(limit: 300) : feedbackLogText(limit: 300)
+        if crash { return feedbackLogPreviousText(limit: 300) }
+        // A normal report gets the previous launch too, because the log restarts at every launch
+        // and what a tester reports has often happened before they last opened the app.
+        var parts: [String] = []
+        let previous = feedbackLogPreviousText(limit: 300)
+        if !previous.isEmpty { parts.append("Previous launch:\n" + previous) }
+        let current = feedbackLogText(limit: 300)
+        if !current.isEmpty { parts.append("This launch:\n" + current) }
+        return parts.joined(separator: "\n\n")
     }
 
     func noteSent(kind: String, game: String) {

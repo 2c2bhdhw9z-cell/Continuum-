@@ -1468,14 +1468,53 @@ ios_core_is_cached() {
   return 0
 }
 
+# THE "SOMETHING WAS BUILT" MARKER: native/ios/build/lib/cores-rebuilt.txt, one core per line.
+# The CI core cache saves a new entry only when this file exists (the "Save the built cores" step
+# in .github/workflows/ios.yml), so a run that reused every core stores nothing, and a run that
+# finally built a core the cached set was missing stores the completed set.
+#
+# Not under CONTINUUM_UNPINNED=1. Those dylibs are built from HEAD, ios_core_is_cached never
+# reuses them, and saving them would make them the newest cache entry, so the next normal build
+# would restore them and rebuild every core. With no marker that run saves nothing and the pinned
+# set stays the one restored.
+IOS_REBUILT_MARKER="$IOS_OUT_DIR/cores-rebuilt.txt"
+
+ios_note_rebuilt() {
+  ios_unpinned && return 0
+  echo "$1" >> "$IOS_REBUILT_MARKER"
+}
+
+# A core that did not build leaves NOTHING behind: not its dylib, and not its line in
+# core-sources.txt either, because that line is written when the source is checked out, before the
+# compile, and the manifest has to describe only what this build really contains. It also matters
+# to the cache: a manifest line with no dylib, or a dylib from a run that died, must not be saved
+# and reused as if it were a finished build.
+ios_forget_core() {
+  local core="$1"
+  local manifest="$IOS_OUT_DIR/core-sources.txt"
+  ios_core_config "$core"
+  rm -f "$IOS_OUT_DIR/$IOS_DYLIB_NAME"
+  if [[ -f "$manifest" ]]; then
+    grep -v "^$core " "$manifest" > "$manifest.tmp" 2>/dev/null || true
+    mv "$manifest.tmp" "$manifest"
+  fi
+}
+
 build_all_ios_cores() {
   ios_require_darwin
+
+  # Started empty here, as well as by build-engine.sh's clean, so it can only ever name what THIS
+  # run built. Removed rather than truncated: CI asks whether the file exists, and an empty file
+  # still exists.
+  mkdir -p "$IOS_OUT_DIR"
+  rm -f "$IOS_REBUILT_MARKER"
 
   # A string, not an array: on bash 3.2 an empty array expanded under `set -u` is an error,
   # and this one is empty exactly when everything worked.
   local failed=""
   local failed_count=0
   local reused=0
+  local rebuilt=0
   local core
   for core in "${IOS_CORES[@]}"; do
     echo
@@ -1487,10 +1526,13 @@ build_all_ios_cores() {
     fi
     if bash "$IOS_SELF" ios "$core"; then
       echo "==> $core ok"
+      ios_note_rebuilt "$core"
+      rebuilt=$((rebuilt + 1))
     else
       echo "!!! $core FAILED (see the output above for why)" >&2
       failed="$failed $core"
       failed_count=$((failed_count + 1))
+      ios_forget_core "$core"
     fi
   done
 
@@ -1507,11 +1549,12 @@ build_all_ios_cores() {
     fi
     if bash "$IOS_SELF" ios "$core"; then
       echo "==> $core ok"
+      ios_note_rebuilt "$core"
+      rebuilt=$((rebuilt + 1))
     else
       echo "!!! optional core $core FAILED; the .ipa will ship without it" >&2
       optional_failed="$optional_failed $core"
-      ios_core_config "$core"
-      rm -f "$IOS_OUT_DIR/$IOS_DYLIB_NAME"
+      ios_forget_core "$core"
     fi
   done
 
@@ -1519,6 +1562,7 @@ build_all_ios_cores() {
   if [[ "$reused" -gt 0 ]]; then
     echo "==> $reused core(s) reused from the cache, not rebuilt"
   fi
+  echo "==> $rebuilt core(s) built by this run"
   echo "==> iOS core summary (native/ios/build/lib)"
   for core in "${IOS_CORES[@]}" "${IOS_OPTIONAL_CORES[@]}"; do
     ios_core_config "$core"

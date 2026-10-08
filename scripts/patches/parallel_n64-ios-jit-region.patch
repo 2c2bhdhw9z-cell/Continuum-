@@ -16,7 +16,7 @@ index 0edbc2c..ef20c14 100644
 +   Looked up by name so a build with no such host just takes the mprotect path above. */
 +static int continuum_jit_region_lookup(const char *owner, size_t size, void **rx, void **rw)
 +{
-+   typedef int (*region_fn)(const char *, size_t, void **, void **);
++   typedef _Bool (*region_fn)(const char *, size_t, void **, void **);
 +   static region_fn fn;
 +   static int looked_up;
 +   if (!looked_up) {

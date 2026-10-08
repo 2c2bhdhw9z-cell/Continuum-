@@ -8,7 +8,7 @@
 #   1. QA Wolf must enable mobile triggers for the workspace.
 #   2. Its API key must be a GitHub Actions secret named QAWOLF_API_KEY.
 #
-# With the key present, every successful iOS build uploads its .ipa. It does not start a QA Wolf
+# With the key present, every successful iOS build on master uploads its .ipa. It does not start a QA Wolf
 # run until either a manual run has "Start QA Wolf tests" checked, or the repository variable
 # QAWOLF_MOBILE_TRIGGER is 1. This lets the upload be proven before tests start automatically.
 name: QA Wolf mobile
@@ -35,9 +35,12 @@ concurrency:
 jobs:
   upload:
     # A failed iOS build has no new app to test. Manual runs always use the newest Release.
+    # Master builds only: ios.yml publishes a Release only from master, so a green build of any
+    # other branch has no build-<run>-<sha> release, and the download below would fail on it.
     if: >-
       ${{ github.event_name == 'workflow_dispatch' ||
-          github.event.workflow_run.conclusion == 'success' }}
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.head_branch == 'master') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

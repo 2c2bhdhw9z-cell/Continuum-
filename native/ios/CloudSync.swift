@@ -96,9 +96,25 @@ enum CloudSyncPaths {
     /// Read from `UserDefaults` here rather than passed in, because `listLocal` and `localURL`
     /// are static and are called from the sync worker off the main actor. A missing key is false,
     /// which is what makes this opt-in for every existing install.
-    static let includeGamesKey = "continuum.sync.includeGames.v1"
+    ///
+    /// NOT under `continuum.sync.`: that prefix is never exported, so the switch used to be wiped
+    /// with the app and never came back from the cloud, and a restore brought no games back.
+    static let includeGamesKey = "continuum.backup.includeGames.v1"
+    private static let legacyIncludeGamesKey = "continuum.sync.includeGames.v1"
     static func gamesAreIncluded() -> Bool {
         UserDefaults.standard.bool(forKey: includeGamesKey)
+    }
+
+    /// Carries a switch stored under the old name over to the new one, once, then reads it.
+    static func migratedGamesSwitch() -> Bool {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: legacyIncludeGamesKey) != nil {
+            if defaults.object(forKey: includeGamesKey) == nil {
+                defaults.set(defaults.bool(forKey: legacyIncludeGamesKey), forKey: includeGamesKey)
+            }
+            defaults.removeObject(forKey: legacyIncludeGamesKey)
+        }
+        return gamesAreIncluded()
     }
 
     /// Is this file in Documents a game or part of one?
@@ -236,13 +252,17 @@ enum CloudSyncPaths {
             guard (parts[2] as NSString).pathExtension.lowercased() == "caf" else { return nil }
             return skinsRoot()?.appendingPathComponent("sounds", isDirectory: true)
                 .appendingPathComponent(parts[2])
-        case ("Skins", 4) where parts[1] == "pieces":
-            // `pieces/<id>/<file>`, the individual button images. Extensions are whatever the
+        case ("Skins", let count) where count >= 4 && parts[1] == "pieces":
+            // `pieces/<id>/<file>`, or deeper: a skin can keep its button images in subfolders,
+            // and `EngineHost.pieceURL` keeps the "/" in their names. Extensions are whatever the
             // skin author used, so this checks the SHAPE of the path and not the extension;
-            // `syncIsValidPath` above has already refused anything with a `..` or a leading dot.
-            return skinsRoot()?.appendingPathComponent("pieces", isDirectory: true)
-                .appendingPathComponent(parts[2], isDirectory: true)
-                .appendingPathComponent(parts[3])
+            // `syncIsValidPath` above has already refused empty parts, `..` and leading dots.
+            guard var url = skinsRoot()?.appendingPathComponent("pieces", isDirectory: true)
+            else { return nil }
+            for (index, part) in parts.enumerated().dropFirst(2) {
+                url = url.appendingPathComponent(part, isDirectory: index < count - 1)
+            }
+            return url
         case ("Settings", 2) where relative == settingsPath:
             return staging()?.appendingPathComponent(relative)
         case ("Artwork", 2) where relative == artworkChoicesPath:
@@ -313,13 +333,16 @@ enum CloudSyncPaths {
                 let path = "Skins/sounds/\(url.lastPathComponent)"
                 if localURL(for: path) != nil, let s = stat(url, path: path) { out.append(s) }
             }
+            // Walked to any depth, because pieces can sit in subfolders of `pieces/<id>/`.
             let piecesRoot = skins.appendingPathComponent("pieces", isDirectory: true)
-            for skinDir in (try? fm.contentsOfDirectory(at: piecesRoot,
-                                                        includingPropertiesForKeys: [.isDirectoryKey],
-                                                        options: [.skipsHiddenFiles])) ?? [] {
-                let id = skinDir.lastPathComponent
-                for url in files(in: skinDir) {
-                    let path = "Skins/pieces/\(id)/\(url.lastPathComponent)"
+            let piecesPath = piecesRoot.standardizedFileURL.path
+            if let walker = fm.enumerator(at: piecesRoot, includingPropertiesForKeys:
+                [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey],
+                options: [.skipsHiddenFiles]) {
+                for case let url as URL in walker {
+                    let full = url.standardizedFileURL.path
+                    guard full.hasPrefix(piecesPath + "/") else { continue }
+                    let path = "Skins/pieces/\(full.dropFirst(piecesPath.count + 1))"
                     if localURL(for: path) != nil, let s = stat(url, path: path) { out.append(s) }
                 }
             }
@@ -622,7 +645,81 @@ final class CloudSyncWorker {
 
     // ---------------------------------------------------------------- the run
 
-    func run() -> CloudSyncOutcome {
+    /// Removes the hidden copies `upload` leaves when the app is closed mid-copy
+    /// (`.<name>.<UUID>.upload`), which nothing else ever deletes and which can each be a whole
+    /// game. Only ones untouched for an hour: a younger one may be another phone's upload that is
+    /// still running.
+    private func removeAbandonedUploads(now: Date) {
+        let keys: [URLResourceKey] = [.isRegularFileKey, .contentModificationDateKey,
+                                      .attributeModificationDateKey, .creationDateKey]
+        let found: [URL] = (try? coordinatedRead(remoteRoot, metadataOnly: true) { (root: URL) -> [URL] in
+            var out: [URL] = []
+            guard let walker = fm.enumerator(at: root, includingPropertiesForKeys: keys,
+                                             options: []) else { return out }
+            for case let url as URL in walker {
+                guard Self.isAbandonedUploadName(url.lastPathComponent),
+                      let values = try? url.resourceValues(forKeys: Set(keys)),
+                      values.isRegularFile == true else { continue }
+                // The newest of the three, because `copyItem` keeps the SOURCE file's
+                // modification date, which can be years old on a file copied a minute ago.
+                let stamps = [values.contentModificationDate, values.attributeModificationDate,
+                              values.creationDate].compactMap { $0 }
+                guard let newest = stamps.max(), now.timeIntervalSince(newest) > 3600 else { continue }
+                out.append(url)
+            }
+            return out
+        }) ?? []
+        for url in found {
+            try? coordinatedWrite(url) { u in try fm.removeItem(at: u) }
+        }
+    }
+
+    /// Exactly the name `upload` gives its temporary copy, and nothing else.
+    private static func isAbandonedUploadName(_ name: String) -> Bool {
+        guard name.hasPrefix("."), name.hasSuffix(".upload") else { return false }
+        let inner = name.dropFirst().dropLast(".upload".count)
+        guard let dot = inner.lastIndex(of: "."), dot > inner.startIndex else { return false }
+        return UUID(uuidString: String(inner[inner.index(after: dot)...])) != nil
+    }
+
+    /// Whether the cloud folder already holds games, read straight from `Games/`, because the
+    /// listing ignores that folder while the games switch is off.
+    private func cloudHoldsGames() -> Bool {
+        let games = remoteURL("Games")
+        guard fm.fileExists(atPath: games.path) else { return false }
+        let names = (try? coordinatedRead(games, metadataOnly: true) { (url: URL) -> [String] in
+            try fm.contentsOfDirectory(atPath: url.path)
+        }) ?? []
+        return names.contains { name in
+            // A game iCloud has not brought to this phone yet is a `.Name.icloud` placeholder.
+            var logical = name
+            if name.hasPrefix("."), name.hasSuffix(".icloud") {
+                logical = String(name.dropFirst().dropLast(".icloud".count))
+            }
+            return CloudSyncPaths.isSyncableGameFile(logical)
+        }
+    }
+
+    /// Saves how far this run got. Without it a run stopped part way (the app closed during a
+    /// long games copy) left no history, so the next run found every copied game on both sides
+    /// with no record and read each whole file twice to compare them. Paths not done yet are
+    /// passed as FAILED, which keeps their previous record: recording them "as listed" would mark
+    /// a conflict nobody handled as synced.
+    private func saveProgress(local: [SyncFileStat], remote: [SyncFileStat], pending: Set<String>,
+                              done: [String], notYet: [String], failed: Set<String>, now: Int64) {
+        guard let url = CloudSyncPaths.manifestURL(),
+              let remoteAfter = try? listRemote().stats else { return }
+        let localAfter = CloudSyncPaths.listLocal().filter { !pending.contains($0.path) }
+        let text = syncCommit(manifestText: manifestText, localBefore: local, remoteBefore: remote,
+                              localAfter: localAfter, remoteAfter: remoteAfter,
+                              touchedPaths: done, failedPaths: Array(failed) + notYet, nowMs: now)
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// `gamesSwitchedOn` runs when this run turned the games switch on. `onlyGamesLeft` runs once,
+    /// when everything except `Games/` is done, with the paths written on this device so far.
+    func run(gamesSwitchedOn: () async -> Void,
+             onlyGamesLeft: ([String]) async -> Void) async -> CloudSyncOutcome {
         var outcome = CloudSyncOutcome()
         let now = CloudSyncPaths.millis(Date())
         clearStaleScratch()
@@ -631,6 +728,14 @@ final class CloudSyncWorker {
                 try coordinatedWrite(remoteRoot) { url in
                     try fm.createDirectory(at: url, withIntermediateDirectories: true)
                 }
+            }
+            removeAbandonedUploads(now: Date())
+            // A restore: the folder has games and this install never answered the question
+            // (absent, not false), so the games come back with everything else.
+            if UserDefaults.standard.object(forKey: CloudSyncPaths.includeGamesKey) == nil,
+               cloudHoldsGames() {
+                UserDefaults.standard.set(true, forKey: CloudSyncPaths.includeGamesKey)
+                await gamesSwitchedOn()
             }
             let (remoteAll, pending) = try listRemote()
             outcome.pendingInCloud = pending.count
@@ -643,7 +748,31 @@ final class CloudSyncWorker {
             }
             var failed = Set(pending)
             let listedRemote = Dictionary(remote.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
-            for action in plan.actions {
+            // Everything but the games first, in the plan's order (record files still last among
+            // them), so the files a game uses are settled before launching one is allowed again.
+            // Games can take minutes; nothing a running game reads or writes is under `Games/`.
+            let isGame: (SyncAction) -> Bool = { $0.path.hasPrefix("Games/") }
+            let ordered = plan.actions.filter { !isGame($0) } + plan.actions.filter(isGame)
+            var done: [String] = []
+            var gamesStarted = false
+            var lastSave = Date()
+            for (index, action) in ordered.enumerated() {
+                if isGame(action) {
+                    let notYet = ordered[index...].map(\.path)
+                    if !gamesStarted {
+                        gamesStarted = true
+                        keepBaseCopies(failed: failed)
+                        saveProgress(local: local, remote: remote, pending: pending, done: done,
+                                     notYet: notYet, failed: failed, now: now)
+                        lastSave = Date()
+                        await onlyGamesLeft(outcome.changedLocally)
+                    } else if Date().timeIntervalSince(lastSave) > 120 {
+                        saveProgress(local: local, remote: remote, pending: pending, done: done,
+                                     notYet: notYet, failed: failed, now: now)
+                        lastSave = Date()
+                    }
+                }
+                done.append(action.path)
                 guard let localURL = CloudSyncPaths.localURL(for: action.path) else {
                     failed.insert(action.path)
                     continue
@@ -766,8 +895,10 @@ final class CloudSync: ObservableObject {
         // the skins' FILES did not sync and so another phone's index would list skins it had no
         // art for. The files sync now (`Skins/` above), which removes the reason: the index, the
         // editor overlays and the per-system visuals all travel with the bytes they describe.
-        // A skin id is a Delta/Manic identifier or a hash of the file, never a path, so it means
-        // the same thing on any phone and survives a reinstall.
+        // A skin id is never a path: it is a random id made at import (`SkinLibraryIndex.newID()`),
+        // or a system id for a skin from before the library. So it means the same thing on any
+        // phone, but the same skin imported on two phones has two ids, which is why
+        // `applyPendingSettings` MERGES these keys by id instead of replacing them.
         // The address this phone last joined for online play, which is usually the other phone.
         "continuum.netplay.lastAddress.v1",
         // Permission to use this phone's microphone and camera is given on this phone.
@@ -792,8 +923,7 @@ final class CloudSync: ObservableObject {
     /// Persisted on change like the other switches in this app, because a sideloaded build can be
     /// killed at any moment and a switch that did not stick would look like the feature failing.
     /// The sync worker reads the stored value directly, so nothing has to be threaded through.
-    @Published var includesGames: Bool = UserDefaults.standard
-        .bool(forKey: CloudSyncPaths.includeGamesKey) {
+    @Published var includesGames: Bool = CloudSyncPaths.migratedGamesSwitch() {
         didSet {
             guard oldValue != includesGames else { return }
             UserDefaults.standard.set(includesGames, forKey: CloudSyncPaths.includeGamesKey)
@@ -804,6 +934,15 @@ final class CloudSync: ObservableObject {
     @Published private(set) var line: String
     @Published private(set) var folderName: String?
     @Published private(set) var isSyncing = false
+
+    /// False while a sync is moving anything a game uses (saves, states, settings, skins). True
+    /// when idle, and once only `Games/` copies remain: those can take minutes, and nothing a
+    /// running game reads or writes is under `Games/`. Set on the main actor only.
+    @Published private(set) var allowsGameLaunch: Bool = true
+
+    /// Set when the stores were reloaded as the games phase began, so `finish` does not reload
+    /// them again under a game that may be running by then.
+    private var storesReloaded = false
 
     private weak var host: EngineHost?
     private var pickerDelegate: SyncFolderPickerDelegate?
@@ -818,6 +957,9 @@ final class CloudSync: ObservableObject {
 
     func attach(host: EngineHost) {
         self.host = host
+        // Read again: this object is built before `applyPendingSettings` runs, and the switch can
+        // arrive from the cloud with the other settings.
+        includesGames = CloudSyncPaths.gamesAreIncluded()
     }
 
     var isConfigured: Bool { defaults.data(forKey: Self.bookmarkKey) != nil }
@@ -917,24 +1059,61 @@ final class CloudSync: ObservableObject {
             setLine("cloud sync failed: the folder could not be found; choose it again in Settings")
             return
         }
-        exportSettings()
-        if let host { exportArtwork(library: host.library) }
-
         let manifestText = CloudSyncPaths.manifestURL()
             .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+        // NOT EXPORTED ON A SYNC WITH NO HISTORY for this folder (the first one after choosing
+        // it, which after a reinstall is the restore). A fresh export is a near-empty file stamped
+        // now, and with no history the newer file wins: the cloud's real settings would go to
+        // Conflicts/ and the empty ones would be uploaded. Not exporting lets the cloud copy come
+        // down and apply at the next launch. Both exports also skip themselves while a
+        // downloaded copy is waiting to be applied (`pendingSettingsKey`, `pendingArtworkKey`).
+        if syncLastSyncedMs(manifestText: manifestText) > 0 {
+            exportSettings()
+            if let host { exportArtwork(library: host.library) }
+        }
         isSyncing = true
+        allowsGameLaunch = false
+        storesReloaded = false
         setLine("cloud sync: syncing (\(reason))", persist: false)
         let root = folder.appendingPathComponent(CloudSyncPaths.remoteFolderName, isDirectory: true)
         Task.detached(priority: .utility) {
             let scoped = folder.startAccessingSecurityScopedResource()
-            let outcome = CloudSyncWorker(remoteRoot: root, manifestText: manifestText).run()
+            let outcome = await CloudSyncWorker(remoteRoot: root, manifestText: manifestText).run(
+                gamesSwitchedOn: { await MainActor.run { self.includesGames = true } },
+                onlyGamesLeft: { changed in await MainActor.run { self.onlyGamesLeft(changed) } })
             if scoped { folder.stopAccessingSecurityScopedResource() }
             await MainActor.run { self.finish(outcome) }
         }
     }
 
+    /// Everything but the games is done. The stores are reloaded first, so a game launched now
+    /// reads the merged save-state and cheat lists rather than writing its stale copy over them.
+    private func onlyGamesLeft(_ changed: [String]) {
+        reloadStores(for: Set(changed))
+        storesReloaded = true
+        allowsGameLaunch = true
+    }
+
+    private func reloadStores(for changed: Set<String>) {
+        if changed.contains(where: { $0.hasPrefix("SaveStates/") }) {
+            host?.saveStates.reloadFromDisk()
+        }
+        if changed.contains("Cheats/index.json") {
+            host?.cheats.reloadFromDisk()
+        }
+        // The Amiibo list keeps its own copy of the folder's contents, so it is refreshed here.
+        // Player saves and manuals need nothing: each is read from disk when it is opened.
+        if changed.contains(where: { $0.hasPrefix("Amiibo/") }) {
+            host?.peripherals.refreshAmiibo()
+        }
+    }
+
     private func finish(_ outcome: CloudSyncOutcome) {
         isSyncing = false
+        // Every way out of a run ends here, refusals and failures included.
+        allowsGameLaunch = true
+        let reloadedAlready = storesReloaded
+        storesReloaded = false
         if let refusal = outcome.refusal {
             setLine("cloud sync failed: \(refusal)")
             host?.status = "cloud sync failed: \(refusal)"
@@ -955,16 +1134,9 @@ final class CloudSync: ObservableObject {
             text += ", \(outcome.pendingInCloud) still downloading from the cloud (next sync)"
         }
         let changed = Set(outcome.changedLocally)
-        if changed.contains(where: { $0.hasPrefix("SaveStates/") }) {
-            host?.saveStates.reloadFromDisk()
-        }
-        if changed.contains("Cheats/index.json") {
-            host?.cheats.reloadFromDisk()
-        }
-        // The Amiibo list keeps its own copy of the folder's contents, so it is refreshed here.
-        // Player saves and manuals need nothing: each is read from disk when it is opened.
-        if changed.contains(where: { $0.hasPrefix("Amiibo/") }) {
-            host?.peripherals.refreshAmiibo()
+        // The games phase only writes `Games/`, so stores reloaded when it began are current.
+        if !reloadedAlready {
+            reloadStores(for: changed)
         }
         if changed.contains(CloudSyncPaths.settingsPath) {
             defaults.set(true, forKey: Self.pendingSettingsKey)
@@ -1036,8 +1208,88 @@ final class CloudSync: ObservableObject {
               let values = try? PropertyListSerialization.propertyList(from: data, format: nil)
                 as? [String: Any] else { return }
         for (key, value) in values where exportable(key) {
+            if mergedSkinKeys.contains(key) {
+                // Nil means one side could not be read: this phone's value is left as it is.
+                if let merged = mergedSkinValue(key: key, local: defaults.object(forKey: key),
+                                                incoming: value) {
+                    defaults.set(merged, forKey: key)
+                }
+                continue
+            }
             defaults.set(value, forKey: key)
         }
+    }
+
+    // The skin keys, as `EngineHost` stores them: JSON `Data` from `JSONEncoder`.
+    private static let skinLibraryKey = "continuum.skins.library.v1"
+    private static let touchSkinsKey = "continuum.controls.touchSkins.v1"
+    private static let skinEditsKey = "continuum.controls.skinEdits.v1"
+
+    /// MERGED rather than replaced. Each is one dictionary keyed by skin id, and ids are random
+    /// per import, so replacing would drop every skin imported only on this phone. This phone's
+    /// entries stay; the incoming copy wins on the same id, system or game.
+    private static let mergedSkinKeys: Set<String> = [skinLibraryKey, touchSkinsKey, skinEditsKey]
+
+    /// The merged value, or nil to leave this phone's value untouched.
+    private static func mergedSkinValue(key: String, local: Any?, incoming: Any) -> Data? {
+        guard let theirs = incoming as? Data else { return nil }
+        let mine = local as? Data
+        // Something is stored here that is not data: not ours to overwrite.
+        if local != nil, mine == nil { return nil }
+        let decoder = JSONDecoder()
+        let encoder = JSONEncoder()
+        switch key {
+        case skinLibraryKey:
+            guard let incomingIndex = decodedIndex(theirs) else { return nil }
+            var merged = SkinLibraryIndex()
+            if let mine {
+                guard let localIndex = decodedIndex(mine) else { return nil }
+                merged = localIndex
+            }
+            merged.records.merge(incomingIndex.records) { _, new in new }
+            merged.defaults.merge(incomingIndex.defaults) { _, new in new }
+            merged.perGame.merge(incomingIndex.perGame) { _, new in new }
+            return try? encoder.encode(merged)
+        case touchSkinsKey:
+            guard let incomingVisuals = try? decoder.decode([String: DeltaSkinVisual].self,
+                                                             from: theirs) else { return nil }
+            var merged: [String: DeltaSkinVisual] = [:]
+            if let mine {
+                guard let localVisuals = try? decoder.decode([String: DeltaSkinVisual].self,
+                                                              from: mine) else { return nil }
+                merged = localVisuals
+            }
+            merged.merge(incomingVisuals) { _, new in new }
+            return try? encoder.encode(merged)
+        case skinEditsKey:
+            guard let incomingEdits = try? decoder.decode([String: SkinEdits].self,
+                                                           from: theirs) else { return nil }
+            var merged: [String: SkinEdits] = [:]
+            if let mine {
+                guard let localEdits = try? decoder.decode([String: SkinEdits].self,
+                                                            from: mine) else { return nil }
+                merged = localEdits
+            }
+            merged.merge(incomingEdits) { _, new in new }
+            return try? encoder.encode(merged)
+        default:
+            return nil
+        }
+    }
+
+    /// `SkinLibraryIndex` decodes forgivingly: one unreadable record empties its whole map instead
+    /// of failing. So each map is counted against the raw JSON, and one that lost entries counts
+    /// as unreadable rather than as "no skins", which would otherwise merge as a wipe.
+    private static func decodedIndex(_ data: Data) -> SkinLibraryIndex? {
+        guard let index = try? JSONDecoder().decode(SkinLibraryIndex.self, from: data),
+              let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        let counts = [("records", index.records.count), ("defaults", index.defaults.count),
+                      ("perGame", index.perGame.count)]
+        for (field, count) in counts {
+            if let map = raw[field] as? [String: Any], map.count != count { return nil }
+        }
+        return index
     }
 
     // ---------------------------------------------------------------- artwork
@@ -1115,8 +1367,20 @@ final class CloudSync: ObservableObject {
                     .appendingPathComponent(coverName(for: entry.name))
                 guard fm.fileExists(atPath: source.path) else { continue }
                 let target = artwork.appendingPathComponent("\(key).cover")
-                try? fm.removeItem(at: target)
-                guard (try? fm.copyItem(at: source, to: target)) != nil else { continue }
+                // Copied beside it first, then swapped in, so a copy that fails leaves the old
+                // cover in place rather than a choice pointing at no file.
+                let temporary = artwork.appendingPathComponent(".\(key).\(UUID().uuidString).incoming")
+                do {
+                    try fm.copyItem(at: source, to: temporary)
+                    if fm.fileExists(atPath: target.path) {
+                        _ = try fm.replaceItemAt(target, withItemAt: temporary)
+                    } else {
+                        try fm.moveItem(at: temporary, to: target)
+                    }
+                } catch {
+                    try? fm.removeItem(at: temporary)
+                    continue
+                }
             }
             map[key] = choice
         }
@@ -1170,32 +1434,59 @@ final class SyncFolderPickerDelegate: NSObject, UIDocumentPickerDelegate {
 struct BackupFolderPrompt: ViewModifier {
     @ObservedObject var host: EngineHost
     @ObservedObject var sync: CloudSync
+    /// The crash question (Feedback.swift) is the other alert at launch. This one waits for it.
+    @ObservedObject private var feedback = FeedbackCenter.shared
     @State private var shown = false
 
     private static let askedKey = "continuum.sync.backupOffered.v1"
 
     func body(content: Content) -> some View {
         content
-            .alert("Keep your games and saves safe?", isPresented: $shown) {
-                Button("Choose a folder") {
-                    UserDefaults.standard.set(true, forKey: Self.askedKey)
-                    sync.chooseFolder()
-                }
-                Button("Not now", role: .cancel) {
-                    UserDefaults.standard.set(true, forKey: Self.askedKey)
-                }
-            } message: {
-                Text("Deleting Continuum deletes everything in it: your games, saves, skins and "
-                     + "starred games. If you pick a folder, Continuum keeps a copy there and "
-                     + "puts it all back next time you install it.\n\nAny folder in Files works "
-                     + "— iCloud Drive, Google Drive, Dropbox. After this it happens on its own.")
-            }
+            // On a view of its own, never on `content`: the crash question is an alert on the same
+            // root view, and two alerts on one view can leave one of them stuck.
+            .background(
+                Color.clear
+                    .alert("Keep your games and saves safe?", isPresented: $shown) {
+                        Button("Choose a folder, with games") { choose(withGames: true) }
+                        Button("Choose a folder, without games") { choose(withGames: false) }
+                        Button("Not now", role: .cancel) {
+                            UserDefaults.standard.set(true, forKey: Self.askedKey)
+                        }
+                    } message: {
+                        Text("Deleting Continuum deletes everything in it. If you pick a folder, "
+                             + "Continuum keeps a copy of your saves, skins, starred games and "
+                             + "settings there, and your games too if you choose \"with games\" "
+                             + "(they can take a lot of space). After installing again, choose "
+                             + "the same folder in Settings and it all comes back.\n\nAny folder "
+                             + "in Files works — iCloud Drive, Google Drive, Dropbox.")
+                    }
+            )
             .onChange(of: host.library.count) { _ in offerIfItIsTime() }
+            .onChange(of: feedback.crashPromptShown) { _ in offerSoon() }
+            .onChange(of: feedback.crashReportOpen) { _ in offerSoon() }
             .onAppear { offerIfItIsTime() }
+    }
+
+    private func choose(withGames: Bool) {
+        UserDefaults.standard.set(true, forKey: Self.askedKey)
+        // Before the folder is chosen, so its first sync already includes or leaves out games.
+        sync.includesGames = withGames
+        sync.chooseFolder()
+    }
+
+    /// A moment after the crash question or its form goes, so this is not presented while the
+    /// other is still on its way out.
+    private func offerSoon() {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            offerIfItIsTime()
+        }
     }
 
     private func offerIfItIsTime() {
         guard !shown,
+              !feedback.crashPromptShown,
+              !feedback.crashReportOpen,
               !sync.isConfigured,
               !UserDefaults.standard.bool(forKey: Self.askedKey),
               !host.library.isEmpty,

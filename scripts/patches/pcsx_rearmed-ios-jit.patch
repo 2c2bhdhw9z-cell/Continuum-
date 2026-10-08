@@ -13,7 +13,7 @@ index fb99df6..951f9f5 100644
 +static int ndrc_from_host_region;
 +static int continuum_jit_region_lookup(const char *owner, size_t size, void **rx, void **rw)
 +{
-+  typedef int (*region_fn)(const char *, size_t, void **, void **);
++  typedef _Bool (*region_fn)(const char *, size_t, void **, void **);
 +  static region_fn fn;
 +  static int looked_up;
 +  if (!looked_up) {

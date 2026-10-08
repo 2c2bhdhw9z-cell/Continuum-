@@ -216,6 +216,18 @@ record_source() {
   LC_ALL=C sort -o "$manifest" "$manifest"
 }
 
+# Takes <name>'s line out of core-sources.txt. Called as each fetch STARTS, next to the rm -f of
+# its file, so the line comes back only through record_source once the file has passed every
+# check. Otherwise a fetch that failed today kept the line from the run that stored the CI core
+# cache, and the manifest described a core this .ipa does not have.
+forget_source() {
+  local name="$1"
+  local manifest="$OUT_DIR/core-sources.txt"
+  [[ -f "$manifest" ]] || return 0
+  grep -v "^$name " "$manifest" > "$manifest.tmp" 2>/dev/null || true
+  mv "$manifest.tmp" "$manifest"
+}
+
 # Downloads one pinned file to <dest>: the mirror's copy if its sha256 is the pin, else the original.
 #   fetch_pinned <name> <mirror asset> <original url> <dest>
 # Sets FETCHED_URL, FETCHED_SHA, FETCHED_STATE (pinned|unpinned) and FETCHED_UPLOAD (1 when the
@@ -302,6 +314,7 @@ fetch_one() {
   rm -rf "$dir"
   mkdir -p "$dir"
   rm -f "$OUT_DIR/$dylib"
+  forget_source "$core"
 
   echo "==> $core ($system): $url"
   if ! fetch_pinned "$core" "$core.zip" "$url" "$zip"; then
@@ -346,6 +359,7 @@ fetch_support() {
   rm -rf "$dir"
   mkdir -p "$dir" "$SUPPORT_DIR"
   rm -f "$SUPPORT_DIR/prboom.wad"
+  forget_source "prboom.wad"
   echo "==> prboom.wad (DOOM support file, GPL): $PRBOOM_WAD_URL"
   if fetch_pinned "prboom.wad" "prboom.wad" "$PRBOOM_WAD_URL" "$wad" && [[ -s "$wad" ]]; then
     cp "$wad" "$SUPPORT_DIR/prboom.wad" || {

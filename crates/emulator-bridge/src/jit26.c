@@ -142,13 +142,25 @@ bool continuum_jit26_prepare(size_t size) {
     if (rx == MAP_FAILED || rx == NULL) {
         g_state = 2;
         g_error = "the code region could not be reserved";
+        // Let the debugger go here too, as every other failure does: the script is attached and
+        // waiting, and nothing is gained by leaving the phone attached to it.
+        continuum_jit26_detach_call();
         return false;
     }
 
     // The debugger blesses the region. Passing our own address rather than NULL, so the region
     // stays where it was reserved and the writable view below is a remap of known pages.
     void *prepared = continuum_jit26_prepare_call(rx, size);
-    if (prepared != NULL && prepared != rx) {
+    if (prepared == NULL) {
+        // NULL is the script saying no, not "keep your own address": nothing was blessed, so
+        // nothing here may ever run code. Give the reservation back and let the debugger go.
+        munmap(rx, size);
+        g_state = 2;
+        g_error = "the debugger did not prepare the code region";
+        continuum_jit26_detach_call();
+        return false;
+    }
+    if (prepared != rx) {
         // The script chose a different address; believe it and release ours.
         munmap(rx, size);
         rx = (uint8_t *)prepared;
@@ -220,16 +232,23 @@ continuum_jit_region(const char *owner, size_t size, void **out_rx, void **out_r
         }
     }
 
-    // A slice someone released on shutdown, big enough to be used again.
+    // A slice someone released on shutdown, big enough to be used again: the SMALLEST that fits.
+    // The whole slice is handed over, so first-fit let a tiny request take a 32 MB slice and left
+    // the next big core nothing to reuse.
+    int best = -1;
     for (int i = 0; i < g_slot_count; i++) {
-        if (!g_slots[i].in_use && size <= g_slots[i].size) {
-            strncpy(g_slots[i].owner, name, sizeof(g_slots[i].owner) - 1);
-            g_slots[i].owner[sizeof(g_slots[i].owner) - 1] = '\0';
-            g_slots[i].in_use = true;
-            *out_rx = g_slots[i].rx;
-            *out_rw = g_slots[i].rw;
-            return true;
+        if (!g_slots[i].in_use && size <= g_slots[i].size &&
+            (best < 0 || g_slots[i].size < g_slots[best].size)) {
+            best = i;
         }
+    }
+    if (best >= 0) {
+        strncpy(g_slots[best].owner, name, sizeof(g_slots[best].owner) - 1);
+        g_slots[best].owner[sizeof(g_slots[best].owner) - 1] = '\0';
+        g_slots[best].in_use = true;
+        *out_rx = g_slots[best].rx;
+        *out_rw = g_slots[best].rw;
+        return true;
     }
 
     if (g_slot_count >= CONTINUUM_JIT_SLOTS) {
@@ -277,12 +296,17 @@ continuum_jit_region(const char *owner, size_t size, void **out_rx, void **out_r
 /// Says a slice is no longer needed, so the next core to ask can have it. The patched cores call
 /// this when they shut their recompiler down. Safe with any pointer, including one that never
 /// came from here.
-__attribute__((used, visibility("default"))) void continuum_jit_release(void *rx) {
-    if (rx == NULL) {
+///
+/// Either address of a slice is accepted, the one it runs from or the one it is written through,
+/// because some cores only keep the writing one (flycast's recompilers do). For a slice of the
+/// blessed region the writing address is the writable view's base plus the slice's offset into the
+/// region, which is exactly what `rw` was set to when the slice was carved.
+__attribute__((used, visibility("default"))) void continuum_jit_release(void *address) {
+    if (address == NULL) {
         return;
     }
     for (int i = 0; i < g_slot_count; i++) {
-        if (g_slots[i].rx == (uint8_t *)rx) {
+        if (g_slots[i].rx == (uint8_t *)address || g_slots[i].rw == (uint8_t *)address) {
             g_slots[i].in_use = false;
             return;
         }

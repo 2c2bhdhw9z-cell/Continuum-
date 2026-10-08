@@ -36,6 +36,11 @@ on:
       # The Swift checkers the `checks` job runs before the .ipa. A change to one must run them,
       # or a broken checker would surface only on the next unrelated push and block that build.
       - "scripts/check-*.sh"
+      # Except the weekly emulator-update checker, which the glob above also matches. It runs on
+      # Linux in core-updates.yml, nothing in the .ipa uses it, and editing it must not start a
+      # macOS build. A negative pattern only excludes what a positive one ABOVE it matched, so it
+      # has to stay below the glob.
+      - "!scripts/check-core-updates.sh"
       - "scripts/check-*.py"
       - "docs/samples/**"
       - "scripts/skin-check/**"
@@ -68,7 +73,7 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install the pinned Rust toolchain
         run: |
@@ -88,7 +93,7 @@ jobs:
           clang++ --version | head -1
 
       - name: Cache cargo registry and build artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -128,7 +133,7 @@ jobs:
     timeout-minutes: 300
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Everything about the runner that could explain a failure, printed before anything
       # can fail. Nobody on this project can reproduce a macOS build locally, so the log is
@@ -155,7 +160,7 @@ jobs:
           cargo --version
 
       - name: Cache cargo registry and build artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -195,9 +200,31 @@ jobs:
       # provenance manifest says the dylib really was built from the pin (see
       # ios_core_is_cached), and CONTINUUM_CORE_CACHE=1 below is what switches that on.
       #
-      # The key covers the patches as well as the pins, because a patch changes the output
-      # without changing any pin. Editing one throws the cache away and everything rebuilds,
-      # which is the correct and safe behaviour.
+      # THE KEY is a prefix naming everything a core's dylib depends on besides its pin, then
+      # this run's id:
+      #
+      #   ios-cores-<os>-<toolchain>-<build-core.sh + scripts/patches>-<run id>-<attempt>
+      #
+      # The patches are in it because a patch changes the output without changing any pin. The
+      # toolchain is in it (the step below says what that covers) because a new Xcode changes
+      # the output too. Without it, when the runner image moved to a new compiler, builds kept
+      # shipping cores made by the old one until an unrelated edit flushed the cache, and that
+      # unrelated commit then took the blame for whatever the new compiler broke. Changing any
+      # of these starts a new prefix, nothing restores, and everything rebuilds, which is the
+      # correct and safe behaviour.
+      #
+      # scripts/fetch-buildbot-cores.sh is deliberately NOT in it. Its cores are deleted and
+      # downloaded again on every run and checked against their pinned sha256 (fetch_one), so a
+      # cached copy of one never ships, and editing that script must not throw away the sixteen
+      # cores built from source.
+      #
+      # WHY A NEW ENTRY EVERY TIME. Cache entries can never be updated. With one fixed key, a set
+      # saved by a run where an optional core failed (flycast is the slow one) stayed without it
+      # for good: every later run restored it, rebuilt the missing core, and could not store the
+      # result. Now the restore takes the NEWEST entry under the prefix (restore-keys; the exact
+      # key never exists yet, so cache-hit is never 'true' and nothing reads it), and a run that
+      # built anything saves the completed set as a new entry, which the next run picks up. The
+      # attempt number is in the key so a re-run can save too: it has the same run id.
       #
       # `actions/cache` saves in post-job cleanup, which only happens when the whole job
       # succeeded, and that is exactly the wrong moment here: a job that built all 35 cores
@@ -209,18 +236,48 @@ jobs:
       # Note it is NOT `if: always()`, which is what this was first written as and was wrong.
       # The save sits before xcodebuild, so a later failure cannot reach it and no `always()`
       # is needed for that case. All `always()` would add is saving when the core build ITSELF
-      # failed or was cancelled — exactly when the set is INCOMPLETE. And a partial set is
-      # worse than none: it would store under this key, every later run would see a cache hit,
-      # skip saving, rebuild the missing cores every time, and nothing would ever say why the
-      # build was still slow.
+      # failed or was cancelled, and a step stopped part-way can leave a half-written dylib next
+      # to a manifest line that already names its pinned commit (the line is written when the
+      # source is checked out, before the compile). The next run would trust that file and ship
+      # it. A set is only ever saved from a build step that finished.
+
+      # WHAT THE CORES ARE COMPILED WITH, as a short id for the key above. Everything here
+      # changes a core's dylib without changing its pin, build-core.sh or a patch:
+      #   - xcodebuild -version: Xcode, which is the clang and the iphoneos SDK every core uses;
+      #   - cmake --version: mgba, azahar, ppsspp and flycast are CMake builds;
+      #   - native/ios/build-engine.sh: it exports IPHONEOS_DEPLOYMENT_TARGET, which every core
+      #     compile inherits.
+      # Printed in full, so when a build unexpectedly rebuilds every core the log says why.
+      # The whole prefix is made here once, so the restore and the save cannot disagree on it.
+      - name: Fingerprint the core toolchain
+        id: toolchain
+        env:
+          CORE_SOURCES_HASH: ${{ hashFiles('scripts/build-core.sh', 'scripts/patches/**') }}
+        run: |
+          set -euo pipefail
+          FP="$RUNNER_TEMP/core-toolchain.txt"
+          {
+            xcodebuild -version
+            cmake --version
+            shasum -a 256 native/ios/build-engine.sh
+          } > "$FP"
+          cat "$FP"
+          id="$(shasum -a 256 "$FP" | cut -c1-16)"
+          prefix="ios-cores-${RUNNER_OS}-${id}-${CORE_SOURCES_HASH}-"
+          echo "toolchain id: $id"
+          echo "core cache prefix: $prefix"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+
       - name: Restore the built cores
         id: core-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             native/ios/build/lib/*_libretro_ios.dylib
             native/ios/build/lib/core-sources.txt
-          key: ios-cores-${{ runner.os }}-${{ hashFiles('scripts/build-core.sh', 'scripts/patches/**', 'scripts/fetch-buildbot-cores.sh') }}
+          key: ${{ steps.toolchain.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.toolchain.outputs.prefix }}
 
       - name: Build the engine, the wrapper and the UniFFI bindings
         env:
@@ -238,14 +295,22 @@ jobs:
       # Placed here, before anything that can fail, rather than guarded with `always()`:
       # see the long note above. If this job dies after this point the cores are already
       # cached, and a core build that did not finish never gets stored.
+      #
+      # Only when this run BUILT at least one core. build-core.sh's ios-all writes
+      # cores-rebuilt.txt for each core it compiled at its pin, and the file does not exist when
+      # every core was reused, so a run that only reused the cache adds no copy of what is
+      # already there. It also does not exist after a CONTINUUM_UNPINNED=1 run: those cores can
+      # never be reused, and saving them would make them the newest entry and cost the next
+      # normal build a full rebuild. The `if` still implies success(), so this runs only after
+      # the build step above succeeded.
       - name: Save the built cores
-        if: steps.core-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        if: hashFiles('native/ios/build/lib/cores-rebuilt.txt') != ''
+        uses: actions/cache/save@v6
         with:
           path: |
             native/ios/build/lib/*_libretro_ios.dylib
             native/ios/build/lib/core-sources.txt
-          key: ios-cores-${{ runner.os }}-${{ hashFiles('scripts/build-core.sh', 'scripts/patches/**', 'scripts/fetch-buildbot-cores.sh') }}
+          key: ${{ steps.toolchain.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Show the generated Swift interface
         run: |
@@ -387,7 +452,7 @@ jobs:
           echo "ipa verified"
 
       - name: Upload the .ipa
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Continuum-ipa-${{ github.sha }}
           path: native/ios/build/Continuum.ipa
@@ -471,12 +536,17 @@ jobs:
           # release and then fail while uploading an asset, so a retry can meet a release that
           # already exists. That is treated as success and the assets are re-uploaded with
           # --clobber, which is idempotent.
+          #
+          # --target is the commit this job BUILT. Without it the new tag is made from master as it
+          # is when the release is created, and anything pushed during the 40 minute build would
+          # put this build's tag on a commit it does not contain.
           publish() {
             gh release create "$TAG" \
               native/ios/build/Continuum.ipa \
               "native/ios/build/Continuum-${{ github.run_number }}.ipa" \
               native/ios/get-task-allow.entitlements \
               native/ios/get-task-allow.plist \
+              --target "${{ github.sha }}" \
               --title "Continuum build ${{ github.run_number }}" \
               --notes-file /tmp/notes.md
           }
@@ -488,12 +558,22 @@ jobs:
               native/ios/get-task-allow.plist \
               --clobber
           }
+          # AN ADOPTED RELEASE MAY BE A DRAFT. With files attached, `gh release create` makes the
+          # release as a draft, uploads, and only then publishes it, so an attempt that died
+          # part-way can leave a draft behind, and `gh release view` finds drafts too. Uploading
+          # into it is not enough: /releases/latest skips drafts, so the newest-build link would go
+          # on serving the previous build while this step reported success. So it is published
+          # here, which changes nothing if it already was. --target again because a draft only
+          # gets its tag when it is published.
+          publish_existing() {
+            gh release edit "$TAG" --draft=false --target "${{ github.sha }}"
+          }
 
           published=0
           for attempt in 1 2 3 4 5; do
             if gh release view "$TAG" >/dev/null 2>&1; then
-              echo "attempt $attempt: $TAG already exists, making sure its files are the ones just built"
-              if upload_into_existing; then published=1; break; fi
+              echo "attempt $attempt: $TAG already exists, making sure its files are the ones just built and it is published"
+              if upload_into_existing && publish_existing; then published=1; break; fi
             elif publish; then
               published=1; break
             fi
@@ -543,7 +623,7 @@ jobs:
       # compiled. Both are build outputs that exist nowhere else.
       - name: Upload build metadata
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-build-metadata-${{ github.sha }}
           path: |

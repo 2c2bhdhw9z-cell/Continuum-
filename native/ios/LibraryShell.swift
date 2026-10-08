@@ -492,7 +492,7 @@ struct LibraryShell: View {
                     title: "No favorites yet",
                     guidance: "Press and hold a game to open its detail sheet and tap the star, or "
                         + "swipe a row right in All Games. Favorites are remembered by the game's "
-                        + "path on disk, so they survive a relaunch, and a file that is "
+                        + "file name, so they survive a relaunch, and a file that is "
                         + "temporarily missing is not forgotten."
                 )
                 Spacer(minLength: 0)

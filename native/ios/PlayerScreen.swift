@@ -745,10 +745,9 @@ struct DiagnosticsPanel: View {
                     Text(host.libraryStatus)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if !host.artworkLine.isEmpty {
-                    Text(host.artworkLine)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                // From the store through its own small observer, not mirrored onto the host: the
+                // line changes once per resolved cover. Only this one Text redraws for it.
+                ArtworkLineText(store: host.artwork)
                 // How many states exist, whether resuming is on, and whether the running game has
                 // an auto-save to resume FROM. That last one is the line worth having: a game that
                 // started from the beginning did so either because resuming is off, because there
@@ -799,6 +798,18 @@ struct DiagnosticsPanel: View {
         // full width and the controls sit high, it can reach a shoulder button too. There is
         // nothing interactive in here to lose: every child is a `Text`.
         .allowsHitTesting(false)
+    }
+}
+
+/// The artwork read-out for the diagnostics panel. See its use there.
+struct ArtworkLineText: View {
+    @ObservedObject var store: ArtworkStore
+
+    var body: some View {
+        if !store.line.isEmpty {
+            Text(store.line)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 

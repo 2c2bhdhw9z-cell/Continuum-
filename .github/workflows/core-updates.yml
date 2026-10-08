@@ -34,14 +34,17 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Ask every emulator's repository whether it has moved
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./scripts/check-core-updates.sh
 
+      # Master only. The push below goes to master whatever was checked out, so a run started by
+      # hand on another branch would otherwise put that branch's commits on master with it.
       - name: Commit the page, but only if the answer actually changed
+        if: github.ref == 'refs/heads/master'
         run: |
           set -euo pipefail
           PAGE=docs/CORE_UPDATES.md
@@ -77,7 +80,28 @@ jobs:
           # the app changed, and the owner's build queue is not for this.
           git commit -m "Core updates: upstream has moved for one or more emulators [skip ci]" \
                      -m "Written by scripts/check-core-updates.sh on its weekly run. Nothing has been taken: every core is still pinned exactly where it was, and moving one is a deliberate edit to scripts/build-core.sh followed by a build and a test on a phone."
-          git push origin HEAD:master
+          # RETRIED, because master can move while this runs: a push between the checkout and here
+          # makes a plain push non-fast-forward, and the week's answer is lost. The commit touches
+          # only docs/CORE_UPDATES.md, which nothing else writes, so replaying it on top of the new
+          # master is safe. If the rebase itself conflicts, someone edited the page by hand, and
+          # that needs a person, so it gives up loudly rather than guessing.
+          pushed=0
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:master; then pushed=1; break; fi
+            [ "$attempt" -lt 5 ] || break
+            echo "attempt $attempt: push refused; fetching master and rebasing onto it"
+            sleep $((attempt * 5))
+            git fetch origin +refs/heads/master:refs/remotes/origin/master
+            if ! git rebase refs/remotes/origin/master; then
+              git rebase --abort || true
+              echo "::error::could not rebase the page commit onto the new master; nothing was pushed"
+              exit 1
+            fi
+          done
+          if [ "$pushed" -ne 1 ]; then
+            echo "::error::could not push the page commit to master after 5 attempts"
+            exit 1
+          fi
 
       - name: Say what it found
         if: always()

@@ -28,6 +28,20 @@ NOW="$(date -u '+%d %B %Y, %H:%M UTC')"
 
 # repo + pin, deduplicated: the _jit builds share a repository and a pin with the core they are
 # named after, so asking GitHub twice for the same answer would be wasted.
+#
+# Captured first rather than read straight from a process substitution, because bash ignores a
+# process substitution's exit status: a build-core.sh that failed, or printed nothing, left ROWS
+# empty, and the page then said "All 0 are up to date". That is the one answer this page must
+# never give wrongly, so no pins fails the run loudly and leaves the page as it was.
+if ! PINS="$(bash "$ROOT/scripts/build-core.sh" ios-pins)"; then
+  echo "::error::scripts/build-core.sh ios-pins failed; $OUT was not rewritten"
+  exit 1
+fi
+if [[ -z "$PINS" ]]; then
+  echo "::error::scripts/build-core.sh ios-pins listed no cores; $OUT was not rewritten"
+  exit 1
+fi
+
 declare -a ROWS=()
 seen=""
 while IFS=$'\t' read -r core repo pin display; do
@@ -35,7 +49,7 @@ while IFS=$'\t' read -r core repo pin display; do
   case " $seen " in *" $key "*) continue ;; esac
   seen="$seen $key"
   ROWS+=("$core"$'\t'"$repo"$'\t'"$pin"$'\t'"$display")
-done < <(bash "$ROOT/scripts/build-core.sh" ios-pins)
+done <<<"$PINS"
 
 echo "==> checking ${#ROWS[@]} emulator repositories against their pins"
 
@@ -64,7 +78,14 @@ for row in "${ROWS[@]}"; do
     continue
   fi
 
-  newest="$(gh api "repos/$slug/commits/$branch" --jq '.commit.committer.date' 2>/dev/null | cut -c1-10)"
+  # Guarded like the two calls above. This one was not, and under `set -euo pipefail` a single
+  # failed request here ended the whole run with the page not updated. The date is only a
+  # detail of the row, so a failure makes it "unknown" rather than dropping the row.
+  if ! newest="$(gh api "repos/$slug/commits/$branch" --jq '.commit.committer.date' 2>/dev/null)"; then
+    echo "    $core: could not read the date of the newest change on $branch"
+    newest=""
+  fi
+  newest="${newest:0:10}"
   [[ -n "$newest" ]] || newest="unknown"
 
   if [[ "$ahead" -gt 0 ]]; then

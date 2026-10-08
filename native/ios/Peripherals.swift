@@ -39,7 +39,7 @@ enum AudioSessionPolicy {
     static func apply(to session: AVAudioSession) throws {
         let category: AVAudioSession.Category = recording ? .playAndRecord : .playback
         let options: AVAudioSession.CategoryOptions = recording
-            ? [.defaultToSpeaker, .allowBluetooth]
+            ? [.defaultToSpeaker, .allowBluetoothHFP]
             : []
         // Skipped when nothing would change. Setting the same category again can still post a
         // route change, and both audio graphs rebuild on one, so a redundant set here is how two

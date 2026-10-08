@@ -1095,16 +1095,22 @@ final class DeltaSkinPicker: NSObject, UIDocumentPickerDelegate, UIAdaptivePrese
                 finishMany([SkinPickOutcome(fileName: "", result: .failure(.noFileSelected))])
                 return
             }
-            finishMany(urls.map { url in
-                SkinPickOutcome(fileName: url.lastPathComponent, result: Self.importOne(url))
-            })
+            // Off the main thread: unpacking several large skins used to freeze the screen.
+            // `finishMany` hops back to the main actor, so the callers see no change.
+            DispatchQueue.global(qos: .userInitiated).async {
+                self.finishMany(urls.map { url in
+                    SkinPickOutcome(fileName: url.lastPathComponent, result: Self.importOne(url))
+                })
+            }
             return
         }
         guard let url = urls.first else {
             finish(.failure(.noFileSelected))
             return
         }
-        finish(Self.importOne(url))
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.finish(Self.importOne(url))
+        }
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
@@ -1140,11 +1146,15 @@ struct SkinPickOutcome {
 /// Enough ZIP to pull `info.json` out of a .deltaskin. Supports store (0) and deflate (8).
 enum ZipStore {
 
+    /// The entry at the package root wins over one with the same name in a subfolder, whatever
+    /// order the archive lists them in: a nested `info.json` is usually a stray copy.
     static func data(forEntryNamed name: String, in archive: Data) throws -> Data? {
-        for entry in try listEntries(in: archive) {
-            if entry.name == name || entry.name.hasSuffix("/\(name)") {
-                return try payload(for: entry, in: archive)
-            }
+        let entries = try listEntries(in: archive)
+        if let root = entries.first(where: { $0.name == name }) {
+            return try payload(for: root, in: archive)
+        }
+        if let nested = entries.first(where: { $0.name.hasSuffix("/\(name)") }) {
+            return try payload(for: nested, in: archive)
         }
         return nil
     }
@@ -1154,7 +1164,9 @@ enum ZipStore {
         let matches = entries.filter {
             $0.name.lowercased() == "info.json" || $0.name.lowercased().hasSuffix("/info.json")
         }
-        guard let entry = matches.first else { return nil }
+        // Shallowest first, so the root copy wins over a nested one.
+        let depth: (Entry) -> Int = { $0.name.filter { $0 == "/" }.count }
+        guard let entry = matches.min(by: { depth($0) < depth($1) }) else { return nil }
         return try payload(for: entry, in: archive)
     }
 
@@ -1181,10 +1193,20 @@ enum ZipStore {
 
     private static func listEntries(in archive: Data) throws -> [Entry] {
         // Prefer the central directory when the end-of-central-directory record is present.
+        let entries: [Entry]
         if let fromCentral = try? readCentralDirectory(archive) {
-            return fromCentral
+            entries = fromCentral
+        } else {
+            entries = try readLocalHeaders(archive)
         }
-        return try readLocalHeaders(archive)
+        // The whole package, by what its entries claim. Each entry is then held to its claim.
+        let claimed = entries.reduce(0) { $0 + Int($1.uncompressedSize) }
+        guard archive.count <= maxPackageBytes, claimed <= maxPackageBytes else {
+            throw DeltaSkinImportError.unreadable(
+                "the skin unpacks to more than 512 MB, which is far more than any skin needs, "
+                    + "so it was not opened")
+        }
+        return entries
     }
 
     private static func readCentralDirectory(_ archive: Data) throws -> [Entry] {
@@ -1298,6 +1320,8 @@ enum ZipStore {
         guard start >= 0, end <= archive.count else {
             throw DeltaSkinImportError.unreadable("ZIP entry data out of range")
         }
+        // A header claiming more than any skin file needs is refused before anything is unpacked.
+        guard Int(entry.uncompressedSize) <= maxEntryBytes else { throw tooLarge }
         let slice = archive.subdata(in: start..<end)
         switch entry.method {
         case 0:
@@ -1312,29 +1336,39 @@ enum ZipStore {
     /// ZIP method 8 is raw DEFLATE (no zlib wrapper). `inflateInit2(..., -MAX_WBITS)` is the
     /// documented way to decode that; Compression.framework's ZLIB path expects a wrapper and
     /// fails on ordinary .deltaskin packs.
+    ///
+    /// BOUNDED, because the sizes in a ZIP are only claims. This used to start from the claimed
+    /// size and keep doubling with no limit, so a zip bomb or a false size could use up memory
+    /// until iOS killed the app. Now the output may not pass the entry's claimed size (or
+    /// `maxEntryBytes` when it claims none), and a stream that runs out before its end marker is
+    /// an error rather than a silently short file.
     private static func inflateRawDeflate(_ compressed: Data, expectedSize: Int) throws -> Data {
         var stream = z_stream()
         let initStatus = zlib.inflateInit2_(&stream, -MAX_WBITS, ZLIB_VERSION,
                                        Int32(MemoryLayout<z_stream>.size))
         guard initStatus == Z_OK else {
-            throw DeltaSkinImportError.unreadable("deflate init failed (\(initStatus))")
+            throw DeltaSkinImportError.unreadable("a file inside the skin could not be unpacked")
         }
         defer { zlib.inflateEnd(&stream) }
 
-        let capacity = max(expectedSize, 1)
-        var out = Data(count: capacity)
+        let limit = expectedSize > 0 ? min(expectedSize, maxEntryBytes) : maxEntryBytes
+        // One byte past the limit, so a file of exactly the limit can still reach its end marker.
+        let ceiling = limit + 1
+        var out = Data(count: min(max(expectedSize, 1), limit) + 1)
         var total = 0
+        var ended = false
 
         try compressed.withUnsafeBytes { srcPtr in
             guard let srcBase = srcPtr.bindMemory(to: UInt8.self).baseAddress else {
-                throw DeltaSkinImportError.unreadable("deflate source unavailable")
+                throw DeltaSkinImportError.unreadable("a file inside the skin could not be read")
             }
             stream.next_in = UnsafeMutablePointer(mutating: srcBase)
             stream.avail_in = uInt(compressed.count)
 
-            while true {
+            while !ended {
                 if total >= out.count {
-                    out.count = max(out.count * 2, capacity * 2)
+                    guard out.count < ceiling else { throw tooLarge }
+                    out.count = min(ceiling, max(out.count * 2, 64 * 1024))
                 }
                 // Snapshot length before borrowing `out` — Swift exclusivity forbids
                 // reading `out.count` inside `withUnsafeMutableBytes`.
@@ -1353,19 +1387,33 @@ enum ZipStore {
                         return -1
                     }
                     if status != Z_OK {
-                        throw DeltaSkinImportError.unreadable("deflate decode failed (\(status))")
+                        throw DeltaSkinImportError.unreadable(
+                            "a file inside the skin is damaged and could not be unpacked")
                     }
                     return produced
                 }
-                if wrote < 0 { break }
-                if stream.avail_in == 0 && stream.avail_out > 0 {
-                    break
+                if wrote < 0 {
+                    ended = true
+                } else if stream.avail_in == 0 && stream.avail_out > 0 {
+                    // All input used, room left, and no end marker: the file was cut short.
+                    throw DeltaSkinImportError.unreadable(
+                        "a file inside the skin is cut short; the skin may be damaged or only "
+                            + "partly downloaded")
                 }
             }
         }
+        guard total <= limit else { throw tooLarge }
         out.count = total
         return out
     }
+
+    /// No real skin comes near these. They exist so a hostile or broken file cannot use up memory.
+    static let maxEntryBytes = 64 << 20
+    static let maxPackageBytes = 512 << 20
+
+    private static let tooLarge = DeltaSkinImportError.unreadable(
+        "a file inside the skin is bigger than 64 MB or bigger than it says it is, so it was "
+            + "not opened")
 
     private static func readU16(_ data: Data, _ offset: Int) -> UInt16 {
         UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)

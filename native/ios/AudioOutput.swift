@@ -361,6 +361,12 @@ final class AudioOutput {
     private var wanted = false
 
     private var interrupted = false
+    /// In the background. Route and configuration changes then wait for `resume`, which
+    /// rebuilds anyway, instead of activating a session from the background.
+    private var suspended = false
+    /// The OUTPUT engine's configuration-change observer, re-registered with each graph. Scoped
+    /// to that engine because the microphone's engine (Peripherals.swift) posts the same notice.
+    private var configurationObserver: NSObjectProtocol?
     private(set) var rebuilds = 0
 
     init(engine: ContinuumEngine) {
@@ -378,6 +384,7 @@ final class AudioOutput {
 
     deinit {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
         scratch.deinitialize(count: Self.maxRenderFrames * AudioSampleRing.channels)
         scratch.deallocate()
     }
@@ -395,6 +402,7 @@ final class AudioOutput {
             return
         }
         interrupted = false
+        suspended = false
         ring.reset()
         _ = startGraph(reason: "start")
     }
@@ -403,6 +411,7 @@ final class AudioOutput {
     func stop() {
         wanted = false
         interrupted = false
+        suspended = false
         teardownGraph()
         // Status set BEFORE the deactivation, because `deactivateSession` appends its own failure
         // to whatever is there and would otherwise be appending to the previous line.
@@ -416,6 +425,7 @@ final class AudioOutput {
         guard wanted, isRunning else { return }
         audioEngine?.pause()
         isRunning = false
+        suspended = true
         status = "audio: suspended for the background"
         deactivateSession()
     }
@@ -428,11 +438,17 @@ final class AudioOutput {
     /// names the stage that failed.
     func resume() {
         guard wanted, !isRunning else { return }
-        if interrupted {
-            status = "audio: still interrupted, so playback was not resumed on foregrounding"
-            return
+        suspended = false
+        // iOS does not promise an "interruption ended" notice, and usually sends none once the
+        // app was suspended, so coming back is the moment to try. The interruption only stands
+        // if the session still will not activate (a call still going).
+        let wasInterrupted = interrupted
+        interrupted = false
+        rebuild(reason: wasInterrupted ? "on foregrounding after an interruption" : "on foregrounding")
+        if wasInterrupted, !isRunning {
+            interrupted = true
+            status += " (still interrupted; sound comes back when the call or alarm ends)"
         }
-        rebuild(reason: "on foregrounding")
     }
 
     // MARK: - The per-tick push
@@ -551,6 +567,19 @@ final class AudioOutput {
         audioEngine = graph
         sourceNode = node
         isRunning = true
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+        }
+        // Fired when this engine's IO format changes underneath it, which a route change can
+        // do. Without handling it the graph keeps running against a format that no longer
+        // exists and goes quietly silent.
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name.AVAudioEngineConfigurationChange,
+            object: graph,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleConfigurationChange()
+        }
 
         // A disagreement here is not fatal: AVAudioEngine inserts a converter and the sound
         // still comes out. It is worth saying out loud because it means the device is
@@ -710,6 +739,10 @@ final class AudioOutput {
         sourceNode = nil
         audioEngine = nil
         isRunning = false
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+        }
+        configurationObserver = nil
     }
 
     private func deactivateSession() {
@@ -717,7 +750,8 @@ final class AudioOutput {
         // recording but is not worth overwriting a more useful status with, so it only speaks
         // up when nothing more important is on the line.
         do {
-            try AVAudioSession.sharedInstance().setActive(false)
+            // `.notifyOthersOnDeactivation`, so music another app paused for the game resumes.
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         } catch {
             if status.hasPrefix("audio: stopped") || status.hasPrefix("audio: suspended") {
                 status += " (the session would not deactivate: \(error))"
@@ -757,16 +791,8 @@ final class AudioOutput {
             ) { [weak self] note in
                 self?.handleRouteChange(note)
             },
-            // Fired when the engine's own IO format changes underneath it, which a route change
-            // can do. Without handling it the graph keeps running against a format that no
-            // longer exists and goes quietly silent.
-            centre.addObserver(
-                forName: NSNotification.Name.AVAudioEngineConfigurationChange,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                self?.handleConfigurationChange()
-            },
+            // The engine configuration-change observer is NOT here: it is registered per graph
+            // in `startGraph`, scoped to the output engine.
         ]
     }
 
@@ -811,7 +837,9 @@ final class AudioOutput {
     /// away, and an app that does nothing here is permanently silent afterwards with no error to
     /// read anywhere.
     private func handleRouteChange(_ note: Notification) {
-        guard wanted else { return }
+        // Deferred while backgrounded or interrupted: `resume` and the interruption's end both
+        // rebuild, and rebuilding now would activate a session the app may not have.
+        guard wanted, !suspended, !interrupted else { return }
         guard let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
               let reason = AVAudioSession.RouteChangeReason(rawValue: raw) else {
             // A route change with no readable reason still changed the route, and the safe answer
@@ -842,7 +870,7 @@ final class AudioOutput {
     /// going through the session. Ignoring this leaves a running graph attached to a format that
     /// no longer exists, and it goes quietly silent.
     private func handleConfigurationChange() {
-        guard wanted else { return }
+        guard wanted, !suspended, !interrupted else { return }
         rebuild(reason: "after the engine configuration changed")
     }
 

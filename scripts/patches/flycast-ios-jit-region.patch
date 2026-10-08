@@ -132,12 +132,12 @@ index 2d42410..a232b65 100644
  void release_jit_block(void *code_area1, void *code_area2, size_t size)
  {
 +#if defined(TARGET_IPHONE)
-+	// Continuum: handed back to the host so the next game can use it, never unmapped: the pages
-+	// belong to the app's one blessed region.
++	// Continuum: both pointers go back to the host, which ignores one it never handed out. The
++	// callers disagree on order: the SH4 passes (write, run), the ARM7 and DSP (static, write).
 +	(void)size;
-+	(void)code_area2;
 +	continuum_jit_block_release(code_area1);
-+	return;
++	continuum_jit_block_release(code_area2);
++	return; // never munmap: the pages belong to the app's one blessed region
 +#endif
  	// keep code_area1 (RX) mapped since it's statically allocated
  	munmap(code_area2, size);

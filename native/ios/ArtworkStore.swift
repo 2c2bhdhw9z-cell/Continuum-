@@ -760,7 +760,6 @@ final class ArtworkStore: ObservableObject {
     /// Wires the status line back to the host. Called once, by `EngineHost.init`.
     func attach(host: EngineHost) {
         self.host = host
-        host.artworkLine = line
     }
 
     // ------------------------------------------------------------------ serving a cover
@@ -2700,8 +2699,9 @@ final class ArtworkStore: ObservableObject {
     /// The ordinary read-out path: updates the artwork line and mirrors it to the host so the
     /// diagnostics panel shows it.
     private func note(_ text: String) {
+        // Not mirrored onto the host any more: this runs once per resolved cover, and a host
+        // publish rebuilds the whole library. The diagnostics panel reads `line` directly.
         line = text
-        host?.artworkLine = text
     }
 
     /// A note that must not repeat. Used for the conditions that are true for a whole system rather
