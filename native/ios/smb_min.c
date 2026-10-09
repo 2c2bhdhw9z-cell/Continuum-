@@ -7,7 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* libsmb2.h first. libsmb2-raw.h uses types that header defines. */
+/* smb2.h defines smb2_file_id. libsmb2.h defines the context and callbacks.
+   libsmb2-raw.h uses both, and it does not include either, so this order is required. */
+#include <time.h>
+#include <smb2/smb2.h>
 #include <smb2/libsmb2.h>
 #include <smb2/libsmb2-raw.h>
 #include <smb2/libsmb2-share-enum.h>
