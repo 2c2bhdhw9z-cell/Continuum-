@@ -137,7 +137,8 @@ it changed nothing on screen. The DS arrived early and out of order because melo
 iOS, so it needed none of the hardware-renderer work the rest of the list does.
 
 N64, PSP and 3DS have since arrived (N64 on its software renderer, PSP and 3DS through Vulkan,
-all without JIT). Still ahead: Symbian/N-Gage (not started), and, hardest last, the **Switch**
+all without JIT). Still ahead: Symbian/N-Gage (Continuum Symbian is started and not in the app;
+a .sis does not boot), and, hardest last, the **Switch**
 (wrapper skeleton only: `native/switch-wrapper/` is a working inversion-of-control frame gate with
 no engine behind it yet). GameCube and Wii are not built (no JIT).
 
@@ -157,8 +158,9 @@ load in either app. Do not rename an upstream core to Continuum, and do not name
 project writes after the emulator it wraps or after libretro. The name in the app and the name
 in the file both start with Continuum: the Switch wrapper is already `continuum_switch`, and
 Symbian, when it can boot a game, is Continuum Symbian
-(`continuum_symbian_libretro_ios.dylib`). It is not in the app yet. A row that pretends it is
-would be a lie.
+(`continuum_symbian_libretro_ios.dylib`). The wrapper is started at `native/continuum-symbian`.
+The emulator is not linked, a `.sis` does not boot, and it is not in the app. A row that
+pretends it is would be a lie.
 
 Architectural invariants (one MTLDevice owned by Rust and read back by Swift,
 `engine.coreState` as the only source of truth for core residency, import-and-copy into

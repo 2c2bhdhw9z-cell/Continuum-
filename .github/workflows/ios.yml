@@ -114,6 +114,7 @@ jobs:
           # on any failed check, and build.sh runs under `set -e` with the harness as its last step.
           ./scripts/fetch-libretro-headers.sh
           ./native/switch-wrapper/build.sh host
+          ./native/continuum-symbian/build.sh host
 
       - name: Skin checks (Swift)
         run: ./scripts/check-skins.sh

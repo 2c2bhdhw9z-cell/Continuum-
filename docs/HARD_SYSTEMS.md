@@ -60,11 +60,12 @@ The libretro iOS buildbot has `dolphin_libretro`, `flycast_libretro`, `ppsspp_li
 
 ## Symbian / N-Gage (EKA2L1)
 
-- **Core or iOS port:** no libretro core. EKA2L1 itself has an iOS build script in its own repo
+- **Core or iOS port:** no finished core. EKA2L1 itself has an iOS build script in its own repo
   (`scripts/build_ios.sh`), which turns its JIT (dynarmic) off for signed builds and then runs on
-  "dyncom", an ARM interpreter that came from Citra. When Continuum writes the wrapper, the core
-  is named Continuum Symbian (`continuum_symbian_libretro_ios.dylib`), not EKA2L1 and not
-  libretro. `_libretro` stays on the filename because that is the plug. See PRODUCT_SCOPE.md.
+  "dyncom", an ARM interpreter that came from Citra. Continuum Symbian is started at
+  `native/continuum-symbian`. The name is Continuum Symbian, not EKA2L1 and not libretro.
+  `_libretro` stays on the filename because that is the plug. The emulator is not linked, so a
+  `.sis` does not boot, and the core is not in the app. See PRODUCT_SCOPE.md.
 - **Builds for iOS arm64:** EKA2L1's own app does. As a Continuum core it does not exist: someone
   has to write a libretro wrapper around EKA2L1 (boot, firmware install of `.ROM`/`.RPKG`, `.sis`
   installs, OpenGL ES output, input, saving).
@@ -74,8 +75,10 @@ The libretro iOS buildbot has `dolphin_libretro`, `flycast_libretro`, `ppsspp_li
   stutter (STATUS.md). The 3DS's ARM11 is 268 MHz. So older Symbian and N-Gage games are likely to
   be playable on the interpreter. S60v5 and Symbian^3 games (faster phones) likely are not. That is
   my reasoning from those facts, not a measurement; EKA2L1 publishes no interpreter speed figures.
-- **What it would take:** the wrapper above is the whole job, probably one to two weeks of
-  focused work, plus CI build time. EKA2L1 is big C++ with many submodules.
+- **What it would take:** the rest of the wrapper is the job. The named core exists and fails
+  closed. Linking EKA2L1 (boot, firmware `.ROM`/`.RPKG`, `.sis` installs, picture, input, saving)
+  is still ahead, probably one to two weeks, plus CI build time. EKA2L1 is big C++ with many
+  submodules. It does not go in the app until a game can boot.
 - **Recommendation:** **worth doing later, after Dreamcast is proven.** Promise N-Gage and early
   S60 games only.
 
@@ -110,5 +113,5 @@ The libretro iOS buildbot has `dolphin_libretro`, `flycast_libretro`, `ppsspp_li
 | System | Playable with no JIT on this phone? | Do it? |
 | --- | --- | --- |
 | Dreamcast | Likely for many games; proof needed | Yes. In the app since build 119; test it now |
-| Symbian / N-Gage | Older games likely, newer ones unlikely | Later, needs a wrapper (not started) |
+| Symbian / N-Gage | Older games likely, newer ones unlikely | Started. Named Continuum Symbian. Not in the app. A .sis does not boot |
 | GameCube / Wii | **No** | Not built. Only as a labelled experiment, or not at all |

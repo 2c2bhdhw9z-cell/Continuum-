@@ -24,7 +24,7 @@ Keep this file current. A new session should be able to read this and carry on.
 - **JIT when available, never required** (from build 131): PSP, 3DS, PlayStation, N64 and
   Dreamcast use their recompilers on a phone where JIT is on; every phone without it runs as
   before. GameCube and Wii are not built: they are not playable without JIT. Symbian
-  is not started: it needs a libretro wrapper written first. See [HARD_SYSTEMS.md](HARD_SYSTEMS.md).
+  is started as Continuum Symbian and is not in the app: a .sis does not boot yet. See [HARD_SYSTEMS.md](HARD_SYSTEMS.md).
 - **Flash and J2ME run in a bundled player view inside the app** (Ruffle for Flash, a JavaScript
   J2ME engine), the way Manic does. That is a player inside the .ipa, not a web build of
   Continuum, so it does not break the no-web rule.
@@ -66,7 +66,7 @@ systems in all.
 | J2ME | JavaScript J2ME engine in a bundled player view | .jar | [x] code |
 | GameCube | Dolphin interpreter | .gcm .gcz .rvz .iso .dol .elf | [ ] not built: not playable without JIT (HARD_SYSTEMS.md) |
 | Wii | Dolphin interpreter | .rvz .wbfs .ciso .wia .iso .wad .dol .elf | [ ] not built: not playable without JIT (HARD_SYSTEMS.md) |
-| Symbian / N-Gage | EKA2L1 | .sis .sisx .n-gage | [ ] not started: needs a libretro wrapper written, later (HARD_SYSTEMS.md) |
+| Symbian / N-Gage | EKA2L1 | .sis .sisx .n-gage | [ ] started, not in the app: Continuum Symbian refuses to boot a .sis until EKA2L1 is linked |
 
 **Shared extensions** (.cue .chd .iso .bin .m3u .zip are used by several systems): the import
 looks inside the file where it can (disc header, cue contents, zip contents) and asks the user to
@@ -144,7 +144,7 @@ screen saying which code types each system reads (build 126).
 - [x] Flash (.swf) through Ruffle in a bundled player view.
 - [x] J2ME (.jar) through a bundled JavaScript J2ME engine.
 - [x] GameCube and Wii research: done, docs/HARD_SYSTEMS.md. Not playable without JIT; not built.
-- [x] Symbian / N-Gage research: done, docs/HARD_SYSTEMS.md. Possible later, needs a wrapper.
+- [x] Symbian / N-Gage research: done, docs/HARD_SYSTEMS.md. Continuum Symbian is started and not in the app.
 - [x] Dreamcast builds on CI (in the IPA since build 119). [ ] Runs on a phone: TESTING.md C19.
 - [x] SMB file shares, linked into the app as libsmb2 (see Ways to get games in). **Root cause of the
       build 117 breakage** (7 October, from reading AMSMB2's `Package.swift` rather than
@@ -175,5 +175,5 @@ screen saying which code types each system reads (build 126).
 STATUS.md is the current page. Build 149 (`d2a92a9`) is the newest published IPA: SMB, the 3DS
 camera and Amiibo. It is not phone-proven. Builds 147 and 148 failed before an IPA. Build 146
 (`efd798e`) is the previous install (icons that show which one is set, and settings that fold).
-Symbian / N-Gage is still not started. Feedback already goes to idkplswrk@gmail.com. Direct cloud
-logins still need the owner's app ids.
+Symbian / N-Gage is started as Continuum Symbian and is not in the app. A .sis does not boot.
+Feedback already goes to idkplswrk@gmail.com. Direct cloud logins still need the owner's app ids.

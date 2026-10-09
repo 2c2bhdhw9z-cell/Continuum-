@@ -44,11 +44,12 @@ For whoever works on this next:
   `native/ios/Feedback.swift`). Mail opens addressed to it when Mail is set up. Otherwise the share
   sheet opens and the text starts with that address. There is no missing address. An older line on
   this page said there was. That line was wrong.
-- Symbian / N-Gage is **not** in build 149. There is no core. When this project writes one, it is
-  named **Continuum Symbian**, not EKA2L1 and not libretro. A core somebody else wrote keeps their
-  name (mGBA, Azahar). The `_libretro` on a filename is the plug, not a brand. The wrapper is not
-  started. A library row that pretends a `.sis` boots would be a lie. See
-  [docs/HARD_SYSTEMS.md](docs/HARD_SYSTEMS.md).
+- Symbian / N-Gage is **not** in build 149, and it is not a system you can launch. The only core
+  this project had already written is the Switch one, `native/switch-wrapper`, already named
+  Continuum. It does not run games. Continuum Symbian is now started at
+  `native/continuum-symbian`. Its name is Continuum Symbian. The emulator is not linked, so a
+  `.sis` does not boot, and it is not in the app. A core somebody else wrote keeps their name
+  (mGBA, Azahar). See [docs/HARD_SYSTEMS.md](docs/HARD_SYSTEMS.md).
 - QA Wolf native iPhone testing is connected in the repository: it accepts the released `.ipa`
   directly (not a `.app`). Finish the three private/account steps: sign in to the QA Wolf MCP
   connection, ask QA Wolf to enable mobile triggers for this workspace, and store the API key as
