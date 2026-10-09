@@ -150,6 +150,16 @@ whole design: existing Switch engines are standalone applications rather than pl
 Continuum as an ordinary libretro core. Which devices Continuum RUNS on is the separate list
 above (iPhone, then Android).
 
+**A core this project writes is named Continuum. A core somebody else wrote keeps their name.**
+mGBA stays mGBA. Azahar stays Azahar. Flycast stays Flycast. The `_libretro` on a filename is not
+RetroArch's name and it is not Continuum's. It is the plug, which is why the same NES file can
+load in either app. Do not rename an upstream core to Continuum, and do not name a core this
+project writes after the emulator it wraps or after libretro. The name in the app and the name
+in the file both start with Continuum: the Switch wrapper is already `continuum_switch`, and
+Symbian, when it can boot a game, is Continuum Symbian
+(`continuum_symbian_libretro_ios.dylib`). It is not in the app yet. A row that pretends it is
+would be a lie.
+
 Architectural invariants (one MTLDevice owned by Rust and read back by Swift,
 `engine.coreState` as the only source of truth for core residency, import-and-copy into
 Documents with original filenames preserved, no security-scoped URLs on the launch path) are the

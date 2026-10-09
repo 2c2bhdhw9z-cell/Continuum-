@@ -62,7 +62,9 @@ The libretro iOS buildbot has `dolphin_libretro`, `flycast_libretro`, `ppsspp_li
 
 - **Core or iOS port:** no libretro core. EKA2L1 itself has an iOS build script in its own repo
   (`scripts/build_ios.sh`), which turns its JIT (dynarmic) off for signed builds and then runs on
-  "dyncom", an ARM interpreter that came from Citra.
+  "dyncom", an ARM interpreter that came from Citra. When Continuum writes the wrapper, the core
+  is named Continuum Symbian (`continuum_symbian_libretro_ios.dylib`), not EKA2L1 and not
+  libretro. `_libretro` stays on the filename because that is the plug. See PRODUCT_SCOPE.md.
 - **Builds for iOS arm64:** EKA2L1's own app does. As a Continuum core it does not exist: someone
   has to write a libretro wrapper around EKA2L1 (boot, firmware install of `.ROM`/`.RPKG`, `.sis`
   installs, OpenGL ES output, input, saving).
