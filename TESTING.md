@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 9 October 2026, for **this install**. The newest install is always on the
+Last updated 9 October 2026, for **build 144**. The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 
@@ -34,7 +34,7 @@ a game.
 
 # The list: what still needs testing
 
-## A. This install
+## A. This install (build 144)
 
 Nothing here needs a second phone, a computer, or JIT turned on.
 

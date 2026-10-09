@@ -23,7 +23,7 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 For whoever works on this next:
 
-- **This install is built, untested, not Done.** Home's top bar goes solid once you scroll, the
+- **Build 144 is built, untested, not Done.** Home's top bar goes solid once you scroll, the
   picture loop does not run on the library, a bad skin entry cannot wipe the list, a random skin
   id is not a console, a named skin keeps one id, re-importing a game copies first and swaps
   after, fast-forward and rewind let go if the phone takes the touch, and the (i) line names the

@@ -8,13 +8,16 @@ Paste this to start a new chat:
 
 ## Where this left off (9 October 2026)
 
-Pushed, not confirmed on a phone, so not Done. The library no longer runs the picture loop.
-Home's bar is solid once you leave the big cover. One unreadable skin does not wipe the library,
-and a random skin id is not turned into a console. Named skins share one id (newest copy's files
-win); a skin that does not name itself can still show up twice across two phones. Re-importing a
-game or a skin writes the new copy before the old one is removed. Fast-forward and rewind let go
-on a cancelled touch, not only when the app leaves the front. The (i) line names the phone.
-Owner tests are TESTING.md S1–S4. No JIT test: the owner cannot turn JIT on.
+Build 144, release `build-144-74050e5`, version 0.8.0 (144), 35 core files checked in the ipa.
+Not confirmed on a phone, so not Done. Link:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-144-74050e5/Continuum-144.ipa
+
+The library no longer runs the picture loop. Home's bar is solid once you leave the big cover.
+One unreadable skin does not wipe the library, and a random skin id is not turned into a console.
+Named skins share one id (newest copy's files win); a skin that does not name itself can still
+show up twice across two phones. Re-importing a game or a skin writes the new copy before the old
+one is removed. Fast-forward and rewind let go on a cancelled touch, not only when the app leaves
+the front. The (i) line names the phone. Owner tests are TESTING.md S1–S4. No JIT test.
 
 ## Read docs/CORE_UPDATES.md at the start of every session
 
