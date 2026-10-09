@@ -113,6 +113,7 @@ struct SettingsScreen: View {
                 }
                 // A third group for the same ten-children reason as the two above.
                 Group {
+                    AppIconSettingsSection()
                     SkinLibrarySettingsSection(host: host)
                     CloudSyncSection(sync: host.cloudSync)
                     OnlinePlaySettingsSection(netplay: host.netplay)
