@@ -244,8 +244,7 @@ For each one: ✅ cover shows, its own controls show, the game moves. ❌ Send t
 
 ## E. Skins and controls
 
-**E1. Skin holes** — A 3DS skin held sideways is already confirmed. Still to check: hold the phone
-upright with a skin, and try a DS skin. ✅ The game picture sits inside the skin's screen area, and
+**E1. Skin holes** — A 3DS skin is confirmed sideways, upright and swapped. Still to check: try a DS skin. ✅ The game picture sits inside the skin's screen area, and
 on a DS skin both screens are in their own holes. A circle pad works as a stick. If a DS or 3DS
 skin shows BOTH screens squashed into the top screen area and nothing in the bottom one, that skin
 was imported before build 109: delete it in the skin library and import the same skin file again.
