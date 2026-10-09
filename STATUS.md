@@ -48,12 +48,18 @@ For whoever works on this next:
   `native/ios/Feedback.swift`). Mail opens addressed to it when Mail is set up. Otherwise the share
   sheet opens and the text starts with that address. There is no missing address. An older line on
   this page said there was. That line was wrong.
-- Symbian / N-Gage is **not** in build 149, and it is not a system you can launch. The only core
-  this project had already written is the Switch one, `native/switch-wrapper`, already named
-  Continuum. It does not run games. Continuum Symbian is now started at
-  `native/continuum-symbian`. Its name is Continuum Symbian. The emulator is not linked, so a
-  `.sis` does not boot, and it is not in the app. A core somebody else wrote keeps their name
-  (mGBA, Azahar). See [docs/HARD_SYSTEMS.md](docs/HARD_SYSTEMS.md).
+- Symbian / N-Gage: **Built, untested** in the next build (not in 150). Continuum Symbian
+  (`native/continuum-symbian`) is now linked to EKA2L1's jitless iOS port
+  (MuhannadYT/EKA2L1_IOS, pinned), on its dyncom interpreter, with no JIT. It is an OPTIONAL core,
+  `continuum_symbian_libretro_ios.dylib`: if it does not compile, the IPA ships without it. `.sis`,
+  `.sisx` and `.n-gage` files now go to a Symbian system with a phone-keypad pad. No phone has
+  run it. Missing or unknown: whether it compiles on CI at all (nobody can build it off the Mac
+  runner), whether frames read back from the off-screen layer reach the screen, sound goes
+  straight to the speaker (not through the app's volume, rewind or recording), save states do
+  not work, there is no core-settings page, and you need your own firmware (TESTING.md S1). The
+  only other core this project wrote is the Switch one, `native/switch-wrapper`, which does not
+  run games. A core somebody else wrote keeps their name (mGBA, Azahar). See
+  [docs/HARD_SYSTEMS.md](docs/HARD_SYSTEMS.md).
 - QA Wolf native iPhone testing is connected in the repository: it accepts the released `.ipa`
   directly (not a `.app`). Finish the three private/account steps: sign in to the QA Wolf MCP
   connection, ask QA Wolf to enable mobile triggers for this workspace, and store the API key as
@@ -65,7 +71,7 @@ For whoever works on this next:
 - Phone results that decide the next work: Dreamcast and PSP speed (TESTING C19, C20), whether
   the 3DS stutter after transitions is gone with the second fix (TESTING A7), and whether the new camera and Amiibo path actually
   reach a game.
-- Later, in this order: Symbian / N-Gage (the wrapper above, not started), the Switch (road steps
+- Later, in this order: Symbian / N-Gage (built, waiting on a phone, TESTING.md S1), the Switch (road steps
   10 to 12), Android.
 - melonDS JIT is not built: its Apple code is macOS-only (RWX `MAP_JIT` pages,
   `pthread_jit_write_protect_np`) and its fast-memory setup uses `shm_open`. DS runs full speed
@@ -937,8 +943,7 @@ Open in and zip imports; cover lookups off. TESTING.md has an easy numbered list
   framework. Build 117 closed on launch because AMSMB2.framework was linked and not packed. Not
   tried on a phone yet. WebDAV still works.
 - GameCube and Wii: they cannot be playable without JIT (see docs/HARD_SYSTEMS.md).
-- Symbian / N-Gage: not built. No libretro core. The wrapper around EKA2L1 is not started
-  (docs/HARD_SYSTEMS.md). Not a library row.
+- Symbian / N-Gage: Built, untested from the build after 150 (Continuum Symbian, see above).
 - Direct Google Drive, Dropbox and OneDrive logins: they need developer app ids only the owner can
   register. They do work through the Files picker.
 - The iPhone camera and an Amiibo tap are wired into Azahar in build 149. Not on a phone yet.

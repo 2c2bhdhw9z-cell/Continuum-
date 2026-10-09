@@ -64,8 +64,9 @@ The libretro iOS buildbot has `dolphin_libretro`, `flycast_libretro`, `ppsspp_li
   (`scripts/build_ios.sh`), which turns its JIT (dynarmic) off for signed builds and then runs on
   "dyncom", an ARM interpreter that came from Citra. Continuum Symbian is started at
   `native/continuum-symbian`. The name is Continuum Symbian, not EKA2L1 and not libretro.
-  `_libretro` stays on the filename because that is the plug. The emulator is not linked, so a
-  `.sis` does not boot, and the core is not in the app. See PRODUCT_SCOPE.md.
+  `_libretro` stays on the filename because that is the plug. It is now linked to EKA2L1's
+  jitless iOS port (MuhannadYT/EKA2L1_IOS) and built as an optional core. Built, untested.
+  See PRODUCT_SCOPE.md.
 - **Builds for iOS arm64:** EKA2L1's own app does. As a Continuum core it does not exist: someone
   has to write a libretro wrapper around EKA2L1 (boot, firmware install of `.ROM`/`.RPKG`, `.sis`
   installs, OpenGL ES output, input, saving).
@@ -113,5 +114,5 @@ The libretro iOS buildbot has `dolphin_libretro`, `flycast_libretro`, `ppsspp_li
 | System | Playable with no JIT on this phone? | Do it? |
 | --- | --- | --- |
 | Dreamcast | Likely for many games; proof needed | Yes. In the app since build 119; test it now |
-| Symbian / N-Gage | Older games likely, newer ones unlikely | Started. Named Continuum Symbian. Not in the app. A .sis does not boot |
+| Symbian / N-Gage | Older games likely, newer ones unlikely | Built, untested. Continuum Symbian on EKA2L1 (dyncom). Needs your own firmware |
 | GameCube / Wii | **No** | Not built. Only as a labelled experiment, or not at all |

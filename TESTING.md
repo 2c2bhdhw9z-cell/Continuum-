@@ -51,6 +51,22 @@ Not part of that, so still unconfirmed: rewind letting go the same way, covers n
 and the phone name on the feedback screen (P3). The skin-list protections (one bad skin, a nonsense
 console name) were not something to set up, and were not checked.
 
+## S. Symbian / N-Gage (build after 150, new)
+
+**S1. A Symbian game boots.** You need two things the app does not include:
+- **Firmware:** a Symbian device dump, a `.rom` file (plus its `.rpkg` if you have one), or a
+  `.vpl` with its `.fpsx`/`.rofs` files. An N-Gage or S60v1/v2 phone dump is the best first try.
+  Put it in the Continuum folder under **system/continuum-symbian/firmware/** (Files app or Wi-Fi
+  transfer). Leave the folder named exactly that.
+- **A game:** an N-Gage `.n-gage` file, or a `.sis`/`.sisx` installer. Import it like any game.
+1. Check **Settings** lists the Symbian core (Continuum Symbian). If it says missing, it did not
+   compile on this build: tell me that and stop.
+2. Tap the game. The first start unpacks files and installs the firmware, so give it a minute.
+3. ✅ Good: the phone's screen appears and the game starts by itself, or you land on the phone's
+   menu. D-pad moves, **OK** is the centre key, **LSK**/**RSK** are the soft keys.
+4. Tell me which of these you got: an error message (copy its words), a black screen, the phone
+   menu, or the game. Also: is there sound, and roughly how fast does it run.
+
 ## A. Not in a build yet
 
 **P1. Scrolling.** Passed on build 144. See the block above. Do not ask again.
@@ -328,7 +344,7 @@ left and is waiting, keeps its game going, and lets the second phone back in.
 
 - SMB (NAS shares) is in build 149. Not tried on a phone yet. WebDAV works.
 - GameCube and Wii: not possible without JIT.
-- Symbian / N-Gage: not built. There is no core. Do not expect a `.sis` to boot.
+- Symbian / N-Gage: see S1. Built, not tried on a phone.
 - The iPhone camera and an Amiibo tap are wired into 3DS games in build 149. Not tried on a phone
   yet. Camera: Settings, allow camera, then a 3DS game that starts the camera. Amiibo: import a
   `.bin` dump, start a 3DS game that is looking for a tag, then tap it from the ... menu. A tap
