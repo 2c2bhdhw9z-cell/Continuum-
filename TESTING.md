@@ -1,10 +1,9 @@
 # What to test, and what to tell me
 
-Last updated 9 October 2026. **Build 149** (`d2a92a9`) is the one CI is making now. Builds 147 and
-148 failed before an IPA. Until 149 succeeds, the newest published install is **build 146**
-([Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-146-efd798e/Continuum.ipa)).
-SMB, the 3DS camera and Amiibo are in 149, not in 146. When 149 finishes, its IPA is
-[build-149-d2a92a9](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-149-d2a92a9/Continuum.ipa).
+Last updated 9 October 2026. **Build 149** (`d2a92a9`) is published:
+[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-149-d2a92a9/Continuum.ipa).
+Builds 147 and 148 failed before an IPA. Build 146 (`efd798e`) is the previous install. SMB, the
+3DS camera and Amiibo are in 149, not in 146. None of those three have been tried on a phone.
 
 This file has two halves. **The list right below is the one to work through.** The build 144 block
 at the top of that list already passed on a phone. Do not ask it again. Everything under it is
