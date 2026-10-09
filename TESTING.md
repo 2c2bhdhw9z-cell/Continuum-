@@ -1,9 +1,9 @@
 # What to test, and what to tell me
 
-Last updated 9 October 2026. **Build 149** (`d2a92a9`) is published:
-[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-149-d2a92a9/Continuum.ipa).
-Builds 147 and 148 failed before an IPA. Build 146 (`efd798e`) is the previous install. SMB, the
-3DS camera and Amiibo are in 149, not in 146. None of those three have been tried on a phone.
+Last updated 9 October 2026. **Build 150** (`ef3ce42`) is published:
+[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-150-ef3ce42/Continuum.ipa).
+It is the same app as **build 149** (`d2a92a9`). Continuum Symbian is not in it. SMB, the 3DS
+camera and Amiibo are in 149 and 150, not in 146. None of those three have been tried on a phone.
 
 This file has two halves. **The list right below is the one to work through.** The build 144 block
 at the top of that list already passed on a phone. Do not ask it again. Everything under it is

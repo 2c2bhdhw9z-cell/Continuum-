@@ -1,15 +1,18 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-9 October 2026. **Build 149** (`d2a92a9`) is published. The run
-[37979559189](https://github.com/2c2bhdhw9z-cell/Continuum-/actions/runs/37979559189)
+9 October 2026. **Build 150** (`ef3ce42`) is published. The run
+[37991215179](https://github.com/2c2bhdhw9z-cell/Continuum-/actions/runs/37991215179)
 succeeded. The install is
-[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-149-d2a92a9/Continuum.ipa)
-(also Continuum-149.ipa, tag `build-149-d2a92a9`).
+[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-150-ef3ce42/Continuum.ipa)
+(also Continuum-150.ipa, tag `build-150-ef3ce42`). It is the same app as build 149. Continuum
+Symbian is not in it. A `.sis` will not boot.
+**Build 149** (`d2a92a9`) is the one that added SMB, the 3DS camera and Amiibo:
+[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-149-d2a92a9/Continuum.ipa).
 Builds 147 and 148 compiled the cores and then failed in `smb_min.c` before any IPA. 147 included
 the raw header first. 148 included `libsmb2.h` first, and `smb2_file_id` is actually in `smb2.h`.
 149 includes `smb2.h`, then `libsmb2.h`, then the raw header. The cores from 147 stayed cached
-and 149 reused them. Build 146 (`efd798e`) is the previous published install.
+and 149 reused them. Build 146 (`efd798e`) is the install before that.
 
 Five states only:
 
@@ -30,11 +33,12 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 For whoever works on this next:
 
-- **Build 149 is the newest published IPA** (`d2a92a9`).
-  [Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-149-d2a92a9/Continuum.ipa).
-  SMB (libsmb2 compiled into the app, not a framework), the 3DS camera, and an Amiibo tap are in
-  it. None of those three have been tried on a phone. Builds 147 and 148 died in `smb_min.c` and
-  published nothing. The cores from 147 were cached and reused.
+- **Build 150 is the newest published IPA** (`ef3ce42`).
+  [Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-150-ef3ce42/Continuum.ipa).
+  Same app as 149. Continuum Symbian is not in it.
+- **Build 149** (`d2a92a9`) added SMB (libsmb2 compiled into the app, not a framework), the 3DS
+  camera, and an Amiibo tap. None of those three have been tried on a phone. Builds 147 and 148
+  died in `smb_min.c` and published nothing. The cores from 147 were cached and reused.
 - **Build 146** (`efd798e`) is the previous install. The icon grid marks the icon that was
   actually set. On a sideload, iOS can leave `alternateIconName` empty even after the home screen
   changed, so the grid remembers the name it passed to `setAlternateIconName`. Every Settings card

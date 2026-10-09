@@ -172,8 +172,7 @@ screen saying which code types each system reads (build 126).
 
 ## Where things stand (9 October 2026)
 
-STATUS.md is the current page. Build 149 (`d2a92a9`) is the newest published IPA: SMB, the 3DS
-camera and Amiibo. It is not phone-proven. Builds 147 and 148 failed before an IPA. Build 146
-(`efd798e`) is the previous install (icons that show which one is set, and settings that fold).
-Symbian / N-Gage is started as Continuum Symbian and is not in the app. A .sis does not boot.
+STATUS.md is the current page. Build 150 (`ef3ce42`) is the newest published IPA. It is the same
+app as build 149: SMB, the 3DS camera and Amiibo. None of those three are phone-proven. Continuum
+Symbian is not in it. A .sis does not boot.
 Feedback already goes to idkplswrk@gmail.com. Direct cloud logins still need the owner's app ids.
