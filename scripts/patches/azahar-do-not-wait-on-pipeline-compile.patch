@@ -1,6 +1,24 @@
+--- a/src/video_core/renderer_vulkan/vk_graphics_pipeline.cpp
++++ b/src/video_core/renderer_vulkan/vk_graphics_pipeline.cpp
+@@ -95,8 +95,13 @@
+         return false;
+     }
+ 
+-    // Ask the driver if it can give us the pipeline quickly.
+-    if (!shaders_pending && instance.IsPipelineCreationCacheControlSupported() && Build(true)) {
++    // Continuum: no driver probe on the emulation thread when we will not wait.
++    // MoltenVK honours FAIL_ON_PIPELINE_COMPILE_REQUIRED only for the SPIR-V to
++    // Metal library step. Once that library is cached it goes on and builds the
++    // Metal render pipeline state right here, which is the slow part, so the
++    // "quick" probe was itself the hitch. Hand every new pipeline to the worker.
++    if (wait_built && !shaders_pending && instance.IsPipelineCreationCacheControlSupported() &&
++        Build(true)) {
+         return true;
+     }
+ 
 --- a/src/video_core/renderer_vulkan/vk_rasterizer.cpp
 +++ b/src/video_core/renderer_vulkan/vk_rasterizer.cpp
-@@ -540,7 +540,12 @@ bool RasterizerVulkan::AccelerateDrawBatchInternal(bool is_indexed) {
+@@ -470,7 +470,12 @@
          SetupIndexArray();
      }
  
@@ -14,3 +32,17 @@
      if (!pipeline_cache.BindPipeline(pipeline_info, wait_built)) {
          return true;
      }
+@@ -613,7 +618,12 @@
+     if (accelerate) {
+         succeeded = AccelerateDrawBatchInternal(is_indexed);
+     } else {
+-        pipeline_cache.BindPipeline(pipeline_info, true);
++        // Continuum: the software-vertex path also skips a draw whose pipeline is
++        // still compiling instead of waiting on the emulation thread for it.
++        if (!pipeline_cache.BindPipeline(pipeline_info, false)) {
++            vertex_batch.clear();
++            return true;
++        }
+ 
+         const u32 vertex_count = static_cast<u32>(vertex_batch.size());
+         const u32 vertex_size = vertex_count * sizeof(HardwareVertex);
