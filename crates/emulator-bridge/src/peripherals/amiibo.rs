@@ -10,14 +10,12 @@
 //!
 //! ## Whether a core can receive one
 //!
-//! Read at azahar-emu/azahar commit 86a9f92: the NFC service can load a tag from a file
-//! (`NfcDevice::LoadAmiibo(path)`), but nothing in `src/citra_libretro/` ever calls it. There is
-//! no core option, no file the core polls for in the system directory, and no libretro extension.
-//! The desktop and Android frontends call `LoadAmiibo` from their own menus, which a libretro
-//! frontend cannot reach. So today NO core in this app can be handed an Amiibo, and
-//! [`support_for_core`] says so in words the app can put on screen. The import, the folder and the
-//! picker are real; the moment a core grows a way in, only [`support_for_core`] and the tap path
-//! have to change.
+//! Read at azahar-emu/azahar commit 065c922: the NFC service can load a tag from a file
+//! (`NfcDevice::LoadAmiibo(path)`), and the Qt frontend calls it. The libretro frontend did not.
+//! Continuum's patch (`scripts/patches/azahar-libretro-camera-and-amiibo.patch`) polls
+//! `continuum-amiibo.stamp` in the save directory and calls `LoadAmiibo` on `continuum-amiibo.bin`
+//! while the game is searching and no tag is already active. The Swift side writes those two
+//! files. [`support_for_core`] says Azahar can take one, and says why every other core cannot.
 
 /// The whole NTAG215 image.
 pub const NTAG215_SIZE: usize = 0x21C;
@@ -115,11 +113,9 @@ fn hex(bytes: &[u8]) -> String {
 pub fn support_for_core(core_id: &str) -> (bool, String) {
     match core_id {
         "azahar" => (
-            false,
-            "Azahar's libretro build cannot receive an Amiibo yet: its NFC service can read a tag \
-             file, but the libretro frontend never passes one in, and there is no core option or \
-             file it watches. Your Amiibo is saved in the Amiibo folder and will work once the \
-             core adds a way in."
+            true,
+            "A 3DS game sees the tapped Amiibo when it is looking for a tag. Tap it from the ... \
+             menu while the game is asking. A tap that arrives earlier is kept and applied then."
                 .into(),
         ),
         "melonds" => (
@@ -141,8 +137,10 @@ pub fn tap(core_id: &str, file_name: &str, data: &[u8]) -> String {
     };
     let (supported, reason) = support_for_core(core_id);
     if supported {
-        // Unreachable today; kept so the shape of the success line is decided now.
-        format!("amiibo {file_name} ({}) tapped", info.amiibo_id_hex)
+        format!(
+            "amiibo {file_name} ({}) tapped. The game sees it when it is looking for a tag.",
+            info.amiibo_id_hex
+        )
     } else {
         format!(
             "amiibo {file_name} ({}) not tapped: {reason}",
@@ -221,14 +219,16 @@ mod tests {
     }
 
     #[test]
-    fn no_core_claims_support_and_the_tap_says_why() {
+    fn azahar_can_take_an_amiibo_and_other_cores_say_why() {
         let (supported, reason) = support_for_core("azahar");
-        assert!(!supported);
-        assert!(reason.contains("cannot receive"));
+        assert!(supported);
+        assert!(reason.contains("looking for a tag"));
         let line = tap("azahar", "mario.bin", &sample(540));
-        assert!(line.contains("not tapped"));
+        assert!(line.contains("tapped"));
+        assert!(!line.contains("not tapped"));
         assert!(line.contains("0000000000000002"));
         assert!(tap("azahar", "junk.bin", &[0; 3]).contains("3 bytes"));
         assert!(!support_for_core("").0);
+        assert!(!support_for_core("melonds").0);
     }
 }

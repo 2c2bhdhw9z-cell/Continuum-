@@ -89,7 +89,8 @@ pick a system only when it truly cannot tell. The choice is remembered per game.
 - [x] Drag and drop into the app.
 - [x] Open in / Share to Continuum from other apps. Phone (build 125).
 - [x] WebDAV (NAS, router storage).
-- [ ] SMB: taken out after build 117 closed on launch (the SMB library was not packed into the app). Needs redoing.
+- [x] SMB file shares. libsmb2 is compiled into the app (not a framework). Build 117 closed on
+      launch because AMSMB2.framework was linked and never embedded. Not tried on a phone yet.
 - [x] Google Drive, Dropbox, OneDrive through the Files picker. [ ] Direct logins need app ids only the owner can register with Google, Dropbox and Microsoft.
 
 ## Skins
@@ -145,14 +146,13 @@ screen saying which code types each system reads (build 126).
 - [x] GameCube and Wii research: done, docs/HARD_SYSTEMS.md. Not playable without JIT; not built.
 - [x] Symbian / N-Gage research: done, docs/HARD_SYSTEMS.md. Possible later, needs a wrapper.
 - [x] Dreamcast builds on CI (in the IPA since build 119). [ ] Runs on a phone: TESTING.md C19.
-- [ ] SMB file shares, done properly this time (see Ways to get games in). **Root cause of the
-      build 117 breakage now known** (7 October, from reading AMSMB2's `Package.swift` rather than
+- [x] SMB file shares, linked into the app as libsmb2 (see Ways to get games in). **Root cause of the
+      build 117 breakage** (7 October, from reading AMSMB2's `Package.swift` rather than
       guessing): it declares its library product as `type: .dynamic`, which a consumer cannot
       override, so adding it as a Swift package always produces a framework that must be embedded.
-      "Link it statically" is not an available fix. Two real options, both in the long note above
-      `targets:` in `native/ios/project.yml`: build it on CI and embed it the way
-      MoltenVK.framework already is, or vendor its Swift plus libsmb2's C into the app target so
-      there is no framework at all.
+      "Link AMSMB2 statically" is not an available fix. The fix that shipped is the other one named
+      in that note: libsmb2's C, plus a small C file the app calls, compiled into the app target.
+      There is no framework. Not tried on a phone yet.
 - [ ] Direct Google Drive / Dropbox / OneDrive logins (needs the owner's developer app ids).
 - [x] Achievements on Game Boy Advance (memory maps). Phone (build 125): an unlock banner popped up
       (the system it was on was not said).
@@ -169,3 +169,10 @@ screen saying which code types each system reads (build 126).
 - TESTING.md section A is the first thing to try on the phone.
 - Next: the owner's test results, then Still to do above (SMB; direct cloud logins, which need the
   owner's app ids; Dreamcast and PSP speed once they have been tested).
+
+## Where things stand (9 October 2026)
+
+STATUS.md is the current page. Builds 145 and 146 are published (icons, then the icon that is
+actually selected, and settings that fold). SMB, the 3DS camera and Amiibo are in the commit after
+146 and are not phone-proven. Symbian / N-Gage is still not started. Feedback already goes to
+idkplswrk@gmail.com. Direct cloud logins still need the owner's app ids.

@@ -239,7 +239,7 @@ struct LibraryShell: View {
     /// `presentImportPicker()` (retained delegate, multi-select of a .cue with every .bin track).
     /// Routing the tap through the Import sheet first was a regression reported on device: the
     /// sheet's Files row dismisses, sleeps, then presents, and the picker did not come up.
-    /// The other sources (Wi-Fi, clipboard, WebDAV; SMB is not in this build) stay reachable from
+    /// The other sources (Wi-Fi, clipboard, WebDAV, SMB) stay reachable from
     /// a long press.
     private var importButton: some View {
         Button {

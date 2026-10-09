@@ -662,11 +662,39 @@ final class Peripherals: ObservableObject {
     }
 
     /// "Taps" one Amiibo on the running game. Returns the status line, always.
+    ///
+    /// The engine decides whether the dump is a real tag and whether this core can take one.
+    /// Only then are the bytes written where Azahar polls for them: the save directory the core
+    /// is given (Application Support), dump first, then a new stamp, so a frame cannot see the
+    /// stamp before the dump is in place. Azahar applies it on a later frame, once the game is
+    /// looking for a tag.
     func tap(_ url: URL) -> String {
+        let name = url.lastPathComponent
         guard let data = try? Data(contentsOf: url) else {
-            return "amiibo \(url.lastPathComponent) could not be read"
+            return "amiibo \(name) could not be read"
         }
-        return engine.tapAmiibo(fileName: url.lastPathComponent, data: data)
+        let line = engine.tapAmiibo(fileName: name, data: data)
+        guard !line.contains("not tapped"), line.contains("tapped") else {
+            return line
+        }
+        do {
+            try writeAmiiboForCore(data)
+        } catch {
+            return "amiibo \(name) could not be handed to the game: \(error.localizedDescription)"
+        }
+        return line
+    }
+
+    /// `continuum-amiibo.bin` then `continuum-amiibo.stamp`, both in the core save directory.
+    private func writeAmiiboForCore(_ data: Data) throws {
+        guard let dir = SaveFolders.saveDirectory() else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try data.write(to: dir.appendingPathComponent("continuum-amiibo.bin"), options: .atomic)
+        let stamp = UUID().uuidString + "\n"
+        try Data(stamp.utf8).write(to: dir.appendingPathComponent("continuum-amiibo.stamp"),
+                                   options: .atomic)
     }
 
     func deleteAmiibo(_ url: URL) -> String {
@@ -771,8 +799,9 @@ struct PeripheralsSettingsSection: View {
                             selection: $peripherals.cameraSide)
 
             SettingsNote(
-                "No core in this build asks for a camera yet: Azahar's libretro version does not "
-                + "request one. The camera is wired so a core that does gets it straight away."
+                "Azahar asks for the iPhone camera when a 3DS game starts it. The switch above "
+                + "has to be on, and iOS has to allow Continuum to use the camera. What the game "
+                + "sees is the phone's picture, scaled to the size the game asked for."
             )
 
             SettingsReadout(label: "Now", value: peripherals.statusLine)
@@ -792,8 +821,8 @@ struct PeripheralsSettingsSection: View {
                 "Amiibo dumps are .bin files of 540 or 572 bytes. Each file is checked and copied "
                 + "into the Amiibo folder under its own name, with a number added if a different "
                 + "tag already has that name. While a 3DS game runs, the ... menu "
-                + "lists them to tap. Azahar's libretro build cannot receive an Amiibo yet, so a "
-                + "tap says that instead of reaching the game."
+                + "lists them to tap. The game sees the tag when it is looking for one. A tap "
+                + "before that is kept and applied when the game starts looking."
             )
         }
         .onAppear { peripherals.refreshAmiibo() }

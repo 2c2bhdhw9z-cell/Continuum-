@@ -1,6 +1,6 @@
 // The Import screen, opened from the library's + button. Every way in, on one page:
 // Files (the device-verified picker, unchanged), Wi-Fi transfer, the clipboard, network servers
-// (WebDAV; SMB is not in this build and its row says so), and a note for drag and drop, Open in
+// (WebDAV and SMB), and a note for drag and drop, Open in
 // and the cloud drives.
 //
 // Google Drive, Dropbox and OneDrive are NOT logged into directly: a direct login needs an OAuth
@@ -92,13 +92,7 @@ struct ImportScreen: View {
                 } header: {
                     Text("Network")
                 } footer: {
-                    // The real reason, plainly. The package did build: build 117 linked it without
-                    // packing it into the app, so the app closed on launch, and it was taken out.
-                    // "Did not build" sent people looking for a compile failure that never existed.
-                    Text(RemoteSources.smbAvailable
-                         ? "Browse a NAS or router share and pick files, or import a whole folder."
-                         : "SMB is not in this build yet; it was taken out after it stopped the app "
-                            + "opening. WebDAV works.")
+                    Text("Browse a NAS or router share and pick files, or import a whole folder. WebDAV works the same way.")
                 }
 
                 Section {

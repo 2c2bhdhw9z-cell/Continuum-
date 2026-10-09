@@ -1,7 +1,7 @@
 // Every way a file gets into Continuum ends here, and then in `EngineHost.importFiles`.
 //
-// The Files picker, Wi-Fi transfer, the clipboard, drag and drop, Open in / Share to and WebDAV
-// (SMB is not in this build) all produce plain file URLs, and every one of them is handed to the
+// The Files picker, Wi-Fi transfer, the clipboard, drag and drop, Open in / Share to, WebDAV and
+// SMB all produce plain file URLs, and every one of them is handed to the
 // SAME import path, so a .cue with its .bin tracks, a zip of a romset or a .dsv save behave
 // identically whichever way they arrived. What this file adds in front of that path:
 //

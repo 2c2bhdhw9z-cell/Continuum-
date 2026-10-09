@@ -1,8 +1,10 @@
 # What to test, and what to tell me
 
-Last updated 9 October 2026, for **build 144**. The newest install is always on the
-[Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
-`Continuum-<number>.ipa`.
+Last updated 9 October 2026. The newest **published** install is **build 146**
+([Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-146-efd798e/Continuum.ipa)).
+The next IPA (SMB, the 3DS camera, Amiibo) is the one to use for B7's SMB step and for the camera
+and Amiibo steps below. It is the newest file on the
+[Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) once CI finishes.
 
 This file has two halves. **The list right below is the one to work through.** The build 144 block
 at the top of that list already passed on a phone. Do not ask it again. Everything under it is
@@ -308,7 +310,9 @@ the same Wi-Fi, including the short code at the end (for example `http://192.168
 and upload a game. ✅ The game appears in the library. ✅ The address without the code shows nothing.
 
 **B7. WebDAV server** (a NAS or computer sharing files) — Hold **+** → Other sources → add a server,
-browse it, import a game. (SMB is not in this build.)
+browse it, import a game. SMB is the same screen: **Add an SMB share (NAS)**, address
+`smb://nas.local`, then the share, then the file. It is in the IPA that follows build 146, not in
+146 itself.
 
 **H1. Online play** (a second phone) — Two phones, same Wi-Fi, same game. **⋯** → **Play online with
 a second phone**. Host on one, join from Nearby on the other. ✅ Both say connected. Then on the
@@ -321,9 +325,13 @@ left and is waiting, keeps its game going, and lets the second phone back in.
   Amiga, C64, Lynx, Atari 5200, Virtual Boy, PC Engine CD and Pokemon Mini: those emulators ignore
   them. The RAM search can still make a cheat where the game's memory can be read.
 
-- SMB (NAS shares) is out of this build. WebDAV works.
+- SMB (NAS shares) is in the IPA after build 146. Not tried on a phone yet. WebDAV works.
 - GameCube and Wii: not possible without JIT.
-- Camera and Amiibo do not reach 3DS games (the 3DS core cannot take them).
+- Symbian / N-Gage: not built. There is no core. Do not expect a `.sis` to boot.
+- The iPhone camera and an Amiibo tap are wired into 3DS games in the IPA after build 146. Not
+  tried on a phone yet. Camera: Settings, allow camera, then a 3DS game that starts the camera.
+  Amiibo: import a `.bin` dump, start a 3DS game that is looking for a tag, then tap it from the
+  ... menu. A tap before the game asks should still land once it asks.
 - Online play over the internet needs port 55435 opened on the host's router.
 - A WebDAV server that arrives on a second phone through cloud sync has no password there (passwords
   never leave the phone they were typed on). Remove it and add it again on that phone.

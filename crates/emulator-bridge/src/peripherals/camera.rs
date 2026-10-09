@@ -26,10 +26,10 @@
 //!
 //! ## Azahar
 //!
-//! Azahar's libretro frontend (`src/citra_libretro/` in azahar-emu/azahar, read at commit
-//! 86a9f92) never sends `GET_CAMERA_INTERFACE`: its camera factory is the blank camera, so today
-//! no core in this app asks for this. The frontend half is complete and tested so that a core
-//! which does ask gets a working camera without any change here.
+//! Upstream Azahar's libretro frontend never sent `GET_CAMERA_INTERFACE`. Continuum's patch
+//! (`scripts/patches/azahar-libretro-camera-and-amiibo.patch`, against pin 065c922) asks for this
+//! raw-framebuffer camera and registers a camera factory named `libretro`. Frames stay XRGB8888.
+//! A core that asks only for an OpenGL texture is still refused.
 
 use std::ffi::{c_uint, c_void};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};

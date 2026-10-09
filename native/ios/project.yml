@@ -35,27 +35,11 @@ settings:
     # load works in the simulator (which searches differently) and fails on device.
     LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
 
-# SMB (AMSMB2) was removed after build 117: Xcode linked its framework but never embedded it, so
-# the app died at launch looking for AMSMB2.framework. RemoteSources.swift builds without it
-# (`#if canImport(AMSMB2)`) and says SMB is not in this build.
-#
-# WHY IT HAPPENED, found on 7 October by reading the package rather than guessing: AMSMB2's
-# Package.swift declares its library product as `type: .dynamic`. That is not a default and not
-# negotiable from the consuming side — SPM cannot be asked to link a `.dynamic` product
-# statically. So adding it as a Swift package ALWAYS produces a framework that must then be
-# embedded, and "just link it statically" is not an available fix.
-#
-# Which leaves two real options when it is brought back:
-#   1. Build it on CI as a dynamic framework and embed it exactly like MoltenVK.framework and the
-#      core dylibs already are (`embed: true`, `codeSign: false`, signed in one pass afterwards by
-#      package-ipa.sh). That pattern is proven in this project.
-#   2. Vendor AMSMB2's Swift sources and libsmb2's C into the app target so there is no framework
-#      to embed at all. More code in the repository, but no embed step to get wrong.
-#
-# Either way the failure mode must stay safe: the SMB code is behind `#if canImport(AMSMB2)`, so a
-# build without the framework compiles and says SMB is not in this build, exactly as now. And the
-# "every linked framework is inside the app" check in ios.yml catches build 117's mistake before
-# an .ipa ships rather than after it is installed.
+# SMB is libsmb2, built by scripts/fetch-libsmb2.sh into build/smb and linked into the app.
+# It is a static library, not a framework. Build 117 died on launch because AMSMB2.framework was
+# linked and never embedded. A static library cannot fail that way: there is nothing to embed.
+# The script runs before xcodegen, same as MoltenVK, because the header search path below has to
+# exist when the project is generated and when smb_min.c is compiled.
 
 targets:
   Continuum:
@@ -581,9 +565,10 @@ targets:
       - path: ImportScreen.swift
       # Wi-Fi transfer: NWListener HTTP server; the page and the head parser are in Rust.
       - path: WiFiTransfer.swift
-      # WebDAV (URLSession PROPFIND) servers, Keychain passwords, folder browser. SMB is not in this
-      # build (see the AMSMB2 note above `targets`); its code stays behind `#if canImport(AMSMB2)`.
+      # WebDAV (URLSession PROPFIND) and SMB (libsmb2, linked statically; see fetch-libsmb2.sh).
       - path: RemoteSources.swift
+      - path: SmbClient.swift
+      - path: smb_min.c
       # Save files in other emulators' formats, converted in Rust, written through the battery path.
       - path: SaveFormats.swift
       # Gameplay manuals: PDFs in Documents/Manuals, PDFKit viewer, EngineHost.showGameplayManual.
@@ -652,9 +637,10 @@ targets:
         # The C header + modulemap UniFFI generated next to the Swift. The modulemap is
         # renamed to module.modulemap by build-engine.sh so clang finds it by directory.
         SWIFT_INCLUDE_PATHS: "$(SRCROOT)/build/Generated"
-        HEADER_SEARCH_PATHS: "$(inherited) $(SRCROOT)/build/Generated"
-        LIBRARY_SEARCH_PATHS: "$(inherited) $(SRCROOT)/build/lib"
-        OTHER_LDFLAGS: "$(inherited) -lemulator_bridge -lc++ -framework OpenGLES"
+        SWIFT_OBJC_BRIDGING_HEADER: Continuum-Bridging-Header.h
+        HEADER_SEARCH_PATHS: "$(inherited) $(SRCROOT)/build/Generated $(SRCROOT)/build/smb/include"
+        LIBRARY_SEARCH_PATHS: "$(inherited) $(SRCROOT)/build/lib $(SRCROOT)/build/smb/lib"
+        OTHER_LDFLAGS: "$(inherited) -lemulator_bridge -lc++ -framework OpenGLES $(SRCROOT)/build/smb/lib/libsmb2.a"
     dependencies:
       # The C++ libretro wrapper, dlopened at runtime rather than linked. `embed` puts it in
       # Frameworks/; `codeSign: false` because package-ipa.sh signs everything in one pass

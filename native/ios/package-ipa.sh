@@ -61,6 +61,8 @@ command -v xcodegen >/dev/null 2>&1 || {
 # script is idempotent so this costs nothing after the first run.
 echo "==> MoltenVK"
 "$ROOT/scripts/fetch-moltenvk.sh"
+echo "==> libsmb2"
+"$ROOT/scripts/fetch-libsmb2.sh"
 
 BUILD_NUMBER="${CONTINUUM_BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
 echo "==> stamping CFBundleVersion $BUILD_NUMBER"

@@ -6,17 +6,14 @@
 // WebDAV is URLSession with PROPFIND (Depth: 1); the XML answer is parsed in Rust
 // (import/webdav.rs).
 //
-// SMB is not in this build. It used AMSMB2, a Swift package over libsmb2, and was taken out after
-// build 117 stopped the app opening (Xcode linked AMSMB2.framework without embedding it; see the
-// note in project.yml). The SMB code stays here behind `#if canImport(AMSMB2)` for when it
-// returns; without the package the rest of the app builds and the SMB row says it is unavailable.
+// SMB is libsmb2, compiled into the app. It is not a framework, so it cannot repeat build 117,
+// which linked AMSMB2.framework and then never packed it, and the app closed on launch looking
+// for that framework. The password stays in the Keychain. Listing and downloading run off the
+// main thread because libsmb2's calls block until the server answers.
 
 import Foundation
 import Security
 import SwiftUI
-#if canImport(AMSMB2)
-import AMSMB2
-#endif
 
 // MARK: - Model
 
@@ -88,13 +85,7 @@ final class RemoteSources: ObservableObject {
     private weak var host: EngineHost?
     private static let key = "remote.servers.v1"
 
-    static var smbAvailable: Bool {
-        #if canImport(AMSMB2)
-        return true
-        #else
-        return false
-        #endif
-    }
+    static var smbAvailable: Bool { true }
 
     func attach(host: EngineHost) {
         self.host = host
@@ -118,9 +109,6 @@ final class RemoteSources: ObservableObject {
         if kind == .webdav && !address.lowercased().hasPrefix("http") { address = "https://" + address }
         guard let parsed = URL(string: address), parsed.host != nil else {
             return "\(address) is not an address (want \(kind == .smb ? "smb://nas.local" : "https://nas.local:5006/dav"))"
-        }
-        if kind == .smb && !Self.smbAvailable {
-            return "SMB is not in this build yet; it was taken out after it stopped the app opening. WebDAV works"
         }
         let server = RemoteServer(kind: kind, name: name.isEmpty ? (parsed.host ?? address) : name,
                                   url: address, user: user)
@@ -196,55 +184,44 @@ final class RemoteSources: ObservableObject {
 
     // MARK: SMB
 
-    #if canImport(AMSMB2)
-    private var smbClients: [UUID: (share: String, client: SMB2Manager)] = [:]
-
-    private func smbClient(_ server: RemoteServer, share: String) async throws -> SMB2Manager {
-        if let cached = smbClients[server.id], cached.share == share { return cached.client }
-        guard let url = URL(string: server.url) else { throw RemoteError(text: "\(server.url) is not an address") }
-        let credential = URLCredential(user: server.user.isEmpty ? "guest" : server.user,
-                                       password: RemoteKeychain.get(server.id) ?? "",
-                                       persistence: .forSession)
-        guard let client = SMB2Manager(url: url, credential: credential) else {
-            throw RemoteError(text: "\(server.url) is not an SMB address")
-        }
-        if !share.isEmpty {
-            try await client.connectShare(name: share)
-            smbClients[server.id] = (share, client)
-        }
-        return client
-    }
-
     private static func split(_ path: String) -> (share: String, rest: String) {
         let parts = path.split(separator: "/", omittingEmptySubsequences: true)
         guard let first = parts.first else { return ("", "/") }
         return (String(first), "/" + parts.dropFirst().joined(separator: "/"))
     }
-    #endif
+
+    private func smbHost(_ server: RemoteServer) throws -> String {
+        guard let host = URL(string: server.url)?.host, !host.isEmpty else {
+            throw RemoteError(text: "\(server.url) is not an SMB address")
+        }
+        return host
+    }
 
     private func smbList(_ server: RemoteServer, path: String) async throws -> [RemoteItem] {
-        #if canImport(AMSMB2)
+        let host = try smbHost(server)
+        let user = server.user
+        let password = RemoteKeychain.get(server.id) ?? ""
         let (share, rest) = Self.split(path)
-        if share.isEmpty {
-            let client = try await smbClient(server, share: "")
-            let shares = try await client.listShares()
-            return shares.map { RemoteItem(name: $0.name, path: "/\($0.name)/", isFolder: true, size: 0) }
-        }
-        let client = try await smbClient(server, share: share)
-        let entries = try await client.contentsOfDirectory(atPath: rest)
-        let base = path.hasSuffix("/") ? path : path + "/"
-        return entries.compactMap { entry -> RemoteItem? in
-            guard let name = entry[.nameKey] as? String, name != ".", name != "..", !name.hasPrefix(".") else {
-                return nil
+        return try await Task.detached {
+            if share.isEmpty {
+                let shares = try SmbClient.listShares(host: host, user: user, password: password)
+                return shares.map {
+                    RemoteItem(name: $0.name, path: "/\($0.name)/", isFolder: true, size: 0)
+                }
             }
-            let folder = (entry[.isDirectoryKey] as? Bool) ?? false
-            let size = (entry[.fileSizeKey] as? NSNumber)?.uint64Value ?? 0
-            return RemoteItem(name: name, path: base + name + (folder ? "/" : ""), isFolder: folder, size: size)
-        }
-        .sorted { ($0.isFolder ? 0 : 1, $0.name.lowercased()) < ($1.isFolder ? 0 : 1, $1.name.lowercased()) }
-        #else
-        throw RemoteError(text: "SMB is not in this build yet; it was taken out after it stopped the app opening. WebDAV works")
-        #endif
+            let entries = try SmbClient.list(host: host, share: share, path: rest, user: user,
+                                            password: password)
+            let base = path.hasSuffix("/") ? path : path + "/"
+            return entries
+                .filter { !$0.name.hasPrefix(".") }
+                .map {
+                    RemoteItem(name: $0.name,
+                               path: base + $0.name + ($0.isDirectory ? "/" : ""),
+                               isFolder: $0.isDirectory,
+                               size: $0.size)
+                }
+                .sorted { ($0.isFolder ? 0 : 1, $0.name.lowercased()) < ($1.isFolder ? 0 : 1, $1.name.lowercased()) }
+        }.value
     }
 
     // MARK: Download and import
@@ -300,14 +277,16 @@ final class RemoteSources: ObservableObject {
     }
 
     private func smbDownload(_ server: RemoteServer, _ item: RemoteItem, to target: URL) async throws {
-        #if canImport(AMSMB2)
+        let host = try smbHost(server)
+        let user = server.user
+        let password = RemoteKeychain.get(server.id) ?? ""
         let (share, rest) = Self.split(item.path)
-        let client = try await smbClient(server, share: share)
+        let local = target.path
         try? FileManager.default.removeItem(at: target)
-        try await client.downloadItem(atPath: rest, to: target, progress: nil)
-        #else
-        throw RemoteError(text: "SMB is not in this build")
-        #endif
+        try await Task.detached {
+            try SmbClient.download(host: host, share: share, path: rest, to: local, user: user,
+                                   password: password)
+        }.value
     }
 }
 

@@ -1,8 +1,12 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-9 October 2026 (build 144). The install is always the newest file on the
-[Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
+9 October 2026. The newest **published** install is **build 146**
+([Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-146-efd798e/Continuum.ipa),
+`efd798e`) until the IPA for the SMB / 3DS camera / Amiibo commit finishes. That file, on the
+[Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest), is the newest the
+moment it appears. This page names that build number in a follow-up once CI assigns it. A number
+is not invented here.
 
 Five states only:
 
@@ -23,33 +27,47 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 For whoever works on this next:
 
-- **Build 144, phone checked the four things that could be checked.** Home stays readable after
-  you scroll past the big cover, Home and All Games scroll fine, re-importing a game keeps it and
-  it still opens, fast-forward lets go when Control Centre takes the touch, and the (i) line names
-  the phone. The owner said those look fine. That is as far as the check went. Still not shown:
-  rewind letting go the same way, covers not flashing again, the phone name on the feedback
-  screen, and the skin-list protections (nothing safe to set up). A skin that does not name itself
-  can still show up twice across two phones.
-- ~~The N64 on an iPhone 13 or newer running iOS 26.~~ **Done in build 138** (below). The reason
-  recorded here was wrong on both counts; see that entry.
-- melonDS JIT is not built: its Apple code is macOS-only (RWX `MAP_JIT` pages,
-  `pthread_jit_write_protect_np`) and its fast-memory setup uses `shm_open`. DS runs full speed
-  on the interpreter, so it waits.
-
+- **Build 146 is the newest published IPA** (`efd798e`). The icon grid marks the icon that was
+  actually set. On a sideload, iOS can leave `alternateIconName` empty even after the home screen
+  changed, so the grid remembers the name it passed to `setAlternateIconName`. Every Settings card
+  folds. Open all / Close all is on the Settings title.
+- **Build 145** (`1a28e84`) added the Settings switcher for 55 home screen icons.
+- **On master, IPA not published yet:** SMB file shares, the iPhone camera into a 3DS game, and an
+  Amiibo tap into a 3DS game that is looking for a tag. Not phone-proven. SMB is libsmb2 compiled
+  into the app. It is not a framework, which is what closed the app on launch in build 117
+  (AMSMB2.framework was linked and never packed). The 3DS core is patched to ask for the camera
+  Continuum already serves, and to call Azahar's own `LoadAmiibo` when the game is searching.
+  This IPA rebuilds every core, because that patch changes the core cache. Expect about 30 to 40
+  minutes, not the 7 minutes of a cached IPA.
+- Feedback already goes to idkplswrk@gmail.com (`FeedbackDestination.email` in
+  `native/ios/Feedback.swift`). Mail opens addressed to it when Mail is set up. Otherwise the share
+  sheet opens and the text starts with that address. There is no missing address. An older line on
+  this page said there was. That line was wrong.
+- Symbian / N-Gage is **not** in this commit. There is no libretro core. EKA2L1 has its own iOS
+  app. Putting it in Continuum means writing the wrapper (boot, firmware `.ROM`/`.RPKG`, `.sis`,
+  picture, input, saves). That work is not started. A library row that pretends a `.sis` boots
+  would be a lie. See [docs/HARD_SYSTEMS.md](docs/HARD_SYSTEMS.md).
 - QA Wolf native iPhone testing is connected in the repository: it accepts the released `.ipa`
   directly (not a `.app`). Finish the three private/account steps: sign in to the QA Wolf MCP
   connection, ask QA Wolf to enable mobile triggers for this workspace, and store the API key as
-  GitHub Actions secret `QAWOLF_API_KEY`. Then run **QA Wolf mobile** manually to upload build 127.
-- Build 127 fixes what the owner's build 126 testing found (list below). Its tests are
-  [TESTING.md](TESTING.md) section A. The feedback form needs one answer from the owner: which
-  email address it should open Mail with (until then it uses the share menu).
-- Open work from [docs/MANIC_PARITY.md](docs/MANIC_PARITY.md) "Still to do": SMB shares done
-  properly (taken out after build 117 stopped the app opening), and direct Google Drive, Dropbox and OneDrive
-  logins (they need app ids only the owner can register; they already work through Files).
-- Phone results that decide the next work: Dreamcast and PSP speed (TESTING C19, C20), and whether
-  the 3DS stutter after transitions is gone.
-- Later, in this order: Symbian / N-Gage (needs a wrapper), the Switch (road steps 10 to 12),
-  Android.
+  GitHub Actions secret `QAWOLF_API_KEY`. Then run **QA Wolf mobile** manually to upload a current
+  build.
+- Open work from [docs/MANIC_PARITY.md](docs/MANIC_PARITY.md) "Still to do": direct Google Drive,
+  Dropbox and OneDrive logins (they need app ids only the owner can register; they already work
+  through Files). SMB is no longer on that list.
+- Phone results that decide the next work: Dreamcast and PSP speed (TESTING C19, C20), whether
+  the 3DS stutter after transitions is gone, and whether the new camera and Amiibo path actually
+  reach a game.
+- Later, in this order: Symbian / N-Gage (the wrapper above, not started), the Switch (road steps
+  10 to 12), Android.
+- melonDS JIT is not built: its Apple code is macOS-only (RWX `MAP_JIT` pages,
+  `pthread_jit_write_protect_np`) and its fast-memory setup uses `shm_open`. DS runs full speed
+  on the interpreter, so it waits.
+- Build 144, phone checked: Home stays readable after you scroll past the big cover, Home and All
+  Games scroll, re-importing a game keeps it and it still opens, fast-forward lets go when Control
+  Centre takes the touch, and the (i) line names the phone. Still not shown: rewind letting go the
+  same way, covers not flashing again, the phone name on the feedback screen, and the skin-list
+  protections.
 
 ---
 
@@ -127,7 +145,7 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Import several skins at once | **Done** | Build 122, confirmed on the phone 5 October (skin library, Import skins) |
 | A paused game stays paused after leaving the app | **Done** | Build 122, confirmed on the phone 5 October |
 | Wi-Fi transfer access code | **Built, untested** | Build 122. The address now ends in a short code that changes every time Wi-Fi transfer is switched on; anything without it gets nothing, so nobody else on the Wi-Fi can upload files or download saves. TESTING.md B1 |
-| Feedback for testers | **Partial** | Build 126's form was confirmed working and called "basic" by the owner. Build 127, not on a phone yet (TESTING.md A3, A4): from a game it opens on How it runs (a rating and what is wrong), the picture can be drawn on, every report attaches the activity log (every status line with its time, kept on disk so it survives a crash), the tester's name is remembered, and after the app closes by itself the next start offers a crash report. A save that was loading when the app closed is not loaded by itself again. Opens the share menu; it will open Mail addressed to the owner once `FeedbackDestination.email` in `native/ios/Feedback.swift` has the owner's address |
+| Feedback for testers | **Partial** | Goes by email to idkplswrk@gmail.com (`FeedbackDestination.email` in `native/ios/Feedback.swift`). Mail if Mail is set up; otherwise the share sheet, and the text starts with that address. Build 126's form was confirmed working and called "basic" by the owner. Build 127, not on a phone yet (TESTING.md A3, A4): from a game it opens on How it runs (a rating and what is wrong), the picture can be drawn on, every report attaches the activity log (every status line with its time, kept on disk so it survives a crash), the tester's name is remembered, and after the app closes by itself the next start offers a crash report. A save that was loading when the app closed is not loaded by itself again. An older line here said there was no address yet. That was wrong. The address has been in the source since build 129 |
 | Apple performance overlay switch | **Done** | Confirmed on build 125. Build 121. Settings → DIAGNOSTICS. Hides Apple's Metal Performance HUD on the game layers and turns off the launch-time request for it. May need the app reopened |
 | Landscape with no skin | **Done** | Froze in build 119 (an endless layout loop from a repeated warning line). Fixed in build 120 and confirmed on the phone |
 | **+** opens Files, the ⋯ menu, TV picture quality | **Done** | Confirmed on build 119 |
@@ -155,9 +173,9 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | Edit an imported skin inside the app | **Built, untested** | Move and resize every button, stick and screen hole, change what a button presses, fade the skin, reset to the file. The imported file is never changed |
 | Circle pad or joystick as a real stick | **Built, untested** | Since build 109. Not a D-pad. Import the skin again only if the skin was imported before build 109 |
 | Touch screen as a mouse | **Built, untested** | Per system in Settings. Drag moves, tap clicks, two fingers right click. Only games that support a mouse respond (Mario Paint, PlayStation mouse games) |
-| iPhone camera into a 3DS game | **Partial** | The app side is built (not on a phone): it can feed the camera to a core, front or back. Missing: the 3DS core (Azahar) never asks for a camera, so no game sees it |
+| iPhone camera into a 3DS game | **Built, untested** | The app can feed the camera (front or back, off until the Settings switch is on). Azahar is patched to ask for that raw-framebuffer camera and to use it for all three 3DS cameras. Not on a phone yet. The switch still has to be on, and iOS still has to allow the camera |
 | iPhone microphone | **Built, untested** | 3DS games that listen (Azahar asks for it). Switch in Settings, off by default. DS games do not use it: melonDS only fakes a blow on its L2 button |
-| Amiibo file | **Partial** | Import and pick Amiibo files in the 3DS menu. The 3DS core (Azahar) has no way to receive one yet, and the app says so when you tap |
+| Amiibo file | **Built, untested** | Import and pick Amiibo files in the 3DS ... menu. A tap writes the dump and a stamp into the core's save directory. Azahar loads it with its own `LoadAmiibo` when the game is looking for a tag, and keeps the tap until then. Not on a phone yet |
 | Haptics on a button press | **Done** | Button taps and game rumble confirmed on build 125. Off, light, medium or strong in Settings. Also game rumble on the phone and on controllers, with its own switch |
 | JIT | **Built, untested** | Build 133 (part 2).  Used by itself when JIT is on: PSP and 3DS from their regular builds, PlayStation, N64 and Dreamcast from second `_jit_` builds. Not on iOS 26 iPhones with TXM (A15 and newer) yet: they need StikJIT's region protocol. The owner's phone cannot use JIT, so a tester has to confirm it |
 | Rewind | **Done** | |
@@ -170,6 +188,47 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 
 ---
+
+## This commit (9 October 2026) — SMB, the 3DS camera, Amiibo
+
+Not a build number until CI assigns one. The IPA this commit produces is the newest install once
+it is on the Releases page. It rebuilds every core (the Azahar patch changes the core cache).
+
+- **SMB file shares.** Back in. libsmb2 is compiled for iOS arm64 and linked into the app
+  (`scripts/fetch-libsmb2.sh`, pin `fc710a3`). There is no framework to forget. Build 117 died
+  because AMSMB2.framework was linked and not embedded. Listing shares, listing a folder and
+  downloading a file go through `smb_min.c`. Passwords stay in the Keychain. Not tried against a
+  real NAS from this build.
+- **3DS camera.** Azahar's libretro frontend never asked for a camera, so the feed Continuum
+  already had went nowhere. The patch registers a `libretro` camera and points all three 3DS
+  cameras at it. Frames are the raw XRGB8888 feed, turned into the RGB565 or YUY2 buffer the game
+  asked for. The Settings switch still has to be on. Not on a phone.
+- **Amiibo.** A tap writes `continuum-amiibo.bin` and then `continuum-amiibo.stamp` into the save
+  directory Azahar is given. Each frame, while a 3DS game is looking for a tag and none is already
+  active, Azahar's own `LoadAmiibo` runs. A tap before the game asks is kept. Not on a phone.
+- **Symbian / N-Gage.** Not in this commit. No libretro core exists, and a wrapper around EKA2L1
+  is not started. See Next up.
+- **Feedback.** The address was already `idkplswrk@gmail.com`. This commit only corrects the lines
+  on this page that still said it was missing.
+
+## Build 146 (9 October 2026) — the icon that is actually set, and settings that fold
+
+Release `build-146-efd798e`, commit `efd798e`.
+[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-146-efd798e/Continuum.ipa).
+
+- The home-screen icon grid marked Default even after another icon was set. On a sideload,
+  `alternateIconName` can stay empty inside the success callback. The grid now stores the name it
+  passed to `setAlternateIconName` and marks that. The selected cell has a red ring, a check, and
+  a red name.
+- Every Settings section opens and closes. Open all / Close all is on the Settings title. Closed
+  sections are remembered.
+
+## Build 145 (9 October 2026) — 55 home screen icons
+
+Release `build-145-1a28e84`, commit `1a28e84`.
+[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-145-1a28e84/Continuum.ipa).
+
+- Settings has a switcher for 55 alternate home screen icons, plus the primary icon.
 
 ## Build 144 (9 October 2026) — library scroll, re-import, fast-forward, the phone's name
 
@@ -852,7 +911,9 @@ skins. Confirmed on build 125: Jaguar and Pokemon Mini each ran a game, saved an
 Open in and zip imports; cover lookups off. TESTING.md has an easy numbered list for trying the rest.
 
 - **19 new systems:** WonderSwan, Neo Geo Pocket, PC Engine CD, SuperGrafx, Amiga, C64, DOS, DOOM, Jaguar, Lynx, Atari 7800, Atari 5200, Arcade, Pokemon Mini, Virtual Boy, Saturn, Sega CD, 32X, and Dreamcast (optional, never compiled before build 116).
-- **Getting games in:** Wi-Fi transfer, paste, drag and drop, Open in, WebDAV, zip and 7z files, automatic system detection, and save files in other emulators' formats. (SMB was in this list and is out; see Not done.)
+- **Getting games in:** Wi-Fi transfer, paste, drag and drop, Open in, WebDAV, SMB (libsmb2 linked
+  into the app; see the 9 October commit above), zip and 7z files, automatic system detection, and
+  save files in other emulators' formats.
 - **Manic skins:** .manicskin files, a skin library, a skin per game, switching mid-game, press animations, switch buttons, button sounds, and all 48 function buttons.
 - **Core settings for every core:** filters, palettes, 2x/3x/4x and slow motion, disc swap, rotation, and separate TV settings.
 - **Controls:** a keyboard, tilt and shake, controller types, remapping profiles, DS lid and blow, and the 3DS HOME button.
@@ -861,12 +922,15 @@ Open in and zip imports; cover lookups off. TESTING.md has an easy numbered list
 
 ### Not done
 
-- SMB (NAS shares) is out again: build 117 closed on launch because the SMB library was linked but not packed into the app. WebDAV still works. CI now refuses any build with that mistake.
-
+- SMB (NAS shares) is back in this commit: libsmb2 is linked into the app, not shipped as a
+  framework. Build 117 closed on launch because AMSMB2.framework was linked and not packed. Not
+  tried on a phone yet. WebDAV still works.
 - GameCube and Wii: they cannot be playable without JIT (see docs/HARD_SYSTEMS.md).
-- Symbian / N-Gage: not built. Possible later; it needs a wrapper (docs/HARD_SYSTEMS.md).
-- Direct Google Drive, Dropbox and OneDrive logins: they need developer app ids only the owner can register. They do work through the Files picker.
-- Camera and Amiibo do not reach a 3DS game, because the 3DS core cannot take them.
+- Symbian / N-Gage: not built. No libretro core. The wrapper around EKA2L1 is not started
+  (docs/HARD_SYSTEMS.md). Not a library row.
+- Direct Google Drive, Dropbox and OneDrive logins: they need developer app ids only the owner can
+  register. They do work through the Files picker.
+- The iPhone camera and an Amiibo tap are wired into Azahar in this commit. Not on a phone yet.
 - DS games do not hear the real microphone; the blow button stands in for it.
 - Online play over the internet needs port 55435 opened on the host's router.
 - The libretro iOS buildbot DOES carry azahar, flycast, ppsspp and dolphin (re-checked 5 October 2026; an earlier note here said it did not, which was wrong). Continuum still compiles azahar, flycast and ppsspp itself in CI so it controls how they are built (the buildbot's flycast, for one, will not run without JIT). Dolphin is not built (docs/HARD_SYSTEMS.md).

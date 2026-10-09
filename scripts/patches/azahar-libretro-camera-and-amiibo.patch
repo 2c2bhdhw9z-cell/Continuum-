@@ -1,0 +1,329 @@
+diff --git a/src/citra_libretro/CMakeLists.txt b/src/citra_libretro/CMakeLists.txt
+index abcdef1..1234567 100644
+--- a/src/citra_libretro/CMakeLists.txt
++++ b/src/citra_libretro/CMakeLists.txt
+@@ -12,6 +12,8 @@
+         $<$<BOOL:${ENABLE_VULKAN}>: libretro_vk.cpp libretro_vk.h>
+         environment.cpp
+         environment.h
++        continuum_peripherals.cpp
++        continuum_peripherals.h
+         core_settings.cpp
+         core_settings.h)
+ 
+diff --git a/src/citra_libretro/environment.h b/src/citra_libretro/environment.h
+index abcdef1..1234567 100644
+--- a/src/citra_libretro/environment.h
++++ b/src/citra_libretro/environment.h
+@@ -34,6 +34,9 @@
+ /// Gets the microphone interface for audio input
+ bool GetMicrophoneInterface(struct retro_microphone_interface* mic_interface);
+ 
++/// Gets the raw-framebuffer camera. Continuum: the iPhone camera and Amiibo reach Azahar.
++bool GetCameraInterface(struct retro_camera_callback* camera);
++
+ /// Sets the environmental variables used for settings.
+ bool SetVariables(const retro_variable vars[]);
+ 
+diff --git a/src/citra_libretro/environment.cpp b/src/citra_libretro/environment.cpp
+index abcdef1..1234567 100644
+--- a/src/citra_libretro/environment.cpp
++++ b/src/citra_libretro/environment.cpp
+@@ -62,6 +62,10 @@
+     return environ_cb(RETRO_ENVIRONMENT_GET_MICROPHONE_INTERFACE, mic_interface);
+ }
+ 
++bool GetCameraInterface(struct retro_camera_callback* camera) {
++    return environ_cb(RETRO_ENVIRONMENT_GET_CAMERA_INTERFACE, camera);
++}
++
+ Settings::GraphicsAPI GetPreferredRenderer() {
+     // On Android, we really want to default to Vulkan if we can, so we'll ignore the frontend's
+     // recommendation if possible...
+diff --git a/src/citra_libretro/citra_libretro.cpp b/src/citra_libretro/citra_libretro.cpp
+index abcdef1..1234567 100644
+--- a/src/citra_libretro/citra_libretro.cpp
++++ b/src/citra_libretro/citra_libretro.cpp
+@@ -30,6 +30,7 @@
+ 
+ #include "citra_libretro/citra_libretro.h"
+ #include "citra_libretro/core_settings.h"
++#include "citra_libretro/continuum_peripherals.h"
+ #include "citra_libretro/environment.h"
+ #include "citra_libretro/input/input_factory.h"
+ 
+@@ -223,6 +224,8 @@
+         return;
+     }
+ 
++    ContinuumPollAmiibo();
++
+     // Check to see if we actually have any config updates to process.
+     if (LibRetro::HasUpdatedConfig()) {
+         LibRetro::ParseCoreOptions();
+@@ -369,6 +372,9 @@
+ }
+ 
+ static bool do_load_game() {
++    // Continuum: the iPhone camera and Amiibo reach Azahar
++    ContinuumPrepareCamera();
++
+     const Core::System::ResultStatus load_result{
+         Core::System::GetInstance().Load(*emu_instance->emu_window, LibRetro::settings.file_path)};
+ 
+diff --git a/src/citra_libretro/continuum_peripherals.h b/src/citra_libretro/continuum_peripherals.h
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/src/citra_libretro/continuum_peripherals.h
+@@ -0,0 +1,5 @@
++#pragma once
++
++// Continuum: the iPhone camera and Amiibo reach Azahar.
++void ContinuumPrepareCamera();
++void ContinuumPollAmiibo();
+diff --git a/src/citra_libretro/continuum_peripherals.cpp b/src/citra_libretro/continuum_peripherals.cpp
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/src/citra_libretro/continuum_peripherals.cpp
+@@ -0,0 +1,239 @@
++// Continuum: the iPhone camera and Amiibo reach Azahar.
++//
++// The libretro frontend never asked for a camera, and its camera factory was the blank one, so a
++// 3DS game saw black. It also never called LoadAmiibo, so a tag the app already checked sat in
++// the Amiibo folder and never reached the NFC service.
++//
++// The camera is the raw-framebuffer interface Continuum already serves. Frames are XRGB8888.
++// ReceiveFrame turns the newest one into the RGB565 or YUY2 buffer the CAM service asked for.
++//
++// The Amiibo is two files in the save directory the frontend handed over:
++// continuum-amiibo.bin and continuum-amiibo.stamp. The stamp changes on every tap. This polls it
++// and calls LoadAmiibo only while the game is searching and no tag is already active, which is
++// the same rule the Qt build uses. A tap that arrives before the game asks is kept and applied
++// on a later frame.
++
++#include "continuum_peripherals.h"
++
++#include <algorithm>
++#include <cstdint>
++#include <cstring>
++#include <fstream>
++#include <mutex>
++#include <string>
++#include <vector>
++
++#include "common/logging/log.h"
++#include "common/settings.h"
++#include "core/core.h"
++#include "core/frontend/camera/factory.h"
++#include "core/frontend/camera/interface.h"
++#include "core/hle/kernel/kernel.h"
++#include "core/hle/service/cam/cam.h"
++#include "core/hle/service/nfc/nfc.h"
++#include "core/hle/service/sm/sm.h"
++#include "libretro.h"
++
++#include "environment.h"
++
++namespace {
++
++retro_camera_start_t camera_start = nullptr;
++retro_camera_stop_t camera_stop = nullptr;
++
++struct XrgbFrame {
++    std::vector<uint32_t> pixels;
++    unsigned width = 0;
++    unsigned height = 0;
++};
++
++std::mutex frame_lock;
++XrgbFrame latest_frame;
++bool camera_ready = false;
++
++void ContinuumCameraFrame(const uint32_t* data, unsigned width, unsigned height, size_t pitch) {
++    if (!data || width == 0 || height == 0 || pitch < width * 4) {
++        return;
++    }
++    XrgbFrame frame;
++    frame.width = width;
++    frame.height = height;
++    frame.pixels.resize(static_cast<size_t>(width) * height);
++    const auto stride = pitch / 4;
++    for (unsigned y = 0; y < height; y++) {
++        std::memcpy(frame.pixels.data() + static_cast<size_t>(y) * width, data + y * stride,
++                    static_cast<size_t>(width) * sizeof(uint32_t));
++    }
++    std::lock_guard<std::mutex> lock(frame_lock);
++    latest_frame = std::move(frame);
++}
++
++uint32_t Sample(const XrgbFrame& frame, unsigned x, unsigned y, bool flip_h, bool flip_v) {
++    if (frame.width == 0 || frame.height == 0 || frame.pixels.empty()) {
++        return 0;
++    }
++    if (flip_h) {
++        x = frame.width - 1 - std::min(x, frame.width - 1);
++    }
++    if (flip_v) {
++        y = frame.height - 1 - std::min(y, frame.height - 1);
++    }
++    x = std::min(x, frame.width - 1);
++    y = std::min(y, frame.height - 1);
++    return frame.pixels[static_cast<size_t>(y) * frame.width + x];
++}
++
++class LibretroCamera final : public Camera::CameraInterface {
++public:
++    void StartCapture() override {
++        capturing = true;
++        if (camera_start) {
++            camera_start();
++        }
++    }
++
++    void StopCapture() override {
++        capturing = false;
++        if (camera_stop) {
++            camera_stop();
++        }
++    }
++
++    void SetResolution(const Service::CAM::Resolution& resolution) override {
++        width = resolution.width;
++        height = resolution.height;
++    }
++
++    void SetFlip(Service::CAM::Flip next) override { flip = next; }
++
++    void SetEffect(Service::CAM::Effect) override {}
++
++    void SetFormat(Service::CAM::OutputFormat format) override {
++        rgb = format == Service::CAM::OutputFormat::RGB565;
++    }
++
++    void SetFrameRate(Service::CAM::FrameRate) override {}
++
++    std::vector<u16> ReceiveFrame() override {
++        if (width == 0 || height == 0) {
++            return {};
++        }
++        XrgbFrame frame;
++        {
++            std::lock_guard<std::mutex> lock(frame_lock);
++            frame = latest_frame;
++        }
++        const bool flip_h = flip == Service::CAM::Flip::Horizontal || flip == Service::CAM::Flip::Reverse;
++        const bool flip_v = flip == Service::CAM::Flip::Vertical || flip == Service::CAM::Flip::Reverse;
++        std::vector<u16> out(static_cast<size_t>(width) * height, rgb ? 0 : 0x8000);
++        if (frame.pixels.empty() || frame.width == 0 || frame.height == 0) {
++            return out;
++        }
++        for (u16 y = 0; y < height; y++) {
++            const unsigned sy = static_cast<unsigned>(y) * frame.height / height;
++            for (u16 x = 0; x < width; x++) {
++                const unsigned sx = static_cast<unsigned>(x) * frame.width / width;
++                const uint32_t pixel = Sample(frame, sx, sy, flip_h, flip_v);
++                const uint8_t r = (pixel >> 16) & 0xFF;
++                const uint8_t g = (pixel >> 8) & 0xFF;
++                const uint8_t b = pixel & 0xFF;
++                const size_t at = static_cast<size_t>(y) * width + x;
++                if (rgb) {
++                    out[at] = static_cast<u16>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
++                } else {
++                    const int yy = (77 * r + 150 * g + 29 * b) >> 8;
++                    const int uu = ((-43 * r - 85 * g + 128 * b) >> 8) + 128;
++                    const int vv = ((128 * r - 107 * g - 21 * b) >> 8) + 128;
++                    const int chroma = (x & 1u) ? vv : uu;
++                    out[at] = static_cast<u16>((std::clamp(chroma, 0, 255) << 8) |
++                                               std::clamp(yy, 0, 255));
++                }
++            }
++        }
++        return out;
++    }
++
++    bool IsPreviewAvailable() override { return capturing; }
++
++private:
++    u16 width = 0;
++    u16 height = 0;
++    bool rgb = false;
++    bool capturing = false;
++    Service::CAM::Flip flip = Service::CAM::Flip::NoFlip;
++};
++
++class LibretroCameraFactory final : public Camera::CameraFactory {
++public:
++    std::unique_ptr<Camera::CameraInterface> Create(const std::string&,
++                                                    const Service::CAM::Flip&) override {
++        return std::make_unique<LibretroCamera>();
++    }
++};
++
++}  // namespace
++
++void ContinuumPrepareCamera() {
++    // Asked again on every launch. The frontend drops the registration when a game unloads, and a
++    // factory registered once is not enough to bring the callback back.
++    retro_camera_callback callback{};
++    callback.caps = 1ull << RETRO_CAMERA_BUFFER_RAW_FRAMEBUFFER;
++    callback.width = 640;
++    callback.height = 480;
++    callback.frame_raw_framebuffer = ContinuumCameraFrame;
++    if (!LibRetro::GetCameraInterface(&callback) || !callback.start) {
++        LOG_WARNING(Service_CAM, "Continuum: the frontend did not offer a camera");
++        return;
++    }
++    camera_start = callback.start;
++    camera_stop = callback.stop;
++    if (!camera_ready) {
++        Camera::RegisterFactory("libretro", std::make_unique<LibretroCameraFactory>());
++        camera_ready = true;
++        LOG_INFO(Service_CAM, "Continuum: libretro camera registered");
++    }
++    for (int camera = 0; camera < Service::CAM::NumCameras; camera++) {
++        Settings::values.camera_name[camera] = "libretro";
++        Settings::values.camera_config[camera].clear();
++    }
++}
++
++void ContinuumPollAmiibo() {
++    static std::string seen;
++    const std::string dir = LibRetro::GetSaveDir();
++    if (dir.empty() || !Core::System::GetInstance().IsPoweredOn()) {
++        return;
++    }
++    std::ifstream stamp_file(dir + "/continuum-amiibo.stamp");
++    std::string stamp;
++    std::getline(stamp_file, stamp);
++    if (stamp.empty() || stamp == seen) {
++        return;
++    }
++    auto& system = Core::System::GetInstance();
++    Service::SM::ServiceManager& sm = system.ServiceManager();
++    const std::string path = dir + "/continuum-amiibo.bin";
++    // Same lock the Qt build takes around LoadAmiibo. It is recursive, so this is safe on the
++    // thread that is already inside the emulator.
++    std::scoped_lock lock{system.Kernel().GetHLELock()};
++    for (const char* name : {"nfc:u", "nfc:m"}) {
++        auto nfc = sm.GetService<Service::NFC::Module::Interface>(name);
++        if (!nfc) {
++            continue;
++        }
++        if (!nfc->IsSearchingForAmiibos() || nfc->IsTagActive()) {
++            continue;
++        }
++        if (nfc->LoadAmiibo(path)) {
++            seen = stamp;
++            LOG_INFO(Service_NFC, "Continuum: amiibo loaded from {}", path);
++        } else {
++            // The game was looking and refused the file. Remember the stamp so this does not
++            // repeat every frame. A tap that arrived before the game was looking is not this
++            // case: that one continues above and is tried again next frame.
++            seen = stamp;
++            LOG_WARNING(Service_NFC, "Continuum: amiibo at {} was refused", path);
++        }
++        return;
++    }
++}

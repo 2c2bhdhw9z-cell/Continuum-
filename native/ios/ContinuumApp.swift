@@ -2971,8 +2971,8 @@ final class EngineHost: ObservableObject {
     /// Cloud folder sync of saves, cheats, cover choices and settings. See `CloudSync.swift`.
     let cloudSync = CloudSync()
 
-    /// Every import method (Wi-Fi, clipboard, drag and drop, Open in, WebDAV; SMB is not in this
-    /// build), archives, system detection and save formats, in front of `importFiles`. See
+    /// Every import method (Wi-Fi, clipboard, drag and drop, Open in, WebDAV, SMB), archives,
+    /// system detection and save formats, in front of `importFiles`. See
     /// `ImportCenter.swift`.
     let importCenter = ImportCenter()
 

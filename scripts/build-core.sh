@@ -1234,6 +1234,8 @@ ios_apply_core_patches() {
         src/citra_libretro/core_settings.cpp "Continuum: the recompiler when the host says JIT"
       ios_apply_simple_patch azahar azahar-ios-jit-region.patch \
         externals/oaknut/include/oaknut/code_block.hpp "Continuum: code memory from the host app"
+      ios_apply_simple_patch azahar azahar-libretro-camera-and-amiibo.patch \
+        src/citra_libretro/citra_libretro.cpp "Continuum: the iPhone camera and Amiibo reach Azahar"
       ;;
     ppsspp)
       ios_apply_simple_patch ppsspp ppsspp-ios-jit-region.patch \
