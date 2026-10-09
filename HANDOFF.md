@@ -9,15 +9,17 @@ Paste this to start a new chat:
 ## Where this left off (9 October 2026)
 
 Build 144, release `build-144-74050e5`, version 0.8.0 (144), 35 core files checked in the ipa.
-Not confirmed on a phone, so not Done. Link:
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-144-74050e5/Continuum-144.ipa
+Link: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-144-74050e5/Continuum-144.ipa
 
-The library no longer runs the picture loop. Home's bar is solid once you leave the big cover.
-One unreadable skin does not wipe the library, and a random skin id is not turned into a console.
-Named skins share one id (newest copy's files win); a skin that does not name itself can still
-show up twice across two phones. Re-importing a game or a skin writes the new copy before the old
-one is removed. Fast-forward and rewind let go on a cancelled touch, not only when the app leaves
-the front. The (i) line names the phone. Owner tests are TESTING.md S1–S4. No JIT test.
+The owner said the four phone checks look fine (9 October): Home stays readable after the big
+cover, Home and All Games scroll fine, re-importing a game keeps it and it still opens,
+fast-forward lets go when Control Centre takes the touch, and the (i) line names the phone.
+Do not ask those again.
+
+Not shown, so not Done: rewind letting go the same way, covers not flashing (TESTING P2), the
+phone name on the feedback screen (P3), one bad skin not wiping the list, and a random skin id
+not becoming a console. A skin that does not name itself can still show up twice across two
+phones. No JIT test.
 
 ## Read docs/CORE_UPDATES.md at the start of every session
 

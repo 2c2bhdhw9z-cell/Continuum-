@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-7 October 2026 (build 141). The install is always the newest file on the
+9 October 2026 (build 144). The install is always the newest file on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest).
 
 Five states only:
@@ -23,11 +23,13 @@ For what the owner wants built, and the scope rules this page works inside, see
 
 For whoever works on this next:
 
-- **Build 144 is built, untested, not Done.** Home's top bar goes solid once you scroll, the
-  picture loop does not run on the library, a bad skin entry cannot wipe the list, a random skin
-  id is not a console, a named skin keeps one id, re-importing a game copies first and swaps
-  after, fast-forward and rewind let go if the phone takes the touch, and the (i) line names the
-  phone. Phone tests are TESTING.md S1 to S4. Do not mark any of that Done until a phone shows it.
+- **Build 144, phone checked the four things that could be checked.** Home stays readable after
+  you scroll past the big cover, Home and All Games scroll fine, re-importing a game keeps it and
+  it still opens, fast-forward lets go when Control Centre takes the touch, and the (i) line names
+  the phone. The owner said those look fine. That is as far as the check went. Still not shown:
+  rewind letting go the same way, covers not flashing again, the phone name on the feedback
+  screen, and the skin-list protections (nothing safe to set up). A skin that does not name itself
+  can still show up twice across two phones.
 - ~~The N64 on an iPhone 13 or newer running iOS 26.~~ **Done in build 138** (below). The reason
   recorded here was wrong on both counts; see that entry.
 - melonDS JIT is not built: its Apple code is macOS-only (RWX `MAP_JIT` pages,
@@ -168,6 +170,22 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 
 ---
+
+## Build 144 (9 October 2026) — library scroll, re-import, fast-forward, the phone's name
+
+Release `build-144-74050e5`, version 0.8.0 (144), 35 core files checked in the ipa.
+Link: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-144-74050e5/Continuum-144.ipa
+
+The owner tried the four things that can be tried on one phone and said they look fine:
+
+- **Done.** Home's bar stays readable once you scroll past the big cover. Home and All Games scroll fine.
+- **Done.** Importing a game that is already in the library keeps it, and it still opens.
+- **Done.** Fast-forward lets go when Control Centre takes the touch.
+- **Done.** The (i) line names the phone.
+
+Not shown, so not Done: rewind letting go the same way, covers not flashing, the phone name on the
+feedback screen, one bad skin entry not wiping the list, and a random skin id not becoming a
+console. A skin that does not name itself can still show up twice on two phones. That is on purpose.
 
 ## Build 142 (7 October 2026) — the owner's app icon, and everything below that was waiting on a build
 
