@@ -1,13 +1,14 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-9 October 2026. **Build 147** (`016555b`) is the one CI is making now:
-[the run](https://github.com/2c2bhdhw9z-cell/Continuum-/actions/runs/37973195027).
-It is not on the Releases page until that run succeeds. Until then the newest **published**
-install is **build 146**
+9 October 2026. **Build 148** (`bc9a232`) is the one CI is making now:
+[the run](https://github.com/2c2bhdhw9z-cell/Continuum-/actions/runs/37978233713).
+Build 147 compiled every core and then failed while compiling the app (`smb_min.c` included
+`libsmb2-raw.h` before `libsmb2.h`). It published no IPA. The cores from 147 are cached, so 148
+should not rebuild them. Until 148 succeeds, the newest **published** install is **build 146**
 ([Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-146-efd798e/Continuum.ipa),
-`efd798e`). When 147 finishes, its IPA is
-[build-147-016555b](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-147-016555b/Continuum.ipa).
+`efd798e`). When 148 finishes, its IPA is
+[build-148-bc9a232](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-148-bc9a232/Continuum.ipa).
 
 Five states only:
 
@@ -33,18 +34,17 @@ For whoever works on this next:
   changed, so the grid remembers the name it passed to `setAlternateIconName`. Every Settings card
   folds. Open all / Close all is on the Settings title.
 - **Build 145** (`1a28e84`) added the Settings switcher for 55 home screen icons.
-- **Build 147** (`016555b`) is compiling now. SMB file shares, the iPhone camera into a 3DS game,
-  and an Amiibo tap into a 3DS game that is looking for a tag. Not phone-proven. SMB is libsmb2
-  compiled into the app. It is not a framework, which is what closed the app on launch in build 117
-  (AMSMB2.framework was linked and never packed). The 3DS core is patched to ask for the camera
-  Continuum already serves, and to call Azahar's own `LoadAmiibo` when the game is searching.
-  This IPA rebuilds every core, because that patch changes the core cache. Expect about 30 to 40
-  minutes, not the 7 minutes of a cached IPA. The IPA is not published until the run succeeds.
+- **Build 148** (`bc9a232`) is compiling now. Same work as 147 (SMB, the 3DS camera, an Amiibo tap)
+  plus the compile fix. Not phone-proven. SMB is libsmb2 compiled into the app. It is not a
+  framework, which is what closed the app on launch in build 117 (AMSMB2.framework was linked and
+  never packed). The 3DS core is patched to ask for the camera Continuum already serves, and to
+  call Azahar's own `LoadAmiibo` when the game is searching. Build 147 already rebuilt every core
+  and saved that cache, then died in `smb_min.c` before any IPA. 148 should reuse those cores.
 - Feedback already goes to idkplswrk@gmail.com (`FeedbackDestination.email` in
   `native/ios/Feedback.swift`). Mail opens addressed to it when Mail is set up. Otherwise the share
   sheet opens and the text starts with that address. There is no missing address. An older line on
   this page said there was. That line was wrong.
-- Symbian / N-Gage is **not** in build 147. There is no libretro core. EKA2L1 has its own iOS
+- Symbian / N-Gage is **not** in build 148. There is no libretro core. EKA2L1 has its own iOS
   app. Putting it in Continuum means writing the wrapper (boot, firmware `.ROM`/`.RPKG`, `.sis`,
   picture, input, saves). That work is not started. A library row that pretends a `.sis` boots
   would be a lie. See [docs/HARD_SYSTEMS.md](docs/HARD_SYSTEMS.md).
@@ -190,12 +190,15 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 ---
 
-## Build 147 (9 October 2026) — SMB, the 3DS camera, Amiibo
+## Build 148 (9 October 2026) — SMB, the 3DS camera, Amiibo
 
-CI run [37973195027](https://github.com/2c2bhdhw9z-cell/Continuum-/actions/runs/37973195027),
-commit `016555b`. The IPA is published only when that run succeeds:
-[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-147-016555b/Continuum.ipa).
-It rebuilds every core (the Azahar patch changes the core cache), so this one is the long build.
+CI run [37978233713](https://github.com/2c2bhdhw9z-cell/Continuum-/actions/runs/37978233713),
+commit `bc9a232`. Published only when that run succeeds:
+[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-148-bc9a232/Continuum.ipa).
+
+Build 147 (`016555b`) is the same features and did not ship. It rebuilt every core, saved them,
+then `xcodebuild` exited 65 because `smb_min.c` included `libsmb2-raw.h` before `libsmb2.h`
+(`smb2_file_id` and `smb2_command_cb` were unknown). 148 includes `libsmb2.h` first.
 
 - **SMB file shares.** Back in. libsmb2 is compiled for iOS arm64 and linked into the app
   (`scripts/fetch-libsmb2.sh`, pin `fc710a3`). There is no framework to forget. Build 117 died
@@ -211,8 +214,8 @@ It rebuilds every core (the Azahar patch changes the core cache), so this one is
   active, Azahar's own `LoadAmiibo` runs. A tap before the game asks is kept. Not on a phone.
 - **Symbian / N-Gage.** Not in this build. No libretro core exists, and a wrapper around EKA2L1
   is not started. See Next up.
-- **Feedback.** The address was already `idkplswrk@gmail.com`. This commit only corrects the lines
-  on this page that still said it was missing.
+- **Feedback.** The address was already `idkplswrk@gmail.com`. The lines that said it was missing
+  were wrong.
 
 ## Build 146 (9 October 2026) — the icon that is actually set, and settings that fold
 
@@ -915,7 +918,7 @@ Open in and zip imports; cover lookups off. TESTING.md has an easy numbered list
 
 - **19 new systems:** WonderSwan, Neo Geo Pocket, PC Engine CD, SuperGrafx, Amiga, C64, DOS, DOOM, Jaguar, Lynx, Atari 7800, Atari 5200, Arcade, Pokemon Mini, Virtual Boy, Saturn, Sega CD, 32X, and Dreamcast (optional, never compiled before build 116).
 - **Getting games in:** Wi-Fi transfer, paste, drag and drop, Open in, WebDAV, SMB (libsmb2 linked
-  into the app; see build 147 above), zip and 7z files, automatic system detection, and
+  into the app; see build 148 above), zip and 7z files, automatic system detection, and
   save files in other emulators' formats.
 - **Manic skins:** .manicskin files, a skin library, a skin per game, switching mid-game, press animations, switch buttons, button sounds, and all 48 function buttons.
 - **Core settings for every core:** filters, palettes, 2x/3x/4x and slow motion, disc swap, rotation, and separate TV settings.
@@ -925,7 +928,7 @@ Open in and zip imports; cover lookups off. TESTING.md has an easy numbered list
 
 ### Not done
 
-- SMB (NAS shares) is back in build 147: libsmb2 is linked into the app, not shipped as a
+- SMB (NAS shares) is back in build 148: libsmb2 is linked into the app, not shipped as a
   framework. Build 117 closed on launch because AMSMB2.framework was linked and not packed. Not
   tried on a phone yet. WebDAV still works.
 - GameCube and Wii: they cannot be playable without JIT (see docs/HARD_SYSTEMS.md).
@@ -933,7 +936,7 @@ Open in and zip imports; cover lookups off. TESTING.md has an easy numbered list
   (docs/HARD_SYSTEMS.md). Not a library row.
 - Direct Google Drive, Dropbox and OneDrive logins: they need developer app ids only the owner can
   register. They do work through the Files picker.
-- The iPhone camera and an Amiibo tap are wired into Azahar in build 147. Not on a phone yet.
+- The iPhone camera and an Amiibo tap are wired into Azahar in build 148. Not on a phone yet.
 - DS games do not hear the real microphone; the blow button stands in for it.
 - Online play over the internet needs port 55435 opened on the host's router.
 - The libretro iOS buildbot DOES carry azahar, flycast, ppsspp and dolphin (re-checked 5 October 2026; an earlier note here said it did not, which was wrong). Continuum still compiles azahar, flycast and ppsspp itself in CI so it controls how they are built (the buildbot's flycast, for one, will not run without JIT). Dolphin is not built (docs/HARD_SYSTEMS.md).

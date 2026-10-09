@@ -173,7 +173,7 @@ screen saying which code types each system reads (build 126).
 ## Where things stand (9 October 2026)
 
 STATUS.md is the current page. Build 146 is the newest published IPA (icons that show which one
-is set, and settings that fold). Build 147 (`016555b`) is compiling: SMB, the 3DS camera and
-Amiibo. It is not phone-proven, and the IPA is not published until that run succeeds. Symbian /
-N-Gage is still not started. Feedback already goes to idkplswrk@gmail.com. Direct cloud logins
-still need the owner's app ids.
+is set, and settings that fold). Build 147 failed before an IPA. Build 148 (`bc9a232`) is
+compiling: SMB, the 3DS camera and Amiibo. It is not phone-proven. Symbian / N-Gage is still not
+started. Feedback already goes to idkplswrk@gmail.com. Direct cloud logins still need the owner's
+app ids.
