@@ -136,7 +136,7 @@ pub fn system_for_extension(ext: &str) -> Option<&'static str> {
         "jar" | "jad" => "j2me",
         "gcm" | "gcz" | "rvz" => "gamecube",
         "wbfs" | "wad2" => "wii",
-        "sis" | "sisx" => "symbian",
+        "sis" | "sisx" | "n-gage" => "symbian",
         "gdi" | "cdi" => "dreamcast",
         _ => return None,
     })

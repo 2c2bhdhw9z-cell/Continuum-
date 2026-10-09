@@ -358,6 +358,8 @@ enum GameSystem: String, Sendable, CaseIterable {
     /// J2ME phone games (.jar), in the bundled J2meJS player view, not a libretro core. The pad
     /// is a phone keypad: D-pad, OK, the two soft keys and the number keys.
     case j2me
+    /// Symbian / N-Gage, on Continuum Symbian (EKA2L1's iOS port behind a libretro plug).
+    case symbian
 
     /// The short code a library card badges itself with.
     var badge: String {
@@ -400,6 +402,7 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .dreamcast: return "DC"
         case .flash: return "FLASH"
         case .j2me: return "J2ME"
+        case .symbian: return "SYM"
         }
     }
 
@@ -443,7 +446,7 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .wswan, .ngp, .pcecd, .sgx, .amiga, .c64, .dos, .doom, .jaguar, .lynx,
              .atari7800, .arcade, .pokemini, .vb, .saturn, .segacd, .sega32x:
             return false
-        case .flash, .j2me:
+        case .flash, .j2me, .symbian:
             // Keys, not sticks: the bundled players read key presses.
             return false
         }
@@ -470,7 +473,7 @@ enum GameSystem: String, Sendable, CaseIterable {
             return nil
         case .wswan, .ngp, .pcecd, .sgx, .amiga, .c64, .dos, .doom, .jaguar, .lynx,
              .atari7800, .atari5200, .arcade, .pokemini, .vb, .saturn, .segacd, .sega32x,
-             .dreamcast:
+             .dreamcast, .symbian:
             return nil
         case .flash, .j2me:
             // The whole picture takes taps, but as the web view's own touches (mouse clicks for
@@ -527,6 +530,7 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .dreamcast: return "Dreamcast"
         case .flash: return "Flash"
         case .j2me: return "J2ME"
+        case .symbian: return "Symbian / N-Gage"
         }
     }
 
@@ -544,7 +548,7 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .ds, .fds, .sg1000,
              .tg16, .atari2600, .n64, .n3ds, .psp, .wswan, .ngp, .pcecd, .sgx, .doom, .jaguar,
              .lynx, .atari7800, .atari5200, .arcade, .pokemini, .vb, .saturn, .segacd,
-             .sega32x, .dreamcast, .flash, .j2me:
+             .sega32x, .dreamcast, .flash, .j2me, .symbian:
             return false
         }
     }
@@ -902,6 +906,17 @@ enum GameSystem: String, Sendable, CaseIterable {
                 (.y, "1", -1.45, -1.45), (.x, "3", 1.45, -1.45),
                 (.a, "OK", 0, 0),
                 (.l2, "7", -1.45, 1.45), (.b, "0", 0, 1.45), (.r2, "9", 1.45, 1.45),
+            ])
+                + Self.shoulders(left: [(.l, "*")], right: [(.r, "#")])
+                + Self.systemPair(select: "LSK", start: "RSK")
+
+        case .symbian:
+            // Continuum Symbian's key table (native/continuum-symbian): A is the centre key,
+            // B 5, Y 1, X 3, L2 7, R2 9, L *, R #, Select and Start the left and right soft keys.
+            return Self.place([
+                (.y, "1", -1.45, -1.45), (.x, "3", 1.45, -1.45),
+                (.a, "OK", 0, 0),
+                (.l2, "7", -1.45, 1.45), (.b, "5", 0, 1.45), (.r2, "9", 1.45, 1.45),
             ])
                 + Self.shoulders(left: [(.l, "*")], right: [(.r, "#")])
                 + Self.systemPair(select: "LSK", start: "RSK")

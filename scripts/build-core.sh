@@ -97,7 +97,7 @@ IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed mednafen_psx_hw melon
 # flycast (Dreamcast) is built here, not fetched: the libretro iOS buildbot's flycast contains the
 # ARM64 dynarec and refuses to run without JIT. Interpreter only (TARGET_NO_REC); see its
 # ios_core_config entry. It has built green and shipped in every IPA since build 119.
-IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit)
+IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian)
 
 # THE JIT BUILDS (pcsx_rearmed_jit, parallel_n64_jit, flycast_jit). Same source and pin as the
 # core they are named after, built with its recompiler on, as <core>_jit_libretro_ios.dylib. The
@@ -475,6 +475,18 @@ ios_core_config() {
         ext/miniupnp
       )
       IOS_DISPLAY="PSP, Vulkan, IR interpreter (no JIT, no dynarec)"
+      ;;
+    continuum_symbian)
+      # Symbian / N-Gage. Continuum Symbian: native/continuum-symbian (this project's libretro
+      # plug) linked against EKA2L1's jitless iOS port, built with that port's own CMake.
+      # The CPU is its dyncom interpreter; dynarmic is compiled in but never selected here.
+      # OPTIONAL: a failure leaves the .ipa without Symbian, nothing else.
+      IOS_REPO="https://github.com/MuhannadYT/EKA2L1_IOS"
+      IOS_PIN="661031f9d8ccd37612797e32a52b2d4c6aadfcdc"
+      IOS_DYLIB_NAME="continuum_symbian_libretro_ios.dylib"
+      IOS_KIND="cmake-continuum-symbian"
+      IOS_SUBMODULES=1
+      IOS_DISPLAY="Symbian / N-Gage, Continuum Symbian on EKA2L1 (dyncom interpreter, no JIT), optional"
       ;;
     flycast)
       # Dreamcast. NOT on the libretro iOS buildbot, so it is built here, and it is OPTIONAL
@@ -1210,6 +1222,117 @@ build_ios_flycast_core() {
   ios_stage_dylib "$staged" "$IOS_DYLIB_NAME"
 }
 
+# Continuum Symbian. EKA2L1's iOS port builds with its own CMake (3.x only: CMake 4 cannot
+# configure its older submodules) after the port's four submodule patches and an iphoneos
+# FFmpeg. Our plug is added to that tree as one more target, so CMake carries every static
+# library and framework EKA2L1 needs into the dylib. Its assets (GLES shaders, compat list,
+# Symbian patch DLLs) are zipped into the dylib (a generated assets.c) and unpacked on first
+# launch.
+build_ios_continuum_symbian_core() {
+  local core="$1"
+  local src="$IOS_SRC_DIR"
+  local plug="$ROOT/native/continuum-symbian"
+  local cmake_dir="$IOS_WORK/cmake-3.31.6"
+  local cmake3="$cmake_dir/cmake-3.31.6-macos-universal/CMake.app/Contents/bin/cmake"
+  if [[ ! -x "$cmake3" ]]; then
+    echo "==> fetching CMake 3.31.6 for $core"
+    mkdir -p "$cmake_dir"
+    curl -fsSL -o "$cmake_dir/cmake.tar.gz" \
+      https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-macos-universal.tar.gz
+    tar xzf "$cmake_dir/cmake.tar.gz" -C "$cmake_dir"
+  fi
+  command -v ninja >/dev/null 2>&1 || brew install ninja
+  local build_dir="$src/build-ios-device"
+  local gen="$build_dir/continuum-symbian"
+
+  if [[ ! -f "$src/.continuum-patched" ]]; then
+    echo "==> $core: applying the iOS port's submodule patches and the Continuum frame patch"
+    local P="$src/.github/ios-build/patches"
+    git -C "$src/src/external/cubeb" apply "$P/cubeb.patch"
+    git -C "$src/src/external/fmt" apply "$P/fmt.patch"
+    git -C "$src/src/external/ffmpeg" apply "$P/ffmpeg.patch"
+    git -C "$src/src/external/dynarmic/externals/oaknut" apply "$P/oaknut.patch"
+    cp "$src/.github/ios-build/ffmpeg/build-ios-device.sh" "$src/src/external/ffmpeg/"
+    chmod +x "$src/src/external/ffmpeg/build-ios-device.sh"
+    git -C "$src" apply "$ROOT/scripts/patches/continuum-symbian-frame-readback.patch"
+    grep -q continuum_symbian_frame_hook \
+      "$src/src/emu/drivers/src/graphics/backend/context_eagl.mm" || {
+      echo "error: $core: frame patch reported success but the hook is missing" >&2
+      exit 1
+    }
+    cat >> "$src/src/emu/ios/CMakeLists.txt" <<CMAKE
+
+# Continuum Symbian (added by Continuum's scripts/build-core.sh).
+add_library(continuum_symbian_libretro SHARED
+    "$plug/continuum_symbian_libretro.cpp"
+    "$plug/eka2l1_engine.mm"
+    "$gen/assets.c")
+target_include_directories(continuum_symbian_libretro PRIVATE "$plug" "$ROOT/.work/hdr/libretro")
+target_compile_definitions(continuum_symbian_libretro PRIVATE CONTINUUM_SYMBIAN_EKA2L1=1)
+set_source_files_properties("$gen/assets.c" PROPERTIES OBJECT_DEPENDS "$gen/assets.zip")
+set_target_properties(continuum_symbian_libretro PROPERTIES
+    OUTPUT_NAME continuum_symbian_libretro_ios PREFIX "" SUFFIX ".dylib")
+target_link_libraries(continuum_symbian_libretro PRIVATE eka2l1_ios_bridge miniz
+    "-framework UIKit" "-framework Foundation" "-framework CoreGraphics"
+    "-framework QuartzCore" "-framework OpenGLES" "-framework GameController"
+    "-framework UniformTypeIdentifiers" "-framework AVFoundation" "-framework AudioToolbox"
+    "-framework CoreAudio" "-framework CoreMotion" "-framework CoreHaptics"
+    "-framework CoreMedia" "-framework CoreVideo" "-framework VideoToolbox"
+    "-framework Security" z bz2 iconv)
+CMAKE
+    touch "$src/.continuum-patched"
+  fi
+
+  if [[ ! -f "$src/src/external/ffmpeg/macos/arm64-device/lib/libavcodec.a" ]]; then
+    echo "==> $core: cross-compiling FFmpeg for iphoneos"
+    ( cd "$src/src/external/ffmpeg" && ./build-ios-device.sh )
+  fi
+
+  # The asset blob's .incbin needs an absolute path. The zip itself is made after the patch
+  # DLLs are built and before the plug is linked; a placeholder lets CMake configure.
+  mkdir -p "$gen"
+  [[ -f "$gen/assets.zip" ]] || : > "$gen/assets.zip"
+  cat > "$gen/assets.c" <<ASSETS
+// Generated by scripts/build-core.sh: the zipped assets, inside the dylib.
+__asm__(".section __DATA,__const\\n"
+        ".globl _continuum_symbian_assets\\n"
+        ".globl _continuum_symbian_assets_end\\n"
+        ".p2align 4\\n"
+        "_continuum_symbian_assets:\\n"
+        ".incbin \\"$gen/assets.zip\\"\\n"
+        "_continuum_symbian_assets_end:\\n");
+ASSETS
+
+  echo "==> configuring $core ($IOS_DISPLAY)"
+  "$cmake3" -S "$src" -B "$build_dir" -G Ninja \
+    -DCMAKE_SYSTEM_NAME=iOS \
+    -DCMAKE_OSX_SYSROOT=iphoneos \
+    -DCMAKE_OSX_ARCHITECTURES=arm64 \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+    -DCMAKE_BUILD_TYPE=Release
+
+  echo "==> $core: building EKA2L1 and its patch DLLs"
+  "$cmake3" --build "$build_dir" --target eka2l1_ios_bridge -j"$(ios_jobs)"
+  local stage="$gen/stage"
+  local res="$src/src/emu/drivers/resources"
+  rm -rf "$stage" && mkdir -p "$stage/resources/upscale" "$stage/compat" "$stage/patch"
+  cp -R "$res/gles/." "$stage/resources/"
+  cp -R "$res/upscale/." "$stage/resources/upscale/"
+  cp "$res/defaultbank.hsb" "$res/defaultbank.sf2" "$stage/resources/"
+  cp -R "$src/miscs/compat/." "$stage/compat/"
+  cp -R "$build_dir/bin/patch/." "$stage/patch/"
+  rm -f "$gen/assets.zip"
+  ( cd "$stage" && zip -qr ../assets.zip . )
+  ls -l "$gen/assets.zip"
+
+  echo "==> $core: linking the plug"
+  "$cmake3" --build "$build_dir" --target continuum_symbian_libretro -j"$(ios_jobs)"
+  local built
+  built="$(find "$build_dir" -name "$IOS_DYLIB_NAME" -type f | head -1 || true)"
+  [[ -n "$built" ]] || { echo "error: $core: no $IOS_DYLIB_NAME under $build_dir" >&2; exit 1; }
+  ios_stage_dylib "$built" "$IOS_DYLIB_NAME"
+}
+
 # Continuum-owned edits to the upstream core checkouts.
 #
 # Cores are built at their IOS_PIN (see PINNED SOURCES above ios_clone), and these patches were
@@ -1409,6 +1532,7 @@ build_ios_core() {
     cmake-shared) build_ios_cmake_shared_core "$core" ;;
     cmake-ppsspp) build_ios_ppsspp_core "$core" ;;
     cmake-flycast) build_ios_flycast_core "$core" ;;
+    cmake-continuum-symbian) build_ios_continuum_symbian_core "$core" ;;
     *) echo "error: $core: unknown iOS build kind '$IOS_KIND'" >&2; exit 1 ;;
   esac
 }

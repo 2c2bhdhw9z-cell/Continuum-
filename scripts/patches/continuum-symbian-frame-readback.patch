@@ -1,0 +1,31 @@
+diff --git a/src/emu/drivers/src/graphics/backend/context_eagl.mm b/src/emu/drivers/src/graphics/backend/context_eagl.mm
+index 1bd2e86..1ff018d 100644
+--- a/src/emu/drivers/src/graphics/backend/context_eagl.mm
++++ b/src/emu/drivers/src/graphics/backend/context_eagl.mm
+@@ -27,6 +27,13 @@
+ #import <OpenGLES/ES3/gl.h>
+ #import <OpenGLES/ES3/glext.h>
+ 
++// Continuum Symbian: the libretro plug has no window, so it reads every presented frame back
++// here and hands it to the host as a software frame. Null outside Continuum.
++extern "C" void (*continuum_symbian_frame_hook)(int width, int height);
++extern "C" {
++void (*continuum_symbian_frame_hook)(int width, int height) = nullptr;
++}
++
+ namespace eka2l1::drivers::graphics {
+     gl_context_eagl::gl_context_eagl(const window_system_info &wsi, bool stereo, bool core) {
+         m_opengl_mode = mode::opengl_es;
+@@ -184,6 +191,12 @@ namespace eka2l1::drivers::graphics {
+             return;
+         }
+ 
++        if (continuum_symbian_frame_hook != nullptr) {
++            glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_);
++            continuum_symbian_frame_hook(static_cast<int>(m_backbuffer_width),
++                static_cast<int>(m_backbuffer_height));
++        }
++
+         glBindRenderbuffer(GL_RENDERBUFFER, colour_renderbuffer_);
+         [context_ presentRenderbuffer:GL_RENDERBUFFER];
+     }

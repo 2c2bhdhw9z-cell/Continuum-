@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Builds Continuum Symbian for the host and runs its harness.
 #
-# The core is not in the app. EKA2L1 is not linked, and load_game fails on purpose.
-# There is no iOS build here yet: shipping a dylib that cannot boot a game would be a lie.
+# The host build links the stub engine, so load_game fails on purpose.
+# The phone build links EKA2L1 instead: scripts/build-core.sh continuum_symbian.
 #
 # Usage: build.sh [host]
 set -euo pipefail
@@ -12,7 +12,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 MODE="${1:-host}"
 if [ "$MODE" != "host" ]; then
   echo "usage: build.sh host" >&2
-  echo "Continuum Symbian is not built for the phone yet." >&2
+  echo "The phone build is scripts/build-core.sh continuum_symbian (macOS only)." >&2
   exit 1
 fi
 

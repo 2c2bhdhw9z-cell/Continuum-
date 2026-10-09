@@ -256,7 +256,7 @@ jobs:
       - name: Fingerprint the core toolchain
         id: toolchain
         env:
-          CORE_SOURCES_HASH: ${{ hashFiles('scripts/build-core.sh', 'scripts/patches/**') }}
+          CORE_SOURCES_HASH: ${{ hashFiles('scripts/build-core.sh', 'scripts/patches/**', 'native/continuum-symbian/**') }}
         run: |
           set -euo pipefail
           FP="$RUNNER_TEMP/core-toolchain.txt"
@@ -390,6 +390,7 @@ jobs:
           LISTING="$(unzip -l "$IPA")"
           optional() { grep -q "$1" <<<"$LISTING" || echo "::warning::$1 is not embedded; $2 games will list in the Library and say the core is missing"; }
           optional flycast_libretro_ios.dylib "Dreamcast"
+          optional continuum_symbian_libretro_ios.dylib "Symbian / N-Gage"
           for jit_build in pcsx_rearmed_jit_libretro_ios.dylib parallel_n64_jit_libretro_ios.dylib \
                            flycast_jit_libretro_ios.dylib; do
             grep -q "$jit_build" <<<"$LISTING" \

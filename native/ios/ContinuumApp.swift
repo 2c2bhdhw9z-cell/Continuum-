@@ -661,13 +661,24 @@ enum CoreCatalog {
         priority: 0, biosNames: ["dc_boot.bin", "dc_flash.bin"]
     )
 
+    /// Symbian / N-Gage. Continuum Symbian: this project's libretro plug around EKA2L1's jitless
+    /// iOS port (dyncom interpreter). Needs a Symbian device dump the user supplies, placed in
+    /// system/continuum-symbian/ (see TESTING.md). OPTIONAL in the .ipa.
+    static let continuumSymbian = CoreSpec(
+        coreId: "continuum_symbian", displayName: "Continuum Symbian (Symbian / N-Gage)",
+        systems: ["symbian"], library: "continuum_symbian_libretro_ios.dylib",
+        width: 176, height: 208, maxWidth: 640, maxHeight: 640,
+        aspectRatio: 176.0 / 208.0, fps: 60, sampleRate: 48000, pixelFormat: 1,
+        priority: 0, biosNames: []
+    )
+
     /// Every core, in the order the HUD reports them.
     static let all: [CoreSpec] = [
         fceumm, snes9x, mgba, genesisPlusGx, pcsxReARMed, mednafenPsxHw, melonDS,
         mednafenPceFast, stella, parallelN64, azahar, ppsspp,
         mednafenWswan, mednafenNgp, mednafenPce, mednafenSupergrafx, puae, viceX64sc,
         dosboxPure, prboom, virtualJaguar, handy, prosystem, a5200, fbneo, mame2003Plus,
-        pokemini, mednafenVb, yabause, mednafenSaturn, picodrive, flycast,
+        pokemini, mednafenVb, yabause, mednafenSaturn, picodrive, flycast, continuumSymbian,
     ]
 
     /// The twelve cores every build must carry, by id: IOS_CORES in scripts/build-core.sh, and the
@@ -930,6 +941,10 @@ enum CoreCatalog {
         // launch reads. See WebPlayers.swift.
         "swf": on(.flash),
         "jar": on(.j2me),
+        // Symbian / N-Gage, on Continuum Symbian.
+        "sis": on(.symbian),
+        "sisx": on(.symbian),
+        "n-gage": on(.symbian),
     ]
 
     /// Extensions more than one system uses. The resolver is asked about these (and about every
@@ -991,6 +1006,7 @@ enum CoreCatalog {
         .saturn: yabause.coreId,
         .sega32x: picodrive.coreId,
         .dreamcast: flycast.coreId,
+        .symbian: continuumSymbian.coreId,
         // Player ids, not core ids (see `player(forPath:)`).
         .flash: WebPlayerKind.flash.engineId,
         .j2me: WebPlayerKind.j2me.engineId,

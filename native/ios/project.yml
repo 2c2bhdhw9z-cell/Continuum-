@@ -736,6 +736,11 @@ targets:
         embed: true
         link: false
         codeSign: false
+      # Symbian / N-Gage, Continuum Symbian (EKA2L1, dyncom interpreter), built from source.
+      - framework: build/lib/continuum_symbian_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
       # The JIT builds (scripts/build-core.sh, "THE JIT BUILDS"): loaded only when JIT is on.
       - framework: build/lib/pcsx_rearmed_jit_libretro_ios.dylib
         embed: true
