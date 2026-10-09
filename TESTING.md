@@ -205,8 +205,12 @@ That sentence was reworded in build 140 because it named a cause with no action 
 - PlayStation with **Beetle PSX HW** selected: a BIOS file whose name is in capitals (for example
   `SCPH1001.BIN`) is now found, and the BIOS line in the small text starts
   `BIOS (mednafen_psx_hw)`, which is Beetle, not the other PlayStation core.
-- 3DS (Mario Kart 7): after a race ends or the screen changes, does the game stutter or stay
-  smooth? Tell me either way.
+- 3DS (Mario Kart 7), second stutter fix (built, not tried on a phone): install the new IPA.
+  Open Mario Kart 7, start a Grand Prix race, and watch the first few seconds after the race
+  loads, then go back to a menu and start another race on a new track. Does it still hitch after
+  each load, or is it smooth? On a track you have never loaded in this install, a few objects
+  may be missing for a moment instead; say if you see that too. Then race the same track a
+  second time and say whether that is smoother than the first.
 - Jaguar: how fast did the game feel? Full speed, a bit slow, or very slow?
 
 ## B. Getting games in
