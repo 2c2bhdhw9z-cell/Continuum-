@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 7 October 2026, for **build 142 or newer**. The newest install is always on the
+Last updated 9 October 2026, for **this install**. The newest install is always on the
 [Releases page](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) as
 `Continuum-<number>.ipa`.
 
@@ -34,13 +34,36 @@ a game.
 
 # The list: what still needs testing
 
+## A. This install
+
+Nothing here needs a second phone, a computer, or JIT turned on.
+
+**S1. Home stays readable, and scrolling stays smooth**
+1. Open **Home**. At the very top, the big cover still runs up behind the logo. That part is meant to.
+2. Scroll down until the big cover is gone.
+3. ✅ The logo, the search box and the **+** sit on solid black. Shelf titles do not show through them.
+4. Scroll **Home** and **All Games** (list and grid) hard, up and down.
+5. ✅ It should feel smoother than 143. "Still hitching" is a useful answer.
+
+**S2. Importing a game you already have does not lose it**
+1. Pick a game that is already in the library and import that same file again (the **+** button).
+2. ✅ It is still in the library, still under the same name, and it still opens.
+3. The status line can say it replaced one. That is fine.
+
+**S3. Fast-forward lets go when the phone takes the touch**
+1. Open any game. Hold **fast-forward**. While your finger is still down, pull **Control Centre** down, then close it.
+2. ✅ The game is back to normal speed. It must not stay fast.
+3. If rewind is on (Settings, not Off), do the same with the rewind button. ✅ It must stop rewinding when Control Centre closes.
+
+**S4. The (i) line names the phone**
+1. In a game, tap the **(i)** button.
+2. ✅ The JIT line names the phone, for example **iPhone 17 Pro Max (iPhone18,2)**, not only the part number. You do not need JIT switched on. Reading the line is the whole test.
+
+Only if Skins already shows a console whose name is a random code (not a real system): that row should be gone after this install. If a real skin you use disappeared, say so. If Skins looks the same as before, there is nothing to do.
+
 ## A. Not in a build yet
 
-**P1. Scrolling, for real this time**
-1. **All Games**, in both the list and the grid layout, and **Home**. Scroll hard, up and down.
-2. ✅ Should feel smoother than 142. The previous two attempts changed nothing — this one fixes a
-   different thing: the whole library was being rebuilt dozens of times while you scrolled.
-3. "Still the same" is a useful answer. Say so and I will keep digging.
+**P1. Scrolling.** Do S1 instead. It is the same scroll, plus the bar staying readable.
 
 **P2. Covers stop flashing**
 1. Scroll a long way down All Games, then scroll back up over covers you already passed.

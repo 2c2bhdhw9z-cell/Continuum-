@@ -1902,9 +1902,9 @@ final class EngineHost: ObservableObject {
                 FileManager.default.fileExists(atPath: $0.appendingPathComponent(build.library).path)
             } ?? false
         }.map { $0.system }
-        jitLine = report.technical + "; JIT builds in this copy: "
+        jitLine = readableJitLine(report.technical + "; JIT builds in this copy: "
             + (present.isEmpty ? "none" : present.joined(separator: ", "))
-            + " (PSP and 3DS use JIT from their regular build)"
+            + " (PSP and 3DS use JIT from their regular build)")
     }
 
     /// The second builds of the cores whose recompiler is chosen when they are compiled
@@ -1922,7 +1922,7 @@ final class EngineHost: ObservableObject {
         status = "setting JIT up..."
         let report = engine.prepareJit(askedForIt: true)
         jitReport = report
-        jitLine = report.technical
+        jitLine = readableJitLine(report.technical)
         status = report.on ? "JIT is on. Open a game to use it." : report.sentence
     }
 
@@ -2200,12 +2200,21 @@ final class EngineHost: ObservableObject {
             }
         }
         let id: String
-        if !result.identifier.isEmpty,
-           let twin = skinLibrary.records.values.first(where: {
-               $0.identifier == result.identifier && Set($0.systems) == Set(systems)
-           }) {
-            id = twin.id
-            removeSkinFiles(id: id)
+        // Older copies of this same named skin, removed only after the new files have landed.
+        var retire: [String] = []
+        if let stable = SkinLibraryIndex.stableID(identifier: result.identifier, systems: systems) {
+            // The same file names itself the same way on every phone, so the id is the same too.
+            id = stable
+            let incomingSystems = Set(systems.map { $0.lowercased() })
+            for old in Array(skinLibrary.records.keys) where old != stable {
+                guard let existing = skinLibrary.records[old] else { continue }
+                let sameName = existing.identifier.compare(
+                    result.identifier, options: [.caseInsensitive, .diacriticInsensitive]
+                ) == .orderedSame
+                let sameSystems = Set(existing.systems.map { $0.lowercased() }) == incomingSystems
+                guard sameName, sameSystems else { continue }
+                retire.append(old)
+            }
         } else {
             id = SkinLibraryIndex.newID()
         }
@@ -2216,23 +2225,27 @@ final class EngineHost: ObservableObject {
             visual.assetFileName = nil
             visual.assetKind = nil
         }
-        touchSkinsByID[id] = visual
-        touchSkinImages.removeValue(forKey: id)
-        touchSkinImages.removeValue(forKey: landscapeSkinCacheKey(id))
-
+        var portraitSaved = true
+        var portraitImage: UIImage?
         if let data = result.assetData, let kind = visual.assetKind {
             do {
                 try persistSkinAsset(data, id: id, kind: kind, landscape: false)
                 let mapping = CGSize(width: visual.mappingWidth, height: visual.mappingHeight)
-                if let image = DeltaSkinImporter.makeUIImage(from: data, kind: kind, mappingSize: mapping) {
-                    touchSkinImages[id] = image
-                }
+                portraitImage = DeltaSkinImporter.makeUIImage(from: data, kind: kind, mappingSize: mapping)
             } catch {
+                portraitSaved = false
                 status = "skin art could not be saved for \(system.displayName): \(error.localizedDescription)"
-                visual.assetFileName = nil
-                visual.assetKind = nil
-                touchSkinsByID[id] = visual
             }
+        }
+        // A replacement that did not land must not drop the copy already in the library.
+        if !portraitSaved, skinLibrary.records[id] != nil || !retire.isEmpty {
+            status = "skin art could not be saved for \(system.displayName). "
+                + "The skin already in the library was left as it was."
+            return
+        }
+        if !portraitSaved {
+            visual.assetFileName = nil
+            visual.assetKind = nil
         }
         if var face = visual.landscape {
             if let data = result.landscapeAssetData, let kind = face.assetKind {
@@ -2247,7 +2260,6 @@ final class EngineHost: ObservableObject {
                     face.assetFileName = nil
                     face.assetKind = nil
                     visual.landscape = face
-                    touchSkinsByID[id] = visual
                 }
             }
         }
@@ -2264,6 +2276,19 @@ final class EngineHost: ObservableObject {
                 status = "the skin's button sound could not be saved: \(error.localizedDescription)"
             }
         }
+        for old in retire {
+            retargetSkinChoices(from: old, to: id)
+            skinLibrary.delete(old)
+            touchSkinsByID.removeValue(forKey: old)
+            touchSkinImages.removeValue(forKey: old)
+            touchSkinImages.removeValue(forKey: landscapeSkinCacheKey(old))
+        }
+        touchSkinsByID[id] = visual
+        if let portraitImage {
+            touchSkinImages[id] = portraitImage
+        } else {
+            touchSkinImages.removeValue(forKey: id)
+        }
         let record = SkinRecord(id: id, name: result.skinName, identifier: result.identifier,
                                 gameTypeIdentifier: result.gameTypeIdentifier, systems: systems,
                                 importedAt: Date(), sourceFileName: result.sourceName,
@@ -2273,10 +2298,22 @@ final class EngineHost: ObservableObject {
         persistTouchSkins()
         // A new file: the old overlay's indices point into a skin that is gone.
         dropSkinEdits(id: id)
+        for old in retire {
+            dropSkinEdits(id: old)
+            removeSkinFiles(id: old)
+        }
         touchSkinsVersion &+= 1
         if !result.refused.isEmpty {
             status = "skin \(result.skinName): " + result.refused.joined(separator: "; ")
         }
+    }
+
+    /// Points defaults and per-game choices that named `old` at `new`, before `old` is deleted.
+    private func retargetSkinChoices(from old: String, to new: String) {
+        let systems = skinLibrary.defaults.filter { $0.value == old }.map(\.key)
+        for system in systems { skinLibrary.defaults[system] = new }
+        let games = skinLibrary.perGame.filter { $0.value == old }.map(\.key)
+        for game in games { skinLibrary.perGame[game] = new }
     }
 
     /// The layout editor's "clear": this system goes back to the built-in pad. The skin stays in
@@ -2462,10 +2499,34 @@ final class EngineHost: ObservableObject {
     private func loadSkinEdits(from defaults: UserDefaults) {
         guard let data = defaults.data(forKey: Self.skinEditsKey),
               let decoded = try? JSONDecoder().decode([String: SkinEdits].self, from: data)
-        else { return }
-        // Only for skins that are still there. An overlay without its file is dropped. Older
-        // overlays were keyed by system id, which is also that older skin's id.
-        skinEditsByID = decoded.filter { touchSkinsByID[$0.key] != nil }
+        else {
+            skinIDRenames = [:]
+            skinFileWinners = [:]
+            return
+        }
+        var moved = decoded
+        var didMove = false
+        for (old, new) in skinIDRenames {
+            guard let edits = moved[old] else { continue }
+            if moved[new] == nil || skinFileWinners[new] == old {
+                moved[new] = edits
+            }
+            moved.removeValue(forKey: old)
+            didMove = true
+        }
+        // Save the renamed overlays even when the art metadata could not be read. Filtering them
+        // out in that case would throw away every edit, which is the wipe this guards against.
+        if didMove {
+            skinEditsByID = moved
+            persistSkinEdits()
+        }
+        if skinVisualsLoaded {
+            skinEditsByID = moved.filter { touchSkinsByID[$0.key] != nil }
+        } else {
+            skinEditsByID = moved
+        }
+        skinIDRenames = [:]
+        skinFileWinners = [:]
     }
 
     private var pieceImageCache: [String: UIImage] = [:]
@@ -2568,12 +2629,33 @@ final class EngineHost: ObservableObject {
     }
 
     private func writeSkinPieces(_ pieces: [DeltaSkinPiece], id: String) {
-        removePieceFiles(id: id)
-        for piece in pieces {
-            let url = pieceURL(id: id, fileName: piece.fileName)
-            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                     withIntermediateDirectories: true)
-            try? piece.data.write(to: url, options: .atomic)
+        guard let root = skinsDirectory() else { return }
+        let finalDir = root.appendingPathComponent("pieces/\(id)", isDirectory: true)
+        let fm = FileManager.default
+        if pieces.isEmpty {
+            try? fm.removeItem(at: finalDir)
+            pieceImageCache.removeAll()
+            return
+        }
+        // Build the new set beside the old one and swap only when every piece has been written.
+        let staging = root.appendingPathComponent("pieces/.\(id).incoming", isDirectory: true)
+        try? fm.removeItem(at: staging)
+        do {
+            try fm.createDirectory(at: staging, withIntermediateDirectories: true)
+            for piece in pieces {
+                let cleaned = piece.fileName.replacingOccurrences(of: "..", with: "")
+                let url = staging.appendingPathComponent(cleaned)
+                try fm.createDirectory(at: url.deletingLastPathComponent(),
+                                      withIntermediateDirectories: true)
+                try piece.data.write(to: url, options: .atomic)
+            }
+            if fm.fileExists(atPath: finalDir.path) {
+                _ = try fm.replaceItemAt(finalDir, withItemAt: staging)
+            } else {
+                try fm.moveItem(at: staging, to: finalDir)
+            }
+        } catch {
+            try? fm.removeItem(at: staging)
         }
         pieceImageCache.removeAll()
     }
@@ -2594,6 +2676,63 @@ final class EngineHost: ObservableObject {
     private func soundURL(id: String) -> URL {
         (skinsDirectory() ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("sounds/\(id).caf", isDirectory: false)
+    }
+
+    /// Moves one skin's files onto another id. Used when two copies of the same named skin collapse
+    /// onto the shared id.
+    ///
+    /// `overwrite` is for the copy that should win: its files replace whatever is already at `to`.
+    /// A spare copy never overwrites. Returns whether `from` can be deleted. A move that failed
+    /// leaves the only copy where it was.
+    private func relocateSkinFiles(from old: String, to new: String, overwrite: Bool) -> Bool {
+        guard old != new else { return false }
+        let fm = FileManager.default
+        var safeToDelete = true
+        func move(_ from: URL, _ to: URL) {
+            guard fm.fileExists(atPath: from.path) else { return }
+            if fm.fileExists(atPath: to.path) {
+                guard overwrite else { return }
+                do {
+                    _ = try fm.replaceItemAt(to, withItemAt: from)
+                } catch {
+                    safeToDelete = false
+                }
+                return
+            }
+            do {
+                try fm.createDirectory(at: to.deletingLastPathComponent(),
+                                      withIntermediateDirectories: true)
+                try fm.moveItem(at: from, to: to)
+            } catch {
+                safeToDelete = false
+            }
+        }
+        for landscape in [false, true] {
+            for kind in [DeltaSkinAssetKind.png, DeltaSkinAssetKind.pdf] {
+                move(skinAssetURL(id: old, kind: kind, landscape: landscape),
+                     skinAssetURL(id: new, kind: kind, landscape: landscape))
+            }
+        }
+        if let root = skinsDirectory() {
+            move(root.appendingPathComponent("pieces/\(old)", isDirectory: true),
+                 root.appendingPathComponent("pieces/\(new)", isDirectory: true))
+            move(root.appendingPathComponent("sounds/\(old).caf"),
+                 root.appendingPathComponent("sounds/\(new).caf"))
+        }
+        if overwrite || touchSkinsByID[new] == nil {
+            if let visual = touchSkinsByID.removeValue(forKey: old) {
+                touchSkinsByID[new] = visual
+            }
+        } else {
+            touchSkinsByID.removeValue(forKey: old)
+        }
+        touchSkinImages.removeValue(forKey: old)
+        touchSkinImages.removeValue(forKey: landscapeSkinCacheKey(old))
+        if overwrite {
+            touchSkinImages.removeValue(forKey: new)
+            touchSkinImages.removeValue(forKey: landscapeSkinCacheKey(new))
+        }
+        return safeToDelete
     }
 
     /// Every file a skin id owns: art in both orientations, pieces and sound.
@@ -2622,22 +2761,77 @@ final class EngineHost: ObservableObject {
         }
     }
 
+    /// Old skin id to the shared id, filled while the library loads and applied to the editor
+    /// overlays, which are read just after.
+    private var skinIDRenames: [String: String] = [:]
+    /// Shared id to the copy whose edits should win when two overlays collapse onto one skin.
+    private var skinFileWinners: [String: String] = [:]
+    /// False when the saved art metadata could not be read. The editor overlays must not be
+    /// thrown away just because that map was unreadable.
+    private var skinVisualsLoaded = true
+
     private func loadTouchSkins(from defaults: UserDefaults) {
-        if let blob = defaults.data(forKey: Self.touchSkinsKey),
-           let decoded = try? JSONDecoder().decode([String: DeltaSkinVisual].self, from: blob) {
-            touchSkinsByID = decoded
+        var visualsTrusted = true
+        if let blob = defaults.data(forKey: Self.touchSkinsKey) {
+            if let decoded = Self.storedVisuals(blob) {
+                touchSkinsByID = decoded
+            } else {
+                // Unreadable. Leaving the in-memory map empty is fine for this launch; saving
+                // that emptiness is what used to delete every skin.
+                visualsTrusted = false
+            }
         }
-        if let blob = defaults.data(forKey: Self.skinLibraryKey),
-           let decoded = try? JSONDecoder().decode(SkinLibraryIndex.self, from: blob) {
-            skinLibrary = decoded
+        skinVisualsLoaded = visualsTrusted
+        var libraryTrusted = true
+        if let blob = defaults.data(forKey: Self.skinLibraryKey) {
+            if let decoded = SkinLibraryIndex.stored(blob) {
+                skinLibrary = decoded
+            } else {
+                libraryTrusted = false
+            }
         }
-        // Skins saved before the library: one per system, keyed by the system id.
+        guard libraryTrusted else { return }
         let before = skinLibrary
-        skinLibrary.adoptLegacy(touchSkinsByID.mapValues(\.skinName))
-        skinLibrary.keepOnly(Set(touchSkinsByID.keys))
-        if skinLibrary != before {
-            persistTouchSkins()
+        if visualsTrusted {
+            let systems = Set(GameSystem.allCases.map(\.rawValue))
+            skinLibrary.adoptLegacy(touchSkinsByID.mapValues(\.skinName), knownSystems: systems)
+            for id in skinLibrary.dropFakeConsoles(knownSystems: systems) {
+                touchSkinsByID.removeValue(forKey: id)
+            }
+            skinLibrary.keepOnly(Set(touchSkinsByID.keys))
         }
+        let folded = skinLibrary.coalesceNamedSkins()
+        // The newest copy's files first, so a spare cannot overwrite them.
+        var placed: Set<String> = []
+        for (stable, source) in folded.winners where source != stable {
+            let safe = relocateSkinFiles(from: source, to: stable, overwrite: true)
+            if safe { removeSkinFiles(id: source) }
+            placed.insert(source)
+        }
+        for (old, new) in folded.renames where !placed.contains(old) {
+            let safe = relocateSkinFiles(from: old, to: new, overwrite: false)
+            if safe { removeSkinFiles(id: old) }
+        }
+        skinIDRenames = folded.renames
+        skinFileWinners = folded.winners
+        if skinLibrary != before || !folded.renames.isEmpty {
+            if visualsTrusted {
+                persistTouchSkins()
+            } else if let index = try? JSONEncoder().encode(skinLibrary) {
+                UserDefaults.standard.set(index, forKey: Self.skinLibraryKey)
+            }
+        }
+    }
+
+    /// The saved skin art, keeping every entry that will read. Nil when nothing in the file
+    /// would read: the caller must not save an empty map over it.
+    private static func storedVisuals(_ data: Data) -> [String: DeltaSkinVisual]? {
+        guard let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let wrapped = try? JSONDecoder().decode(
+                [String: LossyDecodable<DeltaSkinVisual>].self, from: data) else { return nil }
+        let visuals = wrapped.compactMapValues(\.value)
+        if !raw.isEmpty, visuals.isEmpty { return nil }
+        return visuals
     }
 
     private func skinsDirectory() -> URL? {
@@ -2660,9 +2854,13 @@ final class EngineHost: ObservableObject {
             throw NSError(domain: "ContinuumSkins", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "no Application Support directory"])
         }
-        // Only one asset file per orientation; remove the other extension if present.
-        removeSkinAssetFiles(id: id, landscape: landscape)
         try data.write(to: skinAssetURL(id: id, kind: kind, landscape: landscape), options: .atomic)
+        // The other extension goes only after the new file is in place, so a failed write keeps
+        // the picture that was already there.
+        let fm = FileManager.default
+        for other in [DeltaSkinAssetKind.pdf, .png] where other != kind {
+            try? fm.removeItem(at: skinAssetURL(id: id, kind: other, landscape: landscape))
+        }
     }
 
     private func removeSkinAssetFiles(id: String, landscape: Bool) {
@@ -2982,6 +3180,16 @@ final class EngineHost: ObservableObject {
         return engine.coreOptions()
     }
 
+    /// The part number in a JIT line (`iPhone18,2`) swapped for the phone's name, with the part
+    /// number kept in brackets. The part number still decides the JIT rules; the name is so a
+    /// person can read the line.
+    private func readableJitLine(_ raw: String) -> String {
+        let id = FeedbackDetails.deviceModel
+        let named = FeedbackDetails.deviceDescription
+        guard named != id, raw.contains(id) else { return raw }
+        return raw.replacingOccurrences(of: id, with: named)
+    }
+
     /// Runs the half of the JIT probe that executes code, on request only.
     ///
     /// Writes the result into `jitLine` so it lands in the same place the safe answer did, and into
@@ -2992,7 +3200,7 @@ final class EngineHost: ObservableObject {
     /// app is safe and nothing is lost. The button that calls this says so.
     func runJitExecutionProbe() {
         status = "running the JIT test; if the app closes, that IS the result and reopening is safe"
-        let line = engine.jitProbeExecution()
+        let line = readableJitLine(engine.jitProbeExecution())
         jitLine = line
         status = line
     }
@@ -3874,9 +4082,9 @@ final class EngineHost: ObservableObject {
     ///      example `FILE "Crash Bandicoot (Track 1).bin" BINARY`, so renaming a .bin to dodge
     ///      a collision would leave a cue pointing at a file that no longer exists and the
     ///      game would simply not load, with nothing on screen to explain why. So there is no
-    ///      rename path here at all. A collision REPLACES the existing file (copyItem throws
-    ///      if the destination exists, so the old item is removed first) and is reported as
-    ///      replaced.
+    ///      rename path here at all. A collision REPLACES the existing file, but only after the
+    ///      new copy is complete: the new bytes go to a hidden temporary file and the swap
+    ///      happens in one step. A failed copy leaves the game that was already there.
     ///   2. EVERY FILE LANDS IN THE SAME DIRECTORY, flat in Documents, so a cue and its tracks
     ///      are siblings and the cue's relative references resolve.
     ///   3. EVERY FILE IS COPIED INDEPENDENTLY, in its own do/catch. One unreadable file in a
@@ -3932,30 +4140,26 @@ final class EngineHost: ObservableObject {
             // The original filename, untouched. See point 1 above.
             let destination = documents.appendingPathComponent(name)
 
-            // Declared outside the do so the catch can say whether the old copy had already
-            // been cleared away before the copy failed. That is the one destructive corner of
-            // an overwrite, and it must not be silent.
-            var replacedExisting = false
+            // Copy beside the old file and swap only after the new copy is whole. Deleting first
+            // meant a failed copy (full disk, a cloud file that would not download) left no game.
+            let replacing = FileManager.default.fileExists(atPath: destination.path)
+            let temporary = destination.deletingLastPathComponent().appendingPathComponent(
+                ".\(name).\(UUID().uuidString).incoming")
             do {
-                if FileManager.default.fileExists(atPath: destination.path) {
-                    // copyItem throws on an existing destination, so replace rather than
-                    // rename. Re-importing a game is a normal thing to do, and it must land
-                    // on the same name the cue sheet expects.
-                    try FileManager.default.removeItem(at: destination)
-                    replacedExisting = true
+                if replacing {
+                    try FileManager.default.copyItem(at: url, to: temporary)
+                    _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary)
+                } else {
+                    try FileManager.default.copyItem(at: url, to: destination)
                 }
-                try FileManager.default.copyItem(at: url, to: destination)
                 imported.append(name)
-                // Counted only once the replacement actually landed, so "replaced" never
-                // shares a filename with "failed".
-                if replacedExisting { replaced.append(name) }
+                if replacing { replaced.append(name) }
             } catch {
-                let lostNote = replacedExisting
-                    ? " (the previous copy in Documents was already removed, so import it again)"
-                    : ""
+                try? FileManager.default.removeItem(at: temporary)
+                let kept = replacing ? " The game already in the library was left as it was." : ""
                 failures.append("\(name): \(error.localizedDescription)")
                 status = "import failed for \(name): "
-                    + "\(error.localizedDescription)\(lostNote) [\(error)]"
+                    + "\(error.localizedDescription).\(kept) [\(error)]"
             }
         }
 
@@ -5394,7 +5598,8 @@ struct RootView: View {
                     host.netplay.afterTick()
                 },
                 // A game the player paused stays paused when they come back to the app.
-                stayPaused: { host.paused }
+                stayPaused: { host.paused },
+                drivesFrames: host.activeEntry != nil
             )
             .frame(width: max(1, area.width), height: max(1, area.height))
             .position(x: area.midX, y: area.midY)
@@ -5432,6 +5637,8 @@ struct MetalCanvasView: UIViewRepresentable {
     let onTelemetry: (TickTelemetry) -> Void
     /// True while the player has paused the game. See `MetalCanvas.stayPaused`.
     let stayPaused: () -> Bool
+    /// False on the library. The frame loop is not run when nobody is looking at a game.
+    let drivesFrames: Bool
 
     func makeUIView(context: Context) -> MetalCanvas {
         let canvas = MetalCanvas(engine: engine)
@@ -5444,7 +5651,7 @@ struct MetalCanvasView: UIViewRepresentable {
         canvas.controllerSource = controllerSource
         canvas.mouseSource = mouseSource
         canvas.audio = audio
-        canvas.start()
+        canvas.setDrivesFrames(drivesFrames)
         context.coordinator.observe(canvas)
         return canvas
     }
@@ -5458,6 +5665,7 @@ struct MetalCanvasView: UIViewRepresentable {
         canvas.controllerSource = controllerSource
         canvas.mouseSource = mouseSource
         canvas.audio = audio
+        canvas.setDrivesFrames(drivesFrames)
     }
 
     static func dismantleUIView(_ canvas: MetalCanvas, coordinator: Coordinator) {

@@ -207,10 +207,22 @@ struct SkinLibraryIndex: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
-        records = (try? box.decodeIfPresent([String: SkinRecord].self, forKey: .records))
-            ?? [:]
+        // One record at a time. A dictionary decode fails the WHOLE map when a single value
+        // fails, and this map used to then come back empty and get saved, which wiped every skin.
+        records = Self.lossy(SkinRecord.self, from: box, key: .records)
         defaults = (try? box.decodeIfPresent([String: String].self, forKey: .defaults)) ?? [:]
         perGame = (try? box.decodeIfPresent([String: String].self, forKey: .perGame)) ?? [:]
+    }
+
+    /// Decodes a string-keyed map and keeps the values that decode, instead of dropping all of
+    /// them because one was unreadable.
+    private static func lossy<T: Decodable>(
+        _ type: T.Type, from box: KeyedDecodingContainer<CodingKeys>, key: CodingKeys
+    ) -> [String: T] {
+        guard let wrapped = try? box.decode([String: LossyDecodable<T>].self, forKey: key) else {
+            return [:]
+        }
+        return wrapped.compactMapValues(\.value)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -323,10 +335,16 @@ struct SkinLibraryIndex: Codable, Equatable, Sendable {
         }
     }
 
-    /// Makes a record for every stored skin the index does not know yet. Used once for skins
-    /// saved before the library existed, whose storage key is their system id.
-    mutating func adoptLegacy(_ stored: [String: String]) {
+    /// Makes a record for a skin saved before the library existed. Those were stored one per
+    /// system, and the storage key IS the system id, so the files on disk (named after the system)
+    /// are found without moving anything.
+    ///
+    /// `knownSystems`, when given, is the list of real system ids. A key that is not one of them is
+    /// left alone: a skin the index does not know is not a console, and treating its random id as
+    /// a system name is how "SKIN-1A2B" rows used to appear.
+    mutating func adoptLegacy(_ stored: [String: String], knownSystems: Set<String>? = nil) {
         for (key, name) in stored where records[key] == nil {
+            if let knownSystems, !knownSystems.contains(key) { continue }
             records[key] = SkinRecord(id: key, name: name, systems: [key],
                                       importedAt: Date(timeIntervalSince1970: 0),
                                       format: "legacy")
@@ -343,5 +361,122 @@ struct SkinLibraryIndex: Codable, Equatable, Sendable {
 
     static func newID() -> String {
         "skin-" + UUID().uuidString.lowercased()
+    }
+
+    /// The id every phone uses for a skin that names itself.
+    ///
+    /// A random id made at import is different on every phone, so the same skin synced from two
+    /// phones showed up twice. The name inside the file plus the consoles it was made for are the
+    /// same everywhere, so the id built from them is too. A skin that does not name itself still
+    /// gets `newID()`: there is nothing stable to share.
+    static func stableID(identifier: String, systems: [String]) -> String? {
+        let ident = identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !ident.isEmpty else { return nil }
+        let systemsKey = Set(systems.map { $0.lowercased() }).sorted().joined(separator: ",")
+        return "skin-" + fnv64(ident + "|" + systemsKey)
+    }
+
+    /// Folds skins that name the same file into the one shared id.
+    ///
+    /// `renames` is every old id that moved, so art and edits can follow. `winners` is the shared
+    /// id to the id the kept record came from: that copy is the newest, and its files are the ones
+    /// that should end up on the shared id. An older copy must not be the one that lands there
+    /// just because it was already using the shared id.
+    mutating func coalesceNamedSkins() -> SkinFold {
+        var byStable: [String: [String]] = [:]
+        for (id, record) in records {
+            guard let stable = Self.stableID(identifier: record.identifier, systems: record.systems)
+            else { continue }
+            byStable[stable, default: []].append(id)
+        }
+        var fold = SkinFold()
+        for (stable, ids) in byStable {
+            let unique = Array(Set(ids))
+            let needsMove = unique.contains { $0 != stable }
+            guard needsMove || records[stable] == nil else { continue }
+            let chosenID = unique.sorted { a, b in
+                let left = records[a]!
+                let right = records[b]!
+                if left.importedAt != right.importedAt { return left.importedAt > right.importedAt }
+                if (a == stable) != (b == stable) { return a == stable }
+                return a < b
+            }.first!
+            var kept = records[chosenID]!
+            kept.id = stable
+            fold.winners[stable] = chosenID
+            for id in unique where id != stable {
+                records.removeValue(forKey: id)
+                fold.renames[id] = stable
+            }
+            records[stable] = kept
+            let movedSystems = defaults.filter { unique.contains($0.value) }.map(\.key)
+            for system in movedSystems { defaults[system] = stable }
+            let movedGames = perGame.filter { unique.contains($0.value) }.map(\.key)
+            for game in movedGames { perGame[game] = stable }
+        }
+        return fold
+    }
+
+    /// Drops legacy rows whose id is not a real console.
+    ///
+    /// Those rows are skins the index did not know, adopted as if the skin's random id were a
+    /// system. A real legacy skin is stored under the system id itself (`gba`, `ps1`) and is left
+    /// alone. Returns the ids removed, so the caller can drop their art metadata too.
+    mutating func dropFakeConsoles(knownSystems: Set<String>) -> [String] {
+        var dropped: [String] = []
+        for id in Array(records.keys) {
+            guard let record = records[id], record.format == "legacy",
+                  !knownSystems.contains(id) else { continue }
+            delete(id)
+            dropped.append(id)
+        }
+        return dropped
+    }
+
+    /// The library in `data`, or nil when it cannot be trusted.
+    ///
+    /// Nil means "do not replace what is stored and do not save". A file that is not a library,
+    /// or one whose every skin failed to read, used to decode as an empty library and that empty
+    /// library was then saved. One unreadable skin is dropped and the rest are kept.
+    static func stored(_ data: Data) -> SkinLibraryIndex? {
+        guard let index = try? JSONDecoder().decode(SkinLibraryIndex.self, from: data) else {
+            return nil
+        }
+        guard let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let map = raw["records"] as? [String: Any] else {
+            return index
+        }
+        if !map.isEmpty, index.records.isEmpty { return nil }
+        return index
+    }
+
+    /// 64-bit FNV-1a, hex. Stable across phones and needs nothing but the standard library, so the
+    /// Linux check of this file can run it.
+    private static func fnv64(_ text: String) -> String {
+        var hash: UInt64 = 14695981039346656037
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1099511628211
+        }
+        return String(hash, radix: 16)
+    }
+}
+
+/// The result of folding named skins onto one shared id.
+struct SkinFold: Equatable, Sendable {
+    /// Old id to the shared id, for every record that moved.
+    var renames: [String: String] = [:]
+    /// Shared id to the id the kept record came from. That copy's files are the ones to keep.
+    var winners: [String: String] = [:]
+}
+
+/// One dictionary value. A value that will not decode becomes nil and the rest of the dictionary
+/// is kept, which a plain `[String: T]` decode does not do.
+struct LossyDecodable<T: Decodable>: Decodable {
+    let value: T?
+
+    init(from decoder: Decoder) throws {
+        let box = try decoder.singleValueContainer()
+        value = try? box.decode(T.self)
     }
 }

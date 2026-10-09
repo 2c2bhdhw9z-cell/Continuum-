@@ -152,6 +152,79 @@ expect(thinRecord.name == "Skin" && thinRecord.systems.isEmpty && !thinRecord.ha
        "a record missing fields decodes with defaults")
 expect(SkinLibraryIndex.newID().hasPrefix("skin-"), "new ids are not system ids")
 
+// A random id is not a console. Only a real system id is adopted.
+var stray = SkinLibraryIndex()
+stray.adoptLegacy(["gba": "Old GBA", "skin-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee": "Nope"],
+                  knownSystems: ["gba", "ps1"])
+expect(stray.records["gba"] != nil, "a real system id is still adopted")
+expect(stray.records["skin-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"] == nil,
+       "a random skin id is not turned into a console")
+
+// The same named skin gets the same id everywhere, and two copies collapse into one.
+let stable = SkinLibraryIndex.stableID(identifier: "com.example.gba", systems: ["gba"])
+expect(stable == SkinLibraryIndex.stableID(identifier: " COM.EXAMPLE.GBA ", systems: ["gba"]),
+       "the shared id ignores case and spaces")
+expect(stable == SkinLibraryIndex.stableID(identifier: "com.example.gba", systems: ["GBA"]),
+       "the shared id ignores how the console id is capitalised")
+expect(stable != SkinLibraryIndex.stableID(identifier: "com.example.gba", systems: ["gbc"]),
+       "a different console is a different skin")
+expect(SkinLibraryIndex.stableID(identifier: "  ", systems: ["gba"]) == nil,
+       "a skin that does not name itself has no shared id")
+var twins = SkinLibraryIndex()
+var first = record("skin-old-a", ["gba"], 1)
+first.identifier = "com.example.gba"
+var second = record("skin-old-b", ["gba"], 5)
+second.identifier = "com.example.gba"
+twins.records[first.id] = first
+twins.records[second.id] = second
+twins.defaults["gba"] = "skin-old-a"
+twins.perGame["Tetris.gba"] = "skin-old-b"
+let fold = twins.coalesceNamedSkins()
+expect(twins.records.count == 1 && twins.records[stable!] != nil, "two copies become the shared id")
+expect(twins.defaults["gba"] == stable && twins.perGame["Tetris.gba"] == stable,
+       "choices follow the skin to the shared id")
+expect(fold.renames["skin-old-a"] == stable && fold.renames["skin-old-b"] == stable,
+       "both old ids are renamed")
+expect(twins.records[stable!]?.name == "SKIN-OLD-B", "the newer copy's name is the one kept")
+expect(fold.winners[stable!] == "skin-old-b", "the newer copy is the one whose files are kept")
+
+// The copy already on the shared id wins when it is the newer one. The spare is what moves.
+var parked = SkinLibraryIndex()
+var spare = record("skin-old-a", ["gba"], 1)
+spare.identifier = "com.example.gba"
+var current = record(stable!, ["gba"], 9)
+current.identifier = "com.example.gba"
+parked.records[spare.id] = spare
+parked.records[current.id] = current
+let parkedFold = parked.coalesceNamedSkins()
+expect(parkedFold.winners[stable!] == stable, "files already on the shared id stay when they are newer")
+expect(parkedFold.renames["skin-old-a"] == stable && parkedFold.renames[stable!] == nil,
+       "only the spare copy is renamed")
+
+// A fake console saved by an older build is removed. A real legacy skin is not.
+var polluted = SkinLibraryIndex()
+polluted.adoptLegacy(["gba": "Old GBA", "skin-deadbeef": "Nope"])
+expect(polluted.records["skin-deadbeef"] != nil, "without a console list the old call still adopts")
+let dropped = polluted.dropFakeConsoles(knownSystems: ["gba"])
+expect(polluted.records["gba"] != nil && polluted.records["skin-deadbeef"] == nil,
+       "a saved fake console is removed and a real one stays")
+expect(dropped == ["skin-deadbeef"], "the fake id is the one reported")
+expect(polluted.defaults["skin-deadbeef"] == nil && polluted.defaults["gba"] == "gba",
+       "the fake console's default goes and the real one stays")
+
+// One unreadable skin does not wipe the library, and a library whose every skin is unreadable
+// is refused rather than saved as empty.
+let mixed = #"{"records":{"good":{"id":"good","systems":["gba"]},"bad":{"name":"no id"}},"defaults":{"gba":"good"},"perGame":{}}"#
+    .data(using: .utf8)!
+let kept = SkinLibraryIndex.stored(mixed)
+expect(kept?.records["good"]?.systems == ["gba"] && kept?.records["bad"] == nil,
+       "a bad skin is dropped and the good one stays")
+expect(kept?.defaults["gba"] == "good", "defaults survive a bad skin")
+let allBad = #"{"records":{"bad":{"name":"no id"}},"defaults":{},"perGame":{}}"#.data(using: .utf8)!
+expect(SkinLibraryIndex.stored(allBad) == nil, "a library that lost every skin is not trusted")
+let notJson = "nope".data(using: .utf8)!
+expect(SkinLibraryIndex.stored(notJson) == nil, "a file that is not a library is not trusted")
+
 // MARK: 4. The function list and the dispatcher table
 
 let manicFunctions = """

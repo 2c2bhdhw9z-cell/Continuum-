@@ -895,10 +895,9 @@ final class CloudSync: ObservableObject {
         // the skins' FILES did not sync and so another phone's index would list skins it had no
         // art for. The files sync now (`Skins/` above), which removes the reason: the index, the
         // editor overlays and the per-system visuals all travel with the bytes they describe.
-        // A skin id is never a path: it is a random id made at import (`SkinLibraryIndex.newID()`),
-        // or a system id for a skin from before the library. So it means the same thing on any
-        // phone, but the same skin imported on two phones has two ids, which is why
-        // `applyPendingSettings` MERGES these keys by id instead of replacing them.
+        // A skin that names itself now shares one id on every phone (`SkinLibraryIndex.stableID`).
+        // A skin that does not name itself still gets a random id, so two phones can each have a
+        // copy. Merging by id keeps both instead of letting one list replace the other.
         // The address this phone last joined for online play, which is usually the other phone.
         "continuum.netplay.lastAddress.v1",
         // Permission to use this phone's microphone and camera is given on this phone.
@@ -1225,8 +1224,9 @@ final class CloudSync: ObservableObject {
     private static let touchSkinsKey = "continuum.controls.touchSkins.v1"
     private static let skinEditsKey = "continuum.controls.skinEdits.v1"
 
-    /// MERGED rather than replaced. Each is one dictionary keyed by skin id, and ids are random
-    /// per import, so replacing would drop every skin imported only on this phone. This phone's
+    /// MERGED rather than replaced. A skin that names itself shares one id, so that id updates.
+    /// A skin that does not name itself is still a different id on each phone. Replacing the
+    /// whole dictionary would drop every skin that exists only on this phone. This phone's
     /// entries stay; the incoming copy wins on the same id, system or game.
     private static let mergedSkinKeys: Set<String> = [skinLibraryKey, touchSkinsKey, skinEditsKey]
 
@@ -1277,9 +1277,9 @@ final class CloudSync: ObservableObject {
         }
     }
 
-    /// `SkinLibraryIndex` decodes forgivingly: one unreadable record empties its whole map instead
-    /// of failing. So each map is counted against the raw JSON, and one that lost entries counts
-    /// as unreadable rather than as "no skins", which would otherwise merge as a wipe.
+    /// One bad skin is dropped on decode now, instead of emptying the whole list. The counts
+    /// still have to match the raw file: a list that lost a skin is unreadable, not "no skins",
+    /// and must not be merged over a good library.
     private static func decodedIndex(_ data: Data) -> SkinLibraryIndex? {
         guard let index = try? JSONDecoder().decode(SkinLibraryIndex.self, from: data),
               let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any]

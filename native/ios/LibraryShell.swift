@@ -91,6 +91,9 @@ struct LibraryShell: View {
     /// The Home shelves, built by `buildShelves` only when the library actually changes. See the
     /// note there: reading them from the body re-sorted the whole library on every single redraw.
     @State private var cachedShelves: [Shelf] = []
+    /// True once Home has scrolled past the big cover. The bar then stays solid, so shelf titles
+    /// do not show through the logo and the search field.
+    @State private var homeBarSolid = false
 
     /// The empty state, carried over from the debug library verbatim in substance. It names the
     /// accepted extensions from the one routing table, explains selecting a .cue with every .bin
@@ -118,8 +121,9 @@ struct LibraryShell: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // Opaque, and that is the point: the canvas is still mounted and ticking underneath,
-            // and a library you can see a game through is the debug overlay this screen replaces.
+            // Opaque, and that is the point: the canvas stays mounted underneath so a game can
+            // open without building a new surface, and a library you can see a game through is
+            // the debug overlay this screen replaces. The frame loop itself is not running here.
             Color.black
                 .ignoresSafeArea()
 
@@ -168,16 +172,24 @@ struct LibraryShell: View {
         .padding(.horizontal, 14)
         .frame(height: topBarHeight)
         .padding(.top, max(metrics.insets.top, 8))
-        .background(
-            // A gradient rather than a solid fill, so the hero art reads as full-bleed behind the
-            // bar exactly as it does in the design reference, while the controls stay legible.
+        .background(topBarBackground)
+    }
+
+    /// At the top of Home the hero shows through a fade. Anywhere else, and once Home has
+    /// scrolled, the bar is solid so the logo and search stay readable over shelf titles.
+    @ViewBuilder
+    private var topBarBackground: some View {
+        if host.libraryTab == .home && !homeBarSolid && heroEntry != nil {
             LinearGradient(
                 colors: [.black.opacity(0.92), .black.opacity(0.55), .black.opacity(0)],
                 startPoint: .top,
                 endPoint: .bottom
             )
             .ignoresSafeArea(edges: .top)
-        )
+        } else {
+            Color.black
+                .ignoresSafeArea(edges: .top)
+        }
     }
 
     private var logoTile: some View {
@@ -418,9 +430,24 @@ struct LibraryShell: View {
 
                 Spacer(minLength: bottomBarHeight)
             }
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: HomeScrollOffset.self,
+                        value: proxy.frame(in: .named("homeScroll")).minY
+                    )
+                }
+            )
         }
         // The hero runs under the top bar on purpose, which is what full-bleed means here.
         .ignoresSafeArea(edges: .top)
+        .coordinateSpace(name: "homeScroll")
+        .onPreferenceChange(HomeScrollOffset.self) { offset in
+            // Only the crossing matters. Updating on every point of a drag would redraw Home
+            // for the whole scroll, which is the hitch this screen just got rid of.
+            let solid = offset < -24
+            if solid != homeBarSolid { homeBarSolid = solid }
+        }
         // THE SHELVES ARE BUILT HERE AND NOWHERE ELSE, so sorting and grouping the library happens
         // when the library changes rather than on every redraw. `onAppear` covers the first draw
         // and a return to the Home tab; the two `onChange`es cover an import, a delete, and the
@@ -837,5 +864,14 @@ struct SafeAreaProbe: UIViewRepresentable {
                 send?(metrics)
             }
         }
+    }
+}
+
+/// How far Home has scrolled. A preference rather than a GeometryReader wrapping the whole
+/// scroll, so the shelves are not laid out again on every point of a drag.
+private struct HomeScrollOffset: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }

@@ -18,6 +18,7 @@
 //     it would land on SELECT and START.
 
 import SwiftUI
+import UIKit
 
 // MARK: - Where the picture goes
 
@@ -388,35 +389,84 @@ struct PlayerScreen: View {
 
     /// A button that acts while it is held rather than when it is tapped.
     ///
-    /// Built on `DragGesture(minimumDistance: 0)` rather than on `Button`, because a `Button`
-    /// only reports the completed tap and gives no press and release either side of it, and
-    /// `onLongPressGesture` waits out a recognition delay before firing. Fast-forward and
-    /// rewind have to start the instant the finger lands and stop the instant it lifts, and a
-    /// half-second delay on a rewind button feels like the button is broken.
-    ///
-    /// A drag that wanders off the button still ends the hold, because `onEnded` fires wherever
-    /// the finger lifts. That is the behaviour to want: the alternative, a hold that survives
-    /// the finger sliding away, is how you end up stuck at 4x.
+    /// Built on a real touch view rather than `DragGesture`. A drag only hears the finger lift.
+    /// Control Centre, a call or a notification takes the touch away without a lift, and the
+    /// game would stay fast or keep rewinding. `touchesCancelled` is that taking-away.
     private func holdButton(_ symbol: String, label: String, active: Bool,
                             onPress: @escaping () -> Void,
                             onRelease: @escaping () -> Void) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 15, weight: .semibold))
+        // The touch view is the button, not an overlay on the picture. An overlay with no size
+        // of its own misses the finger, and fast-forward would never start.
+        HoldCatcher(onPress: onPress, onRelease: onRelease)
             .frame(width: 38, height: 38)
-            .background(active ? ShellPalette.accent.opacity(0.85) : Color.white.opacity(0.12),
-                        in: Circle())
-            .contentShape(Circle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        // `onChanged` fires repeatedly for one press, so this must be
-                        // idempotent. Both `begin` calls guard on their own state.
-                        onPress()
-                    }
-                    .onEnded { _ in onRelease() }
+            .background(
+                Circle().fill(active ? ShellPalette.accent.opacity(0.85) : Color.white.opacity(0.12))
+            )
+            .overlay(
+                Image(systemName: symbol)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .allowsHitTesting(false)
             )
             .accessibilityLabel(label)
             .accessibilityAddTraits(active ? [.isSelected] : [])
+    }
+
+    /// Hears the finger go down, come up, or be taken by the system.
+    private struct HoldCatcher: UIViewRepresentable {
+        var onPress: () -> Void
+        var onRelease: () -> Void
+
+        func makeUIView(context: Context) -> HoldView {
+            let view = HoldView()
+            view.isUserInteractionEnabled = true
+            view.isAccessibilityElement = false
+            view.backgroundColor = .clear
+            view.isMultipleTouchEnabled = false
+            view.onPress = onPress
+            view.onRelease = onRelease
+            return view
+        }
+
+        func updateUIView(_ view: HoldView, context: Context) {
+            view.onPress = onPress
+            view.onRelease = onRelease
+        }
+
+        static func dismantleUIView(_ view: HoldView, coordinator: Void) {
+            view.cancel()
+        }
+
+        final class HoldView: UIView {
+            var onPress: (() -> Void)?
+            var onRelease: (() -> Void)?
+            private var held = false
+
+            func cancel() {
+                guard held else { return }
+                held = false
+                onRelease?()
+            }
+
+            override func didMoveToWindow() {
+                super.didMoveToWindow()
+                if window == nil { cancel() }
+            }
+
+            override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+                guard !held else { return }
+                held = true
+                onPress?()
+            }
+
+            override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+                cancel()
+            }
+
+            override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+                cancel()
+            }
+        }
     }
 
     // MARK: Telemetry

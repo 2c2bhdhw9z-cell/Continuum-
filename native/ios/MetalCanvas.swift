@@ -43,6 +43,9 @@ final class MetalCanvas: UIView {
     private(set) var commandQueue: MTLCommandQueue?
 
     private var displayLink: CADisplayLink?
+    /// True while a game is on screen. The link is not run for the library: it would composite a
+    /// frame nobody can see, on the same thread that is scrolling.
+    private var drivesFrames = false
     private let engine: ContinuumEngine
     private var attached = false
 
@@ -257,6 +260,13 @@ final class MetalCanvas: UIView {
         displayLink = nil
     }
 
+    /// Starts the frame loop only while a game is open, and stops it when the library is showing.
+    func setDrivesFrames(_ on: Bool) {
+        guard on != drivesFrames else { return }
+        drivesFrames = on
+        if on { start() } else { stop() }
+    }
+
     @objc private func tick(_ link: CADisplayLink) {
         guard attached else { return }
 
@@ -355,7 +365,7 @@ final class MetalCanvas: UIView {
     }
 
     func didBecomeActive() {
-        start()
+        if drivesFrames { start() }
         // Not when the player paused it themselves; see `stayPaused`. The display link still
         // starts, so a paused game keeps showing its frame and the controls stay live.
         if stayPaused?() != true {
