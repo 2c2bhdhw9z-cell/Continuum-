@@ -62,10 +62,17 @@ struct SettingsScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                Text("Settings")
-                    .font(.system(size: 26, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Settings")
+                        .font(.system(size: 26, weight: .heavy))
+                        .foregroundStyle(.white)
+                    Spacer(minLength: 8)
+                    Button("Open all") { SettingsFolds.shared.openAll() }
+                        .buttonStyle(SettingsFoldButtonStyle())
+                    Button("Close all") { SettingsFolds.shared.closeAll() }
+                        .buttonStyle(SettingsFoldButtonStyle())
+                }
+                .padding(.horizontal, 16)
 
                 // First, so a tester finds it without scrolling. The second way in is a game's
                 // ⋯ menu. See Feedback.swift.
@@ -997,18 +1004,112 @@ struct SettingsScreen: View {
 
 // MARK: - The pieces a settings screen is made of
 
-/// A titled group on a dark card.
+/// Which settings cards are folded. Every `SettingsSection` reads this, so Open all / Close all
+/// and a tap on one heading stay in agreement. Missing means open: the page starts as it always
+/// did, and a heading the user shuts stays shut.
+final class SettingsFolds: ObservableObject {
+    static let shared = SettingsFolds()
+
+    private let closedKey = "continuum.settings.closedSections"
+    private let forceKey = "continuum.settings.forceClosed"
+    private let exceptKey = "continuum.settings.forceClosedExceptions"
+
+    @Published private var closed: Set<String>
+    @Published private var forceClosed: Bool
+    @Published private var openedDespiteForce: Set<String>
+
+    private init() {
+        let defaults = UserDefaults.standard
+        closed = Set(defaults.stringArray(forKey: closedKey) ?? [])
+        forceClosed = defaults.bool(forKey: forceKey)
+        openedDespiteForce = Set(defaults.stringArray(forKey: exceptKey) ?? [])
+    }
+
+    func isOpen(_ title: String) -> Bool {
+        if forceClosed { return openedDespiteForce.contains(title) }
+        return !closed.contains(title)
+    }
+
+    func toggle(_ title: String) {
+        if forceClosed {
+            if openedDespiteForce.contains(title) {
+                openedDespiteForce.remove(title)
+            } else {
+                openedDespiteForce.insert(title)
+            }
+        } else if closed.contains(title) {
+            closed.remove(title)
+        } else {
+            closed.insert(title)
+        }
+        save()
+    }
+
+    func openAll() {
+        forceClosed = false
+        closed = []
+        openedDespiteForce = []
+        save()
+    }
+
+    func closeAll() {
+        forceClosed = true
+        closed = []
+        openedDespiteForce = []
+        save()
+    }
+
+    private func save() {
+        let defaults = UserDefaults.standard
+        defaults.set(Array(closed), forKey: closedKey)
+        defaults.set(forceClosed, forKey: forceKey)
+        defaults.set(Array(openedDespiteForce), forKey: exceptKey)
+    }
+}
+
+private struct SettingsFoldButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(ShellPalette.accent)
+            .opacity(configuration.isPressed ? 0.55 : 1)
+    }
+}
+
+/// A titled group on a dark card. The heading opens and closes the card.
 struct SettingsSection<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
+    @ObservedObject private var folds = SettingsFolds.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.6)
-                .foregroundStyle(ShellPalette.secondaryText)
-            content
+        let open = folds.isOpen(title)
+        VStack(alignment: .leading, spacing: open ? 12 : 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    folds.toggle(title)
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.6)
+                        .foregroundStyle(ShellPalette.secondaryText)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(ShellPalette.secondaryText)
+                        .rotationEffect(.degrees(open ? 0 : -90))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(title)
+            .accessibilityValue(open ? "open" : "closed")
+
+            if open {
+                content
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)

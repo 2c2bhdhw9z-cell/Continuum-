@@ -90,8 +90,13 @@ enum AppIconCatalog {
 }
 
 struct AppIconSettingsSection: View {
-    @State private var selected = UIApplication.shared.alternateIconName
-    @State private var note = "iPhone asks every time the icon changes. You can switch again whenever you want."
+    /// Last name that `setAlternateIconName` accepted. The system property is nil for the
+    /// primary icon, and on a sideloaded install it can still be nil in the completion
+    /// handler after the home screen has already changed. The grid marks this, not that read.
+    private static let storageKey = "continuum.appIcon.alternateName"
+
+    @State private var selected = AppIconSettingsSection.remembered()
+    @State private var note = AppIconSettingsSection.openingNote()
 
     private let columns = [GridItem(.adaptive(minimum: 68), spacing: 10)]
 
@@ -111,24 +116,62 @@ struct AppIconSettingsSection: View {
                                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                                         .strokeBorder(
                                             isCurrent(choice) ? ShellPalette.accent : Color.white.opacity(0.16),
-                                            lineWidth: isCurrent(choice) ? 2 : 1
+                                            lineWidth: isCurrent(choice) ? 3 : 1
                                         )
                                 )
+                                .overlay(alignment: .bottomTrailing) {
+                                    if isCurrent(choice) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .font(.system(size: 16, weight: .bold))
+                                            .symbolRenderingMode(.palette)
+                                            .foregroundStyle(.white, ShellPalette.accent)
+                                            .background(Circle().fill(.black).padding(2))
+                                            .offset(x: 4, y: 4)
+                                    }
+                                }
                             Text(choice.name)
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.white)
+                                .font(.system(size: 10, weight: isCurrent(choice) ? .bold : .semibold))
+                                .foregroundStyle(isCurrent(choice) ? ShellPalette.accent : .white)
                                 .lineLimit(1)
                         }
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Use \(choice.name) as the Continuum icon")
+                    .accessibilityAddTraits(isCurrent(choice) ? AccessibilityTraits.isSelected : AccessibilityTraits())
                 }
             }
         }
+        .onAppear(perform: refreshFromSystem)
     }
 
     private func isCurrent(_ choice: AppIconChoice) -> Bool {
         selected == choice.alternateName
+    }
+
+    /// Prefer the live system value. If it is nil, keep the last name this app successfully
+    /// set, so a stale nil does not paint the ring on Default while Bitmap is on the home screen.
+    static func remembered() -> String? {
+        if let live = UIApplication.shared.alternateIconName { return live }
+        return UserDefaults.standard.string(forKey: storageKey)
+    }
+
+    private static func openingNote() -> String {
+        if let name = remembered() {
+            return "\(name) is set. iPhone asks each time, then it stays."
+        }
+        return "iPhone asks every time the icon changes. You can switch again whenever you want."
+    }
+
+    private func refreshFromSystem() {
+        let live = UIApplication.shared.alternateIconName
+        if let live {
+            selected = live
+            UserDefaults.standard.set(live, forKey: Self.storageKey)
+            return
+        }
+        if selected == nil, let stored = UserDefaults.standard.string(forKey: Self.storageKey) {
+            selected = stored
+        }
     }
 
     @ViewBuilder
@@ -153,20 +196,26 @@ struct AppIconSettingsSection: View {
             note = "This install cannot change its icon."
             return
         }
-        if UIApplication.shared.alternateIconName == choice.alternateName {
+        if selected == choice.alternateName {
             return
         }
+        let previous = selected
+        selected = choice.alternateName
         UIApplication.shared.setAlternateIconName(choice.alternateName) { error in
             DispatchQueue.main.async {
                 if let error {
+                    selected = previous
                     note = error.localizedDescription
+                    return
+                }
+                // Do not re-read `alternateIconName` here. It can still be nil after success.
+                selected = choice.alternateName
+                if let name = choice.alternateName {
+                    UserDefaults.standard.set(name, forKey: Self.storageKey)
+                    note = "\(choice.name) is set. iPhone asks each time, then it stays."
                 } else {
-                    selected = UIApplication.shared.alternateIconName
-                    if choice.alternateName == nil {
-                        note = "Primary icon restored. iPhone asks because it has to."
-                    } else {
-                        note = "\(choice.name) is set. iPhone asks each time, then it stays."
-                    }
+                    UserDefaults.standard.removeObject(forKey: Self.storageKey)
+                    note = "Primary icon restored. iPhone asks because it has to."
                 }
             }
         }
