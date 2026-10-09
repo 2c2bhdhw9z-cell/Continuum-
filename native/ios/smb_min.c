@@ -7,9 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* libsmb2.h first. libsmb2-raw.h uses types that header defines. */
+#include <smb2/libsmb2.h>
 #include <smb2/libsmb2-raw.h>
 #include <smb2/libsmb2-share-enum.h>
-#include <smb2/libsmb2.h>
 
 static void smb_fail(char *err, size_t err_len, struct smb2_context *smb2, const char *fallback) {
     const char *text = smb2 ? smb2_get_error(smb2) : NULL;
