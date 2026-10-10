@@ -79,7 +79,24 @@ enum CloudSyncPaths {
     /// directory. BIOS files live in the same directory and are deliberately not in this list.
     static let batteryExtensions: Set<String> = [
         "srm", "sav", "rtc", "eep", "sra", "fla", "mpk", "mcr", "mcd", "dsv", "nv", "ldci", "bcr",
+        // Beetle Saturn's backup RAM (`<game>.bkr`, see import/saves.rs `location`). Was missing,
+        // so Saturn saves were never synced or backed up.
+        "bkr",
     ]
+
+    /// Flycast's VMU files, loose in the save directory. `.bin` cannot go in the extension list
+    /// (BIOS files are `.bin` and live in the same folder), so these are matched by exact name.
+    static func isVMUSave(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        guard lower.hasPrefix("vmu_save_"), lower.hasSuffix(".bin") else { return false }
+        let mid = lower.dropFirst("vmu_save_".count).dropLast(".bin".count)
+        return mid.count == 2 && "abcd".contains(mid.first!) && "1234".contains(mid.last!)
+    }
+
+    /// Cores that keep saves in FOLDERS under the save directory (import/saves.rs `location`):
+    /// PPSSPP's `PSP/SAVEDATA` and Azahar's 3DS SD card. Synced as `CoreSaves/<that path>/...`.
+    /// Before this, PSP and 3DS in-game saves were in no sync or backup at all.
+    static let coreSaveFolders = ["PSP/SAVEDATA", "azahar/sdmc/Nintendo 3DS"]
 
     static func support() -> URL? {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -178,6 +195,16 @@ enum CloudSyncPaths {
                 return nil
             }
             return support.appendingPathComponent(name)
+        case ("Battery", 2) where isVMUSave(parts[1]):
+            return support.appendingPathComponent(parts[1])
+        case ("CoreSaves", let count) where count >= 3:
+            let inner = parts.dropFirst().joined(separator: "/")
+            guard coreSaveFolders.contains(where: { inner.hasPrefix($0 + "/") }) else { return nil }
+            var url = support
+            for (index, part) in parts.enumerated().dropFirst() {
+                url = url.appendingPathComponent(part, isDirectory: index < count - 1)
+            }
+            return url
         case ("BatterySaves", 2):
             // Where the engine itself writes SAVE_RAM (`Application Support/BatterySaves/`), as
             // opposed to the files some cores write into their save directory, above.
@@ -309,6 +336,19 @@ enum CloudSyncPaths {
         for url in files(in: support) {
             let path = "Battery/\(url.lastPathComponent)"
             if localURL(for: path) != nil, let s = stat(url, path: path) { out.append(s) }
+        }
+        for folder in coreSaveFolders {
+            let root = support.appendingPathComponent(folder, isDirectory: true)
+            let rootPath = root.standardizedFileURL.path
+            guard let walker = fm.enumerator(at: root, includingPropertiesForKeys:
+                [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey],
+                options: [.skipsHiddenFiles]) else { continue }
+            for case let url as URL in walker {
+                let full = url.standardizedFileURL.path
+                guard full.hasPrefix(rootPath + "/") else { continue }
+                let path = "CoreSaves/\(folder)/\(full.dropFirst(rootPath.count + 1))"
+                if localURL(for: path) != nil, let s = stat(url, path: path) { out.append(s) }
+            }
         }
         for url in files(in: support.appendingPathComponent("PlayerSaves", isDirectory: true)) {
             let path = "PlayerSaves/\(url.lastPathComponent)"
