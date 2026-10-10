@@ -556,7 +556,8 @@ pub fn write_opt(values: &BTreeMap<String, String>) -> String {
     for (key, value) in values {
         out.push_str(key);
         out.push_str(" = \"");
-        out.push_str(&value.replace('"', "'"));
+        // A line break would end the line early and turn the rest into a bogus line on reload.
+        out.push_str(&value.replace('"', "'").replace(['\n', '\r'], " "));
         out.push_str("\"\n");
     }
     out
@@ -1110,10 +1111,13 @@ pub fn set(core_id: &str, key: &str, value: &str, for_game: bool) -> Result<Stri
                 .clone()
                 .filter(|_| live)
                 .ok_or_else(|| "a per-game setting needs that game running".to_owned())?;
-            s.game_values.insert(key.to_owned(), value.to_owned());
+            // Written before it is kept, so a failed write leaves memory matching the disk.
+            let mut game_values = s.game_values.clone();
+            game_values.insert(key.to_owned(), value.to_owned());
             if let Some(root) = &root {
-                write_map(&game_opt_path(root, core_id, &game), &s.game_values)?;
+                write_map(&game_opt_path(root, core_id, &game), &game_values)?;
             }
+            s.game_values = game_values;
         } else {
             let mut values = if live {
                 s.core_values.clone()
@@ -1122,11 +1126,13 @@ pub fn set(core_id: &str, key: &str, value: &str, for_game: bool) -> Result<Stri
             };
             values.insert(key.to_owned(), value.to_owned());
             // A core-wide change replaces this game's own choice, or it would seem to do nothing.
-            if live {
-                s.game_values.remove(key);
+            if live && s.game_values.contains_key(key) {
+                let mut game_values = s.game_values.clone();
+                game_values.remove(key);
                 if let (Some(root), Some(game)) = (&root, s.active_game.clone()) {
-                    write_map(&game_opt_path(root, core_id, &game), &s.game_values)?;
+                    write_map(&game_opt_path(root, core_id, &game), &game_values)?;
                 }
+                s.game_values = game_values;
             }
             if let Some(root) = &root {
                 write_map(&core_opt_path(root, core_id), &values)?;
@@ -1601,6 +1607,9 @@ mod tests {
         map.insert("b".to_string(), "".to_string());
         let text = write_opt(&map);
         assert_eq!(read_opt(&text), map);
+        let mut broken = BTreeMap::new();
+        broken.insert("k".to_string(), "two\nlines\r".to_string());
+        assert_eq!(read_opt(&write_opt(&broken)).get("k").map(String::as_str), Some("two lines "));
         assert_eq!(read_opt("# comment\nx = y\n bad line\nq=\"r\"").get("x").map(String::as_str), Some("y"));
     }
 
