@@ -1535,7 +1535,7 @@ struct CloudSyncSection: View {
             }
             .tint(ShellPalette.accent)
             SettingsNote("Save states, battery saves, Flash and J2ME saves, cheats, skins, "
-                         + "favourites, manuals, Amiibo, cover choices and settings sync with a "
+                         + "starred games, manuals, Amiibo, cover choices and settings sync with a "
                          + "\"Continuum Sync\" folder inside "
                          + "the folder you choose. Any folder in Files works: iCloud Drive, Google "
                          + "Drive, Dropbox. Newest wins; a conflict keeps both copies in Continuum "
