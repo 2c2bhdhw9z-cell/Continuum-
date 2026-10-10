@@ -404,8 +404,8 @@ enum DeltaSkinImporter {
             throw DeltaSkinImportError.invalidJSON(error.localizedDescription)
         }
 
-        let name = (root["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            ?? "Untitled skin"
+        let trimmedName = (root["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = (trimmedName?.isEmpty == false ? trimmedName : nil) ?? "Untitled skin"
         let gameType = root["gameTypeIdentifier"] as? String
         let preview = GameSystem.fromDeltaGameType(gameType)
         let systemIDs = SkinGameTypes.systemIDs(forGameType: gameType)
@@ -732,19 +732,6 @@ enum DeltaSkinImporter {
         return BuiltFace(face: face, assetData: assetData, applied: kept ? max(mapped.applied, 1) : 0)
     }
 
-    private static func firstScreenOutput(
-        from screens: [[String: Any]],
-        mappingSize: CGSize
-    ) -> DeltaSkinNormalizedRect? {
-        for screen in screens {
-            guard let frame = readFrame(screen["outputFrame"]),
-                  let normalized = DeltaSkinNormalizedRect.from(frame: frame, mappingSize: mappingSize)
-            else { continue }
-            return normalized
-        }
-        return nil
-    }
-
     private struct AssetPick {
         let name: String
         let kind: DeltaSkinAssetKind
@@ -820,97 +807,6 @@ enum DeltaSkinImporter {
         if let s = value as? String, let d = Double(s) { return CGFloat(d) }
         return 0
     }
-
-    // MARK: Items → TouchLayout
-
-    private struct MappedItems {
-        let layout: TouchLayout
-        let appliedCount: Int
-        let skipped: [String]
-    }
-
-    private static func mapItems(_ items: [[String: Any]], mappingSize: CGSize) -> MappedItems {
-        var layout = TouchLayout.standard
-        var frees: [String: ButtonFree] = [:]
-        var applied = 0
-        var skipped: [String] = []
-
-        for item in items {
-            guard let frame = readFrame(item["frame"]) else {
-                skipped.append("(item missing frame)")
-                continue
-            }
-            let centreX = Double((frame.midX) / mappingSize.width)
-            let centreY = Double((frame.midY) / mappingSize.height)
-
-            if let directions = item["inputs"] as? [String: Any], isDirectional(directions) {
-                layout.dpadX = centreX
-                layout.dpadY = centreY
-                applied += 1
-                continue
-            }
-
-            let names = inputNames(from: item["inputs"])
-            guard let first = names.first else {
-                skipped.append("(empty inputs)")
-                continue
-            }
-
-            if let slot = PadSlot.fromDeltaInput(first) {
-                switch slot {
-                case .select:
-                    layout.selectX = centreX
-                    layout.selectY = centreY
-                case .start:
-                    layout.startX = centreX
-                    layout.startY = centreY
-                case .up, .down, .left, .right:
-                    // Lone direction chips are unusual in Delta skins; treat as D-pad centre.
-                    layout.dpadX = centreX
-                    layout.dpadY = centreY
-                default:
-                    frees[slot.layoutKey] = ButtonFree(x: centreX, y: centreY)
-                }
-                applied += 1
-            } else {
-                skipped.append(first)
-            }
-        }
-
-        layout.buttonFrees = frees
-        return MappedItems(layout: layout, appliedCount: applied, skipped: skipped)
-    }
-
-    private static func isDirectional(_ inputs: [String: Any]) -> Bool {
-        let keys = Set(inputs.keys.map { $0.lowercased() })
-        return keys.contains("up") && keys.contains("down")
-            && keys.contains("left") && keys.contains("right")
-    }
-
-    private static func inputNames(from value: Any?) -> [String] {
-        if let list = value as? [String] {
-            return list.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        }
-        if let dict = value as? [String: Any] {
-            // Directional dictionaries are handled separately; other dict shapes are ignored.
-            return dict.values.compactMap { $0 as? String }
-        }
-        if let single = value as? String {
-            let trimmed = single.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? [] : [trimmed]
-        }
-        return []
-    }
-
-    private static func readFrame(_ value: Any?) -> CGRect? {
-        guard let box = value as? [String: Any] else { return nil }
-        let x = number(box["x"])
-        let y = number(box["y"])
-        let width = number(box["width"])
-        let height = number(box["height"])
-        guard width > 0, height > 0 else { return nil }
-        return CGRect(x: x, y: y, width: width, height: height)
-    }
 }
 
 // MARK: - Delta name maps
@@ -921,34 +817,6 @@ extension GameSystem {
         // Strings first (SkinLibrary.swift), so an id for a console this build has no case for
         // is simply skipped here and still kept on the skin's record.
         SkinGameTypes.systemIDs(forGameType: identifier).lazy.compactMap(GameSystem.init(rawValue:)).first
-    }
-}
-
-extension PadSlot {
-    /// Maps a Delta item input name onto Continuum's layout key slot.
-    static func fromDeltaInput(_ name: String) -> PadSlot? {
-        switch name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "a": return .a
-        case "b": return .b
-        case "x": return .x
-        case "y": return .y
-        // PS1 face names (same retro slots Continuum labels Triangle/Circle/Cross/Square).
-        case "triangle": return .x
-        case "circle": return .a
-        case "cross": return .b
-        case "square": return .y
-        case "l", "l1": return .l
-        case "r", "r1": return .r
-        case "l2": return .l2
-        case "r2": return .r2
-        case "select": return .select
-        case "start": return .start
-        case "up": return .up
-        case "down": return .down
-        case "left": return .left
-        case "right": return .right
-        default: return nil
-        }
     }
 }
 
@@ -1141,9 +1009,10 @@ struct SkinPickOutcome {
     let result: Result<DeltaSkinImportResult, DeltaSkinImportError>
 }
 
-// MARK: - Minimal ZIP reader (info.json only)
+// MARK: - Minimal ZIP reader (info.json and the assets it names)
 
-/// Enough ZIP to pull `info.json` out of a .deltaskin. Supports store (0) and deflate (8).
+/// Enough ZIP to pull `info.json` and its assets out of a .deltaskin. Supports store (0) and
+/// deflate (8); no ZIP64.
 enum ZipStore {
 
     /// The entry at the package root wins over one with the same name in a subfolder, whatever
