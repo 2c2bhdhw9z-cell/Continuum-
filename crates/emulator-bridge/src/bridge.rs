@@ -1818,6 +1818,12 @@ impl EmulatorBridge {
         }
         let data = self.battery_save()?;
         let target = std::path::Path::new(path);
+        // Unchanged: nothing is written (0). The frontend now also flushes on a timer while a game
+        // runs, so a crash does not lose an in-game save; rewriting an identical file each time
+        // would only bump its mtime and make the sync upload it again.
+        if std::fs::read(target).map(|old| old == data).unwrap_or(false) {
+            return Ok(0);
+        }
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(|err| {
                 BridgeError::Memory(format!("could not create {}: {err}", parent.display()))
@@ -2352,6 +2358,8 @@ mod tests {
             .write_memory(crate::memory::MEMORY_SAVE_RAM, 0, &[0x5A, 0xA5])
             .unwrap();
         assert_eq!(bridge.persist_battery_save(&path).unwrap(), 8192);
+        // Unchanged since the last write: nothing is rewritten.
+        assert_eq!(bridge.persist_battery_save(&path).unwrap(), 0);
         let mut fresh = running_diagnostic();
         assert_eq!(fresh.battery_save().unwrap()[0], 0);
         assert_eq!(fresh.load_battery_save_file(&path).unwrap(), Some(8192));

@@ -886,7 +886,15 @@ final class SaveStates: ObservableObject {
             },
         ]
 
-        // DELIBERATELY NO TIMER. `retro_serialize` on a PlayStation state is a megabyte of struct
+        // A BATTERY-SAVE TIMER, unlike the auto-save. Battery saves were written only when the app
+        // left the front or the game was left, so a crash (PSP, this week) lost every in-game save
+        // made since launch. SAVE_RAM is small, and the engine writes nothing when it is unchanged.
+        batteryTimer?.invalidate()
+        batteryTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.persistBatterySave(reason: "periodic") }
+        }
+
+        // DELIBERATELY NO TIMER (for the auto-save state). `retro_serialize` on a PlayStation state is a megabyte of struct
         // copying inside the engine lock, and a hitch every few seconds while a game is being
         // played is a worse experience than an auto-save that is a few minutes older than it could
         // have been. The rewind tape already covers the "undo the last few seconds" case, and it
@@ -1620,21 +1628,30 @@ final class SaveStates: ObservableObject {
     /// looks exactly like lost progress.
     func restoreBatterySave(for entry: LibraryEntry) {
         let gameId = Self.gameId(for: entry)
+        batteryRestoreFailedFor = nil
         guard let url = SaveStateDisk.batteryURL(gameId: gameId) else { return }
         do {
             if let bytes = try engine.loadBatterySaveFile(path: url.path) {
                 line = "battery save: restored \(SaveStates.byteText(Int64(bytes))) for \(gameId)"
             }
         } catch {
-            report("the battery save for \(gameId) was not restored: \(error)")
+            // Never write this session's (blank) save RAM over the file that failed to load:
+            // the exit and timer flushes used to do exactly that, destroying the save.
+            batteryRestoreFailedFor = gameId
+            report("the battery save for \(gameId) was not restored: \(error). It is kept as it "
+                   + "is on disk and will not be overwritten this session.")
         }
     }
 
     /// Writes the running game's battery save to disk. Synchronous for the same reason the
     /// auto-save is: it runs while the app is being put away.
+    private var batteryTimer: Timer?
+    private var batteryRestoreFailedFor: String?
+
     func persistBatterySave(reason: String) {
         guard let entry = runningEntry() else { return }
         let gameId = Self.gameId(for: entry)
+        guard batteryRestoreFailedFor != gameId else { return }
         guard let url = SaveStateDisk.batteryURL(gameId: gameId) else { return }
         do {
             let bytes = try engine.persistBatterySave(path: url.path)
@@ -1713,6 +1730,7 @@ final class SaveStates: ObservableObject {
         if let running = runningEntry(), Self.gameId(for: running) == gameId {
             do {
                 _ = try engine.restoreBatterySave(data: data)
+                if batteryRestoreFailedFor == gameId { batteryRestoreFailedFor = nil }
             } catch {
                 report("battery save import refused: \(error)")
                 return false
