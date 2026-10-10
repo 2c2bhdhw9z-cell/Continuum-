@@ -418,7 +418,6 @@ fn orient_gl_rgba(
         out[dst_off..dst_off + dst_row_bytes]
             .copy_from_slice(&src[src_off..src_off + dst_row_bytes]);
     }
-    let _ = src_height;
     out
 }
 

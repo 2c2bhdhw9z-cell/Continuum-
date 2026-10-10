@@ -537,7 +537,9 @@ pub fn touch_region(placements: &[ScreenPlacement], geometry: &DualScreenGeometr
 /// the screen wants.
 pub fn map_touch(region: &TouchRegion, view_x: f32, view_y: f32, clamp: bool) -> Option<(f32, f32)> {
     let dest = region.dest;
-    if dest.is_empty() {
+    // A NaN coordinate passes no range check and survives `clamp`, so it would come out as a NaN
+    // guest point; there is no edge to read it as.
+    if dest.is_empty() || !view_x.is_finite() || !view_y.is_finite() {
         return None;
     }
     let mut u = (view_x - dest.x) / dest.w;
@@ -821,6 +823,8 @@ mod tests {
         assert!(map_touch(&region, 1.2, 0.75, false).is_none());
         let (x, _) = map_touch(&region, 1.2, 0.75, true).unwrap();
         assert!(close(x, 1.0));
+        assert!(map_touch(&region, f32::NAN, 0.75, true).is_none());
+        assert!(map_touch(&region, 0.5, f32::INFINITY, true).is_none());
     }
 
     #[test]
