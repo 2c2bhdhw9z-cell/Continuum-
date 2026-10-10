@@ -422,7 +422,10 @@ enum DeltaSkinImporter {
         guard let chosen = orientations.portrait ?? orientations.landscape else {
             throw DeltaSkinImportError.noUsableRepresentation
         }
-        let landscapeChoice = orientations.portrait == nil ? nil : orientations.landscape
+        // A landscape-only skin also fills the landscape face (BUG_AUDIT #25): it used to be
+        // stored only as the upright face, so turning the phone sideways, the one way the skin
+        // was made for, had no landscape layout and drew the upright fallback letterboxed.
+        let landscapeChoice = orientations.landscape
 
         let mapping = chosen.mappingSize
         guard mapping.width > 0, mapping.height > 0 else {
