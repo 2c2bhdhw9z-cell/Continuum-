@@ -573,10 +573,9 @@ enum GameSystem: String, Sendable, CaseIterable {
     ///
     /// NES, SNES, GB, GBC and GBA use the retro names directly, so B is B and A is A there.
     ///
-    /// No analog sticks in Stage 1. PS1 gets a digital pad, which is what the vast majority of
-    /// PS1 games were designed around and what Crash Bandicoot wants; an analog stick needs a
-    /// second surface and `RETRO_DEVICE_ANALOG` reporting, and it is recorded as later work
-    /// rather than half-drawn here.
+    /// No drawn analog stick. The N64, 3DS, PSP, Dreamcast and 5200 get one from the D-pad
+    /// surface (`dpadDrivesAnalogStick`), and a skin can declare its own. PS1 stays a digital pad,
+    /// which is what the vast majority of PS1 games were designed around.
     var controls: [PadControl] {
         switch self {
         case .nes, .gb, .gbc, .fds:
@@ -1023,7 +1022,6 @@ enum GameSystem: String, Sendable, CaseIterable {
         return out
     }
 
-    /// SELECT and START, side by side. Centres are 2.85 units apart, clear of a 2.6 unit pill.
     /// A single face button, centred in the cluster.
     ///
     /// The Atari 2600 is the one system here with exactly one, and centring it rather than putting
@@ -1037,7 +1035,8 @@ enum GameSystem: String, Sendable, CaseIterable {
         ]
     }
 
-    /// The bottom row of two pills, with the labels the console printed on them.
+    /// The bottom row of two pills, with the labels the console printed on them. Centres are
+    /// 2.85 units apart, clear of a 2.6 unit pill.
     ///
     /// Parameterised because the SLOTS are universal and the NAMES are not: every system sends
     /// retro SELECT and START, but the PC Engine wrote RUN on the second one and the Atari 2600
@@ -1056,14 +1055,6 @@ enum GameSystem: String, Sendable, CaseIterable {
 
 // MARK: - Where the controls sit
 
-/// The numbers that describe a control layout.
-///
-/// Started as six numbers for the two thumb clusters, then grew SELECT and START positions so
-/// every on-screen control the editor outlines can be dragged and persisted. Same limits as
-/// before: a control centred at 0 would be half off screen, and on iOS the outer few millimetres
-/// belong to the system's edge gestures.
-///
-/// `Codable` so the editor's result survives a relaunch. Decoding is deliberately forgiving and
 /// Absolute play-area centre for one face or shoulder button that has been dragged free of its
 /// cluster. SELECT and START keep dedicated fields on `TouchLayout` for backward compatibility
 /// with phase 1 payloads.
@@ -1072,6 +1063,14 @@ struct ButtonFree: Sendable, Equatable, Codable {
     var y: Double
 }
 
+/// The numbers that describe a control layout.
+///
+/// Started as six numbers for the two thumb clusters, then grew SELECT and START positions so
+/// every on-screen control the editor outlines can be dragged and persisted. Same limits as
+/// before: a control centred at 0 would be half off screen, and on iOS the outer few millimetres
+/// belong to the system's edge gestures.
+///
+/// `Codable` so the editor's result survives a relaunch. Decoding is deliberately forgiving and
 /// `sanitised` is applied on the way out, so an absent value, a truncated one and one written by a
 /// different build all land on something legal. Older payloads without SELECT/START or `buttonFrees`
 /// keys restore those from `standard` (clustered defaults, no frees). See `restored(from:)`.
@@ -1159,7 +1158,7 @@ struct TouchLayout: Sendable, Equatable, Codable {
     /// THE POINT IS THAT A PARTIAL PAYLOAD IS NOT A FAILURE. The synthesized initialiser throws
     /// the moment any single key is missing, which would turn a layout written by a build that
     /// named one field differently into a total reset, and the user would read that as the app
-    /// forgetting their arrangement. Per-field recovery keeps the five numbers it can still
+    /// forgetting their arrangement. Per-field recovery keeps every field it can still
     /// understand. Malformed JSON, which is not recoverable, is handled one level up in
     /// `restored(from:)`.
     init(from decoder: Decoder) throws {
@@ -1533,9 +1532,6 @@ final class TouchControlsView: UIView {
     /// still get it.
     private static let hitSlop: CGFloat = 5
 
-    /// How far outside a cluster its editing outline is drawn, and therefore how far outside it
-    /// can be grabbed. One number for both on purpose: the outline the user can see IS the area
-    /// that responds, so there is no invisible margin to discover by accident.
     /// How far outside a cluster's own bounds the editor's outline is drawn and responds.
     ///
     /// Raised from 7 after the editor was tried on a real phone and grabbing a group was reported
@@ -2047,7 +2043,7 @@ final class TouchControlsView: UIView {
     /// Skin analog sticks, in this view's coordinates. Hit before the D-pad so a circle pad
     /// is not the digital pad underneath it.
     private var stickHits: [(side: String, rect: CGRect)] = []
-    /// Skin buttons with no procedural chip (Home / menu). 
+    /// Skin buttons with no procedural chip (Home / menu).
     private var extraHits: [(slot: PadSlot, rect: CGRect)] = []
     /// Skin buttons that run a function, are switches, or hold a combo, by index in the face.
     private var specialHits: [(index: Int, rect: CGRect)] = []
@@ -3454,11 +3450,14 @@ final class TouchControlsView: UIView {
                             turbo: turbo)
 
         // Extra buttons that run an app action: one call on the press, one on the release.
-        // Released ones first, so a held fast forward ends before anything new begins.
+        // Released ones first, so a held fast forward ends before anything new begins. A release
+        // is always sent, editing or not (as with skin functions above): entering the editor
+        // calls `releaseAll` with `isEditing` already true, and skipping the release there would
+        // leave a held action (fast forward) stuck on.
+        for (id, action) in heldActionButtons where actionsHeld[id] == nil {
+            onAppAction?(action, false)
+        }
         if !isEditing {
-            for (id, action) in heldActionButtons where actionsHeld[id] == nil {
-                onAppAction?(action, false)
-            }
             for (id, action) in actionsHeld where heldActionButtons[id] == nil {
                 onAppAction?(action, true)
             }
