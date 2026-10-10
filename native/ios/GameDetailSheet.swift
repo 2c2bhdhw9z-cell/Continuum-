@@ -36,6 +36,12 @@ struct GameDetailSheet: View {
     @State private var showingSlots = false
     /// What the last `.cht` import did.
     @State private var chtLine = ""
+    /// Asks before "Delete every state for this game", like the delete buttons in Settings.
+    @State private var confirmDeleteAllStates = false
+    /// The state whose trash button was tapped, waiting for its confirmation.
+    @State private var pendingStateDelete: SaveStateRecord?
+    /// The cheat whose trash button was tapped, waiting for its confirmation.
+    @State private var pendingCheatDelete: Cheat?
 
     /// The artwork section's own state, owned by this sheet and nothing else.
     ///
@@ -200,7 +206,16 @@ struct GameDetailSheet: View {
                     stateRow(record)
                 }
                 SettingsButton(title: "Delete every state for this game", role: .destructive) {
-                    saveStates.deleteAll(forGameId: SaveStates.gameId(for: entry))
+                    confirmDeleteAllStates = true
+                }
+                .alert("Delete every state for this game?", isPresented: $confirmDeleteAllStates) {
+                    Button("Delete", role: .destructive) {
+                        saveStates.deleteAll(forGameId: SaveStates.gameId(for: entry))
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This includes the auto-save, so the game starts from the beginning. "
+                         + "This cannot be undone.")
                 }
             }
 
@@ -215,6 +230,20 @@ struct GameDetailSheet: View {
         }
         .padding(14)
         .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .alert(
+            "Delete this state?",
+            isPresented: Binding(
+                get: { pendingStateDelete != nil },
+                set: { if !$0 { pendingStateDelete = nil } }
+            ),
+            presenting: pendingStateDelete
+        ) { record in
+            Button("Delete", role: .destructive) { saveStates.delete(record) }
+            Button("Cancel", role: .cancel) {}
+        } message: { record in
+            Text("\(record.isAuto ? "The auto-save" : record.displayName) will be deleted. "
+                 + "This cannot be undone.")
+        }
     }
 
     /// One state: what it is on the left, what can be done to it on the right.
@@ -269,7 +298,7 @@ struct GameDetailSheet: View {
             .opacity(stored ? 1 : 0.45)
 
             Button {
-                saveStates.delete(record)
+                pendingStateDelete = record
             } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 14, weight: .semibold))
@@ -287,7 +316,7 @@ struct GameDetailSheet: View {
     private static func summary(of states: [SaveStateRecord]) -> String {
         let bytes = states.reduce(Int64(0)) { $0 + Int64(max(0, $1.byteCount)) }
         let autos = states.filter { $0.isAuto }.count
-        var parts = ["\(states.count) state(s)", SaveStates.byteText(bytes)]
+        var parts = [states.count == 1 ? "1 state" : "\(states.count) states", SaveStates.byteText(bytes)]
         parts.append(autos > 0 ? "including the auto-save" : "no auto-save yet")
         return parts.joined(separator: " \u{00B7} ")
     }
@@ -310,7 +339,8 @@ struct GameDetailSheet: View {
             if !list.isEmpty {
                 SettingsReadout(
                     label: "In the list",
-                    value: "\(list.count) code(s), \(list.filter { $0.enabled }.count) enabled"
+                    value: "\(list.count == 1 ? "1 code" : "\(list.count) codes"), "
+                        + "\(list.filter { $0.enabled }.count) enabled"
                 )
                 ForEach(list) { cheat in
                     cheatRow(cheat)
@@ -350,6 +380,20 @@ struct GameDetailSheet: View {
         }
         .padding(14)
         .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .alert(
+            "Delete this cheat?",
+            isPresented: Binding(
+                get: { pendingCheatDelete != nil },
+                set: { if !$0 { pendingCheatDelete = nil } }
+            ),
+            presenting: pendingCheatDelete
+        ) { cheat in
+            Button("Delete", role: .destructive) { cheats.delete(cheat) }
+            Button("Cancel", role: .cancel) {}
+        } message: { cheat in
+            Text("\(cheat.label.isEmpty ? "This unnamed cheat" : "\"\(cheat.label)\"") will be "
+                 + "removed from this game's list. This cannot be undone.")
+        }
     }
 
     private func cheatRow(_ cheat: Cheat) -> some View {
@@ -376,7 +420,7 @@ struct GameDetailSheet: View {
             .tint(ShellPalette.accent)
 
             Button {
-                cheats.delete(cheat)
+                pendingCheatDelete = cheat
             } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 14, weight: .semibold))
