@@ -586,18 +586,21 @@ impl ContinuumEngine {
     pub fn tick(&self, now_millis: f64) -> TickTelemetry {
         let mut guard = self.lock();
         match guard.tick(now_millis) {
-            Ok(report) => TickTelemetry {
-                steps: report.steps,
-                dropped: report.dropped,
-                presented: report.presented,
-                resynced: report.resynced,
-                display_fps: report.display_fps,
-                frame_count: report.frame_count,
-                audio_queued_frames: report.audio.queued_frames,
-                audio_underruns: report.audio.underruns as u32,
-                hardware_frame: crate::gfx::vulkan_hw::status().set_image_count > 0
-                    && crate::gfx::vulkan_hw::status().interface_ready,
-            },
+            Ok(report) => {
+                // One status read: two would take the state lock twice and could straddle a change.
+                let hw = crate::gfx::vulkan_hw::status();
+                TickTelemetry {
+                    steps: report.steps,
+                    dropped: report.dropped,
+                    presented: report.presented,
+                    resynced: report.resynced,
+                    display_fps: report.display_fps,
+                    frame_count: report.frame_count,
+                    audio_queued_frames: report.audio.queued_frames,
+                    audio_underruns: u32::try_from(report.audio.underruns).unwrap_or(u32::MAX),
+                    hardware_frame: hw.set_image_count > 0 && hw.interface_ready,
+                }
+            }
             Err(error) => {
                 log::debug!("tick failed: {error}");
                 TickTelemetry {
@@ -1134,7 +1137,7 @@ impl ContinuumEngine {
 
     /// Sets how the image is fitted to the screen. See [`ScaleModeOption`].
     ///
-    /// A 32-byte uniform write, so this is free to call whenever and takes effect on the
+    /// A small uniform write, so this is free to call whenever and takes effect on the
     /// next presented frame. Remembered by the engine across launches, so it does not need
     /// re-applying every time a game starts.
     pub fn set_scale_mode(&self, mode: ScaleModeOption) {
@@ -1538,20 +1541,6 @@ impl ContinuumEngine {
         crate::vulkan_probe::describe(&frameworks_dir)
     }
 
-    /// Step 3 of the graphics road: MoltenVK draws a triangle into an `MTLTexture` and the
-    /// compositor samples it with no CPU copy.
-    ///
-    /// Needs `attach_metal` first (for the shared `MTLDevice`) and MoltenVK in Frameworks.
-    /// Safe to call from the diagnostics path: every failure is a returned string. On a phone
-    /// a success line means the zero-copy handoff worked; on this Linux box the line says the
-    /// path is not available here.
-    /// Step 3 of the graphics road: MoltenVK draws a triangle into an `MTLTexture` and the
-    /// compositor samples it with no CPU copy.
-    ///
-    /// Needs `attach_metal` first (for the shared `MTLDevice`) and MoltenVK in Frameworks.
-    /// Safe to call from the diagnostics path: every failure is a returned string. On a phone
-    /// a success line means the zero-copy handoff worked; on this Linux box the line says the
-    /// path is not available here.
     /// Step 4: create (or reuse) the shared MoltenVK VkInstance/VkDevice/VkQueue and,
     /// when `SET_HW_RENDER` was already accepted, install those handles and call the
     /// core's `context_reset`.
@@ -1573,7 +1562,14 @@ impl ContinuumEngine {
         }
     }
 
-        pub fn vulkan_triangle_probe(&self, frameworks_dir: String) -> String {
+    /// Step 3 of the graphics road: MoltenVK draws a triangle into an `MTLTexture` and the
+    /// compositor samples it with no CPU copy.
+    ///
+    /// Needs `attach_metal` first (for the shared `MTLDevice`) and MoltenVK in Frameworks.
+    /// Safe to call from the diagnostics path: every failure is a returned string. On a phone
+    /// a success line means the zero-copy handoff worked; on this Linux box the line says the
+    /// path is not available here.
+    pub fn vulkan_triangle_probe(&self, frameworks_dir: String) -> String {
         #[cfg(target_vendor = "apple")]
         {
             let mut guard = self.lock();
