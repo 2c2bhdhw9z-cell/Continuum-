@@ -26,7 +26,7 @@ import UniformTypeIdentifiers
 
 /// Which category the shared AVAudioSession should be in.
 ///
-/// `.playback` normally. `.playAndRecord` with `.defaultToSpeaker` and `.allowBluetooth` only while
+/// `.playback` normally. `.playAndRecord` with `.defaultToSpeaker` and `.allowBluetoothHFP` only while
 /// a game holds a microphone, because that category routes game sound to the earpiece without
 /// `.defaultToSpeaker` and lowers Bluetooth to call quality, neither of which anyone wants while
 /// not blowing into the phone. `AudioOutput.startGraph` asks this rather than hardcoding
