@@ -130,6 +130,8 @@ mod apple {
         device: Device,
         phys: vk::PhysicalDevice,
         queue: vk::Queue,
+        /// The graphics queue family `queue` came from; the core is told this index.
+        queue_family: u32,
         metal_objects: ash::ext::metal_objects::Device,
     }
 
@@ -153,7 +155,7 @@ mod apple {
             gpu: ctx.phys.as_raw(),
             device: ctx.device.handle().as_raw(),
             queue: ctx.queue.as_raw(),
-            queue_index: 0,
+            queue_index: ctx.queue_family,
         })
     }
 
@@ -191,7 +193,7 @@ mod apple {
                     gpu: ctx.phys.as_raw(),
                     device: ctx.device.handle().as_raw(),
                     queue: ctx.queue.as_raw(),
-                    queue_index: 0,
+                    queue_index: ctx.queue_family,
                 };
                 *lock() = Some(ctx);
                 let installed = {
@@ -352,50 +354,61 @@ mod apple {
         let instance = unsafe { entry.create_instance(&create_info, None) }
             .map_err(|e| format!("vkCreateInstance: {e}"))?;
 
-        let phys = unsafe { instance.enumerate_physical_devices() }
-            .map_err(|e| format!("enumerate devices: {e}"))?
-            .into_iter()
-            .next()
-            .ok_or_else(|| "MoltenVK reported no physical devices".to_string())?;
+        // Everything between the instance and the device can fail; the instance is destroyed on
+        // the way out so a failed prepare does not leak it.
+        let picked = (|| -> Result<_, String> {
+            let phys = unsafe { instance.enumerate_physical_devices() }
+                .map_err(|e| format!("enumerate devices: {e}"))?
+                .into_iter()
+                .next()
+                .ok_or_else(|| "MoltenVK reported no physical devices".to_string())?;
 
-        let queue_family = unsafe { instance.get_physical_device_queue_family_properties(phys) }
-            .into_iter()
-            .enumerate()
-            .find(|(_, p)| p.queue_flags.contains(vk::QueueFlags::GRAPHICS))
-            .map(|(i, _)| i as u32)
-            .ok_or_else(|| "no graphics queue family".to_string())?;
+            let queue_family = unsafe { instance.get_physical_device_queue_family_properties(phys) }
+                .into_iter()
+                .enumerate()
+                .find(|(_, p)| p.queue_flags.contains(vk::QueueFlags::GRAPHICS))
+                .map(|(i, _)| i as u32)
+                .ok_or_else(|| "no graphics queue family".to_string())?;
 
-        let queue_priorities = [1.0f32];
-        let queue_info = vk::DeviceQueueCreateInfo::default()
-            .queue_family_index(queue_family)
-            .queue_priorities(&queue_priorities);
+            let queue_priorities = [1.0f32];
+            let queue_info = vk::DeviceQueueCreateInfo::default()
+                .queue_family_index(queue_family)
+                .queue_priorities(&queue_priorities);
 
-        let available_device = unsafe { instance.enumerate_device_extension_properties(phys) }
-            .map_err(|e| format!("enumerate device extensions: {e}"))?;
-        let available_device_names: Vec<&str> = available_device
-            .iter()
-            .map(|e| {
-                unsafe { CStr::from_ptr(e.extension_name.as_ptr() as *const c_char) }
-                    .to_str()
-                    .unwrap_or("")
-            })
-            .collect();
-        let device_plan =
-            FilteredDeviceExtensions::from_available(available_device_names.iter().copied())?;
+            let available_device = unsafe { instance.enumerate_device_extension_properties(phys) }
+                .map_err(|e| format!("enumerate device extensions: {e}"))?;
+            let available_device_names: Vec<&str> = available_device
+                .iter()
+                .map(|e| {
+                    unsafe { CStr::from_ptr(e.extension_name.as_ptr() as *const c_char) }
+                        .to_str()
+                        .unwrap_or("")
+                })
+                .collect();
+            let device_plan =
+                FilteredDeviceExtensions::from_available(available_device_names.iter().copied())?;
 
-        let metal_objects_name = vk::EXT_METAL_OBJECTS_NAME;
-        let portability_subset = ash::khr::portability_subset::NAME;
-        let mut device_exts: Vec<*const c_char> = Vec::new();
-        device_exts.push(metal_objects_name.as_ptr());
-        if device_plan.portability_subset {
-            device_exts.push(portability_subset.as_ptr());
-        }
-        let device_info = vk::DeviceCreateInfo::default()
-            .queue_create_infos(std::slice::from_ref(&queue_info))
-            .enabled_extension_names(&device_exts);
-
-        let device = unsafe { instance.create_device(phys, &device_info, None) }
-            .map_err(|e| format!("vkCreateDevice: {e}"))?;
+            let metal_objects_name = vk::EXT_METAL_OBJECTS_NAME;
+            let portability_subset = ash::khr::portability_subset::NAME;
+            let mut device_exts: Vec<*const c_char> = Vec::new();
+            device_exts.push(metal_objects_name.as_ptr());
+            if device_plan.portability_subset {
+                device_exts.push(portability_subset.as_ptr());
+            }
+            let device_info = vk::DeviceCreateInfo::default()
+                .queue_create_infos(std::slice::from_ref(&queue_info))
+                .enabled_extension_names(&device_exts);
+            let device = unsafe { instance.create_device(phys, &device_info, None) }
+                .map_err(|e| format!("vkCreateDevice: {e}"))?;
+            Ok((phys, queue_family, device))
+        })();
+        let (phys, queue_family, device) = match picked {
+            Ok(v) => v,
+            Err(reason) => {
+                unsafe { instance.destroy_instance(None) };
+                return Err(reason);
+            }
+        };
         let queue = unsafe { device.get_device_queue(queue_family, 0) };
         let metal_objects = ash::ext::metal_objects::Device::new(&instance, &device);
 
@@ -415,6 +428,7 @@ mod apple {
                 device,
                 phys,
                 queue,
+                queue_family,
                 metal_objects,
             },
             shared_ok,

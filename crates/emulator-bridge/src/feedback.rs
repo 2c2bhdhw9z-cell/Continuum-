@@ -373,6 +373,8 @@ pub fn compose(report: &Report) -> (String, String) {
     if !details.is_empty() {
         body.push(format!("--\n{}", details.join("\n")));
     }
+    // A subject is one line: a game file name with a line break in it must not split it.
+    let subject = subject.replace(['\r', '\n'], " ");
     (subject, body.join("\n\n"))
 }
 
@@ -480,5 +482,10 @@ mod tests {
         let (subject, body) = compose(&Report::default());
         assert_eq!(subject, "Continuum: Feedback");
         assert_eq!(body, "(no message typed)");
+        let (subject, _) = compose(&Report {
+            game: "Two\nlines.gba".into(),
+            ..Report::default()
+        });
+        assert_eq!(subject, "Continuum: Feedback - Two lines.gba");
     }
 }
