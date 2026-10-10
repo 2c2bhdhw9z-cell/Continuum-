@@ -71,6 +71,8 @@ console name) were not something to set up, and were not checked.
 gray ghost picture, then froze on the PUBLIC SERVICE ANNOUNCEMENT screen with loud static, and
 Midnight Club LA Remix resumed from its auto-save to a black screen with normal sound.
 
+**P-PSP3 (build 161).** NFS Most Wanted 5-1-0 from the start, hardware rendering (software rendering OFF). Expected: loading-screen movie plays with a real picture, no buzz, reaches the menu. If it crashes, send the crash report: its body now ends with the last 50 activity lines.
+
 **P-PSP2 (build after 158, new).** 1) Open NFS Most Wanted from the start. Expected: a clean logo
 (no gray see-through ghost, no white lines), and it gets past the PSA screen. Say if the static is
 still there and if the game reacts to buttons. 2) Open Midnight Club LA Remix with its auto-save.

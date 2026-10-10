@@ -752,7 +752,16 @@ impl EmulatorBridge {
             let mut step = gamepads.turbo_step(&snapshot);
             // Presses the engine makes itself: the Atari switches and the FDS side flip.
             actions.pulse_step(&mut step);
+            // PSP only (strict sync is PPSSPP's session flag): where a frame died, for the
+            // crash report. Sparse; see `feedback::frame_phase`.
+            let phases = crate::gfx::vulkan_hw::strict_sync();
+            if phases {
+                crate::feedback::frame_phase(session.core.frame_count(), "run");
+            }
             session.core.run_frame(&step)?;
+            if phases {
+                crate::feedback::frame_phase(session.core.frame_count(), "ran");
+            }
             // 2a. Achievements, against memory exactly as the game left it this frame, before
             //     any poke rewrites it.
             #[cfg(feature = "native-core")]
@@ -803,7 +812,11 @@ impl EmulatorBridge {
         if let Some(renderer) = renderer.as_mut() {
             // A core may call SET_ROTATION at any time; these are plain field writes.
             actions.push_to(renderer, session.core.rotation());
+            let phases = plan.steps > 0 && crate::gfx::vulkan_hw::strict_sync();
             if plan.steps > 0 {
+                if phases {
+                    crate::feedback::frame_phase(session.core.frame_count(), "adopt");
+                }
                 if let Err(err) = crate::gfx::vulkan_hw::apply_pending_to_renderer(renderer) {
                     log::debug!("vulkan HW adopt skipped: {err}");
                 }
@@ -813,6 +826,9 @@ impl EmulatorBridge {
             } else {
                 None
             };
+            if phases {
+                crate::feedback::frame_phase(session.core.frame_count(), "present");
+            }
             renderer.present(frame)?;
             presented = true;
         }

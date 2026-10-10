@@ -115,6 +115,16 @@ pub fn launch_step(text: &str) {
     }
 }
 
+/// A per-frame phase marker (`frame: N phase`) for a session that needs one (PSP). Only the
+/// first frames and then every 120th are written, so the log is not flooded; the line is not
+/// fsynced (a crash mid-frame still leaves the last one that reached the page cache, and the
+/// launch steps before it are fsynced).
+pub fn frame_phase(frame: u64, phase: &str) {
+    if frame < 4 || frame % 120 == 0 {
+        log_add("", &format!("frame: {frame} {phase}"));
+    }
+}
+
 /// This session's log, oldest line first, at most `limit` lines (the newest ones).
 pub fn log_text(limit: usize) -> String {
     let guard = lock(&LOG);
@@ -336,6 +346,9 @@ pub struct Report {
 }
 
 /// The subject and the text of the message.
+/// Activity lines a crash report puts in its body.
+pub const CRASH_BODY_LINES: usize = 50;
+
 pub fn compose(report: &Report) -> (String, String) {
     let kind = if report.kind.trim().is_empty() {
         "Feedback"
@@ -391,6 +404,15 @@ pub fn compose(report: &Report) -> (String, String) {
         .collect();
     if !details.is_empty() {
         body.push(format!("--\n{}", details.join("\n")));
+    }
+    // A crash report carries the end of the log that ended in the crash in its body too, not
+    // only in the attached file: the last `launch:` and `frame:` lines say where it died, and
+    // a mail client that drops the attachment must not lose them.
+    if kind.to_ascii_lowercase().contains("crash") {
+        let tail = log_previous_text(CRASH_BODY_LINES);
+        if !tail.trim().is_empty() {
+            body.push(format!("-- last {CRASH_BODY_LINES} activity lines --\n{tail}"));
+        }
     }
     // A subject is one line: a game file name with a line break in it must not split it.
     let subject = subject.replace(['\r', '\n'], " ");

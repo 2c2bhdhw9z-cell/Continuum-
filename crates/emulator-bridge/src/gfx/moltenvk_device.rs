@@ -449,6 +449,17 @@ mod apple {
             Retained::retain(mtl_texture as *mut ProtocolObject<dyn MTLTexture>)
         }
         .ok_or_else(|| "Retained::retain on set_image MTLTexture returned None".to_string())?;
+        // video_refresh's size must not exceed the image the core really made (PPSSPP makes its
+        // images once, at its internal resolution). A wgpu texture that claims more than the
+        // MTLTexture holds is out-of-bounds GPU memory, so clamp to what is there.
+        let (width, height) = {
+            let tw = retained.width() as u32;
+            let th = retained.height() as u32;
+            if tw == 0 || th == 0 {
+                return Err("set_image MTLTexture has zero size".into());
+            }
+            (width.min(tw), height.min(th))
+        };
 
         let hal_texture = unsafe {
             wgpu::hal::metal::Device::texture_from_raw(

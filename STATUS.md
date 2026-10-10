@@ -20,6 +20,7 @@ older line here disagrees with this paragraph, this paragraph is the current one
   read from the core (R8G8B8A8 vs B8G8R8A8) for every Vulkan core; Azahar's is unchanged. A PSP
   auto-save is resumed after ~30 frames instead of before the first one, when PPSSPP has no GPU yet.
   The NFS static is not explained; it may be the stalled game. TESTING P-PSP2.
+  Build 161: the gray ghost showed with PPSSPP's software renderer too, so it was not GPU sync. PPSSPP was built with USE_FFMPEG=OFF, so PSMF movies (EA loading screens) and their audio never decoded: ghost + buzz. Now USE_FFMPEG=ON (ffmpeg/ios/universal). GPU path unchanged (Vulkan). Adopted frame clamped to the real MTLTexture size; crash report body carries the last 50 log lines with PSP `frame:` phase markers. TESTING P-PSP3.
 
 **After build 157 (built, untested on a phone):**
 - **PSP crash on opening a game, root cause found.** PPSSPP asks for its Vulkan context from inside

@@ -444,8 +444,8 @@ ios_core_config() {
       # hardware context is Vulkan, and CreateGraphicsContext tries Vulkan for
       # that answer. Frames are the same set_image path Azahar uses. No BIOS.
       #
-      # USE_FFMPEG=OFF so the ffmpeg submodule (prebuilt blobs for every
-      # platform) is not cloned. PMF video in a game will not decode. The
+      # USE_FFMPEG=ON with the ffmpeg submodule (prebuilt static libs per
+      # platform; CMake picks ffmpeg/ios/universal). PSMF video decodes. The
       # selected submodule list is what the libretro target's CMake actually
       # add_subdirectory's.
       IOS_REPO="https://github.com/hrydgard/ppsspp"
@@ -475,6 +475,7 @@ ios_core_config() {
         ext/cpu_features
         ext/OpenXR-SDK
         ext/miniupnp
+        ffmpeg
       )
       IOS_DISPLAY="PSP, Vulkan, IR interpreter (no JIT, no dynarec)"
       ;;
@@ -1134,7 +1135,13 @@ build_ios_ppsspp_core() {
   # detection is the toolchain's IOS variable, and its libretro job does not
   # pass CMAKE_SYSTEM_NAME.
   #
-  # USE_FFMPEG=OFF: no ffmpeg submodule, so in-game PMF video does not decode.
+  # USE_FFMPEG=ON with the ffmpeg submodule's prebuilt ffmpeg/ios/universal static libs, the
+  # same ones PPSSPP's own iOS app links. With it OFF, PSMF movies and their ATRAC audio did not
+  # decode: EA titles (NFS Most Wanted 5-1-0) draw a looping movie on their loading screens, which
+  # showed as a gray translucent ghost even with PPSSPP's software renderer, and the movie's
+  # audio stream came out as a loud buzz. That is a missing decoder, not a GPU problem.
+  # The extra linker flags are the system libraries the prebuilt ffmpeg may reference (its
+  # VideoToolbox hwaccel, iconv, bzip2, zlib); the libretro target does not add them itself.
   # USE_DISCORD off: libretro does not link discord-rpc. USE_MINIUPNPC
   # off skips building miniupnpc, but PortManager.h still includes it, so
   # ext/miniupnp is cloned above.
@@ -1145,7 +1152,8 @@ build_ios_ppsspp_core() {
   cmake -G "Unix Makefiles" -S "$IOS_SRC_DIR" -B "$build_dir" \
     -DCMAKE_TOOLCHAIN_FILE="$IOS_SRC_DIR/cmake/Toolchains/ios.cmake" \
     -DLIBRETRO=ON \
-    -DUSE_FFMPEG=OFF \
+    -DUSE_FFMPEG=ON \
+    -DCMAKE_SHARED_LINKER_FLAGS="-framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework CoreFoundation -framework AudioToolbox -framework Security -liconv -lbz2 -lz" \
     -DUSE_DISCORD=OFF \
     -DUSE_MINIUPNPC=OFF \
     -DHEADLESS=OFF \
