@@ -119,8 +119,22 @@ static ADOPTED_IMAGE_SIZE: std::sync::atomic::AtomicU64 = std::sync::atomic::Ato
 /// crash/activity report can say whether the core drew a frame smaller than its image.
 pub fn note_adopted_sizes(width: u32, height: u32, image_width: u32, image_height: u32) {
     use std::sync::atomic::Ordering;
-    ADOPTED_SIZES.store(((width as u64) << 32) | height as u64, Ordering::Relaxed);
-    ADOPTED_IMAGE_SIZE.store(((image_width as u64) << 32) | image_height as u64, Ordering::Relaxed);
+    let content = ((width as u64) << 32) | height as u64;
+    let image = ((image_width as u64) << 32) | image_height as u64;
+    let old_content = ADOPTED_SIZES.swap(content, Ordering::Relaxed);
+    let old_image = ADOPTED_IMAGE_SIZE.swap(image, Ordering::Relaxed);
+    // Written on change only, capped, so a report shows whether frames were smaller than the
+    // image (the cause suspected for PSP gray/cropped screens) without flooding the log.
+    static LINES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    if (content != old_content || image != old_image)
+        && LINES.fetch_add(1, Ordering::Relaxed) < 200
+    {
+        let cropped = if width < image_width || height < image_height { " CROPPED" } else { "" };
+        crate::feedback::log_add(
+            "",
+            &format!("hw frame size: shown {width}x{height}, image {image_width}x{image_height}{cropped}"),
+        );
+    }
 }
 
 /// `((content_w, content_h), (image_w, image_h))` of the last adopted frame; zeros before one.
