@@ -51,6 +51,20 @@ Not part of that, so still unconfirmed: rewind letting go the same way, covers n
 and the phone name on the feedback screen (P3). The skin-list protections (one bad skin, a nonsense
 console name) were not something to set up, and were not checked.
 
+## N. NES on Mesen (build after 152, new)
+
+**N1. AccuracyCoin on Mesen.** Import `AccuracyCoin.nes` (github.com/100thCoin/AccuracyCoin).
+Tap it. It should open on Mesen (the game page or HUD names the core). At the top of the menu
+press Start to run every test, wait for the results table, and tell me the **TESTS PASSED** number
+(and "Tests skipped" if shown). FCEUmm scored 86/146 with 7 skipped on your phone; Mesen scored
+142/146 on the box.
+
+**N2. A normal NES game on Mesen.** Play any NES game for a minute: picture, sound, controls.
+If it has a battery save (Zelda, for example), save in-game, quit, reopen and check it is there.
+Make a save state and load it.
+
+**N3. Fallback.** Settings → NES core → FCEUmm, open a game, check it still plays. Switch back.
+
 ## S. Symbian / N-Gage (build after 150, new)
 
 **S1. A Symbian game boots.** You need two things the app does not include:

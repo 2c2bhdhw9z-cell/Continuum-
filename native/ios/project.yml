@@ -807,6 +807,10 @@ targets:
         embed: true
         link: false
         codeSign: false
+      - framework: build/lib/mesen2_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
       - framework: build/lib/mame2003_plus_libretro_ios.dylib
         embed: true
         link: false

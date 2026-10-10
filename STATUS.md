@@ -94,7 +94,7 @@ is still ahead, hardest last (road steps 10 to 12).
 
 | System | Core | State | What is missing |
 | --- | --- | --- | --- |
-| NES | fceumm | **Done** | |
+| NES | mesen2 (default), fceumm (fallback) | **Partial** | FCEUmm is **Done** on the phone. **Mesen 2** is the default NES core from the next build: **Built, untested** on a phone. Reason: accuracy. AccuracyCoin.nes on the owner's phone with FCEUmm (device baseline, 9 October 2026): **86 of 146 passed, 7 skipped**. Run headless on the box against the Linux libretro builds: Mesen 2 **142 of 146 passed, 0 skipped**; FCEUmm never finished the run there (hung partway, no result table), which matches the phone needing skips. FCEUmm stays selectable in Settings → NES core. Save states from one core do not load on the other; battery saves are kept by the app, not the core, so they should carry over (not yet seen on a phone). TESTING N1 |
 | SNES | snes9x | **Done** | |
 | Game Boy | mgba | **Done** | Build 125: a game ran, saved and loaded |
 | Game Boy Color | mgba | **Done** | |
@@ -103,7 +103,7 @@ is still ahead, hardest last (road steps 10 to 12).
 | Game Gear | genesis_plus_gx | **Done** | |
 | Mega Drive / Genesis | genesis_plus_gx | **Done** | |
 | PlayStation | pcsx_rearmed | **Done** | Interpreter, not the recompiler. Fast enough; see Recompiler below. Runs without a BIOS. **Beetle PSX HW** is a second PlayStation option (Settings → PlayStation core) and needs a real BIOS file. Beetle booted Crash at ~60 fps on build 98 (with `scph1001.bin`) on its software renderer; the engine now keeps Beetle on software by default. The hardware (Vulkan) renderer is a choice in Core settings and has not been seen on a phone. Since build 124 the BIOS line reads `BIOS (mednafen_psx_hw)` with Beetle selected and finds BIOS names in capitals (TESTING A7). A save state from one PlayStation option does not load on the other. See road step 4 |
-| **Famicom Disk System** | fceumm | **Built, untested** | Needs `disksys.rom`, which is Nintendo's own code and cannot ship with the app. The launch path checks for it by name and says so rather than letting the core fail |
+| **Famicom Disk System** | fceumm (default), mesen2 (choice) | **Built, untested** | Mesen 2 is a Settings choice here, not the default, because the app's disk-side button drives FCEUmm only; Mesen inserts disks on its own. Needs `disksys.rom`, which is Nintendo's own code and cannot ship with the app. The launch path checks for it by name and says so rather than letting the core fail |
 | **Sega SG-1000** | genesis_plus_gx | **Built, untested** | Needs nothing extra |
 | **Nintendo 64** | parallel_n64 | **Done** | Device-proven on build 97 (`258a828`): past `N64 first tick…`, frames climbing, ~60 fps into Smash character select. Soft/interp only (no JIT on this signed IPA). `.n64`, `.z64`, `.v64` |
 | **TurboGrafx-16** | mednafen_pce_fast | **Done** | HuCard games (`.pce`): a game ran, saved and loaded on build 125. PC Engine CD is its own system (Beetle PCE) and needs a system card BIOS you supply (TESTING C15) |

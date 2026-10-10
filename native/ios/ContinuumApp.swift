@@ -173,6 +173,27 @@ enum CoreCatalog {
         biosNames: []
     )
 
+    /// NES and Famicom Disk System on Mesen 2 (libretro target, prebuilt by the iOS buildbot,
+    /// pinned in scripts/fetch-buildbot-cores.sh). The DEFAULT NES core since build 153 because it is
+    /// far more accurate: AccuracyCoin.nes, run headless on the Linux build of the same core,
+    /// passes 142 of 146 tests, against 86 of 146 for FCEUmm on the owner's phone. No JIT. The
+    /// same dylib also carries other systems; only NES and FDS are routed to it. Its save states
+    /// are its own: the app already refuses a state written by another core (FCEUmm).
+    static let mesen2 = CoreSpec(
+        coreId: "mesen2",
+        displayName: "Mesen (NES)",
+        systems: ["nes", "fds"],
+        library: "mesen2_libretro_ios.dylib",
+        width: 256, height: 240,
+        maxWidth: 256, maxHeight: 240,
+        aspectRatio: 1.2195,
+        fps: 60.0988,
+        sampleRate: 48000,
+        pixelFormat: 1,
+        priority: 90,
+        biosNames: []
+    )
+
     /// SNES. The max geometry is the hi-res interlaced worst case (1024x478).
     static let snes9x = CoreSpec(
         coreId: "snes9x",
@@ -674,7 +695,7 @@ enum CoreCatalog {
 
     /// Every core, in the order the HUD reports them.
     static let all: [CoreSpec] = [
-        fceumm, snes9x, mgba, genesisPlusGx, pcsxReARMed, mednafenPsxHw, melonDS,
+        mesen2, fceumm, snes9x, mgba, genesisPlusGx, pcsxReARMed, mednafenPsxHw, melonDS,
         mednafenPceFast, stella, parallelN64, azahar, ppsspp,
         mednafenWswan, mednafenNgp, mednafenPce, mednafenSupergrafx, puae, viceX64sc,
         dosboxPure, prboom, virtualJaguar, handy, prosystem, a5200, fbneo, mame2003Plus,
@@ -747,11 +768,11 @@ enum CoreCatalog {
     ///   - `mdx`, `68k`, `sgd`, `bms`, `img`, `cbn` and `ids` are rare enough that nobody will miss
     ///     them, and `img` is ambiguous enough to be anything at all.
     static let routeTable: [String: Route] = [
-        "nes": Route(coreId: fceumm.coreId, system: .nes),
+        "nes": Route(coreId: mesen2.coreId, system: .nes),
         // Unheadered NES dumps. Same core, same system, and refusing them was a gap rather than a
         // decision.
-        "unf": Route(coreId: fceumm.coreId, system: .nes),
-        "unif": Route(coreId: fceumm.coreId, system: .nes),
+        "unf": Route(coreId: mesen2.coreId, system: .nes),
+        "unif": Route(coreId: mesen2.coreId, system: .nes),
         // The Famicom's disk drive. A system in its own right; see `GameSystem.fds`. NEEDS the
         // Disk System BIOS, which is why `launch` checks for it by name and says so.
         "fds": Route(coreId: fceumm.coreId, system: .fds),
@@ -976,7 +997,7 @@ enum CoreCatalog {
     /// system is tied to a core: the wave-two rows above derive from it through `on(_:)`, and a
     /// resolver answer is turned into a core through it.
     static let defaultCoreBySystem: [GameSystem: String] = [
-        .nes: fceumm.coreId, .fds: fceumm.coreId,
+        .nes: mesen2.coreId, .fds: fceumm.coreId,
         .snes: snes9x.coreId,
         .gb: mgba.coreId, .gbc: mgba.coreId, .gba: mgba.coreId,
         .sms: genesisPlusGx.coreId, .gg: genesisPlusGx.coreId, .genesis: genesisPlusGx.coreId,
@@ -1016,6 +1037,8 @@ enum CoreCatalog {
     /// PlayStation keeps its own long-standing `Ps1CoreChoice` control and storage key.
     static let coreChoices: [GameSystem: [String]] = [
         .ps1: [pcsxReARMed.coreId, mednafenPsxHw.coreId],
+        .nes: [mesen2.coreId, fceumm.coreId],
+        .fds: [fceumm.coreId, mesen2.coreId],
         .arcade: [fbneo.coreId, mame2003Plus.coreId],
         .saturn: [yabause.coreId, mednafenSaturn.coreId],
     ]

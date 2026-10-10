@@ -591,9 +591,9 @@ struct SettingsScreen: View {
     /// Every other system with two cores (`CoreCatalog.coreChoices`): Arcade and Saturn today.
     /// The choice is stored per system and applies from the next launch of that system.
     private var systemCoresSection: some View {
-        SettingsSection(title: "ARCADE AND SATURN CORES") {
+        SettingsSection(title: "NES, ARCADE AND SATURN CORES") {
             let _ = host.coreChoiceVersion
-            ForEach([GameSystem.arcade, GameSystem.saturn], id: \.self) { system in
+            ForEach([GameSystem.nes, GameSystem.fds, GameSystem.arcade, GameSystem.saturn], id: \.self) { system in
                 SettingsLabel("Core for \(system.displayName) games")
                 SegmentedChoice(
                     options: CoreCatalog.coreChoices[system] ?? [],
@@ -605,7 +605,11 @@ struct SettingsScreen: View {
                 )
             }
             SettingsNote(
-                "FinalBurn Neo is the default arcade core and MAME 2003-Plus the second choice; "
+                "Mesen is the default NES core because it is much more accurate. FCEUmm is "
+                + "there as a fallback. The Disk System stays on FCEUmm by default, because the "
+                + "disk-side button only works there; Mesen flips sides on its own. Save states "
+                + "only load on the core that made them; battery saves carry over. "
+                + "FinalBurn Neo is the default arcade core and MAME 2003-Plus the second choice; "
                 + "a romset made for one often does not run on the other. Yabause is the default "
                 + "Saturn core and runs without a BIOS file. Beetle Saturn is more accurate and "
                 + "needs a real Saturn BIOS (sega_101.bin or mpr-17933.bin). Each choice applies "

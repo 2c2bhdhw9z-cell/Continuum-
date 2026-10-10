@@ -357,6 +357,8 @@ jobs:
             || { echo "::error::the libretro wrapper is not embedded; the app would launch and fail to load a core"; exit 1; }
           unzip -l "$IPA" | grep -q "fceumm_libretro_ios.dylib" \
             || { echo "::error::the NES core is not embedded; .nes files would list in the Library and fail to launch"; exit 1; }
+          unzip -l "$IPA" | grep -q "mesen2_libretro_ios.dylib" \
+            || { echo "::error::Mesen, the default NES core, is not embedded; .nes files would fail to launch unless FCEUmm is picked in Settings"; exit 1; }
           unzip -l "$IPA" | grep -q "mgba_libretro_ios.dylib" \
             || { echo "::error::the GBA/GB/GBC core is not embedded; .gba, .gb and .gbc files would list in the Library and fail to launch"; exit 1; }
           unzip -l "$IPA" | grep -q "genesis_plus_gx_libretro_ios.dylib" \

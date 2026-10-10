@@ -68,6 +68,7 @@ pinned_sha256() {
     dosbox_pure)         echo "01200d7c974308a79f29de978685f276fadd510980f49324d6dc5d503854538a" ;;
     fbneo)               echo "04d0c5a304a9a1ed038ffebf3f94854c1cab71e6e5f1d3d004d552bff51fcd3c" ;;
     handy)               echo "402ba7a02edf5ba345464de4c0e332faefe86c4d4cb73ed44f6a11962b50846b" ;;
+    mesen2)              echo "45dad6b7ea69142cc98d8c9b5274506b75752bedda89d69acdf8469c3b1d401b" ;;
     mame2003_plus)       echo "2cebb44c5fa26931b60de23cb4260b1db7ebaade413f42df1665cffaaad89ce1" ;;
     mednafen_ngp)        echo "1ed8617c9e45a572998d093d5b389f3ee16eeb9e019c6dbe2f9b9beaa59ff7ae" ;;
     mednafen_pce)        echo "6e078cf6fe615bf171b8c2401681457f233e26793a5eb42d736159d55483815b" ;;
@@ -107,6 +108,7 @@ BUILDBOT_CORES=(
   "a5200 Atari-5200"
   "fbneo Arcade"
   "mame2003_plus Arcade-MAME-2003-Plus"
+  "mesen2 NES-Mesen"
   "pokemini Pokemon-Mini"
   "mednafen_vb Virtual-Boy"
   "yabause Saturn"
