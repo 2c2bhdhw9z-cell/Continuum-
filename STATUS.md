@@ -1,18 +1,13 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-9 October 2026. **Build 150** (`ef3ce42`) is published. The run
-[37991215179](https://github.com/2c2bhdhw9z-cell/Continuum-/actions/runs/37991215179)
-succeeded. The install is
-[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-150-ef3ce42/Continuum.ipa)
-(also Continuum-150.ipa, tag `build-150-ef3ce42`). It is the same app as build 149. Continuum
-Symbian is not in it. A `.sis` will not boot.
-**Build 149** (`d2a92a9`) is the one that added SMB, the 3DS camera and Amiibo:
-[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-149-d2a92a9/Continuum.ipa).
-Builds 147 and 148 compiled the cores and then failed in `smb_min.c` before any IPA. 147 included
-the raw header first. 148 included `libsmb2.h` first, and `smb2_file_id` is actually in `smb2.h`.
-149 includes `smb2.h`, then `libsmb2.h`, then the raw header. The cores from 147 stayed cached
-and 149 reused them. Build 146 (`efd798e`) is the install before that.
+9 October 2026. **Build 153** (`ff750f5`) is the newest published install:
+[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-153-ff750f5/Continuum.ipa).
+It has everything from build 152 (the second 3DS stutter fix and Continuum Symbian, whose
+`continuum_symbian_libretro_ios.dylib` is in the IPA) plus Mesen 2 as the default NES core. The
+next build after it adds the beta-readiness pass (open-source credits in Settings → About, the SMB
+wording in the Local Network permission). Older build notes further down are history; where an
+older line here disagrees with this paragraph, this paragraph is the current one.
 
 Five states only:
 
@@ -28,6 +23,41 @@ Nothing here is rounded up.
 
 For what the owner wants built, and the scope rules this page works inside, see
 [docs/PRODUCT_SCOPE.md](docs/PRODUCT_SCOPE.md).
+
+## Public beta readiness (audit, 9 October 2026)
+
+What a code pass on the whole app found. Rust tests: 614 pass (`cargo test --workspace
+--features emulator-bridge/native-core`). The Swift checks (`check-players.sh`, `check-skins.sh`)
+need `swiftc` and only run on the Mac CI runner.
+
+Already fine: no `try!` or forced casts that can fire at run time (the only `fatalError`s are the
+storyboard initialisers UIKit never calls), the skin unzip has a 64 MB per-file cap, the backup
+prompt is not shown on a first launch with an empty library and waits for the crash prompt, the docs/BUG_AUDIT.md items spot-checked (1, 11, 12, 32) are fixed in the code (the rest were
+not re-checked), Camera, Microphone and
+Local Network permission texts are present.
+
+Fixed in this pass: an open-source credits list (each shipped core and library, its license, a
+link to its source) under Settings → About; the Local Network text now mentions SMB; a Settings
+note that quoted an internal ticket number ("FEAT-006") was reworded.
+
+**What still blocks or limits a public beta (licensing):**
+
+- **Non-commercial cores:** Snes9x, Genesis Plus GX, PicoDrive, FinalBurn Neo and MAME 2003-Plus
+  may only be given away free. A free beta by direct IPA link is fine. Any paid version, ads,
+  tips-for-access, or App Store sale is not allowed with them in the app.
+- **GPL cores** (most of the rest, including Mesen 2, melonDS, Azahar, PPSSPP, and EKA2L1 inside
+  Continuum Symbian, which is GPL v3): anyone given the IPA must be able to get the source. The
+  repository is public, which covers it as long as it stays public and each release's commit is
+  kept. The repository has **no license file of its own**. The owner should choose one; because
+  Continuum Symbian links GPL v3 code, GPL v3 is the simple, compatible choice. That is the owner's
+  decision, not something changed here.
+- **The App Store** is not an option with GPL cores (Apple's terms conflict with GPL) and the
+  non-commercial ones. Sideloading only. TestFlight is also Apple
+  distribution, so the same caution applies.
+- Games, BIOS and phone firmware are never included, and must stay that way.
+
+Known limits worth telling testers: audio uses a simple linear resampler (can sound slightly
+harsh on some systems); Symbian sound ignores the app volume and has no save states.
 
 ## Next up
 
@@ -296,7 +326,7 @@ The getting-games-in work below rode along in this build.
 
 ---
 
-## Not yet built — the real scrolling cause, the cover flash, and the device name
+## Built in 142 — the real scrolling cause, the cover flash, and the device name
 
 **The first two scrolling attempts did nothing on any tab, and the owner was right to say so.**
 Both were guesses. This one was measured.
@@ -335,7 +365,7 @@ theapplewiki's per-model pages rather than guessed.
 
 ---
 
-## Not yet built — the core cache was being deleted a second after it was restored
+## Built in 142 — the core cache was being deleted a second after it was restored
 
 **The ~6 minute build never happened, and build 142 is the proof.** Its log reads
 `Cache hit for: ios-cores-macOS-1c0a08df...` and `Cache restored successfully`, then rebuilt all
@@ -362,7 +392,7 @@ build after this should be the first genuinely fast one.
 
 ---
 
-## Not yet built — the app ASKS about a backup instead of waiting to be found
+## Built in 142 — the app ASKS about a backup instead of waiting to be found
 
 The owner's reply to being told to set a sync folder up: *"I've never had a chance to do it before,
 so I'm not going to start now when this should have been one of the first things ever done in the

@@ -493,6 +493,7 @@ struct SettingsScreen: View {
                 + "aren't included, you'll need your own. If something breaks, Send feedback at "
                 + "the top of Settings goes straight to me."
             )
+            OpenSourceCreditsList()
         }
     }
 
@@ -955,11 +956,8 @@ struct SettingsScreen: View {
     private var gapList: some View {
         VStack(alignment: .leading, spacing: 12) {
             SettingsNote(
-                "What is listed here is absent rather than broken. It needs something exported "
-                + "from the engine that is not exported today, and each one is recorded in "
-                + "FEAT-006 with what it unlocks. Physical controllers used to be on this list and "
-                + "are now real, in GAME CONTROLLERS above, and so is cover art taken from the game "
-                + "itself, in COVER ART above."
+                "What is listed here is missing rather than broken. Each one needs work in the "
+                + "emulator engine before it can be switched on."
             )
             ForEach(Self.gaps) { gap in
                 VStack(alignment: .leading, spacing: 2) {
@@ -1395,5 +1393,86 @@ struct SegmentedChoice<Option: Hashable>: View {
         guard option != selection else { return }
         feedback.selectionChanged()
         selection = option
+    }
+}
+
+
+// MARK: - Open-source credits
+
+/// The emulators and libraries shipped inside the app, with each one's license and where its
+/// source code lives. GPL cores require that users can get the source; the links do that.
+/// Keep this in step with the dylibs in the .ipa when a core is added or removed.
+struct OpenSourceCreditsList: View {
+    struct Credit: Identifiable {
+        let name: String
+        let systems: String
+        let license: String
+        let source: String
+        var id: String { name }
+    }
+
+    static let credits: [Credit] = [
+        .init(name: "Snes9x", systems: "SNES", license: "Snes9x license (non-commercial only)", source: "https://github.com/libretro/snes9x"),
+        .init(name: "Mesen 2", systems: "NES", license: "GPL v3", source: "https://github.com/libretro/Mesen2"),
+        .init(name: "FCEUmm", systems: "NES, Famicom Disk System", license: "GPL v2", source: "https://github.com/libretro/libretro-fceumm"),
+        .init(name: "Genesis Plus GX", systems: "Genesis, Master System, Game Gear, SG-1000", license: "Non-commercial license", source: "https://github.com/libretro/Genesis-Plus-GX"),
+        .init(name: "PicoDrive", systems: "32X, Sega CD", license: "MAME-style non-commercial license", source: "https://github.com/libretro/picodrive"),
+        .init(name: "mGBA", systems: "Game Boy, Game Boy Color, Game Boy Advance", license: "MPL 2.0", source: "https://github.com/libretro/mgba"),
+        .init(name: "melonDS", systems: "Nintendo DS", license: "GPL v3", source: "https://github.com/libretro/melonds"),
+        .init(name: "Azahar", systems: "Nintendo 3DS", license: "GPL v2", source: "https://github.com/libretro/azahar"),
+        .init(name: "ParaLLEl N64", systems: "Nintendo 64", license: "GPL v2", source: "https://github.com/libretro/parallel-n64"),
+        .init(name: "PCSX ReARMed", systems: "PlayStation", license: "GPL v2", source: "https://github.com/libretro/pcsx_rearmed"),
+        .init(name: "Beetle PSX HW", systems: "PlayStation", license: "GPL v2", source: "https://github.com/libretro/beetle-psx-libretro"),
+        .init(name: "PPSSPP", systems: "PSP", license: "GPL v2 or later", source: "https://github.com/libretro/ppsspp"),
+        .init(name: "Flycast", systems: "Dreamcast", license: "GPL v2", source: "https://github.com/libretro/flycast"),
+        .init(name: "Beetle Saturn", systems: "Saturn", license: "GPL v2", source: "https://github.com/libretro/beetle-saturn-libretro"),
+        .init(name: "Beetle PCE, PCE Fast, SuperGrafx", systems: "PC Engine / TurboGrafx-16", license: "GPL v2", source: "https://github.com/libretro/beetle-pce-libretro"),
+        .init(name: "Beetle VB", systems: "Virtual Boy", license: "GPL v2", source: "https://github.com/libretro/beetle-vb-libretro"),
+        .init(name: "Beetle WonderSwan", systems: "WonderSwan", license: "GPL v2", source: "https://github.com/libretro/beetle-wswan-libretro"),
+        .init(name: "Beetle NeoPop", systems: "Neo Geo Pocket", license: "GPL v2", source: "https://github.com/libretro/beetle-ngp-libretro"),
+        .init(name: "FinalBurn Neo", systems: "Arcade", license: "Non-commercial license", source: "https://github.com/libretro/FBNeo"),
+        .init(name: "MAME 2003-Plus", systems: "Arcade", license: "MAME non-commercial license", source: "https://github.com/libretro/mame2003-plus-libretro"),
+        .init(name: "Stella", systems: "Atari 2600", license: "GPL v2", source: "https://github.com/libretro/stella2023"),
+        .init(name: "a5200", systems: "Atari 5200", license: "GPL v2", source: "https://github.com/libretro/a5200"),
+        .init(name: "ProSystem", systems: "Atari 7800", license: "GPL v2", source: "https://github.com/libretro/prosystem-libretro"),
+        .init(name: "Handy", systems: "Atari Lynx", license: "zlib license", source: "https://github.com/libretro/libretro-handy"),
+        .init(name: "PokeMini", systems: "Pokemon Mini", license: "GPL v3", source: "https://github.com/libretro/PokeMini"),
+        .init(name: "PUAE", systems: "Amiga", license: "GPL v2", source: "https://github.com/libretro/libretro-uae"),
+        .init(name: "DOSBox Pure", systems: "DOS", license: "GPL v2", source: "https://github.com/libretro/dosbox-pure"),
+        .init(name: "PrBoom", systems: "Doom", license: "GPL v2", source: "https://github.com/libretro/libretro-prboom"),
+        .init(name: "Continuum Symbian (built on EKA2L1)", systems: "Symbian / N-Gage", license: "GPL v3", source: "https://github.com/EKA2L1/EKA2L1"),
+        .init(name: "rcheevos", systems: "Achievements", license: "MIT", source: "https://github.com/RetroAchievements/rcheevos"),
+        .init(name: "libsmb2", systems: "SMB file sharing", license: "LGPL v2.1", source: "https://github.com/sahlberg/libsmb2"),
+        .init(name: "MoltenVK", systems: "Vulkan graphics", license: "Apache 2.0", source: "https://github.com/KhronosGroup/MoltenVK"),
+        .init(name: "Continuum", systems: "This app", license: "Source on GitHub", source: "https://github.com/2c2bhdhw9z-cell/Continuum-")
+    ]
+
+    @State private var open = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SettingsButton(title: open ? "Hide open-source credits" : "Open-source credits",
+                           role: .normal) { open.toggle() }
+            if open {
+                SettingsNote(
+                    "Continuum is built on these free emulators and libraries. Each one is the "
+                    + "work of its own authors and keeps its own license. Tap a name to see its "
+                    + "source code. Some cores may only be shared for free, never sold."
+                )
+                ForEach(Self.credits) { credit in
+                    VStack(alignment: .leading, spacing: 2) {
+                        if let url = URL(string: credit.source) {
+                            Link(credit.name, destination: url)
+                                .font(.system(size: 14, weight: .semibold))
+                        } else {
+                            Text(credit.name).font(.system(size: 14, weight: .semibold))
+                        }
+                        Text("\(credit.systems) · \(credit.license)")
+                            .font(.system(size: 12))
+                            .foregroundStyle(ShellPalette.secondaryText)
+                    }
+                }
+            }
+        }
     }
 }

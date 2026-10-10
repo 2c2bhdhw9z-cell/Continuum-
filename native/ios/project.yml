@@ -97,7 +97,7 @@ targets:
         # permission prompt, and refuses to browse a service type not listed below.
         # Also covers Wi-Fi transfer (WiFiTransfer.swift) and WebDAV browsing (RemoteSources.swift;
         # SMB is not in this build).
-        NSLocalNetworkUsageDescription: "Continuum uses the local network for two-player online play with another phone, for Wi-Fi transfer of games and saves from a computer's browser, and to browse a NAS or computer over WebDAV."
+        NSLocalNetworkUsageDescription: "Continuum uses the local network for two-player online play with another phone, for Wi-Fi transfer of games and saves from a computer's browser, and to browse a NAS or computer over WebDAV or SMB file sharing."
         NSBonjourServices:
           - _continuum._tcp
         # Open in / Share to Continuum (ImportCenter.open): every game, disc, skin, cheat and save

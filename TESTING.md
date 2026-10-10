@@ -1,9 +1,23 @@
 # What to test, and what to tell me
 
-Last updated 9 October 2026. **Build 150** (`ef3ce42`) is published:
-[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-150-ef3ce42/Continuum.ipa).
-It is the same app as **build 149** (`d2a92a9`). Continuum Symbian is not in it. SMB, the 3DS
-camera and Amiibo are in 149 and 150, not in 146. None of those three have been tried on a phone.
+Last updated 9 October 2026. **Build 153** (`ff750f5`) is published:
+[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-153-ff750f5/Continuum.ipa).
+It contains the 3DS stutter fix and Continuum Symbian from 152, and Mesen 2 for NES. N1 and N2
+passed on the phone. SMB, the 3DS camera, Amiibo, the 3DS stutter fix and Symbian are still
+untested on a phone.
+
+## Beta tester checklist (short)
+
+For people trying the public beta. Ten minutes, and say what happened at each step.
+
+1. Install the IPA, open the app. It should open to an empty library with no crash.
+2. Import one game you own (+ button, or Files). It should appear with a cover or a placeholder.
+3. Tap it. Picture, sound and the on-screen buttons should work.
+4. Make a save state, quit the game, open it again and load the state.
+5. If the game has an in-game save, save, quit and reopen and check it is there.
+6. Turn the phone sideways and back. The controls should rearrange.
+7. Settings → About: check the version, and that Open-source credits opens.
+8. If anything goes wrong: Settings → Send feedback, with a screenshot.
 
 This file has two halves. **The list right below is the one to work through.** The build 144 block
 at the top of that list already passed on a phone. Do not ask it again. Everything under it is
@@ -51,7 +65,7 @@ Not part of that, so still unconfirmed: rewind letting go the same way, covers n
 and the phone name on the feedback screen (P3). The skin-list protections (one bad skin, a nonsense
 console name) were not something to set up, and were not checked.
 
-## N. NES on Mesen (build after 152, new)
+## N. NES on Mesen (build 153). N1 and N2 PASSED on the phone (142/146, save states work)
 
 **N1. AccuracyCoin on Mesen.** Import `AccuracyCoin.nes` (github.com/100thCoin/AccuracyCoin).
 Tap it. It should open on Mesen (the game page or HUD names the core). At the top of the menu
@@ -81,7 +95,7 @@ Make a save state and load it.
 4. Tell me which of these you got: an error message (copy its words), a black screen, the phone
    menu, or the game. Also: is there sound, and roughly how fast does it run.
 
-## A. Not in a build yet
+## A. In builds since 144, not confirmed yet
 
 **P1. Scrolling.** Passed on build 144. See the block above. Do not ask again.
 
