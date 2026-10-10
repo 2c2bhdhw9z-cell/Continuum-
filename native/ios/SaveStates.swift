@@ -880,6 +880,20 @@ final class SaveStates: ObservableObject {
             // The backstop. A transient interruption that never became a background transition has
             // already been covered above, and the frame comparison makes this second trigger free
             // when nothing has been emulated in between.
+            // Low memory while playing (the 3DS and PSP cores are big) is what comes just before
+            // iOS kills a foreground app, and nothing saved then. The battery save is small and
+            // safe to write here; the auto-save is not attempted (it allocates the whole state).
+            centre.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification,
+                               object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.persistBatterySave(reason: "the phone was low on memory") }
+            },
+            centre.addObserver(forName: UIApplication.willTerminateNotification,
+                               object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.persistBatterySave(reason: "the app was closing")
+                    self?.writeAutoSave(reason: "the app was closing")
+                }
+            },
             centre.addObserver(forName: UIApplication.didEnterBackgroundNotification,
                                object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.writeAutoSave(reason: "the app went to the background") }
