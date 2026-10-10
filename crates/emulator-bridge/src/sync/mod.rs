@@ -73,7 +73,7 @@ impl Seen {
     }
 
     fn matches(self, stat: &FileStat) -> bool {
-        self.size == stat.size && (self.mtime_ms - stat.mtime_ms).abs() <= MTIME_SLACK_MS
+        self.size == stat.size && self.mtime_ms.abs_diff(stat.mtime_ms) <= MTIME_SLACK_MS as u64
     }
 
     /// For this device's own files, which keep exact times. Slack here would hide a battery save
@@ -104,6 +104,7 @@ fn escape(path: &str) -> String {
     path.replace('\\', "\\\\")
         .replace('\t', "\\t")
         .replace('\n', "\\n")
+        .replace('\r', "\\r")
 }
 
 fn unescape(text: &str) -> String {
@@ -114,6 +115,7 @@ fn unescape(text: &str) -> String {
             match chars.next() {
                 Some('t') => out.push('\t'),
                 Some('n') => out.push('\n'),
+                Some('r') => out.push('\r'),
                 Some(other) => out.push(other),
                 None => out.push('\\'),
             }
@@ -891,7 +893,7 @@ mod tests {
             ..Default::default()
         };
         m.entries.insert(
-            "Battery/We\tird\\name.srm".into(),
+            "Battery/We\tird\\name\r.srm".into(),
             BaseEntry {
                 local: Some(Seen {
                     size: 3,

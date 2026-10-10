@@ -257,7 +257,8 @@ impl InputState {
 
     pub fn set_axis(&mut self, port: usize, axis: usize, value: f32) {
         if let Some(p) = self.ports.get_mut(port) {
-            if axis < AXIS_COUNT {
+            // Non-finite input is ignored, as for the mouse: NaN survives `clamp`.
+            if axis < AXIS_COUNT && value.is_finite() {
                 p.axes[axis] = value.clamp(-1.0, 1.0);
             }
         }
@@ -329,8 +330,8 @@ impl InputState {
         }
     }
 
-    /// Releases everything. Called on blur/visibility loss so a held key cannot
-    /// stick down while the tab is in the background.
+    /// Releases everything. Called when the app loses focus or the player is left, so
+    /// a held key cannot stick down while the game is not on screen.
     pub fn release_all(&mut self) {
         self.ports = [PortState::default(); MAX_PORTS];
         self.keys = KeyboardState::default();
