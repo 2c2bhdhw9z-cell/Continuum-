@@ -119,14 +119,7 @@ final class EmulationSettings: ObservableObject {
         }
     }
 
-    /// How much memory rewind may use. `off` disables it and frees the tape.
-    ///
-    /// Presented in megabytes because that is the promise the engine can actually keep. How
-    /// many *seconds* it buys depends entirely on the running core: a PlayStation save state
-    /// can be a hundred times the size of an NES one, so the same 64 MB is minutes on one
-    /// system and seconds on another. `rewindReadout` says what it turned out to be worth on
-    /// the game in front of you, which is the honest way round.
-    /// Off, or on with the budget chosen for you.
+    /// Rewind off (the tape is freed), or on with the memory budget chosen for you.
     ///
     /// THIS USED TO OFFER 32, 96 AND 256 MB AND THE CHOICE WAS REMOVED ON PURPOSE. Asking somebody
     /// how many megabytes of rewind they want is asking them to do arithmetic they have no way of
@@ -400,7 +393,8 @@ final class EmulationSettings: ObservableObject {
         let totalMB = String(format: "%.0f", budgetMB)
         rewindReadout = "\(held) s available of about \(capacity) s. "
             + "\(usedMB) MB of \(totalMB) MB used, "
-            + "\(stats.snapshots) snapshots at \(stateSize / 1024) KB each."
+            + "\(stats.snapshots) \(stats.snapshots == 1 ? "snapshot" : "snapshots") at "
+            + "\(stateSize / 1024) KB each."
     }
 
     /// One line for the diagnostics HUD. Short, because it shares a strip.

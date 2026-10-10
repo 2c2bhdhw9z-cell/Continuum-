@@ -93,7 +93,7 @@ final class RemoteSources: ObservableObject {
            let list = try? JSONDecoder().decode([RemoteServer].self, from: data) {
             servers = list
         }
-        if !servers.isEmpty { line = "\(servers.count) network server(s)" }
+        if !servers.isEmpty { line = servers.count == 1 ? "1 network server" : "\(servers.count) network servers" }
     }
 
     private func save() {

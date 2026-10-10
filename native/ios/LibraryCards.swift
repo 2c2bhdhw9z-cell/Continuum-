@@ -2,9 +2,9 @@
 // the palette they share.
 //
 // Every one of these takes PLAIN VALUES plus plain object references, and observes nothing. That is
-// deliberate and it is a performance decision rather than a style one: the display link publishes
-// telemetry to `EngineHost` on every frame, so anything that declares `@ObservedObject var host`
-// has its body re-evaluated sixty times a second. The shell observes the two objects once, at the
+// deliberate and it is a performance decision rather than a style one: `EngineHost` publishes
+// often (status lines, read-outs, player state), and anything that declares
+// `@ObservedObject var host` has its body re-evaluated on every one of those changes. The shell observes the two objects once, at the
 // top, and hands values down, so a card is only rebuilt when the card's own inputs change.
 
 import SwiftUI
