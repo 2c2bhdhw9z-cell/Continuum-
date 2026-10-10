@@ -112,6 +112,34 @@ pub fn take_pending_frame() -> Option<PendingVulkanFrame> {
     lock_state().pending.take()
 }
 
+static ADOPTED_SIZES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static ADOPTED_IMAGE_SIZE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Records the content size shown and the real image size of the last adopted frame, so a
+/// crash/activity report can say whether the core drew a frame smaller than its image.
+pub fn note_adopted_sizes(width: u32, height: u32, image_width: u32, image_height: u32) {
+    use std::sync::atomic::Ordering;
+    ADOPTED_SIZES.store(((width as u64) << 32) | height as u64, Ordering::Relaxed);
+    ADOPTED_IMAGE_SIZE.store(((image_width as u64) << 32) | image_height as u64, Ordering::Relaxed);
+}
+
+/// `((content_w, content_h), (image_w, image_h))` of the last adopted frame; zeros before one.
+pub fn adopted_sizes() -> ((u32, u32), (u32, u32)) {
+    use std::sync::atomic::Ordering;
+    let a = ADOPTED_SIZES.load(Ordering::Relaxed);
+    let b = ADOPTED_IMAGE_SIZE.load(Ordering::Relaxed);
+    (((a >> 32) as u32, a as u32), ((b >> 32) as u32, b as u32))
+}
+
+#[cfg(test)]
+mod adopted_size_tests {
+    #[test]
+    fn adopted_sizes_round_trip() {
+        super::note_adopted_sizes(480, 272, 960, 544);
+        assert_eq!(super::adopted_sizes(), ((480, 272), (960, 544)));
+    }
+}
+
 /// Records the size from `video_refresh(RETRO_HW_FRAME_BUFFER_VALID, w, h, …)`.
 ///
 /// `set_image` does not carry width/height; the refresh callback does. Called from the

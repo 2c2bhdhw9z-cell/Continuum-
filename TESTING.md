@@ -71,6 +71,8 @@ console name) were not something to set up, and were not checked.
 gray ghost picture, then froze on the PUBLIC SERVICE ANNOUNCEMENT screen with loud static, and
 Midnight Club LA Remix resumed from its auto-save to a black screen with normal sound.
 
+**P-PSP4 (next build, built, untested).** Two fixes in one build. (a) PSP: NFS Most Wanted 5-1-0 and Midnight Club LA Remix from the start, hardware rendering, 1x. Expected: no solid gray screen with two bars/lines on loading screens, no black screen with a lone small triangle after the EA logo, and after Manage Profile → "Continue without saving" a full picture instead of three tiny thumbnails. (b) Settings → **SYNC FOLDER** → **Choose a sync folder**: pick a folder and tap Open. Expected: the picker closes, the Folder row shows its name and a sync starts. Also try from inside the folder.
+
 **P-PSP3 (build 161).** NFS Most Wanted 5-1-0 from the start, hardware rendering (software rendering OFF). Expected: loading-screen movie plays with a real picture, no buzz, reaches the menu. If it crashes, send the crash report: its body now ends with the last 50 activity lines.
 
 **P-PSP2 (build after 158, new).** 1) Open NFS Most Wanted from the start. Expected: a clean logo
@@ -161,7 +163,7 @@ it already syncs by itself when the app opens and when you leave a game.
 4. ✅ If you tap **Not now** it should never ask again, and the row in Settings should still work.
 
 **M1. Set it up once**
-1. **Settings** → **CLOUD SYNC** → **Choose a sync folder**. Pick anywhere in Files — iCloud Drive,
+1. **Settings** → **SYNC FOLDER** → **Choose a sync folder**. Pick anywhere in Files — iCloud Drive,
    Google Drive, Dropbox. It makes a "Continuum Sync" folder inside whatever you pick.
 2. If you want your games backed up too, turn on **Back up the games too**. Leave it off if you are
    short on cloud space — it can be tens of gigabytes.
@@ -371,7 +373,7 @@ wrong part of memory). Worth one try with a GBA cheat file.
 
 ## H. Accounts and cloud
 
-**H3. Cloud sync** — **Settings** → **CLOUD SYNC** → **Choose a sync folder**, and pick a folder in
+**H3. Sync Folder** — **Settings** → **SYNC FOLDER** → **Choose a sync folder**, and pick a folder in
 iCloud Drive. Save in a game, go back to the library. ✅ The status says files were sent. New in
 122: Flash and J2ME saves, PDF manuals, Amiibo files, your "which system is this" answers and saved
 servers are synced too.

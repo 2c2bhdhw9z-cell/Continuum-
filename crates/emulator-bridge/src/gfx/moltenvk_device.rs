@@ -449,17 +449,25 @@ mod apple {
             Retained::retain(mtl_texture as *mut ProtocolObject<dyn MTLTexture>)
         }
         .ok_or_else(|| "Retained::retain on set_image MTLTexture returned None".to_string())?;
-        // video_refresh's size must not exceed the image the core really made (PPSSPP makes its
-        // images once, at its internal resolution). A wgpu texture that claims more than the
-        // MTLTexture holds is out-of-bounds GPU memory, so clamp to what is there.
-        let (width, height) = {
-            let tw = retained.width() as u32;
-            let th = retained.height() as u32;
-            if tw == 0 || th == 0 {
-                return Err("set_image MTLTexture has zero size".into());
-            }
-            (width.min(tw), height.min(th))
-        };
+        // The image is wrapped at ITS OWN size, and only the part video_refresh names is shown.
+        //
+        // Until build 161 the wgpu texture was declared at video_refresh's size even when the
+        // MTLTexture underneath was bigger. The shader samples with normalized coordinates,
+        // and Metal resolves those against the REAL texture, so a smaller content rect was
+        // drawn squeezed into the top-left corner of the screen and the rest of the screen
+        // showed whatever else the image held: PSP loading screens as solid gray with lines,
+        // a lone small triangle, three tiny title thumbnails in a row. PPSSPP makes its images
+        // once and draws frames smaller than them (RAM-framebuffer loading screens, movies),
+        // so this is exactly where it showed. Now: if the content is the whole image it is
+        // adopted as before; if it is smaller, that rect is copied into a texture of its own
+        // size and that is what the compositor samples.
+        let tw = retained.width() as u32;
+        let th = retained.height() as u32;
+        if tw == 0 || th == 0 {
+            return Err("set_image MTLTexture has zero size".into());
+        }
+        let (width, height) = (width.min(tw), height.min(th));
+        vulkan_hw::note_adopted_sizes(width, height, tw, th);
 
         let hal_texture = unsafe {
             wgpu::hal::metal::Device::texture_from_raw(
@@ -469,8 +477,8 @@ mod apple {
                 1,
                 1,
                 wgpu::hal::CopyExtent {
-                    width,
-                    height,
+                    width: tw,
+                    height: th,
                     depth: 1,
                 },
                 None,
@@ -480,15 +488,15 @@ mod apple {
         let descriptor = wgpu::TextureDescriptor {
             label: Some("beetle-hw-frame"),
             size: wgpu::Extent3d {
-                width,
-                height,
+                width: tw,
+                height: th,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu_format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         };
 
@@ -496,11 +504,54 @@ mod apple {
             renderer.wgpu_device().create_texture_from_hal::<wgpu::hal::api::Metal>(
                 hal_texture,
                 &descriptor,
-                wgpu::TextureUses::RESOURCE,
+                wgpu::TextureUses::RESOURCE | wgpu::TextureUses::COPY_SRC,
             )
         };
-        renderer.adopt_frame_texture(texture, width, height);
+        if width == tw && height == th {
+            renderer.adopt_frame_texture(texture, width, height);
+            return Ok(true);
+        }
+        let cropped = crop_target(renderer, width, height, wgpu_format);
+        let mut encoder = renderer
+            .wgpu_device()
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("hw-frame-crop") });
+        encoder.copy_texture_to_texture(
+            texture.as_image_copy(),
+            cropped.as_image_copy(),
+            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        );
+        renderer.wgpu_queue().submit(Some(encoder.finish()));
+        renderer.adopt_frame_texture(cropped, width, height);
         Ok(true)
+    }
+
+    /// One reusable texture for the cropped content rect, remade only when size or format
+    /// changes. Reusing it is safe: wgpu orders the next copy after this frame's draw.
+    fn crop_target(
+        renderer: &Renderer,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) -> wgpu::Texture {
+        static CROP: Mutex<Option<wgpu::Texture>> = Mutex::new(None);
+        let mut guard = CROP.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(t) = guard.as_ref() {
+            if t.width() == width && t.height() == height && t.format() == format {
+                return t.clone();
+            }
+        }
+        let t = renderer.wgpu_device().create_texture(&wgpu::TextureDescriptor {
+            label: Some("hw-frame-cropped"),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        *guard = Some(t.clone());
+        t
     }
 
     fn create(frameworks_dir: &str, metal_device: u64) -> Result<(SharedDevice, bool), String> {
