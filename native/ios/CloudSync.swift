@@ -1186,7 +1186,16 @@ final class CloudSync: ObservableObject {
     /// with history); true always exports (the in-app backup folder is ours).
     private func runSync(folder: URL, target: String, scoped wantsScope: Bool, exportFirst: Bool?,
                          reason: String) {
-        guard !isSyncing else { afterSync = nil; return }
+        guard !isSyncing else {
+            // Only a user-started run carries a follow-up (Back up, Restore); it used to vanish
+            // without a word while the launch-time sync was still going.
+            if afterSync != nil || target == "staging" {
+                setLine("sync folder: a sync is already running; try again when it finishes",
+                        persist: false)
+            }
+            afterSync = nil
+            return
+        }
         if host?.activeEntry != nil {
             afterSync = nil
             setLine("sync folder: skipped while a game is running", persist: false)
