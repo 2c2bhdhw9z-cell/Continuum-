@@ -3605,26 +3605,6 @@ final class EngineHost: ObservableObject {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
     }
 
-    /// Reports whether one of a core's BIOS files is present in the system dir.
-    ///
-    /// Returns an empty string for a core that declares none, which the HUD then hides: a NES
-    /// or SNES cart has nothing to say here, and a permanently empty BIOS line would only
-    /// train the eye to ignore the one core that does.
-    ///
-    /// PCSX ReARMed, the one core that lists any, does not require one: with no BIOS it falls
-    /// back to HLE (its `pcsx_rearmed_bios` option / `Config.HLE`) and still boots, at reduced
-    /// accuracy. A missing BIOS is therefore a compatibility note, not a hard failure, so it
-    /// belongs on the HUD rather than in an error path.
-    /// The name of a firmware file this game cannot start without, when it is absent.
-    ///
-    /// Per SYSTEM rather than per core, which is why it does not use `CoreSpec.biosNames`: fceumm
-    /// runs both the NES and the Disk System, the NES needs nothing, and declaring the Disk System's
-    /// BIOS against the core would put a "missing firmware" line on every NES game for no reason.
-    ///
-    /// Nil for every other system, and that is a fact about what we ship rather than an omission.
-    /// The PlayStation boots on pcsx_rearmed's HLE, which reimplements the BIOS in code, and the DS
-    /// boots on melonDS's FreeBIOS, which is a clean-room replacement. Both are open source, so
-    /// both ship. The Disk System has no equivalent.
     /// The firmware this game cannot start without, when it is absent: the exact file name to
     /// ask for and what that file is. Nil when nothing is missing.
     ///
@@ -3688,6 +3668,11 @@ final class EngineHost: ObservableObject {
         return false
     }
 
+    /// Reports whether one of a core's BIOS files is present in the system dir.
+    ///
+    /// Returns an empty string for a core that declares none, which the HUD then hides. Several
+    /// cores list BIOS names; most still boot without one (HLE or a built-in replacement), so a
+    /// missing BIOS is a note here unless the core is `biosRequired` or Beetle PSX HW.
     private func biosStatus(for spec: CoreSpec, in systemDir: URL?) -> String {
         guard !spec.biosNames.isEmpty else { return "" }
         // Every branch names the core. The line is cleared when a core with no BIOS list loads
@@ -3966,8 +3951,8 @@ final class EngineHost: ObservableObject {
             )
         } catch {
             // The HUD is the only diagnostic on a sideloaded build, so the error text lands
-            // there rather than throwing into a blank screen. The core id goes with it: five
-            // cores means "it failed" is no longer enough to know what failed.
+            // there rather than throwing into a blank screen. The core id goes with it: with
+            // dozens of cores, "it failed" is not enough to know what failed.
             status = "\(coreId) failed to load: \(error)"
             return false
         }
@@ -4776,9 +4761,8 @@ final class EngineHost: ObservableObject {
     }
 
     func resetGame() {
-        if let player = webPlayer {
+        if webPlayer != nil {
             status = "restarting \(activeEntry?.name ?? "the game"); its save is kept"
-            _ = player
             restartWebPlayer()
             return
         }
@@ -5086,10 +5070,6 @@ final class EngineHost: ObservableObject {
             + "D-pad, \(pads)"
     }
 
-    /// The on-screen pad's arrangement in one line, for the Settings row that opens the editor.
-    ///
-    /// Reports how many systems have a custom layout. Details live in the editor per preview
-    /// console; a single global dump no longer fits once GBA and PS1 can differ.
     /// True when Reset should stay enabled (custom layouts and/or imported skins).
     var hasCustomControlsOrSkins: Bool {
         let _ = touchLayoutsVersion
@@ -5097,6 +5077,10 @@ final class EngineHost: ObservableObject {
         return !touchLayoutsBySystem.isEmpty || touchLayoutFallback != nil || !touchSkinsByID.isEmpty
     }
 
+    /// The on-screen pad's arrangement in one line, for the Settings row that opens the editor.
+    ///
+    /// Reports how many systems have a custom layout. Details live in the editor per preview
+    /// console; a single global dump no longer fits once GBA and PS1 can differ.
     var touchLayoutLine: String {
         let _ = touchLayoutsVersion
         let custom = touchLayoutsBySystem.count
