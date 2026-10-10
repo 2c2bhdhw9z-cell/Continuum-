@@ -1677,6 +1677,10 @@ final class SaveStates: ObservableObject {
         guard let entry = runningEntry() else { return }
         let gameId = Self.gameId(for: entry)
         guard batteryRestoreFailedFor != gameId else { return }
+        // After joining someone else's online game the running save RAM is THEIRS (the host's
+        // state replaced this game). Writing it would replace this player's own in-game save,
+        // which leaving the game (stopSession) did every time. Same rule as the auto-save.
+        guard host?.suppressAutoSave != true else { return }
         guard let url = SaveStateDisk.batteryURL(gameId: gameId) else { return }
         do {
             let bytes = try engine.persistBatterySave(path: url.path)
