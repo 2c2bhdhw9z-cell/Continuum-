@@ -320,7 +320,7 @@ struct SkinCardBlock: View {
     @ObservedObject var host: EngineHost
 
     var body: some View {
-        if let system = CoreCatalog.system(forExtension: entry.ext) {
+        if let system = CoreCatalog.system(for: entry) {
             let _ = host.touchSkinsVersion
             VStack(alignment: .leading, spacing: 8) {
                 Text("SKIN")

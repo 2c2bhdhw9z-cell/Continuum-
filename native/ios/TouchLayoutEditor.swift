@@ -17,6 +17,8 @@
 // is unchanged. The menu stays the first row under the header, where it already was.
 
 import SwiftUI
+// UIKit explicitly: this file subclasses UIButton and builds a UIMenu.
+import UIKit
 
 /// The full-screen layout editor.
 ///
@@ -625,4 +627,3 @@ private final class PreviewSystemMenuButton: UIButton {
         onMenuVisible?(false)
     }
 }
-

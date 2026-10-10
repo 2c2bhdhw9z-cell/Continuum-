@@ -457,13 +457,13 @@ struct GameDetailSheet: View {
         }
     }
 
-    /// The row of covers on offer, which reads sensibly with one, with none, and with nine.
     /// Which offer the card is showing, asked of the store rather than of the model, so the mark is
     /// right even after an image was picked from Files or the cache was cleared from Settings.
     private var inUseOptionID: String? {
         artwork.inUseOptionID(for: entry, among: chooser.options)
     }
 
+    /// The row of covers on offer, which reads sensibly with one, with none, and with nine.
     @ViewBuilder
     private var coverChoices: some View {
         if artwork.fetchEnabled {

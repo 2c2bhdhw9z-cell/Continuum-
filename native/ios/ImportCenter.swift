@@ -50,7 +50,7 @@ enum SystemNames {
     ]
 
     /// Whether a game answered as this system can launch: the app has a `GameSystem` for it, which
-    /// is what routing, the pad and the core choice all key on. GameCube, Wii and Symbian are in
+    /// is what routing, the pad and the core choice all key on. GameCube and Wii are in
     /// `ordered` with no core behind them, and a user who picked one got a game that could not
     /// start. Read from `GameSystem` rather than listed, so a system that gains a core is offered
     /// the day its case lands and not after someone remembers this list.
@@ -345,7 +345,7 @@ final class ImportCenter: ObservableObject {
             let resolved = imported.applying(system: system)
             host.setTouchLayout(resolved.layout.sanitised, for: system)
             host.applyImportedSkin(imported, for: system)
-            return "skin \(url.lastPathComponent) applied to \(system.rawValue): \(imported.summary)"
+            return "skin \(url.lastPathComponent) applied to \(system.displayName): \(imported.summary)"
         } catch {
             return "skin \(url.lastPathComponent) was not imported: \(error.localizedDescription)"
         }
