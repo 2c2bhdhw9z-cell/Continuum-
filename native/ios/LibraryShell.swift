@@ -105,7 +105,11 @@ struct LibraryShell: View {
         + "into the Files app under On My iPhone, Continuum and they'll show up here."
 
     private var topBarHeight: CGFloat { 52 }
-    private var bottomBarHeight: CGFloat { 84 }
+    /// The real height of the bottom chrome (status strip + tab bar + home-indicator inset),
+    /// measured. It was a fixed 84 pt while the chrome is ~100 pt on a Face ID phone (strip ~25,
+    /// tabs ~42, inset 34), so the last row of every grid stayed under the bar (BUG_AUDIT #33).
+    @State private var measuredBottomChrome: CGFloat = 0
+    private var bottomBarHeight: CGFloat { max(84, measuredBottomChrome) }
 
     /// How tall the featured hero is.
     ///
@@ -299,6 +303,11 @@ struct LibraryShell: View {
             tabBar
         }
         .background(Color.black)
+        .background(GeometryReader { proxy in
+            Color.clear
+                .onAppear { measuredBottomChrome = proxy.size.height }
+                .onChange(of: proxy.size.height) { measuredBottomChrome = $0 }
+        })
     }
 
     /// The thin strip: always visible, one tap from the whole diagnostic block.
