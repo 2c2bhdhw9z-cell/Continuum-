@@ -24,8 +24,8 @@
 //     HStack is the same four-destination shell with none of that, and it is what makes the strip
 //     and the bar one opaque unit at the bottom.
 //
-//  3. THE HEAVY VIEWS OBSERVE NOTHING. `EngineHost` publishes telemetry on every display-link
-//     frame, so this file observes it once, here, and hands plain values to the cards. See the
+//  3. THE HEAVY VIEWS OBSERVE NOTHING. `EngineHost` used to publish telemetry on every frame and
+//     still publishes often, so this file observes it once, here, and hands plain values to the cards. See the
 //     header of LibraryCards.swift.
 
 import SwiftUI
@@ -56,7 +56,7 @@ enum LibraryTab: String, CaseIterable, Identifiable {
 
 /// How All Games arranges itself. The user asked to be able to change the layout, and this is the
 /// part of that which is real today: it needs no engine change, it persists, and it does something
-/// visible. The touch-control layout editor is a bigger piece of work and is recorded in FEAT-006.
+/// visible. (The touch-control layout editor is separate; see TouchLayoutEditor.swift.)
 enum LibraryLayout: String, CaseIterable, Identifiable {
     case grid
     case list
@@ -510,7 +510,7 @@ struct LibraryShell: View {
             tabHeader(
                 title: "Favorites",
                 subtitle: host.favouriteEntries.isEmpty
-                    ? "nothing favourited yet"
+                    ? "nothing starred yet"
                     : subtitle(for: shown, of: host.favouriteEntries.count)
             )
 

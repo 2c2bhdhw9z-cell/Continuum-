@@ -356,7 +356,7 @@ struct PlayerScreen: View {
     /// something rather than doing something, and a menu that fails to open reads as a dead button.
     private var saveStateControl: some View {
         // Isolated in its own Equatable view. PlayerScreen observes the whole EngineHost, which
-        // publishes frameCount and displayFps on every telemetry tick, so an inline Menu had its
+        // used to publish frame counters on every telemetry tick, so an inline Menu had its
         // content rebuilt (engine queries included) every frame while it was open, which froze
         // the open menu, worst in landscape. The menu now re-evaluates only when something it
         // shows changes: the game, online play, the pause state, the status line (every action
@@ -490,21 +490,6 @@ struct PlayerScreen: View {
             .minimumScaleFactor(0.7)
             // See `DiagnosticsPanel`: a read-out must never eat a touch, and this one spans the
             // full width directly above the picture.
-            .allowsHitTesting(false)
-    }
-
-    /// Always on screen, never behind the toggle.
-    ///
-    /// On a sideloaded build with no debugger this line is the only thing that explains a failure,
-    /// so the player screen keeps it even when the full panel is hidden.
-    private var statusLine: some View {
-        Text(host.status)
-            .font(.system(.caption2, design: .monospaced))
-            .foregroundStyle(Color.white.opacity(0.6))
-            .lineLimit(2)
-            .fixedSize(horizontal: false, vertical: true)
-            // Two lines of it, full width, and it is always on screen rather than behind the
-            // toggle. See `DiagnosticsPanel`.
             .allowsHitTesting(false)
     }
 }

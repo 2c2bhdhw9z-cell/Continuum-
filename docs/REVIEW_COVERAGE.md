@@ -19,3 +19,13 @@ searched. Vendored third-party core sources are out of scope; our patches to the
 | native/continuum-symbian/stub_engine.h / .cpp | Y | None. |
 | native/continuum-symbian/test_harness.cpp | Y | None. Could not run here: the box has no C++ compiler (no g++/clang++). |
 | native/continuum-symbian/build.sh | Y | None. |
+
+## Area 2: app Swift (in progress)
+
+| File | Read | Findings |
+| --- | --- | --- |
+| native/ios/PlayerScreen.swift (913) | Y | FIXED: removed `statusLine`, a view nothing used (dead code). FIXED: a comment still said the host publishes frame counters every tick (no longer true since the audit fix). Noted: the ⋯ menu's accessibility label says "Save states and cover art" though it now holds a dozen actions; a comment about cover capture sits above the core-actions section it does not describe. Hold buttons, sheets and the Equatable menu are sound. |
+| native/ios/LibraryShell.swift (877) | Y | FIXED: two stale comments (telemetry every frame; a FEAT-006 reference to a layout editor that now exists). FIXED: Favorites empty subtitle said "favourited" (British) beside "Favorites"; now "nothing starred yet". Noted: favourites and arrivals are keyed by file NAME, so two games with the same file name in different folders share a star and an arrival date. Empty first launch path reads safe (hero nil -> empty notice, shelves empty). |
+| native/ios/SettingsScreen.swift (1487) | Partial: lines 1-370, plus 486-500, 546-552, 900-1010, 1084-1215 earlier | Noted (UX, not a bug): sections are long walls of explanatory text, which beta testers will skim; "Clear artwork cache" deletes without asking (re-downloadable, so low risk); a raw "Last:" artwork diagnostic line sits in the everyday COVER ART section. Lines 370-486, 500-900 except the bits above, 1010-1084 and 1215-1487 not read yet. |
+
+Not read yet in Area 2: the other 50 Swift files (about 39,700 lines), including ContinuumApp.swift (5749), TouchControls.swift (4224), ArtworkStore.swift (2886), SaveStates.swift (1810), CloudSync.swift (1547, partly read in the audit pass).
