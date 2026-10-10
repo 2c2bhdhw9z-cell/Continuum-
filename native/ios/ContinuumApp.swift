@@ -294,8 +294,11 @@ enum CoreCatalog {
         sampleRate: 44100,
         pixelFormat: 0,
         priority: -10,
-        biosNames: ["scph1001.bin", "scph5501.bin", "scph7001.bin",
-                    "scph1000.bin", "scph5500.bin", "scph5502.bin"]
+        // Exactly the names Beetle reads at the pinned commit (libretro.c:596-645), per disc
+        // region: scph5500 (Japan), scph5501/5503/7003 (USA), scph5502/5552 (Europe).
+        // scph1001, scph7001 and scph1000 are PCSX ReARMed names Beetle never opens.
+        biosNames: ["scph5501.bin", "scph5500.bin", "scph5502.bin",
+                    "scph5503.bin", "scph7003.bin", "scph5552.bin"]
     )
 
     /// Nintendo DS, and the first system to arrive without any hardware-render work.
@@ -1888,7 +1891,7 @@ final class EngineHost: ObservableObject {
             let value: String
             if !found.isEmpty {
                 value = "found \(found.joined(separator: ", "))"
-            } else if spec.biosRequired || spec.coreId == CoreCatalog.mednafenPsxHw.coreId {
+            } else if spec.biosRequired {
                 value = "MISSING, will not start: needs \(spec.biosNames.joined(separator: " or "))"
             } else {
                 value = "none, optional (\(spec.biosNames.joined(separator: ", ")))"
@@ -3629,24 +3632,9 @@ final class EngineHost: ObservableObject {
             }
             if !found { return (first, need.what) }
         }
-        // Beetle PSX HW has no HLE BIOS. Soft PCSX ReARMed still boots without one; Beetle
-        // does not. Gate here so the HUD names the file and the install button, instead of an
-        // opaque retro_load_game refusal after SET_HW_RENDER work already looks fine.
-        if system == .ps1, ps1CoreChoice == .beetlePsxHw {
-            let what = "a real PlayStation BIOS"
-            let names = CoreCatalog.mednafenPsxHw.biosNames
-            guard let first = names.first else { return ("a PlayStation BIOS", what) }
-            guard let dir = systemDirectory() else { return (first, what) }
-            // The same lookup as the Settings checklist (`firmwarePresent`). An exact-case look at
-            // the top folder only refused a Beetle launch over SCPH1001.BIN while the checklist,
-            // reading the same folder, said "found".
-            let found = names.contains { name in
-                Self.firmwarePresent(name, subfolder: CoreCatalog.firmwareSubfolders[name],
-                                     in: dir)
-            }
-            if found { return nil }
-            return (name: first, what: what)
-        }
+        // Beetle PSX HW is NOT gated: at the pinned commit it boots its built-in OpenBIOS when
+        // no BIOS file is found (beetle-psx libretro.c:3246). The old gate refused every Beetle
+        // launch without a file, and passed over scph1001.bin, which Beetle never reads.
         return nil
     }
 
@@ -3680,7 +3668,7 @@ final class EngineHost: ObservableObject {
         // to say whose it is or it reads as noise.
         guard let dir = systemDir else {
             if spec.coreId == CoreCatalog.mednafenPsxHw.coreId {
-                return "BIOS (\(spec.coreId)): no system dir — Beetle needs a real BIOS"
+                return "BIOS (\(spec.coreId)): no system dir, built-in OpenBIOS"
             }
             return "BIOS (\(spec.coreId)): no system dir, HLE only"
         }
@@ -3696,7 +3684,8 @@ final class EngineHost: ObservableObject {
         // Beetle has no HLE path. Saying "HLE fallback" here sent Brett looking for a soft
         // boot that cannot happen on the HW core.
         if spec.coreId == CoreCatalog.mednafenPsxHw.coreId {
-            return "BIOS (\(spec.coreId)): none — Beetle needs a real BIOS (no HLE)"
+            return "BIOS (\(spec.coreId)): none, built-in OpenBIOS (some games need a real "
+                + "scph5501.bin / scph5500.bin / scph5502.bin)"
         }
         if spec.biosRequired {
             return "BIOS (\(spec.coreId)): none, and this core needs one of "
