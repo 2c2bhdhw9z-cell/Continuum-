@@ -486,7 +486,7 @@ impl Renderer {
             label: Some("frame-blit-layout"),
             bind_group_layouts: &[Some(&bind_group_layout)],
             // No immediate/push constants: the blit's only per-frame state is the
-            // 32-byte uniform buffer.
+            // 192-byte uniform buffer (`BlitUniforms`).
             immediate_size: 0,
         });
 
@@ -685,7 +685,7 @@ impl Renderer {
 
     /// Sets how the framebuffer is divided into screens. See [`ScreenSplit`].
     ///
-    /// A 144-byte buffer write and a change to one instance count, so this is free to call at any
+    /// A 192-byte buffer write (on the next present) and a change to one instance count, so this is free to call at any
     /// time and takes effect on the next presented frame. No pipeline or bind group is touched.
     ///
     /// Nothing selects anything but [`ScreenSplit::Single`] yet, because no dual-screen core is
@@ -1060,7 +1060,7 @@ impl Renderer {
                 return Ok(());
             }
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                // Tab hidden or compositor busy: skipping is correct, not an error.
+                // App in the background or compositor busy: skipping is correct, not an error.
                 self.frames_dropped += 1;
                 return Ok(());
             }

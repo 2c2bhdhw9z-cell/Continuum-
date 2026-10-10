@@ -281,7 +281,9 @@ fn has_psp_root(track: &mut dyn Sectors, pvd: &[u8]) -> bool {
     let len = u32::from_le_bytes([root[10], root[11], root[12], root[13]]);
     let sectors = len.div_ceil(2048).clamp(1, 8);
     for i in 0..sectors {
-        let Some(dir) = track.user_data(lba + i) else { return false };
+        // A damaged or hostile PVD can name an extent near u32::MAX; `lba + i` would then
+        // overflow (a panic in debug builds), so a sum past the end simply ends the search.
+        let Some(dir) = lba.checked_add(i).and_then(|at| track.user_data(at)) else { return false };
         if contains(&dir, b"PSP_GAME") || contains(&dir, b"UMD_DATA.BIN") {
             return true;
         }
@@ -1081,6 +1083,17 @@ mod tests {
         let path = dir.write("game.iso", &iso);
         let d = detect_path(&path);
         assert_eq!(d.system, "psp", "{}", d.reason);
+    }
+
+    #[test]
+    fn a_root_extent_at_the_end_of_the_lba_range_does_not_overflow() {
+        let dir = TestDir::new("pspmax");
+        let mut iso = vec![0u8; 2048 * 24];
+        iso[16 * 2048..17 * 2048].copy_from_slice(&pvd("", u32::MAX));
+        // Root length of several sectors, so the scan would step past u32::MAX.
+        iso[16 * 2048 + 156 + 10..16 * 2048 + 156 + 14].copy_from_slice(&(2048u32 * 4).to_le_bytes());
+        let d = detect_path(&dir.write("odd.iso", &iso));
+        assert_ne!(d.system, "psp", "{}", d.reason);
     }
 
     #[test]
