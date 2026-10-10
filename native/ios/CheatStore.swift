@@ -445,6 +445,14 @@ final class CheatStore: ObservableObject {
     private func pushIfRunning(gameId: String) {
         guard let entry = host?.activeEntry, host?.running == true,
               SaveStates.gameId(for: entry) == gameId else { return }
+        // `push` returns early on an empty list, so deleting the running game's LAST cheat used
+        // to leave it active in the core until the game was restarted. Clear the table instead.
+        if cheats(forGameId: gameId).isEmpty {
+            do { try engine.clearCheats() } catch {
+                report("the cheat was deleted, but the running game kept it: \(error)")
+            }
+            return
+        }
         push(for: entry)
     }
 
