@@ -106,7 +106,7 @@ enum CapturedFrameLayout {
         let bytesPerRow = pixelWidth * 4
         let expected = bytesPerRow * pixelHeight
         guard byteCount == expected else {
-            return (nil, "the capture came back as \(byteCount) byte(s) for a \(pixelWidth) by "
+            return (nil, "the capture came back as \(byteCount) \(byteCount == 1 ? "byte" : "bytes") for a \(pixelWidth) by "
                     + "\(pixelHeight) picture, which needs exactly \(expected)")
         }
 

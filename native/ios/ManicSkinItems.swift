@@ -56,7 +56,9 @@ enum ManicItems {
             return trimmed.isEmpty ? [] : [trimmed]
         }
         if let dict = value as? [String: Any] {
-            return dict.keys.sorted().compactMap { dict[$0] as? String }.filter { !$0.isEmpty }
+            return dict.keys.sorted().compactMap { dict[$0] as? String }
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
         }
         return []
     }

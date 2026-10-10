@@ -297,7 +297,9 @@ extension EngineHost {
         }
         let pausedHere = running && !paused
         if pausedHere { togglePause() }
-        var controller: UIViewController?
+        // Weak: the hosting controller owns the viewer, which owns this closure, so a strong
+        // reference here would keep every dismissed manual alive.
+        weak var controller: UIViewController?
         let viewer = ManualViewer(url: url, title: (entry.name as NSString).deletingPathExtension) { [weak self] in
             controller?.dismiss(animated: true)
             if pausedHere, let self, self.running, self.paused { self.togglePause() }

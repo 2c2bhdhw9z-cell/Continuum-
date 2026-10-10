@@ -93,7 +93,7 @@ extension SaveStates {
                 try converted.data.write(to: zip)
                 let dest = root.appendingPathComponent(converted.relativePath, isDirectory: true)
                 let written = try importArchiveExtractTree(path: zip.path, destDir: dest.path)
-                let text = "unpacked \(written.count) save file(s) from \(name) into "
+                let text = "unpacked \(written.count) save \(written.count == 1 ? "file" : "files") from \(name) into "
                     + "\(converted.relativePath). Restart the game to read them"
                 reportOnly(text)
                 return text
@@ -134,7 +134,7 @@ extension SaveStates {
             let url = outDir.appendingPathComponent("\(safeStem) saves.zip")
             do {
                 let count = try importZipDirectory(dir: folder.path, outPath: url.path)
-                reportOnly("exported \(count) save file(s) from \(location.relativePath) as a zip")
+                reportOnly("exported \(count) save \(count == 1 ? "file" : "files") from \(location.relativePath) as a zip")
                 return url
             } catch {
                 reportOnly("save export failed: \(error)")

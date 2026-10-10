@@ -33,6 +33,8 @@ enum SmbClient {
         let rc = err.withUnsafeMutableBufferPointer { buf in
             smb_download(host, share, path, local, user, password, buf.baseAddress, 512)
         }
+        // Same rule as `run`: never trust the C side to have terminated the message.
+        err[err.count - 1] = 0
         if rc != 0 {
             throw SmbFailure(message: message(err))
         }
