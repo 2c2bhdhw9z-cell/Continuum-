@@ -52,6 +52,21 @@ fast-forward lets go after Control Centre, and the (i) line names the phone. Do 
 
 # The list: what still needs testing
 
+## R. Bug-hunt build after 164 (new, built, untested)
+
+| # | Test | Pass if |
+|---|------|---------|
+| R1 | Play a game with in-game saves, save in-game, wait 30 s, force-quit the app, reopen | The in-game save is there |
+| R2 | PSP: open a game with an auto-save, leave within 5 s while the screen is black, reopen | The auto-save still resumes your progress |
+| R3 | Settings > SYNC FOLDER > Back up to Files with a PSP, 3DS, Dreamcast and Saturn save present | The backup has `CoreSaves/PSP/SAVEDATA`, `CoreSaves/Azahar/...`, `CoreSaves/dc/vmu_save_A1.bin`, `Battery/<game>.bkr` |
+| R4 | Import a Dreamcast `.vmu`/`vmu_save_A1.bin` save, start the game | The game sees the save |
+| R5 | Library: scroll to the bottom | The last row is fully above the tab bar |
+| R6 | Use a landscape-only skin, turn the phone sideways | The skin fills the screen sideways |
+| R7 | Turn a cheat on, delete it while the game runs | The effect stops at once |
+| R8 | Join an online game as player 2, leave, play your own game | Your own in-game save is unchanged |
+| R9 | PS1 on Beetle PSX HW with no BIOS installed | The game starts (OpenBIOS); the BIOS line says so |
+| R10 | Tap Back up to Files twice quickly | The second tap says a sync is already running |
+
 ## A. This install (build 144) — passed on the phone
 
 The owner said these look fine (9 October, build 144). Do not ask them again.

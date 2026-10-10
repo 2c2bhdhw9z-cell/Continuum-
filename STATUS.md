@@ -59,6 +59,25 @@ Nothing here is rounded up.
 For what the owner wants built, and the scope rules this page works inside, see
 [docs/PRODUCT_SCOPE.md](docs/PRODUCT_SCOPE.md).
 
+## After build 164: bug-hunt build (built, untested on a phone)
+
+Fourteen fixes, all built and none tried on a phone yet. Tests are in TESTING.md section R.
+
+1. In-game (battery) saves are written every 20 s while a game runs, so a crash loses at most 20 s (`88d641e`).
+2. A battery save that failed to load is never overwritten with blank save RAM that session (`f6aef6c`).
+3. Back up / Restore say "a sync is already running" instead of doing nothing (`85d5ba2`).
+4. The auto-save is not overwritten while a PSP resume is still waiting, or after the crash guard skipped it (`a4bb9da`).
+5. The last row of the Library grid clears the tab bar (BUG_AUDIT #33, `3695f62`).
+6. Landscape-only skins are used sideways (BUG_AUDIT #25, `6ee5872`).
+7. Sound comes back after iOS resets its audio services (`03f07e0`).
+8. Saves are written on a low-memory warning and when the app closes (`80c38dc`).
+9. Deleting the running game's last cheat switches it off at once (`5745055`).
+10. BUG_AUDIT entries updated (`fe5e08a`).
+11. Back up / Restore now include PSP (PSP/SAVEDATA), 3DS, Dreamcast VMU and Saturn .bkr saves, as `CoreSaves/...` (`a0be22c`).
+12. Save paths checked against the core sources: Dreamcast VMUs are `dc/vmu_save_A1.bin` and 3DS is `Azahar/sdmc` (`b093fe1`).
+13. A guest's own battery save is no longer overwritten with the host's save RAM after online play (`7aacd32`).
+14. Beetle PSX HW starts without a BIOS (built-in OpenBIOS), and only the BIOS names it reads count as found (`876fe64`).
+
 ## Public beta readiness (audit, 9 October 2026)
 
 What a code pass on the whole app found. Rust tests: 614 pass (`cargo test --workspace
