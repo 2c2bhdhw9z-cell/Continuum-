@@ -1072,6 +1072,10 @@ final class CloudSync: ObservableObject {
             setLine("sync folder: restore cancelled; nothing changed", persist: false)
             return
         }
+        guard !isSyncing, host?.activeEntry == nil else {
+            setLine("sync folder: restore not started, a sync or a game is running; try again in a moment")
+            return
+        }
         guard let staging = Self.stagingFolder() else {
             setLine("sync folder: restore failed, no app storage folder")
             return
