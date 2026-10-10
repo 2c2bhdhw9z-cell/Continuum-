@@ -1766,9 +1766,9 @@ final class EngineHost: ObservableObject {
     /// The on-screen BIOS/HLE line. Written when the cores are declared at attach, and
     /// refreshed whenever a core loads, so a missing BIOS is a legible condition BEFORE a game
     /// is tapped rather than a silent drop in compatibility afterwards. Empty for a core that
-    /// needs no BIOS, which is every core here except PCSX ReARMed.
+    /// declares no BIOS names (see `CoreSpec.biosNames`).
     @Published var bios: String = ""
-    /// The on-screen core line: how many of the five were declared, and which dylibs are not
+    /// The on-screen core line: how many cores were declared, and which dylibs are not
     /// in the bundle.
     ///
     /// Written once when the surface attaches. Its whole job is to answer "is the core even
@@ -2287,6 +2287,9 @@ final class EngineHost: ObservableObject {
             visual.assetFileName = nil
             visual.assetKind = nil
         }
+        // A re-import under the same id must not keep drawing the previous file's landscape art
+        // when the new file has none, or when saving it fails below.
+        touchSkinImages.removeValue(forKey: landscapeSkinCacheKey(id))
         if var face = visual.landscape {
             if let data = result.landscapeAssetData, let kind = face.assetKind {
                 do {
