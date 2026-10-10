@@ -65,6 +65,17 @@ Not part of that, so still unconfirmed: rewind letting go the same way, covers n
 and the phone name on the feedback screen (P3). The skin-list protections (one bad skin, a nonsense
 console name) were not something to set up, and were not checked.
 
+## P. After build 157 (new, untested)
+
+**P-PSP.** Open a PSP game. Expected: it boots, or shows an error line starting "graphics setup
+failed", not a crash. Tell me which. If it still crashes, reopen the app and send the crash report:
+its last "launch:" line names the step.
+
+**P-3DS.** Start a 3DS game, **⋯ → Core settings… → Shader Compile (Continuum)**. Switch to
+"Old (may stutter)", restart the game, run Mario Kart 7: it should hitch like before the fix and
+nothing should pop in. Switch back to "Async shaders (fix, may pop in)", restart: smooth, maybe late
+pop-in.
+
 ## Q. Audit fixes (build after 154, new)
 
 **Q1.** Settings → On-screen controls → Reset every system's controls and skins: it should ask

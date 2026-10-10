@@ -82,6 +82,35 @@ pub fn try_install_into_vulkan_hw() -> bool {
     }
 }
 
+/// Runs after `retro_load_game` returned for a core whose `context_reset` was deferred (see
+/// [`vulkan_hw::set_defer_reset`]). When the core sent a negotiation `create_device`, the core
+/// makes its own `VkDevice` on the host's instance and physical device, and those handles are the
+/// ones installed. Otherwise the shared device is installed as usual. `Err` means the core has no
+/// usable graphics context and must not be run: the caller unloads it and shows the reason.
+pub fn finish_deferred_install() -> Result<(), String> {
+    if !vulkan_hw::status().set_hw_render_accepted || vulkan_hw::interface_ready() {
+        return Ok(());
+    }
+    if hw_handles().is_none() {
+        return Err("the Vulkan device is not ready (MoltenVK did not start)".into());
+    }
+    #[cfg(target_vendor = "apple")]
+    {
+        if let Some(create_device) = vulkan_hw::negotiation_create_device() {
+            return apple::install_negotiated(create_device);
+        }
+        if try_install_into_vulkan_hw() {
+            Ok(())
+        } else {
+            Err("the Vulkan device could not be handed to the core".into())
+        }
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        Err("Vulkan is not available on this host".into())
+    }
+}
+
 /// Exports a `VkImage` from a pending `set_image` into the compositor via metal_objects.
 ///
 /// Returns `Ok(true)` when a texture was adopted, `Ok(false)` when there was nothing to do,
@@ -139,6 +168,120 @@ mod apple {
     unsafe impl Send for SharedDevice {}
 
     static SHARED: Mutex<Option<SharedDevice>> = Mutex::new(None);
+
+    /// A device the core made through the negotiation interface (PPSSPP). Its images are
+    /// exported through this device, not the shared one. The frontend owns it, so it is
+    /// destroyed when the next negotiated device replaces it, by which time the core that used
+    /// it has been unloaded.
+    struct CoreDevice {
+        device: Device,
+        metal_objects: ash::ext::metal_objects::Device,
+    }
+    unsafe impl Send for CoreDevice {}
+    static CORE: Mutex<Option<CoreDevice>> = Mutex::new(None);
+
+    fn lock_core() -> std::sync::MutexGuard<'static, Option<CoreDevice>> {
+        match CORE.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        }
+    }
+
+    #[repr(C)]
+    struct RetroVulkanContext {
+        gpu: vk::PhysicalDevice,
+        device: vk::Device,
+        queue: vk::Queue,
+        queue_family_index: u32,
+        presentation_queue: vk::Queue,
+        presentation_queue_family_index: u32,
+    }
+
+    type CreateDeviceFn = unsafe extern "C" fn(
+        *mut RetroVulkanContext,
+        vk::Instance,
+        vk::PhysicalDevice,
+        vk::SurfaceKHR,
+        vk::PFN_vkGetInstanceProcAddr,
+        *const *const c_char,
+        u32,
+        *const *const c_char,
+        u32,
+        *const vk::PhysicalDeviceFeatures,
+    ) -> bool;
+
+    pub(super) fn install_negotiated(create_device: *const std::ffi::c_void) -> Result<(), String> {
+        let (instance_fn, instance_raw, phys, gipa, portability) = {
+            let guard = lock();
+            let ctx = guard.as_ref().ok_or_else(|| "no shared MoltenVK instance".to_string())?;
+            let exts = unsafe { ctx.instance.enumerate_device_extension_properties(ctx.phys) }
+                .map_err(|e| format!("enumerate device extensions: {e}"))?;
+            let portability = exts.iter().any(|e| {
+                let name = unsafe { CStr::from_ptr(e.extension_name.as_ptr() as *const c_char) };
+                name == ash::khr::portability_subset::NAME
+            });
+            (
+                ctx.instance.fp_v1_0().clone(),
+                ctx.instance.handle(),
+                ctx.phys,
+                ctx._entry.static_fn().get_instance_proc_addr,
+                portability,
+            )
+        };
+        // The previous core's device: that core is gone, nothing uses it any more.
+        if let Some(old) = lock_core().take() {
+            unsafe {
+                let _ = old.device.device_wait_idle();
+                old.device.destroy_device(None);
+            }
+        }
+        let mut required: Vec<*const c_char> = vec![vk::EXT_METAL_OBJECTS_NAME.as_ptr()];
+        if portability {
+            required.push(ash::khr::portability_subset::NAME.as_ptr());
+        }
+        let mut out = RetroVulkanContext {
+            gpu: vk::PhysicalDevice::null(),
+            device: vk::Device::null(),
+            queue: vk::Queue::null(),
+            queue_family_index: 0,
+            presentation_queue: vk::Queue::null(),
+            presentation_queue_family_index: 0,
+        };
+        let create: CreateDeviceFn = unsafe { std::mem::transmute(create_device) };
+        let ok = unsafe {
+            create(
+                &mut out,
+                instance_raw,
+                phys,
+                vk::SurfaceKHR::null(),
+                gipa,
+                required.as_ptr(),
+                required.len() as u32,
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+            )
+        };
+        if !ok || out.device == vk::Device::null() || out.queue == vk::Queue::null() {
+            return Err("the core could not create its Vulkan device".into());
+        }
+        let device = unsafe { Device::load(&instance_fn, out.device) };
+        let metal_objects = {
+            let guard = lock();
+            let ctx = guard.as_ref().ok_or_else(|| "shared instance went away".to_string())?;
+            ash::ext::metal_objects::Device::new(&ctx.instance, &device)
+        };
+        *lock_core() = Some(CoreDevice { device, metal_objects });
+        let gpu = if out.gpu == vk::PhysicalDevice::null() { phys } else { out.gpu };
+        install(HwVulkanHandles {
+            instance: instance_raw.as_raw(),
+            gpu: gpu.as_raw(),
+            device: out.device.as_raw(),
+            queue: out.queue.as_raw(),
+            queue_index: out.queue_family_index,
+        });
+        Ok(())
+    }
 
     fn lock() -> std::sync::MutexGuard<'static, Option<SharedDevice>> {
         match SHARED.lock() {
@@ -228,6 +371,15 @@ mod apple {
     }
 
     pub(super) fn install(h: HwVulkanHandles) {
+        // A plain install means this core uses the shared device; images are exported from it.
+        let shared_device = lock().as_ref().map(|c| c.device.handle().as_raw());
+        let uses_shared = shared_device == Some(h.device);
+        if let Some(old) = uses_shared.then(|| lock_core().take()).flatten() {
+            unsafe {
+                let _ = old.device.device_wait_idle();
+                old.device.destroy_device(None);
+            }
+        }
         vulkan_hw::install_vulkan_handles(
             h.instance,
             h.gpu,
@@ -250,14 +402,20 @@ mod apple {
             .as_ref()
             .ok_or_else(|| "no shared MoltenVK device; call prepare_vulkan_hw first".to_string())?;
         let image = vk::Image::from_raw(image_raw);
+        let core_guard = lock_core();
+        let (export_device, export_fn) = match core_guard.as_ref() {
+            Some(core) => (core.device.handle(), core.metal_objects.fp().export_metal_objects_ext),
+            None => (ctx.device.handle(), ctx.metal_objects.fp().export_metal_objects_ext),
+        };
 
         let mut texture_info = vk::ExportMetalTextureInfoEXT::default()
             .image(image)
             .plane(vk::ImageAspectFlags::COLOR);
         let mut objects = vk::ExportMetalObjectsInfoEXT::default().push_next(&mut texture_info);
         unsafe {
-            (ctx.metal_objects.fp().export_metal_objects_ext)(ctx.device.handle(), &mut objects);
+            (export_fn)(export_device, &mut objects);
         }
+        drop(core_guard);
         let mtl_texture = texture_info.mtl_texture;
         if mtl_texture.is_null() {
             return Err("vkExportMetalObjectsEXT returned a null MTLTexture for set_image".into());

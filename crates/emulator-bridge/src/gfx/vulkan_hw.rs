@@ -220,6 +220,53 @@ struct VulkanHwState {
 
 unsafe impl Send for VulkanHwState {}
 
+/// The v1 negotiation struct, as far as `create_device`. `destroy_device` is unused.
+#[repr(C)]
+struct RetroHwRenderNegotiationV1 {
+    interface_type: u32,
+    interface_version: u32,
+    get_application_info: Option<unsafe extern "C" fn() -> *const c_void>,
+    create_device: *const c_void,
+    destroy_device: *const c_void,
+}
+
+/// Set by the core loader while `retro_load_game` runs for a core that must not get
+/// `context_reset` from inside `SET_HW_RENDER`. PPSSPP asks for SET_HW_RENDER from inside
+/// `retro_load_game` before its own global context pointer exists, and its `context_reset`
+/// dereferences that pointer: a reset at that moment is a null call and the app dies. It also
+/// sends its negotiation interface (with `create_device`) after SET_HW_RENDER, so the device can
+/// only be made once load returns. libretro's own rule is "reset after load"; this is that rule.
+static DEFER_RESET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_defer_reset(defer: bool) {
+    DEFER_RESET.store(defer, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn defer_reset() -> bool {
+    DEFER_RESET.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// The core's negotiation `create_device`, when it sent one. Raw: the Apple side casts it to the
+/// libretro_vulkan.h signature.
+pub fn negotiation_create_device() -> Option<*const c_void> {
+    let state = lock_state();
+    let data = state.negotiation?;
+    if data.is_null() {
+        return None;
+    }
+    let iface = unsafe { &*(data as *const RetroHwRenderNegotiationV1) };
+    if iface.create_device.is_null() {
+        None
+    } else {
+        Some(iface.create_device)
+    }
+}
+
+/// True once handles were installed and `context_reset` ran for the accepted context.
+pub fn interface_ready() -> bool {
+    lock_state().interface_ready
+}
+
 impl VulkanHwState {
     const fn new() -> Self {
         Self {
@@ -301,6 +348,10 @@ unsafe fn on_set_hw_render(data: *mut c_void) -> bool {
         callback.bottom_left_origin
     );
     drop(state);
+    if defer_reset() {
+        log::info!("SET_HW_RENDER: accepted; context_reset deferred until retro_load_game returns");
+        return true;
+    }
     // If MoltenVK was prepared at Metal attach, install live handles and call context_reset
     // now. If prepare has not run yet, prepare_vulkan_hw will install when it lands.
     let installed = crate::gfx::moltenvk_device::try_install_into_vulkan_hw();

@@ -9,6 +9,21 @@ next build after it adds the beta-readiness pass (open-source credits in Setting
 wording in the Local Network permission). Older build notes further down are history; where an
 older line here disagrees with this paragraph, this paragraph is the current one.
 
+**After build 157 (built, untested on a phone):**
+- **PSP crash on opening a game, root cause found.** PPSSPP asks for its Vulkan context from inside
+  `retro_load_game`, before its own context pointer is set, and the engine called `context_reset`
+  right then, a call through a null pointer. PPSSPP also makes its own `VkDevice` through the
+  negotiation interface's `create_device`, which the engine stored but never called. Now the reset
+  waits until load returns (PPSSPP only), the core's `create_device` is called on the shared
+  MoltenVK instance, and its images are exported through its own device. If that setup fails the
+  game does not open and the reason is shown, instead of a crash. TESTING P-PSP.
+- **3DS shader switch.** Core settings for the 3DS now has **Shader Compile (Continuum)**:
+  "Async shaders (fix, may pop in)" (default, the build 152 fix) or "Old (may stutter)". Takes
+  effect on game restart. TESTING P-3DS.
+- **Launch crumbs.** Before each launch step (game file, system and core; core load; retro_init;
+  retro_load_game; HW context; first frame) a line is written and fsynced to the activity log, so
+  the next crash report names the step that died.
+
 Five states only:
 
 - **Done** means built, in the `.ipa`, and a phone showed it working.

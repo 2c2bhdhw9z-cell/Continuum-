@@ -419,7 +419,9 @@ ios_core_config() {
       # Continuum patch (scripts/patches/azahar-do-not-wait-on-pipeline-compile.patch):
       # RasterizerVulkan waits on every new pipeline because async_shader_compilation
       # defaults off (wait_built is then always true) and BindPipeline calls WaitDone.
-      # That is the post-transition hitch. The patch skips the draw instead of waiting.
+      # That is the post-transition hitch. The patch skips the draw instead of waiting,
+      # behind a core option "Shader Compile (Continuum)" (azahar_continuum_async_pipelines):
+      # "Async shaders (fix, may pop in)" (default) or "Old (may stutter)", upstream's wait.
       # No JIT, no dynarec, no executable memory.
       IOS_DISPLAY="Nintendo 3DS, Vulkan, interpreter CPU (no JIT)"
       ;;

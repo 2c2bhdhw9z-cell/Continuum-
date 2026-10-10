@@ -96,6 +96,25 @@ pub fn log_add(stamp: &str, text: &str) {
     }
 }
 
+/// A launch step, written BEFORE the step runs and flushed to the disk (`fsync`) before this
+/// returns, so a crash inside the step leaves it as the last line of the log the next start's
+/// crash report sends. Never deduplicated: the same step twice is two attempts.
+pub fn launch_step(text: &str) {
+    let line = format!("launch: {}", text.trim().replace(['\r', '\n'], " / "));
+    {
+        let mut guard = lock(&LOG);
+        let log = guard.get_or_insert_with(Log::default);
+        log.last.clear();
+    }
+    log_add("", &line);
+    let dir = lock(&LOG).as_ref().and_then(|log| log.dir.clone());
+    if let Some(dir) = dir {
+        if let Ok(file) = OpenOptions::new().append(true).open(dir.join(LOG_FILE)) {
+            let _ = file.sync_all();
+        }
+    }
+}
+
 /// This session's log, oldest line first, at most `limit` lines (the newest ones).
 pub fn log_text(limit: usize) -> String {
     let guard = lock(&LOG);

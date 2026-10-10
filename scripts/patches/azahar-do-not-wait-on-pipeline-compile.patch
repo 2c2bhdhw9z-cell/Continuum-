@@ -1,6 +1,46 @@
+diff --git a/src/citra_libretro/core_settings.cpp b/src/citra_libretro/core_settings.cpp
+index c3e4a70..f48be81 100644
+--- a/src/citra_libretro/core_settings.cpp
++++ b/src/citra_libretro/core_settings.cpp
+@@ -376,6 +376,22 @@ static constexpr retro_core_option_v2_definition option_definitions[] = {
+         },
+         config::enabled
+     },
++    {
++        "azahar_continuum_async_pipelines",
++        "Shader Compile (Continuum)",
++        "Shader Compile",
++        "Async shaders: new graphics pipelines compile in the background, so a track or menu "
++        "load does not hitch, but something can appear a moment late. Old: the game waits for "
++        "each pipeline, which may stutter. Takes effect when the game restarts.",
++        nullptr,
++        config::category::graphics,
++        {
++            { "async", "Async shaders (fix, may pop in)" },
++            { "old", "Old (may stutter)" },
++            { nullptr, nullptr }
++        },
++        "async"
++    },
+     {
+         config::graphics::resolution_factor,
+         "Internal Resolution",
+@@ -998,6 +1014,10 @@ static void ParseGraphicsOptions(void) {
+         LibRetro::FetchVariable(config::graphics::use_disk_shader_cache, config::enabled) ==
+         config::enabled;
+ 
++    // Continuum: the async pipeline switch. Read by the Vulkan rasterizer when it is built.
++    Settings::values.async_shader_compilation =
++        LibRetro::FetchVariable("azahar_continuum_async_pipelines", "async") != std::string("old");
++
+     auto resolution = LibRetro::FetchVariable(config::graphics::resolution_factor, "1");
+     Settings::values.resolution_factor = std::stoi(resolution);
+ 
+diff --git a/src/video_core/renderer_vulkan/vk_graphics_pipeline.cpp b/src/video_core/renderer_vulkan/vk_graphics_pipeline.cpp
+index d736c7e..74603ed 100644
 --- a/src/video_core/renderer_vulkan/vk_graphics_pipeline.cpp
 +++ b/src/video_core/renderer_vulkan/vk_graphics_pipeline.cpp
-@@ -95,8 +95,13 @@
+@@ -95,8 +95,14 @@ bool GraphicsPipeline::TryBuild(bool wait_built) {
          return false;
      }
  
@@ -10,36 +50,39 @@
 +    // MoltenVK honours FAIL_ON_PIPELINE_COMPILE_REQUIRED only for the SPIR-V to
 +    // Metal library step. Once that library is cached it goes on and builds the
 +    // Metal render pipeline state right here, which is the slow part, so the
-+    // "quick" probe was itself the hitch. Hand every new pipeline to the worker.
++    // "quick" probe was itself the hitch. With async pipelines (the Continuum
++    // core option) every new pipeline goes to the worker; "Old" keeps the probe.
 +    if (wait_built && !shaders_pending && instance.IsPipelineCreationCacheControlSupported() &&
 +        Build(true)) {
          return true;
      }
  
+diff --git a/src/video_core/renderer_vulkan/vk_rasterizer.cpp b/src/video_core/renderer_vulkan/vk_rasterizer.cpp
+index a74b28a..275e951 100644
 --- a/src/video_core/renderer_vulkan/vk_rasterizer.cpp
 +++ b/src/video_core/renderer_vulkan/vk_rasterizer.cpp
-@@ -470,7 +470,12 @@
+@@ -470,7 +470,12 @@ bool RasterizerVulkan::AccelerateDrawBatchInternal(bool is_indexed) {
          SetupIndexArray();
      }
  
 -    const bool wait_built = !async_shaders || regs.pipeline.num_vertices <= 6;
 +    // Continuum: do not block the emulation thread on Vulkan pipeline compile.
-+    // async_shader_compilation defaults off, so wait_built was always true, and
-+    // BindPipeline then calls WaitDone. A track load compiles new pipelines on
-+    // that wait. Skip the draw until the worker finishes. Not a JIT.
-+    (void)async_shaders;
-+    const bool wait_built = false;
++    // With the "Async shaders" option (Continuum's default) a draw whose pipeline
++    // is still compiling is skipped instead of waited on: no hitch, possible pop-in.
++    // "Old (may stutter)" is upstream's wait, unchanged. Not a JIT.
++    const bool wait_built =
++        !async_shaders;
      if (!pipeline_cache.BindPipeline(pipeline_info, wait_built)) {
          return true;
      }
-@@ -613,7 +618,12 @@
+@@ -613,7 +618,12 @@ bool RasterizerVulkan::Draw(bool accelerate, bool is_indexed) {
      if (accelerate) {
          succeeded = AccelerateDrawBatchInternal(is_indexed);
      } else {
 -        pipeline_cache.BindPipeline(pipeline_info, true);
-+        // Continuum: the software-vertex path also skips a draw whose pipeline is
-+        // still compiling instead of waiting on the emulation thread for it.
-+        if (!pipeline_cache.BindPipeline(pipeline_info, false)) {
++        // Continuum: with async pipelines the software-vertex path also skips a
++        // draw whose pipeline is still compiling instead of waiting for it.
++        if (!pipeline_cache.BindPipeline(pipeline_info, !async_shaders)) {
 +            vertex_batch.clear();
 +            return true;
 +        }

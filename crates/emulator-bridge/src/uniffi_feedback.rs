@@ -46,6 +46,12 @@ pub fn feedback_log_add(stamp: String, line: String) {
     crate::feedback::log_add(&stamp, &line);
 }
 
+/// A launch step, flushed to disk before it runs (see `feedback::launch_step`).
+#[uniffi::export]
+pub fn feedback_launch_step(line: String) {
+    crate::feedback::launch_step(&line);
+}
+
 /// This session's log, the newest `limit` lines.
 #[uniffi::export]
 pub fn feedback_log_text(limit: u32) -> String {

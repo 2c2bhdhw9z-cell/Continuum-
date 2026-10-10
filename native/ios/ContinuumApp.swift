@@ -4450,6 +4450,10 @@ final class EngineHost: ObservableObject {
         let launchingSystem = CoreCatalog.system(for: entry)
         screenModes.apply(for: launchingSystem)
 
+        // Flushed to disk before the launch, so a crash anywhere inside it leaves the game, its
+        // system and core as the last lines of the log the next crash report sends. The engine
+        // adds each step (core load, retro_init, retro_load_game, HW context, first frame).
+        feedbackLaunchStep(line: "game \(entry.path) · system \(launchingSystem.map { "\($0)" } ?? "unknown") · core \(spec.coreId)")
         do {
             try engine.launch(
                 coreId: spec.coreId,

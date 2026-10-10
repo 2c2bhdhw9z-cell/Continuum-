@@ -783,6 +783,10 @@ struct Directories {
 /// hand the core a null system directory and it would fail looking for its keys.
 static DIRECTORIES: std::sync::Mutex<Option<Directories>> = std::sync::Mutex::new(None);
 
+/// Cores whose Vulkan `context_reset` waits until `retro_load_game` returns, and whose device
+/// comes from their own negotiation `create_device` when they send one.
+const DEFER_HW_RESET_CORES: &[&str] = &["ppsspp"];
+
 // ------------------------------------------------------------------ core options
 //
 // Live in `cores::options`, including the engine's own rules for melonDS, parallel_n64 and PPSSPP
@@ -903,6 +907,7 @@ impl NativeLibretroCore {
         system_dir: Option<&str>,
         save_dir: Option<&str>,
     ) -> Result<Self, BridgeError> {
+        crate::feedback::launch_step(&format!("core load {} ({})", descriptor.id, path.display()));
         let library = unsafe { libloading::Library::new(path) }.map_err(|err| {
             BridgeError::InvalidCoreModule {
                 core_id: descriptor.id.clone(),
@@ -1056,6 +1061,7 @@ impl NativeLibretroCore {
         // `SET_HW_RENDER`.
         unsafe {
             (symbols.set_environment)(on_environment);
+            crate::feedback::launch_step("retro_init");
             (symbols.init)();
             (symbols.set_video_refresh)(on_video_refresh);
             (symbols.set_audio_sample)(on_audio_sample);
@@ -1274,13 +1280,30 @@ impl EmulatorCore for NativeLibretroCore {
         // Quirks declared during this load are added to the ones declared at init.
         take_serialization_quirks();
 
+        // PPSSPP's context_reset is only safe once retro_load_game has returned (see
+        // `vulkan_hw::set_defer_reset`). Other cores keep the reset they already work with.
+        let defer_reset = DEFER_HW_RESET_CORES.contains(&self.descriptor.id.as_str());
+        vulkan_hw::set_defer_reset(defer_reset);
+        crate::feedback::launch_step(&format!("retro_load_game {}", self.descriptor.id));
         let ok = unsafe { (self.symbols.load_game)(&info) };
+        vulkan_hw::set_defer_reset(false);
         self.serialization_quirks |= take_serialization_quirks();
         if !ok {
             return Err(BridgeError::InvalidContent {
                 core_id: self.descriptor.id.clone(),
                 reason: "retro_load_game rejected the content".into(),
             });
+        }
+        if defer_reset {
+            crate::feedback::launch_step("HW context negotiation (Vulkan create_device, context_reset)");
+            if let Err(reason) = crate::gfx::moltenvk_device::finish_deferred_install() {
+                // No graphics context: running this core would crash it. Unload and say why.
+                unsafe { (self.symbols.unload_game)() };
+                return Err(BridgeError::InvalidContent {
+                    core_id: self.descriptor.id.clone(),
+                    reason: format!("graphics setup failed: {reason}"),
+                });
+            }
         }
 
         if let Some(format) = take_negotiated_format() {
@@ -1334,7 +1357,13 @@ impl EmulatorCore for NativeLibretroCore {
         // thread inside the frame, never from a UIKit handler.
         crate::input::before_retro_run();
 
+        if self.frame_count == 0 {
+            crate::feedback::launch_step("first frame (retro_run)");
+        }
         unsafe { (self.symbols.run)() };
+        if self.frame_count == 0 {
+            crate::feedback::launch_step("first frame done");
+        }
         super::options::note_frame();
         // A core that republishes mid-game (a mapper change) does it from inside retro_run.
         if let Some(table) = take_published_memory_map() {
