@@ -61,10 +61,14 @@ pub const SAVE_EXTENSIONS: &[&str] = &[
 /// Where `system`'s save lives. `game_stem` is the game's filename without extension.
 pub fn location(system: &str, game_stem: &str) -> SaveLocation {
     match system {
-        "dreamcast" => SaveLocation::CoreFile("vmu_save_A1.bin".into()),
+        // flycast with per-game VMUs off (its default, and the app does not set it) keeps the
+        // shared VMUs in `<system>/dc/` (core/stdclass.cpp get_writable_vmu_path), and the
+        // system and save directories are the same folder here.
+        "dreamcast" => SaveLocation::CoreFile("dc/vmu_save_A1.bin".into()),
         "saturn" => SaveLocation::CoreFile(format!("{game_stem}.bkr")),
         "psp" => SaveLocation::Folder("PSP/SAVEDATA".into()),
-        "n3ds" => SaveLocation::Folder("azahar/sdmc/Nintendo 3DS".into()),
+        // Azahar's user dir is `<save>/Azahar/` (citra_libretro/core_settings.cpp), capital A.
+        "n3ds" => SaveLocation::Folder("Azahar/sdmc/Nintendo 3DS".into()),
         _ => SaveLocation::Battery,
     }
 }
@@ -360,7 +364,7 @@ mod tests {
     fn core_file_systems_and_folders() {
         let vmu = vec![0u8; 128 * 1024];
         let got = import("dreamcast", "a.vmu", &vmu, &[], "Sonic Adventure").unwrap();
-        assert_eq!(got.location, SaveLocation::CoreFile("vmu_save_A1.bin".into()));
+        assert_eq!(got.location, SaveLocation::CoreFile("dc/vmu_save_A1.bin".into()));
         assert!(import("dreamcast", "a.vmu", &[0u8; 10], &[], "x").is_err());
         let got = import("saturn", "Nights.bkr", &[1u8; 32768], &[], "Nights").unwrap();
         assert_eq!(got.location, SaveLocation::CoreFile("Nights.bkr".into()));

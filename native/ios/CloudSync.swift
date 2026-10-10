@@ -96,7 +96,10 @@ enum CloudSyncPaths {
     /// Cores that keep saves in FOLDERS under the save directory (import/saves.rs `location`):
     /// PPSSPP's `PSP/SAVEDATA` and Azahar's 3DS SD card. Synced as `CoreSaves/<that path>/...`.
     /// Before this, PSP and 3DS in-game saves were in no sync or backup at all.
-    static let coreSaveFolders = ["PSP/SAVEDATA", "azahar/sdmc/Nintendo 3DS"]
+    static let coreSaveFolders = ["PSP/SAVEDATA", "Azahar/sdmc/Nintendo 3DS"]
+    // Checked against the sources: PPSSPP libretro.cpp sets memStickDirectory to the save dir;
+    // Azahar core_settings.cpp uses `<save>/Azahar/`; flycast keeps shared VMUs in
+    // `<system>/dc/` (stdclass.cpp); Beetle Saturn writes `<save>/<game>.bkr` (ss.c).
 
     static func support() -> URL? {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -195,8 +198,10 @@ enum CloudSyncPaths {
                 return nil
             }
             return support.appendingPathComponent(name)
-        case ("Battery", 2) where isVMUSave(parts[1]):
-            return support.appendingPathComponent(parts[1])
+        case ("CoreSaves", 3) where parts[1] == "dc" && isVMUSave(parts[2]):
+            // flycast's shared VMUs, beside its BIOS in `dc/`; only the VMU names are taken.
+            return support.appendingPathComponent("dc", isDirectory: true)
+                .appendingPathComponent(parts[2])
         case ("CoreSaves", let count) where count >= 3:
             let inner = parts.dropFirst().joined(separator: "/")
             guard coreSaveFolders.contains(where: { inner.hasPrefix($0 + "/") }) else { return nil }
@@ -335,6 +340,11 @@ enum CloudSyncPaths {
         if let s = stat(cheats, path: "Cheats/index.json") { out.append(s) }
         for url in files(in: support) {
             let path = "Battery/\(url.lastPathComponent)"
+            if localURL(for: path) != nil, let s = stat(url, path: path) { out.append(s) }
+        }
+        for url in files(in: support.appendingPathComponent("dc", isDirectory: true))
+            where isVMUSave(url.lastPathComponent) {
+            let path = "CoreSaves/dc/\(url.lastPathComponent)"
             if localURL(for: path) != nil, let s = stat(url, path: path) { out.append(s) }
         }
         for folder in coreSaveFolders {
