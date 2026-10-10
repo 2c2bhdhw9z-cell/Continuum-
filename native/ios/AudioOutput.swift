@@ -791,6 +791,18 @@ final class AudioOutput {
             ) { [weak self] note in
                 self?.handleRouteChange(note)
             },
+            // Media services reset (rare, but real: a crashed mediaserverd). Every audio object
+            // the app held is dead afterwards; with no observer the game stayed silent until it
+            // was left. Apple's guidance is to rebuild everything, which `rebuild` does.
+            centre.addObserver(
+                forName: AVAudioSession.mediaServicesWereResetNotification,
+                object: AVAudioSession.sharedInstance(),
+                queue: .main
+            ) { [weak self] _ in
+                guard let self, self.wanted, !self.suspended else { return }
+                self.interrupted = false
+                self.rebuild(reason: "after the system reset its audio services")
+            },
             // The engine configuration-change observer is NOT here: it is registered per graph
             // in `startGraph`, scoped to the output engine.
         ]
