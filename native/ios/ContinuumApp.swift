@@ -4332,7 +4332,7 @@ final class EngineHost: ObservableObject {
         // core starts writing the same files. A sync that is only moving games touches neither,
         // and can take minutes, so it no longer blocks play. See `CloudSync.allowsGameLaunch`.
         if !cloudSync.allowsGameLaunch {
-            status = "cloud sync is still running; tap \(entry.name) again in a moment"
+            status = "the folder sync is still running; tap \(entry.name) again in a moment"
             return
         }
 

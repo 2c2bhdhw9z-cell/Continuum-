@@ -204,7 +204,7 @@ final class CheatStore: ObservableObject {
         cheats = stored.filter { !$0.code.isEmpty && !$0.gameId.isEmpty }
         line = failure.map { "cheats: \($0)" }
             ?? "cheats: \(Self.count(cheats.count, "cheat")) stored for \(Self.count(gameCount, "game")), "
-            + "reloaded after cloud sync"
+            + "reloaded after folder sync"
     }
 
     // MARK: Reading

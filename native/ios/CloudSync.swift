@@ -951,7 +951,7 @@ final class CloudSync: ObservableObject {
         folderName = UserDefaults.standard.string(forKey: Self.folderNameKey)
         line = UserDefaults.standard.string(forKey: Self.lastLineKey)
             ?? (UserDefaults.standard.data(forKey: Self.bookmarkKey) == nil
-                ? "cloud sync: off, no folder chosen" : "cloud sync: not run yet")
+                ? "sync folder: off, no folder chosen" : "sync folder: not run yet")
     }
 
     func attach(host: EngineHost) {
@@ -972,7 +972,7 @@ final class CloudSync: ObservableObject {
 
     func chooseFolder() {
         guard let presenter = EngineHost.topmostViewController() else {
-            setLine("cloud sync: cannot show the folder picker, no window to present it from")
+            setLine("sync folder: cannot show the folder picker, no window to present it from")
             return
         }
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType.folder])
@@ -983,13 +983,32 @@ final class CloudSync: ObservableObject {
         pickerDelegate = delegate
         picker.delegate = delegate
         presenter.present(picker, animated: true)
-        setLine("cloud sync: choose the folder to sync into", persist: false)
+        setLine("sync folder: choose the folder to sync into", persist: false)
+    }
+
+    /// What SwiftUI's `.fileImporter(allowedContentTypes: [.folder])` handed back. This is the
+    /// picker path used by Settings and the backup prompt since build 162: on build 161 the UIKit
+    /// picker presented by hand from `topmostViewController()` never accepted Open (folder
+    /// highlighted or entered, the picker stayed up and no delegate call arrived). SwiftUI owns
+    /// the presentation and the callback here, so nothing can be presented from the wrong
+    /// controller or lose its delegate.
+    func adoptPickedFolder(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let url): adoptFolder(url)
+        case .failure(let error):
+            pickerDelegate = nil
+            setLine("sync folder: the folder picker failed (\(error.localizedDescription))", persist: false)
+        }
+    }
+
+    func noteFolderPickerShown() {
+        setLine("sync folder: choose the folder to sync into", persist: false)
     }
 
     private func adoptFolder(_ url: URL?) {
         pickerDelegate = nil
         guard let url else {
-            setLine("cloud sync: folder choice cancelled; nothing changed", persist: false)
+            setLine("sync folder: folder choice cancelled; nothing changed", persist: false)
             return
         }
         let scoped = url.startAccessingSecurityScopedResource()
@@ -1003,10 +1022,10 @@ final class CloudSync: ObservableObject {
             // A different folder has a different history. Keeping the old manifest would read
             // every file the new folder lacks as "deleted in the cloud".
             forgetHistory()
-            setLine("cloud sync: folder \(url.lastPathComponent) chosen, syncing")
+            setLine("sync folder: folder \(url.lastPathComponent) chosen, syncing")
             syncNow(reason: "a folder was chosen")
         } catch {
-            setLine("cloud sync: the folder could not be remembered (\(error.localizedDescription))")
+            setLine("sync folder: the folder could not be remembered (\(error.localizedDescription))")
         }
     }
 
@@ -1015,7 +1034,7 @@ final class CloudSync: ObservableObject {
         defaults.removeObject(forKey: Self.folderNameKey)
         folderName = nil
         forgetHistory()
-        setLine("cloud sync: off, folder forgotten (nothing in it was deleted)")
+        setLine("sync folder: off, folder forgotten (nothing in it was deleted)")
     }
 
     private func forgetHistory() {
@@ -1045,17 +1064,17 @@ final class CloudSync: ObservableObject {
 
     func syncNow(reason: String) {
         guard isConfigured else {
-            setLine("cloud sync: choose a folder first")
+            setLine("sync folder: choose a folder first")
             return
         }
         guard !isSyncing else { return }
         if host?.activeEntry != nil {
-            setLine("cloud sync: skipped while a game is running; it runs when you return to the library",
+            setLine("sync folder: skipped while a game is running; it runs when you return to the library",
                     persist: false)
             return
         }
         guard let folder = resolveFolder() else {
-            setLine("cloud sync failed: the folder could not be found; choose it again in Settings")
+            setLine("sync folder failed: the folder could not be found; choose it again in Settings")
             return
         }
         let manifestText = CloudSyncPaths.manifestURL()
@@ -1073,7 +1092,7 @@ final class CloudSync: ObservableObject {
         isSyncing = true
         allowsGameLaunch = false
         storesReloaded = false
-        setLine("cloud sync: syncing (\(reason))", persist: false)
+        setLine("sync folder: syncing (\(reason))", persist: false)
         let root = folder.appendingPathComponent(CloudSyncPaths.remoteFolderName, isDirectory: true)
         Task.detached(priority: .utility) {
             let scoped = folder.startAccessingSecurityScopedResource()
@@ -1114,8 +1133,8 @@ final class CloudSync: ObservableObject {
         let reloadedAlready = storesReloaded
         storesReloaded = false
         if let refusal = outcome.refusal {
-            setLine("cloud sync failed: \(refusal)")
-            host?.status = "cloud sync failed: \(refusal)"
+            setLine("sync folder failed: \(refusal)")
+            host?.status = "sync folder failed: \(refusal)"
             return
         }
         if let text = outcome.manifestText, let url = CloudSyncPaths.manifestURL() {
@@ -1127,7 +1146,7 @@ final class CloudSync: ObservableObject {
         let formatter = DateFormatter()
         formatter.dateStyle = .short
         formatter.timeStyle = .short
-        var text = "cloud sync: last synced \(formatter.string(from: outcome.finishedAt)), "
+        var text = "sync folder: last synced \(formatter.string(from: outcome.finishedAt)), "
             + syncReportLine(report: report)
         if outcome.pendingInCloud > 0 {
             text += ", \(outcome.pendingInCloud) still downloading from the cloud (next sync)"
@@ -1437,6 +1456,7 @@ struct BackupFolderPrompt: ViewModifier {
     /// The crash question (Feedback.swift) is the other alert at launch. This one waits for it.
     @ObservedObject private var feedback = FeedbackCenter.shared
     @State private var shown = false
+    @State private var pickingFolder = false
 
     private static let askedKey = "continuum.sync.backupOffered.v1"
 
@@ -1465,13 +1485,22 @@ struct BackupFolderPrompt: ViewModifier {
             .onChange(of: feedback.crashPromptShown) { _ in offerSoon() }
             .onChange(of: feedback.crashReportOpen) { _ in offerSoon() }
             .onAppear { offerIfItIsTime() }
+            .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder],
+                          allowsMultipleSelection: false) { result in
+                sync.adoptPickedFolder(result)
+            }
     }
 
     private func choose(withGames: Bool) {
         UserDefaults.standard.set(true, forKey: Self.askedKey)
         // Before the folder is chosen, so its first sync already includes or leaves out games.
         sync.includesGames = withGames
-        sync.chooseFolder()
+        sync.noteFolderPickerShown()
+        // After the alert has gone, so the importer is not presented over a closing alert.
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            pickingFolder = true
+        }
     }
 
     /// A moment after the crash question or its form goes, so this is not presented while the
@@ -1499,14 +1528,20 @@ struct BackupFolderPrompt: ViewModifier {
 
 struct CloudSyncSection: View {
     @ObservedObject var sync: CloudSync
+    @State private var pickingFolder = false
 
     var body: some View {
-        SettingsSection(title: "CLOUD SYNC") {
+        SettingsSection(title: "SYNC FOLDER") {
             SettingsReadout(label: "Folder", value: sync.folderName ?? "none chosen")
             SettingsNote(sync.line)
             SettingsButton(title: sync.folderName == nil ? "Choose a sync folder" : "Choose a different folder",
                            role: .normal) {
-                sync.chooseFolder()
+                sync.noteFolderPickerShown()
+                pickingFolder = true
+            }
+            .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder],
+                          allowsMultipleSelection: false) { result in
+                sync.adoptPickedFolder(result)
             }
             if sync.folderName != nil {
                 SettingsButton(title: sync.isSyncing ? "Syncing..." : "Sync now", role: .normal) {
