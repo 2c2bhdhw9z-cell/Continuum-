@@ -1,13 +1,57 @@
 # Bug audit, 7 October 2026
 
 Six parallel code reviews (library, data, player, skins/settings, Rust engine, build) plus build
-142's own log. **Nothing is fixed here.** This is the tally the owner asked for. Every HIGH and
+142's own log. This was the tally the owner asked for. Every HIGH and
 CRITICAL item below was re-read in the code before it went on this list.
 
 Confidence: **CONFIRMED** = traced in the code and definitely wrong. **SUSPECTED** = the code looks
 wrong, but a phone or a real build is needed to be sure.
 
 "Not built yet" = in code on master that no build has compiled. Builds 142 and earlier don't have it.
+
+## Where each item stands (re-checked 9 October 2026, against the code on master)
+
+| # | State | Note |
+| --- | --- | --- |
+| 1 | Fixed | Skin unzip caps each file at 64 MB. |
+| 2 | Fixed | Frame counters are no longer published; the library does not redraw per frame. |
+| 3 | Fixed | note() no longer copies into the host. |
+| 4 | Fixed | Confirmed on the phone in build 144. |
+| 5 | Fixed | Settings export skips while a downloaded copy waits, and a fresh install no longer wins by being newer. |
+| 6 | Fixed | Skins get a stable id from their identifier and systems; the index merges. |
+| 7 | Fixed | Each skin entry decodes field by field; a bad entry no longer empties the list. |
+| 8 | Fixed | The games switch moved to a key that survives and is set by Choose a folder, with games. |
+| 9 | Fixed | Unknown keys are left alone (adoptLegacy knownSystems). |
+| 10 | Fixed | Both pointers are handed back, and the host frees a slot by its run or write address. |
+| 11 | Fixed in code, needs a phone call to confirm | Sound is rebuilt on coming back to the front. |
+| 12 | Fixed | Leaving the front releases fast forward and rewind; the hold catches cancels. |
+| 13 | Fixed | Reports include the previous launch's log. |
+| 14 | Fixed | The JIT line swaps the part number for the phone's name. |
+| 15 | Fixed | Re-import stages the new copy, then swaps; a failed copy keeps the old one (confirmed on phone, 144). |
+| 16 | Fixed | Only a sync of saves blocks a launch; a games copy no longer does. |
+| 17 | Fixed | Abandoned .upload temp files are swept from the cloud folder. |
+| 18 | Fixed | Arrival stamps follow copy order, newest first. |
+| 19 | Fixed | A skin imported for another console no longer becomes its own console's default. |
+| 20 | Fixed | Core cache is saved per run with a fresh key, before xcodebuild. |
+| 21 | Fixed | Cache prefix includes xcodebuild -version. |
+| 22 | Fixed | Every network call in the update check is guarded per repository. |
+| 23 | Fixed | The release step un-drafts an adopted release. |
+| 24 | FIXED IN THIS PASS | A logged-out session retries the stored token when a game starts. |
+| 25 | Still present | A landscape-only skin is stored as the upright face. Left alone: changing how skins are stored needs phone testing with such a skin. |
+| 26 | Fixed | Pieces are walked to any depth. |
+| 27 | FIXED IN THIS PASS | The unreachable-folder check now also runs per top-level folder, so many skins or games no longer dilute it. |
+| 28 | FIXED IN THIS PASS | This device's files compare exact times; the 2 s slack is kept only for the cloud side. |
+| 29 | FIXED IN THIS PASS | The picture conversion checks the buffer length and draws black instead of crashing. |
+| 30 | Fixed | Same fix as 2. |
+| 31 | Fixed | The engine-change observer is scoped to the game's own audio engine. |
+| 32 | Fixed | The backup prompt waits for the crash prompt, on its own view. |
+| 33 | Can't tell without a phone | Bar height is still 84 pt; scrolling was confirmed fine on 144. |
+| 34 | Fixed | Help text says file name. |
+| 35 | FIXED IN THIS PASS | Rewind note no longer says nothing to pick; skins note names .manicskin; Reset now asks first. |
+| 36 | Fixed | Audio session deactivates with notifyOthersOnDeactivation. |
+| 37 | FIXED IN THIS PASS | Flash pauses itself if paused while loading; J2ME sound made while paused starts silent. Needs a phone to confirm. |
+| 38 | Fixed | All patches use a bool function type. |
+| 39 | Fixed | Release tags use --target github.sha. |
 
 ## Things Kiro got wrong this session (said plainly)
 

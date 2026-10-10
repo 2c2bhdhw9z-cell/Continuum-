@@ -59,6 +59,13 @@ note that quoted an internal ticket number ("FEAT-006") was reworded.
 Known limits worth telling testers: audio uses a simple linear resampler (can sound slightly
 harsh on some systems); Symbian sound ignores the app volume and has no save states.
 
+**Second pass (build after 154):** all 39 docs/BUG_AUDIT.md items re-checked (table at the top
+of that file): 31 already fixed, 7 fixed now (achievements retry after an offline launch, the sync
+safety check per folder, exact local times in sync, a crash-proof picture conversion, Settings
+text plus a confirm before Reset deletes every skin, Flash/J2ME pause while loading, SMB buffer
+bounds), 1 still present (landscape-only skins), 1 needs a phone. GPL v3 LICENSE added; README
+names it. None of these are tried on a phone yet.
+
 ## Next up
 
 For whoever works on this next:

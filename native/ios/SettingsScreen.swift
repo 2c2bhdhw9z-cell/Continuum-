@@ -55,6 +55,7 @@ struct SettingsScreen: View {
     /// clusters live at. A card cannot show you where a control sits relative to a screen it does
     /// not cover.
     @State private var showControlEditor = false
+    @State private var confirmResetControls = false
     /// Button taps, rumble and the turbo rate. A shared object rather than a parameter, because
     /// the pad deep under the player reads the same one. See Haptics.swift.
     @ObservedObject private var feel = ControlFeel.shared
@@ -372,7 +373,7 @@ struct SettingsScreen: View {
             SettingsNote(
                 "Opens the pad full screen. Pick a preview console, then drag face buttons, "
                 + "shoulders, SELECT, or START. Size and opacity, left-handed swap, and Import "
-                + ".deltaskin (layout, art, and game screen hole). Each console's layout and skin "
+                + ".manicskin or .deltaskin (layout, art, and game screen hole). Each console's layout and skin "
                 + "are remembered on their own between launches. Extra buttons (combos, turbo, "
                 + "quick save and load, fast forward, rewind, screenshot, menu) are added there "
                 + "too, per console and per orientation, and an imported skin can be edited "
@@ -385,7 +386,16 @@ struct SettingsScreen: View {
             // round when what you want is to undo it.
             SettingsButton(title: "Reset every system's controls and skins",
                            role: .destructive) {
-                host.resetAllTouchLayouts()
+                confirmResetControls = true
+            }
+            .alert("Reset every system's controls and skins?", isPresented: $confirmResetControls) {
+                Button("Reset and delete skins", role: .destructive) {
+                    host.resetAllTouchLayouts()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Every moved button goes back to where it started, and every imported "
+                     + "skin is deleted. This cannot be undone.")
             }
             .disabled(!host.hasCustomControlsOrSkins)
             .opacity(host.hasCustomControlsOrSkins ? 1 : 0.45)
@@ -911,9 +921,8 @@ struct SettingsScreen: View {
             SettingsNote(
                 "Rewind works by quietly saving the game ten times a second and stepping back "
                 + "through those saves while you hold the rewind button in the player. How much "
-                + "memory that takes is worked out for you from the size of this device, so there "
-                + "is nothing to pick: the line above says what it came to and, once a game is "
-                + "running, how many seconds of rewind it actually bought."
+                + "memory that takes is set by Rewind memory above. The line above says what it "
+                + "came to and, once a game is running, how many seconds of rewind it bought."
             )
             SettingsNote(
                 "How far back it reaches depends entirely on the game, which is why it is not "

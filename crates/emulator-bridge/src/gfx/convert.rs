@@ -21,6 +21,24 @@ pub fn to_rgba8<'a>(frame: &FrameView<'a>, scratch: &'a mut Vec<u8>) -> &'a [u8]
     let tight_row = width * 4;
     let needed = tight_row * height;
 
+    // A buffer shorter than its own width, height and stride claim (a stale frame kept across a
+    // core or format change) would index past the end and panic, which across the FFI boundary
+    // ends the app. Hand back a black frame of the right size instead.
+    let bpp = match frame.format {
+        PixelFormat::Rgb565 => 2,
+        PixelFormat::Rgba8888 | PixelFormat::Xrgb8888 => 4,
+    };
+    let required = if height == 0 || width == 0 {
+        0
+    } else {
+        (height - 1) * frame.stride_bytes + width * bpp
+    };
+    if frame.data.len() < required || (height > 1 && frame.stride_bytes < width * bpp) {
+        scratch.clear();
+        scratch.resize(needed, 0);
+        return scratch;
+    }
+
     if frame.format == PixelFormat::Rgba8888 && frame.stride_bytes == tight_row {
         return &frame.data[..needed.min(frame.data.len())];
     }
@@ -80,6 +98,22 @@ pub fn to_rgba8<'a>(frame: &FrameView<'a>, scratch: &'a mut Vec<u8>) -> &'a [u8]
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_short_buffer_gives_black_not_a_panic() {
+        let data = vec![1u8; 10];
+        let frame = FrameView {
+            data: &data,
+            width: 4,
+            height: 4,
+            stride_bytes: 16,
+            format: PixelFormat::Xrgb8888,
+        };
+        let mut scratch = Vec::new();
+        let out = to_rgba8(&frame, &mut scratch);
+        assert_eq!(out.len(), 64);
+        assert!(out.iter().all(|&b| b == 0));
+    }
 
     #[test]
     fn packed_rgba_is_zero_copy() {

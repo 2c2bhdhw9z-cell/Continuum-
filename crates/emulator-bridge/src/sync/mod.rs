@@ -75,6 +75,13 @@ impl Seen {
     fn matches(self, stat: &FileStat) -> bool {
         self.size == stat.size && (self.mtime_ms - stat.mtime_ms).abs() <= MTIME_SLACK_MS
     }
+
+    /// For this device's own files, which keep exact times. Slack here would hide a battery save
+    /// written within two seconds of a sync (same size, nearly the same time), and a later
+    /// download from another phone would then replace it with no conflict copy.
+    fn matches_exactly(self, stat: &FileStat) -> bool {
+        self.size == stat.size && self.mtime_ms == stat.mtime_ms
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -347,10 +354,12 @@ fn decide(
     now_ms: i64,
 ) -> Option<Action> {
     let changed = |stat: &FileStat, seen: Option<Seen>| seen.is_none_or(|s| !s.matches(stat));
+    let changed_local =
+        |stat: &FileStat, seen: Option<Seen>| seen.is_none_or(|s| !s.matches_exactly(stat));
     match (l, r) {
         (None, None) => None,
         (Some(l), Some(r)) => {
-            let lc = changed(l, b.local);
+            let lc = changed_local(l, b.local);
             let rc = changed(r, b.remote);
             match (lc, rc) {
                 (false, false) => None,
@@ -381,7 +390,7 @@ fn decide(
         }
         (Some(l), None) => {
             // Never in the cloud as far as we know, or edited here since: send it up.
-            if b.remote.is_none() || changed(l, b.local) || !propagates_deletion(path) {
+            if b.remote.is_none() || changed_local(l, b.local) || !propagates_deletion(path) {
                 action(ActionKind::Upload, path, String::new())
             } else {
                 action(ActionKind::ArchiveLocal, path, archive_path(path, now_ms))
@@ -406,10 +415,11 @@ fn decide(
 /// more than three), is refused with a readable reason and nothing is touched.
 pub fn refusal(
     actions: &[Action],
-    local_count: usize,
+    local: &[FileStat],
     remote_count: usize,
     base: &Manifest,
 ) -> Option<String> {
+    let local_count = local.len();
     let remote_known = base.entries.values().filter(|e| e.remote.is_some()).count();
     if remote_count == 0 && remote_known > 0 {
         return Some(format!(
@@ -424,6 +434,21 @@ pub fn refusal(
         return Some(format!(
             "the cloud folder is missing {archiving} of this device's {local_count} files at once, which looks like a folder that is not reachable. Nothing was changed"
         ));
+    }
+    // The same test per top-level folder. Skins and games add many local files, so a half-loaded
+    // cloud folder could archive most of the save states while staying under half of everything.
+    let top = |p: &str| p.split('/').next().unwrap_or("").to_string();
+    let mut archived_in: BTreeMap<String, usize> = BTreeMap::new();
+    for a in actions.iter().filter(|a| a.kind == ActionKind::ArchiveLocal) {
+        *archived_in.entry(top(&a.path)).or_default() += 1;
+    }
+    for (folder, n) in archived_in {
+        let held = local.iter().filter(|f| top(&f.path) == folder).count();
+        if n > 3 && n * 2 > held {
+            return Some(format!(
+                "the cloud folder is missing {n} of this device's {held} files in {folder} at once, which looks like a folder that is not reachable. Nothing was changed"
+            ));
+        }
     }
     None
 }
@@ -677,7 +702,16 @@ mod tests {
     #[test]
     fn an_mtime_within_slack_is_not_a_change() {
         let base = base_of(P, Some((10, 1000)), Some((10, 5000)));
-        assert_eq!(one(&[st(P, 10, 2500)], &[st(P, 10, 5000)], &base), None);
+        assert_eq!(one(&[st(P, 10, 1000)], &[st(P, 10, 6500)], &base), None);
+    }
+
+    #[test]
+    fn a_local_edit_within_slack_is_still_a_change() {
+        let base = base_of(P, Some((10, 1000)), Some((10, 5000)));
+        assert_eq!(
+            one(&[st(P, 10, 2500)], &[st(P, 10, 5000)], &base).unwrap().kind,
+            ActionKind::Upload
+        );
     }
 
     #[test]
@@ -1024,18 +1058,18 @@ mod tests {
             .map(|i| st(&format!("SaveStates/{i}.state"), 1, 1))
             .collect();
         let actions = plan(&local, &[], &base, NOW);
-        assert!(refusal(&actions, local.len(), 0, &base)
+        assert!(refusal(&actions, &local, 0, &base)
             .unwrap()
             .contains("looks empty"));
         // One file really removed in the cloud is an ordinary archive.
         let remote: Vec<FileStat> = local[1..].to_vec();
         let actions = plan(&local, &remote, &base, NOW);
         assert_eq!(actions.len(), 1);
-        assert!(refusal(&actions, local.len(), remote.len(), &base).is_none());
+        assert!(refusal(&actions, &local, remote.len(), &base).is_none());
         // Most of them gone at once is refused even with a non-empty listing.
         let remote: Vec<FileStat> = local[5..].to_vec();
         let actions = plan(&local, &remote, &base, NOW);
-        assert!(refusal(&actions, local.len(), remote.len(), &base)
+        assert!(refusal(&actions, &local, remote.len(), &base)
             .unwrap()
             .contains("not reachable"));
     }

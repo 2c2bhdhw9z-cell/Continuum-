@@ -65,6 +65,14 @@ Not part of that, so still unconfirmed: rewind letting go the same way, covers n
 and the phone name on the feedback screen (P3). The skin-list protections (one bad skin, a nonsense
 console name) were not something to set up, and were not checked.
 
+## Q. Audit fixes (build after 154, new)
+
+**Q1.** Settings → On-screen controls → Reset every system's controls and skins: it should ask
+first. Tap Cancel and check your skins are still there.
+**Q2.** Open the app with Wi-Fi and data off, then turn them on and start a game: achievements
+should log in by themselves (only if you use RetroAchievements).
+**Q3.** Open a Flash or J2ME game and pause straight away while it loads: it should stay silent.
+
 ## N. NES on Mesen (build 153). N1 and N2 PASSED on the phone (142/146, save states work)
 
 **N1. AccuracyCoin on Mesen.** Import `AccuracyCoin.nes` (github.com/100thCoin/AccuracyCoin).

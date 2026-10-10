@@ -237,7 +237,7 @@ pub fn sync_plan(
     let manifest = sync::Manifest::parse(&manifest_text);
     let (local, remote) = (stats(local), stats(remote));
     let actions = sync::plan(&local, &remote, &manifest, now_ms);
-    let refusal = sync::refusal(&actions, local.len(), remote.len(), &manifest);
+    let refusal = sync::refusal(&actions, &local, remote.len(), &manifest);
     let actions = actions
         .into_iter()
         .map(|a| SyncAction {

@@ -213,19 +213,25 @@ final class AchievementsStore: ObservableObject {
             line = "achievements: this build has no RetroAchievements support"
             return
         }
-        // Back in with the stored token, if there is one. The password is never stored, so there
-        // is nothing else this could do without asking.
-        if let stored = UserDefaults.standard.string(forKey: Self.usernameKey),
-           let token = AchievementsKeychain.token(for: stored) {
-            do {
-                try engine.achievementsLoginToken(username: stored, token: token)
-                line = "achievements: logging in as \(stored)"
-                tokenLoginName = stored
-                loggingIn = true
-                updatePumping()
-            } catch {
-                line = "achievements: could not log in as \(stored): \(error)"
-            }
+        loginWithStoredToken()
+    }
+
+    /// Back in with the stored token, if there is one. The password is never stored, so there is
+    /// nothing else this could do without asking. Runs at launch, and again when a game starts
+    /// while still logged out, so a phone that opened the app offline gets achievements back once
+    /// it is online instead of losing them for the whole session.
+    private func loginWithStoredToken() {
+        guard username == nil, !loggingIn,
+              let stored = UserDefaults.standard.string(forKey: Self.usernameKey),
+              let token = AchievementsKeychain.token(for: stored) else { return }
+        do {
+            try engine.achievementsLoginToken(username: stored, token: token)
+            line = "achievements: logging in as \(stored)"
+            tokenLoginName = stored
+            loggingIn = true
+            updatePumping()
+        } catch {
+            line = "achievements: could not log in as \(stored): \(error)"
         }
     }
 
@@ -285,7 +291,12 @@ final class AchievementsStore: ObservableObject {
         gameProgress = ""
         liveRows = []
         currentGameId = SaveStates.gameId(for: entry)
-        guard username != nil else { return }
+        guard username != nil else {
+            // Logged out only because the launch-time login got no answer: try again now. A
+            // success identifies this game itself (see loginSucceeded).
+            loginWithStoredToken()
+            return
+        }
         // Before the load, so the requests it queues are collected whatever happens below.
         startPumping()
         guard let system else {

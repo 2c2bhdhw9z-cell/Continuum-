@@ -453,8 +453,9 @@ enum WebPlayerScripts {
           }).then(function (data) {
             return api.load({ data: data, swfFileName: seed.swfName || 'movie.swf' });
           }).then(function () {
-            focusPlayer();
             api.volume = volume;
+            // Paused before the movie finished loading: Ruffle starts playing on load, so stop it.
+            if (paused) { api.pause(); } else { focusPlayer(); }
             post({ type: 'ready' });
           }).catch(function (e) {
             post({ type: 'failed', message: String(e && e.message || e) });
@@ -552,6 +553,8 @@ enum WebPlayerScripts {
         var Tracked = function () {
           var ctx = new (Function.prototype.bind.apply(Original, [null].concat([].slice.call(arguments))))();
           contexts.push(ctx);
+          // Made while paused or muted (a pause before the game finished loading): start silent.
+          if (paused || muted) { try { ctx.suspend(); } catch (e) {} }
           return ctx;
         };
         Tracked.prototype = Original.prototype;

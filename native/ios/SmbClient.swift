@@ -49,10 +49,12 @@ enum SmbClient {
         let rc = err.withUnsafeMutableBufferPointer { buf -> Int32 in
             body(buf.baseAddress!, &count, raw)
         }
+        // Never trust the C side's lengths further than the buffers this side allocated.
+        err[err.count - 1] = 0
         if rc != 0 {
             throw SmbFailure(message: message(err))
         }
-        return (0..<Int(count)).map { index in
+        return (0..<max(0, min(Int(count), cap))).map { index in
             let entry = raw[index]
             let name = withUnsafePointer(to: entry.name) {
                 $0.withMemoryRebound(to: CChar.self, capacity: 256) { String(cString: $0) }

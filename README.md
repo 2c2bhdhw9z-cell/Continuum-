@@ -57,3 +57,10 @@ Reports go by email to idkplswrk@gmail.com; you see the whole message before it 
 owner's test list. [docs/PRODUCT_SCOPE.md](docs/PRODUCT_SCOPE.md) is what the app is meant to be,
 and [docs/MANIC_PARITY.md](docs/MANIC_PARITY.md) is the feature checklist. Builds come from GitHub
 Actions; every build of `master` that changes the app becomes a Release.
+
+## License
+
+Continuum is licensed under the GNU General Public License v3.0; see [LICENSE](LICENSE). The
+emulator cores and libraries inside the app keep their own licenses (listed in the app under
+Settings → About → Open-source credits). Some cores (Snes9x, Genesis Plus GX, PicoDrive,
+FinalBurn Neo, MAME 2003-Plus) allow free distribution only, never sale.
