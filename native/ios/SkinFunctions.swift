@@ -196,7 +196,7 @@ enum SkinFunction: String, CaseIterable, Codable, Sendable {
         case .airPlayLayout: return "AirPlay layout"
         case .gameplayManuals: return "Game manual"
         case .triggerPro: return "Button profile"
-        case .tvType: return "TV type (colour/BW)"
+        case .tvType: return "TV type (color/BW)"
         case .leftDifficulty: return "Left difficulty"
         case .rightDifficulty: return "Right difficulty"
         case .screenScaling: return "Screen scaling"

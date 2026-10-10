@@ -691,9 +691,13 @@ final class PhysicalControllers: ObservableObject {
             // Which of these it is matters: the second one is the case where the switch is on and
             // deliberately not acting, and a player who has just flipped it deserves to be told
             // that rather than left thinking it did nothing.
-            sentence += hidesOnScreenPadNow
-                ? ", so the on-screen pad is hidden"
-                : ", and the on-screen pad stays because that pad has no SELECT of its own"
+            if hidesOnScreenPadNow {
+                sentence += ", so the on-screen pad is hidden"
+            } else if runningSystemNeedsOverlay {
+                sentence += ", and the on-screen pad stays because this system's touch screen is on it"
+            } else {
+                sentence += ", and the on-screen pad stays because that pad has no SELECT of its own"
+            }
         }
         return sentence
     }
