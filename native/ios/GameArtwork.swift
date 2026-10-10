@@ -556,11 +556,12 @@ enum ArtworkNames {
         return forms
     }
 
-    /// The ordered candidate list for one game: three name forms, each across three folders.
+    /// The ordered candidate list for one game: every name form from `nameForms`, each across the
+    /// three folders.
     ///
     /// NAME-MAJOR, NOT FOLDER-MAJOR, and that ordering is the performance argument. An exact-name
     /// box art is by far the commonest outcome, so the common case costs ONE request and only a
-    /// genuine miss walks all nine. Folder-major would put "the title screen under the exact name"
+    /// genuine miss walks the whole ladder. Folder-major would put "the title screen under the exact name"
     /// ahead of "the box art with the dump tag dropped", which is both slower and worse art.
     static func candidates(system: GameSystem, filename: String) -> [ArtworkCandidate] {
         candidates(system: system, forms: nameForms(for: filename))
@@ -572,6 +573,7 @@ enum ArtworkNames {
     /// Exists so the list search can hand back a filename the server actually has and get the same
     /// candidate shape as everything else, rather than building a URL of its own. See
     /// `ArtworkIndex.swift`.
+    ///
     /// The `folders` parameter is what the list search uses to ask ONE folder for a name. A list
     /// says which folder a file is in, so asking the other two would be requests that list has
     /// already answered.

@@ -777,7 +777,8 @@ struct OnlinePlaySettingsSection: View {
     var body: some View {
         SettingsSection(title: "ONLINE PLAY") {
             SettingsReadout(label: "Now", value: netplay.isActive ? netplay.line : "off")
-            SettingsReadout(label: "Input delay", value: "\(netplay.inputDelay) frames")
+            SettingsReadout(label: "Input delay",
+                            value: "\(netplay.inputDelay) frame\(netplay.inputDelay == 1 ? "" : "s")")
             SettingsNote("Two players on two phones. Load the same game on both, then open the "
                          + "\u{2026} menu in the player and choose Play online. One phone hosts "
                          + "and shows its address; the other types it or picks it under Nearby. "

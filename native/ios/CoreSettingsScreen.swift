@@ -309,10 +309,10 @@ extension EngineHost {
         }
     }
 
-    /// The system the running game is on, for the in-game menu.
+    /// Whether the running game's system has palettes to cycle, for the in-game menu.
     var activeSystemHasPalette: Bool {
         guard let system = activeSystem else { return false }
-        return [.gb, .gbc, .nes, .fds].contains(system) || system.rawValue == "vb"
+        return [.gb, .gbc, .nes, .fds, .vb].contains(system)
     }
 }
 
@@ -687,7 +687,7 @@ struct CoreActionsMenuSection: View {
             }
             if system == .atari2600 {
                 Button { host.toggleTVType() } label: {
-                    Label(host.currentTVTypeIsColor() ? "TV type: colour" : "TV type: black and white",
+                    Label(host.currentTVTypeIsColor() ? "TV type: color" : "TV type: black and white",
                           systemImage: "tv")
                 }
                 Button { host.toggleDifficulty(left: true) } label: {
