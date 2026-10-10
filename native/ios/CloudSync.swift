@@ -1457,6 +1457,7 @@ struct BackupFolderPrompt: ViewModifier {
     @ObservedObject private var feedback = FeedbackCenter.shared
     @State private var shown = false
     @State private var pickingFolder = false
+    private static let promptMessage: String = "Deleting Continuum deletes everything in it. If you pick a folder, Continuum keeps a copy of your saves, skins, starred games and settings there, and your games too if you choose \"with games\" (they can take a lot of space). After installing again, choose the same folder in Settings and it all comes back.\n\nAny folder in Files works — iCloud Drive, Google Drive, Dropbox."
 
     private static let askedKey = "continuum.sync.backupOffered.v1"
 
@@ -1466,6 +1467,10 @@ struct BackupFolderPrompt: ViewModifier {
             // root view, and two alerts on one view can leave one of them stuck.
             .background(
                 Color.clear
+                    .fileImporter(isPresented: $pickingFolder,
+                                  allowedContentTypes: [UTType.folder]) { (result: Result<URL, Error>) in
+                        sync.adoptPickedFolder(result)
+                    }
                     .alert("Keep your games and saves safe?", isPresented: $shown) {
                         Button("Choose a folder, with games") { choose(withGames: true) }
                         Button("Choose a folder, without games") { choose(withGames: false) }
@@ -1473,22 +1478,13 @@ struct BackupFolderPrompt: ViewModifier {
                             UserDefaults.standard.set(true, forKey: Self.askedKey)
                         }
                     } message: {
-                        Text("Deleting Continuum deletes everything in it. If you pick a folder, "
-                             + "Continuum keeps a copy of your saves, skins, starred games and "
-                             + "settings there, and your games too if you choose \"with games\" "
-                             + "(they can take a lot of space). After installing again, choose "
-                             + "the same folder in Settings and it all comes back.\n\nAny folder "
-                             + "in Files works — iCloud Drive, Google Drive, Dropbox.")
+                        Text(Self.promptMessage)
                     }
             )
             .onChange(of: host.library.count) { _ in offerIfItIsTime() }
             .onChange(of: feedback.crashPromptShown) { _ in offerSoon() }
             .onChange(of: feedback.crashReportOpen) { _ in offerSoon() }
             .onAppear { offerIfItIsTime() }
-            .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder],
-                          allowsMultipleSelection: false) { result in
-                sync.adoptPickedFolder(result)
-            }
     }
 
     private func choose(withGames: Bool) {
@@ -1539,8 +1535,8 @@ struct CloudSyncSection: View {
                 sync.noteFolderPickerShown()
                 pickingFolder = true
             }
-            .fileImporter(isPresented: $pickingFolder, allowedContentTypes: [.folder],
-                          allowsMultipleSelection: false) { result in
+            .fileImporter(isPresented: $pickingFolder,
+                          allowedContentTypes: [UTType.folder]) { (result: Result<URL, Error>) in
                 sync.adoptPickedFolder(result)
             }
             if sync.folderName != nil {
