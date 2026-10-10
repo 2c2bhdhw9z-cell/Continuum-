@@ -94,7 +94,7 @@ is still ahead, hardest last (road steps 10 to 12).
 
 | System | Core | State | What is missing |
 | --- | --- | --- | --- |
-| NES | mesen2 (default), fceumm (fallback) | **Partial** | FCEUmm is **Done** on the phone. **Mesen 2** is the default NES core from the next build: **Built, untested** on a phone. Reason: accuracy. AccuracyCoin.nes on the owner's phone with FCEUmm (device baseline, 9 October 2026): **86 of 146 passed, 7 skipped**. Run headless on the box against the Linux libretro builds: Mesen 2 **142 of 146 passed, 0 skipped**; FCEUmm never finished the run there (hung partway, no result table), which matches the phone needing skips. FCEUmm stays selectable in Settings → NES core. Save states from one core do not load on the other; battery saves are kept by the app, not the core, so they should carry over (not yet seen on a phone). TESTING N1 |
+| NES | mesen2 (default), fceumm (fallback) | **Done** | Mesen 2 confirmed on the owner's phone, build 153 (9 October 2026): AccuracyCoin.nes **142 of 146 passed, 0 skipped** (FCEUmm baseline on the phone: 86 of 146, 7 skipped). Save state slot 1 saved and loaded on Super Mario Bros 2 (Lost Levels). FCEUmm stays selectable in Settings, NES core. Save states from one core do not load on the other. Battery save on Mesen not yet seen on a phone |
 | SNES | snes9x | **Done** | |
 | Game Boy | mgba | **Done** | Build 125: a game ran, saved and loaded |
 | Game Boy Color | mgba | **Done** | |
