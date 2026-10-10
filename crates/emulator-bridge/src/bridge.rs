@@ -488,8 +488,8 @@ impl EmulatorBridge {
         Ok(())
     }
 
-    /// Ends the session and returns its core to the registry, kept warm so
-    /// relaunching the same system does not re-fetch the module.
+    /// Ends the session and returns its core to the registry. Under the default
+    /// [`CoreRetention::Drop`] the core is then freed; `KeepWarm` keeps it resident.
     pub fn stop(&mut self) {
         // Before the core goes: rcheevos holds pointers into its memory until told otherwise.
         #[cfg(feature = "native-core")]
@@ -653,7 +653,7 @@ impl EmulatorBridge {
         self.session.as_ref()?.core.memory_bytes()
     }
 
-    /// Id of the core backing the running session, if any.
+    /// Display name of the core backing the running session, if any.
     pub fn session_core_name(&self) -> Option<&str> {
         self.session
             .as_ref()
@@ -1899,7 +1899,13 @@ impl EmulatorBridge {
             SearchRegion::SystemRam => session.core.memory_region(crate::memory::MEMORY_SYSTEM_RAM),
             SearchRegion::Mapped { index, start, len } => {
                 let desc = session.core.memory_map().get(index)?;
-                if desc.start != start {
+                // Start AND length are re-checked against the current map. A core that republished
+                // the descriptor shorter (same start, smaller buffer) would otherwise have `len`
+                // bytes read past the end of its new buffer.
+                let current = crate::memory_maps::searchable(session.core.memory_map())
+                    .into_iter()
+                    .find(|r| r.index == index)?;
+                if desc.start != start || current.start != start || current.len != len {
                     return None;
                 }
                 // SAFETY: the descriptor is from the core's current map, the core is not running
