@@ -57,6 +57,7 @@ behind_rows=""
 current_rows=""
 failed_rows=""
 behind_count=0
+failed_count=0
 
 for row in "${ROWS[@]}"; do
   IFS=$'\t' read -r core repo pin display <<<"$row"
@@ -69,12 +70,14 @@ for row in "${ROWS[@]}"; do
   if ! branch="$(gh api "repos/$slug" --jq '.default_branch' 2>/dev/null)" || [[ -z "$branch" ]]; then
     echo "    $core: could not reach $slug"
     failed_rows="$failed_rows| $display | \`$slug\` | could not reach it |"$'\n'
+    failed_count=$((failed_count + 1))
     continue
   fi
 
   if ! ahead="$(gh api "repos/$slug/compare/$pin...$branch" --jq '.ahead_by' 2>/dev/null)"; then
     echo "    $core: could not compare against $branch"
     failed_rows="$failed_rows| $display | \`$slug\` | pinned commit not found upstream (rebased or force-pushed?) |"$'\n'
+    failed_count=$((failed_count + 1))
     continue
   fi
 
@@ -128,10 +131,14 @@ total="${#ROWS[@]}"
     echo "| --- | --- | --- | --- |"
     printf '%s' "$behind_rows"
     echo
-  else
+  elif [[ "$failed_count" -eq 0 ]]; then
     echo "## All $total are up to date"
     echo
     echo "Every emulator is locked to its author's newest code. Nothing to do."
+    echo
+  else
+    # Not "all up to date": the ones that could not be checked are unknown, not current.
+    echo "## None of the $((total - failed_count)) checked have newer code; $failed_count could not be checked"
     echo
   fi
   if [[ -n "$current_rows" ]]; then

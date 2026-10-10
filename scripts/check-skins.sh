@@ -5,8 +5,8 @@
 # Manic switch/function item parsing.
 #
 # The app's own files are compiled, not copies. DeltaSkinNormalizedRect is sliced out of
-# DeltaSkinImport.swift (the rest of that file needs UIKit), and EngineHost is a one-line stub so
-# SkinFunctionPending.swift can be compiled and called.
+# DeltaSkinImport.swift (the rest of that file needs UIKit), and EngineHost is a one-line stub plus
+# the stand-ins in scripts/skin-check/EngineHostStubs.swift, so the dispatcher's calls compile.
 #
 # Then scripts/check-delta-skin-sample.py checks the sample Delta skin in docs/samples: its screens
 # map to the picture placement Continuum expects and the package holds its info.json and artwork.

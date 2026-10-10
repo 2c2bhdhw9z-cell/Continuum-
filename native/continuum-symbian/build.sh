@@ -2,7 +2,7 @@
 # Builds Continuum Symbian for the host and runs its harness.
 #
 # The host build links the stub engine, so load_game fails on purpose.
-# The phone build links EKA2L1 instead: scripts/build-core.sh continuum_symbian.
+# The phone build links EKA2L1 instead: scripts/build-core.sh ios continuum_symbian.
 #
 # Usage: build.sh [host]
 set -euo pipefail
@@ -12,7 +12,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 MODE="${1:-host}"
 if [ "$MODE" != "host" ]; then
   echo "usage: build.sh host" >&2
-  echo "The phone build is scripts/build-core.sh continuum_symbian (macOS only)." >&2
+  echo "The phone build is scripts/build-core.sh ios continuum_symbian (macOS only)." >&2
   exit 1
 fi
 

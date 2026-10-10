@@ -66,6 +66,39 @@ text plus a confirm before Reset deletes every skin, Flash/J2ME pause while load
 bounds), 1 still present (landscape-only skins), 1 needs a phone. GPL v3 LICENSE added; README
 names it. None of these are tried on a phone yet.
 
+## Line-by-line review: complete (9 October 2026)
+
+Every file the project maintains was read line by line (log: [docs/REVIEW_COVERAGE.md](docs/REVIEW_COVERAGE.md)):
+Continuum Symbian and the core patches, all app Swift (~44,000 lines), the Rust engine (~44,500
+lines) and the scripts, build tooling and CI workflows (~6,500 lines). Vendored upstream core code
+was not in scope. About 80 fixes in total; the ones that matter most:
+
+- **Data safety:** one damaged cheat no longer empties and then overwrites the whole cheat list
+  (the original is backed up first); "Delete every save state / stored cheat", the per-game
+  save-state and cheat trash buttons and the in-game cheat delete all ask first; an auto-save
+  deleted while paused is written again; sync refuses a run that would suddenly empty a folder.
+- **Crashes and memory:** SMB error and size handling bounded; a bad frame shows black instead of
+  crashing; duplicate Flash/J2ME keys no longer crash; cheat RAM search stays inside a resized
+  memory block; the Vulkan path (3DS, PSP) no longer frees memory the core still uses, reports the
+  real graphics queue, and frees a failed setup; a bad `.iso`, NaN speed/timestamps, extreme sync
+  timestamps and bad stick or touch values are all handled.
+- **Behaviour:** achievements log in again after an offline launch; a held fast-forward cannot
+  stick after the layout editor; disc games set to another system get the right skins; Dreamcast
+  `.bin` saves import; odd-sized N64 saves convert correctly; core settings that fail to save are
+  not applied; Symbian opens on a clean picture and edge taps land on screen.
+- **Scripts/CI (last area):** the weekly core-update page no longer says "all up to date" when
+  repositories could not be reached; a player that fails to download no longer keeps a stale
+  provenance line; several stale build comments fixed. No CI behaviour changed.
+
+Known and left on purpose: landscape-only skins are saved as upright ones (to be fixed with a
+phone test); two games with the same file name share a star and "added" date; a Symbian package
+install failure is not shown on screen; a new cover of exactly the old file size does not sync.
+
+**Still untested on a phone** (all built, none confirmed): every fix from this review (builds
+155, 156 and the next one); the 3DS stutter fix; Continuum Symbian; PSP; SMB file sharing; the 3DS
+camera and Amiibo; Game Boy, Master System, FDS and SG-1000; the open-source credits page; a first
+launch with an empty library.
+
 ## Next up
 
 For whoever works on this next:

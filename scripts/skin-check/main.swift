@@ -1,8 +1,8 @@
 // Check program for the pure-Foundation skin code. Built and run by scripts/check-skins.sh with
 // real swiftc on Linux, against the app's own source files (not copies):
-//   SkinLibrary.swift, SkinFunctions.swift (top half), ManicSkinItems.swift,
-//   SkinFunctionPending.swift (against a stub EngineHost), and DeltaSkinNormalizedRect sliced out
-//   of DeltaSkinImport.swift.
+//   SkinLibrary.swift, SkinFunctions.swift, ManicSkinItems.swift and DeltaSkinNormalizedRect
+//   sliced out of DeltaSkinImport.swift, against a one-line EngineHost plus the method stand-ins in
+//   scripts/skin-check/EngineHostStubs.swift (the real methods live in UIKit files).
 // Argument 1 is native/ios, so the dispatcher's switch can be read and compared with the table.
 
 import Foundation

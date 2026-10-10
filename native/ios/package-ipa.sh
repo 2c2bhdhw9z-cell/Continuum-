@@ -44,6 +44,14 @@ command -v xcodegen >/dev/null 2>&1 || {
   exit 1
 }
 
+# MoltenVK before xcodegen, because project.yml names the framework and XcodeGen resolves that path
+# when it generates. Fetched here rather than in CI alone so a local build gets it too, and the
+# script is idempotent so this costs nothing after the first run.
+echo "==> MoltenVK"
+"$ROOT/scripts/fetch-moltenvk.sh"
+echo "==> libsmb2"
+"$ROOT/scripts/fetch-libsmb2.sh"
+
 # EVERY BUILD NEEDS ITS OWN CFBundleVersion, and it is not a cosmetic detail.
 #
 # An installer decides whether an .ipa is an upgrade by comparing bundle id and version. This
@@ -56,14 +64,6 @@ command -v xcodegen >/dev/null 2>&1 || {
 # CONTINUUM_BUILD_NUMBER is the CI run number when CI sets it. Locally it falls back to a UTC
 # timestamp, which is monotonic for a human working forwards in time, so a hand build also replaces
 # whatever is installed.
-# MoltenVK before xcodegen, because project.yml names the framework and XcodeGen resolves that path
-# when it generates. Fetched here rather than in CI alone so a local build gets it too, and the
-# script is idempotent so this costs nothing after the first run.
-echo "==> MoltenVK"
-"$ROOT/scripts/fetch-moltenvk.sh"
-echo "==> libsmb2"
-"$ROOT/scripts/fetch-libsmb2.sh"
-
 BUILD_NUMBER="${CONTINUUM_BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
 echo "==> stamping CFBundleVersion $BUILD_NUMBER"
 # Rewritten in place with a tab-tolerant match on the one key, then asserted, because a silent

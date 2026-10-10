@@ -434,9 +434,9 @@ ios_core_config() {
       # stores as CPUCore::IR_INTERPRETER and constructs as IRJit(state, false).
       # That false is compile-to-native off: no PROT_EXEC, no dynarec. The
       # dynarec value is the separate string "JIT". On iOS the core also asks
-      # RETRO_ENVIRONMENT_GET_JIT_CAPABLE, which this host does not implement,
-      # so a later switch to "JIT" is forced back to the IR interpreter.
-      # Vertex-decoder JIT uses the same flag and stays off.
+      # RETRO_ENVIRONMENT_GET_JIT_CAPABLE; the host answers yes only when JIT
+      # is really usable on the phone (crates/emulator-bridge/src/jit.rs), and
+      # on a no the core drops back to the IR interpreter.
       #
       # Picture is Vulkan. The toolchain builds with GLES2, the host's preferred
       # hardware context is Vulkan, and CreateGraphicsContext tries Vulkan for
@@ -1552,6 +1552,8 @@ build_ios_core() {
 # core. The only thing that decided pass or fail would then be whether a .dylib exists, which a
 # stale one from an earlier run can satisfy. A separate process re-reads this script and applies
 # its own `set -euo pipefail`, so the suppression cannot cross into it.
+# (That note belongs to build_all_ios_cores, further down.)
+#
 # Is this core's staged dylib already here AND recorded as built from the commit it is
 # pinned to? Then it does not need building again.
 #

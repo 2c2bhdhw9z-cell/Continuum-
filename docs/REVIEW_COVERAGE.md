@@ -20,7 +20,7 @@ searched. Vendored third-party core sources are out of scope; our patches to the
 | native/continuum-symbian/test_harness.cpp | Y | None. Could not run here: the box has no C++ compiler (no g++/clang++). |
 | native/continuum-symbian/build.sh | Y | None. |
 
-## Area 2: app Swift (in progress)
+## Area 2: app Swift (complete)
 
 | File | Read | Findings |
 | --- | --- | --- |
@@ -156,3 +156,28 @@ Area 2 (app Swift) is complete: every native/ios/*.swift file has been read line
 | crates/emulator-bridge/src/netplay/mod.rs (187), achievements/cdreader.rs (184), achievements/mod.rs (150), achievements/console.rs (79), memory.rs (83), error.rs (77), lib.rs (123), build.rs (88), crates/uniffi-bindgen/src/main.rs (16) | Y (session 28: all lines) | No fixes. Noted: cdreader's `first_track_sector` does not wrap our path in `catch_unwind` (it only returns a stored number). |
 
 Area 3 (Rust) is fully read as of session 28: every `.rs` file in the workspace and `build.rs`.
+
+## Area 4: scripts, build tooling and CI workflows (session 29, 9 October 2026)
+
+| File | Read | Findings |
+| --- | --- | --- |
+| scripts/build-core.sh (1,780) | Y (1-1780) | FIXED (comment): the PPSSPP block still said the host does not implement `GET_JIT_CAPABLE`; it does now (jit.rs), and the core drops back to the IR interpreter on a no. FIXED (comment): the "separate bash process" note for `build_all_ios_cores` had been glued on top of `ios_core_is_cached`'s comment; now marked as belonging further down. Verified sound: pins and `CONTINUUM_UNPINNED`, shallow vs full clones, manifest rewrite per core, all 20 entry points checked at staging, `-u` keep-alive for mgba's LTO link, patch idempotence via markers, separate-process builds so `set -e` holds, cache only on a `pinned` manifest line, `ios_forget_core` on failure, `ios-names`/`ios-pins` run on Linux (checked: 12 and 17 lines). Noted: the Symbian build's `.continuum-patched` marker means a half-applied patch run in a reused local `.work` is not retried (CI starts clean); `ios_jobs` uses all cores. |
+| scripts/fetch-buildbot-cores.sh (425) | Y | No fixes. Verified sound: mirror-first with sha256 gate, unpinned fallback with `::warning::`, arm64 + iOS + minos checks, same staged-dylib check as source cores, manifest line removed at fetch start, upload only after every check. Noted: Mesen 2, now the default NES core, is a buildbot core; the script treats it as optional but ios.yml's verify step hard-fails without it (deliberate, so a missing default NES core cannot ship). The "as build 121 recorded" note is not literally true for mesen2 (added in 153). |
+| scripts/check-core-updates.sh (159) | Y | FIXED: when every repository failed to answer (or none were behind but some failed), the page still said "All N are up to date". Now it only says that when nothing failed, and otherwise says how many could not be checked. Noted: it covers only the from-source pins; the 20 buildbot cores (Mesen 2 included) have no upstream check. |
+| scripts/fetch-players.sh (162) | Y | FIXED: a player that failed to fetch kept its old `core-sources.txt` line from a cached manifest (the bug `forget_source` already fixed for buildbot cores); now forgotten at fetch start. Noted: `keymap.js` is copied but not in the sha256 list. |
+| scripts/fetch-moltenvk.sh (127), fetch-libsmb2.sh (61), fetch-libretro-headers.sh (74) | Y | No fixes. Pinned + checksummed (MoltenVK, headers), pinned commit (libsmb2). Noted: libsmb2's `git fetch` has no retry, unlike the other fetches. |
+| scripts/check-skins.sh (37), check-players.sh (14), skin-check/main.swift (477), skin-check/EngineHostStubs.swift (45), player-check/main.swift (74) | Y | FIXED (comments): both check-skins.sh and main.swift said `SkinFunctionPending.swift` is compiled; that file no longer exists, the stand-ins live in EngineHostStubs.swift. Not run here (no swiftc on the box); CI runs them. |
+| scripts/check-delta-skin-sample.py (125), make-manic-skin-sample.py (74), make-app-icon.py (565) | Y | No fixes. check-delta-skin-sample.py run here: OK. make-app-icon.py has no default mode on purpose. |
+| native/ios/build-engine.sh (304) | Y | No fixes. Verified: core cache survives the clean only under `CONTINUUM_CORE_CACHE=1`, names read from the one definition, spelling cross-check before any compile. Noted: a comment calls the optional list "flycast from source" (it is five cores now). |
+| native/ios/package-ipa.sh (247) | Y | FIXED (comment order): the long CFBundleVersion note had been split from its code by the MoltenVK/libsmb2 block; the block now sits above the note. Verified: optional embeds dropped before xcodegen with an exact-count assert, nested code signed before the app, entitlements printed back. |
+| native/switch-wrapper/build.sh (111), native/continuum-symbian/build.sh (42) | Y | FIXED: the Symbian script's usage text named `scripts/build-core.sh continuum_symbian`, which the dispatcher refuses; now `ios continuum_symbian`. |
+| .github/workflows/ios.yml (641) | Y (re-read) | No fixes. Verified: path filters include every script that changes the IPA and exclude check-core-updates.sh; cache key covers build-core.sh, patches and native/continuum-symbian; save right after the core build; per-core verify messages; release retried and drafts published. |
+| .github/workflows/core-updates.yml (112), qawolf-mobile.yml (132) | Y (re-read) | No fixes. core-updates pushes only from master with rebase retry; QA Wolf runs only on a green master build or by hand. |
+
+Area 4 is complete.
+
+## Review complete (9 October 2026)
+
+Every file the project maintains has now been read line by line: Continuum Symbian and the core
+patches (Area 1), all app Swift (Area 2), the whole Rust engine (Area 3), and the scripts, build
+tooling and CI workflows (Area 4). Out of scope: vendored upstream core sources.

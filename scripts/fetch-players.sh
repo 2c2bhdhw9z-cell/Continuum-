@@ -52,6 +52,16 @@ sha256_of() {
   fi
 }
 
+# Takes <name>'s line out of core-sources.txt as its fetch starts, so a player that fails today does
+# not keep the line a cached manifest carried over from an earlier run (the same rule as
+# forget_source in fetch-buildbot-cores.sh).
+forget_source() {
+  local manifest="$LIB_DIR/core-sources.txt"
+  [[ -f "$manifest" ]] || return 0
+  grep -v "^$1 " "$manifest" > "$manifest.tmp" 2>/dev/null || true
+  mv "$manifest.tmp" "$manifest"
+}
+
 record_source() {
   local name="$1" url="$2" sha="$3"
   local manifest="$LIB_DIR/core-sources.txt"
@@ -68,6 +78,7 @@ fetch_ruffle() {
   local dir="$WORK/ruffle" zip="$WORK/ruffle/ruffle-selfhosted.zip" dest="$OUT/ruffle"
   rm -rf "$dir" "$dest"
   mkdir -p "$dir"
+  forget_source "ruffle-selfhosted"
   echo "==> Ruffle $RUFFLE_TAG (Flash player, MIT OR Apache-2.0): $RUFFLE_URL"
   if ! curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 -o "$zip" "$RUFFLE_URL"; then
     echo "warning: Ruffle download failed; the .ipa ships without the Flash player" >&2
@@ -98,6 +109,7 @@ fetch_j2mejs() {
   local dir="$WORK/j2mejs" tarball="$WORK/j2mejs/j2mejs.tar.gz" dest="$OUT/j2me"
   rm -rf "$dir" "$dest"
   mkdir -p "$dir"
+  forget_source "j2mejs"
   echo "==> J2meJS $J2MEJS_COMMIT (J2ME engine, GPL-2.0): $J2MEJS_URL"
   if ! curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 -o "$tarball" "$J2MEJS_URL"; then
     echo "warning: J2meJS download failed; the .ipa ships without the J2ME player" >&2
