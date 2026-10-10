@@ -37,7 +37,7 @@ wrong, but a phone or a real build is needed to be sure.
 | 22 | Fixed | Every network call in the update check is guarded per repository. |
 | 23 | Fixed | The release step un-drafts an adopted release. |
 | 24 | FIXED IN THIS PASS | A logged-out session retries the stored token when a game starts. |
-| 25 | Still present | A landscape-only skin is stored as the upright face. Left alone: changing how skins are stored needs phone testing with such a skin. |
+| 25 | Fixed in code (10 Oct), needs a phone | A landscape-only skin now also fills the landscape face. |
 | 26 | Fixed | Pieces are walked to any depth. |
 | 27 | FIXED IN THIS PASS | The unreachable-folder check now also runs per top-level folder, so many skins or games no longer dilute it. |
 | 28 | FIXED IN THIS PASS | This device's files compare exact times; the 2 s slack is kept only for the cloud side. |
@@ -45,7 +45,7 @@ wrong, but a phone or a real build is needed to be sure.
 | 30 | Fixed | Same fix as 2. |
 | 31 | Fixed | The engine-change observer is scoped to the game's own audio engine. |
 | 32 | Fixed | The backup prompt waits for the crash prompt, on its own view. |
-| 33 | Can't tell without a phone | Bar height is still 84 pt; scrolling was confirmed fine on 144. |
+| 33 | Fixed in code (10 Oct), needs a phone | Bottom padding is the measured chrome height (~100 pt), not 84. |
 | 34 | Fixed | Help text says file name. |
 | 35 | FIXED IN THIS PASS | Rewind note no longer says nothing to pick; skins note names .manicskin; Reset now asks first. |
 | 36 | Fixed | Audio session deactivates with notifyOthersOnDeactivation. |
