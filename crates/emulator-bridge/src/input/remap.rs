@@ -454,10 +454,11 @@ impl InputConfig {
     }
 
     pub fn set_device(&mut self, system: &str, port: u32, name: &str) {
-        self.devices.retain(|(s, p, _)| !(s == system && *p == port));
+        let system = sanitize(system);
+        self.devices.retain(|(s, p, _)| !(*s == system && *p == port));
         let name = sanitize(name);
         if !name.is_empty() {
-            self.devices.push((sanitize(system), port, name));
+            self.devices.push((system, port, name));
         }
     }
 

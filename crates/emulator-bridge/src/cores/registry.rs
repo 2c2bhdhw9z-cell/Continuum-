@@ -238,6 +238,8 @@ impl CoreRegistry {
         // hint for the loading UI.
         entry.descriptor = core.descriptor().clone();
         entry.slot = Slot::Loaded(core);
+        // A real core has no placeholder module; a size left by an earlier `attach_module` is stale.
+        entry.module_bytes = 0;
         log::info!("core '{core_id}' attached from the platform layer");
         Ok(())
     }

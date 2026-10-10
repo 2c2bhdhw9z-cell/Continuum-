@@ -50,10 +50,12 @@ const N64_FLA: (usize, usize) = (0x28800, 0x20000);
 const DSV_SNIP: &[u8] = b"|<--Snip above here to create a raw sav by excluding this DeSmuME savedata footer:";
 const DSV_MARK: &[u8] = b"|-DESMUME SAVE-|";
 
-/// Every extension the save import accepts, for the picker filter and the help line.
+/// Every extension the save import accepts, for the picker filter and the help line. `bin` is
+/// Dreamcast-only (flycast's `vmu_save_A1.bin`); ImportCenter's drop path skips it so ROM `.bin`s
+/// are never taken for saves, and other systems refuse it in [`import`].
 pub const SAVE_EXTENSIONS: &[&str] = &[
     "srm", "sav", "dsv", "dsg", "mcr", "mcd", "mc", "gme", "vmp", "vgs", "mem", "eep", "mpk", "sra",
-    "fla", "flash", "nvr", "nv", "bkr", "bcr", "brm", "vmu", "zip",
+    "fla", "flash", "nvr", "nv", "bkr", "bcr", "brm", "vmu", "bin", "zip",
 ];
 
 /// Where `system`'s save lives. `game_stem` is the game's filename without extension.
@@ -184,8 +186,13 @@ fn region(stored: &[u8], (start, len): (usize, usize)) -> Result<Vec<u8>, String
     Ok(stored[start..start + len].to_vec())
 }
 
+/// mupen64plus/parallel keep SRAM and FlashRAM as native-endian 32-bit words, so each 4-byte group
+/// is reversed. A short trailing group (a truncated dump) is zero-padded to a whole word first, so
+/// its bytes land where the core reads them instead of staying unswapped at the wrong offsets; the
+/// N64 regions are all word multiples, so the padded length still fits.
 fn word_swap(data: &[u8]) -> Vec<u8> {
     let mut out = data.to_vec();
+    out.resize(data.len().div_ceil(4) * 4, 0);
     for chunk in out.chunks_exact_mut(4) {
         chunk.reverse();
     }
@@ -363,6 +370,16 @@ mod tests {
         assert!(import("snes", "a.zip", b"x", &[], "a").is_err());
         let got = import("arcade", "sf2.nvr", b"nv", &[], "sf2").unwrap();
         assert_eq!(got.location, SaveLocation::CoreFile("mame2003-plus/nvram/sf2.nv".into()));
+    }
+
+    #[test]
+    fn word_swap_pads_a_short_tail() {
+        assert_eq!(word_swap(&[1, 2, 3, 4, 5, 6]), vec![4, 3, 2, 1, 0, 0, 6, 5]);
+        let got = import("n64", "a.sra", &[1, 2, 3, 4, 5], &[], "x").unwrap();
+        assert_eq!(&got.data[N64_SRA.0..N64_SRA.0 + 8], &[4, 3, 2, 1, 0, 0, 0, 5]);
+        assert!(SAVE_EXTENSIONS.contains(&"bin"));
+        assert!(import("dreamcast", "vmu_save_A1.bin", &vec![0u8; 128 * 1024], &[], "x").is_ok());
+        assert!(import("snes", "a.bin", &[0u8; 8], &[], "x").is_err());
     }
 
     #[test]
