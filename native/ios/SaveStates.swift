@@ -1117,6 +1117,7 @@ final class SaveStates: ObservableObject {
         guard host?.suppressAutoSave != true else { return }
         guard let entry = runningEntry() else { return }
         let gameId = Self.gameId(for: entry)
+        guard autoSaveHeldFor != gameId else { return }
 
         // Nothing has been emulated since the last auto-save, so the payload would be identical.
         // See `lastAutoSaveKey`.
@@ -1298,6 +1299,8 @@ final class SaveStates: ObservableObject {
             : "slot:\(record.gameId)#\(record.slot)"
         if feedbackLoadBlocked(key: guardKey) {
             if record.isAuto {
+                // The message promises the auto-save is still there; keep that true.
+                autoSaveHeldFor = record.gameId
                 report("Started \(record.gameId) fresh: last time, picking up from its auto-save "
                        + "crashed the app, so I skipped it this once. The auto-save is still there.")
             } else {
@@ -1646,6 +1649,14 @@ final class SaveStates: ObservableObject {
     /// Writes the running game's battery save to disk. Synchronous for the same reason the
     /// auto-save is: it runs while the app is being put away.
     private var batteryTimer: Timer?
+
+    /// A game whose auto-save must NOT be overwritten this session, because it was never
+    /// loaded: a PSP resume still waiting for PPSSPP's GPU, or one skipped by the crash guard.
+    /// Without this, leaving (or backgrounding) during that window wrote the fresh boot over
+    /// the player's progress. Cleared by `stopSession` via `sessionEnded()`.
+    var autoSaveHeldFor: String?
+
+    func sessionEnded() { autoSaveHeldFor = nil }
     private var batteryRestoreFailedFor: String?
 
     func persistBatterySave(reason: String) {

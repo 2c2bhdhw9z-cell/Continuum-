@@ -4546,14 +4546,28 @@ final class EngineHost: ObservableObject {
                     // which played sound over a black screen). Resume after ~30 real frames.
                     let startFrame = engine.frameCount()
                     let path = entry.path
+                    let gameId = SaveStates.gameId(for: entry)
+                    // Until the resume has happened, the auto-save on disk is the player's
+                    // progress and this session's boot must not be written over it.
+                    if saveStates.autoState(forGameId: gameId) != nil {
+                        saveStates.autoSaveHeldFor = gameId
+                    }
                     Task { @MainActor [weak self] in
                         for _ in 0..<80 {
                             try? await Task.sleep(nanoseconds: 125_000_000)
                             guard let self, self.running, self.activeEntry?.path == path else { return }
                             if self.engine.frameCount() >= startFrame + 30 {
+                                if self.saveStates.autoSaveHeldFor == gameId {
+                                    self.saveStates.autoSaveHeldFor = nil
+                                }
                                 self.saveStates.resumeIfPossible(entry: entry)
                                 return
                             }
+                        }
+                        // Gave up: the auto-save stays held for this session, so it survives.
+                        if let self, self.running, self.activeEntry?.path == path {
+                            self.status = "could not resume \(entry.name) yet (the game had not started "
+                                + "drawing); your auto-save is kept and will not be overwritten this time"
                         }
                     }
                 } else {
@@ -4617,6 +4631,7 @@ final class EngineHost: ObservableObject {
         // The game's own battery save, before the core is unloaded, for the same reason.
         saveStates.persistBatterySave(reason: "the game was left")
         saveStates.writeAutoSave(reason: "the game was left")
+        saveStates.sessionEnded()
         if running {
             engine.stop()
             running = false
