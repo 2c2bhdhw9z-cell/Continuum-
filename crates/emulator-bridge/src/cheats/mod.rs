@@ -8,6 +8,9 @@
 //! - [`search`]: the classic RAM search over `SYSTEM_RAM`.
 //! - [`poke`]: "write this value at this address every frame", which is what a search result
 //!   becomes when the user makes a cheat out of it. Applied by the engine after each `run_frame`.
+//!
+//! [`formats`] is not engine behaviour but a description for the cheat screen: which kinds of
+//! typed code each core reads, and which exact cartridge a GBA or Game Boy file is.
 
 pub mod cht;
 pub mod formats;

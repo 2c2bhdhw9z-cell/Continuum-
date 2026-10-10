@@ -214,7 +214,10 @@ pub fn insert(core_id: &str, index: u32) -> Result<String, String> {
         return Err("the core reports no discs".to_owned());
     }
     if index >= count {
-        return Err(format!("there is no disc {} (the game has {count})", index + 1));
+        return Err(format!(
+            "there is no disc {} (the game has {count})",
+            index.saturating_add(1)
+        ));
     }
     let was_ejected = c.get_eject_state.is_some_and(|f| unsafe { f() });
     if !was_ejected && !unsafe { set_eject(true) } {
@@ -342,6 +345,7 @@ mod tests {
         assert!(!EJECTED.load(Ordering::SeqCst), "tray closed afterwards");
         assert!(!SET_WHILE_CLOSED.load(Ordering::SeqCst), "never swapped with the tray shut");
         assert!(insert("psx", 7).is_err());
+        assert!(insert("psx", u32::MAX).unwrap_err().contains("4294967295"), "no overflow");
         assert!(status("other").is_none(), "only the core that registered it");
         forget_core("psx");
         assert!(status("psx").is_none());

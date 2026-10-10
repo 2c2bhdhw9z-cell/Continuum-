@@ -168,7 +168,7 @@ pub struct EmulatorBridge {
     gamepads: GamepadBridge,
     sink: Box<dyn AudioSink>,
     pacer: FramePacer,
-    /// Device sample rate, learned from the host once `AudioContext` exists.
+    /// Device sample rate, learned from the host once its audio engine is running.
     output_sample_rate: u32,
     muted: bool,
     /// Reused across `save_state` calls so snapshotting does not allocate.
@@ -999,7 +999,7 @@ impl EmulatorBridge {
 
     /// Tells the bridge the device's real sample rate.
     ///
-    /// Not knowable before the user gesture that unlocks `AudioContext`, so this
+    /// Not knowable before the host's audio engine has started, so this
     /// arrives after `launch` and reconfigures the live sink.
     pub fn set_output_sample_rate(&mut self, rate: u32) {
         if rate == 0 || rate == self.output_sample_rate {

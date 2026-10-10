@@ -31,7 +31,7 @@ pub use ring::{AudioRing, CHANNELS};
 pub struct AudioSpec {
     /// Rate the *core* produces.
     pub source_rate: u32,
-    /// Rate the *device* consumes (`AudioContext.sampleRate`).
+    /// Rate the *device* consumes (the audio session's output rate on iOS).
     pub output_rate: u32,
     pub channels: u32,
 }
@@ -85,9 +85,8 @@ pub trait AudioSink: crate::MaybeSend {
     /// from the abandoned timeline would be wrong.
     fn flush(&mut self);
 
-    /// Informs the sink of the device rate once the host's audio graph exists.
-    /// Called after the user gesture that unlocks `AudioContext`, since the real
-    /// `sampleRate` is not knowable before then.
+    /// Informs the sink of the device rate once the host's audio graph exists, since the
+    /// real output rate is not knowable before the audio engine has started.
     fn set_output_rate(&mut self, output_rate: u32);
 
     /// Re-declares the rate the *incoming* samples should be treated as arriving at.

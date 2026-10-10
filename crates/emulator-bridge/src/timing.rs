@@ -10,8 +10,9 @@
 /// deliberately abandoned rather than blocking the main thread.
 const MAX_CATCH_UP_STEPS: u32 = 4;
 
-/// If a tick's delta exceeds this, the gap is treated as a stall (tab was hidden,
-/// GC pause, breakpoint) and emulated time resynchronises instead of catching up.
+/// If a tick's delta exceeds this, the gap is treated as a stall (app in the
+/// background, a long main-thread hitch, a breakpoint) and emulated time
+/// resynchronises instead of catching up.
 const STALL_THRESHOLD_MS: f64 = 500.0;
 
 #[derive(Debug)]
@@ -74,7 +75,13 @@ impl FramePacer {
     }
 
     /// Fast-forward / slow-motion multiplier. `2.0` runs the core twice as fast.
+    ///
+    /// A non-finite value is ignored: NaN survives `clamp`, and once it reached the
+    /// accumulator every later tick would plan zero steps, freezing the game.
     pub fn set_speed(&mut self, speed: f64) {
+        if !speed.is_finite() {
+            return;
+        }
         self.speed = speed.clamp(0.05, 16.0);
     }
 
@@ -83,13 +90,27 @@ impl FramePacer {
     }
 
     /// Drops accumulated debt and re-anchors to `now_ms`. Call on resume, load
-    /// state, or when the tab becomes visible again.
+    /// state, or when the app returns to the foreground. A non-finite `now_ms` only
+    /// drops the debt and leaves the anchor alone.
     pub fn resync(&mut self, now_ms: f64) {
         self.accumulator_ms = 0.0;
+        if !now_ms.is_finite() {
+            return;
+        }
         self.last_timestamp_ms = Some(now_ms);
     }
 
     pub fn plan(&mut self, now_ms: f64) -> TickPlan {
+        // A non-finite timestamp would become the anchor, and every delta measured from a NaN
+        // anchor is NaN, which `max(0.0)` turns into 0: no step would ever run again. Such a tick
+        // owes nothing and the anchor stays where it was.
+        if !now_ms.is_finite() {
+            return TickPlan {
+                steps: 0,
+                dropped: 0,
+                resynced: false,
+            };
+        }
         let last = match self.last_timestamp_ms {
             Some(t) => t,
             None => {
@@ -204,10 +225,23 @@ mod tests {
     fn long_stall_resyncs_instead_of_fast_forwarding() {
         let mut p = FramePacer::new(60.0);
         p.plan(0.0);
-        let plan = p.plan(30_000.0); // tab hidden for 30s
+        let plan = p.plan(30_000.0); // app in the background for 30s
         assert!(plan.resynced);
         assert_eq!(plan.steps, 1);
         assert_eq!(p.stalls(), 1);
+    }
+
+    #[test]
+    fn non_finite_inputs_cannot_freeze_the_pacer() {
+        let mut p = FramePacer::new(60.0);
+        p.plan(0.0);
+        p.set_speed(f64::NAN);
+        assert_eq!(p.speed(), 1.0);
+        assert_eq!(p.plan(f64::NAN).steps, 0);
+        p.resync(f64::INFINITY);
+        // Still anchored at 0, so a normal tick after it runs normally.
+        assert_eq!(p.plan(16.7).steps, 1);
+        assert_eq!(p.plan(33.4).steps, 1);
     }
 
     #[test]
