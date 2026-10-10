@@ -4540,7 +4540,25 @@ final class EngineHost: ObservableObject {
             // might corrupt the machine.
             saveStates.noteSessionOptions()
             if resumingAuto {
-                saveStates.resumeIfPossible(entry: entry)
+                if spec.coreId == CoreSpec.ppsspp.coreId {
+                    // PPSSPP builds its GPU only once frames have run with the Vulkan context
+                    // (`retro_unserialize` before that restores a machine with no GPU state,
+                    // which played sound over a black screen). Resume after ~30 real frames.
+                    let startFrame = engine.frameCount()
+                    let path = entry.path
+                    Task { @MainActor [weak self] in
+                        for _ in 0..<80 {
+                            try? await Task.sleep(nanoseconds: 125_000_000)
+                            guard let self, self.running, self.activeEntry?.path == path else { return }
+                            if self.engine.frameCount() >= startFrame + 30 {
+                                self.saveStates.resumeIfPossible(entry: entry)
+                                return
+                            }
+                        }
+                    }
+                } else {
+                    saveStates.resumeIfPossible(entry: entry)
+                }
             }
         } catch {
             running = false

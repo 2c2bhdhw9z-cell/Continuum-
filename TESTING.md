@@ -65,11 +65,18 @@ Not part of that, so still unconfirmed: rewind letting go the same way, covers n
 and the phone name on the feedback screen (P3). The skin-list protections (one bad skin, a nonsense
 console name) were not something to set up, and were not checked.
 
-## P. After build 157 (new, untested)
+## P. After build 158
 
-**P-PSP.** Open a PSP game. Expected: it boots, or shows an error line starting "graphics setup
-failed", not a crash. Tell me which. If it still crashes, reopen the app and send the crash report:
-its last "launch:" line names the step.
+**P-PSP.** PASSED on build 158: a PSP game opens, no crash. But NFS Most Wanted showed a washed-out
+gray ghost picture, then froze on the PUBLIC SERVICE ANNOUNCEMENT screen with loud static, and
+Midnight Club LA Remix resumed from its auto-save to a black screen with normal sound.
+
+**P-PSP2 (build after 158, new).** 1) Open NFS Most Wanted from the start. Expected: a clean logo
+(no gray see-through ghost, no white lines), and it gets past the PSA screen. Say if the static is
+still there and if the game reacts to buttons. 2) Open Midnight Club LA Remix with its auto-save.
+Expected: about a second of the game's own boot, then the auto-save loads and the picture shows.
+3) If a game still looks wrong: **⋯ → Core settings…** and try PPSSPP's own software rendering
+option, restart the game, and say whether that one draws.
 
 **P-3DS.** Start a 3DS game, **⋯ → Core settings… → Shader Compile (Continuum)**. Switch to
 "Old (may stutter)", restart the game, run Mario Kart 7: it should hitch like before the fix and

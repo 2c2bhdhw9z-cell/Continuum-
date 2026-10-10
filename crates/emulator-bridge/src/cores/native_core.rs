@@ -1284,6 +1284,8 @@ impl EmulatorCore for NativeLibretroCore {
         // `vulkan_hw::set_defer_reset`). Other cores keep the reset they already work with.
         let defer_reset = DEFER_HW_RESET_CORES.contains(&self.descriptor.id.as_str());
         vulkan_hw::set_defer_reset(defer_reset);
+        // Session-long: PPSSPP needs real frame sync from the frontend (see `set_strict_sync`).
+        vulkan_hw::set_strict_sync(defer_reset);
         crate::feedback::launch_step(&format!("retro_load_game {}", self.descriptor.id));
         let ok = unsafe { (self.symbols.load_game)(&info) };
         vulkan_hw::set_defer_reset(false);

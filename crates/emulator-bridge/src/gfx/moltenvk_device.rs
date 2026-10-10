@@ -120,19 +120,26 @@ pub fn adopt_pending_frame(
     image: u64,
     width: u32,
     height: u32,
+    format: u32,
 ) -> Result<bool, String> {
     if image == 0 || width == 0 || height == 0 {
         return Ok(false);
     }
     #[cfg(target_vendor = "apple")]
     {
-        apple::adopt_image(renderer, image, width, height)
+        apple::adopt_image(renderer, image, width, height, format)
     }
     #[cfg(not(target_vendor = "apple"))]
     {
-        let _ = renderer;
+        let _ = (renderer, format);
         Ok(false)
     }
+}
+
+/// `vkQueueWaitIdle` on the queue a negotiated core (PPSSPP) created. No-op otherwise.
+pub fn wait_core_queue_idle() {
+    #[cfg(target_vendor = "apple")]
+    apple::wait_core_queue_idle();
 }
 
 #[cfg(target_vendor = "apple")]
@@ -175,10 +182,20 @@ mod apple {
     /// it has been unloaded.
     struct CoreDevice {
         device: Device,
+        queue: vk::Queue,
         metal_objects: ash::ext::metal_objects::Device,
     }
     unsafe impl Send for CoreDevice {}
     static CORE: Mutex<Option<CoreDevice>> = Mutex::new(None);
+
+    pub(super) fn wait_core_queue_idle() {
+        let guard = lock_core();
+        if let Some(core) = guard.as_ref() {
+            if core.queue != vk::Queue::null() {
+                let _ = unsafe { core.device.queue_wait_idle(core.queue) };
+            }
+        }
+    }
 
     fn lock_core() -> std::sync::MutexGuard<'static, Option<CoreDevice>> {
         match CORE.lock() {
@@ -271,7 +288,7 @@ mod apple {
             let ctx = guard.as_ref().ok_or_else(|| "shared instance went away".to_string())?;
             ash::ext::metal_objects::Device::new(&ctx.instance, &device)
         };
-        *lock_core() = Some(CoreDevice { device, metal_objects });
+        *lock_core() = Some(CoreDevice { device, queue: out.queue, metal_objects });
         let gpu = if out.gpu == vk::PhysicalDevice::null() { phys } else { out.gpu };
         install(HwVulkanHandles {
             instance: instance_raw.as_raw(),
@@ -396,7 +413,14 @@ mod apple {
         image_raw: u64,
         width: u32,
         height: u32,
+        format: u32,
     ) -> Result<bool, String> {
+        // Read the image as what it is: R8G8B8A8 sampled as BGRA swaps red and blue.
+        let wgpu_format = if format == vulkan_hw::VK_FORMAT_R8G8B8A8_UNORM {
+            wgpu::TextureFormat::Rgba8Unorm
+        } else {
+            wgpu::TextureFormat::Bgra8Unorm
+        };
         let guard = lock();
         let ctx = guard
             .as_ref()
@@ -429,7 +453,7 @@ mod apple {
         let hal_texture = unsafe {
             wgpu::hal::metal::Device::texture_from_raw(
                 retained,
-                wgpu::TextureFormat::Bgra8Unorm,
+                wgpu_format,
                 MTLTextureType::Type2D,
                 1,
                 1,
@@ -452,7 +476,7 @@ mod apple {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Bgra8Unorm,
+            format: wgpu_format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         };

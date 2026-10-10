@@ -9,6 +9,18 @@ next build after it adds the beta-readiness pass (open-source credits in Setting
 wording in the Local Network permission). Older build notes further down are history; where an
 older line here disagrees with this paragraph, this paragraph is the current one.
 
+**After build 158 (built, untested on a phone):**
+- **PSP picture and resume.** Build 158 opened PSP games on the phone (crash fixed), but the picture
+  was a half-drawn gray ghost, then stuck, and a resumed auto-save stayed black. Causes found in the
+  engine: PPSSPP submits its GPU work with no semaphores and relies on the frontend to wait for it
+  (`wait_sync_index`, which was a no-op) and to not read the image while it is drawing; the engine
+  read it right away and gave it only one image to draw into. For PPSSPP only, the engine now waits
+  for the core's queue before showing a frame, gives it two images that alternate, and makes
+  `wait_sync_index` really wait. `ppsspp_inflight_frames` defaults to "No buffer". Image format is
+  read from the core (R8G8B8A8 vs B8G8R8A8) for every Vulkan core; Azahar's is unchanged. A PSP
+  auto-save is resumed after ~30 frames instead of before the first one, when PPSSPP has no GPU yet.
+  The NFS static is not explained; it may be the stalled game. TESTING P-PSP2.
+
 **After build 157 (built, untested on a phone):**
 - **PSP crash on opening a game, root cause found.** PPSSPP asks for its Vulkan context from inside
   `retro_load_game`, before its own context pointer is set, and the engine called `context_reset`

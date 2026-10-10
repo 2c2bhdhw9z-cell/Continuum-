@@ -242,7 +242,10 @@ pub fn host_rules_for(
         ],
         // PPSSPP with JIT allowed: the real recompiler ("JIT") is the default. PPSSPP itself asks
         // GET_JIT_CAPABLE before using it and drops back to the IR interpreter on a no.
-        ("ppsspp", _, true) => &[("ppsspp_cpu_core", HostRule::Default("JIT"))],
+        ("ppsspp", _, true) => &[
+            ("ppsspp_cpu_core", HostRule::Default("JIT")),
+            ("ppsspp_inflight_frames", HostRule::Default("No buffer")),
+        ],
         _ => host_rules_without_jit(core_id),
     }
 }
@@ -269,7 +272,12 @@ fn host_rules_without_jit(core_id: &str) -> &'static [(&'static str, HostRule)] 
         // PPSSPP: "IR JIT" is the IR interpreter with compile-to-native off. "JIT" is the dynarec.
         // Refusing does not give the advertised default either: the core sets the slow interpreter
         // before the read. Locked so nobody can pick the dynarec.
-        "ppsspp" => &[("ppsspp_cpu_core", HostRule::Locked("IR JIT"))],
+        // Inflight frames: "No buffer" so PPSSPP never renders ahead into an image the
+        // compositor may still be reading (one frame of latency less, too).
+        "ppsspp" => &[
+            ("ppsspp_cpu_core", HostRule::Locked("IR JIT")),
+            ("ppsspp_inflight_frames", HostRule::Default("No buffer")),
+        ],
         // Beetle PSX HW: refusing `beetle_psx_hw_renderer` left `hw_renderer = false` (libretro.c),
         // so every PlayStation frame a phone has shown on this core came from the SOFTWARE
         // renderer. The advertised default is "hardware", whose Vulkan hand-over has not been seen

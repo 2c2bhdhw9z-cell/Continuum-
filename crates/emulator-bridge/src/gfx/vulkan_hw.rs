@@ -42,6 +42,7 @@ fn lock_state() -> std::sync::MutexGuard<'static, VulkanHwState> {
 }
 
 pub fn reset() {
+    set_strict_sync(false);
     *lock_state() = VulkanHwState::new();
     QUEUE_LOCKED.store(false, std::sync::atomic::Ordering::Release);
 }
@@ -77,6 +78,34 @@ pub struct PendingVulkanFrame {
     pub width: u32,
     pub height: u32,
     pub src_queue_family: u32,
+    /// `VkFormat` of the image (`create_info.format`); 0 when unknown.
+    pub format: u32,
+}
+
+/// PSP-only (PPSSPP): the core relies on the frontend for GPU sync. It submits without
+/// semaphores and expects `wait_sync_index` to block until the image for that index is free,
+/// and expects the frontend to wait for its rendering before reading. With this off (every
+/// other core, incl. Azahar) the old 1-image, no-wait contract is kept exactly.
+static STRICT_SYNC: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SYNC_INDEX: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub fn set_strict_sync(on: bool) {
+    STRICT_SYNC.store(on, std::sync::atomic::Ordering::SeqCst);
+    SYNC_INDEX.store(0, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn strict_sync() -> bool {
+    STRICT_SYNC.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// `VK_FORMAT_R8G8B8A8_UNORM`.
+pub const VK_FORMAT_R8G8B8A8_UNORM: u32 = 37;
+
+/// Waits for the core's queue to go idle, holding the queue lock so no submit races it.
+fn wait_core_gpu() {
+    unsafe { frontend_lock_queue(HANDLE_TOKEN) };
+    crate::gfx::moltenvk_device::wait_core_queue_idle();
+    unsafe { frontend_unlock_queue(HANDLE_TOKEN) };
 }
 
 pub fn take_pending_frame() -> Option<PendingVulkanFrame> {
@@ -119,7 +148,24 @@ pub fn apply_pending_to_renderer(renderer: &mut crate::gfx::Renderer) -> Result<
         lock_state().pending = Some(frame);
         return Ok(false);
     }
-    crate::gfx::moltenvk_device::adopt_pending_frame(renderer, frame.image, width, height)
+    let strict = strict_sync();
+    if strict {
+        // The core's commands for this image may still be running on the GPU; reading it now
+        // is what showed a half-drawn, washed-out picture.
+        wait_core_gpu();
+    }
+    let adopted = crate::gfx::moltenvk_device::adopt_pending_frame(
+        renderer,
+        frame.image,
+        width,
+        height,
+        frame.format,
+    );
+    if strict {
+        // Two images: the core draws the next frame into the other one while this one is shown.
+        SYNC_INDEX.fetch_xor(1, std::sync::atomic::Ordering::SeqCst);
+    }
+    adopted
 }
 
 /// `struct retro_hw_render_callback` — clang layout on this host: sizeof 64,
@@ -563,18 +609,31 @@ unsafe extern "C" fn frontend_set_image(
         width,
         height,
         src_queue_family,
+        format: image.create_info.format,
     });
     state.set_image_count = state.set_image_count.saturating_add(1);
 }
 
 unsafe extern "C" fn frontend_get_sync_index(_h: *mut c_void) -> u32 {
-    0
+    if strict_sync() {
+        SYNC_INDEX.load(std::sync::atomic::Ordering::SeqCst) & 1
+    } else {
+        0
+    }
 }
 unsafe extern "C" fn frontend_get_sync_index_mask(_h: *mut c_void) -> u32 {
-    0b1
+    if strict_sync() {
+        0b11
+    } else {
+        0b1
+    }
 }
 unsafe extern "C" fn frontend_set_command_buffers(_h: *mut c_void, _n: u32, _c: *const u64) {}
-unsafe extern "C" fn frontend_wait_sync_index(_h: *mut c_void) {}
+unsafe extern "C" fn frontend_wait_sync_index(_h: *mut c_void) {
+    if strict_sync() {
+        wait_core_gpu();
+    }
+}
 
 unsafe extern "C" fn frontend_lock_queue(_handle: *mut c_void) {
     let _ = _handle;
