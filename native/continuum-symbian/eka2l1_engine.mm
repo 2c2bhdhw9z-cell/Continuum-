@@ -223,6 +223,12 @@ bool Eka2l1Engine::Boot() {
 
 void Eka2l1Engine::Shutdown() {
   continuum_symbian_frame_hook = nullptr;
+  {
+    // The next game must not open on the last game's picture.
+    std::lock_guard<std::mutex> lock(g_frame_mutex);
+    g_have_frame = false;
+    g_frame.clear();
+  }
   if (booted_) bridge::shutdown();
   booted_ = false;
   if (layer_ != nullptr) {

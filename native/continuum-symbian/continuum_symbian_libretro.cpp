@@ -13,6 +13,7 @@ using EngineImpl = continuum::Eka2l1Engine;
 using EngineImpl = continuum::StubEngine;
 #endif
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -164,7 +165,10 @@ RETRO_API void retro_run(void) {
       const continuum::ScreenInfo screen = g_engine->GetScreenInfo();
       const int x = static_cast<int>((px + 0x7fff) * static_cast<long>(screen.width) / 0xfffe);
       const int y = static_cast<int>((py + 0x7fff) * static_cast<long>(screen.height) / 0xfffe);
-      g_engine->Touch(x, y, pressed ? (g_touching ? 1 : 0) : 2);
+      // The far edge maps to width/height exactly; keep it on the last pixel.
+      const int cx = std::min(std::max(x, 0), static_cast<int>(screen.width) - 1);
+      const int cy = std::min(std::max(y, 0), static_cast<int>(screen.height) - 1);
+      g_engine->Touch(cx, cy, pressed ? (g_touching ? 1 : 0) : 2);
       g_touching = pressed;
     }
 #endif
