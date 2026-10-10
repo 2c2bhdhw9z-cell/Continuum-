@@ -466,10 +466,6 @@ enum ArtworkFetcher {
 
 // MARK: - The store the UI talks to
 
-/// Serves covers to the library, and owns every piece of artwork state.
-///
-/// One instance, owned by `EngineHost` for the app's lifetime, which is also what keeps the tier 5
-/// picker's delegate alive long enough to be called back. See `artworkPickerDelegate`.
 /// One number, so a view that only needs the artwork generation does not have to observe the
 /// whole of `ArtworkStore` and every diagnostic counter on it. See `ArtworkStore.generationOnly`.
 @MainActor
@@ -477,6 +473,10 @@ final class ArtworkGeneration: ObservableObject {
     @Published fileprivate(set) var value = 0
 }
 
+/// Serves covers to the library, and owns every piece of artwork state.
+///
+/// One instance, owned by `EngineHost` for the app's lifetime, which is also what keeps the tier 5
+/// picker's delegate alive long enough to be called back. See `artworkPickerDelegate`.
 @MainActor
 final class ArtworkStore: ObservableObject {
     /// Bumped whenever something invalidates what a card is showing: the switch changed, the cache
@@ -2696,8 +2696,8 @@ final class ArtworkStore: ObservableObject {
         return "\(url.host ?? "thumbnails.libretro.com")/\(folder)"
     }
 
-    /// The ordinary read-out path: updates the artwork line and mirrors it to the host so the
-    /// diagnostics panel shows it.
+    /// The ordinary read-out path: updates the artwork line only. The diagnostics panel reads
+    /// `line` directly; `report` is the path that also writes the host's status line.
     private func note(_ text: String) {
         // Not mirrored onto the host any more: this runs once per resolved cover, and a host
         // publish rebuilds the whole library. The diagnostics panel reads `line` directly.
@@ -2818,11 +2818,12 @@ final class ArtworkPickerDelegate: NSObject, UIDocumentPickerDelegate,
 /// THE PLATE IS ALWAYS DRAWN, and real art goes OVER it. That single decision is what makes the
 /// library never blank: the plate is the empty state, the loading state, and the letterbox behind a
 /// cover whose shape does not match its box, all without a second code path.
+///
 /// The store is held as a PLAIN reference rather than as an `@ObservedObject`, and the generation
 /// is passed in as a value. That is deliberate: the store publishes a status line and a set of
 /// counters every time a cover resolves, and observing it here would invalidate every card on
-/// screen each time any one of them finished. The parent that lays the cards out observes the store
-/// and hands the generation down, which is the only thing a card needs to know about.
+/// screen each time any one of them finished. The parent that lays the cards out observes only
+/// `ArtworkStore.generationOnly` and hands the generation down, which is the only thing a card needs to know about.
 struct CoverArtView: View {
     let entry: LibraryEntry
     let system: GameSystem?
