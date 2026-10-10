@@ -1,15 +1,18 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-9 October 2026. **Build 153** (`ff750f5`) is the newest published install:
-[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-153-ff750f5/Continuum.ipa).
+10 October 2026. Newest published install: see the top of the build notes below (build 163 was
+[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-163-676af12/Continuum.ipa)). The paragraph below about build 153 is older history.
 It has everything from build 152 (the second 3DS stutter fix and Continuum Symbian, whose
 `continuum_symbian_libretro_ios.dylib` is in the IPA) plus Mesen 2 as the default NES core. The
 next build after it adds the beta-readiness pass (open-source credits in Settings → About, the SMB
 wording in the Local Network permission). Older build notes further down are history; where an
 older line here disagrees with this paragraph, this paragraph is the current one.
 
-**After build 161 (built, untested on a phone; not yet pushed or built by CI):**
+**Build 164 (next, built, untested on a phone):**
+- **Saving outside the app: real cause of the dead Open button.** Builds 161 and 163: the folder picker opened, Open highlighted, nothing happened. Continuum is sideloaded and re-signed, and iOS does not give a re-signed app the File Provider grant an open-in-place folder pick (`asCopy: false`) needs; the same "Open does nothing" is reported for other sideloaded apps, and every other picker in Continuum (all `asCopy: true`) works on Brett's phone. Build 163's SwiftUI `.fileImporter` swap could not help (and the repo had already found `.fileImporter` drops its completion on device). Now Settings → SYNC FOLDER has **Back up to Files** (syncs into a folder inside the app, then exports a copy with the Files exporter) and **Restore from a backup** (copy-mode pick of that folder, merged in, nothing deleted). The backup prompt runs Back up to Files. The live folder stays as "Live folder (advanced)". Every picker step (presented, on screen, delegate called with URLs, cancelled, dismissed, security scope, bookmark) is in the activity log, and errors show in the Settings line. Confidence: high on the cause, medium that the folder exporter works on his iOS version. Backups are manual, not automatic. TESTING P-SYNC2.
+
+**Build 163 (published 10:58 AM PT 10 Oct; on the phone the folder picker was still broken, PSP not yet reported):**
 - **PSP gray screens / lone triangle / tiny thumbnails (NFS, Midnight Club), likely cause found.** Build 161 on the phone: NFS reaches its menus, but loading screens showed two gray bars, a black screen with one small triangle after the EA logo, and Midnight Club a gray screen with two white lines and, after "Continue without saving", three tiny thumbnails. The engine declared PPSSPP's image to the compositor at the frame size from video_refresh even when the real image was bigger; the shader samples with 0..1 coordinates measured against the REAL image, so a smaller frame was squeezed into a corner and the rest of the screen showed leftover image contents. Software rendering showing the same thing fits: it is the frontend, not the GPU path. Now the image is wrapped at its real size and only the frame's rect is copied out and shown. Confidence medium: the activity log now has a `hw frame size: shown WxH, image WxH [CROPPED]` line on every change, so a report from this build proves or disproves it. TESTING P-PSP4.
 - **Sync Folder picker.** Open did nothing in Settings' folder picker on build 161 (picker never closed). It was a UIKit picker presented by hand from the topmost view controller over SwiftUI; it is now SwiftUI's own `.fileImporter` for folders, in Settings and in the backup prompt. "Cloud Sync" is now called "Sync Folder" in the app: it is a folder on the phone (or any Files location). Confidence medium: the old code looked correct on paper, so the cause was not proven.
 

@@ -71,7 +71,9 @@ console name) were not something to set up, and were not checked.
 gray ghost picture, then froze on the PUBLIC SERVICE ANNOUNCEMENT screen with loud static, and
 Midnight Club LA Remix resumed from its auto-save to a black screen with normal sound.
 
-**P-PSP4 (next build, built, untested).** Two fixes in one build. (a) PSP: NFS Most Wanted 5-1-0 and Midnight Club LA Remix from the start, hardware rendering, 1x. Expected: no solid gray screen with two bars/lines on loading screens, no black screen with a lone small triangle after the EA logo, and after Manage Profile → "Continue without saving" a full picture instead of three tiny thumbnails. (b) Settings → **SYNC FOLDER** → **Choose a sync folder**: pick a folder and tap Open. Expected: the picker closes, the Folder row shows its name and a sync starts. Also try from inside the folder.
+**P-SYNC2 (build 164).** Settings → **SYNC FOLDER** → **Back up to Files**. Expected: a sync runs, then a Files "save" sheet; pick On My iPhone (or iCloud Drive) and tap Save/Move; the line says "backup saved as Continuum Sync in ...". Then **Restore from a backup**, open that folder (Continuum Sync), tap Open: the picker closes and a sync runs. If anything stalls, send a report: every picker step is in the log.
+
+**P-PSP4 (build 163).** Two fixes in one build. (a) PSP: NFS Most Wanted 5-1-0 and Midnight Club LA Remix from the start, hardware rendering, 1x. Expected: no solid gray screen with two bars/lines on loading screens, no black screen with a lone small triangle after the EA logo, and after Manage Profile → "Continue without saving" a full picture instead of three tiny thumbnails. (b) Settings → **SYNC FOLDER** → **Choose a sync folder**: pick a folder and tap Open. Expected: the picker closes, the Folder row shows its name and a sync starts. Also try from inside the folder.
 
 **P-PSP3 (build 161).** NFS Most Wanted 5-1-0 from the start, hardware rendering (software rendering OFF). Expected: loading-screen movie plays with a real picture, no buzz, reaches the menu. If it crashes, send the crash report: its body now ends with the last 50 activity lines.
 

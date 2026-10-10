@@ -965,44 +965,141 @@ final class CloudSync: ObservableObject {
 
     private func setLine(_ text: String, persist: Bool = true) {
         line = text
+        FeedbackCenter.record(text)
         if persist { defaults.set(text, forKey: Self.lastLineKey) }
     }
 
     // ---------------------------------------------------------------- folder
 
-    func chooseFolder() {
+    // ROOT CAUSE (builds 161 and 163 on the phone): Continuum is sideloaded and re-signed, and
+    // iOS does not give a re-signed app the File Provider grant that an OPEN-IN-PLACE folder
+    // pick needs (`asCopy: false`). The folder looks selectable, Open highlights, and nothing
+    // happens: no delegate call, no dismissal. Every other picker in this app uses
+    // `asCopy: true` and works on the same phone. So the reliable way to keep a copy outside
+    // the app is copy mode both ways: "Back up to Files" syncs into a folder inside the app and
+    // then EXPORTS it (`forExporting:asCopy:`) to wherever the user picks; "Restore" picks that
+    // folder with `asCopy: true`, which hands back a copy that needs no grant. The live folder
+    // pick stays for installs where iOS allows it, with every step logged.
+
+    private var afterSync: ((Bool) -> Void)?
+    private static let historyTargetKey = "continuum.sync.historyTarget.v1"
+
+    private func present(_ picker: UIDocumentPickerViewController, kind: String,
+                         delegate: SyncFolderPickerDelegate) {
         guard let presenter = EngineHost.topmostViewController() else {
-            setLine("sync folder: cannot show the folder picker, no window to present it from")
+            setLine("sync folder: cannot show the \(kind) picker, no window to present it from")
             return
-        }
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType.folder])
-        picker.allowsMultipleSelection = false
-        let delegate = SyncFolderPickerDelegate { [weak self] url in
-            Task { @MainActor in self?.adoptFolder(url) }
         }
         pickerDelegate = delegate
         picker.delegate = delegate
-        presenter.present(picker, animated: true)
-        setLine("sync folder: choose the folder to sync into", persist: false)
-    }
-
-    /// What SwiftUI's `.fileImporter(allowedContentTypes: [.folder])` handed back. This is the
-    /// picker path used by Settings and the backup prompt since build 162: on build 161 the UIKit
-    /// picker presented by hand from `topmostViewController()` never accepted Open (folder
-    /// highlighted or entered, the picker stayed up and no delegate call arrived). SwiftUI owns
-    /// the presentation and the callback here, so nothing can be presented from the wrong
-    /// controller or lose its delegate.
-    func adoptPickedFolder(_ result: Result<URL, Error>) {
-        switch result {
-        case .success(let url): adoptFolder(url)
-        case .failure(let error):
-            pickerDelegate = nil
-            setLine("sync folder: the folder picker failed (\(error.localizedDescription))", persist: false)
+        picker.allowsMultipleSelection = false
+        picker.presentationController?.delegate = delegate
+        let busy = presenter.isBeingDismissed || presenter.isBeingPresented
+        FeedbackCenter.record("sync folder: \(kind) picker presenting from \(type(of: presenter)), busy=\(busy)")
+        presenter.present(picker, animated: true) {
+            FeedbackCenter.record("sync folder: \(kind) picker on screen")
         }
     }
 
-    func noteFolderPickerShown() {
-        setLine("sync folder: choose the folder to sync into", persist: false)
+    /// The live folder (open in place). May not work on a sideloaded install; see above.
+    func chooseFolder() {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType.folder])
+        let delegate = SyncFolderPickerDelegate(
+            log: { FeedbackCenter.record("sync folder: live pick: " + $0) },
+            done: { [weak self] urls in
+                Task { @MainActor in self?.adoptFolder(urls.first) }
+            })
+        present(picker, kind: "live folder", delegate: delegate)
+        setLine("sync folder: choose the live folder. If Open does nothing, this install cannot "
+                + "keep a live folder: cancel and use Back up to Files", persist: false)
+    }
+
+    /// Syncs into the folder inside the app, then hands a copy of it to the Files exporter.
+    func backUpToFiles() {
+        guard let staging = Self.stagingFolder() else {
+            setLine("sync folder: backup failed, no app storage folder")
+            return
+        }
+        afterSync = { [weak self] ok in
+            guard let self, ok else { return }
+            self.exportBackup(from: staging)
+        }
+        runSync(folder: staging, target: "staging", scoped: false, exportFirst: true,
+                reason: "Back up to Files")
+    }
+
+    private func exportBackup(from staging: URL) {
+        let root = staging.appendingPathComponent(CloudSyncPaths.remoteFolderName, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: root.path) else {
+            setLine("sync folder: backup failed, nothing was written to \(root.lastPathComponent)")
+            return
+        }
+        let picker = UIDocumentPickerViewController(forExporting: [root], asCopy: true)
+        let delegate = SyncFolderPickerDelegate(
+            log: { FeedbackCenter.record("sync folder: export: " + $0) },
+            done: { [weak self] urls in
+                Task { @MainActor in self?.exportFinished(urls.first) }
+            })
+        present(picker, kind: "export", delegate: delegate)
+    }
+
+    private func exportFinished(_ url: URL?) {
+        pickerDelegate = nil
+        if let url {
+            let place = url.deletingLastPathComponent().lastPathComponent
+            setLine("sync folder: backup saved as \(url.lastPathComponent) in \(place)")
+        } else {
+            setLine("sync folder: backup made in the app but not saved to Files (cancelled)")
+        }
+    }
+
+    /// Picks a backup folder made by Back up to Files (copy mode) and merges it in.
+    func restoreFromFiles() {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType.folder], asCopy: true)
+        let delegate = SyncFolderPickerDelegate(
+            log: { FeedbackCenter.record("sync folder: restore pick: " + $0) },
+            done: { [weak self] urls in
+                Task { @MainActor in self?.restore(from: urls.first) }
+            })
+        present(picker, kind: "restore", delegate: delegate)
+        setLine("sync folder: choose the \(CloudSyncPaths.remoteFolderName) folder you backed up",
+                persist: false)
+    }
+
+    private func restore(from picked: URL?) {
+        pickerDelegate = nil
+        guard let picked else {
+            setLine("sync folder: restore cancelled; nothing changed", persist: false)
+            return
+        }
+        guard let staging = Self.stagingFolder() else {
+            setLine("sync folder: restore failed, no app storage folder")
+            return
+        }
+        let fm = FileManager.default
+        let nested = picked.appendingPathComponent(CloudSyncPaths.remoteFolderName, isDirectory: true)
+        let source = fm.fileExists(atPath: nested.path) ? nested : picked
+        let root = staging.appendingPathComponent(CloudSyncPaths.remoteFolderName, isDirectory: true)
+        do {
+            if fm.fileExists(atPath: root.path) { try fm.removeItem(at: root) }
+            try fm.copyItem(at: source, to: root)
+            FeedbackCenter.record("sync folder: restore copied \(source.lastPathComponent) into the app")
+        } catch {
+            setLine("sync folder: restore failed, could not copy the folder (\(error.localizedDescription))")
+            return
+        }
+        // A replaced folder shares no history with this phone: merge, never delete.
+        forgetHistory()
+        defaults.set("staging", forKey: Self.historyTargetKey)
+        runSync(folder: staging, target: "staging", scoped: false, exportFirst: false,
+                reason: "restore from \(picked.lastPathComponent)")
+    }
+
+    static func stagingFolder() -> URL? {
+        guard let support = CloudSyncPaths.support() else { return nil }
+        let url = support.appendingPathComponent("SyncStaging", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 
     private func adoptFolder(_ url: URL?) {
@@ -1011,12 +1108,15 @@ final class CloudSync: ObservableObject {
             setLine("sync folder: folder choice cancelled; nothing changed", persist: false)
             return
         }
+        FeedbackCenter.record("sync folder: live pick returned \(url.path)")
         let scoped = url.startAccessingSecurityScopedResource()
+        FeedbackCenter.record("sync folder: security scope \(scoped ? "granted" : "NOT granted")")
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
             let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil,
                                                 relativeTo: nil)
             defaults.set(bookmark, forKey: Self.bookmarkKey)
+            FeedbackCenter.record("sync folder: bookmark made (\(bookmark.count) bytes)")
             defaults.set(url.lastPathComponent, forKey: Self.folderNameKey)
             folderName = url.lastPathComponent
             // A different folder has a different history. Keeping the old manifest would read
@@ -1077,6 +1177,25 @@ final class CloudSync: ObservableObject {
             setLine("sync folder failed: the folder could not be found; choose it again in Settings")
             return
         }
+        runSync(folder: folder, target: "bookmark", scoped: true, exportFirst: nil, reason: reason)
+    }
+
+    /// One sync run into `folder`. `target` names whose history the manifest is; switching
+    /// between the live folder and the in-app backup folder forgets it, so neither side's
+    /// missing files read as deletions. `exportFirst` nil keeps the original rule (export only
+    /// with history); true always exports (the in-app backup folder is ours).
+    private func runSync(folder: URL, target: String, scoped wantsScope: Bool, exportFirst: Bool?,
+                         reason: String) {
+        guard !isSyncing else { afterSync = nil; return }
+        if host?.activeEntry != nil {
+            afterSync = nil
+            setLine("sync folder: skipped while a game is running", persist: false)
+            return
+        }
+        if defaults.string(forKey: Self.historyTargetKey) != target {
+            forgetHistory()
+            defaults.set(target, forKey: Self.historyTargetKey)
+        }
         let manifestText = CloudSyncPaths.manifestURL()
             .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
         // NOT EXPORTED ON A SYNC WITH NO HISTORY for this folder (the first one after choosing
@@ -1085,7 +1204,7 @@ final class CloudSync: ObservableObject {
         // Conflicts/ and the empty ones would be uploaded. Not exporting lets the cloud copy come
         // down and apply at the next launch. Both exports also skip themselves while a
         // downloaded copy is waiting to be applied (`pendingSettingsKey`, `pendingArtworkKey`).
-        if syncLastSyncedMs(manifestText: manifestText) > 0 {
+        if exportFirst ?? (syncLastSyncedMs(manifestText: manifestText) > 0) {
             exportSettings()
             if let host { exportArtwork(library: host.library) }
         }
@@ -1095,12 +1214,17 @@ final class CloudSync: ObservableObject {
         setLine("sync folder: syncing (\(reason))", persist: false)
         let root = folder.appendingPathComponent(CloudSyncPaths.remoteFolderName, isDirectory: true)
         Task.detached(priority: .utility) {
-            let scoped = folder.startAccessingSecurityScopedResource()
+            let scoped = wantsScope && folder.startAccessingSecurityScopedResource()
             let outcome = await CloudSyncWorker(remoteRoot: root, manifestText: manifestText).run(
                 gamesSwitchedOn: { await MainActor.run { self.includesGames = true } },
                 onlyGamesLeft: { changed in await MainActor.run { self.onlyGamesLeft(changed) } })
             if scoped { folder.stopAccessingSecurityScopedResource() }
-            await MainActor.run { self.finish(outcome) }
+            await MainActor.run {
+                self.finish(outcome)
+                let then = self.afterSync
+                self.afterSync = nil
+                then?(outcome.refusal == nil)
+            }
         }
     }
 
@@ -1409,21 +1533,39 @@ final class CloudSync: ObservableObject {
     }
 }
 
-/// The folder picker's delegate. Held strongly by `CloudSync` while the picker is up, because a
-/// picker holds its delegate weakly.
-final class SyncFolderPickerDelegate: NSObject, UIDocumentPickerDelegate {
-    private let done: (URL?) -> Void
+/// The sync pickers' delegate. Held strongly by `CloudSync` while the picker is up, because a
+/// picker holds its delegate weakly. Logs every callback so a report shows which one came.
+final class SyncFolderPickerDelegate: NSObject, UIDocumentPickerDelegate,
+    UIAdaptivePresentationControllerDelegate {
+    private let log: (String) -> Void
+    private let done: ([URL]) -> Void
+    private var delivered = false
 
-    init(done: @escaping (URL?) -> Void) {
+    init(log: @escaping (String) -> Void, done: @escaping ([URL]) -> Void) {
+        self.log = log
         self.done = done
     }
 
+    private func deliver(_ urls: [URL]) {
+        guard !delivered else { return }
+        delivered = true
+        done(urls)
+    }
+
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        done(urls.first)
+        let paths = urls.map { $0.path }.joined(separator: ", ")
+        log("delegate called with \(urls.count) URL(s): \(paths)")
+        deliver(urls)
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-        done(nil)
+        log("cancelled")
+        deliver([])
+    }
+
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        log("dismissed with no pick")
+        deliver([])
     }
 }
 
@@ -1456,7 +1598,6 @@ struct BackupFolderPrompt: ViewModifier {
     /// The crash question (Feedback.swift) is the other alert at launch. This one waits for it.
     @ObservedObject private var feedback = FeedbackCenter.shared
     @State private var shown = false
-    @State private var pickingFolder = false
     private static let promptMessage: String = "Deleting Continuum deletes everything in it. If you pick a folder, Continuum keeps a copy of your saves, skins, starred games and settings there, and your games too if you choose \"with games\" (they can take a lot of space). After installing again, choose the same folder in Settings and it all comes back.\n\nAny folder in Files works — iCloud Drive, Google Drive, Dropbox."
 
     private static let askedKey = "continuum.sync.backupOffered.v1"
@@ -1467,10 +1608,6 @@ struct BackupFolderPrompt: ViewModifier {
             // root view, and two alerts on one view can leave one of them stuck.
             .background(
                 Color.clear
-                    .fileImporter(isPresented: $pickingFolder,
-                                  allowedContentTypes: [UTType.folder]) { (result: Result<URL, Error>) in
-                        sync.adoptPickedFolder(result)
-                    }
                     .alert("Keep your games and saves safe?", isPresented: $shown) {
                         Button("Choose a folder, with games") { choose(withGames: true) }
                         Button("Choose a folder, without games") { choose(withGames: false) }
@@ -1491,11 +1628,10 @@ struct BackupFolderPrompt: ViewModifier {
         UserDefaults.standard.set(true, forKey: Self.askedKey)
         // Before the folder is chosen, so its first sync already includes or leaves out games.
         sync.includesGames = withGames
-        sync.noteFolderPickerShown()
-        // After the alert has gone, so the importer is not presented over a closing alert.
+        // After the alert has gone, so the picker is not presented over a closing alert.
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 400_000_000)
-            pickingFolder = true
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            sync.backUpToFiles()
         }
     }
 
@@ -1524,21 +1660,24 @@ struct BackupFolderPrompt: ViewModifier {
 
 struct CloudSyncSection: View {
     @ObservedObject var sync: CloudSync
-    @State private var pickingFolder = false
+    static let backupNote: String = "Back up to Files saves a Continuum Sync folder wherever you pick (On My iPhone, iCloud Drive and so on). After reinstalling, tap Restore from a backup and pick that folder. A live folder that syncs by itself needs iOS to allow it, which it often does not for sideloaded apps."
 
     var body: some View {
         SettingsSection(title: "SYNC FOLDER") {
             SettingsReadout(label: "Folder", value: sync.folderName ?? "none chosen")
             SettingsNote(sync.line)
-            SettingsButton(title: sync.folderName == nil ? "Choose a sync folder" : "Choose a different folder",
+            SettingsButton(title: sync.isSyncing ? "Working..." : "Back up to Files", role: .normal) {
+                sync.backUpToFiles()
+            }
+            SettingsButton(title: "Restore from a backup", role: .normal) {
+                sync.restoreFromFiles()
+            }
+            SettingsNote(CloudSyncSection.backupNote)
+            SettingsButton(title: sync.folderName == nil ? "Live folder (advanced)" : "Choose a different live folder",
                            role: .normal) {
-                sync.noteFolderPickerShown()
-                pickingFolder = true
+                sync.chooseFolder()
             }
-            .fileImporter(isPresented: $pickingFolder,
-                          allowedContentTypes: [UTType.folder]) { (result: Result<URL, Error>) in
-                sync.adoptPickedFolder(result)
-            }
+
             if sync.folderName != nil {
                 SettingsButton(title: sync.isSyncing ? "Syncing..." : "Sync now", role: .normal) {
                     sync.syncNow(reason: "Sync now")
