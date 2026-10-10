@@ -459,7 +459,7 @@ struct FeedbackSheet: View {
 
 // MARK: - The details
 
-/// The facts a report carries when "The app's details" is on: plain text, one fact per line, so a
+/// The facts a report carries when "Phone and app info" is on: plain text, one fact per line, so a
 /// reader can see at once which build, phone and game it came from.
 enum FeedbackDetails {
     @MainActor

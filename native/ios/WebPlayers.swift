@@ -504,7 +504,8 @@ final class WebPlayerSession: NSObject, ObservableObject, WKNavigationDelegate, 
             report("\(entry.name): its key remap was unreadable (\(error)); the default keys are used")
             bindings = (try? playerBindings(system: kind.systemId, overrides: "")) ?? []
         }
-        table = Dictionary(uniqueKeysWithValues: bindings.map { (Int($0.slot), $0.token) })
+        // Last wins on a repeated slot rather than trapping (uniqueKeysWithValues crashes on one).
+        table = Dictionary(bindings.map { (Int($0.slot), $0.token) }, uniquingKeysWith: { _, last in last })
         flashKeys = [:]
         if kind == .flash {
             for token in Set(table.values) where token != WebPlayerKeys.unbound {
@@ -1073,9 +1074,8 @@ struct WebPlayerSettingsSheet: View {
         _settings = State(initialValue: settings)
         let bindings = (try? playerBindings(system: session.kind.systemId,
                                             overrides: settings.keyOverrides)) ?? []
-        _table = State(initialValue: Dictionary(uniqueKeysWithValues: bindings.map {
-            (Int($0.slot), $0.token)
-        }))
+        _table = State(initialValue: Dictionary(bindings.map { (Int($0.slot), $0.token) },
+                                                uniquingKeysWith: { _, last in last }))
         choices = playerKeyChoices(system: session.kind.systemId)
         sizes = playerJ2meScreenSizes()
         phoneTypes = playerJ2mePhoneTypes()
@@ -1117,7 +1117,8 @@ struct WebPlayerSettingsSheet: View {
                     Button("Back to the default keys") {
                         let defaults = (try? playerBindings(system: session.kind.systemId,
                                                             overrides: "")) ?? []
-                        table = Dictionary(uniqueKeysWithValues: defaults.map { (Int($0.slot), $0.token) })
+                        table = Dictionary(defaults.map { (Int($0.slot), $0.token) },
+                                           uniquingKeysWith: { _, last in last })
                         commit()
                     }
                 } header: {

@@ -70,7 +70,8 @@ enum HIDKeys {
         table[hid]
     }
 
-    /// The UTF-32 character a key types, given whether shift is held. 0 for none.
+    /// The UTF-32 character a key types, given whether shift is held and Caps Lock is on (caps
+    /// only flips letters). 0 for none.
     static func character(hid: Int, shift: Bool, caps: Bool) -> UInt32 {
         guard let e = table[hid], let base = e.normal else { return 0 }
         let isLetter = base.isLetter
