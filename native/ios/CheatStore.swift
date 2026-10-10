@@ -128,14 +128,29 @@ enum CheatDisk {
         }
     }
 
-    static func read() -> (cheats: [Cheat], failure: String?) {
-        guard let url = indexURL() else { return ([], "no Application Support directory") }
-        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return ([], nil) }
+    static func read() -> (cheats: [Cheat], failure: String?, skipped: Int) {
+        guard let url = indexURL() else { return ([], "no Application Support directory", 0) }
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return ([], nil, 0) }
         do {
-            return (try JSONDecoder().decode([Cheat].self, from: data), nil)
+            // One cheat at a time: a plain `[Cheat]` decode fails the WHOLE list when a single
+            // entry has a field of the wrong type. Unreadable entries come back nil and are
+            // counted by the caller as skipped.
+            let lossy = try JSONDecoder().decode([LossyDecodable<Cheat>].self, from: data)
+            let readable = lossy.compactMap(\.value)
+            return (readable, nil, lossy.count - readable.count)
         } catch {
-            return ([], "the stored cheats could not be read: \(error.localizedDescription)")
+            preserveUnreadable(url)
+            return ([], "the stored cheats could not be read (a copy was kept): "
+                    + error.localizedDescription, 0)
         }
+    }
+
+    /// Keeps a copy of an index that would not decode, so the next edit (which writes the list)
+    /// does not silently replace every stored cheat with an empty list.
+    private static func preserveUnreadable(_ url: URL) {
+        let copy = url.deletingLastPathComponent()
+            .appendingPathComponent("index.unreadable-\(Int(Date().timeIntervalSince1970)).json")
+        try? FileManager.default.copyItem(at: url, to: copy)
     }
 }
 
@@ -162,7 +177,7 @@ final class CheatStore: ObservableObject {
 
     init(engine: ContinuumEngine) {
         self.engine = engine
-        let (stored, failure) = CheatDisk.read()
+        let (stored, failure, skipped) = CheatDisk.read()
         // A cheat with no code cannot be pushed to anything, so it is the one thing dropped on the
         // way in. Counted rather than ignored.
         let usable = stored.filter { !$0.code.isEmpty && !$0.gameId.isEmpty }
@@ -170,10 +185,11 @@ final class CheatStore: ObservableObject {
         if let failure {
             line = "cheats: \(failure)"
         } else {
-            let dropped = stored.count - usable.count
-            line = "cheats: \(usable.count) stored for \(gameCount) game(s)"
+            let dropped = stored.count - usable.count + skipped
+            line = "cheats: \(Self.count(usable.count, "cheat")) stored for "
+                + Self.count(gameCount, "game")
             if dropped > 0 {
-                line += ", \(dropped) unreadable entr(y/ies) skipped"
+                line += ", \(dropped) unreadable \(dropped == 1 ? "entry" : "entries") skipped"
             }
         }
     }
@@ -184,10 +200,11 @@ final class CheatStore: ObservableObject {
 
     /// Re-reads the list after cloud sync replaced or merged it. See `CloudSync`.
     func reloadFromDisk() {
-        let (stored, failure) = CheatDisk.read()
+        let (stored, failure, _) = CheatDisk.read()
         cheats = stored.filter { !$0.code.isEmpty && !$0.gameId.isEmpty }
         line = failure.map { "cheats: \($0)" }
-            ?? "cheats: \(cheats.count) stored for \(gameCount) game(s), reloaded after cloud sync"
+            ?? "cheats: \(Self.count(cheats.count, "cheat")) stored for \(Self.count(gameCount, "game")), "
+            + "reloaded after cloud sync"
     }
 
     // MARK: Reading
@@ -285,7 +302,7 @@ final class CheatStore: ObservableObject {
             case .invalid: unusable += 1
             }
         }
-        var parts = ["imported \(added) cheat(s) from \(fileName) for \(gameId)"]
+        var parts = ["imported \(Self.count(added, "cheat")) from \(fileName) for \(gameId)"]
         if duplicates > 0 { parts.append("\(duplicates) already in the list") }
         if unusable > 0 { parts.append("\(unusable) with an empty or overlong code") }
         if overCap > 0 { parts.append("\(overCap) left out because \(Self.maxPerGame) is the limit") }
@@ -375,7 +392,7 @@ final class CheatStore: ObservableObject {
         let count = cheats(forGameId: gameId).count
         guard count > 0 else { return }
         cheats = cheats.filter { $0.gameId != gameId }
-        persist(describing: "deleted \(count) cheat(s) for \(gameId)")
+        persist(describing: "deleted \(Self.count(count, "cheat")) for \(gameId)")
         pushIfRunning(gameId: gameId)
     }
 
@@ -408,7 +425,7 @@ final class CheatStore: ObservableObject {
         let list = cheats(forGameId: gameId)
         guard !list.isEmpty else { return }
         guard engine.cheatsSupported() else {
-            report("\(list.count) cheat(s) stored for \(entry.name), but "
+            report("\(Self.count(list.count, "cheat")) stored for \(entry.name), but "
                    + "\(engine.currentCoreId() ?? "this core") does not take cheats")
             return
         }
@@ -418,7 +435,7 @@ final class CheatStore: ObservableObject {
             let applied = try engine.applyCheats(codes: list.map { $0.code },
                                                  enabled: list.map { $0.enabled })
             let on = list.filter { $0.enabled }.count
-            report("pushed \(list.count) cheat(s) for \(entry.name), \(on) enabled, the core "
+            report("pushed \(Self.count(list.count, "cheat")) for \(entry.name), \(on) enabled, the core "
                    + "accepted \(applied)")
         } catch {
             report("cheats were not applied to \(entry.name): \(error)")
@@ -439,7 +456,7 @@ final class CheatStore: ObservableObject {
         if cheats.isEmpty {
             parts.append("no cheats stored")
         } else {
-            parts.append("\(cheats.count) cheat(s) for \(gameCount) game(s)")
+            parts.append("\(Self.count(cheats.count, "cheat")) for \(Self.count(gameCount, "game"))")
             parts.append("\(cheats.filter { $0.enabled }.count) enabled")
         }
         if host?.running == true {
@@ -453,6 +470,11 @@ final class CheatStore: ObservableObject {
     }
 
     // MARK: Plumbing
+
+    /// "1 cheat", "3 cheats".
+    private static func count(_ n: Int, _ noun: String) -> String {
+        "\(n) \(noun)\(n == 1 ? "" : "s")"
+    }
 
     /// Collapses runs of whitespace so that "ABCD EFGH" and "ABCD  EFGH" are one cheat rather than
     /// two that look identical in a list.

@@ -192,6 +192,8 @@ struct CheatCodeEntry: View {
 struct CheatRow: View {
     let cheat: Cheat
     @ObservedObject var cheats: CheatStore
+    /// Asks before the trash button deletes, like the game card and Settings.
+    @State private var confirmDelete = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -212,7 +214,7 @@ struct CheatRow: View {
             .labelsHidden()
             .tint(ShellPalette.accent)
             Button {
-                cheats.delete(cheat)
+                confirmDelete = true
             } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 14, weight: .semibold))
@@ -222,6 +224,12 @@ struct CheatRow: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Delete this cheat")
+        }
+        .alert("Delete this cheat?", isPresented: $confirmDelete) {
+            Button("Delete", role: .destructive) { cheats.delete(cheat) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("It will be removed from this game's list. This cannot be undone.")
         }
     }
 }
@@ -355,7 +363,7 @@ struct CheatSearchView: View {
                                                                  aligned: aligned)
                     let name = regions.first(where: { $0.key == key }).map(Self.describe)
                         ?? "system RAM"
-                    line = "search started over \(total) address(es) of \(name)"
+                    line = "search started over \(total) \(total == 1 ? "address" : "addresses") of \(name)"
                 } catch {
                     line = "the search could not start: \(error)"
                 }
@@ -452,7 +460,7 @@ struct CheatSearchView: View {
             let left = try host.engine.ramSearchFilter(filter: filter)
             line = left == 0
                 ? "nothing matched, so the search is empty; start over"
-                : "\(left) address(es) left"
+                : "\(left) \(left == 1 ? "address" : "addresses") left"
         } catch {
             line = "that filter was not applied: \(error)"
         }
