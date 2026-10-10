@@ -135,7 +135,8 @@ impl FilteredDeviceExtensions {
         }
         if !metal_objects {
             return Err(
-                "VK_EXT_metal_objects not advertised by the physical device;                  zero-copy MTLTexture export requires it"
+                "VK_EXT_metal_objects not advertised by the physical device; \
+                 zero-copy MTLTexture export requires it"
                     .into(),
             );
         }
@@ -447,12 +448,10 @@ mod apple {
 
         let vert_module = create_shader_module(&device, VERT_SPV)?;
         let frag_module = create_shader_module(&device, FRAG_SPV)?;
-        let entry_name = CString::new("main").unwrap();
         // naga's default entry is the WGSL function name, not "main". Our shaders use vs_main /
         // fs_main — match those.
         let vert_entry = CString::new("vs_main").unwrap();
         let frag_entry = CString::new("fs_main").unwrap();
-        let _ = entry_name;
 
         let shader_stages = [
             vk::PipelineShaderStageCreateInfo::default()
