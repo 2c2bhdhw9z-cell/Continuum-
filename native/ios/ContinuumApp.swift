@@ -4540,7 +4540,7 @@ final class EngineHost: ObservableObject {
             // might corrupt the machine.
             saveStates.noteSessionOptions()
             if resumingAuto {
-                if spec.coreId == CoreSpec.ppsspp.coreId {
+                if spec.coreId == CoreCatalog.ppsspp.coreId {
                     // PPSSPP builds its GPU only once frames have run with the Vulkan context
                     // (`retro_unserialize` before that restores a machine with no GPU state,
                     // which played sound over a black screen). Resume after ~30 real frames.
