@@ -907,9 +907,10 @@ final class SaveStates: ObservableObject {
         list.sorted { $0.createdAt > $1.createdAt }
     }
 
-    /// Every state for one game, newest first.
+    /// How many distinct games have at least one state.
     var gameCount: Int { Set(records.map { $0.gameId }).count }
 
+    /// Every state for one game, newest first.
     func states(forGameId gameId: String) -> [SaveStateRecord] {
         records.filter { $0.gameId == gameId }
     }
@@ -1404,6 +1405,9 @@ final class SaveStates: ObservableObject {
         SaveStateDisk.removeThumbnail(gameId: record.gameId, slot: record.slot,
                                       isAuto: record.isAuto)
         records = records.filter { $0.id != record.id }
+        // The dedup key says "this frame's auto-save is on disk"; after a delete it no longer is,
+        // so a paused game backgrounded at the same frame must write a fresh one.
+        if record.isAuto { lastAutoSaveKey = nil }
         let indexFailure = SaveStateDisk.writeIndex(records)
         refreshMissingCount()
 
@@ -1429,6 +1433,7 @@ final class SaveStates: ObservableObject {
                                           isAuto: record.isAuto)
         }
         records = records.filter { $0.gameId != gameId }
+        lastAutoSaveKey = nil
         let failure = SaveStateDisk.writeIndex(records)
         refreshMissingCount()
         if let failure {
@@ -1464,6 +1469,7 @@ final class SaveStates: ObservableObject {
         }
         records = []
         missingPayloads = 0
+        lastAutoSaveKey = nil
         let failure = SaveStateDisk.writeIndex(records)
         let orphans = files - knownCount
         var text = "deleted every save state: \(files) file(s), \(Self.byteText(bytes))"
