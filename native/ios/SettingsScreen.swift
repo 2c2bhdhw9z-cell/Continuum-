@@ -56,6 +56,8 @@ struct SettingsScreen: View {
     /// not cover.
     @State private var showControlEditor = false
     @State private var confirmResetControls = false
+    @State private var confirmDeleteStates = false
+    @State private var confirmDeleteCheats = false
     /// Button taps, rumble and the turbo rate. A shared object rather than a parameter, because
     /// the pad deep under the player reads the same one. See Haptics.swift.
     @ObservedObject private var feel = ControlFeel.shared
@@ -599,7 +601,7 @@ struct SettingsScreen: View {
         }
     }
 
-    /// Every other system with two cores (`CoreCatalog.coreChoices`): Arcade and Saturn today.
+    /// Every other system with two cores (`CoreCatalog.coreChoices`): NES, Disk System, Arcade and Saturn today.
     /// The choice is stored per system and applies from the next launch of that system.
     private var systemCoresSection: some View {
         SettingsSection(title: "NES, ARCADE AND SATURN CORES") {
@@ -737,7 +739,14 @@ struct SettingsScreen: View {
             SettingsReadout(label: "Last", value: saveStates.line)
 
             SettingsButton(title: "Delete every save state", role: .destructive) {
-                saveStates.deleteEverything()
+                confirmDeleteStates = true
+            }
+            .alert("Delete every save state?", isPresented: $confirmDeleteStates) {
+                Button("Delete", role: .destructive) { saveStates.deleteEverything() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This includes the auto-saves, so every game starts from the beginning. "
+                     + "This cannot be undone.")
             }
 
             SettingsNote(
@@ -767,7 +776,13 @@ struct SettingsScreen: View {
             SettingsReadout(label: "Last", value: cheats.line)
 
             SettingsButton(title: "Delete every stored cheat", role: .destructive) {
-                cheats.deleteEverything()
+                confirmDeleteCheats = true
+            }
+            .alert("Delete every stored cheat?", isPresented: $confirmDeleteCheats) {
+                Button("Delete", role: .destructive) { cheats.deleteEverything() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Every game's cheat codes are removed. This cannot be undone.")
             }
 
             SettingsNote(
@@ -1434,6 +1449,7 @@ struct OpenSourceCreditsList: View {
         .init(name: "Beetle PSX HW", systems: "PlayStation", license: "GPL v2", source: "https://github.com/libretro/beetle-psx-libretro"),
         .init(name: "PPSSPP", systems: "PSP", license: "GPL v2 or later", source: "https://github.com/libretro/ppsspp"),
         .init(name: "Flycast", systems: "Dreamcast", license: "GPL v2", source: "https://github.com/libretro/flycast"),
+        .init(name: "Yabause", systems: "Saturn", license: "GPL v2", source: "https://github.com/libretro/yabause"),
         .init(name: "Beetle Saturn", systems: "Saturn", license: "GPL v2", source: "https://github.com/libretro/beetle-saturn-libretro"),
         .init(name: "Beetle PCE, PCE Fast, SuperGrafx", systems: "PC Engine / TurboGrafx-16", license: "GPL v2", source: "https://github.com/libretro/beetle-pce-libretro"),
         .init(name: "Beetle VB", systems: "Virtual Boy", license: "GPL v2", source: "https://github.com/libretro/beetle-vb-libretro"),
@@ -1453,7 +1469,7 @@ struct OpenSourceCreditsList: View {
         .init(name: "rcheevos", systems: "Achievements", license: "MIT", source: "https://github.com/RetroAchievements/rcheevos"),
         .init(name: "libsmb2", systems: "SMB file sharing", license: "LGPL v2.1", source: "https://github.com/sahlberg/libsmb2"),
         .init(name: "MoltenVK", systems: "Vulkan graphics", license: "Apache 2.0", source: "https://github.com/KhronosGroup/MoltenVK"),
-        .init(name: "Continuum", systems: "This app", license: "Source on GitHub", source: "https://github.com/2c2bhdhw9z-cell/Continuum-")
+        .init(name: "Continuum", systems: "This app", license: "GPL v3", source: "https://github.com/2c2bhdhw9z-cell/Continuum-")
     ]
 
     @State private var open = false

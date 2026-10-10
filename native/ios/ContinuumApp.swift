@@ -130,11 +130,12 @@ struct CoreSpec: Sendable {
     let fps: Double
     let sampleRate: UInt32
     let pixelFormat: UInt32
-    /// Higher wins when two cores claim the same system. Nothing overlaps here, so this only
-    /// matters if a second core for one of these systems is ever added.
+    /// Higher wins in the engine registry when two cores claim the same system (NES/FDS,
+    /// PlayStation, arcade and Saturn all have two). The app's launch path does not rely on it:
+    /// it picks the core through `CoreCatalog.core(for:)`, from the route and the Settings choice.
     let priority: Int32
     /// BIOS filenames this core looks for in the system directory, most useful first. Empty
-    /// for a core that needs none, which is every core here except PCSX ReARMed. Never
+    /// for a core that needs none. Never
     /// bundled: shipping a console BIOS is a copyright violation.
     let biosNames: [String]
     /// True when this core cannot boot ANY game without one of `biosNames` (Beetle Saturn).
@@ -732,7 +733,7 @@ enum CoreCatalog {
     /// Core ids come from the specs rather than from string literals so one cannot be misspelled on
     /// one side of the mapping.
     /// EVERY EXTENSION HERE WAS TAKEN FROM THE CORE'S OWN `valid_extensions` STRING, not from what
-    /// a system is usually called. The six cores between them declare these:
+    /// a system is usually called. The first-wave cores declare these:
     ///
     ///     fceumm            fds nes unf unif
     ///     snes9x            smc sfc swc fig bs st
@@ -763,8 +764,8 @@ enum CoreCatalog {
     ///   - `bs` and `st` are Satellaview and Sufami Turbo, which need a base cartridge to boot, and
     ///     `dsi` needs DSi firmware. An extension that always fails is worse than one that is
     ///     absent, because the first looks like a broken app.
-    ///   - `exe` is a real PlayStation homebrew format and is deliberately skipped: a file called
-    ///     `.exe` appearing as a tappable game invites someone to expect a Windows program to run.
+    ///   - `exe` is NOT routed to the PlayStation (homebrew format). It is routed to DOS in wave
+    ///     two below, where a DOS program is what someone tapping a `.exe` expects.
     ///   - `mdx`, `68k`, `sgd`, `bms`, `img`, `cbn` and `ids` are rare enough that nobody will miss
     ///     them, and `img` is ambiguous enough to be anything at all.
     static let routeTable: [String: Route] = [
