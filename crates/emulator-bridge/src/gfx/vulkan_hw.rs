@@ -15,7 +15,7 @@
 //!
 //! Constants verified against `.work/hdr/libretro/{libretro,libretro_vulkan}.h`.
 
-use std::ffi::{c_char, c_void, CStr};
+use std::ffi::{c_char, c_void};
 use std::sync::Mutex;
 
 use crate::gfx::hw::HwContextType;
@@ -359,9 +359,16 @@ unsafe fn on_get_hw_render_interface(data: *mut c_void) -> bool {
     if !state.accepted || !state.interface_ready {
         return false;
     }
-    let iface = build_interface(&state);
+    // Hand out the box installed with the handles rather than a fresh one: replacing it would
+    // free the interface an earlier GET handed this core, which it is allowed to keep.
+    if state.interface.is_none() {
+        let iface = build_interface(&state);
+        state.interface = Some(iface);
+    }
+    let Some(iface) = state.interface.as_ref() else {
+        return false;
+    };
     let ptr = iface.as_ref() as *const RetroHwRenderInterfaceVulkan as *const c_void;
-    state.interface = Some(iface);
     unsafe { *(data as *mut *const c_void) = ptr };
     true
 }
@@ -396,8 +403,17 @@ pub fn mark_interface_ready_for_tests() {
         return;
     }
     state.interface_ready = true;
-    let iface = build_interface(&state);
-    state.interface = Some(iface);
+    store_interface(&mut state);
+}
+
+/// Puts the interface for the current handles in place. An existing box is overwritten in place,
+/// so a pointer a core already holds stays valid and sees the new handles.
+fn store_interface(state: &mut VulkanHwState) {
+    let fresh = build_interface(state);
+    match state.interface.as_mut() {
+        Some(existing) => **existing = *fresh,
+        None => state.interface = Some(fresh),
+    }
 }
 
 pub fn install_vulkan_handles(
@@ -423,8 +439,7 @@ pub fn install_vulkan_handles(
         state.get_instance_proc_addr = get_instance_proc_addr;
         state.get_device_proc_addr = get_device_proc_addr;
         state.interface_ready = true;
-        let iface = build_interface(&state);
-        state.interface = Some(iface);
+        store_interface(&mut state);
         state.context_reset
     };
     if let Some(context_reset) = reset {
@@ -433,17 +448,19 @@ pub fn install_vulkan_handles(
 }
 
 pub fn destroy_context() {
-    let destroy = {
+    // The interface box outlives `context_destroy`: the core may still reach it while tearing
+    // down, so it is only freed after the callback returns.
+    let (destroy, _interface) = {
         let mut state = lock_state();
         let destroy = state.context_destroy;
         state.interface_ready = false;
-        state.interface = None;
+        let interface = state.interface.take();
         state.pending = None;
         state.instance = 0;
         state.gpu = 0;
         state.device = 0;
         state.queue = 0;
-        destroy
+        (destroy, interface)
     };
     if let Some(context_destroy) = destroy {
         unsafe { context_destroy() };
@@ -458,14 +475,12 @@ unsafe extern "C" fn frontend_get_proc_address(symbol: *const c_char) -> *const 
     if symbol.is_null() {
         return std::ptr::null();
     }
-    let name = unsafe { CStr::from_ptr(symbol) };
     let state = lock_state();
     if let Some(get_instance) = state.get_instance_proc_addr {
         if state.instance != 0 {
             return unsafe { get_instance(state.instance, symbol) };
         }
     }
-    let _ = name;
     std::ptr::null()
 }
 
@@ -841,6 +856,18 @@ mod tests {
         assert_eq!(full.instance, 1);
         assert_eq!(full.device, 3);
         assert_eq!(full.queue, 4);
+        // A second install (prepare landing again) must not free the interface the core holds.
+        install_vulkan_handles(9, 2, 3, 4, 0, None, None);
+        let mut again: *const c_void = std::ptr::null();
+        assert!(unsafe {
+            try_environment(
+                ENV_GET_HW_RENDER_INTERFACE,
+                &mut again as *mut _ as *mut c_void,
+            )
+            .unwrap()
+        });
+        assert_eq!(again, out, "the interface pointer stays stable");
+        assert_eq!(full.instance, 9);
         reset();
     }
 }

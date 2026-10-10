@@ -603,9 +603,13 @@ impl GamepadBridge {
         self.note_actions(source, port, mapped.actions);
 
         // Analog axes pass through for cores that read them, through the profile's deadzone...
-        for axis in 0..AXIS_COUNT {
-            state.axes[axis] = axes.get(axis).copied().unwrap_or(0.0).clamp(-1.0, 1.0);
+        let mut raw_axes = [0.0f32; AXIS_COUNT];
+        for (axis, slot) in raw_axes.iter_mut().enumerate() {
+            // `clamp` keeps NaN, so a non-finite reading is centred, as `InputState::set_axis` does.
+            let value = axes.get(axis).copied().unwrap_or(0.0);
+            *slot = if value.is_finite() { value.clamp(-1.0, 1.0) } else { 0.0 };
         }
+        state.axes = raw_axes;
         let (lx, ly) = table.shape_stick(state.axes[0], state.axes[1]);
         let (rx, ry) = table.shape_stick(state.axes[2], state.axes[3]);
         state.axes = [lx, ly, rx, ry];
@@ -616,8 +620,7 @@ impl GamepadBridge {
         // usual one and the profile's deadzone, measured on the raw stick.
         if table.stick_to_dpad {
             let threshold = AXIS_DEADZONE.max(table.deadzone);
-            let x = axes.first().copied().unwrap_or(0.0).clamp(-1.0, 1.0);
-            let y = axes.get(1).copied().unwrap_or(0.0).clamp(-1.0, 1.0);
+            let (x, y) = (raw_axes[0], raw_axes[1]);
             if x <= -threshold {
                 state.buttons |= 1 << Button::Left as u32;
             }
@@ -751,6 +754,15 @@ mod tests {
         let snapshot = pads.snapshot();
         assert!(snapshot.button(0, Button::Start));
         assert!(!snapshot.button(0, Button::Select));
+    }
+
+    #[test]
+    fn non_finite_axes_are_centred() {
+        let mut pads = GamepadBridge::new();
+        pads.apply_standard_gamepad(0, &[], &[f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.5]);
+        let snapshot = pads.snapshot();
+        assert_eq!(&snapshot.ports[0].axes[..3], &[0.0, 0.0, 0.0]);
+        assert!(!snapshot.button(0, Button::Down));
     }
 
     #[test]
