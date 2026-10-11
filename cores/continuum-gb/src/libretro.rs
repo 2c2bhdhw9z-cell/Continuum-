@@ -435,7 +435,9 @@ pub unsafe extern "C" fn retro_get_system_info(info: *mut RetroSystemInfo) {
     }
     *info = RetroSystemInfo {
         library_name: c"cBoy".as_ptr(),
-        library_version: c"0.2.0".as_ptr(),
+        // Carries the save-state format: the app refuses a state whose recorded version differs, so a
+        // state from a build with another layout is never loaded as garbage.
+        library_version: c"0.3.0 (state format 2)".as_ptr(),
         valid_extensions: c"gb|gbc|dmg|cgb|sgb|gba|agb".as_ptr(),
         need_fullpath: false,
         block_extract: false,

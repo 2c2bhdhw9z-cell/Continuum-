@@ -1234,7 +1234,11 @@ impl Renderer {
             .is_none_or(|t| t.width != view.width || t.height != view.height)
         {
             self.create_frame_target(view.width, view.height);
-            self.log_picture_setup("frame size changed");
+            // The first frame of every launch lands here (the target is released per launch), so
+            // each launch logs what the core handed over.
+            let why = format!("first frame or new size: pitch {} bytes ({} per row needed), format {:?}",
+                              view.stride_bytes, view.width as usize * view.format.bytes_per_pixel(), view.format);
+            self.log_picture_setup(&why);
         }
 
         let Some(target) = &self.frame_target else {
