@@ -4,6 +4,18 @@ Every core Continuum writes itself (cBoy, Continuum Symbian, and any later one) 
 settings the same way, so the app's Core Settings sheet looks and behaves the same for all of
 them and nothing has to be special-cased in Swift.
 
+## 0. The rule: the union of every notable emulator
+
+A Continuum core offers every setting that ANY notable emulator for that system offers. If only
+one of them has a setting, our core has it too. Before a core ships, its folder in `docs/` has an
+inventory table: each setting, which emulators offer it, and whether our core has it (key), the
+app provides it (§6), or it is a gap with a stated reason. Gaps are closed over time; "nobody
+asked" is not a reason. This applies to every future Continuum core (DS, N64, and so on). cBoy's
+table is `docs/CBOY_OPTIONS_INVENTORY.md`.
+
+Feature parity is the goal, not copying: implement every setting ourselves, with our own keys,
+wording and code.
+
 ## 1. How options are declared
 
 - Use `RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2` (67), called from `retro_set_environment`, so the
@@ -35,6 +47,7 @@ Every option belongs to one category. Use these keys and only add a new one when
 | `audio`    | Sound     | volume, channel mix, filters, interpolation |
 | `input`    | Controls  | turbo, sensors, rumble — things the cartridge or console has |
 | `link`     | Link      | link cable, multiplayer adapters |
+| `performance` | Performance | frame skip, in-core run-ahead, idle-loop skipping, cheaper audio |
 | `debug`    | Debug     | layer toggles and anything only a developer needs |
 
 Descriptions: the label is short ("Game Boy palette"); the info line says in one plain sentence
@@ -63,9 +76,18 @@ output is produced: models, BIOS, palettes of the machine, colour of its LCD, LC
 the cartridge's clock, sensors and rumble, save chip type, channel volumes, link cable.
 
 In the app (never a core option): skins, scaling and aspect, screen filters and shaders,
-on-screen controls and button mapping, fast-forward and rewind, save-state slots, cheats, the
-frontend's own audio latency. If the app already offers it for every core, the core must not
-duplicate it.
+on-screen controls and button mapping, fast-forward and its speed, rewind, save-state slots,
+cheats, the frontend's own audio latency. If the app already offers it for every core, the core
+must not duplicate it. Continuum has fast-forward (2x-4x) and rewind in Settings > Speed and
+rewind, for every core.
+
+Performance settings that only the core can do (frame skip that skips drawing, run-ahead using
+the core's own states, idle-loop skipping, a cheaper sound path) are core options in the
+`performance` category. Automatic frame skip by audio-buffer level needs the app to report its
+buffer to the core, which Continuum does not do yet.
+
+Continuum Symbian currently declares no options (its engine exposes none yet). When it gains
+any, they use the `csymbian_` prefix and these categories.
 
 ## 7. Testing
 
