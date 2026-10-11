@@ -28,7 +28,7 @@ pub struct Bus {
     joyp_select: u8,
     /// Pressed buttons, bit set = pressed: 0 A, 1 B, 2 Select, 3 Start, 4 Right, 5 Left, 6 Up, 7 Down.
     pub buttons: u8,
-    sb: u8,
+    pub sb: u8,
     sc: u8,
     /// What the game sent out of the serial port (the test ROMs report through it).
     #[serde(skip)]
@@ -76,7 +76,21 @@ pub struct Bus {
     /// Link cable loopback (core option): a transfer reads back the byte sent.
     #[serde(skip)]
     pub link_loopback: bool,
+    /// Bytes the other machine has sent, and bytes this machine has sent for it.
+    #[serde(skip)]
+    pub link_in: std::collections::VecDeque<u8>,
+    #[serde(skip)]
+    pub link_out: Vec<u8>,
     last_mode: u8,
+    /// Set by the CPU before each instruction so a hardware event can name where it came from.
+    #[serde(skip)]
+    pub trace_pc: u16,
+    #[serde(skip)]
+    pub trace_bank: u16,
+    /// Previous values of the five copy registers, so a change that does not start a copy
+    /// still gets a line (the phone rewrites them every loop).
+    #[serde(skip)]
+    hdma_watch: [u8; 5],
 }
 
 impl Bus {
@@ -102,6 +116,8 @@ impl Bus {
             boot: Vec::new(),
             boot_on: false,
             link_loopback: false,
+            link_in: std::collections::VecDeque::new(),
+            link_out: Vec::new(),
             dma_src: 0,
             dma_pos: 0,
             dma_active: false,
@@ -124,6 +140,9 @@ impl Bus {
             log_count: 0,
             irq_taken: [0; 5],
             last_mode: 0,
+            trace_pc: 0,
+            trace_bank: 0,
+            hdma_watch: [0, 0, 0, 0x80, 0xFF],
         }
     }
 
@@ -374,7 +393,10 @@ impl Bus {
                 // 1s, which is what a disconnected cable reads as.
                 if v & 0x81 == 0x81 {
                     self.serial_out.push(self.sb);
-                    if !self.link_loopback {
+                    if let Some(b) = self.link_in.pop_front() {
+                        self.link_out.push(self.sb);
+                        self.sb = b;
+                    } else if !self.link_loopback {
                         self.sb = 0xFF;
                     }
                     self.sc &= 0x7F;
@@ -415,16 +437,30 @@ impl Bus {
             0xFF48 => self.ppu.obp0 = v,
             0xFF49 => self.ppu.obp1 = v,
             0xFF4A => self.ppu.wy = v,
-            0xFF4B => self.ppu.wx = v,
+            0xFF4B => {
+                self.ppu.note_wx(v);
+                self.ppu.wx = v;
+            }
             0xFF4D if self.cgb => self.speed_prepare = v & 1 != 0,
             0xFF4F if self.cgb => self.vbk = v & 1,
-            0xFF51 if self.cgb => self.hdma_src = (self.hdma_src & 0x00F0) | u16::from(v) << 8,
-            0xFF52 if self.cgb => self.hdma_src = (self.hdma_src & 0xFF00) | u16::from(v & 0xF0),
-            0xFF53 if self.cgb => {
-                self.hdma_dst = 0x8000 | (self.hdma_dst & 0x00F0) | u16::from(v & 0x1F) << 8
+            0xFF51 if self.cgb => {
+                self.hdma_src = (self.hdma_src & 0x00F0) | u16::from(v) << 8;
+                self.watch_hdma(0x51, v);
             }
-            0xFF54 if self.cgb => self.hdma_dst = (self.hdma_dst & 0xFF00) | u16::from(v & 0xF0),
+            0xFF52 if self.cgb => {
+                self.hdma_src = (self.hdma_src & 0xFF00) | u16::from(v & 0xF0);
+                self.watch_hdma(0x52, v);
+            }
+            0xFF53 if self.cgb => {
+                self.hdma_dst = 0x8000 | (self.hdma_dst & 0x00F0) | u16::from(v & 0x1F) << 8;
+                self.watch_hdma(0x53, v);
+            }
+            0xFF54 if self.cgb => {
+                self.hdma_dst = (self.hdma_dst & 0xFF00) | u16::from(v & 0xF0);
+                self.watch_hdma(0x54, v);
+            }
             0xFF55 if self.cgb => {
+                self.watch_hdma(0x55, v);
                 if self.hdma_active && v & 0x80 == 0 {
                     // Cancelled: FF55 then reads bit 7 set and the length just written
                     // (SameSuite hdma_lcd_off / hdma_mode0 read $80 after writing 0).
@@ -446,8 +482,9 @@ impl Bus {
                         }
                     }
                 } else {
-                    self.log(format!("general DMA {:04X}->{:04X}, {} bytes, VBK {}, LY {}",
-                        self.hdma_src, self.hdma_dst, (u16::from(v & 0x7F) + 1) * 16, self.vbk, self.ppu.ly));
+                    self.log(format!("general DMA {:04X}->{:04X}, {} bytes, VBK {}, LY {}, PC {:02X}:{:04X}",
+                        self.hdma_src, self.hdma_dst, (u16::from(v & 0x7F) + 1) * 16, self.vbk, self.ppu.ly,
+                        self.trace_bank, self.trace_pc));
                     // General DMA: all at once, the CPU stopped 8 M-cycles a block (16 at
                     // double speed).
                     let blocks = (v & 0x7F) + 1;
@@ -471,6 +508,26 @@ impl Bus {
             0xFFFF => self.ie = v,
             _ => {}
         }
+    }
+
+    /// Logs a change to FF51–FF55 that is not one of the two known good copies.
+    fn watch_hdma(&mut self, reg: u8, v: u8) {
+        let i = (reg - 0x51) as usize;
+        if self.hdma_watch[i] == v {
+            return;
+        }
+        self.hdma_watch[i] = v;
+        let known = matches!((reg, v, self.trace_bank, self.trace_pc),
+            (0x51, 0x54 | 0x6B, 0x2F, 0x748F | 0x74BE)
+            | (0x52, 0xB0 | 0xC0, 0x2F, 0x748F | 0x74BE)
+            | (0x53, 0x98 | 0x9C, 0x2F, 0x748F | 0x74BE)
+            | (0x54, 0x00, 0x2F, 0x748F | 0x74BE)
+            | (0x55, 0x23 | 0x3F, 0x2F, 0x748F | 0x74BE));
+        if known {
+            return;
+        }
+        self.log(format!("HDMA FF{reg:02X}={v:02X} from {:02X}:{:04X} VBK {} LY {}",
+            self.trace_bank, self.trace_pc, self.vbk, self.ppu.ly));
     }
 }
 

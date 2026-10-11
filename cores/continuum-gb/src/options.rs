@@ -86,7 +86,7 @@ const SPECS: &[Spec] = &[
      c"Runs Game Boy-only cartridges in Color mode, for colourisation hacks that write Color palettes. Ordinary Game Boy games may look wrong. Next start.",
      OFF_ON, c"off"),
     (c"system", c"cboy_boot_rom", c"Start from a boot ROM file",
-     c"Plays the console's own start-up logo from a file you supply: <system folder>/cboy/dmg_boot.bin, mgb_boot.bin, sgb_boot.bin, sgb2_boot.bin or cgb_boot.bin. Without the file the game starts directly. Next start.",
+     c"Plays the console's own start-up logo from a file you supply: <system folder>/cboy/dmg_boot.bin, mgb_boot.bin, sgb_boot.bin, sgb2_boot.bin or cgb_boot.bin. Without the file, cBoy plays its own short startup, then the game. Next start.",
      OFF_ON, c"off"),
     (c"system", c"cboy_gba_bios", c"Game Boy Advance BIOS",
      c"Built-in needs no file. From file uses <system folder>/cboy/gba_bios.bin (or gba_bios.bin) and plays the start-up logo; From file, no logo uses it but starts the game directly. Next start.",
@@ -99,6 +99,9 @@ const SPECS: &[Spec] = &[
      c"Clock, solar sensor, motion sensors or rumble built into some cartridges. Auto knows the games that have them. Next start.",
      &[(c"auto", c"Auto"), (c"none", c"None"), (c"rtc", c"Clock"), (c"solar", c"Solar sensor"),
        (c"gyro", c"Gyro sensor"), (c"tilt", c"Tilt sensor"), (c"rumble", c"Rumble")], c"auto"),
+    (c"system", c"cboy_gbp", c"Game Boy Player rumble",
+     c"Answers the Game Boy Player handshake so Advance games that rumble through the Player can turn the phone's motor on. Leave off for link-cable games. Next start.",
+     OFF_ON, c"off"),
     (c"system", c"cboy_rtc", c"Cartridge clock",
      c"Real time keeps the clock running while the game is closed. Game time counts only while playing. Phone clock sets it to the phone's time at each start. The Advance's clock always follows the phone.",
      &[(c"real", c"Real time"), (c"game", c"Game time only"), (c"phone", c"Phone clock")], c"real"),
@@ -158,7 +161,7 @@ const SPECS: &[Spec] = &[
      c"High averages the sound between output samples (less harshness and aliasing); Fast takes one point per sample and costs less work.",
      &[(c"fast", c"Fast"), (c"high", c"High")], c"fast"),
     (c"audio", c"cboy_gba_smooth", c"Smooth Advance samples",
-     c"Interpolates the Advance's sampled sound between samples; less gritty, slightly duller.",
+     c"Ramps the Advance's sampled sound between samples, including the music most games mix in software. Less gritty, slightly duller.",
      OFF_ON, c"off"),
     (c"audio", c"cboy_interference", c"LCD buzz",
      c"Adds the faint buzz the screen's circuitry puts into a real Game Boy's sound.",
@@ -356,6 +359,8 @@ pub struct Settings {
     pub frameskip_interval: u32,
     pub gba_obj_limit: bool,
     pub force_color: bool,
+    /// Answer the Game Boy Player so its rumble bit reaches the phone.
+    pub gbp: bool,
     /// Game Boy Color light: -1 below, 0 central, 1 above.
     pub gbc_light: i8,
     pub frameskip_auto: bool,
@@ -388,7 +393,7 @@ impl Default for Settings {
             gb_layers: 7, gba_layers: 0xFF, gba_bios_skip_logo: false, border_always: false, color_temp: 0,
             contrast: 0, dark: 0, highpass_hz: 28.0, audio_hq: false, rumble_strength: 100, motion_scale: 1.0,
             opposing: false, stick_dpad: false, sprite_limit: true, sgb_pal: false, auto_sgb: false, cgb_rev0: false, stick_deadzone: 0.15, swap_stick: false,
-            frameskip_threshold: 85, frameskip_interval: 1, gba_obj_limit: false, force_color: false, gbc_light: 0, frameskip_auto: false, interference: 0,
+            frameskip_threshold: 85, frameskip_interval: 1, gba_obj_limit: false, force_color: false, gbp: false, gbc_light: 0, frameskip_auto: false, interference: 0,
         }
     }
 }
@@ -473,6 +478,7 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     s.frameskip_interval = get(c"cboy_frameskip_interval").and_then(|v| v.parse().ok()).unwrap_or(1).clamp(1, 9);
     s.gba_obj_limit = on(c"cboy_gba_sprite_limit", false);
     s.force_color = on(c"cboy_force_color", false);
+    s.gbp = on(c"cboy_gbp", false);
     s.gbc_light = match get(c"cboy_gbc_light").as_deref() { Some("above") => 1, Some("below") => -1, _ => 0 };
     s.sgb_pal = get(c"cboy_gb_model").is_some_and(|v| v == "sgb_pal");
     s.boot_rom = on(c"cboy_boot_rom", false);

@@ -2,7 +2,7 @@
 //! PRET_DIR to a folder holding pokeyellow.gbc, pokered.gbc, pokeblue.gbc, pokecrystal.gbc,
 //! pokegold.gbc (any subset). Without it the tests do nothing.
 
-use continuum_gb::gb::GameBoy;
+use continuum_gb::gb::{GameBoy, Model};
 
 pub fn save_png(gb: &GameBoy, path: &str) {
     let f = std::fs::File::create(path).unwrap();
@@ -16,6 +16,10 @@ pub fn save_png(gb: &GameBoy, path: &str) {
 fn load(name: &str) -> Option<GameBoy> {
     let dir = std::env::var("PRET_DIR").ok()?;
     let data = std::fs::read(format!("{dir}/{name}")).ok()?;
+    if let Ok(boot) = std::env::var("PRET_BOOT") {
+        let b = std::fs::read(boot).unwrap();
+        return Some(GameBoy::with_model(data, Model::Cgb, Some(b)).unwrap());
+    }
     Some(GameBoy::new(data).unwrap())
 }
 
@@ -46,6 +50,18 @@ fn pret_debug_run() {
     let (Ok(game), Ok(out)) = (std::env::var("PRET_GAME"), std::env::var("PRET_OUT")) else { return };
     let frames: u32 = std::env::var("PRET_FRAMES").ok().and_then(|v| v.parse().ok()).unwrap_or(1500);
     let Some(mut gb) = load(&game) else { return };
+    if std::env::var("PRET_SCANLINE").is_ok() {
+        gb.bus.ppu.no_render = true;
+    }
+    if std::env::var("PRET_AGB").is_ok() {
+        gb.cpu.b = 0x01;
+        gb.cpu.f = 0x00;
+    }
+    if std::env::var("PRET_WRAMFF").is_ok() {
+        for b in gb.bus.wram.iter_mut().skip(0x1000) {
+            *b = 0xFF;
+        }
+    }
     if let Ok(sav) = std::env::var("PRET_SAV") {
         let d = std::fs::read(sav).unwrap();
         let n = d.len().min(gb.bus.cart.ram.len());
@@ -54,6 +70,7 @@ fn pret_debug_run() {
     std::fs::create_dir_all(&out).unwrap();
     let mut last_vb = 0;
     let mut stuck = 0;
+    let mut min_sp = u16::MAX;
     let rewind = std::env::var("PRET_REWIND").is_ok();
     // PRET_RESUME=N: at frame N, save a state, start a NEW machine from the ROM and load it there
     // (what the app's auto-resume does on the next launch).
@@ -72,8 +89,18 @@ fn pret_debug_run() {
             gb.bus.cart.ram = ram;
             gb.load_state(&st).unwrap();
         }
+        if std::env::var("PRET_INJECT").is_ok() && f == 100 {
+            // The phone's third copy: length $39 written while the Game Freak copy's
+            // addresses are still sitting in the registers.
+            gb.bus.raw_write(0xFF55, 0x39);
+        }
         gb.bus.set_buttons(buttons_at(f));
         gb.run_frame();
+        min_sp = min_sp.min(gb.cpu.sp);
+        let ptr = gb.bus.raw_read(0xFFF4);
+        if ptr != 0 && ptr != 0x42 && ptr != 0x43 {
+            eprintln!("[{f}] hLCDCPointer {ptr:02X} ly {}", gb.bus.ppu.ly);
+        }
         for l in std::mem::take(&mut gb.bus.events) {
             eprintln!("[{f}] {l}");
         }
@@ -145,7 +172,7 @@ fn pret_debug_run() {
             save_png(&gb, &format!("{out}/stuck{f}.png"));
         }
     }
-    eprintln!("ran; vblanks {:?}", gb.bus.irq_taken);
+    eprintln!("ran; vblanks {:?} min_sp {min_sp:04X} hlcd {:02X}", gb.bus.irq_taken, gb.bus.raw_read(0xFFF4));
 }
 
 /// Returns the longest run of frames without a VBlank interrupt, and the most colours seen on any

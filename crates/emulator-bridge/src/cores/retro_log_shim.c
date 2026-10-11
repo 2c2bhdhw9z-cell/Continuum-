@@ -26,6 +26,12 @@ const char *continuum_last_core_log_line(void)
     return g_have_last_log ? g_last_log : "";
 }
 
+void continuum_clear_last_core_log(void)
+{
+    g_last_log[0] = '\0';
+    g_have_last_log = 0;
+}
+
 void continuum_retro_log_printf(int level, const char *fmt, ...)
 {
     char buf[2048];

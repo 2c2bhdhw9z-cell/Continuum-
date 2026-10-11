@@ -259,6 +259,8 @@ impl Cpu {
         let ei = self.ei_pending;
         self.ei_pending = false;
         self.ei_now = ei;
+        bus.trace_pc = self.pc;
+        bus.trace_bank = bus.cart.rom_bank;
         let op = self.fetch(bus);
         self.execute(bus, op);
         self.ei_now = false;

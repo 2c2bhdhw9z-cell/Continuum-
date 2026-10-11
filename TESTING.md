@@ -1,10 +1,15 @@
 # What to test, and what to tell me
 
-Last updated 9 October 2026. **Build 153** (`ff750f5`) is published:
-[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-153-ff750f5/Continuum.ipa).
-It contains the 3DS stutter fix and Continuum Symbian from 152, and Mesen 2 for NES. N1 and N2
-passed on the phone. SMB, the 3DS camera, Amiibo, the 3DS stutter fix and Symbian are still
-untested on a phone.
+Last updated 11 October 2026. The next install is the one that includes cBoy's file check.
+Build 177 is still the last published one until that install finishes.
+
+## This install only
+
+1. Install it the same way as usual.
+2. Settings, find Core for Game Boy games, pick cBoy. Then open the full Pokémon Yellow (the one that already played). It should get past the Game Freak logo into the game.
+3. If you still have the short Yellow file, opening it on cBoy should say the file is cut off, not show stripes.
+
+Do not retest Home, scrolling, re-import, or fast-forward. Those already passed.
 
 ## Beta tester checklist (short)
 

@@ -194,6 +194,15 @@ impl Core {
     }
 
     fn write_rtc_block(&mut self) {
+        if self.gb.bus.cart.kind == crate::cart::MbcKind::HuC3 {
+            let m = self.gb.bus.cart.huc3.minutes;
+            let d = self.gb.bus.cart.huc3.days;
+            let rtc = &mut self.gb.bus.cart.rtc;
+            rtc.regs[0] = m as u8;
+            rtc.regs[1] = (m >> 8) as u8;
+            rtc.regs[2] = d as u8;
+            rtc.regs[3] = (d >> 8) as u8;
+        }
         let rtc = &self.gb.bus.cart.rtc;
         self.rtc_block[..5].copy_from_slice(&rtc.regs);
         self.rtc_block[5..10].copy_from_slice(&rtc.latched);
@@ -213,6 +222,12 @@ impl Core {
             if mode == crate::options::RtcMode::Real {
                 rtc.advance_seconds(now_secs().saturating_sub(stamp));
             }
+            if self.gb.bus.cart.kind == crate::cart::MbcKind::HuC3 {
+                let minutes = u16::from(rtc.regs[0]) | u16::from(rtc.regs[1]) << 8;
+                let days = u16::from(rtc.regs[2]) | u16::from(rtc.regs[3]) << 8;
+                self.gb.bus.cart.huc3.minutes = minutes;
+                self.gb.bus.cart.huc3.days = days;
+            }
         }
         if mode == crate::options::RtcMode::Phone {
             let t = gba::gpio::local_time(offset);
@@ -231,6 +246,7 @@ impl Core {
             g.bus.apu.chan_vol = s.chan_vol;
             g.bus.fifo_vol = s.fifo_vol;
             g.bus.fifo_smooth = s.gba_smooth;
+            g.bus.gbp = s.gbp;
             g.bus.gpio.clock_offset = s.rtc_offset_hours * 3600;
             g.idle_skip = s.idle_skip;
             g.bus.apu.out_hz = s.sample_rate;
@@ -361,7 +377,7 @@ impl Core {
 
     fn motor(&self) -> bool {
         match &self.gba {
-            Some(g) => g.bus.gpio.motor,
+            Some(g) => g.bus.gpio.motor || g.bus.gbp_motor,
             None => self.gb.bus.cart.motor,
         }
     }
@@ -560,6 +576,10 @@ fn build_machine(rom: Vec<u8>, s: &crate::options::Settings, dir: Option<&str>) 
         return Some((idle, Some(g)));
     }
     let mut rom = rom;
+    if let Some(why) = crate::cart::cutoff_reason(&rom) {
+        log_line(&why);
+        return None;
+    }
     if s.force_color && rom.len() > 0x143 && rom[0x143] & 0x80 == 0 && !matches!(s.model, Model::Dmg | Model::Dmg0 | Model::Mgb | Model::Sgb | Model::Sgb2) {
         rom[0x143] = 0x80;
         log_line("Game Boy cartridge run in Color mode (option)");
@@ -585,7 +605,7 @@ fn build_machine(rom: Vec<u8>, s: &crate::options::Settings, dir: Option<&str>) 
         };
         let f = system_file(dir, name);
         if f.is_none() {
-            log_line(&format!("no {name} in the system folder; starting without a boot ROM"));
+            log_line(&format!("no {name} in the system folder; playing cBoy's own startup"));
         }
         f
     } else {
@@ -601,6 +621,9 @@ fn build_machine(rom: Vec<u8>, s: &crate::options::Settings, dir: Option<&str>) 
     };
     if s.cgb_rev0 && !had_boot {
         gb.set_cgb_revision_0();
+    }
+    if s.boot_rom && !had_boot {
+        gb.play_intro();
     }
     Some((gb, None))
 }
@@ -647,7 +670,8 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
         let c = &gb.bus.cart;
         log_line(&format!("loaded \"{}\" as {}{}: {:?}, ROM {} KB, RAM {} KB, battery {}, clock {}, header $143 = {:02X}",
             c.title, if gb.bus.cgb { "Game Boy Color" } else { "Game Boy" },
-            if gb.bus.sgb.is_some() { " (Super Game Boy)" } else { "" }, c.kind, c.rom.len() / 1024,
+            if gb.bus.sgb.is_some() { " (Super Game Boy)" } else { "" }, c.kind,
+            c.file_len.max(1) / 1024,
             c.ram.len() / 1024, c.has_battery, c.has_rtc, c.cgb_flag));
     }
     let mut core = Core {

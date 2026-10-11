@@ -374,6 +374,7 @@ fn take_negotiated_format() -> Option<PixelFormat> {
 extern "C" {
     fn continuum_fill_retro_log_callback(data: *mut c_void);
     fn continuum_last_core_log_line() -> *const c_char;
+    fn continuum_clear_last_core_log();
 }
 
 /// Called by `retro_log_shim.c` for the core lines that belong in the activity log.
@@ -397,6 +398,11 @@ pub fn last_core_log_line() -> String {
     unsafe { CStr::from_ptr(ptr) }
         .to_string_lossy()
         .into_owned()
+}
+
+/// Drops the previous core's last line so a failed load cannot report a stale sentence.
+pub fn clear_last_core_log_line() {
+    unsafe { continuum_clear_last_core_log() };
 }
 
 /// The environment protocol, answering what a real PS1 core (PCSX ReARMed) needs to boot
@@ -1297,13 +1303,21 @@ impl EmulatorCore for NativeLibretroCore {
         // Session-long: PPSSPP needs real frame sync from the frontend (see `set_strict_sync`).
         vulkan_hw::set_strict_sync(defer_reset);
         crate::feedback::launch_step(&format!("retro_load_game {}", self.descriptor.id));
+        clear_last_core_log_line();
         let ok = unsafe { (self.symbols.load_game)(&info) };
         vulkan_hw::set_defer_reset(false);
         self.serialization_quirks |= take_serialization_quirks();
         if !ok {
+            let logged = last_core_log_line();
+            let reason = logged
+                .strip_prefix("cBoy: ")
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| "retro_load_game rejected the content".into());
             return Err(BridgeError::InvalidContent {
                 core_id: self.descriptor.id.clone(),
-                reason: "retro_load_game rejected the content".into(),
+                reason,
             });
         }
         if defer_reset {

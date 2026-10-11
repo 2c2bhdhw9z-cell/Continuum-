@@ -28,17 +28,38 @@ pub(super) struct Fifo {
     dropped: u8,
     /// The first pixel has been output (the SCX drop is over).
     out_started: bool,
-    /// DMG: the dot a BGP write lands on uses the old and new values ORed together.
+    /// Low 3 bits of SCX, latched at the first real background tile read. Later writes do not
+    /// move this line (Mealybug m3_scx_low_3_bits).
+    fine: u8,
+    fine_latched: bool,
+    /// DMG: a BGP write ORs with the old value for a pixel emitted on the next dot only.
     pub bgp_glitch: Option<u8>,
+    bgp_glitch_dot: u16,
     bg: [(u8, u8); 16],
     bg_head: u8,
     bg_len: u8,
     obj: [ObjPx; 8],
     /// Fetcher: step 0-5 fetch, 6 waiting to push.
     step: u8,
+    /// High bits of SCX, read when a background tile fetch starts.
+    tile_scx: u8,
     /// Tiles fetched on this line (background) or into the window.
     fetch_x: u8,
     window: bool,
+    /// Window enable was cleared. Takes effect when the next tile starts, not mid-tile.
+    win_stop: bool,
+    /// WX was 0 or 1, so one more tile stays the window and a re-enable must not cancel it.
+    win_lock: bool,
+    win_hold: u8,
+    /// Window enable as of the previous dot, and a start deferred because it rose on this pixel.
+    win_bit: bool,
+    win_late: bool,
+    /// One background pixel forced to color 0.
+    win_blank: bool,
+    /// Pixel x where a mid-line WX write restarts the window. Color 0 only if that pixel
+    /// is fetched on the same dot as a new tile.
+    wx_zero: Option<u8>,
+    wx_armed: bool,
     window_drawn: bool,
     /// The first fetch of a line is thrown away.
     dummy: bool,
@@ -72,6 +93,7 @@ impl Ppu {
         source.resize(W, 0);
         *f = Fifo { objs, row, shade, source, ..Fifo::default() };
         f.active = true;
+        f.win_bit = self.lcdc & 0x20 != 0;
         f.dummy = true;
         let height: i16 = if self.lcdc & 0x04 != 0 { 16 } else { 8 };
         let line = i16::from(self.ly);
@@ -108,6 +130,20 @@ impl Ppu {
 
     /// One fetcher step (called once per dot while it runs).
     fn fetcher_dot(&mut self) {
+        if self.fifo.win_stop && self.fifo.step == 0 {
+            if self.fifo.win_hold > 0 {
+                self.fifo.win_hold -= 1;
+            } else {
+                self.fifo.window = false;
+                self.fifo.win_stop = false;
+                self.fifo.win_lock = false;
+                let ahead = u16::from(self.fifo.lx) + u16::from(self.fifo.bg_len);
+                self.fifo.fetch_x = (ahead as u8) >> 3;
+            }
+        }
+        if self.fifo.step == 0 && !self.fifo.window {
+            self.fifo.tile_scx = self.scx >> 3;
+        }
         let step = self.fifo.step;
         match step {
             1 => {
@@ -116,11 +152,17 @@ impl Ppu {
                     (if self.lcdc & 0x40 != 0 { 0x9C00u16 } else { 0x9800 }, self.fifo.fetch_x, self.window_line)
                 } else {
                     (if self.lcdc & 0x08 != 0 { 0x9C00u16 } else { 0x9800 },
-                     (self.scx >> 3).wrapping_add(self.fifo.fetch_x) & 31, self.ly.wrapping_add(self.scy))
+                     self.fifo.tile_scx.wrapping_add(self.fifo.fetch_x) & 31, self.ly.wrapping_add(self.scy))
                 };
                 let at = map + u16::from(y / 8) * 32 + u16::from(x & 31);
                 self.fifo.tile = self.vram[(at & 0x1FFF) as usize];
                 self.fifo.attr = if self.cgb { self.vram[0x2000 + (at & 0x1FFF) as usize] } else { 0 };
+                // The low 3 bits of SCX are read here, on the first real background tile, and
+                // not again. A write after this dot does not scroll the line.
+                if !self.fifo.window && !self.fifo.dummy && !self.fifo.fine_latched {
+                    self.fifo.fine = self.scx & 7;
+                    self.fifo.fine_latched = true;
+                }
             }
             3 | 5 => {
                 let y = if self.fifo.window { self.window_line } else { self.ly.wrapping_add(self.scy) };
@@ -210,6 +252,12 @@ impl Ppu {
             return;
         }
         self.fifo.dots += 1;
+        // The low bits of the sideways scroll are read on this dot of the line. Delaying the
+        // fetcher must not move that read.
+        if self.fifo.dots == 8 && !self.fifo.fine_latched {
+            self.fifo.fine = self.scx & 7;
+            self.fifo.fine_latched = true;
+        }
         if self.fifo.dots <= delay() {
             return;
         }
@@ -224,25 +272,46 @@ impl Ppu {
             }
             return;
         }
-        // The window starts when the pixel about to leave is at WX - 7.
-        if !self.fifo.window && self.lcdc & 0x20 != 0 && self.wy_hit && self.fifo.discard == 0 && !self.fifo.dummy && (self.fifo.out_started || self.wx < 7 || self.scx & 7 == 0)
-            && u16::from(self.fifo.lx) + 7 == u16::from(self.wx).max(7) && self.wx <= 166
+        let bit = self.lcdc & 0x20 != 0;
+        let just = bit && !self.fifo.win_bit;
+        self.fifo.win_bit = bit;
+        let at = u16::from(self.fifo.lx) + 7 == u16::from(self.wx).max(7);
+        if !self.fifo.window && bit && self.wy_hit && self.fifo.discard == 0 && !self.fifo.dummy && (self.fifo.out_started || self.wx < 7 || self.scx & 7 == 0)
+            && (at || self.fifo.win_late) && self.wx <= 166
         {
-            self.fifo.window = true;
-            self.fifo.window_drawn = true;
-            self.fifo.fetch_x = 0;
-            self.fifo.step = 0;
-            self.fifo.bg_len = 0;
-            if self.wx < 7 {
-                self.fifo.discard = 7 - self.wx;
+            if just && at && !self.fifo.win_late {
+                // Enable rose on this exact pixel. The window starts on the next one.
+                self.fifo.win_late = true;
+            } else {
+                self.fifo.win_late = false;
+                self.fifo.window = true;
+                self.fifo.window_drawn = true;
+                self.fifo.fetch_x = 0;
+                self.fifo.step = 0;
+                self.fifo.bg_len = 0;
+                if self.wx < 7 {
+                    self.fifo.discard = 7 - self.wx;
+                }
             }
-        } else if self.fifo.window && self.lcdc & 0x20 == 0 {
-            // Window switched off mid-line: the background carries on.
-            self.fifo.window = false;
+        } else if self.fifo.window && !bit {
+            // Turned off mid-line: finish this tile, then the background carries on.
+            // WX 0 and 1 were one tile short, and turning the window back on must not erase that.
+            if !self.fifo.win_stop && self.wx < 2 {
+                self.fifo.win_hold = 1;
+                self.fifo.win_lock = true;
+            }
+            self.fifo.win_stop = true;
+        } else if self.fifo.win_stop && !self.fifo.win_lock && bit {
+            self.fifo.win_stop = false;
+        } else if !self.cgb && !self.fifo.window && !bit && self.wy_hit && self.fifo.discard == 0 && !self.fifo.dummy
+            && self.fifo.step == 6 && u16::from(self.fifo.lx) + 7 == u16::from(self.wx) && self.fifo.lx % 8 == 0
+        {
+            // Disabled on a tile boundary at the pixel the window would have started. One color-0 pixel.
+            self.fifo.win_blank = true;
         }
         self.fetcher_dot();
         // An object at this x: wait for the background fetch to have pixels, then fetch it.
-        if self.fifo.bg_len > 0 && self.fifo.discard == 0 && (self.fifo.out_started || self.fifo.dropped >= self.scx & 7) && (self.lcdc & 0x02 != 0 || self.cgb) {
+        if self.fifo.bg_len > 0 && self.fifo.discard == 0 && (self.fifo.out_started || self.fifo.dropped >= self.fifo.fine) && (self.lcdc & 0x02 != 0 || self.cgb) {
             for s in 0..self.fifo.obj_count {
                 if self.fifo.obj_done & (1 << s) != 0 {
                     continue;
@@ -262,14 +331,24 @@ impl Ppu {
             return;
         }
         if !self.fifo.out_started && !self.fifo.window {
-            if self.fifo.dropped < self.scx & 7 {
+            if self.fifo.dropped < self.fifo.fine {
                 self.bg_pop();
                 self.fifo.dropped += 1;
                 return;
             }
             self.fifo.out_started = true;
         }
-        let (c, attr) = self.bg_pop();
+        let (mut c, attr) = self.bg_pop();
+        if self.fifo.win_blank {
+            self.fifo.win_blank = false;
+            c = 0;
+        }
+        if self.fifo.wx_zero == Some(self.fifo.lx) {
+            self.fifo.wx_zero = None;
+            if self.fifo.step == 0 {
+                c = 0;
+            }
+        }
         if self.fifo.discard > 0 {
             self.fifo.discard -= 1;
             return;
@@ -296,7 +375,8 @@ impl Ppu {
         } else if cgb {
             (Self::cgb_colour(&self.bg_pal, usize::from(attr & 7) * 4 + usize::from(c)), 0, 0)
         } else {
-            let bgp = self.fifo.bgp_glitch.unwrap_or(self.bgp);
+            let fresh = self.fifo.bgp_glitch_dot.abs_diff(self.dot) <= 1;
+            let bgp = if fresh { self.fifo.bgp_glitch.unwrap_or(self.bgp) } else { self.bgp };
             let s = (bgp >> (c * 2)) & 3;
             (SHADES[s as usize], s, 0)
         };
@@ -345,13 +425,28 @@ impl Ppu {
 
 fn delay() -> u16 {
     static D: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
-    *D.get_or_init(|| std::env::var("FIFO_DELAY").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+    *D.get_or_init(|| std::env::var("FIFO_DELAY").ok().and_then(|v| v.parse().ok()).unwrap_or(5))
 }
 
 impl Ppu {
+    pub fn note_wx(&mut self, v: u8) {
+        if self.fifo.active && self.fifo.window && v != self.wx {
+            if !self.fifo.wx_armed && v >= 7 {
+                let at = v - 7;
+                if at >= self.fifo.lx {
+                    self.fifo.wx_armed = true;
+                    self.fifo.wx_zero = Some(at);
+                }
+            } else {
+                self.fifo.wx_zero = None;
+            }
+        }
+    }
+
     pub fn write_bgp(&mut self, v: u8) {
         if !self.cgb && self.fifo.active {
             self.fifo.bgp_glitch = Some(self.bgp | v);
+            self.fifo.bgp_glitch_dot = self.dot;
         }
         self.bgp = v;
     }

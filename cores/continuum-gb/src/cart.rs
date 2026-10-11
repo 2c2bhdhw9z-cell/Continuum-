@@ -15,6 +15,10 @@ pub enum MbcKind {
     Mbc2,
     /// Hudson's HuC1: MBC1-like banking plus an infrared port (no partner, so it sees no light).
     HuC1,
+    /// Hudson's HuC3: ROM and RAM banks, a clock, infrared, and a tone.
+    HuC3,
+    /// Game Boy Camera: MBC3-style banks plus the camera registers.
+    Camera,
 }
 
 /// MBC7's accelerometer latch and its 93LC56-style serial EEPROM (128 16-bit words, kept in
@@ -90,6 +94,104 @@ impl Rtc {
     }
 }
 
+/// HuC3's clock memory: 256 nybbles. Minutes of the day and the day count live at $10-$15.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HuC3 {
+    select: u8,
+    cmd: u8,
+    result: u8,
+    addr: u8,
+    mem: Vec<u8>,
+    pub minutes: u16,
+    pub days: u16,
+    pub tone: bool,
+    ir: u8,
+}
+
+impl Default for HuC3 {
+    fn default() -> Self {
+        Self {
+            select: 0,
+            cmd: 0,
+            result: 1,
+            addr: 0,
+            mem: vec![0; 256],
+            minutes: 0,
+            days: 0,
+            tone: false,
+            ir: 0,
+        }
+    }
+}
+
+impl HuC3 {
+    fn execute(&mut self) {
+        let command = self.cmd >> 4;
+        let arg = self.cmd & 0x0F;
+        self.result = 1;
+        match command {
+            0x1 => {
+                self.result = self.mem[usize::from(self.addr)] & 0x0F;
+                self.addr = self.addr.wrapping_add(1);
+            }
+            0x3 => {
+                self.mem[usize::from(self.addr)] = arg;
+                self.addr = self.addr.wrapping_add(1);
+            }
+            0x4 => self.addr = (self.addr & 0xF0) | arg,
+            0x5 => self.addr = (self.addr & 0x0F) | (arg << 4),
+            0x6 => match arg {
+                0x0 => {
+                    self.mem[0x10] = (self.minutes & 0xF) as u8;
+                    self.mem[0x11] = ((self.minutes >> 4) & 0xF) as u8;
+                    self.mem[0x12] = ((self.minutes >> 8) & 0xF) as u8;
+                    self.mem[0x13] = (self.days & 0xF) as u8;
+                    self.mem[0x14] = ((self.days >> 4) & 0xF) as u8;
+                    self.mem[0x15] = ((self.days >> 8) & 0xF) as u8;
+                }
+                0x1 => {
+                    self.minutes = u16::from(self.mem[0x10] & 0xF)
+                        | u16::from(self.mem[0x11] & 0xF) << 4
+                        | u16::from(self.mem[0x12] & 0xF) << 8;
+                    self.days = u16::from(self.mem[0x13] & 0xF)
+                        | u16::from(self.mem[0x14] & 0xF) << 4
+                        | u16::from(self.mem[0x15] & 0xF) << 8;
+                    if self.minutes >= 1440 {
+                        self.minutes = 0;
+                    }
+                }
+                0x2 => self.result = 1,
+                0xE => self.tone = self.mem[0x27] & 0x0F == 1,
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    fn tick_minute(&mut self) {
+        self.minutes = self.minutes.wrapping_add(1);
+        if self.minutes >= 1440 {
+            self.minutes = 0;
+            self.days = self.days.wrapping_add(1);
+        }
+    }
+}
+
+/// Game Boy Camera registers. `image` is 128 by 112 shades, 0 to 3, from the phone.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Camera {
+    regs: Vec<u8>,
+    busy: u8,
+    #[serde(skip)]
+    pub image: Vec<u8>,
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        Self { regs: vec![0; 54], busy: 0, image: Vec::new() }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Cart {
     #[serde(skip)]
@@ -117,9 +219,59 @@ pub struct Cart {
     pub motor: bool,
     #[serde(default)]
     pub mbc7: Mbc7,
+    /// Bytes in the file the user imported, before the power-of-two pad. Not saved.
+    #[serde(skip)]
+    pub file_len: usize,
     /// Tilt for MBC7, -1..1 each axis (from the core's sensor input). Not saved.
     #[serde(skip)]
     pub tilt: (f32, f32),
+    /// HuC3 clock, infrared and tone. Unused for every other cartridge.
+    #[serde(default)]
+    pub huc3: HuC3,
+    /// Game Boy Camera registers and the last picture from the phone. Unused otherwise.
+    #[serde(default)]
+    pub camera: Camera,
+}
+
+pub fn declared_rom_bytes(code: u8) -> Option<usize> {
+    match code {
+        0x00..=0x08 => Some(0x8000usize << code),
+        0x52 => Some(72 * 0x4000),
+        0x53 => Some(80 * 0x4000),
+        0x54 => Some(96 * 0x4000),
+        _ => None,
+    }
+}
+
+/// How the Library sizes a file, so a refusal names the same number the list already shows.
+fn size_label(bytes: usize) -> String {
+    if bytes >= 1024 * 1024 {
+        let tenths = (bytes as u64 * 10 + (1024 * 1024 / 2)) / (1024 * 1024) as u64;
+        format!("{}.{} MB", tenths / 10, tenths % 10)
+    } else if bytes >= 1024 {
+        format!("{} KB", (bytes as u64 + 512) / 1024)
+    } else {
+        format!("{bytes} bytes")
+    }
+}
+
+/// A file shorter than the cartridge header, past the 32 KB minimum every Game Boy ROM is padded
+/// to. Small homebrew that only claims 32 KB still runs. A Yellow that claims 1 MB and stops at
+/// 997 KB does not: the opening after the Game Freak logo is in the missing part, and padding
+/// that hole with $FF makes the picture run wild.
+pub fn cutoff_reason(rom: &[u8]) -> Option<String> {
+    if rom.len() < 0x149 {
+        return None;
+    }
+    let declared = declared_rom_bytes(rom[0x148])?;
+    if declared <= 0x8000 || rom.len() >= declared {
+        return None;
+    }
+    Some(format!(
+        "This file is cut off. It is {} and the cartridge says {}. The missing part is not in the file. Use a complete copy.",
+        size_label(rom.len()),
+        size_label(declared),
+    ))
 }
 
 pub fn ram_size(code: u8) -> usize {
@@ -148,11 +300,14 @@ impl Cart {
             0x22 => (MbcKind::Mbc7, true, false),
             0x05 | 0x06 => (MbcKind::Mbc2, t == 0x06, false),
             0xFF => (MbcKind::HuC1, true, false),
+            0xFE => (MbcKind::HuC3, true, true),
+            0xFC => (MbcKind::Camera, true, false),
             other => return Err(format!("cartridge type ${other:02X} is not supported yet")),
         };
         let mut ram_len = match kind {
             MbcKind::Mbc7 => 256,
             MbcKind::Mbc2 => 512,
+            MbcKind::HuC3 | MbcKind::Camera if ram_size(rom[0x149]) == 0 => 0x2000,
             _ => ram_size(rom[0x149]),
         };
         if kind == MbcKind::None && ram_len == 0 && (t == 0x08 || t == 0x09) {
@@ -168,6 +323,7 @@ impl Cart {
         while size < rom.len() {
             size *= 2;
         }
+        let file_len = rom.len();
         let mut rom = rom;
         rom.resize(size, 0xFF);
         let multicart = kind == MbcKind::Mbc1
@@ -192,7 +348,10 @@ impl Cart {
             rumble_cart: (0x1C..=0x1E).contains(&t),
             motor: false,
             mbc7: Mbc7::default(),
+            file_len,
             tilt: (0.0, 0.0),
+            huc3: HuC3::default(),
+            camera: Camera::default(),
         })
     }
 
@@ -223,7 +382,8 @@ impl Cart {
                     }
                 }
             }
-            MbcKind::Mbc3 | MbcKind::Mbc5 | MbcKind::Mbc7 | MbcKind::Mbc2 | MbcKind::HuC1 => {
+            MbcKind::Mbc3 | MbcKind::Mbc5 | MbcKind::Mbc7 | MbcKind::Mbc2 | MbcKind::HuC1
+            | MbcKind::HuC3 | MbcKind::Camera => {
                 if addr < 0x4000 {
                     self.rom[addr as usize]
                 } else {
@@ -297,6 +457,21 @@ impl Cart {
                 0x4000..=0x5FFF => self.mbc7.ram_enable2 = v == 0x40,
                 _ => {}
             },
+            MbcKind::HuC3 => match addr {
+                0x0000..=0x1FFF => self.huc3.select = v & 0x0F,
+                0x2000..=0x3FFF => self.rom_bank = u16::from(v & 0x7F),
+                0x4000..=0x5FFF => self.ram_bank = v & 0x0F,
+                _ => {}
+            },
+            MbcKind::Camera => match addr {
+                0x0000..=0x1FFF => self.ram_enabled = v & 0x0F == 0x0A,
+                0x2000..=0x3FFF => {
+                    let b = u16::from(v & 0x7F);
+                    self.rom_bank = if b == 0 { 1 } else { b };
+                }
+                0x4000..=0x5FFF => self.ram_bank = v,
+                _ => {}
+            },
         }
     }
 
@@ -313,16 +488,33 @@ impl Cart {
             MbcKind::Mbc2 => return Some(addr as usize & 0x1FF),
             MbcKind::Mbc5 => self.ram_bank as usize,
             MbcKind::Mbc7 => return None,
+            MbcKind::HuC3 => (self.ram_bank & 3) as usize,
+            MbcKind::Camera => {
+                if self.ram_bank == 0x10 {
+                    return None;
+                }
+                self.ram_bank as usize & 0x0F
+            }
         };
         Some((bank * 0x2000 + (addr as usize & 0x1FFF)) % self.ram.len())
     }
 
     pub fn read_ram(&self, addr: u16) -> u8 {
-        if self.kind != MbcKind::None && !self.ram_enabled {
+        if self.kind != MbcKind::None
+            && self.kind != MbcKind::HuC3
+            && !(self.kind == MbcKind::Camera && self.ram_bank == 0x10)
+            && !self.ram_enabled
+        {
             return 0xFF;
         }
         if self.kind == MbcKind::Mbc7 {
             return self.mbc7_read(addr);
+        }
+        if self.kind == MbcKind::HuC3 {
+            return self.huc3_read(addr);
+        }
+        if self.kind == MbcKind::Camera && self.ram_bank == 0x10 {
+            return self.camera_read(addr);
         }
         if self.kind == MbcKind::HuC1 && self.mode == 1 {
             return 0xC0; // infrared: no light received
@@ -342,11 +534,23 @@ impl Cart {
     }
 
     pub fn write_ram(&mut self, addr: u16, v: u8) {
-        if self.kind != MbcKind::None && !self.ram_enabled {
+        if self.kind != MbcKind::None
+            && self.kind != MbcKind::HuC3
+            && !(self.kind == MbcKind::Camera && self.ram_bank == 0x10)
+            && !self.ram_enabled
+        {
             return;
         }
         if self.kind == MbcKind::Mbc7 {
             self.mbc7_write(addr, v);
+            return;
+        }
+        if self.kind == MbcKind::HuC3 {
+            self.huc3_write(addr, v);
+            return;
+        }
+        if self.kind == MbcKind::Camera && self.ram_bank == 0x10 {
+            self.camera_write(addr, v);
             return;
         }
         if self.kind == MbcKind::HuC1 && self.mode == 1 {
@@ -366,6 +570,90 @@ impl Cart {
         }
         if let Some(i) = self.ram_index(addr) {
             self.ram[i] = v;
+        }
+    }
+
+    fn huc3_read(&self, addr: u16) -> u8 {
+        match self.huc3.select {
+            0x0 | 0xA => self.ram_index(addr).map_or(0xFF, |i| self.ram[i]),
+            0xC => 0x80 | ((self.huc3.cmd & 0x70) | (self.huc3.result & 0x0F)),
+            0xD => 0x81,
+            0xE => 0x80 | (self.huc3.ir & 1),
+            _ => 0xFF,
+        }
+    }
+
+    fn huc3_write(&mut self, addr: u16, v: u8) {
+        match self.huc3.select {
+            0xA => {
+                if let Some(i) = self.ram_index(addr) {
+                    self.ram[i] = v;
+                }
+            }
+            0xB => self.huc3.cmd = v & 0x7F,
+            0xD => {
+                if v & 1 == 0 {
+                    self.huc3.execute();
+                }
+            }
+            0xE => self.huc3.ir = v & 1,
+            _ => {}
+        }
+    }
+
+    fn camera_read(&self, addr: u16) -> u8 {
+        let i = (addr as usize) & 0x3F;
+        if i >= self.camera.regs.len() {
+            return 0xFF;
+        }
+        self.camera.regs[i]
+    }
+
+    fn camera_write(&mut self, addr: u16, v: u8) {
+        let i = (addr as usize) & 0x3F;
+        if i >= self.camera.regs.len() {
+            return;
+        }
+        self.camera.regs[i] = v;
+        if i == 0 && v & 1 != 0 {
+            self.capture();
+            self.camera.regs[0] |= 1;
+            self.camera.busy = 2;
+        }
+    }
+
+    /// Writes a 128 by 112 picture into cartridge RAM as Game Boy tiles.
+    fn capture(&mut self) {
+        let shade = |x: usize, y: usize| -> u8 {
+            if self.camera.image.len() == 128 * 112 {
+                self.camera.image[y * 128 + x] & 3
+            } else {
+                (x / 32) as u8
+            }
+        };
+        for ty in 0..14 {
+            for tx in 0..16 {
+                let tile = ty * 16 + tx;
+                for row in 0..8 {
+                    let mut lo = 0u8;
+                    let mut hi = 0u8;
+                    for col in 0..8 {
+                        let s = shade(tx * 8 + col, ty * 8 + row);
+                        let bit = 7 - col;
+                        if s & 1 != 0 {
+                            lo |= 1 << bit;
+                        }
+                        if s & 2 != 0 {
+                            hi |= 1 << bit;
+                        }
+                    }
+                    let at = tile * 16 + row * 2;
+                    if at + 1 < self.ram.len() {
+                        self.ram[at] = lo;
+                        self.ram[at + 1] = hi;
+                    }
+                }
+            }
         }
     }
 
@@ -503,7 +791,20 @@ impl Cart {
 
     /// `t` T-cycles of real time for the clock.
     pub fn tick(&mut self, t: u32) {
-        if !self.has_rtc {
+        if self.kind == MbcKind::HuC3 {
+            self.rtc.sub += t;
+            if self.rtc.sub >= 4_194_304 * 60 {
+                self.rtc.sub -= 4_194_304 * 60;
+                self.huc3.tick_minute();
+            }
+        }
+        if self.kind == MbcKind::Camera && self.camera.busy > 0 {
+            self.camera.busy = self.camera.busy.saturating_sub(1);
+            if self.camera.busy == 0 {
+                self.camera.regs[0] &= !1;
+            }
+        }
+        if !self.has_rtc || self.kind == MbcKind::HuC3 {
             return;
         }
         self.rtc.sub += t;
@@ -565,6 +866,56 @@ mod tests {
         assert_eq!(c.read_ram(0xA000), 0x77, "the IR write did not touch RAM");
         c.write_rom(0x4000, 0);
         assert_ne!(c.read_ram(0xA000), 0x77);
+    }
+
+    fn huc3_cmd(c: &mut Cart, cmd: u8) {
+        c.write_rom(0x0000, 0x0B);
+        c.write_ram(0xA000, cmd);
+        c.write_rom(0x0000, 0x0D);
+        c.write_ram(0xA000, 0x00);
+    }
+
+    #[test]
+    fn huc3_clock_and_ram() {
+        let mut c = Cart::new(rom(0xFE, 8)).unwrap();
+        c.write_rom(0x2000, 3);
+        assert_eq!(c.read_rom(0x4010), 3);
+        c.write_rom(0x0000, 0x0A);
+        c.write_rom(0x4000, 1);
+        c.write_ram(0xA010, 0x5A);
+        assert_eq!(c.read_ram(0xA010), 0x5A);
+        huc3_cmd(&mut c, 0x62);
+        c.write_rom(0x0000, 0x0C);
+        assert_eq!(c.read_ram(0xA000) & 0x0F, 1, "the clock reports ready");
+        huc3_cmd(&mut c, 0x42);
+        huc3_cmd(&mut c, 0x37);
+        huc3_cmd(&mut c, 0x42);
+        huc3_cmd(&mut c, 0x10);
+        c.write_rom(0x0000, 0x0C);
+        assert_eq!(c.read_ram(0xA000) & 0x0F, 7);
+        c.huc3.minutes = 61;
+        huc3_cmd(&mut c, 0x60);
+        huc3_cmd(&mut c, 0x51);
+        huc3_cmd(&mut c, 0x40);
+        huc3_cmd(&mut c, 0x10);
+        c.write_rom(0x0000, 0x0C);
+        assert_eq!(c.read_ram(0xA000) & 0x0F, 0xD, "61 minutes, low nybble");
+    }
+
+    #[test]
+    fn camera_capture_writes_tiles() {
+        let mut c = Cart::new(rom(0xFC, 4)).unwrap();
+        c.write_rom(0x0000, 0x0A);
+        c.write_rom(0x4000, 0x10);
+        c.write_ram(0xA000, 0x01);
+        assert_eq!(c.read_ram(0xA000) & 1, 1);
+        for _ in 0..4 {
+            c.tick(4);
+        }
+        assert_eq!(c.read_ram(0xA000) & 1, 0, "the capture finishes");
+        c.write_rom(0x4000, 0);
+        assert_eq!(c.read_ram(0xA000), 0, "the left of the picture is empty");
+        assert_eq!(c.read_ram(0xA040), 0xFF, "the next band is shade 1");
     }
 
     #[test]
@@ -659,6 +1010,29 @@ mod tests {
         assert_eq!(c.read_ram(0xA000), 0x42);
         c.write_rom(0x4000, 1);
         assert_ne!(c.read_ram(0xA000), 0x42);
+    }
+
+    #[test]
+    fn a_short_yellow_is_named_as_cut_off_and_a_full_one_is_not() {
+        let mut short = vec![0u8; 997 * 1024];
+        short[0x147] = 0x1B; // MBC5, like Yellow
+        short[0x148] = 0x05; // 1 MB
+        let why = cutoff_reason(&short).unwrap();
+        assert_eq!(
+            why,
+            "This file is cut off. It is 997 KB and the cartridge says 1.0 MB. The missing part is not in the file. Use a complete copy."
+        );
+        let mut full = vec![0u8; 1024 * 1024];
+        full[0x147] = 0x1B;
+        full[0x148] = 0x05;
+        assert!(cutoff_reason(&full).is_none());
+        let mut homebrew = vec![0u8; 0x400];
+        homebrew.resize(0x150, 0);
+        homebrew[0x148] = 0x00; // claims 32 KB, the usual small-file case
+        assert!(cutoff_reason(&homebrew).is_none());
+        let cart = Cart::new(short).unwrap();
+        assert_eq!(cart.file_len, 997 * 1024);
+        assert_eq!(cart.rom.len(), 1024 * 1024, "banking still pads; the phone refuses before this runs");
     }
 
     #[test]

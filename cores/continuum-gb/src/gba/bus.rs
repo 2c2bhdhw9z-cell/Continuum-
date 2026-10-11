@@ -78,7 +78,20 @@ pub struct Bus {
     #[serde(skip)]
     pub fifo_smooth: bool,
     #[serde(skip)]
-    fifo_last: [i32; 2],
+    fifo_from: [i32; 2],
+    #[serde(skip)]
+    fifo_to: [i32; 2],
+    #[serde(skip)]
+    fifo_period: [u32; 2],
+    #[serde(skip)]
+    fifo_age: [u32; 2],
+    /// Answer the Game Boy Player handshake and take its rumble bit (core option).
+    #[serde(skip)]
+    pub gbp: bool,
+    #[serde(skip)]
+    gbp_i: u8,
+    #[serde(skip)]
+    pub gbp_motor: bool,
     #[serde(skip, default = "mini_bios")]
     pub bios: Vec<u8>,
     /// Running a real BIOS file (core option): SWIs go through it instead of the built-in calls.
@@ -132,7 +145,13 @@ impl Bus {
         Bus {
             fifo_vol: [100; 2],
             fifo_smooth: false,
-            fifo_last: [0; 2],
+            fifo_from: [0; 2],
+            fifo_to: [0; 2],
+            fifo_period: [1; 2],
+            fifo_age: [0; 2],
+            gbp: false,
+            gbp_i: 0,
+            gbp_motor: false,
             bios: mini_bios(),
             real_bios: false,
             writes: 0,
@@ -597,6 +616,12 @@ impl Bus {
                 }
                 t.ctrl = v & 0xC7;
             }
+            0x128 => {
+                self.set_io16(a, v);
+                if self.gbp && v & 0x80 != 0 && (v >> 12) & 3 == 1 && v & 1 == 0 {
+                    self.gbp_clock();
+                }
+            }
             0x130 => {}
             0x202 => {
                 let cur = self.io16(0x202);
@@ -715,6 +740,29 @@ impl Bus {
         }
     }
 
+    fn gbp_clock(&mut self) {
+        // Words the Game Boy Player shifts in. The game answers, and 0x40000026 means the motor is on.
+        const WORDS: [u32; 19] = [
+            0x0000_494E, 0xB6B1_494E, 0xB6B1_494E, 0xB6B1_544E, 0xABB1_544E, 0xABB1_4E45, 0xB1BA_4E45,
+            0xB1BA_4F44, 0xB0BB_4F44, 0xB0BB_8002, 0x1000_0010, 0x2000_0013, 0x4000_0004, 0x3000_0003,
+            0x3000_0003, 0x3000_0003, 0x3000_0003, 0x3000_0003, 0x3000_0003,
+        ];
+        let sent = u32::from(self.io16(0x120)) | u32::from(self.io16(0x122)) << 16;
+        if sent & 0xFFFF_FF00 == 0x4000_0000 {
+            self.gbp_motor = sent & 0xFF == 0x26;
+        }
+        let word = WORDS[usize::from(self.gbp_i) % WORDS.len()];
+        self.gbp_i = self.gbp_i.wrapping_add(1);
+        self.set_io16(0x120, word as u16);
+        self.set_io16(0x122, (word >> 16) as u16);
+        let cnt = self.io16(0x128);
+        self.set_io16(0x128, cnt & !0x80);
+        if cnt & 0x4000 != 0 {
+            let iflag = self.io16(0x202);
+            self.set_io16(0x202, iflag | 0x0080);
+        }
+    }
+
     fn timer_overflow_sound(&mut self, timer: usize) {
         let cnth = self.io16(0x82);
         for n in 0..2 {
@@ -724,7 +772,14 @@ impl Bus {
             }
             let f = &mut self.fifo[n];
             if !f.data.is_empty() {
-                f.current = f.data.remove(0);
+                let sample = f.data.remove(0);
+                f.current = sample;
+                let arrived = i32::from(sample);
+                drop(f);
+                self.fifo_from[n] = self.fifo_to[n];
+                self.fifo_to[n] = arrived;
+                self.fifo_period[n] = self.fifo_age[n].max(1);
+                self.fifo_age[n] = 0;
             }
             if self.fifo[n].data.len() <= 16 {
                 let want = 0x0400_00A0 + 4 * n as u32;
@@ -762,12 +817,15 @@ impl Bus {
             let mut r = i32::from(self.apu.samples[i + 1]) >> psg_shift;
             for n in 0..2 {
                 let full = cnth & (4 << n) != 0;
-                let mut v = i32::from(self.fifo[n].current) * if full { 128 } else { 64 };
-                if self.fifo_smooth {
-                    let raw = v;
-                    v = (v + self.fifo_last[n]) / 2;
-                    self.fifo_last[n] = raw;
-                }
+                let mut v = if self.fifo_smooth {
+                    let span = self.fifo_period[n].max(1) as i32;
+                    let along = (self.fifo_age[n] as i32).min(span);
+                    let blended = self.fifo_from[n] + (self.fifo_to[n] - self.fifo_from[n]) * along / span;
+                    self.fifo_age[n] = self.fifo_age[n].saturating_add(1);
+                    blended * if full { 128 } else { 64 }
+                } else {
+                    i32::from(self.fifo[n].current) * if full { 128 } else { 64 }
+                };
                 v = v * i32::from(self.fifo_vol[n]) / 100;
                 if cnth & (0x100 << (n * 4)) != 0 { r += v }
                 if cnth & (0x200 << (n * 4)) != 0 { l += v }
@@ -913,5 +971,27 @@ impl Bus {
         if hit {
             self.request_irq(IRQ_KEYPAD);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn game_boy_player_handshake_sets_the_motor() {
+        let mut bus = Bus::new(vec![0u8; 0x200]);
+        bus.gbp = true;
+        bus.write32(0x0400_0120, 0);
+        bus.write16(0x0400_0128, 0x5080);
+        assert_eq!(bus.read32(0x0400_0120), 0x0000_494E, "first word from the Player");
+        assert_eq!(bus.read16(0x0400_0202) & 0x80, 0x80, "serial interrupt");
+        assert_eq!(bus.read16(0x0400_0128) & 0x80, 0, "the transfer finishes");
+        bus.write32(0x0400_0120, 0x4000_0026);
+        bus.write16(0x0400_0128, 0x5080);
+        assert!(bus.gbp_motor);
+        bus.write32(0x0400_0120, 0x4000_0004);
+        bus.write16(0x0400_0128, 0x5080);
+        assert!(!bus.gbp_motor);
     }
 }

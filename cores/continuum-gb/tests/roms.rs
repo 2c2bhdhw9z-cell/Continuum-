@@ -475,4 +475,28 @@ fn mealybug_report() {
     }
 }
 
-const MEALYBUG_PASSING: &[&str] = &[];
+const MEALYBUG_PASSING: &[&str] = &[
+    "dmg:m2_win_en_toggle",
+    "dmg:m3_bgp_change",
+    "dmg:m3_lcdc_win_en_change_multiple_wx",
+    "dmg:m3_scx_low_3_bits",
+    "dmg:m3_wx_4_change_sprites",
+];
+
+#[test]
+fn scx_low_bits_take_effect_on_line_72() {
+    let data = std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/mealybug/m3_scx_low_3_bits.gb")).unwrap();
+    let mut gb = GameBoy::new(data).unwrap();
+    for b in gb.bus.ppu.vram[0x190..0x1A0].iter_mut() {
+        *b = 0xFF;
+    }
+    for _ in 0..30 {
+        gb.run_frame();
+        if gb.cpu.ld_b_b {
+            break;
+        }
+    }
+    let frame = &gb.bus.ppu.frame;
+    let x_at = |y: usize| (0..160).find(|x| frame[y * 160 + x] & 0xFF == 0).unwrap_or(999);
+    assert_eq!((x_at(0), x_at(71), x_at(72)), (152, 152, 150));
+}

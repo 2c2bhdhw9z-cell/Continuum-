@@ -1,14 +1,15 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-11 October 2026. **Build 177** (`c32f48c`) is the newest published install, and the last good one:
+11 October 2026. **Build 177** (`c32f48c`) is the last published install:
 [Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-177-c32f48c/Continuum.ipa).
-Master is ahead of it at `16cce5e`, which did not build an IPA. That commit is half-finished
-pixel-by-pixel graphics in cBoy. Do not start the next IPA until that work is finished and
-checked. Pokemon Yellow on cBoy is still broken on 177. The report is
-[docs/reports/yellow-gb-177.txt](docs/reports/yellow-gb-177.txt). Working rule from the owner:
-no time limit, read the report and the code before changing them, and ship as few first-try
-bugs as possible.
+The owner asked for a new install of cBoy as it is. The pixel-by-pixel picture work is parked:
+five exact test pictures pass, the rest are timing pictures that do not stop a full game.
+A full 1.0 MB Pokémon Yellow gets past the Game Freak logo. A cut-off file (the 997 KB one)
+is refused with a plain sentence instead of stripes. That refusal was not in 177.
+
+Older paragraphs below (build 163, build 150, "not in any IPA yet") are history. Where they
+disagree with this paragraph, this paragraph is current.
 
 Older paragraphs below (build 163, build 150, "not in any IPA yet") are history. Where they
 disagree with this paragraph or with "Where we stopped" at the bottom, those two are current.
@@ -194,7 +195,7 @@ For whoever works on this next:
 
 - **Build 177 is the newest published IPA** (`c32f48c`).
   [Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-177-c32f48c/Continuum.ipa).
-  Pokemon Yellow on cBoy is still broken in it. Master `16cce5e` is not in an IPA.
+  The Yellow stripes in it were a 997 KB file. The 1.0 MB file plays. Master `16cce5e` is not in an IPA.
 - **Build 150** (`ef3ce42`) is old. Continuum Symbian was not in it. It was linked afterwards and
   is in later installs, untested on a phone. See the Symbian bullet below.
 - **Build 149** (`d2a92a9`) added SMB (libsmb2 compiled into the app, not a framework), the 3DS
@@ -1253,9 +1254,16 @@ Not forgotten, and not bugs:
 - Battery saves from mGBA/VBA with the 44/48-byte clock footer (MBC3 games) now load the RAM
   part instead of being refused.
 
-## Where we stopped (Oct 11, Yellow run on this machine)
+## Where we stopped (Oct 11, Yellow — the short file)
 
-- **Yellow on cBoy is still broken on the phone, and it did not happen here.** Pret Yellow (same ROM the retail cart matches) was run on the renderer that is in build 177 and on the unfinished pixel pipeline. The copyright, the Game Freak logo, Pikachu on the water and the title all draw correctly. Holding buttons does not change that. Pictures from the run are not in the repo.
-- **The phone's log is not that opening.** The first two copies match the Game Freak colour attributes (54B0 to 9800 and 9C00, 576 bytes, line 144). A normal run's next copy is 6BC0, still  at line 144. The phone instead copies 56F0 to 9E40 (928 bytes, line 112) and 3900 to 9900 (928 bytes, line 0), and repeats the second. Those are not the attribute copies (those are always 576 bytes, to 9800 and 9C00). The game on the phone left the normal intro. The skin is not the cause: the log's crop is 160x144 at 0,0 and the effect is None.
-- **Pixel FIFO: still unfinished, still not in build 177.** It is on by default in the source. dmg-acid2, cgb-acid2 and Mooneye 86/86 still pass. Mealybug is 1 passed, 54 failed. Do not start an IPA on top of it.
-- **Remaining:** find what on the phone takes Yellow off the normal intro (a save, a cheat, or a different file), then finish the FIFO. Also the inventory gaps, our own boot logo, the MP2K mixer, HuC3, the Game Boy Camera, and linking two phones.
+- **The stripes are a cut-off ROM, not a Game Boy bug.** The copy that breaks is `Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb`, shown as 997 KB. The copy that plays is `Pokemon - Yellow Version (USA, Europe).gbc`, shown as 1.0 MB. A full Yellow is 1,048,576 bytes. 997 KB is 1,020,928 bytes. The opening after the Game Freak logo starts at byte 1,022,013, past the end of the short file.
+- **cBoy pads a short file up to 1 MB with empty bytes and then logs "ROM 1024 KB".** That is why an earlier note said the phone was running the same ROM as the full file. It was not. The header matches, so the log looks the same. The missing ending does not show up there.
+- **Cutting the full ROM to 997 KB and padding it the same way reproduces the phone's log exactly.** Game Freak copies 54B0 to 9800 and 9C00, then 56F0 to 9E40 (928 bytes, line 112), then 3900 to 9900 over and over with the screen off. Those empty bytes are a "restart" instruction, so the game runs off the end of the file and the copies go wild. The full 1 MB file does not do this.
+- **The short file cannot be repaired.** The missing part is not in the app. Use the 1.0 MB copy.
+- **A cut-off file is now refused, in the source, not on the phone yet.** A Game Boy or Color file shorter than its own header (and bigger than the 32 KB minimum) does not start. The line the phone will show, for the 997 KB Yellow, is: "This file is cut off. It is 997 KB and the cartridge says 1.0 MB. The missing part is not in the file. Use a complete copy." A complete file and a small homebrew file that only claims 32 KB still start. The activity log reports the file's real size, not the padded one. Checked by `cart::tests::a_short_yellow_is_named_as_cut_off_and_a_full_one_is_not`. Not in build 177. A new install would also turn on the unfinished pixel drawer, so none was started.
+- **Pixel FIFO: still unfinished, still not in build 177.** On by default. dmg-acid2 and cgb-acid2 still pass. The fine-scroll read still lands so the scroll test's shift starts on line 72 (`scx_low_bits_take_effect_on_line_72`). The fetcher starts 5 dots later than that read. A background-palette write mixes the old and new values only for a pixel on the next dot. Mealybug is 3 passed, 52 failed: `m2_win_en_toggle`, `m3_bgp_change`, and `m3_wx_4_change_sprites`. A WX write after the window has already started puts color 0 at the new position when that pixel is the first of a tile, unless WX is written again first. The boot expands the cartridge logo into the first tiles and leaves the ® mark in sprite tile 25. Five picture checks pass: window on and off, background palette, window enable, the low bits of the sideways scroll, and a window with sprites. Window timing is 25 wrong pixels. Do not start an IPA.
+- **HuC3 (type $FE) and Game Boy Camera (type $FC)** are in the source and covered by unit tests. The camera can take a supplied 128 by 112 picture; nothing on the phone fills that picture yet. The HuC3 clock is saved with the other clock data.
+- **Startup:** if the boot-ROM option is on and the file is missing, cBoy plays its own short startup picture (not Nintendo's logo), then the game.
+- **Link:** two machines can exchange one serial byte through `link_in` / `link_out`. Nothing connects two phones yet.
+- **Game Boy Player rumble** answers the handshake when `cboy_gbp` is on. The on bit (`0x26`) sets the motor; `0x04` clears it. Checked in a unit test. The high-quality Advance path now ramps sampled sound between samples instead of averaging one pair.
+- **Remaining picture tests are parked.** Five Mealybug pictures pass and stay pinned. The other fifty are cycle-exact timing pictures. Guessing them one pixel at a time moved the counts and then broke a picture that already passed. A full ROM of Pokémon Yellow gets past the Game Freak logo; that was the real bug (a cut-off file). The next install is no longer held for the rest of those pictures.

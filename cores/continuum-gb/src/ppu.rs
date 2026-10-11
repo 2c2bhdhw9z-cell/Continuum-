@@ -314,7 +314,7 @@ impl Ppu {
                 d @ 80 => {
                     self.mode = 3;
                     self.hblank_at = d + self.mode3_length();
-                    if self.no_render {
+                    if self.no_render || std::env::var("PRET_REAL_SCANLINE").is_ok() {
                         self.render_line();
                     } else {
                         self.fifo_start();
@@ -391,6 +391,46 @@ impl Ppu {
         let (lo, hi) = self.tile_row(bank, self.bg_tile_addr(tile), row);
         let bit = if attr & 0x20 != 0 { x % 8 } else { 7 - x % 8 };
         (((hi >> bit) & 1) << 1 | ((lo >> bit) & 1), attr)
+    }
+
+    /// The boot expands the cartridge logo into tiles 1-24 and leaves the ® mark in tile 25.
+    pub(crate) fn boot_logo(&mut self, rom: &[u8]) {
+        if rom.len() < 0x134 {
+            return;
+        }
+        let mut hl = 0x10usize;
+        let mut carry = false;
+        let rot = |v: u8, carry: bool| -> (u8, bool) {
+            (((v << 1) | u8::from(carry)), v & 0x80 != 0)
+        };
+        for &data in &rom[0x104..0x134] {
+            let mut c = data;
+            for _ in 0..2 {
+                let mut a = 0u8;
+                for _ in 0..4 {
+                    let saved = c;
+                    let (_, bit) = rot(c, carry);
+                    carry = bit;
+                    let (a1, abit) = rot(a, carry);
+                    a = a1;
+                    carry = abit;
+                    c = saved;
+                    let (c2, bit) = rot(c, carry);
+                    c = c2;
+                    carry = bit;
+                    let (a2, abit) = rot(a, carry);
+                    a = a2;
+                    carry = abit;
+                }
+                self.vram[hl] = a;
+                self.vram[hl + 2] = a;
+                hl += 4;
+            }
+        }
+        for b in [0x3C, 0x42, 0xB9, 0xA5, 0xB9, 0xA5, 0x42, 0x3C] {
+            self.vram[hl] = b;
+            hl += 2;
+        }
     }
 
     fn cgb_colour(pal: &[u8], index: usize) -> u32 {

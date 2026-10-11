@@ -6,7 +6,12 @@ Paste this to start a new chat:
 > `HANDOFF.md`, then `STATUS.md` ("Next up" first), `docs/CORE_UPDATES.md` and `TESTING.md`
 > section A. Then carry on.
 
-## Where this left off (9 October 2026)
+## Where this left off (11 October 2026)
+
+The owner asked for an install of cBoy as it stands. Pixel-by-pixel Mealybug work is parked
+(five pictures pass; the rest are timing pictures). A full 1 MB Pokémon Yellow plays. A cut-off
+file is refused in words. Build 177 is the last published IPA until the new one finishes.
+Do not go back to guessing one test pixel at a time.
 
 Build 144, release `build-144-74050e5`, version 0.8.0 (144), 35 core files checked in the ipa.
 Link: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-144-74050e5/Continuum-144.ipa

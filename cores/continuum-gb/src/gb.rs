@@ -14,6 +14,9 @@ pub const FRAME_CYCLES: u64 = 70_224;
 pub struct GameBoy {
     pub cpu: Cpu,
     pub bus: Bus,
+    /// Frames of cBoy's own startup picture still to show. Not saved.
+    #[serde(skip)]
+    pub intro: u16,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -121,6 +124,7 @@ impl GameBoy {
 
     fn build(cart: Cart, cgb: bool) -> GameBoy {
         let mut bus = Bus::new(cart);
+        bus.ppu.boot_logo(&bus.cart.rom);
         let cpu = if cgb {
             bus.cgb = true;
             bus.ppu.cgb = true;
@@ -131,11 +135,47 @@ impl GameBoy {
         } else {
             Cpu::default()
         };
-        GameBoy { cpu, bus }
+        GameBoy { cpu, bus, intro: 0 }
+    }
+
+    /// Shows cBoy's own startup picture, then the game. Used when a boot ROM was asked for and
+    /// there is no file.
+    pub fn play_intro(&mut self) {
+        self.intro = 90;
+    }
+
+    fn draw_intro(&mut self) {
+        let step = 90 - self.intro;
+        let frame = &mut self.bus.ppu.frame;
+        if frame.len() < 160 * 144 {
+            frame.resize(160 * 144, crate::ppu::SHADES[0]);
+        }
+        for y in 0..144usize {
+            for x in 0..160usize {
+                let dx = x as i32 - 80;
+                let dy = y as i32 - 72;
+                let r2 = dx * dx + dy * dy;
+                let mut shade = 3u8;
+                let gap = dx > 8 && dy.abs() < (16 - step as i32 / 4).max(0);
+                if (18 * 18..30 * 30).contains(&r2) && !gap {
+                    shade = 0;
+                }
+                if step > 40 && (y == 100 || y == 101) && (60..100).contains(&x) {
+                    shade = 0;
+                }
+                frame[y * 160 + x] = crate::ppu::SHADES[shade as usize];
+            }
+        }
+        self.bus.ppu.frame_ready = true;
     }
 
     /// Runs until the PPU finishes a frame (or one frame's worth of cycles with the LCD off).
     pub fn run_frame(&mut self) {
+        if self.intro > 0 {
+            self.draw_intro();
+            self.intro -= 1;
+            return;
+        }
         let start = self.bus.cycles;
         self.bus.ppu.frame_ready = false;
         while !self.bus.ppu.frame_ready && self.bus.cycles - start < FRAME_CYCLES * 2 {
@@ -186,6 +226,28 @@ mod tests {
         let gb = cgb_machine();
         assert!(gb.bus.cgb && gb.bus.ppu.cgb);
         assert_eq!((gb.cpu.a, gb.cpu.f, gb.cpu.d, gb.cpu.e, gb.cpu.l), (0x11, 0x80, 0xFF, 0x56, 0x0D));
+    }
+
+    #[test]
+    fn intro_draws_before_the_game_and_two_machines_swap_a_byte() {
+        let mut gb = GameBoy::new(vec![0u8; 0x8000]).unwrap();
+        gb.play_intro();
+        gb.run_frame();
+        assert!(gb.bus.ppu.frame.iter().any(|p| *p == crate::ppu::SHADES[0]));
+        assert_eq!(gb.intro, 89);
+
+        let mut a = GameBoy::new(vec![0u8; 0x8000]).unwrap();
+        let mut b = GameBoy::new(vec![0u8; 0x8000]).unwrap();
+        a.bus.link_in.push_back(0x22);
+        b.bus.link_in.push_back(0x11);
+        a.bus.write(0xFF01, 0x11);
+        a.bus.write(0xFF02, 0x81);
+        b.bus.write(0xFF01, 0x22);
+        b.bus.write(0xFF02, 0x81);
+        assert_eq!(a.bus.sb, 0x22);
+        assert_eq!(b.bus.sb, 0x11);
+        assert_eq!(a.bus.link_out, vec![0x11]);
+        assert_eq!(b.bus.link_out, vec![0x22]);
     }
 
     #[test]
