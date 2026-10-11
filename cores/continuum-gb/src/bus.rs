@@ -56,7 +56,7 @@ impl Bus {
             hram: vec![0; 0x7F],
             ie: 0,
             iflag: 0xE1,
-            joyp_select: 0x30,
+            joyp_select: 0x00,
             buttons: 0,
             sb: 0,
             sc: 0x7E,

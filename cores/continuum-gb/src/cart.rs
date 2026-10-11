@@ -81,6 +81,9 @@ pub struct Cart {
     pub rtc: Rtc,
     pub title: String,
     pub cgb_flag: u8,
+    /// MBC1M multicart wiring: 4-bit low bank, bank2 shifted by 4.
+    #[serde(default)]
+    multicart: bool,
 }
 
 pub fn ram_size(code: u8) -> usize {
@@ -124,6 +127,9 @@ impl Cart {
         }
         let mut rom = rom;
         rom.resize(size, 0xFF);
+        let multicart = kind == MbcKind::Mbc1
+            && rom.len() == 0x10_0000
+            && rom[0x40104..0x40134] == rom[0x104..0x134];
         Ok(Cart {
             cgb_flag: rom[0x143],
             rom,
@@ -137,6 +143,7 @@ impl Cart {
             bank2: 0,
             mode: 0,
             rtc: Rtc::default(),
+            multicart,
             title,
         })
     }
@@ -155,12 +162,17 @@ impl Cart {
             MbcKind::None => self.rom[addr as usize],
             MbcKind::Mbc1 => {
                 if addr < 0x4000 {
-                    let bank = if self.mode == 1 { (self.bank2 as usize) << 5 } else { 0 };
+                    let shift = if self.multicart { 4 } else { 5 };
+                    let bank = if self.mode == 1 { (self.bank2 as usize) << shift } else { 0 };
                     self.rom_at(bank, addr)
                 } else {
-                    let low = (self.rom_bank & 0x1F) as usize;
-                    let low = if low == 0 { 1 } else { low };
-                    self.rom_at((self.bank2 as usize) << 5 | low, addr)
+                    let raw = (self.rom_bank & 0x1F) as usize;
+                    let low = if raw == 0 { 1 } else { raw };
+                    if self.multicart {
+                        self.rom_at((self.bank2 as usize) << 4 | (low & 0x0F), addr)
+                    } else {
+                        self.rom_at((self.bank2 as usize) << 5 | low, addr)
+                    }
                 }
             }
             MbcKind::Mbc3 | MbcKind::Mbc5 => {

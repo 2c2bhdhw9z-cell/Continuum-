@@ -239,3 +239,11 @@ fn debug_rom() {
     eprintln!("cpu {:?}", gb.cpu);
     eprintln!("serial {}", String::from_utf8_lossy(&gb.bus.serial_out));
 }
+
+#[test]
+fn debug_io() {
+    if std::env::var("DBG_IO").is_err() { return }
+    let gb = GameBoy::new(rom("cpu_instrs.gb").unwrap()).unwrap();
+    let v: Vec<String> = (0xFF00u16..0xFF80).map(|a| format!("{:02X}", gb.bus.raw_read(a))).collect();
+    for c in v.chunks(8) { eprintln!("IO {}", c.join(" ")); }
+}
