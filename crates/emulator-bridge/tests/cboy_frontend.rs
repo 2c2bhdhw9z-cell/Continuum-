@@ -29,7 +29,15 @@ fn cboy_through_the_frontend() {
     core.load_content(&[], &hint).unwrap();
     let input = emulator_bridge::input::InputState::default().snapshot();
     let frames: u32 = std::env::var("CBOY_FRAMES").ok().and_then(|v| v.parse().ok()).unwrap_or(1500);
+    // CBOY_STATES=n: save and reload a state every n frames, the way rewind and run-ahead do.
+    let every: u32 = std::env::var("CBOY_STATES").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let mut buf = Vec::new();
     for f in 0..frames {
+        if every > 0 && f % every == 0 {
+            buf.resize(core.state_size(), 0);
+            let n = core.save_state(&mut buf).unwrap();
+            core.load_state(&buf[..n]).unwrap();
+        }
         core.run_frame(&input).unwrap();
         if f % 50 == 0 {
             if let Some(v) = core.video() {
@@ -47,6 +55,9 @@ fn cboy_through_the_frontend() {
         }
     }
     eprintln!("last core log: {}", emulator_bridge::cores::native_core::last_core_log_line());
+    if std::env::var("CBOY_NO_OPTION_CHECK").is_ok() {
+        return;
+    }
     // cBoy declares its options through SET_CORE_OPTIONS_V2; the frontend must know them.
     assert_eq!(emulator_bridge::cores::options::current("continuum_gb", "cboy_dmg_palette").as_deref(), Some("grayscale"));
 }

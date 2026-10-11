@@ -426,7 +426,33 @@ pub fn hole_src(hole: &SkinHole, fb_w: f32, fb_h: f32) -> FracRect {
     if hole.src_w <= 0.0 || hole.src_h <= 0.0 || fb_w <= 0.0 || fb_h <= 0.0 {
         return FracRect::WHOLE;
     }
-    FracRect::new(hole.src_x / fb_w, hole.src_y / fb_h, hole.src_w / fb_w, hole.src_h / fb_h)
+    let (x, y, w, h) = fit_crop(hole.src_x, hole.src_y, hole.src_w, hole.src_h, fb_w, fb_h);
+    FracRect::new(x / fb_w, y / fb_h, w / fb_w, h / fb_h)
+}
+
+/// A skin's crop made to fit the framebuffer the core really sends. Skins name crops in pixels of
+/// the frame their author's core produced; another core can send a different size (a Game Boy
+/// skin cropping the 160x144 game out of mGBA's 256x224 Super Game Boy frame, shown a 160x144
+/// frame from cBoy). Sampling outside the texture repeats its edge pixels as stripes, so:
+/// a crop as big as the frame or bigger shows the whole frame, and one that runs off an edge is
+/// slid back inside it.
+pub fn fit_crop(x: f32, y: f32, w: f32, h: f32, fb_w: f32, fb_h: f32) -> (f32, f32, f32, f32) {
+    let axis = |o: f32, len: f32, fb: f32| {
+        if len >= fb - 0.5 {
+            (0.0, fb)
+        } else {
+            (o.clamp(0.0, fb - len), len)
+        }
+    };
+    let (x, w) = axis(x, w, fb_w);
+    let (y, h) = axis(y, h, fb_h);
+    (x, y, w, h)
+}
+
+/// Whether a skin crop runs outside the framebuffer (and so is being adjusted by `fit_crop`).
+pub fn crop_exceeds(hole: &SkinHole, fb_w: f32, fb_h: f32) -> bool {
+    hole.src_w > 0.0 && hole.src_h > 0.0
+        && (hole.src_x < 0.0 || hole.src_y < 0.0 || hole.src_x + hole.src_w > fb_w + 0.5 || hole.src_y + hole.src_h > fb_h + 0.5)
 }
 
 /// Which guest screen a cropped hole shows, by where its crop's centre falls.
@@ -933,5 +959,24 @@ mod tests {
         assert_eq!(DualScreenGeometry::for_system("ds"), Some(DualScreenGeometry::NINTENDO_DS));
         assert_eq!(DualScreenGeometry::for_system("n3ds"), Some(DualScreenGeometry::NINTENDO_3DS));
         assert_eq!(DualScreenGeometry::for_system("gba"), None);
+    }
+}
+
+#[cfg(test)]
+mod fit_crop_tests {
+    use super::*;
+    #[test]
+    fn sgb_crop_on_a_plain_game_boy_frame_shows_the_whole_frame() {
+        // (48,40,160,144) is the game inside a 256x224 SGB frame; cBoy sends 160x144.
+        assert_eq!(fit_crop(48.0, 40.0, 160.0, 144.0, 160.0, 144.0), (0.0, 0.0, 160.0, 144.0));
+        // Inside the frame: untouched.
+        assert_eq!(fit_crop(48.0, 40.0, 160.0, 144.0, 256.0, 224.0), (48.0, 40.0, 160.0, 144.0));
+        // Runs off the right: slid back.
+        assert_eq!(fit_crop(100.0, 0.0, 100.0, 100.0, 160.0, 144.0), (60.0, 0.0, 100.0, 100.0));
+        let h = SkinHole { dest_x: 0.0, dest_y: 0.0, dest_w: 1.0, dest_h: 1.0, src_x: 48.0, src_y: 40.0, src_w: 160.0, src_h: 144.0 };
+        assert!(crop_exceeds(&h, 160.0, 144.0));
+        assert!(!crop_exceeds(&h, 256.0, 224.0));
+        let f = hole_src(&h, 160.0, 144.0);
+        assert_eq!((f.x, f.y, f.w, f.h), (0.0, 0.0, 1.0, 1.0));
     }
 }

@@ -708,6 +708,28 @@ impl Renderer {
     /// so these fractions are already in that view. Takes effect on the next present.
     pub fn set_skin_holes(&mut self, holes: Vec<SkinHole>) {
         self.skin_holes = if holes.is_empty() { None } else { Some(holes) };
+        self.log_picture_setup("skin holes set");
+    }
+
+    /// One activity-log line describing what the picture is drawn from: the frame size, the post
+    /// effect and each skin crop (with a warning when a crop runs outside the frame, which shows
+    /// as stripes of repeated edge pixels and is corrected by `fit_crop`). Written on changes only.
+    fn log_picture_setup(&self, why: &str) {
+        static LINES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        if LINES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 100 {
+            return;
+        }
+        let (fw, fh) = self.frame_size();
+        let mut line = format!("picture ({why}): frame {fw}x{fh}, effect {:?}", self.post.effect);
+        for h in self.skin_holes.iter().flatten() {
+            if h.src_w > 0.0 {
+                let bad = if screen_layout::crop_exceeds(h, fw, fh) { " OUTSIDE FRAME, fitted" } else { "" };
+                line.push_str(&format!(", skin crop {}x{} at {},{}{bad}", h.src_w, h.src_h, h.src_x, h.src_y));
+            } else {
+                line.push_str(", skin hole (whole frame)");
+            }
+        }
+        crate::feedback::log_add("", &line);
     }
 
     /// Which two-screen geometry the running core has, if any. `None` for one-screen systems.
@@ -1212,6 +1234,7 @@ impl Renderer {
             .is_none_or(|t| t.width != view.width || t.height != view.height)
         {
             self.create_frame_target(view.width, view.height);
+            self.log_picture_setup("frame size changed");
         }
 
         let Some(target) = &self.frame_target else {
