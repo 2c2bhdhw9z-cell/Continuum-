@@ -9,6 +9,7 @@ pub mod bus;
 pub mod cart;
 pub mod cpu;
 pub mod gb;
+pub mod gba;
 pub mod libretro;
 pub mod ppu;
 pub mod timer;

@@ -23,4 +23,9 @@ if [ ! -d mts ]; then
     && python3 -c 'import tarfile,os; t=tarfile.open("mts.tar.xz"); t.extractall("mts-x"); d=os.listdir("mts-x")[0]; os.rename("mts-x/"+d,"mts"); os.rmdir("mts-x")' \
     && rm mts.tar.xz || echo "mooneye download failed (optional)"
 fi
+# Game Boy Advance: jsmolka/gba-tests (MIT, ships built ROMs), pinned.
+if [ ! -d jsmolka ]; then
+  git clone -q https://github.com/jsmolka/gba-tests jsmolka \
+    && git -C jsmolka checkout -q a7113b67e63f83a9b321696ddd7042ccfad6c881 || echo "gba-tests download failed"
+fi
 ls
