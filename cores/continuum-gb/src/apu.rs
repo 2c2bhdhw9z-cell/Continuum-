@@ -161,6 +161,11 @@ pub struct Apu {
     /// Output sample rate (core option). Not saved.
     #[serde(skip, default = "default_rate")]
     pub out_hz: u32,
+    /// High-quality output: each sample is the average over its span instead of one point.
+    #[serde(skip)]
+    pub hq: bool,
+    #[serde(skip)]
+    acc: (i64, i64, i64),
 }
 
 fn default_rate() -> u32 {
@@ -185,6 +190,8 @@ impl Default for Apu {
             samples: Vec::with_capacity(2048),
             chan_vol: [100; 4],
             out_hz: OUT_HZ,
+            hq: false,
+            acc: (0, 0, 0),
         };
         // The values the boot ROM leaves (channel 1 has just played the boot chime).
         let boot: [(u16, u8); 9] = [
@@ -437,10 +444,21 @@ impl Apu {
                 self.noise.lfsr = n;
             }
         }
+        if self.hq {
+            let (l, r) = self.mix();
+            self.acc.0 += i64::from(l) * i64::from(t);
+            self.acc.1 += i64::from(r) * i64::from(t);
+            self.acc.2 += i64::from(t);
+        }
         self.sample_acc += t * self.out_hz;
         if self.sample_acc >= CPU_HZ {
             self.sample_acc -= CPU_HZ;
-            let (l, r) = self.mix();
+            let (l, r) = if self.hq && self.acc.2 > 0 {
+                let a = std::mem::take(&mut self.acc);
+                ((a.0 / a.2) as i16, (a.1 / a.2) as i16)
+            } else {
+                self.mix()
+            };
             self.samples.push(l);
             self.samples.push(r);
         }

@@ -229,11 +229,14 @@ impl Core {
             g.bus.gpio.clock_offset = s.rtc_offset_hours * 3600;
             g.idle_skip = s.idle_skip;
             g.bus.apu.out_hz = s.sample_rate;
+            g.bus.apu.hq = s.audio_hq;
         } else {
             self.gb.bus.ppu.layers = s.gb_layers;
             self.gb.bus.apu.chan_vol = s.chan_vol;
             self.gb.bus.link_loopback = s.link_loopback;
             self.gb.bus.apu.out_hz = s.sample_rate;
+            self.gb.bus.apu.hq = s.audio_hq;
+            self.gb.bus.ppu.no_sprite_limit = !s.sprite_limit;
         }
     }
 
@@ -241,7 +244,15 @@ impl Core {
         let mut i = Inputs::default();
         let Some(input) = input else { return i };
         let s = &self.settings;
-        let held = |id: u32| input(0, DEVICE_JOYPAD, 0, id) != 0;
+        let stick = |id: u32| f32::from(input(0, DEVICE_ANALOG, 0, id)) / 32768.0;
+        let (sx, sy) = if s.stick_dpad { (stick(0), stick(1)) } else { (0.0, 0.0) };
+        let pad = |id: u32| input(0, DEVICE_JOYPAD, 0, id) != 0;
+        let mut dirs = [pad(4) || sy < -0.5, pad(5) || sy > 0.5, pad(6) || sx < -0.5, pad(7) || sx > 0.5];
+        if !s.opposing {
+            if dirs[0] && dirs[1] { dirs[0] = false; dirs[1] = false; }
+            if dirs[2] && dirs[3] { dirs[2] = false; dirs[3] = false; }
+        }
+        let held = |id: u32| match id { 4..=7 => dirs[(id - 4) as usize], _ => pad(id) };
         let turbo_on = s.turbo_period > 0 && self.frame_no % u64::from(s.turbo_period) < u64::from(s.turbo_period / 2);
         let a = held(8) || (s.turbo_period > 0 && held(9) && turbo_on);
         let b = held(0) || (s.turbo_period > 0 && held(1) && turbo_on);
@@ -255,7 +266,6 @@ impl Core {
         for (bit, on) in gba.iter().enumerate() {
             i.gba_keys |= u16::from(*on) << bit;
         }
-        let stick = |id: u32| f32::from(input(0, DEVICE_ANALOG, 0, id)) / 32768.0;
         let sensors = self.sensors.as_ref();
         let read = |id: u32| sensors.and_then(|x| x.get_sensor_input).map_or(0.0, |f| f(0, id));
         i.tilt = match s.tilt {
@@ -268,6 +278,9 @@ impl Core {
             crate::options::Source::Stick => stick(0),
             crate::options::Source::Off => 0.0,
         };
+        let k = s.motion_scale;
+        i.tilt = ((i.tilt.0 * k).clamp(-1.0, 1.0), (i.tilt.1 * k).clamp(-1.0, 1.0));
+        i.turn = (i.turn * k).clamp(-1.0, 1.0);
         i.light = match s.solar {
             Some(level) => Some(level),
             // Lux to 0-255: full sun saturates well before daylight levels.
@@ -368,6 +381,15 @@ impl Core {
         let (shade, source) = (ppu.shade.clone(), ppu.source.clone());
         self.post.video(&mut self.frame, &shade, &source, &self.settings, machine, &title);
         self.out.clear();
+        if self.settings.border_always {
+            // A plain frame in the darkest colour of the picture's palette.
+            self.out.resize(crate::sgb::BW * crate::sgb::BH, 0x0010_1010);
+            for y in 0..H {
+                let row = (crate::sgb::GY + y) * crate::sgb::BW + crate::sgb::GX;
+                self.out[row..row + W].copy_from_slice(&self.frame[y * W..(y + 1) * W]);
+            }
+            return (crate::sgb::BW, crate::sgb::BH);
+        }
         self.out.extend_from_slice(&self.frame);
         (W, H)
     }
@@ -413,7 +435,7 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
         return;
     }
     let (is_gba, sgb_border, rate) = CORE.lock().ok().and_then(|c| c.as_ref().map(|c| {
-        (c.gba.is_some(), c.gb.bus.sgb.is_some() && c.settings.sgb_border, c.settings.sample_rate)
+        (c.gba.is_some(), (c.gb.bus.sgb.is_some() && c.settings.sgb_border) || c.settings.border_always, c.settings.sample_rate)
     })).unwrap_or((false, false, crate::apu::OUT_HZ));
     let (w, h, aspect, fps) = if is_gba {
         (gba::ppu::W as u32, gba::ppu::H as u32, 1.5f32, 16_777_216.0 / 280_896.0)
@@ -488,8 +510,13 @@ fn build_machine(rom: Vec<u8>, s: &crate::options::Settings, dir: Option<&str>) 
         if s.gba_bios_file {
             match system_file(dir, "gba_bios.bin") {
                 Some(bios) => match Gba::with_bios(rom.clone(), bios) {
-                    Ok(m) => {
-                        log_line("starting from the Game Boy Advance BIOS file");
+                    Ok(mut m) => {
+                        if s.gba_bios_skip_logo {
+                            m.cpu = gba::cpu::Cpu::default();
+                            log_line("using the Game Boy Advance BIOS file, skipping its logo");
+                        } else {
+                            log_line("starting from the Game Boy Advance BIOS file");
+                        }
                         g = Some(m);
                     }
                     Err(e) => log_line(&format!("BIOS file not used: {e}")),
@@ -713,7 +740,7 @@ pub unsafe extern "C" fn retro_run() {
     if core.last_motor != Some(motor) {
         core.last_motor = Some(motor);
         if let Some(r) = core.rumble {
-            let strength = if motor && s.rumble { 0xFFFF } else { 0 };
+            let strength = if motor { (u32::from(s.rumble_strength) * 0xFFFF / 100) as u16 } else { 0 };
             r(0, 0, strength);
         }
     }

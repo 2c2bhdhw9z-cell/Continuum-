@@ -155,6 +155,21 @@ fn every_option_through_the_libretro_api() {
         assert_ne!(last(&o).3, base_px, "{k}");
     }
 
+    // Ten-sprite limit off: dmg-acid2 checks the limit, so its picture changes.
+    let o = run(dmg, &[("cboy_sprite_limit", "off")], 60, None);
+    assert_ne!(last(&o).3, base_px);
+    // Tone stages.
+    for (k, v) in [("cboy_color_temp", "warm"), ("cboy_color_temp", "cool"), ("cboy_contrast", "reduce"), ("cboy_dark_filter", "20")] {
+        let o = run(dmg, &[(k, v)], 30, None);
+        assert_ne!(last(&o).3, base_px, "{k}={v}");
+    }
+    // Border for any Game Boy picture.
+    let o = run(dmg, &[("cboy_sgb_border", "always")], 30, None);
+    assert_eq!((last(&o).1, last(&o).2), (256, 224));
+    // High-quality sound gives different (averaged) samples of the same length.
+    let o = run(dmg, &[("cboy_audio_quality", "high")], 60, None);
+    assert_eq!(o.samples.len(), base.samples.len());
+
     // Ghosting on a static picture converges to the picture itself; on the first frames it differs.
     let o = run(dmg, &[("cboy_blend", "mix")], 60, None);
     assert_eq!(last(&o).3, base_px);

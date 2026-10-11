@@ -24,7 +24,7 @@ pub struct Ppu {
 }
 
 fn all_layers() -> u8 {
-    0x1F
+    0xFF
 }
 
 fn blank() -> Vec<u32> {
@@ -33,7 +33,7 @@ fn blank() -> Vec<u32> {
 
 impl Default for Ppu {
     fn default() -> Self {
-        Ppu { ref_x: [0; 2], ref_y: [0; 2], frame: blank(), layers: 0x1F, no_render: false }
+        Ppu { ref_x: [0; 2], ref_y: [0; 2], frame: blank(), layers: 0xFF, no_render: false }
     }
 }
 
@@ -294,6 +294,8 @@ impl Ppu {
             Self::objects(io, vram, pal, oam, y as i32, bitmap, &mut objs, &mut objwin);
         }
         // Windows.
+        // Debug layer switches for WIN0, WIN1 and the object window (layers bits 5-7).
+        let dispcnt = dispcnt & !(u16::from((!self.layers >> 5) & 7) << 13);
         let any_win = dispcnt & 0xE000 != 0;
         let inside = |h: u16, v: u16, x: usize| -> bool {
             let (x1, x2) = ((h >> 8) as usize, (h & 0xFF) as usize);

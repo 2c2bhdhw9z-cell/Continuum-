@@ -57,6 +57,9 @@ pub struct Ppu {
     /// Frame skip: draw nothing this frame (not saved).
     #[serde(skip)]
     pub no_render: bool,
+    /// Debug/comfort: draw more than ten sprites on a line (not saved).
+    #[serde(skip)]
+    pub no_sprite_limit: bool,
     /// For each pixel of `frame` on the DMG: the shade (0-3, after the palette registers) and
     /// where it came from (0 background or window, 1 sprite palette 0, 2 sprite palette 1).
     /// The output stage uses them for palettes, colourising and the Super Game Boy.
@@ -112,6 +115,7 @@ impl Default for Ppu {
             bg_pal: vec![0xFF; 64],
             layers: 7,
             no_render: false,
+            no_sprite_limit: false,
             shade: blank_bytes(),
             source: blank_bytes(),
             obj_pal: vec![0xFF; 64],
@@ -381,7 +385,7 @@ impl Ppu {
                 let line = i16::from(ly);
                 if line >= y && line < y + height {
                     picked.push(i);
-                    if picked.len() == 10 {
+                    if picked.len() == 10 && !self.no_sprite_limit {
                         break;
                     }
                 }

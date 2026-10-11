@@ -82,8 +82,8 @@ const SPECS: &[Spec] = &[
      c"Plays the console's own start-up logo from a file you supply: <system folder>/cboy/dmg_boot.bin, mgb_boot.bin, sgb_boot.bin, sgb2_boot.bin or cgb_boot.bin. Without the file the game starts directly. Next start.",
      OFF_ON, c"off"),
     (c"system", c"cboy_gba_bios", c"Game Boy Advance BIOS",
-     c"Built-in needs no file. File uses <system folder>/cboy/gba_bios.bin (or gba_bios.bin) and plays the start-up logo. Next start.",
-     &[(c"builtin", c"Built-in"), (c"file", c"From file")], c"builtin"),
+     c"Built-in needs no file. From file uses <system folder>/cboy/gba_bios.bin (or gba_bios.bin) and plays the start-up logo; From file, no logo uses it but starts the game directly. Next start.",
+     &[(c"builtin", c"Built-in"), (c"file", c"From file"), (c"file_skip", c"From file, no logo")], c"builtin"),
     (c"system", c"cboy_gba_save_type", c"Game Boy Advance save chip",
      c"Auto finds it from the game. Pick one if a game does not save. Next start.",
      &[(c"auto", c"Auto"), (c"sram", c"SRAM 32 KB"), (c"flash64", c"Flash 64 KB"), (c"flash128", c"Flash 128 KB"),
@@ -119,8 +119,17 @@ const SPECS: &[Spec] = &[
      c"Mix blends each frame with the last, which makes flicker effects solid. Ghosting leaves trails like the slow original screens.",
      &[(c"off", c"Off"), (c"mix", c"Mix"), (c"light", c"Ghosting, light"), (c"heavy", c"Ghosting, heavy")], c"off"),
     (c"video", c"cboy_sgb_border", c"Super Game Boy border",
-     c"Shows the frame a Super Game Boy game draws around the picture (with the Super Game Boy console).",
-     ON_OFF, c"on"),
+     c"Shows the frame a Super Game Boy game draws around the picture (with the Super Game Boy console). Always also puts Game Boy games on any other console inside a plain 256x224 frame.",
+     &[(c"on", c"Super Game Boy games"), (c"off", c"Off"), (c"always", c"Always")], c"on"),
+    (c"video", c"cboy_color_temp", c"Colour temperature",
+     c"Tints the whole picture warmer or cooler, like viewing the screen under different light.",
+     &[(c"neutral", c"Neutral"), (c"warm", c"Warm"), (c"cool", c"Cool")], c"neutral"),
+    (c"video", c"cboy_contrast", c"Contrast",
+     c"Raises or lowers the contrast of the finished picture.",
+     &[(c"normal", c"Normal"), (c"boost", c"Higher"), (c"reduce", c"Lower")], c"normal"),
+    (c"video", c"cboy_dark_filter", c"Darken",
+     c"Dims bright colours, easier on the eyes in the dark.",
+     &[(c"0", c"Off"), (c"10", c"10%"), (c"20", c"20%"), (c"30", c"30%"), (c"40", c"40%"), (c"50", c"50%")], c"0"),
     // Sound
     (c"audio", c"cboy_volume", c"Volume", c"Overall volume.", PCT, c"100"),
     (c"audio", c"cboy_vol_sq1", c"Pulse channel 1", c"Volume of the first pulse (square) channel.", PCT, c"100"),
@@ -132,9 +141,12 @@ const SPECS: &[Spec] = &[
     (c"audio", c"cboy_lowpass", c"Treble cut",
      c"Softens harsh high tones, like a small speaker. Off is the console's full output.",
      &[(c"off", c"Off"), (c"light", c"Light"), (c"medium", c"Medium"), (c"strong", c"Strong")], c"off"),
-    (c"audio", c"cboy_highpass", c"Remove DC offset",
-     c"Centres the waveform the way the console's output capacitor does, removing pops and the offset.",
-     ON_OFF, c"on"),
+    (c"audio", c"cboy_highpass", c"Output capacitor",
+     c"Centres the waveform the way the console's output capacitor does. Gentle keeps more bass; Off passes the raw signal, offset and all.",
+     &[(c"on", c"Like the console"), (c"gentle", c"Gentle"), (c"off", c"Off")], c"on"),
+    (c"audio", c"cboy_audio_quality", c"Sound quality",
+     c"High averages the sound between output samples (less harshness and aliasing); Fast takes one point per sample and costs less work.",
+     &[(c"fast", c"Fast"), (c"high", c"High")], c"fast"),
     (c"audio", c"cboy_gba_smooth", c"Smooth Advance samples",
      c"Interpolates the Advance's sampled sound between samples; less gritty, slightly duller.",
      OFF_ON, c"off"),
@@ -145,7 +157,17 @@ const SPECS: &[Spec] = &[
     (c"input", c"cboy_turbo", c"Turbo buttons",
      c"X and Y become rapid-fire A and B. The number is presses per second.",
      &[(c"off", c"Off"), (c"30", c"30"), (c"20", c"20"), (c"15", c"15"), (c"10", c"10"), (c"7", c"7.5")], c"off"),
-    (c"input", c"cboy_rumble", c"Rumble", c"Passes a cartridge's rumble motor to the phone or controller.", ON_OFF, c"on"),
+    (c"input", c"cboy_rumble", c"Rumble", c"Passes a cartridge's rumble motor to the phone or controller, at this strength.",
+     &[(c"100", c"100%"), (c"75", c"75%"), (c"50", c"50%"), (c"25", c"25%"), (c"off", c"Off")], c"100"),
+    (c"input", c"cboy_motion_sensitivity", c"Motion sensitivity",
+     c"How far the tilt and turn inputs move for a given motion of the phone or stick.",
+     &[(c"100", c"Normal"), (c"50", c"Half"), (c"75", c"Lower"), (c"150", c"Higher"), (c"200", c"Double")], c"100"),
+    (c"input", c"cboy_opposing", c"Allow opposite directions",
+     c"Lets left and right (or up and down) be held together, which a real pad cannot do and some games misbehave on.",
+     OFF_ON, c"off"),
+    (c"input", c"cboy_stick_dpad", c"Left stick as D-pad",
+     c"The analog stick also works as the D-pad.",
+     OFF_ON, c"off"),
     (c"input", c"cboy_tilt_source", c"Tilt input",
      c"For tilt cartridges (Kirby Tilt 'n' Tumble, Yoshi Topsy-Turvy): the phone's motion or the left stick.",
      &[(c"phone", c"Phone motion"), (c"stick", c"Left stick"), (c"off", c"Off")], c"phone"),
@@ -177,6 +199,12 @@ const SPECS: &[Spec] = &[
     (c"debug", c"cboy_layer_bg1", c"Advance BG1", c"Advance background 1.", ON_OFF, c"on"),
     (c"debug", c"cboy_layer_bg2", c"Advance BG2", c"Advance background 2.", ON_OFF, c"on"),
     (c"debug", c"cboy_layer_bg3", c"Advance BG3", c"Advance background 3.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_win0", c"Advance window 0", c"Off draws as if window 0 were disabled.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_win1", c"Advance window 1", c"Off draws as if window 1 were disabled.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_objwin", c"Advance object window", c"Off draws as if the object window were disabled.", ON_OFF, c"on"),
+    (c"debug", c"cboy_sprite_limit", c"Ten-sprite limit",
+     c"The Game Boy shows at most ten sprites on a line, which makes some games flicker. Off lifts the limit.",
+     ON_OFF, c"on"),
 ];
 
 /// Every key, for tests and for the fallback table.
@@ -274,6 +302,21 @@ pub struct Settings {
     pub idle_skip: bool,
     pub gb_layers: u8,
     pub gba_layers: u8,
+    pub gba_bios_skip_logo: bool,
+    /// Border for every Game Boy picture, not just Super Game Boy ones.
+    pub border_always: bool,
+    pub color_temp: u8,
+    pub contrast: u8,
+    pub dark: u8,
+    /// High-pass cutoff in Hz (0 off).
+    pub highpass_hz: f32,
+    pub audio_hq: bool,
+    /// 0-100.
+    pub rumble_strength: u8,
+    pub motion_scale: f32,
+    pub opposing: bool,
+    pub stick_dpad: bool,
+    pub sprite_limit: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -299,7 +342,9 @@ impl Default for Settings {
             chan_vol: [100; 4], fifo_vol: [100; 2], lowpass: 0, highpass: true, gba_smooth: false,
             sample_rate: 48_000, turbo_period: 0, rumble: true, tilt: Source::Phone, gyro: Source::Phone,
             solar: Some(128), link_loopback: false, frameskip: 0, run_ahead: 0, idle_skip: false,
-            gb_layers: 7, gba_layers: 0x1F,
+            gb_layers: 7, gba_layers: 0xFF, gba_bios_skip_logo: false, border_always: false, color_temp: 0,
+            contrast: 0, dark: 0, highpass_hz: 28.0, audio_hq: false, rumble_strength: 100, motion_scale: 1.0,
+            opposing: false, stick_dpad: false, sprite_limit: true,
         }
     }
 }
@@ -377,7 +422,8 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
         };
     }
     s.boot_rom = on(c"cboy_boot_rom", false);
-    s.gba_bios_file = get(c"cboy_gba_bios").is_some_and(|v| v == "file");
+    s.gba_bios_file = get(c"cboy_gba_bios").is_some_and(|v| v == "file" || v == "file_skip");
+    s.gba_bios_skip_logo = get(c"cboy_gba_bios").is_some_and(|v| v == "file_skip");
     s.gba_save = get(c"cboy_gba_save_type").and_then(|v| match v.as_str() {
         "sram" => Some((SaveKind::Sram, 0)), "flash64" => Some((SaveKind::Flash64, 0)),
         "flash128" => Some((SaveKind::Flash128, 0)), "eeprom512" => Some((SaveKind::Eeprom, 6)),
@@ -409,16 +455,31 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     s.gbc_color = match get(c"cboy_gbc_color").as_deref() { Some("screen") => 1, Some("soft") => 2, _ => 0 };
     s.gba_color = match get(c"cboy_gba_color").as_deref() { Some("gba") => 1, Some("sp") => 2, Some("tv") => 3, _ => 0 };
     s.blend = match get(c"cboy_blend").as_deref() { Some("mix") => 1, Some("light") => 2, Some("heavy") => 3, _ => 0 };
-    s.sgb_border = on(c"cboy_sgb_border", true);
+    s.sgb_border = get(c"cboy_sgb_border").is_none_or(|v| v != "off");
+    s.border_always = get(c"cboy_sgb_border").is_some_and(|v| v == "always");
+    s.color_temp = match get(c"cboy_color_temp").as_deref() { Some("warm") => 1, Some("cool") => 2, _ => 0 };
+    s.contrast = match get(c"cboy_contrast").as_deref() { Some("boost") => 1, Some("reduce") => 2, _ => 0 };
+    s.dark = get(c"cboy_dark_filter").and_then(|v| v.parse().ok()).unwrap_or(0).min(50);
     s.volume = u32::from(pct(c"cboy_volume"));
     s.chan_vol = [pct(c"cboy_vol_sq1"), pct(c"cboy_vol_sq2"), pct(c"cboy_vol_wave"), pct(c"cboy_vol_noise")];
     s.fifo_vol = [pct(c"cboy_vol_fifo_a"), pct(c"cboy_vol_fifo_b")];
     s.lowpass = match get(c"cboy_lowpass").as_deref() { Some("light") => 1, Some("medium") => 2, Some("strong") => 3, _ => 0 };
-    s.highpass = on(c"cboy_highpass", true);
+    s.highpass_hz = match get(c"cboy_highpass").as_deref() { Some("off") => 0.0, Some("gentle") => 5.0, _ => 28.0 };
+    s.highpass = s.highpass_hz > 0.0;
+    s.audio_hq = get(c"cboy_audio_quality").is_some_and(|v| v == "high");
     s.gba_smooth = on(c"cboy_gba_smooth", false);
     s.sample_rate = get(c"cboy_sample_rate").and_then(|v| v.parse().ok()).filter(|r| [48_000, 44_100, 32_768].contains(r)).unwrap_or(48_000);
     s.turbo_period = get(c"cboy_turbo").and_then(|v| v.parse::<u32>().ok()).map_or(0, |per_s| (60 / per_s.max(1)).max(2));
-    s.rumble = on(c"cboy_rumble", true);
+    s.rumble_strength = match get(c"cboy_rumble").as_deref() {
+        Some("off") => 0,
+        Some("on") | None => 100,
+        Some(v) => v.parse::<u8>().unwrap_or(100).min(100),
+    };
+    s.rumble = s.rumble_strength > 0;
+    s.motion_scale = get(c"cboy_motion_sensitivity").and_then(|v| v.parse::<f32>().ok()).unwrap_or(100.0).clamp(25.0, 400.0) / 100.0;
+    s.opposing = on(c"cboy_opposing", false);
+    s.stick_dpad = on(c"cboy_stick_dpad", false);
+    s.sprite_limit = on(c"cboy_sprite_limit", true);
     let src = |k: &CStr| match get(k).as_deref() { Some("stick") => Source::Stick, Some("off") => Source::Off, _ => Source::Phone };
     s.tilt = src(c"cboy_tilt_source");
     s.gyro = src(c"cboy_gyro_source");
@@ -435,7 +496,8 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
         | u8::from(on(c"cboy_layer_obj", true)) << 2;
     s.gba_layers = u8::from(on(c"cboy_layer_bg0", true)) | u8::from(on(c"cboy_layer_bg1", true)) << 1
         | u8::from(on(c"cboy_layer_bg2", true)) << 2 | u8::from(on(c"cboy_layer_bg3", true)) << 3
-        | u8::from(on(c"cboy_layer_obj", true)) << 4;
+        | u8::from(on(c"cboy_layer_obj", true)) << 4 | u8::from(on(c"cboy_layer_win0", true)) << 5
+        | u8::from(on(c"cboy_layer_win1", true)) << 6 | u8::from(on(c"cboy_layer_objwin", true)) << 7;
     s
 }
 
@@ -490,6 +552,21 @@ pub enum Machine {
     Gba,
 }
 
+/// Colour temperature, contrast and darkening on the finished picture (all machines).
+pub fn tone(frame: &mut [u32], s: &Settings) {
+    if s.color_temp == 0 && s.contrast == 0 && s.dark == 0 {
+        return;
+    }
+    let (tr, tg, tb) = match s.color_temp { 1 => (1.0, 0.95, 0.84), 2 => (0.88, 0.96, 1.0), _ => (1.0, 1.0, 1.0) };
+    let k = match s.contrast { 1 => 1.25, 2 => 0.8, _ => 1.0 };
+    let dim = 1.0 - f32::from(s.dark) / 100.0;
+    for p in frame.iter_mut() {
+        let (r, g, b) = split(*p);
+        let c = |v: f32, t: f32| (((v - 0.5) * k + 0.5) * t * dim).clamp(0.0, 1.0);
+        *p = join(c(r, tr), c(g, tg), c(b, tb));
+    }
+}
+
 /// Output-side state that lives across frames.
 #[derive(Default)]
 pub struct Post {
@@ -533,6 +610,7 @@ impl Post {
                 }
             }
         }
+        tone(frame, s);
         self.blend(frame, s.blend);
     }
 
@@ -562,8 +640,9 @@ impl Post {
             let rc = 1.0 / (2.0 * std::f32::consts::PI * f);
             dt / (rc + dt)
         });
-        // About 20 Hz, like the console's coupling capacitor.
-        let a_hp = 1.0 - (2.0 * std::f32::consts::PI * 20.0 / rate as f32);
+        // The console's coupling capacitor sits near 28 Hz; Gentle uses 5 Hz.
+        let hz = if s.highpass_hz > 0.0 { s.highpass_hz } else { 28.0 };
+        let a_hp = 1.0 - (2.0 * std::f32::consts::PI * hz / rate as f32);
         let vol = s.volume as f32 / 100.0;
         for (i, x) in samples.iter_mut().enumerate() {
             let ch = i & 1;
@@ -638,7 +717,15 @@ mod tests {
         assert_eq!((s.lowpass, s.highpass, s.gba_smooth, s.sample_rate), (3, false, true, 32_768));
         assert_eq!((s.turbo_period, s.rumble, s.tilt, s.gyro, s.solar), (6, false, Source::Stick, Source::Off, Some(255)));
         assert_eq!((s.link_loopback, s.frameskip, s.run_ahead, s.idle_skip), (true, 2, 1, true));
-        assert_eq!((s.gb_layers, s.gba_layers), (0, 0b01010));
+        assert_eq!((s.gb_layers, s.gba_layers), (0, 0b1110_1010));
+        let t = settings(&[("cboy_gba_bios", "file_skip"), ("cboy_sgb_border", "always"), ("cboy_color_temp", "warm"),
+            ("cboy_contrast", "reduce"), ("cboy_dark_filter", "30"), ("cboy_highpass", "gentle"), ("cboy_audio_quality", "high"),
+            ("cboy_rumble", "50"), ("cboy_motion_sensitivity", "200"), ("cboy_opposing", "on"), ("cboy_stick_dpad", "on"),
+            ("cboy_sprite_limit", "off"), ("cboy_layer_win0", "off"), ("cboy_layer_objwin", "off")]);
+        assert!(t.gba_bios_file && t.gba_bios_skip_logo && t.border_always && t.sgb_border);
+        assert_eq!((t.color_temp, t.contrast, t.dark, t.highpass_hz, t.audio_hq), (1, 2, 30, 5.0, true));
+        assert_eq!((t.rumble_strength, t.motion_scale, t.opposing, t.stick_dpad, t.sprite_limit), (50, 2.0, true, true, false));
+        assert_eq!(t.gba_layers, 0b0101_1111);
     }
 
     #[test]
@@ -679,6 +766,20 @@ mod tests {
         let mut d = vec![0u32];
         p.blend(&mut d, 3);
         assert!(d[0] & 0xFF > 0 && d[0] & 0xFF < c[0] & 0xFF, "{:06X} {:06X}", c[0], d[0]);
+    }
+
+    #[test]
+    fn tone_changes_the_picture() {
+        let base = vec![0x00C04020u32, 0x00FFFFFF];
+        for (k, v) in [("cboy_color_temp", "warm"), ("cboy_color_temp", "cool"), ("cboy_contrast", "boost"),
+                       ("cboy_contrast", "reduce"), ("cboy_dark_filter", "50")] {
+            let mut f = base.clone();
+            tone(&mut f, &settings(&[(k, v)]));
+            assert_ne!(f, base, "{k}={v}");
+        }
+        let mut f = base.clone();
+        tone(&mut f, &settings(&[("cboy_dark_filter", "50")]));
+        assert_eq!(f[1], 0x00808080);
     }
 
     #[test]
