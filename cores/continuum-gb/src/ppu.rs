@@ -33,6 +33,9 @@ pub struct Ppu {
     stat_line: bool,
     window_line: u8,
     wy_hit: bool,
+    /// The LY=LYC comparison, latched: it only updates while the LCD is on (Mooneye stat_lyc_onoff).
+    #[serde(default)]
+    lyc_eq: bool,
     #[serde(skip, default = "blank")]
     pub frame: Vec<u32>,
     /// Set when line 144 begins (a whole frame is in `frame`).
@@ -107,6 +110,7 @@ impl Default for Ppu {
             stat_line: false,
             window_line: 0,
             wy_hit: false,
+            lyc_eq: true,
             frame: blank(),
             frame_ready: false,
             skip_frame: false,
@@ -136,36 +140,57 @@ impl Ppu {
     }
 
     pub fn read_stat(&self) -> u8 {
-        let coinc = if self.ly == self.lyc { 4 } else { 0 };
+        let coinc = if self.lyc_eq { 4 } else { 0 };
         let mode = if self.on() { self.mode } else { 0 };
         0x80 | self.stat_enable | coinc | mode
+    }
+
+    pub fn write_lyc(&mut self, v: u8) -> bool {
+        self.lyc = v;
+        if self.on() {
+            self.lyc_eq = self.ly == self.lyc;
+        }
+        self.restat()
+    }
+
+    /// Re-evaluates the STAT interrupt line after a register write; true on a rising edge (the
+    /// interrupt is requested in the same M-cycle as the write).
+    pub fn restat(&mut self) -> bool {
+        if !self.on() {
+            return false;
+        }
+        let line = self.stat_condition();
+        let rise = line && !self.stat_line;
+        self.stat_line = line;
+        rise
     }
 
     pub fn write_stat(&mut self, v: u8) {
         self.stat_enable = v & 0x78;
     }
 
-    pub fn write_lcdc(&mut self, v: u8) {
+    pub fn write_lcdc(&mut self, v: u8) -> bool {
         let was = self.on();
         self.lcdc = v;
         if was && !self.on() {
             self.ly = 0;
             self.dot = 0;
             self.mode = 0;
-            self.stat_line = false;
         } else if !was && self.on() {
             self.ly = 0;
+            self.lyc_eq = self.lyc == 0;
             self.dot = 4; // the first line after switch-on starts a little late
             self.mode = 0; // and has no OAM scan
             self.window_line = 0;
             self.wy_hit = false;
             self.skip_frame = true;
         }
+        self.restat()
     }
 
     fn stat_condition(&self) -> bool {
         let e = self.stat_enable;
-        (e & 0x40 != 0 && self.ly == self.lyc)
+        (e & 0x40 != 0 && self.lyc_eq)
             || (e & 0x08 != 0 && (self.mode == 0 || (self.ly < 144 && self.dot + 4 >= self.hblank_at && self.mode == 3)))
             || (e & 0x10 != 0 && self.mode == 1)
             || (e & 0x20 != 0 && (self.mode == 2 || self.oam_irq_early()))
@@ -257,6 +282,7 @@ impl Ppu {
             }
             self.frame_ready = true;
         }
+        self.lyc_eq = self.ly == self.lyc;
         let line = self.stat_condition();
         if line && !self.stat_line {
             irq.stat = true;

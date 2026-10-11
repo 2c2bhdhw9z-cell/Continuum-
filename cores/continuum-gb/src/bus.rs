@@ -372,11 +372,19 @@ impl Bus {
             0xFF07 => self.timer.write_tac(v),
             0xFF0F => self.iflag = v & 0x1F,
             0xFF10..=0xFF3F => self.apu.write(addr, v),
-            0xFF40 => self.ppu.write_lcdc(v),
+            0xFF40 => {
+                if self.ppu.write_lcdc(v) {
+                    self.iflag |= INT_STAT;
+                }
+            }
             0xFF41 => self.ppu.write_stat(v),
             0xFF42 => self.ppu.scy = v,
             0xFF43 => self.ppu.scx = v,
-            0xFF45 => self.ppu.lyc = v,
+            0xFF45 => {
+                if self.ppu.write_lyc(v) {
+                    self.iflag |= INT_STAT;
+                }
+            }
             0xFF46 => {
                 self.dma_reg = v;
                 self.dma_src = u16::from(v) << 8;
