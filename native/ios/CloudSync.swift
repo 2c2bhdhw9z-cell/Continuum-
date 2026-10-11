@@ -1036,11 +1036,14 @@ final class CloudSync: ObservableObject {
 
     private func present(_ picker: UIDocumentPickerViewController, kind: String,
                          delegate: SyncFolderPickerDelegate) {
+        FeedbackCenter.step("sync folder: \(kind) picker requested")
         guard EngineHost.topmostViewController() != nil else {
+            FeedbackCenter.step("sync folder: \(kind) picker has no window")
             setLine("sync folder: cannot show the \(kind) picker, no window to present it from")
             return
         }
         EngineHost.whenPresentationSettled("\(kind) picker") { [weak self] presenter in
+            FeedbackCenter.step("sync folder: \(kind) presentation settled")
             self?.presentNow(picker, kind: kind, delegate: delegate, from: presenter)
         }
     }
@@ -1052,9 +1055,9 @@ final class CloudSync: ObservableObject {
         picker.allowsMultipleSelection = false
         picker.presentationController?.delegate = delegate
         let busy = presenter.isBeingDismissed || presenter.isBeingPresented
-        FeedbackCenter.record("sync folder: \(kind) picker presenting from \(type(of: presenter)), busy=\(busy)")
+        FeedbackCenter.step("sync folder: \(kind) picker presenting from \(type(of: presenter)), busy=\(busy)")
         presenter.present(picker, animated: true) {
-            FeedbackCenter.record("sync folder: \(kind) picker on screen")
+            FeedbackCenter.step("sync folder: \(kind) picker on screen")
         }
     }
 
@@ -1821,6 +1824,7 @@ struct CloudSyncSection: View {
                 sync.backUpToFiles()
             }
             SettingsButton(title: "Restore from a backup", role: .normal) {
+                FeedbackCenter.step("restore: Settings button tapped")
                 sync.restoreFromFiles()
             }
             SettingsNote(CloudSyncSection.backupNote)
