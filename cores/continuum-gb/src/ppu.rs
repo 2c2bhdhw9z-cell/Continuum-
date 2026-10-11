@@ -166,6 +166,16 @@ impl Ppu {
         self.on() && self.ly < 144 && (self.mode == 3 || (!self.first_line && (76..80).contains(&self.dot)))
     }
 
+    /// Writes are shut out a little differently from reads (Mooneye lcdon_write_timing): OAM
+    /// during the OAM scan but not its last 4 dots, and mode 3; VRAM only in mode 3.
+    pub fn oam_write_blocked(&self) -> bool {
+        self.on() && self.ly < 144 && ((self.mode == 2 && self.dot < 76) || self.mode == 3)
+    }
+
+    pub fn vram_write_blocked(&self) -> bool {
+        self.on() && self.ly < 144 && self.mode == 3
+    }
+
     pub fn read_stat(&self) -> u8 {
         let coinc = if self.lyc_eq { 4 } else { 0 };
         let mode = if self.on() { self.mode } else { 0 };

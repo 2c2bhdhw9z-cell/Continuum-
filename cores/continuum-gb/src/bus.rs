@@ -286,8 +286,8 @@ impl Bus {
         if self.dma_active && (0xFE00..0xFEA0).contains(&addr) {
             return;
         }
-        if self.ppu_locks && ((0xFE00..0xFEA0).contains(&addr) && self.ppu.oam_blocked()
-            || (0x8000..0xA000).contains(&addr) && self.ppu.vram_blocked())
+        if self.ppu_locks && ((0xFE00..0xFEA0).contains(&addr) && self.ppu.oam_write_blocked()
+            || (0x8000..0xA000).contains(&addr) && self.ppu.vram_write_blocked())
         {
             return;
         }
