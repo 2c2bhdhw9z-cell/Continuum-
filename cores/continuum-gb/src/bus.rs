@@ -58,6 +58,17 @@ pub struct Bus {
     /// Interrupts taken, by bit (VBlank, STAT, timer, serial, joypad); for the lockup log.
     #[serde(default)]
     pub irq_taken: [u32; 5],
+    /// The Super Game Boy, when running as one (core option).
+    #[serde(default)]
+    pub sgb: Option<Box<crate::sgb::Sgb>>,
+    /// Boot ROM image and whether it is still mapped over $0000 (core option).
+    #[serde(default)]
+    pub boot: Vec<u8>,
+    #[serde(default)]
+    pub boot_on: bool,
+    /// Link cable loopback (core option): a transfer reads back the byte sent.
+    #[serde(skip)]
+    pub link_loopback: bool,
     last_mode: u8,
 }
 
@@ -80,6 +91,10 @@ impl Bus {
             sb: 0,
             sc: 0x7E,
             serial_out: Vec::new(),
+            sgb: None,
+            boot: Vec::new(),
+            boot_on: false,
+            link_loopback: false,
             dma_src: 0,
             dma_pos: 0,
             dma_active: false,
@@ -119,7 +134,27 @@ impl Bus {
         if self.joyp_select & 0x10 == 0 {
             low &= !(self.buttons >> 4);
         }
+        if self.joyp_select == 0x30 {
+            if let Some(sgb) = &self.sgb {
+                low = sgb.joyp_idle();
+            }
+        }
         0xC0 | self.joyp_select | low
+    }
+
+    /// The 4 KiB a Super Game Boy VRAM transfer reads: the tiles the screen shows, in order.
+    fn sgb_screen_data(&self) -> Vec<u8> {
+        let map = if self.ppu.lcdc & 0x08 != 0 { 0x9C00u16 } else { 0x9800 };
+        let mut out = Vec::with_capacity(4096);
+        for i in 0..256u16 {
+            let at = map + (i / 20) * 32 + i % 20;
+            let tile = self.ppu.vram_read(at);
+            let base = self.ppu.bg_tile_addr(tile);
+            for b in 0..16 {
+                out.push(self.ppu.vram_read(base + b));
+            }
+        }
+        out
     }
 
     /// A debugging line for the frontend's log (libretro log), capped so a looping game cannot
@@ -150,6 +185,12 @@ impl Bus {
             let irq = self.ppu.tick();
             if irq.vblank {
                 self.iflag |= INT_VBLANK;
+                if self.sgb.as_mut().is_some_and(|s| s.wants_transfer()) {
+                    let data = self.sgb_screen_data();
+                    if let Some(s) = self.sgb.as_mut() {
+                        s.take_transfer(&data);
+                    }
+                }
             }
             if irq.stat {
                 self.iflag |= INT_STAT;
@@ -233,6 +274,9 @@ impl Bus {
 
     pub fn raw_read(&self, addr: u16) -> u8 {
         match addr {
+            0x0000..=0x00FF | 0x0200..=0x08FF if self.boot_on && usize::from(addr) < self.boot.len() => {
+                self.boot[usize::from(addr)]
+            }
             0x0000..=0x7FFF => self.cart.read_rom(addr),
             0x8000..=0x9FFF => self.ppu.vram[self.vram_index(addr)],
             0xA000..=0xBFFF => self.cart.read_ram(addr),
@@ -292,7 +336,15 @@ impl Bus {
                 self.wram[i] = v;
             }
             0xFE00..=0xFE9F => self.ppu.oam[(addr - 0xFE00) as usize] = v,
-            0xFF00 => self.joyp_select = v & 0x30,
+            0xFF00 => {
+                self.joyp_select = v & 0x30;
+                if let Some(sgb) = self.sgb.as_mut() {
+                    if let Some(line) = sgb.joyp_write(v) {
+                        self.log(line);
+                    }
+                }
+            }
+            0xFF50 if self.boot_on && v != 0 => self.boot_on = false,
             0xFF01 => self.sb = v,
             0xFF02 => {
                 self.sc = v;
@@ -300,7 +352,9 @@ impl Bus {
                 // 1s, which is what a disconnected cable reads as.
                 if v & 0x81 == 0x81 {
                     self.serial_out.push(self.sb);
-                    self.sb = 0xFF;
+                    if !self.link_loopback {
+                        self.sb = 0xFF;
+                    }
                     self.sc &= 0x7F;
                     self.iflag |= INT_SERIAL;
                 }

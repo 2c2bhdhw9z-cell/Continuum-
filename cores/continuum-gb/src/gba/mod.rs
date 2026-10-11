@@ -35,6 +35,18 @@ impl Gba {
         Gba { cpu: Cpu::default(), bus }
     }
 
+    /// Boots through a real BIOS image (16 KiB) from address 0: the logo and chime play, then
+    /// the BIOS jumps to the cartridge itself.
+    pub fn with_bios(rom: Vec<u8>, bios: Vec<u8>) -> Result<Gba, String> {
+        if bios.len() != 0x4000 {
+            return Err(format!("a Game Boy Advance BIOS is 16384 bytes, this one is {}", bios.len()));
+        }
+        let mut bus = Bus::new(rom);
+        bus.bios = bios;
+        bus.real_bios = true;
+        Ok(Gba { cpu: Cpu::power_on(), bus })
+    }
+
     pub fn step(&mut self) {
         if self.bus.halted {
             if self.bus.irq_requested() {
@@ -72,6 +84,9 @@ impl Gba {
         }
         let mut next: Gba = bincode::deserialize(&data[8..]).map_err(|e| e.to_string())?;
         next.bus.rom = std::mem::take(&mut self.bus.rom);
+        next.bus.bios = std::mem::take(&mut self.bus.bios);
+        // A state from a session with the real BIOS, loaded without one: built-in calls take over.
+        next.bus.real_bios = next.bus.real_bios && self.bus.real_bios;
         next.bus.ppu.frame = std::mem::take(&mut self.bus.ppu.frame);
         *self = next;
         Ok(())

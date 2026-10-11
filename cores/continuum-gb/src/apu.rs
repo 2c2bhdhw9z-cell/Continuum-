@@ -154,6 +154,14 @@ pub struct Apu {
     sample_acc: u32,
     #[serde(skip)]
     pub samples: Vec<i16>,
+    /// Per-channel volume from the core options, percent (square 1, square 2, wave, noise).
+    /// Output only, not saved.
+    #[serde(skip, default = "full_volume")]
+    pub chan_vol: [u8; 4],
+}
+
+fn full_volume() -> [u8; 4] {
+    [100; 4]
 }
 
 impl Default for Apu {
@@ -168,6 +176,7 @@ impl Default for Apu {
             seq_step: 0,
             sample_acc: 0,
             samples: Vec::with_capacity(2048),
+            chan_vol: [100; 4],
         };
         // The values the boot ROM leaves (channel 1 has just played the boot chime).
         let boot: [(u16, u8); 9] = [
@@ -446,7 +455,7 @@ impl Apu {
         let nr50 = self.regs[0x14];
         let (mut l, mut r) = (0i32, 0i32);
         for (i, v) in ch.iter().enumerate() {
-            let v = i32::from(*v);
+            let v = i32::from(*v) * i32::from(self.chan_vol[i]) / 100;
             if nr51 & (0x10 << i) != 0 { l += v }
             if nr51 & (1 << i) != 0 { r += v }
         }

@@ -14,4 +14,5 @@ pub mod gba;
 pub mod libretro;
 pub mod options;
 pub mod ppu;
+pub mod sgb;
 pub mod timer;

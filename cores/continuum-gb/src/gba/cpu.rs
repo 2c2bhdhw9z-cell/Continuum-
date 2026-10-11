@@ -70,6 +70,16 @@ fn ror(v: u32, n: u32) -> u32 {
 }
 
 impl Cpu {
+    /// Power-on state, for running a real BIOS from address 0 (supervisor mode, IRQ/FIQ off).
+    pub fn power_on() -> Cpu {
+        let mut c = Cpu::default();
+        c.r = [0; 16];
+        c.r13 = [0; 6];
+        c.cpsr = MODE_SVC | 0xC0;
+        c.pc = 0;
+        c
+    }
+
     pub fn thumb(&self) -> bool {
         self.cpsr & T != 0
     }
@@ -311,7 +321,11 @@ impl Cpu {
             }
             self.set_reg(15, self.r[15].wrapping_add(off));
         } else if op & 0x0F00_0000 == 0x0F00_0000 {
-            bios::swi(self, bus, (op >> 16) & 0xFF);
+            if bus.real_bios {
+                self.exception(MODE_SVC, 0x08, addr.wrapping_add(4));
+            } else {
+                bios::swi(self, bus, (op >> 16) & 0xFF);
+            }
         } else {
             self.undefined(addr);
         }
@@ -771,7 +785,11 @@ impl Cpu {
             26 | 27 => {
                 let c = (op >> 8) & 15;
                 if c == 15 {
-                    bios::swi(self, bus, op & 0xFF);
+                    if bus.real_bios {
+                        self.exception(MODE_SVC, 0x08, addr.wrapping_add(2));
+                    } else {
+                        bios::swi(self, bus, op & 0xFF);
+                    }
                 } else if c == 14 {
                     self.undefined(addr);
                 } else if self.cond(c) {

@@ -16,6 +16,13 @@ pub struct Ppu {
     pub ref_y: [i32; 2],
     #[serde(skip, default = "blank")]
     pub frame: Vec<u32>,
+    /// Layer switches from the core options: bits 0-3 BG0-BG3, bit 4 sprites. Not saved.
+    #[serde(skip, default = "all_layers")]
+    pub layers: u8,
+}
+
+fn all_layers() -> u8 {
+    0x1F
 }
 
 fn blank() -> Vec<u32> {
@@ -24,7 +31,7 @@ fn blank() -> Vec<u32> {
 
 impl Default for Ppu {
     fn default() -> Self {
-        Ppu { ref_x: [0; 2], ref_y: [0; 2], frame: blank() }
+        Ppu { ref_x: [0; 2], ref_y: [0; 2], frame: blank(), layers: 0x1F }
     }
 }
 
@@ -267,7 +274,7 @@ impl Ppu {
         let this = &*self;
         let mut lines: [[u16; W]; 4] = [[CLEAR; W]; 4];
         for &bg in list {
-            if dispcnt & (0x100 << bg) == 0 {
+            if dispcnt & (0x100 << bg) == 0 || self.layers & (1 << bg) == 0 {
                 continue;
             }
             bg_on[bg] = true;
@@ -281,7 +288,7 @@ impl Ppu {
         }
         let mut objs: [Option<ObjPx>; W] = [None; W];
         let mut objwin = [false; W];
-        if dispcnt & 0x1000 != 0 {
+        if dispcnt & 0x1000 != 0 && self.layers & 0x10 != 0 {
             Self::objects(io, vram, pal, oam, y as i32, bitmap, &mut objs, &mut objwin);
         }
         // Windows.

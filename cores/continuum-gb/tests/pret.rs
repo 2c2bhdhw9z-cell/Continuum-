@@ -46,6 +46,11 @@ fn pret_debug_run() {
     let (Ok(game), Ok(out)) = (std::env::var("PRET_GAME"), std::env::var("PRET_OUT")) else { return };
     let frames: u32 = std::env::var("PRET_FRAMES").ok().and_then(|v| v.parse().ok()).unwrap_or(1500);
     let Some(mut gb) = load(&game) else { return };
+    if let Ok(sav) = std::env::var("PRET_SAV") {
+        let d = std::fs::read(sav).unwrap();
+        let n = d.len().min(gb.bus.cart.ram.len());
+        gb.bus.cart.ram[..n].copy_from_slice(&d[..n]);
+    }
     std::fs::create_dir_all(&out).unwrap();
     let mut last_vb = 0;
     let mut stuck = 0;

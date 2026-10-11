@@ -50,6 +50,25 @@ pub struct Ppu {
     pub bcps: u8,
     pub ocps: u8,
     pub opri: u8,
+    /// Layer switches from the core options (bit 0 background, 1 window, 2 sprites). Not
+    /// hardware state, so not in save states.
+    #[serde(skip, default = "all_layers")]
+    pub layers: u8,
+    /// For each pixel of `frame` on the DMG: the shade (0-3, after the palette registers) and
+    /// where it came from (0 background or window, 1 sprite palette 0, 2 sprite palette 1).
+    /// The output stage uses them for palettes, colourising and the Super Game Boy.
+    #[serde(skip, default = "blank_bytes")]
+    pub shade: Vec<u8>,
+    #[serde(skip, default = "blank_bytes")]
+    pub source: Vec<u8>,
+}
+
+fn all_layers() -> u8 {
+    7
+}
+
+fn blank_bytes() -> Vec<u8> {
+    vec![0; W * H]
 }
 
 fn blank() -> Vec<u32> {
@@ -88,6 +107,9 @@ impl Default for Ppu {
             hblank_at: 252,
             cgb: false,
             bg_pal: vec![0xFF; 64],
+            layers: 7,
+            shade: blank_bytes(),
+            source: blank_bytes(),
             obj_pal: vec![0xFF; 64],
             bcps: 0,
             ocps: 0,
@@ -262,7 +284,7 @@ impl Ppu {
         (self.vram[a], self.vram[a + 1])
     }
 
-    fn bg_tile_addr(&self, index: u8) -> u16 {
+    pub fn bg_tile_addr(&self, index: u8) -> u16 {
         if self.lcdc & 0x10 != 0 {
             0x8000 + u16::from(index) * 16
         } else {
@@ -303,9 +325,11 @@ impl Ppu {
         if bg_on {
             let map = if self.lcdc & 0x08 != 0 { 0x9C00u16 } else { 0x9800 };
             let y = ly.wrapping_add(self.scy);
-            for x in 0..W {
-                let sx = (x as u8).wrapping_add(self.scx);
-                (bg_index[x], bg_attr[x]) = self.map_pixel(map, sx, y);
+            if self.layers & 1 != 0 {
+                for x in 0..W {
+                    let sx = (x as u8).wrapping_add(self.scx);
+                    (bg_index[x], bg_attr[x]) = self.map_pixel(map, sx, y);
+                }
             }
             if self.lcdc & 0x20 != 0 && self.wy_hit && self.wx <= 166 {
                 let map = if self.lcdc & 0x40 != 0 { 0x9C00u16 } else { 0x9800 };
@@ -318,21 +342,26 @@ impl Ppu {
                         continue;
                     }
                     drawn = true;
-                    (bg_index[x], bg_attr[x]) = self.map_pixel(map, wx as u8, wy);
+                    if self.layers & 2 != 0 {
+                        (bg_index[x], bg_attr[x]) = self.map_pixel(map, wx as u8, wy);
+                    }
                 }
                 if drawn {
                     self.window_line += 1;
                 }
             }
         }
+        let mut shade = [0u8; W];
+        let mut source = [0u8; W];
         for x in 0..W {
             row[x] = if cgb {
                 Self::cgb_colour(&self.bg_pal, usize::from(bg_attr[x] & 7) * 4 + usize::from(bg_index[x]))
             } else {
-                SHADES[((self.bgp >> (bg_index[x] * 2)) & 3) as usize]
+                shade[x] = (self.bgp >> (bg_index[x] * 2)) & 3;
+                SHADES[shade[x] as usize]
             };
         }
-        if self.lcdc & 0x02 != 0 {
+        if self.lcdc & 0x02 != 0 && self.layers & 4 != 0 {
             let tall = self.lcdc & 0x04 != 0;
             let height: i16 = if tall { 16 } else { 8 };
             let mut picked: Vec<usize> = Vec::with_capacity(10);
@@ -392,12 +421,18 @@ impl Ppu {
                         Self::cgb_colour(&self.obj_pal, usize::from(attr & 7) * 4 + usize::from(c))
                     } else {
                         let pal = if attr & 0x10 != 0 { self.obp1 } else { self.obp0 };
-                        SHADES[((pal >> (c * 2)) & 3) as usize]
+                        shade[x] = (pal >> (c * 2)) & 3;
+                        source[x] = 1 + u8::from(attr & 0x10 != 0);
+                        SHADES[shade[x] as usize]
                     };
                 }
             }
         }
         let base = ly as usize * W;
         self.frame[base..base + W].copy_from_slice(row);
+        if self.shade.len() == W * H {
+            self.shade[base..base + W].copy_from_slice(&shade);
+            self.source[base..base + W].copy_from_slice(&source);
+        }
     }
 }

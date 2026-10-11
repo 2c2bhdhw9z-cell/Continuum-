@@ -16,6 +16,17 @@ pub struct GameBoy {
     pub bus: Bus,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Model {
+    Auto,
+    Dmg,
+    Mgb,
+    Sgb,
+    Sgb2,
+    Cgb,
+    Agb,
+}
+
 const STATE_MAGIC: &[u8; 8] = b"CGBSTAT1";
 
 impl GameBoy {
@@ -30,6 +41,62 @@ impl GameBoy {
     /// The machine in a chosen mode (the tests run CGB-hardware tests this way).
     pub fn new_mode(rom: Vec<u8>, cgb: bool) -> Result<GameBoy, String> {
         Ok(Self::build(Cart::new(rom)?, cgb))
+    }
+
+    /// The machine for a model chosen in the core options, optionally starting from a boot ROM.
+    /// A Color or Advance model given a Game Boy-only cartridge runs it the way those consoles
+    /// do (in Game Boy mode, telling the game which console it is through the registers); a
+    /// Game Boy model given a Color cartridge runs it in Game Boy mode.
+    pub fn with_model(rom: Vec<u8>, model: Model, boot: Option<Vec<u8>>) -> Result<GameBoy, String> {
+        let cart = Cart::new(rom)?;
+        let colour_cart = cart.cgb_flag & 0x80 != 0;
+        let model = if model == Model::Auto {
+            if colour_cart { Model::Cgb } else { Model::Dmg }
+        } else {
+            model
+        };
+        let cgb = colour_cart && matches!(model, Model::Cgb | Model::Agb);
+        let mut gb = Self::build(cart, cgb);
+        let c = &mut gb.cpu;
+        match (model, cgb) {
+            (Model::Mgb, _) => c.a = 0xFF,
+            (Model::Sgb | Model::Sgb2, _) => {
+                (c.a, c.f, c.b, c.c, c.d, c.e, c.h, c.l) = (0x01, 0x00, 0x00, 0x14, 0x00, 0x00, 0xC0, 0x60);
+                if model == Model::Sgb2 {
+                    c.a = 0xFF;
+                }
+                gb.bus.sgb = Some(Box::default());
+            }
+            (Model::Agb, true) => {
+                c.f = 0x00;
+                c.b = 0x01;
+            }
+            (Model::Cgb | Model::Agb, false) => {
+                (c.a, c.f, c.b, c.c, c.d, c.e, c.h, c.l) = (0x11, 0x80, 0x00, 0x00, 0x00, 0x08, 0x00, 0x7C);
+                if model == Model::Agb {
+                    c.b = 0x01;
+                }
+            }
+            _ => {}
+        }
+        if let Some(boot) = boot {
+            let want = if cgb { 0x900 } else { 0x100 };
+            if boot.len() != want {
+                return Err(format!("that boot ROM is {} bytes; this model needs {want}", boot.len()));
+            }
+            gb.bus.boot = boot;
+            gb.bus.boot_on = true;
+            let sgb = gb.bus.sgb.take();
+            let c = &mut gb.cpu;
+            (c.a, c.f, c.b, c.c, c.d, c.e, c.h, c.l, c.sp, c.pc) = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            gb.bus.sgb = sgb;
+            gb.bus.ppu.lcdc = 0;
+        }
+        Ok(gb)
+    }
+
+    pub fn model_is_sgb(&self) -> bool {
+        self.bus.sgb.is_some()
     }
 
     fn build(cart: Cart, cgb: bool) -> GameBoy {
@@ -76,6 +143,7 @@ impl GameBoy {
         let mut next: GameBoy = bincode::deserialize(&data[8..]).map_err(|e| e.to_string())?;
         next.bus.cart.rom = std::mem::take(&mut self.bus.cart.rom);
         next.bus.ppu.frame = std::mem::take(&mut self.bus.ppu.frame);
+        next.bus.link_loopback = self.bus.link_loopback;
         *self = next;
         Ok(())
     }

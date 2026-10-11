@@ -45,6 +45,10 @@ struct Fifo {
 /// The mini BIOS this core puts at $00000000: the IRQ vector and the real BIOS's IRQ dispatcher
 /// (save registers, call the handler at [$03FFFFFC], restore, return). Everything else the BIOS
 /// does is high-level (`bios.rs`).
+fn full_fifo() -> [u8; 2] {
+    [100; 2]
+}
+
 fn mini_bios() -> Vec<u8> {
     let mut b = vec![0u8; 0x4000];
     let mut put = |a: usize, op: u32| b[a..a + 4].copy_from_slice(&op.to_le_bytes());
@@ -67,8 +71,19 @@ fn mini_bios() -> Vec<u8> {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Bus {
+    /// DirectSound A/B volume from the core options, percent. Output only, not saved.
+    #[serde(skip, default = "full_fifo")]
+    pub fifo_vol: [u8; 2],
+    /// Smooth DirectSound between samples (core option). Output only.
+    #[serde(skip)]
+    pub fifo_smooth: bool,
+    #[serde(skip)]
+    fifo_last: [i32; 2],
     #[serde(skip, default = "mini_bios")]
-    bios: Vec<u8>,
+    pub bios: Vec<u8>,
+    /// Running a real BIOS file (core option): SWIs go through it instead of the built-in calls.
+    #[serde(default)]
+    pub real_bios: bool,
     pub ewram: Vec<u8>,
     pub iwram: Vec<u8>,
     pub io: Vec<u8>,
@@ -109,7 +124,11 @@ impl Bus {
         let mut apu = Apu::default();
         apu.write(0xFF26, 0); // the GBA starts with sound off
         Bus {
+            fifo_vol: [100; 2],
+            fifo_smooth: false,
+            fifo_last: [0; 2],
             bios: mini_bios(),
+            real_bios: false,
             ewram: vec![0; 0x40000],
             iwram: vec![0; 0x8000],
             io: vec![0; 0x400],
@@ -710,7 +729,13 @@ impl Bus {
             let mut r = i32::from(self.apu.samples[i + 1]) >> psg_shift;
             for n in 0..2 {
                 let full = cnth & (4 << n) != 0;
-                let v = i32::from(self.fifo[n].current) * if full { 128 } else { 64 };
+                let mut v = i32::from(self.fifo[n].current) * if full { 128 } else { 64 };
+                if self.fifo_smooth {
+                    let raw = v;
+                    v = (v + self.fifo_last[n]) / 2;
+                    self.fifo_last[n] = raw;
+                }
+                v = v * i32::from(self.fifo_vol[n]) / 100;
                 if cnth & (0x100 << (n * 4)) != 0 { r += v }
                 if cnth & (0x200 << (n * 4)) != 0 { l += v }
             }
