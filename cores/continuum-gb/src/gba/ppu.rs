@@ -14,7 +14,7 @@ pub struct Ppu {
     /// The affine backgrounds' internal reference points (BG2, BG3), 20.8 fixed point.
     pub ref_x: [i32; 2],
     pub ref_y: [i32; 2],
-    #[serde(skip, default = "blank")]
+    /// Saved with the state, like the Game Boy's (deterministic replays and run-ahead).
     pub frame: Vec<u32>,
     /// Layer switches from the core options: bits 0-3 BG0-BG3, bit 4 sprites. Not saved.
     #[serde(skip, default = "all_layers")]

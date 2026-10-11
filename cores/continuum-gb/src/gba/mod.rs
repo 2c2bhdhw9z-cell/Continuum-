@@ -43,7 +43,7 @@ struct IdleWatch {
     skipped: u64,
 }
 
-const STATE_MAGIC: &[u8; 8] = b"CGBASTA1";
+const STATE_MAGIC: &[u8; 8] = b"CGBASTA2";
 
 impl Gba {
     pub fn new(rom: Vec<u8>) -> Gba {
@@ -131,12 +131,11 @@ impl Gba {
         if data.len() < 8 || &data[..8] != STATE_MAGIC {
             return Err("not a cBoy GBA state".into());
         }
-        let mut next: Gba = bincode::deserialize(&data[8..]).map_err(|e| e.to_string())?;
+        let mut next: Gba = crate::state_decode(&data[8..])?;
         next.bus.rom = std::mem::take(&mut self.bus.rom);
         next.bus.bios = std::mem::take(&mut self.bus.bios);
         // A state from a session with the real BIOS, loaded without one: built-in calls take over.
         next.bus.real_bios = next.bus.real_bios && self.bus.real_bios;
-        next.bus.ppu.frame = std::mem::take(&mut self.bus.ppu.frame);
         *self = next;
         Ok(())
     }

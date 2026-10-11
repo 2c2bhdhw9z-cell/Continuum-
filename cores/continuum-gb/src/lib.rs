@@ -16,3 +16,15 @@ pub mod options;
 pub mod ppu;
 pub mod sgb;
 pub mod timer;
+
+/// Decodes a save state body. Same encoding as `bincode::serialize`, but no allocation may
+/// exceed the input's size, so a corrupt length field is refused instead of exhausting memory.
+pub(crate) fn state_decode<T: serde::de::DeserializeOwned>(body: &[u8]) -> Result<T, String> {
+    use bincode::Options;
+    bincode::DefaultOptions::new()
+        .with_fixint_encoding()
+        .allow_trailing_bytes()
+        .with_limit(body.len() as u64)
+        .deserialize(body)
+        .map_err(|e| e.to_string())
+}

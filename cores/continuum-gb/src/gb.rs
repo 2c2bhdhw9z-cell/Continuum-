@@ -29,7 +29,7 @@ pub enum Model {
     Agb,
 }
 
-const STATE_MAGIC: &[u8; 8] = b"CGBSTAT1";
+const STATE_MAGIC: &[u8; 8] = b"CGBSTAT2";
 
 impl GameBoy {
     pub fn new(rom: Vec<u8>) -> Result<GameBoy, String> {
@@ -160,9 +160,8 @@ impl GameBoy {
         if data.len() < 8 || &data[..8] != STATE_MAGIC {
             return Err("not a cBoy Game Boy state".into());
         }
-        let mut next: GameBoy = bincode::deserialize(&data[8..]).map_err(|e| e.to_string())?;
+        let mut next: GameBoy = crate::state_decode(&data[8..])?;
         next.bus.cart.rom = std::mem::take(&mut self.bus.cart.rom);
-        next.bus.ppu.frame = std::mem::take(&mut self.bus.ppu.frame);
         next.bus.link_loopback = self.bus.link_loopback;
         *self = next;
         Ok(())

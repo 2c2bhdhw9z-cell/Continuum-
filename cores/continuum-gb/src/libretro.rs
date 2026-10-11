@@ -856,6 +856,10 @@ pub unsafe extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> 
     let Some(core) = slot.as_mut() else { return false };
     let ok = match core.gba.as_mut() { Some(g) => g.load_state(bytes).is_ok(), None => core.gb.load_state(bytes).is_ok() };
     core.apply_live();
+    if ok {
+        // No ghost of the picture from before the load.
+        core.post.blend(&mut [], 0);
+    }
     ok
 }
 

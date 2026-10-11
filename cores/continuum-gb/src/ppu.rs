@@ -39,7 +39,8 @@ pub struct Ppu {
     /// The first line after the LCD is switched on: no OAM scan, and mode 3 starts 4 dots later.
     #[serde(default)]
     first_line: bool,
-    #[serde(skip, default = "blank")]
+    /// The picture is part of a state: a game that switches the LCD on mid-frame leaves lines
+    /// from the frame before, and run-ahead and replays must show the same ones.
     pub frame: Vec<u32>,
     /// Set when line 144 begins (a whole frame is in `frame`).
     #[serde(skip)]
@@ -69,9 +70,7 @@ pub struct Ppu {
     /// For each pixel of `frame` on the DMG: the shade (0-3, after the palette registers) and
     /// where it came from (0 background or window, 1 sprite palette 0, 2 sprite palette 1).
     /// The output stage uses them for palettes, colourising and the Super Game Boy.
-    #[serde(skip, default = "blank_bytes")]
     pub shade: Vec<u8>,
-    #[serde(skip, default = "blank_bytes")]
     pub source: Vec<u8>,
 }
 

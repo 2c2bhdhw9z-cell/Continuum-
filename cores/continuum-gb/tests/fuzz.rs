@@ -60,6 +60,12 @@ fn random_game_boy_cartridges_never_panic() {
         let _ = gb.load_state(&st[..st.len() / 2]);
         let junk = r.bytes(st.len());
         let _ = gb.load_state(&junk);
+        // Valid header, corrupt body (huge length fields): refused, no runaway allocation.
+        let mut bad = st.clone();
+        for b in bad[8..].iter_mut().step_by(7) {
+            *b = 0xFF;
+        }
+        let _ = gb.load_state(&bad);
     }
 }
 
@@ -101,3 +107,23 @@ fn random_advance_cartridges_never_panic() {
         let _ = g.load_state(&st[..st.len() / 3]);
     }
 }
+
+/// The state layout is pinned: if a field is added or removed the size changes, and the format
+/// tag in `save_state` must be bumped so older states are refused rather than misread.
+#[test]
+fn state_layout_is_pinned() {
+    let mut rom = vec![0u8; 0x8000];
+    rom[0x147] = 0x1B; // MBC5 + RAM + battery
+    rom[0x149] = 3;
+    let gb = GameBoy::new(rom).unwrap();
+    let st = gb.save_state();
+    assert_eq!(&st[..8], b"CGBSTAT2", "bump the tag when the layout changes");
+    let g = Gba::new(vec![0u8; 0x1000]);
+    let sa = g.save_state();
+    assert_eq!(&sa[..8], b"CGBASTA2");
+    eprintln!("state sizes: gb {} gba {}", st.len(), sa.len());
+    assert_eq!((st.len(), sa.len()), (GB_STATE_LEN, GBA_STATE_LEN),
+               "the state layout changed: bump CGBSTAT/CGBASTA and update these sizes");
+}
+const GB_STATE_LEN: usize = 220_973;
+const GBA_STATE_LEN: usize = 550_530;

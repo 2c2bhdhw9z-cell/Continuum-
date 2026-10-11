@@ -10,6 +10,8 @@ use continuum_gb::libretro::*;
 
 static OPTS: Mutex<Option<HashMap<String, CString>>> = Mutex::new(None);
 static UPDATED: Mutex<bool> = Mutex::new(false);
+/// The core is one global: tests take turns.
+static SERIAL: Mutex<()> = Mutex::new(());
 struct Out {
     frames: Vec<(bool, u32, u32, Vec<u32>)>,
     samples: Vec<i16>,
@@ -124,6 +126,7 @@ fn last(o: &Out) -> &(bool, u32, u32, Vec<u32>) {
 
 #[test]
 fn every_option_through_the_libretro_api() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     if rom("dmg-acid2.gb").is_none() || rom("jsmolka/arm/arm.gba").is_none() {
         eprintln!("SKIPPED: test ROMs missing");
         return;
@@ -274,4 +277,100 @@ fn every_option_through_the_libretro_api() {
     OUT.lock().unwrap().held = u32::MAX;
     assert_eq!(o.frames.len(), 12);
     assert_eq!(o.rumble, vec![0]);
+}
+
+/// Adversarial: every value of every option, on the Game Boy, Color and Advance paths, set at
+/// load and changed mid-game; a save state taken afterwards must load and replay identically,
+/// and nothing may panic.
+#[test]
+fn every_option_value_survives_mid_game_change_and_states() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let games = ["dmg-acid2.gb", "cgb-acid2.gbc", "jsmolka/arm/arm.gba"];
+    if games.iter().any(|g| rom(g).is_none()) {
+        eprintln!("SKIPPED: test ROMs missing");
+        return;
+    }
+    for game in games {
+        for (key, values) in continuum_gb::options::all_values() {
+            for v in &values {
+                let opt = [(key.as_str(), v.as_str())];
+                // Set at load.
+                let a = run(game, &opt, 8, None);
+                assert!(a.frames.iter().any(|f| f.0), "{game} {key}={v}: no picture");
+                // Changed mid-game, then a state round trip replays the same frames.
+                replay_after_state(game, &opt);
+            }
+        }
+    }
+}
+
+fn replay_after_state(game: &str, opt: &[(&str, &str)]) {
+    let data = rom(game).unwrap();
+    *OPTS.lock().unwrap() = Some(HashMap::new());
+    OUT.lock().unwrap().frames.clear();
+    unsafe {
+        retro_set_environment(env);
+        retro_set_video_refresh(video);
+        retro_set_audio_sample_batch(audio);
+        retro_set_input_poll(poll);
+        retro_set_input_state(input);
+        retro_init();
+        let info = RetroGameInfo { path: std::ptr::null(), data: data.as_ptr() as *const c_void, size: data.len(), meta: std::ptr::null() };
+        assert!(retro_load_game(&info));
+        for _ in 0..5 {
+            retro_run();
+        }
+        {
+            let mut g = OPTS.lock().unwrap();
+            for (k, v) in opt {
+                g.as_mut().unwrap().insert(k.to_string(), CString::new(*v).unwrap());
+            }
+            *UPDATED.lock().unwrap() = true;
+        }
+        for _ in 0..5 {
+            retro_run();
+        }
+        let n = retro_serialize_size();
+        let mut st = vec![0u8; n];
+        assert!(retro_serialize(st.as_mut_ptr() as *mut c_void, n), "{game} {opt:?}: serialize");
+        OUT.lock().unwrap().frames.clear();
+        for _ in 0..4 {
+            retro_run();
+        }
+        let first: Vec<_> = std::mem::take(&mut OUT.lock().unwrap().frames);
+        let mut st_a = vec![0u8; n];
+        retro_serialize(st_a.as_mut_ptr() as *mut c_void, n);
+        assert!(retro_unserialize(st.as_ptr() as *const c_void, n), "{game} {opt:?}: unserialize");
+        for _ in 0..4 {
+            retro_run();
+        }
+        let second: Vec<_> = std::mem::take(&mut OUT.lock().unwrap().frames);
+        let mut st_b = vec![0u8; n];
+        retro_serialize(st_b.as_mut_ptr() as *mut c_void, n);
+        assert!(st_a == st_b, "{game} {opt:?}: machine state after replay differs");
+        // Junk states are refused without harm.
+        let junk = vec![0xA5u8; n];
+        assert!(!retro_unserialize(junk.as_ptr() as *const c_void, n));
+        assert!(!retro_unserialize(st.as_ptr() as *const c_void, 10));
+        retro_run();
+        retro_unload_game();
+        retro_deinit();
+        // Blending and ghosting start afresh after a load (no ghost of the old picture), so
+        // their pictures legitimately differ; the machine state above must still match.
+        // Frame skip follows the frontend's frame count and the wall clock, not the machine.
+        if opt.iter().any(|(k, v)| (*k == "cboy_blend" || *k == "cboy_frameskip") && *v != "off") {
+            return;
+        }
+        let pics = |f: &[(bool, u32, u32, Vec<u32>)]| f.iter().skip(1).map(|x| (x.0, x.1, x.2, x.3.clone())).collect::<Vec<_>>();
+        let (pa, pb) = (pics(&first), pics(&second));
+        if std::env::var("E2E_DEBUG").is_ok() {
+            let h = |f: &[(bool, u32, u32, Vec<u32>)]| f.iter().map(|x| x.3.iter().fold(0u64, |a, p| a.wrapping_mul(31).wrapping_add(u64::from(*p))) % 1000).collect::<Vec<_>>();
+            eprintln!("{game} {opt:?}: {:?} vs {:?}", h(&first), h(&second));
+        }
+        let detail: Vec<_> = pa.iter().zip(pb.iter()).enumerate()
+            .filter(|(_, (a, b))| a != b)
+            .map(|(i, (a, b))| (i, a.3.iter().zip(b.3.iter()).filter(|(x, y)| x != y).count(), a.3.iter().zip(b.3.iter()).position(|(x, y)| x != y)))
+            .collect();
+        assert!(pa == pb, "{game} {opt:?}: replay after state differs: {detail:?}");
+    }
 }

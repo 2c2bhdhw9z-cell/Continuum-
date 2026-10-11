@@ -879,3 +879,10 @@ mod tests {
         assert!(hf[1998].abs() < 3000, "{}", hf[1998]);
     }
 }
+
+/// Every option key with every value it accepts (for tests and tooling).
+pub fn all_values() -> Vec<(String, Vec<String>)> {
+    SPECS.iter()
+        .map(|s| (s.1.to_string_lossy().into_owned(), s.4.iter().map(|v| v.0.to_string_lossy().into_owned()).collect()))
+        .collect()
+}
