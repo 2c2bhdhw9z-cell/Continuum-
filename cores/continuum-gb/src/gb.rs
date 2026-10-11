@@ -71,7 +71,7 @@ impl GameBoy {
 
     pub fn load_state(&mut self, data: &[u8]) -> Result<(), String> {
         if data.len() < 8 || &data[..8] != STATE_MAGIC {
-            return Err("not a Continuum GB state".into());
+            return Err("not a cBoy Game Boy state".into());
         }
         let mut next: GameBoy = bincode::deserialize(&data[8..]).map_err(|e| e.to_string())?;
         next.bus.cart.rom = std::mem::take(&mut self.bus.cart.rom);

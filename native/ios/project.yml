@@ -743,7 +743,7 @@ targets:
         embed: true
         link: false
         codeSign: false
-      # Game Boy, Continuum GB (this project's own Rust core, cores/continuum-gb).
+      # Game Boy / Color / Advance, cBoy (this project's own Rust core, cores/continuum-gb).
       - framework: build/lib/continuum_gb_libretro_ios.dylib
         embed: true
         link: false

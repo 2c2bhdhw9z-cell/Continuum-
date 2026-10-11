@@ -697,13 +697,14 @@ enum CoreCatalog {
         priority: 0, biosNames: []
     )
 
-    /// Game Boy and Game Boy Color. Continuum GB: this project's own core, written from scratch
-    /// in Rust (cores/continuum-gb). Selectable in Settings; mGBA stays the default. OPTIONAL.
+    /// Game Boy, Game Boy Color and Game Boy Advance. cBoy: this project's own core, written
+    /// from scratch in Rust (cores/continuum-gb), one core for all three like mGBA, choosing the
+    /// machine from the ROM. Selectable in Settings; mGBA stays the default. OPTIONAL in the .ipa.
     static let continuumGb = CoreSpec(
-        coreId: "continuum_gb", displayName: "Continuum GB (Game Boy, Color)",
-        systems: ["gb", "gbc"], library: "continuum_gb_libretro_ios.dylib",
-        width: 160, height: 144, maxWidth: 160, maxHeight: 144,
-        aspectRatio: 10.0 / 9.0, fps: 4_194_304.0 / 70_224.0, sampleRate: 48000, pixelFormat: 1,
+        coreId: "continuum_gb", displayName: "cBoy (Game Boy, Color, Advance)",
+        systems: ["gb", "gbc", "gba"], library: "continuum_gb_libretro_ios.dylib",
+        width: 240, height: 160, maxWidth: 240, maxHeight: 160,
+        aspectRatio: 1.5, fps: 59.7275, sampleRate: 48000, pixelFormat: 1,
         priority: 0, biosNames: []
     )
 
@@ -1058,6 +1059,7 @@ enum CoreCatalog {
         .saturn: [yabause.coreId, mednafenSaturn.coreId],
         .gb: [mgba.coreId, continuumGb.coreId],
         .gbc: [mgba.coreId, continuumGb.coreId],
+        .gba: [mgba.coreId, continuumGb.coreId],
     ]
 
     /// The UserDefaults key a system's core choice is stored under (not the PlayStation's).
@@ -4694,11 +4696,18 @@ final class EngineHost: ObservableObject {
         guard !activeCoreId.isEmpty,
               let spec = CoreCatalog.core(id: activeCoreId),
               spec.aspectRatio > 0 else { return nil }
+        // cBoy is one core for three machines: its spec carries the Advance's 3:2, and a Game
+        // Boy or Game Boy Color game on it is 10:9.
+        var aspect = spec.aspectRatio
+        if spec.coreId == CoreCatalog.continuumGb.coreId,
+           let system = activeSystem, system == .gb || system == .gbc {
+            aspect = 10.0 / 9.0
+        }
         // A quarter turn (SET_ROTATION or the rotate action) stands the picture on its side.
         if engine.screenRotation() % 2 == 1 {
-            return CGFloat(1 / spec.aspectRatio)
+            return CGFloat(1 / aspect)
         }
-        return CGFloat(spec.aspectRatio)
+        return CGFloat(aspect)
     }
 
     /// The last thing the external display did, for the diagnostics panel.

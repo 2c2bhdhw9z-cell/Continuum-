@@ -1,4 +1,5 @@
-//! Continuum GB: a Game Boy core written for Continuum, exposed through the libretro API.
+//! cBoy (crate continuum_gb): Continuum's own Game Boy, Game Boy Color and Game Boy Advance core,
+//! one core for all three (the ROM picks the machine), exposed through the libretro API.
 //!
 //! Modules: `cpu` (SM83), `bus` (memory map, DMA, serial, joypad), `cart` (MBC1/3/5, RTC),
 //! `ppu`, `apu`, `timer`, `gb` (the machine). Designed so the Game Boy Color fits in later:

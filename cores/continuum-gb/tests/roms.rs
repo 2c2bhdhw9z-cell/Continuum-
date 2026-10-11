@@ -188,16 +188,25 @@ fn save_state_round_trip() {
     assert!(b.load_state(b"junk").is_err());
 }
 
-/// The libretro entry points, called the way a frontend does.
+static mut FRAMES: u32 = 0;
+static mut EXPECT: (u32, u32) = (0, 0);
+
+/// The libretro entry points, called the way a frontend does, for a GB and a GBA ROM.
 #[test]
 fn libretro_api_smoke() {
+    run_smoke("dmg-acid2.gb", 160, 144);
+    run_smoke("jsmolka/arm/arm.gba", 240, 160);
+}
+
+fn run_smoke(name: &str, ew: u32, eh: u32) {
     use continuum_gb::libretro::*;
     use std::ffi::c_void;
-    let Some(data) = rom("dmg-acid2.gb") else { return };
+    let Some(data) = rom(name) else { return };
+    unsafe { EXPECT = (ew, eh); FRAMES = 0; }
     unsafe extern "C" fn env(_cmd: u32, _d: *mut c_void) -> bool { true }
-    static mut FRAMES: u32 = 0;
+
     unsafe extern "C" fn video(_d: *const c_void, w: u32, h: u32, pitch: usize) {
-        assert_eq!((w, h, pitch), (160, 144, 640));
+        assert_eq!((w, h, pitch), (EXPECT.0, EXPECT.1, EXPECT.0 as usize * 4));
         FRAMES += 1;
     }
     unsafe extern "C" fn audio(_d: *const i16, n: usize) -> usize { n }

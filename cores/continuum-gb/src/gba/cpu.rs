@@ -518,7 +518,7 @@ impl Cpu {
             if rd == 15 {
                 v = v.wrapping_add(4);
             }
-            bus.write16(addr & !1, v as u16);
+            bus.write16(addr, v as u16);
             if !p || w {
                 self.set_reg(rn_i, moved);
             }
@@ -556,7 +556,7 @@ impl Cpu {
             if b {
                 bus.write8(addr, v as u8);
             } else {
-                bus.write32(addr & !3, v);
+                bus.write32(addr, v);
             }
             if !p || w {
                 self.set_reg(rn_i, moved);
@@ -676,7 +676,7 @@ impl Cpu {
                 let rd = (op & 7) as usize;
                 if op & (1 << 9) == 0 {
                     match (op >> 10) & 3 {
-                        0 => bus.write32(a & !3, self.r[rd]),
+                        0 => bus.write32(a, self.r[rd]),
                         1 => bus.write8(a, self.r[rd] as u8),
                         2 => {
                             self.r[rd] = ror(bus.read32(a & !3), (a & 3) * 8);
@@ -689,7 +689,7 @@ impl Cpu {
                     }
                 } else {
                     match (op >> 10) & 3 {
-                        0 => bus.write16(a & !1, self.r[rd] as u16),
+                        0 => bus.write16(a, self.r[rd] as u16),
                         1 => {
                             self.r[rd] = bus.read8(a) as i8 as i32 as u32;
                             bus.idle(1);
@@ -729,7 +729,7 @@ impl Cpu {
                         self.r[rd] = ror(bus.read32(a & !3), (a & 3) * 8);
                         bus.idle(1);
                     } else {
-                        bus.write32(a & !3, self.r[rd]);
+                        bus.write32(a, self.r[rd]);
                     }
                 }
             }
@@ -740,7 +740,7 @@ impl Cpu {
                     self.r[rd] = ror(bus.read16(a & !1), (a & 1) * 8);
                     bus.idle(1);
                 } else {
-                    bus.write16(a & !1, self.r[rd] as u16);
+                    bus.write16(a, self.r[rd] as u16);
                 }
             }
             18 | 19 => {
@@ -750,7 +750,7 @@ impl Cpu {
                     self.r[rd] = ror(bus.read32(a & !3), (a & 3) * 8);
                     bus.idle(1);
                 } else {
-                    bus.write32(a & !3, self.r[rd]);
+                    bus.write32(a, self.r[rd]);
                 }
             }
             20 | 21 => {
@@ -891,12 +891,12 @@ impl Cpu {
             self.r[13] = a;
             for i in 0..8 {
                 if list & (1 << i) != 0 {
-                    bus.write32(a & !3, self.r[i]);
+                    bus.write32(a, self.r[i]);
                     a = a.wrapping_add(4);
                 }
             }
             if extra {
-                bus.write32(a & !3, self.r[14]);
+                bus.write32(a, self.r[14]);
             }
         }
     }
@@ -912,7 +912,7 @@ impl Cpu {
                 let v = bus.read32(a & !3);
                 self.set_reg(15, v);
             } else {
-                bus.write32(a & !3, self.r[15].wrapping_add(2));
+                bus.write32(a, self.r[15].wrapping_add(2));
             }
             self.r[rb] = a.wrapping_add(0x40);
             return;
@@ -934,7 +934,7 @@ impl Cpu {
             for i in 0..8 {
                 if list & (1 << i) != 0 {
                     let v = if i == rb && i != first { end } else { self.r[i] };
-                    bus.write32(a & !3, v);
+                    bus.write32(a, v);
                     a = a.wrapping_add(4);
                 }
             }

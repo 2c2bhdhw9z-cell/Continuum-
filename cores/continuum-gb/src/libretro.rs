@@ -7,6 +7,7 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::gb::GameBoy;
+use crate::gba::{self, Gba};
 use crate::ppu::{H, W};
 
 #[repr(C)]
@@ -68,6 +69,8 @@ const RTC_LEN: usize = 24;
 
 struct Core {
     gb: GameBoy,
+    /// Set when the loaded ROM is a Game Boy Advance one (then `gb` is an idle placeholder).
+    gba: Option<Box<Gba>>,
     frame: Vec<u32>,
     rtc_block: [u8; RTC_LEN],
     rtc_synced: bool,
@@ -127,9 +130,9 @@ pub unsafe extern "C" fn retro_get_system_info(info: *mut RetroSystemInfo) {
         return;
     }
     *info = RetroSystemInfo {
-        library_name: c"Continuum GB".as_ptr(),
+        library_name: c"cBoy".as_ptr(),
         library_version: c"0.1.0".as_ptr(),
-        valid_extensions: c"gb|gbc|dmg|cgb".as_ptr(),
+        valid_extensions: c"gb|gbc|dmg|cgb|gba|agb".as_ptr(),
         need_fullpath: false,
         block_extract: false,
     };
@@ -140,16 +143,22 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
     if info.is_null() {
         return;
     }
+    let is_gba = CORE.lock().ok().is_some_and(|c| c.as_ref().is_some_and(|c| c.gba.is_some()));
+    let (w, h, aspect, fps) = if is_gba {
+        (gba::ppu::W as u32, gba::ppu::H as u32, 1.5f32, 16_777_216.0 / 280_896.0)
+    } else {
+        (W as u32, H as u32, 10.0 / 9.0, 4_194_304.0 / 70_224.0)
+    };
     *info = RetroSystemAvInfo {
         geometry: RetroGameGeometry {
-            base_width: W as u32,
-            base_height: H as u32,
-            max_width: W as u32,
-            max_height: H as u32,
-            aspect_ratio: 10.0 / 9.0,
+            base_width: w,
+            base_height: h,
+            max_width: gba::ppu::W as u32,
+            max_height: gba::ppu::H as u32,
+            aspect_ratio: aspect,
         },
         timing: RetroSystemTiming {
-            fps: 4_194_304.0 / 70_224.0,
+            fps,
             sample_rate: f64::from(crate::apu::OUT_HZ),
         },
     };
@@ -205,7 +214,14 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
         return false;
     }
     let rom = std::slice::from_raw_parts((*game).data as *const u8, (*game).size).to_vec();
-    let Ok(gb) = GameBoy::new(rom) else { return false };
+    let is_gba = gba::is_gba_rom(&rom);
+    let (gb, gba_machine) = if is_gba {
+        let Ok(idle) = GameBoy::new(vec![0; 0x8000]) else { return false };
+        (idle, Some(Box::new(Gba::new(rom))))
+    } else {
+        let Ok(gb) = GameBoy::new(rom) else { return false };
+        (gb, None)
+    };
     let env = CB.lock().ok().and_then(|c| c.env);
     if let Some(env) = env {
         let mut fmt = PIXEL_FORMAT_XRGB8888;
@@ -213,7 +229,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
             return false;
         }
     }
-    let mut core = Core { gb, frame: vec![0; W * H], rtc_block: [0; RTC_LEN], rtc_synced: false };
+    let mut core = Core { gb, gba: gba_machine, frame: vec![0; W * H], rtc_block: [0; RTC_LEN], rtc_synced: false };
     core.write_rtc_block();
     core.rtc_block[16..24].fill(0); // "nothing saved yet" until the frontend writes its copy
     if let Ok(mut slot) = CORE.lock() {
@@ -244,6 +260,14 @@ pub extern "C" fn retro_get_region() -> u32 {
 pub extern "C" fn retro_reset() {
     if let Ok(mut slot) = CORE.lock() {
         if let Some(core) = slot.as_mut() {
+            if let Some(g) = core.gba.as_mut() {
+                let rom = std::mem::take(&mut g.bus.rom);
+                let save = g.bus.save.clone();
+                let mut fresh = Gba::new(rom);
+                fresh.bus.save = save;
+                **g = fresh;
+                return;
+            }
             let rom = std::mem::take(&mut core.gb.bus.cart.rom);
             let ram = std::mem::take(&mut core.gb.bus.cart.ram);
             let rtc = core.gb.bus.cart.rtc.clone();
@@ -279,6 +303,40 @@ pub unsafe extern "C" fn retro_run() {
     }
     let Ok(mut slot) = CORE.lock() else { return };
     let Some(core) = slot.as_mut() else { return };
+    if let Some(g) = core.gba.as_mut() {
+        let mut keys = 0u16;
+        if let Some(input) = input {
+            // KEYINPUT order: A B Select Start Right Left Up Down R L.
+            let map = [8u32, 0, 2, 3, 7, 6, 4, 5, 11, 10];
+            for (bit, id) in map.iter().enumerate() {
+                if input(0, DEVICE_JOYPAD, 0, *id) != 0 {
+                    keys |= 1 << bit;
+                }
+            }
+        }
+        g.set_keys(keys);
+        g.run_frame();
+        let samples = std::mem::take(&mut g.bus.apu.samples);
+        if let Some(video) = video {
+            video(g.bus.ppu.frame.as_ptr() as *const c_void, gba::ppu::W as u32,
+                  gba::ppu::H as u32, gba::ppu::W * 4);
+        }
+        if let Some(audio) = audio {
+            let mut off = 0;
+            while off < samples.len() / 2 {
+                let n = audio(samples[off * 2..].as_ptr(), samples.len() / 2 - off);
+                if n == 0 {
+                    break;
+                }
+                off += n;
+            }
+        }
+        let mut samples = samples;
+        samples.clear();
+        g.bus.apu.samples = samples;
+        return;
+    }
+    let _ = buttons;
     if !core.rtc_synced {
         core.rtc_synced = true;
         if core.gb.bus.cart.has_rtc {
@@ -316,7 +374,7 @@ pub unsafe extern "C" fn retro_run() {
 pub extern "C" fn retro_serialize_size() -> usize {
     CORE.lock()
         .ok()
-        .and_then(|s| s.as_ref().map(|c| c.gb.save_state().len() + 1024))
+        .and_then(|s| s.as_ref().map(|c| match &c.gba { Some(g) => g.save_state().len(), None => c.gb.save_state().len() } + 1024))
         .unwrap_or(0)
 }
 
@@ -324,7 +382,7 @@ pub extern "C" fn retro_serialize_size() -> usize {
 pub unsafe extern "C" fn retro_serialize(data: *mut c_void, size: usize) -> bool {
     let Ok(slot) = CORE.lock() else { return false };
     let Some(core) = slot.as_ref() else { return false };
-    let state = core.gb.save_state();
+    let state = match &core.gba { Some(g) => g.save_state(), None => core.gb.save_state() };
     if data.is_null() || state.len() > size {
         return false;
     }
@@ -342,7 +400,7 @@ pub unsafe extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> 
     let bytes = std::slice::from_raw_parts(data as *const u8, size);
     let Ok(mut slot) = CORE.lock() else { return false };
     let Some(core) = slot.as_mut() else { return false };
-    core.gb.load_state(bytes).is_ok()
+    match core.gba.as_mut() { Some(g) => g.load_state(bytes).is_ok(), None => core.gb.load_state(bytes).is_ok() }
 }
 
 #[no_mangle]
@@ -354,6 +412,14 @@ pub extern "C" fn retro_cheat_set(_index: u32, _enabled: bool, _code: *const c_c
 pub extern "C" fn retro_get_memory_data(id: u32) -> *mut c_void {
     let Ok(mut slot) = CORE.lock() else { return std::ptr::null_mut() };
     let Some(core) = slot.as_mut() else { return std::ptr::null_mut() };
+    if let Some(g) = core.gba.as_mut() {
+        return match id {
+            MEMORY_SAVE_RAM if !g.bus.save.data.is_empty() => g.bus.save.data.as_mut_ptr() as *mut c_void,
+            MEMORY_SYSTEM_RAM => g.bus.ewram.as_mut_ptr() as *mut c_void,
+            MEMORY_VIDEO_RAM => g.bus.vram.as_mut_ptr() as *mut c_void,
+            _ => std::ptr::null_mut(),
+        };
+    }
     match id {
         MEMORY_SAVE_RAM if core.gb.bus.cart.has_battery && !core.gb.bus.cart.ram.is_empty() => {
             core.gb.bus.cart.ram.as_mut_ptr() as *mut c_void
@@ -369,6 +435,14 @@ pub extern "C" fn retro_get_memory_data(id: u32) -> *mut c_void {
 pub extern "C" fn retro_get_memory_size(id: u32) -> usize {
     let Ok(slot) = CORE.lock() else { return 0 };
     let Some(core) = slot.as_ref() else { return 0 };
+    if let Some(g) = core.gba.as_ref() {
+        return match id {
+            MEMORY_SAVE_RAM => g.bus.save.data.len(),
+            MEMORY_SYSTEM_RAM => g.bus.ewram.len(),
+            MEMORY_VIDEO_RAM => g.bus.vram.len(),
+            _ => 0,
+        };
+    }
     match id {
         MEMORY_SAVE_RAM if core.gb.bus.cart.has_battery => core.gb.bus.cart.ram.len(),
         MEMORY_RTC if core.gb.bus.cart.has_rtc => RTC_LEN,

@@ -58,6 +58,10 @@ fn mini_bios() -> Vec<u8> {
     put(0x134, 0xE510_F004); // LDR PC, [R0, #-4]
     put(0x138, 0xE8BD_500F); // LDMFD SP!, {R0-R3, R12, LR}
     put(0x13C, 0xE25E_F004); // SUBS PC, LR, #4
+    // Never run; there so a BIOS read from outside after an IRQ or SWI returns what the real
+    // BIOS's prefetch would (games and tests read it).
+    put(0x144, 0xE55E_C002);
+    put(0x190, 0xE3A0_2004);
     b
 }
 
@@ -227,8 +231,10 @@ impl Bus {
         self.fetch_cost(addr, true);
         let v = self.peek32(addr);
         self.open_bus = v;
-        if addr < 0x4000 {
-            self.bios_latch = v;
+        if addr + 8 < 0x4000 {
+            // What a BIOS read from outside returns: the opcode two ahead (the prefetch).
+            let a = (addr + 8) as usize;
+            self.bios_latch = u32::from_le_bytes([self.bios[a], self.bios[a + 1], self.bios[a + 2], self.bios[a + 3]]);
         }
         self.run_pending();
         v
@@ -274,12 +280,23 @@ impl Bus {
 
     pub fn write16(&mut self, addr: u32, v: u16) {
         self.charge(addr, false);
+        if addr >> 25 == 7 {
+            // The save chip's 8-bit bus takes the byte the address lands on.
+            self.save.write8(addr, (v >> ((addr & 1) * 8)) as u8);
+            self.run_pending();
+            return;
+        }
         self.poke16(addr & !1, v);
         self.run_pending();
     }
 
     pub fn write32(&mut self, addr: u32, v: u32) {
         self.charge(addr, true);
+        if addr >> 25 == 7 {
+            self.save.write8(addr, (v >> ((addr & 3) * 8)) as u8);
+            self.run_pending();
+            return;
+        }
         self.poke16(addr & !3, v as u16);
         self.poke16((addr & !3) + 2, (v >> 16) as u16);
         self.run_pending();
@@ -291,11 +308,17 @@ impl Bus {
     }
 
     pub fn peek8(&self, addr: u32) -> u32 {
+        if addr >> 25 == 7 {
+            return u32::from(self.save.read8(addr));
+        }
         let h = self.peek16(addr & !1);
         if addr & 1 != 0 { h >> 8 } else { h & 0xFF }
     }
 
     pub fn peek16(&self, addr: u32) -> u32 {
+        if addr >> 25 == 7 {
+            return u32::from(self.save.read8(addr)) * 0x0101;
+        }
         let addr = addr & !1;
         let r = |m: &[u8], i: usize| u32::from(m[i]) | u32::from(m[i + 1]) << 8;
         match addr >> 24 {
@@ -330,10 +353,7 @@ impl Bus {
                     (addr >> 1) & 0xFFFF
                 }
             }
-            0x0E | 0x0F => {
-                let b = u32::from(self.save.read8(addr));
-                b * 0x0101
-            }
+            0x0E | 0x0F => u32::from(self.save.read8(addr)) * 0x0101,
             _ => self.open_bus & 0xFFFF,
         }
     }
@@ -487,10 +507,6 @@ impl Bus {
                 self.set_io16(a, v);
                 self.ppu.reload_affine(&self.io);
             }
-            0x60..=0x9F => {
-                self.io_write8(a, v as u8);
-                self.io_write8(a + 1, (v >> 8) as u8);
-            }
             0x82 => {
                 self.set_io16(a, v);
                 if v & 0x0800 != 0 {
@@ -503,6 +519,14 @@ impl Bus {
             0xA0..=0xA7 => {
                 self.io_write8(a, v as u8);
                 self.io_write8(a + 1, (v >> 8) as u8);
+            }
+            0x60..=0x9F => {
+                for (i, b) in [(a, v as u8), (a + 1, (v >> 8) as u8)] {
+                    if let Some(r) = Self::psg_reg(i) {
+                        self.apu.write(r, b);
+                    }
+                    self.io[i] = b;
+                }
             }
             0xBA | 0xC6 | 0xD2 | 0xDE => {
                 let ch = (a - 0xBA) / 12;

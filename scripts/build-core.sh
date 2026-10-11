@@ -480,14 +480,14 @@ ios_core_config() {
       IOS_DISPLAY="PSP, Vulkan, IR interpreter (no JIT, no dynarec)"
       ;;
     continuum_gb)
-      # Game Boy. Continuum GB: this project's own core, written in Rust in cores/continuum-gb
-      # (no upstream, so no repo or pin). A selectable alternative to mGBA, which stays the
-      # default. OPTIONAL: a failure leaves the .ipa without it, nothing else.
+      # Game Boy, Color and Advance. cBoy: this project's own core, written in Rust in
+      # cores/continuum-gb (no upstream, so no repo or pin), one core for all three. A selectable
+      # alternative to mGBA, which stays the default. OPTIONAL: a failure leaves the .ipa without it, nothing else.
       IOS_REPO=""
       IOS_PIN=""
       IOS_DYLIB_NAME="continuum_gb_libretro_ios.dylib"
       IOS_KIND="cargo-continuum-gb"
-      IOS_DISPLAY="Game Boy, Continuum GB (own Rust core), optional"
+      IOS_DISPLAY="Game Boy / Color / Advance, cBoy (own Rust core), optional"
       ;;
     continuum_symbian)
       # Symbian / N-Gage. Continuum Symbian: native/continuum-symbian (this project's libretro
@@ -893,7 +893,7 @@ ios_stage_dylib() {
   echo "==> done: native/ios/build/lib/$canonical ($(du -h "$IOS_OUT_DIR/$canonical" | cut -f1))"
 }
 
-# Continuum GB (cores/continuum-gb): a plain cargo cdylib for aarch64-apple-ios, on the
+# cBoy (cores/continuum-gb): a plain cargo cdylib for aarch64-apple-ios, on the
 # toolchain pinned in rust-toolchain.toml, staged through the same symbol and install-name checks.
 build_ios_continuum_gb_core() {
   local core="$1"
