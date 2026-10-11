@@ -622,6 +622,9 @@ fn build_machine(rom: Vec<u8>, s: &crate::options::Settings, dir: Option<&str>) 
     if s.cgb_rev0 && !had_boot {
         gb.set_cgb_revision_0();
     }
+    if s.boot_rom && !had_boot {
+        gb.play_intro();
+    }
     Some((gb, None))
 }
 

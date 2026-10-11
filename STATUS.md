@@ -1,12 +1,11 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-11 October 2026. **Build 177** (`c32f48c`) is the last published install:
-[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-177-c32f48c/Continuum.ipa).
-The owner asked for a new install of cBoy as it is. The pixel-by-pixel picture work is parked:
-five exact test pictures pass, the rest are timing pictures that do not stop a full game.
-A full 1.0 MB Pokémon Yellow gets past the Game Freak logo. A cut-off file (the 997 KB one)
-is refused with a plain sentence instead of stripes. That refusal was not in 177.
+11 October 2026. **Build 180** (`dd89824`) is the newest published install:
+[Continuum-180.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-180-dd89824/Continuum-180.ipa).
+The owner deleted the short Yellow file, so there is nothing on 180 for them to try.
+The full 1.0 MB file already played. Pixel-by-pixel picture work stays parked.
+Next: cBoy's own startup picture when a boot ROM was asked for and there is no file, then the high-quality Advance music mixer. No new install until that batch is in.
 
 Older paragraphs below (build 163, build 150, "not in any IPA yet") are history. Where they
 disagree with this paragraph, this paragraph is current.

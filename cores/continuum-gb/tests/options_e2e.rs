@@ -222,9 +222,10 @@ fn every_option_through_the_libretro_api() {
         let o = run(dmg, &[("cboy_gb_model", m)], 30, None);
         assert_eq!((last(&o).1, last(&o).2), (160, 144), "{m}");
     }
-    // Boot ROM on with no file: starts normally.
+    // Boot ROM on with no file: cBoy's own startup picture, then the game.
     let o = run(dmg, &[("cboy_boot_rom", "on")], 60, None);
-    assert_eq!(last(&o).3, base_px);
+    assert_ne!(last(&o).3, base_px, "startup picture should not be the game yet");
+    assert!(last(&o).3.iter().any(|p| *p != last(&o).3[0]), "startup picture is not a blank screen");
 
     // Sound: volume 0 is silence; sample rate changes the count.
     let o = run(dmg, &[("cboy_volume", "0")], 30, None);
