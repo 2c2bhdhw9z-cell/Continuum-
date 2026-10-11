@@ -242,9 +242,10 @@ impl Ppu {
     /// Mode 3's length: 172 dots, plus the SCX fine scroll, plus each sprite on the line
     /// (6 dots, more while the background tile under it is still being fetched; Pan Docs).
     fn mode3_length(&self) -> u16 {
-        let mut len = 172 + u16::from(self.scx & 7);
+        let base = 172 + u16::from(self.scx & 7);
+        let mut len = 0u16;
         if self.lcdc & 0x02 == 0 {
-            return len;
+            return base;
         }
         let height: i16 = if self.lcdc & 0x04 != 0 { 16 } else { 8 };
         let mut xs: Vec<u8> = Vec::with_capacity(10);
@@ -264,10 +265,6 @@ impl Ppu {
             if x >= 168 {
                 continue;
             }
-            if x == 0 {
-                len += 11;
-                continue;
-            }
             let pos = u16::from(x) + u16::from(self.scx & 7);
             let tile = pos / 8;
             if paid_tile != Some(tile) {
@@ -276,7 +273,9 @@ impl Ppu {
             }
             len += 6;
         }
-        len
+        // The object penalty shows in STAT in whole M-cycles (Mooneye intr_2_mode0_timing_sprites:
+        // every case fits 6 per object plus the BG-fetch wait, rounded down to 4 dots).
+        base + (len & !3)
     }
 
     /// One dot.
