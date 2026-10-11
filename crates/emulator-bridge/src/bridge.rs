@@ -1791,6 +1791,15 @@ impl EmulatorBridge {
         if data.is_empty() {
             return Err(BridgeError::Memory("that battery save is empty".into()));
         }
+        // A Game Boy save written by mGBA or VBA for a cart with a clock (MBC3, e.g. Pokemon
+        // Gold) carries the clock after the RAM: 48 bytes (or 44, the 32-bit-time variant). A
+        // core that keeps the clock elsewhere (cBoy) has save RAM of exactly the cart's size, so
+        // the RAM part is taken and the clock footer left out rather than refusing the save.
+        let data = if data.len() > size && matches!(data.len() - size, 44 | 48) {
+            &data[..size]
+        } else {
+            data
+        };
         if data.len() > size {
             return Err(BridgeError::Memory(format!(
                 "that battery save is {} bytes and this game's save RAM is {size}, so it belongs \
@@ -2345,6 +2354,18 @@ mod tests {
         assert!(bridge.read_memory(MEMORY_SYSTEM_RAM, 2040, 9).is_err());
         // A refused write changed nothing.
         assert_eq!(bridge.read_memory(MEMORY_SYSTEM_RAM, 2047, 1).unwrap(), vec![0]);
+    }
+
+    #[test]
+    fn battery_save_with_an_rtc_footer_loads_the_ram_part() {
+        let mut bridge = running_diagnostic();
+        let size = bridge.memory_size(crate::memory::MEMORY_SAVE_RAM);
+        let mut data = vec![0x5A; size];
+        data.extend(vec![1u8; 48]);
+        assert_eq!(bridge.restore_battery_save(&data).unwrap(), size);
+        assert_eq!(bridge.battery_save().unwrap(), vec![0x5A; size]);
+        data.extend(vec![1u8; 7]);
+        assert!(bridge.restore_battery_save(&data).is_err());
     }
 
     #[test]
