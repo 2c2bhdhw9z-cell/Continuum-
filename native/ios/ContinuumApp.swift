@@ -697,11 +697,11 @@ enum CoreCatalog {
         priority: 0, biosNames: []
     )
 
-    /// Game Boy. Continuum GB: this project's own core, written from scratch in Rust
-    /// (cores/continuum-gb). Selectable in Settings; mGBA stays the default. OPTIONAL in the .ipa.
+    /// Game Boy and Game Boy Color. Continuum GB: this project's own core, written from scratch
+    /// in Rust (cores/continuum-gb). Selectable in Settings; mGBA stays the default. OPTIONAL.
     static let continuumGb = CoreSpec(
-        coreId: "continuum_gb", displayName: "Continuum GB (Game Boy)",
-        systems: ["gb"], library: "continuum_gb_libretro_ios.dylib",
+        coreId: "continuum_gb", displayName: "Continuum GB (Game Boy, Color)",
+        systems: ["gb", "gbc"], library: "continuum_gb_libretro_ios.dylib",
         width: 160, height: 144, maxWidth: 160, maxHeight: 144,
         aspectRatio: 10.0 / 9.0, fps: 4_194_304.0 / 70_224.0, sampleRate: 48000, pixelFormat: 1,
         priority: 0, biosNames: []
@@ -1057,6 +1057,7 @@ enum CoreCatalog {
         .arcade: [fbneo.coreId, mame2003Plus.coreId],
         .saturn: [yabause.coreId, mednafenSaturn.coreId],
         .gb: [mgba.coreId, continuumGb.coreId],
+        .gbc: [mgba.coreId, continuumGb.coreId],
     ]
 
     /// The UserDefaults key a system's core choice is stored under (not the PlayStation's).

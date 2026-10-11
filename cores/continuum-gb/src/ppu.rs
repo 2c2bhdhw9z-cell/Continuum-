@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 pub const W: usize = 160;
 pub const H: usize = 144;
 
+/// The DMG shades as XRGB8888, lightest first.
+pub const SHADES: [u32; 4] = [0x00FF_FFFF, 0x00AA_AAAA, 0x0055_5555, 0x0000_0000];
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Ppu {
     pub vram: Vec<u8>,
@@ -31,7 +34,7 @@ pub struct Ppu {
     window_line: u8,
     wy_hit: bool,
     #[serde(skip, default = "blank")]
-    pub frame: Vec<u8>,
+    pub frame: Vec<u32>,
     /// Set when line 144 begins (a whole frame is in `frame`).
     #[serde(skip)]
     pub frame_ready: bool,
@@ -40,10 +43,17 @@ pub struct Ppu {
     /// The dot mode 0 starts at on this line (mode 3 is 172 dots plus SCX and sprite delays).
     #[serde(default)]
     hblank_at: u16,
+    /// Game Boy Color mode (from the cartridge header).
+    pub cgb: bool,
+    pub bg_pal: Vec<u8>,
+    pub obj_pal: Vec<u8>,
+    pub bcps: u8,
+    pub ocps: u8,
+    pub opri: u8,
 }
 
-fn blank() -> Vec<u8> {
-    vec![0; W * H]
+fn blank() -> Vec<u32> {
+    vec![SHADES[0]; W * H]
 }
 
 pub struct PpuIrq {
@@ -54,7 +64,7 @@ pub struct PpuIrq {
 impl Default for Ppu {
     fn default() -> Self {
         Ppu {
-            vram: vec![0; 0x2000],
+            vram: vec![0; 0x4000],
             oam: vec![0; 0xA0],
             lcdc: 0x91,
             stat_enable: 0,
@@ -76,6 +86,12 @@ impl Default for Ppu {
             frame_ready: false,
             skip_frame: false,
             hblank_at: 252,
+            cgb: false,
+            bg_pal: vec![0xFF; 64],
+            obj_pal: vec![0xFF; 64],
+            bcps: 0,
+            ocps: 0,
+            opri: 0,
         }
     }
 }
@@ -207,7 +223,7 @@ impl Ppu {
             irq.vblank = true;
             if self.skip_frame {
                 self.skip_frame = false;
-                self.frame.iter_mut().for_each(|p| *p = 0);
+                self.frame.iter_mut().for_each(|p| *p = 0x00FF_FFFF);
             }
             self.frame_ready = true;
         }
@@ -219,12 +235,30 @@ impl Ppu {
         irq
     }
 
+    /// BCPD/OCPD reads and writes, with the auto-increment of BCPS/OCPS.
+    pub fn read_pal(&self, obj: bool) -> u8 {
+        let (spec, pal) = if obj { (self.ocps, &self.obj_pal) } else { (self.bcps, &self.bg_pal) };
+        pal[(spec & 0x3F) as usize]
+    }
+
+    pub fn write_pal(&mut self, obj: bool, v: u8) {
+        let (spec, pal) = if obj {
+            (&mut self.ocps, &mut self.obj_pal)
+        } else {
+            (&mut self.bcps, &mut self.bg_pal)
+        };
+        pal[(*spec & 0x3F) as usize] = v;
+        if *spec & 0x80 != 0 {
+            *spec = 0x80 | ((*spec + 1) & 0x3F);
+        }
+    }
+
     pub fn vram_read(&self, addr: u16) -> u8 {
         self.vram[(addr & 0x1FFF) as usize]
     }
 
-    fn tile_row(&self, tile_addr: u16, row: u8) -> (u8, u8) {
-        let a = (tile_addr + u16::from(row) * 2) as usize & 0x1FFF;
+    fn tile_row(&self, bank: usize, tile_addr: u16, row: u8) -> (u8, u8) {
+        let a = bank * 0x2000 + ((tile_addr + u16::from(row) * 2) as usize & 0x1FFF);
         (self.vram[a], self.vram[a + 1])
     }
 
@@ -236,38 +270,55 @@ impl Ppu {
         }
     }
 
+    /// One background or window pixel: (colour 0-3, CGB attribute byte).
+    fn map_pixel(&self, map: u16, x: u8, y: u8) -> (u8, u8) {
+        let at = map + u16::from(y / 8) * 32 + u16::from(x / 8);
+        let tile = self.vram_read(at);
+        let attr = if self.cgb { self.vram[0x2000 + (at & 0x1FFF) as usize] } else { 0 };
+        let row = if attr & 0x40 != 0 { 7 - y % 8 } else { y % 8 };
+        let bank = usize::from(attr & 0x08 != 0);
+        let (lo, hi) = self.tile_row(bank, self.bg_tile_addr(tile), row);
+        let bit = if attr & 0x20 != 0 { x % 8 } else { 7 - x % 8 };
+        (((hi >> bit) & 1) << 1 | ((lo >> bit) & 1), attr)
+    }
+
+    fn cgb_colour(pal: &[u8], index: usize) -> u32 {
+        let c = u16::from(pal[index * 2]) | u16::from(pal[index * 2 + 1]) << 8;
+        let ch = |v: u16| -> u32 {
+            let v = u32::from(v & 0x1F);
+            (v << 3) | (v >> 2)
+        };
+        ch(c) << 16 | ch(c >> 5) << 8 | ch(c >> 10)
+    }
+
     fn render_line(&mut self) {
         let ly = self.ly;
+        let cgb = self.cgb;
         let mut bg_index = [0u8; W];
-        let row = &mut [0u8; W];
-        // Background.
-        if self.lcdc & 1 != 0 {
+        let mut bg_attr = [0u8; W];
+        let row = &mut [0u32; W];
+        // On the DMG LCDC bit 0 switches the background and window off; on the CGB it only
+        // takes their priority over sprites away.
+        let bg_on = cgb || self.lcdc & 1 != 0;
+        if bg_on {
             let map = if self.lcdc & 0x08 != 0 { 0x9C00u16 } else { 0x9800 };
             let y = ly.wrapping_add(self.scy);
-            for (x, px) in bg_index.iter_mut().enumerate() {
+            for x in 0..W {
                 let sx = (x as u8).wrapping_add(self.scx);
-                let tile = self.vram_read(map + u16::from(y / 8) * 32 + u16::from(sx / 8));
-                let (lo, hi) = self.tile_row(self.bg_tile_addr(tile), y % 8);
-                let bit = 7 - (sx % 8);
-                *px = ((hi >> bit) & 1) << 1 | ((lo >> bit) & 1);
+                (bg_index[x], bg_attr[x]) = self.map_pixel(map, sx, y);
             }
-            // Window, over the background (LCDC bit 0 also gates it on the DMG).
             if self.lcdc & 0x20 != 0 && self.wy_hit && self.wx <= 166 {
                 let map = if self.lcdc & 0x40 != 0 { 0x9C00u16 } else { 0x9800 };
                 let wy = self.window_line;
                 let start = i16::from(self.wx) - 7;
                 let mut drawn = false;
-                for (x, px) in bg_index.iter_mut().enumerate() {
+                for x in 0..W {
                     let wx = x as i16 - start;
                     if wx < 0 {
                         continue;
                     }
                     drawn = true;
-                    let wx = wx as u8;
-                    let tile = self.vram_read(map + u16::from(wy / 8) * 32 + u16::from(wx / 8));
-                    let (lo, hi) = self.tile_row(self.bg_tile_addr(tile), wy % 8);
-                    let bit = 7 - (wx % 8);
-                    *px = ((hi >> bit) & 1) << 1 | ((lo >> bit) & 1);
+                    (bg_index[x], bg_attr[x]) = self.map_pixel(map, wx as u8, wy);
                 }
                 if drawn {
                     self.window_line += 1;
@@ -275,10 +326,12 @@ impl Ppu {
             }
         }
         for x in 0..W {
-            row[x] = (self.bgp >> (bg_index[x] * 2)) & 3;
+            row[x] = if cgb {
+                Self::cgb_colour(&self.bg_pal, usize::from(bg_attr[x] & 7) * 4 + usize::from(bg_index[x]))
+            } else {
+                SHADES[((self.bgp >> (bg_index[x] * 2)) & 3) as usize]
+            };
         }
-        // Sprites: the first ten on this line in OAM order; the lower X wins, then the lower
-        // OAM index.
         if self.lcdc & 0x02 != 0 {
             let tall = self.lcdc & 0x04 != 0;
             let height: i16 = if tall { 16 } else { 8 };
@@ -293,9 +346,11 @@ impl Ppu {
                     }
                 }
             }
-            // Highest priority first; the first opaque sprite pixel owns the dot, and only then
-            // is its behind-background bit applied (a hidden winner still hides the others).
-            picked.sort_by_key(|&i| (self.oam[i * 4 + 1], i));
+            // The DMG ranks by X, then OAM index; the CGB by OAM index alone (unless OPRI says
+            // DMG order). The first opaque sprite pixel owns the dot, even when it is hidden.
+            if !cgb || self.opri & 1 != 0 {
+                picked.sort_by_key(|&i| (self.oam[i * 4 + 1], i));
+            }
             let mut owned = [false; W];
             for &i in picked.iter() {
                 let y = i16::from(self.oam[i * 4]) - 16;
@@ -309,8 +364,8 @@ impl Ppu {
                 if tall {
                     tile &= 0xFE;
                 }
-                let (lo, hi) = self.tile_row(0x8000 + u16::from(tile) * 16, r);
-                let pal = if attr & 0x10 != 0 { self.obp1 } else { self.obp0 };
+                let bank = usize::from(cgb && attr & 0x08 != 0);
+                let (lo, hi) = self.tile_row(bank, 0x8000 + u16::from(tile) * 16, r);
                 for px in 0..8i16 {
                     let x = x0 + px;
                     if !(0..W as i16).contains(&x) || owned[x as usize] {
@@ -323,10 +378,22 @@ impl Ppu {
                     }
                     let x = x as usize;
                     owned[x] = true;
-                    if attr & 0x80 != 0 && bg_index[x] != 0 {
+                    let behind = if cgb {
+                        self.lcdc & 1 != 0
+                            && bg_index[x] != 0
+                            && (attr & 0x80 != 0 || bg_attr[x] & 0x80 != 0)
+                    } else {
+                        attr & 0x80 != 0 && bg_index[x] != 0
+                    };
+                    if behind {
                         continue;
                     }
-                    row[x] = (pal >> (c * 2)) & 3;
+                    row[x] = if cgb {
+                        Self::cgb_colour(&self.obj_pal, usize::from(attr & 7) * 4 + usize::from(c))
+                    } else {
+                        let pal = if attr & 0x10 != 0 { self.obp1 } else { self.obp0 };
+                        SHADES[((pal >> (c * 2)) & 3) as usize]
+                    };
                 }
             }
         }

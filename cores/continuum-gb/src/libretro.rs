@@ -129,7 +129,7 @@ pub unsafe extern "C" fn retro_get_system_info(info: *mut RetroSystemInfo) {
     *info = RetroSystemInfo {
         library_name: c"Continuum GB".as_ptr(),
         library_version: c"0.1.0".as_ptr(),
-        valid_extensions: c"gb|dmg".as_ptr(),
+        valid_extensions: c"gb|gbc|dmg|cgb".as_ptr(),
         need_fullpath: false,
         block_extract: false,
     };

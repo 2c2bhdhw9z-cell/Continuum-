@@ -50,8 +50,12 @@ fn blargg_mem_timing() {
 
 /// Runs a Mooneye ROM until `LD B,B`; a pass leaves the Fibonacci numbers in the registers.
 pub fn mooneye(name: &str) -> Result<(), String> {
+    mooneye_mode(name, false)
+}
+
+pub fn mooneye_mode(name: &str, cgb: bool) -> Result<(), String> {
     let Some(data) = rom(name) else { return Ok(()) };
-    let mut gb = GameBoy::new(data).map_err(|e| e)?;
+    let mut gb = GameBoy::new_mode(data, cgb)?;
     for _ in 0..(60 * 30) {
         gb.run_frame();
         if gb.cpu.ld_b_b {
@@ -95,7 +99,7 @@ fn dmg_acid2() {
                 0x55 => 2,
                 _ => 3,
             };
-            if gb.bus.ppu.frame[y * 160 + x] != shade {
+            if gb.bus.ppu.frame[y * 160 + x] != continuum_gb::ppu::SHADES[shade as usize] {
                 wrong += 1;
                 first.get_or_insert((x, y));
             }
@@ -117,7 +121,7 @@ fn dump_screen() {
     let mut enc = png::Encoder::new(f, 160, 144);
     enc.set_color(png::ColorType::Grayscale);
     let mut w = enc.write_header().unwrap();
-    let px: Vec<u8> = gb.bus.ppu.frame.iter().map(|s| [0xFF, 0xAA, 0x55, 0][*s as usize]).collect();
+    let px: Vec<u8> = gb.bus.ppu.frame.iter().map(|p| (*p >> 8) as u8).collect();
     w.write_image_data(&px).unwrap();
 }
 
@@ -246,4 +250,56 @@ fn debug_io() {
     let gb = GameBoy::new(rom("cpu_instrs.gb").unwrap()).unwrap();
     let v: Vec<String> = (0xFF00u16..0xFF80).map(|a| format!("{:02X}", gb.bus.raw_read(a))).collect();
     for c in v.chunks(8) { eprintln!("IO {}", c.join(" ")); }
+}
+
+#[test]
+fn cgb_acid2() {
+    let Some(data) = rom("cgb-acid2.gbc") else { return };
+    let Some(png_bytes) = rom("cgb-acid2-reference.png") else { return };
+    let mut gb = GameBoy::new(data).unwrap();
+    assert!(gb.bus.cgb, "cgb-acid2 must run in colour mode");
+    for _ in 0..120 {
+        gb.run_frame();
+    }
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
+    decoder.set_transformations(png::Transformations::EXPAND);
+    let mut reader = decoder.read_info().unwrap();
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).unwrap();
+    let bpp = info.line_size / info.width as usize;
+    let mut wrong = 0;
+    let mut first = None;
+    for y in 0..144usize {
+        for x in 0..160usize {
+            let p = &buf[y * info.line_size + x * bpp..];
+            let want = if bpp >= 3 {
+                u32::from(p[0]) << 16 | u32::from(p[1]) << 8 | u32::from(p[2])
+            } else {
+                u32::from(p[0]) * 0x010101
+            };
+            let got = gb.bus.ppu.frame[y * 160 + x];
+            if got != want {
+                wrong += 1;
+                first.get_or_insert((x, y, got, want));
+            }
+        }
+    }
+    assert_eq!(wrong, 0, "cgb-acid2: {wrong} pixels differ, first (x, y, got, want) {first:x?}");
+}
+
+/// The Mooneye tests made for CGB hardware, run as a CGB. A report, like the DMG one.
+#[test]
+fn mooneye_cgb_report() {
+    let names = ["mts/misc/boot_regs-cgb.gb", "mts/misc/boot_hwio-C.gb", "mts/misc/boot_div-cgbABCDE.gb",
+                 "mts/misc/bits/unused_hwio-C.gb", "mts/misc/ppu/vblank_stat_intr-C.gb"];
+    let mut failed = Vec::new();
+    for n in names {
+        if let Err(e) = mooneye_mode(n, true) {
+            failed.push(e);
+        }
+    }
+    eprintln!("MOONEYE CGB: {} of {} passed", names.len() - failed.len(), names.len());
+    for f in &failed {
+        eprintln!("  FAIL {f}");
+    }
 }

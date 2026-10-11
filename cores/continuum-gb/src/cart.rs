@@ -129,6 +129,7 @@ impl Cart {
         rom.resize(size, 0xFF);
         let multicart = kind == MbcKind::Mbc1
             && rom.len() == 0x10_0000
+            && rom[0x40104] == 0xCE
             && rom[0x40104..0x40134] == rom[0x104..0x134];
         Ok(Cart {
             cgb_flag: rom[0x143],
@@ -266,12 +267,12 @@ impl Cart {
         }
     }
 
-    /// One M-cycle (4 T-cycles) for the clock.
-    pub fn tick_m(&mut self) {
+    /// `t` T-cycles of real time for the clock.
+    pub fn tick(&mut self, t: u32) {
         if !self.has_rtc {
             return;
         }
-        self.rtc.sub += 4;
+        self.rtc.sub += t;
         if self.rtc.sub >= 4_194_304 {
             self.rtc.sub -= 4_194_304;
             self.rtc.tick_second();

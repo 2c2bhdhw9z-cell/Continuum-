@@ -60,6 +60,11 @@ impl Default for Cpu {
 }
 
 impl Cpu {
+    /// The CGB's registers as its boot ROM leaves them for a colour cartridge.
+    pub fn cgb() -> Cpu {
+        Cpu { a: 0x11, f: 0x80, b: 0, c: 0, d: 0xFF, e: 0x56, h: 0, l: 0x0D, ..Cpu::default() }
+    }
+
     pub fn bc(&self) -> u16 { u16::from(self.b) << 8 | u16::from(self.c) }
     pub fn de(&self) -> u16 { u16::from(self.d) << 8 | u16::from(self.e) }
     pub fn hl(&self) -> u16 { u16::from(self.h) << 8 | u16::from(self.l) }
@@ -268,8 +273,8 @@ impl Cpu {
                 bus.write(a.wrapping_add(1), (self.sp >> 8) as u8);
             }
             0x10 => {
-                self.fetch(bus); // STOP's second byte; the DMG stop mode is not modelled
-                bus.timer.write_div();
+                self.fetch(bus); // STOP's second byte; low-power stop itself is not modelled
+                bus.stop();
             }
             0x18 => {
                 let e = self.fetch(bus) as i8;

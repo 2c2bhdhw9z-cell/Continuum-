@@ -40,6 +40,17 @@ pub struct Bus {
     dma_reg: u8,
     apu_div_bit: bool,
     pub cycles: u64,
+    /// Game Boy Color state (unused in DMG mode).
+    pub cgb: bool,
+    pub double_speed: bool,
+    pub speed_prepare: bool,
+    vbk: u8,
+    svbk: u8,
+    hdma_src: u16,
+    hdma_dst: u16,
+    hdma_blocks: u8,
+    hdma_active: bool,
+    last_mode: u8,
 }
 
 impl Bus {
@@ -52,7 +63,7 @@ impl Bus {
             ppu: Ppu::default(),
             apu: Apu::default(),
             timer,
-            wram: vec![0; 0x2000],
+            wram: vec![0; 0x8000],
             hram: vec![0; 0x7F],
             ie: 0,
             iflag: 0xE1,
@@ -68,6 +79,16 @@ impl Bus {
             dma_reg: 0xFF,
             apu_div_bit: false,
             cycles: 0,
+            cgb: false,
+            double_speed: false,
+            speed_prepare: false,
+            vbk: 0,
+            svbk: 1,
+            hdma_src: 0,
+            hdma_dst: 0x8000,
+            hdma_blocks: 0,
+            hdma_active: false,
+            last_mode: 0,
         }
     }
 
@@ -96,13 +117,16 @@ impl Bus {
         if self.timer.tick_m() {
             self.iflag |= INT_TIMER;
         }
-        let bit = self.timer.counter & 0x1000 != 0;
+        // In double speed the CPU, timer and DMA run twice as fast; the PPU, sound and clock do not.
+        let dots = if self.double_speed { 2 } else { 4 };
+        let mask = if self.double_speed { 0x2000 } else { 0x1000 };
+        let bit = self.timer.counter & mask != 0;
         if self.apu_div_bit && !bit {
             self.apu.frame_step();
         }
         self.apu_div_bit = bit;
-        self.apu.tick_m();
-        for _ in 0..4 {
+        self.apu.tick(dots);
+        for _ in 0..dots {
             let irq = self.ppu.tick();
             if irq.vblank {
                 self.iflag |= INT_VBLANK;
@@ -111,7 +135,16 @@ impl Bus {
                 self.iflag |= INT_STAT;
             }
         }
-        self.cart.tick_m();
+        self.cart.tick(dots);
+        let mode = self.ppu.mode();
+        if self.hdma_active && mode == 0 && self.last_mode == 3 && self.ppu.ly < 144 {
+            self.hdma_block();
+            self.hdma_blocks -= 1;
+            if self.hdma_blocks == 0 {
+                self.hdma_active = false;
+            }
+        }
+        self.last_mode = mode;
         if self.dma_active {
             if self.dma_delay > 0 {
                 self.dma_delay -= 1;
@@ -124,6 +157,40 @@ impl Bus {
                 }
             }
         }
+    }
+
+    /// Copies one 16-byte HDMA/GDMA block into VRAM.
+    fn hdma_block(&mut self) {
+        for _ in 0..16 {
+            let v = self.raw_read(self.hdma_src);
+            let bank = usize::from(self.vbk & 1) * 0x2000;
+            self.ppu.vram[bank + (self.hdma_dst & 0x1FFF) as usize] = v;
+            self.hdma_src = self.hdma_src.wrapping_add(1);
+            self.hdma_dst = 0x8000 | (self.hdma_dst.wrapping_add(1) & 0x1FFF);
+        }
+    }
+
+    fn wram_index(&self, addr: u16) -> usize {
+        let a = (addr as usize - 0xC000) & 0x1FFF;
+        if a < 0x1000 {
+            a
+        } else {
+            let bank = if self.cgb { usize::from(self.svbk.max(1)) } else { 1 };
+            bank * 0x1000 + (a - 0x1000)
+        }
+    }
+
+    fn vram_index(&self, addr: u16) -> usize {
+        usize::from(self.vbk & 1) * 0x2000 + (addr - 0x8000) as usize
+    }
+
+    /// STOP: on the CGB with KEY1 armed, switches CPU speed.
+    pub fn stop(&mut self) {
+        if self.cgb && self.speed_prepare {
+            self.double_speed = !self.double_speed;
+            self.speed_prepare = false;
+        }
+        self.timer.write_div();
     }
 
     pub fn read(&mut self, addr: u16) -> u8 {
@@ -145,9 +212,9 @@ impl Bus {
     pub fn raw_read(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7FFF => self.cart.read_rom(addr),
-            0x8000..=0x9FFF => self.ppu.vram[(addr - 0x8000) as usize],
+            0x8000..=0x9FFF => self.ppu.vram[self.vram_index(addr)],
             0xA000..=0xBFFF => self.cart.read_ram(addr),
-            0xC000..=0xFDFF => self.wram[(addr as usize - 0xC000) & 0x1FFF],
+            0xC000..=0xFDFF => self.wram[self.wram_index(addr)],
             0xFE00..=0xFE9F => self.ppu.oam[(addr - 0xFE00) as usize],
             0xFEA0..=0xFEFF => 0x00,
             0xFF00 => self.joyp(),
@@ -171,6 +238,19 @@ impl Bus {
             0xFF49 => self.ppu.obp1,
             0xFF4A => self.ppu.wy,
             0xFF4B => self.ppu.wx,
+            0xFF4D if self.cgb => {
+                0x7E | if self.double_speed { 0x80 } else { 0 } | u8::from(self.speed_prepare)
+            }
+            0xFF4F if self.cgb => 0xFE | self.vbk,
+            0xFF55 if self.cgb => {
+                if self.hdma_active { (self.hdma_blocks - 1) & 0x7F } else { 0xFF }
+            }
+            0xFF68 if self.cgb => self.ppu.bcps | 0x40,
+            0xFF69 if self.cgb => self.ppu.read_pal(false),
+            0xFF6A if self.cgb => self.ppu.ocps | 0x40,
+            0xFF6B if self.cgb => self.ppu.read_pal(true),
+            0xFF6C if self.cgb => 0xFE | self.ppu.opri,
+            0xFF70 if self.cgb => 0xF8 | self.svbk,
             0xFF80..=0xFFFE => self.hram[(addr - 0xFF80) as usize],
             0xFFFF => self.ie,
             _ => 0xFF,
@@ -180,9 +260,15 @@ impl Bus {
     pub fn raw_write(&mut self, addr: u16, v: u8) {
         match addr {
             0x0000..=0x7FFF => self.cart.write_rom(addr, v),
-            0x8000..=0x9FFF => self.ppu.vram[(addr - 0x8000) as usize] = v,
+            0x8000..=0x9FFF => {
+                let i = self.vram_index(addr);
+                self.ppu.vram[i] = v;
+            }
             0xA000..=0xBFFF => self.cart.write_ram(addr, v),
-            0xC000..=0xFDFF => self.wram[(addr as usize - 0xC000) & 0x1FFF] = v,
+            0xC000..=0xFDFF => {
+                let i = self.wram_index(addr);
+                self.wram[i] = v;
+            }
             0xFE00..=0xFE9F => self.ppu.oam[(addr - 0xFE00) as usize] = v,
             0xFF00 => self.joyp_select = v & 0x30,
             0xFF01 => self.sb = v,
@@ -223,6 +309,39 @@ impl Bus {
             0xFF49 => self.ppu.obp1 = v,
             0xFF4A => self.ppu.wy = v,
             0xFF4B => self.ppu.wx = v,
+            0xFF4D if self.cgb => self.speed_prepare = v & 1 != 0,
+            0xFF4F if self.cgb => self.vbk = v & 1,
+            0xFF51 if self.cgb => self.hdma_src = (self.hdma_src & 0x00F0) | u16::from(v) << 8,
+            0xFF52 if self.cgb => self.hdma_src = (self.hdma_src & 0xFF00) | u16::from(v & 0xF0),
+            0xFF53 if self.cgb => {
+                self.hdma_dst = 0x8000 | (self.hdma_dst & 0x00F0) | u16::from(v & 0x1F) << 8
+            }
+            0xFF54 if self.cgb => self.hdma_dst = (self.hdma_dst & 0xFF00) | u16::from(v & 0xF0),
+            0xFF55 if self.cgb => {
+                if self.hdma_active && v & 0x80 == 0 {
+                    self.hdma_active = false; // cancelled; FF55 then reads bit 7 set
+                } else if v & 0x80 != 0 {
+                    self.hdma_active = true;
+                    self.hdma_blocks = (v & 0x7F) + 1;
+                } else {
+                    // General DMA: all at once, the CPU stopped 8 M-cycles a block (16 at
+                    // double speed).
+                    let blocks = (v & 0x7F) + 1;
+                    for _ in 0..blocks {
+                        self.hdma_block();
+                        let stall = if self.double_speed { 16 } else { 8 };
+                        for _ in 0..stall {
+                            self.tick();
+                        }
+                    }
+                }
+            }
+            0xFF68 if self.cgb => self.ppu.bcps = v & 0xBF,
+            0xFF69 if self.cgb => self.ppu.write_pal(false, v),
+            0xFF6A if self.cgb => self.ppu.ocps = v & 0xBF,
+            0xFF6B if self.cgb => self.ppu.write_pal(true, v),
+            0xFF6C if self.cgb => self.ppu.opri = v & 1,
+            0xFF70 if self.cgb => self.svbk = v & 7,
             0xFF80..=0xFFFE => self.hram[(addr - 0xFF80) as usize] = v,
             0xFFFF => self.ie = v,
             _ => {}

@@ -394,13 +394,13 @@ impl Apu {
         }
     }
 
-    /// One M-cycle of sound.
-    pub fn tick_m(&mut self) {
+    /// `t` T-cycles of sound (4 a CPU M-cycle, 2 at double speed).
+    pub fn tick(&mut self, t: u32) {
         if self.power {
-            self.sq1.tick(4);
-            self.sq2.tick(4);
+            self.sq1.tick(t);
+            self.sq2.tick(t);
             let wp = (2048 - u32::from(self.wave.freq)) * 2;
-            self.wave.timer += 4;
+            self.wave.timer += t;
             while self.wave.timer >= wp {
                 self.wave.timer -= wp;
                 self.wave.pos = (self.wave.pos + 1) & 31;
@@ -408,7 +408,7 @@ impl Apu {
             let nr43 = self.regs[0x12];
             let div = [8u32, 16, 32, 48, 64, 80, 96, 112][(nr43 & 7) as usize];
             let np = div << (nr43 >> 4);
-            self.noise.timer += 4;
+            self.noise.timer += t;
             while self.noise.timer >= np {
                 self.noise.timer -= np;
                 let l = self.noise.lfsr;
@@ -420,7 +420,7 @@ impl Apu {
                 self.noise.lfsr = n;
             }
         }
-        self.sample_acc += 4 * OUT_HZ;
+        self.sample_acc += t * OUT_HZ;
         if self.sample_acc >= CPU_HZ {
             self.sample_acc -= CPU_HZ;
             let (l, r) = self.mix();
