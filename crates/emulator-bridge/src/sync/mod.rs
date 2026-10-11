@@ -1091,4 +1091,40 @@ mod tests {
         );
         assert_eq!(Report::default().line(), "0 up, 0 down, no errors");
     }
+
+    /// Brett's restore (build 170): a fresh install with a few local files, and a backup with
+    /// skin art, skin pieces in per-skin subfolders, save states and the settings file that
+    /// holds the skin index. No shared history. Every skin and save-state file must come down,
+    /// the save-state list must merge, and the backup's settings must come down once this
+    /// install's own exported copy is out of the way (the app removes it before a restore).
+    #[test]
+    fn a_restore_shaped_like_bretts_backup_brings_everything_down() {
+        let remote = vec![
+            st("Skins/skin-abc.png", 100, 1_000),
+            st("Skins/skin-abc-landscape.png", 100, 1_000),
+            st("Skins/pieces/skin-abc/a.png", 10, 1_000),
+            st("Skins/pieces/skin-abc/sub/b.png", 10, 1_000),
+            st("SaveStates/index.json", 50, 1_000),
+            st("SaveStates/0123456789abcdef-1.state", 5000, 1_000),
+            st("SaveStates/0123456789abcdef-1.png", 500, 1_000),
+            st("BatterySaves/Game.srm", 8192, 1_000),
+            st("Settings/defaults.plist", 4000, 1_000),
+        ];
+        let local = vec![st("SaveStates/index.json", 2, 90_000)];
+        let actions = plan(&local, &remote, &Manifest::default(), 100_000);
+        let kind = |p: &str| actions.iter().find(|a| a.path == p).map(|a| a.kind);
+        for s in &remote {
+            if s.path == "SaveStates/index.json" {
+                assert_eq!(kind(&s.path), Some(ActionKind::MergeRecords), "{}", s.path);
+            } else {
+                assert_eq!(kind(&s.path), Some(ActionKind::Download), "{}", s.path);
+            }
+        }
+        // The hazard the app now avoids: a newer exported settings file here would win and the
+        // backup's skin index would go to Conflicts/.
+        let with_export = vec![st("Settings/defaults.plist", 300, 90_000)];
+        let hazard = plan(&with_export, &remote, &Manifest::default(), 100_000);
+        let s = hazard.iter().find(|a| a.path == "Settings/defaults.plist").unwrap();
+        assert_eq!(s.kind, ActionKind::ConflictKeepLocal);
+    }
 }

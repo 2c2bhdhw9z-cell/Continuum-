@@ -1230,14 +1230,89 @@ final class CloudSync: ObservableObject {
                 // A replaced folder shares no history with this phone: merge, never delete.
                 self.forgetHistory()
                 self.defaults.set("staging", forKey: Self.historyTargetKey)
+                let backupSettings = staging.appendingPathComponent(name, isDirectory: true)
+                    .appendingPathComponent(CloudSyncPaths.settingsPath)
+                Self.logBackupContents(root: staging.appendingPathComponent(name, isDirectory: true))
+                // THE BACKUP'S SETTINGS MUST WIN. With no shared history the sync keeps whichever
+                // copy is newer, and a settings file this install exported (a Back up, the backup
+                // reminder) is stamped later than an old backup's. That copy holds no skin index,
+                // so the backup's index went to Conflicts/ and the restored skin files were listed
+                // by nothing. This phone's exported copy is only a snapshot of its own settings,
+                // which are still in place; removing it lets the backup's file come down.
+                if let mine = CloudSyncPaths.staging()?.appendingPathComponent(CloudSyncPaths.settingsPath),
+                   FileManager.default.fileExists(atPath: mine.path) {
+                    try? FileManager.default.removeItem(at: mine)
+                    FeedbackCenter.step("restore: removed this install's exported settings so the backup's win")
+                }
                 FeedbackCenter.step("restore: merging into the app")
-                self.afterSync = { ok in
+                self.afterSync = { [weak self] ok in
                     FeedbackCenter.step("restore: merge finished, ok=\(ok)")
+                    self?.finishRestore(backupSettings: backupSettings)
                 }
                 self.runSync(folder: staging, target: "staging", scoped: false, exportFirst: false,
                              reason: "restore from \(picked.lastPathComponent)")
             }
         }
+    }
+
+    /// Counts what a restored backup holds, into the durable log, so a report shows whether the
+    /// skins' index and the save-state list were in it at all.
+    static func logBackupContents(root: URL) {
+        let fm = FileManager.default
+        for folder in ["Skins", "Skins/pieces", "SaveStates", "BatterySaves", "Games", "Settings", "Artwork"] {
+            let items = (try? fm.contentsOfDirectory(atPath: root.appendingPathComponent(folder).path)) ?? []
+            FeedbackCenter.step("restore: backup \(folder) holds \(items.count) item(s)")
+        }
+        let plist = root.appendingPathComponent(CloudSyncPaths.settingsPath)
+        guard let data = try? Data(contentsOf: plist),
+              let values = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        else {
+            FeedbackCenter.step("restore: backup has NO readable Settings/defaults.plist (no skin index)")
+            return
+        }
+        let library = (values[skinLibraryKey] as? Data).flatMap { decodedIndex($0) }
+        let visuals = (values[touchSkinsKey] as? Data)
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        FeedbackCenter.step("restore: backup settings has \(values.count) key(s); skin index "
+            + "\(library.map { "\($0.records.count) skin(s)" } ?? "MISSING"), skin layouts "
+            + "\(visuals.map { "\($0.count)" } ?? "MISSING")")
+        let states = root.appendingPathComponent("SaveStates/index.json")
+        if let d = try? Data(contentsOf: states), let list = try? JSONSerialization.jsonObject(with: d) as? [Any] {
+            FeedbackCenter.step("restore: backup save-state list has \(list.count) entr(ies)")
+        } else {
+            FeedbackCenter.step("restore: backup has no readable SaveStates/index.json")
+        }
+    }
+
+    /// After the merge: the skin keys from the backup are merged in NOW and the skin library is
+    /// re-read, so skins show without closing the app (the rest of the settings still apply at
+    /// the next launch, as before). Save states are re-read too.
+    private func finishRestore(backupSettings: URL) {
+        var skins = 0
+        if let data = try? Data(contentsOf: backupSettings),
+           let values = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] {
+            for key in Self.mergedSkinKeys {
+                guard let incoming = values[key] else { continue }
+                if let merged = Self.mergedSkinValue(key: key, local: defaults.object(forKey: key),
+                                                     incoming: incoming) {
+                    defaults.set(merged, forKey: key)
+                    FeedbackCenter.step("restore: merged \(key)")
+                } else {
+                    FeedbackCenter.step("restore: could not merge \(key)")
+                }
+            }
+            // Everything else in the file still applies at the next launch.
+            defaults.set(true, forKey: Self.pendingSettingsKey)
+            skins = host?.reloadSkinsFromDefaults() ?? 0
+            FeedbackCenter.step("restore: skin library now lists \(skins) skin(s)")
+        } else {
+            FeedbackCenter.step("restore: no settings file to take skins from")
+        }
+        host?.saveStates.reloadFromDisk()
+        let states = host?.saveStates.records.count ?? 0
+        FeedbackCenter.step("restore: save-state list now has \(states) entr(ies)")
+        setLine("sync folder: restore finished: \(skins) skin(s), \(states) save state(s). "
+                + "Close Continuum fully and reopen it once to apply the rest of your settings.")
     }
 
     static func stagingFolder() -> URL? {

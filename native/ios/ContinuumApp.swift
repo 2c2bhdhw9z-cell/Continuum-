@@ -2831,6 +2831,20 @@ final class EngineHost: ObservableObject {
     /// thrown away just because that map was unreadable.
     private var skinVisualsLoaded = true
 
+    /// Re-reads the skin index, visuals and editor overlays from UserDefaults. Used right after a
+    /// restore merged them in, so the restored skins show without closing the app. Only called
+    /// when no game is running. Returns how many skins the library lists afterwards.
+    @discardableResult
+    func reloadSkinsFromDefaults() -> Int {
+        let defaults = UserDefaults.standard
+        touchSkinImages.removeAll()
+        loadTouchSkins(from: defaults)
+        loadSkinEdits(from: defaults)
+        touchSkinsVersion &+= 1
+        objectWillChange.send()
+        return skinLibrary.records.count
+    }
+
     private func loadTouchSkins(from defaults: UserDefaults) {
         var visualsTrusted = true
         if let blob = defaults.data(forKey: Self.touchSkinsKey) {
