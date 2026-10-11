@@ -542,6 +542,7 @@ impl Post {
             self.prev.clear();
             return;
         }
+        let drawn = if mode == 1 { Some(frame.to_vec()) } else { None };
         if self.prev.len() == frame.len() {
             let keep = match mode { 1 => 0.5, 2 => 0.4, _ => 0.65 };
             for (p, q) in frame.iter_mut().zip(self.prev.iter()) {
@@ -549,13 +550,8 @@ impl Post {
                 *p = join(a.0 * (1.0 - keep) + b.0 * keep, a.1 * (1.0 - keep) + b.1 * keep, a.2 * (1.0 - keep) + b.2 * keep);
             }
         }
-        self.prev.clear();
-        if mode == 1 {
-            // A plain mix blends with the frame as drawn, not with the previous mix.
-            self.prev.extend_from_slice(frame);
-        } else {
-            self.prev.extend_from_slice(frame);
-        }
+        // A plain mix blends with the frame as drawn; ghosting with what was shown (trails).
+        self.prev = drawn.unwrap_or_else(|| frame.to_vec());
     }
 
     /// Volume and filters on interleaved stereo samples.
