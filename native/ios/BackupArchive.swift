@@ -67,7 +67,7 @@ enum BackupArchive {
     /// Packs `folder` into a new zip at `zip`; entries are named `<folder name>/<relative path>`.
     /// Returns the number of files written.
     @discardableResult
-    static func pack(folder: URL, into zip: URL, log: (String) -> Void) throws -> Int {
+    static func pack(folder: URL, into zip: URL, log: @escaping (String) -> Void) throws -> Int {
         let fm = FileManager.default
         try? fm.removeItem(at: zip)
         guard fm.createFile(atPath: zip.path, contents: nil) else {
