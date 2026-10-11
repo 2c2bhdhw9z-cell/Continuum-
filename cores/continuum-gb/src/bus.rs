@@ -38,6 +38,9 @@ pub struct Bus {
     dma_active: bool,
     dma_delay: u8,
     dma_reg: u8,
+    /// A restarted OAM DMA: the previous transfer keeps OAM blocked until the new one starts.
+    #[serde(default)]
+    dma_prev_block: bool,
     apu_div_bit: bool,
     pub cycles: u64,
     /// Game Boy Color state (unused in DMG mode).
@@ -100,6 +103,7 @@ impl Bus {
             dma_active: false,
             dma_delay: 0,
             dma_reg: 0xFF,
+            dma_prev_block: false,
             apu_div_bit: false,
             cycles: 0,
             cgb: false,
@@ -209,6 +213,9 @@ impl Bus {
         if self.dma_active {
             if self.dma_delay > 0 {
                 self.dma_delay -= 1;
+                if self.dma_delay == 0 {
+                    self.dma_prev_block = false;
+                }
             } else {
                 let v = self.raw_read(self.dma_src + self.dma_pos);
                 self.ppu.oam[self.dma_pos as usize] = v;
@@ -258,7 +265,7 @@ impl Bus {
 
     pub fn read(&mut self, addr: u16) -> u8 {
         self.tick();
-        if self.dma_active && self.dma_delay == 0 && (0xFE00..0xFF00).contains(&addr) {
+        if self.dma_active && (self.dma_delay == 0 || self.dma_prev_block) && (0xFE00..0xFF00).contains(&addr) {
             return 0xFF;
         }
         self.raw_read(addr)
@@ -376,6 +383,7 @@ impl Bus {
                 if self.dma_src >= 0xE000 {
                     self.dma_src -= 0x2000;
                 }
+                self.dma_prev_block = self.dma_active && self.dma_delay == 0;
                 self.dma_pos = 0;
                 self.dma_active = true;
                 self.dma_delay = 2;

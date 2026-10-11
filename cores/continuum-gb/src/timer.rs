@@ -85,9 +85,25 @@ impl Timer {
     }
 
     pub fn write_tac(&mut self, v: u8) {
-        let before = self.bit();
-        self.tac = 0xF8 | (v & 7);
-        if before && !self.bit() {
+        // The write lands before this M-cycle's counter step, which `tick_m` has already taken
+        // with the old TAC. Redo that step's edge with the new TAC (the timer circuit sees the
+        // new enable and bit select for it): rapid start/stop (Mooneye rapid_toggle).
+        let prev = self.counter.wrapping_sub(4);
+        let bit_at = |tac: u8, c: u16| {
+            let sel = [9, 3, 5, 7][(tac & 3) as usize];
+            tac & 4 != 0 && (c >> sel) & 1 != 0
+        };
+        let old_edge = bit_at(self.tac, prev) && !bit_at(self.tac, self.counter);
+        let new_tac = 0xF8 | (v & 7);
+        // The write itself: the AND gate's output falling ticks TIMA.
+        let write_edge = bit_at(self.tac, prev) && !bit_at(new_tac, prev);
+        let new_edge = bit_at(new_tac, prev) && !bit_at(new_tac, self.counter);
+        self.tac = new_tac;
+        let ticks = i32::from(write_edge) + i32::from(new_edge) - i32::from(old_edge);
+        if ticks < 0 && self.reload_in == 0 {
+            self.tima = self.tima.wrapping_sub(1);
+        }
+        for _ in 0..ticks.max(0) {
             self.inc_tima();
         }
     }
