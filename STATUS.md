@@ -1,13 +1,20 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-10 October 2026. Newest published install: see the top of the build notes below (build 163 was
+11 October 2026. Newest published install: see the top of the build notes below (build 163 was
 [Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-163-676af12/Continuum.ipa)). The paragraph below about build 153 is older history.
 It has everything from build 152 (the second 3DS stutter fix and Continuum Symbian, whose
 `continuum_symbian_libretro_ios.dylib` is in the IPA) plus Mesen 2 as the default NES core. The
 next build after it adds the beta-readiness pass (open-source credits in Settings → About, the SMB
 wording in the Local Network permission). Older build notes further down are history; where an
 older line here disagrees with this paragraph, this paragraph is the current one.
+
+**Continuum GB: our own Game Boy core (started 11 Oct 2026; not in any IPA yet):**
+- What it is: a Game Boy (DMG) emulator written from scratch in Rust in `cores/continuum-gb`, built as a libretro core (`continuum_gb_libretro_ios.dylib`). Not a wrapper of mGBA or Gambatte. Laid out so Game Boy Color can be added later (VRAM/WRAM banks and colour palettes go into `ppu.rs` and `bus.rs`).
+- Done: the SM83 CPU (every opcode and CB opcode, timed per memory access), interrupts, HALT and the HALT bug, EI delay; DIV/TIMA timer with the falling-edge and reload-delay quirks; OAM DMA; the PPU (modes, LY/LYC/STAT interrupt, background, window, sprites with DMG priority, 8x16); all 4 sound channels with the frame sequencer; joypad; serial (no link partner); MBC1, MBC3 with its clock, MBC5; battery saves through libretro save RAM; the MBC3 clock through libretro RTC memory (caught up by real time on load); save states; no boot ROM needed (starts with the post-boot values).
+- Tests (`cd cores/continuum-gb && scripts/fetch-test-roms.sh && cargo test --release`): Blargg cpu_instrs PASS, instr_timing PASS, mem_timing PASS, dmg-acid2 PASS (pixel for pixel against its reference), Mooneye DMG acceptance 72 of 86 (report test, not a gate), save-state round trip and a libretro API smoke test pass. The ROMs are downloaded, never committed.
+- Still failing on Mooneye: PPU timing tests (mode 3 length is a fixed 172 dots, no sprite/SCX penalty; LCD-on timing), timer rapid_toggle, OAM DMA start edge, boot_div/boot_hwio exact values, the MBC1 multicart. Not yet: GBC, link cable, cheats, a dot-accurate pixel FIFO, mem_timing-2, Blargg sound tests.
+- In the app (code only, untested): registered as `continuum_gb`, an optional core in `scripts/build-core.sh` (cargo build for aarch64-apple-ios), embedded via `project.yml`, and offered in Settings as the second Game Boy core. mGBA stays the default. CI runs its tests in the Linux job. It reaches an IPA with the next real build; changes under `cores/` alone do not start the iOS workflow.
 
 **Build 164 (next, built, untested on a phone):**
 - **Saving outside the app: real cause of the dead Open button.** Builds 161 and 163: the folder picker opened, Open highlighted, nothing happened. Continuum is sideloaded and re-signed, and iOS does not give a re-signed app the File Provider grant an open-in-place folder pick (`asCopy: false`) needs; the same "Open does nothing" is reported for other sideloaded apps, and every other picker in Continuum (all `asCopy: true`) works on Brett's phone. Build 163's SwiftUI `.fileImporter` swap could not help (and the repo had already found `.fileImporter` drops its completion on device). Now Settings → SYNC FOLDER has **Back up to Files** (syncs into a folder inside the app, then exports a copy with the Files exporter) and **Restore from a backup** (copy-mode pick of that folder, merged in, nothing deleted). The backup prompt runs Back up to Files. The live folder stays as "Live folder (advanced)". Every picker step (presented, on screen, delegate called with URLs, cancelled, dismissed, security scope, bookmark) is in the activity log, and errors show in the Settings line. Confidence: high on the cause, medium that the folder exporter works on his iOS version. Backups are manual, not automatic. TESTING P-SYNC2.

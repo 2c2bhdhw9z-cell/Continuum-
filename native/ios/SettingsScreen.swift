@@ -602,12 +602,12 @@ struct SettingsScreen: View {
         }
     }
 
-    /// Every other system with two cores (`CoreCatalog.coreChoices`): NES, Disk System, Arcade and Saturn today.
+    /// Every other system with two cores (`CoreCatalog.coreChoices`): NES, Disk System, Game Boy, Arcade and Saturn today.
     /// The choice is stored per system and applies from the next launch of that system.
     private var systemCoresSection: some View {
-        SettingsSection(title: "NES, ARCADE AND SATURN CORES") {
+        SettingsSection(title: "NES, GAME BOY, ARCADE AND SATURN CORES") {
             let _ = host.coreChoiceVersion
-            ForEach([GameSystem.nes, GameSystem.fds, GameSystem.arcade, GameSystem.saturn], id: \.self) { system in
+            ForEach([GameSystem.nes, GameSystem.fds, GameSystem.gb, GameSystem.arcade, GameSystem.saturn], id: \.self) { system in
                 SettingsLabel("Core for \(system.displayName) games")
                 SegmentedChoice(
                     options: CoreCatalog.coreChoices[system] ?? [],
@@ -627,7 +627,8 @@ struct SettingsScreen: View {
                 + "a romset made for one often does not run on the other. Yabause is the default "
                 + "Saturn core and runs without a BIOS file. Beetle Saturn is more accurate and "
                 + "needs a real Saturn BIOS (sega_101.bin or mpr-17933.bin). Each choice applies "
-                + "from the next game you open."
+                + "from the next game you open. Game Boy games default to mGBA; Continuum GB is "
+                + "this app's own Game Boy core, new and still being tested."
             )
         }
     }

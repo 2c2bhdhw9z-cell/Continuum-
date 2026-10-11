@@ -97,7 +97,7 @@ IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed mednafen_psx_hw melon
 # flycast (Dreamcast) is built here, not fetched: the libretro iOS buildbot's flycast contains the
 # ARM64 dynarec and refuses to run without JIT. Interpreter only (TARGET_NO_REC); see its
 # ios_core_config entry. It has built green and shipped in every IPA since build 119.
-IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian)
+IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb)
 
 # THE JIT BUILDS (pcsx_rearmed_jit, parallel_n64_jit, flycast_jit). Same source and pin as the
 # core they are named after, built with its recompiler on, as <core>_jit_libretro_ios.dylib. The
@@ -478,6 +478,16 @@ ios_core_config() {
         ffmpeg
       )
       IOS_DISPLAY="PSP, Vulkan, IR interpreter (no JIT, no dynarec)"
+      ;;
+    continuum_gb)
+      # Game Boy. Continuum GB: this project's own core, written in Rust in cores/continuum-gb
+      # (no upstream, so no repo or pin). A selectable alternative to mGBA, which stays the
+      # default. OPTIONAL: a failure leaves the .ipa without it, nothing else.
+      IOS_REPO=""
+      IOS_PIN=""
+      IOS_DYLIB_NAME="continuum_gb_libretro_ios.dylib"
+      IOS_KIND="cargo-continuum-gb"
+      IOS_DISPLAY="Game Boy, Continuum GB (own Rust core), optional"
       ;;
     continuum_symbian)
       # Symbian / N-Gage. Continuum Symbian: native/continuum-symbian (this project's libretro
@@ -881,6 +891,20 @@ ios_stage_dylib() {
 
   cp "$built" "$IOS_OUT_DIR/$canonical"
   echo "==> done: native/ios/build/lib/$canonical ($(du -h "$IOS_OUT_DIR/$canonical" | cut -f1))"
+}
+
+# Continuum GB (cores/continuum-gb): a plain cargo cdylib for aarch64-apple-ios, on the
+# toolchain pinned in rust-toolchain.toml, staged through the same symbol and install-name checks.
+build_ios_continuum_gb_core() {
+  local core="$1"
+  local crate="$ROOT/cores/continuum-gb"
+  echo "==> building $core ($IOS_DISPLAY)"
+  ( cd "$crate" && rustup target add aarch64-apple-ios >/dev/null \
+      && IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-15.0}" \
+         cargo build --release --target aarch64-apple-ios )
+  local built="$crate/target/aarch64-apple-ios/release/libcontinuum_gb.dylib"
+  [[ -f "$built" ]] || { echo "error: $core: cargo produced no $built" >&2; exit 1; }
+  ios_stage_dylib "$built" "$IOS_DYLIB_NAME"
 }
 
 build_ios_make_core() {
@@ -1533,6 +1557,11 @@ build_ios_core() {
   # So the staging directory, and therefore the ios-all summary, can only ever report what THIS
   # run produced.
   rm -f "$IOS_OUT_DIR/$IOS_DYLIB_NAME"
+  # This project's own Rust cores live in the repository: nothing to clone or patch.
+  if [[ "$IOS_KIND" == "cargo-continuum-gb" ]]; then
+    build_ios_continuum_gb_core "$core"
+    return
+  fi
   ios_clone "$core"
   ios_apply_core_patches "$core"
 

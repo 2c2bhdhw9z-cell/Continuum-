@@ -108,6 +108,13 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace --features emulator-bridge/native-core
 
+      - name: Continuum GB tests
+        # Its own crate (cores/continuum-gb). The test ROMs are fetched by its script; without
+        # them those tests report SKIPPED and the unit tests still run.
+        run: |
+          cores/continuum-gb/scripts/fetch-test-roms.sh || echo "::warning::test ROM download failed"
+          cargo test --release --manifest-path cores/continuum-gb/Cargo.toml
+
       - name: Wrapper harness
         run: |
           # The libretro wrapper built for the host and driven by its harness, which exits non-zero
@@ -256,7 +263,7 @@ jobs:
       - name: Fingerprint the core toolchain
         id: toolchain
         env:
-          CORE_SOURCES_HASH: ${{ hashFiles('scripts/build-core.sh', 'scripts/patches/**', 'native/continuum-symbian/**') }}
+          CORE_SOURCES_HASH: ${{ hashFiles('scripts/build-core.sh', 'scripts/patches/**', 'native/continuum-symbian/**', 'cores/continuum-gb/src/**', 'cores/continuum-gb/Cargo.*') }}
         run: |
           set -euo pipefail
           FP="$RUNNER_TEMP/core-toolchain.txt"
@@ -393,6 +400,7 @@ jobs:
           optional() { grep -q "$1" <<<"$LISTING" || echo "::warning::$1 is not embedded; $2 games will list in the Library and say the core is missing"; }
           optional flycast_libretro_ios.dylib "Dreamcast"
           optional continuum_symbian_libretro_ios.dylib "Symbian / N-Gage"
+          optional continuum_gb_libretro_ios.dylib "Game Boy on Continuum GB (mGBA still plays them)"
           for jit_build in pcsx_rearmed_jit_libretro_ios.dylib parallel_n64_jit_libretro_ios.dylib \
                            flycast_jit_libretro_ios.dylib; do
             grep -q "$jit_build" <<<"$LISTING" \
