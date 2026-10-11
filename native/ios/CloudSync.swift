@@ -1091,13 +1091,44 @@ final class CloudSync: ObservableObject {
             setLine("sync folder: backup failed, nothing was written to \(root.lastPathComponent)")
             return
         }
-        let picker = UIDocumentPickerViewController(forExporting: [root], asCopy: true)
-        let delegate = SyncFolderPickerDelegate(
-            log: { FeedbackCenter.record("sync folder: export: " + $0) },
-            done: { [weak self] urls in
-                Task { @MainActor in self?.exportFinished(urls.first) }
-            })
-        present(picker, kind: "export", delegate: delegate)
+        // One .zip, not a folder: a folder cannot be picked back in copy mode (see BackupArchive).
+        let stamp = DateFormatter()
+        stamp.locale = Locale(identifier: "en_US_POSIX")
+        stamp.dateFormat = "yyyy-MM-dd HHmm"
+        let outDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ContinuumBackupOut", isDirectory: true)
+        let zip = outDir.appendingPathComponent("Continuum Backup \(stamp.string(from: Date())).zip")
+        isSyncing = true
+        setLine("sync folder: packing the backup into one file...", persist: false)
+        FeedbackCenter.step("backup: packing \(root.path) into \(zip.lastPathComponent)")
+        Task.detached(priority: .userInitiated) {
+            let result: Result<Int, Error>
+            do {
+                try? FileManager.default.removeItem(at: outDir)
+                try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+                result = .success(try BackupArchive.pack(folder: root, into: zip,
+                                                         log: { FeedbackCenter.step("backup: " + $0) }))
+            } catch {
+                result = .failure(error)
+            }
+            await MainActor.run {
+                self.isSyncing = false
+                switch result {
+                case .failure(let error):
+                    FeedbackCenter.step("backup: packing FAILED: \(error.localizedDescription)")
+                    self.setLine("sync folder: backup failed, could not pack it (\(error.localizedDescription))")
+                case .success(let count):
+                    FeedbackCenter.step("backup: packed \(count) file(s); showing the save picker")
+                    let picker = UIDocumentPickerViewController(forExporting: [zip], asCopy: true)
+                    let delegate = SyncFolderPickerDelegate(
+                        log: { FeedbackCenter.step("sync folder: export: " + $0) },
+                        done: { [weak self] urls in
+                            Task { @MainActor in self?.exportFinished(urls.first) }
+                        })
+                    self.present(picker, kind: "export", delegate: delegate)
+                }
+            }
+        }
     }
 
     private func exportFinished(_ url: URL?) {
@@ -1110,50 +1141,100 @@ final class CloudSync: ObservableObject {
         }
     }
 
-    /// Picks a backup folder made by Back up to Files (copy mode) and merges it in.
+    /// Picks a backup .zip made by Back up to Files (copy mode, a single file) and merges it in.
+    /// A folder is NOT offered: copy mode does not support folders, and picking one is what
+    /// crashed Restore in build 166. An old folder backup can be compressed in Files first.
     func restoreFromFiles() {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType.folder], asCopy: true)
+        FeedbackCenter.step("restore: tapped; opening the .zip picker")
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType.zip], asCopy: true)
         let delegate = SyncFolderPickerDelegate(
-            log: { FeedbackCenter.record("sync folder: restore pick: " + $0) },
+            log: { FeedbackCenter.step("restore: pick: " + $0) },
             done: { [weak self] urls in
                 Task { @MainActor in self?.restore(from: urls.first) }
             })
         present(picker, kind: "restore", delegate: delegate)
-        setLine("sync folder: choose the \(CloudSyncPaths.remoteFolderName) folder you backed up",
-                persist: false)
+        setLine("sync folder: choose your Continuum Backup .zip (an older backup folder: "
+                + "long-press it in Files, tap Compress, then pick the .zip)", persist: false)
     }
 
     private func restore(from picked: URL?) {
         pickerDelegate = nil
         guard let picked else {
+            FeedbackCenter.step("restore: cancelled")
             setLine("sync folder: restore cancelled; nothing changed", persist: false)
             return
         }
+        FeedbackCenter.step("restore: picked \(picked.path)")
         guard !isSyncing, host?.activeEntry == nil else {
+            FeedbackCenter.step("restore: refused, a sync or a game is running")
             setLine("sync folder: restore not started, a sync or a game is running; try again in a moment")
             return
         }
         guard let staging = Self.stagingFolder() else {
+            FeedbackCenter.step("restore: no app storage folder")
             setLine("sync folder: restore failed, no app storage folder")
             return
         }
-        let fm = FileManager.default
-        let nested = picked.appendingPathComponent(CloudSyncPaths.remoteFolderName, isDirectory: true)
-        let source = fm.fileExists(atPath: nested.path) ? nested : picked
-        let root = staging.appendingPathComponent(CloudSyncPaths.remoteFolderName, isDirectory: true)
-        do {
-            if fm.fileExists(atPath: root.path) { try fm.removeItem(at: root) }
-            try fm.copyItem(at: source, to: root)
-            FeedbackCenter.record("sync folder: restore copied \(source.lastPathComponent) into the app")
-        } catch {
-            setLine("sync folder: restore failed, could not copy the folder (\(error.localizedDescription))")
-            return
+        isSyncing = true
+        allowsGameLaunch = false
+        setLine("sync folder: unpacking \(picked.lastPathComponent)...", persist: false)
+        let name = CloudSyncPaths.remoteFolderName
+        // All file work off the main thread: a big backup walked on the main thread is a
+        // watchdog kill, which reads as a crash.
+        Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+            let unpacked = staging.appendingPathComponent("RestoreUnpack", isDirectory: true)
+            let root = staging.appendingPathComponent(name, isDirectory: true)
+            var failure: String?
+            do {
+                try? fm.removeItem(at: unpacked)
+                let isZip = picked.pathExtension.lowercased() == "zip"
+                guard isZip else { throw BackupArchiveError("that is not a .zip backup") }
+                FeedbackCenter.step("restore: unzipping")
+                try BackupArchive.unpack(zip: picked, into: unpacked,
+                                         log: { FeedbackCenter.step("restore: " + $0) })
+                // `Continuum Sync/...` inside the zip, or the zip of its contents directly.
+                var source = unpacked.appendingPathComponent(name, isDirectory: true)
+                if !fm.fileExists(atPath: source.path) {
+                    let top = (try? fm.contentsOfDirectory(at: unpacked, includingPropertiesForKeys: nil))?
+                        .filter { !$0.lastPathComponent.hasPrefix(".") } ?? []
+                    var isDir: ObjCBool = false
+                    if top.count == 1, fm.fileExists(atPath: top[0].path, isDirectory: &isDir), isDir.boolValue,
+                       fm.fileExists(atPath: top[0].appendingPathComponent(name).path) {
+                        source = top[0].appendingPathComponent(name, isDirectory: true)
+                    } else {
+                        source = unpacked
+                    }
+                }
+                FeedbackCenter.step("restore: backup root is \(source.lastPathComponent)")
+                if fm.fileExists(atPath: root.path) { try fm.removeItem(at: root) }
+                try fm.moveItem(at: source, to: root)
+                FeedbackCenter.step("restore: moved into the app's sync folder")
+            } catch {
+                failure = error.localizedDescription
+            }
+            try? fm.removeItem(at: unpacked)
+            try? fm.removeItem(at: picked)
+            let failed = failure
+            await MainActor.run {
+                self.isSyncing = false
+                self.allowsGameLaunch = true
+                if let failed {
+                    FeedbackCenter.step("restore: FAILED: \(failed)")
+                    self.setLine("sync folder: restore failed (\(failed)); nothing on your phone was changed")
+                    return
+                }
+                // A replaced folder shares no history with this phone: merge, never delete.
+                self.forgetHistory()
+                self.defaults.set("staging", forKey: Self.historyTargetKey)
+                FeedbackCenter.step("restore: merging into the app")
+                self.afterSync = { ok in
+                    FeedbackCenter.step("restore: merge finished, ok=\(ok)")
+                }
+                self.runSync(folder: staging, target: "staging", scoped: false, exportFirst: false,
+                             reason: "restore from \(picked.lastPathComponent)")
+            }
         }
-        // A replaced folder shares no history with this phone: merge, never delete.
-        forgetHistory()
-        defaults.set("staging", forKey: Self.historyTargetKey)
-        runSync(folder: staging, target: "staging", scoped: false, exportFirst: false,
-                reason: "restore from \(picked.lastPathComponent)")
     }
 
     static func stagingFolder() -> URL? {
@@ -1730,7 +1811,7 @@ struct BackupFolderPrompt: ViewModifier {
 
 struct CloudSyncSection: View {
     @ObservedObject var sync: CloudSync
-    static let backupNote: String = "Back up to Files saves a Continuum Sync folder wherever you pick (On My iPhone, iCloud Drive and so on). After reinstalling, tap Restore from a backup and pick that folder. A live folder that syncs by itself needs iOS to allow it, which it often does not for sideloaded apps."
+    static let backupNote: String = "Back up to Files saves one Continuum Backup .zip wherever you pick (On My iPhone, iCloud Drive and so on). After reinstalling, tap Restore from a backup and pick that .zip. A live folder that syncs by itself needs iOS to allow it, which it often does not for sideloaded apps."
 
     var body: some View {
         SettingsSection(title: "SYNC FOLDER") {

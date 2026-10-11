@@ -555,6 +555,8 @@ targets:
       # Cloud folder sync of saves, cheats, cover choices and settings through a bookmarked folder
       # and NSFileCoordinator. The rules are in Rust (crates/emulator-bridge/src/sync).
       - path: CloudSync.swift
+      # The backup as one .zip (pack and unpack, stored/deflate, ZIP64), off the main thread.
+      - path: BackupArchive.swift
       # Online play transport (NWListener, NWConnection, NWBrowser) over the Rust lockstep
       # protocol (crates/emulator-bridge/src/netplay).
       - path: Netplay.swift
