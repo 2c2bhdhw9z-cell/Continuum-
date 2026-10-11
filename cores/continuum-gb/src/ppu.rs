@@ -54,6 +54,9 @@ pub struct Ppu {
     /// hardware state, so not in save states.
     #[serde(skip, default = "all_layers")]
     pub layers: u8,
+    /// Frame skip: draw nothing this frame (not saved).
+    #[serde(skip)]
+    pub no_render: bool,
     /// For each pixel of `frame` on the DMG: the shade (0-3, after the palette registers) and
     /// where it came from (0 background or window, 1 sprite palette 0, 2 sprite palette 1).
     /// The output stage uses them for palettes, colourising and the Super Game Boy.
@@ -108,6 +111,7 @@ impl Default for Ppu {
             cgb: false,
             bg_pal: vec![0xFF; 64],
             layers: 7,
+            no_render: false,
             shade: blank_bytes(),
             source: blank_bytes(),
             obj_pal: vec![0xFF; 64],
@@ -314,6 +318,13 @@ impl Ppu {
     }
 
     fn render_line(&mut self) {
+        if self.no_render {
+            // Frame skip: only the window's line counter, which later lines depend on.
+            if (self.cgb || self.lcdc & 1 != 0) && self.lcdc & 0x20 != 0 && self.wy_hit && self.wx <= 166 {
+                self.window_line += 1;
+            }
+            return;
+        }
         let ly = self.ly;
         let cgb = self.cgb;
         let mut bg_index = [0u8; W];

@@ -158,6 +158,13 @@ pub struct Apu {
     /// Output only, not saved.
     #[serde(skip, default = "full_volume")]
     pub chan_vol: [u8; 4],
+    /// Output sample rate (core option). Not saved.
+    #[serde(skip, default = "default_rate")]
+    pub out_hz: u32,
+}
+
+fn default_rate() -> u32 {
+    OUT_HZ
 }
 
 fn full_volume() -> [u8; 4] {
@@ -177,6 +184,7 @@ impl Default for Apu {
             sample_acc: 0,
             samples: Vec::with_capacity(2048),
             chan_vol: [100; 4],
+            out_hz: OUT_HZ,
         };
         // The values the boot ROM leaves (channel 1 has just played the boot chime).
         let boot: [(u16, u8); 9] = [
@@ -429,7 +437,7 @@ impl Apu {
                 self.noise.lfsr = n;
             }
         }
-        self.sample_acc += t * OUT_HZ;
+        self.sample_acc += t * self.out_hz;
         if self.sample_acc >= CPU_HZ {
             self.sample_acc -= CPU_HZ;
             let (l, r) = self.mix();

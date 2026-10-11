@@ -87,6 +87,9 @@ pub struct Bus {
     /// Cartridge extras: clock, solar, gyro, rumble or tilt.
     #[serde(default)]
     pub gpio: super::gpio::Gpio,
+    /// CPU writes so far, for idle-loop detection (not saved).
+    #[serde(skip)]
+    pub writes: u64,
     pub ewram: Vec<u8>,
     pub iwram: Vec<u8>,
     pub io: Vec<u8>,
@@ -132,6 +135,7 @@ impl Bus {
             fifo_last: [0; 2],
             bios: mini_bios(),
             real_bios: false,
+            writes: 0,
             gpio: super::gpio::Gpio::new(super::gpio::detect(&rom)),
             ewram: vec![0; 0x40000],
             iwram: vec![0; 0x8000],
@@ -229,6 +233,11 @@ impl Bus {
         self.pending += self.wait(addr, word, seq);
     }
 
+    /// Cycles left in the current scanline.
+    pub fn cycles_to_line_end(&self) -> u32 {
+        LINE.saturating_sub(self.line_cycle).max(1)
+    }
+
     pub fn idle(&mut self, n: u32) {
         self.pending += n;
         self.last_addr = 0;
@@ -296,12 +305,14 @@ impl Bus {
     }
 
     pub fn write8(&mut self, addr: u32, v: u8) {
+        self.writes += 1;
         self.charge(addr, false);
         self.poke8(addr, v);
         self.run_pending();
     }
 
     pub fn write16(&mut self, addr: u32, v: u16) {
+        self.writes += 1;
         self.charge(addr, false);
         if addr >> 25 == 7 {
             // The save chip's 8-bit bus takes the byte the address lands on.
@@ -314,6 +325,7 @@ impl Bus {
     }
 
     pub fn write32(&mut self, addr: u32, v: u32) {
+        self.writes += 1;
         self.charge(addr, true);
         if addr >> 25 == 7 {
             self.save.write8(addr, (v >> ((addr & 3) * 8)) as u8);
@@ -813,7 +825,7 @@ impl Bus {
         }
     }
 
-    fn run_pending(&mut self) {
+    pub fn run_pending(&mut self) {
         if self.in_dma {
             return;
         }
@@ -846,7 +858,9 @@ impl Bus {
     fn hblank(&mut self) {
         if self.line < 160 {
             let (io, vram, pal, oam) = (&self.io, &self.vram, &self.pal, &self.oam);
-            self.ppu.render_line(io, vram, pal, oam, self.line as usize);
+            if !self.ppu.no_render {
+                self.ppu.render_line(io, vram, pal, oam, self.line as usize);
+            }
         }
         if self.io16(4) & 0x10 != 0 {
             self.request_irq(IRQ_HBLANK);

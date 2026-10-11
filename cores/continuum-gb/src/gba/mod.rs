@@ -25,6 +25,22 @@ pub fn is_gba_rom(rom: &[u8]) -> bool {
 pub struct Gba {
     pub cpu: Cpu,
     pub bus: Bus,
+    /// Idle-loop skipping (core option) and its detector; not saved.
+    #[serde(skip)]
+    pub idle_skip: bool,
+    #[serde(skip)]
+    idle: IdleWatch,
+}
+
+/// Spots a short backward loop that writes nothing (a game polling a register while it waits)
+/// and lets the machine jump to the end of the scanline instead of spinning through it.
+#[derive(Default, Clone)]
+struct IdleWatch {
+    prev_pc: u32,
+    head: u32,
+    writes: u64,
+    hits: u32,
+    skipped: u64,
 }
 
 const STATE_MAGIC: &[u8; 8] = b"CGBASTA1";
@@ -33,7 +49,7 @@ impl Gba {
     pub fn new(rom: Vec<u8>) -> Gba {
         let mut bus = Bus::new(rom);
         bus.post_bios();
-        Gba { cpu: Cpu::default(), bus }
+        Gba { cpu: Cpu::default(), bus, idle_skip: false, idle: IdleWatch::default() }
     }
 
     /// Boots through a real BIOS image (16 KiB) from address 0: the logo and chime play, then
@@ -45,7 +61,7 @@ impl Gba {
         let mut bus = Bus::new(rom);
         bus.bios = bios;
         bus.real_bios = true;
-        Ok(Gba { cpu: Cpu::power_on(), bus })
+        Ok(Gba { cpu: Cpu::power_on(), bus, idle_skip: false, idle: IdleWatch::default() })
     }
 
     pub fn step(&mut self) {
@@ -58,6 +74,38 @@ impl Gba {
             }
         }
         self.cpu.step(&mut self.bus);
+        if self.idle_skip {
+            self.watch_idle();
+        }
+    }
+
+    fn watch_idle(&mut self) {
+        let pc = self.cpu.r[15];
+        let w = &mut self.idle;
+        let back = w.prev_pc.wrapping_sub(pc);
+        w.prev_pc = pc;
+        if back == 0 || back > 16 {
+            return;
+        }
+        if pc == w.head && self.bus.writes == w.writes {
+            w.hits += 1;
+            if w.hits >= 3 && !self.bus.irq_requested() {
+                let n = self.bus.cycles_to_line_end();
+                self.bus.idle(n);
+                self.bus.run_pending();
+                w.skipped += u64::from(n);
+                w.hits = 0;
+            }
+        } else {
+            w.head = pc;
+            w.hits = 0;
+        }
+        w.writes = self.bus.writes;
+    }
+
+    /// Cycles idle-loop skipping has jumped over (for tests).
+    pub fn idle_skipped(&self) -> u64 {
+        self.idle.skipped
     }
 
     pub fn run_frame(&mut self) {

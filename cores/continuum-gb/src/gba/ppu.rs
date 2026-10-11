@@ -19,6 +19,8 @@ pub struct Ppu {
     /// Layer switches from the core options: bits 0-3 BG0-BG3, bit 4 sprites. Not saved.
     #[serde(skip, default = "all_layers")]
     pub layers: u8,
+    #[serde(skip)]
+    pub no_render: bool,
 }
 
 fn all_layers() -> u8 {
@@ -31,7 +33,7 @@ fn blank() -> Vec<u32> {
 
 impl Default for Ppu {
     fn default() -> Self {
-        Ppu { ref_x: [0; 2], ref_y: [0; 2], frame: blank(), layers: 0x1F }
+        Ppu { ref_x: [0; 2], ref_y: [0; 2], frame: blank(), layers: 0x1F, no_render: false }
     }
 }
 

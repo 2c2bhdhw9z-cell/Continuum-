@@ -1,8 +1,13 @@
-//! cBoy's core options (libretro SET_CORE_OPTIONS_V2), and the output-side effects they drive.
-//! Everything here works on the finished frame and the mixed samples, so it applies live and
-//! never touches emulation, save states or test hashes.
+//! cBoy's core options (libretro SET_CORE_OPTIONS_V2, categories per
+//! docs/CORE_OPTIONS_STANDARD.md), and the output-side effects they drive (palettes, colour,
+//! blending, Super Game Boy colour and border, filters, volume). Output effects work on the
+//! finished frame and samples, so they apply live and never touch save states.
 
 use std::ffi::{c_char, c_void, CStr};
+
+use crate::gb::Model;
+use crate::gba::gpio::Hardware;
+use crate::gba::save::SaveKind;
 
 #[repr(C)]
 pub struct OptValue {
@@ -42,49 +47,155 @@ pub struct Variable {
 }
 
 pub const ENV_GET_VARIABLE: u32 = 15;
+pub const ENV_SET_VARIABLES: u32 = 16;
 pub const ENV_GET_VARIABLE_UPDATE: u32 = 17;
 pub const ENV_SET_CORE_OPTIONS_V2: u32 = 67;
 
 const NULL_VALUE: OptValue = OptValue { value: std::ptr::null(), label: std::ptr::null() };
 
-/// (key, description, info, [(value, label)], default)
-type Spec = (&'static CStr, &'static CStr, &'static CStr, &'static [(&'static CStr, &'static CStr)], &'static CStr);
+type Values = &'static [(&'static CStr, &'static CStr)];
+/// (category, key, label, info, values, default)
+type Spec = (&'static CStr, &'static CStr, &'static CStr, &'static CStr, Values, &'static CStr);
+
+const CATEGORIES: &[(&CStr, &CStr, &CStr)] = &[
+    (c"system", c"System", c"Which console, start-up files, the cartridge's clock and save chip."),
+    (c"video", c"Picture", c"Palettes, screen colour, LCD ghosting and the Super Game Boy border."),
+    (c"audio", c"Sound", c"Volume, channel mix and filters."),
+    (c"input", c"Controls", c"Turbo buttons, motion and light sensors, rumble."),
+    (c"link", c"Link", c"The link cable."),
+    (c"performance", c"Performance", c"Speed and latency."),
+    (c"debug", c"Debug", c"Switch picture layers off one at a time."),
+];
+
+const PCT: Values = &[(c"100", c"100%"), (c"75", c"75%"), (c"50", c"50%"), (c"25", c"25%"), (c"0", c"Off")];
+const ON_OFF: Values = &[(c"on", c"On"), (c"off", c"Off")];
+const OFF_ON: Values = &[(c"off", c"Off"), (c"on", c"On")];
 
 const SPECS: &[Spec] = &[
-    (c"cboy_dmg_palette", c"Game Boy palette",
-     c"Colours for original Game Boy games (not Color or Advance ones).",
-     &[(c"grayscale", c"Grayscale"), (c"green", c"Original green (DMG)"), (c"pocket", c"Game Boy Pocket"),
-       (c"light", c"Game Boy Light"), (c"kiosk", c"Kiosk"), (c"sepia", c"Sepia")],
-     c"grayscale"),
-    (c"cboy_gbc_color_correction", c"Game Boy Color colour correction",
-     c"Mutes the colours the way the Color's own screen showed them.",
-     &[(c"off", c"Off"), (c"on", c"On")], c"off"),
-    (c"cboy_gba_color_correction", c"Game Boy Advance colour correction",
-     c"Off shows raw colours; On mimics the Advance's darker, washed-out LCD.",
-     &[(c"off", c"Off"), (c"on", c"On (Advance LCD)")], c"off"),
-    (c"cboy_frame_blend", c"LCD ghosting (frame blending)",
-     c"Blends each frame with the last, like the slow LCD. Makes flicker effects look solid.",
-     &[(c"off", c"Off"), (c"on", c"On")], c"off"),
-    (c"cboy_volume", c"Volume",
-     c"Overall sound volume.",
-     &[(c"100", c"100%"), (c"75", c"75%"), (c"50", c"50%"), (c"25", c"25%"), (c"0", c"Muted")], c"100"),
-    (c"cboy_rtc", c"Cartridge clock (RTC)",
-     c"Real time keeps a cartridge clock (Pokemon Gold, Silver, Crystal) running while the game is closed. Game time only counts while playing.",
-     &[(c"real", c"Real time"), (c"game", c"Game time only")], c"real"),
+    // System
+    (c"system", c"cboy_gb_model", c"Console for Game Boy and Color games",
+     c"Auto runs Color cartridges on a Game Boy Color and the rest on a Game Boy. Takes effect on the next start.",
+     &[(c"auto", c"Auto"), (c"dmg", c"Game Boy"), (c"mgb", c"Game Boy Pocket"), (c"sgb", c"Super Game Boy"),
+       (c"sgb2", c"Super Game Boy 2"), (c"cgb", c"Game Boy Color"), (c"agb", c"Game Boy Advance (Color games)")],
+     c"auto"),
+    (c"system", c"cboy_boot_rom", c"Start from a boot ROM file",
+     c"Plays the console's own start-up logo from a file you supply: <system folder>/cboy/dmg_boot.bin, mgb_boot.bin, sgb_boot.bin, sgb2_boot.bin or cgb_boot.bin. Without the file the game starts directly. Next start.",
+     OFF_ON, c"off"),
+    (c"system", c"cboy_gba_bios", c"Game Boy Advance BIOS",
+     c"Built-in needs no file. File uses <system folder>/cboy/gba_bios.bin (or gba_bios.bin) and plays the start-up logo. Next start.",
+     &[(c"builtin", c"Built-in"), (c"file", c"From file")], c"builtin"),
+    (c"system", c"cboy_gba_save_type", c"Game Boy Advance save chip",
+     c"Auto finds it from the game. Pick one if a game does not save. Next start.",
+     &[(c"auto", c"Auto"), (c"sram", c"SRAM 32 KB"), (c"flash64", c"Flash 64 KB"), (c"flash128", c"Flash 128 KB"),
+       (c"eeprom512", c"EEPROM 512 B"), (c"eeprom8k", c"EEPROM 8 KB"), (c"none", c"None")], c"auto"),
+    (c"system", c"cboy_gba_hardware", c"Game Boy Advance cartridge extras",
+     c"Clock, solar sensor, motion sensors or rumble built into some cartridges. Auto knows the games that have them. Next start.",
+     &[(c"auto", c"Auto"), (c"none", c"None"), (c"rtc", c"Clock"), (c"solar", c"Solar sensor"),
+       (c"gyro", c"Gyro sensor"), (c"tilt", c"Tilt sensor"), (c"rumble", c"Rumble")], c"auto"),
+    (c"system", c"cboy_rtc", c"Cartridge clock",
+     c"Real time keeps the clock running while the game is closed. Game time counts only while playing. Phone clock sets it to the phone's time at each start. The Advance's clock always follows the phone.",
+     &[(c"real", c"Real time"), (c"game", c"Game time only"), (c"phone", c"Phone clock")], c"real"),
+    (c"system", c"cboy_rtc_offset", c"Clock offset",
+     c"Moves the phone-clock time by whole hours (Advance clocks, and the Phone clock setting).",
+     &[(c"0", c"None"), (c"1", c"+1 hour"), (c"2", c"+2 hours"), (c"3", c"+3 hours"), (c"6", c"+6 hours"),
+       (c"12", c"+12 hours"), (c"24", c"+1 day"), (c"-1", c"-1 hour"), (c"-2", c"-2 hours"), (c"-3", c"-3 hours"),
+       (c"-6", c"-6 hours"), (c"-12", c"-12 hours"), (c"-24", c"-1 day")], c"0"),
+    // Picture
+    (c"video", c"cboy_dmg_palette", c"Game Boy palette",
+     c"The four shades of original Game Boy games. Custom reads <system folder>/cboy/palette.txt: four colours as hex, lightest first.",
+     &[(c"grayscale", c"Grayscale"), (c"green", c"Original green"), (c"pocket", c"Pocket"), (c"light", c"Light (backlit)"),
+       (c"kiosk", c"Kiosk"), (c"sepia", c"Sepia"), (c"ice", c"Ice"), (c"custom", c"Custom")], c"grayscale"),
+    (c"video", c"cboy_dmg_colorize", c"Colour Game Boy games",
+     c"Gives original Game Boy games separate colours for background and sprites. Auto picks a scheme from the game's title. Overrides the palette above.",
+     &[(c"off", c"Off"), (c"auto", c"Auto"), (c"meadow", c"Meadow"), (c"ocean", c"Ocean"), (c"ember", c"Ember"),
+       (c"dusk", c"Dusk"), (c"candy", c"Candy"), (c"slate", c"Slate")], c"off"),
+    (c"video", c"cboy_gbc_color", c"Game Boy Color screen colour",
+     c"Off shows the colours as stored. Screen mimics the Color's own LCD; Soft is a lighter version of it.",
+     &[(c"off", c"Off"), (c"screen", c"Screen"), (c"soft", c"Soft")], c"off"),
+    (c"video", c"cboy_gba_color", c"Game Boy Advance screen colour",
+     c"Off shows the colours as stored. Advance mimics the original unlit screen; SP the frontlit SP; TV a Game Boy Player on a television.",
+     &[(c"off", c"Off"), (c"gba", c"Advance"), (c"sp", c"Advance SP"), (c"tv", c"TV")], c"off"),
+    (c"video", c"cboy_blend", c"LCD ghosting",
+     c"Mix blends each frame with the last, which makes flicker effects solid. Ghosting leaves trails like the slow original screens.",
+     &[(c"off", c"Off"), (c"mix", c"Mix"), (c"light", c"Ghosting, light"), (c"heavy", c"Ghosting, heavy")], c"off"),
+    (c"video", c"cboy_sgb_border", c"Super Game Boy border",
+     c"Shows the frame a Super Game Boy game draws around the picture (with the Super Game Boy console).",
+     ON_OFF, c"on"),
+    // Sound
+    (c"audio", c"cboy_volume", c"Volume", c"Overall volume.", PCT, c"100"),
+    (c"audio", c"cboy_vol_sq1", c"Pulse channel 1", c"Volume of the first pulse (square) channel.", PCT, c"100"),
+    (c"audio", c"cboy_vol_sq2", c"Pulse channel 2", c"Volume of the second pulse channel.", PCT, c"100"),
+    (c"audio", c"cboy_vol_wave", c"Wave channel", c"Volume of the wave channel.", PCT, c"100"),
+    (c"audio", c"cboy_vol_noise", c"Noise channel", c"Volume of the noise channel.", PCT, c"100"),
+    (c"audio", c"cboy_vol_fifo_a", c"Advance sample channel A", c"Volume of the Advance's first sampled (DirectSound) channel.", PCT, c"100"),
+    (c"audio", c"cboy_vol_fifo_b", c"Advance sample channel B", c"Volume of the Advance's second sampled channel.", PCT, c"100"),
+    (c"audio", c"cboy_lowpass", c"Treble cut",
+     c"Softens harsh high tones, like a small speaker. Off is the console's full output.",
+     &[(c"off", c"Off"), (c"light", c"Light"), (c"medium", c"Medium"), (c"strong", c"Strong")], c"off"),
+    (c"audio", c"cboy_highpass", c"Remove DC offset",
+     c"Centres the waveform the way the console's output capacitor does, removing pops and the offset.",
+     ON_OFF, c"on"),
+    (c"audio", c"cboy_gba_smooth", c"Smooth Advance samples",
+     c"Interpolates the Advance's sampled sound between samples; less gritty, slightly duller.",
+     OFF_ON, c"off"),
+    (c"audio", c"cboy_sample_rate", c"Output sample rate",
+     c"Lower rates cost less work. Next start.",
+     &[(c"48000", c"48000 Hz"), (c"44100", c"44100 Hz"), (c"32768", c"32768 Hz")], c"48000"),
+    // Controls
+    (c"input", c"cboy_turbo", c"Turbo buttons",
+     c"X and Y become rapid-fire A and B. The number is presses per second.",
+     &[(c"off", c"Off"), (c"30", c"30"), (c"20", c"20"), (c"15", c"15"), (c"10", c"10"), (c"7", c"7.5")], c"off"),
+    (c"input", c"cboy_rumble", c"Rumble", c"Passes a cartridge's rumble motor to the phone or controller.", ON_OFF, c"on"),
+    (c"input", c"cboy_tilt_source", c"Tilt input",
+     c"For tilt cartridges (Kirby Tilt 'n' Tumble, Yoshi Topsy-Turvy): the phone's motion or the left stick.",
+     &[(c"phone", c"Phone motion"), (c"stick", c"Left stick"), (c"off", c"Off")], c"phone"),
+    (c"input", c"cboy_gyro_source", c"Turn input",
+     c"For the gyro cartridge (WarioWare: Twisted!): the phone's rotation or the left stick.",
+     &[(c"phone", c"Phone rotation"), (c"stick", c"Left stick"), (c"off", c"Off")], c"phone"),
+    (c"input", c"cboy_solar", c"Sunlight",
+     c"For solar cartridges (Boktai): the phone's light sensor if it has one, or a fixed level.",
+     &[(c"50", c"50%"), (c"phone", c"Light sensor"), (c"0", c"Dark"), (c"25", c"25%"), (c"75", c"75%"), (c"100", c"Full sun")], c"50"),
+    // Link
+    (c"link", c"cboy_link", c"Link cable",
+     c"Unplugged is a console with nothing attached. Loopback connects the cable to itself, which some test programs use. Linking two phones is not available yet.",
+     &[(c"off", c"Unplugged"), (c"loopback", c"Loopback")], c"off"),
+    // Performance
+    (c"performance", c"cboy_frameskip", c"Frame skip",
+     c"Skips drawing some frames to save work; the game still runs at full speed.",
+     &[(c"off", c"Off"), (c"1", c"Every other frame"), (c"2", c"Two in three"), (c"3", c"Three in four")], c"off"),
+    (c"performance", c"cboy_run_ahead", c"Run-ahead",
+     c"Shows the picture one or two frames ahead, cutting the input delay a game has built in. Costs two or three times the work.",
+     &[(c"0", c"Off"), (c"1", c"1 frame"), (c"2", c"2 frames")], c"0"),
+    (c"performance", c"cboy_idle_skip", c"Skip idle loops (Advance)",
+     c"Fast-forwards through loops where an Advance game only waits. Saves battery; a few games may run at the wrong pace.",
+     OFF_ON, c"off"),
+    // Debug
+    (c"debug", c"cboy_layer_bg", c"Background", c"Game Boy and Color background layer.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_window", c"Window", c"Game Boy and Color window layer.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_obj", c"Sprites", c"Game Boy, Color and Advance sprites.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_bg0", c"Advance BG0", c"Advance background 0.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_bg1", c"Advance BG1", c"Advance background 1.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_bg2", c"Advance BG2", c"Advance background 2.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_bg3", c"Advance BG3", c"Advance background 3.", ON_OFF, c"on"),
 ];
+
+/// Every key, for tests and for the fallback table.
+pub fn keys() -> impl Iterator<Item = &'static CStr> {
+    SPECS.iter().map(|s| s.1)
+}
 
 /// Declares the options to the frontend. Called from retro_set_environment.
 pub unsafe fn declare(env: unsafe extern "C" fn(u32, *mut c_void) -> bool) {
     // Built once and leaked: the frontend may keep the pointers.
     let defs: &'static mut Vec<OptDefinition> = Box::leak(Box::new(Vec::new()));
-    for (key, desc, info, values, default) in SPECS {
+    for (cat, key, desc, info, values, default) in SPECS {
         let mut vals = [NULL_VALUE; 128];
         for (i, (v, l)) in values.iter().enumerate() {
             vals[i] = OptValue { value: v.as_ptr(), label: l.as_ptr() };
         }
         defs.push(OptDefinition {
-            key: key.as_ptr(), desc: desc.as_ptr(), desc_categorized: std::ptr::null(),
-            info: info.as_ptr(), info_categorized: std::ptr::null(), category_key: std::ptr::null(),
+            key: key.as_ptr(), desc: desc.as_ptr(), desc_categorized: desc.as_ptr(),
+            info: info.as_ptr(), info_categorized: info.as_ptr(), category_key: cat.as_ptr(),
             values: vals, default_value: default.as_ptr(),
         });
     }
@@ -93,27 +204,103 @@ pub unsafe fn declare(env: unsafe extern "C" fn(u32, *mut c_void) -> bool) {
         info: std::ptr::null(), info_categorized: std::ptr::null(), category_key: std::ptr::null(),
         values: [NULL_VALUE; 128], default_value: std::ptr::null(),
     });
-    let cats: &'static [OptCategory; 1] = Box::leak(Box::new([OptCategory {
-        key: std::ptr::null(), desc: std::ptr::null(), info: std::ptr::null(),
-    }]));
+    let cats: &'static mut Vec<OptCategory> = Box::leak(Box::new(Vec::new()));
+    for (k, d, i) in CATEGORIES {
+        cats.push(OptCategory { key: k.as_ptr(), desc: d.as_ptr(), info: i.as_ptr() });
+    }
+    cats.push(OptCategory { key: std::ptr::null(), desc: std::ptr::null(), info: std::ptr::null() });
     let mut opts = OptionsV2 { categories: cats.as_ptr(), definitions: defs.as_ptr() };
-    env(ENV_SET_CORE_OPTIONS_V2, &mut opts as *mut OptionsV2 as *mut c_void);
+    if env(ENV_SET_CORE_OPTIONS_V2, &mut opts as *mut OptionsV2 as *mut c_void) {
+        return;
+    }
+    // Older frontends: "Label; default|other|...".
+    let texts: &'static mut Vec<std::ffi::CString> = Box::leak(Box::new(Vec::new()));
+    let vars: &'static mut Vec<Variable> = Box::leak(Box::new(Vec::new()));
+    for (_, key, desc, _, values, default) in SPECS {
+        let mut list = vec![default.to_string_lossy().into_owned()];
+        for (v, _) in values.iter() {
+            if v != default {
+                list.push(v.to_string_lossy().into_owned());
+            }
+        }
+        let t = std::ffi::CString::new(format!("{}; {}", desc.to_string_lossy(), list.join("|"))).unwrap_or_default();
+        texts.push(t);
+        vars.push(Variable { key: key.as_ptr(), value: texts.last().map_or(std::ptr::null(), |t| t.as_ptr()) });
+    }
+    vars.push(Variable { key: std::ptr::null(), value: std::ptr::null() });
+    env(ENV_SET_VARIABLES, vars.as_mut_ptr() as *mut c_void);
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    Phone,
+    Stick,
+    Off,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
+    pub model: Model,
+    pub boot_rom: bool,
+    pub gba_bios_file: bool,
+    pub gba_save: Option<(SaveKind, u8)>,
+    pub gba_hardware: Option<Hardware>,
+    pub rtc_mode: RtcMode,
+    pub rtc_offset_hours: i64,
     pub dmg_palette: [u32; 4],
-    pub gbc_correct: bool,
-    pub gba_correct: bool,
-    pub blend: bool,
+    pub custom_palette: bool,
+    pub colorize: Colorize,
+    pub gbc_color: u8,
+    pub gba_color: u8,
+    pub blend: u8,
+    pub sgb_border: bool,
     pub volume: u32,
-    pub real_time_rtc: bool,
+    pub chan_vol: [u8; 4],
+    pub fifo_vol: [u8; 2],
+    pub lowpass: u8,
+    pub highpass: bool,
+    pub gba_smooth: bool,
+    pub sample_rate: u32,
+    /// Turbo period in frames (0 off).
+    pub turbo_period: u32,
+    pub rumble: bool,
+    pub tilt: Source,
+    pub gyro: Source,
+    /// None: the phone's light sensor; Some(level 0-255).
+    pub solar: Option<u8>,
+    pub link_loopback: bool,
+    pub frameskip: u32,
+    pub run_ahead: u32,
+    pub idle_skip: bool,
+    pub gb_layers: u8,
+    pub gba_layers: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RtcMode {
+    Real,
+    Game,
+    Phone,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Colorize {
+    Off,
+    Auto,
+    Scheme(usize),
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { dmg_palette: palette("grayscale"), gbc_correct: false, gba_correct: false,
-                   blend: false, volume: 100, real_time_rtc: true }
+        Settings {
+            model: Model::Auto, boot_rom: false, gba_bios_file: false, gba_save: None, gba_hardware: None,
+            rtc_mode: RtcMode::Real, rtc_offset_hours: 0, dmg_palette: crate::ppu::SHADES, custom_palette: false,
+            colorize: Colorize::Off, gbc_color: 0, gba_color: 0, blend: 0, sgb_border: true, volume: 100,
+            chan_vol: [100; 4], fifo_vol: [100; 2], lowpass: 0, highpass: true, gba_smooth: false,
+            sample_rate: 48_000, turbo_period: 0, rumble: true, tilt: Source::Phone, gyro: Source::Phone,
+            solar: Some(128), link_loopback: false, frameskip: 0, run_ahead: 0, idle_skip: false,
+            gb_layers: 7, gba_layers: 0x1F,
+        }
     }
 }
 
@@ -124,8 +311,49 @@ pub fn palette(name: &str) -> [u32; 4] {
         "light" => [0x00B581, 0x009A71, 0x00694A, 0x004F3B],
         "kiosk" => [0xFFE78C, 0xDEB55A, 0x9C7B39, 0x4A3918],
         "sepia" => [0xFFF6D3, 0xF9A875, 0xEB6B6F, 0x7C3F58],
+        "ice" => [0xE8F8FF, 0x9FD3F0, 0x4F7FB8, 0x1A2850],
         _ => crate::ppu::SHADES,
     }
+}
+
+/// Colour schemes for Game Boy games: (background, sprite palette 0, sprite palette 1).
+pub const SCHEMES: [[[u32; 4]; 3]; 6] = [
+    // meadow
+    [[0xF8F8D8, 0x98D068, 0x487838, 0x182810], [0xFFFFFF, 0xF8A060, 0xA83818, 0x301008], [0xFFFFFF, 0x80B0F8, 0x3050A8, 0x101838]],
+    // ocean
+    [[0xE8F8F8, 0x78C8E8, 0x2868A8, 0x081838], [0xFFFFFF, 0xF8D878, 0xC07820, 0x402008], [0xFFFFFF, 0xF89898, 0xB83040, 0x401018]],
+    // ember
+    [[0xFFF0D8, 0xF8B068, 0xB85020, 0x401008], [0xFFFFFF, 0xF8E890, 0x988030, 0x302808], [0xFFFFFF, 0xA8D8F8, 0x4878B8, 0x102040]],
+    // dusk
+    [[0xF0E8F8, 0xB8A0D8, 0x685098, 0x201838], [0xFFFFFF, 0xF8C098, 0xC06848, 0x402018], [0xFFFFFF, 0x98E0B8, 0x388860, 0x082818]],
+    // candy
+    [[0xFFF0F8, 0xF8A8D0, 0xC04888, 0x401028], [0xFFFFFF, 0xA8E8F8, 0x3898C0, 0x083040], [0xFFFFFF, 0xF8F0A0, 0xB8A838, 0x383008]],
+    // slate
+    [[0xF0F0F0, 0xB0B8C0, 0x606870, 0x181C20], [0xFFFFFF, 0xF8C870, 0xB06820, 0x382008], [0xFFFFFF, 0x90D8F8, 0x3878B0, 0x0C2038]],
+];
+
+/// The scheme Auto picks for a title: a stable hash of the header title.
+pub fn auto_scheme(title: &str) -> usize {
+    let h = title.bytes().fold(2166136261u32, |h, b| (h ^ u32::from(b)).wrapping_mul(16777619));
+    (h % SCHEMES.len() as u32) as usize
+}
+
+/// Reads a custom palette file: four hex colours, lightest first, separated by anything.
+pub fn read_custom_palette(text: &str) -> Option<[u32; 4]> {
+    let mut out = [0u32; 4];
+    let mut n = 0;
+    for word in text.split(|c: char| !c.is_ascii_hexdigit() && c != '#' && c != 'x') {
+        let w = word.trim_start_matches('#').trim_start_matches("0x");
+        if w.len() == 6 {
+            if let Ok(v) = u32::from_str_radix(w, 16) {
+                if n < 4 {
+                    out[n] = v;
+                    n += 1;
+                }
+            }
+        }
+    }
+    (n == 4).then_some(out)
 }
 
 unsafe fn get(env: unsafe extern "C" fn(u32, *mut c_void) -> bool, key: &CStr) -> Option<String> {
@@ -137,16 +365,83 @@ unsafe fn get(env: unsafe extern "C" fn(u32, *mut c_void) -> bool, key: &CStr) -
     }
 }
 
-/// Reads every option (missing ones keep their default).
-pub unsafe fn read(env: unsafe extern "C" fn(u32, *mut c_void) -> bool) -> Settings {
+/// Settings from a lookup of option values (missing ones keep their default).
+pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) -> Settings {
     let mut s = Settings::default();
-    if let Some(v) = get(env, c"cboy_dmg_palette") { s.dmg_palette = palette(&v); }
-    if let Some(v) = get(env, c"cboy_gbc_color_correction") { s.gbc_correct = v == "on"; }
-    if let Some(v) = get(env, c"cboy_gba_color_correction") { s.gba_correct = v == "on"; }
-    if let Some(v) = get(env, c"cboy_frame_blend") { s.blend = v == "on"; }
-    if let Some(v) = get(env, c"cboy_volume") { s.volume = v.parse().unwrap_or(100).min(100); }
-    if let Some(v) = get(env, c"cboy_rtc") { s.real_time_rtc = v != "game"; }
+    let on = |k: &CStr, d: bool| get(k).map_or(d, |v| v == "on");
+    let pct = |k: &CStr| get(k).and_then(|v| v.parse::<u8>().ok()).unwrap_or(100).min(100);
+    if let Some(v) = get(c"cboy_gb_model") {
+        s.model = match v.as_str() {
+            "dmg" => Model::Dmg, "mgb" => Model::Mgb, "sgb" => Model::Sgb, "sgb2" => Model::Sgb2,
+            "cgb" => Model::Cgb, "agb" => Model::Agb, _ => Model::Auto,
+        };
+    }
+    s.boot_rom = on(c"cboy_boot_rom", false);
+    s.gba_bios_file = get(c"cboy_gba_bios").is_some_and(|v| v == "file");
+    s.gba_save = get(c"cboy_gba_save_type").and_then(|v| match v.as_str() {
+        "sram" => Some((SaveKind::Sram, 0)), "flash64" => Some((SaveKind::Flash64, 0)),
+        "flash128" => Some((SaveKind::Flash128, 0)), "eeprom512" => Some((SaveKind::Eeprom, 6)),
+        "eeprom8k" => Some((SaveKind::Eeprom, 14)), "none" => Some((SaveKind::None, 0)), _ => None,
+    });
+    s.gba_hardware = get(c"cboy_gba_hardware").and_then(|v| match v.as_str() {
+        "none" => Some(Hardware::None), "rtc" => Some(Hardware::Rtc), "solar" => Some(Hardware::Solar),
+        "gyro" => Some(Hardware::Gyro), "tilt" => Some(Hardware::Tilt), "rumble" => Some(Hardware::Rumble), _ => None,
+    });
+    s.rtc_mode = match get(c"cboy_rtc").as_deref() { Some("game") => RtcMode::Game, Some("phone") => RtcMode::Phone, _ => RtcMode::Real };
+    s.rtc_offset_hours = get(c"cboy_rtc_offset").and_then(|v| v.parse().ok()).unwrap_or(0);
+    if let Some(v) = get(c"cboy_dmg_palette") {
+        if v == "custom" {
+            let file = system_dir.and_then(|d| std::fs::read_to_string(format!("{d}/cboy/palette.txt")).ok());
+            if let Some(p) = file.as_deref().and_then(read_custom_palette) {
+                s.dmg_palette = p;
+                s.custom_palette = true;
+            }
+        } else {
+            s.dmg_palette = palette(&v);
+        }
+    }
+    s.colorize = match get(c"cboy_dmg_colorize").as_deref() {
+        Some("auto") => Colorize::Auto,
+        Some("meadow") => Colorize::Scheme(0), Some("ocean") => Colorize::Scheme(1), Some("ember") => Colorize::Scheme(2),
+        Some("dusk") => Colorize::Scheme(3), Some("candy") => Colorize::Scheme(4), Some("slate") => Colorize::Scheme(5),
+        _ => Colorize::Off,
+    };
+    s.gbc_color = match get(c"cboy_gbc_color").as_deref() { Some("screen") => 1, Some("soft") => 2, _ => 0 };
+    s.gba_color = match get(c"cboy_gba_color").as_deref() { Some("gba") => 1, Some("sp") => 2, Some("tv") => 3, _ => 0 };
+    s.blend = match get(c"cboy_blend").as_deref() { Some("mix") => 1, Some("light") => 2, Some("heavy") => 3, _ => 0 };
+    s.sgb_border = on(c"cboy_sgb_border", true);
+    s.volume = u32::from(pct(c"cboy_volume"));
+    s.chan_vol = [pct(c"cboy_vol_sq1"), pct(c"cboy_vol_sq2"), pct(c"cboy_vol_wave"), pct(c"cboy_vol_noise")];
+    s.fifo_vol = [pct(c"cboy_vol_fifo_a"), pct(c"cboy_vol_fifo_b")];
+    s.lowpass = match get(c"cboy_lowpass").as_deref() { Some("light") => 1, Some("medium") => 2, Some("strong") => 3, _ => 0 };
+    s.highpass = on(c"cboy_highpass", true);
+    s.gba_smooth = on(c"cboy_gba_smooth", false);
+    s.sample_rate = get(c"cboy_sample_rate").and_then(|v| v.parse().ok()).filter(|r| [48_000, 44_100, 32_768].contains(r)).unwrap_or(48_000);
+    s.turbo_period = get(c"cboy_turbo").and_then(|v| v.parse::<u32>().ok()).map_or(0, |per_s| (60 / per_s.max(1)).max(2));
+    s.rumble = on(c"cboy_rumble", true);
+    let src = |k: &CStr| match get(k).as_deref() { Some("stick") => Source::Stick, Some("off") => Source::Off, _ => Source::Phone };
+    s.tilt = src(c"cboy_tilt_source");
+    s.gyro = src(c"cboy_gyro_source");
+    s.solar = match get(c"cboy_solar").as_deref() {
+        Some("phone") => None,
+        Some(v) => Some((v.parse::<u32>().unwrap_or(50).min(100) * 255 / 100) as u8),
+        None => Some(128),
+    };
+    s.link_loopback = get(c"cboy_link").is_some_and(|v| v == "loopback");
+    s.frameskip = get(c"cboy_frameskip").and_then(|v| v.parse().ok()).unwrap_or(0).min(3);
+    s.run_ahead = get(c"cboy_run_ahead").and_then(|v| v.parse().ok()).unwrap_or(0).min(2);
+    s.idle_skip = on(c"cboy_idle_skip", false);
+    s.gb_layers = u8::from(on(c"cboy_layer_bg", true)) | u8::from(on(c"cboy_layer_window", true)) << 1
+        | u8::from(on(c"cboy_layer_obj", true)) << 2;
+    s.gba_layers = u8::from(on(c"cboy_layer_bg0", true)) | u8::from(on(c"cboy_layer_bg1", true)) << 1
+        | u8::from(on(c"cboy_layer_bg2", true)) << 2 | u8::from(on(c"cboy_layer_bg3", true)) << 3
+        | u8::from(on(c"cboy_layer_obj", true)) << 4;
     s
+}
+
+/// Reads every option from the frontend.
+pub unsafe fn read(env: unsafe extern "C" fn(u32, *mut c_void) -> bool, system_dir: Option<&str>) -> Settings {
+    parse(|k| get(env, k), system_dir)
 }
 
 pub unsafe fn changed(env: unsafe extern "C" fn(u32, *mut c_void) -> bool) -> bool {
@@ -154,58 +449,38 @@ pub unsafe fn changed(env: unsafe extern "C" fn(u32, *mut c_void) -> bool) -> bo
     env(ENV_GET_VARIABLE_UPDATE, &mut updated as *mut bool as *mut c_void) && updated
 }
 
-/// Colour correction: a mix of the channels and a gamma lift, the usual approximation of the
-/// GBC (`strong` false) and GBA (`strong` true) screens.
-fn correct(c: u32, strong: bool) -> u32 {
-    let (r, g, b) = (((c >> 16) & 255) as f32 / 255.0, ((c >> 8) & 255) as f32 / 255.0, (c & 255) as f32 / 255.0);
-    let gamma = if strong { 1.25 } else { 1.1 };
-    let (r, g, b) = (r.powf(gamma), g.powf(gamma), b.powf(gamma));
-    let (nr, ng, nb) = if strong {
-        (0.80 * r + 0.275 * g - 0.075 * b, 0.135 * r + 0.64 * g + 0.225 * b, 0.195 * r + 0.155 * g + 0.65 * b)
-    } else {
-        (0.82 * r + 0.24 * g - 0.06 * b, 0.10 * r + 0.70 * g + 0.20 * b, 0.12 * r + 0.18 * g + 0.70 * b)
+fn split(c: u32) -> (f32, f32, f32) {
+    (((c >> 16) & 255) as f32 / 255.0, ((c >> 8) & 255) as f32 / 255.0, (c & 255) as f32 / 255.0)
+}
+
+fn join(r: f32, g: f32, b: f32) -> u32 {
+    let ch = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u32;
+    ch(r) << 16 | ch(g) << 8 | ch(b)
+}
+
+/// The screen-colour looks. Each is a gamma into linear light, a channel mix (the panels bleed
+/// colours into each other), a brightness and a gamma back out. Our own approximations.
+pub fn correct(c: u32, look: Look) -> u32 {
+    let (gin, m, bright, gout): (f32, [[f32; 3]; 3], f32, f32) = match look {
+        Look::GbcScreen => (2.2, [[0.80, 0.18, 0.02], [0.10, 0.74, 0.16], [0.12, 0.20, 0.68]], 0.94, 2.0),
+        Look::GbcSoft => (2.2, [[0.88, 0.10, 0.02], [0.06, 0.84, 0.10], [0.06, 0.12, 0.82]], 1.0, 2.1),
+        Look::Gba => (3.2, [[0.82, 0.24, -0.06], [0.12, 0.66, 0.22], [0.18, 0.16, 0.66]], 0.92, 2.2),
+        Look::GbaSp => (2.5, [[0.86, 0.16, -0.02], [0.08, 0.76, 0.16], [0.10, 0.12, 0.78]], 1.0, 2.2),
+        Look::Tv => (2.2, [[0.95, 0.05, 0.0], [0.03, 0.94, 0.03], [0.02, 0.05, 0.93]], 1.0, 2.4),
     };
-    let ch = |v: f32| (v.clamp(0.0, 1.0).powf(1.0 / gamma) * 255.0).round() as u32;
-    ch(nr) << 16 | ch(ng) << 8 | ch(nb)
+    let (r, g, b) = split(c);
+    let (r, g, b) = (r.powf(gin), g.powf(gin), b.powf(gin));
+    let mix = |row: [f32; 3]| ((row[0] * r + row[1] * g + row[2] * b) * bright).max(0.0).powf(1.0 / gout);
+    join(mix(m[0]), mix(m[1]), mix(m[2]))
 }
 
-/// Applies the picture options to a finished frame, in place. `prev` holds the last output for
-/// blending and is updated.
-pub fn apply_video(frame: &mut [u32], prev: &mut Vec<u32>, s: &Settings, machine: Machine) {
-    match machine {
-        Machine::Dmg if s.dmg_palette != crate::ppu::SHADES => {
-            for p in frame.iter_mut() {
-                if let Some(i) = crate::ppu::SHADES.iter().position(|&x| x == *p & 0xFFFFFF) {
-                    *p = s.dmg_palette[i];
-                }
-            }
-        }
-        Machine::Cgb if s.gbc_correct => frame.iter_mut().for_each(|p| *p = correct(*p, false)),
-        Machine::Gba if s.gba_correct => frame.iter_mut().for_each(|p| *p = correct(*p, true)),
-        _ => {}
-    }
-    if s.blend {
-        if prev.len() == frame.len() {
-            for (p, q) in frame.iter_mut().zip(prev.iter()) {
-                let avg = |a: u32, b: u32, sh: u32| (((a >> sh) & 255) + ((b >> sh) & 255)) / 2 << sh;
-                let cur = *p;
-                *p = avg(cur, *q, 16) | avg(cur, *q, 8) | avg(cur, *q, 0);
-                // Ghosting follows the shown picture, so keep the blended value.
-            }
-        }
-        prev.clear();
-        prev.extend_from_slice(frame);
-    } else {
-        prev.clear();
-    }
-}
-
-pub fn apply_volume(samples: &mut [i16], s: &Settings) {
-    if s.volume < 100 {
-        for x in samples.iter_mut() {
-            *x = (i32::from(*x) * s.volume as i32 / 100) as i16;
-        }
-    }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Look {
+    GbcScreen,
+    GbcSoft,
+    Gba,
+    GbaSp,
+    Tv,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -215,32 +490,216 @@ pub enum Machine {
     Gba,
 }
 
+/// Output-side state that lives across frames.
+#[derive(Default)]
+pub struct Post {
+    prev: Vec<u32>,
+    lp: [f32; 2],
+    hp_in: [f32; 2],
+    hp_out: [f32; 2],
+}
+
+impl Post {
+    /// Picture options on a finished 160x144 (or 240x160) frame. For the DMG, `shade` and
+    /// `source` say what each pixel is (see `Ppu::shade`).
+    pub fn video(&mut self, frame: &mut [u32], shade: &[u8], source: &[u8], s: &Settings, machine: Machine, title: &str) {
+        match machine {
+            Machine::Dmg => {
+                let scheme = match s.colorize {
+                    Colorize::Off => None,
+                    Colorize::Auto => Some(SCHEMES[auto_scheme(title)]),
+                    Colorize::Scheme(i) => Some(SCHEMES[i % SCHEMES.len()]),
+                };
+                if shade.len() == frame.len() {
+                    for i in 0..frame.len() {
+                        let sh = usize::from(shade[i] & 3);
+                        frame[i] = match scheme {
+                            Some(sc) => sc[usize::from(source[i].min(2))][sh],
+                            None => s.dmg_palette[sh],
+                        };
+                    }
+                }
+            }
+            Machine::Cgb => {
+                let look = match s.gbc_color { 1 => Some(Look::GbcScreen), 2 => Some(Look::GbcSoft), _ => None };
+                if let Some(l) = look {
+                    frame.iter_mut().for_each(|p| *p = correct(*p, l));
+                }
+            }
+            Machine::Gba => {
+                let look = match s.gba_color { 1 => Some(Look::Gba), 2 => Some(Look::GbaSp), 3 => Some(Look::Tv), _ => None };
+                if let Some(l) = look {
+                    frame.iter_mut().for_each(|p| *p = correct(*p, l));
+                }
+            }
+        }
+        self.blend(frame, s.blend);
+    }
+
+    /// LCD ghosting: 1 mixes with the last frame shown; 2 and 3 leave decaying trails.
+    pub fn blend(&mut self, frame: &mut [u32], mode: u8) {
+        if mode == 0 {
+            self.prev.clear();
+            return;
+        }
+        if self.prev.len() == frame.len() {
+            let keep = match mode { 1 => 0.5, 2 => 0.4, _ => 0.65 };
+            for (p, q) in frame.iter_mut().zip(self.prev.iter()) {
+                let (a, b) = (split(*p), split(*q));
+                *p = join(a.0 * (1.0 - keep) + b.0 * keep, a.1 * (1.0 - keep) + b.1 * keep, a.2 * (1.0 - keep) + b.2 * keep);
+            }
+        }
+        self.prev.clear();
+        if mode == 1 {
+            // A plain mix blends with the frame as drawn, not with the previous mix.
+            self.prev.extend_from_slice(frame);
+        } else {
+            self.prev.extend_from_slice(frame);
+        }
+    }
+
+    /// Volume and filters on interleaved stereo samples.
+    pub fn audio(&mut self, samples: &mut [i16], s: &Settings, rate: u32) {
+        let cut = match s.lowpass { 1 => Some(9_000.0f32), 2 => Some(5_000.0), 3 => Some(2_500.0), _ => None };
+        let a_lp = cut.map(|f| {
+            let dt = 1.0 / rate as f32;
+            let rc = 1.0 / (2.0 * std::f32::consts::PI * f);
+            dt / (rc + dt)
+        });
+        // About 20 Hz, like the console's coupling capacitor.
+        let a_hp = 1.0 - (2.0 * std::f32::consts::PI * 20.0 / rate as f32);
+        let vol = s.volume as f32 / 100.0;
+        for (i, x) in samples.iter_mut().enumerate() {
+            let ch = i & 1;
+            let mut v = f32::from(*x);
+            if s.highpass {
+                let out = a_hp * (self.hp_out[ch] + v - self.hp_in[ch]);
+                self.hp_in[ch] = v;
+                self.hp_out[ch] = out;
+                v = out;
+            }
+            if let Some(a) = a_lp {
+                self.lp[ch] += a * (v - self.lp[ch]);
+                v = self.lp[ch];
+            }
+            *x = (v * vol).clamp(-32768.0, 32767.0) as i16;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
-    #[test]
-    fn dmg_palette_maps_the_four_shades_and_blend_averages() {
-        let s = Settings { dmg_palette: palette("green"), ..Settings::default() };
-        let mut f = crate::ppu::SHADES.to_vec();
-        let mut prev = Vec::new();
-        apply_video(&mut f, &mut prev, &s, Machine::Dmg);
-        assert_eq!(f, palette("green").to_vec());
-        let s = Settings { blend: true, ..Settings::default() };
-        let mut a = vec![0x00FF_FFFFu32];
-        apply_video(&mut a, &mut prev, &s, Machine::Cgb);
-        let mut b = vec![0u32];
-        apply_video(&mut b, &mut prev, &s, Machine::Cgb);
-        assert_eq!(b[0], 0x007F_7F7F);
+    fn settings(pairs: &[(&str, &str)]) -> Settings {
+        let m: HashMap<String, String> = pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        parse(|k| m.get(k.to_str().unwrap()).cloned(), None)
     }
 
     #[test]
-    fn correction_keeps_black_and_white_and_volume_scales() {
-        assert_eq!(correct(0, true), 0);
-        let w = correct(0xFFFFFF, false);
-        assert!((w >> 16) & 255 >= 0xF0 && w & 255 >= 0xF0, "{w:06X}");
-        let mut x = [1000i16, -1000];
-        apply_volume(&mut x, &Settings { volume: 50, ..Settings::default() });
-        assert_eq!(x, [500, -500]);
+    fn every_option_has_a_unique_cboy_key_a_category_and_its_default_among_its_values() {
+        let mut seen = std::collections::HashSet::new();
+        for (cat, key, _, info, values, default) in SPECS {
+            let k = key.to_str().unwrap();
+            assert!(k.starts_with("cboy_"), "{k}");
+            assert!(seen.insert(k), "duplicate {k}");
+            assert!(CATEGORIES.iter().any(|c| c.0 == *cat), "{k}");
+            assert!(values.iter().any(|v| v.0 == *default), "{k}");
+            assert!(!info.to_bytes().is_empty());
+        }
+    }
+
+    #[test]
+    fn defaults_parse_to_hardware_behaviour() {
+        assert_eq!(settings(&[]), Settings::default());
+    }
+
+    #[test]
+    fn each_option_parses() {
+        let s = settings(&[
+            ("cboy_gb_model", "sgb2"), ("cboy_boot_rom", "on"), ("cboy_gba_bios", "file"),
+            ("cboy_gba_save_type", "eeprom512"), ("cboy_gba_hardware", "solar"), ("cboy_rtc", "phone"),
+            ("cboy_rtc_offset", "-6"), ("cboy_dmg_palette", "green"), ("cboy_dmg_colorize", "ocean"),
+            ("cboy_gbc_color", "soft"), ("cboy_gba_color", "tv"), ("cboy_blend", "heavy"), ("cboy_sgb_border", "off"),
+            ("cboy_volume", "50"), ("cboy_vol_sq1", "0"), ("cboy_vol_sq2", "25"), ("cboy_vol_wave", "75"),
+            ("cboy_vol_noise", "50"), ("cboy_vol_fifo_a", "25"), ("cboy_vol_fifo_b", "0"), ("cboy_lowpass", "strong"),
+            ("cboy_highpass", "off"), ("cboy_gba_smooth", "on"), ("cboy_sample_rate", "32768"), ("cboy_turbo", "10"),
+            ("cboy_rumble", "off"), ("cboy_tilt_source", "stick"), ("cboy_gyro_source", "off"), ("cboy_solar", "100"),
+            ("cboy_link", "loopback"), ("cboy_frameskip", "2"), ("cboy_run_ahead", "1"), ("cboy_idle_skip", "on"),
+            ("cboy_layer_bg", "off"), ("cboy_layer_window", "off"), ("cboy_layer_obj", "off"), ("cboy_layer_bg0", "off"),
+            ("cboy_layer_bg1", "on"), ("cboy_layer_bg2", "off"), ("cboy_layer_bg3", "on"),
+        ]);
+        assert_eq!(s.model, Model::Sgb2);
+        assert!(s.boot_rom && s.gba_bios_file);
+        assert_eq!(s.gba_save, Some((SaveKind::Eeprom, 6)));
+        assert_eq!(s.gba_hardware, Some(Hardware::Solar));
+        assert_eq!((s.rtc_mode, s.rtc_offset_hours), (RtcMode::Phone, -6));
+        assert_eq!(s.dmg_palette, palette("green"));
+        assert_eq!(s.colorize, Colorize::Scheme(1));
+        assert_eq!((s.gbc_color, s.gba_color, s.blend, s.sgb_border), (2, 3, 3, false));
+        assert_eq!((s.volume, s.chan_vol, s.fifo_vol), (50, [0, 25, 75, 50], [25, 0]));
+        assert_eq!((s.lowpass, s.highpass, s.gba_smooth, s.sample_rate), (3, false, true, 32_768));
+        assert_eq!((s.turbo_period, s.rumble, s.tilt, s.gyro, s.solar), (6, false, Source::Stick, Source::Off, Some(255)));
+        assert_eq!((s.link_loopback, s.frameskip, s.run_ahead, s.idle_skip), (true, 2, 1, true));
+        assert_eq!((s.gb_layers, s.gba_layers), (0, 0b01010));
+    }
+
+    #[test]
+    fn palettes_colorize_and_custom_file() {
+        let mut post = Post::default();
+        let s = settings(&[("cboy_dmg_palette", "green")]);
+        let mut f = vec![0u32; 4];
+        post.video(&mut f, &[0, 1, 2, 3], &[0; 4], &s, Machine::Dmg, "T");
+        assert_eq!(f, palette("green").to_vec());
+        let s = settings(&[("cboy_dmg_colorize", "ember")]);
+        post.video(&mut f, &[3, 3, 3, 0], &[0, 1, 2, 0], &s, Machine::Dmg, "T");
+        assert_eq!(f, vec![SCHEMES[2][0][3], SCHEMES[2][1][3], SCHEMES[2][2][3], SCHEMES[2][0][0]]);
+        assert_eq!(auto_scheme("POKEMON YELLOW"), auto_scheme("POKEMON YELLOW"));
+        assert_eq!(read_custom_palette("#ffffff, #aaaaaa\n555555 0x000000"), Some([0xFFFFFF, 0xAAAAAA, 0x555555, 0]));
+        assert_eq!(read_custom_palette("ffffff"), None);
+    }
+
+    #[test]
+    fn colour_looks_keep_black_and_change_mid_tones() {
+        for l in [Look::GbcScreen, Look::GbcSoft, Look::Gba, Look::GbaSp, Look::Tv] {
+            assert_eq!(correct(0, l), 0, "{l:?}");
+            assert_ne!(correct(0x0080FF, l), 0x0080FF, "{l:?}");
+        }
+    }
+
+    #[test]
+    fn blending_mixes_and_ghosting_trails() {
+        let mut p = Post::default();
+        let mut a = vec![0x00FF_FFFFu32];
+        p.blend(&mut a, 1);
+        let mut b = vec![0u32];
+        p.blend(&mut b, 1);
+        assert_eq!(b[0], 0x0080_8080);
+        let mut p = Post::default();
+        p.blend(&mut vec![0x00FF_FFFF], 3);
+        let mut c = vec![0u32];
+        p.blend(&mut c, 3);
+        let mut d = vec![0u32];
+        p.blend(&mut d, 3);
+        assert!(d[0] & 0xFF > 0 && d[0] & 0xFF < c[0] & 0xFF, "{:06X} {:06X}", c[0], d[0]);
+    }
+
+    #[test]
+    fn audio_volume_filters() {
+        let mut p = Post::default();
+        let mut x = vec![1000i16; 2];
+        p.audio(&mut x, &Settings { volume: 50, highpass: false, ..Settings::default() }, 48_000);
+        assert_eq!(x, vec![500, 500]);
+        // DC removal: a constant level decays toward zero.
+        let mut p = Post::default();
+        let mut dc = vec![8000i16; 48_000];
+        p.audio(&mut dc, &Settings::default(), 48_000);
+        assert!(dc[47_998].abs() < 100, "{}", dc[47_998]);
+        // Treble cut: a full-scale alternating signal is reduced.
+        let mut p = Post::default();
+        let mut hf: Vec<i16> = (0..2000).map(|i| if (i / 2) % 2 == 0 { 10_000 } else { -10_000 }).collect();
+        p.audio(&mut hf, &Settings { lowpass: 3, highpass: false, ..Settings::default() }, 48_000);
+        assert!(hf[1998].abs() < 3000, "{}", hf[1998]);
     }
 }
