@@ -165,6 +165,8 @@ fn mooneye_acceptance_report() {
     for f in &failed {
         eprintln!("  FAIL {f}");
     }
+    assert!(failed.is_empty(), "Mooneye DMG acceptance regressed: {failed:?}");
+    assert_eq!(names.len(), 86, "expected the 86 DMG acceptance tests");
 }
 
 /// A save state taken mid-run and loaded into a fresh machine continues identically.
