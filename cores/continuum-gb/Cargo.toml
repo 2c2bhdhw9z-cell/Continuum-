@@ -1,0 +1,23 @@
+# Continuum GB: this project's own Game Boy core, written from scratch, exposed as a libretro core.
+# A standalone crate (its own empty [workspace]) so it builds and tests without the app's engine,
+# and so a change here does not start the iOS workflow (its push paths are native/**, crates/**).
+[package]
+name = "continuum_gb"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+bincode = "1.3"
+
+[dev-dependencies]
+png = "0.17"
+
+[profile.test]
+opt-level = 2
+
+[workspace]
