@@ -388,3 +388,91 @@ fn mooneye_mbc2() {
     let failed: Vec<String> = names.iter().filter_map(|n| mooneye(&format!("mts/emulator-only/mbc2/{n}")).err()).collect();
     assert!(failed.is_empty() && !names.is_empty(), "{failed:?}");
 }
+
+fn png_rgb(bytes: &[u8]) -> Vec<u32> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::EXPAND);
+    let mut reader = decoder.read_info().unwrap();
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).unwrap();
+    let bpp = info.line_size / info.width as usize;
+    let mut out = Vec::with_capacity(160 * 144);
+    for y in 0..info.height as usize {
+        for x in 0..info.width as usize {
+            let p = &buf[y * info.line_size + x * bpp..];
+            let (r, g, b) = if bpp >= 3 { (p[0], p[1], p[2]) } else { (p[0], p[0], p[0]) };
+            out.push(u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b));
+        }
+    }
+    out
+}
+
+/// One Mealybug Tearoom test: run to `LD B,B`, compare the screen. Returns differing pixels.
+fn mealybug(name: &str, cgb: bool) -> Option<usize> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/mealybug");
+    let data = std::fs::read(dir.join(format!("{name}.gb"))).ok()?;
+    let exp = std::fs::read(dir.join("expected").join(if cgb { "CPU CGB C" } else { "DMG-blob" }).join(format!("{name}.png"))).ok()?;
+    let want = png_rgb(&exp);
+    let mut gb = GameBoy::new_mode(data, cgb).ok()?;
+    for _ in 0..600 {
+        gb.run_frame();
+        if gb.cpu.ld_b_b {
+            break;
+        }
+    }
+    // The picture is complete a couple of frames later.
+    for _ in 0..3 {
+        gb.run_frame();
+    }
+    let got = &gb.bus.ppu.frame;
+    if let Ok(d) = std::env::var("MEALY_DUMP") {
+        let mut out = format!("P6 320 144 255\n").into_bytes();
+        for y in 0..144 {
+            for half in [got.as_slice(), want.as_slice()] {
+                for x in 0..160 {
+                    let p = half[y * 160 + x];
+                    out.extend([(p >> 16) as u8, (p >> 8) as u8, p as u8]);
+                }
+            }
+        }
+        std::fs::write(format!("{d}/{}{name}.ppm", if cgb { "cgb_" } else { "dmg_" }), out).unwrap();
+    }
+    // DMG references are grey levels; ours are the same four greys.
+    let map = |p: u32| if cgb { p } else {
+        match p & 0xFF { 0xFF => continuum_gb::ppu::SHADES[0], 0xAA => continuum_gb::ppu::SHADES[1], 0x55 => continuum_gb::ppu::SHADES[2], _ => continuum_gb::ppu::SHADES[3] }
+    };
+    Some(want.iter().zip(got.iter()).filter(|(w, g)| map(**w) != **g).count())
+}
+
+/// Mid-scanline register changes (Mealybug Tearoom). Reports; the passing set is pinned below.
+#[test]
+fn mealybug_report() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/mealybug");
+    if !dir.exists() {
+        eprintln!("SKIPPED: mealybug not fetched");
+        return;
+    }
+    let mut pass = Vec::new();
+    let mut fail = Vec::new();
+    for cgb in [false, true] {
+        let exp = dir.join("expected").join(if cgb { "CPU CGB C" } else { "DMG-blob" });
+        let mut names: Vec<String> = std::fs::read_dir(&exp).unwrap().flatten()
+            .map(|e| e.file_name().to_string_lossy().trim_end_matches(".png").to_string()).collect();
+        names.sort();
+        for n in names {
+            match mealybug(&n, cgb) {
+                Some(0) => pass.push(format!("{}{n}", if cgb { "cgb:" } else { "dmg:" })),
+                Some(d) => fail.push(format!("{}{n} ({d})", if cgb { "cgb:" } else { "dmg:" })),
+                None => {}
+            }
+        }
+    }
+    eprintln!("MEALYBUG: {} passed, {} failed", pass.len(), fail.len());
+    eprintln!("  pass: {pass:?}");
+    eprintln!("  fail: {fail:?}");
+    for must in MEALYBUG_PASSING {
+        assert!(pass.iter().any(|p| p == must), "mealybug regressed: {must}");
+    }
+}
+
+const MEALYBUG_PASSING: &[&str] = &[];

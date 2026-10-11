@@ -1,0 +1,99 @@
+Previous launch:
+picture (skin holes set): frame 1x1, effect None
+12:05:33  surface ready - tap + to add a game
+12:05:44  restore: Settings button tapped
+12:05:44  restore: tapped; opening the .zip picker
+12:05:44  sync folder: restore picker requested
+12:05:44  sync folder: restore presentation settled
+12:05:44  sync folder: restore picker presenting from UIHostingController<ModifiedContent<AnyView, RootModifier>>, busy=false
+12:05:44  sync folder: choose your Continuum Backup .zip (an older backup folder: long-press it in Files, tap Compress, then pick the .zip)
+12:05:44  sync folder: restore picker on screen
+12:05:46  restore: pick: delegate called with 1 URL(s): /private/var/mobile/Containers/Data/Application/16E791DF-0043-48AB-9A06-AD2B28B0DC82/tmp/dev.continuum.app-Inbox/Continuum Sync.zip
+12:05:46  restore: picked /private/var/mobile/Containers/Data/Application/16E791DF-0043-48AB-9A06-AD2B28B0DC82/tmp/dev.continuum.app-Inbox/Continuum Sync.zip
+12:05:46  sync folder: unpacking Continuum Sync.zip...
+12:05:46  restore: unzipping
+12:05:46  restore: unzip: 482 entr(ies) in Continuum Sync.zip
+12:06:08  restore: unzip: wrote 232 file(s)
+12:06:08  restore: backup root is Continuum Sync
+12:06:08  restore: moved into the app's sync folder
+12:06:08  restore: backup Skins holds 28 item(s)
+12:06:08  restore: backup Skins/pieces holds 10 item(s)
+12:06:08  restore: backup SaveStates holds 4 item(s)
+12:06:08  restore: backup BatterySaves holds 3 item(s)
+12:06:08  restore: backup Games holds 91 item(s)
+12:06:08  restore: backup Settings holds 1 item(s)
+12:06:08  restore: backup Artwork holds 1 item(s)
+12:06:08  restore: backup settings has 13 key(s); skin index 14 skin(s), skin layouts 14
+12:06:08  restore: backup save-state list has 3 entr(ies)
+12:06:08  restore: merging into the app
+12:06:08  sync folder: syncing (restore from Continuum Sync.zip)
+12:06:09  sync folder: last synced 10/11/26, 12:06 PM, 0 up, 232 down, no errors; settings from the cloud apply the next time Continuum opens; skins from the cloud apply the next time Continuum opens; cover choices from the cloud apply the next time Continuum opens
+12:06:09  restore: merge finished, ok=true
+12:06:09  restore: merged continuum.skins.library.v1
+12:06:09  restore: merged continuum.controls.touchSkins.v1
+12:06:09  restore: skin library now lists 14 skin(s)
+12:06:09  restore: save-state list now has 3 entr(ies)
+12:06:09  sync folder: restore finished: 14 skin(s), 3 save state(s). Close Continuum fully and reopen it once to apply the rest of your settings.
+12:06:17  artwork: 1190 - Super Mario Advance 4 - Super Mario Bros 3 (E)(Menace) has no cover under any name, downloading the Game Boy Advance box art list once so it can be searched; this is a few megabytes, it is kept, and it is not downloaded again for a month
+12:06:51  artwork: 1 lookup(s) failed, the connection dropped during the lookup. Latest: Animal Crossing - New Leaf (USA) (En,Fr,Es)
+
+This launch:
+picture (skin holes set): frame 1x1, effect None
+12:07:00  surface ready - tap a game in the Library
+12:07:07  artwork: Dragon Ball Z (J) has no cover under any name, downloading the WonderSwan box art list once so it can be searched; this is a few megabytes, it is kept, and it is not downloaded again for a month
+12:07:16  opening Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb...
+12:07:16  launch core: mgba (mGBA (GBA, GB, GBC)) for Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb [gb], from the default
+12:07:16  opening Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb... on mgba
+12:07:16  core state was declared; loading mgba...
+launch: core load mgba (/private/var/containers/Bundle/Application/5D62A9ED-F2DA-44AC-B076-E16737C64C81/Continuum.app/Frameworks/mgba_libretro_ios.dylib)
+launch: retro_init
+12:07:16  opening Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb... on mgba, state loaded
+launch: game /private/var/mobile/Containers/Data/Application/16E791DF-0043-48AB-9A06-AD2B28B0DC82/Documents/Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb · system gb · core mgba
+launch: retro_load_game mgba
+12:07:16  running: Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb on mgba
+12:07:16  state not loaded: its file is 196608 bytes and the list recorded 202816, so the file was not written completely.
+picture (skin holes set): frame 160x144, effect None, skin crop 160x144 at 0,0
+launch: first frame (retro_run)
+launch: first frame done
+picture (first frame or new size: pitch 512 bytes (320 per row needed), format Rgb565): frame 160x144, effect None, skin crop 160x144 at 0,0
+picture (skin holes set): frame 160x144, effect None, skin crop 160x144 at 0,0
+picture (skin holes set): frame 160x144, effect None
+12:07:25  stopped Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb; back in the library
+12:07:35  deleted every save state: 3 file(s), 582 KB
+12:07:50  core choice: gb -> continuum_gb
+12:07:50  Game Boy games now launch on cBoy (GB, GBC, GBA), from the next launch
+12:07:51  core choice: gbc -> continuum_gb
+12:07:51  Game Boy Color games now launch on cBoy (GB, GBC, GBA), from the next launch
+12:07:51  core choice: gba -> continuum_gb
+12:07:51  Game Boy Advance games now launch on cBoy (GB, GBC, GBA), from the next launch
+12:07:53  core choice: nes -> fceumm
+12:07:53  Nintendo Entertainment System games now launch on FCEUmm (NES), from the next launch
+12:07:54  core choice: nes -> mesen2
+12:07:54  Nintendo Entertainment System games now launch on Mesen (NES), from the next launch
+12:08:03  opening Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb...
+12:08:03  launch core: continuum_gb (cBoy (GB, GBC, GBA)) for Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb [gb], from the Settings choice for Game Boy
+12:08:03  opening Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb... on continuum_gb
+12:08:03  core state was declared; loading continuum_gb...
+launch: core load continuum_gb (/private/var/containers/Bundle/Application/5D62A9ED-F2DA-44AC-B076-E16737C64C81/Continuum.app/Frameworks/continuum_gb_libretro_ios.dylib)
+launch: retro_init
+12:08:04  opening Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb... on continuum_gb, state loaded
+launch: game /private/var/mobile/Containers/Data/Application/16E791DF-0043-48AB-9A06-AD2B28B0DC82/Documents/Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb · system gb · core continuum_gb
+launch: retro_load_game continuum_gb
+cBoy: loaded "POKEMON YELLOW" as Game Boy Color: Mbc5, ROM 1024 KB, RAM 32 KB, battery true, clock false, header $143 = 80
+12:08:04  running: Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb on continuum_gb
+picture (skin holes set): frame 160x144, effect None, skin crop 160x144 at 0,0
+launch: first frame (retro_run)
+launch: first frame done
+picture (first frame or new size: pitch 640 bytes (640 per row needed), format Xrgb8888): frame 160x144, effect None, skin crop 160x144 at 0,0
+picture (skin holes set): frame 160x144, effect None, skin crop 160x144 at 0,0
+cBoy: general DMA 54B0->9800, 576 bytes, VBK 1, LY 144
+cBoy: general DMA 54B0->9C00, 576 bytes, VBK 1, LY 144
+cBoy: general DMA 56F0->9E40, 928 bytes, VBK 0, LY 112
+cBoy: general DMA 3900->9900, 928 bytes, VBK 1, LY 0
+12:08:20  core settings for continuum_gb
+cBoy: general DMA 3900->9900, 928 bytes, VBK 1, LY 0
+picture (skin holes set): frame 160x144, effect None, skin crop 160x144 at 0,0
+cBoy: general DMA 3900->9900, 928 bytes, VBK 1, LY 0
+picture (first frame or new size: pitch 640 bytes (640 per row needed), format Xrgb8888): frame 160x144, effect None, skin crop 160x144 at 0,0
+picture (skin holes set): frame 160x144, effect None
+12:10:47  stopped Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb; back in the library

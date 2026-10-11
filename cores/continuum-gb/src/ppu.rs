@@ -72,6 +72,9 @@ pub struct Ppu {
     /// The output stage uses them for palettes, colourising and the Super Game Boy.
     pub shade: Vec<u8>,
     pub source: Vec<u8>,
+    /// Mode 3's pixel pipeline (never mid-line at a frame boundary, where states are taken).
+    #[serde(skip)]
+    fifo: fifo::Fifo,
 }
 
 fn all_layers() -> u8 {
@@ -90,6 +93,9 @@ pub struct PpuIrq {
     pub vblank: bool,
     pub stat: bool,
 }
+
+#[path = "fifo.rs"]
+mod fifo;
 
 impl Default for Ppu {
     fn default() -> Self {
@@ -123,6 +129,7 @@ impl Default for Ppu {
             layers: 7,
             no_render: false,
             no_sprite_limit: false,
+            fifo: Default::default(),
             shade: blank_bytes(),
             source: blank_bytes(),
             obj_pal: vec![0xFF; 64],
@@ -209,6 +216,7 @@ impl Ppu {
         let was = self.on();
         self.lcdc = v;
         if was && !self.on() {
+            self.fifo.active = false;
             self.ly = 0;
             self.dot = 0;
             self.mode = 0;
@@ -285,6 +293,7 @@ impl Ppu {
         }
         self.dot += 1;
         if self.dot == 456 {
+            self.fifo_force_end();
             self.dot = 0;
             self.first_line = false;
             self.ly += 1;
@@ -305,12 +314,17 @@ impl Ppu {
                 d @ 80 => {
                     self.mode = 3;
                     self.hblank_at = d + self.mode3_length();
-                    self.render_line();
+                    if self.no_render {
+                        self.render_line();
+                    } else {
+                        self.fifo_start();
+                    }
                 }
                 d if d == self.hblank_at && self.mode == 3 => self.mode = 0,
                 _ => {}
             }
         } else if self.ly == 144 && self.dot == 0 {
+            self.fifo_force_end();
             self.mode = 1;
             irq.vblank = true;
             if self.skip_frame {
@@ -318,6 +332,9 @@ impl Ppu {
                 self.frame.iter_mut().for_each(|p| *p = 0x00FF_FFFF);
             }
             self.frame_ready = true;
+        }
+        if self.fifo.active {
+            self.fifo_dot();
         }
         // While LY ticks over (the last 4 dots of a line) the comparison reads false.
         self.lyc_eq = !(self.dot >= 452 && self.ly < 153) && self.ly == self.lyc;

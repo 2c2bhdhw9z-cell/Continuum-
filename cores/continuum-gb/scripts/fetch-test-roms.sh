@@ -29,3 +29,10 @@ if [ ! -d jsmolka ]; then
     && git -C jsmolka checkout -q a7113b67e63f83a9b321696ddd7042ccfad6c881 || echo "gba-tests download failed"
 fi
 ls
+# Mealybug Tearoom tests (MIT): mid-scanline register changes, for the pixel FIFO.
+if [ ! -d mealybug ]; then
+  git clone -q --depth 1 https://github.com/mattcurrie/mealybug-tearoom-tests mealybug-src \
+    && mkdir -p mealybug && (cd mealybug && unzip -oq ../mealybug-src/mealybug-tearoom-tests.zip) \
+    && cp -r mealybug-src/expected mealybug/expected && cp mealybug-src/LICENSE mealybug/ \
+    && rm -rf mealybug-src || echo "mealybug download failed (optional)"
+fi

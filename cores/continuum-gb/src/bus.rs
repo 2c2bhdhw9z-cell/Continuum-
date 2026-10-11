@@ -394,7 +394,7 @@ impl Bus {
             }
             0xFF41 => self.ppu.write_stat(v),
             0xFF42 => self.ppu.scy = v,
-            0xFF43 => self.ppu.scx = v,
+            0xFF43 => { if std::env::var("SCX_DEBUG").is_ok() && self.ppu.ly < 3 { eprintln!("scx {v} ly {} dot {}", self.ppu.ly, self.ppu.dot); } self.ppu.scx = v }
             0xFF45 => {
                 if self.ppu.write_lyc(v) {
                     self.iflag |= INT_STAT;
@@ -411,7 +411,7 @@ impl Bus {
                 self.dma_active = true;
                 self.dma_delay = 2;
             }
-            0xFF47 => self.ppu.bgp = v,
+            0xFF47 => self.ppu.write_bgp(v),
             0xFF48 => self.ppu.obp0 = v,
             0xFF49 => self.ppu.obp1 = v,
             0xFF4A => self.ppu.wy = v,
