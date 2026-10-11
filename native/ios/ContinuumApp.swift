@@ -4115,7 +4115,9 @@ final class EngineHost: ObservableObject {
 
         // Skins, cheats, saves and manuals go to their own stores, and archives are unpacked (or
         // kept whole for arcade, DOS and Amiga) before anything is copied. See ImportCenter.
+        FeedbackCenter.step("import: preparing \(incoming.count) file(s) (archives, skins, saves)")
         let (urls, handledElsewhere) = importCenter.prepare(incoming)
+        FeedbackCenter.step("import: \(urls.count) to copy, \(handledElsewhere) handled elsewhere")
         if urls.isEmpty && handledElsewhere > 0 {
             refreshLibrary()
             return
@@ -4162,6 +4164,7 @@ final class EngineHost: ObservableObject {
             let replacing = FileManager.default.fileExists(atPath: destination.path)
             let temporary = destination.deletingLastPathComponent().appendingPathComponent(
                 ".\(name).\(UUID().uuidString).incoming")
+            FeedbackCenter.step("import: copying \(name)\(replacing ? " (replacing)" : "")")
             do {
                 if replacing {
                     try FileManager.default.copyItem(at: url, to: temporary)
@@ -4175,6 +4178,7 @@ final class EngineHost: ObservableObject {
                 try? FileManager.default.removeItem(at: temporary)
                 let kept = replacing ? " The game already in the library was left as it was." : ""
                 failures.append("\(name): \(error.localizedDescription)")
+                FeedbackCenter.step("import: copy failed for \(name): \(error)")
                 status = "import failed for \(name): "
                     + "\(error.localizedDescription).\(kept) [\(error)]"
             }
@@ -5190,6 +5194,13 @@ final class EngineHost: ObservableObject {
         // even if resolving a presenter fails. If the HUD never reaches this line, the button
         // action is not running at all.
         status = "presenting import picker..."
+        FeedbackCenter.step("import: + tapped, presenting the Files picker")
+        // One picker at a time: a second tap while one is up or on its way out used to build
+        // and present a second picker over the first.
+        if let open = activePicker, open.presentingViewController != nil || open.isBeingPresented {
+            FeedbackCenter.step("import: + tapped while a picker is still up; ignored")
+            return
+        }
 
         guard let presenter = Self.topmostViewController() else {
             status = "cannot present picker: no root view controller"
@@ -5245,7 +5256,10 @@ final class EngineHost: ObservableObject {
         // a silent delegate, or a picker that never truly came up. Only the completion handler
         // runs once UIKit has actually finished presenting, so only a HUD line written in here
         // can honestly claim the sheet is up.
-        presenter.present(picker, animated: true) { [weak self] in
+        // Never presented while another controller is still animating in or out.
+        Self.whenPresentationSettled("import picker") { top in
+        top.present(picker, animated: true) { [weak self] in
+            FeedbackCenter.step("import: Files picker on screen")
             // UIKit runs this on the main thread, but the closure carries no isolation the
             // compiler can see under SWIFT_VERSION 5.0, so the hop is explicit. `EngineHost`
             // is global-actor isolated and therefore Sendable, so a weak capture of it is
@@ -5253,6 +5267,7 @@ final class EngineHost: ObservableObject {
             Task { @MainActor in
                 self?.status = "picker is up; select the .cue and every .bin track"
             }
+        }
         }
     }
 
@@ -5288,10 +5303,35 @@ final class EngineHost: ObservableObject {
             ?? scene.windows.first
         guard var top = window?.rootViewController else { return nil }
 
-        while let presented = top.presentedViewController {
+        // A controller on its way out (a picker that was just cancelled) is not presented from:
+        // presenting on top of a dismissing controller is a classic UIKit crash.
+        while let presented = top.presentedViewController, !presented.isBeingDismissed {
             top = presented
         }
         return top
+    }
+
+    /// Runs `body` with the topmost controller once no presentation or dismissal is in flight,
+    /// checking every 0.25 s for up to 3 s, so a picker is never put up while another sheet is
+    /// still animating in or out.
+    static func whenPresentationSettled(_ what: String, attempt: Int = 0,
+                                        _ body: @escaping @MainActor (UIViewController) -> Void) {
+        guard let top = topmostViewController() else {
+            FeedbackCenter.step("present \(what): no window to present from")
+            return
+        }
+        let busy = top.isBeingPresented || top.isBeingDismissed
+            || top.transitionCoordinator != nil
+            || top.presentedViewController?.isBeingDismissed == true
+        if busy && attempt < 12 {
+            if attempt == 0 { FeedbackCenter.step("present \(what): waiting for a transition to end") }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                EngineHost.whenPresentationSettled(what, attempt: attempt + 1, body)
+            }
+            return
+        }
+        body(top)
     }
 
     /// Handles what the import picker handed back, on the main actor.
@@ -5475,11 +5515,15 @@ final class ImportPickerDelegate: NSObject, UIDocumentPickerDelegate,
     /// Without this line those two look identical on the HUD, which is exactly the ambiguity
     /// that made earlier iterations impossible to diagnose.
     @objc func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        FeedbackCenter.step("import: picker Cancel tapped")
         outcomeDelivered = true
         let host = self.host
         Task { @MainActor in
             host.status = "picker cancelled: no files chosen"
+            // Let go only after the picker has finished animating away; UIKit is still using it.
+            try? await Task.sleep(nanoseconds: 800_000_000)
             host.releaseActivePicker()
+            FeedbackCenter.step("import: picker released after cancel")
         }
     }
 
@@ -5495,8 +5539,10 @@ final class ImportPickerDelegate: NSObject, UIDocumentPickerDelegate,
         // afterwards, so staying quiet here is deliberate: the real result must not be replaced
         // by a "no pick" line. Every other branch of this type writes to the HUD.
         if outcomeDelivered {
+            FeedbackCenter.step("import: picker dismissed after its result")
             return
         }
+        FeedbackCenter.step("import: picker dismissed with no pick")
         let host = self.host
         Task { @MainActor in
             host.status = "picker dismissed without a pick (swipe or programmatic)"
@@ -5511,6 +5557,8 @@ final class ImportPickerDelegate: NSObject, UIDocumentPickerDelegate,
     /// global-actor isolated and therefore Sendable, so it is bound to a local first and the
     /// non-Sendable delegate itself is never captured by the task.
     private func deliver(_ fired: String, _ outcome: PickerOutcome) {
+        FeedbackCenter.step("import: picker returned \(outcome.urls.count) file(s): "
+            + outcome.urls.map { $0.lastPathComponent }.joined(separator: ", "))
         outcomeDelivered = true
         let host = self.host
         Task { @MainActor in

@@ -619,6 +619,10 @@ final class FeedbackCenter: ObservableObject {
         feedbackLogOpen(dir: dir.path)
         let closed = feedbackSessionOpen(dir: dir.path, build: EngineHost.versionLabel,
                                          started: FeedbackStamp.longNow())
+        // Not on screen until iOS says the app is active. iOS also starts apps in the background
+        // (pre-warming, background tasks) and may end them there; the marker used to start as
+        // "on screen", so such a launch ending read as a crash with a near-empty log.
+        feedbackSessionOnScreen(onScreen: UIApplication.shared.applicationState == .active)
         unexpectedClose = closed
         crashPromptShown = closed != nil
         if let closed {
@@ -639,6 +643,12 @@ final class FeedbackCenter: ObservableObject {
         ]
     }
 
+    /// One line forced to the disk before this returns. For steps around the Files picker and
+    /// imports, where a crash a moment later must still leave the step in the next report.
+    nonisolated static func step(_ line: String) {
+        feedbackLogDurable(line: "\(FeedbackStamp.now())  \(line)")
+    }
+
     /// One status line into the log. Called for every change of the status text.
     nonisolated static func record(_ line: String) {
         feedbackLogAdd(stamp: FeedbackStamp.now(), line: line)
@@ -646,7 +656,14 @@ final class FeedbackCenter: ObservableObject {
 
     /// The log to send: this session's, or for a crash report the one that ended in the crash.
     nonisolated static func logText(crash: Bool) -> String {
-        if crash { return feedbackLogPreviousText(limit: 300) }
+        if crash {
+            // The launch that crashed, and the one before it: if the app was opened again and
+            // ended quickly before this report, the crash itself is in the older log.
+            var parts = ["Launch that closed unexpectedly:\n" + feedbackLogPreviousText(limit: 300)]
+            let older = feedbackLogOlderText(limit: 150)
+            if !older.isEmpty { parts.append("The launch before it:\n" + older) }
+            return parts.joined(separator: "\n\n")
+        }
         // A normal report gets the previous launch too, because the log restarts at every launch
         // and what a tester reports has often happened before they last opened the app.
         var parts: [String] = []

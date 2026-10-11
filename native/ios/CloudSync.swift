@@ -1036,10 +1036,17 @@ final class CloudSync: ObservableObject {
 
     private func present(_ picker: UIDocumentPickerViewController, kind: String,
                          delegate: SyncFolderPickerDelegate) {
-        guard let presenter = EngineHost.topmostViewController() else {
+        guard EngineHost.topmostViewController() != nil else {
             setLine("sync folder: cannot show the \(kind) picker, no window to present it from")
             return
         }
+        EngineHost.whenPresentationSettled("\(kind) picker") { [weak self] presenter in
+            self?.presentNow(picker, kind: kind, delegate: delegate, from: presenter)
+        }
+    }
+
+    private func presentNow(_ picker: UIDocumentPickerViewController, kind: String,
+                            delegate: SyncFolderPickerDelegate, from presenter: UIViewController) {
         pickerDelegate = delegate
         picker.delegate = delegate
         picker.allowsMultipleSelection = false

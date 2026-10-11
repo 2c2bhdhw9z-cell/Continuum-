@@ -58,6 +58,7 @@ struct SettingsScreen: View {
     @State private var confirmResetControls = false
     @State private var confirmDeleteStates = false
     @State private var confirmDeleteCheats = false
+    @State private var confirmDeleteGames = false
     /// Button taps, rumble and the turbo rate. A shared object rather than a parameter, because
     /// the pad deep under the player reads the same one. See Haptics.swift.
     @ObservedObject private var feel = ControlFeel.shared
@@ -737,6 +738,24 @@ struct SettingsScreen: View {
 
             SettingsReadout(label: "Stored", value: saveStates.storageLine)
             SettingsReadout(label: "Last", value: saveStates.line)
+
+            // Always shown, even with an empty library. There was never a delete-all before:
+            // games went one at a time, from a card or a swipe in the list.
+            SettingsButton(title: "Delete every game (\(host.library.count))", role: .destructive) {
+                confirmDeleteGames = true
+            }
+            .alert("Delete every game?", isPresented: $confirmDeleteGames) {
+                Button("Delete", role: .destructive) {
+                    host.deleteEntries(at: IndexSet(host.library.indices))
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(host.library.isEmpty
+                     ? "There are no games in the library right now."
+                     : "Deletes all \(host.library.count) game files, and with them each game's "
+                       + "save states and cheats, as deleting one game does. In-game (battery) "
+                       + "saves are kept. This cannot be undone.")
+            }
 
             SettingsButton(title: "Delete every save state", role: .destructive) {
                 confirmDeleteStates = true

@@ -24,6 +24,8 @@ use std::sync::{Mutex, MutexGuard};
 pub const LOG_KEEP: usize = 300;
 const LOG_FILE: &str = "activity.txt";
 const PREVIOUS_FILE: &str = "activity-previous.txt";
+/// The launch before the previous one, so a quick relaunch after a crash keeps the crash's log.
+const OLDER_FILE: &str = "activity-older.txt";
 const MARKER_FILE: &str = "session.txt";
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -50,7 +52,11 @@ pub fn log_open(dir: &Path) {
     let _ = fs::create_dir_all(dir);
     let current = dir.join(LOG_FILE);
     if current.exists() {
-        let _ = fs::rename(&current, dir.join(PREVIOUS_FILE));
+        let previous = dir.join(PREVIOUS_FILE);
+        if previous.exists() {
+            let _ = fs::rename(&previous, dir.join(OLDER_FILE));
+        }
+        let _ = fs::rename(&current, previous);
     }
     *lock(&LOG) = Some(Log {
         dir: Some(dir.to_path_buf()),
@@ -96,6 +102,23 @@ pub fn log_add(stamp: &str, text: &str) {
     }
 }
 
+/// One line, flushed to the disk (`fsync`) before this returns, for steps around system UI
+/// (the Files picker, imports) where a crash right after must still leave the step.
+pub fn log_durable(text: &str) {
+    {
+        let mut guard = lock(&LOG);
+        let log = guard.get_or_insert_with(Log::default);
+        log.last.clear();
+    }
+    log_add("", text);
+    let dir = lock(&LOG).as_ref().and_then(|log| log.dir.clone());
+    if let Some(dir) = dir {
+        if let Ok(file) = OpenOptions::new().append(true).open(dir.join(LOG_FILE)) {
+            let _ = file.sync_all();
+        }
+    }
+}
+
 /// A launch step, written BEFORE the step runs and flushed to the disk (`fsync`) before this
 /// returns, so a crash inside the step leaves it as the last line of the log the next start's
 /// crash report sends. Never deduplicated: the same step twice is two attempts.
@@ -137,11 +160,20 @@ pub fn log_text(limit: usize) -> String {
 
 /// The previous session's log, at most `limit` lines (the newest ones). Empty when there is none.
 pub fn log_previous_text(limit: usize) -> String {
+    log_file_text(PREVIOUS_FILE, limit)
+}
+
+/// The log of the launch before the previous one, the newest `limit` lines.
+pub fn log_older_text(limit: usize) -> String {
+    log_file_text(OLDER_FILE, limit)
+}
+
+fn log_file_text(name: &str, limit: usize) -> String {
     let dir = lock(&LOG).as_ref().and_then(|log| log.dir.clone());
     let Some(dir) = dir else {
         return String::new();
     };
-    let text = fs::read_to_string(dir.join(PREVIOUS_FILE)).unwrap_or_default();
+    let text = fs::read_to_string(dir.join(name)).unwrap_or_default();
     let lines: Vec<&str> = text.lines().collect();
     lines[lines.len().saturating_sub(limit)..].join("\n")
 }
@@ -497,6 +529,11 @@ mod tests {
         assert_eq!(previous.lines().count(), 5);
         assert!(previous.ends_with(&format!("line {}", 3 * LOG_KEEP - 1)));
         assert_eq!(log_text(10), "");
+        // A short launch after it keeps the one before as the older log.
+        log_durable("surface ready");
+        log_open(&dir);
+        assert!(log_previous_text(5).contains("surface ready"));
+        assert!(!log_older_text(5).is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
 

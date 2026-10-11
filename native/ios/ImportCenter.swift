@@ -225,7 +225,10 @@ final class ImportCenter: ObservableObject {
                 notes.append(importSave(url))
                 handled += 1
             } else if ext == "zip" || ext == "7z" {
+                FeedbackCenter.step("import: opening archive \(url.lastPathComponent)")
                 let (files, note) = expandArchive(url)
+                FeedbackCenter.step("import: archive gave \(files.count) file(s)"
+                    + (note.map { ": \($0)" } ?? ""))
                 out.append(contentsOf: files)
                 if let note { notes.append(note) }
             } else {
