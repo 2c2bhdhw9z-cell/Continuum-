@@ -12,7 +12,7 @@ Build 180 (`dd89824`) is published:
 https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-180-dd89824/Continuum-180.ipa
 The owner deleted the short Yellow file and has nothing to test on it. The full file already played.
 Do not go back to guessing one test pixel at a time.
-Next: cBoy's own startup picture (boot ROM on, no file), then the MP2K mixer. Do not start an install until that batch is in.
+Next: the MP2K mixer on cBoy. Do not add a fake startup picture. A boot picture only plays when a real boot file is there. Do not start an install until the music is in.
 
 Build 144, release `build-144-74050e5`, version 0.8.0 (144), 35 core files checked in the ipa.
 Link: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-144-74050e5/Continuum-144.ipa

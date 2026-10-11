@@ -5,7 +5,7 @@ One page, kept current, so nothing has to be inferred from a commit log. Last up
 [Continuum-180.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-180-dd89824/Continuum-180.ipa).
 The owner deleted the short Yellow file, so there is nothing on 180 for them to try.
 The full 1.0 MB file already played. Pixel-by-pixel picture work stays parked.
-Next: cBoy's own startup picture when a boot ROM was asked for and there is no file, then the high-quality Advance music mixer. No new install until that batch is in.
+Next: the high-quality Advance music mixer on cBoy. No made-up startup picture: no other core flashes its name, and a boot picture only plays when a real boot file is there. No new install until the music is in.
 
 Older paragraphs below (build 163, build 150, "not in any IPA yet") are history. Where they
 disagree with this paragraph, this paragraph is current.

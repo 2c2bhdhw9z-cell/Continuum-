@@ -146,11 +146,9 @@ impl GameBoy {
 
     fn draw_intro(&mut self) {
         let step = 90 - self.intro;
-        if self.bus.ppu.frame.len() < 160 * 144 {
-            self.bus.ppu.frame.resize(160 * 144, crate::ppu::SHADES[0]);
-        }
-        if self.bus.ppu.shade.len() < 160 * 144 {
-            self.bus.ppu.shade.resize(160 * 144, 0);
+        let frame = &mut self.bus.ppu.frame;
+        if frame.len() < 160 * 144 {
+            frame.resize(160 * 144, crate::ppu::SHADES[0]);
         }
         for y in 0..144usize {
             for x in 0..160usize {
@@ -165,9 +163,7 @@ impl GameBoy {
                 if step > 40 && (y == 100 || y == 101) && (60..100).contains(&x) {
                     shade = 0;
                 }
-                let i = y * 160 + x;
-                self.bus.ppu.frame[i] = crate::ppu::SHADES[shade as usize];
-                self.bus.ppu.shade[i] = shade;
+                frame[y * 160 + x] = crate::ppu::SHADES[shade as usize];
             }
         }
         self.bus.ppu.frame_ready = true;
