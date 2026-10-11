@@ -93,3 +93,12 @@ any, they use the `csymbian_` prefix and these categories.
 
 Every option has a test in the core's own test suite that sets it and checks its effect
 (a frame, a sample, a register), and the frontend-path test checks the table is declared.
+
+## Inventory evidence (required)
+
+The inventory for every Continuum-own core is generated, never written from memory:
+`scripts/extract-core-option-keys.sh` clones each comparison emulator, records its commit and extracts
+the option keys (libretro `libretro_core_options.h` or equivalent; standalone emulators' own config
+code, or a published manual for closed-source ones) into `docs/option-sources/*.keys`. A hand-written
+mapping (`mapping.tsv`, `standalone.tsv`) says what each key maps to, and `scripts/build-cboy-inventory.py`
+builds the inventory and fails if any extracted key is unmapped or a mapped core option does not exist.

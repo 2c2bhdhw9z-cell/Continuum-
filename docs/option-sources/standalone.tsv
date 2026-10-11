@@ -1,0 +1,182 @@
+# source	setting	status(yes|app|gap|no|n/a)	cboy keys	note
+std_sameboy	agb_revision	gap		Advance revision choice for Game Boy games; cBoy has one Advance model
+std_sameboy	allow_background_controllers	app		controllers are the app's
+std_sameboy	allow_mouse_controls	yes	cboy_tilt_source	MBC7 tilt from another input
+std_sameboy	audio_driver	n/a		desktop audio back end
+std_sameboy	blending_mode	yes	cboy_blend	
+std_sameboy	bootrom_path	yes	cboy_boot_rom	fixed folder <system>/cboy
+std_sameboy	border_mode	yes	cboy_sgb_border	
+std_sameboy	cgb_revision	yes	cboy_cgb_revision	
+std_sameboy	color_correction_mode	yes	cboy_gbc_color	
+std_sameboy	color_temperature	yes	cboy_color_temp	
+std_sameboy	default_scale	app		
+std_sameboy	disable_rounded_corners	app		
+std_sameboy	dmg_palette	yes	cboy_dmg_palette	
+std_sameboy	dmg_palette_name	yes	cboy_dmg_palette	custom palette file
+std_sameboy	filter	app		shaders are the app's
+std_sameboy	gui_palette_enabled	app		
+std_sameboy	highpass_mode	yes	cboy_highpass	
+std_sameboy	hotkey_actions	app		
+std_sameboy	interference_volume	yes	cboy_interference	
+std_sameboy	joypad_axises	app		
+std_sameboy	joypad_configuration	app		
+std_sameboy	keys	app		
+std_sameboy	keys_2	app		
+std_sameboy	model	yes	cboy_gb_model	
+std_sameboy	osd	app		
+std_sameboy	rewind_length	app		rewind is the app's
+std_sameboy	rtc_mode	yes	cboy_rtc	
+std_sameboy	rumble_mode	yes	cboy_rumble	
+std_sameboy	rumble_strength	yes	cboy_rumble	
+std_sameboy	scaling_mode	app		
+std_sameboy	sgb_revision	yes	cboy_gb_model	sgb, sgb_pal, sgb2
+std_sameboy	turbo_cap	app		fast-forward cap is the app's
+std_sameboy	use_faux_analog_inputs	yes	cboy_stick_dpad	reverse direction; stick and D-pad both feed tilt
+std_sameboy	volume	yes	cboy_volume	
+std_sameboy	vsync_mode	app		
+std_sameboy	windows_associations_prompted	n/a		Windows file associations
+std_sameboy	GBAGBModel	gap		see agb_revision
+std_sameboy	GBAudioMode	app		
+std_sameboy	GBButtonHaptics	app		
+std_sameboy	GBCGBModel	yes	cboy_cgb_revision	
+std_sameboy	GBColorCorrection	yes	cboy_gbc_color	
+std_sameboy	GBControllerMappings	app		
+std_sameboy	GBControllersHideInterface	app		
+std_sameboy	GBCurrentTheme	app		
+std_sameboy	GBCustomBootROMs	yes	cboy_boot_rom	
+std_sameboy	GBDMGModel	yes	cboy_gb_model	dmg, dmg0
+std_sameboy	GBDynamicSpeed	app		
+std_sameboy	GBEnableABCombo	app		
+std_sameboy	GBFauxAnalogInputs	yes	cboy_stick_dpad	
+std_sameboy	GBFilter	app		
+std_sameboy	GBFrameBlendingMode	yes	cboy_blend	
+std_sameboy	GBHapticsStrength	yes	cboy_rumble	
+std_sameboy	GBHighpassFilter	yes	cboy_highpass	
+std_sameboy	GBInterferenceVolume	yes	cboy_interference	
+std_sameboy	GBLightTemperature	yes	cboy_color_temp	
+std_sameboy	GBRTCMode	yes	cboy_rtc	
+std_sameboy	GBRewindLength	app		
+std_sameboy	GBRewindSpeed	app		
+std_sameboy	GBRumbleMode	yes	cboy_rumble	
+std_sameboy	GBRumbleStrength	yes	cboy_rumble	
+std_sameboy	GBSGBModel	yes	cboy_gb_model	
+std_sameboy	GBSwipeDpad	app		
+std_sameboy	GBSwipeLock	app		
+std_sameboy	GBSwipeState	app		
+std_sameboy	GBTurboCap	app		
+std_mgba	cheatAutoload	app		
+std_mgba	cheatAutosave	app		
+std_mgba	logFile	app		
+std_mgba	logToFile	app		
+std_mgba	logToStdout	n/a		
+std_mgba	autoload	app		
+std_mgba	autosave	app		
+std_mgba	fastForwardMute	app		
+std_mgba	fpsCounter	app		
+std_mgba	lastDirectory	n/a		
+std_mgba	lastGame	n/a		
+std_mgba	showOSD	app		
+std_mgba	allowOpposingDirections	yes	cboy_opposing	
+std_mgba	cgb.hybridModel	gap		model for cartridges that are both Color and Super Game Boy; cBoy picks Color
+std_mgba	cgb.model	yes	cboy_gb_model	
+std_mgba	cgb.sgbModel	gap		see cgb.hybridModel
+std_mgba	frameskip	yes	cboy_frameskip	
+std_mgba	gb.bios	yes	cboy_boot_rom	
+std_mgba	gb.colors	yes	cboy_dmg_palette	
+std_mgba	gb.model	yes	cboy_gb_model	
+std_mgba	gbc.bios	yes	cboy_boot_rom	
+std_mgba	mute	app		
+std_mgba	sgb.bios	yes	cboy_boot_rom	
+std_mgba	sgb.borders	yes	cboy_sgb_border	
+std_mgba	sgb.model	yes	cboy_gb_model	
+std_mgba	useCgbColors	yes	cboy_dmg_colorize	own schemes, not Nintendo's table
+std_mgba	volume	yes	cboy_volume	
+std_mgba	gba.bios	yes	cboy_gba_bios	
+std_mgba	gba.forceGbp	gap		Game Boy Player rumble: in progress
+std_mgba	idleOptimization	yes	cboy_idle_skip	
+std_mgba	threadedVideo	n/a		desktop threading
+std_mgba	threadedVideo.flushScanline	n/a		
+std_mgba	vbaBugCompat	gap		VBA bug compatibility for old ROM hacks
+std_mgba	camera	gap		Game Boy Camera
+std_mgba	darkenMode	yes	cboy_dark_filter	
+std_mgba	logLevel	app		
+std_mgba	filtering	app		
+std_mgba	savePlayerId	gap		second player's save, comes with the two-console link
+std_mgba	backgroundImage	app		
+std_mgba	fastForwardCap	app		
+std_mgba	filterMode	app		
+std_mgba	hwaccelVideo	n/a		
+std_mgba	interframeBlending	yes	cboy_blend	
+std_mgba	screenMode	app		
+std_mgba	sgb.borderCrop	yes	cboy_sgb_border	"off" crops to the game
+std_mgba	useLightSensor	yes	cboy_solar	"phone"
+std_mgba	videoScale	app		
+std_mgba	filter	app		
+std_mgba	gyroSensitivity	yes	cboy_motion_sensitivity	
+std_mgba	stretchHeight	app		
+std_mgba	stretchWidth	app		
+std_mgba	videoMode	app		
+std_nanoboyadvance	bios_path	yes	cboy_gba_bios	
+std_nanoboyadvance	bios_skip	yes	cboy_gba_bios	file_skip
+std_nanoboyadvance	color_correction	yes	cboy_gba_color	
+std_nanoboyadvance	controller_guid	app		
+std_nanoboyadvance	fast_forward_speed	app		
+std_nanoboyadvance	filter	app		
+std_nanoboyadvance	force_rtc	yes	cboy_gba_hardware	
+std_nanoboyadvance	force_solar_sensor	yes	cboy_gba_hardware	
+std_nanoboyadvance	fullscreen	app		
+std_nanoboyadvance	fullscreen_show_menu	app		
+std_nanoboyadvance	hold_fast_forward	app		
+std_nanoboyadvance	lcd_ghosting	yes	cboy_blend	
+std_nanoboyadvance	lock_aspect_ratio	app		
+std_nanoboyadvance	maximum_scale	app		
+std_nanoboyadvance	pause_emulator_when_inactive	app		
+std_nanoboyadvance	resampler	yes	cboy_gba_smooth,cboy_audio_quality	
+std_nanoboyadvance	save_folder	app		
+std_nanoboyadvance	save_type	yes	cboy_gba_save_type	
+std_nanoboyadvance	scale	app		
+std_nanoboyadvance	show_fps	app		
+std_nanoboyadvance	solar_sensor_level	yes	cboy_solar	
+std_nanoboyadvance	use_integer_scaling	app		
+std_nanoboyadvance	volume	yes	cboy_volume	
+std_bgb	disable events	n/a		debugger
+std_bgb	8 bits output	n/a		
+std_bgb	mono output	app		
+std_bgb	High quality sound rendering	yes	cboy_audio_quality	
+std_bgb	Latency	app		
+std_bgb	WAV file writer	app		
+std_bgb	stamp is created Save individual channels	n/a		recording
+std_bgb	of "WAV file writer" animation recording	n/a		recording
+std_bgb	record AVI	n/a		
+std_bgb	record half framerate	n/a		
+std_bgb	Samplerate	yes	cboy_sample_rate	
+std_bgb	show framerate	app		
+std_bgb	freeze recent ROMs menu	n/a		
+std_bgb	Show errors on ROM load	app		
+std_bgb	Show warnings on ROM load	app		
+std_bgb	reduce CPU usage	app		
+std_bgb	p calls when waiting reduce input latency	yes	cboy_run_ahead	
+std_bgb	pause if losing focus	app		
+std_bgb	use fast open files dialog	n/a		
+std_bgb	framerate	app		
+std_bgb	59.72 fps adjust sound speed	app		
+std_bgb	fast forward speed	app		
+std_bgb	MGB auto border/colors	gap		pick Pocket colours automatically for Pocket-aware games
+std_bgb	frame blend	yes	cboy_blend	
+std_bgb	doubler	app		shaders
+std_bgb	SGB if set	yes	cboy_sgb_border	
+std_bgb	Pixel aspect ratio	app		
+std_bgb	bpp	n/a		
+std_bgb	override bits per pixel selection output	n/a		
+std_bgb	vsync	app		
+std_bgb	stretch	app		
+std_bgb	stretching fullscreen pageflipped	n/a		
+std_bgb	prefer GBC	yes	cboy_gb_model	
+std_bgb	Rewind enabled	app		
+std_bgb	detect GB pocket / SGB2	gap		see MGB auto
+std_bgb	detect GBA	gap		auto-pick Advance for games that check for it
+std_bgb	GB player	gap		Game Boy Player: in progress
+std_bgb	a Gameboy Player SGB faster as in reality	gap		faster-than-real SGB packet transfers
+std_bgb	ding sound being sharp fast SGB transfers	gap		same setting group
+std_bgb	Waitloop detection	gap		idle skip is Advance-only in cBoy
+std_bgb	boot roms	yes	cboy_boot_rom	

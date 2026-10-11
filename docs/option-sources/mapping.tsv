@@ -1,0 +1,133 @@
+# source	key	status(yes|gap|no|n/a)	cboy keys	note
+mgba	mgba_allow_opposing_directions	yes	cboy_opposing
+mgba	mgba_audio_low_pass_filter	yes	cboy_lowpass
+mgba	mgba_audio_low_pass_range	yes	cboy_lowpass	strength levels are the option's values
+mgba	mgba_color_correction	yes	cboy_gbc_color,cboy_gba_color
+mgba	mgba_force_gbp	gap		Game Boy Player rumble: in progress
+mgba	mgba_frameskip	yes	cboy_frameskip
+mgba	mgba_frameskip_interval	yes	cboy_frameskip_interval
+mgba	mgba_frameskip_threshold	yes	cboy_frameskip_threshold
+mgba	mgba_gb_colors	yes	cboy_dmg_palette
+mgba	mgba_gb_colors_preset	yes	cboy_dmg_colorize	which palette source applies (own, Color-style, SGB)
+mgba	mgba_gb_model	yes	cboy_gb_model
+mgba	mgba_idle_optimization	yes	cboy_idle_skip	detect-and-remove only; no known-loop list
+mgba	mgba_interframe_blending	yes	cboy_blend
+mgba	mgba_sgb_borders	yes	cboy_sgb_border
+mgba	mgba_skip_bios	yes	cboy_gba_bios	"file_skip" value
+mgba	mgba_solar_sensor_level	yes	cboy_solar
+mgba	mgba_use_bios	yes	cboy_gba_bios,cboy_boot_rom
+gambatte	gambatte_audio_resampler	yes	cboy_audio_quality	fast point sampling or span-averaged (own method, not sinc/cosine)
+gambatte	gambatte_dark_filter_level	yes	cboy_dark_filter
+gambatte	gambatte_gb_bootloader	yes	cboy_boot_rom
+gambatte	gambatte_gb_colorization	yes	cboy_dmg_colorize
+gambatte	gambatte_gb_hwmode	yes	cboy_gb_model
+gambatte	gambatte_gb_internal_palette	yes	cboy_dmg_palette,cboy_dmg_colorize	own presets; Nintendo's built-in GBC/SGB tables are not reproduced
+gambatte	gambatte_gb_link_mode	gap		network link between phones: in progress (cboy_link has unplugged/loopback)
+gambatte	gambatte_gb_link_network_port	gap		part of network link
+gambatte	gambatte_gb_link_network_server_ip_1	gap		part of network link (IP digit)
+gambatte	gambatte_gb_link_network_server_ip_2	gap		part of network link (IP digit)
+gambatte	gambatte_gb_link_network_server_ip_3	gap		part of network link (IP digit)
+gambatte	gambatte_gb_link_network_server_ip_4	gap		part of network link (IP digit)
+gambatte	gambatte_gb_link_network_server_ip_5	gap		part of network link (IP digit)
+gambatte	gambatte_gb_link_network_server_ip_6	gap		part of network link (IP digit)
+gambatte	gambatte_gb_link_network_server_ip_7	gap		part of network link (IP digit)
+gambatte	gambatte_gb_link_network_server_ip_8	gap		part of network link (IP digit)
+gambatte	gambatte_gb_link_network_server_ip_9	gap		part of network link (IP digit)
+gambatte	gambatte_gb_link_network_server_ip_10	gap		part of network link (IP digit)
+gambatte	gambatte_gb_link_network_server_ip_11	gap		part of network link (IP digit)
+gambatte	gambatte_gb_link_network_server_ip_12	gap		part of network link (IP digit)
+gambatte	gambatte_gb_palette_pixelshift_1	no		third-party palette pack (PixelShift); its colour data is someone else's work. Custom palette file covers it
+gambatte	gambatte_gb_palette_twb64_1	no		third-party palette pack (TWB64); same reason
+gambatte	gambatte_gb_palette_twb64_2	no		third-party palette pack (TWB64); same reason
+gambatte	gambatte_gb_palette_twb64_3	no		third-party palette pack (TWB64); same reason
+gambatte	gambatte_gbc_color_correction	yes	cboy_gbc_color
+gambatte	gambatte_gbc_color_correction_mode	yes	cboy_gbc_color	two looks (screen, soft)
+gambatte	gambatte_gbc_frontlight_position	yes	cboy_gbc_light
+gambatte	gambatte_mix_frames	yes	cboy_blend
+gambatte	gambatte_rumble_level	yes	cboy_rumble
+gambatte	gambatte_show_gb_link_settings	n/a		only shows or hides the link settings in RetroArch's menu
+gambatte	gambatte_turbo_period	yes	cboy_turbo
+gambatte	gambatte_up_down_allowed	yes	cboy_opposing
+sameboy	sameboy_audio_interference	yes	cboy_interference
+sameboy	sameboy_audio_interference_1	yes	cboy_interference	dual-console variant
+sameboy	sameboy_audio_interference_2	yes	cboy_interference	dual-console variant
+sameboy	sameboy_audio_output	gap		which console is heard in dual-console mode: comes with the two-console link
+sameboy	sameboy_auto_sgb_model	yes	cboy_gb_model	"auto_sgb" value
+sameboy	sameboy_auto_sgb_model_1	yes	cboy_gb_model	dual-console variant
+sameboy	sameboy_auto_sgb_model_2	yes	cboy_gb_model	dual-console variant
+sameboy	sameboy_border	yes	cboy_sgb_border
+sameboy	sameboy_color_correction_mode	yes	cboy_gbc_color
+sameboy	sameboy_color_correction_mode_1	yes	cboy_gbc_color	dual-console variant
+sameboy	sameboy_color_correction_mode_2	yes	cboy_gbc_color	dual-console variant
+sameboy	sameboy_high_pass_filter_mode	yes	cboy_highpass
+sameboy	sameboy_high_pass_filter_mode_1	yes	cboy_highpass	dual-console variant
+sameboy	sameboy_high_pass_filter_mode_2	yes	cboy_highpass	dual-console variant
+sameboy	sameboy_light_temperature	yes	cboy_color_temp
+sameboy	sameboy_light_temperature_1	yes	cboy_color_temp	dual-console variant
+sameboy	sameboy_light_temperature_2	yes	cboy_color_temp	dual-console variant
+sameboy	sameboy_link	yes	cboy_link
+sameboy	sameboy_model	yes	cboy_gb_model,cboy_cgb_revision
+sameboy	sameboy_model_1	yes	cboy_gb_model	dual-console variant
+sameboy	sameboy_model_2	yes	cboy_gb_model	dual-console variant
+sameboy	sameboy_mono_palette	yes	cboy_dmg_palette
+sameboy	sameboy_mono_palette_1	yes	cboy_dmg_palette	dual-console variant
+sameboy	sameboy_mono_palette_2	yes	cboy_dmg_palette	dual-console variant
+sameboy	sameboy_rtc	yes	cboy_rtc
+sameboy	sameboy_rumble	yes	cboy_rumble
+sameboy	sameboy_rumble_1	yes	cboy_rumble	dual-console variant
+sameboy	sameboy_rumble_2	yes	cboy_rumble	dual-console variant
+sameboy	sameboy_screen_layout	gap		dual-console screen layout: comes with the two-console link
+vbam	vbam_allowcolorizerhack	yes	cboy_force_color
+vbam	vbam_astick_deadzone	yes	cboy_stick_deadzone
+vbam	vbam_forceRTCenable	yes	cboy_gba_hardware	force the clock chip
+vbam	vbam_gbHardware	yes	cboy_gb_model
+vbam	vbam_gbcoloroption	yes	cboy_gbc_color
+vbam	vbam_gyro_sensitivity	yes	cboy_motion_sensitivity
+vbam	vbam_interframeblending	yes	cboy_blend
+vbam	vbam_layer_1	yes	cboy_layer_bg0
+vbam	vbam_layer_2	yes	cboy_layer_bg1
+vbam	vbam_layer_3	yes	cboy_layer_bg2
+vbam	vbam_layer_4	yes	cboy_layer_bg3
+vbam	vbam_layer_5	yes	cboy_layer_obj
+vbam	vbam_layer_6	yes	cboy_layer_win0
+vbam	vbam_layer_7	yes	cboy_layer_win1
+vbam	vbam_layer_8	yes	cboy_layer_objwin
+vbam	vbam_lcdfilter	yes	cboy_gba_color
+vbam	vbam_palettes	yes	cboy_dmg_palette
+vbam	vbam_showborders	yes	cboy_sgb_border
+vbam	vbam_solarsensor	yes	cboy_solar
+vbam	vbam_sound_1	yes	cboy_vol_sq1
+vbam	vbam_sound_2	yes	cboy_vol_sq2
+vbam	vbam_sound_3	yes	cboy_vol_wave
+vbam	vbam_sound_4	yes	cboy_vol_noise
+vbam	vbam_sound_5	yes	cboy_vol_fifo_a
+vbam	vbam_sound_6	yes	cboy_vol_fifo_b
+vbam	vbam_soundfiltering	yes	cboy_lowpass
+vbam	vbam_soundinterpolation	yes	cboy_gba_smooth
+vbam	vbam_swap_astick	yes	cboy_swap_stick
+vbam	vbam_tilt_sensitivity	yes	cboy_motion_sensitivity
+vbam	vbam_turbodelay	yes	cboy_turbo
+vbam	vbam_turboenable	yes	cboy_turbo
+vbam	vbam_usebios	yes	cboy_gba_bios,cboy_boot_rom
+gpsp	gpsp_bios	yes	cboy_gba_bios
+gpsp	gpsp_boot_mode	yes	cboy_gba_bios	"file" (boot to BIOS) or "file_skip"
+gpsp	gpsp_color_correction	yes	cboy_gba_color
+gpsp	gpsp_drc	n/a		dynamic recompiler; iOS does not let sideloaded apps generate code
+gpsp	gpsp_frame_mixing	yes	cboy_blend
+gpsp	gpsp_frameskip	yes	cboy_frameskip
+gpsp	gpsp_frameskip_interval	yes	cboy_frameskip_interval
+gpsp	gpsp_frameskip_threshold	yes	cboy_frameskip_threshold
+gpsp	gpsp_rtc	yes	cboy_gba_hardware
+gpsp	gpsp_rtc_time_source	gap		Advance clock always follows the phone; no frame-counted clock yet
+gpsp	gpsp_rumble	yes	cboy_rumble
+gpsp	gpsp_serial	gap		Advance link modes (wireless adapter, multiplayer): comes with the two-console link
+gpsp	gpsp_sound_rate	yes	cboy_sample_rate
+gpsp	gpsp_sprlim	yes	cboy_gba_sprite_limit
+gpsp	gpsp_turbo_period	yes	cboy_turbo
+tgbdual	tgbdual_audio_output	gap		comes with the two-console link
+tgbdual	tgbdual_gblink_enable	gap		two-console link: in progress
+tgbdual	tgbdual_screen_placement	gap		comes with the two-console link
+tgbdual	tgbdual_single_screen_mp	gap		comes with the two-console link
+tgbdual	tgbdual_switch_screens	gap		comes with the two-console link
+beetle_gba	gba_hle	yes	cboy_gba_bios	"off" uses the built-in replacement BIOS
+beetle_gba	gba_use_mednafen_save_method	n/a		Mednafen's own save-file layout; cBoy uses standard .sav

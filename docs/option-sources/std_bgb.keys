@@ -1,0 +1,41 @@
+disable events
+8 bits output
+mono output
+High quality sound rendering
+Latency
+WAV file writer
+stamp is created Save individual channels
+of "WAV file writer" animation recording
+record AVI
+record half framerate
+Samplerate
+show framerate
+freeze recent ROMs menu
+Show errors on ROM load
+Show warnings on ROM load
+reduce CPU usage
+p calls when waiting reduce input latency
+pause if losing focus
+use fast open files dialog
+framerate
+59.72 fps adjust sound speed
+fast forward speed
+MGB auto border/colors
+frame blend
+doubler
+SGB if set
+Pixel aspect ratio
+bpp
+override bits per pixel selection output
+vsync
+stretch
+stretching fullscreen pageflipped
+prefer GBC
+Rewind enabled
+detect GB pocket / SGB2
+detect GBA
+GB player
+a Gameboy Player SGB faster as in reality
+ding sound being sharp fast SGB transfers
+Waitloop detection
+boot roms
