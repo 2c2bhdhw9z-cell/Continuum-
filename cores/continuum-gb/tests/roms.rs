@@ -78,7 +78,8 @@ fn dmg_acid2() {
     for _ in 0..120 {
         gb.run_frame();
     }
-    let decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
+    decoder.set_transformations(png::Transformations::EXPAND);
     let mut reader = decoder.read_info().unwrap();
     let mut buf = vec![0; reader.output_buffer_size()];
     let info = reader.next_frame(&mut buf).unwrap();
@@ -101,4 +102,21 @@ fn dmg_acid2() {
         }
     }
     assert_eq!(wrong, 0, "dmg-acid2: {wrong} pixels differ, first at {first:?}");
+}
+
+/// Writes the screen after N frames to $DUMP_PNG (a debugging aid, not a check).
+#[test]
+fn dump_screen() {
+    let (Ok(path), Ok(name)) = (std::env::var("DUMP_PNG"), std::env::var("DUMP_ROM")) else { return };
+    let Some(data) = rom(&name) else { return };
+    let mut gb = GameBoy::new(data).unwrap();
+    for _ in 0..120 {
+        gb.run_frame();
+    }
+    let f = std::fs::File::create(path).unwrap();
+    let mut enc = png::Encoder::new(f, 160, 144);
+    enc.set_color(png::ColorType::Grayscale);
+    let mut w = enc.write_header().unwrap();
+    let px: Vec<u8> = gb.bus.ppu.frame.iter().map(|s| [0xFF, 0xAA, 0x55, 0][*s as usize]).collect();
+    w.write_image_data(&px).unwrap();
 }
