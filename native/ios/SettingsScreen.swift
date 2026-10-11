@@ -600,12 +600,11 @@ struct SettingsScreen: View {
                 title: { $0.label },
                 selection: $host.ps1CoreChoice
             )
-            ForEach([GameSystem.gb, GameSystem.gbc, GameSystem.gba, GameSystem.nes, GameSystem.fds,
-                     GameSystem.arcade, GameSystem.saturn], id: \.self) { system in
+            ForEach(CoreCatalog.switchableSystems, id: \.self) { system in
                 SettingsLabel("Core for \(system.displayName) games")
                 SegmentedChoice(
-                    options: CoreCatalog.coreChoices[system] ?? [],
-                    title: { CoreCatalog.core(id: $0)?.displayName ?? $0 },
+                    options: CoreCatalog.coreOptions(for: system),
+                    title: { CoreCatalog.core(id: $0)?.displayName.components(separatedBy: " (").first ?? $0 },
                     selection: Binding(
                         get: { host.coreChoice(for: system) },
                         set: { host.setCoreChoice($0, for: system) }

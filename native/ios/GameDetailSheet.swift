@@ -61,7 +61,6 @@ struct GameDetailSheet: View {
                 header
                 actions
                 facts
-                coreBlock
                 saveStatesBlock
                 cheatsBlock
                 GameplayManualBlock(entry: entry, host: host)
@@ -77,37 +76,6 @@ struct GameDetailSheet: View {
         .sheet(isPresented: $showingSlots) {
             SaveSlotsSheet(entry: entry, host: host, saveStates: saveStates,
                            onDone: { showingSlots = false })
-        }
-    }
-
-    // MARK: Core
-
-    /// This game's core: "Settings choice" or one of its system's cores. Hidden for a game whose
-    /// system has a single core.
-    @ViewBuilder private var coreBlock: some View {
-        let options = host.coreOptions(for: entry)
-        if options.count > 1 {
-            let _ = host.coreChoiceVersion
-            VStack(alignment: .leading, spacing: 10) {
-                Text("CORE")
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(1.6)
-                    .foregroundStyle(ShellPalette.secondaryText)
-                SegmentedChoice(
-                    options: [""] + options,
-                    title: { $0.isEmpty ? "Settings" : (CoreCatalog.core(id: $0)?.displayName
-                        .components(separatedBy: " (").first ?? $0) },
-                    selection: Binding(
-                        get: { host.gameCoreChoice(for: entry) },
-                        set: { host.setGameCoreChoice($0, for: entry) }
-                    )
-                )
-                SettingsNote(
-                    "Runs on " + (CoreCatalog.core(forPath: entry.path,
-                                                   ps1CoreId: host.ps1CoreChoice.coreId)?.displayName ?? "no core")
-                    + ". \"Settings\" follows the choice in Settings, CORES. Applies from the next launch."
-                )
-            }
         }
     }
 
@@ -169,6 +137,26 @@ struct GameDetailSheet: View {
 
     // MARK: The facts
 
+    /// The game's own core: "Default" (the system's choice in Settings, CORES) or any core that
+    /// runs its system. Hidden when the system has only one core.
+    @ViewBuilder private var runsOnPicker: some View {
+        let options = host.coreOptions(for: entry)
+        if options.count > 1 {
+            let _ = host.coreChoiceVersion
+            SettingsLabel("Change the core for this game")
+            SegmentedChoice(
+                options: [""] + options,
+                title: { $0.isEmpty ? "Default" : (CoreCatalog.core(id: $0)?.displayName
+                    .components(separatedBy: " (").first ?? $0) },
+                selection: Binding(
+                    get: { host.gameCoreChoice(for: entry) },
+                    set: { host.setGameCoreChoice($0, for: entry) }
+                )
+            )
+            SettingsNote("Default follows Settings, CORES. Applies from the next launch.")
+        }
+    }
+
     private var facts: some View {
         VStack(alignment: .leading, spacing: 10) {
             SettingsReadout(label: "On disk as", value: entry.name)
@@ -184,6 +172,7 @@ struct GameDetailSheet: View {
                 )?.displayName
                     ?? "no core is mapped to .\(entry.ext)"
             )
+            runsOnPicker
             if !entry.cueNotes.isEmpty {
                 // The commonest import mistake by a distance: bringing the .cue and leaving its
                 // .bin tracks behind. Said out loud here rather than only as part of the detail

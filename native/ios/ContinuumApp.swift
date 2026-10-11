@@ -1062,6 +1062,22 @@ enum CoreCatalog {
         .gba: [mgba.coreId, continuumGb.coreId],
     ]
 
+    /// Every core that can run a system: the curated order in `coreChoices` (default first), then
+    /// any other core in `all` that lists the system. What both the Settings CORES chooser and a
+    /// game card's "Runs on" picker offer.
+    static func coreOptions(for system: GameSystem) -> [String] {
+        var ids = coreChoices[system] ?? (defaultCoreBySystem[system].map { [$0] } ?? [])
+        for spec in all where spec.systems.contains(system.rawValue) && !ids.contains(spec.coreId) {
+            ids.append(spec.coreId)
+        }
+        return ids
+    }
+
+    /// The systems with more than one core, in GameSystem order.
+    static var switchableSystems: [GameSystem] {
+        GameSystem.allCases.filter { $0 != .ps1 && coreOptions(for: $0).count > 1 }
+    }
+
     /// The UserDefaults key a system's core choice is stored under (not the PlayStation's).
     static func coreChoiceKey(for system: GameSystem) -> String {
         "continuum.coreChoice.\(system.rawValue)"
@@ -1069,8 +1085,8 @@ enum CoreCatalog {
 
     /// The stored core choice for a system, when it is a valid alternative for that system.
     static func storedCoreChoice(for system: GameSystem) -> String? {
+        let options = coreOptions(for: system)
         guard system != .ps1,
-              let options = coreChoices[system],
               let stored = UserDefaults.standard.string(forKey: coreChoiceKey(for: system)),
               options.contains(stored) else { return nil }
         return stored
@@ -1084,7 +1100,7 @@ enum CoreCatalog {
 
     /// The core one game is set to, when it has its own choice and that is still valid for it.
     static func gameCoreChoice(forPath path: String, system: GameSystem) -> String? {
-        let options = system == .ps1 ? Ps1CoreChoice.allCases.map(\.coreId) : (coreChoices[system] ?? [])
+        let options = coreOptions(for: system)
         guard let stored = UserDefaults.standard.string(forKey: gameCoreChoiceKey(forPath: path)),
               options.contains(stored) else { return nil }
         return stored
@@ -1877,7 +1893,7 @@ final class EngineHost: ObservableObject {
     func coreChoice(for system: GameSystem) -> String {
         if system == .ps1 { return ps1CoreChoice.coreId }
         return CoreCatalog.storedCoreChoice(for: system)
-            ?? CoreCatalog.coreChoices[system]?.first
+            ?? CoreCatalog.coreOptions(for: system).first
             ?? ""
     }
 
@@ -1888,7 +1904,7 @@ final class EngineHost: ObservableObject {
             if let choice = Ps1CoreChoice(rawValue: coreId) { ps1CoreChoice = choice }
             return
         }
-        guard let options = CoreCatalog.coreChoices[system], options.contains(coreId) else {
+        guard CoreCatalog.coreOptions(for: system).contains(coreId) else {
             status = "\(coreId) is not a core for \(system.displayName); the choice is unchanged"
             return
         }
@@ -1903,8 +1919,7 @@ final class EngineHost: ObservableObject {
     /// The cores one game can run on (its system's choices), or empty when it has only one.
     func coreOptions(for entry: LibraryEntry) -> [String] {
         guard let system = CoreCatalog.system(for: entry) else { return [] }
-        if system == .ps1 { return Ps1CoreChoice.allCases.map(\.coreId) }
-        return CoreCatalog.coreChoices[system] ?? []
+        return CoreCatalog.coreOptions(for: system)
     }
 
     /// "" means "follow the system's Settings choice".
