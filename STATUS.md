@@ -78,6 +78,16 @@ Nothing here is rounded up.
 For what the owner wants built, and the scope rules this page works inside, see
 [docs/PRODUCT_SCOPE.md](docs/PRODUCT_SCOPE.md).
 
+## cBoy work in progress (11 October 2026, not yet in a build)
+
+**Done (pushed, [skip ci]):**
+- **.gb freeze (Pokemon Yellow), likely cause:** the build-170 core plays Yellow's intro correctly headless through the real frontend, even when it saves and reloads a state every frame. So the core isn't the problem. What's left is the picture path, which only `gb` games take: the dot-matrix effect plus the Game Boy skin. A skin crop sized for mGBA's 256x224 Super Game Boy frame (Yellow is SGB-enhanced), applied to cBoy's 160x144 frame, samples past the texture edge. That repeats edge pixels as stripes on the olive dot-matrix backing and looks frozen. Fixed: a crop outside the frame is now fitted to it (`screen_layout::fit_crop`, with a test). The activity log gets a `picture (...)` line with frame size, effect and skin crops, marked `OUTSIDE FRAME, fitted` when this happens. This hasn't been seen on Brett's phone; his next report should show that line.
+- **Mooneye DMG acceptance 77 -> 83/86:** timer rapid_toggle, OAM DMA restart, STAT LYC on/off latch, LCD-on line 0 timing, LY early tick-over, OAM/VRAM CPU lockout.
+- **New boot setups:** DMG0 and SGB boot DIV values; options for CGB revision, auto-SGB, first-revision DMG and force Color mode; options for stick dead zone, right stick, auto frameskip threshold/limit, Advance object time limit and GBC light position.
+- **Options inventory:** generated from extracted keys (`scripts/extract-core-option-keys.sh`, `scripts/build-cboy-inventory.py`, `docs/CBOY_OPTIONS_INVENTORY.md`).
+
+**Next, in order:** Mooneye lcdon_write_timing, vblank_stat_intr, intr_2_mode0_timing_sprites; the 39 inventory gaps (except the palette packs left out for data-ownership reasons); own boot ROM and logo; MP2K HQ mixer; full workspace tests; one iOS build.
+
 ## After build 164: bug-hunt build (built, untested on a phone)
 
 Fourteen fixes, all built and none tried on a phone yet. Tests are in TESTING.md section R.
