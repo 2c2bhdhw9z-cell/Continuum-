@@ -374,3 +374,17 @@ fn rom_dir_cgb_report() {
     }
     eprintln!("CGB DIR: {pass} of {} passed", names.len());
 }
+
+/// Mooneye's MBC2 tests (bank switching, RAM nibbles and mirroring).
+#[test]
+fn mooneye_mbc2() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/mts/emulator-only/mbc2");
+    let Ok(rd) = std::fs::read_dir(&dir) else {
+        eprintln!("SKIPPED: Mooneye suite not fetched");
+        return;
+    };
+    let mut names: Vec<String> = rd.flatten().map(|e| e.file_name().to_string_lossy().to_string()).filter(|n| n.ends_with(".gb")).collect();
+    names.sort();
+    let failed: Vec<String> = names.iter().filter_map(|n| mooneye(&format!("mts/emulator-only/mbc2/{n}")).err()).collect();
+    assert!(failed.is_empty() && !names.is_empty(), "{failed:?}");
+}

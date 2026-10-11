@@ -11,6 +11,10 @@ pub enum MbcKind {
     Mbc5,
     /// Kirby Tilt 'n' Tumble's mapper: an accelerometer and a serial EEPROM for saves.
     Mbc7,
+    /// MBC2: up to 256 KiB of ROM and 512 four-bit cells of RAM built into the chip.
+    Mbc2,
+    /// Hudson's HuC1: MBC1-like banking plus an infrared port (no partner, so it sees no light).
+    HuC1,
 }
 
 /// MBC7's accelerometer latch and its 93LC56-style serial EEPROM (128 16-bit words, kept in
@@ -142,9 +146,15 @@ impl Cart {
             0x11..=0x13 => (MbcKind::Mbc3, t == 0x13, false),
             0x19..=0x1E => (MbcKind::Mbc5, t == 0x1B || t == 0x1E, false),
             0x22 => (MbcKind::Mbc7, true, false),
+            0x05 | 0x06 => (MbcKind::Mbc2, t == 0x06, false),
+            0xFF => (MbcKind::HuC1, true, false),
             other => return Err(format!("cartridge type ${other:02X} is not supported yet")),
         };
-        let mut ram_len = if kind == MbcKind::Mbc7 { 256 } else { ram_size(rom[0x149]) };
+        let mut ram_len = match kind {
+            MbcKind::Mbc7 => 256,
+            MbcKind::Mbc2 => 512,
+            _ => ram_size(rom[0x149]),
+        };
         if kind == MbcKind::None && ram_len == 0 && (t == 0x08 || t == 0x09) {
             ram_len = 0x2000;
         }
@@ -171,7 +181,7 @@ impl Cart {
             kind,
             has_battery: battery,
             has_rtc: rtc,
-            ram_enabled: false,
+            ram_enabled: kind == MbcKind::HuC1,
             rom_bank: 1,
             ram_bank: 0,
             bank2: 0,
@@ -213,7 +223,7 @@ impl Cart {
                     }
                 }
             }
-            MbcKind::Mbc3 | MbcKind::Mbc5 | MbcKind::Mbc7 => {
+            MbcKind::Mbc3 | MbcKind::Mbc5 | MbcKind::Mbc7 | MbcKind::Mbc2 | MbcKind::HuC1 => {
                 if addr < 0x4000 {
                     self.rom[addr as usize]
                 } else {
@@ -235,7 +245,8 @@ impl Cart {
             MbcKind::Mbc3 => match addr {
                 0x0000..=0x1FFF => self.ram_enabled = v & 0x0F == 0x0A,
                 0x2000..=0x3FFF => {
-                    let b = u16::from(v & 0x7F);
+                    // MBC30 (over 2 MiB of ROM) decodes all eight bits.
+                    let b = u16::from(if self.rom.len() > 0x20_0000 { v } else { v & 0x7F });
                     self.rom_bank = if b == 0 { 1 } else { b };
                 }
                 0x4000..=0x5FFF => self.ram_bank = v,
@@ -260,6 +271,26 @@ impl Cart {
                 }
                 _ => {}
             },
+            MbcKind::Mbc2 => {
+                if addr < 0x4000 {
+                    if addr & 0x100 == 0 {
+                        self.ram_enabled = v & 0x0F == 0x0A;
+                    } else {
+                        let b = u16::from(v & 0x0F);
+                        self.rom_bank = if b == 0 { 1 } else { b };
+                    }
+                }
+            }
+            MbcKind::HuC1 => match addr {
+                // 0x0E switches A000-BFFF to the infrared port; anything else back to RAM.
+                0x0000..=0x1FFF => {
+                    self.mode = u8::from(v & 0x0F == 0x0E);
+                    self.ram_enabled = true;
+                }
+                0x2000..=0x3FFF => self.rom_bank = u16::from(v & 0x3F),
+                0x4000..=0x5FFF => self.ram_bank = v & 3,
+                _ => {}
+            },
             MbcKind::Mbc7 => match addr {
                 0x0000..=0x1FFF => self.ram_enabled = v == 0x0A,
                 0x2000..=0x3FFF => self.rom_bank = u16::from(v & 0x7F),
@@ -276,7 +307,10 @@ impl Cart {
         let bank = match self.kind {
             MbcKind::None => 0,
             MbcKind::Mbc1 => if self.mode == 1 { self.bank2 as usize } else { 0 },
-            MbcKind::Mbc3 => (self.ram_bank & 3) as usize,
+            // MBC30 has eight RAM banks; plain MBC3 four (the modulo below wraps smaller RAM).
+            MbcKind::Mbc3 => (self.ram_bank & 7) as usize,
+            MbcKind::HuC1 => self.ram_bank as usize,
+            MbcKind::Mbc2 => return Some(addr as usize & 0x1FF),
             MbcKind::Mbc5 => self.ram_bank as usize,
             MbcKind::Mbc7 => return None,
         };
@@ -289,6 +323,12 @@ impl Cart {
         }
         if self.kind == MbcKind::Mbc7 {
             return self.mbc7_read(addr);
+        }
+        if self.kind == MbcKind::HuC1 && self.mode == 1 {
+            return 0xC0; // infrared: no light received
+        }
+        if self.kind == MbcKind::Mbc2 {
+            return self.ram_index(addr).map_or(0xFF, |i| self.ram[i] | 0xF0);
         }
         if self.kind == MbcKind::Mbc3 && (0x08..=0x0C).contains(&self.ram_bank) {
             if !self.has_rtc {
@@ -309,6 +349,10 @@ impl Cart {
             self.mbc7_write(addr, v);
             return;
         }
+        if self.kind == MbcKind::HuC1 && self.mode == 1 {
+            return; // the infrared LED
+        }
+        let v = if self.kind == MbcKind::Mbc2 { v & 0x0F } else { v };
         if self.kind == MbcKind::Mbc3 && (0x08..=0x0C).contains(&self.ram_bank) {
             if self.has_rtc {
                 let i = (self.ram_bank - 8) as usize;
@@ -482,6 +526,67 @@ mod tests {
         r[0x147] = kind;
         r[0x149] = 3;
         r
+    }
+
+    #[test]
+    fn mbc2_banks_and_four_bit_ram() {
+        let mut c = Cart::new(rom(0x06, 16)).unwrap();
+        assert!(c.has_battery);
+        assert_eq!(c.ram.len(), 512);
+        // Address bit 8 set: ROM bank; 0 means 1; only four bits.
+        c.write_rom(0x2100, 0x00);
+        assert_eq!(c.read_rom(0x4010), 1);
+        c.write_rom(0x2100, 0x1F);
+        assert_eq!(c.read_rom(0x4010), 15);
+        // Bit 8 clear: RAM enable, never a bank write.
+        assert_eq!(c.read_ram(0xA000), 0xFF);
+        c.write_rom(0x0000, 0x0A);
+        assert_eq!(c.read_rom(0x4010), 15);
+        c.write_ram(0xA001, 0xAB);
+        assert_eq!(c.read_ram(0xA001), 0xFB, "upper nibble reads as 1s");
+        assert_eq!(c.read_ram(0xA201), 0xFB, "512 cells mirrored through A000-BFFF");
+        assert_eq!(c.read_ram(0xBE01), 0xFB);
+        c.write_rom(0x0000, 0x00);
+        assert_eq!(c.read_ram(0xA001), 0xFF);
+    }
+
+    #[test]
+    fn huc1_banks_and_infrared() {
+        let mut c = Cart::new(rom(0xFF, 64)).unwrap();
+        c.write_rom(0x2000, 0x2A);
+        assert_eq!(c.read_rom(0x4010), 0x2A);
+        c.write_rom(0x4000, 2);
+        c.write_ram(0xA000, 0x77);
+        assert_eq!(c.read_ram(0xA000), 0x77);
+        c.write_rom(0x0000, 0x0E);
+        assert_eq!(c.read_ram(0xA000), 0xC0, "infrared mode sees no light");
+        c.write_ram(0xA000, 0x01);
+        c.write_rom(0x0000, 0x00);
+        assert_eq!(c.read_ram(0xA000), 0x77, "the IR write did not touch RAM");
+        c.write_rom(0x4000, 0);
+        assert_ne!(c.read_ram(0xA000), 0x77);
+    }
+
+    #[test]
+    fn mbc30_eight_bit_rom_bank_and_eight_ram_banks() {
+        let mut r = rom(0x13, 256); // 4 MiB
+        r[0x149] = 5; // 64 KiB
+        let mut c = Cart::new(r).unwrap();
+        c.write_rom(0x2000, 0xC1);
+        assert_eq!(c.read_rom(0x4010), 0xC1);
+        c.write_rom(0x0000, 0x0A);
+        for b in 0..8u8 {
+            c.write_rom(0x4000, b);
+            c.write_ram(0xA000, 0x40 + b);
+        }
+        for b in 0..8u8 {
+            c.write_rom(0x4000, b);
+            assert_eq!(c.read_ram(0xA000), 0x40 + b);
+        }
+        // Plain MBC3 (2 MiB or less) still masks the bank to seven bits.
+        let mut c = Cart::new(rom(0x13, 128)).unwrap();
+        c.write_rom(0x2000, 0x81);
+        assert_eq!(c.read_rom(0x4010), 1);
     }
 
     #[test]
