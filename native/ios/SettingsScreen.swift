@@ -82,6 +82,12 @@ struct SettingsScreen: View {
                 // ⋯ menu. See Feedback.swift.
                 FeedbackSettingsSection(host: host)
 
+                // Always open and second from the top: on build 170 the core pickers sat in two
+                // folding sections far down the screen ("PLAYSTATION CORE" and "NES, GAME BOY,
+                // ARCADE AND SATURN CORES", the second after Online Play), and once folded, or
+                // after "Close all", Brett could not find any core switch at all.
+                coreSwitchSection
+
                 // Grouped, and NOT for tidiness: a SwiftUI view builder accepts at most ten
                 // children, and this screen has more sections than that. Exceeding it fails with
                 // an error that points at the whole block and names no section, which on a build
@@ -111,7 +117,6 @@ struct SettingsScreen: View {
                 Group {
                     artworkSection
                     layoutSection
-                    coresSection
                     pspSection
                     biosSection
                     // Every core's own settings, and the TV's fit and layout. See CoreSettingsScreen.swift.
@@ -128,9 +133,6 @@ struct SettingsScreen: View {
                     SkinLibrarySettingsSection(host: host)
                     CloudSyncSection(sync: host.cloudSync)
                     OnlinePlaySettingsSection(netplay: host.netplay)
-                    // Arcade and Saturn core choice, beside the PlayStation one in spirit; here
-                    // because the group above already holds SwiftUI's ten children.
-                    systemCoresSection
                     // Controller types, button mapping profiles, motion. See InputExtras.swift.
                     InputSettingsSection(host: host, extras: host.inputExtras)
                     // Last: technical details are for reporting a problem, not for setting up.
@@ -583,31 +585,23 @@ struct SettingsScreen: View {
 
     // MARK: Cores
 
-    /// PlayStation core picker for step 4. Everyday default stays soft PCSX ReARMed; Beetle
-    /// PSX HW is how an IPA exercises SET_HW_RENDER Vulkan once Mac CI has embedded the dylib.
-    private var coresSection: some View {
-        SettingsSection(title: "PLAYSTATION CORE") {
+    /// Every system with more than one core, PlayStation included, in one section that does
+    /// not fold. A game's own card can override this per game (GameDetailSheet, CORE).
+    private var coreSwitchSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("CORES")
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.6)
+                .foregroundStyle(ShellPalette.secondaryText)
+            let _ = host.coreChoiceVersion
             SettingsLabel("Core for PlayStation games")
             SegmentedChoice(
                 options: Ps1CoreChoice.allCases,
                 title: { $0.label },
                 selection: $host.ps1CoreChoice
             )
-
-            SettingsNote(
-                "PCSX ReARMed works without a BIOS, so start with that. Beetle PSX HW is more "
-                + "accurate but needs a real PlayStation BIOS (like scph5501.bin) from the BIOS "
-                + "section below. Kicks in from the next game you open."
-            )
-        }
-    }
-
-    /// Every other system with two cores (`CoreCatalog.coreChoices`): NES, Disk System, Game Boy (all three), Arcade and Saturn today.
-    /// The choice is stored per system and applies from the next launch of that system.
-    private var systemCoresSection: some View {
-        SettingsSection(title: "NES, GAME BOY, ARCADE AND SATURN CORES") {
-            let _ = host.coreChoiceVersion
-            ForEach([GameSystem.nes, GameSystem.fds, GameSystem.gb, GameSystem.gbc, GameSystem.gba, GameSystem.arcade, GameSystem.saturn], id: \.self) { system in
+            ForEach([GameSystem.gb, GameSystem.gbc, GameSystem.gba, GameSystem.nes, GameSystem.fds,
+                     GameSystem.arcade, GameSystem.saturn], id: \.self) { system in
                 SettingsLabel("Core for \(system.displayName) games")
                 SegmentedChoice(
                     options: CoreCatalog.coreChoices[system] ?? [],
@@ -619,18 +613,22 @@ struct SettingsScreen: View {
                 )
             }
             SettingsNote(
-                "Mesen is the default NES core because it is much more accurate. FCEUmm is "
-                + "there as a fallback. The Disk System stays on FCEUmm by default, because the "
-                + "disk-side button only works there; Mesen flips sides on its own. Save states "
-                + "only load on the core that made them; battery saves carry over. "
-                + "FinalBurn Neo is the default arcade core and MAME 2003-Plus the second choice; "
-                + "a romset made for one often does not run on the other. Yabause is the default "
-                + "Saturn core and runs without a BIOS file. Beetle Saturn is more accurate and "
-                + "needs a real Saturn BIOS (sega_101.bin or mpr-17933.bin). Each choice applies "
-                + "from the next game you open. Game Boy, Game Boy Color and Game Boy Advance games "
-                + "default to mGBA; cBoy is this app's own core for all three, new and still being tested."
+                "Each choice applies from the next game you open. One game can use a different "
+                + "core: open its card and pick one under CORE. Game Boy, Game Boy Color and Game "
+                + "Boy Advance default to mGBA; cBoy is this app's own core for all three, new and "
+                + "still being tested. PCSX ReARMed works without a BIOS; Beetle PSX HW is more "
+                + "accurate and uses a real BIOS when there is one. Mesen is the default NES core, "
+                + "FCEUmm the fallback (the Disk System stays on FCEUmm for its disk-side button). "
+                + "FinalBurn Neo is the default arcade core, MAME 2003-Plus the second; a romset for "
+                + "one often does not run on the other. Yabause runs Saturn games without a BIOS; "
+                + "Beetle Saturn needs sega_101.bin or mpr-17933.bin. Save states only load on the "
+                + "core that made them; battery saves carry over."
             )
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal, 16)
     }
 
     /// PSP. One note, not a picker: there is one core and it is not optional.

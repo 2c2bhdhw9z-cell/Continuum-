@@ -1076,6 +1076,20 @@ enum CoreCatalog {
         return stored
     }
 
+    /// The UserDefaults key a single game's core choice is stored under. Keyed by file name, not
+    /// the full path, because the app's container path changes across reinstalls.
+    static func gameCoreChoiceKey(forPath path: String) -> String {
+        "continuum.coreChoice.game.\((path as NSString).lastPathComponent)"
+    }
+
+    /// The core one game is set to, when it has its own choice and that is still valid for it.
+    static func gameCoreChoice(forPath path: String, system: GameSystem) -> String? {
+        let options = system == .ps1 ? Ps1CoreChoice.allCases.map(\.coreId) : (coreChoices[system] ?? [])
+        guard let stored = UserDefaults.standard.string(forKey: gameCoreChoiceKey(forPath: path)),
+              options.contains(stored) else { return nil }
+        return stored
+    }
+
     /// A route for a system on its default core. An unknown system gets an empty core id, which
     /// `byId` does not know, so the launch says "no core is mapped" instead of crashing.
     private static func on(_ system: GameSystem) -> Route {
@@ -1284,6 +1298,10 @@ enum CoreCatalog {
     /// The core a file launches on, resolver first, then the Settings choice for its system.
     static func core(forPath path: String, ps1CoreId: String? = nil) -> CoreSpec? {
         guard let route = route(forPath: path) else { return nil }
+        // A per-game choice (the game card's CORE block) beats the system's Settings choice.
+        if let chosen = gameCoreChoice(forPath: path, system: route.system), let spec = byId[chosen] {
+            return spec
+        }
         return core(for: route, ps1CoreId: ps1CoreId)
     }
 
@@ -1877,8 +1895,35 @@ final class EngineHost: ObservableObject {
         guard coreChoice(for: system) != coreId else { return }
         UserDefaults.standard.set(coreId, forKey: CoreCatalog.coreChoiceKey(for: system))
         coreChoiceVersion &+= 1
+        FeedbackCenter.step("core choice: \(system.rawValue) -> \(coreId)")
         let name = CoreCatalog.core(id: coreId)?.displayName ?? coreId
         status = "\(system.displayName) games now launch on \(name), from the next launch"
+    }
+
+    /// The cores one game can run on (its system's choices), or empty when it has only one.
+    func coreOptions(for entry: LibraryEntry) -> [String] {
+        guard let system = CoreCatalog.system(for: entry) else { return [] }
+        if system == .ps1 { return Ps1CoreChoice.allCases.map(\.coreId) }
+        return CoreCatalog.coreChoices[system] ?? []
+    }
+
+    /// "" means "follow the system's Settings choice".
+    func gameCoreChoice(for entry: LibraryEntry) -> String {
+        guard let system = CoreCatalog.system(for: entry) else { return "" }
+        return CoreCatalog.gameCoreChoice(forPath: entry.path, system: system) ?? ""
+    }
+
+    func setGameCoreChoice(_ coreId: String, for entry: LibraryEntry) {
+        let key = CoreCatalog.gameCoreChoiceKey(forPath: entry.path)
+        if coreId.isEmpty {
+            UserDefaults.standard.removeObject(forKey: key)
+        } else {
+            UserDefaults.standard.set(coreId, forKey: key)
+        }
+        coreChoiceVersion &+= 1
+        let name = coreId.isEmpty ? "the Settings choice" : (CoreCatalog.core(id: coreId)?.displayName ?? coreId)
+        status = "\(entry.name) now launches on \(name), from the next launch"
+        FeedbackCenter.step("core choice: \(entry.name) -> \(coreId.isEmpty ? "system default" : coreId)")
     }
 
     /// One line per system or core that uses firmware, for the Settings BIOS section: what is
@@ -4378,6 +4423,19 @@ final class EngineHost: ObservableObject {
             let extLabel = entry.ext.isEmpty ? "no extension" : ".\(entry.ext)"
             status = "no core is mapped to \(extLabel), so \(entry.name) cannot be launched"
             return
+        }
+        do {
+            let system = CoreCatalog.system(for: entry)
+            let source: String
+            if let system, CoreCatalog.gameCoreChoice(forPath: entry.path, system: system) != nil {
+                source = "this game's own choice"
+            } else if let system, system == .ps1 || CoreCatalog.storedCoreChoice(for: system) != nil {
+                source = "the Settings choice for \(system.displayName)"
+            } else {
+                source = "the default"
+            }
+            FeedbackCenter.step("launch core: \(spec.coreId) (\(spec.displayName)) for "
+                + "\(entry.name) [\(system?.rawValue ?? "?")], from \(source)")
         }
         // Checked BEFORE anything is torn down, for the same reason the routing above is: this is a
         // tap that should change nothing but the status line.
