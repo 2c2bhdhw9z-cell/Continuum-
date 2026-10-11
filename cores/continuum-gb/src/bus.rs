@@ -216,7 +216,7 @@ impl Bus {
                 }
                 self.dma_pos = 0;
                 self.dma_active = true;
-                self.dma_delay = 1;
+                self.dma_delay = 2;
             }
             0xFF47 => self.ppu.bgp = v,
             0xFF48 => self.ppu.obp0 = v,

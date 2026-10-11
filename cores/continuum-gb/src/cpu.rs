@@ -242,16 +242,18 @@ impl Cpu {
             }
             self.halted = false;
         }
-        let ei = self.ei_pending;
-        self.ei_pending = false;
-        if ei {
-            self.ime = true;
-        }
         if self.interrupt(bus) {
             return;
         }
+        // EI's effect lands after the instruction that follows it (that instruction cannot be
+        // interrupted); a DI in that slot cancels it.
+        let ei = self.ei_pending;
+        self.ei_pending = false;
         let op = self.fetch(bus);
         self.execute(bus, op);
+        if ei && op != 0xF3 {
+            self.ime = true;
+        }
     }
 
     fn execute(&mut self, bus: &mut Bus, op: u8) {

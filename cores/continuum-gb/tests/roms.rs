@@ -120,3 +120,108 @@ fn dump_screen() {
     let px: Vec<u8> = gb.bus.ppu.frame.iter().map(|s| [0xFF, 0xAA, 0x55, 0][*s as usize]).collect();
     w.write_image_data(&px).unwrap();
 }
+
+/// Every Mooneye acceptance test that applies to a DMG, as a pass count. Not a gate yet: the
+/// list of the ones that fail is printed so progress is visible. Run with --nocapture.
+#[test]
+fn mooneye_acceptance_report() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/mts");
+    if !dir.exists() {
+        eprintln!("SKIPPED: Mooneye suite not fetched");
+        return;
+    }
+    let mut names = Vec::new();
+    for sub in ["acceptance", "acceptance/bits", "acceptance/instr", "acceptance/interrupts",
+                "acceptance/oam_dma", "acceptance/ppu", "acceptance/timer", "emulator-only/mbc1",
+                "emulator-only/mbc5"] {
+        let Ok(rd) = std::fs::read_dir(dir.join(sub)) else { continue };
+        for e in rd.flatten() {
+            let n = e.file_name().to_string_lossy().to_string();
+            if !n.ends_with(".gb") {
+                continue;
+            }
+            // Only the DMG ones: skip tests for other models (-S, -C, -A, -mgb, -sgb, -dmg0).
+            let stem = n.trim_end_matches(".gb");
+            if let Some(tag) = stem.rsplit_once('-').map(|(_, t)| t) {
+                if !tag.contains("dmgABC") && !tag.contains('G') && tag.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == 'm' || c == 'g' || c == 'b' || c == 's' || c == 'd') {
+                    continue;
+                }
+            }
+            names.push(format!("mts/{sub}/{n}"));
+        }
+    }
+    names.sort();
+    let mut failed = Vec::new();
+    for n in &names {
+        if let Err(e) = mooneye(n) {
+            failed.push(e);
+        }
+    }
+    eprintln!("MOONEYE: {} of {} passed", names.len() - failed.len(), names.len());
+    for f in &failed {
+        eprintln!("  FAIL {f}");
+    }
+}
+
+/// A save state taken mid-run and loaded into a fresh machine continues identically.
+#[test]
+fn save_state_round_trip() {
+    let Some(data) = rom("cpu_instrs.gb") else { return };
+    let mut a = GameBoy::new(data.clone()).unwrap();
+    for _ in 0..200 {
+        a.run_frame();
+    }
+    let state = a.save_state();
+    let mut b = GameBoy::new(data).unwrap();
+    b.load_state(&state).unwrap();
+    for _ in 0..300 {
+        a.run_frame();
+        b.run_frame();
+    }
+    assert_eq!(a.cpu.pc, b.cpu.pc);
+    assert_eq!(a.bus.cycles, b.bus.cycles);
+    assert_eq!(a.bus.ppu.frame, b.bus.ppu.frame);
+    assert!(b.load_state(b"junk").is_err());
+}
+
+/// The libretro entry points, called the way a frontend does.
+#[test]
+fn libretro_api_smoke() {
+    use continuum_gb::libretro::*;
+    use std::ffi::c_void;
+    let Some(data) = rom("dmg-acid2.gb") else { return };
+    unsafe extern "C" fn env(_cmd: u32, _d: *mut c_void) -> bool { true }
+    static mut FRAMES: u32 = 0;
+    unsafe extern "C" fn video(_d: *const c_void, w: u32, h: u32, pitch: usize) {
+        assert_eq!((w, h, pitch), (160, 144, 640));
+        FRAMES += 1;
+    }
+    unsafe extern "C" fn audio(_d: *const i16, n: usize) -> usize { n }
+    unsafe extern "C" fn poll() {}
+    unsafe extern "C" fn input(_p: u32, _d: u32, _i: u32, _id: u32) -> i16 { 0 }
+    unsafe {
+        retro_set_environment(env);
+        retro_set_video_refresh(video);
+        retro_set_audio_sample_batch(audio);
+        retro_set_input_poll(poll);
+        retro_set_input_state(input);
+        retro_init();
+        let info = RetroGameInfo {
+            path: std::ptr::null(),
+            data: data.as_ptr() as *const c_void,
+            size: data.len(),
+            meta: std::ptr::null(),
+        };
+        assert!(retro_load_game(&info));
+        for _ in 0..10 {
+            retro_run();
+        }
+        let size = retro_serialize_size();
+        let mut buf = vec![0u8; size];
+        assert!(retro_serialize(buf.as_mut_ptr() as *mut c_void, size));
+        assert!(retro_unserialize(buf.as_ptr() as *const c_void, size));
+        retro_unload_game();
+        retro_deinit();
+        assert_eq!(FRAMES, 10);
+    }
+}
