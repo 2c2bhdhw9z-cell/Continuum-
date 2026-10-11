@@ -1205,3 +1205,18 @@ Not forgotten, and not bugs:
 - iOS deployment target stays at 16 rather than 18, and Swift stays at language mode 5.
 - Separate saved control layouts per orientation for the built-in pad (no imported skin). It does re-arrange itself for landscape. Imported skins swap portrait and landscape.
 - **PSP (PPSSPP)** is step 9 and is **in this IPA as Partial**, not Done. The CPU is the IR interpreter, no JIT and no dynarec. It has not been tried on a phone. App Store PPSSPP is also interpreter-only; lighter games are reported smooth there and heavy games hitch. That report is not a Continuum result. Nothing to do with Switch is deferred; it is steps 10 to 12. 3DS is in the app as Partial (a game runs; whether the stutter after transitions is gone is not known yet), not deferred.
+
+### cBoy: Pokemon Yellow freeze, headless reproduction attempt (Oct 11)
+- Built pokeyellow, pokered, pokeblue, pokegold and pokecrystal from pret (rgbds 1.0.3, sha1 of
+  Yellow matches the retail cart). `cores/continuum-gb/scripts/build-pret-roms.sh` builds them;
+  `PRET_DIR=... cargo test --release --test pret` runs all five from boot through the intro,
+  title, Oak's speech and naming into the player's room. All five get there. Not committed ROMs.
+- **The Yellow freeze did not reproduce** headless: not on x86, not on aarch64 (qemu), not with a
+  save state taken and reloaded every frame, not resumed into a fresh machine, not with buttons
+  held, and not through the app's own libretro loader (`crates/emulator-bridge/tests/cboy_frontend.rs`,
+  which dlopens the core like the phone does). Intro, title and new game all play.
+  So the phone must be doing something the harness doesn't (a battery save or state from another
+  core, input, or something else in the app); the CGB event log in the activity log is the way to
+  see it on the next report.
+- Fixed: the VBlank counter the stuck detector uses was not part of save states, so after any
+  state load (auto-resume, rewind) the detector could log a false "stuck". It is now saved.

@@ -56,7 +56,7 @@ pub struct Bus {
     #[serde(skip)]
     log_count: u32,
     /// Interrupts taken, by bit (VBlank, STAT, timer, serial, joypad); for the lockup log.
-    #[serde(skip)]
+    #[serde(default)]
     pub irq_taken: [u32; 5],
     last_mode: u8,
 }
