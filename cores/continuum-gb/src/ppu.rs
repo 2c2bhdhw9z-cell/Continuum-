@@ -231,7 +231,7 @@ impl Ppu {
         (e & 0x40 != 0 && self.lyc_eq)
             || (e & 0x08 != 0 && (self.mode == 0 || (self.ly < 144 && self.dot + 4 >= self.hblank_at && self.mode == 3)))
             || (e & 0x10 != 0 && self.mode == 1)
-            || (e & 0x20 != 0 && (self.mode == 2 || self.oam_irq_early()))
+            || (e & 0x20 != 0 && (self.mode == 2 || self.oam_irq_early() || (self.ly == 144 && self.dot < 4)))
     }
 
     /// The mode 2 STAT interrupt is raised one M-cycle before mode 2 shows in STAT.
