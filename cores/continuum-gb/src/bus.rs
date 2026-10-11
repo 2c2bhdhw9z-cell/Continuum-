@@ -41,6 +41,10 @@ pub struct Bus {
     /// A restarted OAM DMA: the previous transfer keeps OAM blocked until the new one starts.
     #[serde(default)]
     dma_prev_block: bool,
+    /// The PPU shuts the CPU out of OAM and VRAM while it uses them (off only for the tests that
+    /// predate it; not saved).
+    #[serde(skip, default = "yes")]
+    pub ppu_locks: bool,
     apu_div_bit: bool,
     pub cycles: u64,
     /// Game Boy Color state (unused in DMG mode).
@@ -104,6 +108,7 @@ impl Bus {
             dma_delay: 0,
             dma_reg: 0xFF,
             dma_prev_block: false,
+            ppu_locks: true,
             apu_div_bit: false,
             cycles: 0,
             cgb: false,
@@ -268,12 +273,22 @@ impl Bus {
         if self.dma_active && (self.dma_delay == 0 || self.dma_prev_block) && (0xFE00..0xFF00).contains(&addr) {
             return 0xFF;
         }
+        if self.ppu_locks && ((0xFE00..0xFEA0).contains(&addr) && self.ppu.oam_blocked()
+            || (0x8000..0xA000).contains(&addr) && self.ppu.vram_blocked())
+        {
+            return 0xFF;
+        }
         self.raw_read(addr)
     }
 
     pub fn write(&mut self, addr: u16, v: u8) {
         self.tick();
         if self.dma_active && (0xFE00..0xFEA0).contains(&addr) {
+            return;
+        }
+        if self.ppu_locks && ((0xFE00..0xFEA0).contains(&addr) && self.ppu.oam_blocked()
+            || (0x8000..0xA000).contains(&addr) && self.ppu.vram_blocked())
+        {
             return;
         }
         self.raw_write(addr, v);
@@ -303,7 +318,7 @@ impl Bus {
             0xFF41 => self.ppu.read_stat(),
             0xFF42 => self.ppu.scy,
             0xFF43 => self.ppu.scx,
-            0xFF44 => self.ppu.ly,
+            0xFF44 => self.ppu.ly_read(),
             0xFF45 => self.ppu.lyc,
             0xFF46 => self.dma_reg,
             0xFF47 => self.ppu.bgp,
@@ -457,4 +472,8 @@ impl Bus {
             _ => {}
         }
     }
+}
+
+fn yes() -> bool {
+    true
 }

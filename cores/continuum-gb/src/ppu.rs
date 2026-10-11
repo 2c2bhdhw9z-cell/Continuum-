@@ -28,7 +28,7 @@ pub struct Ppu {
     pub obp1: u8,
     pub wy: u8,
     pub wx: u8,
-    dot: u16,
+    pub dot: u16,
     mode: u8,
     stat_line: bool,
     window_line: u8,
@@ -36,6 +36,9 @@ pub struct Ppu {
     /// The LY=LYC comparison, latched: it only updates while the LCD is on (Mooneye stat_lyc_onoff).
     #[serde(default)]
     lyc_eq: bool,
+    /// The first line after the LCD is switched on: no OAM scan, and mode 3 starts 4 dots later.
+    #[serde(default)]
+    first_line: bool,
     #[serde(skip, default = "blank")]
     pub frame: Vec<u32>,
     /// Set when line 144 begins (a whole frame is in `frame`).
@@ -111,6 +114,7 @@ impl Default for Ppu {
             window_line: 0,
             wy_hit: false,
             lyc_eq: true,
+            first_line: false,
             frame: blank(),
             frame_ready: false,
             skip_frame: false,
@@ -137,6 +141,29 @@ impl Ppu {
 
     pub fn mode(&self) -> u8 {
         self.mode
+    }
+
+    /// LY as the CPU reads it: it shows the next line 4 dots before that line begins (lines
+    /// 0-152; Mooneye lcdon_timing).
+    pub fn ly_read(&self) -> u8 {
+        if self.on() && self.dot >= 452 && self.ly < 153 {
+            self.ly + 1
+        } else {
+            self.ly
+        }
+    }
+
+    /// Whether the CPU is shut out of OAM: during the OAM scan and mode 3, and from 4 dots before
+    /// a line's OAM scan begins (Mooneye lcdon_timing).
+    pub fn oam_blocked(&self) -> bool {
+        self.on()
+            && ((self.ly < 144 && (self.mode == 2 || self.mode == 3))
+                || (self.dot >= 452 && (self.ly < 143 || self.ly == 153)))
+    }
+
+    /// Whether the CPU is shut out of VRAM: mode 3, from 4 dots before it on ordinary lines.
+    pub fn vram_blocked(&self) -> bool {
+        self.on() && self.ly < 144 && (self.mode == 3 || (!self.first_line && (76..80).contains(&self.dot)))
     }
 
     pub fn read_stat(&self) -> u8 {
@@ -179,7 +206,8 @@ impl Ppu {
         } else if !was && self.on() {
             self.ly = 0;
             self.lyc_eq = self.lyc == 0;
-            self.dot = 4; // the first line after switch-on starts a little late
+            self.first_line = true;
+            self.dot = 0; // line 0 after switch-on: no OAM scan, LY ticks over 4 dots early
             self.mode = 0; // and has no OAM scan
             self.window_line = 0;
             self.wy_hit = false;
@@ -250,6 +278,7 @@ impl Ppu {
         self.dot += 1;
         if self.dot == 456 {
             self.dot = 0;
+            self.first_line = false;
             self.ly += 1;
             if self.ly == 154 {
                 self.ly = 0;
@@ -265,9 +294,9 @@ impl Ppu {
                         self.wy_hit = true;
                     }
                 }
-                80 => {
+                d @ 80 => {
                     self.mode = 3;
-                    self.hblank_at = 80 + self.mode3_length();
+                    self.hblank_at = d + self.mode3_length();
                     self.render_line();
                 }
                 d if d == self.hblank_at && self.mode == 3 => self.mode = 0,
@@ -282,7 +311,8 @@ impl Ppu {
             }
             self.frame_ready = true;
         }
-        self.lyc_eq = self.ly == self.lyc;
+        // While LY ticks over (the last 4 dots of a line) the comparison reads false.
+        self.lyc_eq = !(self.dot >= 452 && self.ly < 153) && self.ly == self.lyc;
         let line = self.stat_condition();
         if line && !self.stat_line {
             irq.stat = true;
@@ -477,3 +507,4 @@ impl Ppu {
         }
     }
 }
+
