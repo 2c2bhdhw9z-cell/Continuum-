@@ -549,13 +549,17 @@ fn build_machine(rom: Vec<u8>, s: &crate::options::Settings, dir: Option<&str>) 
     }
     let cart = crate::cart::Cart::new(rom.clone()).ok()?;
     let colour = cart.cgb_flag & 0x80 != 0;
+    // Header byte 0x146 = 3 marks Super Game Boy support (needs the old licensee code 0x33).
+    let sgb_cart = rom.get(0x146) == Some(&3) && rom.get(0x14B) == Some(&0x33);
     let model = match s.model {
         Model::Auto if colour => Model::Cgb,
+        Model::Auto if s.auto_sgb && sgb_cart => Model::Sgb,
         Model::Auto => Model::Dmg,
         m => m,
     };
     let boot = if s.boot_rom {
         let name = match model {
+            Model::Dmg0 => "dmg0_boot.bin",
             Model::Mgb => "mgb_boot.bin",
             Model::Sgb => "sgb_boot.bin",
             Model::Sgb2 => "sgb2_boot.bin",
@@ -570,13 +574,17 @@ fn build_machine(rom: Vec<u8>, s: &crate::options::Settings, dir: Option<&str>) 
     } else {
         None
     };
-    let gb = match GameBoy::with_model(rom.clone(), model, boot) {
+    let had_boot = boot.is_some();
+    let mut gb = match GameBoy::with_model(rom.clone(), model, boot) {
         Ok(gb) => gb,
         Err(e) => {
             log_line(&format!("boot ROM not used: {e}"));
             GameBoy::with_model(rom, model, None).ok()?
         }
     };
+    if s.cgb_rev0 && !had_boot {
+        gb.set_cgb_revision_0();
+    }
     Some((gb, None))
 }
 

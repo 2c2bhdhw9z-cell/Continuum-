@@ -297,6 +297,36 @@ fn cgb_acid2() {
 }
 
 /// The Mooneye tests made for CGB hardware, run as a CGB. A report, like the DMG one.
+/// The CGB/AGB boot-state tests on a DMG cartridge, as the console model option runs them.
+#[test]
+fn mooneye_models() {
+    use continuum_gb::gb::Model;
+    let cases: [(&str, Model, bool); 10] = [
+        ("mts/acceptance/boot_div-dmg0.gb", Model::Dmg0, false), ("mts/acceptance/boot_regs-dmg0.gb", Model::Dmg0, false),
+        ("mts/acceptance/boot_div-S.gb", Model::Sgb, false), ("mts/acceptance/boot_regs-sgb.gb", Model::Sgb, false),
+        ("mts/misc/boot_regs-cgb.gb", Model::Cgb, false), ("mts/misc/boot_div-cgbABCDE.gb", Model::Cgb, false),
+        ("mts/misc/boot_div-cgb0.gb", Model::Cgb, true), ("mts/misc/boot_regs-A.gb", Model::Agb, false),
+        ("mts/misc/boot_div-A.gb", Model::Agb, false), ("mts/acceptance/boot_regs-mgb.gb", Model::Mgb, false),
+    ];
+    let mut failed = Vec::new();
+    for (name, model, rev0) in cases {
+        let Some(data) = rom(name) else { return };
+        let mut gb = GameBoy::with_model(data, model, None).unwrap();
+        if rev0 {
+            gb.set_cgb_revision_0();
+        }
+        for _ in 0..600 {
+            gb.run_frame();
+            if gb.cpu.ld_b_b { break; }
+        }
+        let c = &gb.cpu;
+        if [c.b, c.c, c.d, c.e, c.h, c.l] != [3, 5, 8, 13, 21, 34] {
+            failed.push(name);
+        }
+    }
+    assert!(failed.is_empty(), "{failed:?}");
+}
+
 #[test]
 fn mooneye_cgb_report() {
     let names = ["mts/misc/boot_regs-cgb.gb", "mts/misc/boot_hwio-C.gb", "mts/misc/boot_div-cgbABCDE.gb",

@@ -1,0 +1,17 @@
+mgba_allow_opposing_directions
+mgba_audio_low_pass_filter
+mgba_audio_low_pass_range
+mgba_color_correction
+mgba_force_gbp
+mgba_frameskip
+mgba_frameskip_interval
+mgba_frameskip_threshold
+mgba_gb_colors
+mgba_gb_colors_preset
+mgba_gb_model
+mgba_idle_optimization
+mgba_interframe_blending
+mgba_sgb_borders
+mgba_skip_bios
+mgba_solar_sensor_level
+mgba_use_bios

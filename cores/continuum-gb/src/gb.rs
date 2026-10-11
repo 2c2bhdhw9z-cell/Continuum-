@@ -20,6 +20,8 @@ pub struct GameBoy {
 pub enum Model {
     Auto,
     Dmg,
+    /// The first DMG revision (different boot ROM: registers and DIV differ).
+    Dmg0,
     Mgb,
     Sgb,
     Sgb2,
@@ -60,11 +62,16 @@ impl GameBoy {
         let c = &mut gb.cpu;
         match (model, cgb) {
             (Model::Mgb, _) => c.a = 0xFF,
+            (Model::Dmg0, _) => {
+                (c.a, c.f, c.b, c.c, c.d, c.e, c.h, c.l) = (0x01, 0x00, 0xFF, 0x13, 0x00, 0xC1, 0x84, 0x03);
+                gb.bus.timer.counter = 0x182C; // Mooneye boot_div-dmg0
+            }
             (Model::Sgb | Model::Sgb2, _) => {
                 (c.a, c.f, c.b, c.c, c.d, c.e, c.h, c.l) = (0x01, 0x00, 0x00, 0x14, 0x00, 0x00, 0xC0, 0x60);
                 if model == Model::Sgb2 {
                     c.a = 0xFF;
                 }
+                gb.bus.timer.counter = 0xD85C; // Mooneye boot_div-S / boot_div2-S
                 gb.bus.sgb = Some(Box::default());
             }
             (Model::Agb, true) => {
@@ -73,8 +80,13 @@ impl GameBoy {
             }
             (Model::Cgb | Model::Agb, false) => {
                 (c.a, c.f, c.b, c.c, c.d, c.e, c.h, c.l) = (0x11, 0x80, 0x00, 0x00, 0x00, 0x08, 0x00, 0x7C);
+                // The CGB boot ROM spends longer on a DMG cartridge (palette pick); DIV after it
+                // (Mooneye boot_div-cgbABCDE, boot_div-A).
+                gb.bus.timer.counter = 0x2674;
                 if model == Model::Agb {
                     c.b = 0x01;
+                    c.f = 0x00;
+                    gb.bus.timer.counter = 0x2678;
                 }
             }
             _ => {}
@@ -93,6 +105,14 @@ impl GameBoy {
             gb.bus.ppu.lcdc = 0;
         }
         Ok(gb)
+    }
+
+    /// CGB hardware revision 0 (the earliest): its boot ROM leaves DIV further on
+    /// (Mooneye boot_div-cgb0). Revisions A-E behave alike as far as cBoy models them.
+    pub fn set_cgb_revision_0(&mut self) {
+        if self.bus.timer.counter == 0x2674 {
+            self.bus.timer.counter = 0x2880;
+        }
     }
 
     pub fn model_is_sgb(&self) -> bool {

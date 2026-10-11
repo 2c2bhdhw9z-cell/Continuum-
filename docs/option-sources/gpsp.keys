@@ -1,0 +1,15 @@
+gpsp_bios
+gpsp_boot_mode
+gpsp_color_correction
+gpsp_drc
+gpsp_frame_mixing
+gpsp_frameskip
+gpsp_frameskip_interval
+gpsp_frameskip_threshold
+gpsp_rtc
+gpsp_rtc_time_source
+gpsp_rumble
+gpsp_serial
+gpsp_sound_rate
+gpsp_sprlim
+gpsp_turbo_period

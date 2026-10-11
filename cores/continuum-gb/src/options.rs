@@ -75,9 +75,13 @@ const SPECS: &[Spec] = &[
     // System
     (c"system", c"cboy_gb_model", c"Console for Game Boy and Color games",
      c"Auto runs Color cartridges on a Game Boy Color and the rest on a Game Boy. Takes effect on the next start.",
-     &[(c"auto", c"Auto"), (c"dmg", c"Game Boy"), (c"mgb", c"Game Boy Pocket"), (c"sgb", c"Super Game Boy"),
+     &[(c"auto", c"Auto"), (c"auto_sgb", c"Auto (Super Game Boy for SGB games)"), (c"dmg", c"Game Boy"), (c"dmg0", c"Game Boy (first revision)"), (c"mgb", c"Game Boy Pocket"), (c"sgb", c"Super Game Boy"),
        (c"sgb2", c"Super Game Boy 2"), (c"sgb_pal", c"Super Game Boy (PAL)"), (c"cgb", c"Game Boy Color"), (c"agb", c"Game Boy Advance (Color games)")],
      c"auto"),
+    (c"system", c"cboy_cgb_revision", c"Game Boy Color revision",
+     c"Which Game Boy Color hardware revision to model. Revision 0 (the first Japanese units) leaves the timer at a different point after start-up; later revisions match each other. Next start.",
+     &[(c"e", c"CPU CGB E (most common)"), (c"d", c"CPU CGB D"), (c"c", c"CPU CGB C"), (c"b", c"CPU CGB B"), (c"a", c"CPU CGB A"), (c"0", c"CPU CGB (revision 0)")],
+     c"e"),
     (c"system", c"cboy_boot_rom", c"Start from a boot ROM file",
      c"Plays the console's own start-up logo from a file you supply: <system folder>/cboy/dmg_boot.bin, mgb_boot.bin, sgb_boot.bin, sgb2_boot.bin or cgb_boot.bin. Without the file the game starts directly. Next start.",
      OFF_ON, c"off"),
@@ -321,6 +325,10 @@ pub struct Settings {
     pub stick_dpad: bool,
     pub sprite_limit: bool,
     pub sgb_pal: bool,
+    /// Auto, but Super Game Boy for cartridges that support it.
+    pub auto_sgb: bool,
+    /// Model Game Boy Color revision 0.
+    pub cgb_rev0: bool,
     pub frameskip_auto: bool,
     pub interference: u8,
 }
@@ -350,7 +358,7 @@ impl Default for Settings {
             solar: Some(128), link_loopback: false, frameskip: 0, run_ahead: 0, idle_skip: false,
             gb_layers: 7, gba_layers: 0xFF, gba_bios_skip_logo: false, border_always: false, color_temp: 0,
             contrast: 0, dark: 0, highpass_hz: 28.0, audio_hq: false, rumble_strength: 100, motion_scale: 1.0,
-            opposing: false, stick_dpad: false, sprite_limit: true, sgb_pal: false, frameskip_auto: false, interference: 0,
+            opposing: false, stick_dpad: false, sprite_limit: true, sgb_pal: false, auto_sgb: false, cgb_rev0: false, frameskip_auto: false, interference: 0,
         }
     }
 }
@@ -423,10 +431,12 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     let pct = |k: &CStr| get(k).and_then(|v| v.parse::<u8>().ok()).unwrap_or(100).min(100);
     if let Some(v) = get(c"cboy_gb_model") {
         s.model = match v.as_str() {
-            "dmg" => Model::Dmg, "mgb" => Model::Mgb, "sgb" | "sgb_pal" => Model::Sgb, "sgb2" => Model::Sgb2,
+            "dmg" => Model::Dmg, "dmg0" => Model::Dmg0, "mgb" => Model::Mgb, "sgb" | "sgb_pal" => Model::Sgb, "sgb2" => Model::Sgb2,
             "cgb" => Model::Cgb, "agb" => Model::Agb, _ => Model::Auto,
         };
     }
+    s.auto_sgb = get(c"cboy_gb_model").is_some_and(|v| v == "auto_sgb");
+    s.cgb_rev0 = get(c"cboy_cgb_revision").is_some_and(|v| v == "0");
     s.sgb_pal = get(c"cboy_gb_model").is_some_and(|v| v == "sgb_pal");
     s.boot_rom = on(c"cboy_boot_rom", false);
     s.gba_bios_file = get(c"cboy_gba_bios").is_some_and(|v| v == "file" || v == "file_skip");
@@ -736,6 +746,9 @@ mod tests {
         assert_eq!((t.rumble_strength, t.motion_scale, t.opposing, t.stick_dpad, t.sprite_limit), (50, 2.0, true, true, false));
         assert_eq!(t.gba_layers, 0b0101_1111);
         let u = settings(&[("cboy_gb_model", "sgb_pal"), ("cboy_frameskip", "auto"), ("cboy_interference", "50")]);
+        let r = settings(&[("cboy_gb_model", "auto_sgb"), ("cboy_cgb_revision", "0")]);
+        assert!(r.auto_sgb && r.cgb_rev0 && r.model == Model::Auto);
+        assert_eq!(settings(&[("cboy_gb_model", "dmg0")]).model, Model::Dmg0);
         assert_eq!((u.model, u.sgb_pal, u.frameskip_auto, u.frameskip, u.interference), (Model::Sgb, true, true, 0, 50));
     }
 
