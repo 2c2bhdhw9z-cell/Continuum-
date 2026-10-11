@@ -16,6 +16,9 @@
 enum { CONTINUUM_LAST_LOG_CAP = 1024 };
 
 static char g_last_log[CONTINUUM_LAST_LOG_CAP];
+
+/* native_core.rs: puts one line into the app's activity log (the one a problem report sends). */
+void continuum_core_log_forward(const char *line);
 static int g_have_last_log = 0;
 
 const char *continuum_last_core_log_line(void)
@@ -40,6 +43,12 @@ void continuum_retro_log_printf(int level, const char *fmt, ...)
     n = strlen(buf);
     while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) {
         buf[--n] = '\0';
+    }
+
+    /* cBoy's lines (CGB events, lockups) go into the activity log too, so a report from a phone
+     * shows them. The core caps how many it sends. Other cores stay os_log only (some log a lot). */
+    if (strncmp(buf, "cBoy: ", 6) == 0) {
+        continuum_core_log_forward(buf);
     }
 
     strncpy(g_last_log, buf, CONTINUUM_LAST_LOG_CAP - 1);

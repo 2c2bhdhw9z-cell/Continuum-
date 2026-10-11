@@ -28,6 +28,8 @@ pub struct Cpu {
     ei_pending: bool,
     pub halted: bool,
     halt_bug: bool,
+    #[serde(default)]
+    ei_now: bool,
     /// An illegal opcode locks the CPU, as on hardware.
     pub locked: bool,
     /// Set when `LD B,B` runs (Mooneye's "test finished" breakpoint).
@@ -53,6 +55,7 @@ impl Default for Cpu {
             ei_pending: false,
             halted: false,
             halt_bug: false,
+            ei_now: false,
             locked: false,
             ld_b_b: false,
         }
@@ -228,6 +231,7 @@ impl Cpu {
         } else {
             let bit = pending.trailing_zeros() as u8;
             bus.iflag &= !(1 << bit);
+            bus.irq_taken[bit as usize] = bus.irq_taken[bit as usize].wrapping_add(1);
             self.pc = 0x40 + u16::from(bit) * 8;
         }
         bus.tick();
@@ -254,8 +258,10 @@ impl Cpu {
         // interrupted); a DI in that slot cancels it.
         let ei = self.ei_pending;
         self.ei_pending = false;
+        self.ei_now = ei;
         let op = self.fetch(bus);
         self.execute(bus, op);
+        self.ei_now = false;
         if ei && op != 0xF3 {
             self.ime = true;
         }
@@ -394,7 +400,12 @@ impl Cpu {
             0x37 => self.f = (self.f & Z) | C,
             0x3F => self.f = (self.f & Z) | if self.flag(C) { 0 } else { C },
             0x76 => {
-                if !self.ime && bus.ie & bus.iflag & 0x1F != 0 {
+                if self.ei_now && bus.ie & bus.iflag & 0x1F != 0 {
+                    // EI then HALT with an interrupt already waiting: IME comes on, the interrupt
+                    // is taken, and it returns to the HALT, which then halts (SameSuite
+                    // ei_delay_halt). Not the HALT bug.
+                    self.pc = self.pc.wrapping_sub(1);
+                } else if !self.ime && bus.ie & bus.iflag & 0x1F != 0 {
                     self.halt_bug = true;
                 } else {
                     self.halted = true;
@@ -529,7 +540,13 @@ impl Cpu {
                 self.ei_pending = false;
             }
             0xFB => self.ei_pending = true,
-            _ => self.locked = true, // D3 DB DD E3 E4 EB EC ED F4 FC FD
+            _ => {
+                // D3 DB DD E3 E4 EB EC ED F4 FC FD: the real CPU locks up.
+                self.locked = true;
+                let at = self.pc.wrapping_sub(1);
+                bus.log(format!("CPU locked: illegal opcode {op:02X} at {at:04X} (ROM bank {}, SP {:04X})",
+                    bus.cart.rom_bank, self.sp));
+            }
         }
     }
 

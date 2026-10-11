@@ -73,7 +73,7 @@ pub struct Cart {
     pub has_battery: bool,
     pub has_rtc: bool,
     ram_enabled: bool,
-    rom_bank: u16,
+    pub rom_bank: u16,
     ram_bank: u8,
     /// MBC1 bank2 register (2 bits) and mode.
     bank2: u8,

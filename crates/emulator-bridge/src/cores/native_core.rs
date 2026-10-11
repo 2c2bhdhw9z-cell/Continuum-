@@ -376,6 +376,16 @@ extern "C" {
     fn continuum_last_core_log_line() -> *const c_char;
 }
 
+/// Called by `retro_log_shim.c` for the core lines that belong in the activity log.
+#[no_mangle]
+pub extern "C" fn continuum_core_log_forward(line: *const c_char) {
+    if line.is_null() {
+        return;
+    }
+    let text = unsafe { CStr::from_ptr(line) }.to_string_lossy();
+    crate::feedback::log_add("", &text);
+}
+
 /// Most recent line the active core sent through `GET_LOG_INTERFACE`, if any.
 ///
 /// Empty when the core has not logged yet. Safe to call from the status UI at any time.

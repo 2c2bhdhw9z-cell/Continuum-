@@ -74,6 +74,8 @@ struct Core {
     frame: Vec<u32>,
     rtc_block: [u8; RTC_LEN],
     rtc_synced: bool,
+    stuck_frames: u32,
+    stuck_reports: u32,
 }
 
 struct Callbacks {
@@ -85,6 +87,22 @@ struct Callbacks {
 }
 
 static CORE: Mutex<Option<Core>> = Mutex::new(None);
+
+/// libretro's log callback (printf-style, variadic).
+type LogFn = unsafe extern "C" fn(level: u32, fmt: *const std::ffi::c_char, ...);
+#[repr(C)]
+struct RetroLogCallback {
+    log: Option<LogFn>,
+}
+const ENV_GET_LOG_INTERFACE: u32 = 27;
+static LOG: Mutex<Option<LogFn>> = Mutex::new(None);
+
+/// Sends one line to the frontend's log (level INFO), prefixed "cBoy: ".
+fn log_line(line: &str) {
+    let Some(log) = LOG.lock().ok().and_then(|l| *l) else { return };
+    let Ok(text) = std::ffi::CString::new(format!("cBoy: {line}\n").replace('\0', " ")) else { return };
+    unsafe { log(1, c"%s".as_ptr(), text.as_ptr()) };
+}
 static CB: Mutex<Callbacks> = Mutex::new(Callbacks {
     env: None,
     video: None,
@@ -98,6 +116,27 @@ fn now_secs() -> u64 {
 }
 
 impl Core {
+    /// Logs (sparsely) when the game seems stuck: no VBlank interrupt taken for two seconds
+    /// while it has them enabled and the LCD on, or the CPU locked. A phone report then says
+    /// where the CPU was.
+    fn watch_lockup(&mut self, vblanks_before: u32) {
+        let b = &self.gb.bus;
+        let c = &self.gb.cpu;
+        let waiting = b.ie & 1 != 0 && b.ppu.lcdc & 0x80 != 0 && b.irq_taken[0] == vblanks_before;
+        self.stuck_frames = if waiting || c.locked { self.stuck_frames + 1 } else { 0 };
+        if self.stuck_frames == 120 && self.stuck_reports < 5 {
+            self.stuck_reports += 1;
+            let line = format!(
+                "stuck: no VBlank interrupt for 2 s. PC {:04X} SP {:04X} IME {} halted {} locked {} \
+                 IE {:02X} IF {:02X} LCDC {:02X} STAT {:02X} LY {} ROM bank {} VBK {} SVBK {} \
+                 speed {} interrupts taken {:?}",
+                c.pc, c.sp, c.ime, c.halted, c.locked, b.ie, b.iflag, b.ppu.lcdc, b.ppu.read_stat(),
+                b.ppu.ly, b.cart.rom_bank, b.vbk, b.svbk,
+                if b.double_speed { "double" } else { "normal" }, b.irq_taken);
+            log_line(&line);
+        }
+    }
+
     fn write_rtc_block(&mut self) {
         let rtc = &self.gb.bus.cart.rtc;
         self.rtc_block[..5].copy_from_slice(&rtc.regs);
@@ -224,12 +263,26 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     };
     let env = CB.lock().ok().and_then(|c| c.env);
     if let Some(env) = env {
+        let mut cb = RetroLogCallback { log: None };
+        if env(ENV_GET_LOG_INTERFACE, &mut cb as *mut RetroLogCallback as *mut c_void) {
+            if let Ok(mut l) = LOG.lock() {
+                *l = cb.log;
+            }
+        }
         let mut fmt = PIXEL_FORMAT_XRGB8888;
         if !env(ENV_SET_PIXEL_FORMAT, &mut fmt as *mut u32 as *mut c_void) {
             return false;
         }
     }
-    let mut core = Core { gb, gba: gba_machine, frame: vec![0; W * H], rtc_block: [0; RTC_LEN], rtc_synced: false };
+    if gba_machine.is_some() {
+        log_line("loaded a Game Boy Advance ROM");
+    } else {
+        let c = &gb.bus.cart;
+        log_line(&format!("loaded \"{}\" as {}: {:?}, ROM {} KB, RAM {} KB, battery {}, clock {}, header $143 = {:02X}",
+            c.title, if gb.bus.cgb { "Game Boy Color" } else { "Game Boy" }, c.kind, c.rom.len() / 1024,
+            c.ram.len() / 1024, c.has_battery, c.has_rtc, c.cgb_flag));
+    }
+    let mut core = Core { gb, gba: gba_machine, frame: vec![0; W * H], rtc_block: [0; RTC_LEN], rtc_synced: false, stuck_frames: 0, stuck_reports: 0 };
     core.write_rtc_block();
     core.rtc_block[16..24].fill(0); // "nothing saved yet" until the frontend writes its copy
     if let Ok(mut slot) = CORE.lock() {
@@ -344,7 +397,12 @@ pub unsafe extern "C" fn retro_run() {
         }
     }
     core.gb.bus.set_buttons(buttons);
+    let vblanks = core.gb.bus.irq_taken[0];
     core.gb.run_frame();
+    core.watch_lockup(vblanks);
+    for line in std::mem::take(&mut core.gb.bus.events) {
+        log_line(&line);
+    }
     let mut frame = std::mem::take(&mut core.frame);
     core.gb.frame_xrgb(&mut frame);
     core.frame = frame;

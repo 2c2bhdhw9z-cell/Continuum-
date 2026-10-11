@@ -177,4 +177,120 @@ mod tests {
         assert_eq!(b.ppu.vram[0x200], 0x21);
         assert_eq!(b.ppu.vram[0x21F], 0x40);
     }
+
+    fn cgb_with_code(code: &[u8], cart_type: u8, rom_len: usize) -> GameBoy {
+        let mut rom = vec![0u8; rom_len];
+        rom[0x143] = 0x80; // CGB-compatible, like Pokemon Yellow
+        rom[0x147] = cart_type;
+        rom[0x148] = (rom_len / 0x8000).trailing_zeros() as u8;
+        rom[0x149] = 0x03;
+        rom[0x100..0x100 + code.len()].copy_from_slice(code);
+        GameBoy::new(rom).unwrap()
+    }
+
+    #[test]
+    fn hdma_with_lcd_off_copies_one_block_at_once() {
+        let mut gb = cgb_machine();
+        let b = &mut gb.bus;
+        b.raw_write(0xFF40, 0x00);
+        for i in 0..0x30u16 {
+            b.raw_write(0xC000 + i, 0x80 | i as u8);
+        }
+        b.raw_write(0xFF51, 0xC0);
+        b.raw_write(0xFF52, 0x00);
+        b.raw_write(0xFF53, 0x08);
+        b.raw_write(0xFF54, 0x00);
+        b.raw_write(0xFF55, 0x82); // HBlank DMA, 3 blocks
+        assert_eq!(b.ppu.vram[0x800], 0x80);
+        assert_eq!(b.ppu.vram[0x80F], 0x8F);
+        assert_eq!(b.ppu.vram[0x810], 0x00, "only one block with the LCD off");
+        assert_eq!(b.raw_read(0xFF55), 0x01);
+        b.raw_write(0xFF55, 0x00); // cancel
+        assert_eq!(b.raw_read(0xFF55), 0x80);
+    }
+
+    #[test]
+    fn ei_then_halt_with_a_pending_interrupt_returns_to_the_halt() {
+        // EI / HALT / INC B ... with VBlank pending and enabled: the handler (at $40: INC C /
+        // RETI) runs, then the CPU halts again rather than running INC B.
+        let mut gb = cgb_with_code(&[0xF3, 0xFB, 0x76, 0x04, 0x18, 0xFE], 0x00, 0x8000);
+        let mut rom = gb.bus.cart.rom.clone();
+        rom[0x40] = 0x0C;
+        rom[0x41] = 0xD9;
+        gb.bus.cart.rom = rom;
+        gb.bus.ie = 0x01;
+        gb.bus.iflag = 0x01;
+        gb.cpu.b = 0;
+        gb.cpu.c = 0;
+        for _ in 0..40 {
+            gb.cpu.step(&mut gb.bus);
+            if gb.cpu.c == 1 {
+                gb.bus.iflag &= !0x01; // no second VBlank
+            }
+        }
+        assert_eq!(gb.cpu.c, 1, "the interrupt ran once");
+        assert_eq!(gb.cpu.b, 0, "and it went back to HALT, not past it");
+        assert!(gb.cpu.halted);
+    }
+
+    #[test]
+    fn mbc5_banks_including_bank_0_and_bit_8() {
+        let mut gb = cgb_with_code(&[0x18, 0xFE], 0x1B, 0x80_0000 / 2); // 4 MB, 256 banks
+        let mut rom = gb.bus.cart.rom.clone();
+        for bank in 0..256usize {
+            rom[bank * 0x4000 + 0x10] = bank as u8;
+        }
+        gb.bus.cart.rom = rom;
+        let b = &mut gb.bus;
+        b.raw_write(0x2000, 0x00);
+        assert_eq!(b.raw_read(0x4010), 0x00, "MBC5 maps bank 0 at $4000");
+        b.raw_write(0x2000, 0x3E);
+        assert_eq!(b.raw_read(0x4010), 0x3E);
+        b.raw_write(0x2000, 0xFF);
+        assert_eq!(b.raw_read(0x4010), 0xFF);
+        // RAM banks.
+        b.raw_write(0x0000, 0x0A);
+        b.raw_write(0x4000, 0x02);
+        b.raw_write(0xA000, 0x77);
+        b.raw_write(0x4000, 0x00);
+        assert_ne!(b.raw_read(0xA000), 0x77);
+        b.raw_write(0x4000, 0x02);
+        assert_eq!(b.raw_read(0xA000), 0x77);
+    }
+
+    #[test]
+    fn sgb_packets_on_joyp_change_nothing() {
+        // A game sends SGB packets by pulsing P14/P15 together; with no SGB it just reads $FF
+        // (no buttons, no player-2 id) and carries on.
+        let mut gb = cgb_machine();
+        let b = &mut gb.bus;
+        for _ in 0..16 * 8 {
+            b.raw_write(0xFF00, 0x00);
+            b.raw_write(0xFF00, 0x30);
+            b.raw_write(0xFF00, 0x10);
+            b.raw_write(0xFF00, 0x30);
+        }
+        b.raw_write(0xFF00, 0x30);
+        assert_eq!(b.raw_read(0xFF00) & 0x0F, 0x0F);
+    }
+
+    #[test]
+    fn illegal_opcode_locks_and_logs() {
+        let mut gb = cgb_with_code(&[0xD3], 0x00, 0x8000);
+        for _ in 0..4 {
+            gb.cpu.step(&mut gb.bus);
+        }
+        assert!(gb.cpu.locked);
+        assert!(gb.bus.events.iter().any(|l| l.contains("illegal opcode D3 at 0100")), "{:?}", gb.bus.events);
+    }
+
+    #[test]
+    fn speed_switch_is_logged() {
+        let mut gb = cgb_machine();
+        for _ in 0..8 {
+            gb.cpu.step(&mut gb.bus);
+        }
+        assert!(gb.bus.double_speed);
+        assert!(gb.bus.events.iter().any(|l| l.contains("speed switch: double")), "{:?}", gb.bus.events);
+    }
 }

@@ -312,3 +312,33 @@ fn mooneye_cgb_report() {
         eprintln!("  FAIL {f}");
     }
 }
+
+/// Runs every .gb in $GB_ROM_DIR (e.g. SameSuite, built locally with rgbds) in CGB mode, Mooneye
+/// style (`LD B,B` with the Fibonacci registers), and prints a report. A debugging aid; no ROMs
+/// needed for CI.
+#[test]
+fn rom_dir_cgb_report() {
+    let Ok(dir) = std::env::var("GB_ROM_DIR") else { return };
+    let mut names: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok())
+        .map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "gb")).collect();
+    names.sort();
+    let mut pass = 0;
+    for p in &names {
+        let data = std::fs::read(p).unwrap();
+        let mut gb = GameBoy::new_mode(data, true).unwrap();
+        let mut res = "timed out".to_string();
+        for _ in 0..600 {
+            gb.run_frame();
+            if gb.cpu.ld_b_b {
+                let c = &gb.cpu;
+                let regs = [c.b, c.c, c.d, c.e, c.h, c.l];
+                res = if regs == [3, 5, 8, 13, 21, 34] { "PASS".into() } else { format!("regs {regs:02X?}") };
+                break;
+            }
+            if gb.cpu.locked { res = "locked".into(); break; }
+        }
+        if res == "PASS" { pass += 1 }
+        eprintln!("  {res:<30} {}", p.file_name().unwrap().to_string_lossy());
+    }
+    eprintln!("CGB DIR: {pass} of {} passed", names.len());
+}

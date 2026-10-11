@@ -44,12 +44,20 @@ pub struct Bus {
     pub cgb: bool,
     pub double_speed: bool,
     pub speed_prepare: bool,
-    vbk: u8,
-    svbk: u8,
+    pub vbk: u8,
+    pub svbk: u8,
     hdma_src: u16,
     hdma_dst: u16,
     hdma_blocks: u8,
     hdma_active: bool,
+    /// Lines for the libretro log, drained each frame (see `log`).
+    #[serde(skip)]
+    pub events: Vec<String>,
+    #[serde(skip)]
+    log_count: u32,
+    /// Interrupts taken, by bit (VBlank, STAT, timer, serial, joypad); for the lockup log.
+    #[serde(skip)]
+    pub irq_taken: [u32; 5],
     last_mode: u8,
 }
 
@@ -88,6 +96,9 @@ impl Bus {
             hdma_dst: 0x8000,
             hdma_blocks: 0,
             hdma_active: false,
+            events: Vec::new(),
+            log_count: 0,
+            irq_taken: [0; 5],
             last_mode: 0,
         }
     }
@@ -109,6 +120,15 @@ impl Bus {
             low &= !(self.buttons >> 4);
         }
         0xC0 | self.joyp_select | low
+    }
+
+    /// A debugging line for the frontend's log (libretro log), capped so a looping game cannot
+    /// flood it.
+    pub fn log(&mut self, line: String) {
+        if self.log_count < 400 {
+            self.log_count += 1;
+            self.events.push(line);
+        }
     }
 
     /// One M-cycle of everything but the CPU.
@@ -186,8 +206,10 @@ impl Bus {
 
     /// STOP: on the CGB with KEY1 armed, switches CPU speed.
     pub fn stop(&mut self) {
+        self.log(format!("STOP (KEY1 armed: {})", self.speed_prepare));
         if self.cgb && self.speed_prepare {
             self.double_speed = !self.double_speed;
+            self.log(format!("speed switch: {}", if self.double_speed { "double" } else { "normal" }));
             self.speed_prepare = false;
         }
         self.timer.write_div();
@@ -243,7 +265,7 @@ impl Bus {
             }
             0xFF4F if self.cgb => 0xFE | self.vbk,
             0xFF55 if self.cgb => {
-                if self.hdma_active { (self.hdma_blocks - 1) & 0x7F } else { 0xFF }
+                (self.hdma_blocks.wrapping_sub(1) & 0x7F) | if self.hdma_active { 0 } else { 0x80 }
             }
             0xFF68 if self.cgb => self.ppu.bcps | 0x40,
             0xFF69 if self.cgb => self.ppu.read_pal(false),
@@ -319,11 +341,28 @@ impl Bus {
             0xFF54 if self.cgb => self.hdma_dst = (self.hdma_dst & 0xFF00) | u16::from(v & 0xF0),
             0xFF55 if self.cgb => {
                 if self.hdma_active && v & 0x80 == 0 {
-                    self.hdma_active = false; // cancelled; FF55 then reads bit 7 set
+                    // Cancelled: FF55 then reads bit 7 set and the length just written
+                    // (SameSuite hdma_lcd_off / hdma_mode0 read $80 after writing 0).
+                    self.hdma_active = false;
+                    self.hdma_blocks = (v & 0x7F) + 1;
+                    self.log(format!("HBlank DMA cancelled, LY {}", self.ppu.ly));
                 } else if v & 0x80 != 0 {
                     self.hdma_active = true;
                     self.hdma_blocks = (v & 0x7F) + 1;
+                    self.log(format!("HBlank DMA {:04X}->{:04X}, {} blocks, LY {}",
+                        self.hdma_src, self.hdma_dst, self.hdma_blocks, self.ppu.ly));
+                    // Started with the LCD off, or already inside an HBlank: one block goes
+                    // straight away (SameSuite hdma_lcd_off, hdma_mode0).
+                    if !self.ppu.on() || (self.ppu.mode() == 0 && self.ppu.ly < 144) {
+                        self.hdma_block();
+                        self.hdma_blocks -= 1;
+                        if self.hdma_blocks == 0 {
+                            self.hdma_active = false;
+                        }
+                    }
                 } else {
+                    self.log(format!("general DMA {:04X}->{:04X}, {} bytes, VBK {}, LY {}",
+                        self.hdma_src, self.hdma_dst, (u16::from(v & 0x7F) + 1) * 16, self.vbk, self.ppu.ly));
                     // General DMA: all at once, the CPU stopped 8 M-cycles a block (16 at
                     // double speed).
                     let blocks = (v & 0x7F) + 1;
@@ -334,6 +373,7 @@ impl Bus {
                             self.tick();
                         }
                     }
+                    self.hdma_blocks = 0; // FF55 reads $FF when done
                 }
             }
             0xFF68 if self.cgb => self.ppu.bcps = v & 0xBF,
