@@ -45,7 +45,25 @@ struct Log {
     file_lines: usize,
 }
 
+#[cfg(not(test))]
 static LOG: Mutex<Option<Log>> = Mutex::new(None);
+
+// Tests run in parallel and many code paths write activity lines; each test thread gets its own
+// log so the log's own tests are not disturbed by another test's lines (it was flaky).
+#[cfg(test)]
+thread_local! {
+    static TEST_LOG: &'static Mutex<Option<Log>> = Box::leak(Box::new(Mutex::new(None)));
+}
+#[cfg(test)]
+#[allow(non_snake_case)]
+fn LOG_REF() -> &'static Mutex<Option<Log>> {
+    TEST_LOG.with(|l| *l)
+}
+#[cfg(not(test))]
+#[allow(non_snake_case)]
+fn LOG_REF() -> &'static Mutex<Option<Log>> {
+    &LOG
+}
 
 /// Starts this session's log in `dir`. The previous session's log becomes `activity-previous.txt`.
 pub fn log_open(dir: &Path) {
@@ -58,7 +76,7 @@ pub fn log_open(dir: &Path) {
         }
         let _ = fs::rename(&current, previous);
     }
-    *lock(&LOG) = Some(Log {
+    *lock(LOG_REF()) = Some(Log {
         dir: Some(dir.to_path_buf()),
         ..Log::default()
     });
@@ -71,7 +89,7 @@ pub fn log_add(stamp: &str, text: &str) {
     if text.is_empty() {
         return;
     }
-    let mut guard = lock(&LOG);
+    let mut guard = lock(LOG_REF());
     let log = guard.get_or_insert_with(Log::default);
     if log.last == text {
         return;
@@ -106,12 +124,12 @@ pub fn log_add(stamp: &str, text: &str) {
 /// (the Files picker, imports) where a crash right after must still leave the step.
 pub fn log_durable(text: &str) {
     {
-        let mut guard = lock(&LOG);
+        let mut guard = lock(LOG_REF());
         let log = guard.get_or_insert_with(Log::default);
         log.last.clear();
     }
     log_add("", text);
-    let dir = lock(&LOG).as_ref().and_then(|log| log.dir.clone());
+    let dir = lock(LOG_REF()).as_ref().and_then(|log| log.dir.clone());
     if let Some(dir) = dir {
         if let Ok(file) = OpenOptions::new().append(true).open(dir.join(LOG_FILE)) {
             let _ = file.sync_all();
@@ -125,12 +143,12 @@ pub fn log_durable(text: &str) {
 pub fn launch_step(text: &str) {
     let line = format!("launch: {}", text.trim().replace(['\r', '\n'], " / "));
     {
-        let mut guard = lock(&LOG);
+        let mut guard = lock(LOG_REF());
         let log = guard.get_or_insert_with(Log::default);
         log.last.clear();
     }
     log_add("", &line);
-    let dir = lock(&LOG).as_ref().and_then(|log| log.dir.clone());
+    let dir = lock(LOG_REF()).as_ref().and_then(|log| log.dir.clone());
     if let Some(dir) = dir {
         if let Ok(file) = OpenOptions::new().append(true).open(dir.join(LOG_FILE)) {
             let _ = file.sync_all();
@@ -150,7 +168,7 @@ pub fn frame_phase(frame: u64, phase: &str) {
 
 /// This session's log, oldest line first, at most `limit` lines (the newest ones).
 pub fn log_text(limit: usize) -> String {
-    let guard = lock(&LOG);
+    let guard = lock(LOG_REF());
     let Some(log) = guard.as_ref() else {
         return String::new();
     };
@@ -169,7 +187,7 @@ pub fn log_older_text(limit: usize) -> String {
 }
 
 fn log_file_text(name: &str, limit: usize) -> String {
-    let dir = lock(&LOG).as_ref().and_then(|log| log.dir.clone());
+    let dir = lock(LOG_REF()).as_ref().and_then(|log| log.dir.clone());
     let Some(dir) = dir else {
         return String::new();
     };
