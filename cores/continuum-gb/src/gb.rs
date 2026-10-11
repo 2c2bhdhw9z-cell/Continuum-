@@ -32,7 +32,7 @@ pub enum Model {
     Agb,
 }
 
-const STATE_MAGIC: &[u8; 8] = b"CGBSTAT2";
+const STATE_MAGIC: &[u8; 8] = b"CGBSTAT3";
 
 impl GameBoy {
     pub fn new(rom: Vec<u8>) -> Result<GameBoy, String> {

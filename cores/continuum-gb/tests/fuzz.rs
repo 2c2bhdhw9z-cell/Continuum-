@@ -117,7 +117,7 @@ fn state_layout_is_pinned() {
     rom[0x149] = 3;
     let gb = GameBoy::new(rom).unwrap();
     let st = gb.save_state();
-    assert_eq!(&st[..8], b"CGBSTAT2", "bump the tag when the layout changes");
+    assert_eq!(&st[..8], b"CGBSTAT3", "bump the tag when the layout changes");
     let g = Gba::new(vec![0u8; 0x1000]);
     let sa = g.save_state();
     assert_eq!(&sa[..8], b"CGBASTA2");
@@ -125,5 +125,5 @@ fn state_layout_is_pinned() {
     assert_eq!((st.len(), sa.len()), (GB_STATE_LEN, GBA_STATE_LEN),
                "the state layout changed: bump CGBSTAT/CGBASTA and update these sizes");
 }
-const GB_STATE_LEN: usize = 220_973;
+const GB_STATE_LEN: usize = 221_310;
 const GBA_STATE_LEN: usize = 550_530;
