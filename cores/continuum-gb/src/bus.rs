@@ -46,7 +46,7 @@ impl Bus {
     pub fn new(cart: Cart) -> Bus {
         let mut timer = Timer::default();
         // DIV as the DMG boot ROM leaves it on entry to the cartridge.
-        timer.counter = 0xABCC;
+        timer.counter = 0xABC8;
         Bus {
             cart,
             ppu: Ppu::default(),

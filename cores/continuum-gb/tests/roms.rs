@@ -225,3 +225,17 @@ fn libretro_api_smoke() {
         assert_eq!(FRAMES, 10);
     }
 }
+
+/// Debug aid: DBG_ROM=<path under test-roms> prints the registers at LD B,B and the serial text.
+#[test]
+fn debug_rom() {
+    let Ok(name) = std::env::var("DBG_ROM") else { return };
+    let mut gb = GameBoy::new(rom(&name).unwrap()).unwrap();
+    let stop: Option<u16> = std::env::var("DBG_PC").ok().and_then(|v| u16::from_str_radix(&v, 16).ok());
+    for _ in 0..20_000_000u64 {
+        gb.cpu.step(&mut gb.bus);
+        if gb.cpu.ld_b_b || Some(gb.cpu.pc) == stop { break; }
+    }
+    eprintln!("cpu {:?}", gb.cpu);
+    eprintln!("serial {}", String::from_utf8_lossy(&gb.bus.serial_out));
+}

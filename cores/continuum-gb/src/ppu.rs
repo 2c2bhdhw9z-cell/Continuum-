@@ -37,6 +37,9 @@ pub struct Ppu {
     pub frame_ready: bool,
     /// The first frame after the LCD is switched on is not shown, as on hardware.
     skip_frame: bool,
+    /// The dot mode 0 starts at on this line (mode 3 is 172 dots plus SCX and sprite delays).
+    #[serde(default)]
+    hblank_at: u16,
 }
 
 fn blank() -> Vec<u8> {
@@ -72,6 +75,7 @@ impl Default for Ppu {
             frame: blank(),
             frame_ready: false,
             skip_frame: false,
+            hblank_at: 252,
         }
     }
 }
@@ -116,9 +120,54 @@ impl Ppu {
     fn stat_condition(&self) -> bool {
         let e = self.stat_enable;
         (e & 0x40 != 0 && self.ly == self.lyc)
-            || (e & 0x08 != 0 && self.mode == 0)
+            || (e & 0x08 != 0 && (self.mode == 0 || (self.ly < 144 && self.dot + 4 >= self.hblank_at && self.mode == 3)))
             || (e & 0x10 != 0 && self.mode == 1)
-            || (e & 0x20 != 0 && self.mode == 2)
+            || (e & 0x20 != 0 && (self.mode == 2 || self.oam_irq_early()))
+    }
+
+    /// The mode 2 STAT interrupt is raised one M-cycle before mode 2 shows in STAT.
+    fn oam_irq_early(&self) -> bool {
+        self.dot >= 452 && self.ly < 143
+    }
+
+    /// Mode 3's length: 172 dots, plus the SCX fine scroll, plus each sprite on the line
+    /// (6 dots, more while the background tile under it is still being fetched; Pan Docs).
+    fn mode3_length(&self) -> u16 {
+        let mut len = 172 + u16::from(self.scx & 7);
+        if self.lcdc & 0x02 == 0 {
+            return len;
+        }
+        let height: i16 = if self.lcdc & 0x04 != 0 { 16 } else { 8 };
+        let mut xs: Vec<u8> = Vec::with_capacity(10);
+        for i in 0..40 {
+            let y = i16::from(self.oam[i * 4]) - 16;
+            let line = i16::from(self.ly);
+            if line >= y && line < y + height {
+                xs.push(self.oam[i * 4 + 1]);
+                if xs.len() == 10 {
+                    break;
+                }
+            }
+        }
+        xs.sort_unstable();
+        let mut paid_tile: Option<u16> = None;
+        for x in xs {
+            if x >= 168 {
+                continue;
+            }
+            if x == 0 {
+                len += 11;
+                continue;
+            }
+            let pos = u16::from(x) + u16::from(self.scx & 7);
+            let tile = pos / 8;
+            if paid_tile != Some(tile) {
+                paid_tile = Some(tile);
+                len += 5u16.saturating_sub((pos % 8).min(5));
+            }
+            len += 6;
+        }
+        len
     }
 
     /// One dot.
@@ -147,9 +196,10 @@ impl Ppu {
                 }
                 80 => {
                     self.mode = 3;
+                    self.hblank_at = 80 + self.mode3_length();
                     self.render_line();
                 }
-                252 => self.mode = 0,
+                d if d == self.hblank_at && self.mode == 3 => self.mode = 0,
                 _ => {}
             }
         } else if self.ly == 144 && self.dot == 0 {
