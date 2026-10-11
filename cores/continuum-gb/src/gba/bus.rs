@@ -84,6 +84,9 @@ pub struct Bus {
     /// Running a real BIOS file (core option): SWIs go through it instead of the built-in calls.
     #[serde(default)]
     pub real_bios: bool,
+    /// Cartridge extras: clock, solar, gyro, rumble or tilt.
+    #[serde(default)]
+    pub gpio: super::gpio::Gpio,
     pub ewram: Vec<u8>,
     pub iwram: Vec<u8>,
     pub io: Vec<u8>,
@@ -129,6 +132,7 @@ impl Bus {
             fifo_last: [0; 2],
             bios: mini_bios(),
             real_bios: false,
+            gpio: super::gpio::Gpio::new(super::gpio::detect(&rom)),
             ewram: vec![0; 0x40000],
             iwram: vec![0; 0x8000],
             io: vec![0; 0x400],
@@ -327,6 +331,11 @@ impl Bus {
     }
 
     pub fn peek8(&self, addr: u32) -> u32 {
+        if addr >> 24 == 0x0E {
+            if let Some(v) = self.gpio.tilt_read(addr) {
+                return u32::from(v);
+            }
+        }
         if addr >> 25 == 7 {
             return u32::from(self.save.read8(addr));
         }
@@ -364,6 +373,11 @@ impl Bus {
             0x08..=0x0D => {
                 if self.save.kind == SaveKind::Eeprom && addr >> 24 == 0x0D && self.rom.len() <= 0x100_0000 {
                     return 1;
+                }
+                if (0x0800_00C4..=0x0800_00C9).contains(&addr) {
+                    if let Some(v) = self.gpio.read(addr) {
+                        return u32::from(v);
+                    }
                 }
                 let a = (addr & 0x1FF_FFFF) as usize;
                 if a + 1 < self.rom.len() {
@@ -410,7 +424,11 @@ impl Bus {
                     self.vram[a + 1] = v;
                 }
             }
-            0x0E | 0x0F => self.save.write8(addr, v),
+            0x0E | 0x0F => {
+                if !self.gpio.tilt_write(addr, v) {
+                    self.save.write8(addr, v);
+                }
+            }
             _ => {}
         }
     }
@@ -432,6 +450,9 @@ impl Bus {
             0x05 => w(&mut self.pal, (addr & 0x3FF) as usize),
             0x06 => w(&mut self.vram, Self::vram_index(addr)),
             0x07 => w(&mut self.oam, (addr & 0x3FF) as usize),
+            0x08 if (0x0800_00C4..=0x0800_00C9).contains(&addr) => {
+                self.gpio.write(addr, v);
+            }
             0x0D if self.save.kind == SaveKind::Eeprom => self.save.eeprom_write(v),
             0x0E | 0x0F => self.save.write8(addr, (v >> ((addr & 1) * 8)) as u8),
             _ => {}

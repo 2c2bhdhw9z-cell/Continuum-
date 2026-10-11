@@ -5,6 +5,7 @@ pub mod bios;
 pub mod bus;
 pub mod cpu;
 pub mod ppu;
+pub mod gpio;
 pub mod save;
 
 use serde::{Deserialize, Serialize};

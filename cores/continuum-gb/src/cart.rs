@@ -9,6 +9,28 @@ pub enum MbcKind {
     Mbc1,
     Mbc3,
     Mbc5,
+    /// Kirby Tilt 'n' Tumble's mapper: an accelerometer and a serial EEPROM for saves.
+    Mbc7,
+}
+
+/// MBC7's accelerometer latch and its 93LC56-style serial EEPROM (128 16-bit words, kept in
+/// `Cart::ram` as 256 bytes).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Mbc7 {
+    ram_enable2: bool,
+    latch_armed: bool,
+    pub x: u16,
+    pub y: u16,
+    cs: bool,
+    clk: bool,
+    do_bit: bool,
+    shift_in: u32,
+    bits_in: u8,
+    shift_out: u16,
+    bits_out: u8,
+    write_enabled: bool,
+    /// A WRITE or WRAL waiting for its 16 data bits: (address, all words).
+    pending: Option<(u8, bool)>,
 }
 
 /// MBC3's clock. `s m h dl dh` are the live registers; `latched` is what reads return.
@@ -84,6 +106,16 @@ pub struct Cart {
     /// MBC1M multicart wiring: 4-bit low bank, bank2 shifted by 4.
     #[serde(default)]
     multicart: bool,
+    /// MBC5 rumble cartridges (types $1C-$1E): RAM bank bit 3 drives the motor.
+    #[serde(default)]
+    pub rumble_cart: bool,
+    #[serde(default)]
+    pub motor: bool,
+    #[serde(default)]
+    pub mbc7: Mbc7,
+    /// Tilt for MBC7, -1..1 each axis (from the core's sensor input). Not saved.
+    #[serde(skip)]
+    pub tilt: (f32, f32),
 }
 
 pub fn ram_size(code: u8) -> usize {
@@ -109,9 +141,10 @@ impl Cart {
             0x0F | 0x10 => (MbcKind::Mbc3, true, true),
             0x11..=0x13 => (MbcKind::Mbc3, t == 0x13, false),
             0x19..=0x1E => (MbcKind::Mbc5, t == 0x1B || t == 0x1E, false),
+            0x22 => (MbcKind::Mbc7, true, false),
             other => return Err(format!("cartridge type ${other:02X} is not supported yet")),
         };
-        let mut ram_len = ram_size(rom[0x149]);
+        let mut ram_len = if kind == MbcKind::Mbc7 { 256 } else { ram_size(rom[0x149]) };
         if kind == MbcKind::None && ram_len == 0 && (t == 0x08 || t == 0x09) {
             ram_len = 0x2000;
         }
@@ -146,6 +179,10 @@ impl Cart {
             rtc: Rtc::default(),
             multicart,
             title,
+            rumble_cart: (0x1C..=0x1E).contains(&t),
+            motor: false,
+            mbc7: Mbc7::default(),
+            tilt: (0.0, 0.0),
         })
     }
 
@@ -176,7 +213,7 @@ impl Cart {
                     }
                 }
             }
-            MbcKind::Mbc3 | MbcKind::Mbc5 => {
+            MbcKind::Mbc3 | MbcKind::Mbc5 | MbcKind::Mbc7 => {
                 if addr < 0x4000 {
                     self.rom[addr as usize]
                 } else {
@@ -213,7 +250,20 @@ impl Cart {
                 0x0000..=0x1FFF => self.ram_enabled = v & 0x0F == 0x0A,
                 0x2000..=0x2FFF => self.rom_bank = (self.rom_bank & 0x100) | u16::from(v),
                 0x3000..=0x3FFF => self.rom_bank = (self.rom_bank & 0xFF) | (u16::from(v & 1) << 8),
-                0x4000..=0x5FFF => self.ram_bank = v & 0x0F,
+                0x4000..=0x5FFF => {
+                    if self.rumble_cart {
+                        self.ram_bank = v & 0x07;
+                        self.motor = v & 0x08 != 0;
+                    } else {
+                        self.ram_bank = v & 0x0F;
+                    }
+                }
+                _ => {}
+            },
+            MbcKind::Mbc7 => match addr {
+                0x0000..=0x1FFF => self.ram_enabled = v == 0x0A,
+                0x2000..=0x3FFF => self.rom_bank = u16::from(v & 0x7F),
+                0x4000..=0x5FFF => self.mbc7.ram_enable2 = v == 0x40,
                 _ => {}
             },
         }
@@ -228,6 +278,7 @@ impl Cart {
             MbcKind::Mbc1 => if self.mode == 1 { self.bank2 as usize } else { 0 },
             MbcKind::Mbc3 => (self.ram_bank & 3) as usize,
             MbcKind::Mbc5 => self.ram_bank as usize,
+            MbcKind::Mbc7 => return None,
         };
         Some((bank * 0x2000 + (addr as usize & 0x1FFF)) % self.ram.len())
     }
@@ -235,6 +286,9 @@ impl Cart {
     pub fn read_ram(&self, addr: u16) -> u8 {
         if self.kind != MbcKind::None && !self.ram_enabled {
             return 0xFF;
+        }
+        if self.kind == MbcKind::Mbc7 {
+            return self.mbc7_read(addr);
         }
         if self.kind == MbcKind::Mbc3 && (0x08..=0x0C).contains(&self.ram_bank) {
             if !self.has_rtc {
@@ -251,6 +305,10 @@ impl Cart {
         if self.kind != MbcKind::None && !self.ram_enabled {
             return;
         }
+        if self.kind == MbcKind::Mbc7 {
+            self.mbc7_write(addr, v);
+            return;
+        }
         if self.kind == MbcKind::Mbc3 && (0x08..=0x0C).contains(&self.ram_bank) {
             if self.has_rtc {
                 let i = (self.ram_bank - 8) as usize;
@@ -264,6 +322,138 @@ impl Cart {
         }
         if let Some(i) = self.ram_index(addr) {
             self.ram[i] = v;
+        }
+    }
+
+    fn mbc7_read(&self, addr: u16) -> u8 {
+        let m = &self.mbc7;
+        if !m.ram_enable2 || addr >= 0xB000 {
+            return 0xFF;
+        }
+        match (addr >> 4) & 0xF {
+            2 => m.x as u8,
+            3 => (m.x >> 8) as u8,
+            4 => m.y as u8,
+            5 => (m.y >> 8) as u8,
+            6 => 0x00,
+            8 => u8::from(m.cs) << 7 | u8::from(m.clk) << 6 | u8::from(m.do_bit),
+            _ => 0xFF,
+        }
+    }
+
+    fn eeprom_word(&self, a: u8) -> u16 {
+        let i = usize::from(a & 0x7F) * 2;
+        u16::from(self.ram[i]) | u16::from(self.ram[i + 1]) << 8
+    }
+
+    fn set_eeprom_word(&mut self, a: u8, w: u16) {
+        let i = usize::from(a & 0x7F) * 2;
+        self.ram[i] = w as u8;
+        self.ram[i + 1] = (w >> 8) as u8;
+    }
+
+    fn mbc7_write(&mut self, addr: u16, v: u8) {
+        if !self.mbc7.ram_enable2 || addr >= 0xB000 {
+            return;
+        }
+        match (addr >> 4) & 0xF {
+            0 => self.mbc7.latch_armed = v == 0x55,
+            1 => {
+                if self.mbc7.latch_armed && v == 0xAA {
+                    // Centre $81D0, about $70 to either side for a full tilt.
+                    let axis = |t: f32| (0x81D0 as f32 + t.clamp(-1.0, 1.0) * 0x70 as f32) as u16;
+                    self.mbc7.x = axis(self.tilt.0);
+                    self.mbc7.y = axis(self.tilt.1);
+                    self.mbc7.latch_armed = false;
+                }
+            }
+            8 => self.eeprom_pins(v),
+            _ => {}
+        }
+    }
+
+    /// The EEPROM's CS (bit 7), CLK (bit 6) and DI (bit 1) pins; DO comes back on bit 0.
+    fn eeprom_pins(&mut self, v: u8) {
+        let (cs, clk, di) = (v & 0x80 != 0, v & 0x40 != 0, v & 0x02 != 0);
+        if !cs {
+            let m = &mut self.mbc7;
+            m.cs = false;
+            m.clk = clk;
+            m.bits_in = 0;
+            m.shift_in = 0;
+            m.bits_out = 0;
+            m.pending = None;
+            m.do_bit = true; // ready
+            return;
+        }
+        let rising = clk && !self.mbc7.clk;
+        self.mbc7.cs = true;
+        self.mbc7.clk = clk;
+        if !rising {
+            return;
+        }
+        if self.mbc7.bits_out > 0 {
+            let m = &mut self.mbc7;
+            m.do_bit = m.shift_out & 0x8000 != 0;
+            m.shift_out <<= 1;
+            m.bits_out -= 1;
+            return;
+        }
+        let m = &mut self.mbc7;
+        if m.bits_in == 0 && !di {
+            return; // waiting for the start bit
+        }
+        m.shift_in = m.shift_in << 1 | u32::from(di);
+        m.bits_in += 1;
+        if let Some((a, all)) = m.pending {
+            if m.bits_in == 16 {
+                let w = m.shift_in as u16;
+                m.pending = None;
+                m.bits_in = 0;
+                m.shift_in = 0;
+                if self.mbc7.write_enabled {
+                    if all {
+                        (0..128).for_each(|i| self.set_eeprom_word(i, w));
+                    } else {
+                        self.set_eeprom_word(a, w);
+                    }
+                }
+                self.mbc7.do_bit = true;
+            }
+            return;
+        }
+        // Start bit, 2-bit opcode, 8 address bits.
+        if m.bits_in == 11 {
+            let op = (m.shift_in >> 8) & 3;
+            let a = (m.shift_in & 0xFF) as u8;
+            m.bits_in = 0;
+            m.shift_in = 0;
+            match op {
+                0b10 => {
+                    let w = self.eeprom_word(a);
+                    let m = &mut self.mbc7;
+                    m.shift_out = w;
+                    m.bits_out = 16;
+                    m.do_bit = false; // the dummy 0 before the data
+                }
+                0b01 => self.mbc7.pending = Some((a, false)),
+                0b11 => {
+                    if self.mbc7.write_enabled {
+                        self.set_eeprom_word(a, 0xFFFF);
+                    }
+                    self.mbc7.do_bit = true;
+                }
+                _ => match a >> 6 {
+                    0b11 => self.mbc7.write_enabled = true,
+                    0b00 => self.mbc7.write_enabled = false,
+                    0b10 => {
+                        if self.mbc7.write_enabled {
+                            (0..128).for_each(|i| self.set_eeprom_word(i, 0xFFFF));
+                        }
+                    }
+                    _ => self.mbc7.pending = Some((0, true)),
+                },
+            }
         }
     }
 
@@ -292,6 +482,49 @@ mod tests {
         r[0x147] = kind;
         r[0x149] = 3;
         r
+    }
+
+    #[test]
+    fn mbc7_tilt_latch_and_eeprom_write_read() {
+        let mut c = Cart::new(rom(0x22, 8)).unwrap();
+        c.write_rom(0x0000, 0x0A);
+        c.write_rom(0x4000, 0x40);
+        c.tilt = (1.0, -1.0);
+        c.write_ram(0xA000, 0x55);
+        c.write_ram(0xA010, 0xAA);
+        let x = u16::from(c.read_ram(0xA020)) | u16::from(c.read_ram(0xA030)) << 8;
+        let y = u16::from(c.read_ram(0xA040)) | u16::from(c.read_ram(0xA050)) << 8;
+        assert_eq!((x, y), (0x81D0 + 0x70, 0x81D0 - 0x70));
+        let clock = |c: &mut Cart, bits: u32, n: u32| {
+            for i in (0..n).rev() {
+                let di = if bits >> i & 1 != 0 { 2 } else { 0 };
+                c.write_ram(0xA080, 0x80 | di);
+                c.write_ram(0xA080, 0xC0 | di);
+            }
+        };
+        let cmd = |c: &mut Cart, op: u32, a: u32| {
+            c.write_ram(0xA080, 0x00);
+            clock(c, 1 << 10 | op << 8 | a, 11);
+        };
+        cmd(&mut c, 0b00, 0xC0); // EWEN
+        cmd(&mut c, 0b01, 5);
+        clock(&mut c, 0xBEEF, 16);
+        cmd(&mut c, 0b10, 5);
+        let mut w = 0u16;
+        for _ in 0..16 {
+            c.write_ram(0xA080, 0x80);
+            c.write_ram(0xA080, 0xC0);
+            w = w << 1 | u16::from(c.read_ram(0xA080) & 1);
+        }
+        assert_eq!(w, 0xBEEF);
+    }
+
+    #[test]
+    fn mbc5_rumble_bit_drives_the_motor_not_the_ram_bank() {
+        let mut c = Cart::new(rom(0x1E, 8)).unwrap();
+        c.write_rom(0x4000, 0x09);
+        assert!(c.motor);
+        assert_eq!(c.ram_bank, 1);
     }
 
     #[test]
