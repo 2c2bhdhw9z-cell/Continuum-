@@ -76,7 +76,7 @@ const SPECS: &[Spec] = &[
     (c"system", c"cboy_gb_model", c"Console for Game Boy and Color games",
      c"Auto runs Color cartridges on a Game Boy Color and the rest on a Game Boy. Takes effect on the next start.",
      &[(c"auto", c"Auto"), (c"dmg", c"Game Boy"), (c"mgb", c"Game Boy Pocket"), (c"sgb", c"Super Game Boy"),
-       (c"sgb2", c"Super Game Boy 2"), (c"cgb", c"Game Boy Color"), (c"agb", c"Game Boy Advance (Color games)")],
+       (c"sgb2", c"Super Game Boy 2"), (c"sgb_pal", c"Super Game Boy (PAL)"), (c"cgb", c"Game Boy Color"), (c"agb", c"Game Boy Advance (Color games)")],
      c"auto"),
     (c"system", c"cboy_boot_rom", c"Start from a boot ROM file",
      c"Plays the console's own start-up logo from a file you supply: <system folder>/cboy/dmg_boot.bin, mgb_boot.bin, sgb_boot.bin, sgb2_boot.bin or cgb_boot.bin. Without the file the game starts directly. Next start.",
@@ -150,6 +150,9 @@ const SPECS: &[Spec] = &[
     (c"audio", c"cboy_gba_smooth", c"Smooth Advance samples",
      c"Interpolates the Advance's sampled sound between samples; less gritty, slightly duller.",
      OFF_ON, c"off"),
+    (c"audio", c"cboy_interference", c"LCD buzz",
+     c"Adds the faint buzz the screen's circuitry puts into a real Game Boy's sound.",
+     &[(c"0", c"Off"), (c"25", c"Faint"), (c"50", c"Medium"), (c"100", c"Loud")], c"0"),
     (c"audio", c"cboy_sample_rate", c"Output sample rate",
      c"Lower rates cost less work. Next start.",
      &[(c"48000", c"48000 Hz"), (c"44100", c"44100 Hz"), (c"32768", c"32768 Hz")], c"48000"),
@@ -184,7 +187,7 @@ const SPECS: &[Spec] = &[
     // Performance
     (c"performance", c"cboy_frameskip", c"Frame skip",
      c"Skips drawing some frames to save work; the game still runs at full speed.",
-     &[(c"off", c"Off"), (c"1", c"Every other frame"), (c"2", c"Two in three"), (c"3", c"Three in four")], c"off"),
+     &[(c"off", c"Off"), (c"auto", c"Auto (when the phone falls behind)"), (c"1", c"Every other frame"), (c"2", c"Two in three"), (c"3", c"Three in four")], c"off"),
     (c"performance", c"cboy_run_ahead", c"Run-ahead",
      c"Shows the picture one or two frames ahead, cutting the input delay a game has built in. Costs two or three times the work.",
      &[(c"0", c"Off"), (c"1", c"1 frame"), (c"2", c"2 frames")], c"0"),
@@ -317,6 +320,9 @@ pub struct Settings {
     pub opposing: bool,
     pub stick_dpad: bool,
     pub sprite_limit: bool,
+    pub sgb_pal: bool,
+    pub frameskip_auto: bool,
+    pub interference: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -344,7 +350,7 @@ impl Default for Settings {
             solar: Some(128), link_loopback: false, frameskip: 0, run_ahead: 0, idle_skip: false,
             gb_layers: 7, gba_layers: 0xFF, gba_bios_skip_logo: false, border_always: false, color_temp: 0,
             contrast: 0, dark: 0, highpass_hz: 28.0, audio_hq: false, rumble_strength: 100, motion_scale: 1.0,
-            opposing: false, stick_dpad: false, sprite_limit: true,
+            opposing: false, stick_dpad: false, sprite_limit: true, sgb_pal: false, frameskip_auto: false, interference: 0,
         }
     }
 }
@@ -417,10 +423,11 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     let pct = |k: &CStr| get(k).and_then(|v| v.parse::<u8>().ok()).unwrap_or(100).min(100);
     if let Some(v) = get(c"cboy_gb_model") {
         s.model = match v.as_str() {
-            "dmg" => Model::Dmg, "mgb" => Model::Mgb, "sgb" => Model::Sgb, "sgb2" => Model::Sgb2,
+            "dmg" => Model::Dmg, "mgb" => Model::Mgb, "sgb" | "sgb_pal" => Model::Sgb, "sgb2" => Model::Sgb2,
             "cgb" => Model::Cgb, "agb" => Model::Agb, _ => Model::Auto,
         };
     }
+    s.sgb_pal = get(c"cboy_gb_model").is_some_and(|v| v == "sgb_pal");
     s.boot_rom = on(c"cboy_boot_rom", false);
     s.gba_bios_file = get(c"cboy_gba_bios").is_some_and(|v| v == "file" || v == "file_skip");
     s.gba_bios_skip_logo = get(c"cboy_gba_bios").is_some_and(|v| v == "file_skip");
@@ -490,6 +497,8 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     };
     s.link_loopback = get(c"cboy_link").is_some_and(|v| v == "loopback");
     s.frameskip = get(c"cboy_frameskip").and_then(|v| v.parse().ok()).unwrap_or(0).min(3);
+    s.frameskip_auto = get(c"cboy_frameskip").is_some_and(|v| v == "auto");
+    s.interference = get(c"cboy_interference").and_then(|v| v.parse().ok()).unwrap_or(0).min(100);
     s.run_ahead = get(c"cboy_run_ahead").and_then(|v| v.parse().ok()).unwrap_or(0).min(2);
     s.idle_skip = on(c"cboy_idle_skip", false);
     s.gb_layers = u8::from(on(c"cboy_layer_bg", true)) | u8::from(on(c"cboy_layer_window", true)) << 1
@@ -726,6 +735,8 @@ mod tests {
         assert_eq!((t.color_temp, t.contrast, t.dark, t.highpass_hz, t.audio_hq), (1, 2, 30, 5.0, true));
         assert_eq!((t.rumble_strength, t.motion_scale, t.opposing, t.stick_dpad, t.sprite_limit), (50, 2.0, true, true, false));
         assert_eq!(t.gba_layers, 0b0101_1111);
+        let u = settings(&[("cboy_gb_model", "sgb_pal"), ("cboy_frameskip", "auto"), ("cboy_interference", "50")]);
+        assert_eq!((u.model, u.sgb_pal, u.frameskip_auto, u.frameskip, u.interference), (Model::Sgb, true, true, 0, 50));
     }
 
     #[test]

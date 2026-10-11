@@ -9,6 +9,14 @@ next build after it adds the beta-readiness pass (open-source credits in Setting
 wording in the Local Network permission). Older build notes further down are history; where an
 older line here disagrees with this paragraph, this paragraph is the current one.
 
+**cBoy core options (next build; built and tested headless, not yet on a phone):**
+- About 60 options in seven categories (System, Picture, Sound, Controls, Link, Performance, Debug), declared with SET_CORE_OPTIONS_V2, keys `cboy_*`. Picture and sound options apply live; machine options (model, boot ROM, BIOS, save chip, cartridge extras, sample rate) on the next start.
+- New hardware behind them: Super Game Boy (palettes, attribute maps, borders, multiplayer, masks, SNES-clock timing NTSC/PAL), model choice (DMG, Pocket, SGB, SGB2, CGB, AGB), boot ROM and GBA BIOS files (`<system>/cboy/`), MBC7 tilt + EEPROM, MBC5 rumble, GBA GPIO clock/solar/gyro/rumble and the tilt sensor, phone sensors and rumble through libretro.
+- Performance: frame skip (fixed or auto by frame time), in-core run-ahead (1-2 frames), Advance idle-loop skipping, cheaper/faster sound. Fast-forward speed and rewind stay in the app (Settings > Speed and rewind).
+- Tests: unit tests for every option's parsing and effect, plus `tests/options_e2e.rs`, which drives every option through the real libretro entry points and checks the picture, sound, frame size, AV timing and save size. pret Red/Blue/Yellow/Gold/Crystal still reach the overworld.
+- The rule now in docs/CORE_OPTIONS_STANDARD.md §0: a Continuum core offers the union of every notable emulator's settings. cBoy's inventory: docs/CBOY_OPTIONS_INVENTORY.md. Gaps still open there: Game Boy Player rumble, our own boot ROM animation, MP2K high-quality audio, CGB revisions, two-phone link.
+- Still unexplained: Pokemon Yellow (.gb) freezing on Brett's phone on cBoy. Not reproducible headless; the build logs cBoy's load, DMA, speed-switch and stuck events into the activity log, so a report from it should show where it stops.
+
 **cBoy: our own Game Boy, Game Boy Color and Game Boy Advance core (started 11 Oct 2026; not in any IPA yet):**
 - What it is: one emulator for all three, written from scratch in Rust in `cores/continuum-gb` (the crate and dylib keep the internal name `continuum_gb`), built as a libretro core (`continuum_gb_libretro_ios.dylib`). It looks at the ROM and runs a Game Boy, a Game Boy Color or a Game Boy Advance, the way mGBA does. Not a wrapper of mGBA or Gambatte. The name shown in the app is cBoy.
 - Game Boy (DMG): SM83 CPU (every opcode and CB opcode, timed per memory access), interrupts, HALT and the HALT bug, EI delay; timer with its quirks; OAM DMA; PPU (modes, LY/LYC/STAT, background, window, sprites, mode 3 length from SCX and sprites); 4 sound channels; joypad; serial; MBC1 (and multicarts), MBC3 with its clock, MBC5; battery saves and the clock through libretro; save states; no boot ROM needed.

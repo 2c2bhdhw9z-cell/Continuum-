@@ -102,6 +102,9 @@ struct Core {
     sensors: Option<SensorInterface>,
     sensors_started: bool,
     last_motor: Option<bool>,
+    /// Auto frame skip: the last retro_run took longer than a frame.
+    behind: bool,
+    buzz_phase: u32,
 }
 
 struct Callbacks {
@@ -434,15 +437,21 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
     if info.is_null() {
         return;
     }
-    let (is_gba, sgb_border, rate) = CORE.lock().ok().and_then(|c| c.as_ref().map(|c| {
-        (c.gba.is_some(), (c.gb.bus.sgb.is_some() && c.settings.sgb_border) || c.settings.border_always, c.settings.sample_rate)
-    })).unwrap_or((false, false, crate::apu::OUT_HZ));
+    let (is_gba, sgb_border, rate, sgb_clock) = CORE.lock().ok().and_then(|c| c.as_ref().map(|c| {
+        // A Super Game Boy runs from the SNES clock: about 2.4% fast (NTSC) or 1.5% (PAL).
+        let clock = match (c.gb.bus.sgb.is_some(), c.settings.sgb_pal) {
+            (true, false) => 21_477_272.0 / 5.0,
+            (true, true) => 21_281_370.0 / 5.0,
+            _ => 4_194_304.0,
+        };
+        (c.gba.is_some(), (c.gb.bus.sgb.is_some() && c.settings.sgb_border) || c.settings.border_always, c.settings.sample_rate, clock)
+    })).unwrap_or((false, false, crate::apu::OUT_HZ, 4_194_304.0));
     let (w, h, aspect, fps) = if is_gba {
         (gba::ppu::W as u32, gba::ppu::H as u32, 1.5f32, 16_777_216.0 / 280_896.0)
     } else if sgb_border {
-        (crate::sgb::BW as u32, crate::sgb::BH as u32, 8.0 / 7.0, 4_194_304.0 / 70_224.0)
+        (crate::sgb::BW as u32, crate::sgb::BH as u32, 8.0 / 7.0, sgb_clock / 70_224.0)
     } else {
-        (W as u32, H as u32, 10.0 / 9.0, 4_194_304.0 / 70_224.0)
+        (W as u32, H as u32, 10.0 / 9.0, sgb_clock / 70_224.0)
     };
     *info = RetroSystemAvInfo {
         geometry: RetroGameGeometry {
@@ -619,7 +628,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     let mut core = Core {
         gb, gba: gba_machine, frame: vec![0; W * H], out: Vec::new(), rtc_block: [0; RTC_LEN], rtc_synced: false,
         stuck_frames: 0, stuck_reports: 0, settings, post: crate::options::Post::default(), system_dir,
-        frame_no: 0, rumble, sensors, sensors_started: false, last_motor: None,
+        frame_no: 0, rumble, sensors, sensors_started: false, last_motor: None, behind: false, buzz_phase: 0,
     };
     core.apply_live();
     core.write_rtc_block();
@@ -706,7 +715,9 @@ pub unsafe extern "C" fn retro_run() {
         }
     }
     let s = core.settings.clone();
-    let skip = s.frameskip > 0 && core.frame_no % u64::from(s.frameskip + 1) != 0;
+    let started = std::time::Instant::now();
+    let skip = (s.frameskip > 0 && core.frame_no % u64::from(s.frameskip + 1) != 0)
+        || (s.frameskip_auto && core.behind && core.frame_no % 2 == 1);
     core.frame_no += 1;
     let vblanks = core.gb.bus.irq_taken[0];
     let ahead = s.run_ahead;
@@ -744,6 +755,18 @@ pub unsafe extern "C" fn retro_run() {
             r(0, 0, strength);
         }
     }
+    if s.interference > 0 && core.gba.is_none() && core.gb.bus.ppu.lcdc & 0x80 != 0 {
+        // A faint buzz at the line rate (about 9.2 kHz) and its frame-rate hum.
+        let amp = i32::from(s.interference) * 6;
+        for pair in samples.chunks_mut(2) {
+            core.buzz_phase = core.buzz_phase.wrapping_add(1);
+            let line = (u64::from(core.buzz_phase) * 9198 * 2 / u64::from(s.sample_rate)) % 2 == 0;
+            let v = if line { amp } else { -amp };
+            for x in pair.iter_mut() {
+                *x = (i32::from(*x) + v).clamp(-32768, 32767) as i16;
+            }
+        }
+    }
     core.post.audio(&mut samples, &s, s.sample_rate);
     if let Some(video) = video {
         if skip {
@@ -772,6 +795,8 @@ pub unsafe extern "C" fn retro_run() {
         }
     }
     core.give_samples(samples);
+    // Auto frame skip: behind when emulating took most of a 60 Hz frame.
+    core.behind = started.elapsed() > std::time::Duration::from_micros(14_000);
 }
 
 

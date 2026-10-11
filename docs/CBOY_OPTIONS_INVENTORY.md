@@ -26,7 +26,7 @@ the standard §6). **Gap** = not done yet, with the reason.
 | Cartridge clock: real time / game time / host clock | SameBoy, VBA-M, mGBA, BGB | Yes `cboy_rtc` |
 | Clock offset | mGBA, BGB | Yes `cboy_rtc_offset` |
 | CGB hardware revisions (0, A-E) | SameBoy | Gap: revisions differ only in hardware bugs cBoy doesn't model; one CGB is emulated |
-| SGB PAL timing (50 Hz) | SameBoy | Gap: NTSC SGB timing only |
+| SGB timing, NTSC and PAL (SNES clock) | SameBoy | Yes `cboy_gb_model=sgb` / `sgb_pal` |
 | Game Boy Player detection (rumble in GBA games) | mGBA, VBA-M, gpSP | Gap: needs the GB Player logo/serial handshake; planned |
 | Built-in free boot ROMs (animated logo without a file) | SameBoy | Gap: we start bootless instead; writing our own boot ROMs is planned |
 | Dynamic recompiler on/off | gpSP | Not applicable: iOS forbids JIT for sideloaded apps; cBoy is an interpreter |
@@ -61,7 +61,7 @@ the standard §6). **Gap** = not done yet, with the reason.
 | Sample interpolation / resampler quality | Gambatte, VBA-M, NanoBoyAdvance | Yes `cboy_audio_quality`, `cboy_gba_smooth` |
 | Output sample rate | BGB, Emulicious, NanoBoyAdvance | Yes `cboy_sample_rate` |
 | MP2K (Nintendo sound driver) high-quality HLE mixing | NanoBoyAdvance | Gap: a large, separate job (recognise the driver, re-mix at high rate); planned |
-| Audio interference sound | SameBoy | Gap: cosmetic hardware buzz; planned |
+| Audio interference sound | SameBoy | Yes `cboy_interference` |
 | Audio latency / buffer | most | App |
 
 ## Controls
@@ -90,7 +90,7 @@ the standard §6). **Gap** = not done yet, with the reason.
 | Setting | Offered by | cBoy |
 |---|---|---|
 | Frame skip (fixed) | mGBA, VBA-M, gpSP, BGB | Yes `cboy_frameskip` |
-| Frame skip (auto, by audio buffer) | mGBA, gpSP | Gap: Continuum's frontend does not report audio buffer status to cores (deliberately, see native_core.rs); would need app support first |
+| Frame skip (auto) | mGBA, gpSP | Yes `cboy_frameskip=auto` (by the core's own frame time; Continuum doesn't report audio-buffer level to cores) |
 | Run-ahead / input latency | RetroArch frontend for all | Yes, in-core `cboy_run_ahead` |
 | Idle-loop detection / skipping | mGBA, gpSP | Yes `cboy_idle_skip` (Advance) |
 | Lower-cost audio | Gambatte, VBA-M | Yes (`cboy_audio_quality=fast`, `cboy_sample_rate`) |

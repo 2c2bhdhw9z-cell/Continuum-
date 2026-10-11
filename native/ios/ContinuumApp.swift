@@ -4789,6 +4789,14 @@ final class EngineHost: ObservableObject {
         if spec.coreId == CoreCatalog.continuumGb.coreId,
            let system = activeSystem, system == .gb || system == .gbc {
             aspect = 10.0 / 9.0
+            // With a Super Game Boy border (or the always-on border) the picture is 256x224, 8:7.
+            let options = engine.coreOptions()
+            let value = { (key: String) in options.first(where: { $0.key == key })?.value ?? "" }
+            let border = value("cboy_sgb_border")
+            let sgb = ["sgb", "sgb2", "sgb_pal"].contains(value("cboy_gb_model"))
+            if border == "always" || (sgb && border != "off") {
+                aspect = 8.0 / 7.0
+            }
         }
         // A quarter turn (SET_ROTATION or the rotate action) stands the picture on its side.
         if engine.screenRotation() % 2 == 1 {

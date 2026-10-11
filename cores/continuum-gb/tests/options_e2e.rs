@@ -170,6 +170,25 @@ fn every_option_through_the_libretro_api() {
     let o = run(dmg, &[("cboy_audio_quality", "high")], 60, None);
     assert_eq!(o.samples.len(), base.samples.len());
 
+    let o = run(dmg, &[("cboy_interference", "100")], 60, None);
+    assert_ne!(o.samples, base.samples);
+    let o = run(dmg, &[("cboy_frameskip", "auto")], 30, None);
+    assert_eq!(o.frames.len(), 30);
+    // Super Game Boy timing reported through the AV info.
+    unsafe {
+        let data = rom(dmg).unwrap();
+        for (model, fps) in [("sgb", 61.17), ("sgb_pal", 60.61), ("dmg", 59.73)] {
+            *OPTS.lock().unwrap() = Some([("cboy_gb_model".to_string(), CString::new(model).unwrap())].into());
+            retro_set_environment(env);
+            let info = RetroGameInfo { path: std::ptr::null(), data: data.as_ptr() as *const c_void, size: data.len(), meta: std::ptr::null() };
+            assert!(retro_load_game(&info));
+            let mut av: RetroSystemAvInfo = std::mem::zeroed();
+            retro_get_system_av_info(&mut av);
+            assert!((av.timing.fps - fps).abs() < 0.01, "{model} {}", av.timing.fps);
+            retro_unload_game();
+        }
+    }
+
     // Ghosting on a static picture converges to the picture itself; on the first frames it differs.
     let o = run(dmg, &[("cboy_blend", "mix")], 60, None);
     assert_eq!(last(&o).3, base_px);
