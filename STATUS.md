@@ -1,13 +1,17 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-11 October 2026. Newest published install: see the top of the build notes below (build 163 was
-[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-163-676af12/Continuum.ipa)). The paragraph below about build 153 is older history.
-It has everything from build 152 (the second 3DS stutter fix and Continuum Symbian, whose
-`continuum_symbian_libretro_ios.dylib` is in the IPA) plus Mesen 2 as the default NES core. The
-next build after it adds the beta-readiness pass (open-source credits in Settings → About, the SMB
-wording in the Local Network permission). Older build notes further down are history; where an
-older line here disagrees with this paragraph, this paragraph is the current one.
+11 October 2026. **Build 177** (`c32f48c`) is the newest published install, and the last good one:
+[Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-177-c32f48c/Continuum.ipa).
+Master is ahead of it at `16cce5e`, which did not build an IPA. That commit is half-finished
+pixel-by-pixel graphics in cBoy. Do not start the next IPA until that work is finished and
+checked. Pokemon Yellow on cBoy is still broken on 177. The report is
+[docs/reports/yellow-gb-177.txt](docs/reports/yellow-gb-177.txt). Working rule from the owner:
+no time limit, read the report and the code before changing them, and ship as few first-try
+bugs as possible.
+
+Older paragraphs below (build 163, build 150, "not in any IPA yet") are history. Where they
+disagree with this paragraph or with "Where we stopped" at the bottom, those two are current.
 
 **cBoy core options (next build; built and tested headless, not yet on a phone):**
 - About 60 options in seven categories (System, Picture, Sound, Controls, Link, Performance, Debug), declared with SET_CORE_OPTIONS_V2, keys `cboy_*`. Picture and sound options apply live; machine options (model, boot ROM, BIOS, save chip, cartridge extras, sample rate) on the next start.
@@ -188,9 +192,11 @@ launch with an empty library.
 
 For whoever works on this next:
 
-- **Build 150 is the newest published IPA** (`ef3ce42`).
-  [Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-150-ef3ce42/Continuum.ipa).
-  Same app as 149. Continuum Symbian is not in it.
+- **Build 177 is the newest published IPA** (`c32f48c`).
+  [Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-177-c32f48c/Continuum.ipa).
+  Pokemon Yellow on cBoy is still broken in it. Master `16cce5e` is not in an IPA.
+- **Build 150** (`ef3ce42`) is old. Continuum Symbian was not in it. It was linked afterwards and
+  is in later installs, untested on a phone. See the Symbian bullet below.
 - **Build 149** (`d2a92a9`) added SMB (libsmb2 compiled into the app, not a framework), the 3DS
   camera, and an Amiibo tap. None of those three have been tried on a phone. Builds 147 and 148
   died in `smb_min.c` and published nothing. The cores from 147 were cached and reused.
@@ -203,7 +209,7 @@ For whoever works on this next:
   `native/ios/Feedback.swift`). Mail opens addressed to it when Mail is set up. Otherwise the share
   sheet opens and the text starts with that address. There is no missing address. An older line on
   this page said there was. That line was wrong.
-- Symbian / N-Gage: **Built, untested** in the next build (not in 150). Continuum Symbian
+- Symbian / N-Gage: **Built, untested.** Not in build 150. Linked after that and present in later installs, including 177 if the optional core compiled. No phone has run a game. Continuum Symbian
   (`native/continuum-symbian`) is now linked to EKA2L1's jitless iOS port
   (MuhannadYT/EKA2L1_IOS, pinned), on its dyncom interpreter, with no JIT. It is an OPTIONAL core,
   `continuum_symbian_libretro_ios.dylib`: if it does not compile, the IPA ships without it. `.sis`,
@@ -1247,8 +1253,9 @@ Not forgotten, and not bugs:
 - Battery saves from mGBA/VBA with the 44/48-byte clock footer (MBC3 games) now load the RAM
   part instead of being refused.
 
-## Where we stopped (Oct 11, 9:13 AM PT, budget nearly used up)
-- **Yellow .gb on cBoy still broken on build 177.** Brett sees a 160x144 area of olive and white vertical stripes in a repeating pattern, with red, light-blue and dark-blue stripes in the middle row (orange GB-style skin). The colours are CGB palette colours, so this looks like real emulator output (the BG map or attribute bank drawn as tiles, or CGB palettes never set up), not a shader artifact. Report: `docs/reports/yellow-gb-177.txt` (not yet read). Best lead: the core options the app sends at load for system `gb` (model, colorize, palette, force-colour) put cBoy in a mode the headless pret harness, which uses defaults, never hits. Next step: read the report's option values, then run pret Yellow (`scripts/build-pret-roms.sh`, which needs rgbds 1.0.3 and make) through the libretro API with exactly those values. Also sweep every option value on a CGB-compatible (0x80) cartridge; the e2e test only covers dmg-acid2, cgb-acid2 and arm.gba.
-- **Pixel FIFO: work in progress, committed but unfinished.** `src/fifo.rs` draws mode 3 pixel by pixel; mode 3's length for STAT still comes from the formula. `FIFO_DELAY` (env, best value 5) and `FIFO_DEBUG` are temporary tuning switches. bus.rs also has a temporary `SCX_DEBUG` print; remove it. Mealybug is fetched by `scripts/fetch-test-roms.sh`, and `mealybug_report` reports on it. Found: the Mealybug tests rely on the DMG boot ROM leaving the logo and (R) tiles in VRAM, so bootless start should recreate those tiles. The DMG BGP write glitch and the live SCX&7 drop are added. Recheck Mooneye 86/86 and acid2 after any change.
-- **Remaining:** finish the FIFO, the inventory gaps (STATUS above and docs/CBOY_OPTIONS_INVENTORY.md), our own boot logo, the MP2K mixer, HuC3, the Game Boy Camera, and linking two phones.
-- Fixed this session: a flaky feedback log test (per-thread log in tests).
+## Where we stopped (Oct 11, report now read)
+
+- **Yellow .gb on cBoy is still broken on build 177.** Brett sees a 160x144 area of olive and white vertical stripes, with red, light-blue and dark-blue stripes in the middle row, on an orange Game Boy skin. `docs/reports/yellow-gb-177.txt` has been read. It does not match the skin-crop guess: the picture line says frame 160x144, effect None, skin crop 160x144 at 0,0. cBoy loaded "POKEMON YELLOW" as a Game Boy Color (header $143 = 80, MBC5). The log shows real VRAM copies and no "stuck" line. It does not list the core options the app sent. mGBA launched the same file first; its state was refused because the file was 196608 bytes and the list said 202816. Next step: run pret Yellow with the options the Game Boy path actually sends, and sweep those options on a CGB-compatible cartridge. Do not treat the skin crop as the cause.
+- **Pixel FIFO: committed, unfinished, not in build 177.** `cores/continuum-gb/src/fifo.rs` draws mode 3 pixel by pixel, and `ppu.rs` already calls it. Mode 3's length for STAT still comes from the formula. `FIFO_DELAY` (env, best value 5) and `FIFO_DEBUG` are temporary. `bus.rs` still has a temporary `SCX_DEBUG` print; remove it. Mealybug is fetched by `scripts/fetch-test-roms.sh`. The Mealybug tests rely on the DMG boot ROM leaving the logo and (R) tiles in VRAM, so a bootless start should recreate those tiles. The DMG BGP write glitch and the live SCX&7 drop are added. Recheck Mooneye 86/86 and acid2 after any change. Do not start an IPA on top of this.
+- **Remaining:** finish the FIFO, the inventory gaps (docs/CBOY_OPTIONS_INVENTORY.md), our own boot logo, the MP2K mixer, HuC3, the Game Boy Camera, and linking two phones.
+- Fixed before this stop: a flaky feedback log test (per-thread log in tests).
