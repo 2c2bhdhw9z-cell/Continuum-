@@ -701,7 +701,7 @@ enum CoreCatalog {
     /// from scratch in Rust (cores/continuum-gb), one core for all three like mGBA, choosing the
     /// machine from the ROM. Selectable in Settings; mGBA stays the default. OPTIONAL in the .ipa.
     static let continuumGb = CoreSpec(
-        coreId: "continuum_gb", displayName: "cBoy (Game Boy, Color, Advance)",
+        coreId: "continuum_gb", displayName: "cBoy (GB, GBC, GBA)",
         systems: ["gb", "gbc", "gba"], library: "continuum_gb_libretro_ios.dylib",
         width: 240, height: 160, maxWidth: 240, maxHeight: 160,
         aspectRatio: 1.5, fps: 59.7275, sampleRate: 48000, pixelFormat: 1,

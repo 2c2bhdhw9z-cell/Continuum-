@@ -47,4 +47,6 @@ fn cboy_through_the_frontend() {
         }
     }
     eprintln!("last core log: {}", emulator_bridge::cores::native_core::last_core_log_line());
+    // cBoy declares its options through SET_CORE_OPTIONS_V2; the frontend must know them.
+    assert_eq!(emulator_bridge::cores::options::current("continuum_gb", "cboy_dmg_palette").as_deref(), Some("grayscale"));
 }

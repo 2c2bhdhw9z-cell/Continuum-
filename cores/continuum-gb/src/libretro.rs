@@ -76,6 +76,9 @@ struct Core {
     rtc_synced: bool,
     stuck_frames: u32,
     stuck_reports: u32,
+    settings: crate::options::Settings,
+    prev_frame: Vec<u32>,
+    out_frame: Vec<u32>,
 }
 
 struct Callbacks {
@@ -154,7 +157,9 @@ impl Core {
         let rtc = &mut self.gb.bus.cart.rtc;
         rtc.regs.copy_from_slice(&self.rtc_block[..5]);
         rtc.latched.copy_from_slice(&self.rtc_block[5..10]);
-        rtc.advance_seconds(now_secs().saturating_sub(stamp));
+        if self.settings.real_time_rtc {
+            rtc.advance_seconds(now_secs().saturating_sub(stamp));
+        }
     }
 }
 
@@ -208,6 +213,7 @@ pub extern "C" fn retro_set_environment(cb: EnvFn) {
     if let Ok(mut c) = CB.lock() {
         c.env = Some(cb);
     }
+    unsafe { crate::options::declare(cb) };
 }
 #[no_mangle]
 pub extern "C" fn retro_set_video_refresh(cb: VideoFn) {
@@ -282,7 +288,8 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
             c.title, if gb.bus.cgb { "Game Boy Color" } else { "Game Boy" }, c.kind, c.rom.len() / 1024,
             c.ram.len() / 1024, c.has_battery, c.has_rtc, c.cgb_flag));
     }
-    let mut core = Core { gb, gba: gba_machine, frame: vec![0; W * H], rtc_block: [0; RTC_LEN], rtc_synced: false, stuck_frames: 0, stuck_reports: 0 };
+    let mut core = Core { gb, gba: gba_machine, frame: vec![0; W * H], rtc_block: [0; RTC_LEN], rtc_synced: false, stuck_frames: 0, stuck_reports: 0,
+        settings: env.map(|e| crate::options::read(e)).unwrap_or_default(), prev_frame: Vec::new(), out_frame: Vec::new() };
     core.write_rtc_block();
     core.rtc_block[16..24].fill(0); // "nothing saved yet" until the frontend writes its copy
     if let Ok(mut slot) = CORE.lock() {
@@ -356,6 +363,12 @@ pub unsafe extern "C" fn retro_run() {
     }
     let Ok(mut slot) = CORE.lock() else { return };
     let Some(core) = slot.as_mut() else { return };
+    if let Some(env) = CB.lock().ok().and_then(|c| c.env) {
+        if crate::options::changed(env) {
+            core.settings = crate::options::read(env);
+        }
+    }
+    let settings = core.settings;
     if let Some(g) = core.gba.as_mut() {
         let mut keys = 0u16;
         if let Some(input) = input {
@@ -369,9 +382,13 @@ pub unsafe extern "C" fn retro_run() {
         }
         g.set_keys(keys);
         g.run_frame();
-        let samples = std::mem::take(&mut g.bus.apu.samples);
+        let mut samples = std::mem::take(&mut g.bus.apu.samples);
+        crate::options::apply_volume(&mut samples, &settings);
+        core.out_frame.clear();
+        core.out_frame.extend_from_slice(&g.bus.ppu.frame);
+        crate::options::apply_video(&mut core.out_frame, &mut core.prev_frame, &settings, crate::options::Machine::Gba);
         if let Some(video) = video {
-            video(g.bus.ppu.frame.as_ptr() as *const c_void, gba::ppu::W as u32,
+            video(core.out_frame.as_ptr() as *const c_void, gba::ppu::W as u32,
                   gba::ppu::H as u32, gba::ppu::W * 4);
         }
         if let Some(audio) = audio {
@@ -405,11 +422,14 @@ pub unsafe extern "C" fn retro_run() {
     }
     let mut frame = std::mem::take(&mut core.frame);
     core.gb.frame_xrgb(&mut frame);
+    let machine = if core.gb.bus.cgb { crate::options::Machine::Cgb } else { crate::options::Machine::Dmg };
+    crate::options::apply_video(&mut frame, &mut core.prev_frame, &settings, machine);
     core.frame = frame;
     if core.gb.bus.cart.has_rtc {
         core.write_rtc_block();
     }
-    let samples = std::mem::take(&mut core.gb.bus.apu.samples);
+    let mut samples = std::mem::take(&mut core.gb.bus.apu.samples);
+    crate::options::apply_volume(&mut samples, &settings);
     if let Some(video) = video {
         video(core.frame.as_ptr() as *const c_void, W as u32, H as u32, W * 4);
     }

@@ -1220,3 +1220,9 @@ Not forgotten, and not bugs:
   see it on the next report.
 - Fixed: the VBlank counter the stuck detector uses was not part of save states, so after any
   state load (auto-resume, rewind) the detector could log a false "stuck". It is now saved.
+- cBoy now has core options (SET_CORE_OPTIONS_V2), applied live on the finished frame and sound:
+  Game Boy palette (grayscale, DMG green, Pocket, Light, Kiosk, Sepia), GBC colour correction,
+  GBA colour correction, LCD ghosting (frame blending), volume, and cartridge clock (real time,
+  or game time only). Display name shortened to "cBoy (GB, GBC, GBA)".
+- Battery saves from mGBA/VBA with the 44/48-byte clock footer (MBC3 games) now load the RAM
+  part instead of being refused.

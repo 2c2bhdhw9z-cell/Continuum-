@@ -12,5 +12,6 @@ pub mod cpu;
 pub mod gb;
 pub mod gba;
 pub mod libretro;
+pub mod options;
 pub mod ppu;
 pub mod timer;
