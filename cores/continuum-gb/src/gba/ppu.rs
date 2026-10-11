@@ -19,6 +19,9 @@ pub struct Ppu {
     /// Layer switches from the core options: bits 0-3 BG0-BG3, bit 4 sprites. Not saved.
     #[serde(skip, default = "all_layers")]
     pub layers: u8,
+    /// Hardware's per-line object drawing budget (off draws every object; not saved).
+    #[serde(skip)]
+    pub obj_limit: bool,
     #[serde(skip)]
     pub no_render: bool,
 }
@@ -33,7 +36,7 @@ fn blank() -> Vec<u32> {
 
 impl Default for Ppu {
     fn default() -> Self {
-        Ppu { ref_x: [0; 2], ref_y: [0; 2], frame: blank(), layers: 0xFF, no_render: false }
+        Ppu { ref_x: [0; 2], ref_y: [0; 2], frame: blank(), layers: 0xFF, no_render: false, obj_limit: false }
     }
 }
 
@@ -164,9 +167,12 @@ impl Ppu {
         }
     }
 
-    fn objects(io: &[u8], vram: &[u8], pal: &[u8], oam: &[u8], y: i32, bitmap: bool,
+    fn objects(io: &[u8], vram: &[u8], pal: &[u8], oam: &[u8], y: i32, bitmap: bool, limit: bool,
                out: &mut [Option<ObjPx>; W], objwin: &mut [bool; W]) {
         let one_d = r16(io, 0) & 0x40 != 0;
+        // Object render cycles per line: 1210, or 954 when DISPCNT frees H-blank for OAM access.
+        // A plain object costs its width; an affine one 10 plus twice its (doubled) width.
+        let mut budget: i32 = if r16(io, 0) & 0x20 != 0 { 954 } else { 1210 };
         for i in 0..128 {
             let a0 = r16(oam, i * 8);
             let a1 = r16(oam, i * 8 + 2);
@@ -190,6 +196,12 @@ impl Ppu {
             let dy = (y - oy).rem_euclid(256);
             if dy >= bh {
                 continue;
+            }
+            if limit {
+                budget -= if affine { 10 + 2 * bw } else { w };
+                if budget < 0 {
+                    break;
+                }
             }
             let mut ox = i32::from(a1 & 0x1FF);
             if ox >= 240 {
@@ -291,7 +303,7 @@ impl Ppu {
         let mut objs: [Option<ObjPx>; W] = [None; W];
         let mut objwin = [false; W];
         if dispcnt & 0x1000 != 0 && self.layers & 0x10 != 0 {
-            Self::objects(io, vram, pal, oam, y as i32, bitmap, &mut objs, &mut objwin);
+            Self::objects(io, vram, pal, oam, y as i32, bitmap, self.obj_limit, &mut objs, &mut objwin);
         }
         // Windows.
         // Debug layer switches for WIN0, WIN1 and the object window (layers bits 5-7).

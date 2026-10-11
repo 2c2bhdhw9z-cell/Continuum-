@@ -104,6 +104,8 @@ struct Core {
     last_motor: Option<bool>,
     /// Auto frame skip: the last retro_run took longer than a frame.
     behind: bool,
+    /// Frames skipped in a row by auto frame skip.
+    skipped_run: u32,
     buzz_phase: u32,
 }
 
@@ -241,13 +243,21 @@ impl Core {
             self.gb.bus.apu.hq = s.audio_hq;
             self.gb.bus.ppu.no_sprite_limit = !s.sprite_limit;
         }
+        if let Some(g) = self.gba.as_mut() {
+            g.bus.ppu.obj_limit = s.gba_obj_limit;
+        }
     }
 
     unsafe fn read_inputs(&mut self, input: Option<InputFn>) -> Inputs {
         let mut i = Inputs::default();
         let Some(input) = input else { return i };
         let s = &self.settings;
-        let stick = |id: u32| f32::from(input(0, DEVICE_ANALOG, 0, id)) / 32768.0;
+        // Index 0 is the left stick, 1 the right; axis 0 is X, 1 is Y.
+        let (side, dz) = (u32::from(s.swap_stick), s.stick_deadzone);
+        let stick = |id: u32| {
+            let v = f32::from(input(0, DEVICE_ANALOG, side, id)) / 32768.0;
+            if v.abs() <= dz { 0.0 } else { v.signum() * (v.abs() - dz) / (1.0 - dz).max(0.01) }
+        };
         let (sx, sy) = if s.stick_dpad { (stick(0), stick(1)) } else { (0.0, 0.0) };
         let pad = |id: u32| input(0, DEVICE_JOYPAD, 0, id) != 0;
         let mut dirs = [pad(4) || sy < -0.5, pad(5) || sy > 0.5, pad(6) || sx < -0.5, pad(7) || sx > 0.5];
@@ -547,6 +557,11 @@ fn build_machine(rom: Vec<u8>, s: &crate::options::Settings, dir: Option<&str>) 
         }
         return Some((idle, Some(g)));
     }
+    let mut rom = rom;
+    if s.force_color && rom.len() > 0x143 && rom[0x143] & 0x80 == 0 && !matches!(s.model, Model::Dmg | Model::Dmg0 | Model::Mgb | Model::Sgb | Model::Sgb2) {
+        rom[0x143] = 0x80;
+        log_line("Game Boy cartridge run in Color mode (option)");
+    }
     let cart = crate::cart::Cart::new(rom.clone()).ok()?;
     let colour = cart.cgb_flag & 0x80 != 0;
     // Header byte 0x146 = 3 marks Super Game Boy support (needs the old licensee code 0x33).
@@ -636,7 +651,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     let mut core = Core {
         gb, gba: gba_machine, frame: vec![0; W * H], out: Vec::new(), rtc_block: [0; RTC_LEN], rtc_synced: false,
         stuck_frames: 0, stuck_reports: 0, settings, post: crate::options::Post::default(), system_dir,
-        frame_no: 0, rumble, sensors, sensors_started: false, last_motor: None, behind: false, buzz_phase: 0,
+        frame_no: 0, rumble, sensors, sensors_started: false, last_motor: None, behind: false, skipped_run: 0, buzz_phase: 0,
     };
     core.apply_live();
     core.write_rtc_block();
@@ -725,7 +740,8 @@ pub unsafe extern "C" fn retro_run() {
     let s = core.settings.clone();
     let started = std::time::Instant::now();
     let skip = (s.frameskip > 0 && core.frame_no % u64::from(s.frameskip + 1) != 0)
-        || (s.frameskip_auto && core.behind && core.frame_no % 2 == 1);
+        || (s.frameskip_auto && core.behind && core.skipped_run < s.frameskip_interval);
+    core.skipped_run = if skip { core.skipped_run + 1 } else { 0 };
     core.frame_no += 1;
     let vblanks = core.gb.bus.irq_taken[0];
     let ahead = s.run_ahead;
@@ -804,7 +820,7 @@ pub unsafe extern "C" fn retro_run() {
     }
     core.give_samples(samples);
     // Auto frame skip: behind when emulating took most of a 60 Hz frame.
-    core.behind = started.elapsed() > std::time::Duration::from_micros(14_000);
+    core.behind = started.elapsed() > std::time::Duration::from_micros(16_667 * u64::from(s.frameskip_threshold) / 100);
 }
 
 

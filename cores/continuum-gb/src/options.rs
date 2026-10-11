@@ -82,6 +82,9 @@ const SPECS: &[Spec] = &[
      c"Which Game Boy Color hardware revision to model. Revision 0 (the first Japanese units) leaves the timer at a different point after start-up; later revisions match each other. Next start.",
      &[(c"e", c"CPU CGB E (most common)"), (c"d", c"CPU CGB D"), (c"c", c"CPU CGB C"), (c"b", c"CPU CGB B"), (c"a", c"CPU CGB A"), (c"0", c"CPU CGB (revision 0)")],
      c"e"),
+    (c"system", c"cboy_force_color", c"Run Game Boy games as Color",
+     c"Runs Game Boy-only cartridges in Color mode, for colourisation hacks that write Color palettes. Ordinary Game Boy games may look wrong. Next start.",
+     OFF_ON, c"off"),
     (c"system", c"cboy_boot_rom", c"Start from a boot ROM file",
      c"Plays the console's own start-up logo from a file you supply: <system folder>/cboy/dmg_boot.bin, mgb_boot.bin, sgb_boot.bin, sgb2_boot.bin or cgb_boot.bin. Without the file the game starts directly. Next start.",
      OFF_ON, c"off"),
@@ -116,6 +119,9 @@ const SPECS: &[Spec] = &[
     (c"video", c"cboy_gbc_color", c"Game Boy Color screen colour",
      c"Off shows the colours as stored. Screen mimics the Color's own LCD; Soft is a lighter version of it.",
      &[(c"off", c"Off"), (c"screen", c"Screen"), (c"soft", c"Soft")], c"off"),
+    (c"video", c"cboy_gbc_light", c"Game Boy Color light position",
+     c"With a Game Boy Color screen colour on: where the light falls on the reflective screen. Above is brighter and washed out, below darker.",
+     &[(c"central", c"Central"), (c"above", c"Above the screen"), (c"below", c"Below the screen")], c"central"),
     (c"video", c"cboy_gba_color", c"Game Boy Advance screen colour",
      c"Off shows the colours as stored. Advance mimics the original unlit screen; SP the frontlit SP; TV a Game Boy Player on a television.",
      &[(c"off", c"Off"), (c"gba", c"Advance"), (c"sp", c"Advance SP"), (c"tv", c"TV")], c"off"),
@@ -175,6 +181,12 @@ const SPECS: &[Spec] = &[
     (c"input", c"cboy_stick_dpad", c"Left stick as D-pad",
      c"The analog stick also works as the D-pad.",
      OFF_ON, c"off"),
+    (c"input", c"cboy_stick_deadzone", c"Stick dead zone",
+     c"How far the analog stick must move before it counts, for the stick as D-pad, tilt and turn.",
+     &[(c"15", c"15%"), (c"0", c"0%"), (c"5", c"5%"), (c"10", c"10%"), (c"20", c"20%"), (c"25", c"25%"), (c"30", c"30%")], c"15"),
+    (c"input", c"cboy_swap_stick", c"Use the right stick",
+     c"The right analog stick does what the left stick does in these settings.",
+     OFF_ON, c"off"),
     (c"input", c"cboy_tilt_source", c"Tilt input",
      c"For tilt cartridges (Kirby Tilt 'n' Tumble, Yoshi Topsy-Turvy): the phone's motion or the left stick.",
      &[(c"phone", c"Phone motion"), (c"stick", c"Left stick"), (c"off", c"Off")], c"phone"),
@@ -192,6 +204,12 @@ const SPECS: &[Spec] = &[
     (c"performance", c"cboy_frameskip", c"Frame skip",
      c"Skips drawing some frames to save work; the game still runs at full speed.",
      &[(c"off", c"Off"), (c"auto", c"Auto (when the phone falls behind)"), (c"1", c"Every other frame"), (c"2", c"Two in three"), (c"3", c"Three in four")], c"off"),
+    (c"performance", c"cboy_frameskip_threshold", c"Auto frame skip threshold",
+     c"With auto frame skip: how much of a frame's time emulating may take before frames are skipped.",
+     &[(c"85", c"85%"), (c"50", c"50%"), (c"60", c"60%"), (c"70", c"70%"), (c"80", c"80%"), (c"90", c"90%"), (c"95", c"95%")], c"85"),
+    (c"performance", c"cboy_frameskip_interval", c"Auto frame skip limit",
+     c"With auto frame skip: the most frames skipped in a row.",
+     &[(c"1", c"1"), (c"2", c"2"), (c"3", c"3"), (c"4", c"4"), (c"6", c"6"), (c"9", c"9")], c"1"),
     (c"performance", c"cboy_run_ahead", c"Run-ahead",
      c"Shows the picture one or two frames ahead, cutting the input delay a game has built in. Costs two or three times the work.",
      &[(c"0", c"Off"), (c"1", c"1 frame"), (c"2", c"2 frames")], c"0"),
@@ -209,6 +227,9 @@ const SPECS: &[Spec] = &[
     (c"debug", c"cboy_layer_win0", c"Advance window 0", c"Off draws as if window 0 were disabled.", ON_OFF, c"on"),
     (c"debug", c"cboy_layer_win1", c"Advance window 1", c"Off draws as if window 1 were disabled.", ON_OFF, c"on"),
     (c"debug", c"cboy_layer_objwin", c"Advance object window", c"Off draws as if the object window were disabled.", ON_OFF, c"on"),
+    (c"debug", c"cboy_gba_sprite_limit", c"Advance object time limit",
+     c"Drops objects that a real Advance has no time to draw on a busy line. Off draws every object.",
+     OFF_ON, c"off"),
     (c"debug", c"cboy_sprite_limit", c"Ten-sprite limit",
      c"The Game Boy shows at most ten sprites on a line, which makes some games flicker. Off lifts the limit.",
      ON_OFF, c"on"),
@@ -329,6 +350,14 @@ pub struct Settings {
     pub auto_sgb: bool,
     /// Model Game Boy Color revision 0.
     pub cgb_rev0: bool,
+    pub stick_deadzone: f32,
+    pub swap_stick: bool,
+    pub frameskip_threshold: u32,
+    pub frameskip_interval: u32,
+    pub gba_obj_limit: bool,
+    pub force_color: bool,
+    /// Game Boy Color light: -1 below, 0 central, 1 above.
+    pub gbc_light: i8,
     pub frameskip_auto: bool,
     pub interference: u8,
 }
@@ -358,7 +387,8 @@ impl Default for Settings {
             solar: Some(128), link_loopback: false, frameskip: 0, run_ahead: 0, idle_skip: false,
             gb_layers: 7, gba_layers: 0xFF, gba_bios_skip_logo: false, border_always: false, color_temp: 0,
             contrast: 0, dark: 0, highpass_hz: 28.0, audio_hq: false, rumble_strength: 100, motion_scale: 1.0,
-            opposing: false, stick_dpad: false, sprite_limit: true, sgb_pal: false, auto_sgb: false, cgb_rev0: false, frameskip_auto: false, interference: 0,
+            opposing: false, stick_dpad: false, sprite_limit: true, sgb_pal: false, auto_sgb: false, cgb_rev0: false, stick_deadzone: 0.15, swap_stick: false,
+            frameskip_threshold: 85, frameskip_interval: 1, gba_obj_limit: false, force_color: false, gbc_light: 0, frameskip_auto: false, interference: 0,
         }
     }
 }
@@ -437,6 +467,13 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     }
     s.auto_sgb = get(c"cboy_gb_model").is_some_and(|v| v == "auto_sgb");
     s.cgb_rev0 = get(c"cboy_cgb_revision").is_some_and(|v| v == "0");
+    s.stick_deadzone = get(c"cboy_stick_deadzone").and_then(|v| v.parse::<f32>().ok()).unwrap_or(15.0).clamp(0.0, 50.0) / 100.0;
+    s.swap_stick = on(c"cboy_swap_stick", false);
+    s.frameskip_threshold = get(c"cboy_frameskip_threshold").and_then(|v| v.parse().ok()).unwrap_or(85).clamp(30, 100);
+    s.frameskip_interval = get(c"cboy_frameskip_interval").and_then(|v| v.parse().ok()).unwrap_or(1).clamp(1, 9);
+    s.gba_obj_limit = on(c"cboy_gba_sprite_limit", false);
+    s.force_color = on(c"cboy_force_color", false);
+    s.gbc_light = match get(c"cboy_gbc_light").as_deref() { Some("above") => 1, Some("below") => -1, _ => 0 };
     s.sgb_pal = get(c"cboy_gb_model").is_some_and(|v| v == "sgb_pal");
     s.boot_rom = on(c"cboy_boot_rom", false);
     s.gba_bios_file = get(c"cboy_gba_bios").is_some_and(|v| v == "file" || v == "file_skip");
@@ -542,13 +579,23 @@ fn join(r: f32, g: f32, b: f32) -> u32 {
 /// The screen-colour looks. Each is a gamma into linear light, a channel mix (the panels bleed
 /// colours into each other), a brightness and a gamma back out. Our own approximations.
 pub fn correct(c: u32, look: Look) -> u32 {
-    let (gin, m, bright, gout): (f32, [[f32; 3]; 3], f32, f32) = match look {
+    correct_lit(c, look, 0)
+}
+
+/// `correct` with the Game Boy Color light position: light from above washes the reflective
+/// panel out (brighter, flatter), from below leaves it darker.
+pub fn correct_lit(c: u32, look: Look, light: i8) -> u32 {
+    let (gin, m, mut bright, mut gout): (f32, [[f32; 3]; 3], f32, f32) = match look {
         Look::GbcScreen => (2.2, [[0.80, 0.18, 0.02], [0.10, 0.74, 0.16], [0.12, 0.20, 0.68]], 0.94, 2.0),
         Look::GbcSoft => (2.2, [[0.88, 0.10, 0.02], [0.06, 0.84, 0.10], [0.06, 0.12, 0.82]], 1.0, 2.1),
         Look::Gba => (3.2, [[0.82, 0.24, -0.06], [0.12, 0.66, 0.22], [0.18, 0.16, 0.66]], 0.92, 2.2),
         Look::GbaSp => (2.5, [[0.86, 0.16, -0.02], [0.08, 0.76, 0.16], [0.10, 0.12, 0.78]], 1.0, 2.2),
         Look::Tv => (2.2, [[0.95, 0.05, 0.0], [0.03, 0.94, 0.03], [0.02, 0.05, 0.93]], 1.0, 2.4),
     };
+    if matches!(look, Look::GbcScreen | Look::GbcSoft) {
+        bright *= 1.0 + 0.06 * f32::from(light);
+        gout += 0.15 * f32::from(light);
+    }
     let (r, g, b) = split(c);
     let (r, g, b) = (r.powf(gin), g.powf(gin), b.powf(gin));
     let mix = |row: [f32; 3]| ((row[0] * r + row[1] * g + row[2] * b) * bright).max(0.0).powf(1.0 / gout);
@@ -619,7 +666,8 @@ impl Post {
             Machine::Cgb => {
                 let look = match s.gbc_color { 1 => Some(Look::GbcScreen), 2 => Some(Look::GbcSoft), _ => None };
                 if let Some(l) = look {
-                    frame.iter_mut().for_each(|p| *p = correct(*p, l));
+                    let light = s.gbc_light;
+                    frame.iter_mut().for_each(|p| *p = correct_lit(*p, l, light));
                 }
             }
             Machine::Gba => {
@@ -746,6 +794,13 @@ mod tests {
         assert_eq!((t.rumble_strength, t.motion_scale, t.opposing, t.stick_dpad, t.sprite_limit), (50, 2.0, true, true, false));
         assert_eq!(t.gba_layers, 0b0101_1111);
         let u = settings(&[("cboy_gb_model", "sgb_pal"), ("cboy_frameskip", "auto"), ("cboy_interference", "50")]);
+        let n = settings(&[("cboy_stick_deadzone", "30"), ("cboy_swap_stick", "on"), ("cboy_frameskip_threshold", "60"),
+            ("cboy_frameskip_interval", "3"), ("cboy_gba_sprite_limit", "on"), ("cboy_force_color", "on"), ("cboy_gbc_light", "above")]);
+        assert_eq!((n.stick_deadzone, n.swap_stick, n.frameskip_threshold, n.frameskip_interval), (0.3, true, 60, 3));
+        assert!(n.gba_obj_limit && n.force_color && n.gbc_light == 1);
+        let w = 0x00C0C0C0;
+        assert!(correct_lit(w, Look::GbcScreen, 1) > correct_lit(w, Look::GbcScreen, 0));
+        assert!(correct_lit(w, Look::GbcScreen, -1) < correct_lit(w, Look::GbcScreen, 0));
         let r = settings(&[("cboy_gb_model", "auto_sgb"), ("cboy_cgb_revision", "0")]);
         assert!(r.auto_sgb && r.cgb_rev0 && r.model == Model::Auto);
         assert_eq!(settings(&[("cboy_gb_model", "dmg0")]).model, Model::Dmg0);
