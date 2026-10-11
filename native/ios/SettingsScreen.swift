@@ -82,7 +82,8 @@ struct SettingsScreen: View {
                 // ⋯ menu. See Feedback.swift.
                 FeedbackSettingsSection(host: host)
 
-                // Always open and second from the top: on build 170 the core pickers sat in two
+                // Second from the top, and folds like the rest (closed on a fresh install). It was
+                // always open and second from the top: on build 170 the core pickers sat in two
                 // folding sections far down the screen ("PLAYSTATION CORE" and "NES, GAME BOY,
                 // ARCADE AND SATURN CORES", the second after Online Play), and once folded, or
                 // after "Close all", Brett could not find any core switch at all.
@@ -585,14 +586,10 @@ struct SettingsScreen: View {
 
     // MARK: Cores
 
-    /// Every system with more than one core, PlayStation included, in one section that does
-    /// not fold. A game's own card can override this per game (GameDetailSheet, CORE).
+    /// Every system with more than one core, PlayStation included, in one folding section
+    /// near the top. A game's own card can override this per game (GameDetailSheet, CORE).
     private var coreSwitchSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("CORES")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.6)
-                .foregroundStyle(ShellPalette.secondaryText)
+        SettingsSection(title: "CORES") {
             let _ = host.coreChoiceVersion
             SettingsLabel("Core for PlayStation games")
             SegmentedChoice(
@@ -624,10 +621,6 @@ struct SettingsScreen: View {
                 + "core that made them; battery saves carry over."
             )
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 14))
-        .padding(.horizontal, 16)
     }
 
     /// PSP. One note, not a picker: there is one core and it is not optional.
@@ -1064,7 +1057,10 @@ final class SettingsFolds: ObservableObject {
     private init() {
         let defaults = UserDefaults.standard
         closed = Set(defaults.stringArray(forKey: closedKey) ?? [])
-        forceClosed = defaults.bool(forKey: forceKey)
+        // A fresh install starts with every section closed (Brett, build 171). An install that
+        // has ever saved a fold state keeps it.
+        let fresh = defaults.object(forKey: forceKey) == nil && defaults.object(forKey: closedKey) == nil
+        forceClosed = fresh ? true : defaults.bool(forKey: forceKey)
         openedDespiteForce = Set(defaults.stringArray(forKey: exceptKey) ?? [])
     }
 
