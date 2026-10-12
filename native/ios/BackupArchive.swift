@@ -198,8 +198,11 @@ enum BackupArchive {
             dirSize = u64(rec, 40)
             dirStart = u64(rec, 48)
         }
-        guard dirStart + dirSize <= length, dirSize < 512 << 20 else {
-            throw BackupArchiveError("damaged zip directory")
+        // Overflow-checked: the two numbers come from the file, and a damaged one must be a thrown
+        // error, never a trap (Restore runs this, and a trap takes the whole app down).
+        let (dirEnd, dirOverflow) = dirStart.addingReportingOverflow(dirSize)
+        guard !dirOverflow, dirEnd <= length, dirSize < 512 << 20 else {
+            throw BackupArchiveError("this backup is damaged (its zip directory is broken)")
         }
         let dir = try read(h, at: dirStart, count: Int(dirSize))
         var list: [Entry] = []
@@ -224,11 +227,14 @@ enum BackupArchive {
             let extraEnd = e + extraLen
             while e + 4 <= extraEnd {
                 let id = u16(dir, e), len = Int(u16(dir, e + 2))
+                // A field's length is read from the file: every read stays inside both the field
+                // and the extra area (which the guard above keeps inside the directory).
+                let fieldEnd = min(e + 4 + len, extraEnd)
                 if id == 1 {
                     var q = e + 4
-                    if size == 0xFFFF_FFFF, q + 8 <= e + 4 + len { size = u64(dir, q); q += 8 }
-                    if compressed == 0xFFFF_FFFF, q + 8 <= e + 4 + len { compressed = u64(dir, q); q += 8 }
-                    if localOffset == 0xFFFF_FFFF, q + 8 <= e + 4 + len { localOffset = u64(dir, q) }
+                    if size == 0xFFFF_FFFF, q + 8 <= fieldEnd { size = u64(dir, q); q += 8 }
+                    if compressed == 0xFFFF_FFFF, q + 8 <= fieldEnd { compressed = u64(dir, q); q += 8 }
+                    if localOffset == 0xFFFF_FFFF, q + 8 <= fieldEnd { localOffset = u64(dir, q) }
                 }
                 e += 4 + len
             }
@@ -247,6 +253,7 @@ enum BackupArchive {
         let h = try FileHandle(forReadingFrom: zip)
         defer { try? h.close() }
         let list = try entries(h)
+        let length = try h.seekToEnd()
         log("unzip: \(list.count) entr(ies) in \(zip.lastPathComponent)")
         try fm.createDirectory(at: destination, withIntermediateDirectories: true)
         var files = 0
@@ -262,6 +269,11 @@ enum BackupArchive {
                 continue
             }
             try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // The offset comes from the file: past the end (or near UInt64.max) is a damaged
+            // backup, said as one, not an arithmetic trap.
+            guard entry.localOffset <= length else {
+                throw BackupArchiveError("this backup is damaged (\(entry.name) points past its end)")
+            }
             let header = try read(h, at: entry.localOffset, count: 30)
             guard u32(header, 0) == 0x0403_4B50 else { throw BackupArchiveError("damaged zip entry \(entry.name)") }
             let dataStart = entry.localOffset + 30 + UInt64(u16(header, 26)) + UInt64(u16(header, 28))
