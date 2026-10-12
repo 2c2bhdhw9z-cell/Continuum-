@@ -1267,8 +1267,29 @@ enum CoreCatalog {
         if let chosen = storedCoreChoice(for: route.system), let spec = byId[chosen] {
             return spec
         }
-        return byId[route.coreId]
+        guard let spec = byId[route.coreId] else { return nil }
+        // The system's DEFAULT core is a download from the libretro buildbot for some systems
+        // (Mesen for the NES), and a build ships without one that did not arrive. Then the
+        // system's next core that IS in this build runs it (FCEUmm for the NES, the fallback the
+        // core notes promise) instead of every game stopping on "... is missing from the bundle"
+        // (review finding IOS-10). A core the player picked in Settings is never swapped.
+        if !bundledLibraries.isEmpty, !bundledLibraries.contains(spec.library),
+           let fallback = coreChoices[route.system]?.lazy
+               .compactMap({ byId[$0] })
+               .first(where: { bundledLibraries.contains($0.library) }) {
+            return fallback
+        }
+        return spec
     }
+
+    /// The core dylibs in this build's Frameworks folder, read once (the bundle never changes
+    /// while the app runs). Empty when the folder cannot be read, which turns the fallback above
+    /// off rather than guessing.
+    static let bundledLibraries: Set<String> = {
+        guard let dir = Bundle.main.privateFrameworksPath,
+              let names = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return [] }
+        return Set(names)
+    }()
 
     /// Which system a file with this extension is, or nil when nothing is mapped.
     ///
