@@ -8,13 +8,14 @@ Paste this to start a new chat:
 
 ## Where this left off (12 October 2026)
 
-- **Build 180** (`dd89824`) is the newest published install:
-  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-180-dd89824/Continuum-180.ipa
-  0.8.0 (180), 38 core files (35 cores plus 3 JIT builds), cBoy and Continuum Symbian inside.
-  The owner has nothing left to try on it.
-- **The next install = the cleanup + the licence swap, both done and on master, not built yet.**
-  No build happens between them. The build that makes it rebuilds every core (about an hour and a
-  half); start it with one push without `[skip ci]`.
+- **Build 181** (`b88308f`) is the newest published install, handed to the owner on 12 October
+  at about 6:15 PM Eastern:
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-181-b88308f/Continuum-181.ipa
+  0.8.0 (181), 36 core files (33 cores plus 3 JIT builds). It carries the cleanup and the licence
+  swap described below. It took about 67 minutes, because every core was rebuilt once. The owner
+  is testing it with TESTING.md "This install only": record the results, and fix nothing until
+  they say they're done testing.
+- **Build 181 = the cleanup + the licence swap.**
   - **The cleanup (12 October, done)** fixed what earlier sessions left broken or out of date.
     It's all on master and tested here, but not built and not on a phone yet. In it: the new
     feedback address, cBoy's drawer choice, no made-up startup picture, backup, restore and

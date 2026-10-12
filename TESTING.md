@@ -1,8 +1,7 @@
 # What to test, and what to tell me
 
-Last updated 12 October 2026. Build 180 is the newest published install. The next install is
-the cleanup plus the licence swap, and it isn't built yet. The steps below cover both: 1 to 4
-are the cleanup, 5 to 11 the new emulators.
+Last updated 12 October 2026. **Build 181** is the newest published install: the cleanup plus the
+licence swap. Steps 1 to 4 cover the cleanup, 5 to 11 the new emulators, and 12 save imports.
 
 ## This install only
 

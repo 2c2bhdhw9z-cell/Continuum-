@@ -1,13 +1,14 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-12 October 2026. **Build 180** (`dd89824`) is the newest published install:
-[Continuum-180.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-180-dd89824/Continuum-180.ipa).
-It has 38 core files (35 cores plus 3 JIT builds), with cBoy and Continuum Symbian inside. The
-owner has nothing left to try on it.
+12 October 2026. **Build 181** (`b88308f`) is the newest published install:
+[Continuum-181.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-181-b88308f/Continuum-181.ipa).
+Checked by Kiro: 0.8.0 (181), 36 core files (33 cores plus 3 JIT builds). bsnes, Gearsystem,
+BlastEm, Mesen 2, cBoy and Continuum Symbian are inside, and none of the five non-commercial
+cores. The new feedback email is in the app and the old one is not. It carries the cleanup and
+the licence swap below. No phone has tried it yet: TESTING.md "This install only".
 
-**The next install = the cleanup + the licence swap, both done and on master, not built yet.** No
-build happens between them.
+**Build 181 = the cleanup + the licence swap.**
 - **The cleanup (12 October, done):** everything earlier sessions left broken or out of date was
   fixed. It's all on master and tested here, but not built and not on a phone yet. Feedback goes
   to the new address, ContinuumDev2c2b@gmail.com. cBoy's older per-line drawer ("Standard") is
@@ -214,9 +215,10 @@ launch with an empty library.
 For whoever works on this next. The owner's order (12 October 2026), which replaces any older
 order on this page:
 
-1. **Finish the cleanup and the licence swap, then one install.** Build 180 (`dd89824`) is the
-   newest published install
-   ([Continuum-180.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-180-dd89824/Continuum-180.ipa)).
+1. **Done: the cleanup and the licence swap are in build 181** (`b88308f`,
+   [Continuum-181.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-181-b88308f/Continuum-181.ipa)).
+   Next is the owner's phone results; record them, and fix nothing until the owner says they're
+   done testing.
    The cleanup and the licence swap are both done and on master ("Where we stopped"): bsnes,
    Gearsystem and BlastEm in, the five non-commercial cores out, arcade out for now, and Mesen 2
    built here with its patch. One install is next, with both in it. Phone checks: TESTING.md
