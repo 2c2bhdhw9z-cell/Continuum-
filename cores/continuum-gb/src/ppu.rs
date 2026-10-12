@@ -1,9 +1,14 @@
 //! The picture processing unit: modes 2/3/0 on each of lines 0-143, then VBlank (lines 144-153),
-//! 456 dots a line, with LY, LYC, STAT and its interrupt line, and a scanline renderer for the
+//! 456 dots a line, with LY, LYC, STAT and its interrupt line, and two drawers for the
 //! background, window and sprites. Pixels are DMG shades 0-3 (after the palettes).
 //!
-//! Mode 3 is a fixed 172 dots. The renderer draws a whole line as mode 3 begins, which is what
-//! every test here and nearly every game needs; a dot-accurate FIFO is a later step.
+//! Mode 3's length comes from `mode3_length` (172 dots plus the SCX, window and sprite delays),
+//! whichever drawer runs, so STAT and HBlank timing never depend on the drawer. The drawer is the
+//! core option "Picture drawing" (`exact`):
+//!   - Standard (the default): `render_line` draws the whole line as mode 3 begins. The proven
+//!     one; what every game here has been played on.
+//!   - Exact (experimental): the pixel FIFO in fifo.rs, dot by dot, so mid-line register writes
+//!     land on the right pixel. Unfinished and parked; see the owner rules before touching it.
 
 use serde::{Deserialize, Serialize};
 

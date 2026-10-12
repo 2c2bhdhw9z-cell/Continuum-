@@ -1,9 +1,12 @@
 //! cBoy (crate continuum_gb): Continuum's own Game Boy, Game Boy Color and Game Boy Advance core,
 //! one core for all three (the ROM picks the machine), exposed through the libretro API.
 //!
-//! Modules: `cpu` (SM83), `bus` (memory map, DMA, serial, joypad), `cart` (MBC1/3/5, RTC),
-//! `ppu`, `apu`, `timer`, `gb` (the machine). Designed so the Game Boy Color fits in later:
-//! VRAM and WRAM banking and colour palettes go into `ppu` and `bus`, keyed by the header's CGB flag.
+//! Modules: `cpu` (SM83), `bus` (memory map, DMA and HDMA, serial, joypad), `cart` (no mapper,
+//! MBC1, MBC2, MBC3 and MBC30 with the clock, MBC5, MBC7, HuC1, HuC3, the Game Boy Camera, and
+//! the cut-off-file check), `ppu` (with the two picture drawers; fifo.rs is the exact one), `apu`,
+//! `timer`, `sgb` (Super Game Boy), `gb` (the machine), `gba` (the Advance), `options` (the core
+//! options) and `libretro` (the entry points). Game Boy Color mode is keyed by the header's CGB
+//! flag (VRAM and WRAM banks and colour palettes in `ppu` and `bus`).
 
 pub mod apu;
 pub mod bus;
