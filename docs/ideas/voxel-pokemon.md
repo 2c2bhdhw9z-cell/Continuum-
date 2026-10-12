@@ -89,3 +89,13 @@ Voxel Fork" (absol89), the top of G1R's list of 187.
 - The investigation must check: mods (the voxel ones especially) load and run inside
   Continuum, how fast voxel runs on the phone, and that mods needing LuaJIT FFI are refused
   safely.
+
+**Owner's decision on the mod index (12 October 2026): option 2.** Continuum's Mods screen
+reads the public G1R mod index live, at the moment the player opens Mods, without asking first.
+It never copies the list into the app or the repo. If BOIS CLUB GAMES objects, stop at once.
+- If that index ever goes away or is closed to us, Continuum keeps its own list. That list
+  holds only each mod's name and a link to its author's own page, the same kind of list theirs
+  is, and installs still download from each author.
+- Copies of mods themselves are hosted only when that mod's own licence allows it (for example
+  MIT). Never host a mod whose terms forbid redistribution: the original Dramatic Shape voxel
+  mod forbids it after v1.
