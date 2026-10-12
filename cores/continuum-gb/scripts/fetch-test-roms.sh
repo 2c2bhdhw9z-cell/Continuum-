@@ -23,15 +23,32 @@ if [ ! -d mts ]; then
     && python3 -c 'import tarfile,os; t=tarfile.open("mts.tar.xz"); t.extractall("mts-x"); d=os.listdir("mts-x")[0]; os.rename("mts-x/"+d,"mts"); os.rmdir("mts-x")' \
     && rm mts.tar.xz || echo "mooneye download failed (optional)"
 fi
+# A GitHub repository at one exact commit, into directory $3. git first; if git cannot reach
+# GitHub (some sandboxes only let plain HTTPS downloads through), the same commit as a tarball.
+fetch_repo() {
+  local repo="$1" sha="$2" dir="$3"
+  rm -rf "$dir"
+  if git clone -q "https://github.com/$repo" "$dir" 2>/dev/null && git -C "$dir" checkout -q "$sha"; then
+    return 0
+  fi
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  if curl -fsSL "https://codeload.github.com/$repo/tar.gz/$sha" | tar -xz -C "$dir" --strip-components=1; then
+    return 0
+  fi
+  # Nothing half-downloaded is left behind for the `[ ! -d ... ]` checks to mistake for a copy.
+  rm -rf "$dir"
+  return 1
+}
 # Game Boy Advance: jsmolka/gba-tests (MIT, ships built ROMs), pinned.
 if [ ! -d jsmolka ]; then
-  git clone -q https://github.com/jsmolka/gba-tests jsmolka \
-    && git -C jsmolka checkout -q a7113b67e63f83a9b321696ddd7042ccfad6c881 || echo "gba-tests download failed"
+  fetch_repo jsmolka/gba-tests a7113b67e63f83a9b321696ddd7042ccfad6c881 jsmolka || echo "gba-tests download failed"
 fi
 ls
-# Mealybug Tearoom tests (MIT): mid-scanline register changes, for the pixel FIFO.
+# Mealybug Tearoom tests (MIT): mid-scanline register changes, for the exact (pixel-by-pixel)
+# drawer. Pinned: the expected pictures and the pass list in tests/roms.rs belong to this commit.
 if [ ! -d mealybug ]; then
-  git clone -q --depth 1 https://github.com/mattcurrie/mealybug-tearoom-tests mealybug-src \
+  fetch_repo mattcurrie/mealybug-tearoom-tests 70e88fb90b59d19dfbb9c3ac36c64105202bb1f4 mealybug-src \
     && mkdir -p mealybug && (cd mealybug && unzip -oq ../mealybug-src/mealybug-tearoom-tests.zip) \
     && cp -r mealybug-src/expected mealybug/expected && cp mealybug-src/LICENSE mealybug/ \
     && rm -rf mealybug-src || echo "mealybug download failed (optional)"

@@ -190,8 +190,10 @@ fn save_state_round_trip() {
     assert!(b.load_state(b"junk").is_err());
 }
 
-static mut FRAMES: u32 = 0;
-static mut EXPECT: (u32, u32) = (0, 0);
+use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+static FRAMES: AtomicU32 = AtomicU32::new(0);
+static EXPECT_W: AtomicU32 = AtomicU32::new(0);
+static EXPECT_H: AtomicU32 = AtomicU32::new(0);
 
 /// The libretro entry points, called the way a frontend does, for a GB and a GBA ROM.
 #[test]
@@ -204,12 +206,15 @@ fn run_smoke(name: &str, ew: u32, eh: u32) {
     use continuum_gb::libretro::*;
     use std::ffi::c_void;
     let Some(data) = rom(name) else { return };
-    unsafe { EXPECT = (ew, eh); FRAMES = 0; }
+    EXPECT_W.store(ew, SeqCst);
+    EXPECT_H.store(eh, SeqCst);
+    FRAMES.store(0, SeqCst);
     unsafe extern "C" fn env(_cmd: u32, _d: *mut c_void) -> bool { true }
 
     unsafe extern "C" fn video(_d: *const c_void, w: u32, h: u32, pitch: usize) {
-        assert_eq!((w, h, pitch), (EXPECT.0, EXPECT.1, EXPECT.0 as usize * 4));
-        FRAMES += 1;
+        let ew = EXPECT_W.load(SeqCst);
+        assert_eq!((w, h, pitch), (ew, EXPECT_H.load(SeqCst), ew as usize * 4));
+        FRAMES.fetch_add(1, SeqCst);
     }
     unsafe extern "C" fn audio(_d: *const i16, n: usize) -> usize { n }
     unsafe extern "C" fn poll() {}
@@ -237,7 +242,7 @@ fn run_smoke(name: &str, ew: u32, eh: u32) {
         assert!(retro_unserialize(buf.as_ptr() as *const c_void, size));
         retro_unload_game();
         retro_deinit();
-        assert_eq!(FRAMES, 10);
+        assert_eq!(FRAMES.load(SeqCst), 10);
     }
 }
 
@@ -485,7 +490,7 @@ const MEALYBUG_PASSING: &[&str] = &[
 
 #[test]
 fn scx_low_bits_take_effect_on_line_72() {
-    let data = std::fs::read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/mealybug/m3_scx_low_3_bits.gb")).unwrap();
+    let Some(data) = rom("mealybug/m3_scx_low_3_bits.gb") else { return };
     let mut gb = GameBoy::new(data).unwrap();
     for b in gb.bus.ppu.vram[0x190..0x1A0].iter_mut() {
         *b = 0xFF;

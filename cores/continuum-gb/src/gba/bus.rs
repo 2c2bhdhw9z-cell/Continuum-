@@ -775,7 +775,6 @@ impl Bus {
                 let sample = f.data.remove(0);
                 f.current = sample;
                 let arrived = i32::from(sample);
-                drop(f);
                 self.fifo_from[n] = self.fifo_to[n];
                 self.fifo_to[n] = arrived;
                 self.fifo_period[n] = self.fifo_age[n].max(1);
