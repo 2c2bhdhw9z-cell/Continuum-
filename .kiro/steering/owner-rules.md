@@ -111,6 +111,17 @@ These come straight from the owner. They are not suggestions.
   something players already have, do not take it, and tell the owner why. Take the good ones in
   the next batch (one build), and tell the owner plainly which consoles got newer emulators.
   This replaces the old "let the owner decide each update" rule.
+  **Keep the check FAST (owner, 12 October 2026).** It is "what changed, and does it still
+  work", not a line-by-line review.
+  - Read the upstream change list and skim the diff for risky areas: removed features, file
+    types, the libretro API, iOS, and save formats.
+  - Dry-run our patches. Build it. Do one quick boot where a harness exists.
+  - Don't host-build GPU cores (PPSSPP, Azahar, Beetle PSX HW, flycast): the iOS build and the
+    phone confirm those.
+  - Time-box it: about 10 minutes for a small update, under an hour for all of them.
+  - Unclear means SKIP it this time, and say why.
+  - The weekly checker should do this pre-check on its own, so a session only has to take the
+    updates.
   **Players get a heads-up (owner, 12 October 2026).** The first time someone opens a game on
   an emulator that changed since their last install, the app shows one short, casual line, once
   per emulator version, and never on a first install. Example: "Heads up: the SNES emulator
