@@ -120,6 +120,9 @@ enum CloudSyncPaths {
     /// NOT under `continuum.sync.`: that prefix is never exported, so the switch used to be wiped
     /// with the app and never came back from the cloud, and a restore brought no games back.
     static let includeGamesKey = "continuum.backup.includeGames.v1"
+    /// When a backup .zip was last saved to Files (`CloudSync.exportFinished`), read by the backup
+    /// prompt. Device-only (the `continuum.sync.` prefix is never exported).
+    static let lastBackupKey = "continuum.sync.lastBackup.v1"
     private static let legacyIncludeGamesKey = "continuum.sync.includeGames.v1"
     static func gamesAreIncluded() -> Bool {
         UserDefaults.standard.bool(forKey: includeGamesKey)
@@ -1161,6 +1164,8 @@ final class CloudSync: ObservableObject {
         let missed = backupMissed
         backupMissed = []
         if let url {
+            // For the backup prompt's "ask again after a week" (`BackupFolderPrompt`).
+            defaults.set(Date().timeIntervalSince1970, forKey: CloudSyncPaths.lastBackupKey)
             let place = url.deletingLastPathComponent().lastPathComponent
             var text = "sync folder: backup saved as \(url.lastPathComponent) in \(place)"
             if let first = missed.first {
@@ -1842,7 +1847,7 @@ final class SyncFolderPickerDelegate: NSObject, UIDocumentPickerDelegate,
 
 // MARK: - Settings section
 
-/// Asks, once, whether Continuum should keep a backup — instead of waiting to be found.
+/// Offers to save a backup file, instead of waiting for the player to find Back up to Files.
 ///
 /// WHY THIS EXISTS, in the owner's words: "I've never had a chance to do it before, so I'm not
 /// going to start now when this should have been one of the first things ever done in the whole
@@ -1850,28 +1855,28 @@ final class SyncFolderPickerDelegate: NSObject, UIDocumentPickerDelegate,
 /// for builds, and they delete the app before every single install, and nothing ever told them.
 /// A feature nobody is told about is a feature nobody has.
 ///
-/// WHY IT STILL NEEDS ONE TAP, which is the honest part. iOS deletes an app's entire sandbox when
-/// the app is deleted, and gives an app no storage outside it that survives. The one place that
-/// does survive is a folder the USER grants access to through the system picker, and that grant
-/// cannot be faked or pre-filled — it is the whole point of it. iCloud's own container would not
-/// need a picker, and is not an option here: re-signing an app on the phone strips the iCloud
-/// entitlement, which is why this sync was built around a chosen folder in the first place (see
-/// the note at the top of this file). So: one tap, asked for at the right moment, and after that
-/// it is automatic forever — `syncIfConfigured` already runs when the app opens and when a game
-/// is left.
+/// WHAT IT DOES, honestly (review finding IOS-01: it used to promise a folder kept up to date,
+/// which a sideloaded install cannot keep). iOS deletes an app's whole sandbox with the app, and
+/// re-signing strips iCloud, so the one thing that survives is a file the player saves into Files.
+/// Each answer makes ONE backup .zip (`backUpToFiles`), saved wherever they pick; after a
+/// reinstall, Restore from a backup brings it back. Nothing after that is automatic.
 ///
-/// ASKED WHEN THERE IS SOMETHING TO LOSE, not on a first launch with an empty library, where it
-/// would be one more dialog in front of someone who has not used the app yet. And asked once:
-/// "Not now" is remembered, and the Settings row is still there for later.
+/// WHEN IT ASKS. First when there is something to lose (not on an empty first launch). After
+/// that, again only when the last backup (or the last "Not now", if they never backed up) is more
+/// than 7 days old AND a save changed since then (`savesChanged(since:)`). Never over a running
+/// game, the crash question, or an install that has a live folder syncing by itself.
 struct BackupFolderPrompt: ViewModifier {
     @ObservedObject var host: EngineHost
     @ObservedObject var sync: CloudSync
     /// The crash question (Feedback.swift) is the other alert at launch. This one waits for it.
     @ObservedObject private var feedback = FeedbackCenter.shared
     @State private var shown = false
-    private static let promptMessage: String = "Deleting Continuum deletes everything in it. If you pick a folder, Continuum keeps a copy of your saves, skins, starred games and settings there, and your games too if you choose \"with games\" (they can take a lot of space). After installing again, choose the same folder in Settings and it all comes back.\n\nAny folder in Files works — iCloud Drive, Google Drive, Dropbox."
+    private static let promptMessage: String = "Deleting Continuum deletes everything in it. If you ever reinstall, tap Restore from a backup and pick this file. \"With games\" puts your games in too, which can take a lot of space."
 
     private static let askedKey = "continuum.sync.backupOffered.v1"
+    /// When the prompt was last answered with "Not now". `CloudSyncPaths.lastBackupKey` is the other date.
+    private static let declinedAtKey = "continuum.sync.backupDeclinedAt.v1"
+    private static let askAgainAfter: TimeInterval = 7 * 86_400
 
     func body(content: Content) -> some View {
         content
@@ -1879,11 +1884,13 @@ struct BackupFolderPrompt: ViewModifier {
             // root view, and two alerts on one view can leave one of them stuck.
             .background(
                 Color.clear
-                    .alert("Keep your games and saves safe?", isPresented: $shown) {
-                        Button("Choose a folder, with games") { choose(withGames: true) }
-                        Button("Choose a folder, without games") { choose(withGames: false) }
+                    .alert("Save a backup file now?", isPresented: $shown) {
+                        Button("Back up with games") { choose(withGames: true) }
+                        Button("Back up without games") { choose(withGames: false) }
                         Button("Not now", role: .cancel) {
                             UserDefaults.standard.set(true, forKey: Self.askedKey)
+                            UserDefaults.standard.set(Date().timeIntervalSince1970,
+                                                      forKey: Self.declinedAtKey)
                         }
                     } message: {
                         Text(Self.promptMessage)
@@ -1920,12 +1927,46 @@ struct BackupFolderPrompt: ViewModifier {
               !feedback.crashPromptShown,
               !feedback.crashReportOpen,
               !sync.isConfigured,
-              !UserDefaults.standard.bool(forKey: Self.askedKey),
               !host.library.isEmpty,
               // Never over a running game.
               host.activeEntry == nil
         else { return }
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: Self.askedKey) {
+            // Asked before: again only once the newer of "last backup" and "last Not now" is
+            // over a week old and a save has changed since. An answer with no date (from a build
+            // before this one) counts as "never", so it waits for a week from now first.
+            let backedUp = defaults.double(forKey: CloudSyncPaths.lastBackupKey)
+            var declined = defaults.double(forKey: Self.declinedAtKey)
+            if backedUp == 0 && declined == 0 {
+                declined = Date().timeIntervalSince1970
+                defaults.set(declined, forKey: Self.declinedAtKey)
+            }
+            let since = Date(timeIntervalSince1970: max(backedUp, declined))
+            guard Date().timeIntervalSince(since) > Self.askAgainAfter,
+                  Self.savesChanged(since: since) else { return }
+        }
         shown = true
+    }
+
+    /// Whether any save (battery save, save state, Flash or J2ME save) was written after `date`.
+    /// Only the top of each folder is read: they are flat.
+    static func savesChanged(since date: Date) -> Bool {
+        guard let support = CloudSyncPaths.support() else { return false }
+        let fm = FileManager.default
+        for folder in ["BatterySaves", "SaveStates", "PlayerSaves"] {
+            let dir = support.appendingPathComponent(folder, isDirectory: true)
+            guard let items = try? fm.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]) else { continue }
+            for item in items {
+                if let changed = try? item.resourceValues(forKeys: [.contentModificationDateKey])
+                    .contentModificationDate, changed > date {
+                    return true
+                }
+            }
+        }
+        return false
     }
 }
 
