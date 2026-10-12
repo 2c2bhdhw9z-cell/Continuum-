@@ -1,46 +1,61 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-11 October 2026. **Build 180** (`dd89824`) is the newest published install:
+12 October 2026. **Build 180** (`dd89824`) is the newest published install:
 [Continuum-180.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-180-dd89824/Continuum-180.ipa).
-The owner deleted the short Yellow file, so there is nothing on 180 for them to try.
-The full 1.0 MB file already played. Pixel-by-pixel picture work stays parked.
-Next: the high-quality Advance music mixer on cBoy. No made-up startup picture: no other core flashes its name, and a boot picture only plays when a real boot file is there. No new install until the music is in.
+It has 38 core files (35 cores plus 3 JIT builds), with cBoy and Continuum Symbian inside. The
+owner has nothing left to try on it.
 
-Older paragraphs below (build 163, build 150, "not in any IPA yet") are history. Where they
-disagree with this paragraph, this paragraph is current.
+**The next install = the cleanup + the licence swap (the swap is still in progress).** No build
+happens between them.
+- **The cleanup (12 October, done):** everything earlier sessions left broken or out of date was
+  fixed. It's all on master and tested here, but not built and not on a phone yet. Feedback goes
+  to the new address, ContinuumDev2c2b@gmail.com. cBoy's older per-line drawer ("Standard") is
+  the default again, and the pixel-by-pixel one is the "Exact (experimental)" choice. No made-up
+  startup picture anywhere, option text included. Backup, restore and auto-save got fixes. Also:
+  QA Wolf is gone, the code says GPL v3 like LICENSE, CI runs clippy, and a cBoy-only change no
+  longer rebuilds every core. Full list: "Where we stopped" at the bottom.
+- **The licence swap (in progress):** Snes9x, Genesis Plus GX, PicoDrive, FinalBurn Neo and MAME
+  2003-Plus come out. bsnes (with Mesen 2 as a second SNES choice), Gearsystem and BlastEm go in.
+  Arcade leaves for now, with no MAME, until Continuum has its own arcade core.
+- Phone checks for the cleanup: TESTING.md "This install only" and section K. The swap adds its
+  own.
 
-Older paragraphs below (build 163, build 150, "not in any IPA yet") are history. Where they
-disagree with this paragraph or with "Where we stopped" at the bottom, those two are current.
+**After that install,** the owner's order is in "Next up": emulator updates (with the heads-up
+line and a fuller weekly check), small cleanup leftovers, cBoy's jobs (MP2K music and the rest),
+then the exact pixel-by-pixel drawer, then the phone test rounds.
 
-**cBoy core options (next build; built and tested headless, not yet on a phone):**
+Anything further down that's named after an older build, or marked history, is only a record.
+Where it disagrees with this top part, "Next up" or "Where we stopped", those three win.
+
+**cBoy core options (history, 11 October; in builds 177 and 180, not tried one by one on a phone):**
 - About 60 options in seven categories (System, Picture, Sound, Controls, Link, Performance, Debug), declared with SET_CORE_OPTIONS_V2, keys `cboy_*`. Picture and sound options apply live; machine options (model, boot ROM, BIOS, save chip, cartridge extras, sample rate) on the next start.
 - New hardware behind them: Super Game Boy (palettes, attribute maps, borders, multiplayer, masks, SNES-clock timing NTSC/PAL), model choice (DMG, Pocket, SGB, SGB2, CGB, AGB), boot ROM and GBA BIOS files (`<system>/cboy/`), MBC7 tilt + EEPROM, MBC5 rumble, GBA GPIO clock/solar/gyro/rumble and the tilt sensor, phone sensors and rumble through libretro.
 - Performance: frame skip (fixed or auto by frame time), in-core run-ahead (1-2 frames), Advance idle-loop skipping, cheaper/faster sound. Fast-forward speed and rewind stay in the app (Settings > Speed and rewind).
 - Tests: unit tests for every option's parsing and effect, plus `tests/options_e2e.rs`, which drives every option through the real libretro entry points and checks the picture, sound, frame size, AV timing and save size. pret Red/Blue/Yellow/Gold/Crystal still reach the overworld.
-- The rule now in docs/CORE_OPTIONS_STANDARD.md §0: a Continuum core offers the union of every notable emulator's settings. cBoy's inventory: docs/CBOY_OPTIONS_INVENTORY.md. Gaps still open there: Game Boy Player rumble, our own boot ROM animation, MP2K high-quality audio, CGB revisions, two-phone link.
+- The rule now in docs/CORE_OPTIONS_STANDARD.md §0: a Continuum core offers the union of every notable emulator's settings. cBoy's inventory: docs/CBOY_OPTIONS_INVENTORY.md. Gaps still open there include CGB revisions and the two-phone link. Game Boy Player rumble has landed since (`cboy_gbp`). The MP2K high-quality music isn't in that list, but it's on the to-do list ("Next up", item 6). A made-up boot animation is out: the owner ruled out any made-up startup picture.
 - **.gb vs .gbc on cBoy, app path compared (Oct 11):** the core ignores the file extension (it decides from the header), so a .gb and a .gbc game reach the core identically. The app differs in only four things for `gb`: the default screen effect (Dot matrix vs LCD grid; same grid code, plus the pale backing), Game Boy-specific skins (a skin whose `inputFrame` crops the frame), the achievements console id, and the palette option keys (mGBA-only, unused for cBoy). The 10:9 aspect, geometry, pitch and format are the same for both. Most likely causes, neither proven on the phone: (1) a skin crop outside cBoy's 160x144 frame (fitted since bde63ac, never shipped until now); (2) an auto-save state from an earlier cBoy build loaded with a different layout: cBoy's version string never changed, so the app's version gate let it through and the core could misread it. Fixed: version string now carries the state format ("0.3.0 (state format 2)") and the core's tag refuses older states. New: every launch logs `picture (first frame or new size: pitch, format ...)` with frame size, effect and skin crops.
-- Still unexplained: Pokemon Yellow (.gb) freezing on Brett's phone on cBoy. Not reproducible headless; the build logs cBoy's load, DMA, speed-switch and stuck events into the activity log, so a report from it should show where it stops.
+- Explained since: the Pokemon Yellow (.gb) freeze on Brett's phone was a cut-off file (997 KB instead of 1 MB), not a cBoy bug. The full file plays. See "Where we stopped".
 
-**cBoy: our own Game Boy, Game Boy Color and Game Boy Advance core (started 11 Oct 2026; not in any IPA yet):**
+**cBoy: our own Game Boy, Game Boy Color and Game Boy Advance core (started 11 Oct 2026; in every install since build 177):**
 - What it is: one emulator for all three, written from scratch in Rust in `cores/continuum-gb` (the crate and dylib keep the internal name `continuum_gb`), built as a libretro core (`continuum_gb_libretro_ios.dylib`). It looks at the ROM and runs a Game Boy, a Game Boy Color or a Game Boy Advance, the way mGBA does. Not a wrapper of mGBA or Gambatte. The name shown in the app is cBoy.
-- Game Boy (DMG): SM83 CPU (every opcode and CB opcode, timed per memory access), interrupts, HALT and the HALT bug, EI delay; timer with its quirks; OAM DMA; PPU (modes, LY/LYC/STAT, background, window, sprites, mode 3 length from SCX and sprites); 4 sound channels; joypad; serial; MBC1 (and multicarts), MBC3 with its clock, MBC5; battery saves and the clock through libretro; save states; no boot ROM needed.
+- Game Boy (DMG): SM83 CPU (every opcode and CB opcode, timed per memory access), interrupts, HALT and the HALT bug, EI delay; timer with its quirks; OAM DMA; PPU (modes, LY/LYC/STAT, background, window, sprites, mode 3 length from SCX and sprites); 4 sound channels; joypad; serial; MBC1 (and multicarts), MBC2, MBC3 with its clock, MBC30, MBC5 (and its rumble), MBC7 (tilt), HuC1, HuC3 and the Game Boy Camera (the phone's camera isn't connected to it yet); battery saves and the clock through libretro; save states; no boot ROM needed.
 - Game Boy Color: VRAM and WRAM banks, colour palettes, background attributes, CGB sprite priority, double speed, general and HBlank DMA, CGB start registers. DMG-only cartridges run as a DMG (the CGB's colourised compatibility mode is not done).
 - Game Boy Advance: ARM7TDMI CPU (all ARM and Thumb instructions, the banked registers of every mode, IRQ entry), memory map with wait states and a simple prefetch model, PPU (modes 0 to 5, text and rotated backgrounds, sprites incl. rotated ones, windows, blending, mosaic not done), 4 DMA channels, 4 timers with cascade, interrupts, keypad, sound (the Game Boy channels plus the two DirectSound FIFOs), saves (SRAM, Flash 64K/128K, EEPROM, detected from the ROM), save states. No BIOS file needed: the BIOS calls games use (division, square root, arctan, copy and fill, affine setup, LZ77, Huffman, RLE, diff unpack, waiting for interrupts) are done in Rust.
-- Tests (`cd cores/continuum-gb && scripts/fetch-test-roms.sh && cargo test --release`): Game Boy: Blargg cpu_instrs, instr_timing, mem_timing PASS; dmg-acid2 PASS; cgb-acid2 PASS (pixel for pixel); Mooneye DMG acceptance 77 of 86. Game Boy Advance (jsmolka gba-tests): arm, thumb, memory, bios PASS; save sram, flash64, flash128, none PASS; unsafe PASS; the three PPU pictures (hello, shades, stripes) draw correctly (checked by eye, then pinned). Plus save-state round trips and the libretro API for a GB and a GBA ROM. ROMs are downloaded, never committed.
-- First phone test (Pokemon Yellow, CGB mode, 11 Oct): boots, the Game Freak logo plays in colour, then at the Pikachu intro the screen turns to stripes and the game freezes. Cause NOT found yet. Fixed meanwhile (all found by SameSuite, built locally with rgbds): EI followed by HALT with an interrupt waiting was treated as the HALT bug; HBlank DMA started with the LCD off or inside an HBlank did not copy its first block; FF55 after a cancel read $FF instead of $80 plus the length. SameSuite DMA, interrupt and PPU tests now pass (its APU tests mostly fail). The core now logs, into the app's activity log, the cartridge it loaded, every speed switch and STOP, every general or HBlank DMA, illegal opcodes, and "stuck" (no VBlank interrupt for 2 s, with PC, IE, IF, LCDC, STAT, LY and bank), so the next report from Yellow shows where it stops.
-- Not done yet: real games on the GBA side have not been tried (only test ROMs); timing is approximate (no cycle-exact prefetch or PPU), mosaic, the GBA's serial/link port, RTC carts, and the Mooneye DMG timing tests listed below.
-- Still failing on Mooneye (DMG): hblank_ly_scx_timing, intr_2_mode0_timing_sprites, intr_2_oam_ok_timing, lcdon_timing, lcdon_write_timing, stat_lyc_onoff, vblank_stat_intr, oam_dma_start, timer rapid_toggle. These need a dot-accurate PPU and finer timer/interrupt timing.
-- In the app (code only, untested on a phone): optional in `scripts/build-core.sh`, embedded via `project.yml`, offered in Settings as the second core for Game Boy, Game Boy Color and Game Boy Advance. mGBA stays the default. CI runs its tests in the Linux job. Changes under `cores/` alone do not start the iOS workflow.
+- Tests (`cd cores/continuum-gb && scripts/fetch-test-roms.sh && cargo test --release`): Game Boy: Blargg cpu_instrs, instr_timing, mem_timing PASS; dmg-acid2 PASS; cgb-acid2 PASS (pixel for pixel); Mooneye DMG acceptance 86 of 86 (since 11 October; it was 77 at first). Game Boy Advance (jsmolka gba-tests): arm, thumb, memory, bios PASS; save sram, flash64, flash128, none PASS; unsafe PASS; the three PPU pictures (hello, shades, stripes) draw correctly (checked by eye, then pinned). Plus save-state round trips and the libretro API for a GB and a GBA ROM. ROMs are downloaded, never committed.
+- First phone test (Pokemon Yellow, CGB mode, 11 Oct): boots, the Game Freak logo plays in colour, then at the Pikachu intro the screen turns to stripes and the game freezes. Cause found later: that file was cut off (see "Where we stopped"). Fixed meanwhile (all found by SameSuite, built locally with rgbds): EI followed by HALT with an interrupt waiting was treated as the HALT bug; HBlank DMA started with the LCD off or inside an HBlank did not copy its first block; FF55 after a cancel read $FF instead of $80 plus the length. SameSuite DMA, interrupt and PPU tests now pass (its APU tests mostly fail). The core now logs, into the app's activity log, the cartridge it loaded, every speed switch and STOP, every general or HBlank DMA, illegal opcodes, and "stuck" (no VBlank interrupt for 2 s, with PC, IE, IF, LCDC, STAT, LY and bank), so the next report from Yellow shows where it stops.
+- Not done yet: real games on the GBA side have not been tried (only test ROMs); timing is approximate (no cycle-exact prefetch or PPU), mosaic, and the GBA's serial/link port.
+- Mooneye DMG: all 86 pass now. The nine that failed at first (hblank_ly_scx_timing, intr_2_mode0_timing_sprites, intr_2_oam_ok_timing, lcdon_timing, lcdon_write_timing, stat_lyc_onoff, vblank_stat_intr, oam_dma_start, timer rapid_toggle) were fixed on 11 October (see "cBoy work" below). Mooneye CGB is 0 of 5 (report only).
+- In the app since build 177: optional in `scripts/build-core.sh`, embedded via `project.yml`, offered in Settings as the second core for Game Boy, Game Boy Color and Game Boy Advance. mGBA stays the default. The full Pokemon Yellow played on it on the phone (build 177). CI runs its tests in the Linux job. Since 12 October a change in `cores/continuum-gb` starts the iOS workflow by itself, and cBoy is compiled fresh on every build (about a minute) without throwing away the other cores' cache.
 
-**Build 164 (next, built, untested on a phone):**
+**Build 164 (history; built, untested on a phone):**
 - **Saving outside the app: real cause of the dead Open button.** Builds 161 and 163: the folder picker opened, Open highlighted, nothing happened. Continuum is sideloaded and re-signed, and iOS does not give a re-signed app the File Provider grant an open-in-place folder pick (`asCopy: false`) needs; the same "Open does nothing" is reported for other sideloaded apps, and every other picker in Continuum (all `asCopy: true`) works on Brett's phone. Build 163's SwiftUI `.fileImporter` swap could not help (and the repo had already found `.fileImporter` drops its completion on device). Now Settings → SYNC FOLDER has **Back up to Files** (syncs into a folder inside the app, then exports a copy with the Files exporter) and **Restore from a backup** (copy-mode pick of that folder, merged in, nothing deleted). The backup prompt runs Back up to Files. The live folder stays as "Live folder (advanced)". Every picker step (presented, on screen, delegate called with URLs, cancelled, dismissed, security scope, bookmark) is in the activity log, and errors show in the Settings line. Confidence: high on the cause, medium that the folder exporter works on his iOS version. Backups are manual, not automatic. TESTING P-SYNC2.
 
-**Build 163 (published 10:58 AM PT 10 Oct; on the phone the folder picker was still broken, PSP not yet reported):**
+**Build 163 (history; published 10:58 AM PT 10 Oct; on the phone the folder picker was still broken, PSP not yet reported):**
 - **PSP gray screens / lone triangle / tiny thumbnails (NFS, Midnight Club), likely cause found.** Build 161 on the phone: NFS reaches its menus, but loading screens showed two gray bars, a black screen with one small triangle after the EA logo, and Midnight Club a gray screen with two white lines and, after "Continue without saving", three tiny thumbnails. The engine declared PPSSPP's image to the compositor at the frame size from video_refresh even when the real image was bigger; the shader samples with 0..1 coordinates measured against the REAL image, so a smaller frame was squeezed into a corner and the rest of the screen showed leftover image contents. Software rendering showing the same thing fits: it is the frontend, not the GPU path. Now the image is wrapped at its real size and only the frame's rect is copied out and shown. Confidence medium: the activity log now has a `hw frame size: shown WxH, image WxH [CROPPED]` line on every change, so a report from this build proves or disproves it. TESTING P-PSP4.
 - **Sync Folder picker.** Open did nothing in Settings' folder picker on build 161 (picker never closed). It was a UIKit picker presented by hand from the topmost view controller over SwiftUI; it is now SwiftUI's own `.fileImporter` for folders, in Settings and in the backup prompt. "Cloud Sync" is now called "Sync Folder" in the app: it is a folder on the phone (or any Files location). Confidence medium: the old code looked correct on paper, so the cause was not proven.
 
-**After build 158 (built, untested on a phone):**
+**After build 158 (history; built, untested on a phone):**
 - **PSP picture and resume.** Build 158 opened PSP games on the phone (crash fixed), but the picture
   was a half-drawn gray ghost, then stuck, and a resumed auto-save stayed black. Causes found in the
   engine: PPSSPP submits its GPU work with no semaphores and relies on the frontend to wait for it
@@ -53,7 +68,7 @@ disagree with this paragraph or with "Where we stopped" at the bottom, those two
   The NFS static is not explained; it may be the stalled game. TESTING P-PSP2.
   Build 161: the gray ghost showed with PPSSPP's software renderer too, so it was not GPU sync. PPSSPP was built with USE_FFMPEG=OFF, so PSMF movies (EA loading screens) and their audio never decoded: ghost + buzz. Now USE_FFMPEG=ON (ffmpeg/ios/universal). GPU path unchanged (Vulkan). Adopted frame clamped to the real MTLTexture size; crash report body carries the last 50 log lines with PSP `frame:` phase markers. TESTING P-PSP3.
 
-**After build 157 (built, untested on a phone):**
+**After build 157 (history; built, untested on a phone):**
 - **PSP crash on opening a game, root cause found.** PPSSPP asks for its Vulkan context from inside
   `retro_load_game`, before its own context pointer is set, and the engine called `context_reset`
   right then, a call through a null pointer. PPSSPP also makes its own `VkDevice` through the
@@ -83,7 +98,7 @@ Nothing here is rounded up.
 For what the owner wants built, and the scope rules this page works inside, see
 [docs/PRODUCT_SCOPE.md](docs/PRODUCT_SCOPE.md).
 
-## cBoy work in progress (11 October 2026, not yet in a build)
+## cBoy work (11 October 2026, history: all of it is in builds 177 and 180)
 
 **Done (pushed, [skip ci]):**
 - **.gb freeze (Pokemon Yellow), likely cause:** the build-170 core plays Yellow's intro correctly headless through the real frontend, even when it saves and reloads a state every frame. So the core isn't the problem. What's left is the picture path, which only `gb` games take: the dot-matrix effect plus the Game Boy skin. A skin crop sized for mGBA's 256x224 Super Game Boy frame (Yellow is SGB-enhanced), applied to cBoy's 160x144 frame, samples past the texture edge. That repeats edge pixels as stripes on the olive dot-matrix backing and looks frozen. Fixed: a crop outside the frame is now fitted to it (`screen_layout::fit_crop`, with a test). The activity log gets a `picture (...)` line with frame size, effect and skin crops, marked `OUTSIDE FRAME, fitted` when this happens. This hasn't been seen on Brett's phone; his next report should show that line.
@@ -92,9 +107,9 @@ For what the owner wants built, and the scope rules this page works inside, see
 - **New boot setups:** DMG0 and SGB boot DIV values; options for CGB revision, auto-SGB, first-revision DMG and force Color mode; options for stick dead zone, right stick, auto frameskip threshold/limit, Advance object time limit and GBC light position.
 - **Options inventory:** generated from extracted keys (`scripts/extract-core-option-keys.sh`, `scripts/build-cboy-inventory.py`, `docs/CBOY_OPTIONS_INVENTORY.md`).
 
-**Next, in order:** adversarial tests (fuzz, states across options, malformed ROMs); the 39 inventory gaps (except the palette packs left out for data-ownership reasons); own boot ROM and logo; MP2K HQ mixer; full workspace tests; one iOS build.
+**Next:** see "Next up". The 11 October plan that stood here also listed "own boot ROM and logo". That's dropped: the owner ruled out any made-up startup picture.
 
-## After build 164: bug-hunt build (built, untested on a phone)
+## After build 164: bug-hunt build (history; built, untested on a phone)
 
 Fourteen fixes, all built and none tried on a phone yet. Tests are in TESTING.md section R.
 
@@ -113,11 +128,12 @@ Fourteen fixes, all built and none tried on a phone yet. Tests are in TESTING.md
 13. A guest's own battery save is no longer overwritten with the host's save RAM after online play (`7aacd32`).
 14. Beetle PSX HW starts without a BIOS (built-in OpenBIOS), and only the BIOS names it reads count as found (`876fe64`).
 
-## Public beta readiness (audit, 9 October 2026)
+## Public beta readiness (audit, 9 October 2026, history)
 
-What a code pass on the whole app found. Rust tests: 614 pass (`cargo test --workspace
---features emulator-bridge/native-core`). The Swift checks (`check-players.sh`, `check-skins.sh`)
-need `swiftc` and only run on the Mac CI runner.
+What a code pass on the whole app found. Rust tests: 614 passed then, 629 on 12 October
+(`cargo test --workspace --features emulator-bridge/native-core`). The Swift checks
+(`check-players.sh`, `check-skins.sh`) need `swiftc`. They run on Linux too: CI runs them in the
+Linux checks job, before the Mac build.
 
 Already fine: no `try!` or forced casts that can fire at run time (the only `fatalError`s are the
 storyboard initialisers UIKit never calls), the skin unzip has a 64 MB per-file cap, the backup
@@ -133,13 +149,15 @@ note that quoted an internal ticket number ("FEAT-006") was reworded.
 
 - **Non-commercial cores:** Snes9x, Genesis Plus GX, PicoDrive, FinalBurn Neo and MAME 2003-Plus
   may only be given away free. A free beta by direct IPA link is fine. Any paid version, ads,
-  tips-for-access, or App Store sale is not allowed with them in the app.
+  tips-for-access, or App Store sale is not allowed with them in the app. Owner's decision
+  (12 October 2026): all five are swapped out and removed in one batch, folded into the same
+  install as the cleanup (in progress; see "Next up").
 - **GPL cores** (most of the rest, including Mesen 2, melonDS, Azahar, PPSSPP, and EKA2L1 inside
   Continuum Symbian, which is GPL v3): anyone given the IPA must be able to get the source. The
   repository is public, which covers it as long as it stays public and each release's commit is
-  kept. The repository has **no license file of its own**. The owner should choose one; because
-  Continuum Symbian links GPL v3 code, GPL v3 is the simple, compatible choice. That is the owner's
-  decision, not something changed here.
+  kept. The repository had no licence file of its own at the time of this audit. It has one now:
+  GPL v3 (`LICENSE`, added in the second pass below; README names it, and since 12 October both
+  Cargo files say `GPL-3.0-only` too).
 - **The App Store** is not an option with GPL cores (Apple's terms conflict with GPL) and the
   non-commercial ones. Sideloading only. TestFlight is also Apple
   distribution, so the same caution applies.
@@ -155,7 +173,7 @@ text plus a confirm before Reset deletes every skin, Flash/J2ME pause while load
 bounds), 1 still present (landscape-only skins), 1 needs a phone. GPL v3 LICENSE added; README
 names it. None of these are tried on a phone yet.
 
-## Line-by-line review: complete (9 October 2026)
+## Line-by-line review: complete (9 October 2026, history)
 
 Every file the project maintains was read line by line (log: [docs/REVIEW_COVERAGE.md](docs/REVIEW_COVERAGE.md)):
 Continuum Symbian and the core patches, all app Swift (~44,000 lines), the Rust engine (~44,500
@@ -190,45 +208,83 @@ launch with an empty library.
 
 ## Next up
 
-For whoever works on this next:
+For whoever works on this next. The owner's order (12 October 2026), which replaces any older
+order on this page:
 
-- **Build 177 is the newest published IPA** (`c32f48c`).
-  [Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-177-c32f48c/Continuum.ipa).
-  The Yellow stripes in it were a 997 KB file. The 1.0 MB file plays. Master `16cce5e` is not in an IPA.
-- **Build 150** (`ef3ce42`) is old. Continuum Symbian was not in it. It was linked afterwards and
-  is in later installs, untested on a phone. See the Symbian bullet below.
-- **Build 149** (`d2a92a9`) added SMB (libsmb2 compiled into the app, not a framework), the 3DS
-  camera, and an Amiibo tap. None of those three have been tried on a phone. Builds 147 and 148
-  died in `smb_min.c` and published nothing. The cores from 147 were cached and reused.
-- **Build 146** (`efd798e`) is the previous install. The icon grid marks the icon that was
-  actually set. On a sideload, iOS can leave `alternateIconName` empty even after the home screen
-  changed, so the grid remembers the name it passed to `setAlternateIconName`. Every Settings card
-  folds. Open all / Close all is on the Settings title.
-- **Build 145** (`1a28e84`) added the Settings switcher for 55 home screen icons.
+1. **Finish the cleanup and the licence swap, then one install.** Build 180 (`dd89824`) is the
+   newest published install
+   ([Continuum-180.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-180-dd89824/Continuum-180.ipa)).
+   The cleanup is done and on master ("Where we stopped"). The swap is in progress: Snes9x,
+   Genesis Plus GX, PicoDrive, FinalBurn Neo and MAME 2003-Plus out; bsnes (Mesen 2 as a second
+   SNES choice), Gearsystem and BlastEm in; arcade out for now, with no MAME. The plan and its
+   checks are in `.kiro/steering/owner-rules.md` ("Licences"). No build happens between the two.
+   Phone checks: TESTING.md "This install only" and section K, plus whatever the swap adds.
+2. **Emulator updates.** Check every core each session and take the safe ones (owner-rules
+   "Emulator updates", HANDOFF.md). Known behind on 7 October: PSP 132 commits, N64 29, Beetle
+   PSX 14, 3DS 6, Dreamcast 5. The 20 downloaded cores have never been checked.
+3. **The one-time heads-up line for players** when an emulator was updated (owner-rules
+   "Players get a heads-up").
+4. **Make the weekly update checker cover every core**, the 20 downloaded ones included
+   (`scripts/check-core-updates.sh`, `.github/workflows/core-updates.yml`).
+5. **Small leftovers from the cleanup**, the LOW and SUSPECTED findings. Known ones: Symbian
+   ignores pause and reinstalls its game on every launch, on the main thread; a Game Boy file
+   might be taken for an Advance one; a failed restore mentions its older copies only on the next
+   restore; a clock game's `.rtc` is rewritten on every 20-second save; cores this project didn't
+   write still give a technical line when a game won't start; one doc comment in
+   `ContinuumApp.swift` sits on the wrong function. The full lists (with IDs like IOS-11,
+   RUST-05, CBOY-05) are in `.agents/tasks/cleanup-2026-10-12/` on the machine that did the
+   cleanup; that folder is not in git.
+6. **cBoy:**
+   - MP2K high-quality Advance music. It would spot Nintendo's MP2K music engine, which many
+     Game Boy Advance games use, and play their music at a higher quality than the console's own
+     low-rate mix. None of it exists yet: no MP2K code and no option. What exists: per-channel
+     volumes, smoothing between DirectSound samples (`cboy_gba_smooth`, off by default) and the
+     high-quality Game Boy sound averaging (`cboy_audio_quality`);
+   - real Advance games tried (only test ROMs so far);
+   - Advance mosaic;
+   - the two-phone link;
+   - the phone's camera into the Game Boy Camera;
+   - the extra settings: Advance clock mode, Advance model, hybrid model, VBA bug compatibility
+     (docs/CBOY_OPTIONS_INVENTORY.md);
+   - the Mooneye CGB tests (0 of 5 now).
+7. **cBoy's exact pixel-by-pixel drawer** ("Exact (experimental)" in Picture drawing), right after
+   the cBoy jobs. Before starting it, STOP and tell the owner, so they can turn Kiro's thinking up
+   to max first. Don't begin any of it until they say it's set. When it's picked up, follow how
+   SameBoy draws and compare against it. Never guess its test pictures one pixel at a time.
+8. **Phone test rounds, in small batches:** PSP picture fixes (TESTING P-PSP2 to P-PSP4); the 3DS
+   stutter (A7); Symbian / N-Gage (S1); the new Backup and Restore (K2, K3, O1); Dreamcast and PSP
+   speed (C19, C20); NAS (SMB) sharing (B7); the 3DS camera and Amiibo; cheat files and RAM search
+   (F7).
+9. **Continuum's own arcade core** (owner, 12 October 2026).
+10. **The Switch** (road steps 10 to 12). Raise JIT with the owner first.
+11. **Android.**
+12. **Remaining phone tests:** online play with a second phone (H1); JIT (needs a tester who can
+    switch it on).
+
+Owner-only, any time: direct Google Drive, Dropbox and OneDrive logins (they need the owner's
+developer app ids; they already work through Files), and a new app icon. Not possible: GameCube
+and Wii (no JIT).
+
+Notes:
+
 - Feedback goes to ContinuumDev2c2b@gmail.com, the support address since 12 October 2026
-  (`FeedbackDestination.email` in `native/ios/Feedback.swift`). Mail opens addressed to it when Mail is set up. Otherwise the share
-  sheet opens and the text starts with that address. There is no missing address. An older line on
-  this page said there was. That line was wrong.
-- Symbian / N-Gage: **Built, untested.** Not in build 150. Linked after that and present in later installs, including 177 if the optional core compiled. No phone has run a game. Continuum Symbian
-  (`native/continuum-symbian`) is now linked to EKA2L1's jitless iOS port
+  (`FeedbackDestination.email` in `native/ios/Feedback.swift`). Mail opens addressed to it when
+  Mail is set up. Otherwise the share sheet opens and the text starts with that address.
+- Symbian / N-Gage: **Built, untested.** In every install since the one after build 150, and
+  confirmed in the build 180 file. No phone has run a game. Continuum Symbian
+  (`native/continuum-symbian`) is linked to EKA2L1's jitless iOS port
   (MuhannadYT/EKA2L1_IOS, pinned), on its dyncom interpreter, with no JIT. It is an OPTIONAL core,
   `continuum_symbian_libretro_ios.dylib`: if it does not compile, the IPA ships without it. `.sis`,
-  `.sisx` and `.n-gage` files now go to a Symbian system with a phone-keypad pad. No phone has
-  run it. Missing or unknown: whether it compiles on CI at all (nobody can build it off the Mac
-  runner), whether frames read back from the off-screen layer reach the screen, sound goes
-  straight to the speaker (not through the app's volume, rewind or recording), save states do
-  not work, there is no core-settings page, and you need your own firmware (TESTING.md S1). The
-  only other core this project wrote is the Switch one, `native/switch-wrapper`, which does not
-  run games. A core somebody else wrote keeps their name (mGBA, Azahar). See
-  [docs/HARD_SYSTEMS.md](docs/HARD_SYSTEMS.md).
-- Open work from [docs/MANIC_PARITY.md](docs/MANIC_PARITY.md) "Still to do": direct Google Drive,
-  Dropbox and OneDrive logins (they need app ids only the owner can register; they already work
-  through Files). SMB is no longer on that list.
-- Phone results that decide the next work: Dreamcast and PSP speed (TESTING C19, C20), whether
-  the 3DS stutter after transitions is gone with the second fix (TESTING A7), and whether the new camera and Amiibo path actually
-  reach a game.
-- Later, in this order: Symbian / N-Gage (built, waiting on a phone, TESTING.md S1), the Switch (road steps
-  10 to 12), Android.
+  `.sisx` and `.n-gage` files go to a Symbian system with a phone-keypad pad. Missing or unknown:
+  whether frames read back from the off-screen layer reach the screen, sound goes straight to the
+  speaker (not through the app's volume, rewind or recording), save states do not work, there is
+  no core-settings page, and you need your own firmware (TESTING.md S1; since 12 October it is
+  copied from the Continuum folder before a launch). The only other cores this project wrote are
+  cBoy and the Switch one, `native/switch-wrapper`, which does not run games. A core somebody else
+  wrote keeps their name (mGBA, Azahar). See [docs/HARD_SYSTEMS.md](docs/HARD_SYSTEMS.md).
+- Older installs (history; their sections are further down): 150 (`ef3ce42`), 149 (`d2a92a9`,
+  SMB, the 3DS camera and an Amiibo tap, none tried on a phone; 147 and 148 died in `smb_min.c`),
+  146 (`efd798e`, the icon grid and folding Settings cards), 145 (`1a28e84`, 55 home screen icons).
 - melonDS JIT is not built: its Apple code is macOS-only (RWX `MAP_JIT` pages,
   `pthread_jit_write_protect_np`) and its fast-memory setup uses `shm_open`. DS runs full speed
   on the interpreter, so it waits.
@@ -241,6 +297,11 @@ For whoever works on this next:
 ---
 
 ## Systems
+
+Build 180 has **35 cores** (38 core files with the 3 JIT builds), cBoy and Continuum Symbian
+among them. The next install changes that: the licence swap (in progress) takes five cores out
+and puts bsnes, Gearsystem and BlastEm in, and arcade leaves for now. The table below still names
+the build 180 cores. The count below is from build 124.
 
 **32 cores** are in the IPA in builds 119 to 124 (checked in the build 124 file itself: version
 0.8.0 (124), 32 core files, every emulator at its pinned version). **38 systems** in all, run by
@@ -358,7 +419,7 @@ Every row below is in the current install (newest on the Releases page). A skin 
 
 ---
 
-## Build 149 (9 October 2026) — SMB, the 3DS camera, Amiibo
+## Build 149 (9 October 2026, history) — SMB, the 3DS camera, Amiibo
 
 CI run [37979559189](https://github.com/2c2bhdhw9z-cell/Continuum-/actions/runs/37979559189)
 succeeded. Commit `d2a92a9`. Published:
@@ -384,7 +445,7 @@ Builds 147 and 148 did not ship. Both died compiling `smb_min.c`. 149 includes `
 - **Feedback.** The address was already set (the owner's old address; since 12 October 2026 it is
   ContinuumDev2c2b@gmail.com). The lines that said it was missing were wrong.
 
-## Build 146 (9 October 2026) — the icon that is actually set, and settings that fold
+## Build 146 (9 October 2026, history) — the icon that is actually set, and settings that fold
 
 Release `build-146-efd798e`, commit `efd798e`.
 [Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-146-efd798e/Continuum.ipa).
@@ -396,14 +457,14 @@ Release `build-146-efd798e`, commit `efd798e`.
 - Every Settings section opens and closes. Open all / Close all is on the Settings title. Closed
   sections are remembered.
 
-## Build 145 (9 October 2026) — 55 home screen icons
+## Build 145 (9 October 2026, history) — 55 home screen icons
 
 Release `build-145-1a28e84`, commit `1a28e84`.
 [Continuum.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-145-1a28e84/Continuum.ipa).
 
 - Settings has a switcher for 55 alternate home screen icons, plus the primary icon.
 
-## Build 144 (9 October 2026) — library scroll, re-import, fast-forward, the phone's name
+## Build 144 (9 October 2026, history) — library scroll, re-import, fast-forward, the phone's name
 
 Release `build-144-74050e5`, version 0.8.0 (144), 35 core files checked in the ipa.
 Link: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-144-74050e5/Continuum-144.ipa
@@ -419,7 +480,7 @@ Not shown, so not Done: rewind letting go the same way, covers not flashing, the
 feedback screen, one bad skin entry not wiping the list, and a random skin id not becoming a
 console. A skin that does not name itself can still show up twice on two phones. That is on purpose.
 
-## Build 142 (7 October 2026) — the owner's app icon, and everything below that was waiting on a build
+## Build 142 (7 October 2026, history) — the owner's app icon, and everything below that was waiting on a build
 
 **The app has an icon the owner supplied.** A chrome C around a gamepad with CONTINUUM beneath it,
 on near-black.
@@ -452,7 +513,7 @@ The getting-games-in work below rode along in this build.
 
 ---
 
-## Built in 142 — the real scrolling cause, the cover flash, and the device name
+## Built in 142 (history) — the real scrolling cause, the cover flash, and the device name
 
 **The first two scrolling attempts did nothing on any tab, and the owner was right to say so.**
 Both were guesses. This one was measured.
@@ -491,7 +552,7 @@ theapplewiki's per-model pages rather than guessed.
 
 ---
 
-## Built in 142 — the core cache was being deleted a second after it was restored
+## Built in 142 (history) — the core cache was being deleted a second after it was restored
 
 **The ~6 minute build never happened, and build 142 is the proof.** Its log reads
 `Cache hit for: ios-cores-macOS-1c0a08df...` and `Cache restored successfully`, then rebuilt all
@@ -518,7 +579,7 @@ build after this should be the first genuinely fast one.
 
 ---
 
-## Built in 142 — the app ASKS about a backup instead of waiting to be found
+## Built in 142 (history) — the app ASKS about a backup instead of waiting to be found
 
 The owner's reply to being told to set a sync folder up: *"I've never had a chance to do it before,
 so I'm not going to start now when this should have been one of the first things ever done in the
@@ -542,7 +603,7 @@ when a game is left.
 
 ---
 
-## Also in build 142 — deleting the app no longer loses everything
+## Also in build 142 (history) — deleting the app no longer loses everything
 
 The owner deletes Continuum before installing each new build, every time, and said they hate it
 but assumed it was unavoidable. It is not. Cloud sync already restored save states, battery saves,
@@ -589,7 +650,7 @@ Owner tests: [TESTING.md](TESTING.md) M1 to M3.
 
 ---
 
-## Build 141 (7 October 2026) — the Home screen: all your games, in the right order, scrolling better
+## Build 141 (7 October 2026, history) — the Home screen: all your games, in the right order, scrolling better
 
 Four things, all from the owner using build 138.
 
@@ -645,7 +706,7 @@ name — the same flaw this build just fixed for arrival order). That is the nex
 
 ---
 
-## Build 140 (7 October 2026) — two tester-facing lines that had gone wrong
+## Build 140 (7 October 2026, history) — two tester-facing lines that had gone wrong
 
 Both found by reading the owner's build 138 Settings screenshot, not from code.
 
@@ -671,7 +732,7 @@ into that install yet, it is nothing. Not yet known which.
 
 ---
 
-## Build 139 (7 October 2026) — a transient GitHub error no longer costs a whole build
+## Build 139 (7 October 2026, history) — a transient GitHub error no longer costs a whole build
 
 **Build 135 failed for a reason that had nothing to do with this project.** The .ipa was built,
 verified and uploaded; then GitHub's own API answered **HTTP 500** to the release creation and the
@@ -690,7 +751,7 @@ behaving correctly now that there is no icon.
 
 ---
 
-## Build 138 (7 October 2026) — the N64 gets JIT on current iPhones too
+## Build 138 (7 October 2026, history) — the N64 gets JIT on current iPhones too
 
 The last system that could not use JIT on an iPhone 13 or newer running iOS 26 now can, so
 **every system with a JIT build gets it on every phone that can switch it on**. Not tested on a
@@ -748,7 +809,7 @@ context is the file as the first leaves it. That order is load-bearing.
 
 ---
 
-## Build 136 (7 October 2026) — the build takes ~6 minutes instead of ~40
+## Build 136 (7 October 2026, history) — the build takes ~6 minutes instead of ~40
 
 Nothing in the app changed. This is about how long a fix takes to reach the phone, which was
 the worst thing about working on it: every build, including one that only changed a line of
@@ -819,7 +880,7 @@ because `build-core.sh` did. Builds after it are the fast ones.
 
 ---
 
-## Build 135 (7 October 2026)
+## Build 135 (7 October 2026, history)
 
 **The drawn app icon is out again, and the app ships no icon.** Nothing else changed from 134, so
 every build 133 test still applies.
@@ -864,13 +925,13 @@ so that route is closed regardless of how the output looks.
 
 ---
 
-## Build 134 (7 October 2026)
+## Build 134 (7 October 2026, history)
 
 A drawn app icon, removed again in 135 — see above. Do not install this one for the icon.
 
 ---
 
-## Build 133 (7 October 2026)
+## Build 133 (7 October 2026, history)
 
 Checked in the .ipa: the app exports the two symbols the cores look up, and PPSSPP, Azahar, PCSX
 ReARMed and flycast's JIT build all have the lookup compiled in. Nobody has run it on a phone with
@@ -900,7 +961,7 @@ that was missing.
 - Settings says what is happening in plain words, and finishes the setup by itself after the
   StikDebug trip. Nothing changes on a phone without JIT, including the owner's.
 
-## Build 131 (7 October 2026)
+## Build 131 (7 October 2026, history)
 
 (Build 130 stopped on a Swift start-up order mistake and an N64 JIT link error; both fixed.)
 JIT for everyone who can switch it on (owner, 7 October). Nothing changes on a phone without JIT,
@@ -922,7 +983,7 @@ which includes the owner's: every core loads and runs exactly as in build 129.
   with StikDebug" where attaching is all it takes. The (i) panel and the feedback details carry a
   `JIT:` line with the state, the phone and which JIT builds are in this copy.
 
-## Build 129 (6 October 2026)
+## Build 129 (6 October 2026, history)
 
 Cleaned up for a public beta: strangers will download and test it. (Build 128 was cancelled
 part-way, because the owner asked for every tester-facing line to sound human first.)
@@ -940,7 +1001,7 @@ part-way, because the owner asked for every tester-facing line to sound human fi
   share menu text starts with that address.
 - README and the Release notes are written for testers, and name no particular installer.
 
-## Build 127 (6 October 2026)
+## Build 127 (6 October 2026, history)
 
 The owner tested build 126: A1, A2, A4 pass; the rest is below. TESTING.md A1 to A4.
 
@@ -961,7 +1022,7 @@ The owner tested build 126: A1, A2, A4 pass; the rest is below. TESTING.md A1 to
   offered after the app closes by itself (engine: `feedback.rs`). A save that was loading when the
   app closed is skipped once, so a bad save cannot crash every start of a game.
 
-## Build 126 (5 October 2026)
+## Build 126 (5 October 2026, history)
 
 The owner tested build 125 (results in HANDOFF.md). The fixes and the two asks. TESTING.md A1 to A6.
 
@@ -986,7 +1047,7 @@ The owner tested build 125 (results in HANDOFF.md). The fixes and the two asks. 
   addressed to the owner once there is an address (`FeedbackDestination.email`), and the share
   menu until then. Nothing is sent without the player tapping send.
 
-## Build 124 (5 October 2026)
+## Build 124 (5 October 2026, history)
 
 A bug sweep, nothing new to learn. TESTING.md A4 to A7.
 
@@ -1024,7 +1085,7 @@ A bug sweep, nothing new to learn. TESTING.md A4 to A7.
   downloaded is no longer reported as "no cover found", and is not retried over and over.
 - The SMB message now gives the real reason it is missing.
 
-## Build 123 (5 October 2026)
+## Build 123 (5 October 2026, history)
 
 - Save slot pictures were black: every capture (slot pictures, and on some screens covers and
   screenshots) was drawn with the screen's drawing step into a picture of a different format, which
@@ -1036,7 +1097,7 @@ A bug sweep, nothing new to learn. TESTING.md A4 to A7.
   settings change, fast forward, the CRT filter, the cover from the game and Save to the next free
   slot.
 
-## Build 122 (5 October 2026)
+## Build 122 (5 October 2026, history)
 
 - The owner's asks: an eye button that hides or shows the player's top bar, and importing several
   skins at once.
@@ -1064,7 +1125,7 @@ A bug sweep, nothing new to learn. TESTING.md A4 to A7.
   machine; a failure stops the build before the 30-minute Mac part.
 - Other AI tools' files and branches were removed from the repository.
 
-## Builds 117 to 121 (4 October 2026)
+## Builds 117 to 121 (4 October 2026, history)
 
 - **117** closed on launch: the SMB library was linked but not packed into the app. SMB removed; CI
   now fails any build that links a framework it does not carry.
@@ -1076,7 +1137,7 @@ A bug sweep, nothing new to learn. TESTING.md A4 to A7.
   build 122).
 - **121**: switch to hide Apple's performance overlay; docs brought up to date.
 
-## Built 3 October 2026
+## Built 3 October 2026 (history)
 
 Everything below is on master and in the current install, and mostly not on a phone yet. Confirmed
 since (build 122): 2x speed, the CRT filter, a 3DS core-settings change and importing several
@@ -1227,7 +1288,10 @@ Not forgotten, and not bugs:
 - Separate saved control layouts per orientation for the built-in pad (no imported skin). It does re-arrange itself for landscape. Imported skins swap portrait and landscape.
 - **PSP (PPSSPP)** is step 9 and is **in this IPA as Partial**, not Done. The CPU is the IR interpreter, no JIT and no dynarec. It has not been tried on a phone. App Store PPSSPP is also interpreter-only; lighter games are reported smooth there and heavy games hitch. That report is not a Continuum result. Nothing to do with Switch is deferred; it is steps 10 to 12. 3DS is in the app as Partial (a game runs; whether the stutter after transitions is gone is not known yet), not deferred.
 
-### cBoy: Pokemon Yellow freeze, headless reproduction attempt (Oct 11)
+### cBoy: Pokemon Yellow freeze, headless reproduction attempt (Oct 11, history)
+
+The cause turned out to be a cut-off file, not cBoy. See "Where we stopped".
+
 - Built pokeyellow, pokered, pokeblue, pokegold and pokecrystal from pret (rgbds 1.0.3, sha1 of
   Yellow matches the retail cart). `cores/continuum-gb/scripts/build-pret-roms.sh` builds them;
   `PRET_DIR=... cargo test --release --test pret` runs all five from boot through the intro,
@@ -1248,16 +1312,57 @@ Not forgotten, and not bugs:
 - Battery saves from mGBA/VBA with the 44/48-byte clock footer (MBC3 games) now load the RAM
   part instead of being refused.
 
-## Where we stopped (Oct 11, Yellow — the short file)
+## Where we stopped (12 October 2026)
+
+Build 180 (`dd89824`) is the newest published install. On 12 October everything earlier sessions
+left broken or out of date was cleaned up. All of it is on master and tested here, without a
+phone. It goes into the next install together with the licence swap, which is still in progress
+(no build in between). Phone checks for the cleanup: TESTING.md "This install only" and section
+K. What comes after that install: "Next up".
+
+- **New feedback address:** ContinuumDev2c2b@gmail.com (`FeedbackDestination.email`). The old one
+  is gone from the app and the notes. The feedback and crash-report forms always open fully now.
+- **cBoy "Picture drawing" option** (Core settings): **Standard**, the older per-line drawer that
+  played Yellow on build 177, is the default. **Exact (experimental)** is the unfinished
+  pixel-by-pixel drawer, which build 180 had on for everyone with no way to switch it off. The
+  debug switches it checked on every line are gone.
+- **No made-up startup picture.** cBoy's leftover startup code is removed. The boot-ROM option
+  now says that without the file the game simply starts.
+- **cBoy files work on a phone:** boot files, the Advance BIOS and a custom palette go in the
+  Continuum folder, then Install a BIOS in Settings. They go into cBoy's own folder only.
+- **cBoy cartridge clocks** (Pokémon Gold, Silver, Crystal and other clock games) are kept between
+  sessions as `<game>.rtc`, and catch up properly after days closed. HuC3 clocks catch up too.
+  **Tilt and turn cartridges** now get the phone's motion.
+- **Backups:** a damaged or non-Continuum .zip is refused instead of crashing or deleting
+  anything. Back up to Files copies one way, so deleted things never come back. It says when some
+  files couldn't go in. Restore keeps the newer copy of each file and puts the other one in Files,
+  Continuum, Older copies. The backup prompt says what it really does, and asks again after a
+  week of new saves.
+- **Auto-saves:** one the game can't resume (its core changed, was rebuilt, or its settings
+  changed) is moved to a free slot instead of being saved over.
+- **NES** plays on FCEUmm if a build has no Mesen. **Continuum Symbian** copies its firmware from
+  the Continuum folder before a launch, and shows its own reason when a game won't start.
+  **3DS Amiibo:** no tap by itself after a relaunch, and what a game saves to the figure is kept.
+- **Behind the scenes:** QA Wolf is removed completely. The code is marked GPL v3, like LICENSE
+  and README. CI runs clippy. A cBoy-only change starts a build by itself, and no longer rebuilds
+  every other core. The Mealybug test download is pinned.
+- **Checks (12 October):** 629 workspace tests pass and clippy is clean. cBoy's 78 tests pass:
+  both acid2 pictures and Mooneye DMG 86 of 86 on both drawers, Mealybug 5 of 55 on Exact. Skins
+  (720 checks), players and the Switch wrapper (15 of 15) pass.
+- **Not done yet:** the licence swap (in progress, same install). Small things left for later
+  are item 5 of "Next up". The old address is still in four old commits of git history. Removing
+  it needs a force push, which only the owner can approve.
+
+### Yellow, the short file (11 October, history)
 
 - **The stripes are a cut-off ROM, not a Game Boy bug.** The copy that breaks is `Pokemon - Yellow Version - Special Pikachu Edition (USA, Europe) (GBC,SGB Enhanced).gb`, shown as 997 KB. The copy that plays is `Pokemon - Yellow Version (USA, Europe).gbc`, shown as 1.0 MB. A full Yellow is 1,048,576 bytes. 997 KB is 1,020,928 bytes. The opening after the Game Freak logo starts at byte 1,022,013, past the end of the short file.
 - **cBoy pads a short file up to 1 MB with empty bytes and then logs "ROM 1024 KB".** That is why an earlier note said the phone was running the same ROM as the full file. It was not. The header matches, so the log looks the same. The missing ending does not show up there.
 - **Cutting the full ROM to 997 KB and padding it the same way reproduces the phone's log exactly.** Game Freak copies 54B0 to 9800 and 9C00, then 56F0 to 9E40 (928 bytes, line 112), then 3900 to 9900 over and over with the screen off. Those empty bytes are a "restart" instruction, so the game runs off the end of the file and the copies go wild. The full 1 MB file does not do this.
 - **The short file cannot be repaired.** The missing part is not in the app. Use the 1.0 MB copy.
-- **A cut-off file is now refused, in the source, not on the phone yet.** A Game Boy or Color file shorter than its own header (and bigger than the 32 KB minimum) does not start. The line the phone will show, for the 997 KB Yellow, is: "This file is cut off. It is 997 KB and the cartridge says 1.0 MB. The missing part is not in the file. Use a complete copy." A complete file and a small homebrew file that only claims 32 KB still start. The activity log reports the file's real size, not the padded one. Checked by `cart::tests::a_short_yellow_is_named_as_cut_off_and_a_full_one_is_not`. Not in build 177. A new install would also turn on the unfinished pixel drawer, so none was started.
-- **Pixel FIFO: still unfinished, still not in build 177.** On by default. dmg-acid2 and cgb-acid2 still pass. The fine-scroll read still lands so the scroll test's shift starts on line 72 (`scx_low_bits_take_effect_on_line_72`). The fetcher starts 5 dots later than that read. A background-palette write mixes the old and new values only for a pixel on the next dot. Mealybug is 3 passed, 52 failed: `m2_win_en_toggle`, `m3_bgp_change`, and `m3_wx_4_change_sprites`. A WX write after the window has already started puts color 0 at the new position when that pixel is the first of a tile, unless WX is written again first. The boot expands the cartridge logo into the first tiles and leaves the ® mark in sprite tile 25. Five picture checks pass: window on and off, background palette, window enable, the low bits of the sideways scroll, and a window with sprites. Window timing is 25 wrong pixels. Do not start an IPA.
+- **A cut-off file is now refused, in the source, not on the phone yet.** A Game Boy or Color file shorter than its own header (and bigger than the 32 KB minimum) does not start. The line the phone will show, for the 997 KB Yellow, is: "This file is cut off. It is 997 KB and the cartridge says 1.0 MB. The missing part is not in the file. Use a complete copy." A complete file and a small homebrew file that only claims 32 KB still start. The activity log reports the file's real size, not the padded one. Checked by `cart::tests::a_short_yellow_is_named_as_cut_off_and_a_full_one_is_not`. It shipped in build 180.
+- **Pixel FIFO (the pixel-by-pixel drawer): unfinished.** It shipped in build 180, on for everyone. Since 12 October it is the "Exact (experimental)" choice and Standard is the default. dmg-acid2 and cgb-acid2 still pass. The fine-scroll read still lands so the scroll test's shift starts on line 72 (`scx_low_bits_take_effect_on_line_72`). The fetcher starts 5 dots later than that read. A background-palette write mixes the old and new values only for a pixel on the next dot. Mealybug is 5 passed, 50 failed: `m2_win_en_toggle`, `m3_bgp_change`, `m3_lcdc_win_en_change_multiple_wx`, `m3_scx_low_3_bits` and `m3_wx_4_change_sprites`. A WX write after the window has already started puts color 0 at the new position when that pixel is the first of a tile, unless WX is written again first. The boot expands the cartridge logo into the first tiles and leaves the ® mark in sprite tile 25. Five picture checks pass: window on and off, background palette, window enable, the low bits of the sideways scroll, and a window with sprites. Window timing is 25 wrong pixels.
 - **HuC3 (type $FE) and Game Boy Camera (type $FC)** are in the source and covered by unit tests. The camera can take a supplied 128 by 112 picture; nothing on the phone fills that picture yet. The HuC3 clock is saved with the other clock data.
-- **Startup:** if the boot-ROM option is on and the file is missing, cBoy plays its own short startup picture (not Nintendo's logo), then the game.
+- **Startup:** no made-up startup picture (owner's rule). If the boot-ROM option is on and the file is missing, the game simply starts. The leftover code for cBoy's own startup picture was removed on 12 October.
 - **Link:** two machines can exchange one serial byte through `link_in` / `link_out`. Nothing connects two phones yet.
 - **Game Boy Player rumble** answers the handshake when `cboy_gbp` is on. The on bit (`0x26`) sets the motor; `0x04` clears it. Checked in a unit test. The high-quality Advance path now ramps sampled sound between samples instead of averaging one pair.
 - **Remaining picture tests are parked.** Five Mealybug pictures pass and stay pinned. The other fifty are cycle-exact timing pictures. Guessing them one pixel at a time moved the counts and then broke a picture that already passed. A full ROM of Pokémon Yellow gets past the Game Freak logo; that was the real bug (a cut-off file). The next install is no longer held for the rest of those pictures.

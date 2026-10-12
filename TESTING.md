@@ -1,13 +1,20 @@
 # What to test, and what to tell me
 
-Last updated 11 October 2026. The next install is the one that includes cBoy's file check.
-Build 177 is still the last published one until that install finishes.
+Last updated 12 October 2026. Build 180 is the newest published install. The next install is
+the cleanup plus the licence swap (the swap is still being done), and it isn't built yet. The
+steps below are for the cleanup part; the swap adds its own.
 
 ## This install only
 
-1. Install it the same way as usual.
-2. Settings, find Core for Game Boy games, pick cBoy. Then open the full Pokémon Yellow (the one that already played). It should get past the Game Freak logo into the game.
-3. If you still have the short Yellow file, opening it on cBoy should say the file is cut off, not show stripes.
+1. **Settings** → **Send feedback**, type anything → **Send**. ✅ It's addressed to
+   **ContinuumDev2c2b@gmail.com** (in Mail, or at the top of the share text).
+2. **Settings** → **Core for Game Boy games** → **cBoy**, and **Core for Game Boy Color games** →
+   **cBoy**. Open any Game Boy or Color game (the full Pokémon Yellow is fine). Don't change any of
+   cBoy's settings first. ✅ It plays normally.
+3. In that game: **⋯** → **Core settings...** → **Picture drawing**. ✅ **Standard** is picked, and
+   you can pick **Exact (experimental)** instead.
+4. Same page: read the small note under **Start from a boot ROM file**. ✅ It says that without
+   the file the game simply starts. It doesn't promise a startup picture.
 
 Do not retest Home, scrolling, re-import, or fast-forward. Those already passed.
 
@@ -24,10 +31,9 @@ For people trying the public beta. Ten minutes, and say what happened at each st
 7. Settings → About: check the version, and that Open-source credits opens.
 8. If anything goes wrong: Settings → Send feedback, with a screenshot.
 
-This file has two halves. **The list right below is the one to work through.** The build 144 block
-at the top of that list already passed on a phone. Do not ask it again. Everything under it is
-built and no phone has confirmed it yet. Further down is a record of what already works, kept only
-so a new build that breaks an old thing gets noticed.
+This file has two halves. **The list right below is the one to work through.** Everything in it
+is built and no phone has confirmed it yet, unless a line says it passed. Further down is a record
+of what already works, kept only so a new build that breaks an old thing gets noticed.
 
 **How to report:** say the test number and what happened. If something goes wrong, a screenshot of
 the whole screen is the best thing you can send. The line of small text near the top of the player
@@ -81,19 +87,8 @@ fast-forward lets go after Control Centre, and the (i) line names the phone. Do 
 | K3 | Delete a game, then Back up to Files again | The game does not come back |
 | K4 | Settings → Send feedback on a fresh install | Every part of the form is open, not just Send |
 | K5 | cBoy: Core settings → Picture drawing | Standard is picked; Exact (experimental) also plays a game |
-
-## A. This install (build 144) — passed on the phone
-
-The owner said these look fine (9 October, build 144). Do not ask them again.
-
-- Home stays readable once you scroll past the big cover, and Home and All Games scroll fine.
-- Importing a game that is already in the library keeps it, and it still opens.
-- Fast-forward lets go when Control Centre takes the touch.
-- The (i) line names the phone.
-
-Not part of that, so still unconfirmed: rewind letting go the same way, covers not flashing (P2),
-and the phone name on the feedback screen (P3). The skin-list protections (one bad skin, a nonsense
-console name) were not something to set up, and were not checked.
+| K6 | cBoy: play Pokémon Gold, Silver or Crystal, check the time in the game, close it, come back an hour later | The game's clock moved on about an hour |
+| K7 | cBoy: a tilt game (Kirby Tilt 'n' Tumble, for example), tilt the phone | The game reacts to the tilt |
 
 ## P. After build 158
 
@@ -157,24 +152,30 @@ Make a save state and load it.
 4. Tell me which of these you got: an error message (copy its words), a black screen, the phone
    menu, or the game. Also: is there sound, and roughly how fast does it run.
 
-## A. In builds since 144, not confirmed yet
+## A. Older builds, not confirmed yet
 
-**P1. Scrolling.** Passed on build 144. See the block above. Do not ask again.
+Mostly tests from builds 129 to 144 that no phone has confirmed. Build 144's Home, scrolling,
+re-import, fast-forward and (i) checks passed on 9 October (they're in the confirmed list near
+the top), so don't ask them again. Also still unconfirmed from 144: rewind letting go when
+Control Centre takes the touch, and the skin-list protections (one bad skin, a nonsense console
+name), which aren't something to set up.
 
-**P2. Covers stop flashing**
+### Since build 144
+
+**A8. Covers stop flashing**
 1. Scroll a long way down All Games, then scroll back up over covers you already passed.
 2. ✅ Good: covers are just THERE. No coloured placeholder for a moment, no fade-in.
 3. ❌ A cover the app has never fetched before still fades in once, which is correct. The bug was
    covers it already had doing it again.
 
-**P3. The report names your phone**
+**A9. The report names your phone**
 1. **Settings** → **Send feedback** → look at the lines at the bottom.
 2. ✅ Good: it says something like **iPhone 17 Pro Max (iPhone18,2)** instead of just iPhone18,2.
    The part number stays on purpose — it is what decides the JIT rules.
 
-## A. New in build 142 (do these first)
+### Build 142
 
-**N1. The icon**
+**A10. The icon**
 1. Install build 142 and look at your home screen.
 2. ✅ Good: your icon is there — the C with the gamepad and CONTINUUM under it — and the corners
    look like every other app's corners.
@@ -182,10 +183,11 @@ Make a save state and load it.
    one, with a dark sliver between them, tell me: that means I trimmed the wrong amount.
 4. ✅ It should also show in the **Settings** app's list and in Search.
 
-## A. Deleting the app stops losing everything
+### Deleting the app stops losing everything
 
-**Not in a build yet:** the app ASKS you about a backup the first time you have games in it,
-instead of hiding it in Settings. Each yes saves one backup file; it is not automatic after that.
+**In the next install (the cleanup):** the app ASKS you about a backup the first time you
+have games in it, instead of hiding it in Settings. Each yes saves one backup file; it is not
+automatic after that.
 
 **O1. It asks on its own**
 1. Install a build with this in it and import a game.
@@ -216,7 +218,7 @@ instead of hiding it in Settings. Each yes saves one backup file; it is not auto
 2. ✅ Good: your games are there, and no BIOS file is. Disc games should have their `.bin`/track
    files beside the `.cue`, or they would not load when restored.
 
-## A. New in build 141 (do these first)
+### Build 141
 
 **L1. All your games show in Recently added**
 1. Import a big batch of games at once (the more the better).
@@ -238,7 +240,7 @@ instead of hiding it in Settings. Each yes saves one backup file; it is not auto
 3. ❌ If anything looks blurrier or softer than build 138, tell me straight away — nothing in this
    build shrinks artwork, so that would mean I got something wrong.
 
-## A (from build 140)
+### Build 140
 
 **J3. The JIT line says what to do about it now**
 1. **Settings** → **TECHNICAL DETAILS** → the **JIT** row.
@@ -253,7 +255,7 @@ work has ever run on a phone): re-sign the .ipa with the `get-task-allow.entitle
 sits beside it, using a signing app that asks you for an entitlements file, then attach StikDebug.
 Your current copy was signed without it, which is why JIT can never switch on for that install.
 
-## A (from build 133) — J1 PASSED on build 138
+### Build 133 — J1 PASSED on build 138
 
 **J1. The JIT line** — ✅ **Passed, 7 October, build 138.** The owner's screenshot shows
 `Off. The way this copy was signed doesn't allow JIT. That's fine, everything still works, just
@@ -274,7 +276,7 @@ That sentence was reworded in build 140 because it named a cause with no action 
 3. Tap **(i)** while a game is running. ✅ A line starting **JIT:** says it is off and names your
    iPhone and iOS version. Send me a screenshot of that line.
 
-## A (from build 129)
+### Build 129
 
 **A1. A cleaner player**
 1. Open any game.
@@ -301,7 +303,7 @@ That sentence was reworded in build 140 because it named a cause with no action 
    version. Tell me what it says.
 2. Turn both walk-through-walls cheats off. ✅ Good: the game no longer freezes when you move.
 
-## A (older). Things to notice in passing
+### Older: things to notice in passing
 
 **A7. Things to notice in passing** (no need to set up)
 - The small text in the player should always read as plain English. If you ever see something like
@@ -442,7 +444,8 @@ left and is waiting, keeps its game going, and lets the second phone back in.
 - Online play over the internet needs port 55435 opened on the host's router.
 - A WebDAV server that arrives on a second phone through cloud sync has no password there (passwords
   never leave the phone they were typed on). Remove it and add it again on that phone.
-- JIT is left out on purpose.
+- JIT: it's in the app for phones that can switch it on. Yours can't, so there's nothing to test.
+  Everything works without it.
 
 ---
 

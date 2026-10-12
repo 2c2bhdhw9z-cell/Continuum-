@@ -6,25 +6,66 @@ Paste this to start a new chat:
 > `HANDOFF.md`, then `STATUS.md` ("Next up" first), `docs/CORE_UPDATES.md` and `TESTING.md`
 > section A. Then carry on.
 
-## Where this left off (11 October 2026)
+## Where this left off (12 October 2026)
 
-Build 180 (`dd89824`) is published:
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-180-dd89824/Continuum-180.ipa
-The owner deleted the short Yellow file and has nothing to test on it. The full file already played.
-Do not go back to guessing one test pixel at a time.
-Next: the MP2K mixer on cBoy. Do not add a fake startup picture. A boot picture only plays when a real boot file is there. Do not start an install until the music is in.
+- **Build 180** (`dd89824`) is the newest published install:
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-180-dd89824/Continuum-180.ipa
+  0.8.0 (180), 38 core files (35 cores plus 3 JIT builds), cBoy and Continuum Symbian inside.
+  The owner has nothing left to try on it.
+- **The next install = the cleanup + the licence swap (the swap is still in progress).** No
+  build happens between them.
+  - **The cleanup (12 October, done)** fixed what earlier sessions left broken or out of date.
+    It's all on master and tested here, but not built and not on a phone yet. In it: the new
+    feedback address, cBoy's drawer choice, no made-up startup picture, backup, restore and
+    auto-save fixes, cBoy clocks and tilt, Symbian firmware, Amiibo and NES fixes, QA Wolf
+    removed, GPL v3 on the code, clippy in CI, and cBoy out of the core cache. Full list:
+    STATUS.md "Where we stopped". Phone checks: TESTING.md "This install only" and section K.
+  - **The licence swap (in progress):** Snes9x, Genesis Plus GX, PicoDrive, FinalBurn Neo and
+    MAME 2003-Plus out; bsnes (Mesen 2 as a second SNES choice), Gearsystem and BlastEm in;
+    arcade out for now, with no MAME. Plan and checks: owner-rules.md "Licences". The swap
+    writes its own phone tests.
+- **New support and feedback email: ContinuumDev2c2b@gmail.com** (owner, 12 October). It's in
+  the app (`FeedbackDestination.email`), the README and the notes. The old address is retired
+  everywhere.
+- **cBoy's drawer:** the older per-line drawer, "Standard", is the default. The pixel-by-pixel
+  one stays as the "Exact (experimental)" choice in Core settings → Picture drawing. Finishing it
+  comes right after the cBoy jobs (item 7 below): before starting it, stop and tell the owner so
+  they can turn Kiro's thinking up to max. Follow SameBoy; never guess its test pictures one
+  pixel at a time.
+- **No made-up startup picture.** A boot picture only plays when the player's own real boot file
+  is there.
+- **The owner's order from here (12 October; details in STATUS.md "Next up"):**
+  1. Finish the cleanup + licence swap, then one install.
+  2. Emulator updates: check every core each session and take the safe ones. Known behind:
+     PSP 132, N64 29, Beetle PSX 14, 3DS 6, Dreamcast 5. The 20 downloaded cores have never
+     been checked.
+  3. The one-time heads-up line for players when an emulator was updated.
+  4. Make the weekly update checker cover every core, the 20 downloaded ones included.
+  5. Small leftovers from the cleanup (the LOW and SUSPECTED findings).
+  6. cBoy: MP2K high-quality Advance music (doesn't exist yet: no MP2K code and no option; what
+     exists is per-channel volumes, `cboy_gba_smooth` in `cores/continuum-gb/src/gba/bus.rs`,
+     and `cboy_audio_quality`); real Advance games tried; Advance mosaic; the two-phone link;
+     the phone's camera into the Game Boy Camera; the extra settings (Advance clock mode,
+     Advance model, hybrid model, VBA bug compatibility); the Mooneye CGB tests (0 of 5).
+  7. The exact Game Boy drawer (stop and tell the owner first, see above).
+  8. Phone test rounds, in small batches: PSP picture fixes, 3DS stutter, Symbian / N-Gage, the
+     new Backup and Restore, Dreamcast and PSP speed, NAS (SMB) sharing, 3DS camera and Amiibo,
+     cheat files and RAM search.
+  9. Continuum's own arcade core.
+  10. The Switch (raise JIT with the owner first).
+  11. Android.
+  12. Remaining phone tests: online play with a second phone; JIT (needs a tester who can
+      switch it on).
 
-Build 144, release `build-144-74050e5`, version 0.8.0 (144), 35 core files checked in the ipa.
-Link: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-144-74050e5/Continuum-144.ipa
+  Owner-only, any time: direct Google Drive, Dropbox and OneDrive logins (the owner's developer
+  app ids), and a new app icon. Not possible: GameCube and Wii (no JIT).
 
-The owner said the four phone checks look fine (9 October): Home stays readable after the big
-cover, Home and All Games scroll fine, re-importing a game keeps it and it still opens,
-fast-forward lets go when Control Centre takes the touch, and the (i) line names the phone.
-Do not ask those again.
-
-Not shown, so not Done: rewind letting go the same way, covers not flashing (TESTING P2), the
-phone name on the feedback screen (P3), one bad skin not wiping the list, and a random skin id
-not becoming a console. A skin that does not name itself can still show up twice across two
+Older, kept as history: build 144 (`build-144-74050e5`) passed the owner's four phone checks on
+9 October (Home readable after the big cover, Home and All Games scroll, re-importing keeps a
+game, fast-forward lets go after Control Centre, the (i) line names the phone). Do not ask those
+again. Not shown, so not Done: rewind letting go the same way, covers not flashing (TESTING A8),
+the phone name on the feedback screen (A9), one bad skin not wiping the list, and a random skin
+id not becoming a console. A skin that does not name itself can still show up twice across two
 phones. No JIT test.
 
 ## Check for newer emulator versions at the start of every session (owner ⭐, 12 October 2026)
@@ -50,15 +91,17 @@ session and takes them itself, after checking thoroughly. The full rule is in
    built yet; do it with the first batch of updates). See "Players get a heads-up" in
    owner-rules.md for the wording and the rules.
 
-The weekly scheduled job (`.github/workflows/core-updates.yml`) has never run yet. Its page is
-only a hint, never the whole answer.
+The weekly scheduled job (`.github/workflows/core-updates.yml`) has not run once yet (0 runs on
+12 October). Its page is only a hint, never the whole answer.
 
-As of 7 October 2026 the first run found 5 of 13 behind: PSP (132 commits), N64 (29),
-Beetle PSX HW (14), 3DS (6), Dreamcast (5).
+The only check so far, a manual run on 7 October 2026, found 5 of 13 behind: PSP (132 commits),
+N64 (29), Beetle PSX HW (14), 3DS (6), Dreamcast (5).
 
-## Where things are (7 October 2026)
+## Older notes (7 October 2026, history)
 
-- **The app ships no icon, and that is the current state rather than an oversight.** Build 134 added
+- (Out of date: since build 142 the app has the owner's icon, and build 145 added 55 home screen
+  icons. The steps in this bullet are still how an icon is put in.)
+  **The app ships no icon, and that is the current state rather than an oversight.** Build 134 added
   a drawn one; the owner had asked to see artwork before it went into the app, it went in before
   they saw it, and they then rejected it along with three alternatives, so build 135 took it out.
   Do not put one back without them approving the picture first. To put one in:
@@ -174,16 +217,21 @@ for one exact game version; the cheat screen names the version for GBA and Game 
   it, and that single build contains everything. Nothing is ever left only in the sandbox, and the
   owner gets one build.
 - Only the paths listed in `ios.yml`'s `on: push: paths:` start a build at all, so a commit
-  touching only `STATUS.md`, `HANDOFF.md`, `TESTING.md` or `docs/` never needs `[skip ci]`.
-- **A build takes about 6 minutes, not 40, as of build 136.** The 35 cores are cached between
-  runs (STATUS.md "Build 136"). Three things to know: editing anything in `scripts/patches/`,
-  `scripts/build-core.sh`, `native/continuum-symbian/` or `native/ios/build-engine.sh` changes the
-  cache key and the next build pays the full ~40 minutes rebuilding everything, which is correct
-  but worth saying before a one-line patch edit; cBoy (`cores/continuum-gb`) is NOT in the key and
-  is compiled from source on every build, so a cBoy edit costs about a minute, never a full
-  rebuild; and the cache is saved in its own step straight after the cores are built, before the
-  app is packaged, so a build that fails later (Xcode, packaging, the release) does NOT cost the
-  owner the 35 minutes again on the retry. That step is deliberately not `if: always()`: a core
+  touching only `STATUS.md`, `HANDOFF.md`, `TESTING.md` or `docs/` (but not `docs/samples/`,
+  which the skin check uses) never needs `[skip ci]`.
+- **A build takes about 6-8 minutes on the Mac when the cores are cached, and about 45-50
+  minutes when they are not.** The cores built from source are cached between runs (STATUS.md
+  "Build 136"). Three things to know: editing anything in `scripts/patches/`,
+  `scripts/build-core.sh`, `native/continuum-symbian/` or `native/ios/build-engine.sh` (or a new
+  Xcode on the runner) changes the cache key, and the next build pays the full 45-50 minutes
+  rebuilding every core, which is correct but worth saying before a one-line patch edit; cBoy
+  (`cores/continuum-gb`) is NOT in the key since the 12 October fix and is compiled from source
+  on every build, so a cBoy-only change costs about a minute, never a full rebuild (builds 177
+  and 180 took about 47 minutes only because cBoy was still in the key). A cBoy-only push does
+  start a build by itself now, so use `[skip ci]` until the last push of a batch. And the cache
+  is saved in its own step straight after the cores are built, before the app is packaged, so a
+  build that fails later (Xcode, packaging, the release) does NOT cost the owner the core build
+  again on the retry. That step is deliberately not `if: always()`: a core
   build stopped part-way can leave a half-written core that the next build would trust.
 - **Never open an image whose bytes you have not checked.** On 7 October a picture downloaded from
   an image service was named `.png` but was really a JPEG inside. Looking at it put a file in the
@@ -197,8 +245,11 @@ for one exact game version; the cheat screen names the version for GBA and Game 
 
 ## How to check work before pushing (the sandbox can't build the iPhone app)
 
-- `cargo test --workspace --features emulator-bridge/native-core` (611 tests)
-- `cargo clippy --workspace --features emulator-bridge/native-core`
+- `cargo test --workspace --features emulator-bridge/native-core` (629 tests)
+- `cargo clippy --workspace --features emulator-bridge/native-core` (CI runs it too; an error
+  stops the build)
+- cBoy: `cd cores/continuum-gb && scripts/fetch-test-roms.sh && cargo test --release` (78 tests).
+  Run it before any cBoy push: builds 178 and 179 failed on these alone.
 - `bash scripts/check-skins.sh`, `bash scripts/check-players.sh`
 - `bash scripts/fetch-libretro-headers.sh && bash native/switch-wrapper/build.sh host` (15/15)
 - `swiftc -frontend -parse <file>` on each changed Swift file. This only checks the writing, not
@@ -209,7 +260,8 @@ for one exact game version; the cheat screen names the version for GBA and Game 
   rename the modulemap to `module.modulemap`, and `swiftc -typecheck -I <dir> <dir>/*.swift`.
 - Builds: `gh api "repos/2c2bhdhw9z-cell/Continuum-/actions/runs?per_page=3"`. Releases:
   `gh api repos/2c2bhdhw9z-cell/Continuum-/releases/latest`. Check an .ipa: count
-  `_libretro_ios.dylib` files (32) and read `CFBundleShortVersionString` / `CFBundleVersion` from
+  `_libretro_ios.dylib` files (38 as of build 180: 35 cores plus 3 JIT builds; the licence swap in
+  the next install changes this) and read `CFBundleShortVersionString` / `CFBundleVersion` from
   `Payload/Continuum.app/Info.plist`.
 - A wait-and-check command can time out while a build is still running; that is not the build
   failing. Check the run itself.

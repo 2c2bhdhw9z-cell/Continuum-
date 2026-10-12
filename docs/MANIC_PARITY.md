@@ -4,19 +4,19 @@ The owner's goal: Continuum is the one iPhone emulator everyone uses. Every line
 Manic EMU (or another leading iOS emulator) does. Tick it when it is on master. "Phone" means a
 phone has shown it working; until then a ticked line is only "in the code".
 
-Ticked `[x]` = on master, not yet shown on a phone unless it says so. Wave 2 (core settings, filters, speeds, discs, every import method, Manic skins and all 48 function buttons, keyboard, motion, remapping, 19 new systems) landed 3 October 2026. Everything ticked is in the current install (build 124, 32 cores, 38 systems). The phone test steps for all of it are in [TESTING.md](../TESTING.md).
+Ticked `[x]` = on master, not yet shown on a phone unless it says so. Wave 2 (core settings, filters, speeds, discs, every import method, Manic skins and all 48 function buttons, keyboard, motion, remapping, 19 new systems) landed 3 October 2026. Everything ticked is in the current install (build 180, 35 cores), unless its line says otherwise. The phone test steps for all of it are in [TESTING.md](../TESTING.md).
 
 Keep this file current. A new session should be able to read this and carry on.
 
 ## Decisions already made
 
-- **19 cores come prebuilt from the libretro iOS buildbot**
+- **20 cores come prebuilt from the libretro iOS buildbot**
   (`https://buildbot.libretro.com/nightly/apple/ios-arm64/latest/`), fetched by CI
-  (`scripts/fetch-buildbot-cores.sh`) and checked against the sha256 build 121 shipped, with a
-  frozen copy kept on the `core-mirror-1` pre-release. Building them all from source would blow
-  the CI time limit. **The other 13 are built from source at pinned commits** (`IOS_PIN` in
-  `scripts/build-core.sh`), including azahar, ppsspp and flycast, which the buildbot does carry,
-  because we control how they are built (the buildbot's flycast needs JIT).
+  (`scripts/fetch-buildbot-cores.sh`) and checked against a pinned sha256 each. Building them all
+  from source would blow the CI time limit. **13 more are built from source at pinned commits**
+  (`IOS_PIN` in `scripts/build-core.sh`), including azahar, ppsspp and flycast, which the
+  buildbot does carry, because we control how they are built (the buildbot's flycast needs JIT).
+  The last two are this project's own: cBoy and Continuum Symbian. That's 35.
 - **Core settings are answered now.** The engine used to refuse every core setting so each core
   ran on its own defaults. Manic exposes core settings, resolution, palettes and the Atari switches,
   all of which are core settings, so the engine now answers with the core's own default unless the
@@ -24,7 +24,8 @@ Keep this file current. A new session should be able to read this and carry on.
 - **JIT when available, never required** (from build 131): PSP, 3DS, PlayStation, N64 and
   Dreamcast use their recompilers on a phone where JIT is on; every phone without it runs as
   before. GameCube and Wii are not built: they are not playable without JIT. Symbian
-  is started as Continuum Symbian and is not in the app: a .sis does not boot yet. See [HARD_SYSTEMS.md](HARD_SYSTEMS.md).
+  runs on Continuum Symbian, this project's own core around EKA2L1. It's in the app (checked in
+  the build 180 file) and no phone has run a game on it yet (TESTING.md S1). See [HARD_SYSTEMS.md](HARD_SYSTEMS.md).
 - **Flash and J2ME run in a bundled player view inside the app** (Ruffle for Flash, a JavaScript
   J2ME engine), the way Manic does. That is a player inside the .ipa, not a web build of
   Continuum, so it does not break the no-web rule.
@@ -49,7 +50,7 @@ systems in all.
 | Atari Lynx | handy | .lnx .o | [x] code |
 | Atari 7800 | prosystem | .a78 .bin .cdf | [x] code |
 | Atari 5200 | a5200 | .a52 .bin | [x] code |
-| Arcade | fbneo (mame2003_plus as a second choice) | .zip .7z .cmd | [x] code |
+| Arcade | fbneo (mame2003_plus as a second choice) | .zip .7z .cmd | [x] code in build 180. Leaves the app in the next install, with the licence swap (in progress): removed by the owner's choice (12 October 2026), own arcade core planned. Not a gap to fill with someone else's core |
 | Pokemon Mini | pokemini | .min | [x] code |
 | Virtual Boy | mednafen_vb | .vb .vboy | [x] code |
 | Sega Saturn | yabause (mednafen_saturn as a choice) | .iso .chd .ccd .cue | [x] code |
@@ -66,7 +67,7 @@ systems in all.
 | J2ME | JavaScript J2ME engine in a bundled player view | .jar | [x] code |
 | GameCube | Dolphin interpreter | .gcm .gcz .rvz .iso .dol .elf | [ ] not built: not playable without JIT (HARD_SYSTEMS.md) |
 | Wii | Dolphin interpreter | .rvz .wbfs .ciso .wia .iso .wad .dol .elf | [ ] not built: not playable without JIT (HARD_SYSTEMS.md) |
-| Symbian / N-Gage | EKA2L1 | .sis .sisx .n-gage | [ ] started, not in the app: Continuum Symbian refuses to boot a .sis until EKA2L1 is linked |
+| Symbian / N-Gage | EKA2L1, inside Continuum Symbian | .sis .sisx .n-gage | [x] code, in the IPA (checked in build 180). No phone has run a game: TESTING.md S1 |
 
 **Shared extensions** (.cue .chd .iso .bin .m3u .zip are used by several systems): the import
 looks inside the file where it can (disc header, cue contents, zip contents) and asks the user to
@@ -144,7 +145,7 @@ screen saying which code types each system reads (build 126).
 - [x] Flash (.swf) through Ruffle in a bundled player view.
 - [x] J2ME (.jar) through a bundled JavaScript J2ME engine.
 - [x] GameCube and Wii research: done, docs/HARD_SYSTEMS.md. Not playable without JIT; not built.
-- [x] Symbian / N-Gage research: done, docs/HARD_SYSTEMS.md. Continuum Symbian is started and not in the app.
+- [x] Symbian / N-Gage research: done, docs/HARD_SYSTEMS.md. Continuum Symbian is in the app (checked in build 180). [ ] Runs a game on a phone: TESTING.md S1.
 - [x] Dreamcast builds on CI (in the IPA since build 119). [ ] Runs on a phone: TESTING.md C19.
 - [x] SMB file shares, linked into the app as libsmb2 (see Ways to get games in). **Root cause of the
       build 117 breakage** (7 October, from reading AMSMB2's `Package.swift` rather than
@@ -158,7 +159,17 @@ screen saying which code types each system reads (build 126).
       (the system it was on was not said).
 - [x] RetroArch .cht RAM cheats use RetroArch's own cheat addressing (the GBA bug), build 122. Not on a phone yet: TESTING.md F7.
 
-## Where things stand (5 October 2026, build 124)
+## Where things stand (12 October 2026)
+
+STATUS.md is the current page. Build 180 (`dd89824`) is the newest published install: 35 cores
+(38 core files with the 3 JIT builds), cBoy and Continuum Symbian inside. The next install is the
+cleanup plus the licence swap (the swap is in progress, no build in between): the five cores that
+forbid commercial use come out, bsnes, Gearsystem and BlastEm go in, and Arcade leaves until
+Continuum has its own arcade core (owner, 12 October 2026). The rows above still name the build
+180 cores. Feedback goes to ContinuumDev2c2b@gmail.com. Direct cloud logins still need the
+owner's app ids.
+
+## Where things stood (5 October 2026, build 124, history)
 
 - Build 122 was confirmed on the phone on 5 October: the top-bar hide button, a paused game staying
   paused, the 3DS skin sideways with both screens in their holes and nothing over the picture,
@@ -170,9 +181,7 @@ screen saying which code types each system reads (build 126).
 - Next: the owner's test results, then Still to do above (SMB; direct cloud logins, which need the
   owner's app ids; Dreamcast and PSP speed once they have been tested).
 
-## Where things stand (9 October 2026)
+## Where things stood (9 October 2026, history)
 
-STATUS.md is the current page. Build 150 (`ef3ce42`) is the newest published IPA. It is the same
-app as build 149: SMB, the 3DS camera and Amiibo. None of those three are phone-proven. Continuum
-Symbian is not in it. A .sis does not boot.
-Feedback goes to ContinuumDev2c2b@gmail.com (the support address since 12 October 2026). Direct cloud logins still need the owner's app ids.
+Build 150 (`ef3ce42`) was the newest published IPA then. It is the same app as build 149: SMB, the
+3DS camera and Amiibo. None of those three are phone-proven. Continuum Symbian was not in it yet.
