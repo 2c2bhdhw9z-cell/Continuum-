@@ -371,6 +371,62 @@ fn tilt_cartridge_asks_the_frontend_for_motion() {
     assert_eq!(after, vec![1], "switched off mid-game");
 }
 
+/// The cartridge clock block (RETRO_MEMORY_RTC), which the frontend keeps as `<game>.rtc` and
+/// writes back before the first frame: with "Real time" the clock carries on from where it was,
+/// plus the time the game was closed. MBC3 (Pokemon Gold's) and HuC3. Needs no ROM download.
+#[test]
+fn cartridge_clock_runs_on_while_the_game_is_closed() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let cart = |kind: u8| {
+        let mut d = vec![0u8; 0x8000];
+        d[0x100..0x102].copy_from_slice(&[0x18, 0xFE]); // JR -2
+        d[0x147] = kind;
+        d[0x149] = 3;
+        d
+    };
+    // Loads the cart, hands it `block` as a frontend does, runs, and returns the block it keeps.
+    let clock_after = |data: Vec<u8>, block: [u8; 24], restart: bool| -> [u8; 24] {
+        *OPTS.lock().unwrap() = Some(HashMap::new());
+        unsafe {
+            retro_set_environment(env);
+            retro_set_video_refresh(video);
+            retro_set_audio_sample_batch(audio);
+            retro_set_input_poll(poll);
+            retro_set_input_state(input);
+            retro_init();
+            let info = RetroGameInfo { path: std::ptr::null(), data: data.as_ptr() as *const c_void, size: data.len(), meta: std::ptr::null() };
+            assert!(retro_load_game(&info));
+            assert_eq!(retro_get_memory_size(1), 24);
+            std::ptr::copy_nonoverlapping(block.as_ptr(), retro_get_memory_data(1) as *mut u8, 24);
+            retro_run();
+            if restart {
+                retro_reset();
+                retro_run();
+            }
+            let mut out = [0u8; 24];
+            std::ptr::copy_nonoverlapping(retro_get_memory_data(1) as *const u8, out.as_mut_ptr(), 24);
+            retro_unload_game();
+            retro_deinit();
+            out
+        }
+    };
+    // MBC3 + clock + RAM + battery: day 5, 13:20:10, closed 30 days and an hour (more than the
+    // ten days the old catch-up stopped at).
+    let mut block = [0u8; 24];
+    block[..5].copy_from_slice(&[10, 20, 13, 5, 0]);
+    block[16..24].copy_from_slice(&(now - (30 * 86_400 + 3_600)).to_le_bytes());
+    let b = clock_after(cart(0x10), block, false);
+    assert_eq!((b[1], b[2], b[3], b[4] & 0xC1), (20, 14, 35, 0), "MBC3 clock after 30 days and an hour: {b:?}");
+    // HuC3: 10:00 on day 5, closed an hour, comes back 11:00 on day 5, and Restart keeps it.
+    let mut block = [0u8; 24];
+    block[..4].copy_from_slice(&[600u16 as u8, (600u16 >> 8) as u8, 5, 0]);
+    block[16..24].copy_from_slice(&(now - 3_600).to_le_bytes());
+    let b = clock_after(cart(0xFE), block, true);
+    let (minutes, days) = (u16::from(b[0]) | u16::from(b[1]) << 8, u16::from(b[2]) | u16::from(b[3]) << 8);
+    assert_eq!((minutes, days), (660, 5), "HuC3 clock after an hour closed and a Restart");
+}
+
 /// Adversarial: every value of every option, on the Game Boy, Color and Advance paths, set at
 /// load and changed mid-game; a save state taken afterwards must load and replay identically,
 /// and nothing may panic.

@@ -70,8 +70,11 @@ const ENV_GET_RUMBLE_INTERFACE: u32 = 23;
 pub const ENV_GET_SENSOR_INTERFACE: u32 = 25 | 0x10000;
 
 /// The RTC block the frontend saves: live registers (5), latched (5), 6 spare, then the Unix
-/// time (u64, little-endian) the registers were true at.
+/// time (u64, little-endian) the registers were true at. HuC3 uses it differently (see
+/// `write_rtc_block`).
 const RTC_LEN: usize = 24;
+/// T-cycles in one second of the cartridge clock.
+const GB_HZ: u32 = 4_194_304;
 
 type RumbleFn = unsafe extern "C" fn(u32, u32, u16) -> bool;
 #[repr(C)]
@@ -195,19 +198,20 @@ impl Core {
         }
     }
 
+    /// Fills the block the frontend saves (as `<game>.rtc`, next to the battery save).
     fn write_rtc_block(&mut self) {
-        if self.gb.bus.cart.kind == crate::cart::MbcKind::HuC3 {
-            let m = self.gb.bus.cart.huc3.minutes;
-            let d = self.gb.bus.cart.huc3.days;
-            let rtc = &mut self.gb.bus.cart.rtc;
-            rtc.regs[0] = m as u8;
-            rtc.regs[1] = (m >> 8) as u8;
-            rtc.regs[2] = d as u8;
-            rtc.regs[3] = (d >> 8) as u8;
+        let cart = &self.gb.bus.cart;
+        if cart.kind == crate::cart::MbcKind::HuC3 {
+            // HuC3 counts minutes of the day and days, not MBC3's registers: bytes 0-3 hold those
+            // two, byte 10 the seconds into the current minute.
+            let (m, d) = (cart.huc3.minutes, cart.huc3.days);
+            self.rtc_block[..4].copy_from_slice(&[m as u8, (m >> 8) as u8, d as u8, (d >> 8) as u8]);
+            self.rtc_block[4..10].fill(0);
+            self.rtc_block[10] = (cart.rtc.sub / GB_HZ).min(59) as u8;
+        } else {
+            self.rtc_block[..5].copy_from_slice(&cart.rtc.regs);
+            self.rtc_block[5..10].copy_from_slice(&cart.rtc.latched);
         }
-        let rtc = &self.gb.bus.cart.rtc;
-        self.rtc_block[..5].copy_from_slice(&rtc.regs);
-        self.rtc_block[5..10].copy_from_slice(&rtc.latched);
         self.rtc_block[16..24].copy_from_slice(&now_secs().to_le_bytes());
     }
 
@@ -217,19 +221,33 @@ impl Core {
         let stamp = u64::from_le_bytes(self.rtc_block[16..24].try_into().unwrap_or([0; 8]));
         let mode = self.settings.rtc_mode;
         let offset = self.settings.rtc_offset_hours * 3600;
-        let rtc = &mut self.gb.bus.cart.rtc;
+        // Real time: the clock runs on while the game is closed.
+        let closed = if stamp != 0 && mode == crate::options::RtcMode::Real {
+            now_secs().saturating_sub(stamp)
+        } else {
+            0
+        };
+        let cart = &mut self.gb.bus.cart;
+        if cart.kind == crate::cart::MbcKind::HuC3 {
+            let b = &self.rtc_block;
+            if stamp != 0 {
+                cart.huc3.minutes = (u16::from(b[0]) | u16::from(b[1]) << 8) % 1440;
+                cart.huc3.days = u16::from(b[2]) | u16::from(b[3]) << 8;
+                let secs = u64::from(b[10].min(59)) + closed;
+                cart.huc3.advance_minutes(secs / 60);
+                cart.rtc.sub = (secs % 60) as u32 * GB_HZ;
+            }
+            if mode == crate::options::RtcMode::Phone {
+                let t = gba::gpio::local_time(offset);
+                cart.huc3.minutes = ((t[4] * 60 + t[5]) % 1440) as u16;
+            }
+            return;
+        }
+        let rtc = &mut cart.rtc;
         if stamp != 0 {
             rtc.regs.copy_from_slice(&self.rtc_block[..5]);
             rtc.latched.copy_from_slice(&self.rtc_block[5..10]);
-            if mode == crate::options::RtcMode::Real {
-                rtc.advance_seconds(now_secs().saturating_sub(stamp));
-            }
-            if self.gb.bus.cart.kind == crate::cart::MbcKind::HuC3 {
-                let minutes = u16::from(rtc.regs[0]) | u16::from(rtc.regs[1]) << 8;
-                let days = u16::from(rtc.regs[2]) | u16::from(rtc.regs[3]) << 8;
-                self.gb.bus.cart.huc3.minutes = minutes;
-                self.gb.bus.cart.huc3.days = days;
-            }
+            rtc.advance_seconds(closed);
         }
         if mode == crate::options::RtcMode::Phone {
             let t = gba::gpio::local_time(offset);
@@ -729,11 +747,14 @@ pub extern "C" fn retro_reset() {
                 let rom = std::mem::take(&mut core.gb.bus.cart.rom);
                 let ram = std::mem::take(&mut core.gb.bus.cart.ram);
                 let rtc = core.gb.bus.cart.rtc.clone();
+                // HuC3's clock and clock memory too: Restart is not a new cartridge.
+                let huc3 = core.gb.bus.cart.huc3.clone();
                 if let Some((mut gb, None)) = build_machine(rom, &core.settings, dir.as_deref()) {
                     if gb.bus.cart.ram.len() == ram.len() {
                         gb.bus.cart.ram = ram;
                     }
                     gb.bus.cart.rtc = rtc;
+                    gb.bus.cart.huc3 = huc3;
                     core.gb = gb;
                 }
             }
@@ -757,6 +778,8 @@ pub unsafe extern "C" fn retro_run() {
         if crate::options::changed(env) {
             core.settings = crate::options::read(env, core.system_dir.as_deref());
             core.apply_live();
+            // The tilt, turn or sunlight source may have changed: ask for the sensors again.
+            core.sensors_started = false;
         }
     }
     core.start_sensors();
@@ -778,8 +801,6 @@ pub unsafe extern "C" fn retro_run() {
     let ahead = s.run_ahead;
     // The real frame. With run-ahead it is never drawn: the picture comes from the frames ahead.
     core.run_one(ahead == 0 && !skip);
-            // The tilt, turn or sunlight source may have changed: ask for the sensors again.
-            core.sensors_started = false;
     if core.gba.is_none() {
         core.watch_lockup(vblanks);
         for line in std::mem::take(&mut core.gb.bus.events) {

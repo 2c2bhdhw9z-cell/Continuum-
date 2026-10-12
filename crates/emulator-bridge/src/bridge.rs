@@ -1821,12 +1821,34 @@ impl EmulatorBridge {
     ///
     /// Returns the bytes written, `0` when the game has no battery RAM (not an error: most NES
     /// games have none).
+    ///
+    /// THE CARTRIDGE CLOCK goes next to it, as `<game>.rtc` (the name RetroArch uses), for a core
+    /// that keeps the clock apart from save RAM in `RETRO_MEMORY_RTC`: cBoy does for MBC3 and HuC3
+    /// cartridges (Pokemon Gold, Silver, Crystal). Same triggers as the `.srm`. Without it the
+    /// clock lived only inside the auto-save state, froze while the game was closed and went back
+    /// to day 0 whenever that state was missing or refused.
     pub fn persist_battery_save(&self, path: &str) -> Result<usize, BridgeError> {
-        if self.memory_size(crate::memory::MEMORY_SAVE_RAM) == 0 {
-            return Ok(0);
+        let mut written = 0;
+        if self.memory_size(crate::memory::MEMORY_SAVE_RAM) > 0 {
+            let data = self.battery_save()?;
+            written += Self::write_save_file(std::path::Path::new(path), &data, "srm.writing")?;
         }
-        let data = self.battery_save()?;
-        let target = std::path::Path::new(path);
+        let clock_size = self.memory_size(crate::memory::MEMORY_RTC);
+        if clock_size > 0 {
+            let clock = self.read_memory(crate::memory::MEMORY_RTC, 0, clock_size as u64)?;
+            written += Self::write_save_file(&Self::clock_path(path), &clock, "rtc.writing")?;
+        }
+        Ok(written)
+    }
+
+    /// `<game>.srm` → `<game>.rtc`, beside it.
+    fn clock_path(battery_path: &str) -> std::path::PathBuf {
+        std::path::Path::new(battery_path).with_extension("rtc")
+    }
+
+    /// Writes `data` to `target` atomically, returning its length, or `0` when the file already
+    /// holds exactly these bytes.
+    fn write_save_file(target: &std::path::Path, data: &[u8], scratch_ext: &str) -> Result<usize, BridgeError> {
         // Unchanged: nothing is written (0). The frontend now also flushes on a timer while a game
         // runs, so a crash does not lose an in-game save; rewriting an identical file each time
         // would only bump its mtime and make the sync upload it again.
@@ -1838,10 +1860,12 @@ impl EmulatorBridge {
                 BridgeError::Memory(format!("could not create {}: {err}", parent.display()))
             })?;
         }
-        let temporary = target.with_extension("srm.writing");
-        std::fs::write(&temporary, &data)
+        let temporary = target.with_extension(scratch_ext);
+        std::fs::write(&temporary, data)
             .and_then(|()| std::fs::rename(&temporary, target))
-            .map_err(|err| BridgeError::Memory(format!("could not write {path}: {err}")))?;
+            .map_err(|err| {
+                BridgeError::Memory(format!("could not write {}: {err}", target.display()))
+            })?;
         Ok(data.len())
     }
 
@@ -1851,17 +1875,42 @@ impl EmulatorBridge {
         // First, before the file is even looked for, so the answer online does not depend on
         // whether this phone happens to have a save on disk.
         self.refuse_during_netplay("loading a battery save")?;
-        if self.memory_size(crate::memory::MEMORY_SAVE_RAM) == 0 {
-            return Ok(None);
-        }
-        let data = match std::fs::read(path) {
-            Ok(data) => data,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(err) => {
-                return Err(BridgeError::Memory(format!("could not read {path}: {err}")));
+        let mut loaded = None;
+        if self.memory_size(crate::memory::MEMORY_SAVE_RAM) > 0 {
+            match std::fs::read(path) {
+                Ok(data) => {
+                    self.restore_battery_save(&data)?;
+                    loaded = Some(data.len());
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => {
+                    return Err(BridgeError::Memory(format!("could not read {path}: {err}")));
+                }
             }
-        };
-        self.restore_battery_save(&data).map(|_| Some(data.len()))
+        }
+        // The cartridge clock (see `persist_battery_save`). Before the first frame, which is
+        // when a core reads it. A file of another size was written by a core that lays its clock
+        // out differently: it is left alone, and this game's clock simply starts where the core
+        // starts it.
+        let clock_size = self.memory_size(crate::memory::MEMORY_RTC);
+        if clock_size > 0 {
+            let clock_path = Self::clock_path(path);
+            match std::fs::read(&clock_path) {
+                Ok(clock) if clock.len() == clock_size => {
+                    self.write_memory(crate::memory::MEMORY_RTC, 0, &clock)?;
+                    loaded = Some(loaded.unwrap_or(0) + clock.len());
+                }
+                Ok(_) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => {
+                    return Err(BridgeError::Memory(format!(
+                        "could not read {}: {err}",
+                        clock_path.display()
+                    )));
+                }
+            }
+        }
+        Ok(loaded)
     }
 
     // --------------------------------------------------------------- RAM search
@@ -2385,6 +2434,48 @@ mod tests {
         assert_eq!(fresh.battery_save().unwrap()[0], 0);
         assert_eq!(fresh.load_battery_save_file(&path).unwrap(), Some(8192));
         assert_eq!(&fresh.battery_save().unwrap()[..2], &[0x5A, 0xA5]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_cartridge_clock_is_kept_next_to_the_battery_save() {
+        use crate::memory::MEMORY_RTC;
+        let dir = std::env::temp_dir().join(format!("continuum-rtc-{}", std::process::id()));
+        let path = dir.join("Gold.gbc.srm");
+        let path = path.to_str().unwrap().to_string();
+        let clock_file = dir.join("Gold.gbc.rtc");
+        let with_clock = || {
+            let mut bridge = EmulatorBridge::new();
+            bridge.declare_core(descriptor("diag", "test"));
+            bridge.attach_core_module("diag", MODULE).unwrap();
+            bridge.launch_headless_for_test("diag", b"rtc rom").unwrap();
+            bridge
+        };
+        let mut bridge = with_clock();
+        let clock: Vec<u8> = (1..=24).collect();
+        bridge.write_memory(MEMORY_RTC, 0, &clock).unwrap();
+        assert_eq!(bridge.persist_battery_save(&path).unwrap(), 8192 + 24);
+        assert_eq!(std::fs::read(&clock_file).unwrap(), clock);
+        // Neither changed: nothing is rewritten.
+        assert_eq!(bridge.persist_battery_save(&path).unwrap(), 0);
+        // A fresh session gets the clock back before its first frame.
+        let mut fresh = with_clock();
+        assert_eq!(fresh.load_battery_save_file(&path).unwrap(), Some(8192 + 24));
+        assert_eq!(fresh.read_memory(MEMORY_RTC, 0, 24).unwrap(), clock);
+        // A clock file of another size (another core's layout) is left alone, not an error.
+        std::fs::write(&clock_file, [9u8; 48]).unwrap();
+        let mut other = with_clock();
+        assert_eq!(other.load_battery_save_file(&path).unwrap(), Some(8192));
+        assert_eq!(other.read_memory(MEMORY_RTC, 0, 24).unwrap(), vec![0; 24]);
+        // A clock with no battery save yet is still restored.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(&clock_file, &clock).unwrap();
+        let mut only_clock = with_clock();
+        assert_eq!(only_clock.load_battery_save_file(&path).unwrap(), Some(24));
+        // A core with no clock writes no clock file.
+        let plain_path = dir.join("Red.gb.srm");
+        running_diagnostic().persist_battery_save(plain_path.to_str().unwrap()).unwrap();
+        assert!(!dir.join("Red.gb.rtc").exists());
         let _ = std::fs::remove_dir_all(dir);
     }
 

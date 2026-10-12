@@ -86,9 +86,34 @@ impl Rtc {
         }
     }
 
-    pub fn advance_seconds(&mut self, secs: u64) {
-        // Capped: a clock years behind is caught up in at most ten days' worth of steps.
-        for _ in 0..secs.min(864_000) {
+    /// The clock catches up on time that passed while the game was closed. Whole days are added
+    /// to the 9-bit day counter in one go (past day 511 it wraps and sets the carry bit, as the
+    /// chip does); what is left, under a day, is ticked second by second. Registers a game left
+    /// out of range are ticked one by one, like hardware.
+    pub fn advance_seconds(&mut self, mut secs: u64) {
+        if self.halted() {
+            return;
+        }
+        let in_range = |r: &[u8; 5]| r[0] < 60 && r[1] < 60 && r[2] < 24;
+        // A value a game wrote out of range wraps back on its own within hours (at most 31 → 0
+        // for the hour); until then, second by second, exactly as the chip would count.
+        while secs > 0 && !in_range(&self.regs) {
+            self.tick_second();
+            secs -= 1;
+        }
+        let r = &mut self.regs;
+        if secs >= 86_400 {
+            let day = u64::from(r[4] & 1) << 8 | u64::from(r[3]);
+            let total = day + secs / 86_400;
+            secs %= 86_400;
+            r[3] = total as u8;
+            r[4] = (r[4] & 0xFE) | ((total >> 8) & 1) as u8;
+            if total > 0x1FF {
+                r[4] |= 0x80; // day counter carry
+            }
+        }
+        // Under a day now.
+        for _ in 0..secs {
             self.tick_second();
         }
     }
@@ -174,6 +199,14 @@ impl HuC3 {
             self.minutes = 0;
             self.days = self.days.wrapping_add(1);
         }
+    }
+
+    /// Minutes that passed while the game was closed: into the minute of the day and the day
+    /// count, the way `tick_minute` would have moved them.
+    pub fn advance_minutes(&mut self, mins: u64) {
+        let total = u64::from(self.minutes.min(1439)) + mins;
+        self.minutes = (total % 1440) as u16;
+        self.days = (u64::from(self.days) + total / 1440) as u16;
     }
 }
 
@@ -1046,5 +1079,45 @@ mod tests {
         c.write_rom(0x6000, 1);
         c.write_rom(0x4000, 0x0C);
         assert_eq!(c.read_ram(0xA000), 1);
+    }
+
+    /// The catch-up for a game closed a long time gives what ticking every second would.
+    #[test]
+    fn mbc3_clock_catches_up_whole_days_and_carries_past_day_511() {
+        let mut r = Rtc { regs: [10, 20, 13, 5, 0], ..Rtc::default() };
+        r.advance_seconds(30 * 86_400 + 3_600 + 5);
+        assert_eq!(r.regs, [15, 20, 14, 35, 0], "30 days, an hour and 5 s");
+        // Day 510 plus 3 days: wraps to day 1 with the carry bit, the 9th day bit clear.
+        let mut r = Rtc { regs: [0, 0, 0, 0xFE, 1], ..Rtc::default() };
+        r.advance_seconds(3 * 86_400);
+        assert_eq!(r.regs, [0, 0, 0, 1, 0x80]);
+        // Same answer as ticking one second at a time, across a day boundary.
+        let (mut fast, mut slow) = (Rtc { regs: [50, 59, 23, 7, 0], ..Rtc::default() }, Rtc::default());
+        slow.regs = fast.regs;
+        fast.advance_seconds(2 * 86_400 + 70);
+        for _ in 0..2 * 86_400 + 70 {
+            slow.tick_second();
+        }
+        assert_eq!(fast.regs, slow.regs);
+        // A halted clock does not move; an out-of-range hour a game wrote wraps like the chip.
+        let mut halted = Rtc { regs: [1, 2, 3, 4, 0x40], ..Rtc::default() };
+        halted.advance_seconds(1_000_000);
+        assert_eq!(halted.regs, [1, 2, 3, 4, 0x40]);
+        let (mut odd, mut odd_slow) = (Rtc { regs: [0, 0, 30, 0, 0], ..Rtc::default() }, Rtc::default());
+        odd_slow.regs = odd.regs;
+        odd.advance_seconds(3 * 86_400);
+        for _ in 0..3 * 86_400 {
+            odd_slow.tick_second();
+        }
+        assert_eq!(odd.regs, odd_slow.regs);
+    }
+
+    #[test]
+    fn huc3_clock_catches_up_in_minutes_and_days() {
+        let mut h = HuC3 { minutes: 600, days: 5, ..HuC3::default() };
+        h.advance_minutes(60);
+        assert_eq!((h.minutes, h.days), (660, 5));
+        h.advance_minutes(3 * 1440 + 800);
+        assert_eq!((h.minutes, h.days), (20, 9));
     }
 }

@@ -50,6 +50,10 @@ pub struct DiagnosticCore {
     save_ram: Vec<u8>,
     /// Whether A was held last frame, so the save RAM counter moves on a press and not per frame.
     a_was_held: bool,
+    /// A pretend cartridge clock (`RETRO_MEMORY_RTC`, 24 bytes like cBoy's), only when the loaded
+    /// content starts with `rtc`, so the clock file next to a battery save is testable while
+    /// every other test still sees a core with no clock.
+    rtc: Vec<u8>,
 }
 
 impl DiagnosticCore {
@@ -95,6 +99,7 @@ impl DiagnosticCore {
             system_ram: Self::fresh_system_ram(),
             save_ram: vec![0; Self::SAVE_RAM_BYTES],
             a_was_held: false,
+            rtc: Vec::new(),
         }
     }
 
@@ -212,6 +217,7 @@ impl EmulatorCore for DiagnosticCore {
             content.len()
         ));
         self.frame_count = 0;
+        self.rtc = if content.starts_with(b"rtc") { vec![0; 24] } else { Vec::new() };
         // Paint an initial frame so the framebuffer is meaningful the moment content
         // is loaded, rather than a black flash until the first `run_frame`. Real
         // cores behave the same way — `retro_load_game` leaves the framebuffer in a
@@ -329,6 +335,7 @@ impl EmulatorCore for DiagnosticCore {
         match id {
             crate::memory::MEMORY_SYSTEM_RAM => Some(&self.system_ram),
             crate::memory::MEMORY_SAVE_RAM => Some(&self.save_ram),
+            crate::memory::MEMORY_RTC if !self.rtc.is_empty() => Some(&self.rtc),
             _ => None,
         }
     }
@@ -337,6 +344,7 @@ impl EmulatorCore for DiagnosticCore {
         match id {
             crate::memory::MEMORY_SYSTEM_RAM => Some(&mut self.system_ram),
             crate::memory::MEMORY_SAVE_RAM => Some(&mut self.save_ram),
+            crate::memory::MEMORY_RTC if !self.rtc.is_empty() => Some(&mut self.rtc),
             _ => None,
         }
     }
