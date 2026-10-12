@@ -123,6 +123,9 @@ struct Session {
     /// a state load. Lives on the session rather than the bridge because cheats belong
     /// to a game: ending the session is what forgets them.
     cheats: Vec<Cheat>,
+    /// How many of the user's typed codes are on. Not `cheats`' count: one code can be several
+    /// core entries (Gearsystem takes each `+` part on its own).
+    enabled_codes: usize,
     /// RAM pokes split out of the same list (see [`EmulatorBridge::apply_cheats`]), enabled ones
     /// only. Written into `SYSTEM_RAM` after every `run_frame`.
     pokes: Vec<Poke>,
@@ -482,6 +485,7 @@ impl EmulatorBridge {
             // A fresh core has no cheats. The front end pushes the game's saved list
             // after launch, which is also what makes cheats survive a relaunch.
             cheats: Vec::new(),
+            enabled_codes: 0,
             pokes: Vec::new(),
             search: None,
             search_region: SearchRegion::SystemRam,
@@ -1676,6 +1680,7 @@ impl EmulatorBridge {
             enabled_codes += on as usize;
         }
         session.cheats = core_cheats;
+        session.enabled_codes = enabled_codes;
         session.pokes = pokes;
 
         Self::push_cheats(session)?;
@@ -1688,6 +1693,7 @@ impl EmulatorBridge {
         self.refuse_during_netplay("clearing cheats")?;
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
         session.cheats.clear();
+        session.enabled_codes = 0;
         session.pokes.clear();
         if session.core.supports_cheats() {
             session.core.reset_cheats()?;
@@ -1702,11 +1708,10 @@ impl EmulatorBridge {
             .is_some_and(|session| session.core.supports_cheats())
     }
 
-    /// How many cheats are currently switched on.
+    /// How many cheats are currently switched on: the user's codes (not the core entries they
+    /// became) and pokes, the same count `apply_cheats` returns.
     pub fn active_cheat_count(&self) -> usize {
-        self.session.as_ref().map_or(0, |session| {
-            session.cheats.iter().filter(|cheat| cheat.enabled).count() + session.pokes.len()
-        })
+        self.session.as_ref().map_or(0, |session| session.enabled_codes + session.pokes.len())
     }
 
     // ------------------------------------------------------------- core options
@@ -1801,25 +1806,32 @@ impl EmulatorBridge {
     }
 
     /// The ROM's first bytes (de-interleaved for `.smd`) decide the battery layout. Read from the
-    /// bytes handed to the core, or from the file when the core was given a path.
+    /// bytes handed to the core, or from the file when the core was given a path. A Sonic & Knuckles
+    /// ROM on BlastEm is read whole, since its save is described in the locked-on half.
     fn battery_layout_for(core_id: &str, content: &[u8], hint: &ContentHint) -> BatteryLayout {
         const HEAD: usize = 0x4200;
-        let head = if !content.is_empty() {
-            content[..content.len().min(HEAD)].to_vec()
-        } else if let Some(path) = hint.full_path.as_deref() {
-            use std::io::Read;
-            let mut buf = Vec::with_capacity(HEAD);
-            match std::fs::File::open(path) {
-                Ok(file) => {
-                    let _ = file.take(HEAD as u64).read_to_end(&mut buf);
-                }
-                Err(_) => return BatteryLayout::Raw,
+        // Past a 4 MB lock-on ROM and an .smd header: nothing larger is one.
+        const WHOLE: usize = 0x40_0200;
+        let read = |limit: usize| -> Option<Vec<u8>> {
+            if !content.is_empty() {
+                return Some(content[..content.len().min(limit)].to_vec());
             }
-            buf
-        } else {
+            use std::io::Read;
+            let file = std::fs::File::open(hint.full_path.as_deref()?).ok()?;
+            let mut buf = Vec::with_capacity(limit.min(HEAD));
+            let _ = file.take(limit as u64).read_to_end(&mut buf);
+            Some(buf)
+        };
+        let Some(head) = read(HEAD) else {
             return BatteryLayout::Raw;
         };
-        let head = battery_layout::deinterleave_smd(&hint.extension, &head);
+        let mut head = battery_layout::deinterleave_smd(&hint.extension, &head);
+        if core_id == "blastem" && battery_layout::needs_whole_rom(&head) {
+            // One byte past the limit, so a file too big to be the lock-on ROM is told apart.
+            if let Some(whole) = read(WHOLE + 1).filter(|w| w.len() <= WHOLE) {
+                head = battery_layout::deinterleave_smd(&hint.extension, &whole);
+            }
+        }
         battery_layout::layout_for(core_id, &hint.extension, &head)
     }
 
@@ -2397,6 +2409,7 @@ impl EmulatorBridge {
             core,
             paused: false,
             cheats: Vec::new(),
+            enabled_codes: 0,
             pokes: Vec::new(),
             search: None,
             search_region: SearchRegion::SystemRam,
@@ -2663,6 +2676,60 @@ mod tests {
         // The same file on another core is loaded byte for byte (and refused, being too long).
         let mut other = running_as("gearsystem", "genesis", &rom, "Sonic.md");
         assert!(other.restore_battery_save(&vec![1; 0x4000]).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_headerless_sram_save_carries_to_blastem() {
+        // Buck Rogers (T-50286): no RA header, 8 KB of odd-byte SRAM in both cores.
+        let mut rom = vec![0x20u8; 0x200];
+        rom[0x100..0x110].copy_from_slice(b"SEGA GENESIS    ");
+        rom[0x180..0x18E].copy_from_slice(b"GM T-50286 -00");
+        let dir = scratch_dir("md-headerless");
+        let path = dir.join("Buck Rogers.srm");
+        let path_str = path.to_str().unwrap().to_string();
+        // GPGX's file, reaching past the first 4 KB of SRAM (the case that used to be refused).
+        let mut gpgx = vec![0xFF; 0x3002];
+        gpgx[1] = 0x41;
+        gpgx[0x3001] = 0x7A;
+        std::fs::write(&path, &gpgx).unwrap();
+        let mut bridge = running_as("blastem", "genesis", &rom, "Buck Rogers.md");
+        assert_eq!(bridge.load_battery_save_file_migrating(&path_str, None).unwrap(), Some(0x3002));
+        let live = bridge.read_memory(crate::memory::MEMORY_SAVE_RAM, 0, 8192).unwrap();
+        assert_eq!((live[0], live[1], live[0x1800]), (0x41, 0xFF, 0x7A));
+        assert_eq!(std::fs::read(dir.join("Buck Rogers.srm.before-blastem")).unwrap(), gpgx);
+        // Written back in GPGX's layout, the same bytes where they were.
+        assert_eq!(bridge.persist_battery_save(&path_str).unwrap(), 0x4000);
+        let on_disk = std::fs::read(&path).unwrap();
+        assert_eq!(&on_disk[..gpgx.len()], &gpgx[..]);
+        assert!(on_disk[gpgx.len()..].iter().all(|b| *b == 0xFF));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn sonic_3_and_knuckles_is_read_whole_from_its_file() {
+        let mut rom = vec![0x20u8; 0x40_0000];
+        rom[0x100..0x110].copy_from_slice(b"SEGA GENESIS    ");
+        rom[0x150..0x160].copy_from_slice(b"SONIC & KNUCKLES");
+        rom[0x200100..0x200110].copy_from_slice(b"SEGA GENESIS    ");
+        rom[0x2001B0..0x2001BC].copy_from_slice(&[b'R', b'A', 0xF8, 0x20, 0x00, 0x20, 0x00, 0x01, 0x00, 0x20, 0x03, 0xFF]);
+        let dir = scratch_dir("md-lockon");
+        let file = dir.join("Sonic 3 & Knuckles.md");
+        std::fs::write(&file, &rom).unwrap();
+        let mut hint = ContentHint::from_filename("Sonic 3 & Knuckles.md");
+        hint.full_path = Some(file.to_str().unwrap().to_string());
+        let s3 = battery_layout::MdSram { lane: battery_layout::SramLane::Odd, start: 0x200000, end: 0x2003FF };
+        // BlastEm is handed the path, not the bytes.
+        assert_eq!(EmulatorBridge::battery_layout_for("blastem", &[], &hint), BatteryLayout::MegaDriveGpgx(s3));
+        assert_eq!(EmulatorBridge::battery_layout_for("blastem", &rom, &hint), BatteryLayout::MegaDriveGpgx(s3));
+        // Another core keeps its bytes; a bigger file is not the lock-on ROM and is not read whole.
+        assert_eq!(EmulatorBridge::battery_layout_for("gearsystem", &[], &hint), BatteryLayout::Raw);
+        rom.resize(0x40_0400, 0);
+        std::fs::write(&file, &rom).unwrap();
+        assert!(matches!(
+            EmulatorBridge::battery_layout_for("blastem", &[], &hint),
+            BatteryLayout::MegaDriveGpgx(battery_layout::MdSram { lane: battery_layout::SramLane::Linear, .. })
+        ));
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -3119,6 +3186,28 @@ mod tests {
             .is_err());
         assert!(calls.lock().unwrap().is_empty());
         assert_eq!(bridge.active_cheat_count(), 3);
+    }
+
+    #[test]
+    fn a_split_gearsystem_code_still_counts_as_one_cheat() {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut bridge = EmulatorBridge::new();
+        bridge.declare_core(descriptor("gearsystem", "sms"));
+        bridge
+            .attach_core(
+                "gearsystem",
+                Box::new(CheatRecorder { descriptor: descriptor("gearsystem", "sms"), calls: calls.clone() }),
+            )
+            .unwrap();
+        bridge.launch_headless_for_test("gearsystem", b"rom").unwrap();
+        let codes = vec!["C000:FF+C001:01".to_string(), "poke:0010:63:1".to_string(), "C002:02".to_string()];
+        assert_eq!(bridge.apply_cheats(codes, &[1, 1, 0]).unwrap(), 2);
+        // The core gets one entry per part; the screen and the other phone hear 2: one code, one poke.
+        assert_eq!(*calls.lock().unwrap(), vec!["reset", "0:true:00C000FF", "1:true:00C00101"]);
+        assert_eq!(bridge.active_cheat_count(), 2);
+        assert_eq!(bridge.session.as_ref().unwrap().enabled_codes, 1);
+        bridge.clear_cheats().unwrap();
+        assert_eq!(bridge.active_cheat_count(), 0);
     }
 
     #[test]

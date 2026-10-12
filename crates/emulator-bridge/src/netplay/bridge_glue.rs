@@ -73,7 +73,8 @@ impl EmulatorBridge {
             content_name: session.content_id.clone(),
             content_fingerprint: fingerprint,
             state_size: state_size as u64,
-            active_cheats: session.cheats.iter().filter(|c| c.enabled).count() as u32,
+            // The user's typed codes, not the core entries they were split into.
+            active_cheats: session.enabled_codes as u32,
             options_hash: options_hash(&session.core.core_options()),
         })
     }
@@ -349,6 +350,7 @@ mod tests {
             core: Box::new(LockstepCore::new(seed)),
             paused: false,
             cheats: Vec::new(),
+            enabled_codes: 0,
             pokes: Vec::new(),
             search: None,
             search_region: Default::default(),
