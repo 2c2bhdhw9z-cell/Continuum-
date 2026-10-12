@@ -27,15 +27,28 @@ phone name on the feedback screen (P3), one bad skin not wiping the list, and a 
 not becoming a console. A skin that does not name itself can still show up twice across two
 phones. No JIT test.
 
-## Read docs/CORE_UPDATES.md at the start of every session
+## Check for newer emulator versions at the start of every session (owner ⭐, 12 October 2026)
 
-It is written weekly by a scheduled job and says which emulators their own authors have updated
-since the version Continuum is locked to. **The owner is not tracking any of that and has said
-plainly that they refuse to.** They will never open that file either, so it is only useful if
-you read it and TELL them, in plain English, in a reply: which consoles have newer code, roughly
-how far behind we are, and whether it looks worth taking. Then let them decide. Taking an update
-is a deliberate edit to a pin in `scripts/build-core.sh`, a build, and a test on a phone — never
-automatic, and never without saying so first.
+The owner wants the newest version of every emulator, always, as long as it does not break
+anything major compared with the version we ship. Not a robot doing it: Kiro checks every
+session and takes them itself, after checking thoroughly. The full rule is in
+`.kiro/steering/owner-rules.md` ("Emulator updates"). In short:
+
+1. Every session, check every core for a newer version. That means the 13 built from source
+   (`IOS_PIN` in `scripts/build-core.sh`, see `docs/CORE_UPDATES.md` and
+   `scripts/check-core-updates.sh`) AND the 20 downloaded ones (sha-pinned in
+   `scripts/fetch-buildbot-cores.sh`), which the weekly check does not cover yet.
+2. For each one that is newer, check it thoroughly before taking it: read the upstream changes
+   for anything removed or broken (systems, options, iOS support, save formats), make sure our
+   patches still apply, build it, run every check, and check whether old save states and
+   in-game saves still load. Anything that would break, take out, or slow down something
+   players already have counts as major: then do not take it, and tell the owner why in
+   plain words.
+3. Take the good ones in the next batch (one build), and tell the owner in plain words which
+   consoles got newer emulators and what changed for them.
+
+The weekly scheduled job (`.github/workflows/core-updates.yml`) has never run yet. Its page is
+only a hint, never the whole answer.
 
 As of 7 October 2026 the first run found 5 of 13 behind: PSP (132 commits), N64 (29),
 Beetle PSX HW (14), 3DS (6), Dreamcast (5).

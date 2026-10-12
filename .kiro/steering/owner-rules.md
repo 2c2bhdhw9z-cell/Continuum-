@@ -98,6 +98,20 @@ These come straight from the owner. They are not suggestions.
   pixel at a time. When it is picked up again, never guess pixel by pixel: follow how a proven
   accurate emulator (SameBoy) draws, and compare against it. Do not make it the default until
   the owner has seen it work on the phone.
-- **When the owner puts a ★ on something, save it permanently:** in this file if it is about
+- **Emulator updates (owner ⭐, 12 October 2026): always use the newest version of every core,
+  as long as it does not break anything major compared with the version we ship.** Not
+  automatic or a bot: Kiro checks at the start of every session, for every core (built from
+  source and downloaded), and takes each newer one only after a thorough check. Read what
+  changed upstream, confirm our patches still apply, build it, run every check, and confirm
+  in-game saves and old save states still load. If an update would break, remove or slow down
+  something players already have, do not take it, and tell the owner why. Take the good ones in
+  the next batch (one build), and tell the owner plainly which consoles got newer emulators.
+  This replaces the old "let the owner decide each update" rule.
+- **Licences (owner, 12 October 2026):** the owner wants Continuum free of outside licence
+  limits in the long run. That is why they want cores of their own (like cBoy). Five cores
+  forbid any commercial use: Snes9x, Genesis Plus GX, PicoDrive, FinalBurn Neo and MAME
+  2003-Plus. When a system gets a core of our own, or a well-made core with an open licence,
+  prefer that one.
+- **When the owner puts a ★ or ⭐ on something, save it permanently:** in this file if it is about
   Continuum, or as a Kiro learning if it applies everywhere. Kiro may also save general learnings
   on its own whenever something is worth remembering.
