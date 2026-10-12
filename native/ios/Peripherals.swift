@@ -677,24 +677,80 @@ final class Peripherals: ObservableObject {
         guard !line.contains("not tapped"), line.contains("tapped") else {
             return line
         }
+        // A tag tapped earlier this session goes back to its own file first, with whatever the
+        // game wrote to it, before this one takes its place.
+        writeBackTappedAmiibo()
         do {
-            try writeAmiiboForCore(data)
+            try writeAmiiboForCore(data, source: url)
         } catch {
             return "amiibo \(name) could not be handed to the game: \(error.localizedDescription)"
         }
         return line
     }
 
-    /// `continuum-amiibo.bin` then `continuum-amiibo.stamp`, both in the core save directory.
-    private func writeAmiiboForCore(_ data: Data) throws {
+    /// The three files the core and this class share, in the core save directory: the dump Azahar
+    /// loads (and writes back to when a game saves to the figure), the stamp it polls, and the
+    /// name of the tag in the Amiibo folder the dump came from.
+    private static let amiiboFileNames = ["continuum-amiibo.bin", "continuum-amiibo.stamp",
+                                          "continuum-amiibo.source"]
+
+    /// `continuum-amiibo.bin` then `continuum-amiibo.stamp`, both in the core save directory,
+    /// and `continuum-amiibo.source` naming the tag's file so its writes can go back to it.
+    private func writeAmiiboForCore(_ data: Data, source: URL) throws {
         guard let dir = SaveFolders.saveDirectory() else {
             throw CocoaError(.fileNoSuchFile)
         }
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try data.write(to: dir.appendingPathComponent("continuum-amiibo.bin"), options: .atomic)
+        // Only a tag from the Amiibo folder, by name: the app's folders move between installs.
+        let fromFolder = amiiboFolder.map {
+            source.deletingLastPathComponent().standardizedFileURL.path == $0.standardizedFileURL.path
+        } ?? false
+        let sourceFile = dir.appendingPathComponent("continuum-amiibo.source")
+        if fromFolder {
+            try Data(source.lastPathComponent.utf8).write(to: sourceFile, options: .atomic)
+        } else {
+            try? FileManager.default.removeItem(at: sourceFile)
+        }
         let stamp = UUID().uuidString + "\n"
         try Data(stamp.utf8).write(to: dir.appendingPathComponent("continuum-amiibo.stamp"),
                                    options: .atomic)
+    }
+
+    /// A game that saves to a figure writes to the dump Azahar loaded, the scratch copy, so its
+    /// data used to be lost at the next tap (review finding RUST-04). When that copy now differs
+    /// from the tag's own file and is still a real tag, it goes back into that file (the old
+    /// contents kept beside it as `.bak`), as a real figure keeps what a game wrote to it.
+    private func writeBackTappedAmiibo() {
+        guard let dir = SaveFolders.saveDirectory(), let folder = amiiboFolder,
+              let nameData = try? Data(contentsOf: dir.appendingPathComponent("continuum-amiibo.source")),
+              let name = String(data: nameData, encoding: .utf8), !name.isEmpty,
+              !name.contains("/"),
+              let written = try? Data(contentsOf: dir.appendingPathComponent("continuum-amiibo.bin"))
+        else { return }
+        let original = folder.appendingPathComponent(name)
+        guard let before = try? Data(contentsOf: original), before != written,
+              engine.inspectAmiibo(data: written).ok else { return }
+        do {
+            try before.write(to: original.appendingPathExtension("bak"), options: .atomic)
+            try written.write(to: original, options: .atomic)
+            FeedbackCenter.step("amiibo: kept what the game saved to \(name)")
+        } catch {
+            FeedbackCenter.step("amiibo: could not keep what the game saved to \(name): "
+                                + error.localizedDescription)
+        }
+    }
+
+    /// Called when a game session ends (and so before every launch). What the game wrote to a
+    /// tapped tag goes back to its file, then the hand-over files are removed. Before this they
+    /// stayed, and since the core starts with no stamp seen, the last tag was tapped again by
+    /// itself in the next 3DS game that looked for one, even days later (review finding RUST-03).
+    func endAmiiboSession() {
+        writeBackTappedAmiibo()
+        guard let dir = SaveFolders.saveDirectory() else { return }
+        for name in Self.amiiboFileNames {
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(name))
+        }
     }
 
     func deleteAmiibo(_ url: URL) -> String {

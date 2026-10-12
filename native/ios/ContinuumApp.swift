@@ -4748,6 +4748,10 @@ final class EngineHost: ObservableObject {
             engine.stop()
             running = false
         }
+        // After the core is gone, so the 3DS has written all it will to a tapped Amiibo. Also on a
+        // stop with nothing running (every launch passes through here), which clears what an app
+        // closed mid-game left behind.
+        peripherals.endAmiiboSession()
         // Cleared whether or not a session was running, so a half-started launch cannot leave the
         // player screen up over nothing. The pad state goes with it: a finger still down when a
         // session ends must not be pushed into the next one.
