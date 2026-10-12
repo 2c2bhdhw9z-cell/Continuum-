@@ -1054,6 +1054,8 @@ final class CloudSync: ObservableObject {
     /// to its "saved" line.
     private var lastRunErrors: [String] = []
     private var backupMissed: [String] = []
+    /// A restore's "the copies it didn't keep are in Older copies" line, for its finished line.
+    private var olderCopiesLine: String?
     private static let historyTargetKey = "continuum.sync.historyTarget.v1"
 
     private func present(_ picker: UIDocumentPickerViewController, kind: String,
@@ -1223,13 +1225,20 @@ final class CloudSync: ObservableObject {
             let unpacked = staging.appendingPathComponent("RestoreUnpack", isDirectory: true)
             let root = staging.appendingPathComponent(name, isDirectory: true)
             var failure: String?
+            var datesKept = false
+            var conflictsBefore: Set<String> = []
             do {
                 try? fm.removeItem(at: unpacked)
                 let isZip = picked.pathExtension.lowercased() == "zip"
                 guard isZip else { throw BackupArchiveError("that is not a .zip backup") }
-                FeedbackCenter.step("restore: unzipping")
-                try BackupArchive.unpack(zip: picked, into: unpacked,
-                                         log: { FeedbackCenter.step("restore: " + $0) })
+                // With the files' real dates, the merge below keeps whichever copy is newer. A
+                // backup from before dates were kept unpacks dated now, so it wins, as it always did.
+                // So does a restore onto an install with nothing of its own yet (the reinstall
+                // case), which therefore behaves exactly as it always has.
+                let fresh = Self.holdsNothingToProtect()
+                FeedbackCenter.step("restore: unzipping" + (fresh ? " (nothing on this phone yet)" : ""))
+                datesKept = try BackupArchive.unpack(zip: picked, into: unpacked, keepDates: !fresh,
+                                                     log: { FeedbackCenter.step("restore: " + $0) }).datesKept
                 // `Continuum Sync/...` inside the zip, or the zip of its contents directly.
                 var source = unpacked.appendingPathComponent(name, isDirectory: true)
                 if !fm.fileExists(atPath: source.path) {
@@ -1254,12 +1263,17 @@ final class CloudSync: ObservableObject {
                 if fm.fileExists(atPath: root.path) { try fm.removeItem(at: root) }
                 try fm.moveItem(at: source, to: root)
                 FeedbackCenter.step("restore: moved into the app's sync folder")
+                // What Conflicts/ already holds (the backup's own), so only the copies THIS merge
+                // sets aside are moved to Older copies afterwards.
+                conflictsBefore = Self.filesUnder(root.appendingPathComponent("Conflicts", isDirectory: true))
             } catch {
                 failure = error.localizedDescription
             }
             try? fm.removeItem(at: unpacked)
             try? fm.removeItem(at: picked)
             let failed = failure
+            let dated = datesKept
+            let alreadyAside = conflictsBefore
             await MainActor.run {
                 self.isSyncing = false
                 self.allowsGameLaunch = true
@@ -1285,9 +1299,15 @@ final class CloudSync: ObservableObject {
                     try? FileManager.default.removeItem(at: mine)
                     FeedbackCenter.step("restore: removed this install's exported settings so the backup's win")
                 }
-                FeedbackCenter.step("restore: merging into the app")
+                FeedbackCenter.step("restore: merging into the app ("
+                    + (dated ? "newest copy wins" : "an older backup with no dates: the backup wins") + ")")
                 self.afterSync = { [weak self] ok in
                     FeedbackCenter.step("restore: merge finished, ok=\(ok)")
+                    // Whichever copy lost (the phone's or the backup's) is never deleted: it goes
+                    // where the player can see it, even when the merge stopped part-way.
+                    self?.olderCopiesLine = Self.moveSetAsideCopies(
+                        from: root.appendingPathComponent("Conflicts", isDirectory: true),
+                        except: alreadyAside)
                     // A merge that failed keeps its own "sync folder failed: ..." line, and the
                     // backup's settings are not queued to apply: it did not finish.
                     guard ok else { return }
@@ -1355,8 +1375,84 @@ final class CloudSync: ObservableObject {
         host?.saveStates.reloadFromDisk()
         let states = host?.saveStates.records.count ?? 0
         FeedbackCenter.step("restore: save-state list now has \(states) entr(ies)")
-        setLine("sync folder: restore finished: \(skins) skin(s), \(states) save state(s). "
-                + "Close Continuum fully and reopen it once to apply the rest of your settings.")
+        var text = "sync folder: restore finished: \(skins) skin(s), \(states) save state(s). "
+            + "Close Continuum fully and reopen it once to apply the rest of your settings."
+        if let older = olderCopiesLine { text += " " + older }
+        olderCopiesLine = nil
+        setLine(text)
+    }
+
+    /// Restore: true when this phone holds nothing a restore could put aside (no game, save,
+    /// skin...; only the lists and settings every install starts with, and covers). Then the
+    /// backup simply comes down as it always has, and newest-wins has nothing to decide.
+    nonisolated static func holdsNothingToProtect() -> Bool {
+        let startsWith: Set<String> = ["SaveStates/index.json", "Cheats/index.json",
+                                       CloudSyncPaths.settingsPath]
+        return !CloudSyncPaths.listLocal().contains {
+            !startsWith.contains($0.path) && !$0.path.hasPrefix("Artwork/")
+        }
+    }
+
+    /// Every file under `folder`, as paths relative to it.
+    nonisolated static func filesUnder(_ folder: URL) -> Set<String> {
+        let fm = FileManager.default
+        let base = folder.standardizedFileURL.resolvingSymlinksInPath().path
+        guard let walker = fm.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey],
+                                         options: [.skipsHiddenFiles]) else { return [] }
+        var out: Set<String> = []
+        for case let url as URL in walker {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+            let full = url.standardizedFileURL.resolvingSymlinksInPath().path
+            if full.hasPrefix(base + "/") { out.insert(String(full.dropFirst(base.count + 1))) }
+        }
+        return out
+    }
+
+    /// The Files folder (Continuum, Older copies) where a restore puts every copy it did not keep.
+    /// A subfolder of Documents: the Library reads only the top of Documents, so nothing in it is
+    /// ever listed as a game, and the sync only takes the top level too.
+    nonisolated static let olderCopiesFolderName = "Older copies"
+
+    /// Moves the copies a restore's merge set aside in `Conflicts/` (whichever side lost, the
+    /// phone's or the backup's) into Documents/Older copies, keeping their folders, with names a
+    /// person can read ("Game.srm (from this phone, 2026-10-12 141559 UTC)"). Never deletes: a copy
+    /// that cannot be moved stays where it was. Returns the line for the player, or nil.
+    nonisolated static func moveSetAsideCopies(from conflicts: URL, except before: Set<String>) -> String? {
+        let fm = FileManager.default
+        let fresh = filesUnder(conflicts).subtracting(before).sorted()
+        guard !fresh.isEmpty,
+              let documents = fm.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        let target = documents.appendingPathComponent(olderCopiesFolderName, isDirectory: true)
+        var moved = 0
+        for relative in fresh {
+            let readable = relative
+                .replacingOccurrences(of: #" \(conflict (.+?) from this device\)"#,
+                                      with: " (from this phone, $1)", options: .regularExpression)
+                .replacingOccurrences(of: #" \(conflict (.+?) from cloud\)"#,
+                                      with: " (from the backup, $1)", options: .regularExpression)
+            var destination = target.appendingPathComponent(readable)
+            var number = 1
+            while fm.fileExists(atPath: destination.path) {
+                number += 1
+                let ext = (readable as NSString).pathExtension
+                let stem = (readable as NSString).deletingPathExtension + " \(number)"
+                destination = target.appendingPathComponent(ext.isEmpty ? stem : "\(stem).\(ext)")
+            }
+            do {
+                try fm.createDirectory(at: destination.deletingLastPathComponent(),
+                                       withIntermediateDirectories: true)
+                try fm.moveItem(at: conflicts.appendingPathComponent(relative), to: destination)
+                moved += 1
+            } catch {
+                FeedbackCenter.step("restore: could not move \(relative) to Older copies: "
+                                    + error.localizedDescription)
+            }
+        }
+        FeedbackCenter.step("restore: moved \(moved) set-aside cop(ies) to Documents/\(olderCopiesFolderName)")
+        guard moved > 0 else { return nil }
+        return moved == 1
+            ? "The 1 copy it didn't keep is in Files, Continuum, Older copies."
+            : "The \(moved) copies it didn't keep are in Files, Continuum, Older copies."
     }
 
     static func stagingFolder() -> URL? {

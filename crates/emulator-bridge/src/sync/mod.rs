@@ -1196,4 +1196,25 @@ mod tests {
         let s = hazard.iter().find(|a| a.path == "Settings/defaults.plist").unwrap();
         assert_eq!(s.kind, ActionKind::ConflictKeepLocal);
     }
+
+    /// A restore (no shared history) keeps the NEWER copy of each file, now that a backup's files
+    /// keep their real dates (review finding IOS-06), and the other copy is set aside, never
+    /// dropped: the app then moves it to Files, Continuum, Older copies.
+    #[test]
+    fn a_restore_keeps_the_newer_copy_and_sets_the_other_aside() {
+        let none = Manifest::default();
+        // The phone's save is newer than the backup's: the phone's stays, the backup's is kept aside.
+        let a = &plan(&[st("BatterySaves/Game.srm", 8192, 90_000)],
+                      &[st("BatterySaves/Game.srm", 8192, 1_000)], &none, NOW)[0];
+        assert_eq!(a.kind, ActionKind::ConflictKeepLocal);
+        assert!(a.aside.starts_with("Conflicts/BatterySaves/Game (conflict ") && a.aside.ends_with(" from cloud).srm"), "{}", a.aside);
+        // The backup's is newer: it comes down, the phone's is kept aside.
+        let b = &plan(&[st("BatterySaves/Game.srm", 8192, 1_000)],
+                      &[st("BatterySaves/Game.srm", 8192, 90_000)], &none, NOW)[0];
+        assert_eq!(b.kind, ActionKind::ConflictKeepRemote);
+        assert!(b.aside.ends_with(" from this device).srm"), "{}", b.aside);
+        // Nothing on the phone (a fresh install): it simply comes down, nothing to set aside.
+        let c = &plan(&[], &[st("BatterySaves/Game.srm", 8192, 1_000)], &none, NOW)[0];
+        assert_eq!((c.kind, c.aside.as_str()), (ActionKind::Download, ""));
+    }
 }

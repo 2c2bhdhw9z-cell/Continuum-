@@ -14,6 +14,12 @@
 // The writer stores files uncompressed (saves are small, games are already compressed, and it
 // keeps a multi-gigabyte backup fast). The reader takes stored and deflated entries, ZIP64
 // included, so a zip made by Files' own Compress restores too.
+//
+// DATES (review finding IOS-06). Every entry carries its file's real modification date: the DOS
+// date and time plus the 0x5455 extended timestamp (whole seconds, UTC). Unpacking sets that date
+// back on each file, so the merge that follows a Restore can keep whichever copy is newer.
+// Backups written before this carry no dates (every entry 1980-01-01 00:00); `unpack` reports
+// that, and their files keep the time they were unpacked, so the backup wins as it always did.
 
 import Compression
 import Foundation
@@ -62,6 +68,39 @@ enum BackupArchive {
         UInt64(u32(d, at)) | UInt64(u32(d, at + 4)) << 32
     }
 
+    // ------------------------------------------------------------------ dates
+
+    /// The date every entry of a backup made before dates were written carries: 1980-01-01 00:00.
+    private static let undatedDOSDate: UInt16 = 0x21
+
+    /// DOS (time, date), local time, two-second steps, years 1980-2107.
+    private static func dosStamp(_ date: Date) -> (UInt16, UInt16) {
+        let c = Calendar(identifier: .gregorian).dateComponents(
+            [.year, .month, .day, .hour, .minute, .second], from: date)
+        let year = min(max(c.year ?? 1980, 1980), 2107)
+        let time = UInt16((c.hour ?? 0) << 11 | (c.minute ?? 0) << 5 | (c.second ?? 0) / 2)
+        let day = UInt16((year - 1980) << 9 | (c.month ?? 1) << 5 | (c.day ?? 1))
+        return (time, day)
+    }
+
+    private static func dosDate(time: UInt16, date: UInt16) -> Date? {
+        var c = DateComponents()
+        c.year = 1980 + Int(date >> 9)
+        c.month = Int((date >> 5) & 0x0F)
+        c.day = Int(date & 0x1F)
+        c.hour = Int(time >> 11)
+        c.minute = Int((time >> 5) & 0x3F)
+        c.second = Int(time & 0x1F) * 2
+        return Calendar(identifier: .gregorian).date(from: c)
+    }
+
+    /// The 0x5455 extra field with the modification time only (flags bit 0), as Info-ZIP writes
+    /// it. The same 9 bytes go in the local header and the central directory.
+    private static func extendedTimestamp(_ date: Date) -> [UInt8] {
+        let seconds = UInt32(clamping: Int64(date.timeIntervalSince1970.rounded(.down)))
+        return le16(0x5455) + le16(5) + [0x01] + le32(seconds)
+    }
+
     // ------------------------------------------------------------------ write
 
     /// Packs `folder` into a new zip at `zip`; entries are named `<folder name>/<relative path>`.
@@ -94,15 +133,19 @@ enum BackupArchive {
             let name = Array((prefix + "/" + relative).utf8)
             let input = try FileHandle(forReadingFrom: file)
             defer { try? input.close() }
-            let size = (try? fm.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.uint64Value ?? 0
+            let attributes = try? fm.attributesOfItem(atPath: file.path)
+            let size = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
+            let modified = (attributes?[.modificationDate] as? Date) ?? Date()
+            let (dosTime, dosDate) = dosStamp(modified)
+            let stamp = extendedTimestamp(modified)
             let big = size >= 0xFFFF_FFFF || offset >= 0xFFFF_FFFF
             let headerOffset = offset
 
             // Local header. CRC is not known yet: bit 3 (data descriptor) follows the data.
             var local: [UInt8] = le32(0x0403_4B50) + le16(big ? 45 : 20) + le16(0x0808) + le16(0)
-                + le16(0) + le16(0x21) + le32(0)
+                + le16(dosTime) + le16(dosDate) + le32(0)
             local += big ? le32(0xFFFF_FFFF) + le32(0xFFFF_FFFF) : le32(0) + le32(0)
-            let localExtra: [UInt8] = big ? le16(1) + le16(16) + le64(0) + le64(0) : []
+            let localExtra: [UInt8] = (big ? le16(1) + le16(16) + le64(0) + le64(0) : []) + stamp
             local += le16(UInt16(name.count)) + le16(UInt16(localExtra.count)) + name + localExtra
             try out.write(contentsOf: Data(local))
             offset += UInt64(local.count)
@@ -126,8 +169,9 @@ enum BackupArchive {
             let needs64 = written >= 0xFFFF_FFFF || headerOffset >= 0xFFFF_FFFF
             var extra: [UInt8] = []
             if needs64 { extra = le16(1) + le16(24) + le64(written) + le64(written) + le64(headerOffset) }
+            extra += stamp
             var entry: [UInt8] = le32(0x0201_4B50) + le16(0x031E) + le16(needs64 ? 45 : 20)
-                + le16(0x0808) + le16(0) + le16(0) + le16(0x21) + le32(crcValue)
+                + le16(0x0808) + le16(0) + le16(dosTime) + le16(dosDate) + le32(crcValue)
             entry += needs64 ? le32(0xFFFF_FFFF) + le32(0xFFFF_FFFF)
                              : le32(UInt32(written)) + le32(UInt32(written))
             entry += le16(UInt16(name.count)) + le16(UInt16(extra.count)) + le16(0) + le16(0) + le16(0)
@@ -166,6 +210,8 @@ enum BackupArchive {
         let compressed: UInt64
         let size: UInt64
         let localOffset: UInt64
+        /// The file's own date, when the zip recorded one (nil for a pre-dates backup).
+        let modified: Date?
     }
 
     private static func read(_ h: FileHandle, at: UInt64, count: Int) throws -> Data {
@@ -217,6 +263,8 @@ enum BackupArchive {
             let extraLen = Int(u16(dir, p + 30))
             let commentLen = Int(u16(dir, p + 32))
             var localOffset = UInt64(u32(dir, p + 42))
+            let dosTimeField = u16(dir, p + 12), dosDateField = u16(dir, p + 14)
+            var stamped: Date?
             guard p + 46 + nameLen + extraLen + commentLen <= dir.count else {
                 throw BackupArchiveError("damaged zip entry")
             }
@@ -235,26 +283,40 @@ enum BackupArchive {
                     if size == 0xFFFF_FFFF, q + 8 <= fieldEnd { size = u64(dir, q); q += 8 }
                     if compressed == 0xFFFF_FFFF, q + 8 <= fieldEnd { compressed = u64(dir, q); q += 8 }
                     if localOffset == 0xFFFF_FFFF, q + 8 <= fieldEnd { localOffset = u64(dir, q) }
+                } else if id == 0x5455, e + 9 <= fieldEnd, dir[dir.startIndex + e + 4] & 1 != 0 {
+                    stamped = Date(timeIntervalSince1970: TimeInterval(u32(dir, e + 5)))
                 }
                 e += 4 + len
             }
             if (flags & 1) != 0 { throw BackupArchiveError("the zip is password protected") }
+            let undated = dosDateField == undatedDOSDate && dosTimeField == 0
+            let modified = stamped ?? (undated ? nil : dosDate(time: dosTimeField, date: dosDateField))
             list.append(Entry(name: name, method: method, compressed: compressed, size: size,
-                              localOffset: localOffset))
+                              localOffset: localOffset, modified: modified))
             p = extraEnd + commentLen
         }
         return list
     }
 
-    /// Unpacks `zip` into the empty folder `destination`. Returns the number of files written.
+    /// What `unpack` wrote: the number of files, and whether the zip carried real file dates (and
+    /// they were set on the files). False for a backup made before dates were written.
+    struct Unpacked {
+        let files: Int
+        let datesKept: Bool
+    }
+
+    /// Unpacks `zip` into the empty folder `destination`, each file with the date the zip recorded
+    /// when `keepDates` (otherwise every file is dated now, as before dates were kept).
     @discardableResult
-    static func unpack(zip: URL, into destination: URL, log: (String) -> Void) throws -> Int {
+    static func unpack(zip: URL, into destination: URL, keepDates: Bool = true,
+                       log: (String) -> Void) throws -> Unpacked {
         let fm = FileManager.default
         let h = try FileHandle(forReadingFrom: zip)
         defer { try? h.close() }
         let list = try entries(h)
         let length = try h.seekToEnd()
         log("unzip: \(list.count) entr(ies) in \(zip.lastPathComponent)")
+        let datesKept = keepDates && list.contains { $0.modified != nil }
         try fm.createDirectory(at: destination, withIntermediateDirectories: true)
         var files = 0
         for entry in list {
@@ -282,26 +344,35 @@ enum BackupArchive {
                 throw BackupArchiveError("could not write \(entry.name)")
             }
             let out = try FileHandle(forWritingTo: target)
-            defer { try? out.close() }
-            try h.seek(toOffset: dataStart)
-            switch entry.method {
-            case 0:
-                var left = entry.compressed
-                while left > 0 {
-                    let piece = try autoreleasepool { try h.read(upToCount: Int(min(left, UInt64(chunk)))) ?? Data() }
-                    if piece.isEmpty { throw BackupArchiveError("the zip is cut short at \(entry.name)") }
-                    try out.write(contentsOf: piece)
-                    left -= UInt64(piece.count)
+            do {
+                try h.seek(toOffset: dataStart)
+                switch entry.method {
+                case 0:
+                    var left = entry.compressed
+                    while left > 0 {
+                        let piece = try autoreleasepool { try h.read(upToCount: Int(min(left, UInt64(chunk)))) ?? Data() }
+                        if piece.isEmpty { throw BackupArchiveError("the zip is cut short at \(entry.name)") }
+                        try out.write(contentsOf: piece)
+                        left -= UInt64(piece.count)
+                    }
+                case 8:
+                    try inflate(from: h, compressed: entry.compressed, into: out, name: entry.name)
+                default:
+                    throw BackupArchiveError("\(entry.name) uses a zip compression Continuum cannot read (\(entry.method))")
                 }
-            case 8:
-                try inflate(from: h, compressed: entry.compressed, into: out, name: entry.name)
-            default:
-                throw BackupArchiveError("\(entry.name) uses a zip compression Continuum cannot read (\(entry.method))")
+            } catch {
+                try? out.close()
+                throw error
+            }
+            try? out.close()
+            // After the file is closed, or the last write would move the date on again.
+            if datesKept, let modified = entry.modified {
+                try? fm.setAttributes([.modificationDate: modified], ofItemAtPath: target.path)
             }
             files += 1
         }
-        log("unzip: wrote \(files) file(s)")
-        return files
+        log("unzip: wrote \(files) file(s)" + (datesKept ? " with their dates" : ", dated now"))
+        return Unpacked(files: files, datesKept: datesKept)
     }
 
     private static func inflate(from h: FileHandle, compressed: UInt64, into out: FileHandle, name: String) throws {
