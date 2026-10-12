@@ -605,7 +605,7 @@ fn build_machine(rom: Vec<u8>, s: &crate::options::Settings, dir: Option<&str>) 
         };
         let f = system_file(dir, name);
         if f.is_none() {
-            log_line(&format!("no {name} in the system folder; playing cBoy's own startup"));
+            log_line(&format!("no {name} in the system folder, so the game simply starts"));
         }
         f
     } else {

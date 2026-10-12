@@ -86,7 +86,7 @@ const SPECS: &[Spec] = &[
      c"Runs Game Boy-only cartridges in Color mode, for colourisation hacks that write Color palettes. Ordinary Game Boy games may look wrong. Next start.",
      OFF_ON, c"off"),
     (c"system", c"cboy_boot_rom", c"Start from a boot ROM file",
-     c"Plays the console's own start-up logo from a file you supply: <system folder>/cboy/dmg_boot.bin, mgb_boot.bin, sgb_boot.bin, sgb2_boot.bin or cgb_boot.bin. Without the file, cBoy plays its own short startup, then the game. Next start.",
+     c"Plays the console's real start-up logo from your own boot file (dmg_boot.bin, cgb_boot.bin and so on). Put it in the Continuum folder in Files, then tap Install a BIOS in Settings. Without the file the game simply starts. Next start.",
      OFF_ON, c"off"),
     (c"system", c"cboy_gba_bios", c"Game Boy Advance BIOS",
      c"Built-in needs no file. From file uses <system folder>/cboy/gba_bios.bin (or gba_bios.bin) and plays the start-up logo; From file, no logo uses it but starts the game directly. Next start.",
