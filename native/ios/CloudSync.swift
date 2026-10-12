@@ -448,12 +448,17 @@ private struct CloudSyncError: LocalizedError {
 final class CloudSyncWorker {
     private let remoteRoot: URL
     private let manifestText: String
+    /// Back up to Files: this device copied ONE WAY into the app's own backup folder
+    /// (`syncMirrorPlan`). Nothing in the app is written or removed, so a file deleted here since
+    /// the last backup does not come back.
+    private let mirror: Bool
     private let fm = FileManager.default
     private let coordinator = NSFileCoordinator(filePresenter: nil)
 
-    init(remoteRoot: URL, manifestText: String) {
+    init(remoteRoot: URL, manifestText: String, mirror: Bool = false) {
         self.remoteRoot = remoteRoot
         self.manifestText = manifestText
+        self.mirror = mirror
     }
 
     // ---------------------------------------------------------------- coordination
@@ -781,8 +786,10 @@ final class CloudSyncWorker {
             }
             removeAbandonedUploads(now: Date())
             // A restore: the folder has games and this install never answered the question
-            // (absent, not false), so the games come back with everything else.
-            if UserDefaults.standard.object(forKey: CloudSyncPaths.includeGamesKey) == nil,
+            // (absent, not false), so the games come back with everything else. Never on a
+            // backup, which only copies out what the app has.
+            if !mirror,
+               UserDefaults.standard.object(forKey: CloudSyncPaths.includeGamesKey) == nil,
                cloudHoldsGames() {
                 UserDefaults.standard.set(true, forKey: CloudSyncPaths.includeGamesKey)
                 await gamesSwitchedOn()
@@ -791,7 +798,9 @@ final class CloudSyncWorker {
             outcome.pendingInCloud = pending.count
             let local = CloudSyncPaths.listLocal().filter { !pending.contains($0.path) }
             let remote = remoteAll.filter { !pending.contains($0.path) }
-            let plan = syncPlan(local: local, remote: remote, manifestText: manifestText, nowMs: now)
+            let plan = mirror
+                ? syncMirrorPlan(local: local, remote: remote, manifestText: manifestText, nowMs: now)
+                : syncPlan(local: local, remote: remote, manifestText: manifestText, nowMs: now)
             if let refusal = plan.refusal {
                 outcome.refusal = refusal
                 return outcome
@@ -905,6 +914,12 @@ final class CloudSyncWorker {
         case .archiveRemote:
             try coordinatedMove(from: remoteURL(action.path), to: remoteURL(action.aside))
             outcome.archived += 1
+        case .removeRemote:
+            // Backups only: the app's own folder drops a copy the app no longer has.
+            // Not counted as "moved to Deleted": nothing is kept, the app still has its own copy
+            // of everything it holds.
+            let url = remoteURL(action.path)
+            if fm.fileExists(atPath: url.path) { try fm.removeItem(at: url) }
         }
     }
 }
@@ -1092,7 +1107,7 @@ final class CloudSync: ObservableObject {
             self.exportBackup(from: staging)
         }
         runSync(folder: staging, target: "staging", scoped: false, exportFirst: true,
-                reason: "Back up to Files")
+                reason: "Back up to Files", mirror: true)
     }
 
     private func exportBackup(from staging: URL) {
@@ -1428,8 +1443,9 @@ final class CloudSync: ObservableObject {
     /// between the live folder and the in-app backup folder forgets it, so neither side's
     /// missing files read as deletions. `exportFirst` nil keeps the original rule (export only
     /// with history); true always exports (the in-app backup folder is ours).
+    /// `mirror`: one way, this device into the folder (Back up to Files); see `CloudSyncWorker`.
     private func runSync(folder: URL, target: String, scoped wantsScope: Bool, exportFirst: Bool?,
-                         reason: String) {
+                         reason: String, mirror: Bool = false) {
         guard !isSyncing else {
             // Only a user-started run carries a follow-up (Back up, Restore); it used to vanish
             // without a word while the launch-time sync was still going.
@@ -1468,7 +1484,8 @@ final class CloudSync: ObservableObject {
         let root = folder.appendingPathComponent(CloudSyncPaths.remoteFolderName, isDirectory: true)
         Task.detached(priority: .utility) {
             let scoped = wantsScope && folder.startAccessingSecurityScopedResource()
-            let outcome = await CloudSyncWorker(remoteRoot: root, manifestText: manifestText).run(
+            let outcome = await CloudSyncWorker(remoteRoot: root, manifestText: manifestText,
+                                                mirror: mirror).run(
                 gamesSwitchedOn: { await MainActor.run { self.includesGames = true } },
                 onlyGamesLeft: { changed in await MainActor.run { self.onlyGamesLeft(changed) } })
             if scoped { folder.stopAccessingSecurityScopedResource() }

@@ -199,6 +199,9 @@ pub enum ActionKind {
     ArchiveLocal,
     /// Deleted locally: move the cloud file to `aside` in the cloud.
     ArchiveRemote,
+    /// Backups only ([`mirror_plan`]): the folder holds a file this device no longer has, so the
+    /// folder's copy is removed. Never produced by [`plan`].
+    RemoveRemote,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -406,6 +409,37 @@ fn decide(
             }
         }
     }
+}
+
+/// The plan for a BACKUP: this device copied into the app's own backup folder, one way.
+///
+/// "Back up to Files" used to run the two-way [`plan`] against that folder, so anything deleted
+/// in the app since the last backup (a game, a battery save, a skin) was downloaded back into the
+/// app by the next Back up. A backup must never write into the app: every path the two-way plan
+/// would download, merge, keep a conflict copy of or archive locally sends this device's copy
+/// instead, and a file only the folder still has is removed from it, so the folder (and the zip
+/// made from it) is exactly what the app holds.
+pub fn mirror_plan(local: &[FileStat], remote: &[FileStat], base: &Manifest, now_ms: i64) -> Vec<Action> {
+    let here: BTreeSet<&str> = local
+        .iter()
+        .filter(|s| is_valid_path(&s.path))
+        .map(|s| s.path.as_str())
+        .collect();
+    plan(local, remote, base, now_ms)
+        .into_iter()
+        .map(|a| {
+            let kind = if here.contains(a.path.as_str()) {
+                ActionKind::Upload
+            } else {
+                ActionKind::RemoveRemote
+            };
+            Action {
+                kind,
+                path: a.path,
+                aside: String::new(),
+            }
+        })
+        .collect()
 }
 
 /// Refuses a plan that looks like an unreachable folder rather than a real change.
@@ -676,6 +710,41 @@ mod tests {
         let mut actions = plan(local, remote, base, NOW);
         assert!(actions.len() <= 1, "{actions:?}");
         actions.pop()
+    }
+
+    /// Back up to Files never writes into the app (review finding IOS-05).
+    #[test]
+    fn a_backup_mirrors_this_device_and_never_brings_anything_back() {
+        let kinds = |local: &[FileStat], remote: &[FileStat], base: &Manifest| {
+            mirror_plan(local, remote, base, NOW).into_iter().map(|a| (a.path, a.kind)).collect::<Vec<_>>()
+        };
+        // Deleted in the app since the last backup: a game, a battery save, a save state. The
+        // two-way plan downloads the first two back; the backup removes all three from its folder.
+        for path in ["Games/gba/Zelda.gba", "BatterySaves/Zelda.gba.srm", P] {
+            let base = base_of(path, Some((10, 1_000)), Some((10, 1_000)));
+            let remote = [st(path, 10, 1_000)];
+            assert_eq!(kinds(&[], &remote, &base), vec![(path.to_string(), ActionKind::RemoveRemote)], "{path}");
+        }
+        // Only ever in the folder (a restore put it there and the app no longer has it): removed.
+        let remote = [st("Skins/old.deltaskin", 5, 1_000)];
+        assert_eq!(kinds(&[], &remote, &Manifest::default())[0].1, ActionKind::RemoveRemote);
+        // The folder's copy changed (a restore) while this device's did not: this device's goes in.
+        let base = base_of("BatterySaves/a.srm", Some((8, 1_000)), Some((8, 1_000)));
+        let k = kinds(&[st("BatterySaves/a.srm", 8, 1_000)], &[st("BatterySaves/a.srm", 8, 9_000)], &base);
+        assert_eq!(k, vec![("BatterySaves/a.srm".to_string(), ActionKind::Upload)]);
+        // Both changed, the folder's newer: still this device's, and no conflict copy is kept.
+        let base = base_of("BatterySaves/a.srm", Some((8, 1_000)), Some((8, 1_000)));
+        let actions = mirror_plan(&[st("BatterySaves/a.srm", 9, 2_000)], &[st("BatterySaves/a.srm", 7, 9_000)], &base, NOW);
+        assert_eq!((actions[0].kind, actions[0].aside.as_str()), (ActionKind::Upload, ""));
+        // A record file both sides changed: this device's list, not a merge written into the app.
+        let path = RECORD_FILES[0];
+        let base = base_of(path, Some((8, 1_000)), Some((8, 1_000)));
+        assert_eq!(kinds(&[st(path, 9, 2_000)], &[st(path, 7, 9_000)], &base)[0].1, ActionKind::Upload);
+        // New on this device, or missing from the folder: sent.
+        assert_eq!(kinds(&[st("Cheats/index.json", 3, 1)], &[], &Manifest::default())[0].1, ActionKind::Upload);
+        // Unchanged on both sides: nothing to do.
+        let base = base_of(P, Some((10, 1_000)), Some((10, 1_000)));
+        assert!(kinds(&[st(P, 10, 1_000)], &[st(P, 10, 1_000)], &base).is_empty());
     }
 
     #[test]

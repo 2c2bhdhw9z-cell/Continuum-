@@ -186,6 +186,8 @@ pub enum SyncActionKind {
     MergeRecords,
     ArchiveLocal,
     ArchiveRemote,
+    /// Backups only (`sync_mirror_plan`): remove the folder's copy, which this device no longer has.
+    RemoveRemote,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -234,9 +236,31 @@ pub fn sync_plan(
     manifest_text: String,
     now_ms: i64,
 ) -> SyncPlan {
+    planned(local, remote, manifest_text, now_ms, sync::plan)
+}
+
+/// The plan for "Back up to Files": this device mirrored one way into the app's own backup
+/// folder, never writing into the app. See `crate::sync::mirror_plan`.
+#[uniffi::export]
+pub fn sync_mirror_plan(
+    local: Vec<SyncFileStat>,
+    remote: Vec<SyncFileStat>,
+    manifest_text: String,
+    now_ms: i64,
+) -> SyncPlan {
+    planned(local, remote, manifest_text, now_ms, sync::mirror_plan)
+}
+
+fn planned(
+    local: Vec<SyncFileStat>,
+    remote: Vec<SyncFileStat>,
+    manifest_text: String,
+    now_ms: i64,
+    make: fn(&[sync::FileStat], &[sync::FileStat], &sync::Manifest, i64) -> Vec<sync::Action>,
+) -> SyncPlan {
     let manifest = sync::Manifest::parse(&manifest_text);
     let (local, remote) = (stats(local), stats(remote));
-    let actions = sync::plan(&local, &remote, &manifest, now_ms);
+    let actions = make(&local, &remote, &manifest, now_ms);
     let refusal = sync::refusal(&actions, &local, remote.len(), &manifest);
     let actions = actions
         .into_iter()
@@ -249,6 +273,7 @@ pub fn sync_plan(
                 sync::ActionKind::MergeRecords => SyncActionKind::MergeRecords,
                 sync::ActionKind::ArchiveLocal => SyncActionKind::ArchiveLocal,
                 sync::ActionKind::ArchiveRemote => SyncActionKind::ArchiveRemote,
+                sync::ActionKind::RemoveRemote => SyncActionKind::RemoveRemote,
             },
             path: a.path,
             aside: a.aside,
