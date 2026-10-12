@@ -232,8 +232,8 @@ order on this page:
    restore; a clock game's `.rtc` is rewritten on every 20-second save; cores this project didn't
    write still give a technical line when a game won't start; one doc comment in
    `ContinuumApp.swift` sits on the wrong function. The full lists (with IDs like IOS-11,
-   RUST-05, CBOY-05) are in `.agents/tasks/cleanup-2026-10-12/` on the machine that did the
-   cleanup; that folder is not in git.
+   RUST-05, CBOY-05) are in `docs/reports/cleanup-2026-10-12/` (`FINDINGS.md` has every
+   finding, `SUMMARY.md` what was fixed and what was left, `FINAL_REVIEW.md` the last check).
 6. **cBoy:**
    - MP2K high-quality Advance music. It would spot Nintendo's MP2K music engine, which many
      Game Boy Advance games use, and play their music at a higher quality than the console's own
