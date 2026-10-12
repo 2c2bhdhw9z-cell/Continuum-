@@ -406,6 +406,20 @@ pub fn last_core_log_line() -> String {
         .into_owned()
 }
 
+/// The reason to show when `retro_load_game` fails, from the core's last log line, for the cores
+/// this project wrote, whose refusals are sentences written for people: cBoy starts every line
+/// with `cBoy: `, and Continuum Symbian logs nothing but its refusals. Any other core's log lines
+/// are not meant for testers, so the generic reason stays for those (None).
+fn refusal_from_log(core_id: &str, logged: &str) -> Option<String> {
+    let text = match logged.strip_prefix("cBoy: ") {
+        Some(rest) => rest,
+        None if core_id == "continuum_symbian" => logged,
+        None => return None,
+    };
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.to_string())
+}
+
 /// Drops the previous core's last line so a failed load cannot report a stale sentence.
 pub fn clear_last_core_log_line() {
     unsafe { continuum_clear_last_core_log() };
@@ -1314,12 +1328,7 @@ impl EmulatorCore for NativeLibretroCore {
         vulkan_hw::set_defer_reset(false);
         self.serialization_quirks |= take_serialization_quirks();
         if !ok {
-            let logged = last_core_log_line();
-            let reason = logged
-                .strip_prefix("cBoy: ")
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
+            let reason = refusal_from_log(&self.descriptor.id, &last_core_log_line())
                 .unwrap_or_else(|| "retro_load_game rejected the content".into());
             return Err(BridgeError::InvalidContent {
                 core_id: self.descriptor.id.clone(),
@@ -1738,6 +1747,22 @@ fn c_str(pointer: *const c_char) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review finding RUST-02: Continuum Symbian's refusal used to be dropped, because only lines
+    /// starting `cBoy: ` were passed on.
+    #[test]
+    fn our_own_cores_refusals_reach_the_screen_and_other_cores_lines_do_not() {
+        let symbian = "No Symbian firmware. Put a device dump (.rom, and its .rpkg if you have one) \
+                       in system/continuum-symbian/firmware.";
+        assert_eq!(refusal_from_log("continuum_symbian", symbian).as_deref(), Some(symbian));
+        assert_eq!(
+            refusal_from_log("continuum_gb", "cBoy: This file is cut off.").as_deref(),
+            Some("This file is cut off.")
+        );
+        assert_eq!(refusal_from_log("mgba", "[GBA] cartridge header bad"), None);
+        assert_eq!(refusal_from_log("continuum_symbian", "  "), None);
+        assert_eq!(refusal_from_log("continuum_gb", "cBoy: "), None);
+    }
 
     // The negotiated-format global is process-wide, so the format tests must not race each
     // other. A dedicated lock serialises them without depending on the test harness's
