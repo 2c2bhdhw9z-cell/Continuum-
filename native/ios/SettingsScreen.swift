@@ -1118,33 +1118,52 @@ private struct SettingsFoldButtonStyle: ButtonStyle {
 /// A titled group on a dark card. The heading opens and closes the card.
 struct SettingsSection<Content: View>: View {
     let title: String
+    /// False for a card that is a form rather than a Settings group (the feedback and crash
+    /// report sheets): always open, no chevron, untouched by Settings' "start closed" and
+    /// Open all / Close all, which used to leave those forms showing only their Send button.
+    let foldable: Bool
     @ViewBuilder var content: Content
     @ObservedObject private var folds = SettingsFolds.shared
 
+    init(title: String, foldable: Bool = true, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.foldable = foldable
+        self.content = content()
+    }
+
+    private var heading: some View {
+        Text(title)
+            .font(.system(size: 11, weight: .bold))
+            .tracking(1.6)
+            .foregroundStyle(ShellPalette.secondaryText)
+    }
+
     var body: some View {
-        let open = folds.isOpen(title)
+        let open = !foldable || folds.isOpen(title)
         VStack(alignment: .leading, spacing: open ? 12 : 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    folds.toggle(title)
+            if foldable {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        folds.toggle(title)
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        heading
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(ShellPalette.secondaryText)
+                            .rotationEffect(.degrees(open ? 0 : -90))
+                    }
+                    .contentShape(Rectangle())
                 }
-            } label: {
-                HStack(spacing: 8) {
-                    Text(title)
-                        .font(.system(size: 11, weight: .bold))
-                        .tracking(1.6)
-                        .foregroundStyle(ShellPalette.secondaryText)
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(ShellPalette.secondaryText)
-                        .rotationEffect(.degrees(open ? 0 : -90))
-                }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityLabel(title)
+                .accessibilityValue(open ? "open" : "closed")
+            } else {
+                heading
+                    .accessibilityAddTraits(.isHeader)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(title)
-            .accessibilityValue(open ? "open" : "closed")
 
             if open {
                 content

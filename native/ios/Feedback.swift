@@ -172,7 +172,7 @@ struct FeedbackSheet: View {
                     if let crash {
                         crashCard(crash)
                     } else {
-                        SettingsSection(title: "WHAT'S THIS ABOUT?") {
+                        SettingsSection(title: "WHAT'S THIS ABOUT?", foldable: false) {
                             SegmentedChoice(options: kinds, title: { $0.title }, selection: $kind)
                         }
                     }
@@ -222,7 +222,7 @@ struct FeedbackSheet: View {
     // MARK: Cards
 
     private func crashCard(_ crash: FeedbackUnexpectedClose) -> some View {
-        SettingsSection(title: "WHAT HAPPENED") {
+        SettingsSection(title: "WHAT HAPPENED", foldable: false) {
             Text(FeedbackCenter.crashSentence(crash))
                 .font(.system(size: 14))
                 .foregroundStyle(.white)
@@ -233,7 +233,7 @@ struct FeedbackSheet: View {
     }
 
     private var ratingCard: some View {
-        SettingsSection(title: "HOW'S IT RUNNING?") {
+        SettingsSection(title: "HOW'S IT RUNNING?", foldable: false) {
             if let entry {
                 Text(entry.name)
                     .font(.system(size: 14, weight: .semibold))
@@ -247,7 +247,7 @@ struct FeedbackSheet: View {
     }
 
     private var issuesCard: some View {
-        SettingsSection(title: "ANYTHING WRONG? (TAP ALL THAT APPLY)") {
+        SettingsSection(title: "ANYTHING WRONG? (TAP ALL THAT APPLY)", foldable: false) {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
                                 GridItem(.flexible(), spacing: 8)], spacing: 8) {
                 ForEach(GameIssue.allCases) { issue in
@@ -285,7 +285,7 @@ struct FeedbackSheet: View {
     }
 
     private var messageCard: some View {
-        SettingsSection(title: "YOUR MESSAGE") {
+        SettingsSection(title: "YOUR MESSAGE", foldable: false) {
             TextField(placeholder, text: $message, axis: .vertical)
                 .lineLimit(4...12)
                 .font(.system(size: 15))
@@ -301,7 +301,7 @@ struct FeedbackSheet: View {
     }
 
     private var attachmentsCard: some View {
-        SettingsSection(title: "SENT WITH IT") {
+        SettingsSection(title: "SENT WITH IT", foldable: false) {
             toggleRow("Phone and app info", note: detailsNote, isOn: $includeDetails)
             toggleRow("What the app was doing", note: logNote, isOn: $includeLog)
             if let picture {
