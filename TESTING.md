@@ -72,6 +72,16 @@ fast-forward lets go after Control Centre, and the (i) line names the phone. Do 
 | R9 | PS1 on Beetle PSX HW with no BIOS installed | The game starts (OpenBIOS); the BIOS line says so |
 | R10 | Tap Back up to Files twice quickly | The second tap says a sync is already running |
 
+## K. Cleanup batch (12 October, not in a build yet)
+
+| # | Test | Pass if |
+|---|------|---------|
+| K1 | Open an NES game that has an auto-save from an old build (FCEUmm) | It starts fresh and says your old auto-save is in a slot and loads on FCEUmm; that slot is there |
+| K2 | Back up to Files, play a game and save, then Restore from a backup with that file | Your newer save is kept; the older one is in Files, Continuum, Older copies |
+| K3 | Delete a game, then Back up to Files again | The game does not come back |
+| K4 | Settings → Send feedback on a fresh install | Every part of the form is open, not just Send |
+| K5 | cBoy: Core settings → Picture drawing | Standard is picked; Exact (experimental) also plays a game |
+
 ## A. This install (build 144) — passed on the phone
 
 The owner said these look fine (9 October, build 144). Do not ask them again.
