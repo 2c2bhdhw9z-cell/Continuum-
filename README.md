@@ -49,7 +49,7 @@ it went.
 - **Anything else:** Settings, **Send feedback** (the first card).
 - **If the app closes by itself,** it offers to send a crash report the next time it opens.
 
-Reports go by email to idkplswrk@gmail.com; you see the whole message before it is sent.
+Reports go by email to ContinuumDev2c2b@gmail.com; you see the whole message before it is sent.
 
 ## For development
 

@@ -279,7 +279,7 @@ That sentence was reworded in build 140 because it named a cause with no action 
 
 **A3. Feedback goes to your email**
 1. **Settings** → **Send feedback**, type anything → **Send**.
-2. ✅ Good: Mail opens addressed to idkplswrk@gmail.com. Send it and check that inbox.
+2. ✅ Good: Mail opens addressed to ContinuumDev2c2b@gmail.com. Send it and check that inbox.
 
 **A4. The 3DS model change** (from build 127)
 1. In Mario Kart 7: **⋯** → **Core settings...** → **System Model** → **Original 3DS**.

@@ -175,4 +175,4 @@ screen saying which code types each system reads (build 126).
 STATUS.md is the current page. Build 150 (`ef3ce42`) is the newest published IPA. It is the same
 app as build 149: SMB, the 3DS camera and Amiibo. None of those three are phone-proven. Continuum
 Symbian is not in it. A .sis does not boot.
-Feedback already goes to idkplswrk@gmail.com. Direct cloud logins still need the owner's app ids.
+Feedback goes to ContinuumDev2c2b@gmail.com (the support address since 12 October 2026). Direct cloud logins still need the owner's app ids.

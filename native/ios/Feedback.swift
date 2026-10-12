@@ -23,9 +23,10 @@ import UIKit
 
 /// Where feedback goes.
 enum FeedbackDestination {
-    /// The address the Mail screen is addressed to, given by the owner on 6 October 2026. Empty
-    /// would mean no address, and the share menu with the tester choosing who it goes to.
-    static let email = "idkplswrk@gmail.com"
+    /// The address the Mail screen is addressed to: the support address the owner gave on
+    /// 12 October 2026. Empty would mean no address, and the share menu with the tester choosing
+    /// who it goes to.
+    static let email = "ContinuumDev2c2b@gmail.com"
 
     static var hasEmail: Bool { !email.isEmpty }
 }

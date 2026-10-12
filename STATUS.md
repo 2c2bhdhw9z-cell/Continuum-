@@ -205,8 +205,8 @@ For whoever works on this next:
   changed, so the grid remembers the name it passed to `setAlternateIconName`. Every Settings card
   folds. Open all / Close all is on the Settings title.
 - **Build 145** (`1a28e84`) added the Settings switcher for 55 home screen icons.
-- Feedback already goes to idkplswrk@gmail.com (`FeedbackDestination.email` in
-  `native/ios/Feedback.swift`). Mail opens addressed to it when Mail is set up. Otherwise the share
+- Feedback goes to ContinuumDev2c2b@gmail.com, the support address since 12 October 2026
+  (`FeedbackDestination.email` in `native/ios/Feedback.swift`). Mail opens addressed to it when Mail is set up. Otherwise the share
   sheet opens and the text starts with that address. There is no missing address. An older line on
   this page said there was. That line was wrong.
 - Symbian / N-Gage: **Built, untested.** Not in build 150. Linked after that and present in later installs, including 177 if the optional core compiled. No phone has run a game. Continuum Symbian
@@ -319,7 +319,7 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Import several skins at once | **Done** | Build 122, confirmed on the phone 5 October (skin library, Import skins) |
 | A paused game stays paused after leaving the app | **Done** | Build 122, confirmed on the phone 5 October |
 | Wi-Fi transfer access code | **Built, untested** | Build 122. The address now ends in a short code that changes every time Wi-Fi transfer is switched on; anything without it gets nothing, so nobody else on the Wi-Fi can upload files or download saves. TESTING.md B1 |
-| Feedback for testers | **Partial** | Goes by email to idkplswrk@gmail.com (`FeedbackDestination.email` in `native/ios/Feedback.swift`). Mail if Mail is set up; otherwise the share sheet, and the text starts with that address. Build 126's form was confirmed working and called "basic" by the owner. Build 127, not on a phone yet (TESTING.md A3, A4): from a game it opens on How it runs (a rating and what is wrong), the picture can be drawn on, every report attaches the activity log (every status line with its time, kept on disk so it survives a crash), the tester's name is remembered, and after the app closes by itself the next start offers a crash report. A save that was loading when the app closed is not loaded by itself again. An older line here said there was no address yet. That was wrong. The address has been in the source since build 129 |
+| Feedback for testers | **Partial** | Goes by email to ContinuumDev2c2b@gmail.com, the support address since 12 October 2026 (`FeedbackDestination.email` in `native/ios/Feedback.swift`). Mail if Mail is set up; otherwise the share sheet, and the text starts with that address. Build 126's form was confirmed working and called "basic" by the owner. Build 127, not on a phone yet (TESTING.md A3, A4): from a game it opens on How it runs (a rating and what is wrong), the picture can be drawn on, every report attaches the activity log (every status line with its time, kept on disk so it survives a crash), the tester's name is remembered, and after the app closes by itself the next start offers a crash report. A save that was loading when the app closed is not loaded by itself again. An older line here said there was no address yet. That was wrong. The address has been in the source since build 129 |
 | Apple performance overlay switch | **Done** | Confirmed on build 125. Build 121. Settings → DIAGNOSTICS. Hides Apple's Metal Performance HUD on the game layers and turns off the launch-time request for it. May need the app reopened |
 | Landscape with no skin | **Done** | Froze in build 119 (an endless layout loop from a repeated warning line). Fixed in build 120 and confirmed on the phone |
 | **+** opens Files, the ⋯ menu, TV picture quality | **Done** | Confirmed on build 119 |
@@ -386,8 +386,8 @@ Builds 147 and 148 did not ship. Both died compiling `smb_min.c`. 149 includes `
   active, Azahar's own `LoadAmiibo` runs. A tap before the game asks is kept. Not on a phone.
 - **Symbian / N-Gage.** Not in this build. No libretro core exists, and a wrapper around EKA2L1
   is not started. See Next up.
-- **Feedback.** The address was already `idkplswrk@gmail.com`. The lines that said it was missing
-  were wrong.
+- **Feedback.** The address was already set (the owner's old address; since 12 October 2026 it is
+  ContinuumDev2c2b@gmail.com). The lines that said it was missing were wrong.
 
 ## Build 146 (9 October 2026) — the icon that is actually set, and settings that fold
 
@@ -941,7 +941,7 @@ part-way, because the owner asked for every tester-facing line to sound human fi
   last. Developer notes removed (JIT test button, graphics "step 4", PSP routing notes); the
   PlayStation, PSP and BIOS notes rewritten for players.
 - The Library strip says how many games, and the last status line only when it is a problem.
-- Feedback goes by email to idkplswrk@gmail.com (the owner's address). Without Mail set up, the
+- Feedback goes by email to the owner's address (ContinuumDev2c2b@gmail.com since 12 October 2026). Without Mail set up, the
   share menu text starts with that address.
 - README and the Release notes are written for testers, and name no particular installer.
 

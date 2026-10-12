@@ -59,8 +59,8 @@ Beetle PSX HW (14), 3DS (6), Dreamcast (5).
 - Build 129 (pushed 6 October; 128 was cancelled for a wording pass): the app cleaned up for a
   public beta, every tester-facing line in a human voice (STATUS.md "Build 129";
   TESTING.md A1 to A5). The owner posts the .ipa straight into Telegram groups and Reddit, not the GitHub page, so
-  testers only ever see the app itself. Feedback email:
-  idkplswrk@gmail.com. Build 127's 3DS model change and cheat-off fixes are still untested.
+  testers only ever see the app itself. Feedback email (since 12 October 2026):
+  ContinuumDev2c2b@gmail.com. Build 127's 3DS model change and cheat-off fixes are still untested.
 - Everything else that is planned is in STATUS.md "Next up" and docs/MANIC_PARITY.md "Still to do".
 - QA Wolf native iPhone testing was connected on 6 October: project MCP in
   `.kiro/settings/mcp.json`, and `.github/workflows/qawolf-mobile.yml` uploads the released
