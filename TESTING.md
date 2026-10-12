@@ -39,6 +39,20 @@ the owner doesn't delete them by hand.
     save → **Save slots, export and import** → **Import a battery save (.srm)** → pick that file.
     ✅ It says your old save is in Files, Continuum, Older copies, and it's there in the Files app.
 
+**Owner's results on build 181 (12 October). Do not ask these again:**
+- **Passed:**
+  - 1 (feedback email);
+  - 2 (cBoy plays Pokémon Yellow);
+  - 3 (Picture drawing shows Standard and Exact; the owner saw no difference on Yellow's title screen, which is expected, because the two only differ on rare mid-line tricks);
+  - 4 (boot ROM note);
+  - 5 (SNES on bsnes);
+  - 6 (Yoshi's Island 2 smooth);
+  - 8 (Mega Drive on BlastEm);
+  - 9 (Game Gear on Gearsystem);
+  - 12 (save import keeps the old save in Older copies).
+- **Also played fine, no step needed:** Atari 2600 and TurboGrafx-16.
+- **Not tested:** 7 (old in-game save carried over: the owner thinks it works, but didn't try it), 10 (no Sega CD or 32X game), 11 (no arcade game). Leave these off the owner's list. They come back only if a tester reports a problem.
+
 Do not retest Home, scrolling, re-import, or fast-forward. Those already passed.
 
 ## Beta tester checklist (short)
