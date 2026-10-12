@@ -1,8 +1,8 @@
 # What to test, and what to tell me
 
 Last updated 12 October 2026. Build 180 is the newest published install. The next install is
-the cleanup plus the licence swap (the swap is still being done), and it isn't built yet. The
-steps below are for the cleanup part; the swap adds its own.
+the cleanup plus the licence swap, and it isn't built yet. The steps below cover both: 1 to 4
+are the cleanup, 5 to 11 the new emulators.
 
 ## This install only
 
@@ -15,6 +15,20 @@ steps below are for the cleanup part; the swap adds its own.
    you can pick **Exact (experimental)** instead.
 4. Same page: read the small note under **Start from a boot ROM file**. ✅ It says that without
    the file the game simply starts. It doesn't promise a startup picture.
+5. Open a SNES game. ✅ It plays with sound and the buttons work. If it had an auto-save from the
+   last install, it starts fresh and says the old one is kept in a slot.
+6. If you have Star Fox, Yoshi's Island, Super Mario RPG or Kirby Super Star, play a minute.
+   ✅ It doesn't slow down.
+7. Open a game you saved from its own menu on the last install (SNES, Mega Drive, Master System,
+   Game Gear or NES). ✅ Your save is still there.
+8. Open a Mega Drive / Genesis game and play a minute. ✅ It runs smoothly, and A, B and C do what
+   they did before.
+9. Open a Master System or Game Gear game. ✅ It plays.
+10. Only if you have one: a Sega CD or 32X game. ✅ Sega CD plays with the BIOS you already had.
+    32X plays, or says it needs 32X_M_BIOS.bin and 32X_S_BIOS.bin.
+11. Open an arcade game you already had. ✅ It's still in your library and says "Arcade games
+    aren't playable right now. We're building our own arcade emulator." No crash, and no
+    "Which system?".
 
 Do not retest Home, scrolling, re-import, or fast-forward. Those already passed.
 
@@ -344,9 +358,8 @@ For each one: ✅ cover shows, its own controls show, the game moves. ❌ Send t
 | C9 | Lynx | `.lnx` | Maybe `lynxboot.img` — the app names it if so |
 | C10 | Atari 7800 / 5200 | `.a78` / `.a52` | 5200 may name a BIOS file |
 | C11 | Virtual Boy | `.vb` | No |
-| C13 | 32X / SuperGrafx | `.32x` / `.sgx` | No |
+| C13 | 32X / SuperGrafx | `.32x` / `.sgx` | 32X needs `32X_M_BIOS.bin` and `32X_S_BIOS.bin`. SuperGrafx needs nothing |
 | C15 | Saturn, Sega CD, PC Engine CD | `.cue` + all `.bin` together | A BIOS. The app names the exact file |
-| C16 | Arcade | game zip like `mslug.zip` | Neo Geo games need `neogeo.zip` |
 | C17 | C64, Amiga, DOS | DOS as a `.zip` | Amiga may need a Kickstart file. The **Keyboard** button opens a keyboard |
 | C18 | DOOM | `.wad` | No |
 | C19 | Dreamcast | `.gdi` or `.chd` | Maybe BIOS files. Tell me the speed |
@@ -430,9 +443,11 @@ left and is waiting, keeps its game going, and lets the second phone back in.
 
 ## Known not working or not built (no need to test)
 
-- Typed cheat codes do nothing on the 3DS, Dreamcast, Atari 2600, arcade, Saturn (Yabause),
-  Amiga, C64, Lynx, Atari 5200, Virtual Boy, PC Engine CD and Pokemon Mini: those emulators ignore
-  them. The RAM search can still make a cheat where the game's memory can be read.
+- Typed cheat codes do nothing on the 3DS, Dreamcast, Atari 2600, Saturn (Yabause), Amiga, C64,
+  Lynx, Atari 5200, Virtual Boy, PC Engine CD, Pokemon Mini, Mega Drive, Sega CD and 32X: those
+  emulators ignore them. The RAM search can still make a cheat where the game's memory can be read.
+- Arcade is out for now, until Continuum has its own arcade emulator. Arcade games stay in the
+  library.
 
 - SMB (NAS shares) is in build 149. Not tried on a phone yet. WebDAV works.
 - GameCube and Wii: not possible without JIT.
@@ -460,11 +475,11 @@ read **32 of 32 declared**. The first cores' results (DS, N64 and 3DS are in the
 | System | Game that ran | Core | Frames counted in the screenshot |
 | --- | --- | --- | --- |
 | NES | Kart Fighter | fceumm | 285 |
-| SNES | Super Mario World (U) | snes9x | 466 |
+| SNES | Super Mario World (U) | the emulator before the licence swap | 466 |
 | Game Boy Advance | Pokemon Emerald (USA, Europe) | mgba | 321 |
 | Game Boy Color | Pokemon Yellow (UE) | mgba | 1162 |
-| Genesis / Mega Drive | Mortal Kombat 3 (USA) | genesis_plus_gx | 2354 |
-| Game Gear | Simpsons: Krusty's Fun House (U) | genesis_plus_gx | 2188 |
+| Genesis / Mega Drive | Mortal Kombat 3 (USA) | the emulator before the licence swap | 2354 |
+| Game Gear | Simpsons: Krusty's Fun House (U) | the emulator before the licence swap | 2188 |
 | PlayStation 1 | Crash Bandicoot (USA) | pcsx_rearmed | 2390 |
 | PlayStation 1, Beetle | Crash Bandicoot | Beetle PSX HW | about 2900, with `scph1001.bin`, build 98 |
 
@@ -645,10 +660,10 @@ same routine as Test 2, with a different file.
 
 | File to try | Console | Core it should name | Where it stands |
 | --- | --- | --- | --- |
-| `.sfc` or `.smc` | SNES | snes9x | Passed on `.smc` with Super Mario World |
+| `.sfc` or `.smc` | SNES | the emulator before the licence swap | Passed on `.smc` with Super Mario World |
 | `.gbc` | Game Boy Color | mgba | Passed on `.gbc` with Pokemon Yellow |
-| `.md` or `.gen` | Genesis / Mega Drive | genesis_plus_gx | Passed on `.md` with Mortal Kombat 3 |
-| `.gg` | Game Gear | genesis_plus_gx | Passed on `.gg` with Krusty's Fun House |
+| `.md` or `.gen` | Genesis / Mega Drive | the emulator before the licence swap | Passed on `.md` with Mortal Kombat 3 |
+| `.gg` | Game Gear | the emulator before the licence swap | Passed on `.gg` with Krusty's Fun House |
 
 **You should see** the same as Test 2 for each one: the right core named in the list, a picture,
 and the frame counter climbing.

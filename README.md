@@ -18,13 +18,17 @@ Games and BIOS files are **not** included. Use your own.
 
 | Plays well on a phone already | In the app, needs testers |
 | --- | --- |
-| NES, SNES, Game Boy, Game Boy Color, Game Boy Advance | PSP, Dreamcast, Saturn, Sega CD, 32X |
-| Mega Drive / Genesis, Game Gear | Master System, SG-1000, Famicom Disk System |
-| PlayStation | Arcade (FinalBurn Neo, MAME 2003-Plus) |
-| Nintendo 64 | WonderSwan, Neo Geo Pocket, Lynx, Atari 7800 and 5200, Virtual Boy |
-| Nintendo DS | PC Engine CD, SuperGrafx |
-| Nintendo 3DS (decrypted games) | Commodore 64, Amiga, DOS, DOOM |
-| TurboGrafx-16, Atari 2600, Jaguar, Pokemon Mini | Flash (.swf) and old phone games (.jar) |
+| NES, Game Boy, Game Boy Color, Game Boy Advance | SNES, Mega Drive / Genesis, Game Gear (new emulator) |
+| PlayStation | PSP, Dreamcast, Saturn, Sega CD, 32X |
+| Nintendo 64 | Master System, SG-1000, Famicom Disk System |
+| Nintendo DS | WonderSwan, Neo Geo Pocket, Lynx, Atari 7800 and 5200, Virtual Boy |
+| Nintendo 3DS (decrypted games) | PC Engine CD, SuperGrafx |
+| TurboGrafx-16, Atari 2600, Jaguar, Pokemon Mini | Commodore 64, Amiga, DOS, DOOM |
+| | Flash (.swf) and old phone games (.jar) |
+
+SNES now runs on bsnes, Master System, Game Gear and SG-1000 on Gearsystem, and Mega Drive, Sega
+CD and 32X on BlastEm. 32X games need two BIOS files, 32X_M_BIOS.bin and 32X_S_BIOS.bin. Arcade
+is out for now while we build our own.
 
 Not supported: GameCube, Wii and Switch. Heavier systems can be slow without JIT. If you can turn
 JIT on (StikDebug or similar), Continuum uses it by itself; see Settings, Technical details.
@@ -62,5 +66,5 @@ Actions; every build of `master` that changes the app becomes a Release.
 
 Continuum is licensed under the GNU General Public License v3.0; see [LICENSE](LICENSE). The
 emulator cores and libraries inside the app keep their own licenses (listed in the app under
-Settings → About → Open-source credits). Some cores (Snes9x, Genesis Plus GX, PicoDrive,
-FinalBurn Neo, MAME 2003-Plus) allow free distribution only, never sale.
+Settings → About → Open-source credits). None of them limits what the app does or what it
+costs; they only ask for the credits and for their source code to stay public.

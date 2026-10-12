@@ -6,8 +6,8 @@ One page, kept current, so nothing has to be inferred from a commit log. Last up
 It has 38 core files (35 cores plus 3 JIT builds), with cBoy and Continuum Symbian inside. The
 owner has nothing left to try on it.
 
-**The next install = the cleanup + the licence swap (the swap is still in progress).** No build
-happens between them.
+**The next install = the cleanup + the licence swap, both done and on master, not built yet.** No
+build happens between them.
 - **The cleanup (12 October, done):** everything earlier sessions left broken or out of date was
   fixed. It's all on master and tested here, but not built and not on a phone yet. Feedback goes
   to the new address, ContinuumDev2c2b@gmail.com. cBoy's older per-line drawer ("Standard") is
@@ -15,11 +15,16 @@ happens between them.
   startup picture anywhere, option text included. Backup, restore and auto-save got fixes. Also:
   QA Wolf is gone, the code says GPL v3 like LICENSE, CI runs clippy, and a cBoy-only change no
   longer rebuilds every core. Full list: "Where we stopped" at the bottom.
-- **The licence swap (in progress):** Snes9x, Genesis Plus GX, PicoDrive, FinalBurn Neo and MAME
-  2003-Plus come out. bsnes (with Mesen 2 as a second SNES choice), Gearsystem and BlastEm go in.
-  Arcade leaves for now, with no MAME, until Continuum has its own arcade core.
-- Phone checks for the cleanup: TESTING.md "This install only" and section K. The swap adds its
-  own.
+- **The licence swap (12 October, done):** Snes9x, Genesis Plus GX, PicoDrive, FinalBurn Neo and
+  MAME 2003-Plus are out of the app, the build, the credits and the notes. SNES now runs on bsnes,
+  Master System, Game Gear and SG-1000 on Gearsystem, and Mega Drive, Sega CD and 32X on BlastEm,
+  each built here with a small Continuum patch. Mesen 2, the NES default, is built here too now,
+  so the app keeps its in-game saves and achievements and cheats reach it. 32X games need two BIOS
+  files, 32X_M_BIOS.bin and 32X_S_BIOS.bin. Arcade is out until Continuum has its own arcade core:
+  arcade games already in the Library stay, and say so when opened. Old in-game saves carry over;
+  old save states from the removed emulators are kept in a slot but can't load. Every licence left
+  only asks for the credits and public source.
+- Phone checks for both: TESTING.md "This install only" and section K.
 
 **After that install,** the owner's order is in "Next up": emulator updates (with the heads-up
 line and a fuller weekly check), small cleanup leftovers, cBoy's jobs (MP2K music and the rest),
@@ -147,19 +152,17 @@ note that quoted an internal ticket number ("FEAT-006") was reworded.
 
 **What still blocks or limits a public beta (licensing):**
 
-- **Non-commercial cores:** Snes9x, Genesis Plus GX, PicoDrive, FinalBurn Neo and MAME 2003-Plus
-  may only be given away free. A free beta by direct IPA link is fine. Any paid version, ads,
-  tips-for-access, or App Store sale is not allowed with them in the app. Owner's decision
-  (12 October 2026): all five are swapped out and removed in one batch, folded into the same
-  install as the cleanup (in progress; see "Next up").
+- **Non-commercial cores:** none any more. The five that only allowed free distribution were
+  swapped out and removed on 12 October 2026 (owner's decision; see the top of this page), so
+  nothing in the app limits what it does or what it costs.
 - **GPL cores** (most of the rest, including Mesen 2, melonDS, Azahar, PPSSPP, and EKA2L1 inside
   Continuum Symbian, which is GPL v3): anyone given the IPA must be able to get the source. The
   repository is public, which covers it as long as it stays public and each release's commit is
   kept. The repository had no licence file of its own at the time of this audit. It has one now:
   GPL v3 (`LICENSE`, added in the second pass below; README names it, and since 12 October both
   Cargo files say `GPL-3.0-only` too).
-- **The App Store** is not an option with GPL cores (Apple's terms conflict with GPL) and the
-  non-commercial ones. Sideloading only. TestFlight is also Apple
+- **The App Store** is not an option with GPL cores (Apple's terms conflict with GPL). Sideloading
+  only. TestFlight is also Apple
   distribution, so the same caution applies.
 - Games, BIOS and phone firmware are never included, and must stay that way.
 
@@ -214,17 +217,16 @@ order on this page:
 1. **Finish the cleanup and the licence swap, then one install.** Build 180 (`dd89824`) is the
    newest published install
    ([Continuum-180.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-180-dd89824/Continuum-180.ipa)).
-   The cleanup is done and on master ("Where we stopped"). The swap is in progress: Snes9x,
-   Genesis Plus GX, PicoDrive, FinalBurn Neo and MAME 2003-Plus out; bsnes (Mesen 2 as a second
-   SNES choice), Gearsystem and BlastEm in; arcade out for now, with no MAME. The plan and its
-   checks are in `.kiro/steering/owner-rules.md` ("Licences"). No build happens between the two.
-   Phone checks: TESTING.md "This install only" and section K, plus whatever the swap adds.
+   The cleanup and the licence swap are both done and on master ("Where we stopped"): bsnes,
+   Gearsystem and BlastEm in, the five non-commercial cores out, arcade out for now, and Mesen 2
+   built here with its patch. One install is next, with both in it. Phone checks: TESTING.md
+   "This install only" and section K.
 2. **Emulator updates.** Check every core each session and take the safe ones (owner-rules
    "Emulator updates", HANDOFF.md). Known behind on 7 October: PSP 132 commits, N64 29, Beetle
-   PSX 14, 3DS 6, Dreamcast 5. The 20 downloaded cores have never been checked.
+   PSX 14, 3DS 6, Dreamcast 5. The 16 downloaded cores have never been checked.
 3. **The one-time heads-up line for players** when an emulator was updated (owner-rules
    "Players get a heads-up").
-4. **Make the weekly update checker cover every core**, the 20 downloaded ones included
+4. **Make the weekly update checker cover every core**, the 16 downloaded ones included
    (`scripts/check-core-updates.sh`, `.github/workflows/core-updates.yml`).
 5. **Small leftovers from the cleanup**, the LOW and SUSPECTED findings. Known ones: Symbian
    ignores pause and reinstalls its game on every launch, on the main thread; a Game Boy file
@@ -234,6 +236,15 @@ order on this page:
    `ContinuumApp.swift` sits on the wrong function. The full lists (with IDs like IOS-11,
    RUST-05, CBOY-05) are in `docs/reports/cleanup-2026-10-12/` (`FINDINGS.md` has every
    finding, `SUMMARY.md` what was fixed and what was left, `FINAL_REVIEW.md` the last check).
+   Left over from the licence swap, same item:
+   - Continuum's own 32X start-up code, so the 32X needs no BIOS files (Option B);
+   - Mega Drive multitap (BlastEm reads two controllers);
+   - typed cheats on BlastEm (Mega Drive, Sega CD, 32X);
+   - Sega CD disc swap and RAM-cart saves;
+   - Mesen 2 as a second SNES choice (needs SNES memory, cheats and a DSP chip-file check);
+   - a launch line naming the SNES chip files a game needs;
+   - Pete Sampras Tennis and Super Skidmarks EEPROM saves (BlastEm doesn't know those carts);
+   - the Gearsystem online-play state hash (16 bytes differ between phones).
 6. **cBoy:**
    - MP2K high-quality Advance music. It would spot Nintendo's MP2K music engine, which many
      Game Boy Advance games use, and play their music at a higher quality than the console's own
@@ -299,9 +310,11 @@ Notes:
 ## Systems
 
 Build 180 has **35 cores** (38 core files with the 3 JIT builds), cBoy and Continuum Symbian
-among them. The next install changes that: the licence swap (in progress) takes five cores out
-and puts bsnes, Gearsystem and BlastEm in, and arcade leaves for now. The table below still names
-the build 180 cores. The count below is from build 124.
+among them. The next install has **33 cores** (36 core files with the 3 JIT builds): 17 built here
+(14 required, plus Dreamcast, Symbian and cBoy) and 16 downloaded from the libretro buildbot.
+**38 playable systems**: every system the app knows except Arcade, which is out until Continuum
+has its own arcade core. The table below names the next install's cores. The count below is from
+build 124.
 
 **32 cores** are in the IPA in builds 119 to 124 (checked in the build 124 file itself: version
 0.8.0 (124), 32 core files, every emulator at its pinned version). **38 systems** in all, run by
@@ -311,22 +324,25 @@ is still ahead, hardest last (road steps 10 to 12).
 
 | System | Core | State | What is missing |
 | --- | --- | --- | --- |
-| NES | mesen2 (default), fceumm (fallback) | **Done** | Mesen 2 confirmed on the owner's phone, build 153 (9 October 2026): AccuracyCoin.nes **142 of 146 passed, 0 skipped** (FCEUmm baseline on the phone: 86 of 146, 7 skipped). Save state slot 1 saved and loaded on Super Mario Bros 2 (Lost Levels). FCEUmm stays selectable in Settings, NES core. Save states from one core do not load on the other. Battery save on Mesen not yet seen on a phone |
-| SNES | snes9x | **Done** | |
+| NES | mesen2 (default), fceumm (fallback) | **Partial** | Mesen 2 confirmed on the owner's phone, build 153 (9 October 2026): AccuracyCoin.nes **142 of 146 passed, 0 skipped** (FCEUmm baseline on the phone: 86 of 146, 7 skipped). Save state slot 1 saved and loaded on Super Mario Bros 2 (Lost Levels). FCEUmm stays selectable in Settings, NES core. Save states from one core do not load on the other. From the next install Mesen 2 is built here with Continuum's patch: the app keeps its in-game saves (the `.sav` files Mesen wrote are picked up), and achievements, typed cheats and RAM search reach its memory. Checked here, not on a phone yet |
+| SNES | bsnes | **Built, untested** | New emulator in the next install (bsnes, with Continuum's patch). Checked here: in-game saves match byte for byte, achievements and RAM search read work RAM, and the speed estimate is full speed on an iPhone 8 or newer. Old save states can't load (kept in a slot); in-game saves carry over. Two Japan-only games (SD Gundam GX, Morita Shougi) now need their chip file |
 | Game Boy | mgba | **Done** | Build 125: a game ran, saved and loaded |
 | Game Boy Color | mgba | **Done** | |
 | Game Boy Advance | mgba | **Done** | |
-| Master System | genesis_plus_gx | **Built, untested** | No `.sms` file has ever been imported. Game Gear and Mega Drive on the same core are confirmed |
-| Game Gear | genesis_plus_gx | **Done** | |
-| Mega Drive / Genesis | genesis_plus_gx | **Done** | |
+| Master System | gearsystem | **Built, untested** | New emulator in the next install (Gearsystem). No `.sms` file has ever been imported |
+| Game Gear | gearsystem | **Built, untested** | New emulator in the next install. Old save states can't load (kept in a slot); in-game saves carry over |
+| Mega Drive / Genesis | blastem | **Built, untested** | New emulator in the next install (BlastEm, interpreter only). Old in-game saves are converted as they load, and the file keeps its old layout. Buttons do what they did before. Uses 3 to 6 times the CPU of the old one, so it needs a speed check on a phone. Typed cheats don't work; RAM search does. Only two controller ports |
 | PlayStation | pcsx_rearmed | **Done** | Interpreter, not the recompiler. Fast enough; see Recompiler below. Runs without a BIOS. **Beetle PSX HW** is a second PlayStation option (Settings → PlayStation core) and needs a real BIOS file. Beetle booted Crash at ~60 fps on build 98 (with `scph1001.bin`) on its software renderer; the engine now keeps Beetle on software by default. The hardware (Vulkan) renderer is a choice in Core settings and has not been seen on a phone. Since build 124 the BIOS line reads `BIOS (mednafen_psx_hw)` with Beetle selected and finds BIOS names in capitals (TESTING A7). A save state from one PlayStation option does not load on the other. See road step 4 |
 | **Famicom Disk System** | fceumm (default), mesen2 (choice) | **Built, untested** | Mesen 2 is a Settings choice here, not the default, because the app's disk-side button drives FCEUmm only; Mesen inserts disks on its own. Needs `disksys.rom`, which is Nintendo's own code and cannot ship with the app. The launch path checks for it by name and says so rather than letting the core fail |
-| **Sega SG-1000** | genesis_plus_gx | **Built, untested** | Needs nothing extra |
+| **Sega SG-1000** | gearsystem | **Built, untested** | Needs nothing extra. `.mv` files open as SG-1000 too |
 | **Nintendo 64** | parallel_n64 | **Done** | Device-proven on build 97 (`258a828`): past `N64 first tick…`, frames climbing, ~60 fps into Smash character select. Soft/interp only (no JIT on this signed IPA). `.n64`, `.z64`, `.v64` |
 | **TurboGrafx-16** | mednafen_pce_fast | **Done** | HuCard games (`.pce`): a game ran, saved and loaded on build 125. PC Engine CD is its own system (Beetle PCE) and needs a system card BIOS you supply (TESTING C15) |
 | **Atari 2600** | stella2023 | **Done** | A game ran, saved and loaded on build 125. `.a26`, or a lone `.bin` (the app asks **Which system?** once; renaming to `.a26` skips the question). A `.bin` imported beside a `.cue` is always a disc track |
 | **Nintendo 3DS** | azahar | **Partial** | A game runs (Mario Kart 7, again on build 122). Confirmed 5 October (build 122): skin holes sideways (Mario Kart 7), and changing a "restart required" setting no longer crashes. Upright skin holes and swapping them confirmed 9 October (build 150 screenshots). A stutter after transitions was seen on builds 100 and 101; a fix has been in every build since 2 October and Mario Kart 7 ran on 122, and on 9 October (build 150) Brett confirmed the stutter is **still there**. Open bug. A second fix is built (9 October, after build 150) and **not tried on a phone**: the first fix stopped one wait, but Azahar still asked the graphics driver for each new pipeline on the game's own thread first, and on iPhone that request does the slow Metal compile right there. The new patch sends every new pipeline to the background worker, and the software-vertex path now skips the draw instead of waiting. No JIT. Decrypted `.3ds`, `.3dsx`, `.cci`, `.cxi` only. A retail game can still need 3DS system archives this app does not ship |
 | **Nintendo DS** | melonDS | **Done** | Confirmed on device (build 80): Mario Kart DS and Pokémon SoulSilver, dual screens live, ~60 fps, 0 dropped |
+| **Sega CD** | blastem | **Built, untested** | Needs `bios_CD_U.bin`, `bios_CD_E.bin` or `bios_CD_J.bin`. Its backup RAM saves carry over. No disc swap (a playlist opens its first disc), RAM-cart saves are not carried, and real discs can only be checked on a phone |
+| **Sega 32X** | blastem | **Built, untested** | Needs two files from a real 32X, `32X_M_BIOS.bin` and `32X_S_BIOS.bin`; without them the game says so |
+| **Arcade** | none | **Out on purpose** | Removed by the owner's choice (12 October 2026); Continuum's own arcade core is planned. Arcade games already imported stay in the Library and open to one line saying so |
 | **PlayStation Portable** | ppsspp | **Partial** | In the IPA as `ppsspp_libretro_ios.dylib`. CPU is the IR interpreter: the core's option value "IR JIT" is `CPUCore::IR_INTERPRETER` with compile-to-native off. No dynarec, no executable memory. Picture is Vulkan `set_image`, the same hook as the 3DS. No BIOS is shipped; PPSSPP does not need one. A PSP game can be `.cso`, `.iso`, `.chd`, a PSP `EBOOT.PBP`, or `.prx`. `.cso` and `.prx` are always PSP. An `.iso`, `.chd` or `.pbp` is looked inside: a PSP disc or EBOOT opens on the PSP, a PlayStation one as PlayStation, and if the app cannot tell it asks **Which system?** once and remembers. `.elf` is not accepted. **Not tried on a phone.** Do not claim a game runs or quote a frame rate |
 
 ### Nintendo DS, in detail
@@ -367,10 +383,10 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Rewind | **Done** | |
 | Save states, slots, delete | **Partial** | 50 fixed slots per game plus the auto-save, each with a picture, date and core; export and import of a state file and of the game's own battery save (`.srm`). Old numbered saves move into free slots and nothing is deleted. Confirmed: Save to the next free slot (build 122); on build 125, slot pictures, save and load on 14 systems (NES, SNES, Game Boy, GBC, GBA, Game Gear, Mega Drive, PS1, DS, TurboGrafx-16, Atari 2600, N64, Jaguar, Pokemon Mini), exporting a 3DS state to Files and importing it back as a new slot, rename, save over, delete, and an exported and imported state loading on a non-3DS game. Build 126, confirmed on the phone: 3DS states load (they were all refused as "too short" on 125), and an imported state keeps its picture |
 | Auto-save and resume | **Done** | |
-| Cheats | **Partial** | Confirmed: typed codes (GameShark, Game Genie, Action Replay and the rest go straight to each system's emulator, which reads its own kinds). Build 126, confirmed: a typed code can be added inside a game, and both cheat screens say which kinds that system reads. **Bug found on 126, fixed in 127, not on a phone yet:** a switched-off cheat kept running on the GBA and Game Boy (mGBA ignores the off flag), so a code for the wrong version of a game froze it with no way out; the cheat screen now also names the exact game and version from the file (TESTING.md A2). Not on a phone: importing a RetroArch `.cht` file, and the RAM search (lives, money and so on) that turns an address into a cheat. Up to 128 codes per game. Build 122: a `.cht` file's RAM cheats land where RetroArch puts them (on GBA they used to hit the wrong memory) |
+| Cheats | **Partial** | Confirmed: typed codes (GameShark, Game Genie, Action Replay and the rest go straight to each system's emulator, which reads its own kinds). Build 126, confirmed: a typed code can be added inside a game, and both cheat screens say which kinds that system reads. **Bug found on 126, fixed in 127, not on a phone yet:** a switched-off cheat kept running on the GBA and Game Boy (mGBA ignores the off flag), so a code for the wrong version of a game froze it with no way out; the cheat screen now also names the exact game and version from the file (TESTING.md A2). Not on a phone: importing a RetroArch `.cht` file, and the RAM search (lives, money and so on) that turns an address into a cheat. Up to 128 codes per game. Build 122: a `.cht` file's RAM cheats land where RetroArch puts them (on GBA they used to hit the wrong memory). From the next install, typed codes don't work on Mega Drive, Sega CD or 32X (BlastEm ignores them); RAM search and `.cht` RAM pokes still work on Mega Drive |
 | On-screen control layout editor | **Partial** | **Done bar (Brett):** every control in the skin file works, not only the ones he names. Picture in the screen hole both ways you hold the phone. Two screens when the skin has two. A joystick or circle pad is a real stick, not a dead picture. Shoulders too. Debug text off the picture. Confirmed on the phone 5 October (build 122, a 3DS skin, Mario Kart 7): both screens sit in their own holes sideways, the eye button hides and shows the top bar (remembered), nothing sits on the picture of a sideways 3DS skin, the false overlap line is gone. Portrait and swapped holes on a 3DS skin confirmed 9 October (build 150). DS skin confirmed both ways 9 October (HeartGold). Other systems' skins not confirmed yet. Do **not** stamp Done until the owner says the skin is right |
 | Battery saves (the game's own save) | **Done** | Confirmed on build 125: an in-game save is still there after leaving and coming back. Found broken while building the save manager: in-game saves (Pokemon, Zelda, PS1 memory card) were never written to disk, so they only survived inside a save state. Now restored before the first frame and written when you leave or switch apps |
-| Save state compatibility refusal | **Partial** | Refuses a state from a different core or core build, and (since build 120) one saved under different restart-required core settings. Confirmed on the phone 5 October (build 122): changing a 3DS restart setting no longer closes the app. **Bug found on 126, fixed in 127, not on a phone yet:** changing the 3DS System Model mid-game crashed the app and showed no restart button (TESTING.md A1). Azahar re-reads every option on an update, so it switched models under the running game; the engine now holds a restart-required option until the next start, and every state is stamped with the value the game is really running with |
+| Save state compatibility refusal | **Partial** | Refuses a state from a different core or core build, and (since build 120) one saved under different restart-required core settings. Confirmed on the phone 5 October (build 122): changing a 3DS restart setting no longer closes the app. **Bug found on 126, fixed in 127, not on a phone yet:** changing the 3DS System Model mid-game crashed the app and showed no restart button (TESTING.md A1). Azahar re-reads every option on an update, so it switched models under the running game; the engine now holds a restart-required option until the next start, and every state is stamped with the value the game is really running with. From the next install an auto-save made by an emulator that was swapped out is always moved to a free slot and kept, even with resume off |
 | Hide the player's top bar | **Done** | Build 122, confirmed on the phone 5 October: the eye button next to Back hides and shows the top bar, and the choice is remembered between games |
 | Import several skins at once | **Done** | Build 122, confirmed on the phone 5 October (skin library, Import skins) |
 | A paused game stays paused after leaving the app | **Done** | Build 122, confirmed on the phone 5 October |
@@ -413,7 +429,7 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | Save slots, including export | **Partial** | 50 slots plus the auto-save, export and import of states and battery saves. Save to the next free slot confirmed (122); slot pictures, save and load on 14 systems, export and import, rename, save over and delete confirmed (125). 3DS states loading and imported slots showing their picture confirmed (126) |
 | Cheats: search, and importing a file | **Partial** | Typed codes confirmed; `.cht` import and RAM search not on a phone |
 | Online play | **Built, untested** | Two phones, same game. Host or join on the same Wi-Fi (nearby list) or by address. Over the internet the host must open TCP port 55435. No rollback, so lag shows as short stalls. Rewind, fast forward and loading states are off while online. Build 122: if player 2 drops out, the host keeps playing and lets them rejoin on the same address |
-| Achievements | **Partial** | RetroAchievements login, unlock banners and a list on the game card. Game Boy Advance achievements read mGBA's full memory map. Confirmed (build 125): logging in (the button says Logging in... and cannot be pressed twice) and the unlock banner popping up in a game. The list on the game card is not confirmed yet |
+| Achievements | **Partial** | RetroAchievements login, unlock banners and a list on the game card. Game Boy Advance achievements read mGBA's full memory map. From the next install the patched cores expose their memory too: bsnes (SNES work RAM), Mesen 2 (NES), Gearsystem (SG-1000's extra RAM) and BlastEm (Sega CD and 32X). Confirmed (build 125): logging in (the button says Logging in... and cannot be pressed twice) and the unlock banner popping up in a game. The list on the game card is not confirmed yet |
 | Sync Folder (was "Cloud sync") | **Built, untested** | Pick any folder in Files (iCloud Drive, Google Drive, Dropbox) once. Save states, battery saves, cheats, settings and covers sync both ways; since build 122 also Flash and J2ME saves, PDF manuals, Amiibo files, the remembered "which system is this" answers and saved servers (their passwords stay on each phone). Kept per phone on purpose: skins, the RetroAchievements login, favourites, the last online-play address, mic and camera permission. Conflicts keep both copies. Nothing is ever only deleted |
 
 
@@ -817,7 +833,7 @@ documentation, spent **35 of its 40 minutes rebuilding 35 emulator cores from so
 anything that went wrong late in the job meant paying all 35 again for the retry.
 
 Measured from build 134's own timings before changing anything: 35.1 min of 39.5 in one step,
-88.9% of the job, spread across the per-core builds (snes9x 1.2 min, stella2023 1.3 min,
+88.9% of the job, spread across the per-core builds (the SNES core 1.2 min, stella2023 1.3 min,
 azahar's submodules 2.1 min, and so on). Everything else together is under 5 minutes.
 
 Every core is pinned to an exact upstream commit, so its dylib is a pure function of that
@@ -1316,9 +1332,9 @@ The cause turned out to be a cut-off file, not cBoy. See "Where we stopped".
 
 Build 180 (`dd89824`) is the newest published install. On 12 October everything earlier sessions
 left broken or out of date was cleaned up. All of it is on master and tested here, without a
-phone. It goes into the next install together with the licence swap, which is still in progress
-(no build in between). Phone checks for the cleanup: TESTING.md "This install only" and section
-K. What comes after that install: "Next up".
+phone. It goes into the next install together with the licence swap, which is done and on master
+too (no build in between). Phone checks for both: TESTING.md "This install only" and section K.
+What comes after that install: "Next up".
 
 - **New feedback address:** ContinuumDev2c2b@gmail.com (`FeedbackDestination.email`). The old one
   is gone from the app and the notes. The feedback and crash-report forms always open fully now.
@@ -1346,11 +1362,17 @@ K. What comes after that install: "Next up".
 - **Behind the scenes:** QA Wolf is removed completely. The code is marked GPL v3, like LICENSE
   and README. CI runs clippy. A cBoy-only change starts a build by itself, and no longer rebuilds
   every other core. The Mealybug test download is pinned.
-- **Checks (12 October):** 629 workspace tests pass and clippy is clean. cBoy's 78 tests pass:
+- **Checks (12 October):** 650 workspace tests pass (629 after the cleanup, 21 more with the
+  licence swap) and clippy is clean. cBoy's 78 tests pass:
   both acid2 pictures and Mooneye DMG 86 of 86 on both drawers, Mealybug 5 of 55 on Exact. Skins
   (720 checks), players and the Switch wrapper (15 of 15) pass.
-- **Not done yet:** the licence swap (in progress, same install). Small things left for later
-  are item 5 of "Next up". The old address is still in four old commits of git history. Removing
+- **The licence swap (12 October, done):** bsnes, Gearsystem and BlastEm in; the five
+  non-commercial cores out of the app, the build, the credits and the notes; arcade out until
+  Continuum has its own, with imported arcade games kept; Mesen 2 built here with a patch. Every
+  old in-game save carries over (Mega Drive saves are converted as they load), and an auto-save
+  from a removed emulator is kept in a slot. The phone steps are TESTING.md "This install only",
+  5 to 11. This build rebuilds every core: expect about an hour and a half.
+- **Not done yet:** small things left for later are item 5 of "Next up". The old address is still in four old commits of git history. Removing
   it needs a force push, which only the owner can approve.
 
 ### Yellow, the short file (11 October, history)

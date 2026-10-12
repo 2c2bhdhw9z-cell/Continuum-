@@ -28,7 +28,7 @@ These come straight from the owner. They are not suggestions.
   core, a patch or `scripts/build-core.sh` changed (a cBoy-only change stays cheap); a second
   push waits for the running build instead of cancelling it.
 - Before handing over the .ipa, open it and check it: the version (0.8.0 and the build number)
-  and the core count (38 `_libretro_ios.dylib` files as of build 180: 35 cores plus 3 JIT builds). Never say a build is the
+  and the core count (36 `_libretro_ios.dylib` files from the licence-swap install on: 33 cores plus 3 JIT builds; build 180 had 38). Never say a build is the
   newest without checking the Releases page.
 - With every .ipa, give a short list of easy things to try on it. The owner often tests at work.
 

@@ -89,7 +89,7 @@ index 9bb014f..39cd853 100644
  			if (gen->save_type != SAVE_NONE)
  				return gen->save_storage;
 +		} else if (stype == SYSTEM_SEGACD) {
-+			//The console's 8 KB backup RAM, byte for byte the layout Genesis Plus GX
++			//The console's 8 KB backup RAM, byte for byte the layout the older core
 +			//writes to scd_U/E/J.brm (both index it by address >> 1).
 +			segacd_context *cd = ((genesis_context *)current_system)->expansion;
 +			return cd->bram;

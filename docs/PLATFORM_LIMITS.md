@@ -120,8 +120,7 @@ https://buildbot.libretro.com/nightly/apple/ios-arm64/latest/
 | `mupen64plus_next` | N64 | yes |
 | `yabasanshiro`, `yabause` | Saturn | yes |
 | `mednafen_psx`, `mednafen_psx_hw` | PS1 | yes |
-| `fbneo`, `fbalpha2012_cps1/2/3`, `fbalpha2012_neogeo` | Arcade, Neo Geo | yes |
-| `mame2003_plus`, `mame2010`, `mame2016`, `hbmame` | Arcade | yes |
+| Arcade cores | Arcade | not used: Continuum's arcade will be its own core (owner, 12 October 2026) |
 | `desmume` | DS | yes |
 | `citra` | 3DS (upstream) | **NO** |
 | `azahar` | **3DS** | yes |
@@ -214,7 +213,7 @@ A game runs on the phone; it is not smooth yet. See STATUS.
 | Needs nothing new | Needs the graphics path | Needs graphics AND a core port |
 | --- | --- | --- |
 | **N64** (software + interpreter), in the IPA and running. **3DS** is in the IPA via Azahar Vulkan, a game runs, no JIT | Dreamcast and PSP: both in the IPA, neither tried on a phone yet | GameCube, Wii (not built, see HARD_SYSTEMS.md) |
-| Saturn, Neo Geo, CPS1/2/3, MAME: in the IPA since 3 October, not on a phone yet | | |
+| Saturn: in the IPA since 3 October, not on a phone yet. Arcade: not in the app; Continuum's own arcade core is planned | | |
 | Sega CD, 32X, and the 8/16-bit long tail added on 3 October: in the IPA since then, not on a phone yet | | |
 
 ---

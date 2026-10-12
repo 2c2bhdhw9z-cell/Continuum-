@@ -50,18 +50,18 @@ systems in all.
 | Atari Lynx | handy | .lnx .o | [x] code |
 | Atari 7800 | prosystem | .a78 .bin .cdf | [x] code |
 | Atari 5200 | a5200 | .a52 .bin | [x] code |
-| Arcade | fbneo (mame2003_plus as a second choice) | .zip .7z .cmd | [x] code in build 180. Leaves the app in the next install, with the licence swap (in progress): removed by the owner's choice (12 October 2026), own arcade core planned. Not a gap to fill with someone else's core |
+| Arcade | none | .zip .7z .cmd | [ ] removed by the owner's choice, own core planned (12 October 2026). Arcade games already imported stay in the Library and open to one line saying so. Not a gap to fill with someone else's core |
 | Pokemon Mini | pokemini | .min | [x] code |
 | Virtual Boy | mednafen_vb | .vb .vboy | [x] code |
 | Sega Saturn | yabause (mednafen_saturn as a choice) | .iso .chd .ccd .cue | [x] code |
-| Sega CD | genesis_plus_gx | .chd .iso .cue | [x] code |
-| Sega 32X | picodrive | .32x | [x] code |
-| Master System extra | genesis_plus_gx | .bms | [x] code |
+| Sega CD | blastem | .chd .iso .cue | [x] code |
+| Sega 32X | blastem (needs two BIOS files, 32X_M_BIOS.bin and 32X_S_BIOS.bin) | .32x | [x] code |
+| Master System extra | gearsystem | .bms | [x] code |
 | 3DS extra | azahar | .app .cia | [x] code |
 | PSP extra | ppsspp | .cso and .prx always; .iso .chd .pbp by looking inside (shared with PS1, see below) | [x] code |
 | DS extra | melonds | .ds | [x] code |
 | NES extra | fceumm | .fc | [x] code |
-| SNES extra | snes9x | .snes | [x] code |
+| SNES extra | bsnes | .snes | [x] code |
 | Sega Dreamcast | flycast, from source (the buildbot's copy needs JIT) | .cdi .gdi .chd .cue .bin .m3u | [x] code, in the IPA since build 119 |
 | Adobe Flash | Ruffle in a bundled player view | .swf | [x] code |
 | J2ME | JavaScript J2ME engine in a bundled player view | .jar | [x] code |

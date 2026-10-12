@@ -12,18 +12,26 @@ Paste this to start a new chat:
   https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-180-dd89824/Continuum-180.ipa
   0.8.0 (180), 38 core files (35 cores plus 3 JIT builds), cBoy and Continuum Symbian inside.
   The owner has nothing left to try on it.
-- **The next install = the cleanup + the licence swap (the swap is still in progress).** No
-  build happens between them.
+- **The next install = the cleanup + the licence swap, both done and on master, not built yet.**
+  No build happens between them. The build that makes it rebuilds every core (about an hour and a
+  half); start it with one push without `[skip ci]`.
   - **The cleanup (12 October, done)** fixed what earlier sessions left broken or out of date.
     It's all on master and tested here, but not built and not on a phone yet. In it: the new
     feedback address, cBoy's drawer choice, no made-up startup picture, backup, restore and
     auto-save fixes, cBoy clocks and tilt, Symbian firmware, Amiibo and NES fixes, QA Wolf
     removed, GPL v3 on the code, clippy in CI, and cBoy out of the core cache. Full list:
     STATUS.md "Where we stopped". Phone checks: TESTING.md "This install only" and section K.
-  - **The licence swap (in progress):** Snes9x, Genesis Plus GX, PicoDrive, FinalBurn Neo and
-    MAME 2003-Plus out; bsnes (Mesen 2 as a second SNES choice), Gearsystem and BlastEm in;
-    arcade out for now, with no MAME. Plan and checks: owner-rules.md "Licences". The swap
-    writes its own phone tests.
+  - **The licence swap (12 October, done):** Snes9x, Genesis Plus GX, PicoDrive, FinalBurn Neo and
+    MAME 2003-Plus are out; bsnes (SNES), Gearsystem (Master System, Game Gear, SG-1000) and
+    BlastEm (Mega Drive, Sega CD, 32X) are in, each built here from a pinned commit with a
+    Continuum patch in `scripts/patches/`. **Mesen 2 outcome A:** the NES default is now built here
+    too (libretro/MesenCE with `mesen2-nes-memory-cheats-saves.patch`), so the app keeps its
+    in-game saves (Mesen's old `.sav` files are picked up), and achievements, cheats and RAM search
+    work on it. Arcade is out until Continuum has its own core; imported arcade games stay and open
+    to one line. 32X needs `32X_M_BIOS.bin` and `32X_S_BIOS.bin`. Old Mega Drive saves stay in
+    their old layout on disk and are converted as they load (`battery_layout.rs`). An auto-save
+    from a removed emulator is always moved to a free slot. The three removed zips are deleted from
+    the `core-mirror-1` pre-release. Phone checks: TESTING.md "This install only", 5 to 11.
 - **New support and feedback email: ContinuumDev2c2b@gmail.com** (owner, 12 October). It's in
   the app (`FeedbackDestination.email`), the README and the notes. The old address is retired
   everywhere.
@@ -35,12 +43,12 @@ Paste this to start a new chat:
 - **No made-up startup picture.** A boot picture only plays when the player's own real boot file
   is there.
 - **The owner's order from here (12 October; details in STATUS.md "Next up"):**
-  1. Finish the cleanup + licence swap, then one install.
+  1. The cleanup + licence swap are done and on master: one install (it rebuilds every core).
   2. Emulator updates: check every core each session and take the safe ones. Known behind:
-     PSP 132, N64 29, Beetle PSX 14, 3DS 6, Dreamcast 5. The 20 downloaded cores have never
+     PSP 132, N64 29, Beetle PSX 14, 3DS 6, Dreamcast 5. The 16 downloaded cores have never
      been checked.
   3. The one-time heads-up line for players when an emulator was updated.
-  4. Make the weekly update checker cover every core, the 20 downloaded ones included.
+  4. Make the weekly update checker cover every core, the 16 downloaded ones included.
   5. Small leftovers from the cleanup (the LOW and SUSPECTED findings).
   6. cBoy: MP2K high-quality Advance music (doesn't exist yet: no MP2K code and no option; what
      exists is per-channel volumes, `cboy_gba_smooth` in `cores/continuum-gb/src/gba/bus.rs`,
@@ -75,10 +83,11 @@ anything major compared with the version we ship. Not a robot doing it: Kiro che
 session and takes them itself, after checking thoroughly. The full rule is in
 `.kiro/steering/owner-rules.md` ("Emulator updates"). In short:
 
-1. Every session, check every core for a newer version. That means the 13 built from source
-   (`IOS_PIN` in `scripts/build-core.sh`, see `docs/CORE_UPDATES.md` and
-   `scripts/check-core-updates.sh`) AND the 20 downloaded ones (sha-pinned in
-   `scripts/fetch-buildbot-cores.sh`), which the weekly check does not cover yet.
+1. Every session, check every core for a newer version. That means the 19 pinned builds from
+   source (`bash scripts/build-core.sh ios-pins`: 14 required cores, Dreamcast, Symbian and the
+   3 JIT builds; see `docs/CORE_UPDATES.md` and `scripts/check-core-updates.sh`) AND the 16
+   downloaded ones (sha-pinned in `scripts/fetch-buildbot-cores.sh`), which the weekly check does
+   not cover yet.
 2. For each one that is newer, check it thoroughly before taking it: read the upstream changes
    for anything removed or broken (systems, options, iOS support, save formats), make sure our
    patches still apply, build it, run every check, and check whether old save states and
@@ -245,7 +254,7 @@ for one exact game version; the cheat screen names the version for GBA and Game 
 
 ## How to check work before pushing (the sandbox can't build the iPhone app)
 
-- `cargo test --workspace --features emulator-bridge/native-core` (629 tests)
+- `cargo test --workspace --features emulator-bridge/native-core` (650 tests)
 - `cargo clippy --workspace --features emulator-bridge/native-core` (CI runs it too; an error
   stops the build)
 - cBoy: `cd cores/continuum-gb && scripts/fetch-test-roms.sh && cargo test --release` (78 tests).
@@ -256,12 +265,13 @@ for one exact game version; the cheat screen names the version for GBA and Game 
   the types, so a Swift type mistake shows up only on the build server.
 - A new Swift file must be listed in `native/ios/project.yml` `sources`, or it is silently skipped.
 - Bindings: `cargo build --release --features emulator-bridge/native-core,emulator-bridge/uniffi-bindings -p emulator-bridge`,
-  then `./target/release/uniffi-bindgen generate --library target/release/libemulator_bridge.so --language swift --out-dir <dir> --no-format`,
+  `cargo build --release -p continuum-uniffi-bindgen` (the package's name; its binary is
+  `uniffi-bindgen`), then `./target/release/uniffi-bindgen generate --library target/release/libemulator_bridge.so --language swift --out-dir <dir> --no-format`,
   rename the modulemap to `module.modulemap`, and `swiftc -typecheck -I <dir> <dir>/*.swift`.
 - Builds: `gh api "repos/2c2bhdhw9z-cell/Continuum-/actions/runs?per_page=3"`. Releases:
   `gh api repos/2c2bhdhw9z-cell/Continuum-/releases/latest`. Check an .ipa: count
-  `_libretro_ios.dylib` files (38 as of build 180: 35 cores plus 3 JIT builds; the licence swap in
-  the next install changes this) and read `CFBundleShortVersionString` / `CFBundleVersion` from
+  `_libretro_ios.dylib` files (36 from the licence-swap install on: 33 cores plus 3 JIT builds;
+  build 180 had 38) and read `CFBundleShortVersionString` / `CFBundleVersion` from
   `Payload/Continuum.app/Info.plist`.
 - A wait-and-check command can time out while a build is still running; that is not the build
   failing. Check the run itself.

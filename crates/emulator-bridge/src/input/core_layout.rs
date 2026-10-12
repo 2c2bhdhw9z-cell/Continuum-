@@ -2,7 +2,8 @@
 //! of the app was built around.
 //!
 //! The Mega Drive's touch pads, controller mapping and saved remap profiles press retro buttons
-//! in the layout Genesis Plus GX and PicoDrive read: Y = A, B = B, A = C, L = X, X = Y, R = Z.
+//! in the layout the Mega Drive and 32X cores before the licence swap read: Y = A, B = B, A = C,
+//! L = X, X = Y, R = Z.
 //! BlastEm reads B = A, A = B, R = C, Y = X, X = Y, L = Z. Translating here, on the last snapshot
 //! before each core frame, keeps every Mega Drive button doing what it did with no change
 //! anywhere else. Online play exchanges the untranslated input, so both phones agree.
@@ -13,7 +14,7 @@ use super::{Button, InputSnapshot};
 /// button on the left also appears on the right.
 pub type Table = &'static [(Button, Button)];
 
-/// Genesis Plus GX's and PicoDrive's retro meaning to BlastEm's. Select (Mode), Start and the
+/// The pre-swap Mega Drive retro meaning to BlastEm's. Select (Mode), Start and the
 /// D-pad are the same in both.
 const BLASTEM: Table = &[
     (Button::Y, Button::B),

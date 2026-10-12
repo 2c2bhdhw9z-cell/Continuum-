@@ -56,7 +56,7 @@ HEAD `7284987` (logs: `/projects/sandbox/.cont-scratch/logs/final/`).
 | 0ab6fbd | Owner rules: open-licence swap plan for the five non-commercial cores. |
 | a10ffab | Amiibo: the last tap is cleared before every game starts, even after a swipe-away (review fix R1 for RUST-03). |
 | a6befb9 | Owner decision: swap out and remove the five non-commercial cores in the batch after the cleanup install. |
-| 54e5bd6 | Owner decision: no MAME; arcade leaves the app until Continuum has its own arcade core. |
+| 54e5bd6 | Owner decision: no outside arcade core; arcade leaves the app until Continuum has its own arcade core. |
 | 7683080 | Owner rules: real build time and core count, cBoy starts a build, drawer and licence swap in the new order, ★ rule word for word. |
 | dc65b1b | cBoy options list: Game Boy Player rumble marked done; the Camera note says what is really there. |
 | 7284987 | STATUS, HANDOFF, TESTING and the Manic list updated to match the cleanup, the licence swap and the new to-do order. |

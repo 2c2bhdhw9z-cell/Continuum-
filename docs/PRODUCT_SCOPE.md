@@ -118,15 +118,17 @@ The replacement, when it is written, must be native:
 ## Systems
 
 **The owner's goal (October 2026): Continuum does everything Manic EMU does, and more.** That
-widens the system list well past the one below. The checklist, and the decisions behind it (19
-cores prebuilt from the libretro iOS buildbot and 13 built from source, all pinned to build 121's
-versions; answering core settings; Flash and J2ME in a bundled player view), is
+widens the system list well past the one below. The checklist, and the decisions behind it (16
+cores downloaded prebuilt from the libretro iOS buildbot and 17 built from source, every one
+pinned; answering core settings; Flash and J2ME in a bundled player view), is
 [MANIC_PARITY.md](MANIC_PARITY.md). JIT is used when a user can switch it on, never required.
 
-Shipping in the `.ipa` today (build 124, about 85 MB): **32 cores and 38 systems**, covering
-everything in MANIC_PARITY.md's system table except GameCube, Wii and Symbian, plus Flash and J2ME
-in bundled players. STATUS.md has the per-system state. (This line used to say six cores and
-twelve systems.)
+From the licence-swap install on: **33 cores (36 core files with the 3 JIT builds) and 38
+playable systems**, covering everything in MANIC_PARITY.md's system table except GameCube and
+Wii, plus Flash and J2ME in bundled players. Arcade is out until Continuum has its own arcade
+core; arcade games already imported stay in the Library. No core left limits what the app does
+or costs. STATUS.md has the per-system state. (This line used to say six cores and twelve
+systems, then 32 cores in build 124.)
 
 **Check a core's own `valid_extensions` before concluding a system needs a new core.** The Disk
 System and the SG-1000 were both already supported by cores in the app and were reachable for the
