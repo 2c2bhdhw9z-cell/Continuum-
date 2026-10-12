@@ -1032,6 +1032,10 @@ final class CloudSync: ObservableObject {
     // pick stays for installs where iOS allows it, with every step logged.
 
     private var afterSync: ((Bool) -> Void)?
+    /// The per-file errors of the last finished run (`finish`), and the ones a Back up carries
+    /// to its "saved" line.
+    private var lastRunErrors: [String] = []
+    private var backupMissed: [String] = []
     private static let historyTargetKey = "continuum.sync.historyTarget.v1"
 
     private func present(_ picker: UIDocumentPickerViewController, kind: String,
@@ -1082,6 +1086,9 @@ final class CloudSync: ObservableObject {
         }
         afterSync = { [weak self] ok in
             guard let self, ok else { return }
+            // Files that could not be copied into the backup (no space, unreadable...): the
+            // backup is still made, and the saved line says how many are missing from it.
+            self.backupMissed = self.lastRunErrors
             self.exportBackup(from: staging)
         }
         runSync(folder: staging, target: "staging", scoped: false, exportFirst: true,
@@ -1136,9 +1143,16 @@ final class CloudSync: ObservableObject {
 
     private func exportFinished(_ url: URL?) {
         pickerDelegate = nil
+        let missed = backupMissed
+        backupMissed = []
         if let url {
             let place = url.deletingLastPathComponent().lastPathComponent
-            setLine("sync folder: backup saved as \(url.lastPathComponent) in \(place)")
+            var text = "sync folder: backup saved as \(url.lastPathComponent) in \(place)"
+            if let first = missed.first {
+                text += ", but \(missed.count) file\(missed.count == 1 ? "" : "s") couldn't go in "
+                    + "(first: \(first))"
+            }
+            setLine(text)
         } else {
             setLine("sync folder: backup made in the app but not saved to Files (cancelled)")
         }
@@ -1490,6 +1504,7 @@ final class CloudSync: ObservableObject {
     }
 
     private func finish(_ outcome: CloudSyncOutcome) {
+        lastRunErrors = outcome.errors
         isSyncing = false
         // Every way out of a run ends here, refusals and failures included.
         allowsGameLaunch = true
