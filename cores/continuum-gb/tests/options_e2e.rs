@@ -31,6 +31,21 @@ unsafe extern "C" fn rumble(_p: u32, _e: u32, s: u16) -> bool {
     true
 }
 
+/// Sensor actions the core asked for (libretro: 0/1 accelerometer on/off, 2/3 gyroscope).
+static SENSOR_CALLS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+unsafe extern "C" fn sensor_state(_port: u32, action: u32, _rate: u32) -> bool {
+    SENSOR_CALLS.lock().unwrap().push(action);
+    true
+}
+unsafe extern "C" fn sensor_input(_port: u32, _id: u32) -> f32 {
+    0.0
+}
+#[repr(C)]
+struct SensorIface {
+    set: Option<unsafe extern "C" fn(u32, u32, u32) -> bool>,
+    get: Option<unsafe extern "C" fn(u32, u32) -> f32>,
+}
+
 unsafe extern "C" fn env(cmd: u32, d: *mut c_void) -> bool {
     match cmd {
         15 => {
@@ -53,6 +68,11 @@ unsafe extern "C" fn env(cmd: u32, d: *mut c_void) -> bool {
         }
         23 => {
             *(d as *mut Option<unsafe extern "C" fn(u32, u32, u16) -> bool>) = Some(rumble);
+            true
+        }
+        // GET_SENSOR_INTERFACE is 25 | RETRO_ENVIRONMENT_EXPERIMENTAL; a frontend answers only that.
+        0x10019 => {
+            *(d as *mut SensorIface) = SensorIface { set: Some(sensor_state), get: Some(sensor_input) };
             true
         }
         10 | 67 => true,
@@ -297,6 +317,58 @@ fn every_option_through_the_libretro_api() {
     OUT.lock().unwrap().held = u32::MAX;
     assert_eq!(o.frames.len(), 12);
     assert_eq!(o.rumble, vec![0]);
+}
+
+/// A tilt cartridge (MBC7, like Kirby Tilt 'n' Tumble) gets the phone's motion sensor through
+/// the frontend's real sensor request, and switching "Tilt input" mid-game turns it on or off.
+/// Needs no ROM download: the cartridge is a header and a loop.
+#[test]
+fn tilt_cartridge_asks_the_frontend_for_motion() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut data = vec![0u8; 0x8000];
+    data[0x100..0x102].copy_from_slice(&[0x18, 0xFE]); // JR -2
+    data[0x147] = 0x22; // MBC7 + sensor + EEPROM
+    let sensors = |opts: &[(&str, &str)], change: Option<&[(&str, &str)]>| -> (Vec<u32>, Vec<u32>) {
+        *OPTS.lock().unwrap() = Some(opts.iter().map(|(k, v)| (k.to_string(), CString::new(*v).unwrap())).collect());
+        SENSOR_CALLS.lock().unwrap().clear();
+        unsafe {
+            retro_set_environment(env);
+            retro_set_video_refresh(video);
+            retro_set_audio_sample_batch(audio);
+            retro_set_input_poll(poll);
+            retro_set_input_state(input);
+            retro_init();
+            let info = RetroGameInfo { path: std::ptr::null(), data: data.as_ptr() as *const c_void, size: data.len(), meta: std::ptr::null() };
+            assert!(retro_load_game(&info));
+            for _ in 0..3 {
+                retro_run();
+            }
+            let before = std::mem::take(&mut *SENSOR_CALLS.lock().unwrap());
+            if let Some(more) = change {
+                let mut g = OPTS.lock().unwrap();
+                for (k, v) in more {
+                    g.as_mut().unwrap().insert(k.to_string(), CString::new(*v).unwrap());
+                }
+                *UPDATED.lock().unwrap() = true;
+            }
+            for _ in 0..3 {
+                retro_run();
+            }
+            let after = std::mem::take(&mut *SENSOR_CALLS.lock().unwrap());
+            retro_unload_game();
+            retro_deinit();
+            (before, after)
+        }
+    };
+    // Default "Phone motion": the accelerometer is switched on once, at the start.
+    let (before, after) = sensors(&[], None);
+    assert_eq!((before, after), (vec![0], vec![]), "phone motion by default");
+    // Left stick, then Phone motion mid-game: off at first, on after the change.
+    let (before, after) = sensors(&[("cboy_tilt_source", "stick")], Some(&[("cboy_tilt_source", "phone")]));
+    assert_eq!((before, after), (vec![1], vec![0]), "switched to phone motion mid-game");
+    // And back to Off: the accelerometer is released.
+    let (_, after) = sensors(&[], Some(&[("cboy_tilt_source", "off")]));
+    assert_eq!(after, vec![1], "switched off mid-game");
 }
 
 /// Adversarial: every value of every option, on the Game Boy, Color and Advance paths, set at

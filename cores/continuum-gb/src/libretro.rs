@@ -65,7 +65,9 @@ const DEVICE_JOYPAD: u32 = 1;
 const DEVICE_ANALOG: u32 = 5;
 const ENV_GET_SYSTEM_DIRECTORY: u32 = 9;
 const ENV_GET_RUMBLE_INTERFACE: u32 = 23;
-const ENV_GET_SENSOR_INTERFACE: u32 = 25;
+/// libretro.h: `25 | RETRO_ENVIRONMENT_EXPERIMENTAL` (0x10000). The bit is part of the number; a
+/// plain 25 is answered by nobody, which left every motion cartridge with a still console.
+pub const ENV_GET_SENSOR_INTERFACE: u32 = 25 | 0x10000;
 
 /// The RTC block the frontend saves: live registers (5), latched (5), 6 spare, then the Unix
 /// time (u64, little-endian) the registers were true at.
@@ -320,7 +322,9 @@ impl Core {
         i
     }
 
-    /// Turns the phone's sensors on the first time a game needs them.
+    /// Turns the phone's sensors on (or off again) for what the cartridge has and the options
+    /// ask for. On the first frame, and again after any option change, so switching Tilt input to
+    /// Phone motion mid-game starts the motion sensor (`sensors_started` is cleared then).
     unsafe fn start_sensors(&mut self) {
         if self.sensors_started {
             return;
@@ -328,18 +332,20 @@ impl Core {
         self.sensors_started = true;
         let Some(set) = self.sensors.as_ref().and_then(|s| s.set_sensor_state) else { return };
         let s = &self.settings;
-        let wants_tilt = self.gb.bus.cart.kind == crate::cart::MbcKind::Mbc7
+        let phone = crate::options::Source::Phone;
+        let has_tilt = self.gb.bus.cart.kind == crate::cart::MbcKind::Mbc7
             || self.gba.as_ref().is_some_and(|g| g.bus.gpio.hw == gba::gpio::Hardware::Tilt);
-        let wants_gyro = self.gba.as_ref().is_some_and(|g| g.bus.gpio.hw == gba::gpio::Hardware::Gyro);
-        let wants_light = self.gba.as_ref().is_some_and(|g| g.bus.gpio.hw == gba::gpio::Hardware::Solar);
-        if wants_tilt && s.tilt == crate::options::Source::Phone {
-            set(0, 0, 60);
+        let has_gyro = self.gba.as_ref().is_some_and(|g| g.bus.gpio.hw == gba::gpio::Hardware::Gyro);
+        let has_light = self.gba.as_ref().is_some_and(|g| g.bus.gpio.hw == gba::gpio::Hardware::Solar);
+        // libretro sensor actions: 0/1 accelerometer on/off, 2/3 gyroscope, 4/5 illuminance.
+        if has_tilt {
+            if s.tilt == phone { set(0, 0, 60) } else { set(0, 1, 0) };
         }
-        if wants_gyro && s.gyro == crate::options::Source::Phone {
-            set(0, 2, 60);
+        if has_gyro {
+            if s.gyro == phone { set(0, 2, 60) } else { set(0, 3, 0) };
         }
-        if wants_light && s.solar.is_none() {
-            set(0, 4, 10);
+        if has_light {
+            if s.solar.is_none() { set(0, 4, 10) } else { set(0, 5, 0) };
         }
     }
 
@@ -772,6 +778,8 @@ pub unsafe extern "C" fn retro_run() {
     let ahead = s.run_ahead;
     // The real frame. With run-ahead it is never drawn: the picture comes from the frames ahead.
     core.run_one(ahead == 0 && !skip);
+            // The tilt, turn or sunlight source may have changed: ask for the sensors again.
+            core.sensors_started = false;
     if core.gba.is_none() {
         core.watch_lockup(vblanks);
         for line in std::mem::take(&mut core.gb.bus.events) {
