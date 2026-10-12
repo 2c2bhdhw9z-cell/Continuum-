@@ -89,7 +89,11 @@ These come straight from the owner. They are not suggestions.
 - **cBoy's pixel-by-pixel drawer stays, as a cBoy core option** (owner, 12 October 2026: every
   extra setting cBoy offers is wanted, because Continuum is meant to be the go-to emulator). The
   default is the proven per-line drawer; the pixel-by-pixel one is the "Exact (experimental)"
-  choice. The owner would love it finished one day, but it is parked until the owner says go.
+  choice. The owner would love it finished one day. **It is the LAST item on the to-do list**
+  (owner, 12 October 2026): every other planned job comes first, and "Next up" in STATUS.md and
+  HANDOFF.md must list it last. **Before starting it, STOP and tell the owner** so they can turn
+  Kiro's thinking up to max first. Do not begin any of it, not even a first look, until they
+  reply that it is set.
   Earlier sessions burned through the owner's usage guessing its test pictures (Mealybug) one
   pixel at a time. When it is picked up again, never guess pixel by pixel: follow how a proven
   accurate emulator (SameBoy) draws, and compare against it. Do not make it the default until
