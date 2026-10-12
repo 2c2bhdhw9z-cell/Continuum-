@@ -416,7 +416,7 @@ impl Bus {
             }
             0xFF41 => self.ppu.write_stat(v),
             0xFF42 => self.ppu.scy = v,
-            0xFF43 => { if std::env::var("SCX_DEBUG").is_ok() && self.ppu.ly < 3 { eprintln!("scx {v} ly {} dot {}", self.ppu.ly, self.ppu.dot); } self.ppu.scx = v }
+            0xFF43 => self.ppu.scx = v,
             0xFF45 => {
                 if self.ppu.write_lyc(v) {
                     self.iflag |= INT_STAT;

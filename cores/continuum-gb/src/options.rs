@@ -134,6 +134,9 @@ const SPECS: &[Spec] = &[
     (c"video", c"cboy_sgb_border", c"Super Game Boy border",
      c"Shows the frame a Super Game Boy game draws around the picture (with the Super Game Boy console). Always also puts Game Boy games on any other console inside a plain 256x224 frame.",
      &[(c"on", c"Super Game Boy games"), (c"off", c"Off"), (c"always", c"Always")], c"on"),
+    (c"video", c"cboy_renderer", c"Picture drawing",
+     c"Standard is the tried and tested way. Exact (experimental) draws the screen dot by dot, for the rare game that changes the picture halfway along a line. It isn't finished yet and may look wrong.",
+     &[(c"standard", c"Standard"), (c"exact", c"Exact (experimental)")], c"standard"),
     (c"video", c"cboy_color_temp", c"Colour temperature",
      c"Tints the whole picture warmer or cooler, like viewing the screen under different light.",
      &[(c"neutral", c"Neutral"), (c"warm", c"Warm"), (c"cool", c"Cool")], c"neutral"),
@@ -365,6 +368,8 @@ pub struct Settings {
     pub gbc_light: i8,
     pub frameskip_auto: bool,
     pub interference: u8,
+    /// "Picture drawing": the exact (experimental) pixel-by-pixel drawer instead of the standard one.
+    pub exact_renderer: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -394,6 +399,7 @@ impl Default for Settings {
             contrast: 0, dark: 0, highpass_hz: 28.0, audio_hq: false, rumble_strength: 100, motion_scale: 1.0,
             opposing: false, stick_dpad: false, sprite_limit: true, sgb_pal: false, auto_sgb: false, cgb_rev0: false, stick_deadzone: 0.15, swap_stick: false,
             frameskip_threshold: 85, frameskip_interval: 1, gba_obj_limit: false, force_color: false, gbp: false, gbc_light: 0, frameskip_auto: false, interference: 0,
+            exact_renderer: false,
         }
     }
 }
@@ -554,6 +560,7 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     s.interference = get(c"cboy_interference").and_then(|v| v.parse().ok()).unwrap_or(0).min(100);
     s.run_ahead = get(c"cboy_run_ahead").and_then(|v| v.parse().ok()).unwrap_or(0).min(2);
     s.idle_skip = on(c"cboy_idle_skip", false);
+    s.exact_renderer = get(c"cboy_renderer").is_some_and(|v| v == "exact");
     s.gb_layers = u8::from(on(c"cboy_layer_bg", true)) | u8::from(on(c"cboy_layer_window", true)) << 1
         | u8::from(on(c"cboy_layer_obj", true)) << 2;
     s.gba_layers = u8::from(on(c"cboy_layer_bg0", true)) | u8::from(on(c"cboy_layer_bg1", true)) << 1

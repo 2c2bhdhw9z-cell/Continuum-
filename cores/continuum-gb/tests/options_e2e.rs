@@ -161,6 +161,24 @@ fn every_option_through_the_libretro_api() {
     // Ten-sprite limit off: dmg-acid2 checks the limit, so its picture changes.
     let o = run(dmg, &[("cboy_sprite_limit", "off")], 60, None);
     assert_ne!(last(&o).3, base_px);
+
+    // Picture drawing. Standard is the default (base_px above). Both drawers pass dmg-acid2, so
+    // Exact gives the same picture, set at load or switched on mid-game; on a Mealybug picture
+    // that moves SCX halfway along a line the two differ, which shows the option really switches.
+    let o = run(dmg, &[("cboy_renderer", "exact")], 60, None);
+    assert_eq!(last(&o).3, base_px, "exact drawer on dmg-acid2");
+    let o = run(dmg, &[], 60, Some((30, &[("cboy_renderer", "exact")])));
+    assert_eq!(last(&o).3, base_px, "exact drawer switched on mid-game");
+    let o = run(dmg, &[("cboy_renderer", "standard")], 60, None);
+    assert_eq!(last(&o).3, base_px, "standard drawer named explicitly");
+    let scx = "mealybug/m3_scx_low_3_bits.gb";
+    if rom(scx).is_some() {
+        let standard = run(scx, &[], 30, None);
+        let exact = run(scx, &[("cboy_renderer", "exact")], 30, None);
+        assert_ne!(last(&standard).3, last(&exact).3, "the drawers must differ on a mid-line SCX change");
+    } else {
+        eprintln!("SKIPPED: {scx} not found (run scripts/fetch-test-roms.sh)");
+    }
     // Tone stages.
     for (k, v) in [("cboy_color_temp", "warm"), ("cboy_color_temp", "cool"), ("cboy_contrast", "reduce"), ("cboy_dark_filter", "20")] {
         let o = run(dmg, &[(k, v)], 30, None);
@@ -244,6 +262,8 @@ fn every_option_through_the_libretro_api() {
             let o = run(cgb, &[("cboy_gbc_color", look)], 60, None);
             assert_ne!(last(&o).3, last(&b).3, "{look}");
         }
+        let o = run(cgb, &[("cboy_renderer", "exact")], 60, None);
+        assert_eq!(last(&o).3, last(&b).3, "exact drawer on cgb-acid2");
     }
 
     // Advance: colour looks, layers, idle skipping and a forced save chip.

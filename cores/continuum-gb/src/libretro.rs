@@ -258,6 +258,8 @@ impl Core {
             self.gb.bus.apu.out_hz = s.sample_rate;
             self.gb.bus.apu.hq = s.audio_hq;
             self.gb.bus.ppu.no_sprite_limit = !s.sprite_limit;
+            // Between frames (line 144, never mid-line), so switching drawers live is safe.
+            self.gb.bus.ppu.exact = s.exact_renderer;
         }
         if let Some(g) = self.gba.as_mut() {
             g.bus.ppu.obj_limit = s.gba_obj_limit;

@@ -54,8 +54,17 @@ pub fn mooneye(name: &str) -> Result<(), String> {
 }
 
 pub fn mooneye_mode(name: &str, cgb: bool) -> Result<(), String> {
+    mooneye_on(name, cgb, false)
+}
+
+/// The two picture drawers (core option "Picture drawing"): false Standard, true Exact.
+const DRAWERS: [(bool, &str); 2] = [(false, "standard"), (true, "exact")];
+
+/// `mooneye_mode` on a chosen drawer.
+pub fn mooneye_on(name: &str, cgb: bool, exact: bool) -> Result<(), String> {
     let Some(data) = rom(name) else { return Ok(()) };
     let mut gb = GameBoy::new_mode(data, cgb)?;
+    gb.bus.ppu.exact = exact;
     for _ in 0..(60 * 30) {
         gb.run_frame();
         if gb.cpu.ld_b_b {
@@ -74,11 +83,19 @@ pub fn mooneye_mode(name: &str, cgb: bool) -> Result<(), String> {
     Err(format!("{name}: timed out"))
 }
 
+/// dmg-acid2 must pass on both drawers.
 #[test]
 fn dmg_acid2() {
+    for (exact, label) in DRAWERS {
+        dmg_acid2_on(exact, label);
+    }
+}
+
+fn dmg_acid2_on(exact: bool, label: &str) {
     let Some(data) = rom("dmg-acid2.gb") else { return };
     let Some(png_bytes) = rom("dmg-acid2-reference.png") else { return };
     let mut gb = GameBoy::new(data).unwrap();
+    gb.bus.ppu.exact = exact;
     for _ in 0..120 {
         gb.run_frame();
     }
@@ -105,7 +122,8 @@ fn dmg_acid2() {
             }
         }
     }
-    assert_eq!(wrong, 0, "dmg-acid2: {wrong} pixels differ, first at {first:?}");
+    assert_eq!(wrong, 0, "dmg-acid2 ({label} drawer): {wrong} pixels differ, first at {first:?}");
+    eprintln!("DRAWER {label}: dmg-acid2 passed");
 }
 
 /// Writes the screen after N frames to $DUMP_PNG (a debugging aid, not a check).
@@ -155,17 +173,20 @@ fn mooneye_acceptance_report() {
         }
     }
     names.sort();
-    let mut failed = Vec::new();
-    for n in &names {
-        if let Err(e) = mooneye(n) {
-            failed.push(e);
+    // On both drawers: timing never depends on which one draws.
+    for (exact, label) in DRAWERS {
+        let mut failed = Vec::new();
+        for n in &names {
+            if let Err(e) = mooneye_on(n, false, exact) {
+                failed.push(e);
+            }
         }
+        eprintln!("MOONEYE ({label} drawer): {} of {} passed", names.len() - failed.len(), names.len());
+        for f in &failed {
+            eprintln!("  FAIL {f}");
+        }
+        assert!(failed.is_empty(), "Mooneye DMG acceptance regressed on the {label} drawer: {failed:?}");
     }
-    eprintln!("MOONEYE: {} of {} passed", names.len() - failed.len(), names.len());
-    for f in &failed {
-        eprintln!("  FAIL {f}");
-    }
-    assert!(failed.is_empty(), "Mooneye DMG acceptance regressed: {failed:?}");
     assert_eq!(names.len(), 86, "expected the 86 DMG acceptance tests");
 }
 
@@ -268,11 +289,19 @@ fn debug_io() {
     for c in v.chunks(8) { eprintln!("IO {}", c.join(" ")); }
 }
 
+/// cgb-acid2 must pass on both drawers.
 #[test]
 fn cgb_acid2() {
+    for (exact, label) in DRAWERS {
+        cgb_acid2_on(exact, label);
+    }
+}
+
+fn cgb_acid2_on(exact: bool, label: &str) {
     let Some(data) = rom("cgb-acid2.gbc") else { return };
     let Some(png_bytes) = rom("cgb-acid2-reference.png") else { return };
     let mut gb = GameBoy::new(data).unwrap();
+    gb.bus.ppu.exact = exact;
     assert!(gb.bus.cgb, "cgb-acid2 must run in colour mode");
     for _ in 0..120 {
         gb.run_frame();
@@ -300,7 +329,8 @@ fn cgb_acid2() {
             }
         }
     }
-    assert_eq!(wrong, 0, "cgb-acid2: {wrong} pixels differ, first (x, y, got, want) {first:x?}");
+    assert_eq!(wrong, 0, "cgb-acid2 ({label} drawer): {wrong} pixels differ, first (x, y, got, want) {first:x?}");
+    eprintln!("DRAWER {label}: cgb-acid2 passed");
 }
 
 /// The Mooneye tests made for CGB hardware, run as a CGB. A report, like the DMG one.
@@ -412,13 +442,15 @@ fn png_rgb(bytes: &[u8]) -> Vec<u32> {
     out
 }
 
-/// One Mealybug Tearoom test: run to `LD B,B`, compare the screen. Returns differing pixels.
+/// One Mealybug Tearoom test on the exact drawer (the one these pictures are for): run to
+/// `LD B,B`, compare the screen. Returns differing pixels.
 fn mealybug(name: &str, cgb: bool) -> Option<usize> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/mealybug");
     let data = std::fs::read(dir.join(format!("{name}.gb"))).ok()?;
     let exp = std::fs::read(dir.join("expected").join(if cgb { "CPU CGB C" } else { "DMG-blob" }).join(format!("{name}.png"))).ok()?;
     let want = png_rgb(&exp);
     let mut gb = GameBoy::new_mode(data, cgb).ok()?;
+    gb.bus.ppu.exact = true;
     for _ in 0..600 {
         gb.run_frame();
         if gb.cpu.ld_b_b {
@@ -472,7 +504,7 @@ fn mealybug_report() {
             }
         }
     }
-    eprintln!("MEALYBUG: {} passed, {} failed", pass.len(), fail.len());
+    eprintln!("MEALYBUG (exact drawer): {} passed, {} failed", pass.len(), fail.len());
     eprintln!("  pass: {pass:?}");
     eprintln!("  fail: {fail:?}");
     for must in MEALYBUG_PASSING {
@@ -488,10 +520,12 @@ const MEALYBUG_PASSING: &[&str] = &[
     "dmg:m3_wx_4_change_sprites",
 ];
 
+/// On the exact drawer, which is the one that reads SCX mid-line.
 #[test]
 fn scx_low_bits_take_effect_on_line_72() {
     let Some(data) = rom("mealybug/m3_scx_low_3_bits.gb") else { return };
     let mut gb = GameBoy::new(data).unwrap();
+    gb.bus.ppu.exact = true;
     for b in gb.bus.ppu.vram[0x190..0x1A0].iter_mut() {
         *b = 0xFF;
     }

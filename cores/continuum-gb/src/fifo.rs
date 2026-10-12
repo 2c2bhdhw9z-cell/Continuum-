@@ -1,3 +1,7 @@
+//! The "Exact (experimental)" drawer (core option cboy_renderer; Standard, `render_line` in
+//! ppu.rs, is the default). Unfinished: it passes acid2, Mooneye and 5 of the 55 Mealybug
+//! pictures, and no real game has been seen on it on a phone.
+//!
 //! The pixel FIFO: mode 3 dot by dot. A background/window fetcher (tile number, low byte, high
 //! byte, two dots each, then push) fills an 8-pixel background FIFO; objects found by the OAM
 //! scan stall output while their row is fetched and mixed into an object FIFO; one pixel leaves
@@ -392,9 +396,6 @@ impl Ppu {
 
     fn fifo_finish(&mut self) {
         self.fifo.active = false;
-        if std::env::var("FIFO_DEBUG").is_ok() && self.ly < 3 {
-            eprintln!("ly {} fifo dots {} formula {} dot {}", self.ly, self.fifo.dots, self.hblank_at - 80, self.dot);
-        }
         if self.fifo.window_drawn {
             self.window_line = self.window_line.wrapping_add(1);
         }
@@ -423,9 +424,9 @@ impl Ppu {
     }
 }
 
-fn delay() -> u16 {
-    static D: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
-    *D.get_or_init(|| std::env::var("FIFO_DELAY").ok().and_then(|v| v.parse().ok()).unwrap_or(5))
+/// Dots at the start of mode 3 before the fetcher runs.
+const fn delay() -> u16 {
+    5
 }
 
 impl Ppu {

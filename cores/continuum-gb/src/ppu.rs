@@ -67,6 +67,10 @@ pub struct Ppu {
     /// Debug/comfort: draw more than ten sprites on a line (not saved).
     #[serde(skip)]
     pub no_sprite_limit: bool,
+    /// Which drawer makes the picture: false the standard per-line one, true the exact
+    /// (experimental) pixel FIFO. A core option, not hardware state, so not saved.
+    #[serde(skip)]
+    pub exact: bool,
     /// For each pixel of `frame` on the DMG: the shade (0-3, after the palette registers) and
     /// where it came from (0 background or window, 1 sprite palette 0, 2 sprite palette 1).
     /// The output stage uses them for palettes, colourising and the Super Game Boy.
@@ -129,6 +133,7 @@ impl Default for Ppu {
             layers: 7,
             no_render: false,
             no_sprite_limit: false,
+            exact: false,
             fifo: Default::default(),
             shade: blank_bytes(),
             source: blank_bytes(),
@@ -314,10 +319,12 @@ impl Ppu {
                 d @ 80 => {
                     self.mode = 3;
                     self.hblank_at = d + self.mode3_length();
-                    if self.no_render || std::env::var("PRET_REAL_SCANLINE").is_ok() {
-                        self.render_line();
-                    } else {
+                    // A skipped frame draws nothing either way; the per-line drawer keeps the
+                    // window's line count right for the frames after it.
+                    if self.exact && !self.no_render {
                         self.fifo_start();
+                    } else {
+                        self.render_line();
                     }
                 }
                 d if d == self.hblank_at && self.mode == 3 => self.mode = 0,
