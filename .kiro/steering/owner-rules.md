@@ -118,8 +118,6 @@ These come straight from the owner. They are not suggestions.
   - Dry-run our patches. Build it. Do one quick boot where a harness exists.
   - Don't host-build GPU cores (PPSSPP, Azahar, Beetle PSX HW, flycast): the iOS build and the
     phone confirm those.
-  - Time-box it: about 10 minutes for a small update, under an hour for all of them.
-  - Unclear means SKIP it this time, and say why.
   - The weekly checker should do this pre-check on its own, so a session only has to take the
     updates.
   **Players get a heads-up (owner, 12 October 2026).** The first time someone opens a game on
