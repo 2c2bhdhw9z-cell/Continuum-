@@ -408,6 +408,21 @@ impl ContinuumEngine {
             .map(|n| n as u64))
     }
 
+    /// [`Self::load_battery_save_file`], also picking up a battery file another emulator wrote
+    /// for this game in `support_dir` (the cores' system and save folder): Mesen's `<game>.sav`
+    /// for the NES, or the Sega CD's `scd_U/E/J.brm`. The app's own file is kept as
+    /// `<path>.before-<core>` when the other one is newer.
+    pub fn load_battery_save_file_migrating(
+        &self,
+        path: String,
+        support_dir: String,
+    ) -> Result<Option<u64>, EngineError> {
+        Ok(self
+            .lock()
+            .load_battery_save_file_migrating(&path, Some(&support_dir))?
+            .map(|n| n as u64))
+    }
+
     /// Starts a RAM search over system RAM. Returns how many addresses are candidates.
     pub fn ram_search_start(
         &self,

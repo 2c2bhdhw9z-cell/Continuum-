@@ -17,6 +17,7 @@
 use crate::audio::{AudioSink, AudioSpec, AudioStats, NullAudioSink, RingAudioSink, CHANNELS};
 use crate::cheats::poke::Poke;
 use crate::cheats::search::{RamSearch, SearchFilter, SearchHit, SearchWidth};
+use crate::battery_layout::{self, BatteryLayout};
 use crate::cores::{ContentHint, CoreDescriptor, CoreRegistry, CoreState, EmulatorCore};
 use crate::error::BridgeError;
 use crate::gfx::screen_layout::{DualScreenConfig, DualScreenGeometry, TouchRegion};
@@ -129,6 +130,12 @@ struct Session {
     search: Option<RamSearch>,
     /// Which memory the search runs over. Meaningless while `search` is `None`.
     search_region: SearchRegion,
+    /// The game's file name ("Zelda (USA).nes") and lower-case extension, for the battery-save
+    /// files another core may have written for it (`battery_layout::migration_candidates`).
+    content_name: String,
+    content_ext: String,
+    /// How the battery save is shaped for this core (`battery_layout::layout_for`).
+    battery_layout: BatteryLayout,
 }
 
 /// The memory a RAM search runs over.
@@ -460,6 +467,13 @@ impl EmulatorBridge {
             descriptor.audio_sample_rate
         );
 
+        let content_name = hint
+            .full_path
+            .as_deref()
+            .and_then(|p| std::path::Path::new(p).file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| format!("{}.{}", hint.name, hint.extension));
+        let battery_layout = Self::battery_layout_for(core_id, content, hint);
         self.session = Some(Session {
             core_id: core_id.to_string(),
             content_id: content_id.to_string(),
@@ -471,13 +485,10 @@ impl EmulatorBridge {
             pokes: Vec::new(),
             search: None,
             search_region: SearchRegion::SystemRam,
+            content_name: content_name.clone(),
+            content_ext: hint.extension.to_ascii_lowercase(),
+            battery_layout,
         });
-        let content_name = hint
-            .full_path
-            .as_deref()
-            .and_then(|p| std::path::Path::new(p).file_name())
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| format!("{}.{}", hint.name, hint.extension));
         self.actions.new_session(&content_name);
         // Slow motion and a speed preset are the user's, and survive a new game.
         let wanted = self.actions.effective_speed();
@@ -1761,13 +1772,43 @@ impl EmulatorBridge {
 
     /// The running game's battery save (`SAVE_RAM`), byte for byte. This is the `.srm` file
     /// every libretro frontend writes, so it is also what an export hands to another emulator.
+    ///
+    /// For BlastEm on a Mega Drive cartridge this is the Genesis Plus GX layout (see
+    /// `battery_layout`), so the file is the same whichever core wrote it.
     pub fn battery_save(&self) -> Result<Vec<u8>, BridgeError> {
         let size = self.memory_size(crate::memory::MEMORY_SAVE_RAM);
         if size == 0 {
             let session = self.session.as_ref().ok_or(BridgeError::NoSession)?;
             return Err(Self::no_region(session, crate::memory::MEMORY_SAVE_RAM));
         }
-        self.read_memory(crate::memory::MEMORY_SAVE_RAM, 0, size as u64)
+        let live = self.read_memory(crate::memory::MEMORY_SAVE_RAM, 0, size as u64)?;
+        match self.session.as_ref().map(|s| s.battery_layout) {
+            Some(BatteryLayout::MegaDriveGpgx(sram)) => Ok(battery_layout::live_to_gpgx(&live, &sram)),
+            _ => Ok(live),
+        }
+    }
+
+    /// The ROM's first bytes (de-interleaved for `.smd`) decide the battery layout. Read from the
+    /// bytes handed to the core, or from the file when the core was given a path.
+    fn battery_layout_for(core_id: &str, content: &[u8], hint: &ContentHint) -> BatteryLayout {
+        const HEAD: usize = 0x4200;
+        let head = if !content.is_empty() {
+            content[..content.len().min(HEAD)].to_vec()
+        } else if let Some(path) = hint.full_path.as_deref() {
+            use std::io::Read;
+            let mut buf = Vec::with_capacity(HEAD);
+            match std::fs::File::open(path) {
+                Ok(file) => {
+                    let _ = file.take(HEAD as u64).read_to_end(&mut buf);
+                }
+                Err(_) => return BatteryLayout::Raw,
+            }
+            buf
+        } else {
+            return BatteryLayout::Raw;
+        };
+        let head = battery_layout::deinterleave_smd(&hint.extension, &head);
+        battery_layout::layout_for(core_id, &hint.extension, &head)
     }
 
     /// Replaces the running game's battery save. Returns the region's size.
@@ -1791,6 +1832,18 @@ impl EmulatorBridge {
         if data.is_empty() {
             return Err(BridgeError::Memory("that battery save is empty".into()));
         }
+        let (core_id, layout) = match self.session.as_ref() {
+            Some(session) => (session.core_id.clone(), session.battery_layout),
+            None => return Err(BridgeError::NoSession),
+        };
+        // BlastEm on a Mega Drive cartridge: the file is in Genesis Plus GX's layout.
+        if let BatteryLayout::MegaDriveGpgx(sram) = layout {
+            let live = battery_layout::gpgx_to_live(data, &sram, size).map_err(BridgeError::Memory)?;
+            self.write_memory(crate::memory::MEMORY_SAVE_RAM, 0, &live)?;
+            return Ok(size);
+        }
+        // Padding another emulator added past the end of the save RAM (0xFF, or 0x00 for bsnes).
+        let data = battery_layout::fit_padded(data, size, &core_id);
         // A Game Boy save written by mGBA or VBA for a cart with a clock (MBC3, e.g. Pokemon
         // Gold) carries the clock after the RAM: 48 bytes (or 44, the 32-bit-time variant). A
         // core that keeps the clock elsewhere (cBoy) has save RAM of exactly the cart's size, so
@@ -1841,6 +1894,24 @@ impl EmulatorBridge {
         Ok(written)
     }
 
+    /// Keeps `bytes` (the battery file at `path`) as `<path>.<suffix>`. Never over an existing
+    /// copy: with `numbered`, the next free `.2`, `.3`, ... is used, unless one of the copies
+    /// already holds these exact bytes; without it, an existing copy means nothing is written.
+    fn keep_copy(path: &str, bytes: &[u8], suffix: &str, numbered: bool) -> Result<(), BridgeError> {
+        let first = std::path::PathBuf::from(format!("{path}.{suffix}"));
+        let mut target = first.clone();
+        let mut n = 1;
+        while target.exists() {
+            if !numbered || std::fs::read(&target).map(|b| b == bytes).unwrap_or(false) {
+                return Ok(());
+            }
+            n += 1;
+            target = std::path::PathBuf::from(format!("{path}.{suffix}.{n}"));
+        }
+        std::fs::write(&target, bytes)
+            .map_err(|err| BridgeError::Memory(format!("could not keep a copy at {}: {err}", target.display())))
+    }
+
     /// `<game>.srm` → `<game>.rtc`, beside it.
     fn clock_path(battery_path: &str) -> std::path::PathBuf {
         std::path::Path::new(battery_path).with_extension("rtc")
@@ -1872,20 +1943,86 @@ impl EmulatorBridge {
     /// Reads a battery save from `path` into the running game. `Ok(None)` when there is no file,
     /// which is a game that has never saved rather than a failure.
     pub fn load_battery_save_file(&mut self, path: &str) -> Result<Option<usize>, BridgeError> {
+        self.load_battery_save_file_migrating(path, None)
+    }
+
+    /// [`Self::load_battery_save_file`], and also picks up a battery file another core wrote for
+    /// this game in `support_dir` (the folder the cores are given as their system and save
+    /// folder): Mesen 2's `<game>.sav` for the NES, or the Sega CD's `scd_U/E/J.brm`.
+    ///
+    /// The newest such file of exactly the save RAM's size is loaded instead of `path` when
+    /// `path` is missing, or when that file is newer and different. `path` is then first copied to
+    /// `<path>.before-<core>` (never over an earlier copy), and the next persist replaces it. The
+    /// other core's file is never written or deleted.
+    ///
+    /// For BlastEm on a Mega Drive cartridge, the first load of an existing `path` also keeps a
+    /// copy as `<path>.before-blastem`.
+    pub fn load_battery_save_file_migrating(
+        &mut self,
+        path: &str,
+        support_dir: Option<&str>,
+    ) -> Result<Option<usize>, BridgeError> {
         // First, before the file is even looked for, so the answer online does not depend on
         // whether this phone happens to have a save on disk.
         self.refuse_during_netplay("loading a battery save")?;
         let mut loaded = None;
-        if self.memory_size(crate::memory::MEMORY_SAVE_RAM) > 0 {
-            match std::fs::read(path) {
-                Ok(data) => {
-                    self.restore_battery_save(&data)?;
-                    loaded = Some(data.len());
-                }
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        let size = self.memory_size(crate::memory::MEMORY_SAVE_RAM);
+        if size > 0 {
+            let (core_id, layout, candidates) = {
+                let session = self.session.as_ref().ok_or(BridgeError::NoSession)?;
+                let candidates = support_dir
+                    .map(|dir| {
+                        battery_layout::migration_candidates(
+                            &session.core_id,
+                            &session.content_ext,
+                            &session.content_name,
+                            std::path::Path::new(dir),
+                        )
+                    })
+                    .unwrap_or_default();
+                (session.core_id.clone(), session.battery_layout, candidates)
+            };
+            let own = match std::fs::read(path) {
+                Ok(data) => Some(data),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
                 Err(err) => {
                     return Err(BridgeError::Memory(format!("could not read {path}: {err}")));
                 }
+            };
+            let own_time = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+            // The newest other-core file of exactly this game's save RAM size.
+            let other = candidates
+                .iter()
+                .filter_map(|p| {
+                    let meta = std::fs::metadata(p).ok()?;
+                    (meta.is_file() && meta.len() as usize == size).then(|| (p.clone(), meta.modified().ok()))
+                })
+                .max_by_key(|(_, time)| *time);
+            let take_other = match (&other, &own) {
+                (None, _) => None,
+                (Some((p, _)), None) => Some(p.clone()),
+                (Some((p, time)), Some(own_bytes)) => {
+                    let newer = matches!((time, own_time), (Some(t), Some(o)) if *t > o);
+                    let differs = std::fs::read(p).map(|b| &b != own_bytes).unwrap_or(false);
+                    (newer && differs).then(|| p.clone())
+                }
+            };
+            if let Some(other_path) = take_other {
+                let data = std::fs::read(&other_path).map_err(|err| {
+                    BridgeError::Memory(format!("could not read {}: {err}", other_path.display()))
+                })?;
+                if let Some(own_bytes) = &own {
+                    Self::keep_copy(path, own_bytes, &format!("before-{core_id}"), true)?;
+                }
+                self.write_memory(crate::memory::MEMORY_SAVE_RAM, 0, &data)?;
+                log::info!("battery save for this game taken from {}", other_path.display());
+                loaded = Some(data.len());
+            } else if let Some(data) = own {
+                if matches!(layout, BatteryLayout::MegaDriveGpgx(_)) {
+                    Self::keep_copy(path, &data, "before-blastem", false)?;
+                }
+                self.restore_battery_save(&data)?;
+                loaded = Some(data.len());
             }
         }
         // The cartridge clock (see `persist_battery_save`). Before the first frame, which is
@@ -2227,17 +2364,33 @@ impl EmulatorBridge {
         core_id: &str,
         content: &[u8],
     ) -> Result<(), BridgeError> {
+        self.launch_headless_named_for_test(core_id, content, "test.rom")
+    }
+
+    /// [`Self::launch_headless_for_test`] with the game's file name, which picks the battery
+    /// layout and the other cores' save files.
+    #[cfg(test)]
+    pub(crate) fn launch_headless_named_for_test(
+        &mut self,
+        core_id: &str,
+        content: &[u8],
+        file_name: &str,
+    ) -> Result<(), BridgeError> {
+        let hint = ContentHint::from_filename(file_name);
         let mut core = self.registry.take_for_session(core_id)?;
-        core.load_content(content, &ContentHint::from_filename("test.rom"))?;
+        core.load_content(content, &hint)?;
         self.session = Some(Session {
             core_id: core_id.to_string(),
-            content_id: "test.rom".into(),
+            content_id: file_name.into(),
             core,
             paused: false,
             cheats: Vec::new(),
             pokes: Vec::new(),
             search: None,
             search_region: SearchRegion::SystemRam,
+            content_name: file_name.into(),
+            content_ext: hint.extension.to_ascii_lowercase(),
+            battery_layout: Self::battery_layout_for(core_id, content, &hint),
         });
         Ok(())
     }
@@ -2435,6 +2588,163 @@ mod tests {
         assert_eq!(fresh.load_battery_save_file(&path).unwrap(), Some(8192));
         assert_eq!(&fresh.battery_save().unwrap()[..2], &[0x5A, 0xA5]);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A running diagnostic core declared under `id`, playing `file_name` with `content`.
+    fn running_as(id: &str, system: &str, content: &[u8], file_name: &str) -> EmulatorBridge {
+        let mut bridge = EmulatorBridge::new();
+        bridge.declare_core(descriptor(id, system));
+        bridge.attach_core_module(id, MODULE).unwrap();
+        bridge.launch_headless_named_for_test(id, content, file_name).unwrap();
+        bridge
+    }
+
+    fn scratch_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("continuum-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn set_age(path: &std::path::Path, seconds_ago: u64) {
+        let when = std::time::SystemTime::now() - std::time::Duration::from_secs(seconds_ago);
+        std::fs::File::options().write(true).open(path).unwrap().set_modified(when).unwrap();
+    }
+
+    #[test]
+    fn a_mega_drive_save_stays_in_genesis_plus_gx_layout_on_blastem() {
+        // An odd-byte SRAM cart, $200001-$203FFF: 8192 bytes live, the diagnostic SAVE_RAM size.
+        let mut rom = vec![0u8; 0x200];
+        rom[0x100..0x10F].copy_from_slice(b"SEGA MEGA DRIVE");
+        rom[0x1B0..0x1BC].copy_from_slice(&[b'R', b'A', 0xF8, 0x20, 0x00, 0x20, 0x00, 0x01, 0x00, 0x20, 0x3F, 0xFF]);
+        let dir = scratch_dir("md-gpgx");
+        let path = dir.join("Sonic.srm");
+        let path_str = path.to_str().unwrap().to_string();
+        // What Genesis Plus GX wrote: 0x22+i at the odd addresses, trimmed.
+        let mut gpgx = vec![0xFF; 0x20];
+        for i in 0..16 {
+            gpgx[1 + 2 * i] = 0x22 + i as u8;
+        }
+        std::fs::write(&path, &gpgx).unwrap();
+
+        let mut bridge = running_as("blastem", "genesis", &rom, "Sonic.md");
+        assert_eq!(bridge.load_battery_save_file_migrating(&path_str, None).unwrap(), Some(0x20));
+        let live = bridge.read_memory(crate::memory::MEMORY_SAVE_RAM, 0, 8192).unwrap();
+        assert_eq!(&live[..4], &[0x22, 0x23, 0x24, 0x25]);
+        assert_eq!(live[16], 0xFF);
+        // A copy of the pre-swap file, once.
+        let before = dir.join("Sonic.srm.before-blastem");
+        assert_eq!(std::fs::read(&before).unwrap(), gpgx);
+        // Out again in GPGX's layout: the whole $0000-$3FFF window, filler at the even bytes.
+        assert_eq!(bridge.persist_battery_save(&path_str).unwrap(), 0x4000);
+        let on_disk = std::fs::read(&path).unwrap();
+        assert_eq!(on_disk.len(), 0x4000);
+        assert_eq!(&on_disk[..0x20], &gpgx[..]);
+        assert!(on_disk[0x20..].iter().all(|b| *b == 0xFF));
+        // Reloading gives the same live bytes, and the first copy is never replaced.
+        std::fs::write(&before, b"first").unwrap();
+        let mut fresh = running_as("blastem", "genesis", &rom, "Sonic.md");
+        fresh.load_battery_save_file_migrating(&path_str, None).unwrap();
+        assert_eq!(fresh.read_memory(crate::memory::MEMORY_SAVE_RAM, 0, 8192).unwrap(), live);
+        assert_eq!(std::fs::read(&before).unwrap(), b"first");
+        // The same file on another core is loaded byte for byte (and refused, being too long).
+        let mut other = running_as("gearsystem", "genesis", &rom, "Sonic.md");
+        assert!(other.restore_battery_save(&vec![1; 0x4000]).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn nes_saves_mesen_wrote_are_picked_up_and_the_old_one_kept() {
+        let dir = scratch_dir("nes-migrate");
+        let support = dir.join("support");
+        std::fs::create_dir_all(&support).unwrap();
+        let support_str = support.to_str().unwrap().to_string();
+        let srm = dir.join("Zelda.srm");
+        let srm_str = srm.to_str().unwrap().to_string();
+        let sav = support.join("Zelda.sav");
+        let first_byte = |b: &EmulatorBridge| b.read_memory(crate::memory::MEMORY_SAVE_RAM, 0, 1).unwrap()[0];
+
+        // Only Mesen's .sav: it is loaded.
+        std::fs::write(&sav, vec![0x11; 8192]).unwrap();
+        let mut bridge = running_as("mesen2", "nes", b"rom", "Zelda.nes");
+        assert_eq!(bridge.load_battery_save_file_migrating(&srm_str, Some(&support_str)).unwrap(), Some(8192));
+        assert_eq!(first_byte(&bridge), 0x11);
+
+        // The app's .srm is newer: it wins, and nothing is copied.
+        std::fs::write(&srm, vec![0x22; 8192]).unwrap();
+        set_age(&sav, 600);
+        let mut bridge = running_as("mesen2", "nes", b"rom", "Zelda.nes");
+        bridge.load_battery_save_file_migrating(&srm_str, Some(&support_str)).unwrap();
+        assert_eq!(first_byte(&bridge), 0x22);
+        assert!(!dir.join("Zelda.srm.before-mesen2").exists());
+
+        // The .sav is newer and different: it wins, and the .srm is kept first.
+        set_age(&srm, 1200);
+        let mut bridge = running_as("mesen2", "nes", b"rom", "Zelda.nes");
+        bridge.load_battery_save_file_migrating(&srm_str, Some(&support_str)).unwrap();
+        assert_eq!(first_byte(&bridge), 0x11);
+        let kept = dir.join("Zelda.srm.before-mesen2");
+        assert_eq!(std::fs::read(&kept).unwrap(), vec![0x22; 8192]);
+        // A second call keeps that copy as it is and makes no second one of the same bytes.
+        let mut again = running_as("mesen2", "nes", b"rom", "Zelda.nes");
+        again.load_battery_save_file_migrating(&srm_str, Some(&support_str)).unwrap();
+        assert_eq!(std::fs::read(&kept).unwrap(), vec![0x22; 8192]);
+        assert!(!dir.join("Zelda.srm.before-mesen2.2").exists());
+        // Mesen's file itself is never touched.
+        assert_eq!(std::fs::read(&sav).unwrap(), vec![0x11; 8192]);
+
+        // A .sav of another size is not this game's save RAM: ignored.
+        std::fs::write(&sav, vec![0x33; 100]).unwrap();
+        let mut bridge = running_as("mesen2", "nes", b"rom", "Zelda.nes");
+        bridge.load_battery_save_file_migrating(&srm_str, Some(&support_str)).unwrap();
+        assert_eq!(first_byte(&bridge), 0x22);
+
+        // Without a support folder, nothing but the app's own file is looked at.
+        std::fs::write(&sav, vec![0x44; 8192]).unwrap();
+        let mut bridge = running_as("mesen2", "nes", b"rom", "Zelda.nes");
+        bridge.load_battery_save_file(&srm_str).unwrap();
+        assert_eq!(first_byte(&bridge), 0x22);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_sega_cd_game_starts_from_the_newest_backup_ram() {
+        let dir = scratch_dir("scd-migrate");
+        let support = dir.join("support");
+        std::fs::create_dir_all(&support).unwrap();
+        let (us, eu, jp) = (support.join("scd_U.brm"), support.join("scd_E.brm"), support.join("scd_J.brm"));
+        std::fs::write(&us, vec![0x00u8; 8192]).unwrap();
+        std::fs::write(&eu, vec![0xE0; 8192]).unwrap();
+        std::fs::write(&jp, vec![0x70; 4096]).unwrap();
+        set_age(&us, 900);
+        set_age(&eu, 60);
+        let srm = dir.join("Sonic CD.srm");
+        let mut bridge = running_as("blastem", "segacd", b"cue", "Sonic CD.cue");
+        let got = bridge
+            .load_battery_save_file_migrating(srm.to_str().unwrap(), Some(support.to_str().unwrap()))
+            .unwrap();
+        assert_eq!(got, Some(8192));
+        assert_eq!(bridge.read_memory(crate::memory::MEMORY_SAVE_RAM, 0, 8192).unwrap(), vec![0xE0; 8192]);
+        // The system files are left exactly as they were.
+        assert_eq!(std::fs::read(&eu).unwrap(), vec![0xE0; 8192]);
+        assert_eq!(std::fs::read(&jp).unwrap(), vec![0x70; 4096]);
+        assert!(!srm.exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn padding_past_the_save_ram_is_trimmed_before_the_size_rule() {
+        let mut bridge = running_diagnostic();
+        let mut data = vec![0x5A; 8192];
+        data.extend_from_slice(&[0xFF; 8192]);
+        assert_eq!(bridge.restore_battery_save(&data).unwrap(), 8192);
+        data[9000] = 0;
+        assert!(bridge.restore_battery_save(&data).is_err());
+        let mut zeros = vec![0x5A; 8192];
+        zeros.extend_from_slice(&[0x00; 100]);
+        assert!(bridge.restore_battery_save(&zeros).is_err());
+        let mut bsnes = running_as("bsnes", "snes", b"rom", "Mario.sfc");
+        assert_eq!(bsnes.restore_battery_save(&zeros).unwrap(), 8192);
     }
 
     #[test]

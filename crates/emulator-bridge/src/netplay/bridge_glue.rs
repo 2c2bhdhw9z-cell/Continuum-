@@ -350,6 +350,9 @@ mod tests {
             pokes: Vec::new(),
             search: None,
             search_region: Default::default(),
+            content_name: "game.sfc".into(),
+            content_ext: "sfc".into(),
+            battery_layout: Default::default(),
         });
         bridge
     }

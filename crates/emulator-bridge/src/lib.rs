@@ -49,6 +49,7 @@
 
 pub mod achievements;
 pub mod audio;
+pub mod battery_layout;
 pub mod bridge;
 pub mod cheats;
 pub mod cores;
