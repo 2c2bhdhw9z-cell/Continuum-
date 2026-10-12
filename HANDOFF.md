@@ -160,11 +160,15 @@ for one exact game version; the cheat screen names the version for GBA and Game 
 - Only the paths listed in `ios.yml`'s `on: push: paths:` start a build at all, so a commit
   touching only `STATUS.md`, `HANDOFF.md`, `TESTING.md` or `docs/` never needs `[skip ci]`.
 - **A build takes about 6 minutes, not 40, as of build 136.** The 35 cores are cached between
-  runs (STATUS.md "Build 136"). Two things to know: editing anything in `scripts/patches/` or
-  `scripts/build-core.sh` changes the cache key and the next build pays the full ~40 minutes
-  rebuilding everything, which is correct but worth saying before a one-line patch edit; and the
-  cache is saved with `if: always()` right after the cores are built, so a build that fails later
-  does NOT cost the owner the 35 minutes again on the retry.
+  runs (STATUS.md "Build 136"). Three things to know: editing anything in `scripts/patches/`,
+  `scripts/build-core.sh`, `native/continuum-symbian/` or `native/ios/build-engine.sh` changes the
+  cache key and the next build pays the full ~40 minutes rebuilding everything, which is correct
+  but worth saying before a one-line patch edit; cBoy (`cores/continuum-gb`) is NOT in the key and
+  is compiled from source on every build, so a cBoy edit costs about a minute, never a full
+  rebuild; and the cache is saved in its own step straight after the cores are built, before the
+  app is packaged, so a build that fails later (Xcode, packaging, the release) does NOT cost the
+  owner the 35 minutes again on the retry. That step is deliberately not `if: always()`: a core
+  build stopped part-way can leave a half-written core that the next build would trust.
 - **Never open an image whose bytes you have not checked.** On 7 October a picture downloaded from
   an image service was named `.png` but was really a JPEG inside. Looking at it put a file in the
   chat's history whose declared type did not match its content, and from then on EVERY message the

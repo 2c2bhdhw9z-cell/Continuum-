@@ -57,6 +57,10 @@ if [ "${CONTINUUM_CORE_CACHE:-0}" = "1" ] && [ -d "$LIBDIR" ]; then
   # `|| true` on each: an empty lib directory is the normal first-build case, not an error.
   cp -p "$LIBDIR"/*_libretro_ios.dylib "$KEEP"/ 2>/dev/null || true
   cp -p "$LIBDIR"/core-sources.txt "$KEEP"/ 2>/dev/null || true
+  # Except cBoy (cores/continuum-gb), this project's own core. It has no pin, is rebuilt from this
+  # checkout on every run, and its source is not in the CI cache key, so a cached copy can be from
+  # an older commit and must never get anywhere near the .ipa.
+  rm -f "$KEEP/continuum_gb_libretro_ios.dylib"
   KEPT="$(ls -1 "$KEEP" 2>/dev/null | wc -l | tr -d ' ')"
   rm -rf "$OUT"
   mkdir -p "$LIBDIR" "$GENDIR"

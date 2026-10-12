@@ -1,6 +1,7 @@
 # Continuum GB: this project's own Game Boy core, written from scratch, exposed as a libretro core.
-# A standalone crate (its own empty [workspace]) so it builds and tests without the app's engine,
-# and so a change here does not start the iOS workflow (its push paths are native/**, crates/**).
+# A standalone crate (its own empty [workspace]) so it builds and tests without the app's engine.
+# A change here starts the iOS workflow (cores/continuum-gb/** is in its push paths), and the
+# .ipa build compiles it from source every time (scripts/build-core.sh, continuum_gb).
 [package]
 name = "continuum_gb"
 version = "0.1.0"

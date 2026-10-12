@@ -48,6 +48,9 @@ on:
       - "docs/samples/**"
       - "scripts/skin-check/**"
       - "scripts/player-check/**"
+      # cBoy, this project's own Game Boy / Color / Advance core. It ships in the .ipa (built from
+      # this folder on every run), so a cBoy-only change must start a build like any other.
+      - "cores/continuum-gb/**"
       - ".github/workflows/ios.yml"
 
 # One build per branch at a time, and a second push QUEUES behind the running one rather than
@@ -234,6 +237,12 @@ jobs:
       # cached copy of one never ships, and editing that script must not throw away the sixteen
       # cores built from source.
       #
+      # cores/continuum-gb (cBoy) is deliberately NOT in it either, for the same kind of reason.
+      # cBoy has no pin, so ios_core_is_cached never reuses it: build-engine.sh drops any cached
+      # copy and build-core.sh compiles it from this checkout on every run (about a minute). When
+      # its source was in this key, every cBoy edit threw away the cache for all the other cores
+      # and cost a ~47 minute build instead of ~7.
+      #
       # WHY A NEW ENTRY EVERY TIME. Cache entries can never be updated. With one fixed key, a set
       # saved by a run where an optional core failed (flycast is the slow one) stayed without it
       # for good: every later run restored it, rebuilt the missing core, and could not store the
@@ -268,7 +277,7 @@ jobs:
       - name: Fingerprint the core toolchain
         id: toolchain
         env:
-          CORE_SOURCES_HASH: ${{ hashFiles('scripts/build-core.sh', 'scripts/patches/**', 'native/continuum-symbian/**', 'cores/continuum-gb/src/**', 'cores/continuum-gb/Cargo.*') }}
+          CORE_SOURCES_HASH: ${{ hashFiles('scripts/build-core.sh', 'scripts/patches/**', 'native/continuum-symbian/**') }}
         run: |
           set -euo pipefail
           FP="$RUNNER_TEMP/core-toolchain.txt"
@@ -315,7 +324,8 @@ jobs:
       # Only when this run BUILT at least one core. build-core.sh's ios-all writes
       # cores-rebuilt.txt for each core it compiled at its pin, and the file does not exist when
       # every core was reused, so a run that only reused the cache adds no copy of what is
-      # already there. It also does not exist after a CONTINUUM_UNPINNED=1 run: those cores can
+      # already there. cBoy, which has no pin and is compiled on every run, is not written to
+      # it, so building cBoy alone saves nothing. It also does not exist after a CONTINUUM_UNPINNED=1 run: those cores can
       # never be reused, and saving them would make them the newest entry and cost the next
       # normal build a full rebuild. The `if` still implies success(), so this runs only after
       # the build step above succeeded.

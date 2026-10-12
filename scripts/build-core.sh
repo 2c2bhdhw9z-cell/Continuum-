@@ -1648,6 +1648,11 @@ IOS_REBUILT_MARKER="$IOS_OUT_DIR/cores-rebuilt.txt"
 
 ios_note_rebuilt() {
   ios_unpinned && return 0
+  # Nor for a core with no pin (cBoy, built from cores/continuum-gb in this checkout). It is built
+  # on every run and never reused from the cache, so building it is no reason to store a new cache
+  # entry; noting it made every build save another full copy of the core set.
+  ios_core_config "$1"
+  [[ -n "${IOS_PIN:-}" ]] || return 0
   echo "$1" >> "$IOS_REBUILT_MARKER"
 }
 
