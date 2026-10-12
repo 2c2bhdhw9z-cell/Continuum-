@@ -118,6 +118,19 @@ These come straight from the owner. They are not suggestions.
   forbid any commercial use: Snes9x, Genesis Plus GX, PicoDrive, FinalBurn Neo and MAME
   2003-Plus. When a system gets a core of our own, or a well-made core with an open licence,
   prefer that one.
+  **Swap plan (owner asked, 12 October 2026; checked against the libretro iOS buildbot the
+  same day). Each replacement must be checked on a phone before the old core is removed:**
+  - SNES: bsnes (GPLv3) as the default. Mesen 2 (GPLv3, already in the app for NES) also plays
+    SNES and becomes a second choice. Both need more CPU than Snes9x, so check the speed.
+  - Master System, Game Gear, SG-1000: Gearsystem (GPLv3). Mesen 2 also plays these.
+  - Genesis / Mega Drive, Sega CD, 32X: BlastEm (GPLv3; its libretro info now lists MD, CD and
+    32X). Unknowns: speed on iPhone without its PC speed-up, and how mature its CD and 32X
+    support is. ClownMDEmu (AGPLv3, MD and CD) is the backup; it is not on the iOS buildbot, so
+    it would be built from source.
+  - Arcade: current MAME (GPLv2+) is the only open, complete one. It is about 92 MB zipped (the
+    IPA is about 190 MB now), heavier on the phone, and wants the matching MAME version's game
+    files, so many players' existing arcade zips will not work as they are. Geolith
+    (BSD/MIT) covers Neo Geo, but needs `.neo` files. Arcade has no swap as good as FinalBurn Neo.
 - **When the owner puts a ★ or ⭐ on something, save it permanently:** in this file if it is about
   Continuum, or as a Kiro learning if it applies everywhere. Kiro may also save general learnings
   on its own whenever something is worth remembering.
