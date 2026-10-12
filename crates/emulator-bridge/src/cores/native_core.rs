@@ -378,11 +378,17 @@ extern "C" {
 }
 
 /// Called by `retro_log_shim.c` for the core lines that belong in the activity log.
+///
+/// # Safety
+///
+/// `line` must be null or point to a NUL-terminated C string that stays valid for the whole
+/// call. The shim passes its own stack buffer, which it has just NUL-terminated.
 #[no_mangle]
-pub extern "C" fn continuum_core_log_forward(line: *const c_char) {
+pub unsafe extern "C" fn continuum_core_log_forward(line: *const c_char) {
     if line.is_null() {
         return;
     }
+    // SAFETY: non-null and NUL-terminated for the length of this call (see `# Safety`).
     let text = unsafe { CStr::from_ptr(line) }.to_string_lossy();
     crate::feedback::log_add("", &text);
 }

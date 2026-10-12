@@ -108,6 +108,11 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace --features emulator-bridge/native-core
 
+      # Default lint levels, not -D warnings: a clippy error stops the build, a warning does not.
+      # Build 180 shipped with a clippy error nobody saw, because nothing here ran it.
+      - name: Clippy
+        run: cargo clippy --workspace --features emulator-bridge/native-core
+
       - name: cBoy tests (Game Boy / Color / Advance core)
         # Its own crate (cores/continuum-gb). The test ROMs are fetched by its script; without
         # them those tests report SKIPPED and the unit tests still run.
