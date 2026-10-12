@@ -7,7 +7,7 @@
 //
 //   * a BATTERY save goes through SaveStates.importBatterySave, the existing path, so the old save
 //     is kept as .srm.bak and a running game gets the bytes in its save RAM at once;
-//   * a CORE FILE (Dreamcast VMU, Saturn .bkr, arcade NVRAM) is written under the save directory
+//   * a CORE FILE (Dreamcast VMU, Saturn .bkr) is written under the save directory
 //     the cores are given (Application Support), the old one kept as .bak beside it;
 //   * a FOLDER (PSP SAVEDATA, 3DS) arrives as a zip and is unpacked into the core's folder, with
 //     every entry that would escape it refused in Rust.

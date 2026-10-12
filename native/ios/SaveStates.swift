@@ -211,7 +211,7 @@ struct SaveStateRecord: Identifiable, Codable, Hashable {
     /// "Slot 3, before the boss", or just "Slot 3".
     var displayName: String { label.isEmpty ? slotLabel : "\(slotLabel), \(label)" }
 
-    /// "snes9x 1.62.3", or whatever part of that was recorded.
+    /// "bsnes 115", or whatever part of that was recorded.
     var coreLine: String {
         switch (coreId, coreVersion) {
         case let (id?, version?): return "\(id) \(version)"
@@ -270,7 +270,7 @@ struct SaveStateRecord: Identifiable, Codable, Hashable {
 /// There is no length reason any more; see the note at the end of `refusal(for:)`.
 ///
 /// Every message names the actual values. "That state cannot be loaded" teaches the user nothing
-/// and makes the app look broken; "saved by snes9x, mgba is running now" tells them what happened
+/// and makes the app look broken; "saved by fceumm, mesen2 is running now" tells them what happened
 /// and what to do about it.
 enum SaveStateRefusal {
     /// The index has a record and the payload file is gone.

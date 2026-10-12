@@ -355,7 +355,7 @@ struct ShelfRow: View {
 /// THE FILENAME AND THE DETAIL LINE BOTH STAY ON THE ROW, and neither is decoration. The filename
 /// is what the core is handed, it is the only thing that tells two dumps of one game apart, and it
 /// is the string every diagnostic in this app names. The detail line ends with the core id from the
-/// one routing table, so a .sms that says anything but genesis_plus_gx is visible here, before a
+/// one routing table, so a .sms that says anything but gearsystem is visible here, before a
 /// tap, rather than as a game that boots on the wrong emulator.
 struct GameListRow: View {
     let entry: LibraryEntry

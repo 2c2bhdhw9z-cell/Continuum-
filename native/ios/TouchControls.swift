@@ -277,8 +277,8 @@ struct PadControl: Sendable {
 /// The systems this build can run, as the pad layout sees them.
 ///
 /// This is the dimension `CoreCatalog`'s routing table was missing. A core id cannot drive the
-/// layout on its own: mgba is GBA plus GB plus GBC and genesis_plus_gx is Mega Drive plus Master
-/// System plus Game Gear, and those want different button counts.
+/// layout on its own: mgba is GBA plus GB plus GBC and gearsystem is Master System plus Game Gear
+/// plus SG-1000, and those want different button counts.
 enum GameSystem: String, Sendable, CaseIterable {
     case nes
     case snes
@@ -338,7 +338,8 @@ enum GameSystem: String, Sendable, CaseIterable {
     case atari7800
     /// Atari 5200.
     case atari5200
-    /// Arcade romsets (FinalBurn Neo by default, MAME 2003-Plus as a choice).
+    /// Arcade romsets. No core in this version (owner, 12 October 2026): they list in the Library
+    /// and open to one line until Continuum has its own arcade core.
     case arcade
     /// Nintendo Pokemon Mini.
     case pokemini
@@ -346,9 +347,9 @@ enum GameSystem: String, Sendable, CaseIterable {
     case vb
     /// Sega Saturn (Yabause by default, Beetle Saturn as a choice).
     case saturn
-    /// Sega Mega-CD / Sega CD, on Genesis Plus GX.
+    /// Sega Mega-CD / Sega CD, on BlastEm.
     case segacd
-    /// Sega 32X, on PicoDrive.
+    /// Sega 32X, on BlastEm.
     case sega32x
     /// Sega Dreamcast, on Flycast.
     case dreamcast
@@ -558,12 +559,12 @@ enum GameSystem: String, Sendable, CaseIterable {
     /// EVERY FACE MAPPING HERE WAS READ FROM THE CORE'S OWN SOURCE, NOT FROM THE BUTTON'S NAME.
     /// Two of them are not what the name suggests, and both were corrected by doing this:
     ///
-    ///   - Mega Drive A, B, C are retro **Y, B, A**. From Genesis-Plus-GX
-    ///     `libretro/libretro.c`: the input descriptors declare JOYPAD_Y as "A", JOYPAD_B as "B"
-    ///     and JOYPAD_A as "C", and the `DEVICE_PAD3B` case (which falls through to
-    ///     `DEVICE_PAD2B`) sets INPUT_A from JOYPAD_Y, INPUT_B from JOYPAD_B and INPUT_C from
-    ///     JOYPAD_A. Labelling three buttons A, B, C and sending retro A, B, C would be wrong on
-    ///     two of the three.
+    ///   - Mega Drive A, B, C are retro **Y, B, A**, the layout the Mega Drive cores before the
+    ///     licence swap read (Y "A", B "B", A "C", L "X", X "Y", R "Z"). BlastEm reads its own
+    ///     (B "A", A "B", R "C", ...), and the engine translates for it right before each frame
+    ///     (crates/emulator-bridge/src/input/core_layout.rs), so these pads, controllers and saved
+    ///     remaps keep pressing the same Mega Drive buttons. Labelling three buttons A, B, C and
+    ///     sending retro A, B, C would be wrong on two of the three.
     ///   - Master System and Game Gear buttons 1 and 2 are retro **B and A**, from the same
     ///     two-button path, with Start doubling as the Game Gear's Start and the Master System's
     ///     Pause.
@@ -824,10 +825,9 @@ enum GameSystem: String, Sendable, CaseIterable {
                 + Self.systemPair(select: "PAUSE", start: "START")
 
         case .arcade:
-            // FBNeo's retro_input.cpp maps per game, so these labels are positions rather than
-            // a promise about any one game: six buttons in the arrangement its fighting-game maps
-            // use (Y X L over B A R), Select is Coin and Start is Start, which both FBNeo and
-            // MAME 2003-Plus use for every set.
+            // No arcade core in this version, so this pad is never drawn for a game; kept for the
+            // arcade core Continuum will have. Labels are positions: six buttons (Y X L over B A
+            // R), Select is Coin and Start is Start, the usual arcade arrangement.
             return Self.sixFace(top: [(.y, "3"), (.x, "4"), (.l, "5")],
                                 bottom: [(.b, "1"), (.a, "2"), (.r, "6")])
                 + Self.systemPair(select: "COIN", start: "START")
@@ -863,13 +863,15 @@ enum GameSystem: String, Sendable, CaseIterable {
                               shape: .pill, offset: CGPoint(x: 0, y: 0))]
 
         case .segacd:
-            // Genesis Plus GX, the same pad as the Mega Drive: retro Y, B, A are A, B, C.
+            // The same pad as the Mega Drive: retro Y, B, A are A, B, C (translated for BlastEm in
+            // the engine, input/core_layout.rs).
             return Self.threeFace(left: (.y, "A"), middle: (.b, "B"), right: (.a, "C"))
                 + [PadControl(slot: .start, label: "START", cluster: .system,
                               shape: .pill, offset: CGPoint(x: 0, y: 0))]
 
         case .sega32x:
-            // picodrive libretro.c: Y "A", B "B", A "C", L "X", X "Y", R "Z", Select "Mode".
+            // The Mega Drive six-button layout: Y "A", B "B", A "C", L "X", X "Y", R "Z", Select
+            // "Mode" (translated for BlastEm in the engine, input/core_layout.rs).
             return Self.sixFace(top: [(.l, "X"), (.x, "Y"), (.r, "Z")],
                                 bottom: [(.y, "A"), (.b, "B"), (.a, "C")])
                 + Self.systemPair(select: "MODE", start: "START")

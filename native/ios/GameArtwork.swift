@@ -101,7 +101,8 @@ enum SystemArtwork {
         case .lynx: return "Atari - Lynx"
         case .atari7800: return "Atari - 7800"
         case .atari5200: return "Atari - 5200"
-        // FinalBurn Neo is the default arcade core, and its set names are what this folder uses.
+        // libretro's own thumbnail folder for arcade sets. The string is that folder's name on
+        // their server, not a core this app ships.
         case .arcade: return "FBNeo - Arcade Games"
         case .pokemini: return "Nintendo - Pokemon Mini"
         case .vb: return "Nintendo - Virtual Boy"

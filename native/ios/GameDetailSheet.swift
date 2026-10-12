@@ -166,11 +166,13 @@ struct GameDetailSheet: View {
             )
             SettingsReadout(
                 label: "Runs on",
-                value: CoreCatalog.core(
-                    forPath: entry.path,
-                    ps1CoreId: host.ps1CoreChoice.coreId
-                )?.displayName
-                    ?? "no core is mapped to .\(entry.ext)"
+                value: CoreCatalog.system(for: entry).flatMap { CoreCatalog.unplayableSystems[$0] } != nil
+                    ? "Not playable right now"
+                    : (CoreCatalog.core(
+                        forPath: entry.path,
+                        ps1CoreId: host.ps1CoreChoice.coreId
+                    )?.displayName
+                        ?? "no core is mapped to .\(entry.ext)")
             )
             runsOnPicker
             if !entry.cueNotes.isEmpty {

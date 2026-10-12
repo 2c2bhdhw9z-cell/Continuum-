@@ -55,7 +55,9 @@ enum SystemNames {
     /// start. Read from `GameSystem` rather than listed, so a system that gains a core is offered
     /// the day its case lands and not after someone remembers this list.
     static func canRun(_ id: String) -> Bool {
-        GameSystem(rawValue: id) != nil
+        guard let system = GameSystem(rawValue: id) else { return false }
+        // Arcade lists in the Library but has no core in this version, so it is never offered.
+        return CoreCatalog.unplayableSystems[system] == nil
     }
 
     /// What the "which system?" picker offers: `ordered` minus the ids nothing here can run.
@@ -307,6 +309,12 @@ final class ImportCenter: ObservableObject {
             guard SystemChoices.choice(forFileName: name) == nil else { continue }
             let detection = DetectionCache.shared.detection(for: documents.appendingPathComponent(name))
             if detection.sure { continue }
+            // An arcade zip lists as Arcade with no question: there is no arcade core to choose
+            // between right now, and "Which system?" would only offer the wrong answers.
+            if detection.system == "arcade" {
+                SystemChoices.remember(detection.system, forFileName: name)
+                continue
+            }
             ask(SystemQuestion(fileName: name, reason: detection.reason, candidates: detection.candidates))
         }
     }

@@ -131,7 +131,7 @@ struct CoreSpec: Sendable {
     let sampleRate: UInt32
     let pixelFormat: UInt32
     /// Higher wins in the engine registry when two cores claim the same system (NES/FDS,
-    /// PlayStation, arcade and Saturn all have two). The app's launch path does not rely on it:
+    /// PlayStation and Saturn all have two). The app's launch path does not rely on it:
     /// it picks the core through `CoreCatalog.core(for:)`, from the route and the Settings choice.
     let priority: Int32
     /// BIOS filenames this core looks for in the system directory, most useful first. Empty
@@ -174,9 +174,10 @@ enum CoreCatalog {
         biosNames: []
     )
 
-    /// NES and Famicom Disk System on Mesen 2 (libretro target, prebuilt by the iOS buildbot,
-    /// pinned in scripts/fetch-buildbot-cores.sh). The DEFAULT NES core since build 153 because it is
-    /// far more accurate: AccuracyCoin.nes, run headless on the Linux build of the same core,
+    /// NES and Famicom Disk System on Mesen 2 (libretro/MesenCE, built here by scripts/build-core.sh
+    /// with Continuum's patch: the app keeps the in-game save, and achievements, cheats and RAM
+    /// search reach its memory). The DEFAULT NES core since build 153 because it is far more
+    /// accurate: AccuracyCoin.nes, run headless on the Linux build of the same core,
     /// passes 142 of 146 tests, against 86 of 146 for FCEUmm on the owner's phone. No JIT. The
     /// same dylib also carries other systems; only NES and FDS are routed to it. Its save states
     /// are its own: the app already refuses a state written by another core (FCEUmm).
@@ -195,18 +196,21 @@ enum CoreCatalog {
         biosNames: []
     )
 
-    /// SNES. The max geometry is the hi-res interlaced worst case (1024x478).
-    static let snes9x = CoreSpec(
-        coreId: "snes9x",
-        displayName: "Snes9x (SNES)",
+    /// SNES on bsnes (libretro/bsnes-libretro, built here with Continuum's patch: the app keeps
+    /// the battery save, and achievements and RAM search read work RAM). The max geometry is its
+    /// hi-res worst case. 48 kHz, XRGB8888. The chip files a few Japan-only games need (DSP-3,
+    /// ST011, ST018) can be installed; see `extraFirmwareNames`.
+    static let bsnes = CoreSpec(
+        coreId: "bsnes",
+        displayName: "bsnes (SNES)",
         systems: ["snes"],
-        library: "snes9x_libretro_ios.dylib",
+        library: "bsnes_libretro_ios.dylib",
         width: 256, height: 224,
-        maxWidth: 1024, maxHeight: 478,
-        aspectRatio: 1.3333333,
+        maxWidth: 2048, maxHeight: 1920,
+        aspectRatio: 4.0 / 3.0,
         fps: 60.0988,
-        sampleRate: 32040,
-        pixelFormat: 0,
+        sampleRate: 48000,
+        pixelFormat: 1,
         priority: 100,
         biosNames: []
     )
@@ -228,25 +232,40 @@ enum CoreCatalog {
         biosNames: []
     )
 
-    /// Mega Drive, Master System and Game Gear from one core. The base geometry is the Mega
-    /// Drive's 320x224; the declared max is 348x240 so a 256x192 Master System frame and a
-    /// 320x240 Mega Drive frame both fit inside the texture the declaration sizes, whichever
-    /// arrives first. The core picks which system to be from the content extension, which is
-    /// why the launch path hands the real filename through to `ContentHint::from_filename`.
-    static let genesisPlusGx = CoreSpec(
-        coreId: "genesis_plus_gx",
-        displayName: "Genesis Plus GX (Mega Drive, Master System, Game Gear)",
-        // "segacd" too: the Mega-CD runs on this core (bios_CD_U/E/J.bin required, see
-        // `requiredFirmware`). Its disc formats are shared, so it is reached through
-        // `systemResolver`.
-        systems: ["genesis", "sms", "gg", "sg1000", "segacd"],
-        library: "genesis_plus_gx_libretro_ios.dylib",
-        width: 320, height: 224,
-        maxWidth: 348, maxHeight: 240,
-        aspectRatio: 1.3333333,
+    /// Master System, Game Gear and SG-1000 on Gearsystem (built here with Continuum's patch,
+    /// which publishes the SG-1000's memory for achievements). The core picks the machine from the
+    /// content extension, which is why the launch hands the real filename through.
+    static let gearsystem = CoreSpec(
+        coreId: "gearsystem",
+        displayName: "Gearsystem (Master System, Game Gear, SG-1000)",
+        systems: ["sms", "gg", "sg1000"],
+        library: "gearsystem_libretro_ios.dylib",
+        width: 256, height: 192,
+        maxWidth: 320, maxHeight: 288,
+        aspectRatio: 4.0 / 3.0,
         fps: 59.9227,
         sampleRate: 44100,
         pixelFormat: 0,
+        priority: 100,
+        biosNames: []
+    )
+
+    /// Mega Drive, Sega CD and 32X on BlastEm (built here with Continuum's patch, which exposes
+    /// the Sega CD and 32X memory and the Sega CD's backup RAM). Interpreter only on iPhone. The
+    /// Sega CD needs a BIOS and the 32X two files (`requiredFirmware`); the discs are shared
+    /// formats, reached through `systemResolver`. Its buttons are translated in the engine
+    /// (crates/emulator-bridge/src/input/core_layout.rs), so the pads send what they always did.
+    static let blastem = CoreSpec(
+        coreId: "blastem",
+        displayName: "BlastEm (Mega Drive, Sega CD, 32X)",
+        systems: ["genesis", "segacd", "sega32x"],
+        library: "blastem_libretro_ios.dylib",
+        width: 320, height: 224,
+        maxWidth: 352, maxHeight: 480,
+        aspectRatio: 4.0 / 3.0,
+        fps: 59.9227,
+        sampleRate: 53267,
+        pixelFormat: 1,
         priority: 100,
         biosNames: []
     )
@@ -609,25 +628,6 @@ enum CoreCatalog {
         priority: 0, biosNames: ["5200.rom"]
     )
 
-    /// Arcade, the default core. Romsets are zips handed over AS the zip. Neo Geo sets also need
-    /// neogeo.zip, which the install action puts in system/fbneo/ where FBNeo looks.
-    static let fbneo = CoreSpec(
-        coreId: "fbneo", displayName: "FinalBurn Neo (Arcade)",
-        systems: ["arcade"], library: "fbneo_libretro_ios.dylib",
-        width: 384, height: 224, maxWidth: 1024, maxHeight: 1024,
-        aspectRatio: 4.0 / 3.0, fps: 60.0, sampleRate: 48000, pixelFormat: 0,
-        priority: 10, biosNames: ["neogeo.zip"]
-    )
-
-    /// Arcade, the second choice (Settings, Arcade core). MAME 0.78-era romsets.
-    static let mame2003Plus = CoreSpec(
-        coreId: "mame2003_plus", displayName: "MAME 2003-Plus (Arcade)",
-        systems: ["arcade"], library: "mame2003_plus_libretro_ios.dylib",
-        width: 320, height: 240, maxWidth: 1024, maxHeight: 1024,
-        aspectRatio: 4.0 / 3.0, fps: 60.0, sampleRate: 48000, pixelFormat: 0,
-        priority: 0, biosNames: []
-    )
-
     /// Pokemon Mini. bios.min is optional: PokeMini has a free BIOS built in.
     static let pokemini = CoreSpec(
         coreId: "pokemini", displayName: "PokeMini",
@@ -666,15 +666,6 @@ enum CoreCatalog {
         priority: 0, biosNames: ["sega_101.bin", "mpr-17933.bin"], biosRequired: true
     )
 
-    /// Sega 32X. PicoDrive's makefile turns its DRCs off on Apple, so no JIT. No BIOS.
-    static let picodrive = CoreSpec(
-        coreId: "picodrive", displayName: "PicoDrive (32X)",
-        systems: ["sega32x"], library: "picodrive_libretro_ios.dylib",
-        width: 320, height: 224, maxWidth: 320, maxHeight: 240,
-        aspectRatio: 4.0 / 3.0, fps: 59.92, sampleRate: 44100, pixelFormat: 0,
-        priority: 0, biosNames: []
-    )
-
     /// Dreamcast, built from source because the iOS buildbot does not carry it, interpreter only
     /// (TARGET_NO_REC). dc_boot.bin and dc_flash.bin are optional: Flycast has an HLE BIOS. The
     /// install action puts them in system/dc/, where Flycast looks. OPTIONAL in the .ipa.
@@ -710,22 +701,22 @@ enum CoreCatalog {
 
     /// Every core, in the order the HUD reports them.
     static let all: [CoreSpec] = [
-        mesen2, fceumm, snes9x, mgba, genesisPlusGx, pcsxReARMed, mednafenPsxHw, melonDS,
+        mesen2, fceumm, bsnes, mgba, gearsystem, blastem, pcsxReARMed, mednafenPsxHw, melonDS,
         mednafenPceFast, stella, parallelN64, azahar, ppsspp,
         mednafenWswan, mednafenNgp, mednafenPce, mednafenSupergrafx, puae, viceX64sc,
-        dosboxPure, prboom, virtualJaguar, handy, prosystem, a5200, fbneo, mame2003Plus,
-        pokemini, mednafenVb, yabause, mednafenSaturn, picodrive, flycast, continuumSymbian,
+        dosboxPure, prboom, virtualJaguar, handy, prosystem, a5200,
+        pokemini, mednafenVb, yabause, mednafenSaturn, flycast, continuumSymbian,
         continuumGb,
     ]
 
-    /// The twelve cores every build must carry, by id: IOS_CORES in scripts/build-core.sh, and the
+    /// The fourteen cores every build must carry, by id: IOS_CORES in scripts/build-core.sh, and the
     /// CI verify step fails a build that is missing any one of them. Everything else in `all` is
     /// optional (see "Wave two" above), so a build without one of those is still a good build, and
     /// startup must not call it broken. `declareAllCores` is what reads this.
     static let required: Set<String> = [
-        fceumm.coreId, snes9x.coreId, mgba.coreId, genesisPlusGx.coreId, pcsxReARMed.coreId,
-        mednafenPsxHw.coreId, melonDS.coreId, mednafenPceFast.coreId, stella.coreId,
-        parallelN64.coreId, azahar.coreId, ppsspp.coreId,
+        fceumm.coreId, mesen2.coreId, bsnes.coreId, mgba.coreId, gearsystem.coreId,
+        blastem.coreId, pcsxReARMed.coreId, mednafenPsxHw.coreId, melonDS.coreId,
+        mednafenPceFast.coreId, stella.coreId, parallelN64.coreId, azahar.coreId, ppsspp.coreId,
     ]
 
     static let byId: [String: CoreSpec] = Dictionary(
@@ -735,8 +726,7 @@ enum CoreCatalog {
     /// Where one file extension goes: which core runs it, and which system it is.
     ///
     /// The system is the part that was missing, and a core id could never have supplied it: mgba
-    /// is GBA *and* GB *and* GBC, and genesis_plus_gx is Mega Drive *and* Master System *and* Game
-    /// Gear. The on-screen pad has to know which of those it is drawing for, because a Game Gear
+    /// is GBA *and* GB *and* GBC, and gearsystem is Master System *and* Game Gear *and* SG-1000. The on-screen pad has to know which of those it is drawing for, because a Game Gear
     /// pad has two buttons and a SNES pad has nine.
     struct Route: Sendable {
         let coreId: String
@@ -751,24 +741,27 @@ enum CoreCatalog {
     /// a system is usually called. The first-wave cores declare these:
     ///
     ///     fceumm            fds nes unf unif
-    ///     snes9x            smc sfc swc fig bs st
+    ///     bsnes             smc sfc gb gbc bs
     ///     mgba              gba gb gbc sgb
-    ///     genesis_plus_gx   m3u mdx md smd gen bin cue iso chd bms sms gg sg 68k sgd
+    ///     gearsystem        sms gg sg mv bin rom
+    ///     blastem           md gen smd 32x sms gg sg sg1 sc sc3 sf7 col cue toc iso chd vgm
+    ///                       vgz flac wav bin rom gz
     ///     pcsx_rearmed      bin cue img mdf pbp toc cbn m3u chd iso exe
     ///     melonDS           nds ids dsi
     ///     ppsspp            elf iso cso prx pbp chd
     ///
-    /// Reading that list is what turned up TWO WHOLE SYSTEMS this app already had the emulator for
-    /// and was refusing to open: the Famicom Disk System through fceumm, and the SG-1000 through
-    /// genesis_plus_gx. Several alternative file formats for systems already supported were being
-    /// refused too, and `.smd` is the one that matters most in practice, because a Mega Drive ROM
-    /// downloaded today is as likely to be interleaved `.smd` as plain `.md`.
+    /// Reading those lists is what turned up whole systems this app already had the emulator for
+    /// and was refusing to open, like the Famicom Disk System through fceumm. Several alternative
+    /// file formats for systems already supported were being refused too, and `.smd` is the one
+    /// that matters most in practice, because a Mega Drive ROM downloaded today is as likely to be
+    /// interleaved `.smd` as plain `.md`. `.swc` and `.fig` are plain SNES dumps in a copier's
+    /// wrapper, which bsnes opens like any `.sfc`.
     ///
     /// Not every declared extension is here, and each omission is a decision:
     ///
     ///   - `bin` is claimed by two cores AND is the companion file of a `.cue`. It stays unrouted
     ///     so a PlayStation track cannot be tapped as though it were a game. See `Route`.
-    ///   - `cue`, `iso` and `chd` are claimed by genesis_plus_gx as well, for Sega CD. They are
+    ///   - `cue`, `iso` and `chd` are claimed by blastem as well, for Sega CD. They are
     ///     `sharedExtensions`, so the resolver looks inside first; the rows below are only the
     ///     fallback when it has no sure answer, and that fallback stays with the PlayStation,
     ///     which is far more common and needs no BIOS to boot.
@@ -792,12 +785,12 @@ enum CoreCatalog {
         // The Famicom's disk drive. A system in its own right; see `GameSystem.fds`. NEEDS the
         // Disk System BIOS, which is why `launch` checks for it by name and says so.
         "fds": Route(coreId: fceumm.coreId, system: .fds),
-        "sfc": Route(coreId: snes9x.coreId, system: .snes),
-        "smc": Route(coreId: snes9x.coreId, system: .snes),
+        "sfc": Route(coreId: bsnes.coreId, system: .snes),
+        "smc": Route(coreId: bsnes.coreId, system: .snes),
         // Super Wild Card and Pro Fighter dumps: plain SNES ROMs in a different wrapper, which
-        // snes9x reads directly.
-        "swc": Route(coreId: snes9x.coreId, system: .snes),
-        "fig": Route(coreId: snes9x.coreId, system: .snes),
+        // bsnes reads like any other SNES file.
+        "swc": Route(coreId: bsnes.coreId, system: .snes),
+        "fig": Route(coreId: bsnes.coreId, system: .snes),
         "gba": Route(coreId: mgba.coreId, system: .gba),
         "gb": Route(coreId: mgba.coreId, system: .gb),
         "gbc": Route(coreId: mgba.coreId, system: .gbc),
@@ -805,15 +798,17 @@ enum CoreCatalog {
         // a system of its own: the SNES border it would have drawn on real hardware is not
         // something mgba reproduces here.
         "sgb": Route(coreId: mgba.coreId, system: .gb),
-        "sms": Route(coreId: genesisPlusGx.coreId, system: .sms),
-        "gg": Route(coreId: genesisPlusGx.coreId, system: .gg),
-        // Sega's first console, on the core that already supported it.
-        "sg": Route(coreId: genesisPlusGx.coreId, system: .sg1000),
-        "md": Route(coreId: genesisPlusGx.coreId, system: .genesis),
-        "gen": Route(coreId: genesisPlusGx.coreId, system: .genesis),
+        "sms": Route(coreId: gearsystem.coreId, system: .sms),
+        "gg": Route(coreId: gearsystem.coreId, system: .gg),
+        // Sega's first console, on the same core. `.mv` is the Othello Multivision's name for the
+        // same cartridges, which Gearsystem declares too.
+        "sg": Route(coreId: gearsystem.coreId, system: .sg1000),
+        "mv": Route(coreId: gearsystem.coreId, system: .sg1000),
+        "md": Route(coreId: blastem.coreId, system: .genesis),
+        "gen": Route(coreId: blastem.coreId, system: .genesis),
         // Interleaved Mega Drive dumps, which are extremely common in older ROM sets and were
         // simply being turned away.
-        "smd": Route(coreId: genesisPlusGx.coreId, system: .genesis),
+        "smd": Route(coreId: blastem.coreId, system: .genesis),
         "cue": Route(coreId: pcsxReARMed.coreId, system: .ps1),
         "chd": Route(coreId: pcsxReARMed.coreId, system: .ps1),
         "pbp": Route(coreId: pcsxReARMed.coreId, system: .ps1),
@@ -862,7 +857,7 @@ enum CoreCatalog {
         // Every Manic EMU extension in docs/MANIC_PARITY.md that belongs to ONE system, plus the
         // extras for systems already here. Routed through `on(_:)`, so the core is the system's
         // default from `defaultCoreBySystem` rather than restated, and a Settings core choice
-        // (arcade, Saturn) applies to every extension of that system at once.
+        // (Saturn, for one) applies to every extension of that system at once.
         //
         // Extensions SHARED by several systems are not here; they are `sharedExtensions`, decided
         // by `systemResolver` first and only then by the fallback rows above (cue, chd, iso, pbp,
@@ -872,7 +867,7 @@ enum CoreCatalog {
         "fc": on(.nes),
         "snes": on(.snes),
         "ds": on(.ds),
-        // Master System BIOS-style images Genesis Plus GX declares as `bms`.
+        // Master System BIOS-style images, which Gearsystem opens like any Master System file.
         "bms": on(.sms),
         // 3DS installables. Azahar declares both. A CIA must be decrypted like any 3DS file.
         "app": on(.n3ds),
@@ -1014,10 +1009,10 @@ enum CoreCatalog {
     /// resolver answer is turned into a core through it.
     static let defaultCoreBySystem: [GameSystem: String] = [
         .nes: mesen2.coreId, .fds: fceumm.coreId,
-        .snes: snes9x.coreId,
+        .snes: bsnes.coreId,
         .gb: mgba.coreId, .gbc: mgba.coreId, .gba: mgba.coreId,
-        .sms: genesisPlusGx.coreId, .gg: genesisPlusGx.coreId, .genesis: genesisPlusGx.coreId,
-        .sg1000: genesisPlusGx.coreId, .segacd: genesisPlusGx.coreId,
+        .sms: gearsystem.coreId, .gg: gearsystem.coreId, .sg1000: gearsystem.coreId,
+        .genesis: blastem.coreId, .segacd: blastem.coreId, .sega32x: blastem.coreId,
         .ps1: pcsxReARMed.coreId,
         .ds: melonDS.coreId,
         .tg16: mednafenPceFast.coreId,
@@ -1037,11 +1032,13 @@ enum CoreCatalog {
         .lynx: handy.coreId,
         .atari7800: prosystem.coreId,
         .atari5200: a5200.coreId,
-        .arcade: fbneo.coreId,
+        // No core: arcade is out until Continuum has its own arcade core. Kept, with an empty id,
+        // so arcade zips still route and list as Arcade; `unplayableSystems` says why they will
+        // not open, and nothing is deleted.
+        .arcade: "",
         .pokemini: pokemini.coreId,
         .vb: mednafenVb.coreId,
         .saturn: yabause.coreId,
-        .sega32x: picodrive.coreId,
         .dreamcast: flycast.coreId,
         .symbian: continuumSymbian.coreId,
         // Player ids, not core ids (see `player(forPath:)`).
@@ -1055,7 +1052,6 @@ enum CoreCatalog {
         .ps1: [pcsxReARMed.coreId, mednafenPsxHw.coreId],
         .nes: [mesen2.coreId, fceumm.coreId],
         .fds: [fceumm.coreId, mesen2.coreId],
-        .arcade: [fbneo.coreId, mame2003Plus.coreId],
         .saturn: [yabause.coreId, mednafenSaturn.coreId],
         .gb: [mgba.coreId, continuumGb.coreId],
         .gbc: [mgba.coreId, continuumGb.coreId],
@@ -1070,8 +1066,15 @@ enum CoreCatalog {
         for spec in all where spec.systems.contains(system.rawValue) && !ids.contains(spec.coreId) {
             ids.append(spec.coreId)
         }
-        return ids
+        // A system with no core (arcade) has nothing to offer, not an empty choice.
+        return ids.filter { !$0.isEmpty }
     }
+
+    /// Systems that list in the Library but cannot be played in this version, and the one line a
+    /// player sees when they open one. Their games stay in the Library and are never deleted.
+    static let unplayableSystems: [GameSystem: String] = [
+        .arcade: "Arcade games aren\u{2019}t playable right now. We\u{2019}re building our own arcade emulator.",
+    ]
 
     /// The systems with more than one core, in GameSystem order.
     static var switchableSystems: [GameSystem] {
@@ -1198,12 +1201,19 @@ enum CoreCatalog {
     /// The copy-across reads BOTH lists for that reason. Anything a system might need has to be
     /// here or the file can never reach the directory the cores actually read.
     static let extraFirmwareNames: [String] = {
-        // disksys.rom, and every name a system-level requirement lists (the Mega-CD BIOSes and
-        // prboom.wad are not declared on a core for the same reason disksys.rom is not).
+        // disksys.rom, and every name a system-level requirement lists (the Mega-CD BIOSes, the 32X
+        // files and prboom.wad are not declared on a core for the same reason disksys.rom is not).
         var names = ["disksys.rom"]
         for system in GameSystem.allCases {
-            names += requiredFirmware[system]?.names ?? []
+            names += (requiredFirmware[system] ?? []).flatMap { $0.names }
         }
+        // BlastEm's optional 32X file (the 68000 side; it starts without it).
+        names.append("32X_G_BIOS.bin")
+        // The chip files bsnes opens from the system folder for three Japan-only games: SD Gundam
+        // GX (DSP-3), Morita Shougi (ST011) and Morita Shougi 2 (ST018). Named by its program.cpp
+        // as `<identifier>.program.rom` and `<identifier>.data.rom`. Installable, not a launch gate.
+        names += ["dsp3.program.rom", "dsp3.data.rom", "st011.program.rom", "st011.data.rom",
+                  "st018.program.rom", "st018.data.rom"]
         return names
     }()
 
@@ -1268,11 +1278,11 @@ enum CoreCatalog {
             return spec
         }
         guard let spec = byId[route.coreId] else { return nil }
-        // The system's DEFAULT core is a download from the libretro buildbot for some systems
-        // (Mesen for the NES), and a build ships without one that did not arrive. Then the
-        // system's next core that IS in this build runs it (FCEUmm for the NES, the fallback the
-        // core notes promise) instead of every game stopping on "... is missing from the bundle"
-        // (review finding IOS-10). A core the player picked in Settings is never swapped.
+        // The system's DEFAULT core can be a download from the libretro buildbot (Yabause for the
+        // Saturn), and a build ships without one that did not arrive. Then the system's next core
+        // that IS in this build runs it (the fallback the core notes promise) instead of every
+        // game stopping on "... is missing from the bundle" (review finding IOS-10). A core the
+        // player picked in Settings is never swapped.
         if !bundledLibraries.isEmpty, !bundledLibraries.contains(spec.library),
            let fallback = coreChoices[route.system]?.lazy
                .compactMap({ byId[$0] })
@@ -1357,7 +1367,7 @@ enum CoreCatalog {
 
     /// Whether a file in Documents is a Library row: something routes it, and it is not a
     /// firmware or support file a core reads from the system folder (disksys.rom is a .rom,
-    /// bios.min is a .min, prboom.wad is a .wad, neogeo.zip is a .zip, and none is a game).
+    /// bios.min is a .min, prboom.wad is a .wad, and none is a game).
     static func isLaunchable(path: String) -> Bool {
         let name = (path as NSString).lastPathComponent.lowercased()
         if firmwareNameSet.contains(name) { return false }
@@ -1406,6 +1416,9 @@ enum CoreCatalog {
     /// The same label for a file, resolver first.
     static func routeLabel(forPath path: String, ps1CoreId: String? = nil) -> String {
         if let player = player(forPath: path) { return player.engineId }
+        if let system = system(forPath: path), unplayableSystems[system] != nil {
+            return "not playable yet"
+        }
         return core(forPath: path, ps1CoreId: ps1CoreId)?.coreId ?? "no core"
     }
 
@@ -1420,24 +1433,32 @@ enum CoreCatalog {
         let what: String
     }
 
-    /// Per SYSTEM, like the Disk System's check always was, because a core like Genesis Plus GX
-    /// runs cartridges that need nothing and the Mega-CD that cannot start without a BIOS.
-    /// Systems whose core falls back to a built-in replacement are deliberately absent.
-    /// Names read from each core's own source: genesis_plus_gx's libretro.c (bios_CD_U/E/J.bin),
+    /// Per SYSTEM, like the Disk System's check always was, because a core like BlastEm runs
+    /// cartridges that need nothing and the Mega-CD and 32X that cannot start without their files.
+    /// Systems whose core falls back to a built-in replacement are deliberately absent. Every need
+    /// in a system's list must be met (the 32X needs two files, each with one name).
+    /// Names read from each core's own source: BlastEm's libblastem.c (bios_CD_U/E/J.bin, and
+    /// 32X_M_BIOS.bin with 32X_S_BIOS.bin; its optional 32X_G_BIOS.bin is not a gate),
     /// beetle-pce's System Card option (syscard3.pce default), beetle-saturn's mednafen/ss/ss.c
     /// (sega_101.bin Japan, mpr-17933.bin elsewhere), and prboom's I_FindFile (system/prboom,
     /// then system).
-    static let requiredFirmware: [GameSystem: FirmwareNeed] = [
-        .fds: FirmwareNeed(names: ["disksys.rom"], subfolder: nil,
-                           what: "Nintendo's own Disk System startup file"),
-        .segacd: FirmwareNeed(names: ["bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin"],
-                              subfolder: nil,
-                              what: "a Mega-CD / Sega CD BIOS (U is USA, E is Europe, J is Japan)"),
-        .pcecd: FirmwareNeed(names: ["syscard3.pce", "syscard2.pce", "syscard1.pce",
-                                     "gexpress.pce"],
-                             subfolder: nil, what: "the PC Engine CD System Card 3"),
-        .doom: FirmwareNeed(names: ["prboom.wad"], subfolder: "prboom",
-                            what: "PrBoom's own data file, which the app normally installs itself"),
+    static let requiredFirmware: [GameSystem: [FirmwareNeed]] = [
+        .fds: [FirmwareNeed(names: ["disksys.rom"], subfolder: nil,
+                            what: "Nintendo's own Disk System startup file")],
+        .segacd: [FirmwareNeed(names: ["bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin"],
+                               subfolder: nil,
+                               what: "a Mega-CD / Sega CD BIOS (U is USA, E is Europe, J is Japan)")],
+        .sega32x: [
+            FirmwareNeed(names: ["32X_M_BIOS.bin"], subfolder: nil,
+                         what: "the 32X's main startup file"),
+            FirmwareNeed(names: ["32X_S_BIOS.bin"], subfolder: nil,
+                         what: "the 32X's second startup file"),
+        ],
+        .pcecd: [FirmwareNeed(names: ["syscard3.pce", "syscard2.pce", "syscard1.pce",
+                                      "gexpress.pce"],
+                              subfolder: nil, what: "the PC Engine CD System Card 3")],
+        .doom: [FirmwareNeed(names: ["prboom.wad"], subfolder: "prboom",
+                             what: "PrBoom's own data file, which the app normally installs itself")],
     ]
 
     /// Firmware the chosen CORE needs regardless of system: Beetle Saturn has no HLE BIOS.
@@ -1451,7 +1472,6 @@ enum CoreCatalog {
     /// Where the install action ALSO puts a firmware file, because that core looks in a
     /// subfolder of the system directory rather than at its top.
     static let firmwareSubfolders: [String: String] = [
-        "neogeo.zip": "fbneo",
         "dc_boot.bin": "dc",
         "dc_flash.bin": "dc",
         "prboom.wad": "prboom",
@@ -1986,12 +2006,13 @@ final class EngineHost: ObservableObject {
         }
         var rows: [(label: String, value: String)] = []
         for system in GameSystem.allCases {
-            guard let need = CoreCatalog.requiredFirmware[system] else { continue }
-            let found = present(need.names, need.subfolder)
-            rows.append((label: system.displayName,
-                         value: found.isEmpty
-                            ? "MISSING, will not start: needs \(need.names.joined(separator: " or "))"
-                            : "found \(found.joined(separator: ", "))"))
+            for need in CoreCatalog.requiredFirmware[system] ?? [] {
+                let found = present(need.names, need.subfolder)
+                rows.append((label: system.displayName,
+                             value: found.isEmpty
+                                ? "MISSING, will not start: needs \(need.names.joined(separator: " or "))"
+                                : "found \(found.joined(separator: ", "))"))
+            }
         }
         for spec in CoreCatalog.all where !spec.biosNames.isEmpty {
             let found = spec.biosNames.filter { name in
@@ -3478,7 +3499,7 @@ final class EngineHost: ObservableObject {
             guard let resolved else { continue }
 
             // The top of the system folder always, and ALSO the subfolder its core reads when it
-            // has one (neogeo.zip in fbneo/, the Dreamcast files in dc/, prboom.wad in prboom/).
+            // has one (the Dreamcast files in dc/, prboom.wad in prboom/).
             // cBoy's files go only into cboy/ (see `cboyFirmwareNames`).
             let cboyOnly = CoreCatalog.cboyFirmwareNames.contains { $0.lowercased() == name.lowercased() }
             var destinations = cboyOnly
@@ -3786,13 +3807,13 @@ final class EngineHost: ObservableObject {
     /// ask for and what that file is. Nil when nothing is missing.
     ///
     /// Two tables, both in `CoreCatalog`: `requiredFirmware` per SYSTEM (Disk System, Mega-CD,
-    /// PC Engine CD, DOOM) and `requiredCoreFirmware` per CORE (Beetle Saturn, which has no HLE
+    /// 32X, PC Engine CD, DOOM; every need listed must be met) and `requiredCoreFirmware` per CORE (Beetle Saturn, which has no HLE
     /// BIOS while Yabause does). Beetle PSX HW keeps its own check below.
     func missingFirmware(for entry: LibraryEntry) -> (name: String, what: String)? {
         let system = CoreCatalog.system(for: entry)
         var needs: [CoreCatalog.FirmwareNeed] = []
-        if let system, let need = CoreCatalog.requiredFirmware[system] {
-            needs.append(need)
+        if let system {
+            needs += CoreCatalog.requiredFirmware[system] ?? []
         }
         if let spec = CoreCatalog.core(forPath: entry.path, ps1CoreId: ps1CoreChoice.coreId),
            let need = CoreCatalog.requiredCoreFirmware[spec.coreId] {
@@ -4476,9 +4497,9 @@ final class EngineHost: ObservableObject {
     /// core opens the file, and for a CD game each adjacent .bin the .cue references, with a
     /// plain fopen on files this app owns, and the OS has no grant to refuse. Every core is
     /// handed empty ROM bytes and the real absolute path, which is what the CD cores need
-    /// (`need_fullpath`) and what Genesis Plus GX needs for a different reason: the Rust side
-    /// splits the real extension into a `ContentHint`, and that is the difference between a
-    /// Master System cart booting as a Master System and as a Mega Drive. So `entry.path` is
+    /// (`need_fullpath`) and what a multi-system core needs for a different reason: the Rust side
+    /// splits the real extension into a `ContentHint`, and that is what tells Gearsystem an SG-1000
+    /// cart from a Master System one, and BlastEm a Mega Drive cart from a 32X one. So `entry.path` is
     /// exactly what the engine wants, and the Rust launch signature did not change to ship
     /// four more cores.
     ///
@@ -4510,6 +4531,15 @@ final class EngineHost: ObservableObject {
         // away from them.
         if let player = CoreCatalog.player(forPath: entry.path) {
             launchWebPlayer(entry: entry, kind: player)
+            return
+        }
+
+        // A system this version cannot play (arcade, until Continuum has its own arcade core):
+        // one plain line, before anything is torn down, and the game stays in the Library.
+        if let system = CoreCatalog.system(for: entry),
+           let line = CoreCatalog.unplayableSystems[system] {
+            status = line
+            FeedbackCenter.step("launch refused: \(entry.name) [\(system.rawValue)] has no core in this version")
             return
         }
 
@@ -4562,6 +4592,9 @@ final class EngineHost: ObservableObject {
                 status = "\(entry.name) needs \(missing.name), which is Nintendo's own startup "
                     + "file and cannot ship with the app. Put it in the Continuum folder in Files, "
                     + "then use Settings, Install a BIOS from the Continuum folder"
+            } else if launchSystem == .sega32x {
+                status = "32X games need two files from a real 32X: 32X_M_BIOS.bin and "
+                    + "32X_S_BIOS.bin. Put them in the Continuum folder, then Settings, BIOS."
             } else if launchSystem == .doom {
                 status = "\(entry.name) needs \(missing.name), \(missing.what). It was not found "
                     + "in the system folder. Put prboom.wad in the Continuum folder in Files, then "
@@ -4581,7 +4614,7 @@ final class EngineHost: ObservableObject {
             return
         }
         // Name the core in the breadcrumb, so a routing bug is one glance rather than a
-        // deduction: a .sms that says genesis_plus_gx is right, and one that says anything
+        // deduction: a .sms that says gearsystem is right, and one that says anything
         // else is the bug.
         status = "\(opening) on \(spec.coreId)"
 
@@ -4644,12 +4677,20 @@ final class EngineHost: ObservableObject {
         // system and core as the last lines of the log the next crash report sends. The engine
         // adds each step (core load, retro_init, retro_load_game, HW context, first frame).
         feedbackLaunchStep(line: "game \(entry.path) · system \(launchingSystem.map { "\($0)" } ?? "unknown") · core \(spec.coreId)")
+        // BlastEm reads no playlists, so a Sega CD .m3u opens its first disc (the playlist's first
+        // line, beside it). Every other core gets the file the player tapped.
+        var launchPath = entry.path
+        if spec.coreId == CoreCatalog.blastem.coreId, entry.ext.lowercased() == "m3u",
+           let first = importReferencedFiles(path: entry.path).first {
+            let folder = (entry.path as NSString).deletingLastPathComponent
+            launchPath = (folder as NSString).appendingPathComponent(first)
+        }
         do {
             try engine.launch(
                 coreId: spec.coreId,
                 contentId: entry.name,
                 rom: Data(),
-                filename: entry.path
+                filename: launchPath
             )
             running = true
             // Set HERE, on the success path only, next to `running`. A tap that failed anywhere
