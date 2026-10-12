@@ -86,9 +86,14 @@ These come straight from the owner. They are not suggestions.
   project writes, starts the game straight away, like mGBA, SameBoy and Gearboy do. A boot
   picture only plays when the user's own real boot file is there. No logo, no name flash, no
   "our own boot animation". Remove any code, option text or note that says otherwise.
-- **cBoy's pixel-by-pixel test pictures (Mealybug) are parked.** Earlier sessions burned through
-  the owner's usage guessing those test pixels one at a time. Do not work on them, and do not
-  turn the experimental pixel-by-pixel drawer back on as the default, unless the owner asks.
+- **cBoy's pixel-by-pixel drawer stays, as a cBoy core option** (owner, 12 October 2026: every
+  extra setting cBoy offers is wanted, because Continuum is meant to be the go-to emulator). The
+  default is the proven per-line drawer; the pixel-by-pixel one is the "Exact (experimental)"
+  choice. The owner would love it finished one day, but it is parked until the owner says go.
+  Earlier sessions burned through the owner's usage guessing its test pictures (Mealybug) one
+  pixel at a time. When it is picked up again, never guess pixel by pixel: follow how a proven
+  accurate emulator (SameBoy) draws, and compare against it. Do not make it the default until
+  the owner has seen it work on the phone.
 - **When the owner puts a ★ on something, save it permanently:** in this file if it is about
   Continuum, or as a Kiro learning if it applies everywhere. Kiro may also save general learnings
   on its own whenever something is worth remembering.
