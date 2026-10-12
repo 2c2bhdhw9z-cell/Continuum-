@@ -16,7 +16,7 @@ edit `docs/option-sources/mapping.tsv` and rerun.
 | tgbdual | https://github.com/libretro/tgbdual-libretro | `0392c9c469e653205e471114c7949c07c83bfce9` | 5 |
 | vbam | https://github.com/libretro/vbam-libretro | `115defb3a318258ab84746d45258a1aec19d0b4b` | 32 |
 
-Extracted keys: **132**. Covered by cBoy: 101. Gaps: 24. Deliberately not done: 4. Not applicable: 3. cBoy options: **60**.
+Extracted keys: **132**. Covered by cBoy: 102. Gaps: 23. Deliberately not done: 4. Not applicable: 3. cBoy options: **62**.
 
 ## Libretro core options, key by key
 
@@ -26,7 +26,7 @@ Extracted keys: **132**. Covered by cBoy: 101. Gaps: 24. Deliberately not done: 
 | mgba | `mgba_audio_low_pass_filter` | yes | `cboy_lowpass` |  |
 | mgba | `mgba_audio_low_pass_range` | yes | `cboy_lowpass` | strength levels are the option's values |
 | mgba | `mgba_color_correction` | yes | `cboy_gbc_color`, `cboy_gba_color` |  |
-| mgba | `mgba_force_gbp` | gap |  | Game Boy Player rumble: in progress |
+| mgba | `mgba_force_gbp` | yes | `cboy_gbp` | Game Boy Player rumble for Advance games |
 | mgba | `mgba_frameskip` | yes | `cboy_frameskip` |  |
 | mgba | `mgba_frameskip_interval` | yes | `cboy_frameskip_interval` |  |
 | mgba | `mgba_frameskip_threshold` | yes | `cboy_frameskip_threshold` |  |
@@ -157,7 +157,7 @@ Extracted keys: **132**. Covered by cBoy: 101. Gaps: 24. Deliberately not done: 
 
 ## cBoy options no libretro core above has
 
-`cboy_contrast`, `cboy_gba_save_type`, `cboy_gyro_source`, `cboy_layer_bg`, `cboy_layer_window`, `cboy_rtc_offset`, `cboy_run_ahead`, `cboy_sprite_limit`, `cboy_stick_dpad`, `cboy_tilt_source`, `cboy_volume`
+`cboy_contrast`, `cboy_gba_save_type`, `cboy_gyro_source`, `cboy_layer_bg`, `cboy_layer_window`, `cboy_renderer`, `cboy_rtc_offset`, `cboy_run_ahead`, `cboy_sprite_limit`, `cboy_stick_dpad`, `cboy_tilt_source`, `cboy_volume`
 
 ## Standalone emulators
 
@@ -266,12 +266,12 @@ Emulicious is closed source and publishes no settings list (https://emulicious.n
 | mgba | `useCgbColors` | yes | `cboy_dmg_colorize` | own schemes, not Nintendo's table | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
 | mgba | `volume` | yes | `cboy_volume` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
 | mgba | `gba.bios` | yes | `cboy_gba_bios` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
-| mgba | `gba.forceGbp` | gap |  | Game Boy Player rumble: in progress | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
+| mgba | `gba.forceGbp` | yes | `cboy_gbp` | Game Boy Player rumble for Advance games | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
 | mgba | `idleOptimization` | yes | `cboy_idle_skip` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
 | mgba | `threadedVideo` | n/a |  | desktop threading | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
 | mgba | `threadedVideo.flushScanline` | n/a |  |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
 | mgba | `vbaBugCompat` | gap |  | VBA bug compatibility for old ROM hacks | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
-| mgba | `camera` | gap |  | Game Boy Camera | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/3ds/main.c |
+| mgba | `camera` | gap |  | which camera feeds the Game Boy Camera. cBoy runs Camera cartridges now, but the phone's camera isn't connected to them yet | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/3ds/main.c |
 | mgba | `darkenMode` | yes | `cboy_dark_filter` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/3ds/main.c |
 | mgba | `logLevel` | app |  |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/example/client-server/server.c |
 | mgba | `filtering` | app |  |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/psp2/psp2-context.c |
@@ -349,11 +349,11 @@ Emulicious is closed source and publishes no settings list (https://emulicious.n
 | bgb | `Rewind enabled` | app |  |  | https://bgb.bircd.org/manual.html |
 | bgb | `detect GB pocket / SGB2` | gap |  | see MGB auto | https://bgb.bircd.org/manual.html |
 | bgb | `detect GBA` | gap |  | auto-pick Advance for games that check for it | https://bgb.bircd.org/manual.html |
-| bgb | `GB player` | gap |  | Game Boy Player: in progress | https://bgb.bircd.org/manual.html |
+| bgb | `GB player` | gap |  | the Game Boy Player's fade and pause on a reset (cBoy's Game Boy Player option is the rumble only) | https://bgb.bircd.org/manual.html |
 | bgb | `a Gameboy Player SGB faster as in reality` | gap |  | faster-than-real SGB packet transfers | https://bgb.bircd.org/manual.html |
 | bgb | `ding sound being sharp fast SGB transfers` | gap |  | same setting group | https://bgb.bircd.org/manual.html |
 | bgb | `Waitloop detection` | gap |  | idle skip is Advance-only in cBoy | https://bgb.bircd.org/manual.html |
 | bgb | `boot roms` | yes | `cboy_boot_rom` |  | https://bgb.bircd.org/manual.html |
 
-Standalone settings: **181**. In cBoy: 68. App: 79. Gaps: 15. Not applicable: 19.
+Standalone settings: **181**. In cBoy: 69. App: 79. Gaps: 14. Not applicable: 19.
 

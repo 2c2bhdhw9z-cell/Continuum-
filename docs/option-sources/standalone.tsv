@@ -92,12 +92,12 @@ std_mgba	sgb.model	yes	cboy_gb_model
 std_mgba	useCgbColors	yes	cboy_dmg_colorize	own schemes, not Nintendo's table
 std_mgba	volume	yes	cboy_volume	
 std_mgba	gba.bios	yes	cboy_gba_bios	
-std_mgba	gba.forceGbp	gap		Game Boy Player rumble: in progress
+std_mgba	gba.forceGbp	yes	cboy_gbp	Game Boy Player rumble for Advance games
 std_mgba	idleOptimization	yes	cboy_idle_skip	
 std_mgba	threadedVideo	n/a		desktop threading
 std_mgba	threadedVideo.flushScanline	n/a		
 std_mgba	vbaBugCompat	gap		VBA bug compatibility for old ROM hacks
-std_mgba	camera	gap		Game Boy Camera
+std_mgba	camera	gap		which camera feeds the Game Boy Camera. cBoy runs Camera cartridges now, but the phone's camera isn't connected to them yet
 std_mgba	darkenMode	yes	cboy_dark_filter	
 std_mgba	logLevel	app		
 std_mgba	filtering	app		
@@ -175,7 +175,7 @@ std_bgb	prefer GBC	yes	cboy_gb_model
 std_bgb	Rewind enabled	app		
 std_bgb	detect GB pocket / SGB2	gap		see MGB auto
 std_bgb	detect GBA	gap		auto-pick Advance for games that check for it
-std_bgb	GB player	gap		Game Boy Player: in progress
+std_bgb	GB player	gap		the Game Boy Player's fade and pause on a reset (cBoy's Game Boy Player option is the rumble only)
 std_bgb	a Gameboy Player SGB faster as in reality	gap		faster-than-real SGB packet transfers
 std_bgb	ding sound being sharp fast SGB transfers	gap		same setting group
 std_bgb	Waitloop detection	gap		idle skip is Advance-only in cBoy

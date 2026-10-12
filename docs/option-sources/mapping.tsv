@@ -3,7 +3,7 @@ mgba	mgba_allow_opposing_directions	yes	cboy_opposing
 mgba	mgba_audio_low_pass_filter	yes	cboy_lowpass
 mgba	mgba_audio_low_pass_range	yes	cboy_lowpass	strength levels are the option's values
 mgba	mgba_color_correction	yes	cboy_gbc_color,cboy_gba_color
-mgba	mgba_force_gbp	gap		Game Boy Player rumble: in progress
+mgba	mgba_force_gbp	yes	cboy_gbp	Game Boy Player rumble for Advance games
 mgba	mgba_frameskip	yes	cboy_frameskip
 mgba	mgba_frameskip_interval	yes	cboy_frameskip_interval
 mgba	mgba_frameskip_threshold	yes	cboy_frameskip_threshold
