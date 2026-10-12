@@ -5,8 +5,15 @@ licence swap. Steps 1 to 4 cover the cleanup, 5 to 11 the new emulators, and 12 
 
 ## This install only
 
-1. **Settings** → **Send feedback**, type anything → **Send**. ✅ It's addressed to
-   **ContinuumDev2c2b@gmail.com** (in Mail, or at the top of the share text).
+1. **PASSED on build 181 (owner, 12 October).** **Settings** → **Send feedback**, type
+   anything → **Send**. ✅ It's addressed to **ContinuumDev2c2b@gmail.com** (in Mail, or at the
+   top of the share text).
+
+**Bug the owner found on build 181 (12 October; it was there long before 181):** plain text
+files ending in `.md` (README, LICENSE, notes) were imported as Mega Drive games and listed in
+All Games, because `.md` is also a Mega Drive file type and the app never looked inside the
+file. Being fixed for the next install. It also clears out the ones already in the library, so
+the owner doesn't delete them by hand.
 2. **Settings** → **Core for Game Boy games** → **cBoy**, and **Core for Game Boy Color games** →
    **cBoy**. Open any Game Boy or Color game (the full Pokémon Yellow is fine). Don't change any of
    cBoy's settings first. ✅ It plays normally.
