@@ -1,0 +1,356 @@
+diff --git a/Core/NES/BaseMapper.cpp b/Core/NES/BaseMapper.cpp
+index 0eb34f9d..cecfc82e 100644
+--- a/Core/NES/BaseMapper.cpp
++++ b/Core/NES/BaseMapper.cpp
+@@ -470,7 +470,8 @@ bool BaseMapper::HasBattery()
+ 
+ void BaseMapper::LoadBattery()
+ {
+-	if(HasBattery() && _saveRamSize > 0) {
++	//Continuum: the frontend restores this RAM itself when it owns the battery save.
++	if(HasBattery() && _saveRamSize > 0 && !BatteryManager::FrontendOwnsSaveRam()) {
+ 		_emu->GetBatteryManager()->LoadBattery(".sav", _saveRam, _saveRamSize);
+ 	}
+ 
+@@ -481,7 +482,7 @@ void BaseMapper::LoadBattery()
+ 
+ void BaseMapper::SaveBattery()
+ {
+-	if(HasBattery() && _saveRamSize > 0) {
++	if(HasBattery() && _saveRamSize > 0 && !BatteryManager::FrontendOwnsSaveRam()) {
+ 		_emu->GetBatteryManager()->SaveBattery(".sav", _saveRam, _saveRamSize);
+ 	}
+ 
+diff --git a/Core/Shared/BatteryManager.h b/Core/Shared/BatteryManager.h
+index 570d0801..d3d5a743 100644
+--- a/Core/Shared/BatteryManager.h
++++ b/Core/Shared/BatteryManager.h
+@@ -25,6 +25,12 @@ private:
+ 	string GetBasePath(string& extension);
+ 
+ public:
++	// Continuum: set by the libretro glue when the frontend keeps the cartridge's battery RAM
++	// itself (through RETRO_MEMORY_SAVE_RAM), so the NES mapper skips its own .sav for it.
++	static bool& FrontendOwnsSaveRamFlag() { static bool owns = false; return owns; }
++	static void SetFrontendOwnsSaveRam(bool owns) { FrontendOwnsSaveRamFlag() = owns; }
++	static bool FrontendOwnsSaveRam() { return FrontendOwnsSaveRamFlag(); }
++
+ 	void Initialize(string romName, bool setBatteryFlag = false);
+ 
+ 	bool HasBattery() { return _hasBattery; }
+diff --git a/Libretro/libretro.cpp b/Libretro/libretro.cpp
+index 30a2f497..c1f30811 100644
+--- a/Libretro/libretro.cpp
++++ b/Libretro/libretro.cpp
+@@ -40,6 +40,7 @@
+ #include "../Core/NES/BaseMapper.h"
+ #include "../Core/Shared/EmuSettings.h"
+ #include "../Core/Shared/CheatManager.h"
++#include "../Core/Shared/BatteryManager.h"
+ #include "../Core/NES/HdPacks/HdData.h"
+ #include "../Core/Shared/SaveStateManager.h"
+ #include "../Core/Debugger/DebugTypes.h"
+@@ -566,6 +567,10 @@ uint32_t wavebeamPalette[0x40] { 0xFF6B6B6B, 0xFF001B88, 0xFF21009A, 0xFF40008C,
+ 		fprintf(stderr, "[libretro] retro_init: logCallback=%p\n", (void*)logCallback);
+ 		fflush(stderr);
+ 
++		// Continuum: the frontend keeps the cartridge's battery RAM (SAVE_RAM), so Mesen does not
++		// write or read a .sav of its own for it.
++		BatteryManager::SetFrontendOwnsSaveRam(true);
++
+ 		// Create the emulator and initialize its subsystems
+ 		_emu.reset(new Emulator());
+ 		_emu->Initialize(); // sets up settings, video/audio subsystems, etc.
+@@ -1731,103 +1736,90 @@ void libretro_probe_inputs(const char* tag)
+ 		}
+ 	}
+ 
+-	RETRO_API void retro_cheat_reset()
++	// Continuum: NES memory, cheats and battery for the frontend.
++	// Cheats: every enabled code the frontend sent, by index, handed to Mesen's CheatManager as one
++	// list each time one changes. A code is one or more parts joined by '+': a 6- or 8-letter Game
++	// Genie code, an 8-digit Pro Action Rocky code, or a raw AAAA:VV or AAAA?CC:VV (compare CC).
++	static std::vector<std::vector<CheatCode>> _continuumCheats;
++
++	static bool continuum_parse_nes_cheat_part(string part, CheatCode& out)
+ 	{
+-		if(_emu) {
+-			// Cheat manager API moved; no-op for now.
++		static const string ggLetters = "APZLGITYEOXUKSVN";
++		static const string hex = "0123456789ABCDEF";
++		auto all_in = [](const string& s, const string& set) {
++			return !s.empty() && s.find_first_not_of(set) == string::npos;
++		};
++		std::transform(part.begin(), part.end(), part.begin(), ::toupper);
++		string text;
++		memset(&out, 0, sizeof(out));
++		if(part.size() == 7 && part[4] == ':' && all_in(part.substr(0, 4), hex) && all_in(part.substr(5, 2), hex)) {
++			out.Type = CheatType::NesCustom;
++			text = part;
++		} else if(part.size() == 10 && part[4] == '?' && part[7] == ':' && all_in(part.substr(0, 4), hex) &&
++		          all_in(part.substr(5, 2), hex) && all_in(part.substr(8, 2), hex)) {
++			//Mesen's own spelling of a compare code is AAAA:VV:CC.
++			out.Type = CheatType::NesCustom;
++			text = part.substr(0, 4) + ":" + part.substr(8, 2) + ":" + part.substr(5, 2);
++		} else if((part.size() == 6 || part.size() == 8) && all_in(part, ggLetters)) {
++			out.Type = CheatType::NesGameGenie;
++			text = part;
++		} else if(part.size() == 8 && all_in(part, hex)) {
++			out.Type = CheatType::NesProActionRocky;
++			text = part;
++		} else {
++			return false;
+ 		}
++		strncpy(out.Code, text.c_str(), sizeof(out.Code) - 1);
++		return true;
+ 	}
+ 
+-	RETRO_API void retro_cheat_set(unsigned index, bool enabled, const char *codeStr)
++	static void continuum_apply_cheats()
+ 	{
+-		static const string validGgLetters = "APZLGITYEOXUKSVN";
+-		static const string validParLetters = "0123456789ABCDEF";
+-		int chl = 0;
+-
+-		string code = codeStr;
+-		std::transform(code.begin(), code.end(), code.begin(), ::toupper);
+-
+-		if(code[4] == ':') {
+-			for(;;) {
+-				string address = code.substr((0 + chl), 4);
+-				string value = code.substr((5 + chl), 2);
+-				// Cheat API moved — ignore for now
+-				if(code[(7 + chl)] != '+') {
+-					return;
+-				}
+-				chl = (chl + 8);
+-			}
++		if(!_emu || !_emu->GetCheatManager()) return;
++		vector<CheatCode> all;
++		for(auto& codes : _continuumCheats) {
++			all.insert(all.end(), codes.begin(), codes.end());
+ 		}
+-
+-		else if(code[4] == '?' && code[7] == ':') {
+-			for(;;) {
+-				string address = code.substr((0 + chl), 4);
+-				string comparison = code.substr((5 + chl), 2);
+-				string value = code.substr((8 + chl), 2);
+-            // Cheat API moved; ignore custom cheat add here for now.
+-				if(code[(10 + chl)] != '+') {
+-					return;
+-				}
+-				chl = (chl + 11);
+-			}
++		if(all.empty()) {
++			_emu->GetCheatManager()->ClearCheats(false);
++		} else {
++			_emu->GetCheatManager()->SetCheats(all);
+ 		}
++	}
+ 
+-		else {
+-			//This is either a GG or PAR code
+-			bool isValidGgCode = true;
+-			bool isValidParCode = true;
+-
+-			for(size_t i = 0; i < 6; i++) {
+-				if(validGgLetters.find(code[i]) == string::npos) {
+-					isValidGgCode = false;
+-				}
+-			}
+-			for(size_t i = 0; i < 8; i++) {
+-				if(validParLetters.find(code[i]) == string::npos) {
+-					isValidParCode = false;
+-				}
+-			}
+-
+-			if(isValidGgCode && code[6] == '+') {
+-				for(;;) {
+-					string code1 = code.substr((0 + chl), 6);
+-				// Cheat API moved; ignore Game Genie add here for now.
+-					if(code[(6 + chl)] != '+') {
+-						return;
+-					}
+-					chl = (chl + 7);
+-				}
+-			}
+-			else if(isValidGgCode && code[8] == '+') {
+-				for(;;) {
+-					string code1 = code.substr((0 + chl), 8);
+-				// Cheat API moved; ignore Game Genie add here for now.
+-					if(code[(8 + chl)] != '+') {
+-						return;
+-					}
+-					chl = (chl + 9);
+-				}
+-			}
+-			else if(isValidGgCode) {
+-				// Cheat API moved; ignore Game Genie add here for now.
+-			}
++	RETRO_API void retro_cheat_reset()
++	{
++		_continuumCheats.clear();
++		continuum_apply_cheats();
++	}
+ 
+-			else if(isValidParCode && code[8] == '+') {
+-				for(;;) {
+-					string code1 = code.substr((0 + chl), 8);
+-				// Cheat API moved; ignore Pro Action Rocky code add here for now.
+-					if(code[(8 + chl)] != '+') {
+-						return;
+-					}
+-					chl = (chl + 9);
++	RETRO_API void retro_cheat_set(unsigned index, bool enabled, const char *codeStr)
++	{
++		if(!_emu || !_emu->GetConsole() || _emu->GetConsole()->GetConsoleType() != ConsoleType::Nes || !codeStr) {
++			return;
++		}
++		if(index >= 4096) return;
++		if(_continuumCheats.size() <= index) {
++			_continuumCheats.resize(index + 1);
++		}
++		vector<CheatCode> codes;
++		if(enabled) {
++			std::stringstream ss(codeStr);
++			string part;
++			while(std::getline(ss, part, '+')) {
++				part.erase(std::remove_if(part.begin(), part.end(), ::isspace), part.end());
++				if(part.empty()) continue;
++				CheatCode code;
++				if(!continuum_parse_nes_cheat_part(part, code)) {
++					//One bad part makes the whole code do nothing, as on FCEUmm.
++					codes.clear();
++					break;
+ 				}
++				codes.push_back(code);
+ 			}
+-			else if(isValidParCode) {
+-				// Cheat API moved; ignore Pro Action Rocky code add here for now.
+-			}
+-
+ 		}
+-
++		_continuumCheats[index] = codes;
++		continuum_apply_cheats();
+ 	}
+ 
+ 	void update_input_descriptors()
+@@ -2192,10 +2184,51 @@ void libretro_probe_inputs(const char* tag)
+ 
+ 	void retro_set_memory_maps()
+ 	{
+-		// The console/Memory APIs were refactored. Provide an empty memory map for now.
++		// Continuum: the same descriptors libretro-fceumm publishes for the NES: internal RAM at
++		// $0000 and the cartridge RAM at $6000 in 1 KB pages, then nametable, palette and sprite
++		// RAM in the PPU address space. FCEUmm's 4-byte PPU register copy has no equivalent here.
++		static const size_t PPU_BIT = 1ULL << 31ULL;
++		static retro_memory_descriptor descs[16];
+ 		retro_memory_map memoryMap = {};
+-		memoryMap.descriptors = nullptr;
+-		memoryMap.num_descriptors = 0;
++		unsigned count = 0;
++		memset(descs, 0, sizeof(descs));
++		if(_emu && _emu->GetConsole() && _emu->GetConsole()->GetConsoleType() == ConsoleType::Nes) {
++			ConsoleMemoryInfo ram = _emu->GetMemory(MemoryType::NesInternalRam);
++			for(uint32_t page = 0; ram.Memory && page < 2 && (page + 1) * 0x400 <= ram.Size; page++) {
++				descs[count].ptr = (uint8_t*)ram.Memory + page * 0x400;
++				descs[count].start = page * 0x400;
++				descs[count].len = 0x400;
++				count++;
++			}
++			ConsoleMemoryInfo cart = _emu->GetMemory(MemoryType::NesSaveRam);
++			if(!cart.Memory || !cart.Size) {
++				cart = _emu->GetMemory(MemoryType::NesWorkRam);
++			}
++			for(uint32_t page = 0; cart.Memory && page < 8 && (page + 1) * 0x400 <= cart.Size; page++) {
++				descs[count].ptr = (uint8_t*)cart.Memory + page * 0x400;
++				descs[count].start = 0x6000 + page * 0x400;
++				descs[count].len = 0x400;
++				count++;
++			}
++			struct { MemoryType type; size_t start; size_t len; const char* name; } ppu[] = {
++				{ MemoryType::NesNametableRam, PPU_BIT | 0x2000, 0x800, "NTARAM" },
++				{ MemoryType::NesPaletteRam, PPU_BIT | 0x3000, 0x20, "PALRAM" },
++				{ MemoryType::NesSpriteRam, PPU_BIT | 0x4000, 0x100, "OAM" },
++			};
++			for(auto& r : ppu) {
++				ConsoleMemoryInfo m = _emu->GetMemory(r.type);
++				if(!m.Memory || m.Size < r.len) continue;
++				descs[count].ptr = m.Memory;
++				descs[count].start = r.start;
++				descs[count].select = PPU_BIT;
++				descs[count].disconnect = PPU_BIT;
++				descs[count].len = r.len;
++				descs[count].addrspace = r.name;
++				count++;
++			}
++		}
++		memoryMap.descriptors = count ? descs : nullptr;
++		memoryMap.num_descriptors = count;
+ 		env_cb(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &memoryMap);
+ /*		//Expose internal RAM and work/save RAM for retroachievements
+ 		retro_memory_descriptor descriptors[256] = {};
+@@ -2905,44 +2938,30 @@ void libretro_probe_inputs(const char* tag)
+ 		info->timing.sample_rate = 44100.0;
+ 	}
+ 
+-	RETRO_API void *retro_get_memory_data(unsigned id)
++	// Continuum: the NES cartridge's battery RAM and the 2 KB internal RAM, so the frontend keeps
++	// the in-game save and achievements, RAM search and cheats can read memory.
++	static ConsoleMemoryInfo continuum_nes_memory(unsigned id)
+ 	{
+-		// Memory access is NES-specific for now
+-		if(!_console || _console->GetConsoleType() != ConsoleType::Nes) {
+-			return nullptr;
++		ConsoleMemoryInfo none = {};
++		if(!_emu || !_emu->GetConsole() || _emu->GetConsole()->GetConsoleType() != ConsoleType::Nes) {
++			return none;
+ 		}
+-		
+-		auto nesConsole = std::dynamic_pointer_cast<NesConsole>(_console);
+-		if(!nesConsole) return nullptr;
+-		
+-		BaseMapper* mapper = nesConsole->GetMapper();
+ 		switch(id) {
+-			case RETRO_MEMORY_SAVE_RAM:
+-				// Save-ram accessor moved/hidden in BaseMapper; return nullptr until mapped to new API.
+-				(void)mapper;
+-				return nullptr;
+-			case RETRO_MEMORY_SYSTEM_RAM:
+-				// Use the renamed GetInternalRam() if available on NesMemoryManager.
+-				if(nesConsole->GetMemoryManager()) {
+-					return nesConsole->GetMemoryManager()->GetInternalRam();
+-				}
+-				return nullptr;
++			case RETRO_MEMORY_SAVE_RAM: return _emu->GetMemory(MemoryType::NesSaveRam);
++			case RETRO_MEMORY_SYSTEM_RAM: return _emu->GetMemory(MemoryType::NesInternalRam);
+ 		}
+-		return nullptr;
++		return none;
++	}
++
++	RETRO_API void *retro_get_memory_data(unsigned id)
++	{
++		ConsoleMemoryInfo m = continuum_nes_memory(id);
++		return m.Size ? m.Memory : nullptr;
+ 	}
+ 
+ 	RETRO_API size_t retro_get_memory_size(unsigned id)
+ 	{
+-		switch(id) {
+-			case RETRO_MEMORY_SAVE_RAM: //return mapper->GetMemorySize(DebugMemoryType::SaveRam);
+-			   // Mapper API changed; save-RAM access moved. Return 0 for now.
+-            // TODO: replace with mapper->GetSaveRam() equivalent when API is available.
+-            return 0;
+-			case RETRO_MEMORY_SYSTEM_RAM: //return MemoryManager::InternalRAMSize;
+-            // Memory manager API renamed to GetInternalRam()
+-            // Use the new method if available; otherwise return 0.
+-            return 0;		
+-		}
+-		return 0;
++		ConsoleMemoryInfo m = continuum_nes_memory(id);
++		return m.Memory ? m.Size : 0;
+ 	}
+ }

@@ -78,7 +78,7 @@ WORK="$ROOT/.work"
 
 # The iOS cores, in build order. Never empty, which matters: macOS ships bash 3.2,
 # where an empty array expanded under `set -u` is an error rather than nothing.
-IOS_CORES=(fceumm mgba bsnes gearsystem blastem pcsx_rearmed mednafen_psx_hw melonds
+IOS_CORES=(fceumm mesen2 mgba bsnes gearsystem blastem pcsx_rearmed mednafen_psx_hw melonds
            mednafen_pce_fast stella2023 parallel_n64 azahar ppsspp)
 
 # Cores built from source that are ALLOWED TO FAIL. `ios-all` builds them after the required
@@ -198,6 +198,20 @@ ios_core_config() {
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile.libretro"
       IOS_DISPLAY="NES"
+      ;;
+    mesen2)
+      # NES, the default NES core. Makefile.libretro's ios-arm64 block emits
+      # mesen2_libretro_ios.dylib at the repo root. Continuum patch
+      # (scripts/patches/mesen2-nes-memory-cheats-saves.patch): the NES battery RAM and internal
+      # RAM through retro_get_memory_data with FCEUmm's memory map, so the app keeps the in-game
+      # save and achievements and RAM search work; typed cheats reach Mesen's cheat engine; and
+      # Mesen stops writing a .sav of its own for the battery RAM.
+      IOS_REPO="https://github.com/libretro/MesenCE"
+      IOS_PIN="4c4e069f16a8ad6ed79e046046c56d51558c7daf"
+      IOS_DYLIB_NAME="mesen2_libretro_ios.dylib"
+      IOS_KIND="make"
+      IOS_MAKEFILE="Makefile.libretro"
+      IOS_DISPLAY="NES, Mesen 2 with a Continuum patch"
       ;;
     mgba)
       IOS_REPO="https://github.com/libretro/mgba"
@@ -1440,6 +1454,10 @@ ios_apply_core_patches() {
     pcsx_rearmed_jit)
       ios_apply_simple_patch pcsx_rearmed_jit pcsx_rearmed-ios-jit.patch \
         libpcsxcore/new_dynarec/new_dynarec_config.h "Continuum: iPhone JIT build."
+      ;;
+    mesen2)
+      ios_apply_simple_patch mesen2 mesen2-nes-memory-cheats-saves.patch \
+        Libretro/libretro.cpp "Continuum: NES memory, cheats and battery for the frontend"
       ;;
     bsnes)
       ios_apply_simple_patch bsnes bsnes-continuum-memory-and-saves.patch \

@@ -670,6 +670,10 @@ targets:
         embed: true
         link: false
         codeSign: false
+      - framework: build/lib/mesen2_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
       - framework: build/lib/mgba_libretro_ios.dylib
         embed: true
         link: false
@@ -811,10 +815,6 @@ targets:
         link: false
         codeSign: false
       - framework: build/lib/a5200_libretro_ios.dylib
-        embed: true
-        link: false
-        codeSign: false
-      - framework: build/lib/mesen2_libretro_ios.dylib
         embed: true
         link: false
         codeSign: false

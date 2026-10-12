@@ -6,7 +6,7 @@
 #   scripts/fetch-buildbot-cores.sh names      print the canonical dylib filenames and stop
 #   scripts/fetch-buildbot-cores.sh systems    print "<dylib> <system>" per core and stop
 #
-# WHY PREBUILT: seventeen more cores compiled from source would blow the CI time limit
+# WHY PREBUILT: sixteen more cores compiled from source would blow the CI time limit
 # (docs/MANIC_PARITY.md, "Decisions already made"). Cores the buildbot does not carry are built
 # from source by scripts/build-core.sh like the original twelve.
 #
@@ -67,7 +67,6 @@ pinned_sha256() {
     a5200)               echo "9c134a3b51496fbc7b43b2572e57e48ee884f92e0709c17e1c57d46ec3f605dd" ;;
     dosbox_pure)         echo "01200d7c974308a79f29de978685f276fadd510980f49324d6dc5d503854538a" ;;
     handy)               echo "402ba7a02edf5ba345464de4c0e332faefe86c4d4cb73ed44f6a11962b50846b" ;;
-    mesen2)              echo "45dad6b7ea69142cc98d8c9b5274506b75752bedda89d69acdf8469c3b1d401b" ;;
     mednafen_ngp)        echo "1ed8617c9e45a572998d093d5b389f3ee16eeb9e019c6dbe2f9b9beaa59ff7ae" ;;
     mednafen_pce)        echo "6e078cf6fe615bf171b8c2401681457f233e26793a5eb42d736159d55483815b" ;;
     mednafen_saturn)     echo "cbb2f723ccdd99230e28c493d35b0d728112f79d48f07081ad6852dc9340e16c" ;;
@@ -103,7 +102,6 @@ BUILDBOT_CORES=(
   "handy Atari-Lynx"
   "prosystem Atari-7800"
   "a5200 Atari-5200"
-  "mesen2 NES-Mesen"
   "pokemini Pokemon-Mini"
   "mednafen_vb Virtual-Boy"
   "yabause Saturn"
