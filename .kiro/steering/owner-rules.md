@@ -20,13 +20,15 @@ These come straight from the owner. They are not suggestions.
   direct download link to the .ipa without being asked. Finding it is the assistant's job.
 - The iOS workflow publishes every master build as a GitHub Release named `build-<run>-<sha>`
   with `Continuum-<run>.ipa`. Watch the run, and if it fails, read the log, fix it, push again.
-- Pushing to `native/**`, `crates/**`, the Cargo files, the core/fetch/check scripts or the
-  workflow starts a build by itself (a docs-only push or a commit with `[skip ci]` does not). If
-  the owner asks for a build, make sure one has really started (check the Actions run list)
-  instead of assuming. A build runs the Linux checks first, then takes about 30 minutes on the
-  Mac; a second push waits for the running build instead of cancelling it.
+- Pushing to `native/**`, `crates/**`, `cores/continuum-gb/**` (cBoy), the Cargo files, the
+  core/fetch/check scripts or the workflow starts a build by itself (a docs-only push or a commit
+  with `[skip ci]` does not). If the owner asks for a build, make sure one has really started
+  (check the Actions run list) instead of assuming. A build runs the Linux checks first, then
+  takes about 6-8 minutes on the Mac when the cores are cached, or about 45-50 minutes when a
+  core, a patch or `scripts/build-core.sh` changed (a cBoy-only change stays cheap); a second
+  push waits for the running build instead of cancelling it.
 - Before handing over the .ipa, open it and check it: the version (0.8.0 and the build number)
-  and the core count (35 `_libretro_ios.dylib` files as of build 131: 32 cores plus 3 JIT builds). Never say a build is the
+  and the core count (38 `_libretro_ios.dylib` files as of build 180: 35 cores plus 3 JIT builds). Never say a build is the
   newest without checking the Releases page.
 - With every .ipa, give a short list of easy things to try on it. The owner often tests at work.
 
@@ -89,10 +91,10 @@ These come straight from the owner. They are not suggestions.
 - **cBoy's pixel-by-pixel drawer stays, as a cBoy core option** (owner, 12 October 2026: every
   extra setting cBoy offers is wanted, because Continuum is meant to be the go-to emulator). The
   default is the proven per-line drawer; the pixel-by-pixel one is the "Exact (experimental)"
-  choice. The owner would love it finished one day. **It is the LAST item on the to-do list**
-  (owner, 12 October 2026): every other planned job comes first, and "Next up" in STATUS.md and
-  HANDOFF.md must list it last. **Before starting it, STOP and tell the owner** so they can turn
-  Kiro's thinking up to max first. Do not begin any of it, not even a first look, until they
+  choice. The owner would love it finished one day. **It comes right after the cBoy jobs on the
+  to-do list** (owner, 12 October 2026; it is no longer the last item), and "Next up" in
+  STATUS.md and HANDOFF.md list it there. **Before starting it, STOP and tell the owner** so
+  they can turn Kiro's thinking up to max first. Do not begin any of it, not even a first look, until they
   reply that it is set.
   Earlier sessions burned through the owner's usage guessing its test pictures (Mealybug) one
   pixel at a time. When it is picked up again, never guess pixel by pixel: follow how a proven
@@ -119,8 +121,8 @@ These come straight from the owner. They are not suggestions.
   2003-Plus. When a system gets a core of our own, or a well-made core with an open licence,
   prefer that one.
   **Owner's decision (12 October 2026): get every licence limit out of the app.** All five
-  non-commercial cores are swapped out AND removed completely in ONE batch, the one right after
-  the cleanup install: from the app, the build scripts, the checksums, the routing, the
+  non-commercial cores are swapped out AND removed completely in ONE batch, folded into the same
+  install as the cleanup: from the app, the build scripts, the checksums, the routing, the
   settings, the credits page and the docs. Before that batch
   ships, check every replacement thoroughly off the phone: build host versions, boot real test
   content through the engine, check speed, in-game saves and save states, and that each file
@@ -140,13 +142,14 @@ These come straight from the owner. They are not suggestions.
   - **Arcade: NO MAME, no stand-in (owner, 12 October 2026).** FinalBurn Neo and MAME 2003-Plus
     are removed with the rest, and nothing replaces them for now. Arcade leaves the app until
     Continuum has an arcade core of its own. That core is required future work: keep it on the
-    to-do list (before the exact Game Boy drawer, which stays last), and treat Arcade in
+    to-do list (after the exact Game Boy drawer and the phone test rounds; see "Next up" in
+    STATUS.md), and treat Arcade in
     docs/MANIC_PARITY.md as "removed by the owner's choice, own core planned", not as a gap
     to fill with someone else's core. While arcade is out, an arcade game a player already
     imported stays in the library and is never deleted. Opening it shows one plain, casual
     line, for example: "Arcade games aren't playable right now. We're building our own arcade
     emulator." Don't ask "Which system?" for it, and never crash. Remove the arcade test
     rows, and the `neogeo.zip` BIOS mention, from TESTING.md.
-- **When the owner puts a ★ or ⭐ on something, save it permanently:** in this file if it is about
-  Continuum, or as a Kiro learning if it applies everywhere. Kiro may also save general learnings
-  on its own whenever something is worth remembering.
+- When the owner puts a ★ on something, save it permanently: in this file if it is about Continuum, or as a Kiro learning if it applies everywhere.
+  A ⭐ counts the same. Kiro may also save general learnings on its own whenever something is
+  worth remembering.
