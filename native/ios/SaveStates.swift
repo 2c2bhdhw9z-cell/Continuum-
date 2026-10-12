@@ -1399,8 +1399,15 @@ final class SaveStates: ObservableObject {
         guard let record = autoState(forGameId: Self.gameId(for: entry)) else { return false }
 
         if let refusal = refusal(for: record) {
-            report("could not resume \(entry.name) (\(refusal.tag)): \(refusal.message) Starting "
-                   + "from the beginning.")
+            if case .payloadMissing = refusal {
+                report("could not resume \(entry.name) (\(refusal.tag)): \(refusal.message) "
+                       + "Starting from the beginning.")
+                return false
+            }
+            // Refused, but the auto-save is real progress (another core, a rebuilt core or other
+            // settings wrote it). Leaving or backgrounding this session writes the auto-save in
+            // place, so it is moved out of the way FIRST (review finding IOS-02).
+            report(keepRefusedAutoSave(record, refusal: refusal, entry: entry))
             return false
         }
 
@@ -1415,6 +1422,72 @@ final class SaveStates: ObservableObject {
         // rather than by luck.
         lastAutoSaveKey = "\(record.gameId)#\(engine.frameCount())"
         return true
+    }
+
+    /// Moves an auto-save this session may not load into the game's lowest free numbered slot,
+    /// keeping the core, version and settings it was made with (so it still loads on that core),
+    /// and returns the line for the player. With no free slot, or if the move fails, nothing moves
+    /// and this session does not auto-save over it (`autoSaveHeldFor`). Never deletes anything.
+    func keepRefusedAutoSave(_ record: SaveStateRecord, refusal: SaveStateRefusal,
+                             entry: LibraryEntry) -> String {
+        let gameId = record.gameId
+        let coreName = Self.shortCoreName(record.coreId)
+        guard let slot = firstFreeSlot(forGameId: gameId) else {
+            autoSaveHeldFor = gameId
+            return "\(entry.name) started fresh. Your old auto-save is kept, but all slots are "
+                + "full, so this time it won't auto-save."
+        }
+        let files = FileManager.default
+        guard let source = SaveStateDisk.payloadURL(gameId: gameId, slot: record.slot, isAuto: true),
+              let target = SaveStateDisk.payloadURL(gameId: gameId, slot: slot, isAuto: false),
+              !files.fileExists(atPath: target.path),
+              (try? files.moveItem(at: source, to: target)) != nil else {
+            autoSaveHeldFor = gameId
+            return "\(entry.name) started fresh. Your old auto-save is kept, and this time it "
+                + "won't auto-save over it."
+        }
+        if let oldThumb = SaveStateDisk.thumbnailURL(gameId: gameId, slot: record.slot, isAuto: true),
+           let newThumb = SaveStateDisk.thumbnailURL(gameId: gameId, slot: slot, isAuto: false),
+           files.fileExists(atPath: oldThumb.path) {
+            try? files.moveItem(at: oldThumb, to: newThumb)
+        }
+        let kept = SaveStateRecord(gameId: gameId, slot: slot, isAuto: false,
+                                   createdAt: record.createdAt, frame: record.frame,
+                                   byteCount: record.byteCount, coreId: record.coreId,
+                                   coreVersion: record.coreVersion,
+                                   label: record.label.isEmpty ? "old auto-save" : record.label,
+                                   coreOptions: record.coreOptions)
+        var updated = records.filter { $0.id != record.id && $0.id != kept.id }
+        updated.append(kept)
+        records = Self.sortedNewestFirst(updated)
+        lastAutoSaveKey = nil
+        thumbnailGeneration += 1
+        if let failure = SaveStateDisk.writeIndex(records) {
+            FeedbackCenter.step("saves: moved the old auto-save of \(gameId) to slot \(slot), "
+                                + "but \(failure)")
+        }
+        refreshMissingCount()
+        FeedbackCenter.step("saves: refused auto-save of \(gameId) (\(refusal.tag)) kept in slot \(slot)")
+        let how: String
+        switch refusal {
+        case .coreMismatch:
+            how = "It loads on \(coreName)."
+        case .versionMismatch:
+            how = "It was made by an older \(coreName), so this one can't load it."
+        case .settingsChanged:
+            how = "It loads once you set \(coreName)'s settings back."
+        case .payloadMissing:
+            how = ""
+        }
+        return "\(entry.name) started fresh. Your old auto-save is in slot \(slot). \(how)"
+    }
+
+    /// "FCEUmm" for "fceumm" ("FCEUmm (NES)" without the part in brackets), or the id itself.
+    static func shortCoreName(_ coreId: String?) -> String {
+        guard let coreId, !coreId.isEmpty else { return "its old core" }
+        guard let name = CoreCatalog.core(id: coreId)?.displayName else { return coreId }
+        if let bracket = name.range(of: " (") { return String(name[..<bracket.lowerBound]) }
+        return name
     }
 
     // MARK: Deleting
