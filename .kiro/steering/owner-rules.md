@@ -118,8 +118,18 @@ These come straight from the owner. They are not suggestions.
   forbid any commercial use: Snes9x, Genesis Plus GX, PicoDrive, FinalBurn Neo and MAME
   2003-Plus. When a system gets a core of our own, or a well-made core with an open licence,
   prefer that one.
-  **Swap plan (owner asked, 12 October 2026; checked against the libretro iOS buildbot the
-  same day). Each replacement must be checked on a phone before the old core is removed:**
+  **Owner's decision (12 October 2026): get every licence limit out of the app.** All five
+  non-commercial cores are swapped out AND removed completely in ONE batch, the one right after
+  the cleanup install: from the app, the build scripts, the checksums, the routing, the
+  settings, the credits page and the docs. Arcade moves to current MAME too. Before that batch
+  ships, check every replacement thoroughly off the phone: build host versions, boot real test
+  content through the engine, check speed, in-game saves and save states, and that each file
+  type still routes. Then tell the owner which systems changed. The licences that remain
+  (GPL, MPL, zlib, MIT, Apache, LGPL) put no limits on what the app does, what it costs or how
+  it runs. They only require the credits page and public source code. They can only go away
+  when a system has a core of our own. Never delete a remaining core's credit or licence
+  notice: that is what allows the app to ship it at all.
+  **Swap plan (checked against the libretro iOS buildbot on 12 October 2026):**
   - SNES: bsnes (GPLv3) as the default. Mesen 2 (GPLv3, already in the app for NES) also plays
     SNES and becomes a second choice. Both need more CPU than Snes9x, so check the speed.
   - Master System, Game Gear, SG-1000: Gearsystem (GPLv3). Mesen 2 also plays these.
