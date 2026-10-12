@@ -769,6 +769,8 @@ impl EmulatorBridge {
             if phases {
                 crate::feedback::frame_phase(session.core.frame_count(), "run");
             }
+            // Last of all: the buttons as this core reads them (BlastEm's Mega Drive layout).
+            crate::input::core_layout::translate_for(&session.core_id, &mut step);
             session.core.run_frame(&step)?;
             if phases {
                 crate::feedback::frame_phase(session.core.frame_count(), "ran");
@@ -1489,6 +1491,8 @@ impl EmulatorBridge {
             .expect("the caller checked a session exists and nothing above clears it");
 
         if stepped_back {
+            let mut snapshot = snapshot;
+            crate::input::core_layout::translate_for(&session.core_id, &mut snapshot);
             session.core.run_frame(&snapshot)?;
             Self::apply_pokes(session);
             session.core.drain_audio(sink.as_mut());
@@ -1646,6 +1650,7 @@ impl EmulatorBridge {
         let mut core_cheats = Vec::new();
         let mut pokes = Vec::new();
         let mut enabled_pokes = 0usize;
+        let mut enabled_codes = 0usize;
         for (i, code) in codes.into_iter().enumerate() {
             let code = code.trim().to_string();
             // Blank lines are dropped here rather than skipped during the push, because
@@ -1662,13 +1667,19 @@ impl EmulatorBridge {
                 }
                 continue;
             }
-            core_cheats.push(Cheat { code, enabled: on });
+            // Written the way this core reads it (a raw code as Pro Action Replay on Gearsystem
+            // and bsnes, one entry per part on Gearsystem). Pushed in order, so the core's index
+            // sequence stays contiguous.
+            for part in crate::cheats::formats::normalise_for_core(&session.core_id, &code) {
+                core_cheats.push(Cheat { code: part, enabled: on });
+            }
+            enabled_codes += on as usize;
         }
         session.cheats = core_cheats;
         session.pokes = pokes;
 
         Self::push_cheats(session)?;
-        Ok(session.cheats.iter().filter(|cheat| cheat.enabled).count() + enabled_pokes)
+        Ok(enabled_codes + enabled_pokes)
     }
 
     /// Clears every cheat, in the core and in our record of it.
@@ -1773,7 +1784,8 @@ impl EmulatorBridge {
     /// The running game's battery save (`SAVE_RAM`), byte for byte. This is the `.srm` file
     /// every libretro frontend writes, so it is also what an export hands to another emulator.
     ///
-    /// For BlastEm on a Mega Drive cartridge this is the Genesis Plus GX layout (see
+    /// For BlastEm on a Mega Drive cartridge this is the GPGX layout every older Mega Drive save
+    /// is in (see
     /// `battery_layout`), so the file is the same whichever core wrote it.
     pub fn battery_save(&self) -> Result<Vec<u8>, BridgeError> {
         let size = self.memory_size(crate::memory::MEMORY_SAVE_RAM);
@@ -1836,7 +1848,7 @@ impl EmulatorBridge {
             Some(session) => (session.core_id.clone(), session.battery_layout),
             None => return Err(BridgeError::NoSession),
         };
-        // BlastEm on a Mega Drive cartridge: the file is in Genesis Plus GX's layout.
+        // BlastEm on a Mega Drive cartridge: the file is in the GPGX layout.
         if let BatteryLayout::MegaDriveGpgx(sram) = layout {
             let live = battery_layout::gpgx_to_live(data, &sram, size).map_err(BridgeError::Memory)?;
             self.write_memory(crate::memory::MEMORY_SAVE_RAM, 0, &live)?;
@@ -1869,7 +1881,7 @@ impl EmulatorBridge {
     ///
     /// THE FRONTEND OWNS THIS FILE. libretro hands battery RAM to the frontend through
     /// `retro_get_memory_data(RETRO_MEMORY_SAVE_RAM)` and expects the frontend to persist it; most
-    /// cores (fceumm, snes9x, mGBA, Genesis Plus GX) never write a save file of their own. Until
+    /// cores (fceumm, mGBA, bsnes, Gearsystem) never write a save file of their own. Until
     /// this existed, an in-game save survived only inside a save state.
     ///
     /// Returns the bytes written, `0` when the game has no battery RAM (not an error: most NES
@@ -2398,8 +2410,9 @@ impl EmulatorBridge {
     /// Runs `frames` core frames with no renderer, the way `tick` does (frame, then pokes).
     #[cfg(test)]
     pub(crate) fn step_headless_for_test(&mut self, frames: u32) -> Result<(), BridgeError> {
-        let snapshot = self.gamepads.snapshot();
+        let mut snapshot = self.gamepads.snapshot();
         let session = self.session.as_mut().ok_or(BridgeError::NoSession)?;
+        crate::input::core_layout::translate_for(&session.core_id, &mut snapshot);
         for _ in 0..frames {
             session.core.run_frame(&snapshot)?;
             Self::apply_pokes(session);
@@ -2468,7 +2481,7 @@ mod tests {
     fn boots_with_no_cores_resident() {
         let mut bridge = EmulatorBridge::new();
         bridge.declare_core(descriptor("nestopia", "nes"));
-        bridge.declare_core(descriptor("snes9x", "snes"));
+        bridge.declare_core(descriptor("bsnes", "snes"));
         assert_eq!(bridge.status(), BridgeStatus::Uninitialised);
         assert_eq!(bridge.resident_core_count(), 0);
         assert_eq!(bridge.core_state("nestopia"), Some(CoreState::Declared));
@@ -2612,7 +2625,7 @@ mod tests {
     }
 
     #[test]
-    fn a_mega_drive_save_stays_in_genesis_plus_gx_layout_on_blastem() {
+    fn a_mega_drive_save_stays_in_gpgx_layout_on_blastem() {
         // An odd-byte SRAM cart, $200001-$203FFF: 8192 bytes live, the diagnostic SAVE_RAM size.
         let mut rom = vec![0u8; 0x200];
         rom[0x100..0x10F].copy_from_slice(b"SEGA MEGA DRIVE");
@@ -2620,7 +2633,7 @@ mod tests {
         let dir = scratch_dir("md-gpgx");
         let path = dir.join("Sonic.srm");
         let path_str = path.to_str().unwrap().to_string();
-        // What Genesis Plus GX wrote: 0x22+i at the odd addresses, trimmed.
+        // What GPGX wrote: 0x22+i at the odd addresses, trimmed.
         let mut gpgx = vec![0xFF; 0x20];
         for i in 0..16 {
             gpgx[1 + 2 * i] = 0x22 + i as u8;

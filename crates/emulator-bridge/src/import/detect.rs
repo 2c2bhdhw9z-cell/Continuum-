@@ -110,7 +110,7 @@ pub fn system_for_extension(ext: &str) -> Option<&'static str> {
         "gba" | "agb" => "gba",
         "sms" => "sms",
         "gg" => "gg",
-        "sg" => "sg1000",
+        "sg" | "mv" => "sg1000",
         "md" | "gen" | "smd" => "genesis",
         "32x" => "sega32x",
         "pce" => "tg16",
@@ -1276,6 +1276,8 @@ mod tests {
         assert_eq!(d.system, "snes");
         assert!(d.is_sure());
         assert_eq!(system_for_extension(".ws"), Some("wswan"));
+        assert_eq!(system_for_extension("mv"), Some("sg1000"));
+        assert_eq!(system_for_extension("SG"), Some("sg1000"));
         assert_eq!(system_for_extension("cue"), None);
     }
 }

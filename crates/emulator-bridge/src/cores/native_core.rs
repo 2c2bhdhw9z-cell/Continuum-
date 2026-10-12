@@ -246,8 +246,8 @@ pub const SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE: u64 = 1 << 2;
 
 /// The memory map a core published and the `NativeLibretroCore` has not yet collected.
 ///
-/// A hand-off slot, not the store: cores publish from inside `retro_load_game` (mGBA,
-/// snes9x2010, Genesis Plus GX for the Sega CD), where nothing can reach the core object, so the
+/// A hand-off slot, not the store: cores publish from inside `retro_load_game` (mGBA, Mesen 2,
+/// BlastEm for the Sega CD and 32X), where nothing can reach the core object, so the
 /// environment callback leaves the copied table here and the core takes it right after the call
 /// returns (and after every `retro_run`, for a core that republishes). From then on the table
 /// lives on the core it belongs to, so a second resident core never sees it. A process global for

@@ -452,7 +452,7 @@ mod tests {
         vec![
             Message::Hello(PeerInfo {
                 version: PROTOCOL_VERSION,
-                core_id: "snes9x".into(),
+                core_id: "bsnes".into(),
                 core_version: "1.62".into(),
                 content_name: "Game (USA).sfc".into(),
                 content_fingerprint: 0xDEAD_BEEF_0123_4567,

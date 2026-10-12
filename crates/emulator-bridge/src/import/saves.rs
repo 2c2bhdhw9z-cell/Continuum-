@@ -16,9 +16,9 @@
 //!
 //! A few systems keep saves as their core's own files under the save directory instead, and for
 //! those the answer is a relative path: Dreamcast `.vmu` (flycast's `vmu_save_A1.bin`), Saturn
-//! `.bkr`/`.bcr` (Beetle Saturn's `<game>.bkr`), arcade `.nvr` (MAME 2003-Plus's
-//! `mame2003-plus/nvram/<game>.nv`). PSP and 3DS saves are folders and travel as zips; see
-//! [`location`].
+//! `.bkr`/`.bcr` (Beetle Saturn's `<game>.bkr`). PSP and 3DS saves are folders and travel as
+//! zips; see [`location`]. Arcade saves are refused: arcade games are not playable until
+//! Continuum has its own arcade core, so there is nowhere for one to go.
 
 /// Where a system's save lives.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,15 +142,10 @@ pub fn import(system: &str, file_name: &str, data: &[u8], current: &[u8], game_s
             "srm" | "sav" => battery(data.to_vec(), "raw Saturn save"),
             _ => Err(format!(".{ext} is not a Saturn save (want .bkr)")),
         },
-        "arcade" => match ext.as_str() {
-            "nvr" | "nv" => Ok(SaveImport {
-                location: SaveLocation::CoreFile(format!("mame2003-plus/nvram/{game_stem}.nv")),
-                data: data.to_vec(),
-                note: "arcade NVRAM for MAME 2003-Plus".into(),
-            }),
-            "srm" | "sav" => battery(data.to_vec(), "raw save"),
-            _ => Err(format!(".{ext} is not an arcade save (want .nvr)")),
-        },
+        "arcade" => Err(
+            "Arcade games aren\u{2019}t playable right now, so there\u{2019}s nowhere for an arcade save to go yet"
+                .into(),
+        ),
         _ => match ext.as_str() {
             "srm" | "sav" | "eep" | "flash" | "fla" | "sra" | "brm" | "dsg" | "nvr" => battery(data.to_vec(), "raw battery save"),
             _ => Err(format!(".{ext} is not a save format for {system}")),
@@ -372,8 +367,11 @@ mod tests {
         assert_eq!(got.location, SaveLocation::Folder("PSP/SAVEDATA".into()));
         assert!(import("psp", "save.sav", b"x", &[], "Game").is_err());
         assert!(import("snes", "a.zip", b"x", &[], "a").is_err());
-        let got = import("arcade", "sf2.nvr", b"nv", &[], "sf2").unwrap();
-        assert_eq!(got.location, SaveLocation::CoreFile("mame2003-plus/nvram/sf2.nv".into()));
+        // Arcade is out until Continuum has its own arcade core: every arcade save is refused.
+        for name in ["sf2.nvr", "sf2.nv", "sf2.srm", "sf2.sav"] {
+            let err = import("arcade", name, b"nv", &[], "sf2").unwrap_err();
+            assert!(err.contains("aren\u{2019}t playable right now"), "{name}: {err}");
+        }
     }
 
     #[test]

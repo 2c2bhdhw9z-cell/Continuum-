@@ -4,7 +4,8 @@
 //! the app never checks a code's shape (see `CheatStore.swift`). What it CAN say is what each core
 //! does with one, and that was read from each core's own `retro_cheat_set`:
 //!
-//! - the 13 cores built from source, at the commits `scripts/build-core.sh` pins (5 October 2026);
+//! - the cores built from source, at the commits `scripts/build-core.sh` pins (5 October 2026;
+//!   bsnes, Gearsystem, BlastEm and the patched Mesen 2 on 12 October 2026);
 //! - the downloaded cores, from their upstream sources on the same day. A core whose source could
 //!   not be found is left as "not checked" rather than guessed.
 //!
@@ -39,14 +40,15 @@ const fn reads(kinds: &'static str) -> CodeSupport {
 /// saying "this emulator ignores codes" about one that does not would be the worse mistake.
 pub fn code_support(core_id: &str) -> CodeSupport {
     match core_id {
-        "fceumm" => reads("Game Genie, Pro Action Rocky, or a raw address:value like 0075:09"),
-        "snes9x" => reads("Game Genie, Pro Action Replay, or a raw code"),
+        "fceumm" | "mesen2" => {
+            reads("Game Genie, Pro Action Rocky, or a raw address:value like 0075:09")
+        }
+        "bsnes" => reads("Game Genie, Pro Action Replay, or a raw address:value like 7E0019:02"),
         "mgba" => reads(
             "GameShark, Action Replay or CodeBreaker on the GBA; GameShark or Game Genie on the \
              Game Boy",
         ),
-        "genesis_plus_gx" => reads("Game Genie, Pro Action Replay, or a raw address:value"),
-        "picodrive" => reads("Game Genie or Pro Action Replay"),
+        "gearsystem" => reads("Game Genie, Pro Action Replay, or a raw address:value like C000:FF"),
         "pcsx_rearmed" | "mednafen_psx_hw" => reads("PlayStation GameShark codes"),
         "melonds" => reads("Action Replay DS"),
         "parallel_n64" => reads("N64 GameShark codes"),
@@ -57,9 +59,47 @@ pub fn code_support(core_id: &str) -> CodeSupport {
         "prboom" => reads("DOOM's own cheat words, like iddqd or idkfa"),
         "virtualjaguar" => reads(""),
         "azahar" | "flycast" | "stella2023" | "mednafen_pce" | "mednafen_vb" | "puae"
-        | "vice_x64sc" | "handy" | "a5200" | "fbneo" | "mame2003_plus" | "pokemini"
-        | "yabause" => IGNORES,
+        | "vice_x64sc" | "handy" | "a5200" | "pokemini" | "yabause" | "blastem" => IGNORES,
         _ => reads(""),
+    }
+}
+
+/// A typed code as `core_id` reads it, split into the entries handed to `retro_cheat_set`.
+///
+/// - Gearsystem takes one code per entry and reads Pro Action Replay as `00AAAAVV`, so a
+///   `+`-joined code becomes one entry per part and a raw `AAAA:VV` its Pro Action Replay form.
+/// - bsnes reads Pro Action Replay `AAAAAADD` and Game Genie, not `AAAAAA:DD`, so a raw part is
+///   rewritten and the `+` join kept.
+/// - Every other core gets the code exactly as typed.
+pub fn normalise_for_core(core_id: &str, code: &str) -> Vec<String> {
+    let is_hex = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_hexdigit());
+    match core_id {
+        "gearsystem" => code
+            .split('+')
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .map(|part| match part.split_once(':') {
+                Some((a, v)) if a.len() == 4 && v.len() == 2 && is_hex(a) && is_hex(v) => {
+                    format!("00{}{}", a.to_ascii_uppercase(), v.to_ascii_uppercase())
+                }
+                _ => part.to_owned(),
+            })
+            .collect(),
+        "bsnes" => vec![code
+            .split('+')
+            .map(str::trim)
+            .map(|part| {
+                let split = part.split_once(':').or_else(|| part.split_once('='));
+                match split {
+                    Some((a, d)) if a.len() == 6 && d.len() == 2 && is_hex(a) && is_hex(d) => {
+                        format!("{}{}", a.to_ascii_uppercase(), d.to_ascii_uppercase())
+                    }
+                    _ => part.to_owned(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("+")],
+        _ => vec![code.to_owned()],
     }
 }
 
@@ -217,7 +257,7 @@ mod tests {
 
     #[test]
     fn the_cores_that_throw_codes_away_say_so() {
-        for core in ["azahar", "flycast", "stella2023", "fbneo", "pokemini", "yabause"] {
+        for core in ["azahar", "flycast", "stella2023", "blastem", "pokemini", "yabause"] {
             assert!(!code_support(core).reads_typed_codes, "{core}");
         }
     }
@@ -227,10 +267,25 @@ mod tests {
         assert!(code_support("mgba").kinds.contains("GameShark"));
         assert!(code_support("mgba").kinds.contains("CodeBreaker"));
         assert!(code_support("fceumm").kinds.contains("Game Genie"));
-        assert!(code_support("snes9x").kinds.contains("Pro Action Replay"));
+        assert!(code_support("mesen2").kinds.contains("Game Genie"));
+        assert!(code_support("bsnes").kinds.contains("Pro Action Replay"));
+        assert!(code_support("gearsystem").kinds.contains("C000:FF"));
         assert!(code_support("pcsx_rearmed").kinds.contains("GameShark"));
         assert!(code_support("melonds").kinds.contains("Action Replay"));
         assert!(code_support("ppsspp").kinds.contains("CWCheat"));
+    }
+
+    #[test]
+    fn raw_codes_are_rewritten_the_way_each_core_reads_them() {
+        assert_eq!(normalise_for_core("gearsystem", "c000:ff"), vec!["00C000FF"]);
+        assert_eq!(normalise_for_core("gearsystem", "C000:FF+C001:01"), vec!["00C000FF", "00C00101"]);
+        // Game Genie and Pro Action Replay pass through untouched.
+        assert_eq!(normalise_for_core("gearsystem", "3A6-5BF+00C0A0FF"), vec!["3A6-5BF", "00C0A0FF"]);
+        assert_eq!(normalise_for_core("bsnes", "7e0019:02"), vec!["7E001902"]);
+        assert_eq!(normalise_for_core("bsnes", "7E0019=02+7E001A:03"), vec!["7E001902+7E001A03"]);
+        assert_eq!(normalise_for_core("bsnes", "DD32-6DAD"), vec!["DD32-6DAD"]);
+        assert_eq!(normalise_for_core("fceumm", "0075:09"), vec!["0075:09"]);
+        assert_eq!(normalise_for_core("mesen2", "SXIOPO+0075:09"), vec!["SXIOPO+0075:09"]);
     }
 
     #[test]

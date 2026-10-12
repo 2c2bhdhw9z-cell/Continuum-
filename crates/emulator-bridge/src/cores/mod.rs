@@ -356,7 +356,7 @@ mod tests {
 
     #[test]
     fn the_mouse_type_is_picked_from_what_the_core_declared() {
-        // snes9x declares the SNES mouse as a subclass of RETRO_DEVICE_MOUSE.
+        // A SNES core declares the SNES mouse as a subclass of RETRO_DEVICE_MOUSE.
         let types = vec![
             ("SNES Joypad".to_string(), 1),
             ("SNES Mouse".to_string(), 2 | (1 << 8)),

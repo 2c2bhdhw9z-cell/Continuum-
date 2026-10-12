@@ -283,6 +283,31 @@ fn host_rules_without_jit(core_id: &str) -> &'static [(&'static str, HostRule)] 
         // renderer. The advertised default is "hardware", whose Vulkan hand-over has not been seen
         // on a phone. The engine keeps software as the default; the user may pick hardware.
         "mednafen_psx_hw" => &[("beetle_psx_hw_renderer", HostRule::Default("software"))],
+        // bsnes: 4:3 like every other console here (its "Auto" reports 1.306), and the fast PPU,
+        // DSP and coprocessor paths, which are what keep SA-1 and SuperFX games at full speed on
+        // a phone. Mode 7 at native scale and no run-ahead inside the core (the engine has its
+        // own). All are defaults the user can change.
+        "bsnes" => &[
+            ("bsnes_aspect_ratio", HostRule::Default("4:3")),
+            ("bsnes_ppu_fast", HostRule::Default("ON")),
+            ("bsnes_dsp_fast", HostRule::Default("ON")),
+            ("bsnes_coprocessor_delayed_sync", HostRule::Default("ON")),
+            ("bsnes_coprocessor_prefer_hle", HostRule::Default("ON")),
+            ("bsnes_mode7_scale", HostRule::Default("1x")),
+            ("bsnes_run_ahead_frames", HostRule::Default("OFF")),
+        ],
+        // Gearsystem: its two-console link cable runs a second machine in the same core, which
+        // online play does instead, so the link keys are locked off and hidden. 4:3 picture.
+        "gearsystem" => &[
+            ("gearsystem_link_enable", HostRule::Locked("Disabled")),
+            ("gearsystem_link_placement", HostRule::Locked("Horizontal")),
+            ("gearsystem_link_switch", HostRule::Locked("Disabled")),
+            ("gearsystem_link_screen", HostRule::Locked("Both Screens")),
+            ("gearsystem_link_audio", HostRule::Locked("Screen 1")),
+            ("gearsystem_aspect_ratio", HostRule::Default("4:3 DAR")),
+        ],
+        // BlastEm: MegaWiFi lets a cartridge open its own internet connections. Locked off.
+        "blastem" => &[("blastem_megawifi", HostRule::Locked("off"))],
         _ => &[],
     }
 }
@@ -1606,6 +1631,46 @@ mod tests {
         );
         // Untouched cores are untouched either way.
         assert_eq!(rule("melonds", true, true, "melonds_touch_mode"), Some(HostRule::Default("Touch")));
+    }
+
+    #[test]
+    fn the_licence_swap_cores_get_their_rules() {
+        let empty = BTreeMap::new();
+        let r = |core: &str, key: &str| resolve(core, None, &empty, &empty, &empty, key);
+        for (key, value) in [
+            ("bsnes_aspect_ratio", "4:3"),
+            ("bsnes_ppu_fast", "ON"),
+            ("bsnes_dsp_fast", "ON"),
+            ("bsnes_coprocessor_delayed_sync", "ON"),
+            ("bsnes_coprocessor_prefer_hle", "ON"),
+            ("bsnes_mode7_scale", "1x"),
+            ("bsnes_run_ahead_frames", "OFF"),
+        ] {
+            assert_eq!(r("bsnes", key).as_deref(), Some(value), "{key}");
+            assert!(!is_locked("bsnes", key));
+        }
+        for (key, value) in [
+            ("gearsystem_link_enable", "Disabled"),
+            ("gearsystem_link_placement", "Horizontal"),
+            ("gearsystem_link_switch", "Disabled"),
+            ("gearsystem_link_screen", "Both Screens"),
+            ("gearsystem_link_audio", "Screen 1"),
+        ] {
+            assert_eq!(r("gearsystem", key).as_deref(), Some(value), "{key}");
+            assert!(is_locked("gearsystem", key));
+        }
+        assert_eq!(r("gearsystem", "gearsystem_aspect_ratio").as_deref(), Some("4:3 DAR"));
+        assert_eq!(r("blastem", "blastem_megawifi").as_deref(), Some("off"));
+        assert!(is_locked("blastem", "blastem_megawifi"));
+        // A user's choice still wins over a default, never over a lock.
+        let mut core = BTreeMap::new();
+        core.insert("bsnes_ppu_fast".to_string(), "OFF".to_string());
+        core.insert("gearsystem_link_enable".to_string(), "Enabled".to_string());
+        assert_eq!(resolve("bsnes", None, &empty, &empty, &core, "bsnes_ppu_fast").as_deref(), Some("OFF"));
+        assert_eq!(
+            resolve("gearsystem", None, &empty, &empty, &core, "gearsystem_link_enable").as_deref(),
+            Some("Disabled")
+        );
     }
 
     #[test]

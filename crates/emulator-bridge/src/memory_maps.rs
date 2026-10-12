@@ -64,7 +64,7 @@ pub struct RetroMemoryMap {
     pub num_descriptors: c_uint,
 }
 
-/// More descriptors than any core publishes (snes9x2010's ceiling, `MAX_MAPS`, is 128). A table
+/// More descriptors than any core publishes (the largest known ceiling, `MAX_MAPS`, is 128). A table
 /// claiming more is treated as corrupt rather than walked.
 pub const MAX_DESCRIPTORS: usize = 1024;
 
@@ -269,7 +269,7 @@ pub fn find(table: &[MemoryDescriptor], real_address: u32) -> Option<(usize, usi
 /// The first descriptor whose DECLARED range (`start` to `start + len`) holds the address.
 ///
 /// The fallback for writes. RetroArch's preprocessing can leave a descriptor whose `select` no
-/// longer covers all of its own length (Genesis Plus GX's Sega CD PRG RAM at `$80020000` is one:
+/// longer covers all of its own length (the Sega CD's PRG RAM at a virtual `$80020000` is one:
 /// its start is not aligned to its size), so [`find`] misses the top of it. rcheevos never notices,
 /// because it resolves one address per block and takes the whole length from there, but a poke
 /// made from a search over that region must still land.
@@ -304,7 +304,7 @@ pub const MAX_SEARCH_REGION: usize = 32 * 1024 * 1024;
 /// Skipped: descriptors with no buffer, read-only ones (ROM, BIOS), mirrors (a second descriptor
 /// over host memory already listed), and ones with no size at all. A zero `len` the core left to
 /// be "bounded by select and disconnect" (libretro.h:4303) is taken as preprocessing worked it out,
-/// which is how snes9x2010 describes work RAM.
+/// which is how some SNES cores describe work RAM.
 pub fn searchable(table: &[MemoryDescriptor]) -> Vec<SearchableRegion> {
     let mut out: Vec<SearchableRegion> = Vec::new();
     for (index, desc) in table.iter().enumerate() {
@@ -572,10 +572,10 @@ pub mod fixtures {
         (buffers, table)
     }
 
-    /// Genesis Plus GX's `set_memory_maps` for the Sega CD (`libretro/libretro.c`): 68K RAM, PRG
-    /// RAM at a virtual `$80020000` (`SCD_BIT`), word RAM. Its only memory map; the Mega Drive
-    /// publishes none. Buffers: 0 work RAM, 1 PRG RAM, 2 word RAM.
-    pub fn gpgx_segacd() -> (Buffers, Vec<RetroMemoryDescriptor>, Vec<std::ffi::CString>) {
+    /// A Sega CD map with named regions: 68K RAM, PRG RAM at a virtual `$80020000` (bit 31 set,
+    /// so it cannot collide with a real 68K address), word RAM. Buffers: 0 work RAM, 1 PRG RAM,
+    /// 2 word RAM.
+    pub fn segacd_split_prg_map() -> (Buffers, Vec<RetroMemoryDescriptor>, Vec<std::ffi::CString>) {
         let buffers = Buffers {
             blocks: vec![
                 filled(0x10000, 10),
@@ -612,13 +612,12 @@ pub mod fixtures {
         (buffers, table, names)
     }
 
-    /// snes9x2010's map for a LoROM game (`memmap.c` `MAP_LIBRETRO`, after `S9xAppendMapping`
-    /// merges): work RAM at $7E0000 as one 128 KB descriptor (the two 64 KB banks merged), the low
-    /// 8 KB mirror in banks $00-$3F and $80-$BF, cartridge SRAM at $700000 with $8000 disconnected,
-    /// and ROM. The current libretro snes9x publishes NO map (checked: its libretro.cpp never calls
-    /// SET_MEMORY_MAPS), so this stands for the snes9x family's shape, not the core Continuum ships.
+    /// A SNES LoROM map in the bank-and-mirror shape: work RAM at $7E0000 as one 128 KB
+    /// descriptor (the two 64 KB banks merged), the low 8 KB mirror in banks $00-$3F and $80-$BF,
+    /// cartridge SRAM at $700000 with $8000 disconnected, and ROM. bsnes publishes no map (its
+    /// patch exposes SYSTEM_RAM and SAVE_RAM), so this stands for the shape, not a shipped core.
     /// Buffers: 0 work RAM, 1 SRAM, 2 ROM.
-    pub fn snes9x2010_lorom() -> (Buffers, Vec<RetroMemoryDescriptor>) {
+    pub fn snes_lorom_mirrored_map() -> (Buffers, Vec<RetroMemoryDescriptor>) {
         let buffers = Buffers {
             blocks: vec![
                 filled(0x20000, 40),
@@ -700,6 +699,49 @@ pub mod fixtures {
             ),
         ];
         (buffers, table)
+    }
+
+    /// Plain system-RAM descriptors at `(start, len)`, one buffer each, no names.
+    fn plain(regions: &[(usize, usize)], seed: u8) -> (Buffers, Vec<RetroMemoryDescriptor>) {
+        let buffers = Buffers {
+            blocks: regions
+                .iter()
+                .enumerate()
+                .map(|(i, (_, len))| filled(*len, seed.wrapping_add(i as u8 * 10)))
+                .collect(),
+        };
+        let table = regions
+            .iter()
+            .enumerate()
+            .map(|(i, (start, len))| RetroMemoryDescriptor {
+                flags: MEMDESC_SYSTEM_RAM,
+                ptr: buffers.ptr(i) as *mut c_void,
+                offset: 0,
+                start: *start,
+                select: 0,
+                disconnect: 0,
+                len: *len,
+                addrspace: std::ptr::null(),
+            })
+            .collect();
+        (buffers, table)
+    }
+
+    /// BlastEm with Continuum's patch (`scripts/patches/blastem-continuum-memory.patch`), Sega
+    /// CD: 68K RAM at $FF0000, PRG RAM at $80020000, word RAM at $200000.
+    pub fn blastem_segacd() -> (Buffers, Vec<RetroMemoryDescriptor>) {
+        plain(&[(0xFF_0000, 0x10000), ((1usize << 31) | 0x02_0000, 0x80000), (0x20_0000, 0x40000)], 70)
+    }
+
+    /// The same patch, 32X: 68K RAM at $FF0000 and the 32X SDRAM at $06000000.
+    pub fn blastem_32x() -> (Buffers, Vec<RetroMemoryDescriptor>) {
+        plain(&[(0xFF_0000, 0x10000), (0x0600_0000, 0x40000)], 80)
+    }
+
+    /// Gearsystem with Continuum's patch (`scripts/patches/gearsystem-sg1000-memory-map.patch`),
+    /// an SG-1000 cartridge with extra RAM: 1 KB at $C000, 8 KB at $2000 and at $8000.
+    pub fn gearsystem_sg1000() -> (Buffers, Vec<RetroMemoryDescriptor>) {
+        plain(&[(0xC000, 0x400), (0x2000, 0x2000), (0x8000, 0x2000)], 90)
     }
 
     pub fn copy(table: &[RetroMemoryDescriptor]) -> Vec<MemoryDescriptor> {
@@ -800,8 +842,8 @@ mod tests {
     }
 
     #[test]
-    fn gpgx_segacd_prg_ram_lives_at_the_virtual_scd_bit_address() {
-        let (_buffers, raw, _names) = gpgx_segacd();
+    fn segacd_prg_ram_lives_at_the_virtual_scd_bit_address() {
+        let (_buffers, raw, _names) = segacd_split_prg_map();
         let table = copy(&raw);
         assert_eq!(table[1].addrspace, "PRGRAM");
         assert_eq!(find(&table, 0x00FF_0010), Some((0, 0x10)));
@@ -818,8 +860,8 @@ mod tests {
     }
 
     #[test]
-    fn snes9x2010_wram_mirrors_and_disconnected_sram() {
-        let (_buffers, raw) = snes9x2010_lorom();
+    fn snes_wram_mirrors_and_disconnected_sram() {
+        let (_buffers, raw) = snes_lorom_mirrored_map();
         let table = copy(&raw);
         assert_eq!(find(&table, 0x7E_0000), Some((0, 0)));
         assert_eq!(find(&table, 0x7F_0001), Some((0, 0x1_0001)));
@@ -932,8 +974,8 @@ mod tests {
 
     #[test]
     fn a_map_with_no_system_ram_flags_leaves_retroarch_on_system_ram() {
-        // snes9x2010 flags nothing, so RetroArch's cheat manager uses RETRO_MEMORY_SYSTEM_RAM.
-        let (_buffers, raw) = snes9x2010_lorom();
+        // A map that flags nothing: RetroArch's cheat manager uses RETRO_MEMORY_SYSTEM_RAM.
+        let (_buffers, raw) = snes_lorom_mirrored_map();
         let table = copy(&raw);
         assert!(!has_cheat_ram(&table));
         assert_eq!(cheat_buffers(&table).count(), 0);

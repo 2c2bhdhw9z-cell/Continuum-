@@ -12,6 +12,7 @@
 //! [`InputSnapshot::libretro_state`] can answer a core's `input_state` callback
 //! with no translation layer in between.
 
+pub mod core_layout;
 mod gamepad;
 pub mod keyboard;
 pub mod remap;

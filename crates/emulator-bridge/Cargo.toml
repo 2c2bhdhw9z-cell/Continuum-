@@ -35,7 +35,7 @@ uniffi = { version = "0.28", optional = true }
 # Import (src/import): game archives and disc images, all pure Rust so the same code builds for
 # aarch64-apple-ios and for Android later with no C toolchain. zip reads and writes .zip (deflate
 # through miniz_oxide); sevenz-rust2 reads .7z (LZMA, LZMA2, PPMd, built in; 0.20 is the last
-# release whose rust-version fits the pinned 1.92 toolchain); chd reads MAME's CHD disc images
+# release whose rust-version fits the pinned 1.92 toolchain); chd reads CHD disc images
 # with every CD codec (cdlz, cdzl, cdfl, zstd).
 zip = { version = "2", default-features = false, features = ["deflate"] }
 sevenz-rust2 = { version = "=0.20.0", default-features = false, features = ["ppmd"] }

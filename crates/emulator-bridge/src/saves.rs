@@ -492,7 +492,7 @@ mod tests {
     fn sample_meta() -> StateExportMeta {
         StateExportMeta {
             game_id: "Super Mario World (USA).sfc".into(),
-            core_id: Some("snes9x".into()),
+            core_id: Some("bsnes".into()),
             core_version: Some("1.62.3 abc123".into()),
             byte_count: 0,
             frame: 12345,
@@ -519,7 +519,7 @@ mod tests {
     /// Exactly what a build from before exports carried options writes, byte for byte.
     fn old_format_export(payload: &[u8]) -> Vec<u8> {
         let header = format!(
-            "game_id=Super Mario World (USA).sfc\ncore_id=snes9x\ncore_version=1.62.3 abc123\n\
+            "game_id=Super Mario World (USA).sfc\ncore_id=bsnes\ncore_version=1.62.3 abc123\n\
              byte_count={}\nframe=12345\ncreated_at=1700000000.5\nslot=7\n\
              label=before the castle\\nsecond line\n",
             payload.len()
@@ -596,7 +596,7 @@ mod tests {
         assert_eq!(first, pack_state_export(&meta.clone(), &[1, 2]));
         assert_eq!(
             header_of(&first),
-            "game_id=Super Mario World (USA).sfc\ncore_id=snes9x\ncore_version=1.62.3 abc123\n\
+            "game_id=Super Mario World (USA).sfc\ncore_id=bsnes\ncore_version=1.62.3 abc123\n\
              byte_count=2\nframe=12345\ncreated_at=1700000000.5\nslot=7\nlabel=\n\
              core_option_count=2\ncore_option=a\\=1=x\\ny\ncore_option=zeta=1\n"
         );

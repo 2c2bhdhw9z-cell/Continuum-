@@ -775,7 +775,7 @@ impl ContinuumEngine {
         filename: String,
     ) -> Result<(), EngineError> {
         // `ContentHint::from_filename` splits the extension off, which is what real cores
-        // use to resolve their content-info overrides — and for Genesis Plus GX was the
+        // use to resolve their content-info overrides — and for a multi-system core can be the
         // difference between a Master System cart booting as a Master System and as a Mega
         // Drive. The same parsing serves the Switch container extensions.
         let hint = crate::cores::ContentHint::from_filename(&filename);

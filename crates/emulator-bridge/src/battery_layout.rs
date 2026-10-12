@@ -3,16 +3,16 @@
 //! Pure functions; `bridge.rs` calls them on the way into a core (`restore_battery_save`) and on
 //! the way out (`battery_save`), so the file on disk keeps one layout whichever core plays it.
 //!
-//! - **Padding.** A file longer than the save RAM whose extra bytes are all `0xFF` (Genesis Plus
-//!   GX's 64 KB `.srm` written before a game's first frame, a RetroArch file) is cut to size. For
+//! - **Padding.** A file longer than the save RAM whose extra bytes are all `0xFF` (a 64 KB
+//!   `.srm` written before a game's first frame, a RetroArch file) is cut to size. For
 //!   bsnes an all-`0x00` tail is cut as well, the padding other SNES emulators write.
-//! - **Mega Drive cartridge SRAM on BlastEm.** Genesis Plus GX (and so every Mega Drive save made
-//!   before the licence swap) writes a 64 KB window indexed by the 68K address, `a & 0xFFFF`.
+//! - **Mega Drive cartridge SRAM on BlastEm.** Every Mega Drive save made before the licence swap
+//!   is in the GPGX layout: a 64 KB window indexed by the 68K address, `a & 0xFFFF`.
 //!   BlastEm keeps only the bytes the cartridge really has: odd bytes, even bytes, or 16-bit
-//!   words in host order. The file stays in the Genesis Plus GX layout, so it still syncs with a
+//!   words in host order. The file stays in the GPGX layout, so it still syncs with a
 //!   phone on an older build and still loads in RetroArch; the engine converts at the boundary.
 //! - **Files other cores wrote.** Mesen 2 kept NES saves as `<game>.sav` in the system folder,
-//!   and Genesis Plus GX kept the Sega CD's backup RAM as `scd_U/E/J.brm` there. Those are the
+//!   and the Sega CD's backup RAM was kept as `scd_U/E/J.brm` there. Those are the
 //!   candidates a first load can pick up.
 
 use std::path::{Path, PathBuf};
@@ -46,11 +46,11 @@ pub enum BatteryLayout {
     /// Byte for byte, with only the padding rule.
     #[default]
     Raw,
-    /// BlastEm on a Mega Drive cartridge: Genesis Plus GX's layout on disk.
+    /// BlastEm on a Mega Drive cartridge: the GPGX layout on disk.
     MegaDriveGpgx(MdSram),
 }
 
-/// The Genesis Plus GX window: `a & 0xFFFF`.
+/// The GPGX window: `a & 0xFFFF`.
 const GPGX_WINDOW: usize = 0x10000;
 /// With no header, a save this size or smaller is an EEPROM laid out from 0 in both cores.
 const LINEAR_MAX: usize = 0x2000;
@@ -116,7 +116,7 @@ pub fn layout_for(core_id: &str, ext: &str, head: &[u8]) -> BatteryLayout {
     match md_sram_from_header(head) {
         // BlastEm has no SRAM there at all (a mapper register range), so nothing to convert.
         Some(s) if s.start >= 0x80_0000 => BatteryLayout::Raw,
-        // Wider than Genesis Plus GX's window: GPGX itself aliased it, so keep BlastEm's bytes.
+        // Wider than the GPGX window: the old core aliased it, so keep BlastEm's bytes.
         Some(s) if (s.end - s.start + 1) as usize > GPGX_WINDOW => BatteryLayout::Raw,
         Some(s) => BatteryLayout::MegaDriveGpgx(s),
         None if has_ra(head) => BatteryLayout::Raw,
@@ -140,7 +140,7 @@ fn live_addresses(sram: &MdSram) -> Option<Vec<u32>> {
     })
 }
 
-/// A Genesis Plus GX battery file as BlastEm's live save RAM of `live_size` bytes. Refused when
+/// A GPGX-layout battery file as BlastEm's live save RAM of `live_size` bytes. Refused when
 /// the result would not be exactly that size, so the file is never half-loaded.
 pub fn gpgx_to_live(file: &[u8], sram: &MdSram, live_size: usize) -> Result<Vec<u8>, String> {
     let out = match live_addresses(sram) {
@@ -174,7 +174,7 @@ pub fn gpgx_to_live(file: &[u8], sram: &MdSram, live_size: usize) -> Result<Vec<
     Ok(out)
 }
 
-/// BlastEm's live save RAM back as a Genesis Plus GX file: `(end & 0xFFFF) + 1` bytes, `0xFF`
+/// BlastEm's live save RAM back as a GPGX-layout file: `(end & 0xFFFF) + 1` bytes, `0xFF`
 /// where the cartridge has no byte. The exact inverse of [`gpgx_to_live`].
 pub fn live_to_gpgx(live: &[u8], sram: &MdSram) -> Vec<u8> {
     let Some(addrs) = live_addresses(sram) else {
@@ -212,7 +212,7 @@ pub fn migration_candidates(core_id: &str, ext: &str, content_name: &str, suppor
             let stem = Path::new(content_name).file_stem().map(|s| s.to_string_lossy().into_owned());
             stem.filter(|s| !s.is_empty()).map(|s| vec![support_dir.join(format!("{s}.sav"))]).unwrap_or_default()
         }
-        // Genesis Plus GX: one backup RAM per region in the system folder.
+        // The Sega CD before the swap: one backup RAM per region in the system folder.
         ("blastem", "cue" | "chd" | "iso" | "m3u") => {
             ["scd_U.brm", "scd_E.brm", "scd_J.brm"].iter().map(|n| support_dir.join(n)).collect()
         }
@@ -236,7 +236,7 @@ mod tests {
         h
     }
 
-    /// What Genesis Plus GX wrote for the evaluation's sramtest carts (make_sramtest.py): 0x22+i
+    /// What the old core wrote for the evaluation's sramtest carts (make_sramtest.py): 0x22+i
     /// at the i-th cartridge byte in 68K address order (stride 2 for odd and even, 1 for 16-bit),
     /// 0xFF everywhere else in the window, trimmed after the last written byte.
     fn gpgx_file(sram: &MdSram, count: usize) -> Vec<u8> {
@@ -287,7 +287,7 @@ mod tests {
     }
 
     #[test]
-    fn odd_even_and_word_carts_read_as_genesis_plus_gx_wrote_them() {
+    fn odd_even_and_word_carts_read_as_gpgx_wrote_them() {
         for (flags, end) in [(0x18u8, 0x203FFFu32), (0x10, 0x203FFE), (0x00, 0x203FFF)] {
             let sram = md_sram_from_header(&header(flags, 0x200000 | (flags == 0x18) as u32, end)).unwrap();
             let live_size = match sram.lane { SramLane::Word => 0x4000, _ => 0x2000 };
@@ -334,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn a_trimmed_genesis_plus_gx_file_and_a_wrong_size_are_handled() {
+    fn a_trimmed_gpgx_file_and_a_wrong_size_are_handled() {
         let sram = MdSram { lane: SramLane::Odd, start: 0x200000, end: 0x203FFF };
         // GPGX trimmed after its last non-FF byte: only 3 bytes on disk.
         let live = gpgx_to_live(&[0xFF, 0x41, 0xFF, 0x42], &sram, 0x2000).unwrap();

@@ -439,10 +439,10 @@ mod tests {
     #[test]
     fn system_lookup_finds_declared_core() {
         let mut reg = CoreRegistry::new();
-        reg.declare(descriptor("snes9x", "snes"));
+        reg.declare(descriptor("bsnes", "snes"));
         assert_eq!(
             reg.core_for_system("snes").map(|d| d.id.as_str()),
-            Some("snes9x")
+            Some("bsnes")
         );
         assert!(reg.core_for_system("n64").is_none());
     }
@@ -551,21 +551,21 @@ mod tests {
     #[test]
     fn unload_frees_memory_but_keeps_declaration() {
         let mut reg = CoreRegistry::new();
-        reg.declare(descriptor("snes9x", "snes"));
-        reg.attach_module("snes9x", MODULE).unwrap();
-        reg.unload("snes9x").unwrap();
-        assert_eq!(reg.state("snes9x"), Some(CoreState::Declared));
-        assert!(reg.is_declared("snes9x"));
+        reg.declare(descriptor("bsnes", "snes"));
+        reg.attach_module("bsnes", MODULE).unwrap();
+        reg.unload("bsnes").unwrap();
+        assert_eq!(reg.state("bsnes"), Some(CoreState::Declared));
+        assert!(reg.is_declared("bsnes"));
     }
 
     #[test]
     fn cannot_unload_a_bound_core() {
         let mut reg = CoreRegistry::new();
-        reg.declare(descriptor("snes9x", "snes"));
-        reg.attach_module("snes9x", MODULE).unwrap();
-        let _core = reg.take_for_session("snes9x").unwrap();
+        reg.declare(descriptor("bsnes", "snes"));
+        reg.attach_module("bsnes", MODULE).unwrap();
+        let _core = reg.take_for_session("bsnes").unwrap();
         assert!(matches!(
-            reg.unload("snes9x"),
+            reg.unload("bsnes"),
             Err(BridgeError::CoreBusy(_))
         ));
     }

@@ -15,7 +15,7 @@
 //!   mGBA's `SYSTEM_RAM` is only one of its two work RAMs, but its map has both.
 //! - **Without one**: the console's regions are served from `SYSTEM_RAM` and `SAVE_RAM` in order,
 //!   which is the right answer wherever the console's achievement RAM is exactly those two
-//!   buffers back to back (NES, Game Boy, Master System, Mega Drive, SNES on snes9x, PlayStation).
+//!   buffers back to back (NES, Game Boy, Master System, Mega Drive, SNES, PlayStation).
 //! - **No console table at all**: system RAM, then save RAM.
 
 /// rcheevos' `RC_MEMORY_TYPE_*`, rc_consoles.h line 110 onwards. An enum in C starting at zero.
@@ -404,8 +404,8 @@ mod tests {
     }
 
     #[test]
-    fn segacd_through_gpgx_map_reads_all_of_prg_ram() {
-        let (buffers, raw, _names) = crate::memory_maps::fixtures::gpgx_segacd();
+    fn segacd_through_a_split_prg_map_reads_all_of_prg_ram() {
+        let (buffers, raw, _names) = crate::memory_maps::fixtures::segacd_split_prg_map();
         let map = crate::memory_maps::fixtures::copy(&raw);
         let console = [
             real(0x00000, 0x0FFFF, 0x00FF_0000, RC_MEMORY_TYPE_SYSTEM_RAM),
@@ -421,8 +421,8 @@ mod tests {
     }
 
     #[test]
-    fn snes_through_a_snes9x2010_map_reads_work_ram_and_leaves_cart_ram_unmapped() {
-        let (buffers, raw) = crate::memory_maps::fixtures::snes9x2010_lorom();
+    fn snes_through_a_mirrored_map_reads_work_ram_and_leaves_cart_ram_unmapped() {
+        let (buffers, raw) = crate::memory_maps::fixtures::snes_lorom_mirrored_map();
         let map = crate::memory_maps::fixtures::copy(&raw);
         let console = [
             real(0x00000, 0x1FFFF, 0x07E_0000, RC_MEMORY_TYPE_SYSTEM_RAM),
@@ -433,6 +433,59 @@ mod tests {
         // rcheevos puts SNES cartridge RAM at a made-up $1000000, outside any SNES address, so a
         // core's map cannot reach it. RetroArch reads nothing there either.
         assert_eq!(byte_at(&blocks, 0x20000), None);
+    }
+
+    #[test]
+    fn segacd_through_blastems_map_reads_all_of_prg_and_word_ram() {
+        // rcheevos console 9.
+        let (buffers, raw) = crate::memory_maps::fixtures::blastem_segacd();
+        let map = crate::memory_maps::fixtures::copy(&raw);
+        let console = [
+            real(0x00000, 0x0FFFF, 0x00FF_0000, RC_MEMORY_TYPE_SYSTEM_RAM),
+            real(0x10000, 0x8FFFF, 0x8002_0000, RC_MEMORY_TYPE_SYSTEM_RAM),
+            real(0x90000, 0xAFFFF, 0x0020_0000, RC_MEMORY_TYPE_SYSTEM_RAM),
+        ];
+        let blocks = build(&console, &map, |_| None);
+        assert_eq!(byte_at(&blocks, 0x00010), Some(buffers.blocks[0][0x10]));
+        assert_eq!(byte_at(&blocks, 0x10000), Some(buffers.blocks[1][0]));
+        assert_eq!(byte_at(&blocks, 0x8FFFF), Some(buffers.blocks[1][0x7FFFF]));
+        assert_eq!(byte_at(&blocks, 0xAFFFF), Some(buffers.blocks[2][0x1FFFF]));
+    }
+
+    #[test]
+    fn the_32x_through_blastems_map_reads_work_ram_and_sdram() {
+        // rcheevos console 10: 68K RAM, then the 32X's 256 KB, then cartridge RAM.
+        let (buffers, raw) = crate::memory_maps::fixtures::blastem_32x();
+        let map = crate::memory_maps::fixtures::copy(&raw);
+        let console = [
+            real(0x00000, 0x0FFFF, 0x00FF_0000, RC_MEMORY_TYPE_SYSTEM_RAM),
+            real(0x10000, 0x4FFFF, 0x0600_0000, RC_MEMORY_TYPE_SYSTEM_RAM),
+            real(0x50000, 0x5FFFF, 0x0000_0000, RC_MEMORY_TYPE_SAVE_RAM),
+        ];
+        let blocks = build(&console, &map, |_| None);
+        assert_eq!(byte_at(&blocks, 0x0FFFF), Some(buffers.blocks[0][0xFFFF]));
+        assert_eq!(byte_at(&blocks, 0x10000), Some(buffers.blocks[1][0]));
+        assert_eq!(byte_at(&blocks, 0x4FFFF), Some(buffers.blocks[1][0x3FFFF]));
+        // No cartridge RAM in the map: nothing there, as in RetroArch.
+        assert_eq!(byte_at(&blocks, 0x50000), None);
+    }
+
+    #[test]
+    fn sg1000_through_gearsystems_map_reads_the_extra_cartridge_ram() {
+        // rcheevos console 33: 1 KB of system RAM, its mirror, and the two 8 KB extra-RAM windows.
+        let (buffers, raw) = crate::memory_maps::fixtures::gearsystem_sg1000();
+        let map = crate::memory_maps::fixtures::copy(&raw);
+        let console = [
+            real(0x0000, 0x03FF, 0xC000, RC_MEMORY_TYPE_SYSTEM_RAM),
+            real(0x0400, 0x1FFF, 0xC400, RC_MEMORY_TYPE_SYSTEM_RAM),
+            real(0x2000, 0x3FFF, 0x2000, RC_MEMORY_TYPE_SYSTEM_RAM),
+            real(0x4000, 0x5FFF, 0x8000, RC_MEMORY_TYPE_SYSTEM_RAM),
+        ];
+        let blocks = build(&console, &map, |_| None);
+        assert_eq!(byte_at(&blocks, 0x0010), Some(buffers.blocks[0][0x10]));
+        assert_eq!(byte_at(&blocks, 0x0400), None);
+        assert_eq!(byte_at(&blocks, 0x2005), Some(buffers.blocks[1][5]));
+        assert_eq!(byte_at(&blocks, 0x5FFF), Some(buffers.blocks[2][0x1FFF]));
     }
 
     #[test]

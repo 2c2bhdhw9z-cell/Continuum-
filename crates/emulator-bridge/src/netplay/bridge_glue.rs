@@ -207,6 +207,8 @@ impl EmulatorBridge {
                         };
                         snapshot.ports[0] = inputs[0].to_port();
                         snapshot.ports[1] = inputs[1].to_port();
+                        // After the exchange, so both phones swap the same untranslated bits.
+                        crate::input::core_layout::translate_for(&session.core_id, &mut snapshot);
                         session.core.run_frame(&snapshot)?;
                         session.core.drain_audio(sink.as_mut());
                         steps += 1;

@@ -799,7 +799,7 @@ mod tests {
     fn info(content: &str) -> PeerInfo {
         PeerInfo {
             version: PROTOCOL_VERSION,
-            core_id: "snes9x".into(),
+            core_id: "bsnes".into(),
             core_version: "1.0".into(),
             content_name: content.into(),
             content_fingerprint: super::super::fnv1a64(content.as_bytes()),
