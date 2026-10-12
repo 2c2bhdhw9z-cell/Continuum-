@@ -121,7 +121,7 @@ These come straight from the owner. They are not suggestions.
   **Owner's decision (12 October 2026): get every licence limit out of the app.** All five
   non-commercial cores are swapped out AND removed completely in ONE batch, the one right after
   the cleanup install: from the app, the build scripts, the checksums, the routing, the
-  settings, the credits page and the docs. Arcade moves to current MAME too. Before that batch
+  settings, the credits page and the docs. Before that batch
   ships, check every replacement thoroughly off the phone: build host versions, boot real test
   content through the engine, check speed, in-game saves and save states, and that each file
   type still routes. Then tell the owner which systems changed. The licences that remain
@@ -137,10 +137,16 @@ These come straight from the owner. They are not suggestions.
     32X). Unknowns: speed on iPhone without its PC speed-up, and how mature its CD and 32X
     support is. ClownMDEmu (AGPLv3, MD and CD) is the backup; it is not on the iOS buildbot, so
     it would be built from source.
-  - Arcade: current MAME (GPLv2+) is the only open, complete one. It is about 92 MB zipped (the
-    IPA is about 190 MB now), heavier on the phone, and wants the matching MAME version's game
-    files, so many players' existing arcade zips will not work as they are. Geolith
-    (BSD/MIT) covers Neo Geo, but needs `.neo` files. Arcade has no swap as good as FinalBurn Neo.
+  - **Arcade: NO MAME, no stand-in (owner, 12 October 2026).** FinalBurn Neo and MAME 2003-Plus
+    are removed with the rest, and nothing replaces them for now. Arcade leaves the app until
+    Continuum has an arcade core of its own. That core is required future work: keep it on the
+    to-do list (before the exact Game Boy drawer, which stays last), and treat Arcade in
+    docs/MANIC_PARITY.md as "removed by the owner's choice, own core planned", not as a gap
+    to fill with someone else's core. While arcade is out, an arcade game a player already
+    imported stays in the library and is never deleted. Opening it shows one plain, casual
+    line, for example: "Arcade games aren't playable right now. We're building our own arcade
+    emulator." Don't ask "Which system?" for it, and never crash. Remove the arcade test
+    rows, and the `neogeo.zip` BIOS mention, from TESTING.md.
 - **When the owner puts a ★ or ⭐ on something, save it permanently:** in this file if it is about
   Continuum, or as a Kiro learning if it applies everywhere. Kiro may also save general learnings
   on its own whenever something is worth remembering.
