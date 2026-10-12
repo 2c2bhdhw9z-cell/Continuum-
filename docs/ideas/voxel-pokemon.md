@@ -1,7 +1,24 @@
 # Idea: play the gen1recomp games (and the voxel 3D mod) inside Continuum
 
-The owner raised this on 12 October 2026. **Nothing is decided or built yet.** These notes come
-from one look at the project's licence, releases and mods the same day.
+The owner raised this on 12 October 2026. These notes come from one look at the project's
+licence, releases and mods the same day.
+
+**Owner's decision (12 October 2026): go for the real thing (option 2), not just a button that
+opens the G1R app.**
+- **Step 1:** a look-only investigation that changes nothing in the app. It answers the open
+  questions below and runs right after the cleanup + licence-swap install.
+- **Step 2:** build it, if step 1 says it can work.
+- The owner agrees: if Nintendo takes G1R down, this comes out of Continuum too.
+
+**What the owner saw is built into the game, with no mod needed.** The 3D-looking views in the
+owner's screenshots are G1R's own TILT option (`src/render/Tilt.lua` in 0.3.83). It treats the
+flat world as a tabletop and views it in perspective, off / 15 / 35 / 50 degrees, which is the
+"HD-2D diorama" look. ZOOM is built in too. Both come along with the game. The true voxel mod,
+where the world is made of 3D blocks, is separate and is the only part that has to be added by
+the player.
+
+**Engine version:** `conf.lua` in 0.3.83 asks for LÖVE 12.0 on iOS (11.5 elsewhere). LÖVE 12
+can draw with Metal, which matters for running it inside Continuum.
 
 ## What it is
 - **gen1recomp++ / "G1R Deluxe"** (github.com/bryanthaboi/gen1recomp, by BOIS CLUB GAMES, LLC)
