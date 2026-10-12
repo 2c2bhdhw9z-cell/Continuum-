@@ -674,11 +674,15 @@ targets:
         embed: true
         link: false
         codeSign: false
-      - framework: build/lib/genesis_plus_gx_libretro_ios.dylib
+      - framework: build/lib/bsnes_libretro_ios.dylib
         embed: true
         link: false
         codeSign: false
-      - framework: build/lib/snes9x_libretro_ios.dylib
+      - framework: build/lib/gearsystem_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      - framework: build/lib/blastem_libretro_ios.dylib
         embed: true
         link: false
         codeSign: false
@@ -810,15 +814,7 @@ targets:
         embed: true
         link: false
         codeSign: false
-      - framework: build/lib/fbneo_libretro_ios.dylib
-        embed: true
-        link: false
-        codeSign: false
       - framework: build/lib/mesen2_libretro_ios.dylib
-        embed: true
-        link: false
-        codeSign: false
-      - framework: build/lib/mame2003_plus_libretro_ios.dylib
         embed: true
         link: false
         codeSign: false
@@ -835,10 +831,6 @@ targets:
         link: false
         codeSign: false
       - framework: build/lib/mednafen_saturn_libretro_ios.dylib
-        embed: true
-        link: false
-        codeSign: false
-      - framework: build/lib/picodrive_libretro_ios.dylib
         embed: true
         link: false
         codeSign: false

@@ -1,0 +1,121 @@
+diff --git a/libblastem.c b/libblastem.c
+index 9bb014f..39cd853 100644
+--- a/libblastem.c
++++ b/libblastem.c
+@@ -14,6 +14,8 @@
+ #include "sms.h"
+ #include "cdimage.h"
+ #include "vfs_file.h"
++#include "segacd.h"
++#include "32x.h"
+ 
+ tern_node *config;
+ 
+@@ -1032,6 +1034,48 @@ static void release_media(void)
+ /* Loads a game. */
+ static system_type stype;
+ static bool load_game(const struct retro_game_info *game);
++
++//Continuum: Sega CD and 32X memory. The Sega CD is a genesis_context with a segacd_context
++//in expansion, so its work RAM is there too. Published as the memory map RetroAchievements
++//uses for the Sega CD (68K RAM at $FF0000, PRG RAM at $80020000, Word RAM at $200000),
++//all host-order 16-bit words like work_ram itself.
++static void publish_memory_maps(void)
++{
++	if (stype != SYSTEM_SEGACD && stype != SYSTEM_32X) {
++		return;
++	}
++	genesis_context *gen = (genesis_context *)current_system;
++	static struct retro_memory_descriptor desc[3];
++	memset(desc, 0, sizeof(desc));
++	desc[0].flags = RETRO_MEMDESC_SYSTEM_RAM;
++	desc[0].ptr = gen->work_ram;
++	desc[0].start = 0xFF0000;
++	desc[0].len = RAM_WORDS * sizeof(uint16_t);
++	if (stype == SYSTEM_32X) {
++		//32X SDRAM at $06000000, 256 KB of host-order words.
++		desc[1].flags = RETRO_MEMDESC_SYSTEM_RAM;
++		desc[1].ptr = gen->mars->sdram;
++		desc[1].start = 0x06000000;
++		desc[1].len = 256 * 1024;
++		struct retro_memory_map map32 = { desc, 2 };
++		retro_environment(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &map32);
++		return;
++	}
++	segacd_context *cd = gen->expansion;
++	//What load_save() does in the standalone build, which a libretro build never calls: a
++	//formatted, empty backup RAM, which the frontend's saved copy then replaces.
++	segacd_format_bram(cd->bram, 8 * 1024);
++	desc[1].flags = RETRO_MEMDESC_SYSTEM_RAM;
++	desc[1].ptr = cd->prog_ram;
++	desc[1].start = 0x80020000;
++	desc[1].len = 512 * 1024;
++	desc[2].flags = RETRO_MEMDESC_SYSTEM_RAM;
++	desc[2].ptr = cd->word_ram;
++	desc[2].start = 0x200000;
++	desc[2].len = 256 * 1024;
++	struct retro_memory_map map = { desc, 3 };
++	retro_environment(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &map);
++}
+ RETRO_API bool retro_load_game(const struct retro_game_info *game)
+ {
+ 	last_warning[0] = 0;
+@@ -1114,6 +1158,7 @@ static bool load_game(const struct retro_game_info *game)
+ 	retro_environment(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &format);
+ 
+ 	update_av_info();
++	publish_memory_maps();
+ 
+ 	return 1;
+ }
+@@ -1154,7 +1199,9 @@ RETRO_API void *retro_get_memory_data(unsigned id)
+ 	switch (id) {
+ 	case RETRO_MEMORY_SYSTEM_RAM:
+ 		switch (stype) {
+-		case SYSTEM_GENESIS: {
++		case SYSTEM_GENESIS:
++		case SYSTEM_SEGACD:
++		case SYSTEM_32X: {
+ 			genesis_context *gen = (genesis_context *)current_system;
+ 			return (uint8_t *)gen->work_ram;
+ 		}
+@@ -1167,10 +1214,15 @@ RETRO_API void *retro_get_memory_data(unsigned id)
+ 		}
+ 		break;
+ 	case RETRO_MEMORY_SAVE_RAM:
+-		if (stype == SYSTEM_GENESIS) {
++		if (stype == SYSTEM_GENESIS || stype == SYSTEM_32X) {
+ 			genesis_context *gen = (genesis_context *)current_system;
+ 			if (gen->save_type != SAVE_NONE)
+ 				return gen->save_storage;
++		} else if (stype == SYSTEM_SEGACD) {
++			//The console's 8 KB backup RAM, byte for byte the layout Genesis Plus GX
++			//writes to scd_U/E/J.brm (both index it by address >> 1).
++			segacd_context *cd = ((genesis_context *)current_system)->expansion;
++			return cd->bram;
+ 		}
+ 		break;
+ 	default:
+@@ -1185,6 +1237,8 @@ RETRO_API size_t retro_get_memory_size(unsigned id)
+ 	case RETRO_MEMORY_SYSTEM_RAM:
+ 		switch (stype) {
+ 		case SYSTEM_GENESIS:
++		case SYSTEM_SEGACD:
++		case SYSTEM_32X:
+ 			return RAM_WORDS * sizeof(uint16_t);
+ #ifndef NO_Z80
+ 		case SYSTEM_SMS:
+@@ -1193,10 +1247,12 @@ RETRO_API size_t retro_get_memory_size(unsigned id)
+ 		}
+ 		break;
+ 	case RETRO_MEMORY_SAVE_RAM:
+-		if (stype == SYSTEM_GENESIS) {
++		if (stype == SYSTEM_GENESIS || stype == SYSTEM_32X) {
+ 			genesis_context *gen = (genesis_context *)current_system;
+ 			if (gen->save_type != SAVE_NONE)
+ 				return gen->save_size;
++		} else if (stype == SYSTEM_SEGACD) {
++			return 8 * 1024;
+ 		}
+ 		break;
+ 	default:

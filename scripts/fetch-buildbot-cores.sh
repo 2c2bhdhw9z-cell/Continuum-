@@ -6,7 +6,7 @@
 #   scripts/fetch-buildbot-cores.sh names      print the canonical dylib filenames and stop
 #   scripts/fetch-buildbot-cores.sh systems    print "<dylib> <system>" per core and stop
 #
-# WHY PREBUILT: twenty more cores compiled from source would blow the CI time limit
+# WHY PREBUILT: seventeen more cores compiled from source would blow the CI time limit
 # (docs/MANIC_PARITY.md, "Decisions already made"). Cores the buildbot does not carry are built
 # from source by scripts/build-core.sh like the original twelve.
 #
@@ -66,17 +66,14 @@ pinned_sha256() {
   case "$1" in
     a5200)               echo "9c134a3b51496fbc7b43b2572e57e48ee884f92e0709c17e1c57d46ec3f605dd" ;;
     dosbox_pure)         echo "01200d7c974308a79f29de978685f276fadd510980f49324d6dc5d503854538a" ;;
-    fbneo)               echo "04d0c5a304a9a1ed038ffebf3f94854c1cab71e6e5f1d3d004d552bff51fcd3c" ;;
     handy)               echo "402ba7a02edf5ba345464de4c0e332faefe86c4d4cb73ed44f6a11962b50846b" ;;
     mesen2)              echo "45dad6b7ea69142cc98d8c9b5274506b75752bedda89d69acdf8469c3b1d401b" ;;
-    mame2003_plus)       echo "2cebb44c5fa26931b60de23cb4260b1db7ebaade413f42df1665cffaaad89ce1" ;;
     mednafen_ngp)        echo "1ed8617c9e45a572998d093d5b389f3ee16eeb9e019c6dbe2f9b9beaa59ff7ae" ;;
     mednafen_pce)        echo "6e078cf6fe615bf171b8c2401681457f233e26793a5eb42d736159d55483815b" ;;
     mednafen_saturn)     echo "cbb2f723ccdd99230e28c493d35b0d728112f79d48f07081ad6852dc9340e16c" ;;
     mednafen_supergrafx) echo "e4fd854cf959fc7d9d6775a875fbf0736627a0bead2a4653afeb76766bf45881" ;;
     mednafen_vb)         echo "1bd318f06c0d1f794d6712a37c27f58479a37297838ea1e6d150d73283941ce4" ;;
     mednafen_wswan)      echo "9aa05d0207e283731e6d0bde7aa6830de4269b0465b53f47ceb2e99d0ff6e5a5" ;;
-    picodrive)           echo "592c0f0d05e1615994002d7e313ee91f1347421ce0ceffc7d7d4ab471e121f1f" ;;
     pokemini)            echo "3964e0b8effcbc036e7af63adb31788b83759b5a4d78d5b3d8ce9ffc7a70ac02" ;;
     prboom)              echo "65b4f8ab9f21011a19b023bdde585946d908120c1a98c81480fec1e5b6997be7" ;;
     prosystem)           echo "c175f25ee35c79deaf5ccf8b2995dcb6c3db2890d98213a15f1de1c9b2500a9b" ;;
@@ -106,14 +103,11 @@ BUILDBOT_CORES=(
   "handy Atari-Lynx"
   "prosystem Atari-7800"
   "a5200 Atari-5200"
-  "fbneo Arcade"
-  "mame2003_plus Arcade-MAME-2003-Plus"
   "mesen2 NES-Mesen"
   "pokemini Pokemon-Mini"
   "mednafen_vb Virtual-Boy"
   "yabause Saturn"
   "mednafen_saturn Saturn-Beetle"
-  "picodrive Sega-32X"
 )
 
 dylib_for() { echo "${1}_libretro_ios.dylib"; }

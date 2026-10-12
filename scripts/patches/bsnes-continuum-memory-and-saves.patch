@@ -1,0 +1,97 @@
+diff --git a/bsnes/target-libretro/libretro.cpp b/bsnes/target-libretro/libretro.cpp
+index 66ba7ce..4cfdd7a 100644
+--- a/bsnes/target-libretro/libretro.cpp
++++ b/bsnes/target-libretro/libretro.cpp
+@@ -2,7 +2,7 @@
+ #include "libretro.h"
+ #include "libretro_core_options.h"
+ #include <emulator/emulator.hpp>
+-#include <sfc/interface/interface.hpp>
++#include <sfc/sfc.hpp>
+ #include "program.h"
+ 
+ retro_environment_t environ_cb;
+@@ -933,6 +933,8 @@ bool retro_load_game(const retro_game_info *game)
+ 
+ 	update_variables();
+ 	program->updateVideoPalette();
++	// Continuum: exact (deterministic) save states for rewind, run-ahead and netplay.
++	emulator->configure("System/Serialization/Method", "Strict");
+ 
+ 	if (string(game->path).endsWith(".gb") || string(game->path).endsWith(".gbc"))
+ 	{
+@@ -1025,6 +1027,8 @@ bool retro_load_game_special(unsigned game_type,
+ 
+ void retro_unload_game()
+ {
++	// Continuum: battery RAM is persisted by the frontend through retro_get_memory_data; the
++	// core-side save.ram write is skipped (RTC files are still written by Program::save's open()).
+ 	program->save();
+ 	emulator->unload();
+ }
+@@ -1036,12 +1040,51 @@ unsigned retro_get_region()
+ 
+ // Currently, there is no safe/sensible way to use the memory interface without severe hackery.
+ // Rely on higan to load and save SRAM until there is really compelling reason not to.
++// Continuum: expose work RAM and the cartridge's battery RAM so the frontend can
++// own the .srm (periodic flush) and RetroAchievements / RAM search can read memory.
++static SuperFamicom::WritableMemory* continuum_cart_ram()
++{
++	using namespace SuperFamicom;
++	if(!emulator->loaded() || program->gameBoy.program) return nullptr;
++	if(cartridge.has.SA1) return &sa1.bwram;
++	if(cartridge.has.SuperFX) return &superfx.ram;
++	if(cartridge.has.HitachiDSP) return &hitachidsp.ram;
++	if(cartridge.has.SPC7110) return &spc7110.ram;
++	if(cartridge.has.OBC1) return &obc1.ram;
++	return &cartridge.ram;
++}
++
++// ST010 (F1 ROC II) keeps its battery RAM inside the chip; bsnes's HLE never writes it to disk.
++static uint8_t* continuum_st010_ram(size_t* size)
++{
++	using namespace SuperFamicom;
++	if(!emulator->loaded() || !cartridge.has.ST0010) return nullptr;
++	*size = sizeof(st0010.ram);
++	return st0010.ram;
++}
++
+ void *retro_get_memory_data(unsigned id)
+ {
++	if(!emulator->loaded() || program->gameBoy.program) return nullptr;
++	switch(id) {
++		case RETRO_MEMORY_SAVE_RAM: {
++			size_t n = 0; if(auto st = continuum_st010_ram(&n)) return st;
++			auto m = continuum_cart_ram(); return m && m->size() ? m->data() : nullptr;
++		}
++		case RETRO_MEMORY_SYSTEM_RAM: return SuperFamicom::cpu.wram;
++	}
+ 	return nullptr;
+ }
+ 
+ size_t retro_get_memory_size(unsigned id)
+ {
++	if(!emulator->loaded() || program->gameBoy.program) return 0;
++	switch(id) {
++		case RETRO_MEMORY_SAVE_RAM: {
++			size_t n = 0; if(continuum_st010_ram(&n)) return n;
++			auto m = continuum_cart_ram(); return m ? m->size() : 0;
++		}
++		case RETRO_MEMORY_SYSTEM_RAM: return 128 * 1024;
++	}
+ 	return 0;
+ }
+diff --git a/bsnes/target-libretro/program.cpp b/bsnes/target-libretro/program.cpp
+index 614e8fd..9dc4fc8 100644
+--- a/bsnes/target-libretro/program.cpp
++++ b/bsnes/target-libretro/program.cpp
+@@ -501,6 +501,9 @@ auto Program::openRomSuperFamicom(string name, vfs::file::mode mode) -> shared_p
+ 		return vfs::fs::file::open({Location::notsuffix(superFamicom.location), name}, mode);
+ 	}
+ 	else if (name == "save.ram") {
++		// Continuum: the frontend owns the battery save through retro_get_memory_data(SAVE_RAM),
++		// so the core neither reads nor writes a .srm of its own (no stray second copy).
++		return {};
+ 		string save_path;
+ 
+ 		auto suffix = Location::suffix(base_name);

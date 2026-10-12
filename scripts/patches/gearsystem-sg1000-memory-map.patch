@@ -1,0 +1,89 @@
+diff --git a/platforms/libretro/libretro.cpp b/platforms/libretro/libretro.cpp
+index 5a81529..ad9dc0f 100644
+--- a/platforms/libretro/libretro.cpp
++++ b/platforms/libretro/libretro.cpp
+@@ -31,6 +31,8 @@
+ #include "../../src/gearsystem.h"
+ #include "libretro_core_options.h"
+ #include "libretro_link.h"
++#include "../../src/JumboDahjeeMemoryRule.h"
++
+ 
+ #ifdef _WIN32
+ static const char slash = '\\';
+@@ -94,6 +96,53 @@ static GearsystemCore::GlassesConfig glasses_config;
+ static const retro_vfs_interface* vfs_interface = NULL;
+ static std::vector<std::string> libretro_cheats;
+ 
++// Continuum: SG-1000 memory map. Publish the real bus layout so RetroAchievements (rc_libretro)
++// sees the 1 KB system RAM at $C000 and the extra cartridge RAM some carts have ($2000-$3FFF, $8000-$9FFF), which neither
++// RETRO_MEMORY_SYSTEM_RAM nor RETRO_MEMORY_SAVE_RAM expose.
++static void set_sg1000_memory_map(void)
++{
++    static struct retro_memory_descriptor descs[4];
++    unsigned count = 0;
++    Cartridge* cart = core->GetCartridge();
++    u8* map = core->GetMemory()->GetMemoryMap();
++
++    if (!cart->IsSG1000())
++        return;
++
++    memset(descs, 0, sizeof(descs));
++    descs[count].flags = RETRO_MEMDESC_SYSTEM_RAM;
++    descs[count].ptr = map + 0xC000;
++    descs[count].start = 0xC000;
++    descs[count].len = 0x400;
++    count++;
++
++    if (cart->GetType() == Cartridge::CartridgeJumboDahjeeMapper)
++    {
++        JumboDahjeeMemoryRule* rule = static_cast<JumboDahjeeMemoryRule*>(core->GetMemory()->GetCurrentRule());
++        descs[count].flags = RETRO_MEMDESC_SYSTEM_RAM;
++        descs[count].ptr = rule->GetCartRAM();
++        descs[count].start = 0x2000;
++        descs[count].len = 0x2000;
++        count++;
++    }
++    else if (cart->HasRAMWithoutBattery())
++    {
++        descs[count].flags = RETRO_MEMDESC_SYSTEM_RAM;
++        descs[count].ptr = map + 0x2000;
++        descs[count].start = 0x2000;
++        descs[count].len = 0x2000;
++        count++;
++        descs[count].flags = RETRO_MEMDESC_SYSTEM_RAM;
++        descs[count].ptr = map + 0x8000;
++        descs[count].start = 0x8000;
++        descs[count].len = 0x2000;
++        count++;
++    }
++
++    struct retro_memory_map mmaps = { descs, count };
++    environ_cb(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &mmaps);
++}
++
+ static void init_instances(unsigned count);
+ static void load_bootroms(GearsystemCore* target);
+ static bool load_game(const struct retro_game_info* first, const struct retro_game_info* second);
+@@ -518,6 +567,9 @@ static bool load_game(const struct retro_game_info* info, const struct retro_gam
+         link_cable->PersistentMemory(false, vfs_interface);
+     }
+ 
++    if (!link_cable)
++        set_sg1000_memory_map();
++
+     bool achievements = !link_cable;
+     environ_cb(RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS, &achievements);
+ 
+diff --git a/src/JumboDahjeeMemoryRule.h b/src/JumboDahjeeMemoryRule.h
+index 098c068..fb6b0b3 100644
+--- a/src/JumboDahjeeMemoryRule.h
++++ b/src/JumboDahjeeMemoryRule.h
+@@ -8,6 +8,7 @@ class JumboDahjeeMemoryRule : public MemoryRule
+ public:
+     JumboDahjeeMemoryRule(Memory* pMemory, Cartridge* pCartridge, Input* pInput);
+     virtual ~JumboDahjeeMemoryRule();
++    u8* GetCartRAM() { return m_pCartRAM; }
+     virtual u8 PerformRead(u16 address);
+     virtual void PerformWrite(u16 address, u8 value);
+     virtual void Reset();

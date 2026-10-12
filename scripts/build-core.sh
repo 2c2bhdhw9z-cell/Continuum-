@@ -62,13 +62,6 @@ WORK="$ROOT/.work"
 #                    XRGB8888 on device rather than its default RGB565. That is fine:
 #                    the format is renegotiated through SET_PIXEL_FORMAT inside
 #                    retro_load_game and native_core.rs reports whatever the core chose.
-#   genesis_plus_gx  Makefile.libretro at the repo root. platform=ios-arm64 sets CC/CXX to
-#                    arm64 with -isysroot, SHARED=-dynamiclib (no --version-script on iOS,
-#                    which Apple's linker would reject) and the same
-#                    $(TARGET_NAME)_libretro_ios.dylib TARGET.
-#   snes9x           The makefile is libretro/Makefile and it sets CORE_DIR := .., so make
-#                    must run INSIDE the libretro subdirectory and the dylib lands there.
-#                    C++: LD is $(CXX), so libc++ comes in by itself.
 #   pcsx_rearmed     Makefile.libretro at the repo root, with recursive submodules
 #                    (lightrec, libchdr). platform=ios-arm64 force-disables the dynarec,
 #                    so this core is INTERPRETER-only: correct but slower, and with no
@@ -85,7 +78,7 @@ WORK="$ROOT/.work"
 
 # The iOS cores, in build order. Never empty, which matters: macOS ships bash 3.2,
 # where an empty array expanded under `set -u` is an error rather than nothing.
-IOS_CORES=(fceumm mgba genesis_plus_gx snes9x pcsx_rearmed mednafen_psx_hw melonds
+IOS_CORES=(fceumm mgba bsnes gearsystem blastem pcsx_rearmed mednafen_psx_hw melonds
            mednafen_pce_fast stella2023 parallel_n64 azahar ppsspp)
 
 # Cores built from source that are ALLOWED TO FAIL. `ios-all` builds them after the required
@@ -182,6 +175,8 @@ ios_core_config() {
   IOS_KIND=""
   IOS_MAKEFILE=""
   IOS_MAKE_SUBDIR="."
+  # Where a make-based core leaves its dylib, relative to IOS_MAKE_SUBDIR. Only bsnes differs.
+  IOS_OUTPUT_SUBDIR="."
   IOS_SUBMODULES=0
   IOS_CMAKE_TARGET=""
   IOS_CMAKE_ARCHIVE=""
@@ -213,23 +208,52 @@ ios_core_config() {
       IOS_CMAKE_ARCHIVE="mgba_libretro.a"
       IOS_DISPLAY="GBA + GB/GBC"
       ;;
-    genesis_plus_gx)
-      IOS_REPO="https://github.com/libretro/Genesis-Plus-GX"
-      IOS_PIN="58c341487e5bfcf979ea68413c7987633adb0c56"
-      IOS_DYLIB_NAME="genesis_plus_gx_libretro_ios.dylib"
+    bsnes)
+      # SNES. The libretro target is bsnes/target-libretro/GNUmakefile, driven from bsnes/ with
+      # target=libretro, and its ios-arm64 block links out/bsnes_libretro_ios.dylib. nall picks no
+      # compiler for ios-arm64 (it would fall back to the host g++), so the arm64 clang++ and the
+      # SDK are passed in, and openmp=false because nall's default adds -fopenmp, which Apple's
+      # clang does not have. Continuum patch (scripts/patches/bsnes-continuum-memory-and-saves.patch):
+      # work RAM and the cartridge's battery RAM through retro_get_memory_data, so the app owns
+      # the .srm and achievements and RAM search can read memory; the core's own save.ram is
+      # off, and save states are the exact (Strict) kind for rewind, run-ahead and online play.
+      IOS_REPO="https://github.com/libretro/bsnes-libretro"
+      IOS_PIN="05439f96121d2b9d7ad7a5fc1f29d7eebdcc8c43"
+      IOS_DYLIB_NAME="bsnes_libretro_ios.dylib"
       IOS_KIND="make"
-      IOS_MAKEFILE="Makefile.libretro"
-      IOS_DISPLAY="Mega Drive + Master System + Game Gear"
+      IOS_MAKEFILE="GNUmakefile"
+      IOS_MAKE_SUBDIR="bsnes"
+      IOS_OUTPUT_SUBDIR="out"
+      IOS_MAKE_VARS=(target=libretro binary=library local=false openmp=false
+                     "compiler=clang++ -arch arm64 -isysroot @IOSSDK@ -miphoneos-version-min=11.0")
+      IOS_DISPLAY="SNES, bsnes with a Continuum patch"
       ;;
-    snes9x)
-      IOS_REPO="https://github.com/libretro/snes9x"
-      IOS_PIN="fae2fea08f74180759ef540ee94259213f503480"
-      IOS_DYLIB_NAME="snes9x_libretro_ios.dylib"
+    gearsystem)
+      # Master System, Game Gear and SG-1000. platforms/libretro/Makefile has an ios-arm64 block
+      # that emits gearsystem_libretro_ios.dylib. Continuum patch
+      # (scripts/patches/gearsystem-sg1000-memory-map.patch): the SG-1000 memory map, so
+      # achievements see its RAM.
+      IOS_REPO="https://github.com/drhelius/Gearsystem"
+      IOS_PIN="02b9d9e792559f3e871472548ca1fd72d9cc3e2a"
+      IOS_DYLIB_NAME="gearsystem_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile"
-      # CORE_DIR := .. inside that makefile, so it only builds from its own directory.
-      IOS_MAKE_SUBDIR="libretro"
-      IOS_DISPLAY="SNES, C++"
+      IOS_MAKE_SUBDIR="platforms/libretro"
+      IOS_DISPLAY="Master System, Game Gear and SG-1000, Gearsystem with a Continuum patch"
+      ;;
+    blastem)
+      # Mega Drive, Sega CD and 32X. Makefile.libretro's ios-arm64 block builds the generated
+      # (interpreter) 68K and Z80 cores, as iOS has no writable executable memory, and its `core`
+      # rule copies libblastem.dylib to blastem_libretro_ios.dylib. The generator needs python3,
+      # and the LTO link takes about 12 minutes. Continuum patch
+      # (scripts/patches/blastem-continuum-memory.patch): Sega CD and 32X memory for achievements
+      # and RAM search, and the Sega CD's backup RAM as its save.
+      IOS_REPO="https://github.com/libretro/blastem"
+      IOS_PIN="ab743653ed110eeb7b1fe64d00cc5f9279c2bfec"
+      IOS_DYLIB_NAME="blastem_libretro_ios.dylib"
+      IOS_KIND="make"
+      IOS_MAKEFILE="Makefile.libretro"
+      IOS_DISPLAY="Mega Drive, Sega CD and 32X, BlastEm with a Continuum patch"
       ;;
     pcsx_rearmed)
       IOS_REPO="https://github.com/libretro/pcsx_rearmed"
@@ -910,6 +934,7 @@ build_ios_continuum_gb_core() {
 build_ios_make_core() {
   local core="$1"
   local make_dir="$IOS_SRC_DIR/$IOS_MAKE_SUBDIR"
+  local out_dir="$make_dir/$IOS_OUTPUT_SUBDIR"
 
   [[ -f "$make_dir/$IOS_MAKEFILE" ]] || {
     echo "error: $core: no $IOS_MAKEFILE in $make_dir; upstream moved its libretro makefile" >&2
@@ -919,7 +944,7 @@ build_ios_make_core() {
   # Cleared before the build, not after. The clone in .work/ios/<core> persists between runs,
   # so without this a dylib left over from an earlier successful build would satisfy the
   # existence check below even if this build produced nothing.
-  rm -f "$make_dir/$IOS_DYLIB_NAME"
+  rm -f "$out_dir/$IOS_DYLIB_NAME"
 
   echo "==> building $core for ios-arm64 ($IOS_DISPLAY)"
   # platform=ios-arm64 is what selects the arm64 clang, -dynamiclib, the iOS defines and the
@@ -946,12 +971,12 @@ build_ios_make_core() {
   # the honest fallback for a core that renames its TARGET upstream, and it is deliberately
   # narrow: only a *_libretro_ios.dylib qualifies, so an unrelated dylib in the tree can never
   # be staged under a load-bearing name.
-  local built="$make_dir/$IOS_DYLIB_NAME"
+  local built="$out_dir/$IOS_DYLIB_NAME"
   if [[ ! -f "$built" ]]; then
-    built="$(find "$make_dir" -maxdepth 1 -name '*_libretro_ios.dylib' -type f | head -1 || true)"
+    built="$(find "$out_dir" -maxdepth 1 -name '*_libretro_ios.dylib' -type f | head -1 || true)"
   fi
   [[ -n "$built" && -f "$built" ]] || {
-    echo "error: $core: the make finished but left no .dylib in $make_dir" >&2
+    echo "error: $core: the make finished but left no .dylib in $out_dir" >&2
     exit 1
   }
   if [[ "$(basename "$built")" != "$IOS_DYLIB_NAME" ]]; then
@@ -1415,6 +1440,18 @@ ios_apply_core_patches() {
     pcsx_rearmed_jit)
       ios_apply_simple_patch pcsx_rearmed_jit pcsx_rearmed-ios-jit.patch \
         libpcsxcore/new_dynarec/new_dynarec_config.h "Continuum: iPhone JIT build."
+      ;;
+    bsnes)
+      ios_apply_simple_patch bsnes bsnes-continuum-memory-and-saves.patch \
+        bsnes/target-libretro/libretro.cpp "Continuum: expose work RAM and the cartridge's battery RAM"
+      ;;
+    gearsystem)
+      ios_apply_simple_patch gearsystem gearsystem-sg1000-memory-map.patch \
+        platforms/libretro/libretro.cpp "Continuum: SG-1000 memory map"
+      ;;
+    blastem)
+      ios_apply_simple_patch blastem blastem-continuum-memory.patch \
+        libblastem.c "Continuum: Sega CD and 32X memory"
       ;;
   esac
 }
