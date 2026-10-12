@@ -20,3 +20,4 @@ native/ios/build/
 # the YAML is the source and this is output.
 native/ios/*.xcodeproj/
 native/ios/*.xcworkspace/
+.agents/
