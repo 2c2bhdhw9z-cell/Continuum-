@@ -46,6 +46,9 @@ session and takes them itself, after checking thoroughly. The full rule is in
    plain words.
 3. Take the good ones in the next batch (one build), and tell the owner in plain words which
    consoles got newer emulators and what changed for them.
+4. Players get a one-time heads-up in the app for each updated emulator (owner's idea, not
+   built yet; do it with the first batch of updates). See "Players get a heads-up" in
+   owner-rules.md for the wording and the rules.
 
 The weekly scheduled job (`.github/workflows/core-updates.yml`) has never run yet. Its page is
 only a hint, never the whole answer.

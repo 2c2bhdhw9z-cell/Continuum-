@@ -107,6 +107,12 @@ These come straight from the owner. They are not suggestions.
   something players already have, do not take it, and tell the owner why. Take the good ones in
   the next batch (one build), and tell the owner plainly which consoles got newer emulators.
   This replaces the old "let the owner decide each update" rule.
+  **Players get a heads-up (owner, 12 October 2026).** The first time someone opens a game on
+  an emulator that changed since their last install, the app shows one short, casual line, once
+  per emulator version, and never on a first install. Example: "Heads up: the SNES emulator
+  (Snes9x) just got an update from the people who make it. If anything seems off, send us
+  feedback." If that update means older save states can't load, the line says so and adds that
+  in-game saves are fine. Build this with the first batch of core updates.
 - **Licences (owner, 12 October 2026):** the owner wants Continuum free of outside licence
   limits in the long run. That is why they want cores of their own (like cBoy). Five cores
   forbid any commercial use: Snes9x, Genesis Plus GX, PicoDrive, FinalBurn Neo and MAME
