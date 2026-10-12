@@ -3376,6 +3376,53 @@ final class EngineHost: ObservableObject {
     /// Copies rather than moves, so the file the user put in the visible folder stays where they
     /// can see it. Overwrites, because re-installing a BIOS is a normal thing to do. Every outcome
     /// gets its own line, including the two that are conditions rather than errors.
+    /// Continuum Symbian reads its firmware from `<system>/continuum-symbian/firmware`, which is
+    /// in Application Support, where the Files app cannot look. Testers are told to put it in the
+    /// Continuum folder under `system/continuum-symbian/firmware` (TESTING S1 and the core's own
+    /// message), so before every Symbian launch that folder is copied across: new and changed files
+    /// only (size and date), as clones on the same disk, so a 100 MB dump costs next to nothing
+    /// after the first time. Without this no Symbian game could ever start (review finding RUST-01).
+    func installSymbianFirmwareFromDocuments() {
+        guard let documents = documentsDirectory(), let systemDir = systemDirectory() else { return }
+        let fm = FileManager.default
+        let relative = "system/continuum-symbian/firmware"
+        let source = documents.appendingPathComponent(relative, isDirectory: true)
+        let target = systemDir.appendingPathComponent("continuum-symbian/firmware", isDirectory: true)
+        guard fm.fileExists(atPath: source.path),
+              let walker = fm.enumerator(at: source, includingPropertiesForKeys: [.isRegularFileKey],
+                                         options: [.skipsHiddenFiles]) else { return }
+        let base = source.standardizedFileURL.resolvingSymlinksInPath().path
+        var copied = 0
+        var failed: [String] = []
+        for case let file as URL in walker {
+            guard (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+            else { continue }
+            let full = file.standardizedFileURL.resolvingSymlinksInPath().path
+            guard full.hasPrefix(base + "/") else { continue }
+            let destination = target.appendingPathComponent(String(full.dropFirst(base.count + 1)))
+            let from = try? fm.attributesOfItem(atPath: file.path)
+            let to = try? fm.attributesOfItem(atPath: destination.path)
+            if let from, let to,
+               (from[.size] as? NSNumber) == (to[.size] as? NSNumber),
+               (from[.modificationDate] as? Date) == (to[.modificationDate] as? Date) {
+                continue
+            }
+            do {
+                try fm.createDirectory(at: destination.deletingLastPathComponent(),
+                                       withIntermediateDirectories: true)
+                if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
+                try fm.copyItem(at: file, to: destination)
+                copied += 1
+            } catch {
+                failed.append("\(file.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+        if copied > 0 || !failed.isEmpty {
+            FeedbackCenter.step("symbian firmware: copied \(copied) file(s) from \(relative)"
+                                + (failed.isEmpty ? "" : "; failed: \(failed.joined(separator: "; "))"))
+        }
+    }
+
     func installBiosFromDocuments() {
         guard let documents = documentsDirectory() else {
             status = "BIOS install failed: no Documents directory"
@@ -4477,6 +4524,9 @@ final class EngineHost: ObservableObject {
         // the app and no free reimplementation of it the way melonDS carries FreeBIOS for the DS.
         // Without this check the core simply refuses the content and the HUD says "retro_load_game
         // rejected the content", which names neither the cause nor the cure.
+        if spec.coreId == CoreCatalog.continuumSymbian.coreId {
+            installSymbianFirmwareFromDocuments()
+        }
         if let missing = missingFirmware(for: entry) {
             // Names the file AND the two steps, because the folder the Files app shows is not the
             // folder the core reads: dropping the file in is necessary but not sufficient, and
