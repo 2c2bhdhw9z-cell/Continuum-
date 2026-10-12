@@ -221,11 +221,6 @@ For whoever works on this next:
   only other core this project wrote is the Switch one, `native/switch-wrapper`, which does not
   run games. A core somebody else wrote keeps their name (mGBA, Azahar). See
   [docs/HARD_SYSTEMS.md](docs/HARD_SYSTEMS.md).
-- QA Wolf native iPhone testing is connected in the repository: it accepts the released `.ipa`
-  directly (not a `.app`). Finish the three private/account steps: sign in to the QA Wolf MCP
-  connection, ask QA Wolf to enable mobile triggers for this workspace, and store the API key as
-  GitHub Actions secret `QAWOLF_API_KEY`. Then run **QA Wolf mobile** manually to upload a current
-  build.
 - Open work from [docs/MANIC_PARITY.md](docs/MANIC_PARITY.md) "Still to do": direct Google Drive,
   Dropbox and OneDrive logins (they need app ids only the owner can register; they already work
   through Files). SMB is no longer on that list.

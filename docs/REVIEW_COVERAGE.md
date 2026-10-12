@@ -172,7 +172,7 @@ Area 3 (Rust) is fully read as of session 28: every `.rs` file in the workspace 
 | native/ios/package-ipa.sh (247) | Y | FIXED (comment order): the long CFBundleVersion note had been split from its code by the MoltenVK/libsmb2 block; the block now sits above the note. Verified: optional embeds dropped before xcodegen with an exact-count assert, nested code signed before the app, entitlements printed back. |
 | native/switch-wrapper/build.sh (111), native/continuum-symbian/build.sh (42) | Y | FIXED: the Symbian script's usage text named `scripts/build-core.sh continuum_symbian`, which the dispatcher refuses; now `ios continuum_symbian`. |
 | .github/workflows/ios.yml (641) | Y (re-read) | No fixes. Verified: path filters include every script that changes the IPA and exclude check-core-updates.sh; cache key covers build-core.sh, patches and native/continuum-symbian; save right after the core build; per-core verify messages; release retried and drafts published. |
-| .github/workflows/core-updates.yml (112), qawolf-mobile.yml (132) | Y (re-read) | No fixes. core-updates pushes only from master with rebase retry; QA Wolf runs only on a green master build or by hand. |
+| .github/workflows/core-updates.yml (112) | Y (re-read) | No fixes. core-updates pushes only from master with rebase retry. |
 
 Area 4 is complete.
 

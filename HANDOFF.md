@@ -62,14 +62,6 @@ Beetle PSX HW (14), 3DS (6), Dreamcast (5).
   testers only ever see the app itself. Feedback email (since 12 October 2026):
   ContinuumDev2c2b@gmail.com. Build 127's 3DS model change and cheat-off fixes are still untested.
 - Everything else that is planned is in STATUS.md "Next up" and docs/MANIC_PARITY.md "Still to do".
-- QA Wolf native iPhone testing was connected on 6 October: project MCP in
-  `.kiro/settings/mcp.json`, and `.github/workflows/qawolf-mobile.yml` uploads the released
-  `Continuum.ipa` (QA Wolf takes the .ipa directly, not a .app). The owner added the private
-  GitHub Actions secret `QAWOLF_API_KEY`, and manual workflow run `37506142697` successfully
-  uploaded build 127's `Continuum.ipa` to QA Wolf without starting a test or using credits. Still
-  needs the owner to sign in to the MCP connection and have QA Wolf enable native iOS mobile
-  testing/triggers for the workspace. Automatic test runs stay off until the repository variable
-  `QAWOLF_MOBILE_TRIGGER` is `1`. The owner says QA Wolf support is not responding.
 - Other remote testing tried and dropped (6 October): Momentic runs only on simulators, so it would
   need a whole simulator build (and 19 buildbot cores have no simulator version); the owner said
   not to. Apptest.ai rejected the .ipa ("The app file is not supported") because it carries no
