@@ -1210,6 +1210,13 @@ final class CloudSync: ObservableObject {
                     }
                 }
                 FeedbackCenter.step("restore: backup root is \(source.lastPathComponent)")
+                // A zip that is not a Continuum backup is refused HERE, before the app's own
+                // copy below is deleted: at least one folder a backup is made of must be in it.
+                let known = ["Settings", "SaveStates", "Battery", "BatterySaves", "Skins", "Games",
+                             "Artwork", "Cheats", "CoreSaves", "PlayerSaves", "Manuals", "Amiibo"]
+                guard known.contains(where: { fm.fileExists(atPath: source.appendingPathComponent($0).path) }) else {
+                    throw BackupArchiveError("that .zip isn't a Continuum backup")
+                }
                 if fm.fileExists(atPath: root.path) { try fm.removeItem(at: root) }
                 try fm.moveItem(at: source, to: root)
                 FeedbackCenter.step("restore: moved into the app's sync folder")
@@ -1247,6 +1254,9 @@ final class CloudSync: ObservableObject {
                 FeedbackCenter.step("restore: merging into the app")
                 self.afterSync = { [weak self] ok in
                     FeedbackCenter.step("restore: merge finished, ok=\(ok)")
+                    // A merge that failed keeps its own "sync folder failed: ..." line, and the
+                    // backup's settings are not queued to apply: it did not finish.
+                    guard ok else { return }
                     self?.finishRestore(backupSettings: backupSettings)
                 }
                 self.runSync(folder: staging, target: "staging", scoped: false, exportFirst: false,
