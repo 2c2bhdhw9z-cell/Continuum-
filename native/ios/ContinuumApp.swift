@@ -4589,6 +4589,13 @@ final class EngineHost: ObservableObject {
         if running || webPlayer != nil {
             stopSession()
         }
+        // On EVERY launch, not only after a stop: a swipe-away, or iOS closing the app, runs no
+        // app code, so on the next cold start nothing is running, the stop above is skipped, and
+        // the last session's Amiibo hand-over files are still there. The core starts with no stamp
+        // seen, so without this the first 3DS game to look for a tag got that old Amiibo without a
+        // tap (review finding RUST-03). Before the core loads; a second call after a stop finds
+        // nothing and does nothing. What a game wrote to the tag still goes back to its file first.
+        peripherals.endAmiiboSession()
 
         // ORDER IS LOAD-BEARING: THE STOP MUST COME FIRST, AND `ensureCoreLoaded` MUST FOLLOW IT.
         // `stopSession()` calls `engine.stop()`, which under the `Drop` retention policy unloads
@@ -4819,9 +4826,9 @@ final class EngineHost: ObservableObject {
             engine.stop()
             running = false
         }
-        // After the core is gone, so the 3DS has written all it will to a tapped Amiibo. Also on a
-        // stop with nothing running (every launch passes through here), which clears what an app
-        // closed mid-game left behind.
+        // After the core is gone, so the 3DS has written all it will to a tapped Amiibo. This only
+        // covers a session that ends inside the app; what a swipe-away or iOS closing the app
+        // leaves behind is cleared by `launch(entry:)`, which calls this before every core load.
         peripherals.endAmiiboSession()
         // Cleared whether or not a session was running, so a half-started launch cannot leave the
         // player screen up over nothing. The pad state goes with it: a finger still down when a

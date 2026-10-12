@@ -741,7 +741,8 @@ final class Peripherals: ObservableObject {
         }
     }
 
-    /// Called when a game session ends (and so before every launch). What the game wrote to a
+    /// Called when a game session ends, and again before every launch (an app swiped away or
+    /// closed by iOS ends its session without running any code). What the game wrote to a
     /// tapped tag goes back to its file, then the hand-over files are removed. Before this they
     /// stayed, and since the core starts with no stamp seen, the last tag was tapped again by
     /// itself in the next 3DS game that looked for one, even days later (review finding RUST-03).
