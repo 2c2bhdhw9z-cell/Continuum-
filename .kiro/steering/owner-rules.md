@@ -10,6 +10,8 @@ These come straight from the owner. They are not suggestions.
 - The owner does not code, does not read code, and does not want to. Every reply is plain,
   everyday English. No jargon unless it is explained in normal words.
 - Never ask the owner to go look at a file, a log or a page. Read it yourself and say what it says.
+- The owner is on US Eastern time (UTC-4 in summer, UTC-5 in winter). Give every time in Eastern.
+  Never assume Pacific.
 - Never ask the owner to re-test or re-answer anything they already covered, in a screenshot or an
   earlier message. Work it out from what they sent. Never put a test back on their list.
 - When handing over a build, write the full test steps out in that same reply. Never say "the
