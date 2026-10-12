@@ -69,3 +69,23 @@ can draw with Metal, which matters for running it inside Continuum.
   installed.
 - **Risk:** Nintendo often takes down Pokémon fan projects. If G1R is ever taken down, this tab
   would probably have to go as well.
+
+## Mods, the way G1R does it (owner, 12 October 2026)
+The owner wants the same experience as G1R: pick a ROM and play straight away, plus a Mods
+screen to browse, search and install mods. True voxel comes from mods such as "Battle Art
+Voxel Fork" (absol89), the top of G1R's list of 187.
+- G1R ships no mods. Its MODS panel reads the public community index
+  (github.com/bryanthaboi/gen1recomp-mod-index: metadata only, with each mod's `github`
+  owner/repo and a `latest.zip.url`) and downloads each mod from its author when the player
+  taps install. It also has "Import mod .zip" and user-added indexes.
+- The part that runs mods (`src/mods/*`, except `LauncherMods.lua`) is GPL game code, so it can
+  be used. The MODS screen itself (`LauncherMods.lua`) is in their off-limits launcher, so
+  Continuum builds its own Mods screen.
+- **The mod index repo has no licence file (checked 12 October 2026).** That means it is all
+  rights reserved by default, so Continuum needs the G1R maker's OK before its tab reads that
+  index. BOIS CLUB GAMES already gave PortMaster an explicit permission (see their LICENSE.MD).
+  The owner can ask on their Discord (bois.icu). Until there is a yes, Continuum's tab offers
+  only "Import a mod .zip" from Files, and a mod-list link the player adds themselves.
+- The investigation must check: mods (the voxel ones especially) load and run inside
+  Continuum, how fast voxel runs on the phone, and that mods needing LuaJIT FFI are refused
+  safely.
