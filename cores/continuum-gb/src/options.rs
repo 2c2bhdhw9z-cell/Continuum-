@@ -89,7 +89,7 @@ const SPECS: &[Spec] = &[
      c"Plays the console's real start-up logo from your own boot file (dmg_boot.bin, cgb_boot.bin and so on). Put it in the Continuum folder in Files, then tap Install a BIOS in Settings. Without the file the game simply starts. Next start.",
      OFF_ON, c"off"),
     (c"system", c"cboy_gba_bios", c"Game Boy Advance BIOS",
-     c"Built-in needs no file. From file uses <system folder>/cboy/gba_bios.bin (or gba_bios.bin) and plays the start-up logo; From file, no logo uses it but starts the game directly. Next start.",
+     c"Built-in needs no file. From file uses your own gba_bios.bin (put it in the Continuum folder in Files, then tap Install a BIOS in Settings) and plays the start-up logo; From file, no logo starts the game straight away. Next start.",
      &[(c"builtin", c"Built-in"), (c"file", c"From file"), (c"file_skip", c"From file, no logo")], c"builtin"),
     (c"system", c"cboy_gba_save_type", c"Game Boy Advance save chip",
      c"Auto finds it from the game. Pick one if a game does not save. Next start.",
@@ -112,7 +112,7 @@ const SPECS: &[Spec] = &[
        (c"-6", c"-6 hours"), (c"-12", c"-12 hours"), (c"-24", c"-1 day")], c"0"),
     // Picture
     (c"video", c"cboy_dmg_palette", c"Game Boy palette",
-     c"The four shades of original Game Boy games. Custom reads <system folder>/cboy/palette.txt: four colours as hex, lightest first.",
+     c"The four shades of original Game Boy games. Custom uses your own palette.txt with four colours like #E0F8D0, lightest first: put it in the Continuum folder in Files, then tap Install a BIOS in Settings.",
      &[(c"grayscale", c"Grayscale"), (c"green", c"Original green"), (c"pocket", c"Pocket"), (c"light", c"Light (backlit)"),
        (c"kiosk", c"Kiosk"), (c"sepia", c"Sepia"), (c"ice", c"Ice"), (c"custom", c"Custom")], c"grayscale"),
     (c"video", c"cboy_dmg_colorize", c"Colour Game Boy games",

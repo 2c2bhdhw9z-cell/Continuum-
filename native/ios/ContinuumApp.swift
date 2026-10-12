@@ -1207,11 +1207,24 @@ enum CoreCatalog {
         return names
     }()
 
-    /// Every firmware filename the install action will move across, from either list.
+    /// cBoy's own optional files: the boot files its "Start from a boot ROM" option plays, the
+    /// Advance BIOS its "From file" choices use, and the custom palette. All optional, so they are
+    /// not on its CoreSpec (that would put a BIOS line on every cBoy game), but the install action
+    /// must know them or those options could never work on a phone. cBoy reads them from the
+    /// `cboy` subfolder first (cores/continuum-gb `system_file`; palette.txt only from there), and
+    /// they go ONLY there: a gba_bios.bin at the top of the system folder would also switch mGBA
+    /// over to the real BIOS.
+    static let cboyFirmwareNames: [String] = [
+        "dmg_boot.bin", "dmg0_boot.bin", "mgb_boot.bin", "sgb_boot.bin", "sgb2_boot.bin",
+        "cgb_boot.bin", "gba_bios.bin", "palette.txt",
+    ]
+
+    /// Every firmware filename the install action will move across, from any of the lists.
     static let installableFirmwareNames: [String] = {
         var seen = Set<String>()
         var names: [String] = []
-        for name in biosNames + extraFirmwareNames where seen.insert(name.lowercased()).inserted {
+        for name in biosNames + extraFirmwareNames + cboyFirmwareNames
+        where seen.insert(name.lowercased()).inserted {
             names.append(name)
         }
         return names
@@ -3398,8 +3411,12 @@ final class EngineHost: ObservableObject {
 
             // The top of the system folder always, and ALSO the subfolder its core reads when it
             // has one (neogeo.zip in fbneo/, the Dreamcast files in dc/, prboom.wad in prboom/).
-            var destinations = [systemDir.appendingPathComponent(name)]
-            if let subfolder = CoreCatalog.firmwareSubfolders[name] {
+            // cBoy's files go only into cboy/ (see `cboyFirmwareNames`).
+            let cboyOnly = CoreCatalog.cboyFirmwareNames.contains { $0.lowercased() == name.lowercased() }
+            var destinations = cboyOnly
+                ? [systemDir.appendingPathComponent("cboy").appendingPathComponent(name)]
+                : [systemDir.appendingPathComponent(name)]
+            if !cboyOnly, let subfolder = CoreCatalog.firmwareSubfolders[name] {
                 destinations.append(systemDir.appendingPathComponent(subfolder)
                     .appendingPathComponent(name))
             }
