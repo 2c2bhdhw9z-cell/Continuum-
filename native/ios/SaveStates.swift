@@ -1841,10 +1841,11 @@ final class SaveStates: ObservableObject {
 
     /// Replaces a game's battery save with a `.srm` file.
     ///
-    /// The previous save is kept beside it as `.srm.bak` first, so an import of the wrong file is
-    /// one rename from undone. When the game is running the bytes go straight into its save RAM
-    /// (the engine refuses a file larger than the cartridge's RAM, which is almost always a
-    /// different game's save), and the game has to be reset to notice, because a game reads its
+    /// The save it replaces is copied to Files, Continuum, Older copies first (a running game's
+    /// save is written out before that, so its latest progress is in the copy), and if that copy
+    /// can't be made nothing is changed. When the game is running the bytes go straight into its
+    /// save RAM (the engine refuses a file larger than the cartridge's RAM, which is almost always
+    /// a different game's save), and the game has to be reset to notice, because a game reads its
     /// battery RAM when it boots.
     @discardableResult
     func importBatterySave(_ data: Data, named fileName: String, for entry: LibraryEntry) -> Bool {
@@ -1857,20 +1858,26 @@ final class SaveStates: ObservableObject {
             report("battery save import refused: \(fileName) is empty")
             return false
         }
-        if let running = runningEntry(), Self.gameId(for: running) == gameId {
+        let running = runningEntry().map { Self.gameId(for: $0) == gameId } ?? false
+        // The game's progress since the last write, onto the file the copy is made of.
+        if running { persistBatterySave(reason: "before an import") }
+        let kept: URL?
+        do {
+            kept = try SaveFolders.keepBeforeImport(target, incoming: data, folder: "BatterySaves")
+        } catch {
+            report("battery save import stopped for \(gameId). \(SaveFolders.notKeptLine)")
+            return false
+        }
+        if running {
             do {
                 _ = try engine.restoreBatterySave(data: data)
                 if batteryRestoreFailedFor == gameId { batteryRestoreFailedFor = nil }
             } catch {
+                // Nothing was replaced, so the copy just made is the same as the save still here.
+                if let kept { try? FileManager.default.removeItem(at: kept) }
                 report("battery save import refused: \(error)")
                 return false
             }
-        }
-        let files = FileManager.default
-        if files.fileExists(atPath: target.path) {
-            let backup = target.appendingPathExtension("bak")
-            try? files.removeItem(at: backup)
-            try? files.copyItem(at: target, to: backup)
         }
         do {
             try data.write(to: target, options: .atomic)
@@ -1879,12 +1886,13 @@ final class SaveStates: ObservableObject {
                    + error.localizedDescription)
             return false
         }
-        if let running = runningEntry(), Self.gameId(for: running) == gameId {
-            report("imported the battery save for \(gameId). Reset the game so it reads it; the "
-                   + "previous save is kept as a .bak file")
+        let keptText = kept != nil ? " \(SaveFolders.keptLine)" : ""
+        if running {
+            report("imported the battery save for \(gameId). Reset the game so it reads it."
+                   + keptText)
         } else {
             report("imported the battery save for \(gameId); the game reads it the next time it "
-                   + "starts. The previous save is kept as a .bak file")
+                   + "starts." + keptText)
         }
         return true
     }

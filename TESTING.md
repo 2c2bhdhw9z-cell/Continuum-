@@ -29,6 +29,9 @@ are the cleanup, 5 to 11 the new emulators.
 11. Open an arcade game you already had. ✅ It's still in your library and says "Arcade games
     aren't playable right now. We're building our own arcade emulator." No crash, and no
     "Which system?".
+12. Only if you have a save file from another app: open the card of a game that already has a
+    save → **Save slots, export and import** → **Import a battery save (.srm)** → pick that file.
+    ✅ It says your old save is in Files, Continuum, Older copies, and it's there in the Files app.
 
 Do not retest Home, scrolling, re-import, or fast-forward. Those already passed.
 

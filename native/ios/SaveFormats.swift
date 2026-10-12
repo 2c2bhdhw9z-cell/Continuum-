@@ -5,12 +5,16 @@
 // .eep/.sra/.fla/.mpk placed into the one .srm the core writes, and so on. This file only moves
 // the bytes to where they belong:
 //
-//   * a BATTERY save goes through SaveStates.importBatterySave, the existing path, so the old save
-//     is kept as .srm.bak and a running game gets the bytes in its save RAM at once;
+//   * a BATTERY save goes through SaveStates.importBatterySave, the existing path, so a running
+//     game gets the bytes in its save RAM at once;
 //   * a CORE FILE (Dreamcast VMU, Saturn .bkr) is written under the save directory
-//     the cores are given (Application Support), the old one kept as .bak beside it;
+//     the cores are given (Application Support);
 //   * a FOLDER (PSP SAVEDATA, 3DS) arrives as a zip and is unpacked into the core's folder, with
 //     every entry that would escape it refused in Rust.
+//
+// Whichever it is, the save it replaces is first copied to Files, Continuum, Older copies
+// (`SaveFolders.keepBeforeImport`, Rust's `saves::keep_before_import`), and when that copy can't
+// be made the import stops with nothing changed. An import never costs the player a save.
 
 import Foundation
 import SwiftUI
@@ -21,6 +25,31 @@ enum SaveFolders {
     static func saveDirectory() -> URL? {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
     }
+
+    /// Files, Continuum, Older copies: where an import keeps the save it replaces, the same folder
+    /// a restore uses for the copies it didn't keep.
+    static func olderCopiesDirectory() -> URL? {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+            .appendingPathComponent(CloudSync.olderCopiesFolderName, isDirectory: true)
+    }
+
+    /// Keeps the save at `url` in Older copies (under `folder`) before an import writes `incoming`
+    /// over it. Returns the copy, or nil when nothing would have been lost. Throws when no copy
+    /// could be made, and then the import must not go ahead.
+    static func keepBeforeImport(_ url: URL, incoming: Data, folder: String) throws -> URL? {
+        guard let older = olderCopiesDirectory() else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        let kept: String? = try saveKeepBeforeImport(path: url.path, incoming: incoming,
+                                                     olderDir: older.path, folder: folder)
+        return kept.map { URL(fileURLWithPath: $0) }
+    }
+
+    /// The end of an import's line when the old save was kept.
+    static let keptLine = "Your old save is in Files, Continuum, Older copies."
+
+    /// The line when the old save couldn't be kept, so nothing was changed.
+    static let notKeptLine = "Your old save couldn't be copied first, so nothing was changed."
 }
 
 extension SaveStates {
@@ -62,14 +91,20 @@ extension SaveStates {
             }
             let target = root.appendingPathComponent(converted.relativePath)
             let files = FileManager.default
+            // The save it replaces goes to Older copies first; if that fails, nothing changes.
+            let kept: URL?
+            do {
+                kept = try SaveFolders.keepBeforeImport(
+                    target, incoming: converted.data,
+                    folder: (converted.relativePath as NSString).deletingLastPathComponent)
+            } catch {
+                let text = "save import stopped for \(entry.name). \(SaveFolders.notKeptLine)"
+                reportOnly(text)
+                return text
+            }
             do {
                 try files.createDirectory(at: target.deletingLastPathComponent(),
                                           withIntermediateDirectories: true)
-                if files.fileExists(atPath: target.path) {
-                    let backup = target.appendingPathExtension("bak")
-                    try? files.removeItem(at: backup)
-                    try? files.copyItem(at: target, to: backup)
-                }
                 try converted.data.write(to: target, options: .atomic)
             } catch {
                 let text = "save import failed for \(entry.name): \(error.localizedDescription)"
@@ -77,11 +112,12 @@ extension SaveStates {
                 return text
             }
             let text = "imported \(name) for \(entry.name) as \(converted.relativePath) "
-                + "(\(converted.note)); the old one is kept as .bak. Restart the game to read it"
+                + "(\(converted.note)). Restart the game to read it."
+                + (kept != nil ? " \(SaveFolders.keptLine)" : "")
             reportOnly(text)
             return text
         case .folder:
-            guard let root = SaveFolders.saveDirectory() else {
+            guard let root = SaveFolders.saveDirectory(), let older = SaveFolders.olderCopiesDirectory() else {
                 let text = "save import failed: no Application Support directory"
                 reportOnly(text)
                 return text
@@ -92,9 +128,13 @@ extension SaveStates {
             do {
                 try converted.data.write(to: zip)
                 let dest = root.appendingPathComponent(converted.relativePath, isDirectory: true)
-                let written = try importArchiveExtractTree(path: zip.path, destDir: dest.path)
-                let text = "unpacked \(written.count) save \(written.count == 1 ? "file" : "files") from \(name) into "
-                    + "\(converted.relativePath). Restart the game to read them"
+                // Every file it replaces is kept in Older copies first.
+                let done = try saveFolderImport(archivePath: zip.path, destDir: dest.path,
+                                                olderDir: older.path, folder: converted.relativePath)
+                let count = done.written.count
+                let text = "unpacked \(count) save \(count == 1 ? "file" : "files") from \(name) into "
+                    + "\(converted.relativePath). Restart the game to read them."
+                    + (done.kept > 0 ? " \(SaveFolders.keptLine)" : "")
                 reportOnly(text)
                 return text
             } catch {

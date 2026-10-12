@@ -915,7 +915,8 @@ extension EngineHost {
     }
 
     /// Imports a Manic `.json` (Flash) or `.J2meJS.srm` (J2ME) save for `entry`. The old save is
-    /// kept as .bak; a running copy of the game restarts from the new one.
+    /// kept in Files, Continuum, Older copies first; a running copy of the game restarts from the
+    /// new one.
     func importWebPlayerSave(_ data: Data, named name: String, for entry: LibraryEntry,
                              kind: WebPlayerKind) -> String {
         guard let saveURL = Self.webPlayerSaveURL(kind: kind, entry: entry) else {
@@ -945,19 +946,22 @@ extension EngineHost {
         }
         let apply = { () -> String in
             let manager = FileManager.default
+            // The save it replaces goes to Older copies first; if that fails, nothing changes.
+            let kept: URL?
+            do {
+                kept = try SaveFolders.keepBeforeImport(saveURL, incoming: data, folder: "PlayerSaves")
+            } catch {
+                return "save import stopped for \(entry.name). \(SaveFolders.notKeptLine)"
+            }
             do {
                 try manager.createDirectory(at: saveURL.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)
-                if manager.fileExists(atPath: saveURL.path) {
-                    let backup = saveURL.appendingPathExtension("bak")
-                    try? manager.removeItem(at: backup)
-                    try? manager.copyItem(at: saveURL, to: backup)
-                }
                 try data.write(to: saveURL, options: .atomic)
             } catch {
                 return "save import failed for \(entry.name): \(error.localizedDescription)"
             }
-            return "imported \(name) for \(entry.name) (\(note)); the old save is kept as .bak"
+            return "imported \(name) for \(entry.name) (\(note))."
+                + (kept != nil ? " \(SaveFolders.keptLine)" : "")
         }
         // A running copy would write its own storage over the import as it closed, so it is
         // closed first and started again from the imported save.
@@ -970,7 +974,7 @@ extension EngineHost {
                 // below, not be replaced by it.
                 DispatchQueue.main.async {
                     guard let self else { return }
-                    self.status = apply() + "; restarting from it"
+                    self.status = apply() + " Restarting the game."
                     if self.activeEntry == entry, let root = Self.webPlayerRoot(kind) {
                         self.startWebPlayerSession(entry: entry, kind: kind, root: root,
                                                    saveURL: saveURL)

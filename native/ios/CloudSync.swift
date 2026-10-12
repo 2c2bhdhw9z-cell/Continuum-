@@ -224,7 +224,7 @@ enum CloudSyncPaths {
                 .appendingPathComponent(name)
         case ("PlayerSaves", 2):
             // Flash and J2ME saves, where `EngineHost.webPlayerSaveURL` puts them. Only the save
-            // itself: the `.bak` a save import leaves beside it is this phone's own undo.
+            // itself, never a `.bak` an older build's save import left beside it.
             let name = parts[1]
             guard playerSaveSuffixes.contains(where: { name.hasSuffix($0) }) else { return nil }
             return support.appendingPathComponent("PlayerSaves", isDirectory: true)
@@ -977,6 +977,8 @@ final class CloudSync: ObservableObject {
     private static let includedKeys: Set<String> = [
         // The answers to "which system is this file?", by file name.
         "import.systemChoices.v1",
+        // The app's own guesses for files it didn't ask about (arcade-looking zips), by file name.
+        "import.systemGuesses.v1",
         // Saved network servers. Their passwords stay in each phone's Keychain and do not sync,
         // so a server that arrives from another phone has no password here until it is added
         // again on this phone.

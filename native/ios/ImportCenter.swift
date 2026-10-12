@@ -93,6 +93,27 @@ enum SystemChoices {
     }
 }
 
+/// Systems the app only GUESSED for a file, keyed by filename, kept apart from `SystemChoices`
+/// (the player's own answers). Today that is an archive that looks like arcade chips and is filed
+/// as Arcade without a question. The resolver reads a guess last, after the player's answer and
+/// after a detector that is sure, so a later version (better detection, or Continuum's own arcade
+/// core with a question of its own) can decide these files again; the player's answers are never
+/// touched by that.
+enum SystemGuesses {
+    private static let key = "import.systemGuesses.v1"
+
+    static func guess(forFileName name: String) -> String? {
+        let all = UserDefaults.standard.dictionary(forKey: key) as? [String: String]
+        return all?[name.lowercased()]
+    }
+
+    static func remember(_ system: String, forFileName name: String) {
+        var all = (UserDefaults.standard.dictionary(forKey: key) as? [String: String]) ?? [:]
+        all[name.lowercased()] = system
+        UserDefaults.standard.set(all, forKey: key)
+    }
+}
+
 /// Detection results per path, invalidated by size and modification date. The resolver may be
 /// asked about the same file once per Library row redraw, and a CHD costs a hunk decompress, so
 /// the answer is kept. Lock-protected: the resolver can be called from any thread.
@@ -184,7 +205,8 @@ final class ImportCenter: ObservableObject {
     }
 
     /// Installs the detector as CoreCatalog's resolver: the remembered answer first, then the
-    /// detector when it is sure, otherwise nil so CoreCatalog falls back to its extension table.
+    /// detector when it is sure, then the app's own guess (`SystemGuesses`), otherwise nil so
+    /// CoreCatalog falls back to its extension table.
     nonisolated static func installResolver() {
         CoreCatalog.systemResolver = { url in
             let name = url.lastPathComponent
@@ -192,7 +214,8 @@ final class ImportCenter: ObservableObject {
             let ext = url.pathExtension.lowercased()
             guard ImportCenter.sharedExtensions.contains(ext) else { return nil }
             let detection = DetectionCache.shared.detection(for: url)
-            return detection.sure ? detection.system : nil
+            if detection.sure { return detection.system }
+            return SystemGuesses.guess(forFileName: name)
         }
     }
 
@@ -310,9 +333,10 @@ final class ImportCenter: ObservableObject {
             let detection = DetectionCache.shared.detection(for: documents.appendingPathComponent(name))
             if detection.sure { continue }
             // An arcade zip lists as Arcade with no question: there is no arcade core to choose
-            // between right now, and "Which system?" would only offer the wrong answers.
+            // between right now, and "Which system?" would only offer the wrong answers. Kept as
+            // the app's guess, not as the player's answer, so a later version can decide again.
             if detection.system == "arcade" {
-                SystemChoices.remember(detection.system, forFileName: name)
+                SystemGuesses.remember(detection.system, forFileName: name)
                 continue
             }
             ask(SystemQuestion(fileName: name, reason: detection.reason, candidates: detection.candidates))

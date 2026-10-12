@@ -91,7 +91,8 @@ pub fn import_zip_directory(dir: String, out_path: String) -> Result<u32, Engine
 /// Where a save goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum SaveFileKind {
-    /// The frontend battery save, through SaveStates.importBatterySave (keeps the .bak).
+    /// The frontend battery save, through SaveStates.importBatterySave (keeps the old one in
+    /// Older copies).
     Battery,
     /// A core-owned file at `relative_path` under the save directory.
     CoreFile,
@@ -141,6 +142,57 @@ pub fn save_file_import(
     let got = saves::import(&system, &file_name, &data, &current, &game_stem).map_err(other)?;
     let (kind, relative_path) = split(got.location);
     Ok(SaveFileImport { kind, relative_path, data: got.data, note: got.note })
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64)
+}
+
+/// Before an import replaces the save at `path` with `incoming`, keeps a copy of it in
+/// `older_dir/folder` (Files, Continuum, Older copies). Returns the copy's path, or nil when
+/// nothing would be lost (no save yet, or the same bytes). An error means no copy could be made,
+/// and the import must not go ahead.
+#[uniffi::export]
+pub fn save_keep_before_import(
+    path: String,
+    incoming: Vec<u8>,
+    older_dir: String,
+    folder: String,
+) -> Result<Option<String>, EngineError> {
+    saves::keep_before_import(Path::new(&path), &incoming, Path::new(&older_dir), &folder, now_ms())
+        .map(|kept| kept.map(|p| p.to_string_lossy().into_owned()))
+        .map_err(other)
+}
+
+/// What a save folder import did.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SaveFolderImport {
+    /// The files written, relative to the save folder.
+    pub written: Vec<String>,
+    /// How many of the files they replaced were kept in Older copies first.
+    pub kept: u32,
+}
+
+/// Unpacks a save folder zip into `dest_dir`, keeping every file it replaces in
+/// `older_dir/folder` first, and refusing entries that would escape `dest_dir`.
+#[uniffi::export]
+pub fn save_folder_import(
+    archive_path: String,
+    dest_dir: String,
+    older_dir: String,
+    folder: String,
+) -> Result<SaveFolderImport, EngineError> {
+    let done = saves::import_folder(
+        Path::new(&archive_path),
+        Path::new(&dest_dir),
+        Path::new(&older_dir),
+        &folder,
+        now_ms(),
+    )
+    .map_err(other)?;
+    Ok(SaveFolderImport { written: done.written, kept: done.kept.len() as u32 })
 }
 
 /// Converts the stored save to `format` (an extension) for export.

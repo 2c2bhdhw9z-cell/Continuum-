@@ -19,6 +19,12 @@
 //! `.bkr`/`.bcr` (Beetle Saturn's `<game>.bkr`). PSP and 3DS saves are folders and travel as
 //! zips; see [`location`]. Arcade saves are refused: arcade games are not playable until
 //! Continuum has its own arcade core, so there is nowhere for one to go.
+//!
+//! An import never destroys the save it replaces: [`keep_before_import`] and [`import_folder`]
+//! first copy it to Files, Continuum, Older copies (the folder a restore uses for the copies it
+//! didn't keep).
+
+use std::path::{Path, PathBuf};
 
 /// Where a system's save lives.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -288,9 +294,196 @@ pub fn wrap_dsv(raw: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Keeps the save at `path` before an import replaces it with `incoming`: a copy at
+/// `<older>/<folder>/<stem> (before an import, <date>).<ext>`, numbered (`... 2.srm`, `... 3.srm`)
+/// rather than ever written over an earlier copy. Nothing is kept when there is no save there yet
+/// or it already holds exactly `incoming`, because then nothing would be lost. Returns where the
+/// copy went.
+///
+/// An error means the copy could not be made, and the caller must leave the save alone.
+pub fn keep_before_import(
+    path: &Path,
+    incoming: &[u8],
+    older: &Path,
+    folder: &str,
+    now_ms: i64,
+) -> Result<Option<PathBuf>, String> {
+    let current = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("could not read {}: {e}", path.display())),
+    };
+    if current.is_empty() || current == incoming {
+        return Ok(None);
+    }
+    let dir = folder
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != "." && *part != "..")
+        .fold(older.to_path_buf(), |dir, part| dir.join(part));
+    std::fs::create_dir_all(&dir).map_err(|e| format!("could not make {}: {e}", dir.display()))?;
+    let name = path.file_name().map_or_else(|| "save".to_string(), |n| n.to_string_lossy().into_owned());
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => (stem.to_string(), format!(".{ext}")),
+        _ => (name.clone(), String::new()),
+    };
+    let stamp = crate::sync::date_stamp(now_ms);
+    let mut number = 1u32;
+    loop {
+        let suffix = if number == 1 { String::new() } else { format!(" {number}") };
+        let target = dir.join(format!("{stem} (before an import, {stamp}){suffix}{ext}"));
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&target) {
+            Ok(mut file) => {
+                use std::io::Write;
+                return match file.write_all(&current).and_then(|()| file.sync_all()) {
+                    Ok(()) => Ok(Some(target)),
+                    Err(e) => {
+                        drop(file);
+                        let _ = std::fs::remove_file(&target);
+                        Err(format!("could not keep a copy at {}: {e}", target.display()))
+                    }
+                };
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => number += 1,
+            Err(e) => return Err(format!("could not keep a copy at {}: {e}", target.display())),
+        }
+    }
+}
+
+/// What [`import_folder`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FolderImport {
+    /// The files written, relative to the save folder.
+    pub written: Vec<String>,
+    /// The copies kept of the files they replaced.
+    pub kept: Vec<PathBuf>,
+}
+
+/// Unpacks a save folder zip (PSP `SAVEDATA`, 3DS) into `dest`, keeping every file it replaces
+/// with [`keep_before_import`] first, under `<older>/<folder>/` and the file's own subfolders.
+/// Unpacked into a staging folder beside `dest` first, so an archive that can't be read changes
+/// nothing.
+pub fn import_folder(
+    archive: &Path,
+    dest: &Path,
+    older: &Path,
+    folder: &str,
+    now_ms: i64,
+) -> Result<FolderImport, String> {
+    let parent = dest.parent().ok_or_else(|| format!("{} has no parent folder", dest.display()))?;
+    std::fs::create_dir_all(parent).map_err(|e| format!("could not make {}: {e}", parent.display()))?;
+    // A dot name: the sync and the cores both skip it, should the app be stopped half way.
+    let staging = parent.join(format!(".continuum-save-import-{}-{now_ms}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&staging);
+    let result = (|| {
+        let names = super::archive::extract_tree(archive, &staging)?;
+        let mut done = FolderImport::default();
+        for name in names {
+            let from = staging.join(&name);
+            let to = dest.join(&name);
+            let incoming = std::fs::read(&from).map_err(|e| format!("could not read {name}: {e}"))?;
+            let sub = Path::new(&name).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+            let kept_in = if sub.is_empty() { folder.to_string() } else { format!("{folder}/{sub}") };
+            if let Some(kept) = keep_before_import(&to, &incoming, older, &kept_in, now_ms)? {
+                done.kept.push(kept);
+            }
+            if let Some(dir) = to.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| format!("could not make {}: {e}", dir.display()))?;
+            }
+            std::fs::rename(&from, &to).map_err(|e| format!("could not write {}: {e}", to.display()))?;
+            done.written.push(name);
+        }
+        Ok(done)
+    })();
+    let _ = std::fs::remove_dir_all(&staging);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::import::testdir::TestDir;
+
+    /// 2026-10-12 14:15:59 UTC.
+    const NOW: i64 = 1_791_814_559_000;
+
+    #[test]
+    fn an_import_keeps_the_save_it_replaces() {
+        let dir = TestDir::new("keep");
+        let older = dir.path().join("Older copies");
+        let save = dir.write("BatterySaves/Zelda.srm", b"the player's own save");
+        let kept = keep_before_import(&save, b"imported", &older, "BatterySaves", NOW).unwrap().unwrap();
+        assert_eq!(
+            kept,
+            older.join("BatterySaves").join(format!("Zelda (before an import, {}).srm", crate::sync::date_stamp(NOW)))
+        );
+        assert_eq!(std::fs::read(&kept).unwrap(), b"the player's own save");
+        // A copy, not a move: the import itself replaces the file.
+        assert_eq!(std::fs::read(&save).unwrap(), b"the player's own save");
+        // A second import in the same second gets a number, never the first copy's place.
+        std::fs::write(&save, b"imported").unwrap();
+        let second = keep_before_import(&save, b"another", &older, "BatterySaves", NOW).unwrap().unwrap();
+        assert!(second.to_string_lossy().ends_with(" UTC) 2.srm"), "{}", second.display());
+        assert_eq!(std::fs::read(&second).unwrap(), b"imported");
+        assert_eq!(std::fs::read(&kept).unwrap(), b"the player's own save");
+    }
+
+    #[test]
+    fn nothing_is_kept_when_nothing_would_be_lost() {
+        let dir = TestDir::new("keepnone");
+        let older = dir.path().join("Older copies");
+        // No save yet, an empty one, or the same bytes again.
+        assert_eq!(keep_before_import(&dir.path().join("none.srm"), b"x", &older, "BatterySaves", NOW).unwrap(), None);
+        let empty = dir.write("empty.srm", b"");
+        assert_eq!(keep_before_import(&empty, b"x", &older, "BatterySaves", NOW).unwrap(), None);
+        let same = dir.write("same.srm", b"x");
+        assert_eq!(keep_before_import(&same, b"x", &older, "BatterySaves", NOW).unwrap(), None);
+        assert!(!older.exists());
+        // A folder that tries to climb out stays inside Older copies.
+        let save = dir.write("a.bkr", b"old");
+        let kept = keep_before_import(&save, b"new", &older, "../../x/./", NOW).unwrap().unwrap();
+        assert_eq!(kept.parent().unwrap(), older.join("x"));
+        // A save that can't be copied is an error, so the caller leaves it alone.
+        std::fs::write(dir.path().join("blocked"), b"a file where the folder would go").unwrap();
+        assert!(keep_before_import(&save, b"new", &dir.path().join("blocked"), "", NOW).is_err());
+    }
+
+    #[test]
+    fn a_save_folder_import_keeps_every_file_it_replaces() {
+        let dir = TestDir::new("keepfolder");
+        let older = dir.path().join("Older copies");
+        let dest = dir.path().join("PSP/SAVEDATA");
+        dir.write("PSP/SAVEDATA/ULUS10041DATA00/DATA.BIN", b"old progress");
+        dir.write("PSP/SAVEDATA/ULUS10041DATA00/PARAM.SFO", b"same");
+        let zip_path = dir.path().join("save.zip");
+        {
+            use std::io::Write;
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&zip_path).unwrap());
+            let options = zip::write::SimpleFileOptions::default();
+            for (name, bytes) in [
+                ("ULUS10041DATA00/DATA.BIN", &b"new progress"[..]),
+                ("ULUS10041DATA00/PARAM.SFO", b"same"),
+                ("ULUS10041DATA00/ICON0.PNG", b"png"),
+            ] {
+                zip.start_file(name, options).unwrap();
+                zip.write_all(bytes).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        let done = import_folder(&zip_path, &dest, &older, "PSP/SAVEDATA", NOW).unwrap();
+        assert_eq!(done.written.len(), 3);
+        assert_eq!(std::fs::read(dest.join("ULUS10041DATA00/DATA.BIN")).unwrap(), b"new progress");
+        assert_eq!(std::fs::read(dest.join("ULUS10041DATA00/ICON0.PNG")).unwrap(), b"png");
+        // Only the file whose bytes changed was kept, in its own folder under Older copies.
+        assert_eq!(done.kept.len(), 1);
+        assert!(done.kept[0].starts_with(older.join("PSP/SAVEDATA/ULUS10041DATA00")));
+        assert_eq!(std::fs::read(&done.kept[0]).unwrap(), b"old progress");
+        // The staging folder is gone, and a zip that can't be read changes nothing.
+        let left: Vec<_> = std::fs::read_dir(dir.path().join("PSP")).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(left, vec![std::ffi::OsString::from("SAVEDATA")]);
+        let bad = dir.write("bad.zip", b"not a zip");
+        assert!(import_folder(&bad, &dest, &older, "PSP/SAVEDATA", NOW).is_err());
+        assert_eq!(std::fs::read(dest.join("ULUS10041DATA00/DATA.BIN")).unwrap(), b"new progress");
+    }
 
     #[test]
     fn dsv_round_trip() {
