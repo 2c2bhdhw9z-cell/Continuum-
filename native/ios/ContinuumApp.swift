@@ -4770,6 +4770,10 @@ final class EngineHost: ObservableObject {
             // beginning, which is the only sensible outcome when the alternative is a state that
             // might corrupt the machine.
             saveStates.noteSessionOptions()
+            // Before any resume, and whether or not one happens: an auto-save this core may not
+            // load (another core made it, or one this version no longer has) is moved into a
+            // free slot first, so this session can never write over it.
+            saveStates.protectAutoSaveFromAnotherCore(entry: entry)
             if resumingAuto {
                 if spec.coreId == CoreCatalog.ppsspp.coreId {
                     // PPSSPP builds its GPU only once frames have run with the Vulkan context

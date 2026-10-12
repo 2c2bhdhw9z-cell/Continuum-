@@ -1424,6 +1424,23 @@ final class SaveStates: ObservableObject {
         return true
     }
 
+    /// The refused-auto-save rule on EVERY launch, not only one that resumes. With resume switched
+    /// off in Settings, or a launch that loads a chosen state instead (`resumingAuto: false`),
+    /// `resumeIfPossible` never looked at the auto-save, and the next exit wrote this session over
+    /// an auto-save another core (or a core this version no longer has, after the licence swap)
+    /// made. Called right after `noteSessionOptions`, so the settings comparison is this
+    /// session's. A refused auto-save is moved into a free numbered slot, never overwritten.
+    func protectAutoSaveFromAnotherCore(entry: LibraryEntry) {
+        guard let record = autoState(forGameId: Self.gameId(for: entry)),
+              let refusal = refusal(for: record) else { return }
+        switch refusal {
+        case .coreMismatch, .versionMismatch, .settingsChanged:
+            report(keepRefusedAutoSave(record, refusal: refusal, entry: entry))
+        case .payloadMissing:
+            return
+        }
+    }
+
     /// Moves an auto-save this session may not load into the game's lowest free numbered slot,
     /// keeping the core, version and settings it was made with (so it still loads on that core),
     /// and returns the line for the player. With no free slot, or if the move fails, nothing moves
@@ -1471,7 +1488,12 @@ final class SaveStates: ObservableObject {
         let how: String
         switch refusal {
         case .coreMismatch:
-            how = "It loads on \(coreName)."
+            if CoreCatalog.core(id: record.coreId ?? "") == nil {
+                how = "It was made by an emulator this version doesn\u{2019}t have any more, so it "
+                    + "won\u{2019}t load, but it\u{2019}s kept. Your in-game saves are fine."
+            } else {
+                how = "It loads on \(coreName)."
+            }
         case .versionMismatch:
             how = "It was made by an older \(coreName), so this one can't load it."
         case .settingsChanged:
@@ -1720,8 +1742,13 @@ final class SaveStates: ObservableObject {
         let gameId = Self.gameId(for: entry)
         batteryRestoreFailedFor = nil
         guard let url = SaveStateDisk.batteryURL(gameId: gameId) else { return }
+        // The folder the cores are given as their system and save folder (EngineHost's
+        // `systemDirectory`), where Mesen kept NES saves as <game>.sav and the Sega CD's backup
+        // RAM was kept as scd_U/E/J.brm. The engine picks those up when they are newer.
+        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory,
+                                                  in: .userDomainMask).first?.path ?? ""
         do {
-            if let bytes = try engine.loadBatterySaveFile(path: url.path) {
+            if let bytes = try engine.loadBatterySaveFileMigrating(path: url.path, supportDir: supportDir) {
                 line = "battery save: restored \(SaveStates.byteText(Int64(bytes))) for \(gameId)"
             }
         } catch {
@@ -1781,11 +1808,12 @@ final class SaveStates: ObservableObject {
         let gameId = Self.gameId(for: entry)
         var data: Data?
         if let running = runningEntry(), Self.gameId(for: running) == gameId {
-            do {
-                data = try engine.batterySave()
-            } catch {
-                report("battery save export failed: \(error)")
-                return nil
+            // A core can show no save RAM yet (Gearsystem until a game switches its cart RAM on):
+            // then the file on disk is the save.
+            if let live = try? engine.batterySave(), !live.isEmpty {
+                data = live
+            } else if let url = SaveStateDisk.batteryURL(gameId: gameId) {
+                data = try? Data(contentsOf: url)
             }
         } else if let url = SaveStateDisk.batteryURL(gameId: gameId) {
             data = try? Data(contentsOf: url)
