@@ -73,7 +73,22 @@ These come straight from the owner. They are not suggestions.
 - Public beta from 6 October 2026: strangers download and test the app. Keep what a tester sees
   plain: technical read-outs only behind the (i) button and Settings, Technical details. The owner
   posts the .ipa itself in Telegram and Reddit, so testers only see the app: every line they read
-  must sound like a person wrote it, casual and short, never like documentation. Feedback email is idkplswrk@gmail.com (`FeedbackDestination.email`).
-- Outside testing services are done with: QA Wolf (support never replied), Momentic (simulator
-  only, needs a full rebuild: the owner said no), Apptest.ai (rejects an .ipa without an Apple
-  certificate). Do not offer a built-in self-test either; the owner has proved most systems.
+  must sound like a person wrote it, casual and short, never like documentation.
+- **Support and feedback email: ContinuumDev2c2b@gmail.com** (owner, 12 October 2026;
+  `FeedbackDestination.email` in `native/ios/Feedback.swift`). The old address is retired: it must
+  not appear anywhere in the repository, not in the app, the README or any note, history included.
+- Outside testing services are done with: Momentic (simulator only, needs a full rebuild: the
+  owner said no), Apptest.ai (rejects an .ipa without an Apple certificate). QA Wolf was removed
+  completely on 12 October 2026 (no workflow, no MCP server, no setup steps, no mentions in the
+  notes); never bring it back. Do not offer a built-in self-test either; the owner has proved most
+  systems.
+- **No made-up startup picture, ever** (owner, 11 and 12 October 2026). cBoy, and any core this
+  project writes, starts the game straight away, like mGBA, SameBoy and Gearboy do. A boot
+  picture only plays when the user's own real boot file is there. No logo, no name flash, no
+  "our own boot animation". Remove any code, option text or note that says otherwise.
+- **cBoy's pixel-by-pixel test pictures (Mealybug) are parked.** Earlier sessions burned through
+  the owner's usage guessing those test pixels one at a time. Do not work on them, and do not
+  turn the experimental pixel-by-pixel drawer back on as the default, unless the owner asks.
+- **When the owner puts a ★ on something, save it permanently:** in this file if it is about
+  Continuum, or as a Kiro learning if it applies everywhere. Kiro may also save general learnings
+  on its own whenever something is worth remembering.
