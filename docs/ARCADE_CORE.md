@@ -1,8 +1,9 @@
 # cArcade: Continuum's own arcade emulator
 
-**Where it stands: the plan (13 October 2026). Nothing of it is in the app yet.** The write-up at
-the end of the job finishes this file: the games it plays, what the tests prove, what is
-approximate, and what comes next.
+**Where it stands (13 October 2026): the Z80 is written and proven (item I2): all 1,604,000
+SingleStepTests cases pass, and ZEXDOC and ZEXALL report no errors. No board yet, and nothing of
+it is in the app yet.** The write-up at the end of the job finishes this file: the games it plays,
+what the tests prove, what is approximate, and what comes next.
 
 Why it exists: on 12 October the owner took the two arcade emulators with non-commercial licences
 out of the app (FinalBurn Neo and MAME 2003-Plus) and ruled out any outside arcade core for good.
@@ -96,15 +97,22 @@ upright too.
 
 ## How each piece is proved
 
-- **The Z80** has two proofs:
-  - **SingleStepTests' Z80 suite** (MIT-licensed JSON, one file per opcode). Every case must pass
-    on every register, both undocumented flag bits, WZ (MEMPTR), R, memory, and the cycle count.
+- **The Z80** has three proofs:
+  - **SingleStepTests' Z80 suite** (MIT-licensed JSON, one file per opcode, 1000 cases each).
+    Every case must pass on every register, both undocumented flag bits, WZ (MEMPTR), R, Q, the
+    interrupt flip-flops, memory, the order and values of every memory and I/O access, and the
+    cycle count (`tests/z80_singlestep.rs`, about 2 seconds).
   - **ZEXDOC and ZEXALL**, run through a tiny CP/M stand-in in the test harness (BDOS calls 2 and
-    9 at address 5). Both must report no errors.
+    9 at address 5). Both must report all 67 groups OK (`tests/z80_zex.rs`, about 45 seconds:
+    5.8 billion instructions each).
+  - **The interrupts, HALT and the refresh register**, which neither suite reaches: unit tests in
+    `src/z80.rs` (modes 0, 1 and 2, the NMI and RETN, EI's one-instruction delay, HALT, the
+    LD A,I quirk, a run of prefixes, R's bit 7, and a save state).
 
-  `cores/continuum-arcade/scripts/fetch-test-suites.sh` downloads them into the crate's
-  git-ignored `test-suites/` and checks each against a sha256; they're never committed. Without
-  the download those tests say SKIPPED and pass, the way cBoy's test ROMs work.
+  `cores/continuum-arcade/scripts/fetch-test-suites.sh` downloads them (about 290 MB, nearly all
+  of it the JSON) into the crate's git-ignored `test-suites/` and checks each against a sha256;
+  they're never committed. Without the download those tests say SKIPPED and pass, the way cBoy's
+  test ROMs work.
 - **Each board** is proved with programs we write ourselves:
   - **The test programs** draw tiles and sprites with our own graphics and colour PROMs, play our
     own waves, read the inputs and DIP switches, and exercise the watchdog and interrupts. They're
