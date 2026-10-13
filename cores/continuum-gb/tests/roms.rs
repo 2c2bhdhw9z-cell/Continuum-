@@ -397,11 +397,15 @@ fn mooneye_cgb() {
     }
     assert!(failed.is_empty(), "the Mooneye Color tests regressed: {failed:?}");
     // The fifth is reported, not gated: on a Color the mode 2 interrupt at the start of line 144
-    // arrives one M-cycle before VBlank, where on a Game Boy the two land together. That timing
-    // is in ppu.rs, which another agent is rewriting; docs/CBOY_NIGHT.md says what it needs.
+    // arrives one M-cycle before VBlank, where on a Game Boy the two land together. That rule is
+    // now IN, in ppu.rs::oam_irq_early, pinned by two unit tests there - but it hangs off
+    // Ppu::cgb_hardware, and nothing sets that yet, because only gb.rs knows which console this
+    // is and this work does not own it. Three lines there switch it on and this ROM passes (it was
+    // measured); then move it into the gated list above. See "A Color's line 144" and "Needed in
+    // files this work does not own" in docs/CBOY_EXACT_DRAWER.md.
     match mooneye_model("mts/misc/ppu/vblank_stat_intr-C.gb", Model::Cgb) {
         Ok(()) => eprintln!("MOONEYE CGB: vblank_stat_intr-C passes now; make it a gate too"),
-        Err(e) => eprintln!("MOONEYE CGB: still reported, waiting on ppu.rs: {e}"),
+        Err(e) => eprintln!("MOONEYE CGB: still reported, waiting on three lines in gb.rs: {e}"),
     }
 }
 

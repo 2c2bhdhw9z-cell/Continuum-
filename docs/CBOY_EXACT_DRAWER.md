@@ -36,8 +36,11 @@ needing the window switched on, and `WX` = 166):
 object stalls and the length of mode 3 that comes out of them:
 `the_object_stalls_are_mode_3s_length`,
 `an_object_at_x_0_waits_a_whole_tile_fetch_whatever_scx_says` and
-`a_colour_pays_for_an_object_it_has_been_told_not_to_draw`. Every one of them was checked to fail
-when the rule it covers is taken back out, so they are evidence and not decoration.
+`a_colour_pays_for_an_object_it_has_been_told_not_to_draw`. Line 144's STAT interrupt, which is
+Mooneye's to measure rather than Mealybug's:
+`line_144s_mode_2_interrupt_beats_vblank_only_on_a_colour` and
+`a_colour_gets_no_extra_mode_2_interrupt_at_line_144`. Every one of them was checked to fail when
+the rule it covers is taken back out, so they are evidence and not decoration.
 
 ### The two tools that make a picture into evidence
 
@@ -283,6 +286,81 @@ these references: the `DMG-blob` pictures do not show the desync, and `m3_window
 `m3_wx_4_change`, `m3_wx_5_change`, `m3_wx_6_change` and `m3_lcdc_win_en_change_multiple_wx` all
 pass pixel for pixel without it. Adding it would break five passing pictures.
 
+### What the CPU can see while the picture is being drawn
+
+Mode 2 and mode 3 shut the CPU out of OAM and VRAM, and the dots on which that starts and stops
+are measured from the CPU side by twelve of Mooneye's 86 (`lcdon_timing`, `lcdon_write_timing`,
+`intr_2_oam_ok_timing`, `intr_2_mode0_timing`, `intr_2_mode3_timing`, `intr_2_0_timing`,
+`intr_1_2_timing`, `intr_2_mode0_timing_sprites`, `hblank_ly_scx_timing`, `stat_irq_blocking`,
+`stat_lyc_onoff`, `vblank_stat_intr-GS`). Those pass on both drawers, and the four windows in
+`ppu.rs` (`oam_blocked`, `vram_blocked`, `oam_write_blocked`, `vram_write_blocked`) were read
+dot by dot against SameBoy's `Core/display.c` to see whether passing was luck. It was not: on a
+Game Boy cBoy's four windows are SameBoy's model, edge for edge.
+
+The mapping, for anyone doing this again: SameBoy's visible-line loop starts 4 dots before cBoy's
+dot 0, because its line boundary sits where `LY` changes and cBoy's sits where STAT shows mode 2.
+So SameBoy's `+4` is cBoy's dot 0, and its `oam_search_index == 37` is cBoy's dot 76 — which is
+where cBoy's `vram_blocked` already has its `(76..80)` term, from the opposite direction.
+
+What is **not** the same is the Color, and every difference is in the same place: SameBoy keys
+five of these edges off `GB_is_cgb(gb)`, hardware rather than cartridge mode, which `ppu.rs`
+cannot see (see "A Color's line 144" below). Written down rather than implemented, because with
+the flag unwired the code would be dead, and nothing in either test suite probes any of them —
+Mooneye's Color set is five boot/register/STAT ROMs and the Mealybug CGB pictures are stopped by
+Group 1 long before this. Implementing five unprobed edges blind is how the score moved up and
+down before.
+
+1. A Color keeps OAM **writes** blocked through the last 4 dots of mode 2 (cBoy dots 76-79), where
+   a Game Boy lets them through. cBoy's `oam_write_blocked` ends mode 2's block at dot 76 for
+   both.
+2. A Color does **not** block VRAM reads in those same 4 dots, where a Game Boy does. cBoy's
+   `vram_blocked` has the `(76..80)` term for both.
+3. A Color starts blocking OAM writes a whole M-cycle before the line begins (cBoy dot 452 of the
+   line before, and unconditionally from dot 454), where cBoy starts at dot 0 for both.
+4. In double speed a Color revision earlier than CGB-D does not block OAM reads at the line
+   boundary at all. That one needs the PPU to know about double speed as well, which it also
+   cannot see today.
+5. A Color of revision CGB-D or later blocks OAM reads for the first dot of mode 0. cBoy never
+   does.
+
+### A Color's line 144
+
+On every line the mode 2 STAT interrupt is raised one M-cycle *before* mode 2 shows in STAT — so
+in the M-cycle before the line it belongs to begins, which is `dot >= 452` of the line before
+(`ppu.rs::oam_irq_early`; SameBoy says the same in one comment, "the OAM STAT interrupt occurs 1
+T-cycle before STAT actually changes").
+
+Line 144 has no mode 2, and its interrupt is the one place the two consoles disagree:
+
+- A **Color** raises it one M-cycle early like every other line's, so it arrives **one M-cycle
+  before VBlank**.
+- A **Game Boy** holds that one back to the start of line 144, where it lands **together with
+  VBlank**.
+
+This is not inferred from pictures. It is what Mooneye's own pair of tests say, and they are the
+specification: `acceptance/ppu/vblank_stat_intr-GS` and `misc/ppu/vblank_stat_intr-C` are the same
+program, both timing the interrupt with `DIV` against a run of `nop`s, and the Color one uses
+**one `nop` fewer**. Their headers record which real consoles each was verified on: GS passes on
+DMG, MGB, SGB and SGB2 and fails on CGB, AGB and AGS, and C the other way round.
+
+`stat_condition`'s `ly == 144 && dot < 4` term is the Game Boy's late raise. It is left in for
+both consoles, which costs the Color nothing: the early raise has already put the line high, so
+there is no second rising edge, and that matches SameBoy, which also asks twice and guards the
+second ask with `!gb->stat_interrupt_line`.
+
+Pinned by `line_144s_mode_2_interrupt_beats_vblank_only_on_a_colour`, which runs the PPU in whole
+M-cycles exactly as `Bus::tick` does and pins the numbers (113/113 on a Game Boy, 112/113 on a
+Color — which also pins the alignment the rule rests on, a 456-dot line run four dots at a time
+putting dot 452 at the end of M-cycle 112 and the next line's dot 0 at the end of 113), and by
+`a_colour_gets_no_extra_mode_2_interrupt_at_line_144`, which pins that the Color's raise is line
+144's own interrupt moved and not a second one. The first fails when the rule is taken out; the
+second fails against the obvious wrong version of it, one that lets the line fall again between
+dot 452 and the start of line 144.
+
+**The rule is in, and it is switched off, because `ppu.rs` cannot tell a Color from a Game Boy.**
+See "Needed in files this work does not own" below for the three lines that switch it on, and what
+was measured with them in place.
+
 ## The 32 failures, grouped
 
 Counts are differing pixels as the report prints them.
@@ -389,21 +467,32 @@ pictures went from failing to pixel-for-pixel in this item: `m3_bgp_change_sprit
 ### Group 4 — not probed by any failing picture
 
 No DMG picture fails on VRAM/OAM access blocking (item C6): Mooneye covers those edges from the
-CPU side and passes 86/86 on both drawers. `m2_win_en_toggle`, the one `m2_*` picture, passes.
+CPU side and passes 86/86 on both drawers. `m2_win_en_toggle`, the one `m2_*` picture, passes. The
+four blocking windows were read against SameBoy anyway rather than trusted — see "What the CPU can
+see while the picture is being drawn" above for the result, which is that the Game Boy side is
+right edge for edge and all five differences left are the Color's.
 
 ## What is left, in order
 
-1. **CGB DMG-compatibility colour, in `gb.rs`** (not owned here). 31 pictures, none reachable
+1. **Three lines in `gb.rs` to tell the PPU it is Color hardware** (not owned here; see below).
+   The cheapest thing left anywhere in this file by a wide margin: the rule is already written and
+   tested, and applying them was measured to take Mooneye Color from 4 of 5 ROMs to 5 of 5 with
+   nothing else moving. Do this one first.
+2. **CGB DMG-compatibility colour, in `gb.rs`** (not owned here). 31 pictures, none reachable
    before it, and 4 of them not reachable at all. This is now by far the largest item, and it is
    worth doing for players as much as for the tests.
-2. **`Bus::write` applying an IO write at the hardware's point in the M-cycle** (not owned here;
+3. **`Bus::write` applying an IO write at the hardware's point in the M-cycle** (not owned here;
    see below). That would let `WRITE_BIAS` and `WX_LAG` go to zero and the staging be written
    purely as the hardware's, with no correction constants at all. It would not move the score.
-3. **The last 4 pixels of `m3_lcdc_bg_en_change`**, which Group 2 above characterises exactly and
+4. **The five Color-only access-blocking edges** in "What the CPU can see while the picture is
+   being drawn" above. They need the same `gb.rs` flag as item 1, and two of them need the PPU to
+   know about double speed too. No test in either suite probes them, so whoever does this needs a
+   way to measure first; the edges themselves are written down there in full.
+5. **The last 4 pixels of `m3_lcdc_bg_en_change`**, which Group 2 above characterises exactly and
    which nothing in the material to hand explains. Looked at twice now, from the register-write
    side and from the object side, with the same answer both times. Worth one look by someone who
    has a DMG and a logic analyser; not worth another session's guessing.
-4. **Two window edges left alone on purpose**, both written down here so nobody has to rediscover
+6. **Two window edges left alone on purpose**, both written down here so nobody has to rediscover
    them:
    - On the Color, a window started by `WX` = 166 also makes STAT report mode 0 for the rest of
      that dot, which can fire a spare HBlank interrupt. That is STAT timing rather than drawing,
@@ -430,6 +519,32 @@ Collected for whoever owns them; nothing here has been changed by this work.
   about. The proper fix is for a write to `$FF40`-`$FF4B` to be applied part-way through its
   M-cycle rather than at the end of it. Nothing outside this drawer depends on the present
   behaviour, and Mooneye's 86 acceptance tests would have to stay at 86 either way.
+- **`gb.rs`: tell the PPU it is Color hardware. Three lines, and one Mooneye test starts passing.**
+  `Ppu` now carries `pub cgb_hardware: bool` (`#[serde(skip)]`, so no save state changes size and
+  `tests/fuzz.rs::state_layout_is_pinned` still holds), and the line 144 STAT rule above is
+  written against it — but nothing sets it, so it is always `false` and every console behaves like
+  a Game Boy, exactly as before. `gb.rs` is the only file that knows which console this is. Add,
+  each one directly under the line above it that already does the same thing for the bus:
+
+  ```rust
+  gb.bus.cgb_hardware = true;                                  // in with_model, the (Cgb|Agb, false) arm
+  gb.bus.ppu.cgb_hardware = true;                              // <- add
+
+  bus.cgb_hardware = true;                                     // in build(), colour mode
+  bus.ppu.cgb_hardware = true;                                 // <- add
+
+  next.bus.cgb_hardware = self.bus.cgb_hardware;               // in load_state
+  next.bus.ppu.cgb_hardware = self.bus.ppu.cgb_hardware;       // <- add (it is the console, not the state)
+  ```
+
+  **This was measured, not assumed.** With those three lines applied in a sandbox,
+  `mts/misc/ppu/vblank_stat_intr-C.gb` passes, Mooneye DMG stays 86 of 86 on *both* drawers and the
+  gated Color set stays 6 of 6 runs. The lines were then taken back out, because this work owns
+  neither `gb.rs` nor `bus.rs` and another agent was editing them the same night. Whoever applies
+  them should also move that ROM out of the reported line at the bottom of `mooneye_cgb` in
+  `tests/roms.rs` and into the gated list above it, which takes Mooneye Color to 5 of 5 ROMs — the
+  comment there says so too. Nothing else in the core reads the flag, so there is nothing else to
+  check.
 - **`ppu.rs::mode3_length` is called from `tick` before the drawer runs**, so STAT and HBlank
   timing do not depend on which drawer is chosen. That is deliberate and must stay: Mooneye checks
   it from the CPU side on both drawers. The Exact drawer's own dot count now agrees with it.

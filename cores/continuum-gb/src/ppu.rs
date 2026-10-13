@@ -59,6 +59,13 @@ pub struct Ppu {
     hblank_at: u16,
     /// Game Boy Color mode (from the cartridge header).
     pub cgb: bool,
+    /// Color hardware, whichever mode the cartridge runs in: a Color playing a Game Boy game is
+    /// still a Color, and its STAT interrupt timing is the Color's. Comes from the console the
+    /// player picked, so it is not part of a save state. NOT WIRED UP YET - nothing sets it, so
+    /// every console still behaves like a Game Boy: see "A Color's line 144" in
+    /// docs/CBOY_EXACT_DRAWER.md for the three lines gb.rs needs.
+    #[serde(skip)]
+    pub cgb_hardware: bool,
     pub bg_pal: Vec<u8>,
     pub obj_pal: Vec<u8>,
     pub bcps: u8,
@@ -136,6 +143,7 @@ impl Default for Ppu {
             skip_frame: false,
             hblank_at: 252,
             cgb: false,
+            cgb_hardware: false,
             bg_pal: vec![0xFF; 64],
             layers: 7,
             no_render: false,
@@ -266,9 +274,18 @@ impl Ppu {
             || (e & 0x20 != 0 && (self.mode == 2 || self.oam_irq_early() || (self.ly == 144 && self.dot < 4)))
     }
 
-    /// The mode 2 STAT interrupt is raised one M-cycle before mode 2 shows in STAT.
+    /// The mode 2 STAT interrupt is raised one M-cycle before mode 2 shows in STAT, which is the
+    /// M-cycle before the line it belongs to begins (so `dot >= 452` of the line before it).
+    ///
+    /// Line 144 has no mode 2, and its interrupt is where the two consoles part. A Color raises
+    /// it one M-cycle early like every other line's, so it arrives one M-cycle BEFORE VBlank; a
+    /// Game Boy holds that one back to the start of line 144, where it lands together with
+    /// VBlank. That is the whole of the difference between Mooneye's vblank_stat_intr-GS (passes
+    /// on DMG, MGB, SGB, SGB2) and vblank_stat_intr-C (passes on CGB, AGB, AGS); the Game Boy's
+    /// late raise is the `ly == 144 && dot < 4` term in `stat_condition`, which on a Color only
+    /// holds the line up that the early raise has already put high.
     fn oam_irq_early(&self) -> bool {
-        self.dot >= 452 && self.ly < 143
+        self.dot >= 452 && self.ly < if self.cgb_hardware { 144 } else { 143 }
     }
 
     /// Mode 3's length: 172 dots, plus the SCX fine scroll, plus each sprite on the line
@@ -793,6 +810,69 @@ mod tests {
             p.tick();
         }
         assert!(p.frame[..W * 3].iter().all(|c| *c == SHADES[1]), "every line is background");
+    }
+
+    /// Runs line 143 in whole M-cycles, four dots at a time with the two interrupts OR-ed
+    /// together, which is exactly how `Bus::tick` hands them to the CPU. Returns the M-cycle of
+    /// the line that asks for the mode 2 STAT interrupt and the one that asks for VBlank, both
+    /// counted from the start of line 143. Mode 2 is the only STAT source switched on, and the
+    /// line is already high as line 143 begins, so the first rise seen is line 144's.
+    fn line_144_interrupt_m_cycles(cgb_hardware: bool) -> (u32, u32) {
+        let mut p = Ppu { lcdc: 0x80, cgb_hardware, ..Ppu::default() };
+        p.write_stat(0x20); // STAT bit 5: mode 2 only
+        while !(p.ly == 143 && p.dot == 0) {
+            p.tick();
+        }
+        let (mut stat_at, mut vblank_at) = (None, None);
+        for m in 0..LINE as u32 / 4 {
+            let (mut stat, mut vblank) = (false, false);
+            for _ in 0..4 {
+                let irq = p.tick();
+                stat |= irq.stat;
+                vblank |= irq.vblank;
+            }
+            if stat && stat_at.is_none() {
+                stat_at = Some(m);
+            }
+            if vblank && vblank_at.is_none() {
+                vblank_at = Some(m);
+            }
+        }
+        (stat_at.expect("the mode 2 interrupt was never asked for"),
+         vblank_at.expect("VBlank was never asked for"))
+    }
+
+    /// Line 144's mode 2 STAT interrupt against VBlank. A Color raises it one M-cycle early, like
+    /// every other line's, so it beats VBlank; a Game Boy holds it to the start of line 144 and
+    /// the two land together. The M-cycle numbers also pin the alignment the rule rests on: a
+    /// 456-dot line run four dots at a time puts dot 452 at the end of M-cycle 112 and dot 0 of
+    /// the next line at the end of M-cycle 113.
+    ///
+    /// This is the whole of what Mooneye's vblank_stat_intr-GS and -C disagree about: both time
+    /// the interrupt with DIV against a run of `nop`s, and the Color test uses one `nop` fewer.
+    #[test]
+    fn line_144s_mode_2_interrupt_beats_vblank_only_on_a_colour() {
+        assert_eq!(line_144_interrupt_m_cycles(false), (113, 113),
+                   "a Game Boy: the mode 2 interrupt and VBlank are asked for together");
+        assert_eq!(line_144_interrupt_m_cycles(true), (112, 113),
+                   "a Color: the mode 2 interrupt is asked for one M-cycle before VBlank");
+    }
+
+    /// The Color's early raise is line 144's own interrupt moved, not a second one: across lines
+    /// 143 and 144 together each console asks for the mode 2 interrupt exactly once. Line 143's
+    /// own interrupt is already asked for before this count starts, at the end of line 142.
+    #[test]
+    fn a_colour_gets_no_extra_mode_2_interrupt_at_line_144() {
+        let count = |cgb_hardware: bool| {
+            let mut p = Ppu { lcdc: 0x80, cgb_hardware, ..Ppu::default() };
+            p.write_stat(0x20);
+            while !(p.ly == 143 && p.dot == 0) {
+                p.tick();
+            }
+            (0..LINE * 2).filter(|_| p.tick().stat).count()
+        };
+        assert_eq!(count(false), 1, "a Game Boy: one, at the start of line 144");
+        assert_eq!(count(true), 1, "a Color: the same one, an M-cycle earlier");
     }
 }
 
