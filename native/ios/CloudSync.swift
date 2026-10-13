@@ -1014,6 +1014,13 @@ final class CloudSync: ObservableObject {
     /// running game reads or writes is under `Games/`. Set on the main actor only.
     @Published private(set) var allowsGameLaunch: Bool = true
 
+    /// True for a restore's merge only. That run is followed by `finishRestore`, which re-reads
+    /// the skins and the save-state list, and both are only safe with no game running; so the
+    /// games phase, which normally opens launches again while it copies, keeps them closed for
+    /// this one run (IOS-19). `finish` clears it and opens launches however the run ends, so a
+    /// restore that fails or is refused can never leave the library stuck.
+    private var holdsGameLaunch = false
+
     /// Set when the stores were reloaded as the games phase began, so `finish` does not reload
     /// them again under a game that may be running by then.
     private var storesReloaded = false
@@ -1105,8 +1112,21 @@ final class CloudSync: ObservableObject {
                 + "keep a live folder: cancel and use Back up to Files", persist: false)
     }
 
+    /// Where the packed backup .zip waits for the Files exporter. Emptied as soon as the export
+    /// is saved or cancelled (IOS-16): with the games in it, it is the size of the library.
+    private static var backupOutFolder: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("ContinuumBackupOut", isDirectory: true)
+    }
+
     /// Syncs into the folder inside the app, then hands a copy of it to the Files exporter.
     func backUpToFiles() {
+        // A second tap while the first backup was still going threw the first one's export away
+        // (IOS-15): `runSync` saw a run in progress and dropped the follow-up with it.
+        guard !isSyncing else {
+            setLine("sync folder: a backup is already running; wait for it to finish", persist: false)
+            return
+        }
         guard let staging = Self.stagingFolder() else {
             setLine("sync folder: backup failed, no app storage folder")
             return
@@ -1132,8 +1152,7 @@ final class CloudSync: ObservableObject {
         let stamp = DateFormatter()
         stamp.locale = Locale(identifier: "en_US_POSIX")
         stamp.dateFormat = "yyyy-MM-dd HHmm"
-        let outDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ContinuumBackupOut", isDirectory: true)
+        let outDir = Self.backupOutFolder
         let zip = outDir.appendingPathComponent("Continuum Backup \(stamp.string(from: Date())).zip")
         isSyncing = true
         setLine("sync folder: packing the backup into one file...", persist: false)
@@ -1170,6 +1189,9 @@ final class CloudSync: ObservableObject {
 
     private func exportFinished(_ url: URL?) {
         pickerDelegate = nil
+        // Files has its copy (or the save was cancelled), so the packed one in the app's scratch
+        // space has done its job. It used to sit there until the next backup (IOS-16).
+        try? FileManager.default.removeItem(at: Self.backupOutFolder)
         let missed = backupMissed
         backupMissed = []
         if let url {
@@ -1234,6 +1256,11 @@ final class CloudSync: ObservableObject {
             var failure: String?
             var datesKept = false
             var conflictsBefore: Set<String> = []
+            // Where this phone's own Conflicts/ and Deleted/ wait while the backup's folder takes
+            // the place of the app's one (IOS-14). They are put back either way, finished or
+            // failed, so a restore that stops part-way cannot lose them.
+            let kept = staging.appendingPathComponent("RestoreKeep", isDirectory: true)
+            var carried: [String] = []
             do {
                 try? fm.removeItem(at: unpacked)
                 let isZip = picked.pathExtension.lowercased() == "zip"
@@ -1267,14 +1294,45 @@ final class CloudSync: ObservableObject {
                 guard known.contains(where: { fm.fileExists(atPath: source.appendingPathComponent($0).path) }) else {
                     throw BackupArchiveError("that .zip isn't a Continuum backup")
                 }
+                // Conflicts/ and Deleted/ are the copies the app promises it keeps: Settings
+                // says a save state you delete is moved to Continuum Sync/Deleted so it is still
+                // there if you change your mind. Replacing the folder threw both away (IOS-14),
+                // so they are held aside here and put back once the backup's folder is in place.
+                // The backup's own copy of a file wins; this phone's older ones fill the gaps.
+                try? fm.removeItem(at: kept)
+                for folder in ["Conflicts", "Deleted"] {
+                    let mine = root.appendingPathComponent(folder, isDirectory: true)
+                    guard fm.fileExists(atPath: mine.path) else { continue }
+                    try? fm.createDirectory(at: kept, withIntermediateDirectories: true)
+                    do {
+                        try fm.moveItem(at: mine, to: kept.appendingPathComponent(folder, isDirectory: true))
+                        carried.append(folder)
+                    } catch {
+                        FeedbackCenter.step("restore: could not hold \(folder) aside: "
+                                            + error.localizedDescription)
+                    }
+                }
                 if fm.fileExists(atPath: root.path) { try fm.removeItem(at: root) }
                 try fm.moveItem(at: source, to: root)
+                for folder in carried {
+                    let back = Self.carryOver(from: kept.appendingPathComponent(folder, isDirectory: true),
+                                              into: root.appendingPathComponent(folder, isDirectory: true))
+                    FeedbackCenter.step("restore: kept \(back) older cop(ies) in \(folder)")
+                }
+                try? fm.removeItem(at: kept)
                 FeedbackCenter.step("restore: moved into the app's sync folder")
                 // What Conflicts/ already holds (the backup's own), so only the copies THIS merge
                 // sets aside are moved to Older copies afterwards.
                 conflictsBefore = Self.filesUnder(root.appendingPathComponent("Conflicts", isDirectory: true))
             } catch {
                 failure = error.localizedDescription
+                // Put the held-aside archives back where they were (the restore stopped, so the
+                // app's folder is either still its own or had to be made again).
+                for folder in carried {
+                    _ = Self.carryOver(from: kept.appendingPathComponent(folder, isDirectory: true),
+                                       into: root.appendingPathComponent(folder, isDirectory: true))
+                }
+                try? fm.removeItem(at: kept)
             }
             try? fm.removeItem(at: unpacked)
             try? fm.removeItem(at: picked)
@@ -1331,7 +1389,7 @@ final class CloudSync: ObservableObject {
                     self?.finishRestore(backupSettings: backupSettings)
                 }
                 self.runSync(folder: staging, target: "staging", scoped: false, exportFirst: false,
-                             reason: "restore from \(picked.lastPathComponent)")
+                             reason: "restore from \(picked.lastPathComponent)", holdsLaunch: true)
             }
         }
     }
@@ -1424,6 +1482,28 @@ final class CloudSync: ObservableObject {
             if full.hasPrefix(base + "/") { out.insert(String(full.dropFirst(base.count + 1))) }
         }
         return out
+    }
+
+    /// Moves every file under `from` into `into`, keeping the folders it sits in, and never
+    /// replacing a file that is already there. Used by a restore to put this phone's own
+    /// Conflicts/ and Deleted/ copies back after the backup's folder takes their place (IOS-14).
+    /// Returns how many were moved; one that cannot be moved is logged and left alone.
+    nonisolated static func carryOver(from source: URL, into target: URL) -> Int {
+        let fm = FileManager.default
+        var moved = 0
+        for relative in filesUnder(source).sorted() {
+            let destination = target.appendingPathComponent(relative)
+            guard !fm.fileExists(atPath: destination.path) else { continue }
+            do {
+                try fm.createDirectory(at: destination.deletingLastPathComponent(),
+                                       withIntermediateDirectories: true)
+                try fm.moveItem(at: source.appendingPathComponent(relative), to: destination)
+                moved += 1
+            } catch {
+                FeedbackCenter.step("restore: could not keep \(relative): " + error.localizedDescription)
+            }
+        }
+        return moved
     }
 
     /// The Files folder (Continuum, Older copies) where a restore puts every copy it did not keep.
@@ -1563,8 +1643,10 @@ final class CloudSync: ObservableObject {
     /// missing files read as deletions. `exportFirst` nil keeps the original rule (export only
     /// with history); true always exports (the in-app backup folder is ours).
     /// `mirror`: one way, this device into the folder (Back up to Files); see `CloudSyncWorker`.
+    /// `holdsLaunch`: keep game launches closed right through this run (a restore; see
+    /// `holdsGameLaunch`).
     private func runSync(folder: URL, target: String, scoped wantsScope: Bool, exportFirst: Bool?,
-                         reason: String, mirror: Bool = false) {
+                         reason: String, mirror: Bool = false, holdsLaunch: Bool = false) {
         guard !isSyncing else {
             // Only a user-started run carries a follow-up (Back up, Restore); it used to vanish
             // without a word while the launch-time sync was still going.
@@ -1598,6 +1680,7 @@ final class CloudSync: ObservableObject {
         }
         isSyncing = true
         allowsGameLaunch = false
+        holdsGameLaunch = holdsLaunch
         storesReloaded = false
         setLine("sync folder: syncing (\(reason))", persist: false)
         let root = folder.appendingPathComponent(CloudSyncPaths.remoteFolderName, isDirectory: true)
@@ -1622,7 +1705,8 @@ final class CloudSync: ObservableObject {
     private func onlyGamesLeft(_ changed: [String]) {
         reloadStores(for: Set(changed))
         storesReloaded = true
-        allowsGameLaunch = true
+        // A restore keeps them closed until it has re-read the skins and the save states.
+        if !holdsGameLaunch { allowsGameLaunch = true }
     }
 
     private func reloadStores(for changed: Set<String>) {
@@ -1643,6 +1727,7 @@ final class CloudSync: ObservableObject {
         lastRunErrors = outcome.errors
         isSyncing = false
         // Every way out of a run ends here, refusals and failures included.
+        holdsGameLaunch = false
         allowsGameLaunch = true
         let reloadedAlready = storesReloaded
         storesReloaded = false
@@ -2092,13 +2177,19 @@ struct CloudSyncSection: View {
         SettingsSection(title: "SYNC FOLDER") {
             SettingsReadout(label: "Folder", value: sync.folderName ?? "none chosen")
             SettingsNote(sync.line)
+            // Both are off while one is running: tapping Back up twice used to throw the first
+            // backup's save away (IOS-15), and a restore refuses mid-sync anyway.
             SettingsButton(title: sync.isSyncing ? "Working..." : "Back up to Files", role: .normal) {
                 sync.backUpToFiles()
             }
+            .disabled(sync.isSyncing)
+            .opacity(sync.isSyncing ? 0.5 : 1)
             SettingsButton(title: "Restore from a backup", role: .normal) {
                 FeedbackCenter.step("restore: Settings button tapped")
                 sync.restoreFromFiles()
             }
+            .disabled(sync.isSyncing)
+            .opacity(sync.isSyncing ? 0.5 : 1)
             SettingsNote(CloudSyncSection.backupNote)
             SettingsButton(title: sync.folderName == nil ? "Live folder (advanced)" : "Choose a different live folder",
                            role: .normal) {

@@ -15,6 +15,12 @@
 // keeps a multi-gigabyte backup fast). The reader takes stored and deflated entries, ZIP64
 // included, so a zip made by Files' own Compress restores too.
 //
+// CHECKED ON THE WAY BACK IN (review finding IOS-13). Unpacking works out each file's check
+// number (CRC-32) from what it writes and compares it with the one the zip recorded, and a
+// deflated entry whose stream stops before its end marker is refused. A backup that was damaged
+// or cut short mid-download used to restore quietly as a wrong save; now it says so and the
+// restore stops with nothing on the phone changed.
+//
 // DATES (review finding IOS-06). Every entry carries its file's real modification date: the DOS
 // date and time plus the 0x5455 extended timestamp (whole seconds, UTC). Unpacking sets that date
 // back on each file, so the merge that follows a Restore can keep whichever copy is newer.
@@ -212,6 +218,9 @@ enum BackupArchive {
         let localOffset: UInt64
         /// The file's own date, when the zip recorded one (nil for a pre-dates backup).
         let modified: Date?
+        /// The zip's own check number for this file, or 0 when it recorded none. `unpack` works
+        /// it out again from what it writes and refuses a file that does not match (IOS-13).
+        let crc: UInt32
     }
 
     private static func read(_ h: FileHandle, at: UInt64, count: Int) throws -> Data {
@@ -257,6 +266,7 @@ enum BackupArchive {
             guard u32(dir, p) == 0x0201_4B50 else { throw BackupArchiveError("damaged zip entry") }
             let flags = u16(dir, p + 8)
             let method = u16(dir, p + 10)
+            let crcField = u32(dir, p + 16)
             var compressed = UInt64(u32(dir, p + 20))
             var size = UInt64(u32(dir, p + 24))
             let nameLen = Int(u16(dir, p + 28))
@@ -292,7 +302,7 @@ enum BackupArchive {
             let undated = dosDateField == undatedDOSDate && dosTimeField == 0
             let modified = stamped ?? (undated ? nil : dosDate(time: dosTimeField, date: dosDateField))
             list.append(Entry(name: name, method: method, compressed: compressed, size: size,
-                              localOffset: localOffset, modified: modified))
+                              localOffset: localOffset, modified: modified, crc: crcField))
             p = extraEnd + commentLen
         }
         return list
@@ -346,19 +356,28 @@ enum BackupArchive {
             let out = try FileHandle(forWritingTo: target)
             do {
                 try h.seek(toOffset: dataStart)
+                var check: UInt32 = 0
                 switch entry.method {
                 case 0:
                     var left = entry.compressed
                     while left > 0 {
                         let piece = try autoreleasepool { try h.read(upToCount: Int(min(left, UInt64(chunk)))) ?? Data() }
                         if piece.isEmpty { throw BackupArchiveError("the zip is cut short at \(entry.name)") }
+                        check = crc(piece, check)
                         try out.write(contentsOf: piece)
                         left -= UInt64(piece.count)
                     }
                 case 8:
-                    try inflate(from: h, compressed: entry.compressed, into: out, name: entry.name)
+                    check = try inflate(from: h, compressed: entry.compressed, into: out, name: entry.name)
                 default:
                     throw BackupArchiveError("\(entry.name) uses a zip compression Continuum cannot read (\(entry.method))")
+                }
+                // The zip wrote down a check number for every file; this one is worked out from
+                // what was just written. A short download or bit damage used to restore quietly
+                // as a wrong save (IOS-13). A zip that recorded no check number (0) is taken as
+                // it always was.
+                if entry.crc != 0, check != entry.crc {
+                    throw BackupArchiveError("\(entry.name) is damaged in the backup")
                 }
             } catch {
                 try? out.close()
@@ -375,7 +394,16 @@ enum BackupArchive {
         return Unpacked(files: files, datesKept: datesKept)
     }
 
-    private static func inflate(from h: FileHandle, compressed: UInt64, into out: FileHandle, name: String) throws {
+    /// Unzips one deflated entry and returns the check number of what it wrote. A stream that
+    /// runs out before its end marker is a cut-short backup and is thrown as one: it used to
+    /// finish quietly, leaving half a file behind (IOS-13). Each chunk is read and processed
+    /// inside an `autoreleasepool`, like the other two read loops, so a multi-gigabyte entry
+    /// cannot grow the app's memory as it goes (IOS-18).
+    private static func inflate(from h: FileHandle, compressed: UInt64, into out: FileHandle,
+                                name: String) throws -> UInt32 {
+        // No compressed bytes at all is an empty file (some writers deflate nothing into
+        // nothing): there is no stream to end, so it is not cut short.
+        guard compressed > 0 else { return 0 }
         let dst = UnsafeMutablePointer<UInt8>.allocate(capacity: chunk)
         defer { dst.deallocate() }
         var stream = compression_stream(dst_ptr: dst, dst_size: 0, src_ptr: UnsafePointer(dst), src_size: 0, state: nil)
@@ -385,26 +413,37 @@ enum BackupArchive {
         defer { compression_stream_destroy(&stream) }
         var left = compressed
         var finished = false
+        var check: UInt32 = 0
         while !finished {
-            let piece = left > 0 ? (try h.read(upToCount: Int(min(left, UInt64(chunk)))) ?? Data()) : Data()
-            if left > 0 && piece.isEmpty { throw BackupArchiveError("the zip is cut short at \(name)") }
-            left -= UInt64(piece.count)
-            let last = left == 0
-            try piece.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-                stream.src_ptr = raw.bindMemory(to: UInt8.self).baseAddress ?? UnsafePointer(dst)
-                stream.src_size = raw.count
-                repeat {
-                    stream.dst_ptr = dst
-                    stream.dst_size = chunk
-                    let status = compression_stream_process(&stream, last ? Int32(COMPRESSION_STREAM_FINALIZE.rawValue) : 0)
-                    let produced = chunk - stream.dst_size
-                    if produced > 0 { try out.write(contentsOf: Data(bytes: dst, count: produced)) }
-                    if status == COMPRESSION_STATUS_END { finished = true; break }
-                    if status == COMPRESSION_STATUS_ERROR { throw BackupArchiveError("\(name) is damaged in the zip") }
-                    if stream.src_size == 0 && stream.dst_size > 0 { break }
-                } while true
+            try autoreleasepool {
+                let piece = left > 0 ? (try h.read(upToCount: Int(min(left, UInt64(chunk)))) ?? Data()) : Data()
+                if left > 0 && piece.isEmpty { throw BackupArchiveError("the zip is cut short at \(name)") }
+                left -= UInt64(piece.count)
+                let last = left == 0
+                try piece.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                    stream.src_ptr = raw.bindMemory(to: UInt8.self).baseAddress ?? UnsafePointer(dst)
+                    stream.src_size = raw.count
+                    repeat {
+                        stream.dst_ptr = dst
+                        stream.dst_size = chunk
+                        let status = compression_stream_process(&stream, last ? Int32(COMPRESSION_STREAM_FINALIZE.rawValue) : 0)
+                        let produced = chunk - stream.dst_size
+                        if produced > 0 {
+                            let block = Data(bytes: dst, count: produced)
+                            check = crc(block, check)
+                            try out.write(contentsOf: block)
+                        }
+                        if status == COMPRESSION_STATUS_END { finished = true; break }
+                        if status == COMPRESSION_STATUS_ERROR { throw BackupArchiveError("\(name) is damaged in the zip") }
+                        if stream.src_size == 0 && stream.dst_size > 0 { break }
+                    } while true
+                }
+                // Everything the entry had has been fed in and there was still no end marker.
+                if last && !finished && piece.isEmpty {
+                    throw BackupArchiveError("the zip is cut short at \(name)")
+                }
             }
-            if last && !finished && piece.isEmpty { finished = true }
         }
+        return check
     }
 }
