@@ -442,9 +442,33 @@ fn png_rgb(bytes: &[u8]) -> Vec<u32> {
     out
 }
 
+/// Where a Mealybug picture differs from the expected one. A pass/fail count alone cannot say
+/// which piece of the drawer is wrong, so every failure reports its position too.
+struct MealyDiff {
+    /// Differing pixels in the whole picture.
+    wrong: usize,
+    /// Screen lines with at least one differing pixel.
+    lines: usize,
+    /// The first differing pixel in reading order: x, y, the colour drawn, the colour expected.
+    first: Option<(usize, usize, u32, u32)>,
+}
+
+impl std::fmt::Display for MealyDiff {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self.first {
+            None => write!(f, "identical"),
+            Some((x, y, got, want)) => write!(
+                f,
+                "{} px on {} lines, first line {y}, first pixel x={x}, got {got:06X} want {want:06X}",
+                self.wrong, self.lines
+            ),
+        }
+    }
+}
+
 /// One Mealybug Tearoom test on the exact drawer (the one these pictures are for): run to
-/// `LD B,B`, compare the screen. Returns differing pixels.
-fn mealybug(name: &str, cgb: bool) -> Option<usize> {
+/// `LD B,B`, compare the screen. Returns where it differs.
+fn mealybug(name: &str, cgb: bool) -> Option<MealyDiff> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/mealybug");
     let data = std::fs::read(dir.join(format!("{name}.gb"))).ok()?;
     let exp = std::fs::read(dir.join("expected").join(if cgb { "CPU CGB C" } else { "DMG-blob" }).join(format!("{name}.png"))).ok()?;
@@ -478,7 +502,20 @@ fn mealybug(name: &str, cgb: bool) -> Option<usize> {
     let map = |p: u32| if cgb { p } else {
         match p & 0xFF { 0xFF => continuum_gb::ppu::SHADES[0], 0xAA => continuum_gb::ppu::SHADES[1], 0x55 => continuum_gb::ppu::SHADES[2], _ => continuum_gb::ppu::SHADES[3] }
     };
-    Some(want.iter().zip(got.iter()).filter(|(w, g)| map(**w) != **g).count())
+    let mut diff = MealyDiff { wrong: 0, lines: 0, first: None };
+    for y in 0..144usize {
+        let mut line_wrong = false;
+        for x in 0..160usize {
+            let (w, g) = (map(want[y * 160 + x]), got[y * 160 + x]);
+            if w != g {
+                diff.wrong += 1;
+                line_wrong = true;
+                diff.first.get_or_insert((x, y, g, w));
+            }
+        }
+        diff.lines += usize::from(line_wrong);
+    }
+    Some(diff)
 }
 
 /// Mid-scanline register changes (Mealybug Tearoom). Reports; the passing set is pinned below.
@@ -497,16 +534,22 @@ fn mealybug_report() {
             .map(|e| e.file_name().to_string_lossy().trim_end_matches(".png").to_string()).collect();
         names.sort();
         for n in names {
+            let label = format!("{}{n}", if cgb { "cgb:" } else { "dmg:" });
             match mealybug(&n, cgb) {
-                Some(0) => pass.push(format!("{}{n}", if cgb { "cgb:" } else { "dmg:" })),
-                Some(d) => fail.push(format!("{}{n} ({d})", if cgb { "cgb:" } else { "dmg:" })),
+                Some(d) if d.wrong == 0 => pass.push(label),
+                Some(d) => fail.push((label, d)),
                 None => {}
             }
         }
     }
     eprintln!("MEALYBUG (exact drawer): {} passed, {} failed", pass.len(), fail.len());
-    eprintln!("  pass: {pass:?}");
-    eprintln!("  fail: {fail:?}");
+    for p in &pass {
+        eprintln!("  PASS {p}");
+    }
+    // Where each failure differs, not just that it does: the map for work on the exact drawer.
+    for (label, d) in &fail {
+        eprintln!("  FAIL {label}: {d}");
+    }
     for must in MEALYBUG_PASSING {
         assert!(pass.iter().any(|p| p == must), "mealybug regressed: {must}");
     }
