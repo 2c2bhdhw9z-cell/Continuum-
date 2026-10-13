@@ -85,6 +85,28 @@ Mesen 2 is a REQUIRED core in `scripts/build-core.sh`, so a patch that does not 
 whole build and the owner gets no .ipa: that work wants a session that can build it, not a blind
 patch overnight. Speed on an iPhone still needs the phone either way.
 
+## Not done tonight (A10: Continuum's own 32X start-up code), with the groundwork
+
+Nothing changed, so a 32X game still shows the same "needs 32X_M_BIOS.bin and 32X_S_BIOS.bin"
+line it did before. What was worked out, so the next attempt does not start from nothing:
+
+- The 68K side is already handled by BlastEm itself. When `32X_G_BIOS.bin` is missing,
+  `32x.c get_68K_vector_rom()` builds a vector table of its own (every vector pointing into a
+  stub), which is why that file was never a gate in the app.
+- The two SH-2 start-up files are simply read into the buffers at `main_map[5]` and `sub_map[5]`
+  in `alloc_config_32x()` (around lines 1417 and 1449 at pin `ab74365`), and when the file is
+  missing the buffer is left as zeroes, so the SH-2 runs zeroes and the game never starts. Those
+  two `else` branches are exactly where code Continuum ships would go, as a byte array compiled
+  in rather than a file on disk.
+- What that code has to do is small: set up each SH-2 (stack and vector base), tell the 68K it is
+  alive through the adapter's communication registers, wait for the handshake the 68K side sends,
+  then jump to the start address the cartridge's own 32X header gives for that SH-2.
+- Why it stopped here: writing it means hand-building SH-2 machine code with no SH-2 assembler in
+  this sandbox and no way to run a 32X game (no Mac, no test cartridge), so there would be no way
+  to tell working code from code that silently hangs. It wants a session that can build and run
+  BlastEm, where each step can be watched. The licence side is fine: our own code, GPL, in this
+  repository.
+
 ## Notes for whoever builds next
 
 - **Editing `scripts/build-core.sh` rebuilds every core** (the per-core fingerprint hashes the
