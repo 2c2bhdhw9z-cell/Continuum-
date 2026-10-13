@@ -630,9 +630,19 @@ right edge for edge and all five differences left are the Color's.
 
 Collected for whoever owns them; nothing here has been changed by this work.
 
-- **`gb.rs`: CGB DMG-compatibility mode.** As set out in Group 1. Without it, 31 of the 55
-  Mealybug pictures cannot move, and cBoy shows a white screen for any DMG game a player runs in
-  Colour mode. This is worth doing for players, not only for the tests.
+- **`gb.rs`: the Game Boy-compatibility colour palette. The best-value change left anywhere in
+  this file.** As set out in Group 1 step 1. The mode itself already exists and is already what a
+  player gets — `with_model` runs a Game Boy cartridge on a Color console in Game Boy mode — so
+  all that is missing is the palette the boot ROM picks from a hash of the cartridge title, loaded
+  into `bg_pal`/`obj_pal`. For these test ROMs it is background `FFFFFF` / `7BFF31` / `0063C6` /
+  `000000`, objects `FFFFFF` / `FF8484` / `943939` / `000000`. **Three Mealybug pictures pass the
+  moment it lands with no change to either drawer** (`cgb:m2_win_en_toggle`,
+  `cgb:m3_lcdc_win_en_change_multiple`, `cgb:m3_wx_4_change_sprites` — their references are the
+  DMG picture shade for shade and this drawer already draws all three of those right), and 17 more
+  need it as well as other things. It matters more for players than for the tests: without it an
+  old black-and-white game on cBoy's Color console is plain grey where a real one tints it. Note
+  the drawer half in Group 1 step 2 cannot be written until the flag in the third bullet below is
+  set, so these two `gb.rs` changes are best done together.
 - **`bus.rs`: where an IO write lands inside its M-cycle.** `Bus::write` calls `tick()` first and
   applies the write after, so a register write reaches the PPU three dots later than on hardware,
   and a register the hardware writes in two stages a dot apart arrives in one. `fifo.rs` corrects
@@ -640,7 +650,7 @@ Collected for whoever owns them; nothing here has been changed by this work.
   of the 24 DMG pictures but cannot express a bit that arrives *before* the write cBoy is told
   about. The proper fix is for a write to `$FF40`-`$FF4B` to be applied part-way through its
   M-cycle rather than at the end of it. Nothing outside this drawer depends on the present
-  behaviour, and Mooneye's 86 acceptance tests would have to stay at 86 either way.
+  behaviour, and Mooneye's acceptance gate would have to stay where it is either way.
 - **`gb.rs`: tell the PPU it is Color hardware. Three lines, and one Mooneye test starts passing.**
   `Ppu` now carries `pub cgb_hardware: bool` (`#[serde(skip)]`, so no save state changes size and
   `tests/fuzz.rs::state_layout_is_pinned` still holds), and the line 144 STAT rule above is
@@ -659,9 +669,14 @@ Collected for whoever owns them; nothing here has been changed by this work.
   next.bus.ppu.cgb_hardware = self.bus.ppu.cgb_hardware;       // <- add (it is the console, not the state)
   ```
 
+  Since that was written the flag has become worth more than the one Mooneye ROM: it is also what
+  the six black-and-white Color pictures in Group 1 step 2 are waiting on, and what the drawer half
+  of the palette work above needs in order to be written at all.
+
   **This was measured, not assumed.** With those three lines applied in a sandbox,
-  `mts/misc/ppu/vblank_stat_intr-C.gb` passes, Mooneye DMG stays 86 of 86 on *both* drawers and the
-  gated Color set stays 6 of 6 runs. The lines were then taken back out, because this work owns
+  `mts/misc/ppu/vblank_stat_intr-C.gb` passes, Mooneye DMG stayed at its full count on *both*
+  drawers (86 of 86 when that was measured; the gate is 87 now, for reasons nothing to do with
+  this) and the gated Color set stays 6 of 6 runs. The lines were then taken back out, because this work owns
   neither `gb.rs` nor `bus.rs` and another agent was editing them the same night. Whoever applies
   them should also move that ROM out of the reported line at the bottom of `mooneye_cgb` in
   `tests/roms.rs` and into the gated list above it, which takes Mooneye Color to 5 of 5 ROMs — the
@@ -673,48 +688,37 @@ Collected for whoever owns them; nothing here has been changed by this work.
 
 ## For the owner
 
-The exact drawer is still switched off by default, and almost all of this work is inside it, where
-it cannot touch a game you play.
+cBoy's exact drawer — the one that draws a Game Boy picture a dot at a time, the way the real chip
+does — was rebuilt from scratch this night instead of being patched again, and on the test set
+that measures this sort of thing exactly it went from **5 pictures right out of 55 to 24**. That
+24 is almost everything currently reachable: 23 of them are the whole Game Boy half bar one
+picture that is four pixels away, and the 24th is the first of the Colour half, which is held up
+by two things in files this work was not allowed to touch (both written down above for whoever
+owns them, with the number of pictures each is worth). **It is still not worth switching on to
+play games** — no real game has been played on it on a phone yet, so Standard stays the one to
+use, and it stays the default either way.
 
-One rule did change for every Game Boy game on both drawers, and it is the only thing here you
-could see: a real Game Boy only draws the window (the fixed panel games use for status bars and
-text boxes) if the window was switched on at the moment the screen passed the line it is set to
-start at. cBoy used to start it part-way down the screen when a game switched it on late; the real
-console waits for the next frame, which is now what cBoy does. It should only ever look more
-right, and all 86 timing tests and both picture tests still pass - but if a status bar or text box
-ever looks like it arrives a frame later than it used to, that is this change and it is worth
-telling Kiro.
+Two things did change for both drawers, so they can show up in a game you play. They should only
+ever look more right, but they are the only things here worth watching for:
 
-One more thing changed for both drawers, far smaller: the console tells a game when it has
-finished drawing each line, and in two cases cBoy was telling it a few millionths of a second too
-early - when a sprite sits hard against the left edge of a scrolled line, and on a Game Boy Color
-while sprites are switched off. Both are now the timing the real chip has. No game is likely to
-notice, and a game that counts those moments closely can only be better off; all 86 timing tests
-still pass on both drawers.
+- **Status bars and text boxes.** A real Game Boy only draws the window — the fixed panel games
+  use for status bars and text boxes — if the window was switched on at the moment the screen
+  passed the line it starts at. cBoy used to start it part-way down the screen when a game
+  switched it on late; a real console waits for the next frame, which is now what cBoy does. If a
+  status bar or text box ever seems to arrive a frame later than it used to, that is this change
+  and it is worth telling Kiro.
+- **Line timing, far smaller.** The console tells a game when it has finished drawing each line,
+  and in two cases cBoy was saying so a few millionths of a second early: when a sprite sits hard
+  against the left edge of a scrolled line, and on a Game Boy Color with sprites switched off.
+  Both are now the real chip's timing. No game is likely to notice, and one that counts those
+  moments closely can only be better off.
 
-Nothing in this latest piece of work changes a game at all: it was a mistake in the *test*, not in
-cBoy. Half of that test set is photographs of these test games running on a Game Boy Color, and
-cBoy was being asked to match them while pretending the game was a Colour game — which a real
-Colour console never does with an old black-and-white cartridge. Running them the way a real
-console runs them made the first of those 31 pictures pass, and shrank the gap on the others from
-thousands of wrong pixels to a hundred or so, which is what makes the rest findable. It also
-turned up one thing worth doing for you rather than for the tests, written down for whoever owns
-that file: when cBoy's Colour console plays an old black-and-white game it shows it in grey, where
-a real Colour console tints it (greens and blues). That is one palette away, and three more of
-those pictures pass the moment it is in.
-
-The exact drawer has been rebuilt from scratch to work the way the real Game Boy chip does, step
-by step, instead of the pile of patches it was. On the test set that measures this exactly, it
-went from **5 pictures right out of 55 to 24**. Twenty-three of those are the Game Boy half, which
-is all but one of the 24 Game Boy pictures, and that last one is four pixels away. The 24th is the
-first of the Colour half, and the rest of that half is held up by the colouring described above
-and by cBoy's drawer not yet being told when it is Colour hardware - both written down for whoever
-owns those files, with the exact number of pictures each one is worth.
-
-**It is still not worth switching on for playing games.** No real game has been tried on it on a
-phone, so Standard stays the one to use. The next session can pick this up from the notes above
-without rediscovering anything.
+One more thing turned up that is worth doing for you rather than for the tests, and it is written
+down for whoever owns that file: when cBoy's Colour console plays an old black-and-white game it
+shows it in plain grey, where a real Colour console tints it (greens and blues). That is one
+palette away from working, and three more test pictures pass the moment it is in.
 
 If you want to look at Exact anyway, on the phone: **Settings → Core settings → cBoy → Picture
 drawing → Exact (experimental)**, then open a game. Switch it back to **Standard** to return to
-the drawer every game here has been tested on.
+the drawer every game here has been played on. Both drawers pass the same 87 timing tests and both
+reference pictures, so nothing you can measure from inside a game should differ between them.
