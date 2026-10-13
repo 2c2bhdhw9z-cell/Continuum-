@@ -5121,8 +5121,10 @@ final class EngineHost: ObservableObject {
     ///
     /// Read from the SAME `CoreSpec` the core was declared to the engine with, so the shape the
     /// picture is given and the shape the engine was told about come from one number rather than
-    /// two. Nil while the Library is up, which is what keeps the canvas full bleed behind it
-    /// exactly as it always was. See `PictureFit` for what this is used for.
+    /// two — except where the core itself knows better, which it does when one core runs more
+    /// than one machine (cBoy, below): the engine is then asked, because that is the number the
+    /// engine draws the picture with. Nil while the Library is up, which is what keeps the canvas
+    /// full bleed behind it exactly as it always was. See `PictureFit` for what this is used for.
     var activePictureAspect: CGFloat? {
         // A bundled player's picture: the movie's stage (Flash) or the phone screen (J2ME).
         if webPlayer != nil, webPlayerAspect > 0 {
@@ -5139,18 +5141,17 @@ final class EngineHost: ObservableObject {
               let spec = CoreCatalog.core(id: activeCoreId),
               spec.aspectRatio > 0 else { return nil }
         // cBoy is one core for three machines: its spec carries the Advance's 3:2, and a Game
-        // Boy or Game Boy Color game on it is 10:9.
+        // Boy or Game Boy Color game on it is 10:9 — or 256x224 (8:7) with a Super Game Boy
+        // border around it. Which of the two it is comes from the core itself, because the
+        // settings cannot tell: under "Auto (Super Game Boy)" only the cartridge decides, and
+        // the core is what reads it. 10:9 if the core has nothing to say: a plain Game Boy.
         var aspect = spec.aspectRatio
         if spec.coreId == CoreCatalog.continuumGb.coreId,
            let system = activeSystem, system == .gb || system == .gbc {
-            aspect = 10.0 / 9.0
-            // With a Super Game Boy border (or the always-on border) the picture is 256x224, 8:7.
-            let options = engine.coreOptions()
-            let value = { (key: String) in options.first(where: { $0.key == key })?.value ?? "" }
-            let border = value("cboy_sgb_border")
-            let sgb = ["sgb", "sgb2", "sgb_pal"].contains(value("cboy_gb_model"))
-            if border == "always" || (sgb && border != "off") {
-                aspect = 8.0 / 7.0
+            if let reported = engine.corePictureAspect(), reported > 0 {
+                aspect = reported
+            } else {
+                aspect = 10.0 / 9.0
             }
         }
         // A quarter turn (SET_ROTATION or the rotate action) stands the picture on its side.

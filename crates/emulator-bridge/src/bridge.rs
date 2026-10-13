@@ -1277,6 +1277,20 @@ impl EmulatorBridge {
         self.renderer.as_ref()?.phone_arrangement_aspect()
     }
 
+    /// Width over height the running core says its own picture is, which is the shape the
+    /// renderer draws it with. `None` when nothing is running.
+    ///
+    /// The core is the authority here, not the manifest: this is what it answered through
+    /// `retro_get_system_av_info` once the game was loaded, and
+    /// `cores::native_core::sync_descriptor_from_core` keeps it current if the core changes
+    /// shape mid-game. Worth asking for a core whose shape depends on the cartridge or on its
+    /// own settings — cBoy runs a Super Game Boy cartridge at 256x224 (8:7) and a plain Game
+    /// Boy at 160x144 (10:9), which its settings alone cannot tell apart.
+    pub fn core_picture_aspect(&self) -> Option<f32> {
+        let aspect = self.session.as_ref()?.core.descriptor().geometry.aspect_ratio;
+        (aspect.is_finite() && aspect > 0.0).then_some(aspect)
+    }
+
     /// Whether a TV is the main target.
     pub fn external_display_active(&self) -> bool {
         self.renderer.as_ref().is_some_and(Renderer::external_active)
@@ -3201,6 +3215,59 @@ mod tests {
         let line = bridge.session_region_note();
         assert!(line.contains("50 frames a second"), "{line}");
         assert!(line.contains("European"), "{line}");
+    }
+
+    /// A core that puts a border around its picture once the game is loaded, which is what cBoy
+    /// does with a Super Game Boy cartridge: 160x144 (10:9) becomes 256x224 (8:7). The app sizes
+    /// the picture from the shape the core reports, so this is the shape it has to follow.
+    struct BorderSwitcher {
+        descriptor: CoreDescriptor,
+        frames: u64,
+    }
+
+    impl EmulatorCore for BorderSwitcher {
+        fn descriptor(&self) -> &CoreDescriptor {
+            &self.descriptor
+        }
+        fn load_content(&mut self, _: &[u8], _: &ContentHint) -> Result<(), BridgeError> {
+            self.descriptor.geometry = FrameGeometry::new(256, 224, 8.0 / 7.0);
+            Ok(())
+        }
+        fn run_frame(&mut self, _: &crate::input::InputSnapshot) -> Result<(), BridgeError> {
+            self.frames += 1;
+            Ok(())
+        }
+        fn video(&self) -> Option<crate::frame::FrameView<'_>> {
+            None
+        }
+        fn drain_audio(&mut self, _: &mut dyn AudioSink) {}
+        fn reset(&mut self) -> Result<(), BridgeError> {
+            Ok(())
+        }
+        fn frame_count(&self) -> u64 {
+            self.frames
+        }
+    }
+
+    #[test]
+    fn the_picture_shape_is_the_one_the_running_core_reports() {
+        // Nothing running: the app falls back to the core's declared shape.
+        assert_eq!(EmulatorBridge::new().core_picture_aspect(), None);
+        // A plain session reports what it was declared with.
+        assert_eq!(running_diagnostic().core_picture_aspect(), Some(4.0 / 3.0));
+
+        // A Game Boy core declared at 10:9 that loads a Super Game Boy cartridge: the shape the
+        // app is given is the core's 8:7, not the declaration's. Before this, the app worked the
+        // shape out from the core's settings, which say "Auto" and cannot tell.
+        let mut bridge = EmulatorBridge::new();
+        let mut spec = descriptor("continuum_gb", "gb");
+        spec.geometry = FrameGeometry::new(160, 144, 10.0 / 9.0);
+        bridge.declare_core(spec.clone());
+        bridge
+            .attach_core("continuum_gb", Box::new(BorderSwitcher { descriptor: spec, frames: 0 }))
+            .unwrap();
+        bridge.launch_headless_named_for_test("continuum_gb", b"rom", "Donkey Kong.gb").unwrap();
+        assert_eq!(bridge.core_picture_aspect(), Some(8.0 / 7.0));
     }
 
     #[test]

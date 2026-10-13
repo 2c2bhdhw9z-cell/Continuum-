@@ -1252,6 +1252,16 @@ impl ContinuumEngine {
         self.lock().phone_arrangement_aspect()
     }
 
+    /// The width over height the running core says its picture is, which is the shape the
+    /// engine draws it with. `None` when nothing is running.
+    ///
+    /// Asked after `phone_picture_aspect`, which wins when a two-screen layout or a TV changes
+    /// the shape. This one answers the question the app cannot work out for itself: a core that
+    /// runs more than one machine, or changes shape with its own settings, knows which it is.
+    pub fn core_picture_aspect(&self) -> Option<f32> {
+        self.lock().core_picture_aspect()
+    }
+
     // ---------------------------------------------------------- external display
 
     /// Moves the game picture to an external display's `CAMetalLayer` (AirPlay or a cable).
