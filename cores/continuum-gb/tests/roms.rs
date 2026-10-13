@@ -528,6 +528,12 @@ fn mealybug(name: &str, cgb: bool) -> Option<MealyDiff> {
         match p & 0xFF { 0xFF => continuum_gb::ppu::SHADES[0], 0xAA => continuum_gb::ppu::SHADES[1], 0x55 => continuum_gb::ppu::SHADES[2], _ => continuum_gb::ppu::SHADES[3] }
     };
     let mut diff = MealyDiff { wrong: 0, lines: 0, first: None };
+    // MEALY_DETAIL=<substring of the name> prints every line of that picture as three rows of
+    // shade digits - drawn, expected, and where they differ - so a one-dot sampling error can be
+    // read off directly instead of guessed at. Every line, not only the differing ones, because
+    // the lines that agree are what say where a window of suppressed pixels really begins.
+    let detail = std::env::var("MEALY_DETAIL").ok().filter(|d| name.contains(d.as_str())).is_some();
+    let digit = |p: u32| continuum_gb::ppu::SHADES.iter().position(|s| *s == p).map_or('?', |i| char::from(b'0' + i as u8));
     for y in 0..144usize {
         let mut line_wrong = false;
         for x in 0..160usize {
@@ -539,8 +545,54 @@ fn mealybug(name: &str, cgb: bool) -> Option<MealyDiff> {
             }
         }
         diff.lines += usize::from(line_wrong);
+        if detail {
+            let row = |f: &dyn Fn(usize) -> u32| (0..160).map(|x| digit(f(x))).collect::<String>();
+            eprintln!("    {y:>3} got  {}", row(&|x| got[y * 160 + x]));
+            eprintln!("    {y:>3} want {}", row(&|x| map(want[y * 160 + x])));
+            eprintln!("    {y:>3} diff {}", (0..160).map(|x| if map(want[y * 160 + x]) == got[y * 160 + x] { '.' } else { 'X' }).collect::<String>());
+        }
     }
     Some(diff)
+}
+
+/// Measurement aid for the exact drawer: runs a Mealybug ROM with its mid-line write neutralised
+/// by a patch of the same length and cycle count, and prints the screen as shade digits. That
+/// gives the picture the line WOULD have drawn with its timing untouched, which is what turns a
+/// reference picture into evidence: a pixel the reference draws as colour 0 where this picture
+/// has ink is one the hardware suppressed, and a pixel where the two agree is one it did not.
+/// Comparing those windows against `MEALY_DETAIL`'s is how the register-write dots in fifo.rs
+/// were established, rather than by trying pixels until the count went up.
+///
+/// `MEALY_BASE=m3_lcdc_bg_en_change MEALY_FIND=cb,81 MEALY_WITH=cb,41` turns that test's
+/// `res 0,c` into `bit 0,c`: two bytes, eight cycles, no register touched, so every LCDC write
+/// in the line writes the value the register already holds.
+#[test]
+fn mealy_baseline() {
+    let Ok(name) = std::env::var("MEALY_BASE") else { return };
+    let find: Vec<u8> = std::env::var("MEALY_FIND").unwrap().split(',').map(|v| u8::from_str_radix(v, 16).unwrap()).collect();
+    let with: Vec<u8> = std::env::var("MEALY_WITH").unwrap().split(',').map(|v| u8::from_str_radix(v, 16).unwrap()).collect();
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/mealybug");
+    let mut data = std::fs::read(dir.join(format!("{name}.gb"))).unwrap();
+    let at = data.windows(find.len()).position(|w| w == find.as_slice()).expect("pattern");
+    assert!(data[at + find.len()..].windows(find.len()).all(|w| w != find.as_slice()), "pattern is not unique");
+    data[at..at + with.len()].copy_from_slice(&with);
+    let mut gb = GameBoy::new_mode(data, false).unwrap();
+    gb.bus.ppu.exact = true;
+    for _ in 0..600 {
+        gb.run_frame();
+        if gb.cpu.ld_b_b {
+            break;
+        }
+    }
+    for _ in 0..3 {
+        gb.run_frame();
+    }
+    for y in 0..144usize {
+        let row: String = (0..160)
+            .map(|x| continuum_gb::ppu::SHADES.iter().position(|s| *s == gb.bus.ppu.frame[y * 160 + x]).map_or('?', |i| char::from(b'0' + i as u8)))
+            .collect();
+        eprintln!("    {y:>3} base {row}");
+    }
 }
 
 /// Mid-scanline register changes (Mealybug Tearoom). Reports; the passing set is pinned below.
@@ -582,14 +634,15 @@ fn mealybug_report() {
 
 /// The Mealybug pictures the exact drawer gets pixel for pixel. This list only ever grows: a
 /// change that drops one of these is wrong, whatever else it fixes. All 24 DMG pictures are here
-/// bar `m3_lcdc_bg_en_change` and `m3_lcdc_obj_en_change_variant`; the 31 CGB ones are blocked on
-/// CGB DMG-compatibility colourisation in gb.rs (see docs/CBOY_EXACT_DRAWER.md).
+/// bar `m3_lcdc_bg_en_change`, which is four pixels away (see docs/CBOY_EXACT_DRAWER.md); the 31
+/// CGB ones are blocked on CGB DMG-compatibility colourisation in gb.rs.
 const MEALYBUG_PASSING: &[&str] = &[
     "dmg:m2_win_en_toggle",
     "dmg:m3_bgp_change",
     "dmg:m3_bgp_change_sprites",
     "dmg:m3_lcdc_bg_map_change",
     "dmg:m3_lcdc_obj_en_change",
+    "dmg:m3_lcdc_obj_en_change_variant",
     "dmg:m3_lcdc_obj_size_change",
     "dmg:m3_lcdc_obj_size_change_scx",
     "dmg:m3_lcdc_tile_sel_change",

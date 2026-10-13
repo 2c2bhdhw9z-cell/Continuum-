@@ -208,10 +208,13 @@ impl Ppu {
     ///
     ///   - a palette register (BGP, OBP0, OBP1) reads as the old value OR the new one for the
     ///     single dot a write lands on, and as the new value from the dot after;
-    ///   - LCDC lands in two halves: on the dot of the write only bit 0 (background enable) of
-    ///     the new value is OR'd into the old register - plus a clear of bit 1 (objects) if the
-    ///     LCD is at the line's first pixel or an object is being fetched - and the whole new
-    ///     value only on the dot after. So the fetcher can sample a half-written LCDC;
+    ///   - LCDC lands in two halves a dot apart: the first carries only bit 0 (background
+    ///     enable) of the new value, OR'd into the old register - plus a clear of bit 1
+    ///     (objects) if the LCD is at the line's first pixel or an object is being fetched - and
+    ///     the second the whole value. What that comes to here, measured against the reference
+    ///     pictures and not assumed, is that the two bits the pixel output stage reads - bit 0
+    ///     and bit 1 - land one dot after the bits the fetcher samples, both edges of a change
+    ///     together (docs/CBOY_EXACT_DRAWER.md);
     ///   - WX is written at the end of its M-cycle, two dots after all of those.
     fn registers_dot(&mut self) {
         let now = [self.bgp, self.obp0, self.obp1];
@@ -221,17 +224,30 @@ impl Ppu {
             f.pal[i] = if cgb { now[i] } else { now[i] | f.pal_was[i] };
         }
         f.pal_was = now;
-        // Only the two bits whose extra dot is measurable here are held back. The object enable
-        // takes the old value for that dot; the window enable takes the old AND the new, so
-        // switching the window off reaches the PPU a dot before switching it on does. The map
-        // and tile-select bits the fetcher samples are left where cBoy's single-stage bus write
-        // puts them: moving them exposes object-stall errors instead (docs/CBOY_EXACT_DRAWER.md).
-        let mut half = (lcdc & !0x22) | (f.lcdc_was & 0x02) | (f.lcdc_was & lcdc & 0x20);
-        if lcdc & 0x02 == 0 && (f.pos == 0 || f.obj_fetch) {
+        // The bits the output stage reads - bit 0 (background enable) and bit 1 (objects) - take
+        // the old value for that one dot, so they reach the LCD a dot after the map and
+        // tile-select bits the fetcher samples. The window enable takes the old AND the new, so
+        // switching the window off reaches the PPU a dot before switching it on does. The
+        // fetcher's own bits are left where cBoy's single-stage bus write puts them: moving them
+        // exposes object-stall errors instead (docs/CBOY_EXACT_DRAWER.md).
+        let was = f.lcdc_was;
+        // The object-fetching state machine, which is what a clear of bit 1 interrupts, is
+        // running from the dot the object's X matched to the dot before its last read.
+        let during_obj = f.obj_fetch && f.obj_step < 6;
+        let mut half = (lcdc & !0x23) | (was & 0x03) | (was & lcdc & 0x20);
+        if lcdc & 0x02 == 0 && (f.pos == 0 || during_obj) {
             half &= !0x02;
         }
         f.lcdc = if cgb { lcdc } else { half };
         f.lcdc_was = lcdc;
+        // On a DMG, clearing bit 1 while an object is being fetched aborts the fetch outright:
+        // the object is never mixed into the FIFO, and the dots the rest of the fetch would have
+        // taken are not spent, so mode 3 ends earlier. The object stays queued, and is dropped
+        // when the LCD passes its X, because bit 1 being clear stops a new fetch starting.
+        if !cgb && during_obj && was & 0x02 != 0 && lcdc & 0x02 == 0 {
+            f.obj_fetch = false;
+            f.obj_step = 0;
+        }
         let seen = f.wx_pipe[0];
         f.wx_pipe.rotate_left(1);
         f.wx_pipe[WX_LAG] = wx;

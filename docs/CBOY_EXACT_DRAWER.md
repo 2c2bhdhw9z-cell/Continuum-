@@ -16,20 +16,39 @@ owner should read is the last section.
 | dmg-acid2 | pass | pass |
 | cgb-acid2 | pass | pass |
 | Mooneye DMG acceptance | 86 / 86 | 86 / 86 |
-| Mealybug Tearoom | not applicable | **22 / 55** |
+| Mealybug Tearoom | not applicable | **23 / 55** |
 
-All 22 are DMG pictures, which is **22 of the 24 DMG pictures**. The two that still fail are
-`m3_lcdc_bg_en_change` (376 differing pixels) and `m3_lcdc_obj_en_change_variant` (96). The 31
-CGB pictures are blocked outside this drawer, as Group 1 below explains, and 4 of those can never
+All 23 are DMG pictures, which is **23 of the 24 DMG pictures**. The one that still fails is
+`m3_lcdc_bg_en_change`, and it is **four pixels** away: one pixel on each of four lines, all of
+them x=0, all of them on the eight lines where that test places a sprite at X=2. The 31 CGB
+pictures are blocked outside this drawer, as Group 1 below explains, and 4 of those can never
 reach zero at all.
 
-`tests/roms.rs::MEALYBUG_PASSING` pins all 22 by name: a change that drops one of them is wrong,
+`tests/roms.rs::MEALYBUG_PASSING` pins all 23 by name: a change that drops one of them is wrong,
 whatever else it fixes.
 
-`cargo test --release --test roms mealybug_report -- --nocapture` now prints, for every failing
-picture, how many pixels differ, how many lines they fall on, the first differing line, the first
-differing pixel on it, and the colour drawn against the colour expected. A bare count cannot tell
-a one-dot sampling error from a whole-screen one; this can.
+### The two tools that make a picture into evidence
+
+Never compare counts. Both of these are in `tests/roms.rs` and both were needed to place the
+register-write dots below.
+
+- `cargo test --release --test roms mealybug_report -- --nocapture` prints, for every failing
+  picture, how many pixels differ, how many lines they fall on, the first differing line, the
+  first differing pixel on it, and the colour drawn against the colour expected.
+- `MEALY_DETAIL=<name fragment>` adds, for the pictures whose name contains that fragment, every
+  one of the 144 lines as three rows of shade digits: drawn, expected, and a marker row.
+- `MEALY_BASE=<name> MEALY_FIND=<bytes> MEALY_WITH=<bytes>` (the `mealy_baseline` test) runs one
+  ROM with its mid-line write **neutralised by a patch of the same length and cycle count**, and
+  prints the same digit rows. That is the picture the line would have drawn with its timing
+  untouched, and it is what makes a reference picture readable: where the reference has colour 0
+  and this picture has ink, the hardware suppressed that pixel; where the two agree, it did not.
+  `MEALY_BASE=m3_lcdc_bg_en_change MEALY_FIND=cb,81 MEALY_WITH=cb,41` rewrites that test's
+  `res 0,c` as `bit 0,c` - two bytes, eight cycles, no register touched - so all four of its LCDC
+  writes write the value already in the register.
+
+With the three together you get, for each of the eighteen sprite positions a test sweeps, the
+exact first and last pixel of every window of suppressed pixels, in both pictures. A window that
+is one pixel wide at the wrong place is then a fact, not a guess.
 
 ## Where the specification comes from
 
@@ -106,6 +125,17 @@ and it does not write LCDC or a palette register in one go at all:
   fetched), and the second carries the whole value;
 - **WX** finishes two dots after that group, at the very end of its M-cycle.
 
+**The two bits the pixel output stage reads lag the bits the fetcher samples by one dot.** Those
+two are bit 0 (background enable) and bit 1 (objects); the fetcher's are bits 3, 4 and 6 (the two
+map bits and tile select). `registers_dot` gives bits 0 and 1 the old value for the single dot a
+write lands on. This is the one change the measurement above pinned down exactly: before it, the
+suppressed-pixel windows in `m3_lcdc_bg_en_change` were one pixel early in **all** of the
+eighteen sprite positions the test sweeps and in both of each line's two windows - 376 pixels -
+and after it 374 of those 376 pixels are right. Note the asymmetry the hardware's first half-write
+implies, a set of bit 0 arriving a dot before a clear of it, is **not** what the reference
+pictures show: a 12-dot gap between a clear and a set suppresses 12 pixels, not 11, so both edges
+move together. The one-dot lag is the whole of it.
+
 cBoy's bus does none of this: `Bus::write` lets the M-cycle's four dots pass and then applies the
 write, so every write reaches the PPU at one fixed point, late. Two constants in `fifo.rs` carry
 the correction, and **both were measured, not guessed**:
@@ -116,15 +146,31 @@ the correction, and **both were measured, not guessed**:
   give 16, 18, **20**, 19 pictures and 30829, 19187, **735**, 14545 differing pixels — the same
   two dots the hardware's write-conflict behaviour calls for.
 
-`registers_dot` then reproduces the staging itself: the palette OR for one dot, the object-enable
-bit held back a dot, and the window-enable bit taken as the old AND the new so that switching the
-window **off** reaches the PPU a dot before switching it **on** does. The map and tile-select
-bits are deliberately left where cBoy's single-stage write puts them: holding them back a dot as
-the hardware does breaks `m3_lcdc_bg_map_change`, `m3_lcdc_tile_sel_change`,
+`registers_dot` then reproduces the staging itself: the palette OR for one dot, the background-
+and object-enable bits held back a dot, and the window-enable bit taken as the old AND the new so
+that switching the window **off** reaches the PPU a dot before switching it **on** does. The map
+and tile-select bits are deliberately left where cBoy's single-stage write puts them: holding
+them back a dot as well breaks `m3_lcdc_bg_map_change`, `m3_lcdc_tile_sel_change`,
 `m3_lcdc_tile_sel_win_change`, `m3_lcdc_win_map_change` and `m3_lcdc_obj_size_change` on exactly
-the lines where those tests place a sprite at X 2 to 5, which says the residual error there is in
-the object fetch stall, not in the write. Fixing the stall (item C5) should let that half of the
-staging move to where the hardware has it.
+the lines where those tests place a sprite at X 2 to 5. That is now explained rather than
+suspicious: those bits are read by the fetcher, which is the half of the PPU that does **not**
+lag, so a lag there is simply wrong.
+
+### Clearing the object-enable bit aborts an object fetch
+
+On a DMG, clearing LCDC bit 1 while an object is being fetched does not merely hide the object:
+it **aborts the fetch**. The object is never mixed into the object FIFO, and the dots the rest of
+the fetch would have taken are not spent, so mode 3 ends earlier and every pixel after it on that
+line moves. The object stays queued and is dropped when the LCD passes its X, because with bit 1
+clear no new fetch can start.
+
+`registers_dot` does this on the dot the staged clear of bit 1 appears, which is the same dot the
+hardware's first half-write carries it on, and the fetch counts as "in progress" from the dot the
+object's X matched to the dot before its last read - not on that last read itself, where the
+object's row has already been read. That is what `m3_lcdc_obj_en_change_variant` probes: it
+disables objects mid-line with sprites at eighteen different X positions and then moves `BGP`
+black and white again later in the line, so the picture shows where mode 3 got to. With the abort
+in, it passes.
 
 ### The window
 
@@ -168,7 +214,7 @@ height between the two mixes two rows. Objects are kept reverse sorted by X, and
 sharing an X the lower OAM index is fetched first and so wins on a DMG; on the Color the OAM index
 is carried into the FIFO and the lower index wins wherever they overlap.
 
-## The 33 failures, grouped
+## The 32 failures, grouped
 
 Counts are differing pixels as the report prints them.
 
@@ -204,7 +250,7 @@ so on down to `cgb:m3_lcdc_obj_en_change` at 206.
    screen, so it cannot be done or tested first.
 
 Until step 1 exists, **the CGB half of Mealybug cannot move**, and chasing it from `fifo.rs` would
-be guessing. The honest ceiling for this work is therefore the 24 DMG pictures, of which 22 pass.
+be guessing. The honest ceiling for this work is therefore the 24 DMG pictures, of which 23 pass.
 
 ### Group 1a — four CGB references that can never reach zero
 
@@ -217,18 +263,44 @@ of 1146. **They must never be counted as achievable, and no change should ever b
 them.** Note the DMG references for the same four tests are clean four-grey pictures, and all
 four of those DMG pictures pass.
 
-### Group 2 — the two DMG pictures still failing
+### Group 2 — the one DMG picture still failing, and exactly what it is
 
-Both come from the half of the LCDC staging that could not be switched on yet (see "How a
-register write reaches the drawer"), and both will take a bus.rs fix or the object-stall work to
-finish properly.
+`dmg:m3_lcdc_bg_en_change`, **4 pixels on 4 lines**, all of them x=0, on lines 19 to 22. Those are
+four of the eight lines where the test places its sprite at X=2; the other four have colour 0
+there anyway, so they carry no evidence either way.
 
-| Picture | Differing | First difference | What it needs |
-|---|---|---|---|
-| `dmg:m3_lcdc_bg_en_change` | 376 px / 120 lines | line 0, x=10 | LCDC bit 0 reaches the PPU one dot before the rest of the register. cBoy's bus applies the whole register at once, and the drawer cannot see a bit *earlier* than the write it is told about: this needs `Bus::write` to apply an IO write at the hardware's point in the M-cycle, or LCDC to be staged for the fetcher too, which item C5's object-stall fix has to come first for |
-| `dmg:m3_lcdc_obj_en_change_variant` | 96 px / 16 lines | line 128, x=150 | the same staging, on bit 1, for the sixteen lines whose sprite X puts the write inside an object fetch. `dmg:m3_lcdc_obj_en_change` (the plainer version) passes |
+The measurement is worth writing down in full, because it rules out the obvious answers and the
+next session should not pay for it twice. The test's handler writes LCDC four times a line -
+clear bit 0, set, clear, set - 12, 8 and 8 dots apart, so each line has two windows of suppressed
+background. Measured against the neutralised baseline, for **every one of the eighteen sprite
+positions**:
 
-### Group 3 — what the restructure fixed
+- the second window is 8 pixels wide and starts and ends on exactly the pixels this drawer picks;
+- the first window is 12 pixels wide and starts and ends on exactly the pixels this drawer picks,
+  including the positions where the sprite's own fetch stalls the LCD inside the window and the
+  window comes out 10 or 11 pixels wide instead;
+- for sprite X=2 **only**, the reference suppresses one further pixel, at x=0.
+
+So this is not a write-timing error: a 12-dot gap cannot suppress 13 pixels, and the pixel stream
+cannot produce 29 pixels in the 28 dots from the first clear to the last set. It is one extra
+blank pixel at the line's first pixel, in the one case where an object's fetch falls at position
+-6, i.e. two pixels into the line's eight-pixel discard. It is not a general left-edge effect
+either: `m3_lcdc_tile_sel_change` and `m3_lcdc_bg_map_change` both place a sprite at X=2 on the
+same lines and both draw ink at x=0, pixel for pixel, in the reference and here.
+
+Neither this drawer's model nor the model `Core/display.c` describes produces that pixel: in both,
+an object matching at position -6 waits three dots for the fetcher to reach its last read, then
+takes six, and the pixel stream resumes unbroken. Whatever the DMG does there is a left-edge
+detail of the object fetch that is not in the material to hand, so it is recorded and left: one
+pixel on four lines, chased no further. **Do not go looking for it by trying values.**
+
+### Group 3 — what the register-write work fixed
+
+`dmg:m3_lcdc_obj_en_change_variant` went from 96 differing pixels to pixel-for-pixel with the
+object-fetch abort above, and `dmg:m3_lcdc_bg_en_change` from 376 to 4 with the output-stage lag.
+Nothing else moved in either direction.
+
+### Group 3a — what the restructure fixed
 
 For the record, so a later session can tell a regression from a known gap. These seventeen DMG
 pictures went from failing to pixel-for-pixel in this item: `m3_bgp_change_sprites`,
@@ -245,15 +317,15 @@ CPU side and passes 86/86 on both drawers. `m2_win_en_toggle`, the one `m2_*` pi
 
 ## What is left, in order
 
-1. **The object fetch stall, to the dot (item C5).** The evidence is in place: staging LCDC the
-   way the hardware does breaks exactly the lines where a test places a sprite at X 2 to 5, which
-   says the wait before an object fetch is a dot out for sprites near the left edge. Fixing it
-   should let the rest of the LCDC staging go in, which is what the last two DMG pictures need.
+1. **CGB DMG-compatibility colour, in `gb.rs`** (not owned here). 31 pictures, none reachable
+   before it, and 4 of them not reachable at all. This is now by far the largest item, and it is
+   worth doing for players as much as for the tests.
 2. **`Bus::write` applying an IO write at the hardware's point in the M-cycle** (not owned here;
    see below). That would let `WRITE_BIAS` and `WX_LAG` go to zero and the staging be written
-   purely as the hardware's, with no correction constants at all.
-3. **CGB DMG-compatibility colour, in `gb.rs`** (not owned here). 31 pictures, none reachable
-   before it, and 4 of them not reachable at all.
+   purely as the hardware's, with no correction constants at all. It would not move the score.
+3. **The last 4 pixels of `m3_lcdc_bg_en_change`**, which Group 2 above characterises exactly and
+   which nothing in the material to hand explains. Worth one look by someone who has a DMG and a
+   logic analyser; not worth another session's guessing.
 
 ## Needed in files this work does not own
 
@@ -265,7 +337,7 @@ Collected for whoever owns them; nothing here has been changed by this work.
 - **`bus.rs`: where an IO write lands inside its M-cycle.** `Bus::write` calls `tick()` first and
   applies the write after, so a register write reaches the PPU three dots later than on hardware,
   and a register the hardware writes in two stages a dot apart arrives in one. `fifo.rs` corrects
-  for it with `WRITE_BIAS` and `WX_LAG` and reproduces the staging itself, which is enough for 22
+  for it with `WRITE_BIAS` and `WX_LAG` and reproduces the staging itself, which is enough for 23
   of the 24 DMG pictures but cannot express a bit that arrives *before* the write cBoy is told
   about. The proper fix is for a write to `$FF40`-`$FF4B` to be applied part-way through its
   M-cycle rather than at the end of it. Nothing outside this drawer depends on the present
@@ -281,14 +353,15 @@ default.
 
 The exact drawer has been rebuilt from scratch to work the way the real Game Boy chip does, step
 by step, instead of the pile of patches it was. On the test set that measures this exactly, it
-went from **5 pictures right out of 55 to 22**. Twenty-two is also all but two of the 24 tests
-that are *possible* to pass today: the other 31 are held up by a separate problem (cBoy does not
-yet colour an old black-and-white game the way a Game Boy Color does, so those come out white in
-Colour mode), which is written down for whoever fixes that file.
+went from **5 pictures right out of 55 to 23**. Twenty-three is also all but one of the 24 tests
+that are *possible* to pass today, and the last one is four pixels away: the other 31 are held up
+by a separate problem (cBoy does not yet colour an old black-and-white game the way a Game Boy
+Color does, so those come out white in Colour mode), which is written down for whoever fixes that
+file.
 
-**It is still not worth switching on for playing games.** Two things are still wrong in it and no
-real game has been tried on it on a phone, so Standard stays the one to use. The next session can
-pick this up from the notes above without rediscovering anything.
+**It is still not worth switching on for playing games.** No real game has been tried on it on a
+phone, so Standard stays the one to use. The next session can pick this up from the notes above
+without rediscovering anything.
 
 If you want to look at Exact anyway, on the phone: **Settings → Core settings → cBoy → Picture
 drawing → Exact (experimental)**, then open a game. Switch it back to **Standard** to return to
