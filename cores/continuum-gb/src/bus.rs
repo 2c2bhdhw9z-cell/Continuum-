@@ -32,7 +32,10 @@ pub struct Bus {
     pub hram: Vec<u8>,
     pub ie: u8,
     pub iflag: u8,
-    joyp_select: u8,
+    /// Which half of the pad $FF00 is reading, as the game last set it. A Color's start-up code
+    /// leaves neither half selected, a Game Boy's leaves both (Mooneye boot_hwio-C against
+    /// boot_hwio-dmgABCmgb).
+    pub joyp_select: u8,
     /// Pressed buttons, bit set = pressed: 0 A, 1 B, 2 Select, 3 Start, 4 Right, 5 Left, 6 Up, 7 Down.
     pub buttons: u8,
     pub sb: u8,
@@ -57,6 +60,18 @@ pub struct Bus {
     pub cycles: u64,
     /// Game Boy Color state (unused in DMG mode).
     pub cgb: bool,
+    /// The console is a Color or an Advance. True whenever `cgb` is, and also when a Game Boy
+    /// cartridge puts a Color into Game Boy mode: a handful of registers belong to the console
+    /// rather than to the mode, so a Game Boy game on a Color still sees them (Mooneye
+    /// boot_hwio-C, unused_hwio-C). Which console it is comes from the core option, not from the
+    /// save, so it is set when the machine starts and kept across a loaded state.
+    #[serde(skip)]
+    pub cgb_hardware: bool,
+    /// The Color's own scratch bytes $FF72, $FF73 and $FF75 (that one keeps only bits 4-6).
+    /// Not in a save state: adding a field to one would stop every state players already have
+    /// from loading, and nothing reads these back across a save.
+    #[serde(skip)]
+    scratch: [u8; 3],
     pub double_speed: bool,
     pub speed_prepare: bool,
     pub vbk: u8,
@@ -136,6 +151,8 @@ impl Bus {
             apu_div_bit: false,
             cycles: 0,
             cgb: false,
+            cgb_hardware: false,
+            scratch: [0; 3],
             double_speed: false,
             speed_prepare: false,
             vbk: 0,
@@ -357,15 +374,25 @@ impl Bus {
                 0x7E | if self.double_speed { 0x80 } else { 0 } | u8::from(self.speed_prepare)
             }
             0xFF4F if self.cgb => 0xFE | self.vbk,
+            // In Game Boy mode a Color still answers for the video bank, stuck on the first one.
+            0xFF4F if self.cgb_hardware => 0xFE,
             0xFF55 if self.cgb => {
                 (self.hdma_blocks.wrapping_sub(1) & 0x7F) | if self.hdma_active { 0 } else { 0x80 }
             }
-            0xFF68 if self.cgb => self.ppu.bcps | 0x40,
+            // The two palette pointers are the console's, so a Game Boy game on a Color reads
+            // them back as its start-up code left them; the palettes behind them are not.
+            0xFF68 if self.cgb_hardware => self.ppu.bcps | 0x40,
             0xFF69 if self.cgb => self.ppu.read_pal(false),
-            0xFF6A if self.cgb => self.ppu.ocps | 0x40,
+            0xFF6A if self.cgb_hardware => self.ppu.ocps | 0x40,
             0xFF6B if self.cgb => self.ppu.read_pal(true),
             0xFF6C if self.cgb => 0xFE | self.ppu.opri,
             0xFF70 if self.cgb => 0xF8 | self.svbk,
+            0xFF72 if self.cgb_hardware => self.scratch[0],
+            0xFF73 if self.cgb_hardware => self.scratch[1],
+            0xFF75 if self.cgb_hardware => 0x8F | self.scratch[2],
+            // The sound chip's current output, which only a Color can read.
+            0xFF76 if self.cgb_hardware => self.apu.pcm12(),
+            0xFF77 if self.cgb_hardware => self.apu.pcm34(),
             0xFF80..=0xFFFE => self.hram[(addr - 0xFF80) as usize],
             0xFFFF => self.ie,
             _ => 0xFF,
@@ -514,6 +541,9 @@ impl Bus {
             0xFF6B if self.cgb => self.ppu.write_pal(true, v),
             0xFF6C if self.cgb => self.ppu.opri = v & 1,
             0xFF70 if self.cgb => self.svbk = v & 7,
+            0xFF72 if self.cgb_hardware => self.scratch[0] = v,
+            0xFF73 if self.cgb_hardware => self.scratch[1] = v,
+            0xFF75 if self.cgb_hardware => self.scratch[2] = v & 0x70,
             0xFF80..=0xFFFE => self.hram[(addr - 0xFF80) as usize] = v,
             0xFFFF => self.ie = v,
             _ => {}

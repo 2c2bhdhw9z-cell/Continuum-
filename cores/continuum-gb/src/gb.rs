@@ -88,6 +88,14 @@ impl GameBoy {
                     c.f = 0x00;
                     gb.bus.timer.counter = 0x2678;
                 }
+                // It is still Color hardware, so the registers the console owns stay readable,
+                // holding what its start-up code left: neither half of the pad selected, and the
+                // two palette pointers part-way through the palette it picked for the game
+                // (Mooneye boot_hwio-C).
+                gb.bus.cgb_hardware = true;
+                gb.bus.joyp_select = 0x30;
+                gb.bus.ppu.bcps = 0x88;
+                gb.bus.ppu.ocps = 0x90;
             }
             _ => {}
         }
@@ -124,6 +132,7 @@ impl GameBoy {
         bus.ppu.boot_logo(&bus.cart.rom);
         let cpu = if cgb {
             bus.cgb = true;
+            bus.cgb_hardware = true;
             bus.ppu.cgb = true;
             // The CGB boot ROM leaves every background palette white; objects too, here.
             bus.ppu.bg_pal = vec![0xFF, 0x7F].repeat(32);
@@ -164,6 +173,8 @@ impl GameBoy {
         let mut next: GameBoy = crate::state_decode(&data[8..])?;
         next.bus.cart.rom = std::mem::take(&mut self.bus.cart.rom);
         next.bus.link_loopback = self.bus.link_loopback;
+        // Which console this is comes from the core option, not from the state.
+        next.bus.cgb_hardware = self.bus.cgb_hardware;
         *self = next;
         Ok(())
     }
@@ -187,6 +198,79 @@ mod tests {
         let gb = cgb_machine();
         assert!(gb.bus.cgb && gb.bus.ppu.cgb);
         assert_eq!((gb.cpu.a, gb.cpu.f, gb.cpu.d, gb.cpu.e, gb.cpu.l), (0x11, 0x80, 0xFF, 0x56, 0x0D));
+    }
+
+    /// A Color running a Game Boy cartridge plays it in Game Boy mode, but it is still Color
+    /// hardware: the registers the console owns answer, holding what its start-up code left,
+    /// while the ones that belong to colour mode stay shut away. Both Mooneye tests that measure
+    /// this (boot_hwio-C, unused_hwio-C) are Game Boy cartridges, which is the point of them.
+    #[test]
+    fn a_game_boy_game_on_a_colour_keeps_the_colours_own_registers() {
+        let mut gb = GameBoy::with_model(vec![0u8; 0x8000], Model::Cgb, None).unwrap();
+        assert!(gb.bus.cgb_hardware && !gb.bus.cgb, "Game Boy mode on Color hardware");
+        let b = &mut gb.bus;
+        assert_eq!(b.raw_read(0xFF00), 0xFF, "neither half of the pad selected");
+        assert_eq!(b.raw_read(0xFF4F), 0xFE, "the video bank register, stuck on the first bank");
+        assert_eq!((b.raw_read(0xFF68), b.raw_read(0xFF6A)), (0xC8, 0xD0), "the palette pointers");
+        assert_eq!((b.raw_read(0xFF72), b.raw_read(0xFF73), b.raw_read(0xFF75)), (0x00, 0x00, 0x8F));
+        assert_eq!((b.raw_read(0xFF76), b.raw_read(0xFF77)), (0x00, 0x00), "no sound yet");
+        // Two of the scratch bytes keep whatever is written; the third keeps three bits of it.
+        b.raw_write(0xFF72, 0x5A);
+        b.raw_write(0xFF73, 0xA5);
+        b.raw_write(0xFF75, 0xFF);
+        assert_eq!((b.raw_read(0xFF72), b.raw_read(0xFF73), b.raw_read(0xFF75)), (0x5A, 0xA5, 0xFF));
+        b.raw_write(0xFF75, 0x00);
+        assert_eq!(b.raw_read(0xFF75), 0x8F);
+        // Colour mode's own registers are not there: speed, the copier, the palettes behind the
+        // pointers, sprite order and the work-RAM bank.
+        for addr in [0xFF4Du16, 0xFF55, 0xFF69, 0xFF6B, 0xFF6C, 0xFF70] {
+            assert_eq!(b.raw_read(addr), 0xFF, "{addr:04X} belongs to colour mode");
+        }
+        // And the game cannot reach the second video bank by writing the bank register.
+        b.raw_write(0xFF4F, 0x01);
+        assert_eq!(b.raw_read(0xFF4F), 0xFE);
+        b.raw_write(0x8000, 0xAB);
+        assert_eq!(b.ppu.vram[0], 0xAB, "still the first bank");
+    }
+
+    /// On a Game Boy none of those registers exist at all (Mooneye boot_hwio-dmgABCmgb).
+    #[test]
+    fn a_game_boy_console_has_none_of_the_colours_registers() {
+        let mut gb = GameBoy::with_model(vec![0u8; 0x8000], Model::Dmg, None).unwrap();
+        assert!(!gb.bus.cgb_hardware);
+        let b = &mut gb.bus;
+        assert_eq!(b.raw_read(0xFF00), 0xCF, "a Game Boy leaves both halves of the pad selected");
+        for addr in [0xFF4Fu16, 0xFF68, 0xFF6A, 0xFF72, 0xFF73, 0xFF75, 0xFF76, 0xFF77] {
+            b.raw_write(addr, 0x5A);
+            assert_eq!(b.raw_read(addr), 0xFF, "{addr:04X} is not on a Game Boy");
+        }
+    }
+
+    /// $FF76 and $FF77 are what the four sound channels are putting out, two channels to a byte.
+    #[test]
+    fn a_colour_reads_the_sound_chips_output_back() {
+        let mut gb = GameBoy::with_model(vec![0u8; 0x8000], Model::Cgb, None).unwrap();
+        let b = &mut gb.bus;
+        b.raw_write(0xFF30, 0x9C); // the first two samples of the wave channel
+        b.raw_write(0xFF1A, 0x80); // channel 3 on
+        b.raw_write(0xFF1C, 0x20); // at full volume
+        b.raw_write(0xFF1E, 0x80); // start it
+        assert_eq!(b.raw_read(0xFF77), 0x09, "channel 3 is the low four bits");
+        assert_eq!(b.raw_read(0xFF76), 0x00, "channels 1 and 2 are still silent");
+        b.raw_write(0xFF26, 0x00); // sound off
+        assert_eq!((b.raw_read(0xFF76), b.raw_read(0xFF77)), (0x00, 0x00));
+    }
+
+    /// Which console it is comes from the player's setting, not from the save, so loading a
+    /// state must not turn a Color back into a Game Boy half way through a game.
+    #[test]
+    fn which_console_it_is_survives_a_loaded_state() {
+        let gb = GameBoy::with_model(vec![0u8; 0x8000], Model::Cgb, None).unwrap();
+        let state = gb.save_state();
+        let mut other = GameBoy::with_model(vec![0u8; 0x8000], Model::Cgb, None).unwrap();
+        other.load_state(&state).unwrap();
+        assert!(other.bus.cgb_hardware);
+        assert_eq!(other.bus.raw_read(0xFF4F), 0xFE);
     }
 
     /// A game that keeps sending down the cable with nothing plugged in finished every transfer

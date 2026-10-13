@@ -65,6 +65,17 @@ pub fn mooneye_on(name: &str, cgb: bool, exact: bool) -> Result<(), String> {
     let Some(data) = rom(name) else { return Ok(()) };
     let mut gb = GameBoy::new_mode(data, cgb)?;
     gb.bus.ppu.exact = exact;
+    mooneye_run(gb, name)
+}
+
+/// `mooneye` on a chosen console, as the console model option starts it. The Color and Advance
+/// tests are Game Boy cartridges: what they measure is the console, not the cartridge.
+pub fn mooneye_model(name: &str, model: continuum_gb::gb::Model) -> Result<(), String> {
+    let Some(data) = rom(name) else { return Ok(()) };
+    mooneye_run(GameBoy::with_model(data, model, None)?, name)
+}
+
+fn mooneye_run(mut gb: GameBoy, name: &str) -> Result<(), String> {
     for _ in 0..(60 * 30) {
         gb.run_frame();
         if gb.cpu.ld_b_b {
@@ -333,7 +344,6 @@ fn cgb_acid2_on(exact: bool, label: &str) {
     eprintln!("DRAWER {label}: cgb-acid2 passed");
 }
 
-/// The Mooneye tests made for CGB hardware, run as a CGB. A report, like the DMG one.
 /// The CGB/AGB boot-state tests on a DMG cartridge, as the console model option runs them.
 #[test]
 fn mooneye_models() {
@@ -364,19 +374,34 @@ fn mooneye_models() {
     assert!(failed.is_empty(), "{failed:?}");
 }
 
+/// The Mooneye tests written for Color hardware, a gate like the DMG ones. All five are Game Boy
+/// cartridges on purpose: what they measure is a Color console playing a Game Boy game, which is
+/// how the console model option starts them, not a Color playing a colour game.
 #[test]
-fn mooneye_cgb_report() {
-    let names = ["mts/misc/boot_regs-cgb.gb", "mts/misc/boot_hwio-C.gb", "mts/misc/boot_div-cgbABCDE.gb",
-                 "mts/misc/bits/unused_hwio-C.gb", "mts/misc/ppu/vblank_stat_intr-C.gb"];
-    let mut failed = Vec::new();
-    for n in names {
-        if let Err(e) = mooneye_mode(n, true) {
-            failed.push(e);
-        }
-    }
-    eprintln!("MOONEYE CGB: {} of {} passed", names.len() - failed.len(), names.len());
+fn mooneye_cgb() {
+    use continuum_gb::gb::Model;
+    // Four of the five are a gate. The two start-up ones are Color only; the two register ones
+    // hold on an Advance too, so they are run as both consoles.
+    let gated: [(&str, Model); 6] = [
+        ("mts/misc/boot_regs-cgb.gb", Model::Cgb),
+        ("mts/misc/boot_div-cgbABCDE.gb", Model::Cgb),
+        ("mts/misc/boot_hwio-C.gb", Model::Cgb),
+        ("mts/misc/boot_hwio-C.gb", Model::Agb),
+        ("mts/misc/bits/unused_hwio-C.gb", Model::Cgb),
+        ("mts/misc/bits/unused_hwio-C.gb", Model::Agb),
+    ];
+    let failed: Vec<String> = gated.iter().filter_map(|(n, m)| mooneye_model(n, *m).err()).collect();
+    eprintln!("MOONEYE CGB: {} of {} runs passed", gated.len() - failed.len(), gated.len());
     for f in &failed {
         eprintln!("  FAIL {f}");
+    }
+    assert!(failed.is_empty(), "the Mooneye Color tests regressed: {failed:?}");
+    // The fifth is reported, not gated: on a Color the mode 2 interrupt at the start of line 144
+    // arrives one M-cycle before VBlank, where on a Game Boy the two land together. That timing
+    // is in ppu.rs, which another agent is rewriting; docs/CBOY_NIGHT.md says what it needs.
+    match mooneye_model("mts/misc/ppu/vblank_stat_intr-C.gb", Model::Cgb) {
+        Ok(()) => eprintln!("MOONEYE CGB: vblank_stat_intr-C passes now; make it a gate too"),
+        Err(e) => eprintln!("MOONEYE CGB: still reported, waiting on ppu.rs: {e}"),
     }
 }
 

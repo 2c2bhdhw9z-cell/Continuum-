@@ -464,9 +464,11 @@ impl Apu {
         }
     }
 
-    fn mix(&self) -> (i16, i16) {
+    /// What the four channels are putting out right now, 0-15 each: what the mixer adds up, and
+    /// what a Color reads back from $FF76 and $FF77.
+    fn channels(&self) -> [u8; 4] {
         if !self.power {
-            return (0, 0);
+            return [0; 4];
         }
         let wave = if self.wave.on && self.wave.shift != 0 {
             let b = self.regs[0x20 + (self.wave.pos / 2) as usize];
@@ -476,7 +478,26 @@ impl Apu {
             0
         };
         let noise = if self.noise.on && self.noise.lfsr & 1 == 0 { self.noise.env.volume } else { 0 };
-        let ch = [self.sq1.out(), self.sq2.out(), wave, noise];
+        [self.sq1.out(), self.sq2.out(), wave, noise]
+    }
+
+    /// $FF76 on a Color: channel 1 in the low four bits, channel 2 in the high four.
+    pub fn pcm12(&self) -> u8 {
+        let c = self.channels();
+        (c[0] & 0x0F) | (c[1] & 0x0F) << 4
+    }
+
+    /// $FF77 on a Color: channels 3 and 4 the same way.
+    pub fn pcm34(&self) -> u8 {
+        let c = self.channels();
+        (c[2] & 0x0F) | (c[3] & 0x0F) << 4
+    }
+
+    fn mix(&self) -> (i16, i16) {
+        if !self.power {
+            return (0, 0);
+        }
+        let ch = self.channels();
         let nr51 = self.regs[0x15];
         let nr50 = self.regs[0x14];
         let (mut l, mut r) = (0i32, 0i32);

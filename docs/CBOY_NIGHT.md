@@ -274,6 +274,77 @@ inside the test, so nothing needs downloading:
 - No new setting was added for the camera. The app's existing "Allow camera in games" switch and
   iOS's own permission already cover it, and the camera chip's own knobs are the game's to set.
 
+### The Game Boy Color test ROMs — 4 of the 5 now pass, and they are a real gate
+
+Mooneye (the strictest public Game Boy test suite) has five tests written for Color hardware.
+cBoy passed none of them, and nothing stopped that getting worse: they were only printed as a
+count, not checked. Four pass now and the test fails the build if any of them ever stops passing.
+The fifth is still only printed, and why is below.
+
+Two of the five were never really broken: the harness was starting them wrong. All five are Game
+Boy cartridges, on purpose — what they measure is **a Color console playing a Game Boy game**,
+which is a thing of its own, not the same as a Color playing a colour game. The harness was
+starting them as colour games, so they were handed the wrong start-up registers and failed on the
+first line. Started the way cBoy's own "Console for games that run on both" setting starts them,
+they pass as they are.
+
+The other two were genuinely wrong, and this is the real fix. A Color playing a Game Boy game is
+still Color hardware, and a handful of its registers answer even though the game is in Game Boy
+mode. cBoy treated that machine as a plain Game Boy, so those registers were missing:
+
+- the video bank register answers, stuck on the first bank (and the game cannot escape to the
+  second one by writing it);
+- the two colour-palette pointers answer, holding what the console's start-up code left in them
+  part-way through picking a palette for the game, while the palettes behind them stay shut;
+- the Color's three scratch bytes ($FF72, $FF73 and the three middle bits of $FF75) answer;
+- the two sound read-back bytes answer with what the four sound channels are actually putting
+  out, two channels to a byte — cBoy now works that out from the real channel levels rather than
+  reporting a fixed number;
+- the pad register starts with neither half of the pad selected, which is what the Color's
+  start-up code leaves behind and the opposite of a Game Boy's;
+- and the registers that belong to colour mode — double speed, the block copier, the palettes
+  themselves, sprite order, the work-RAM bank — stay shut away, which is what the hardware does.
+
+None of this changes anything for a colour game or for a Game Boy game on a Game Boy: the new
+behaviour only appears when the console is set to Game Boy Color or Advance **and** the cartridge
+is a Game Boy one. The 86 Game Boy tests still pass on both picture drawers.
+
+### What the tests prove
+
+1. Four Mooneye Color tests pass and are gated, six runs in all: the two register ones are run as
+   a Color and as an Advance, because the hardware answers the same on both.
+2. A Game Boy game on a Color sees every register above with the right value, and the colour-mode
+   ones still read as absent.
+3. The same game on a Game Boy sees none of them.
+4. Writing the video bank register in Game Boy mode cannot reach the second bank.
+5. The sound read-back really follows the sound chip: start the wave channel on a known sample and
+   the right four bits change, the other channel's stay silent, and turning the sound off zeroes
+   both.
+6. Which console it is survives a loaded save state (it comes from the player's setting, not from
+   the save).
+7. **No save state anyone already has is affected.** A state is still byte-for-byte the same size,
+   because the two new pieces of machine state are deliberately kept out of it.
+
+### What was deliberately left
+
+- **The fifth test (`vblank_stat_intr-C`) still fails, and it can only be fixed in `ppu.rs`,
+  which another agent is rewriting tonight.** What it needs, for whoever has that file: on a
+  Color, the mode 2 (sprite-scan) interrupt at the start of line 144 arrives **one M-cycle before**
+  the VBlank interrupt; on a Game Boy the two arrive together. cBoy has the Game Boy behaviour for
+  both, in the STAT interrupt condition in `ppu.rs` (the `self.ly == 144 && self.dot < 4` term):
+  the window needs to sit one M-cycle earlier when the console is a Color, which is now readable
+  as `bus.cgb_hardware`. The Game Boy version of the very same test
+  (`acceptance/ppu/vblank_stat_intr-GS`) is in the gated set and passes, so the Game Boy side must
+  not move. Once it is right, move the ROM from the reported line at the bottom of `mooneye_cgb`
+  in `tests/roms.rs` into the gated list above it.
+- The three scratch bytes are not written into save states. Putting them in would change the
+  save-state layout and **stop every save state anyone already has from loading** (bincode cannot
+  skip a field it has never seen — that was checked, not assumed). Nothing reads them back across
+  a save, so they start again from zero after a state is loaded. Same reasoning as the camera's
+  capture countdown above.
+- $FF74, the Color's fourth scratch byte, is left absent. No test measures it and no game is known
+  to use it, so nothing was invented for it.
+
 ## For whoever is editing the notes
 
 STATUS.md and HANDOFF.md still say mosaic is missing. Three places to fix:
@@ -303,6 +374,10 @@ that is done too, and the Game Boy Camera can now go in a tester-facing list of 
 Nothing is needed from the Swift side for the camera: the capture session in
 `native/ios/Peripherals.swift` already drives any core that asks, and cBoy now asks. No change is
 needed in `fifo.rs` or `ppu.rs` either.
+
+The same two lists have "the Mooneye Game Boy Color tests (0 of 5)" as a job under item 6. It now
+reads 4 of 5, gated like the Game Boy ones, with the fifth waiting on `ppu.rs` (see above). Where
+TESTING.md or STATUS.md quotes a cBoy test count, the suite is 104 tests, up from 100.
 
 ## Phone checks for the owner
 
@@ -356,3 +431,7 @@ needed in `fifo.rs` or `ppu.rs` either.
 17. Only if you had already saved photos in the Game Boy Camera before this build: open it and
     check your old album still opens and your old photos are still there. The place a photo gets
     written moved 256 bytes, which was a bug fix, but it is worth a look.
+18. Open a plain Game Boy game (Tetris, Link's Awakening, a Pokemon) on cBoy and play a few
+    minutes. It should look, sound and play exactly as it did before — this change was accuracy
+    work deep inside, and if you can see or hear any difference at all, something is wrong and I
+    want to know. Then load one of your older save states for the same game: it must still load.
