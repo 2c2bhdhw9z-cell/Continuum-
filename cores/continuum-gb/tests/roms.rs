@@ -555,12 +555,33 @@ fn mealybug_report() {
     }
 }
 
+/// The Mealybug pictures the exact drawer gets pixel for pixel. This list only ever grows: a
+/// change that drops one of these is wrong, whatever else it fixes. All 24 DMG pictures are here
+/// bar `m3_lcdc_bg_en_change` and `m3_lcdc_obj_en_change_variant`; the 31 CGB ones are blocked on
+/// CGB DMG-compatibility colourisation in gb.rs (see docs/CBOY_EXACT_DRAWER.md).
 const MEALYBUG_PASSING: &[&str] = &[
     "dmg:m2_win_en_toggle",
     "dmg:m3_bgp_change",
+    "dmg:m3_bgp_change_sprites",
+    "dmg:m3_lcdc_bg_map_change",
+    "dmg:m3_lcdc_obj_en_change",
+    "dmg:m3_lcdc_obj_size_change",
+    "dmg:m3_lcdc_obj_size_change_scx",
+    "dmg:m3_lcdc_tile_sel_change",
+    "dmg:m3_lcdc_tile_sel_win_change",
+    "dmg:m3_lcdc_win_en_change_multiple",
     "dmg:m3_lcdc_win_en_change_multiple_wx",
+    "dmg:m3_lcdc_win_map_change",
+    "dmg:m3_obp0_change",
+    "dmg:m3_scx_high_5_bits",
     "dmg:m3_scx_low_3_bits",
+    "dmg:m3_scy_change",
+    "dmg:m3_window_timing",
+    "dmg:m3_window_timing_wx_0",
+    "dmg:m3_wx_4_change",
     "dmg:m3_wx_4_change_sprites",
+    "dmg:m3_wx_5_change",
+    "dmg:m3_wx_6_change",
 ];
 
 /// On the exact drawer, which is the one that reads SCX mid-line.

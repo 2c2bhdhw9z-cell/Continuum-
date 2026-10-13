@@ -36,6 +36,8 @@ pub struct Ppu {
     pub dot: u16,
     mode: u8,
     stat_line: bool,
+    /// The window's row counter. It advances every time the window starts, so it is one behind
+    /// the row being drawn until the first start of the frame; 0xFF is "none yet".
     window_line: u8,
     wy_hit: bool,
     /// The LY=LYC comparison, latched: it only updates while the LCD is on (Mooneye stat_lyc_onoff).
@@ -125,7 +127,7 @@ impl Default for Ppu {
             dot: 0,
             mode: 2,
             stat_line: false,
-            window_line: 0,
+            window_line: 0xFF,
             wy_hit: false,
             lyc_eq: true,
             first_line: false,
@@ -236,7 +238,7 @@ impl Ppu {
             self.first_line = true;
             self.dot = 0; // line 0 after switch-on: no OAM scan, LY ticks over 4 dots early
             self.mode = 0; // and has no OAM scan
-            self.window_line = 0;
+            self.window_line = 0xFF;
             self.wy_hit = false;
             self.skip_frame = true;
         }
@@ -309,7 +311,7 @@ impl Ppu {
             self.ly += 1;
             if self.ly == 154 {
                 self.ly = 0;
-                self.window_line = 0;
+                self.window_line = 0xFF;
                 self.wy_hit = false;
             }
         }
@@ -458,7 +460,7 @@ impl Ppu {
         if self.no_render {
             // Frame skip: only the window's line counter, which later lines depend on.
             if (self.cgb || self.lcdc & 1 != 0) && self.lcdc & 0x20 != 0 && self.wy_hit && self.wx <= 166 {
-                self.window_line += 1;
+                self.window_line = self.window_line.wrapping_add(1);
             }
             return;
         }
@@ -481,21 +483,18 @@ impl Ppu {
             }
             if self.lcdc & 0x20 != 0 && self.wy_hit && self.wx <= 166 {
                 let map = if self.lcdc & 0x40 != 0 { 0x9C00u16 } else { 0x9800 };
+                // The counter advances when the window starts, which here is once a line.
+                self.window_line = self.window_line.wrapping_add(1);
                 let wy = self.window_line;
                 let start = i16::from(self.wx) - 7;
-                let mut drawn = false;
                 for x in 0..W {
                     let wx = x as i16 - start;
                     if wx < 0 {
                         continue;
                     }
-                    drawn = true;
                     if self.layers & 2 != 0 {
                         (bg_index[x], bg_attr[x]) = self.map_pixel(map, wx as u8, wy);
                     }
-                }
-                if drawn {
-                    self.window_line += 1;
                 }
             }
         }
