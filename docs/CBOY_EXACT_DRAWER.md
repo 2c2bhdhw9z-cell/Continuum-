@@ -27,6 +27,14 @@ reach zero at all.
 `tests/roms.rs::MEALYBUG_PASSING` pins all 23 by name: a change that drops one of them is wrong,
 whatever else it fixes.
 
+The last two window rules (the `WY` comparison needing the window switched on, and `WX` = 166) are
+in and the score is unchanged at 23, because no Mealybug picture probes either: both are pinned
+instead by unit tests in `ppu.rs` - `the_window_waits_for_the_next_frame_when_it_is_switched_on_late`,
+`switching_the_window_on_during_its_own_line_catches_the_match`,
+`wx_166_leaves_the_window_running_into_the_next_line` and `wx_167_never_starts_the_window`. Each
+of them was checked to fail when the rule it covers is taken back out, so they are evidence and
+not decoration.
+
 ### The two tools that make a picture into evidence
 
 Never compare counts. Both of these are in `tests/roms.rs` and both were needed to place the
@@ -178,7 +186,19 @@ in, it passes.
 stack of patches the earlier sessions left (`win_stop`, `win_lock`, `win_hold`, `win_late`,
 `win_blank`, `wx_zero`, `wx_armed`) is gone.
 
-- `WY` is compared once per line; the match is sticky for the rest of the frame.
+- **`WY` is compared while the window is switched on, and the match is sticky for the rest of the
+  frame.** The comparison runs at the start of mode 2 and again on every write to `WY` or `LCDC`,
+  and it only makes the match while LCDC bit 5 is set at that moment, so a game that switches the
+  window on *after* the line `WY` names has gone by gets no window until the next frame. This one
+  is in `ppu.rs::wy_check`, which both drawers read, and it is the only piece of this work the
+  Standard drawer shares. Running it on every dot is the same rule written shorter: neither
+  register can change without a write, and `LY` only changes at the line boundary. One known
+  approximation: on hardware a write-triggered comparison waits for the next eight-dot boundary
+  of the fetch and the window cannot start on the dot it lands on, so cBoy can make the match up
+  to eight dots early when a game switches the window on *during* the line `WY` names. No picture
+  probes that - the ones that write LCDC mid-line (`m2_win_en_toggle` writes it in mode 2, the
+  `m3_lcdc_win_*` family after the match is already made) all still pass - so the alignment was
+  left out rather than invented.
 - With the match in hand and LCDC bit 5 set, the window starts on the dot where `WX` equals the
   PPU's position plus 7. Starting it clears the background FIFO and restarts the fetcher, which
   costs the six dots of a fresh tile fetch: that cost is what `m3_window_timing` draws as a
@@ -192,8 +212,17 @@ stack of patches the earlier sessions left (`win_stop`, `win_lock`, `win_hold`, 
   effect. So the window always covers a multiple of eight pixels unless it began off the left edge.
 - Re-setting LCDC bit 5 in the same line does nothing unless `WX` has also been moved to a pixel
   that has not been drawn yet.
-- `WX` = 0 with a non-zero SCX fine scroll starts the window one dot later. `WX` = 166 is an edge
-  case; `WX` = 167 never triggers at all, because it would need a position of 161.
+- `WX` = 0 with a non-zero SCX fine scroll starts the window one dot later. `WX` = 167 never
+  triggers at all, because it would need a position of 161.
+- **`WX` = 166 on a DMG starts the window in HBlank, so it lands on the *next* line.** The start
+  test asks whether the window begins on the *next* pixel, so 166 needs a position of 160 - which
+  only comes round after mode 3 has handed the LCD its last pixel. No window pixel fits on the
+  line itself; instead the window is left running when the line ends, and the next line is window
+  from its first pixel, starting at the window's **second** tile (the first counts as fetched in
+  that HBlank) and on a further window row. The row counter also advances when the position
+  reaches 159 on the line that sets this off, so that line costs two rows and each line after it
+  one. On the Color `WX` = 166 is an ordinary start, as `166 + cgb` in the rule says.
+  `fifo.rs` carries this over in `win_carry`, set in `fifo_finish` and consumed by `fifo_start`.
 - On a DMG, when the `WY` match holds but LCDC bit 5 is clear and `WX` equals the current position
   plus 7, a single colour-0 pixel is inserted into the FIFO instead. This is the "window
   reactivation zero pixel" the `m3_wx_*_change` descriptions name.
@@ -326,6 +355,17 @@ CPU side and passes 86/86 on both drawers. `m2_win_en_toggle`, the one `m2_*` pi
 3. **The last 4 pixels of `m3_lcdc_bg_en_change`**, which Group 2 above characterises exactly and
    which nothing in the material to hand explains. Worth one look by someone who has a DMG and a
    logic analyser; not worth another session's guessing.
+4. **Two window edges left alone on purpose**, both written down here so nobody has to rediscover
+   them:
+   - On the Color, a window started by `WX` = 166 also makes STAT report mode 0 for the rest of
+     that dot, which can fire a spare HBlank interrupt. That is STAT timing rather than drawing,
+     no Mealybug picture probes it, and Mooneye measures those same edges from the CPU side on
+     both drawers - so it was not worth risking 86/86 for an interrupt no test asks about.
+   - The **Standard** drawer still treats `WX` = 166 as one window pixel at x=159 on the line
+     itself and never carries the window into the next line. That is wrong on hardware, but
+     Standard is the default the owner plays on, every game here has been played on it, and no
+     test covers it; changing the default drawer for a glitch edge case is not worth the risk.
+     If Exact ever becomes the default this goes away with it.
 
 ## Needed in files this work does not own
 
@@ -348,8 +388,17 @@ Collected for whoever owns them; nothing here has been changed by this work.
 
 ## For the owner
 
-Nothing has changed in how the app looks or plays, and the exact drawer is still switched off by
-default.
+The exact drawer is still switched off by default, and almost all of this work is inside it, where
+it cannot touch a game you play.
+
+One rule did change for every Game Boy game on both drawers, and it is the only thing here you
+could see: a real Game Boy only draws the window (the fixed panel games use for status bars and
+text boxes) if the window was switched on at the moment the screen passed the line it is set to
+start at. cBoy used to start it part-way down the screen when a game switched it on late; the real
+console waits for the next frame, which is now what cBoy does. It should only ever look more
+right, and all 86 timing tests and both picture tests still pass - but if a status bar or text box
+ever looks like it arrives a frame later than it used to, that is this change and it is worth
+telling Kiro.
 
 The exact drawer has been rebuilt from scratch to work the way the real Game Boy chip does, step
 by step, instead of the pile of patches it was. On the test set that measures this exactly, it

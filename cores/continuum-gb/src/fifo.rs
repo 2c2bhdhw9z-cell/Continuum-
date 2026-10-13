@@ -111,6 +111,9 @@ pub(super) struct Fifo {
     win_tile_x: u8,
     /// The window started on this dot (its first fetch is in progress).
     win_fetching: bool,
+    /// WX 166 on a DMG left the window running as the line ended, so the next line starts with
+    /// it already active (see `fifo_finish`).
+    win_carry: bool,
     /// The Color: WX matched the position mid-fetch, so a read is skipped and a byte repeats.
     wx_glitch: bool,
     /// One colour-0 pixel is handed to the LCD instead of the FIFO's next.
@@ -148,6 +151,7 @@ impl Ppu {
     pub(super) fn fifo_start(&mut self) {
         let (pal, wx, lcdc) = ([self.bgp, self.obp0, self.obp1], self.wx, self.lcdc);
         let f = &mut self.fifo;
+        let carry = f.win_carry;
         let (mut objs, row, shade, source) =
             (std::mem::take(&mut f.objs), std::mem::take(&mut f.row), std::mem::take(&mut f.shade), std::mem::take(&mut f.source));
         objs.clear();
@@ -164,6 +168,10 @@ impl Ppu {
         f.lcdc = lcdc;
         f.lcdc_was = lcdc;
         f.win_en_was = lcdc & 0x20 != 0;
+        // WX 166 on a DMG left the window running as the line before ended, so this line starts
+        // with it already active, and with its first tile counted as fetched back then.
+        f.win = carry;
+        f.win_tile_x = u8::from(carry);
         // The FIFO starts the line holding eight junk pixels. They are dropped before the LCD
         // takes anything, and how many of the first real tile's pixels follow them out is what
         // the low three bits of SCX do.
@@ -524,6 +532,10 @@ impl Ppu {
                 self.fifo.state = B_A;
                 self.fifo.bg_len = 0;
                 extra = self.wx_seen() == 0 && self.scx & 7 != 0 && !self.cgb;
+            } else if !self.cgb && self.wx_seen() == 166 && self.wx_seen() == pos.wrapping_add(7) {
+                // WX 166 is one past the last position a DMG's window can start at, but the row
+                // counter still advances on the dot the position reaches it.
+                self.window_line = self.window_line.wrapping_add(1);
             }
         }
         // While the window runs, WX landing on the position again hands the LCD one colour-0
@@ -676,6 +688,13 @@ impl Ppu {
         if self.shade.len() == W * H {
             self.shade[base..base + W].copy_from_slice(&self.fifo.shade);
             self.source[base..base + W].copy_from_slice(&self.fifo.source);
+        }
+        // WX 166 on a DMG starts the window during HBlank, where the position is briefly 160
+        // again: the next line begins with the window already running, from its second tile
+        // (the first counts as fetched here) and on a further row.
+        self.fifo.win_carry = !self.cgb && self.wy_hit && self.lcdc & 0x20 != 0 && self.wx == 166;
+        if self.fifo.win_carry {
+            self.window_line = self.window_line.wrapping_add(1);
         }
     }
 

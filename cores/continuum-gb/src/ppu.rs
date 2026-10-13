@@ -245,6 +245,19 @@ impl Ppu {
         self.restat()
     }
 
+    /// The window's Y comparison. The match is sticky for the rest of the frame, but it is only
+    /// made while LCDC bit 5 has the window switched on, so a game that switches the window on
+    /// after the line WY names has gone by gets no window until the next frame.
+    ///
+    /// The hardware runs the comparison at the start of mode 2 and again whenever WY or LCDC is
+    /// written. Running it on every dot instead comes to the same thing - neither register can
+    /// change without a write, and LY only changes at the line boundary - and costs no state.
+    fn wy_check(&mut self) {
+        if self.lcdc & 0x20 != 0 && self.ly == self.wy {
+            self.wy_hit = true;
+        }
+    }
+
     fn stat_condition(&self) -> bool {
         let e = self.stat_enable;
         (e & 0x40 != 0 && self.lyc_eq)
@@ -315,14 +328,12 @@ impl Ppu {
                 self.wy_hit = false;
             }
         }
+        // The window's Y comparison: at the start of mode 2 and on every write to WY or LCDC,
+        // which comes to every dot (see `wy_check`).
+        self.wy_check();
         if self.ly < 144 {
             match self.dot {
-                0 => {
-                    self.mode = 2;
-                    if self.ly == self.wy {
-                        self.wy_hit = true;
-                    }
-                }
+                0 => self.mode = 2,
                 d @ 80 => {
                     self.mode = 3;
                     self.hblank_at = d + self.mode3_length();
@@ -581,6 +592,98 @@ impl Ppu {
             self.shade[base..base + W].copy_from_slice(&shade);
             self.source[base..base + W].copy_from_slice(&source);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A line of dots.
+    const LINE: usize = 456;
+
+    /// The window's Y match is only made while the window is switched on, so a game that
+    /// switches it on after the line WY names has gone by waits for the next frame.
+    #[test]
+    fn the_window_waits_for_the_next_frame_when_it_is_switched_on_late() {
+        // LCD on, background on, window off.
+        let mut p = Ppu { lcdc: 0x91, wy: 5, ..Ppu::default() };
+        for _ in 0..LINE * 20 {
+            p.tick();
+        }
+        assert!(!p.wy_hit, "line 5 went by with the window switched off");
+        p.lcdc |= 0x20;
+        for _ in 0..LINE * 100 {
+            p.tick();
+        }
+        assert!(!p.wy_hit, "switched on at line 20, so this frame gets no window");
+        while !(p.ly == 5 && p.dot > 0) {
+            p.tick();
+        }
+        assert!(p.wy_hit, "the next frame reaches line 5 with the window on");
+    }
+
+    /// The comparison runs again on a write, so switching the window on during the line WY
+    /// names still catches the match.
+    #[test]
+    fn switching_the_window_on_during_its_own_line_catches_the_match() {
+        let mut p = Ppu { lcdc: 0x91, wy: 5, ..Ppu::default() };
+        while p.ly != 5 {
+            p.tick();
+        }
+        for _ in 0..40 {
+            p.tick();
+        }
+        assert!(!p.wy_hit);
+        p.lcdc |= 0x20;
+        p.tick();
+        assert!(p.wy_hit, "a write to LCDC runs the comparison again");
+    }
+
+    /// A machine on the exact drawer whose background map is a tile of colour 1 and whose window
+    /// map is a tile of colour 3, so every drawn pixel says which of the two it came from (and a
+    /// pixel the LCD never got stays white).
+    fn window_machine() -> Ppu {
+        let mut p = Ppu {
+            exact: true,
+            // LCD on, window map $9C00, window on, tile data from $8000, background on.
+            lcdc: 0x80 | 0x40 | 0x20 | 0x10 | 0x01,
+            bgp: 0xE4, // colour 1 -> shade 1, colour 3 -> shade 3
+            wy: 0,
+            wx: 166,
+            ..Ppu::default()
+        };
+        for row in 0..8 {
+            p.vram[0x0010 + row * 2] = 0xFF; // tile 1: both bitplanes set, colour 3
+            p.vram[0x0011 + row * 2] = 0xFF;
+            p.vram[0x0020 + row * 2] = 0xFF; // tile 2: bitplane 0 only, colour 1
+        }
+        p.vram[0x1800..0x1C00].fill(2); // the background map
+        p.vram[0x1C00..0x2000].fill(1); // the window map
+        p
+    }
+
+    /// WX 166 on a DMG: no window pixel fits on the line itself, but the window is left running
+    /// when the line ends, so the whole of the next line is window.
+    #[test]
+    fn wx_166_leaves_the_window_running_into_the_next_line() {
+        let mut p = window_machine();
+        for _ in 0..LINE * 2 {
+            p.tick();
+        }
+        assert!(p.frame[..W].iter().all(|c| *c == SHADES[1]), "line 0 is all background");
+        assert!(p.frame[W..W * 2].iter().all(|c| *c == SHADES[3]), "line 1 is all window");
+    }
+
+    /// WX 167 never starts the window at all: it would need a position of 161.
+    #[test]
+    fn wx_167_never_starts_the_window() {
+        let mut p = window_machine();
+        p.wx = 167;
+        for _ in 0..LINE * 3 {
+            p.tick();
+        }
+        assert!(p.frame[..W * 3].iter().all(|c| *c == SHADES[1]), "every line is background");
     }
 }
 
