@@ -77,7 +77,8 @@ Do not retest Home, scrolling, re-import, or fast-forward. Those already passed.
    181 loads.
 8. In a Master System or Game Gear game, load a state you saved on 181. ✅ It loads.
 9. Open Kart Fighter. ✅ It plays, and a line says "Mesen couldn’t open this one, so it’s running
-   on FCEUmm."
+   on FCEUmm." (If it’s your first FCEUmm game since the update, the FCEUmm heads-up shows a
+   few seconds later. That’s fine.)
 10. Only if you have one: open a Famicom Disk System game. ✅ It plays.
 11. Only if you have them: open a Dreamcast, SuperGrafx, Amiga, DOS, or Saturn game (Saturn on
     **Beetle Saturn**). ✅ It plays, and a state you saved on 181 loads.

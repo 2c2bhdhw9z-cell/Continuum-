@@ -244,9 +244,10 @@ order on this page:
    Gearsystem and BlastEm in, the five non-commercial cores out, arcade out for now, and Mesen 2
    built here with its patch. One install is next, with both in it. Phone checks: TESTING.md
    "This install only" and section K.
-2. **Emulator updates.** Done on master (12-13 October), waiting for the next build. Check every core each session and take the safe ones (owner-rules
-   "Emulator updates", HANDOFF.md). Known behind on 7 October: PSP 132 commits, N64 29, Beetle
-   PSX 14, 3DS 6, Dreamcast 5. The 16 downloaded cores have never been checked.
+2. **Emulator updates.** Done on master (12-13 October), waiting for the next build. Check every
+   core each session and take the safe ones (owner-rules "Emulator updates", HANDOFF.md). On
+   13 October every core, the 16 downloaded ones included, was on its newest version or on a
+   newer one already checked and skipped (`docs/CORE_UPDATES.md`).
 3. **The one-time heads-up line for players** when an emulator was updated (owner-rules
    "Players get a heads-up"). Done on master (12-13 October), waiting for the next build.
 4. **Make the weekly update checker cover every core**, the 16 downloaded ones included
