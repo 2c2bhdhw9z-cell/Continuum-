@@ -472,7 +472,8 @@ Ripper. Both are credited in the code.
 
 ### What the tests prove
 
-Six new tests (113 pass in total, up from 107):
+Six new tests (the suite was 107 before them, and stands at 120 as this is written: the rest came
+from the exact-drawer work going on at the same time):
 
 1. The engine is found in a built cartridge that carries it (both builds of the engine
    Nintendo shipped), and **not** found in: a game with no engine, a cartridge carrying the
@@ -565,8 +566,10 @@ test count: it was 100 at the start of the night and `cargo test --release` in
 exact-drawer work is adding its own as it goes).
 
 The same two lists have "MP2K high-quality Advance music" as the first job under item 6 — that is
-done, as a setting that defaults to off (see above). cBoy now has **67** settings of its own. The
-test count is **113** as the music work is pushed. Two things for the notes, though:
+done, as a setting that defaults to off (see above). cBoy now has **67** settings of its own. Six
+of the suite's tests are the music work's; the count stood at **120** as it was pushed, but that
+moves all night as the exact-drawer work lands its own, so read it from `cargo test --release`
+rather than from here. Two things for the notes, though:
 
 - It is the one piece of tonight's work that **has not been heard on a real game at all**, by
   anybody, because that needs a commercial Advance cartridge. Please keep it described as
