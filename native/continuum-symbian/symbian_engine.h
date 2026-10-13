@@ -41,6 +41,11 @@ class ISymbianEngine {
   virtual ScreenInfo GetScreenInfo() const = 0;
   virtual void SetKeys(std::uint32_t keys) = 0;
   virtual void RunFrame() = 0;
+
+  // The player paused (or left the game running in the background). A normal libretro core
+  // stops dead when the frontend stops calling retro_run, but this one is a whole emulator
+  // running on threads of its own, so it has to be told or it keeps playing and making sound.
+  virtual void SetPaused(bool paused) = 0;
 };
 
 }  // namespace continuum

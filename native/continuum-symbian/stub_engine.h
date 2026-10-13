@@ -17,6 +17,7 @@ class StubEngine final : public ISymbianEngine {
   ScreenInfo GetScreenInfo() const override;
   void SetKeys(std::uint32_t keys) override;
   void RunFrame() override;
+  void SetPaused(bool paused) override;
 };
 
 }  // namespace continuum

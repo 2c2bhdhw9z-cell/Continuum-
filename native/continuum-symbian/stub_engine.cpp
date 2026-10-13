@@ -16,5 +16,6 @@ void StubEngine::Shutdown() {}
 ScreenInfo StubEngine::GetScreenInfo() const { return ScreenInfo{}; }
 void StubEngine::SetKeys(std::uint32_t) {}
 void StubEngine::RunFrame() {}
+void StubEngine::SetPaused(bool) {}
 
 }  // namespace continuum

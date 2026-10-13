@@ -5,9 +5,11 @@
 
 #include "symbian_engine.h"
 
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace continuum {
@@ -26,18 +28,28 @@ class Eka2l1Engine final : public ISymbianEngine {
   ScreenInfo GetScreenInfo() const override;
   void SetKeys(std::uint32_t keys) override;
   void RunFrame() override {}
+  void SetPaused(bool paused) override;
 
   void Touch(int x, int y, int action);
   // Copies the newest frame (XRGB8888, top row first). False when none has arrived yet.
   bool LatestFrame(std::vector<std::uint32_t>& out, int& width, int& height);
 
  private:
+  // Installs the package (if it is not already installed) and launches it. Runs on
+  // install_thread_, because installing a .sis rewrites every file it ships and the call that
+  // started the game would otherwise sit on the main thread for as long as that takes.
+  void InstallAndLaunch();
+
   std::string data_dir_;
+  std::string root_dir_;
   std::string refusal_ = "Continuum Symbian is not initialised.";
   std::string package_;
   std::uint32_t keys_ = 0;
   void* layer_ = nullptr;
   bool booted_ = false;
+  std::atomic<bool> paused_{false};
+  std::atomic<bool> installing_{false};
+  std::thread install_thread_;
 };
 
 }  // namespace continuum

@@ -19,7 +19,7 @@
 //! So the callbacks write into a thread-local `EXCHANGE`, and `run_frame` collects from it
 //! afterwards.
 
-use std::ffi::{c_char, c_uint, c_void, CStr, CString};
+use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
 use std::path::Path;
 
 use super::{ContentHint, CoreDescriptor, EmulatorCore};
@@ -878,6 +878,10 @@ struct Symbols {
     /// supposed to export it, but a missing one costs only trackpad mode's port switch, so it is
     /// not worth refusing the core over.
     set_controller_port_device: Option<unsafe extern "C" fn(c_uint, c_uint)>,
+    /// `continuum_set_paused`, which is not libretro at all: Continuum's own entry point for a
+    /// core that keeps running when nobody calls `retro_run`. Only Continuum Symbian exports it
+    /// (it drives a whole emulator on threads of its own); every other core has nothing to do.
+    set_paused: Option<unsafe extern "C" fn(c_int)>,
 }
 
 pub struct NativeLibretroCore {
@@ -1031,6 +1035,12 @@ impl NativeLibretroCore {
             set_controller_port_device: unsafe {
                 library
                     .get::<unsafe extern "C" fn(c_uint, c_uint)>(b"retro_set_controller_port_device")
+                    .ok()
+                    .map(|raw| *raw)
+            },
+            set_paused: unsafe {
+                library
+                    .get::<unsafe extern "C" fn(c_int)>(b"continuum_set_paused")
                     .ok()
                     .map(|raw| *raw)
             },
@@ -1660,6 +1670,13 @@ impl EmulatorCore for NativeLibretroCore {
         };
         unsafe { set(port as c_uint, device as c_uint) };
         Ok(())
+    }
+
+    fn set_paused(&mut self, paused: bool) {
+        // Only Continuum Symbian exports this; for everything else there is nothing to say.
+        if let Some(set) = self.symbols.set_paused {
+            unsafe { set(c_int::from(paused)) };
+        }
     }
 
     fn controller_types(&self, port: u32) -> Vec<(String, u32)> {

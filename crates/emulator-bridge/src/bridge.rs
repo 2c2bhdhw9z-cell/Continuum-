@@ -597,6 +597,9 @@ impl EmulatorBridge {
         if let Some(session) = &mut self.session {
             if !session.paused {
                 session.paused = true;
+                // A core that runs on threads of its own has to be told, or it plays on behind
+                // the pause menu. Everything else ignores this.
+                session.core.set_paused(true);
                 // Drop buffered audio: on resume it would play a stale burst.
                 self.sink.flush();
             }
@@ -607,6 +610,7 @@ impl EmulatorBridge {
         if let Some(session) = &mut self.session {
             if session.paused {
                 session.paused = false;
+                session.core.set_paused(false);
                 // Re-anchor, or the paused interval becomes emulated-time debt.
                 self.pacer.resync(now_ms);
             }

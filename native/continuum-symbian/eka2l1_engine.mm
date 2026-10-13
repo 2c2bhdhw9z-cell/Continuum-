@@ -16,6 +16,7 @@
 #include <miniz.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <set>
 #include <sys/stat.h>
@@ -118,6 +119,7 @@ bool Eka2l1Engine::Initialise(const EngineConfig& config) {
   // <system>/continuum-symbian holds everything: the staged assets, the installed device
   // (ROM/RPKG), the C/D/E drives and the config. Kept across launches.
   const std::string root = std::string(config.system_dir) + "/continuum-symbian";
+  root_dir_ = root;
   data_dir_ = root + "/data";
   MakeDirs(data_dir_);
   if (!StageAssets(root)) {
@@ -164,6 +166,83 @@ bool Eka2l1Engine::InstallPackage(const char* path) {
   return !package_.empty();
 }
 
+// Installing a package is the slow part of starting a Symbian game, and it only has to happen
+// once: a .sis rewrites every file it ships, so doing it again on every launch wastes a minute
+// AND can write over a save a package carries. What was installed is remembered by the file's
+// path, size and date, and an install is skipped only when that record matches AND the app is
+// really in the phone's list, so a record that has gone stale costs nothing.
+void Eka2l1Engine::InstallAndLaunch() {
+  const std::string stamp_path = root_dir_ + "/installed.txt";
+  struct stat st {};
+  std::string stamp = package_;
+  if (stat(package_.c_str(), &st) == 0) {
+    stamp += "|" + std::to_string(static_cast<long long>(st.st_size)) + "|" +
+             std::to_string(static_cast<long long>(st.st_mtime));
+  }
+
+  const std::string stem_full = package_.substr(package_.find_last_of('/') + 1);
+  const std::string stem = Lower(stem_full.substr(0, stem_full.find_last_of('.')));
+  auto find_by_name = [&stem]() -> std::uint32_t {
+    for (const auto& app : bridge::get_apps()) {
+      const std::string name = Lower(app.name);
+      if (!name.empty() && (stem.find(name) != std::string::npos ||
+                            name.find(stem) != std::string::npos)) {
+        return app.uid;
+      }
+    }
+    return 0;
+  };
+
+  bool installed_before = false;
+  if (FILE* f = std::fopen(stamp_path.c_str(), "r")) {
+    char line[2048] = {};
+    if (std::fgets(line, sizeof(line), f) != nullptr) {
+      std::string recorded(line);
+      while (!recorded.empty() && (recorded.back() == '\n' || recorded.back() == '\r')) {
+        recorded.pop_back();
+      }
+      installed_before = recorded == stamp;
+    }
+    std::fclose(f);
+  }
+
+  std::uint32_t pick = 0;
+  if (installed_before) {
+    pick = find_by_name();
+  }
+  if (pick == 0) {
+    std::set<std::uint32_t> before;
+    for (const auto& app : bridge::get_apps()) before.insert(app.uid);
+    const std::string lower = Lower(package_);
+    std::string game_name;
+    int err = 0;
+    if (EndsWith(lower, ".n-gage")) {
+      err = bridge::install_ngage_file(package_, game_name);
+    } else {
+      err = bridge::install_app(package_);
+    }
+    if (err != 0) {
+      // Not fatal: the phone's own menu is running, so the player still sees something. The
+      // refusal string is not touched from this thread, because the launch has already
+      // returned by now and the main thread may be reading it.
+      std::fprintf(stderr, "[Continuum Symbian] install failed, error %d\n", err);
+    } else if (FILE* f = std::fopen(stamp_path.c_str(), "w")) {
+      std::fprintf(f, "%s\n", stamp.c_str());
+      std::fclose(f);
+    }
+    for (const auto& app : bridge::get_apps()) {
+      if (before.count(app.uid) == 0) { pick = app.uid; break; }
+    }
+    if (pick == 0) pick = find_by_name();
+  }
+  // Nothing matched: stay on the phone's own menu rather than guessing at an app.
+  if (pick != 0) bridge::launch_app(pick);
+  installing_ = false;
+  // A pause while this was running was only remembered, not sent, so that it could not land in
+  // the middle of an install. Send it now.
+  if (paused_) bridge::pause();
+}
+
 bool Eka2l1Engine::Boot() {
   CAEAGLLayer* layer = [CAEAGLLayer layer];
   layer.frame = CGRectMake(0, 0, kWidth, kHeight);
@@ -181,47 +260,32 @@ bool Eka2l1Engine::Boot() {
     return false;
   }
 
-  std::set<std::uint32_t> before;
-  for (const auto& app : bridge::get_apps()) before.insert(app.uid);
-
-  const std::string lower = Lower(package_);
-  std::string game_name;
-  int err = 0;
-  if (EndsWith(lower, ".n-gage")) {
-    err = bridge::install_ngage_file(package_, game_name);
-  } else {
-    err = bridge::install_app(package_);
-  }
-  if (err != 0) {
-    refusal_ = "Continuum Symbian could not install this package (error " + std::to_string(err) +
-               ").";
-    // Not fatal: the phone menu still runs, so the user sees the firmware boot.
-  }
-
-  // Launch the app the package added. If it was already installed, match its name to the
-  // file name; if nothing matches, stay on the phone's menu.
-  std::string stem = package_.substr(package_.find_last_of('/') + 1);
-  stem = Lower(stem.substr(0, stem.find_last_of('.')));
-  std::uint32_t pick = 0;
-  for (const auto& app : bridge::get_apps()) {
-    if (before.count(app.uid) == 0) { pick = app.uid; break; }
-  }
-  if (pick == 0) {
-    for (const auto& app : bridge::get_apps()) {
-      const std::string name = Lower(app.name);
-      if (!name.empty() && (stem.find(name) != std::string::npos ||
-                            name.find(stem) != std::string::npos)) {
-        pick = app.uid;
-        break;
-      }
-    }
-  }
-  if (pick != 0) bridge::launch_app(pick);
   booted_ = true;
+  // Off this thread: the app's launch runs on the main thread, and the bridge itself says to
+  // install from a background one. The phone's own menu is on screen while it happens.
+  installing_ = true;
+  install_thread_ = std::thread([this]() { InstallAndLaunch(); });
   return true;
 }
 
+// The player paused, left the game, or put the app in the background. Without this the guest
+// keeps running and its sound keeps playing, because it is not driven by retro_run.
+void Eka2l1Engine::SetPaused(bool paused) {
+  if (!booted_ || paused == paused_) return;
+  paused_ = paused;
+  // While a package is installing, the choice is only remembered: the install thread applies it
+  // when it is done, so a pause cannot land in the middle of writing the package's files.
+  if (installing_) return;
+  if (paused) {
+    bridge::pause();
+  } else {
+    bridge::resume();
+  }
+}
+
 void Eka2l1Engine::Shutdown() {
+  if (install_thread_.joinable()) install_thread_.join();
+  paused_ = false;
   continuum_symbian_frame_hook = nullptr;
   {
     // The next game must not open on the last game's picture.

@@ -204,6 +204,12 @@ pub trait EmulatorCore: crate::MaybeSend {
         false
     }
 
+    /// The player paused, or carried on. Does nothing for a normal libretro core, which stops
+    /// dead as soon as the frontend stops calling `run_frame`. Continuum Symbian is the
+    /// exception: it is a whole emulator running on threads of its own, so without being told it
+    /// kept playing, and making sound, behind the pause menu.
+    fn set_paused(&mut self, _paused: bool) {}
+
     /// Options this core declared. Empty when it declared none.
     fn core_options(&self) -> Vec<CoreOption> {
         Vec::new()

@@ -203,4 +203,11 @@ RETRO_API int continuum_symbian_engine_linked(void) {
   return g_engine != nullptr && g_engine->EngineLinked() ? 1 : 0;
 }
 
+// Continuum's own entry point, called by the engine when the player pauses and again when they
+// carry on. Every other core stops on its own, because a core only runs inside retro_run; this
+// one is a whole emulator on threads of its own and keeps playing until it is told not to.
+RETRO_API void continuum_set_paused(int paused) {
+  if (g_engine != nullptr && g_loaded) g_engine->SetPaused(paused != 0);
+}
+
 }  // extern "C"
