@@ -22,6 +22,14 @@ repository the same night, so anything that could only be fixed inside `cores/co
 - **IOS-12, deciding an Amiibo tap from text.** The same `tap` function returns one sentence and
   the app decides success with `line.contains("tapped")`. The clean fix is a real result from the
   engine rather than a sentence to match.
+- **CBOY-06, the Super Game Boy border switched on while a game is running.** The app no longer
+  works the picture's shape out for itself: it asks the engine, and the engine answers with what
+  cBoy's own `retro_get_system_av_info` says (A20). That covers the start of a game, including
+  "Auto (Super Game Boy)", which the settings alone could never tell. What is left is cBoy's side
+  of a live change: when `cboy_sgb_border` moves mid-game it should tell the frontend with
+  `RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO` (65), the way FCEUmm does when its region option moves.
+  The engine already picks that up on the next frame (`sync_descriptor_from_core`), so one env
+  call in `cores/continuum-gb` is the whole fix and nothing on the app side has to change.
 
 ## Not done tonight, with what the next session needs (A6: Sega CD disc swap and RAM-cart saves)
 
