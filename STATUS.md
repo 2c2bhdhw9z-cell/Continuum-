@@ -274,7 +274,24 @@ order on this page:
    - Mesen 2 as a second SNES choice (needs SNES memory, cheats and a DSP chip-file check);
    - a launch line naming the SNES chip files a game needs;
    - Pete Sampras Tennis and Super Skidmarks EEPROM saves (BlastEm doesn't know those carts);
-   - the Gearsystem online-play state hash (16 bytes differ between phones).
+   - ~~the Gearsystem online-play state hash (16 bytes differ between phones).~~
+     **Found and fixed, 13 October (built, untested).** The 16 bytes were the Sports Pad's timing:
+     Gearsystem put the phone's own running cycle count into every Master System, Game Gear and
+     SG-1000 save state, twice (one per controller port), and that number is simply how long this
+     phone has had the game open. Two phones at the same moment in the same game therefore never
+     wrote the same state, and online play, which compares a short hash of the whole state to spot
+     the two games drifting apart, said they had drifted apart when they had not. The Continuum
+     patch writes that field as "cycles since now" instead of the running total (the same thing
+     Gearsystem already does for its link-cable timing), and stops counting time for a pad nobody
+     plugged in, which nothing in the app ever does and which is reset the moment one is plugged
+     in, so no game behaves differently. Ten more bytes were leftovers from memory in the spare
+     bytes of four structures the core writes whole (the light phaser, the paddle, the two sports
+     pads, the EEPROM cartridges); they are zeroed now. Proved off the phone: two host builds, one
+     playing straight through and one joining and loading the other's state, used to differ in
+     exactly 16 bytes and now match byte for byte, over a Master System, a Game Gear and a
+     bank-switched cartridge; the state is the same size as before and states from the shipped
+     build still load (`scripts/patches/gearsystem-sg1000-memory-map.patch`,
+     `docs/reports/night-2026-10-13-batch-a.md`).
    Left over from the emulator updates, same item:
    - the game card's SAVE STATES paragraph (`native/ios/GameDetailSheet.swift` ~l.246, "A state
      can only be loaded back into the same build of the same core…") reads like documentation.

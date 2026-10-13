@@ -87,3 +87,135 @@ index 098c068..fb6b0b3 100644
      virtual u8 PerformRead(u16 address);
      virtual void PerformWrite(u16 address, u8 value);
      virtual void Reset();
+diff --git a/src/Eeprom93C46MemoryRule.cpp b/src/Eeprom93C46MemoryRule.cpp
+index 7e9c814..76c9573 100644
+--- a/src/Eeprom93C46MemoryRule.cpp
++++ b/src/Eeprom93C46MemoryRule.cpp
+@@ -278,6 +278,9 @@ void Eeprom93C46MemoryRule::SaveState(std::ostream& stream)
+ {
+     stream.write(reinterpret_cast<const char*>(m_iMapperSlot), sizeof(m_iMapperSlot));
+     stream.write(reinterpret_cast<const char*>(m_iMapperSlotAddress), sizeof(m_iMapperSlotAddress));
++    // Continuum: the spare byte in this struct was never written, so it put a leftover from
++    // memory into the state and two phones disagreed over it. Zero it first.
++    m_EEPROM.continuum_spare = 0;
+     stream.write(reinterpret_cast<const char*>(&m_EEPROM), sizeof(m_EEPROM));
+ }
+ 
+diff --git a/src/Eeprom93C46MemoryRule.h b/src/Eeprom93C46MemoryRule.h
+index 741fb53..1be9ca9 100644
+--- a/src/Eeprom93C46MemoryRule.h
++++ b/src/Eeprom93C46MemoryRule.h
+@@ -65,6 +65,9 @@ private:
+         u8 Status;
+         u8 ReadOnly;
+         u8 Position;
++        // Continuum: the spare byte the compiler already added here, named so SaveState can zero
++        // it. Same size and same field offsets as before, so old save states still load.
++        u8 continuum_spare;
+         u16 Opcode;
+         u16 Latch;
+         u16 Data[EEPROM_93C46_DATA_SIZE / 2];
+diff --git a/src/Input.cpp b/src/Input.cpp
+index 94a6bda..0c5f307 100644
+--- a/src/Input.cpp
++++ b/src/Input.cpp
+@@ -107,6 +107,16 @@ void Input::SyncSportsPad(stSportsPad* sports_pad)
+         return;
+ 
+     u64 current_clock = *m_pMasterClockCycles;
++    // Continuum: a pad nobody plugged in has no timing of its own, and plugging one in resets it
++    // (EnableSportsPad), so counting cycles for it changes nothing a player sees. It did change
++    // the save state: how much time had piled up depended on when the frontend happened to save,
++    // and online play compares a hash of the whole state, so two phones at the same point in the
++    // same game never matched. Keep the anchor up to date and count nothing.
++    if (!sports_pad->enabled)
++    {
++        sports_pad->last_clock = current_clock;
++        return;
++    }
+     if (current_clock < sports_pad->last_clock)
+     {
+         sports_pad->last_clock = current_clock;
+@@ -438,8 +448,31 @@ void Input::SaveState(std::ostream& stream)
+     stream.write(reinterpret_cast<const char*> (&m_bPhaser), sizeof(m_bPhaser));
+     stream.write(reinterpret_cast<const char*> (&m_Phaser), sizeof(m_Phaser));
+     stream.write(reinterpret_cast<const char*> (&m_bPaddle), sizeof(m_bPaddle));
++    // Continuum: same as the light phaser in Video. These spare bytes are not part of the
++    // machine and were never written, so they went into the state as leftovers from memory and
++    // the two phones' states disagreed. Zero them first.
++    memset(m_Paddle.continuum_spare, 0, sizeof(m_Paddle.continuum_spare));
++    memset(m_SportsPad[0].continuum_spare, 0, sizeof(m_SportsPad[0].continuum_spare));
++    memset(m_SportsPad[1].continuum_spare, 0, sizeof(m_SportsPad[1].continuum_spare));
+     stream.write(reinterpret_cast<const char*> (&m_Paddle), sizeof(m_Paddle));
++
++    // Continuum: last_clock is this machine's own master clock, which the state does not carry,
++    // so the same moment in the same game was a different number on each phone. Write it as
++    // cycles since now, the way the Game Gear link cable already writes its timing, and put the
++    // live value back afterwards so saving a state does not disturb the game. LoadState sets
++    // last_clock from the loading machine's own clock either way, so nothing changes for a state
++    // that is loaded back.
++    u64 current_clock = m_pMasterClockCycles ? *m_pMasterClockCycles : 0;
++    u64 live_clock[2] = { m_SportsPad[0].last_clock, m_SportsPad[1].last_clock };
++    for (int i = 0; i < 2; i++)
++    {
++        m_SportsPad[i].last_clock = (current_clock >= live_clock[i])
++            ? (current_clock - live_clock[i]) : 0;
++    }
+     stream.write(reinterpret_cast<const char*> (&m_SportsPad), sizeof(m_SportsPad));
++    m_SportsPad[0].last_clock = live_clock[0];
++    m_SportsPad[1].last_clock = live_clock[1];
++
+     stream.write(reinterpret_cast<const char*> (&m_bResetPressed), sizeof(m_bResetPressed));
+ }
+ 
+diff --git a/src/Input.h b/src/Input.h
+index bf30066..9ef59c2 100644
+--- a/src/Input.h
++++ b/src/Input.h
+@@ -41,11 +41,16 @@ public:
+         float x;
+         u8 reg;
+         bool flip;
++        // Continuum: the two spare bytes the compiler already added here, named so SaveState can
++        // zero them. Same size and same field offsets as before, so old save states still load.
++        u8 continuum_spare[2];
+     };
+ 
+     struct stSportsPad
+     {
+         bool enabled;
++        // Continuum: the three spare bytes the compiler already added here, same reason.
++        u8 continuum_spare[3];
+         float pending_x;
+         float pending_y;
+         u8 absolute_x;
+diff --git a/src/Video.cpp b/src/Video.cpp
+index f2c0a2e..358534c 100644
+--- a/src/Video.cpp
++++ b/src/Video.cpp
+@@ -1910,6 +1910,11 @@ void Video::SaveState(std::ostream& stream)
+     stream.write(reinterpret_cast<const char*> (&m_NextLineSprites), sizeof(m_NextLineSprites));
+     stream.write(reinterpret_cast<const char*> (&m_bDisplayEnabled), sizeof(m_bDisplayEnabled));
+     stream.write(reinterpret_cast<const char*> (&m_bSpriteOvrRequest), sizeof(m_bSpriteOvrRequest));
++    // Continuum: online play compares a hash of the whole state, so every byte of it has to come
++    // out the same on both phones. The spare bytes in this struct are not part of the machine and
++    // were never written, so they carried whatever happened to be in memory, and two phones
++    // disagreed over them. Zero them first.
++    memset(m_Phaser.continuum_spare, 0, sizeof(m_Phaser.continuum_spare));
+     stream.write(reinterpret_cast<const char*> (&m_Phaser), sizeof(m_Phaser));
+     stream.write(reinterpret_cast<const char*> (&m_bLineInterruptPending), sizeof(m_bLineInterruptPending));
+     stream.write(reinterpret_cast<const char*> (&m_bSpriteCollisionRequest), sizeof(m_bSpriteCollisionRequest));
+diff --git a/src/Video.h b/src/Video.h
+index 179cf47..dd3aecd 100644
+--- a/src/Video.h
++++ b/src/Video.h
+@@ -164,6 +164,9 @@ private:
+         int y;
+         bool enabled;
+         bool detected;
++        // Continuum: the two spare bytes the compiler already added here, named so SaveState can
++        // zero them. Same size and same field offsets as before, so old save states still load.
++        u8 continuum_spare[2];
+     };
+     Phaser m_Phaser;
+ 

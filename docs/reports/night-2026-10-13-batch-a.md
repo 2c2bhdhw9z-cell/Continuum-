@@ -115,9 +115,75 @@ line it did before. What was worked out, so the next attempt does not start from
   BlastEm, where each step can be watched. The licence side is fine: our own code, GPL, in this
   repository.
 
+## A16: what the Gearsystem "16 bytes" were, and the fix
+
+The finding was right down to the number. Reproduced off the phone: Gearsystem built from source at
+its pin (`692494c8`), two processes standing in for two phones, one playing straight through to
+frame 210, the other joining at frame 50 and loading the first one's frame-200 state and playing on
+to 210. The same moment in the same game, and the two states differed in exactly 16 bytes, every
+time, on a Master System cartridge, a Game Gear one and a bank-switched one.
+
+**The 16 bytes are the Sports Pad's timing block, eight in each of the two controller ports.**
+`Input::stSportsPad::last_clock` holds `GearsystemCore::m_master_clock_cycles`, the count of cycles
+since this phone opened the game. That counter is not in the save state (only the link-cable state
+carries it), it is zeroed by `Reset()`, and `Input::LoadState` throws the loaded value away and
+re-anchors it to the loading machine's own counter — so the core already treats it as local
+bookkeeping, while still writing it into every state. Two phones that reach the same frame by
+different routes have different counters, so the hash online play compares never matched. The
+re-anchoring also shifted what the pad had piled up (`unknown_cycles`, `absolute_phase`,
+`absolute_phase_cycles`), because `Input::SaveState` calls `SyncSportsPad` and so how the elapsed
+time was chopped up depended on when the frontend happened to save.
+
+Two hunks in `scripts/patches/gearsystem-sg1000-memory-map.patch` fix it:
+
+- `Input::SaveState` writes `last_clock` as cycles-since-now instead of the running total (zero in
+  practice, since `SyncSportsPad` has just caught both pads up), then puts the live value back so
+  saving a state does not disturb the game. This is the same shape as the gear-to-gear timing
+  upstream already saves as `tx_delta`/`rx_delta`.
+- `SyncSportsPad` counts nothing for a pad that is not plugged in: it keeps the anchor current and
+  returns. Nothing a player sees changes — `EnableSportsPad` calls `ResetSportsPad` when a pad is
+  plugged in, so the piled-up time was never read — and Continuum never plugs one in at all
+  (nothing in the engine sets `RETRO_DEVICE_SPORTS_PAD`; the Sports Pad is not offered).
+
+**A second, smaller fault found while looking: ten bytes of leftovers from memory.** Four structures
+are written into the state whole, and the spare bytes the compiler adds inside them were never
+written, so each state carried whatever happened to be in that memory: `Video::Phaser` (2 bytes),
+`Input::stPaddle` (2), `Input::stSportsPad` (3 each, so 6), and `Eeprom93C46MemoryRule::EEPROM93C46`
+(1, only on the two EEPROM cartridges). Proved by dirtying the heap and the stack with two different
+byte patterns before loading the core: the phaser's two bytes came out as the pattern. The patch
+names those spare bytes in the structures — same size, same field offsets, so the state format does
+not move — and zeroes them before each write.
+
+Checked off the phone, all with the whole Continuum patch applied to a clean tree at the pin:
+
+- two phones, same frame, two routes: 16 bytes differed before, 0 after (Master System, Game Gear,
+  bank-switched cartridge);
+- two different heap and stack patterns: 2 bytes differed before, 0 after;
+- the state is the same size as before, byte for byte in layout: a state written by the shipped
+  build loads in the patched one and a state written by the patched build loads in the shipped one,
+  so nobody's save states are lost;
+- save, load it back, save again: byte-identical, which it was not before.
+
+No Rust test came with it: the fix is inside the C++ core, which the host test suite cannot load, so
+the check that matters is the harness above rather than a unit test that could only re-test the
+engine's hash function (`netplay::state_hash` is already covered). The harness is four small files
+(a `dlopen` runner, a 32 KB test cartridge generator, a byte comparison and a heap/stack poisoner)
+and lives outside the repository in the night's scratch folder.
+
+Still open for whoever wants it, and not a Continuum problem today: with a Sports Pad actually
+plugged in, saving a state still chops the pad's elapsed time at the moment of the save, so two
+phones using that peripheral in online play could still drift. Fixing that means carrying the
+pending cycles in the state and not syncing at save time, which changes what the field means and so
+needs the save-state version gate upstream uses (`if (version >= 108)`).
+
 ## Notes for whoever builds next
 
 - **Editing `scripts/build-core.sh` rebuilds every core** (the per-core fingerprint hashes the
   whole script apart from its `IOS_PIN=` lines), so the next build after one pays the long
   45-50 minutes instead of 6-8. Editing one `scripts/patches/<family>-*.patch` rebuilds that core
   only.
+- Because of that, the save-state fix above went into the existing
+  `gearsystem-sg1000-memory-map.patch` rather than a patch file of its own, which would have meant
+  editing `build-core.sh` and rebuilding all 33 cores. Its name now undersells it: next time
+  `build-core.sh` is edited for some other reason, its gearsystem comment should say the patch
+  carries the SG-1000 memory map **and** the save-state fix.
