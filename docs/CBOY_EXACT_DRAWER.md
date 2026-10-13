@@ -318,12 +318,13 @@ So SameBoy's `+4` is cBoy's dot 0, and its `oam_search_index == 37` is cBoy's do
 where cBoy's `vram_blocked` already has its `(76..80)` term, from the opposite direction.
 
 What is **not** the same is the Color, and every difference is in the same place: SameBoy keys
-five of these edges off `GB_is_cgb(gb)`, hardware rather than cartridge mode, which `ppu.rs`
-cannot see (see "A Color's line 144" below). Written down rather than implemented, because with
-the flag unwired the code would be dead, and nothing in either test suite probes any of them —
-Mooneye's Color set is five boot/register/STAT ROMs and the Mealybug CGB pictures are stopped by
-Group 1 long before this. Implementing five unprobed edges blind is how the score moved up and
-down before.
+five of these edges off `GB_is_cgb(gb)`, hardware rather than cartridge mode, which `ppu.rs` could
+not see when this was written (see "A Color's line 144" below; the flag is live now). They are
+written down rather than implemented because **nothing in either test suite probes any of them** —
+Mooneye's Color set is boot, register and STAT ROMs, and the Mealybug Color pictures are stopped by
+Group 1 long before these edges matter. That reason still stands with the flag wired: implementing
+five unprobed edges blind is how the score moved up and down before, so whoever takes them needs a
+way to measure first.
 
 1. A Color keeps OAM **writes** blocked through the last 4 dots of mode 2 (cBoy dots 76-79), where
    a Game Boy lets them through. cBoy's `oam_write_blocked` ends mode 2's block at dot 76 for
@@ -372,9 +373,11 @@ putting dot 452 at the end of M-cycle 112 and the next line's dot 0 at the end o
 second fails against the obvious wrong version of it, one that lets the line fall again between
 dot 452 and the start of line 144.
 
-**The rule is in, and it is switched off, because `ppu.rs` cannot tell a Color from a Game Boy.**
-See "Needed in files this work does not own" below for the three lines that switch it on, and what
-was measured with them in place.
+**The rule is in, and it is now switched on**: it was written against `ppu.cgb_hardware` while
+nothing set that flag, and another agent wired it up in `gb.rs` later the same night, which took
+Mooneye's Color set to 7 of 7 runs with `vblank_stat_intr-C` in the gate. Anything else in this
+file that says the flag is dead is out of date; the live flag is what makes the six Color pictures
+in Group 1 step 2 reachable.
 
 ## The 31 failures, grouped
 
@@ -433,12 +436,14 @@ something else.
    by 144 on 144, i.e. **one pixel per line**, the window starting a pixel later on a Color than
    on a Game Boy. SameBoy has exactly one DMG-only pixel in its window start (the `lcd_x--`
    desync described above, which cBoy leaves out because the DMG references do not show it), and
-   this is very likely its other side. **It is not implemented, because it cannot be measured
-   yet:** the drawer only knows it is Color hardware through `ppu.cgb_hardware`, which nothing
-   sets (three lines in `gb.rs`, below). Writing the rule now would mean asserting an inference
-   against a test written from the same inference, which is how the score moved up and down
-   before. Once those three lines land, these six have the clearest evidence of anything left
-   here, and each one's gap is already counted to the pixel.
+   this is very likely its other side. **It is not implemented here, because when this was written
+   it could not be measured:** the drawer only knows it is Color hardware through
+   `ppu.cgb_hardware`, and at the time nothing set it, so writing the rule would have meant
+   asserting an inference against a test written from the same inference — which is how the score
+   moved up and down before. **Another agent wired that flag up in `gb.rs` later the same night,
+   so this is now unblocked, and it is the best-value work left in this file:** these six have the
+   clearest evidence of anything remaining, each one's gap is already counted to the pixel, and a
+   drawer that knows which console it is can now be measured against the references directly.
 3. **The seven `*2` variants.** `m3_lcdc_bg_en_change2`, `m3_lcdc_bg_map_change2`,
    `m3_lcdc_tile_sel_change2`, `m3_lcdc_tile_sel_win_change2`, `m3_lcdc_win_map_change2`,
    `m3_scx_high_5_bits_change2` and `m3_scy_change2` have a Color reference and no DMG one. They
@@ -468,11 +473,11 @@ something else.
    tile attribute. So both drawers need: while in compatibility mode, look the colour up in
    `bg_pal` entry `BGP`-shade and in `obj_pal` entry `OBP`-shade of palette 0 or 1, instead of
    using the fixed `SHADES` greys. Today they use `SHADES`, because `ppu.cgb` is false in
-   compatibility mode and that is all they can see. The condition for it is
-   `cgb_hardware && !cgb`, so **this cannot be written until `ppu.cgb_hardware` is set** (the
-   three lines below); with the flag unwired the code would be unreachable and untestable, and
-   writing it blind is what this work is not allowed to do. It is small, and it is the same change
-   in `ppu.rs::render_line` and in `fifo.rs`'s output stage.
+   compatibility mode and that is all they could see when this was written. The condition for it
+   is `cgb_hardware && !cgb`, and **`ppu.cgb_hardware` is now set** — another agent wired it up in
+   `gb.rs` later the same night — so this is writable at last. It is small, and it is the same
+   change in `ppu.rs::render_line` and in `fifo.rs`'s output stage. It still shows nothing until
+   step 1 puts real colours in those palette entries, so do the two together.
 
 ### Group 1a — four CGB references that can never reach zero
 
@@ -597,12 +602,12 @@ right edge for edge and all five differences left are the Color's.
    hoped for — and it is worth far more than the tests: it is why an old black-and-white game
    looks grey on cBoy's Color console instead of coloured the way a real one colours it. Nine
    more pictures need it as well as other things.
-2. **Three lines in `gb.rs` to tell the PPU it is Color hardware** (not owned here; see below).
-   Still the cheapest change in this file: the rule it switches on is already written and tested,
-   and applying them was measured to take Mooneye Color from 4 of 5 ROMs to 5 of 5 with nothing
-   else moving. It has become worth more since, because it is also what unblocks the six
-   black-and-white Color pictures in Group 1 step 2 and the drawer half of the palette work —
-   neither of which can honestly be written while the flag is dead.
+2. **The six black-and-white Color pictures in Group 1 step 2.** The `gb.rs` flag they were
+   waiting on was wired up by another agent during this same night, so these are the first real
+   drawer work available to the next session, and they are the best-value item in this file: no
+   palette is needed (their references are black and white only), the flag is live, and every
+   one's gap is already measured to the pixel — two of them off by exactly one pixel per line,
+   which is a window that starts a pixel later on a Color than on a Game Boy. Do this one first.
 3. **`Bus::write` applying an IO write at the hardware's point in the M-cycle** (not owned here;
    see below). That would let `WRITE_BIAS` and `WX_LAG` go to zero and the staging be written
    purely as the hardware's, with no correction constants at all. It would not move the score.
@@ -651,12 +656,18 @@ Collected for whoever owns them; nothing here has been changed by this work.
   about. The proper fix is for a write to `$FF40`-`$FF4B` to be applied part-way through its
   M-cycle rather than at the end of it. Nothing outside this drawer depends on the present
   behaviour, and Mooneye's acceptance gate would have to stay where it is either way.
-- **`gb.rs`: tell the PPU it is Color hardware. Three lines, and one Mooneye test starts passing.**
-  `Ppu` now carries `pub cgb_hardware: bool` (`#[serde(skip)]`, so no save state changes size and
+- **~~`gb.rs`: tell the PPU it is Color hardware~~ — DONE, by another agent, during this night.**
+  `gb.rs` now sets `ppu.cgb_hardware` in all three places, Mooneye's Color set reads 7 of 7 runs,
+  and `mts/misc/ppu/vblank_stat_intr-C.gb` is in the gate. **So the flag is live, and the two
+  things in this file that were waiting on it are no longer blocked** — see Group 1 step 2 (six
+  black-and-white Color pictures, each already measured to the pixel) and Group 1 step 2's drawer
+  change for the palette. That is the next session's best-value work in this file. The original
+  request is kept below only because it records what was measured and why.
+
+  `Ppu` carries `pub cgb_hardware: bool` (`#[serde(skip)]`, so no save state changes size and
   `tests/fuzz.rs::state_layout_is_pinned` still holds), and the line 144 STAT rule above is
-  written against it — but nothing sets it, so it is always `false` and every console behaves like
-  a Game Boy, exactly as before. `gb.rs` is the only file that knows which console this is. Add,
-  each one directly under the line above it that already does the same thing for the bus:
+  written against it. `gb.rs` is the only file that knows which console this is. The lines, each
+  directly under the one above it that already does the same thing for the bus:
 
   ```rust
   gb.bus.cgb_hardware = true;                                  // in with_model, the (Cgb|Agb, false) arm
