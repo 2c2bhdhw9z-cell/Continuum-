@@ -93,6 +93,7 @@ impl GameBoy {
                 // two palette pointers part-way through the palette it picked for the game
                 // (Mooneye boot_hwio-C).
                 gb.bus.cgb_hardware = true;
+                gb.bus.ppu.cgb_hardware = true;
                 gb.bus.joyp_select = 0x30;
                 gb.bus.ppu.bcps = 0x88;
                 gb.bus.ppu.ocps = 0x90;
@@ -133,6 +134,7 @@ impl GameBoy {
         let cpu = if cgb {
             bus.cgb = true;
             bus.cgb_hardware = true;
+            bus.ppu.cgb_hardware = true;
             bus.ppu.cgb = true;
             // The CGB boot ROM leaves every background palette white; objects too, here.
             bus.ppu.bg_pal = vec![0xFF, 0x7F].repeat(32);
@@ -176,6 +178,7 @@ impl GameBoy {
         next.bus.link_connected = self.bus.link_connected;
         // Which console this is comes from the core option, not from the state.
         next.bus.cgb_hardware = self.bus.cgb_hardware;
+        next.bus.ppu.cgb_hardware = self.bus.ppu.cgb_hardware;
         *self = next;
         // A byte the game had half way down the cable is not in the state; start it again.
         self.bus.resume_serial();

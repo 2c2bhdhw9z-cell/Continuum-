@@ -274,12 +274,14 @@ inside the test, so nothing needs downloading:
 - No new setting was added for the camera. The app's existing "Allow camera in games" switch and
   iOS's own permission already cover it, and the camera chip's own knobs are the game's to set.
 
-### The Game Boy Color test ROMs — 4 of the 5 now pass, and they are a real gate
+### The Game Boy Color test ROMs — all 5 pass now, and they are a real gate
 
 Mooneye (the strictest public Game Boy test suite) has five tests written for Color hardware.
 cBoy passed none of them, and nothing stopped that getting worse: they were only printed as a
-count, not checked. Four pass now and the test fails the build if any of them ever stops passing.
-The fifth is still only printed, and why is below.
+count, not checked. **All five pass now** and the test fails the build if any of them ever stops
+passing. Four were done in this piece of work; the fifth needed a rule in `ppu.rs`, which another
+agent owned, and was finished later the same night when they handed over the three lines `gb.rs`
+needed (see "What was deliberately left" below).
 
 Two of the five were never really broken: the harness was starting them wrong. All five are Game
 Boy cartridges, on purpose — what they measure is **a Color console playing a Game Boy game**,
@@ -327,16 +329,18 @@ is a Game Boy one. The 86 Game Boy tests still pass on both picture drawers.
 
 ### What was deliberately left
 
-- **The fifth test (`vblank_stat_intr-C`) still fails, and it can only be fixed in `ppu.rs`,
-  which another agent is rewriting tonight.** What it needs, for whoever has that file: on a
-  Color, the mode 2 (sprite-scan) interrupt at the start of line 144 arrives **one M-cycle before**
-  the VBlank interrupt; on a Game Boy the two arrive together. cBoy has the Game Boy behaviour for
-  both, in the STAT interrupt condition in `ppu.rs` (the `self.ly == 144 && self.dot < 4` term):
-  the window needs to sit one M-cycle earlier when the console is a Color, which is now readable
-  as `bus.cgb_hardware`. The Game Boy version of the very same test
-  (`acceptance/ppu/vblank_stat_intr-GS`) is in the gated set and passes, so the Game Boy side must
-  not move. Once it is right, move the ROM from the reported line at the bottom of `mooneye_cgb`
-  in `tests/roms.rs` into the gated list above it.
+- ~~The fifth test (`vblank_stat_intr-C`) still fails, and it can only be fixed in `ppu.rs`,
+  which another agent is rewriting tonight.~~ **Finished later the same night, and it is now
+  5 of 5, gated.** The rule needed was: on a Color, the mode 2 (sprite-scan) interrupt at the
+  start of line 144 arrives one M-cycle before the VBlank interrupt, where on a Game Boy the two
+  arrive together. The agent rewriting `ppu.rs` put the rule in and left it switched off, because
+  only `gb.rs` knows which console it is and that file was not theirs; they wrote the three lines
+  it needed into docs/CBOY_EXACT_DRAWER.md, measured. Those three lines are now in `gb.rs` (the
+  PPU is told it is Color hardware when the machine is built, when a model is chosen, and when a
+  state is loaded), the ROM has moved into the gated list, and the Mooneye Color set reads
+  **7 of 7 runs, 5 of 5 ROMs**. The Game Boy version of the very same test is still in the Game
+  Boy gate and still passes, so nothing moved on that side. No save state changes size: the flag
+  is not kept in one.
 - The three scratch bytes are not written into save states. Putting them in would change the
   save-state layout and **stop every save state anyone already has from loading** (bincode cannot
   skip a field it has never seen — that was checked, not assumed). Nothing reads them back across
@@ -704,7 +708,10 @@ Nothing is needed from the Swift side for the camera: the capture session in
 needed in `fifo.rs` or `ppu.rs` either.
 
 The same two lists have "the Mooneye Game Boy Color tests (0 of 5)" as a job under item 6. It now
-reads 4 of 5, gated like the Game Boy ones, with the fifth waiting on `ppu.rs` (see above).
+reads **5 of 5**, gated like the Game Boy ones, and can be ticked off. (Four came from this work;
+the fifth was finished later the same night, after the agent rewriting `ppu.rs` handed over the
+three lines `gb.rs` needed. docs/CBOY_EXACT_DRAWER.md lists those three lines under "Needed in
+files this work does not own" — they are in now, so that entry can be marked done.)
 
 The same two lists have "real Advance games tried, not only test ROMs" as a job under item 6 —
 that is done, and it found the big one: most real Advance games could not run at all, because the

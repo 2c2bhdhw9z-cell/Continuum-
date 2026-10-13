@@ -382,15 +382,19 @@ fn mooneye_models() {
 #[test]
 fn mooneye_cgb() {
     use continuum_gb::gb::Model;
-    // Four of the five are a gate. The two start-up ones are Color only; the two register ones
-    // hold on an Advance too, so they are run as both consoles.
-    let gated: [(&str, Model); 6] = [
+    // All five are a gate now. The three start-up ones are Color only; the two register ones hold
+    // on an Advance too, so they are run as both consoles.
+    let gated: [(&str, Model); 7] = [
         ("mts/misc/boot_regs-cgb.gb", Model::Cgb),
         ("mts/misc/boot_div-cgbABCDE.gb", Model::Cgb),
         ("mts/misc/boot_hwio-C.gb", Model::Cgb),
         ("mts/misc/boot_hwio-C.gb", Model::Agb),
         ("mts/misc/bits/unused_hwio-C.gb", Model::Cgb),
         ("mts/misc/bits/unused_hwio-C.gb", Model::Agb),
+        // On a Color the mode 2 interrupt at the start of line 144 arrives one M-cycle before
+        // VBlank, where on a Game Boy the two land together. The rule is in ppu.rs::oam_irq_early
+        // and hangs off Ppu::cgb_hardware, which gb.rs now sets, so this one is a gate too.
+        ("mts/misc/ppu/vblank_stat_intr-C.gb", Model::Cgb),
     ];
     let failed: Vec<String> = gated.iter().filter_map(|(n, m)| mooneye_model(n, *m).err()).collect();
     eprintln!("MOONEYE CGB: {} of {} runs passed", gated.len() - failed.len(), gated.len());
@@ -398,17 +402,6 @@ fn mooneye_cgb() {
         eprintln!("  FAIL {f}");
     }
     assert!(failed.is_empty(), "the Mooneye Color tests regressed: {failed:?}");
-    // The fifth is reported, not gated: on a Color the mode 2 interrupt at the start of line 144
-    // arrives one M-cycle before VBlank, where on a Game Boy the two land together. That rule is
-    // now IN, in ppu.rs::oam_irq_early, pinned by two unit tests there - but it hangs off
-    // Ppu::cgb_hardware, and nothing sets that yet, because only gb.rs knows which console this
-    // is and this work does not own it. Three lines there switch it on and this ROM passes (it was
-    // measured); then move it into the gated list above. See "A Color's line 144" and "Needed in
-    // files this work does not own" in docs/CBOY_EXACT_DRAWER.md.
-    match mooneye_model("mts/misc/ppu/vblank_stat_intr-C.gb", Model::Cgb) {
-        Ok(()) => eprintln!("MOONEYE CGB: vblank_stat_intr-C passes now; make it a gate too"),
-        Err(e) => eprintln!("MOONEYE CGB: still reported, waiting on three lines in gb.rs: {e}"),
-    }
 }
 
 /// Runs every .gb in $GB_ROM_DIR (e.g. SameSuite, built locally with rgbds) in CGB mode, Mooneye
