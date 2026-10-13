@@ -243,12 +243,9 @@ struct GameDetailSheet: View {
             }
 
             SettingsNote(
-                "A state can only be loaded back into the same build of the same core that wrote "
-                + "it, so each one remembers which core that was, that core's version and its exact "
-                + "length, and a state that fails any of those checks is refused with the reason "
-                + "rather than loaded. That is not caution for its own sake: handing a core a state "
-                + "from a different build does not reliably fail, it can appear to work and leave "
-                + "the game quietly broken minutes later."
+                "A state goes back into the emulator that made it, so changing that emulator's "
+                + "settings can stop one loading. Most emulator updates keep old states working, "
+                + "and when one can't load we say why instead of risking your game."
             )
         }
         .padding(14)
