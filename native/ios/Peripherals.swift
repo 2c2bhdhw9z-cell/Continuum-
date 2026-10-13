@@ -663,18 +663,21 @@ final class Peripherals: ObservableObject {
 
     /// "Taps" one Amiibo on the running game. Returns the status line, always.
     ///
-    /// The engine decides whether the dump is a real tag and whether this core can take one.
-    /// Only then are the bytes written where Azahar polls for them: the save directory the core
-    /// is given (Application Support), dump first, then a new stamp, so a frame cannot see the
-    /// stamp before the dump is in place. Azahar applies it on a later frame, once the game is
-    /// looking for a tag.
+    /// The engine decides whether the dump is a real tag and whether this core can take one, and
+    /// says so in `tapped`; this used to be read out of the words in its line, so a refused dump
+    /// whose file name contained "tapped" was handed to the game anyway (review finding IOS-12).
+    /// Only on a real yes are the bytes written where Azahar polls for them: the save directory
+    /// the core is given (Application Support), dump first, then a new stamp, so a frame cannot
+    /// see the stamp before the dump is in place. Azahar applies it on a later frame, once the
+    /// game is looking for a tag.
     func tap(_ url: URL) -> String {
         let name = url.lastPathComponent
         guard let data = try? Data(contentsOf: url) else {
             return "amiibo \(name) could not be read"
         }
-        let line = engine.tapAmiibo(fileName: name, data: data)
-        guard !line.contains("not tapped"), line.contains("tapped") else {
+        let answer = engine.tapAmiibo(fileName: name, data: data)
+        let line = answer.message
+        guard answer.tapped else {
             return line
         }
         // A tag tapped earlier this session goes back to its own file first, with whatever the

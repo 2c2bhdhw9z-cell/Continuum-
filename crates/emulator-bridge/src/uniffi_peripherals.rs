@@ -47,6 +47,23 @@ pub struct AmiiboSupport {
     pub reason: String,
 }
 
+/// The answer to one tap.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct AmiiboTap {
+    /// True only when the tag really reached the game, so the app never has to read the
+    /// sentence to find out (review finding IOS-12).
+    pub tapped: bool,
+    /// The line to show, either way.
+    pub message: String,
+}
+
+/// The two things [`amiibo::tap`] writes its sentence from: the file is a usable tag, and the
+/// running core can take one. Derived here rather than returned from `tap` itself; the test below
+/// keeps the two in step.
+fn amiibo_reached_game(core_id: &str, data: &[u8]) -> bool {
+    amiibo::inspect(data).is_ok() && amiibo::support_for_core(core_id).0
+}
+
 #[uniffi::export]
 impl ContinuumEngine {
     /// The Settings switch "Allow microphone in games". Off by default.
@@ -140,11 +157,53 @@ impl ContinuumEngine {
         AmiiboSupport { supported, reason }
     }
 
-    /// "Taps" an Amiibo on the running game. Returns the status line to show, always.
-    pub fn tap_amiibo(&self, file_name: String, data: Vec<u8>) -> String {
+    /// "Taps" an Amiibo on the running game. Carries the line to show, always, and whether the
+    /// tag actually reached the game: the app hands the bytes over only when it did.
+    pub fn tap_amiibo(&self, file_name: String, data: Vec<u8>) -> AmiiboTap {
         let core_id = self.current_core_id().unwrap_or_default();
-        let line = amiibo::tap(&core_id, &file_name, &data);
-        log::info!("{line}");
-        line
+        let message = amiibo::tap(&core_id, &file_name, &data);
+        log::info!("{message}");
+        AmiiboTap {
+            tapped: amiibo_reached_game(&core_id, &data),
+            message,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The smallest file `amiibo::inspect` accepts: the right size, NTAG215's capability
+    /// container, and the Amiibo format byte.
+    fn tag() -> Vec<u8> {
+        let mut data = vec![0u8; amiibo::NTAG215_SIZE];
+        data[0x0C..0x10].copy_from_slice(&[0xF1, 0x10, 0xFF, 0xEE]);
+        data[0x5B] = 0x02;
+        data
+    }
+
+    #[test]
+    fn the_tapped_flag_agrees_with_the_line_shown_beside_it() {
+        let yes = amiibo::tap("azahar", "Mario.bin", &tag());
+        assert!(yes.contains("tapped") && !yes.contains("not tapped"));
+        assert!(amiibo_reached_game("azahar", &tag()));
+
+        let no_nfc = amiibo::tap("melonds", "Mario.bin", &tag());
+        assert!(no_nfc.contains("not tapped"));
+        assert!(!amiibo_reached_game("melonds", &tag()));
+
+        let no_game = amiibo::tap("", "Mario.bin", &tag());
+        assert!(no_game.contains("not tapped"));
+        assert!(!amiibo_reached_game("", &tag()));
+    }
+
+    #[test]
+    fn a_refused_file_named_tapped_is_not_a_tap() {
+        // The app used to decide from the words in the line, so a refused dump under this name
+        // counted as a tap and its bytes were handed to the game (review finding IOS-12).
+        let line = amiibo::tap("azahar", "tapped.bin", &[0u8; 4]);
+        assert!(line.contains("tapped") && !line.contains("not tapped"));
+        assert!(!amiibo_reached_game("azahar", &[0u8; 4]));
     }
 }
