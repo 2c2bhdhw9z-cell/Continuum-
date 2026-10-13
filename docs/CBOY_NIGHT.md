@@ -383,7 +383,8 @@ of real Advance games could never have worked in cBoy at all.
 
 ### What the tests prove
 
-Two new tests (106 pass in total, up from 104):
+Two new tests (the suite was 104 before them, and stands at 107 as this is written: the other one
+came from the exact-drawer work going on at the same time):
 
 1. The wait itself, checked step by step with no game needed, so it is gated even on a machine
    with no network: a screen-finish that happened before the call is thrown away; looking again
@@ -465,7 +466,9 @@ Advance side has only ever run test ROMs is now out of date**: six real homebrew
 suite and gated. If the Advance side is described anywhere as unproven on real games, it can say
 instead that six open-licence homebrew games run headless in the tests, pictures, sound and save
 states checked, with phone testing still to come. Where TESTING.md or STATUS.md quotes a cBoy
-test count, the suite is 106 tests, up from 100 at the start of the night.
+test count: it was 100 at the start of the night and `cargo test --release` in
+`cores/continuum-gb` reports 107 as this is written (two of tonight's belong to this job, and the
+exact-drawer work is adding its own as it goes).
 
 ## Phone checks for the owner
 
