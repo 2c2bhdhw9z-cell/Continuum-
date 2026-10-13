@@ -42,6 +42,8 @@ WORK="$ROOT/.work"
 #   scripts/build-core.sh ios-stage-prebuilt ... # check and stage a dylib built elsewhere
 #   scripts/build-core.sh ios-fingerprint fceumm # the core's build-cache fingerprint
 #   scripts/build-core.sh ios-is-cached fceumm   # exit 0 if the staged dylib would be reused
+#   scripts/build-core.sh ios-recipe-slice fceumm # the part of this file that is fceumm's recipe
+#   scripts/build-core.sh ios-recipe-shared      # the part of this file every core shares
 #   scripts/build-core.sh ios-apply-patches <core> <dir>  # our patches onto a source tree
 #
 # A bare core name is not a subcommand. The dispatch at the end refuses it and names the
@@ -194,6 +196,7 @@ ios_core_config() {
   # flycast only: the C/C++ defines. TARGET_NO_REC is the interpreter; the JIT build drops it.
   IOS_FLYCAST_DEFINES="-DIOS -DTARGET_NO_REC"
   case "$1" in
+    # recipe-start: fceumm
     fceumm)
       IOS_REPO="https://github.com/libretro/libretro-fceumm"
       IOS_PIN="ac0d00a7fc01166f84c7bac01d1084ebfd2b865e"
@@ -202,6 +205,8 @@ ios_core_config() {
       IOS_MAKEFILE="Makefile.libretro"
       IOS_DISPLAY="NES"
       ;;
+    # recipe-end: fceumm
+    # recipe-start: mesen2
     mesen2)
       # NES, the default NES core. Makefile.libretro's ios-arm64 block emits
       # mesen2_libretro_ios.dylib at the repo root. Continuum patch
@@ -216,6 +221,8 @@ ios_core_config() {
       IOS_MAKEFILE="Makefile.libretro"
       IOS_DISPLAY="NES, Mesen 2 with a Continuum patch"
       ;;
+    # recipe-end: mesen2
+    # recipe-start: mgba
     mgba)
       IOS_REPO="https://github.com/libretro/mgba"
       IOS_PIN="7a12d6d4b9acb14c0ae62c9166b6a2f3d08007f6"
@@ -225,6 +232,8 @@ ios_core_config() {
       IOS_CMAKE_ARCHIVE="mgba_libretro.a"
       IOS_DISPLAY="GBA + GB/GBC"
       ;;
+    # recipe-end: mgba
+    # recipe-start: bsnes
     bsnes)
       # SNES. The libretro target is bsnes/target-libretro/GNUmakefile, driven from bsnes/ with
       # target=libretro, and its ios-arm64 block links out/bsnes_libretro_ios.dylib. nall picks no
@@ -245,6 +254,8 @@ ios_core_config() {
                      "compiler=clang++ -arch arm64 -isysroot @IOSSDK@ -miphoneos-version-min=11.0")
       IOS_DISPLAY="SNES, bsnes with a Continuum patch"
       ;;
+    # recipe-end: bsnes
+    # recipe-start: gearsystem
     gearsystem)
       # Master System, Game Gear and SG-1000. platforms/libretro/Makefile has an ios-arm64 block
       # that emits gearsystem_libretro_ios.dylib. Continuum patch
@@ -260,6 +271,8 @@ ios_core_config() {
       IOS_MAKE_SUBDIR="platforms/libretro"
       IOS_DISPLAY="Master System, Game Gear and SG-1000, Gearsystem with a Continuum patch"
       ;;
+    # recipe-end: gearsystem
+    # recipe-start: blastem
     blastem)
       # Mega Drive, Sega CD and 32X. Makefile.libretro's ios-arm64 block builds the generated
       # (interpreter) 68K and Z80 cores, as iOS has no writable executable memory, and its `core`
@@ -274,6 +287,8 @@ ios_core_config() {
       IOS_MAKEFILE="Makefile.libretro"
       IOS_DISPLAY="Mega Drive, Sega CD and 32X, BlastEm with a Continuum patch"
       ;;
+    # recipe-end: blastem
+    # recipe-start: pcsx_rearmed
     pcsx_rearmed)
       IOS_REPO="https://github.com/libretro/pcsx_rearmed"
       IOS_PIN="c8816799b50388e61cfe237fe2cdbb7d8175f20a"
@@ -284,6 +299,8 @@ ios_core_config() {
       IOS_SUBMODULES=1
       IOS_DISPLAY="PS1, interpreter only"
       ;;
+    # recipe-end: pcsx_rearmed
+    # recipe-start: pcsx_rearmed
     pcsx_rearmed_jit)
       # The PCSX ReARMed recompiler (ari64, which has Apple arm64 support upstream: NO_WRITE_EXEC
       # pages switched between writable and runnable). DYNAREC on the command line beats the ios
@@ -298,6 +315,8 @@ ios_core_config() {
       IOS_MAKE_VARS=(DYNAREC=ari64 NDRC_THREAD=0)
       IOS_DISPLAY="PS1, recompiler (JIT build)"
       ;;
+    # recipe-end: pcsx_rearmed
+    # recipe-start: melonds
     melonds)
       IOS_REPO="https://github.com/libretro/melonDS"
       IOS_PIN="66b5d2634cd0a79030562811e6e05f5532f800ba"
@@ -320,6 +339,8 @@ ios_core_config() {
       # what makes them appear.
       IOS_DISPLAY="Nintendo DS, software renderer"
       ;;
+    # recipe-end: melonds
+    # recipe-start: mednafen_pce_fast
     mednafen_pce_fast)
       IOS_REPO="https://github.com/libretro/beetle-pce-fast-libretro"
       IOS_PIN="3f946f277aef3aa99a95551618bbcd1dd2bda0d9"
@@ -357,6 +378,8 @@ ios_core_config() {
       IOS_MAKE_VARS=(HAVE_CHD=0)
       IOS_DISPLAY="TurboGrafx-16 / PC Engine, software renderer"
       ;;
+    # recipe-end: mednafen_pce_fast
+    # recipe-start: stella2023
     stella2023)
       IOS_REPO="https://github.com/libretro/stella2023"
       IOS_PIN="ba52c43b9eda950eb0c0eec69cda9b17dee8c39b"
@@ -377,6 +400,8 @@ ios_core_config() {
       # `NativeLibretroCore::load_content`, which reads the file when a core asks for bytes.
       IOS_DISPLAY="Atari 2600, software renderer"
       ;;
+    # recipe-end: stella2023
+    # recipe-start: mednafen_psx_hw
     mednafen_psx_hw)
       IOS_REPO="https://github.com/libretro/beetle-psx-libretro"
       IOS_PIN="5ec9909f2654fb2041315a13fac0b704c5065c0e"
@@ -388,6 +413,8 @@ ios_core_config() {
       IOS_MAKE_VARS=(HAVE_HW=1)
       IOS_DISPLAY="PlayStation, Beetle PSX HW (Vulkan) — step 4 proof core"
       ;;
+    # recipe-end: mednafen_psx_hw
+    # recipe-start: parallel_n64
     parallel_n64)
       IOS_REPO="https://github.com/libretro/parallel-n64"
       IOS_PIN="a8280501a71c1bcd4c85c5b8bfe75cfa62cd6127"
@@ -425,6 +452,8 @@ ios_core_config() {
       #    reapply update_variables(false) after InitiateGFX / n64video_config_init.
       IOS_DISPLAY="Nintendo 64, software rasteriser and interpreter"
       ;;
+    # recipe-end: parallel_n64
+    # recipe-start: parallel_n64
     parallel_n64_jit)
       # The N64 recompiler (new_dynarec, aarch64), as the core's own macOS arm64 block builds it,
       # on the iOS platform block. Command-line variables replace the ios block's no-recompiler
@@ -447,6 +476,8 @@ ios_core_config() {
       )
       IOS_DISPLAY="Nintendo 64, software rasteriser and recompiler (JIT build)"
       ;;
+    # recipe-end: parallel_n64
+    # recipe-start: azahar
     azahar)
       # Azahar is the maintained Citra fork. Its libretro target builds for iOS
       # (their own libretro-ios job). Apple builds turn OpenGL OFF and Vulkan ON,
@@ -468,6 +499,8 @@ ios_core_config() {
       # No JIT, no dynarec, no executable memory.
       IOS_DISPLAY="Nintendo 3DS, Vulkan, interpreter CPU (no JIT)"
       ;;
+    # recipe-end: azahar
+    # recipe-start: ppsspp
     ppsspp)
       # Official libretro iOS job (ppsspp .gitlab-ci.yml): cmake with
       # cmake/Toolchains/ios.cmake and -DLIBRETRO=ON. The Makefile's ios-arm64
@@ -522,6 +555,8 @@ ios_core_config() {
       )
       IOS_DISPLAY="PSP, Vulkan, IR interpreter (no JIT, no dynarec)"
       ;;
+    # recipe-end: ppsspp
+    # recipe-start: continuum_gb
     continuum_gb)
       # Game Boy, Color and Advance. cBoy: this project's own core, written in Rust in
       # cores/continuum-gb (no upstream, so no repo or pin), one core for all three. A selectable
@@ -532,6 +567,8 @@ ios_core_config() {
       IOS_KIND="cargo-continuum-gb"
       IOS_DISPLAY="Game Boy / Color / Advance, cBoy (own Rust core), optional"
       ;;
+    # recipe-end: continuum_gb
+    # recipe-start: continuum_symbian
     continuum_symbian)
       # Symbian / N-Gage. Continuum Symbian: native/continuum-symbian (this project's libretro
       # plug) linked against EKA2L1's jitless iOS port, built with that port's own CMake.
@@ -544,6 +581,8 @@ ios_core_config() {
       IOS_SUBMODULES=1
       IOS_DISPLAY="Symbian / N-Gage, Continuum Symbian on EKA2L1 (dyncom interpreter, no JIT), optional"
       ;;
+    # recipe-end: continuum_symbian
+    # recipe-start: flycast
     flycast)
       # Dreamcast. NOT on the libretro iOS buildbot, so it is built here, and it is OPTIONAL
       # (IOS_OPTIONAL_CORES): a failure leaves the .ipa without it rather than failing the job.
@@ -582,6 +621,8 @@ ios_core_config() {
       )
       IOS_DISPLAY="Dreamcast, interpreter only (TARGET_NO_REC), optional"
       ;;
+    # recipe-end: flycast
+    # recipe-start: flycast
     flycast_jit)
       # Dreamcast with flycast's recompilers (SH4, ARM7, DSP): the same build without
       # TARGET_NO_REC. On iPhone flycast already switches its code pages between writable and
@@ -608,6 +649,7 @@ ios_core_config() {
       IOS_FLYCAST_DEFINES="-DIOS"
       IOS_DISPLAY="Dreamcast, recompilers (JIT build), optional"
       ;;
+    # recipe-end: flycast
     *)
       return 1
       ;;
@@ -691,6 +733,12 @@ scripts/build-core.sh - build the libretro cores the iOS app dlopens.
   ios-is-cached <core>
                 exit 0 when the staged dylib can be reused as it is, 1 when it
                 must be built. Any host.
+  ios-recipe-slice <core>
+                print the part of this script that is the core's own recipe, the
+                part its fingerprint hashes per core. Any host.
+  ios-recipe-shared
+                print the part of this script every core shares. A change in
+                there rebuilds all of them. Any host.
   ios-apply-patches <core> <source dir>
                 apply the core's Continuum patches to a checkout of its source,
                 failing if one no longer fits. Any host.
@@ -957,6 +1005,7 @@ ios_stage_dylib() {
   echo "==> done: native/ios/build/lib/$canonical ($(du -h "$IOS_OUT_DIR/$canonical" | cut -f1))"
 }
 
+# recipe-start: continuum_gb
 # cBoy (cores/continuum-gb): a plain cargo cdylib for aarch64-apple-ios, on the
 # toolchain pinned in rust-toolchain.toml, staged through the same symbol and install-name checks.
 build_ios_continuum_gb_core() {
@@ -970,6 +1019,7 @@ build_ios_continuum_gb_core() {
   [[ -f "$built" ]] || { echo "error: $core: cargo produced no $built" >&2; exit 1; }
   ios_stage_dylib "$built" "$IOS_DYLIB_NAME"
 }
+# recipe-end: continuum_gb
 
 build_ios_make_core() {
   local core="$1"
@@ -1026,6 +1076,7 @@ build_ios_make_core() {
   ios_stage_dylib "$built" "$IOS_DYLIB_NAME"
 }
 
+# recipe-start: mgba
 build_ios_cmake_core() {
   local core="$1"
   command -v cmake >/dev/null 2>&1 || {
@@ -1148,8 +1199,10 @@ build_ios_cmake_core() {
 
   ios_stage_dylib "$built" "$IOS_DYLIB_NAME"
 }
+# recipe-end: mgba
 
 
+# recipe-start: azahar
 # A libretro core whose own CMake emits a shared library, not an archive we relink.
 #
 # mgba is the other cmake core and it is NOT this path: it asks for a static archive
@@ -1205,7 +1258,9 @@ build_ios_cmake_shared_core() {
   cp "$built" "$staged"
   ios_stage_dylib "$staged" "$IOS_DYLIB_NAME"
 }
+# recipe-end: azahar
 
+# recipe-start: ppsspp
 # PPSSPP's own libretro iOS CI: the ios toolchain plus -DLIBRETRO=ON.
 # Not the azahar cmake function. That one passes -DIOS and Citra flags, and
 # finding the dylib is hardcoded to azahar_libretro.
@@ -1266,7 +1321,9 @@ build_ios_ppsspp_core() {
   cp "$built" "$staged"
   ios_stage_dylib "$staged" "$IOS_DYLIB_NAME"
 }
+# recipe-end: ppsspp
 
+# recipe-start: flycast
 # flycast's libretro target, which its CMake emits as a shared library.
 #
 # -DIOS in the C/C++ flags: CMAKE_SYSTEM_NAME=iOS sets the CMake variable IOS, but flycast only turns
@@ -1320,7 +1377,9 @@ build_ios_flycast_core() {
   cp "$built" "$staged"
   ios_stage_dylib "$staged" "$IOS_DYLIB_NAME"
 }
+# recipe-end: flycast
 
+# recipe-start: continuum_symbian
 # Continuum Symbian. EKA2L1's iOS port builds with its own CMake (3.x only: CMake 4 cannot
 # configure its older submodules) after the port's four submodule patches and an iphoneos
 # FFmpeg. Our plug is added to that tree as one more target, so CMake carries every static
@@ -1456,6 +1515,7 @@ ASSETS
   [[ -n "$built" ]] || { echo "error: $core: no $IOS_DYLIB_NAME under $build_dir" >&2; exit 1; }
   ios_stage_dylib "$built" "$IOS_DYLIB_NAME"
 }
+# recipe-end: continuum_symbian
 
 # Continuum-owned edits to the upstream core checkouts.
 #
@@ -1471,10 +1531,13 @@ ASSETS
 ios_apply_core_patches() {
   local core="$1"
   case "$core" in
+    # recipe-start: parallel_n64
     parallel_n64)
       ios_apply_parallel_n64_aarch64_hot_state_gate_patch
       ios_apply_parallel_n64_first_tick_patch
       ;;
+    # recipe-end: parallel_n64
+    # recipe-start: azahar
     azahar)
       ios_apply_azahar_pipeline_wait_patch
       ios_apply_simple_patch azahar azahar-use-jit-when-the-host-allows-it.patch \
@@ -1484,14 +1547,20 @@ ios_apply_core_patches() {
       ios_apply_simple_patch azahar azahar-libretro-camera-and-amiibo.patch \
         src/citra_libretro/citra_libretro.cpp "Continuum: the iPhone camera and Amiibo reach Azahar"
       ;;
+    # recipe-end: azahar
+    # recipe-start: ppsspp
     ppsspp)
       ios_apply_simple_patch ppsspp ppsspp-ios-jit-region.patch \
         Common/MemoryUtil.h "Continuum: code memory from the host app's prepared region"
       ;;
+    # recipe-end: ppsspp
+    # recipe-start: flycast
     flycast_jit)
       ios_apply_simple_patch flycast_jit flycast-ios-jit-region.patch \
         core/build.h "Continuum: an iPhone build with the recompilers on"
       ;;
+    # recipe-end: flycast
+    # recipe-start: parallel_n64
     parallel_n64_jit)
       ios_apply_parallel_n64_aarch64_hot_state_gate_patch
       ios_apply_parallel_n64_first_tick_patch
@@ -1502,26 +1571,37 @@ ios_apply_core_patches() {
       ios_apply_simple_patch parallel_n64_jit parallel_n64-ios-jit-region.patch \
         mupen64plus-core/src/device/r4300/new_dynarec/new_dynarec.c "Continuum, part 2:"
       ;;
+    # recipe-end: parallel_n64
+    # recipe-start: pcsx_rearmed
     pcsx_rearmed_jit)
       ios_apply_simple_patch pcsx_rearmed_jit pcsx_rearmed-ios-jit.patch \
         libpcsxcore/new_dynarec/new_dynarec_config.h "Continuum: iPhone JIT build."
       ;;
+    # recipe-end: pcsx_rearmed
+    # recipe-start: mesen2
     mesen2)
       ios_apply_simple_patch mesen2 mesen2-nes-memory-cheats-saves.patch \
         Libretro/libretro.cpp "Continuum: NES memory, cheats and battery for the frontend"
       ;;
+    # recipe-end: mesen2
+    # recipe-start: bsnes
     bsnes)
       ios_apply_simple_patch bsnes bsnes-continuum-memory-and-saves.patch \
         bsnes/target-libretro/libretro.cpp "Continuum: expose work RAM and the cartridge's battery RAM"
       ;;
+    # recipe-end: bsnes
+    # recipe-start: gearsystem
     gearsystem)
       ios_apply_simple_patch gearsystem gearsystem-sg1000-memory-map.patch \
         platforms/libretro/libretro.cpp "Continuum: SG-1000 memory map"
       ;;
+    # recipe-end: gearsystem
+    # recipe-start: blastem
     blastem)
       ios_apply_simple_patch blastem blastem-continuum-memory.patch \
         libblastem.c "Continuum: Sega CD and 32X memory"
       ;;
+    # recipe-end: blastem
   esac
 }
 
@@ -1549,6 +1629,7 @@ ios_apply_simple_patch() {
   }
 }
 
+# recipe-start: parallel_n64
 ios_apply_parallel_n64_aarch64_hot_state_gate_patch() {
   local src="$IOS_SRC_DIR/mupen64plus-core/src/device/r4300/r4300.h"
   local patch="$ROOT/scripts/patches/parallel_n64-aarch64-gate-hot-state-on-new-dynarec.patch"
@@ -1583,7 +1664,9 @@ ios_apply_parallel_n64_aarch64_hot_state_gate_patch() {
     exit 1
   }
 }
+# recipe-end: parallel_n64
 
+# recipe-start: parallel_n64
 ios_apply_parallel_n64_first_tick_patch() {
   local src="$IOS_SRC_DIR/libretro/libretro.c"
   local patch="$ROOT/scripts/patches/parallel_n64-reapply-variables-after-initiate-gfx.patch"
@@ -1618,7 +1701,9 @@ ios_apply_parallel_n64_first_tick_patch() {
     exit 1
   }
 }
+# recipe-end: parallel_n64
 
+# recipe-start: azahar
 ios_apply_azahar_pipeline_wait_patch() {
   local src="$IOS_SRC_DIR/src/video_core/renderer_vulkan/vk_rasterizer.cpp"
   local patch="$ROOT/scripts/patches/azahar-do-not-wait-on-pipeline-compile.patch"
@@ -1650,6 +1735,7 @@ ios_apply_azahar_pipeline_wait_patch() {
     exit 1
   }
 }
+# recipe-end: azahar
 
 build_ios_core() {
   local core="$1"
@@ -1731,17 +1817,116 @@ ios_core_patch_family() {
   echo "$family"
 }
 
+# ----------------------------------------------------- THE RECIPE REGIONS (the per-core split)
+#
+# WHY. The fingerprint below used to hash this WHOLE file, so ANY edit anywhere rebuilt all
+# nineteen from-source cores: 45-50 minutes instead of 6-8. On 13 October a one-line fix to the
+# checksums of two build tools only the Symbian core downloads cost the owner an hour of
+# recompiling thirty-six cores that had not changed. So each core's own recipe is now hashed on
+# its own, and a core is only rebuilt when ITS recipe, or something shared, moved.
+#
+# HOW. Each core's own recipe - its ios_core_config arm, its patches arm, the build function only
+# it uses, its own patch helpers - is wrapped in a pair of marker comments:
+#
+#   # recipe-start: <family>
+#   ...that core's lines...
+#   # recipe-end: <family>
+#
+# (written with two `#` here on purpose: with one, this very comment would parse as a real
+# marker and unbalance the file.)
+#
+# A core's fingerprint hashes TWO things: the SHARED remainder - every line outside every region,
+# marker lines included - and its OWN regions. Every byte of this file is in exactly one of those
+# two, so there is nowhere to edit that no fingerprint covers:
+#
+#   - a shared change (ios_stage_dylib, build_ios_make_core, ios_clone, the common flags, the
+#     required-symbol list, the toolchain) moves the shared hash, so EVERY core rebuilds;
+#   - a change inside one family's region moves only that family's recipe hash, so only that
+#     core rebuilds - with the JIT or plain build sharing its source, because regions are keyed
+#     by FAMILY (the id without `_jit`), the same split scripts/patches/ already uses;
+#   - the marker lines themselves are shared text, so adding, moving or renaming a region
+#     rebuilds everything ONCE. That is the safe direction, and it means new per-core code that
+#     someone forgets to mark lands in the shared part and OVER-rebuilds, instead of being
+#     invisible and reusing a stale dylib.
+#
+# WHY MARKED REGIONS AND NOT scripts/core-recipes/<core>.sh. One file per core would hash just as
+# well, but it would mean moving ~900 lines of working, Mac-only build code that nothing here can
+# compile or test, purely to change which bytes get hashed. Markers move no code at all: the only
+# thing that changes is the hash, and that is fully testable from Linux
+# (scripts/check-core-cache.sh). The regions can be promoted to files later if this file grows.
+#
+# NOTHING HERE IS A NUMBER A HUMAN MAINTAINS. Every hash comes from the file's own bytes, so a
+# forgotten declaration cannot silently reuse an old dylib.
+#
+# AND IT FAILS CLOSED, EVERY WAY. A malformed, nested, unbalanced or missing marker makes
+# ios_recipe_text return non-zero, which makes ios_core_fingerprint return no fingerprint at all,
+# which writes fp:unknown and rebuilds. A core whose family has no region never gets a
+# fingerprint, so a newly added core rebuilds for ever until it is marked - never the other way
+# round. If anything at all is in doubt here, the answer is REBUILD.
+
+# The core id with any _jit suffix taken off: the family a recipe region is named for.
+ios_recipe_family() { echo "${1%_jit}"; }
+
+# mode=shared prints every line OUTSIDE every region (marker lines included); mode=recipe prints
+# the body of every region named $1, in file order (a family can own several regions: its config
+# arm, its patches arm, its build function). IOS_PIN= lines are filtered out of both, because the
+# pin is already hashed on its own line.
+#
+# Returns 1 - printing nothing usable - on a malformed, nested or unbalanced marker, or when
+# mode=recipe and no region of that name exists. A failed parse can print part of its output
+# before it gives up, so CALLERS MUST CHECK THE STATUS, not whether anything was printed.
+#
+# The awk compares fields instead of matching [[:space:]] classes: macOS ships BWK awk, and
+# comparing $1/$2 also makes the markers' indentation irrelevant.
+ios_recipe_text() {
+  local want="$1" mode="$2"
+  grep -v "^[[:space:]]*IOS_PIN=" "$IOS_SELF" | awk -v want="$want" -v mode="$mode" '
+    $1 == "#" && $2 == "recipe-start:" {
+      if (NF != 3 || open != "") { bad = 1; exit }
+      open = $3; seen[$3] = 1
+      if (mode == "shared") print
+      next
+    }
+    $1 == "#" && $2 == "recipe-end:" {
+      if (NF != 3 || open != $3) { bad = 1; exit }
+      open = ""
+      if (mode == "shared") print
+      next
+    }
+    { if (mode == "shared") { if (open == "") print } else if (open == want) print }
+    END {
+      if (bad || open != "") exit 1
+      if (mode != "shared" && !(want in seen)) exit 1
+    }
+  '
+}
+
 # The first 16 hex of a sha256 over everything a core's dylib is made from besides the upstream
 # tree itself (the note above ios_core_is_cached says what and why). Any host. Every step can
-# fail the function, so a missing tool means no fingerprint, never a partial one.
+# fail the function, so a missing tool - or a recipe region that cannot be located - means NO
+# fingerprint, never a partial one, and therefore a rebuild.
 ios_core_fingerprint() {
   local core="$1"
   ios_core_config "$core" || return 1
-  local family recipe lines name sum path files
+  local family rfamily shared slice recipe lines name sum path files
   family="$(ios_core_patch_family "$core")"
-  recipe="$(grep -v "^[[:space:]]*IOS_PIN=" "$IOS_SELF" | ios_sha256)" || return 1
+  rfamily="$(ios_recipe_family "$core")"
+  # TWO hashes of this script, not one: the part every core shares, and this core's own recipe
+  # regions. Every line is in exactly one of them, so nothing is left uncovered, and a change to
+  # another core's recipe cannot move this fingerprint. Either one failing to parse returns NO
+  # fingerprint, which rebuilds.
+  shared="$(ios_recipe_text "" shared)" || return 1
+  [[ -n "$shared" ]] || return 1
+  slice="$(ios_recipe_text "$rfamily" recipe)" || return 1
+  [[ -n "$slice" ]] || return 1
+  # The slice has to be THIS core's recipe: only its ios_core_config arm sets its dylib name.
+  # A slice without that line means a marker is in the wrong place, so refuse to fingerprint
+  # rather than hash some other core's recipe and then reuse a stale dylib.
+  [[ "$slice" == *"IOS_DYLIB_NAME=\"$IOS_DYLIB_NAME\""* ]] || return 1
+  shared="$(printf '%s\n' "$shared" | ios_sha256)" || return 1
+  recipe="$(printf '%s\n' "$slice" | ios_sha256)" || return 1
   lines="core $core"$'\n'"pin $IOS_PIN"$'\n'"toolchain ${CONTINUUM_CORE_TOOLCHAIN:-local}"$'\n'
-  lines="${lines}recipe $recipe"$'\n'
+  lines="${lines}shared $shared"$'\n'"recipe $rfamily $recipe"$'\n'
   files="$(cd "$ROOT/scripts/patches" 2>/dev/null && for name in "$family"-*.patch; do
              if [[ -f "$name" ]]; then echo "$name"; fi
            done | LC_ALL=C sort)" || return 1
@@ -1801,18 +1986,33 @@ ios_core_fingerprint() {
 # fingerprint as it is NOW. A dylib left over from a different commit cannot satisfy that.
 #
 # THE FINGERPRINT (ios_core_fingerprint) covers everything else the dylib is made from, PER
-# CORE: its pin, every scripts/patches/<family>-*.patch, this script with its IOS_PIN= lines
-# taken out (so a recipe or flag change still rebuilds every core, while moving one pin only
-# rebuilds that core and the JIT or plain build sharing it), the toolchain id CI passes in
+# CORE: its pin, every scripts/patches/<family>-*.patch, TWO parts of this script - the SHARED
+# part (everything outside the `# recipe-start:` regions, IOS_PIN= lines taken out) and this
+# core's OWN regions - the toolchain id CI passes in
 # CONTINUUM_CORE_TOOLCHAIN, and for Continuum Symbian its plug (native/continuum-symbian) and
 # the libretro headers script. Editing one core's patch rebuilds that core and nothing else.
 # Matching patches by family puts a JIT build's patch in the plain build's fingerprint too,
 # which only costs an extra rebuild, never a stale dylib. scripts/check-core-cache.sh tests it.
 #
+# SO WHICH CHANGE REBUILDS WHAT. A change to the SHARED part - a helper every core goes through
+# (ios_clone, build_ios_make_core, ios_stage_dylib), the staging and install_name logic, the
+# common compiler and linker flags, the required-symbol list, ios_core_config's defaults, or the
+# toolchain - still rebuilds EVERY core, because it can change every dylib. A change to ONE
+# core's own recipe - its clone and checkout, its cmake or make invocation, its own flags, its
+# post-processing, or a tool only it downloads, like the Symbian core's pinned CMake and ninja -
+# rebuilds that core and the JIT or plain build sharing its source, and leaves the others
+# cached. That is the whole point: the 13 October Symbian build-tool fix cost an hour of
+# rebuilding thirty-six unchanged cores, and now it would cost one core.
+#
 # AN OLD 4-FIELD LINE ("<core> <repo> <pin> pinned", from before the fingerprint) NEVER
 # MATCHES, so the first build with this (build 182) rebuilds every core once, and later builds
 # rebuild only the cores whose inputs changed. If in doubt it rebuilds: a fingerprint that
 # cannot be worked out is never a match.
+#
+# THE SAME ONE-OFF COST APPLIES TO THE PER-CORE SPLIT ITSELF: it changed the SHAPE of what is
+# hashed (`shared` + `recipe <family>` instead of one `recipe`), so every stored fingerprint
+# changed with it and the first build after that edit rebuilds every core once. The builds after
+# it are the quick ones.
 #
 # OFF BY DEFAULT. Only CI sets CONTINUUM_CORE_CACHE=1. A build run by hand stays exactly as
 # predictable as it was, and `rm -rf native/ios/build/lib` is still the way to force
@@ -2023,6 +2223,31 @@ case "${1:-}" in
       exit 0
     fi
     exit 1
+    ;;
+  ios-recipe-slice)
+    # Any host. Prints the part of this script that is THIS core's own recipe, which is what the
+    # fingerprint hashes per core. Takes a core name and resolves it to its family, so
+    # `ios-recipe-slice flycast_jit` prints the `flycast` region. Exits 1, printing nothing
+    # usable, when the region cannot be located - the fail-closed path, which is what
+    # scripts/check-core-cache.sh asserts on.
+    if [[ "$#" -lt 2 ]] || ! ios_core_config "$2"; then
+      echo "error: 'ios-recipe-slice' needs a core name. Valid: ${IOS_CORES[*]} ${IOS_OPTIONAL_CORES[*]}" >&2
+      exit 1
+    fi
+    ios_recipe_text "$(ios_recipe_family "$2")" recipe || {
+      echo "error: no recipe region for $2 in $IOS_SELF (so it would be rebuilt)" >&2
+      exit 1
+    }
+    exit 0
+    ;;
+  ios-recipe-shared)
+    # Any host. Prints the shared remainder: everything outside every recipe region. A change in
+    # here rebuilds every core.
+    ios_recipe_text "" shared || {
+      echo "error: the recipe regions in $IOS_SELF do not parse (so every core would be rebuilt)" >&2
+      exit 1
+    }
+    exit 0
     ;;
   ios-apply-patches)
     # Any host. The weekly check (scripts/check-core-updates.sh) runs it on a fresh copy of

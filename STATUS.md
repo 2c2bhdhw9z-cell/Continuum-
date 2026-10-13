@@ -1500,6 +1500,16 @@ than from a note. Mealybug on the exact drawer: 23 of 55 (it was 5).
   built from them, like every other download here. **Note for the build:** that had to be done in
   `scripts/build-core.sh`, so the next build rebuilds every core — about 45-50 minutes instead of
   6-8.
+- **A fix to one emulator no longer rebuilds them all.** Until now, any change to the file that
+  builds the emulators made the next build recompile all twenty that are compiled here (the other
+  sixteen in the app arrive ready-made) — 45-50 minutes instead of 6-8 — even when the change was
+  about one of them, like the Symbian build-tool fix just above. Each emulator is now judged on
+  its own part of that file, so a fix to one rebuilds that one and the rest come back from the
+  cache in seconds. A change to something they all share still rebuilds everything, on purpose: a
+  wrong emulator in the app is far worse than a slow build, and anything the cache cannot work out
+  for certain is rebuilt rather than guessed. **The build after this one still rebuilds every
+  emulator once**, because the stored numbers the cache compares all change shape with this fix;
+  the builds after that are the quick ones.
 
 **cBoy** (`docs/CBOY_NIGHT.md`) — Built, untested.
 

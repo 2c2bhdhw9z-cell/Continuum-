@@ -26,9 +26,11 @@ These come straight from the owner. They are not suggestions.
   core/fetch/check scripts or the workflow starts a build by itself (a docs-only push or a commit
   with `[skip ci]` does not). If the owner asks for a build, make sure one has really started
   (check the Actions run list) instead of assuming. A build runs the Linux checks first, then
-  takes about 6-8 minutes on the Mac when the cores are cached, or about 45-50 minutes when a
-  core, a patch or `scripts/build-core.sh` changed (a cBoy-only change stays cheap); a second
-  push waits for the running build instead of cancelling it.
+  takes about 6-8 minutes on the Mac when the cores are cached, or about 45-50 minutes when
+  something every core shares changed — a new Xcode, or the shared part of
+  `scripts/build-core.sh`. A change to ONE core's own recipe in that file, or to one core's patch,
+  rebuilds that core only and stays cheap, like a cBoy-only change; a second push waits for the
+  running build instead of cancelling it.
 - Before handing over the .ipa, open it and check it: the version (0.8.0 and the build number)
   and the core count (36 `_libretro_ios.dylib` files from the licence-swap install on: 33 cores plus 3 JIT builds; build 180 had 38). Never say a build is the
   newest without checking the Releases page.

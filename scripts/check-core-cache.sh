@@ -8,6 +8,12 @@
 # must never have. These checks change each input on a throwaway copy of the scripts and assert
 # that exactly the right fingerprints move, and that ios-is-cached says no whenever in doubt.
 #
+# SINCE THE PER-CORE SPLIT the fingerprint hashes build-core.sh in TWO parts: the SHARED part
+# (everything outside the `# recipe-start:` regions) and the core's OWN region. So there are two
+# more things to prove, and sections 9-12 do: that the regions really hold what they claim, that
+# a shared edit still moves EVERY core while a one-core edit moves only that core (and its JIT
+# twin), and that a broken or missing region rebuilds instead of reusing a stale dylib.
+#
 # Touches nothing in this checkout: everything happens in a temporary copy that is removed at
 # the end. Bash 3.2 safe (macOS) as well as Linux.
 set -euo pipefail
@@ -58,6 +64,75 @@ not_cached() { ! is_cached "$1"; }
 pin_of() { bash "$BC" ios-pins | awk -F'\t' -v c="$1" '$1 == c { print $3 }'; }
 repo_of() { bash "$BC" ios-pins | awk -F'\t' -v c="$1" '$1 == c { print $2 }'; }
 
+# ---- helpers for the per-core region checks (sections 9-12) ----
+
+# A core's own recipe region, and the part of the script every core shares. Empty on failure,
+# which is what the fail-closed checks want to see.
+slice() { bash "$BC" ios-recipe-slice "$1" 2>/dev/null; }
+shared_text() { bash "$BC" ios-recipe-shared 2>/dev/null; }
+contains() { [[ -n "$1" && "$1" == *"$2"* ]]; }
+lacks() { [[ -n "$1" && "$1" != *"$2"* ]]; }
+has_fp() { bash "$BC" ios-fingerprint "$1" >/dev/null 2>&1; }
+no_fp() { ! has_fp "$1"; }
+# How many lines of $BC are exactly $1. The tripwires below use it on IOS_KIND= declarations.
+line_count() { grep -cxF "$1" "$BC"; }
+# How many lines of the text in $1 contain $2.
+count_in() { printf '%s\n' "$1" | grep -cF "$2"; }
+
+all_cores() {
+  local dylib
+  for dylib in $(bash "$BC" ios-names) $(bash "$BC" ios-optional-names); do
+    echo "${dylib%_libretro_ios.dylib}"
+  done
+}
+all_cores_sorted() { all_cores | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//'; }
+
+# One "<core> <fingerprint>" line per core, into file $1. A core whose fingerprint cannot be
+# worked out is written as `none`, so it compares equal to itself and a check that expects it to
+# MOVE cannot pass by accident.
+snapshot() {
+  local core
+  : > "$1"
+  for core in $(all_cores); do
+    echo "$core $(bash "$BC" ios-fingerprint "$core" 2>/dev/null || echo none)" >> "$1"
+  done
+}
+
+# The sorted, space-separated core names whose fingerprint differs between snapshots $1 and $2.
+moved() {
+  awk 'NR == FNR { was[$1] = $2; next }
+       !($1 in was) || was[$1] != $2 { print $1 }' "$1" "$2" \
+    | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//'
+}
+
+# Puts the real script back, so each destructive case starts from a known copy.
+reset_copy() { cp -p "$ROOT/scripts/build-core.sh" "$BC"; }
+
+# Replaces the one line of the copy that is exactly $1 with $2, and FAILS if that line is not
+# there. Every edit below goes through this (or drop_lines) so a check can never quietly pass by
+# editing nothing: if an anchor is renamed upstream, the check goes red instead of green. It has
+# already earned that: two anchors here end in a line-continuation `\`, and the first version
+# passed them through `awk -v`, which processes backslash escapes and ate it.
+#
+# So the text goes through the ENVIRONMENT, not -v: ENVIRON values are taken literally. And awk,
+# not `sed -i 'a\'`, because GNU and BSD sed spell that differently.
+replace_line() {
+  CCC_FROM="$1" CCC_TO="$2" awk '
+    !done && $0 == ENVIRON["CCC_FROM"] { print ENVIRON["CCC_TO"]; done = 1; next }
+    { print }
+    END { exit !done }
+  ' "$BC" > "$BC.new" && mv "$BC.new" "$BC"
+}
+
+# Deletes every line of the copy containing $1, and fails if there was none.
+drop_lines() {
+  CCC_PAT="$1" awk '
+    index($0, ENVIRON["CCC_PAT"]) { dropped = 1; next }
+    { print }
+    END { exit !dropped }
+  ' "$BC" > "$BC.new" && mv "$BC.new" "$BC"
+}
+
 echo "==> core cache checks (copy in $W)"
 
 # 1. Stable.
@@ -86,11 +161,12 @@ check "a parallel_n64 patch changes parallel_n64_jit" differ "$n64jit_before" "$
 check "a parallel_n64 patch leaves fceumm alone" same "$fceumm_a" "$(fp fceumm)"
 check "a parallel_n64 patch leaves azahar alone" same "$azahar_before" "$(fp azahar)"
 
-# 4. Any other edit of the recipe moves every core.
-echo "# a recipe change" >> "$BC"
+# 4. An edit to the SHARED part of the recipe moves every core. (Appending at the end of the file
+# lands after the last recipe region, so this is a shared edit; section 10 does the per-core ones.)
+echo "# a shared recipe change" >> "$BC"
 fceumm_c="$(fp fceumm)"
-check "a build-core.sh edit changes fceumm" differ "$fceumm_a" "$fceumm_c"
-check "a build-core.sh edit changes azahar" differ "$azahar_before" "$(fp azahar)"
+check "a shared build-core.sh edit changes fceumm" differ "$fceumm_a" "$fceumm_c"
+check "a shared build-core.sh edit changes azahar" differ "$azahar_before" "$(fp azahar)"
 
 # 5. The toolchain.
 check "CONTINUUM_CORE_TOOLCHAIN changes fceumm" \
@@ -148,6 +224,152 @@ for patch in "$ROOT"/scripts/patches/*.patch; do
   done
   check "$name belongs to a core" eval "[[ $matched -eq 1 ]]"
 done
+
+# 9. The marked regions really are each core's own recipe.
+#
+# The fingerprint trusts the markers, so this section proves the markers are where they claim to
+# be. From here on the copy is reset to the real script first, so sections 9-12 do not depend on
+# what 1-8 changed.
+reset_copy
+
+for core in $(all_cores); do
+  core_slice="$(slice "$core")"
+  check "$core's recipe region is the one that names its dylib" \
+    contains "$core_slice" "IOS_DYLIB_NAME=\"${core}_libretro_ios.dylib\""
+done
+
+# Exactly one IOS_DYLIB_NAME= is left outside the regions: the empty default in ios_core_config's
+# preamble. Any more would mean a core's config arm was never marked, and that core would be
+# judged on somebody else's recipe.
+shared_now="$(shared_text)"
+check "every core's config arm is inside a region" same "$(count_in "$shared_now" 'IOS_DYLIB_NAME="')" "1"
+
+# A build function only one family uses is part of that family's recipe.
+check "build_ios_cmake_core is in mgba's recipe" contains "$(slice mgba)" "build_ios_cmake_core() {"
+check "build_ios_cmake_shared_core is in azahar's recipe" \
+  contains "$(slice azahar)" "build_ios_cmake_shared_core() {"
+check "build_ios_ppsspp_core is in ppsspp's recipe" contains "$(slice ppsspp)" "build_ios_ppsspp_core() {"
+check "build_ios_flycast_core is in flycast's recipe" \
+  contains "$(slice flycast)" "build_ios_flycast_core() {"
+check "build_ios_flycast_core is in flycast_jit's recipe too" \
+  contains "$(slice flycast_jit)" "build_ios_flycast_core() {"
+check "build_ios_continuum_symbian_core is in continuum_symbian's recipe" \
+  contains "$(slice continuum_symbian)" "build_ios_continuum_symbian_core() {"
+check "build_ios_continuum_gb_core is in continuum_gb's recipe" \
+  contains "$(slice continuum_gb)" "build_ios_continuum_gb_core() {"
+
+# A helper that many cores go through is SHARED, so a change to it rebuilds all of them.
+check "build_ios_make_core is in the shared part" contains "$shared_now" "build_ios_make_core() {"
+check "build_ios_make_core is not in fceumm's recipe" lacks "$(slice fceumm)" "build_ios_make_core() {"
+check "ios_apply_simple_patch is in the shared part" contains "$shared_now" "ios_apply_simple_patch() {"
+check "ios_apply_simple_patch is not in fceumm's recipe" \
+  lacks "$(slice fceumm)" "ios_apply_simple_patch() {"
+
+# The 13 October incident in one check: the build tools only the Symbian core downloads are part
+# of ITS recipe, so pinning them again costs one core, not all of them.
+symbian_slice="$(slice continuum_symbian)"
+check "the Symbian core's own pinned ninja is in its recipe" contains "$symbian_slice" "ninja-1.13.2"
+check "the Symbian core's own pinned CMake is in its recipe" contains "$symbian_slice" "cmake-3.31.6"
+
+# TRIPWIRES. Each of these build functions is inside one family's region, which is only correct
+# while one family uses it. If a second core ever takes the same IOS_KIND, that core's recipe
+# would live in another core's region and an edit to it would rebuild the wrong core. If one of
+# these goes red: move the function out of the region into the shared part, or split it per core.
+check "only one core uses the plain cmake build" same "$(line_count '      IOS_KIND="cmake"')" "1"
+check "only one core uses the cmake-shared build" same "$(line_count '      IOS_KIND="cmake-shared"')" "1"
+check "only one core uses the cmake-ppsspp build" same "$(line_count '      IOS_KIND="cmake-ppsspp"')" "1"
+check "only one core uses the cmake-continuum-symbian build" \
+  same "$(line_count '      IOS_KIND="cmake-continuum-symbian"')" "1"
+check "only one core uses the cargo-continuum-gb build" \
+  same "$(line_count '      IOS_KIND="cargo-continuum-gb"')" "1"
+# Two, and ONE family: flycast and flycast_jit, which share a source tree and a region name.
+check "only the flycast family uses the cmake-flycast build" \
+  same "$(line_count '      IOS_KIND="cmake-flycast"')" "2"
+
+# 10. What moves when: the whole point of the split.
+snapshot "$W/fp-base"
+
+# A shared change: one line of the staging every single core's dylib goes through.
+check "the shared staging edit landed" \
+  replace_line '  local canonical="$2"' '  local canonical="$2" # a shared change'
+snapshot "$W/fp-shared"
+check "editing the shared staging logic rebuilds every core" \
+  same "$(moved "$W/fp-base" "$W/fp-shared")" "$(all_cores_sorted)"
+
+# The 13 October incident, the way it would go now: the Symbian core's own pinned build tool.
+reset_copy
+snapshot "$W/fp-base"
+check "the Symbian build-tool edit landed" \
+  replace_line '      c99048673aa765960a99cf10c6ddb9f1fad506099ff0a0e137ad8960a88f321b \' \
+               '      0000000000000000000000000000000000000000000000000000000000000000 \'
+snapshot "$W/fp-symbian"
+check "changing the Symbian core's pinned ninja rebuilds Symbian alone" \
+  same "$(moved "$W/fp-base" "$W/fp-symbian")" "continuum_symbian"
+
+# One core's own compiler flag, on a core that has a JIT twin: both move, nothing else does.
+reset_copy
+snapshot "$W/fp-base"
+check "the flycast flag edit landed" replace_line '    -DUSE_OPENMP=OFF \' '    -DUSE_OPENMP=ON \'
+snapshot "$W/fp-flycast"
+check "changing one of flycast's own flags rebuilds flycast and its JIT build only" \
+  same "$(moved "$W/fp-base" "$W/fp-flycast")" "flycast flycast_jit"
+
+# And one core with no twin.
+reset_copy
+snapshot "$W/fp-base"
+fceumm_d="$(fp fceumm)"
+check "the mgba edit landed" \
+  replace_line '      IOS_CMAKE_ARCHIVE="mgba_libretro.a"' '      IOS_CMAKE_ARCHIVE="mgba_other.a"'
+snapshot "$W/fp-mgba"
+check "changing mgba's own recipe rebuilds mgba alone" \
+  same "$(moved "$W/fp-base" "$W/fp-mgba")" "mgba"
+check "changing mgba's own recipe leaves fceumm's fingerprint alone" same "$fceumm_d" "$(fp fceumm)"
+
+# 11. The cache DECISION, not just the hash: an unrelated core's recipe change must leave this
+# core's staged dylib reusable, which is the minute-saving this whole change is for.
+reset_copy
+rm -f "$MANIFEST"
+for core in fceumm mgba; do
+  echo "not a real dylib" > "$LIB/${core}_libretro_ios.dylib"
+  echo "$core $(repo_of "$core") $(pin_of "$core") pinned fp:$(fp "$core")" >> "$MANIFEST"
+done
+export CONTINUUM_CORE_CACHE=1
+check "fceumm is reused before any recipe edit" is_cached fceumm
+check "mgba is reused before any recipe edit" is_cached mgba
+check "the mgba edit landed (cache decision)" \
+  replace_line '      IOS_CMAKE_ARCHIVE="mgba_libretro.a"' '      IOS_CMAKE_ARCHIVE="mgba_other.a"'
+check "mgba is rebuilt after its own recipe changed" not_cached mgba
+check "fceumm is STILL reused after mgba's recipe changed" is_cached fceumm
+unset CONTINUUM_CORE_CACHE
+
+# 12. Fail closed. A broken region must rebuild, never reuse. Destructive, so last, with the real
+# script put back between cases.
+reset_copy
+check "the recipe-end deletion landed" drop_lines "# recipe-end: mgba"
+check "an unbalanced region gives mgba no fingerprint" no_fp mgba
+check "an unbalanced region gives fceumm no fingerprint either" no_fp fceumm
+
+reset_copy
+check "the malformed marker landed" \
+  replace_line '    # recipe-start: fceumm' '    # recipe-start: fceumm extra'
+check "a malformed marker gives fceumm no fingerprint" no_fp fceumm
+check "a malformed marker gives mgba no fingerprint" no_fp mgba
+check "a malformed marker gives azahar no fingerprint" no_fp azahar
+
+# An unmarked core: the structure still parses, but that core has no region. It must lose its
+# fingerprint for ever (and so rebuild every time) rather than match a stale dylib.
+reset_copy
+check "the stella2023 markers were removed" drop_lines "recipe-start: stella2023"
+check "the stella2023 end markers were removed too" drop_lines "recipe-end: stella2023"
+check "an unmarked core gets no fingerprint" no_fp stella2023
+export CONTINUUM_CORE_CACHE=1
+echo "not a real dylib" > "$LIB/stella2023_libretro_ios.dylib"
+echo "stella2023 $(repo_of stella2023) $(pin_of stella2023) pinned fp:unknown" >> "$MANIFEST"
+check "an unmarked core is never reused" not_cached stella2023
+unset CONTINUUM_CORE_CACHE
+check "the other cores still work when one core is unmarked" has_fp fceumm
+
+reset_copy
 
 echo "core cache checks: $passed passed, $failed failed"
 [[ "$failed" -eq 0 ]] || exit 1

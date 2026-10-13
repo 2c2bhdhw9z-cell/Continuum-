@@ -211,6 +211,10 @@ writes, which is the owner's call, not a cleanup edit. It is 24 bytes.
   whole script apart from its `IOS_PIN=` lines), so the next build after one pays the long
   45-50 minutes instead of 6-8. Editing one `scripts/patches/<family>-*.patch` rebuilds that core
   only.
+  **SUPERSEDED.** The fingerprint now hashes the script in two parts — the shared part and the
+  one core's own `# recipe-start:` region — so editing ONE core's recipe rebuilds that core only,
+  exactly like editing one of its patches. Editing the shared part still rebuilds everything. The
+  rest of this note is kept as the record of what was true on the night.
 - Because of that, the save-state fix above went into the existing
   `gearsystem-sg1000-memory-map.patch` rather than a patch file of its own, which would have meant
   editing `build-core.sh` and rebuilding all 33 cores. Its name now undersells it: next time
@@ -220,6 +224,9 @@ writes, which is the owner's call, not a cleanup edit. It is 24 bytes.
   downloads (RUST-16) could only be done in `build-core.sh`, so every from-source core rebuilds
   once on the next build and it costs the 45-50 minutes rather than 6-8. The gearsystem comment
   above was corrected in the same edit, as this note asked.
+  **SUPERSEDED**, and this is the incident the per-core split was written for: both of those
+  downloads belong to the Symbian core alone, so the same edit would now rebuild Symbian and
+  leave the other cores cached. `scripts/check-core-cache.sh` has it as a named check.
 
 ## Left alone on purpose (A23)
 

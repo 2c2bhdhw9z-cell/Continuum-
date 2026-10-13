@@ -331,11 +331,13 @@ jobs:
       #   ios-cores-<os>-<toolchain>-<run id>-<attempt>
       #
       # EACH CORE'S OWN INPUTS ARE ITS FINGERPRINT, in its core-sources.txt line
-      # ("<core> <repo> <pin> pinned fp:<fingerprint>"): its pin, its patches, build-core.sh with
-      # the pins taken out, the toolchain id (passed in as CONTINUUM_CORE_TOOLCHAIN), and for
-      # Continuum Symbian its plug and the headers script (ios_core_fingerprint). A core whose
-      # fingerprint no longer matches is rebuilt; every other core is reused. So moving one pin
-      # or editing one patch rebuilds that core, not all of them, while a recipe change in
+      # ("<core> <repo> <pin> pinned fp:<fingerprint>"): its pin, its patches, TWO parts of
+      # build-core.sh (the SHARED part, everything outside the `# recipe-start:` regions, with the
+      # pins taken out, plus that core's OWN region), the toolchain id (passed in as
+      # CONTINUUM_CORE_TOOLCHAIN), and for Continuum Symbian its plug and the headers script
+      # (ios_core_fingerprint). A core whose fingerprint no longer matches is rebuilt; every other
+      # core is reused. So moving one pin, editing one patch, or changing one core's own recipe in
+      # build-core.sh rebuilds that core, not all of them, while a change to the SHARED part of
       # build-core.sh still rebuilds everything. scripts/check-core-cache.sh (the checks job)
       # tests it.
       #

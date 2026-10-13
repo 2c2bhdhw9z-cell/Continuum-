@@ -284,10 +284,13 @@ for one exact game version; the cheat screen names the version for GBA and Game 
   which the skin check uses) never needs `[skip ci]`.
 - **A build takes about 6-8 minutes on the Mac when the cores are cached, and about 45-50
   minutes when they are not.** The cores built from source are cached between runs (STATUS.md
-  "Build 136"). Three things to know: editing anything in `scripts/patches/`,
-  `scripts/build-core.sh`, `native/continuum-symbian/` or `native/ios/build-engine.sh` (or a new
-  Xcode on the runner) changes the cache key, and the next build pays the full 45-50 minutes
-  rebuilding every core, which is correct but worth saying before a one-line patch edit; cBoy
+  "Build 136"). Three things to know: each core is judged on its own inputs, so editing one
+  `scripts/patches/<family>-*.patch`, or one core's own recipe inside the `# recipe-start:` region
+  for it in `scripts/build-core.sh`, rebuilds that core (and the JIT build sharing its source) and
+  leaves the rest cached — while editing the SHARED part of `scripts/build-core.sh` (a helper every
+  core goes through, the staging, the common flags), or `native/continuum-symbian/` or
+  `native/ios/build-engine.sh`, or a new Xcode on the runner, still rebuilds every core and pays
+  the full 45-50 minutes, which is correct but worth saying first; cBoy
   (`cores/continuum-gb`) is NOT in the key since the 12 October fix and is compiled from source
   on every build, so a cBoy-only change costs about a minute, never a full rebuild (builds 177
   and 180 took about 47 minutes only because cBoy was still in the key). A cBoy-only push does
@@ -315,7 +318,7 @@ for one exact game version; the cheat screen names the version for GBA and Game 
   Run it before any cBoy push: builds 178 and 179 failed on these alone.
 - `bash scripts/check-skins.sh`, `bash scripts/check-players.sh`
 - `bash scripts/fetch-libretro-headers.sh && bash native/switch-wrapper/build.sh host` (15/15)
-- `bash scripts/check-core-cache.sh` (39 checks; the per-core build cache)
+- `bash scripts/check-core-cache.sh` (105 checks; the per-core build cache)
 - `swiftc -frontend -parse <file>` on each changed Swift file. This only checks the writing, not
   the types, so a Swift type mistake shows up only on the build server.
 - A new Swift file must be listed in `native/ios/project.yml` `sources`, or it is silently skipped.
