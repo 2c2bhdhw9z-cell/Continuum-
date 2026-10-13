@@ -8,8 +8,8 @@
 //
 // SMB is libsmb2, compiled into the app. It is not a framework, so it cannot repeat build 117,
 // which linked AMSMB2.framework and then never packed it, and the app closed on launch looking
-// for that framework. The password stays in the Keychain. Listing and downloading run off the
-// main thread because libsmb2's calls block until the server answers.
+// for that framework. The password stays in the Keychain. Listing and downloading run on a queue
+// of their own (`SmbClient.offMainThread`) because libsmb2's calls block until the server answers.
 
 import Foundation
 import Security
@@ -190,11 +190,18 @@ final class RemoteSources: ObservableObject {
         return (String(first), "/" + parts.dropFirst().joined(separator: "/"))
     }
 
+    /// The server as libsmb2 wants it: the host, and the port too if one was typed.
+    ///
+    /// libsmb2 splits `nas.local:1445` itself and falls back to 445 when there is no colon, so a
+    /// share on another port now reaches that port instead of being quietly sent to 445.
     private func smbHost(_ server: RemoteServer) throws -> String {
-        guard let host = URL(string: server.url)?.host, !host.isEmpty else {
+        guard let parsed = URL(string: server.url), let host = parsed.host, !host.isEmpty else {
             throw RemoteError(text: "\(server.url) is not an SMB address")
         }
-        return host
+        // An IPv6 address has colons of its own, and libsmb2 reads those only inside brackets.
+        let address = host.hasPrefix("[") || !host.contains(":") ? host : "[\(host)]"
+        guard let port = parsed.port else { return address }
+        return "\(address):\(port)"
     }
 
     private func smbList(_ server: RemoteServer, path: String) async throws -> [RemoteItem] {
@@ -202,7 +209,7 @@ final class RemoteSources: ObservableObject {
         let user = server.user
         let password = RemoteKeychain.get(server.id) ?? ""
         let (share, rest) = Self.split(path)
-        return try await Task.detached {
+        return try await SmbClient.offMainThread("list \(share.isEmpty ? "shares" : path)") {
             if share.isEmpty {
                 let shares = try SmbClient.listShares(host: host, user: user, password: password)
                 return shares.map {
@@ -221,7 +228,7 @@ final class RemoteSources: ObservableObject {
                                size: $0.size)
                 }
                 .sorted { ($0.isFolder ? 0 : 1, $0.name.lowercased()) < ($1.isFolder ? 0 : 1, $1.name.lowercased()) }
-        }.value
+        }
     }
 
     // MARK: Download and import
@@ -283,10 +290,10 @@ final class RemoteSources: ObservableObject {
         let (share, rest) = Self.split(item.path)
         let local = target.path
         try? FileManager.default.removeItem(at: target)
-        try await Task.detached {
+        try await SmbClient.offMainThread("download \(item.name)") {
             try SmbClient.download(host: host, share: share, path: rest, to: local, user: user,
                                    password: password)
-        }.value
+        }
     }
 }
 
@@ -404,7 +411,10 @@ struct RemoteFolderView: View {
                 items = try await sources.list(server, path: path)
                 state = items.isEmpty ? "this folder is empty" : ""
             } catch {
-                state = "could not list \(path): \(error.localizedDescription)"
+                // The sentence stands on its own ("Wrong user name or password for that
+                // server."), and the folder is the screen's own title, so the path that used to
+                // be in front of it said nothing. The server's own words are in the activity log.
+                state = error.localizedDescription
                 sources.line = state
             }
         }
