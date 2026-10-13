@@ -1474,7 +1474,7 @@ struct OpenSourceCreditsList: View {
         .init(name: "BlastEm", systems: "Mega Drive, Sega CD, 32X", license: "GPL v3", source: "https://github.com/libretro/blastem"),
         .init(name: "mGBA", systems: "Game Boy, Game Boy Color, Game Boy Advance", license: "MPL 2.0", source: "https://github.com/libretro/mgba"),
         .init(name: "melonDS", systems: "Nintendo DS", license: "GPL v3", source: "https://github.com/libretro/melonds"),
-        .init(name: "Azahar", systems: "Nintendo 3DS", license: "GPL v2", source: "https://github.com/libretro/azahar"),
+        .init(name: "Azahar", systems: "Nintendo 3DS", license: "GPL v3", source: "https://github.com/azahar-emu/azahar"),
         .init(name: "ParaLLEl N64", systems: "Nintendo 64", license: "GPL v2", source: "https://github.com/libretro/parallel-n64"),
         .init(name: "PCSX ReARMed", systems: "PlayStation", license: "GPL v2", source: "https://github.com/libretro/pcsx_rearmed"),
         .init(name: "Beetle PSX HW", systems: "PlayStation", license: "GPL v2", source: "https://github.com/libretro/beetle-psx-libretro"),

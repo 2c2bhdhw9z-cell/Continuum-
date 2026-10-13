@@ -1,8 +1,10 @@
+diff --git a/libretro/libretro.c b/libretro/libretro.c
+index 28374bf..a57187a 100644
 --- a/libretro/libretro.c
 +++ b/libretro/libretro.c
-@@ -1000,6 +1000,10 @@
-       video_cb(NULL, screen_width, screen_height, screen_pitch);
+@@ -1026,6 +1026,10 @@ static void init_parallel_plugin(void)
  }
+ #endif
  
 +/* Continuum: forward decl - update_variables is defined later in this file;
 + * emu_step_initialize needs it to re-apply options after InitiateGFX. */
@@ -11,17 +13,17 @@
  static void emu_step_initialize(void)
  {
     if (emu_initialized)
-@@ -1031,6 +1035,13 @@
-       default:           current_rsp_type = RSP_PLUGIN_HLE;      break;
+@@ -1058,6 +1062,13 @@ static void emu_step_initialize(void)
     }
     plugin_connect_all();
-+
+ 
 +   /* Continuum: re-apply core options after InitiateGFX.
 +    * plugin_connect_all -> plugin_start_gfx -> angrylionInitiateGFX ->
 +    * n64video_config_init memsets config and sets parallel=true again, wiping the
 +    * host's parallel-n64-angrylion-multithread=off from load. Without this, the
 +    * first retro_run starts the worker pool and never VI-yields (stuck on first tick). */
 +   update_variables(false);
- 
-    if (log_cb)
-       log_cb(RETRO_LOG_INFO, "EmuThread: M64CMD_EXECUTE.\n");
++
+ #ifdef HAVE_PARALLEL
+    /* plugin_connect_all handed the plugin its RDRAM and register
+     * pointers; start parallel-RDP before EXECUTE runs the first frame. */

@@ -5,6 +5,7 @@
 #   scripts/fetch-buildbot-cores.sh            fetch, check and stage every core below
 #   scripts/fetch-buildbot-cores.sh names      print the canonical dylib filenames and stop
 #   scripts/fetch-buildbot-cores.sh systems    print "<dylib> <system>" per core and stop
+#   scripts/fetch-buildbot-cores.sh pins       print "<core>\t<zip pin>\t<dylib pin>\t<system>" and stop
 #
 # WHY PREBUILT: sixteen more cores compiled from source would blow the CI time limit
 # (docs/MANIC_PARITY.md, "Decisions already made"). Cores the buildbot does not carry are built
@@ -23,7 +24,7 @@
 #   3. scripts/build-core.sh ios-stage-prebuilt, the SAME staged-dylib check every from-source
 #      core goes through: all twenty libretro entry points the engine resolves, the install name
 #      reset to @rpath/<name>, and the copy into native/ios/build/lib/.
-# Then name, URL, sha256 of the zip and pinned|unpinned are written to
+# Then name, URL, sha256 of the zip, pinned|unpinned and the dylib's sha256 are written to
 # native/ios/build/lib/core-sources.txt.
 #
 # Also fetches prboom.wad, the freely licensed (GPL) support file the DOOM core needs, into
@@ -43,6 +44,12 @@
 #      core-sources.txt records it as unpinned. Moving a pin: check that build on a phone, then
 #      copy the sha256 from its core-sources.txt into pinned_sha256 (the mirror copy is replaced
 #      by the next master build, which uploads with --clobber).
+# Each core also has a pinned sha256 of the dylib inside its zip (pinned_dylib_sha256). The
+# buildbot re-zips every core nightly, so a zip can change while the dylib in it is the same build:
+# a zip that misses its pin but whose dylib matches the dylib pin is the same checked core, and is
+# recorded as pinned with no warning (and not uploaded, so the mirror keeps the pinned zip). A zip
+# that matches its pin while its dylib does not match the dylib pin gets a ::warning:: naming both
+# sha256s, and the core is kept.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -59,28 +66,54 @@ PRBOOM_WAD_URL="https://raw.githubusercontent.com/libretro/libretro-prboom/maste
 MIRROR_TAG="core-mirror-1"
 MIRROR="https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/$MIRROR_TAG"
 
-# The pinned sha256 of each downloaded file (the ZIP for a core), as build 121 recorded them.
-# A case statement rather than an associative array, which macOS's bash 3.2 does not have.
+# The pinned sha256 of each downloaded file (the ZIP for a core), as build 121 recorded them;
+# dosbox_pure, mednafen_saturn, mednafen_supergrafx and puae moved on 12 October 2026 after the
+# update check (.agents/tasks/updates-2026-10-12/EVALUATION.md). A case statement rather than an associative array, which macOS's bash 3.2 does not have.
 # A core missing here is fetched and used anyway, as unpinned, with a warning.
 pinned_sha256() {
   case "$1" in
     a5200)               echo "9c134a3b51496fbc7b43b2572e57e48ee884f92e0709c17e1c57d46ec3f605dd" ;;
-    dosbox_pure)         echo "01200d7c974308a79f29de978685f276fadd510980f49324d6dc5d503854538a" ;;
+    dosbox_pure)         echo "d12b0ad50a93713462b4060375b28258be940ab2692d66a33be4f72850761ad6" ;;
     handy)               echo "402ba7a02edf5ba345464de4c0e332faefe86c4d4cb73ed44f6a11962b50846b" ;;
     mednafen_ngp)        echo "1ed8617c9e45a572998d093d5b389f3ee16eeb9e019c6dbe2f9b9beaa59ff7ae" ;;
     mednafen_pce)        echo "6e078cf6fe615bf171b8c2401681457f233e26793a5eb42d736159d55483815b" ;;
-    mednafen_saturn)     echo "cbb2f723ccdd99230e28c493d35b0d728112f79d48f07081ad6852dc9340e16c" ;;
-    mednafen_supergrafx) echo "e4fd854cf959fc7d9d6775a875fbf0736627a0bead2a4653afeb76766bf45881" ;;
+    mednafen_saturn)     echo "cb67ba4be4a5d6662d67daf89e34f282274764054dacb16c24f02de2c950a582" ;;
+    mednafen_supergrafx) echo "3e51d2d9131c34393e563cbfbb6b438af8f5eeb63c00b10899a64b27038c8408" ;;
     mednafen_vb)         echo "1bd318f06c0d1f794d6712a37c27f58479a37297838ea1e6d150d73283941ce4" ;;
     mednafen_wswan)      echo "9aa05d0207e283731e6d0bde7aa6830de4269b0465b53f47ceb2e99d0ff6e5a5" ;;
     pokemini)            echo "3964e0b8effcbc036e7af63adb31788b83759b5a4d78d5b3d8ce9ffc7a70ac02" ;;
     prboom)              echo "65b4f8ab9f21011a19b023bdde585946d908120c1a98c81480fec1e5b6997be7" ;;
     prosystem)           echo "c175f25ee35c79deaf5ccf8b2995dcb6c3db2890d98213a15f1de1c9b2500a9b" ;;
-    puae)                echo "a90d7f7382da10eb7cb5def98676bb21d21ccad8780be7a0fb72ff033e5cad66" ;;
+    puae)                echo "6f8dc0190d92af9398a29c4647147d3d300ba42620763d6ba53178f96e009889" ;;
     vice_x64sc)          echo "04c07e0f795dfe3daafbbe42a5b81a37949cb2cdf83f6b641ee456bb49473fe7" ;;
     virtualjaguar)       echo "06861e89c131c88a277954fba521d0e71afa59f1295429bacbb33abb9790ba44" ;;
     yabause)             echo "5a3e5ce7691781b0107bfc4364acab242a64e931a74b95769bde4d73b85f3c8e" ;;
     prboom.wad)          echo "b4dd3642932193cc42bca0ee98bf30004888ca4850d69e85023b8baacfba1d1d" ;;
+    *)                   echo "" ;;
+  esac
+}
+
+# The pinned sha256 of the DYLIB inside each pinned zip. The buildbot re-zips every core nightly,
+# so the zip's bytes change while the dylib inside stays the same build; a matching dylib is the
+# same checked core (see FROZEN BY CHECKSUM at the top).
+pinned_dylib_sha256() {
+  case "$1" in
+    a5200)               echo "3c1661671225181d16ec39c4a663fd4bc4cfead9d0d48addccff921f8be51002" ;;
+    dosbox_pure)         echo "26d8a1c03babdff9f4ef4314a8c858bf246fffecb245d10a8f9f14294e296e25" ;;
+    handy)               echo "b2d2c86e03fe3c6fd49ba9dac73a59dded85628077abd2e015659c7611604f06" ;;
+    mednafen_ngp)        echo "0d9932e1ee9a198918a05386071dd6c58ff4aff78f6c85dcdc5098f8e976fa0b" ;;
+    mednafen_pce)        echo "aa2f4dd3504b9bf80ae693e08013038d6d0b507b2a79c05ffc5c2ddfd251b2a8" ;;
+    mednafen_saturn)     echo "404286424732f49e42253898346bf2b6a9c217930c2c963d17dc6a2df737dcab" ;;
+    mednafen_supergrafx) echo "19e3804e130944e80bbe8b629d9aa3ff4b29ed35562f4dd3c6cbd0168fb21a29" ;;
+    mednafen_vb)         echo "093bb6341a36b0dc60cc4a3eee59286720af4759040bcd49bfa7a60c645fa64c" ;;
+    mednafen_wswan)      echo "0f3a7249303cbe3be71ac9e99f425a4cc05034abb7615baedfa95d17e8155117" ;;
+    pokemini)            echo "ea44fd3e06a0fb0fa74c7c10b632934d1a5ad708068598ec5ad2a71bfe641757" ;;
+    prboom)              echo "fad43c8d4bc5c9dc23306e7d4340428ea664e10c36b78266bb7030fe5089e041" ;;
+    prosystem)           echo "69ff2105f2f94e28ffda83ca60a93c83b169fedcb32158faf69f17e165624601" ;;
+    puae)                echo "93a8ba7e9fb337bcc6676e49ba738bf9288fe883acdf9ea077cf829fce4a3e93" ;;
+    vice_x64sc)          echo "5613514bb8142d542f01684f00f4f6c66d220b1261323758c0497b230e2ba64c" ;;
+    virtualjaguar)       echo "0abf4f45b628b1bcfca3a762f0959a72d56c98f9f218ed2bc8fdfb93343f74ed" ;;
+    yabause)             echo "0f4c457fe1ef50cc451ffa7cb1e49b43463df4313b6165180d9fff9769188999" ;;
     *)                   echo "" ;;
   esac
 }
@@ -121,6 +154,14 @@ print_systems() {
   local entry
   for entry in "${BUILDBOT_CORES[@]}"; do
     echo "$(dylib_for "${entry%% *}") ${entry#* }"
+  done
+}
+
+print_pins() {
+  local entry core
+  for entry in "${BUILDBOT_CORES[@]}"; do
+    core="${entry%% *}"
+    printf '%s\t%s\t%s\t%s\n' "$core" "$(pinned_sha256 "$core")" "$(pinned_dylib_sha256 "$core")" "${entry#* }"
   done
 }
 
@@ -195,12 +236,14 @@ check_macho() {
 }
 
 # "<name> <url it came from> sha256:<sha> pinned", or "... unpinned pin:<sha>" when the bytes
-# were not the pinned ones (see FROZEN BY CHECKSUM at the top).
+# were not the pinned ones (see FROZEN BY CHECKSUM at the top). For a core, an optional sixth
+# argument, the dylib's sha256, is appended as " dylib:<sha>".
 record_source() {
-  local core="$1" url="$2" sha="$3" state="$4" pin="$5"
+  local core="$1" url="$2" sha="$3" state="$4" pin="$5" dylib_sha="${6:-}"
   local manifest="$OUT_DIR/core-sources.txt"
   local line="$core $url sha256:$sha $state"
   [[ "$state" == "pinned" ]] || line="$line pin:${pin:-none}"
+  [[ -z "$dylib_sha" ]] || line="$line dylib:$dylib_sha"
   mkdir -p "$OUT_DIR"
   if [[ -f "$manifest" ]]; then
     grep -v "^$core " "$manifest" > "$manifest.tmp" 2>/dev/null || true
@@ -224,9 +267,10 @@ forget_source() {
 
 # Downloads one pinned file to <dest>: the mirror's copy if its sha256 is the pin, else the original.
 #   fetch_pinned <name> <mirror asset> <original url> <dest>
-# Sets FETCHED_URL, FETCHED_SHA, FETCHED_STATE (pinned|unpinned) and FETCHED_UPLOAD (1 when the
+# Sets FETCHED_URL, FETCHED_SHA, FETCHED_STATE (pinned|unpinned), FETCHED_UPLOAD (1 when the
 # file is the pinned one but did not come from the mirror, so it should be uploaded once it has
-# passed its checks). Returns 1 only when nothing could be downloaded at all.
+# passed its checks) and FETCHED_WARNING (the ::warning:: line for an unpinned file, which the
+# caller echoes). Returns 1 only when nothing could be downloaded at all.
 #
 # Callers run this as an `if` condition, where `set -e` is off, so every step checks for itself.
 fetch_pinned() {
@@ -237,6 +281,7 @@ fetch_pinned() {
   FETCHED_SHA=""
   FETCHED_STATE=""
   FETCHED_UPLOAD=0
+  FETCHED_WARNING=""
   rm -f "$dest"
 
   if [[ -n "$pin" ]]; then
@@ -270,11 +315,11 @@ fetch_pinned() {
     FETCHED_UPLOAD=1
   else
     FETCHED_STATE="unpinned"
-    # stdout, where every runner version reads workflow commands from.
+    # Not echoed here: fetch_one first checks whether the dylib inside is still the pinned one.
     if [[ -z "$pin" ]]; then
-      echo "::warning::$name has no pinned sha256 in scripts/fetch-buildbot-cores.sh; using the download from $original (sha256 $got), recorded as unpinned in core-sources.txt"
+      FETCHED_WARNING="::warning::$name has no pinned sha256 in scripts/fetch-buildbot-cores.sh; using the download from $original (sha256 $got), recorded as unpinned in core-sources.txt"
     else
-      echo "::warning::$name changed upstream: $original is sha256 $got, not the pinned $pin. Using it anyway so the system is not lost; recorded as unpinned in core-sources.txt"
+      FETCHED_WARNING="::warning::$name changed upstream: $original is sha256 $got, not the pinned $pin. Using it anyway so the system is not lost; recorded as unpinned in core-sources.txt"
     fi
   fi
   return 0
@@ -328,6 +373,21 @@ fetch_one() {
     return 1
   fi
 
+  local dylib_sha dylib_pin
+  dylib_sha="$(sha256_of "$built")"
+  dylib_pin="$(pinned_dylib_sha256 "$core")"
+  if [[ "$FETCHED_STATE" == "unpinned" && -n "$dylib_pin" && "$dylib_sha" == "$dylib_pin" ]]; then
+    FETCHED_STATE="pinned"
+    FETCHED_WARNING=""
+    echo "    same dylib as the pin (the buildbot re-zipped it)"
+  elif [[ "$FETCHED_STATE" == "pinned" && -n "$dylib_pin" && "$dylib_sha" != "$dylib_pin" ]]; then
+    # stdout, where every runner version reads workflow commands from.
+    echo "::warning::$core: the zip matches its pin but the dylib inside is sha256 $dylib_sha, not the pinned dylib $dylib_pin. Keeping it; check pinned_dylib_sha256 in scripts/fetch-buildbot-cores.sh"
+  fi
+  if [[ -n "$FETCHED_WARNING" ]]; then
+    echo "$FETCHED_WARNING"
+  fi
+
   local reason
   if ! reason="$(check_macho "$built")"; then
     echo "warning: $core: dropped, $reason; the .ipa ships without $system" >&2
@@ -339,7 +399,7 @@ fetch_one() {
     rm -f "$OUT_DIR/$dylib"
     return 1
   fi
-  record_source "$core" "$FETCHED_URL" "$FETCHED_SHA" "$FETCHED_STATE" "$(pinned_sha256 "$core")"
+  record_source "$core" "$FETCHED_URL" "$FETCHED_SHA" "$FETCHED_STATE" "$(pinned_sha256 "$core")" "$dylib_sha"
   # Only after every check passed, so the mirror only ever holds pinned files that staged cleanly.
   if [[ "$FETCHED_UPLOAD" == "1" ]]; then
     mirror_upload "$zip"
@@ -356,6 +416,9 @@ fetch_support() {
   forget_source "prboom.wad"
   echo "==> prboom.wad (DOOM support file, GPL): $PRBOOM_WAD_URL"
   if fetch_pinned "prboom.wad" "prboom.wad" "$PRBOOM_WAD_URL" "$wad" && [[ -s "$wad" ]]; then
+    if [[ -n "$FETCHED_WARNING" ]]; then
+      echo "$FETCHED_WARNING"
+    fi
     cp "$wad" "$SUPPORT_DIR/prboom.wad" || {
       echo "warning: could not stage prboom.wad; DOOM will ask for it at launch" >&2
       return 0
@@ -406,12 +469,13 @@ fetch_all() {
 case "${1:-fetch}" in
   names) print_names ;;
   systems) print_systems ;;
+  pins) print_pins ;;
   fetch) fetch_all ;;
   -h|--help|help)
-    sed -n '2,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     ;;
   *)
-    echo "error: unknown subcommand '$1' (use: names, systems, fetch)" >&2
+    echo "error: unknown subcommand '$1' (use: names, systems, pins, fetch)" >&2
     exit 1
     ;;
 esac

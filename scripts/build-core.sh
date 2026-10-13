@@ -193,7 +193,7 @@ ios_core_config() {
   case "$1" in
     fceumm)
       IOS_REPO="https://github.com/libretro/libretro-fceumm"
-      IOS_PIN="7a542dab1e87679921962a9f056186eca425c0c2"
+      IOS_PIN="ac0d00a7fc01166f84c7bac01d1084ebfd2b865e"
       IOS_DYLIB_NAME="fceumm_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile.libretro"
@@ -248,7 +248,7 @@ ios_core_config() {
       # (scripts/patches/gearsystem-sg1000-memory-map.patch): the SG-1000 memory map, so
       # achievements see its RAM.
       IOS_REPO="https://github.com/drhelius/Gearsystem"
-      IOS_PIN="02b9d9e792559f3e871472548ca1fd72d9cc3e2a"
+      IOS_PIN="692494c8d3e322faeea204fd54f582f00d77f03a"
       IOS_DYLIB_NAME="gearsystem_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile"
@@ -385,7 +385,7 @@ ios_core_config() {
       ;;
     parallel_n64)
       IOS_REPO="https://github.com/libretro/parallel-n64"
-      IOS_PIN="0bd516ee793bb87b57e9eef19993b37ac0098d74"
+      IOS_PIN="a8280501a71c1bcd4c85c5b8bfe75cfa62cd6127"
       IOS_DYLIB_NAME="parallel_n64_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile"
@@ -429,7 +429,7 @@ ios_core_config() {
       # build time. Patched for iOS: pages switched with mprotect instead of the macOS-only
       # pthread_jit_write_protect_np (scripts/patches/parallel_n64-ios-jit.patch).
       IOS_REPO="https://github.com/libretro/parallel-n64"
-      IOS_PIN="0bd516ee793bb87b57e9eef19993b37ac0098d74"
+      IOS_PIN="a8280501a71c1bcd4c85c5b8bfe75cfa62cd6127"
       IOS_DYLIB_NAME="parallel_n64_jit_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile"
@@ -449,7 +449,7 @@ ios_core_config() {
       # picture hook this host accepts. CPU JIT is compiled out by -DIOS (no
       # dynarec, no executable memory). The fast interpreter stays on.
       IOS_REPO="https://github.com/azahar-emu/azahar"
-      IOS_PIN="065c9222ae7e8ce5535aa2672c8565e82c0a6d54"
+      IOS_PIN="bfa768727c60ad5bcb9397ad1471f8586605adf8"
       IOS_DYLIB_NAME="azahar_libretro_ios.dylib"
       IOS_KIND="cmake-shared"
       IOS_CMAKE_TARGET="citra_libretro"
@@ -487,7 +487,7 @@ ios_core_config() {
       # selected submodule list is what the libretro target's CMake actually
       # add_subdirectory's.
       IOS_REPO="https://github.com/hrydgard/ppsspp"
-      IOS_PIN="53fae900997fd12ac0ef8f8d82d6f25390acbc29"
+      IOS_PIN="dd6bd1a53d38773c1d07985fcb7d2f56fcaa872c"
       IOS_DYLIB_NAME="ppsspp_libretro_ios.dylib"
       IOS_KIND="cmake-ppsspp"
       IOS_CMAKE_TARGET="ppsspp_libretro"
@@ -558,7 +558,7 @@ ios_core_config() {
       # Submodules: only the ones the libretro target add_subdirectory's or includes. SDL, oboe,
       # googletest, freetype, breakpad and the Windows-only ones are not fetched.
       IOS_REPO="https://github.com/flyinghead/flycast"
-      IOS_PIN="59ed35a7ea7c1940d4c8ac221a662d0e6d6dc9ea"
+      IOS_PIN="f03faffd2f89cb2c7c73ff08dce51a774a61ee27"
       IOS_DYLIB_NAME="flycast_libretro_ios.dylib"
       IOS_KIND="cmake-flycast"
       IOS_CMAKE_TARGET="flycast_libretro"
@@ -583,7 +583,7 @@ ios_core_config() {
       # runnable (TARGET_IPHONE in rec_arm64.cpp and posix_vmem.cpp), which is how its own iOS app
       # runs with JIT, so this needs no patch.
       IOS_REPO="https://github.com/flyinghead/flycast"
-      IOS_PIN="59ed35a7ea7c1940d4c8ac221a662d0e6d6dc9ea"
+      IOS_PIN="f03faffd2f89cb2c7c73ff08dce51a774a61ee27"
       IOS_DYLIB_NAME="flycast_jit_libretro_ios.dylib"
       IOS_KIND="cmake-flycast"
       IOS_CMAKE_TARGET="flycast_libretro"
@@ -729,7 +729,9 @@ ios_jobs() {
 # project has one compiler, a macOS runner that takes ~30 minutes, and an owner who gets no app at
 # all when it goes red, so an upstream commit landing overnight must not be able to change or break
 # a build nobody touched. It also keeps the Continuum patches in scripts/patches/ applying: they
-# were written against these trees, and a moved hunk anchor fails the core.
+# were written against these trees, and a moved hunk anchor fails the core. FCEUmm, Gearsystem,
+# ParaLLEl N64, Azahar, PPSSPP and Flycast moved on 12 October 2026 after the update check
+# (.agents/tasks/updates-2026-10-12/EVALUATION.md); Beetle PSX HW was checked then and kept.
 #
 # CONTINUUM_UNPINNED=1 in the environment builds every core at its default branch's HEAD instead,
 # exactly the old behaviour. It is for deliberately trying newer cores, never for a normal build.
