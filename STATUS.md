@@ -1,12 +1,17 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-13 October 2026. **Build 181** (`b88308f`) is the newest published install:
-[Continuum-181.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-181-b88308f/Continuum-181.ipa).
-Checked by Kiro: 0.8.0 (181), 36 core files (33 cores plus 3 JIT builds). bsnes, Gearsystem,
-BlastEm, Mesen 2, cBoy and Continuum Symbian are inside, and none of the five non-commercial
-cores. The new feedback email is in the app and the old one is not. It carries the cleanup and
-the licence swap below. No phone has tried it yet: TESTING.md "This install only".
+13 October 2026. **Build 182** (`6e41cd5`) is the newest published install. It was handed to the
+owner at about 11:30 PM Eastern on 12 October:
+[Continuum-182.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-182-6e41cd5/Continuum-182.ipa).
+Checked by Kiro: 0.8.0 (182), 36 core files. The updated emulator versions are inside: PPSSPP
+`dd6bd1a`, Azahar `bfa7687`, parallel-n64 `a8280501`, flycast `f03faff`, FCEUmm `ac0d00a`.
+So are the not-games fix, the heads-up lines and the Mesen → FCEUmm retry.
+It took 54 minutes, a full rebuild for the last time: build 183 is the first test of the
+per-core cache. TESTING.md "Next install (after 181)" is its phone list.
+
+Build 181 (`b88308f`), the one before it, carried the cleanup and the licence swap. The owner's
+phone results are in TESTING.md.
 
 **Build 181 = the cleanup + the licence swap.**
 - **The cleanup (12 October, done):** everything earlier sessions left broken or out of date was

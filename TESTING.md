@@ -1,6 +1,7 @@
 # What to test, and what to tell me
 
-Last updated 13 October 2026. **Build 181** is the newest published install: the cleanup plus the
+Last updated 13 October 2026. **Build 182 is now the newest install.** Its steps are under
+"Next install (after 181)" further down. The results below are for build 181: the cleanup plus the
 licence swap. Steps 1 to 4 cover the cleanup, 5 to 11 the new emulators, and 12 save imports.
 
 ## This install only

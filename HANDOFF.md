@@ -8,8 +8,17 @@ Paste this to start a new chat:
 
 ## Where this left off (13 October 2026)
 
-- **Build 181** (`b88308f`) is the newest published install, handed to the owner on 12 October
-  at about 6:15 PM Eastern:
+- **Build 182** (`6e41cd5`) is the NEWEST published install, handed over at about 11:30 PM
+  Eastern on 12 October:
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-182-6e41cd5/Continuum-182.ipa
+  0.8.0 (182), 36 core files, checked by Kiro. It holds the emulator update batch, the not-games
+  fix, the heads-up lines and the Mesen → FCEUmm retry; everything in the bullets below about
+  "not built" is built in 182. Phone steps: TESTING.md "Next install (after 181)". The owner had
+  no saves on the phone, so steps that load a state saved on 181 don't apply to them. **Build 183
+  is the first real test of the per-core cache:** check its log to see that only changed cores
+  rebuilt.
+- **Build 181** (`b88308f`), the install before it, was handed to the owner on 12 October at
+  about 6:15 PM Eastern:
   https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-181-b88308f/Continuum-181.ipa
   0.8.0 (181), 36 core files (33 cores plus 3 JIT builds). It carries the cleanup and the licence
   swap described below. It took about 67 minutes, because every core was rebuilt once. The owner
