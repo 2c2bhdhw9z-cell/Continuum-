@@ -241,23 +241,23 @@ launch with an empty library.
 For whoever works on this next. The owner's order (12 October 2026), which replaces any older
 order on this page:
 
-1. **Done: the cleanup and the licence swap are in build 181** (`b88308f`,
-   [Continuum-181.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-181-b88308f/Continuum-181.ipa)).
-   Next is the owner's phone results; record them, and fix nothing until the owner says they're
-   done testing.
-   The cleanup and the licence swap are both done and on master ("Where we stopped"): bsnes,
-   Gearsystem and BlastEm in, the five non-commercial cores out, arcade out for now, and Mesen 2
-   built here with its patch. One install is next, with both in it. Phone checks: TESTING.md
-   "This install only" and section K.
-2. **Emulator updates.** Done on master (12-13 October), waiting for the next build. Check every
-   core each session and take the safe ones (owner-rules "Emulator updates", HANDOFF.md). On
-   13 October every core, the 16 downloaded ones included, was on its newest version or on a
-   newer one already checked and skipped (`docs/CORE_UPDATES.md`).
-3. **The one-time heads-up line for players** when an emulator was updated (owner-rules
-   "Players get a heads-up"). Done on master (12-13 October), waiting for the next build.
-4. **Make the weekly update checker cover every core**, the 16 downloaded ones included
-   (`scripts/check-core-updates.sh`, `.github/workflows/core-updates.yml`). Done on master
-   (12-13 October), waiting for the next build.
+1. **Done:** the cleanup and the licence swap (build 181, owner-tested: TESTING.md results), the
+   emulator updates, the heads-up line, the all-core weekly checker, the not-games fix and the
+   Mesen → FCEUmm retry (all in build 182, `6e41cd5`). **The owner will test 182 later.** When
+   they ask what to test, give them the 8 steps from the 11:30 PM handover, written out in the
+   reply: PSP heads-up; no heads-up the second time; PSP speed; 3DS plays plus its save-state
+   heads-up; N64 looks right; Kart Fighter falls back to FCEUmm; Dreamcast, Amiga, DOS or Saturn
+   if they have one; a zip with a README imports only the games. They have no saves, so skip
+   every step that needs one. Record results; fix nothing until they say they're done testing.
+   Build 183 is the first test of the per-core cache: check its log.
+2. **Emulator updates every session** (owner-rules "Emulator updates"): check every core, and take
+   the safe ones in the next batch.
+3. **The voxel Pokémon (gen1recomp / G1R) tab: the look-only investigation, next.** It changes
+   nothing in the app. The owner said go (12 October); the plan and the licence findings are in
+   `docs/ideas/voxel-pokemon.md`. It answers whether LÖVE can run as a tab inside Continuum,
+   saves and backup, size, controls, and whether the voxel mods run and how fast. The build step
+   comes after, if the answers are good.
+4. (Merged into 1 and 2.)
 5. **Small leftovers from the cleanup**, the LOW and SUSPECTED findings. Known ones: Symbian
    ignores pause and reinstalls its game on every launch, on the main thread; a Game Boy file
    might be taken for an Advance one; a failed restore mentions its older copies only on the next
@@ -280,6 +280,8 @@ order on this page:
      can only be loaded back into the same build of the same core…") reads like documentation.
      Testers need it short and casual, and it now overstates "same build": some updates keep
      old states loading.
+   - an NES game on Mesen showed 49.8 FPS in the owner's Apple overlay (12 October). Correct if it
+     is a European copy (50 Hz). The owner parked it: check it when this item comes up.
 6. **cBoy:**
    - MP2K high-quality Advance music. It would spot Nintendo's MP2K music engine, which many
      Game Boy Advance games use, and play their music at a higher quality than the console's own
