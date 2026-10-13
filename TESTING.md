@@ -55,6 +55,17 @@ the owner doesn't delete them by hand.
 
 Do not retest Home, scrolling, re-import, or fast-forward. Those already passed.
 
+## Next install (after 181)
+
+1. Install this one over 181 without deleting the app first, and open it. ✅ A line at the bottom
+   says files that aren't games were moved to the Not games folder. README, LICENSE and the other
+   notes are gone from **All Games**, and they're in the **Files** app → **Continuum** → **Not
+   games**. (If you already deleted them all by hand, skip this one.)
+2. Import again the zip (or the files) you were adding when README and LICENSE got in. ✅ Only
+   the games go in (ones you already have are replaced, not doubled), no README or LICENSE shows
+   up in **All Games**, and a line says "Added … games. Skipped … files that aren't games." (Not
+   sure which one it was? Skip this one.)
+
 ## Beta tester checklist (short)
 
 For people trying the public beta. Ten minutes, and say what happened at each step.

@@ -320,6 +320,11 @@ struct LibraryShell: View {
     private var stripText: String {
         let count = host.library.count
         let games = count == 1 ? "1 game" : "\(count) games"
+        // The Library's "Moved 23 files that aren't games..." line stays until it is seen, even
+        // after later status lines (see `EngineHost.libraryNotice`).
+        if !host.libraryNotice.isEmpty && !host.showDiagnostics {
+            return "\(games) \u{00B7} \(host.libraryNotice)"
+        }
         let everyday = StatusTint.tint(for: host.status) == ShellPalette.metadata
         if host.showDiagnostics || !everyday {
             return "\(games) \u{00B7} \(host.status)"
@@ -329,6 +334,7 @@ struct LibraryShell: View {
 
     private var statusStrip: some View {
         Button {
+            host.libraryNotice = ""
             host.showDiagnostics.toggle()
         } label: {
             HStack(spacing: 8) {

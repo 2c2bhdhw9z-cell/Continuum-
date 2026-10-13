@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::import::{archive, detect, http, saves, webdav};
+use crate::import::{archive, detect, http, not_games, saves, webdav};
 use crate::uniffi_api::EngineError;
 
 fn other(reason: String) -> EngineError {
@@ -62,6 +62,40 @@ pub fn import_system_for_extension(ext: String) -> String {
 #[uniffi::export]
 pub fn import_referenced_files(path: String) -> Vec<String> {
     detect::referenced_files(Path::new(&path))
+}
+
+/// Why the file at `path` is not a game (a cartridge ROM extension holding plain text), or None
+/// when it may be one. A binary file is always None.
+#[uniffi::export]
+pub fn import_not_a_game(path: String) -> Option<String> {
+    detect::not_a_game(Path::new(&path))
+}
+
+/// One file `import_move_not_games` moved.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct NotGameMove {
+    /// The path as it was passed in.
+    pub from_path: String,
+    /// Where it is now, inside the Not games folder.
+    pub to_path: String,
+    /// Why it is not a game.
+    pub reason: String,
+}
+
+/// Moves each of `paths` that is not a game into `folder` (made when needed), keeping names and
+/// numbering a clash. Each file is checked again first, so a binary file never moves. Nothing is
+/// deleted or overwritten.
+#[uniffi::export]
+pub fn import_move_not_games(paths: Vec<String>, folder: String) -> Vec<NotGameMove> {
+    let list: Vec<std::path::PathBuf> = paths.iter().map(std::path::PathBuf::from).collect();
+    not_games::move_not_games(&list, Path::new(&folder))
+        .into_iter()
+        .map(|m| NotGameMove {
+            from_path: m.from.to_string_lossy().into_owned(),
+            to_path: m.to.to_string_lossy().into_owned(),
+            reason: m.reason,
+        })
+        .collect()
 }
 
 /// The entries in a .zip or .7z.

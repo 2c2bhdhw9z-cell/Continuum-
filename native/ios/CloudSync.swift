@@ -259,7 +259,12 @@ enum CloudSyncPaths {
         // game, and the firmware list is the same one the Library uses to keep BIOS files out.
         case ("Games", 2) where gamesAreIncluded():
             let name = parts[1]
-            guard let documents = documents(), isSyncableGameFile(name) else { return nil }
+            // A file the Library moved to Not games (a README.md that build 181 listed as a game)
+            // is never a game here: a copy still in the cloud folder or in a backup would come
+            // back on every sync and be moved again as "README 2.md". This one guard covers the
+            // upload, the download and a restore's merge, which all go through `localURL`.
+            guard let documents = documents(), isSyncableGameFile(name),
+                  !NotGames.wasMoved(name) else { return nil }
             return documents.appendingPathComponent(name)
         // SKINS. `EngineHost.skinsDirectory()` is `<AppSupport>/Continuum/Skins`, and one skin id
         // owns up to four shapes of file: its art in each orientation, its pieces, and its sound.

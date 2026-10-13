@@ -12,6 +12,9 @@
 //   * .zip and .7z are opened in Rust. Arcade, DOS and Amiga archives are copied whole (their cores
 //     load the archive itself); anything else is unpacked flat, keeping filenames, so a cue and its
 //     tracks land side by side.
+//   * A file with a cartridge ROM extension that is plain text (README.md, LICENSE.md: .md is also
+//     a Mega Drive extension) is skipped and counted, never copied, whether it came loose, out of
+//     a zip or from a folder download. The engine decides (`importNotAGame`); see `NotGames`.
 //   * After the copy, every file whose extension several systems share (.cue .chd .iso .bin ...)
 //     is read by the Rust detector. When it is sure, `CoreCatalog.systemResolver` answers from it;
 //     when it is not, the user is asked ONCE with a system picker and the answer is kept per
@@ -112,6 +115,13 @@ enum SystemGuesses {
         all[name.lowercased()] = system
         UserDefaults.standard.set(all, forKey: key)
     }
+
+    /// Drops the guess for a file that left the Library. Writes only when there was one.
+    static func forget(fileName name: String) {
+        var all = (UserDefaults.standard.dictionary(forKey: key) as? [String: String]) ?? [:]
+        guard all.removeValue(forKey: name.lowercased()) != nil else { return }
+        UserDefaults.standard.set(all, forKey: key)
+    }
 }
 
 /// Detection results per path, invalidated by size and modification date. The resolver may be
@@ -121,6 +131,28 @@ final class DetectionCache: @unchecked Sendable {
     static let shared = DetectionCache()
     private let lock = NSLock()
     private var entries: [String: (stamp: String, detection: SystemDetection)] = [:]
+    /// The engine's "this is text, not a game" answer per path, by the same stamp, so a library
+    /// rescan only reads files that are new or changed.
+    private var notGameEntries: [String: (stamp: String, reason: String?)] = [:]
+    /// Library files already checked and found to be games: file name to stamp, kept in Caches
+    /// between launches, so a cold launch doesn't open every ROM again. Loaded on first use.
+    private var checkedGames: [String: String]?
+    private var checkedGamesChanged = false
+
+    private static var checkedGamesFile: URL? {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("continuum-checked-games.json")
+    }
+
+    /// Call with the lock held.
+    private func loadedCheckedGames() -> [String: String] {
+        if let checkedGames { return checkedGames }
+        let loaded = Self.checkedGamesFile
+            .flatMap { try? Data(contentsOf: $0) }
+            .flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+        checkedGames = loaded
+        return loaded
+    }
 
     private func stamp(_ url: URL) -> String {
         let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
@@ -145,10 +177,148 @@ final class DetectionCache: @unchecked Sendable {
         return fresh
     }
 
+    /// Why the file is not a game (a cartridge ROM extension holding plain text), or nil.
+    func notAGame(for url: URL) -> String? {
+        let key = url.standardizedFileURL.path
+        let name = url.lastPathComponent
+        let now = stamp(url)
+        lock.lock()
+        if let hit = notGameEntries[key], hit.stamp == now {
+            lock.unlock()
+            return hit.reason
+        }
+        if loadedCheckedGames()[name] == now {
+            notGameEntries[key] = (now, nil)
+            lock.unlock()
+            return nil
+        }
+        lock.unlock()
+        let fresh = importNotAGame(path: url.path)
+        lock.lock()
+        notGameEntries[key] = (now, fresh)
+        // Loaded by the check above.
+        if fresh == nil {
+            checkedGames?[name] = now
+            checkedGamesChanged = true
+        } else if checkedGames?.removeValue(forKey: name) != nil {
+            checkedGamesChanged = true
+        }
+        lock.unlock()
+        return fresh
+    }
+
+    /// Writes the checked games to Caches when they changed, keeping only these names (the
+    /// Library's files), so a deleted game drops off.
+    func saveCheckedGames(keeping names: Set<String>) {
+        lock.lock()
+        var games = loadedCheckedGames()
+        let before = games.count
+        games = games.filter { names.contains($0.key) }
+        let changed = checkedGamesChanged || games.count != before
+        checkedGames = games
+        checkedGamesChanged = false
+        lock.unlock()
+        guard changed, let file = Self.checkedGamesFile,
+              let data = try? JSONEncoder().encode(games) else { return }
+        try? data.write(to: file, options: .atomic)
+    }
+
     func forget(_ fileName: String) {
         lock.lock()
-        entries = entries.filter { ($0.key as NSString).lastPathComponent.lowercased() != fileName.lowercased() }
+        let lowered = fileName.lowercased()
+        entries = entries.filter { ($0.key as NSString).lastPathComponent.lowercased() != lowered }
+        notGameEntries = notGameEntries.filter { ($0.key as NSString).lastPathComponent.lowercased() != lowered }
+        if var games = checkedGames {
+            let before = games.count
+            games = games.filter { $0.key.lowercased() != lowered }
+            if games.count != before {
+                checkedGames = games
+                checkedGamesChanged = true
+            }
+        }
         lock.unlock()
+    }
+}
+
+// MARK: - Not games
+
+/// Files with a ROM extension that are text, not games (the engine decides; see
+/// `importNotAGame`). The import skips them, and the Library moves the ones already in it to
+/// Documents/Not games, which Files shows as Continuum, Not games. Not `@MainActor`: the sync
+/// worker asks `wasMoved` off the main thread, and UserDefaults is thread-safe.
+enum NotGames {
+    /// The Files folder the Library moves them into. The Library never scans folders.
+    static let folderName = "Not games"
+    /// The names moved there, lowercased. A `continuum.` key, so it travels in the settings
+    /// export: a copy still in the cloud folder or a backup must not come back down.
+    static let movedNamesKey = "continuum.library.notGames.v1"
+
+    /// Documents/Not games.
+    static func folder(in documents: URL) -> URL {
+        documents.appendingPathComponent(folderName, isDirectory: true)
+    }
+
+    /// Why a file arriving in an import is not a game, or nil. Not cached: an import copy is a
+    /// fresh scratch file every time.
+    static func reason(for url: URL) -> String? {
+        importNotAGame(path: url.path)
+    }
+
+    /// Every name the Library has moved to Not games, lowercased.
+    static func movedNames() -> Set<String> {
+        Set((UserDefaults.standard.stringArray(forKey: movedNamesKey) ?? []).map { $0.lowercased() })
+    }
+
+    /// Whether the Library moved a file with this name, so the sync must not bring it back.
+    static func wasMoved(_ name: String) -> Bool {
+        movedNames().contains(name.lowercased())
+    }
+
+    /// Records names the Library just moved.
+    static func remember(_ names: [String]) {
+        guard !names.isEmpty else { return }
+        let all = movedNames().union(names.map { $0.lowercased() })
+        UserDefaults.standard.set(all.sorted(), forKey: movedNamesKey)
+    }
+
+    /// Drops names that are real games in the Library again, so the sync carries them as usual.
+    /// Writes only when something changed.
+    static func forget(_ names: [String]) {
+        let stored = movedNames()
+        guard !stored.isEmpty else { return }
+        let left = stored.subtracting(names.map { $0.lowercased() })
+        guard left.count != stored.count else { return }
+        UserDefaults.standard.set(left.sorted(), forKey: movedNamesKey)
+    }
+
+    /// Game files for consoles this build can't run (Switch, GameCube, Wii, Wii U, Vita, PS3,
+    /// Xbox and a few computers). Never called "files that aren't games": an import with one
+    /// keeps the full line, which names the file type, as it always did.
+    static let gameTypesThisBuildCantRun: Set<String> = [
+        "nsp", "nsz", "xci", "xcz", "nca", "nro", "nso", "gcm", "gcz", "rvz", "wbfs", "wia", "ciso",
+        "tgc", "dol", "wud", "wux", "wua", "rpx", "vpk", "pkg", "xex", "xbe", "cia", "col", "int",
+        "vec", "chf", "tzx", "z80", "dsk", "st", "msa", "atr",
+    ]
+
+    /// The tester's line after an import that skipped files.
+    static func importLine(added: Int, skipped: Int) -> String {
+        let addedText: String
+        switch added {
+        case 0: addedText = "No games added."
+        case 1: addedText = "Added 1 game."
+        default: addedText = "Added \(added) games."
+        }
+        let skippedText = skipped == 1
+            ? "Skipped 1 file that isn\u{2019}t a game."
+            : "Skipped \(skipped) files that aren\u{2019}t games."
+        return "\(addedText) \(skippedText)"
+    }
+
+    /// The tester's line after the Library moved files out.
+    static func movedLine(_ count: Int) -> String {
+        count == 1
+            ? "Moved 1 file that isn\u{2019}t a game to the Not games folder in Files."
+            : "Moved \(count) files that aren\u{2019}t games to the Not games folder in Files."
     }
 }
 
@@ -176,6 +346,9 @@ final class ImportCenter: ObservableObject {
 
     /// What `prepare` did to the last batch (skins applied, archives unpacked), for the summary.
     private(set) var lastNote = ""
+    /// The same, without the routine "unpacked 3 file(s) from X.zip" lines: what the casual
+    /// import line still has to say (a skin, a save, an archive that broke).
+    private(set) var lastOtherNote = ""
 
     private var queued: [SystemQuestion] = []
     private weak var host: EngineHost?
@@ -234,7 +407,9 @@ final class ImportCenter: ObservableObject {
         var out: [URL] = []
         var handled = 0
         var notes: [String] = []
+        var routine: [String] = []
         lastNote = ""
+        lastOtherNote = ""
         for url in urls {
             let ext = url.pathExtension.lowercased()
             if Self.skinExtensions.contains(ext) {
@@ -255,7 +430,11 @@ final class ImportCenter: ObservableObject {
                 FeedbackCenter.step("import: archive gave \(files.count) file(s)"
                     + (note.map { ": \($0)" } ?? ""))
                 out.append(contentsOf: files)
-                if let note { notes.append(note) }
+                if let note {
+                    notes.append(note)
+                    // An archive that gave files is routine; one that gave none is worth saying.
+                    if !files.isEmpty { routine.append(note) }
+                }
             } else {
                 out.append(url)
             }
@@ -264,6 +443,7 @@ final class ImportCenter: ObservableObject {
             let text = notes.joined(separator: " | ")
             line = text
             lastNote = text
+            lastOtherNote = notes.filter { !routine.contains($0) }.joined(separator: " | ")
             host?.status = text
         }
         return (out, handled)
@@ -296,7 +476,10 @@ final class ImportCenter: ObservableObject {
             if names.isEmpty {
                 return ([], "\(name) held no files to import")
             }
-            if detection.sure && names.count == 1 {
+            // Only for a game: a lone README.md in a zip is skipped by the copy, and must not
+            // leave a "this is a Mega Drive game" answer behind for its name.
+            if detection.sure && names.count == 1,
+               NotGames.reason(for: dest.appendingPathComponent(names[0])) == nil {
                 SystemChoices.remember(detection.system, forFileName: names[0])
             }
             return (names.map { dest.appendingPathComponent($0) },
@@ -309,9 +492,12 @@ final class ImportCenter: ObservableObject {
     // MARK: After the copy
 
     /// Reads every newly imported file with a shared extension, asks about the unsure ones, and
-    /// clears the scratch folders.
-    func finishImport(_ names: [String], documents: URL) {
+    /// clears the scratch folders. Returns the names it asked about: games waiting for that
+    /// answer, which the import line counts as added.
+    @discardableResult
+    func finishImport(_ names: [String], documents: URL) -> [String] {
         defer { clearScratch() }
+        var asked: [String] = []
         let lowered = Set(names.map { $0.lowercased() })
         // Files a sheet names (a cue's tracks, a ccd's img) are not asked about on their own.
         var named = Set<String>()
@@ -340,7 +526,9 @@ final class ImportCenter: ObservableObject {
                 continue
             }
             ask(SystemQuestion(fileName: name, reason: detection.reason, candidates: detection.candidates))
+            asked.append(name)
         }
+        return asked
     }
 
     private func clearScratch() {

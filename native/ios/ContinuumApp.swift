@@ -1868,6 +1868,11 @@ final class EngineHost: ObservableObject {
         // Every line, with its time, into the activity log a feedback report sends (Feedback.swift).
         didSet { FeedbackCenter.record(status) }
     }
+    /// "Moved 23 files that aren't games to the Not games folder in Files." It is kept apart from
+    /// `status`, because at launch "surface ready" and the sync write over that line straight
+    /// away, and the strip hides everyday lines. The strip shows this first until it is tapped or
+    /// the next import starts.
+    @Published var libraryNotice: String = ""
     @Published var gpu: String = ""
     /// The on-screen BIOS/HLE line. Written when the cores are declared at attach, and
     /// refreshed whenever a core loads, so a missing BIOS is a legible condition BEFORE a game
@@ -4156,7 +4161,8 @@ final class EngineHost: ObservableObject {
 
     /// Rescans Documents and republishes the launchable games it holds.
     ///
-    /// Writes to `libraryStatus`, never to `status`, so it can be called straight after an
+    /// Writes to `libraryStatus`, and to `status` and `libraryNotice` only when it moved a file
+    /// that isn't a game to Not games (see `moveNotGames`), so it can be called straight after an
     /// import without erasing that import's summary. Every outcome, including both failures,
     /// gets its own distinct line: no Documents directory, an unreadable directory (with the
     /// real error), an empty directory, a directory with files but nothing launchable, and a
@@ -4175,7 +4181,7 @@ final class EngineHost: ObservableObject {
                 // The date keys are prefetched alongside the size so a rescan of a library of
                 // PlayStation discs is still one directory read rather than one stat per file.
                 includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey,
-                                             .creationDateKey],
+                                             .creationDateKey, .isDirectoryKey],
                 options: [.skipsHiddenFiles]
             )
         } catch {
@@ -4185,24 +4191,30 @@ final class EngineHost: ObservableObject {
             libraryStatus = "library scan failed: \(error.localizedDescription) [\(error)]"
             return
         }
+        // Folders are never scanned: Not games, Older copies, Manuals, Amiibo and Screenshots
+        // all live here, and nothing in them is a Library row.
+        let files = contents.filter {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory != true
+        }
 
         // Only launch targets are listed. The .bin tracks are still right there on disk and
-        // the core still opens them; they are simply not things to tap.
-        let entries = contents
-            .filter { CoreCatalog.isLaunchable(path: $0.path) }
+        // the core still opens them; they are simply not things to tap. A text file with a ROM
+        // extension (README.md) is never listed: it goes to Not games.
+        let launchable = files.filter { CoreCatalog.isLaunchable(path: $0.path) }
+        let entries = moveNotGames(launchable, documents: documents)
             .map { LibraryEntry(url: $0) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         library = entries
 
         if entries.isEmpty {
-            libraryStatus = contents.isEmpty
+            libraryStatus = files.isEmpty
                 ? "library: empty, no files in Documents yet"
-                : "library: nothing launchable among \(contents.count) file(s) in Documents "
+                : "library: nothing launchable among \(files.count) file(s) in Documents "
                     + "(need one of "
                     + "\(CoreCatalog.extensionList(CoreCatalog.launchableExtensions)))"
         } else {
             libraryStatus = "library: \(entries.count) game(s) of "
-                + "\(contents.count) file(s) in Documents"
+                + "\(files.count) file(s) in Documents"
         }
 
         // Cover art for EVERY game, not only the ones that scroll into view, and without any game
@@ -4211,6 +4223,74 @@ final class EngineHost: ObservableObject {
         // `ArtworkStore.sweepLibrary`. It writes to the artwork line, never to `status` or to
         // `libraryStatus`, so neither an import summary nor the line above is disturbed.
         artwork.sweepLibrary(entries)
+    }
+
+    /// Moves the Library files that are text, not games (README.md is a Mega Drive extension too),
+    /// to Documents/Not games, and returns the rest. Build 181 and older let them in.
+    ///
+    /// The engine decides and re-checks every file before it moves it, so a binary file never
+    /// moves. The cache, kept between launches, means a rescan (a cold launch too) only reads
+    /// files that are new or changed. The open game is never moved. A flagged file is not listed
+    /// even when its move failed; the next rescan tries again. Nothing is deleted.
+    private func moveNotGames(_ launchable: [URL], documents: URL) -> [URL] {
+        let openPath = activeEntry?.path
+        let flagged = launchable.filter {
+            $0.path != openPath && DetectionCache.shared.notAGame(for: $0) != nil
+        }
+        let flaggedPaths = Set(flagged.map(\.path))
+        let kept = launchable.filter { !flaggedPaths.contains($0.path) }
+        // Saved, so the next cold launch only reads files that are new or changed.
+        DetectionCache.shared.saveCheckedGames(keeping: Set(launchable.map(\.lastPathComponent)))
+        // A real game under a name moved earlier is a game again, and syncs as usual.
+        NotGames.forget(kept.map(\.lastPathComponent))
+        guard !flagged.isEmpty else { return kept }
+
+        let moves = importMoveNotGames(paths: flagged.map(\.path),
+                                       folder: NotGames.folder(in: documents).path)
+        for move in moves {
+            FeedbackCenter.step("library: moved \((move.fromPath as NSString).lastPathComponent) "
+                + "to Not games as \((move.toPath as NSString).lastPathComponent): \(move.reason)")
+        }
+        guard !moves.isEmpty else { return kept }
+        let movedPaths = Set(moves.map(\.fromPath))
+        let gone = flagged.filter { movedPaths.contains($0.path) }.map { LibraryEntry(url: $0) }
+        forgetMovedNotGames(gone)
+        let line = NotGames.movedLine(moves.count)
+        libraryNotice = line
+        status = line
+        return kept
+    }
+
+    /// Forgets what the app kept about files moved to Not games: the stored cover and its details,
+    /// the arrival stamp, the favourite, the per-game core and skin choices, the remembered system
+    /// answer and guess, and the detection cache. Then remembers their names, so the sync never
+    /// brings them back. Save states, battery saves, cheats and manuals are left alone on purpose:
+    /// they are the player's own data, like any save.
+    private func forgetMovedNotGames(_ entries: [LibraryEntry]) {
+        guard !entries.isEmpty else { return }
+        let names = entries.map(\.name)
+        artwork.forgetArtwork(for: entries)
+        forgetArrivals(names)
+        if !favourites.isDisjoint(with: names) {
+            favourites.subtract(names)
+            UserDefaults.standard.set(Array(favourites), forKey: Self.favouritesKey)
+        }
+        var skinsChanged = false
+        for entry in entries {
+            UserDefaults.standard.removeObject(forKey: CoreCatalog.gameCoreChoiceKey(forPath: entry.path))
+            if skinLibrary.perGame[Self.skinGameKey(entry)] != nil {
+                skinLibrary.setGame(.automatic, for: Self.skinGameKey(entry))
+                skinsChanged = true
+            }
+            SystemChoices.forget(fileName: entry.name)
+            SystemGuesses.forget(fileName: entry.name)
+            DetectionCache.shared.forget(entry.name)
+        }
+        if skinsChanged {
+            persistTouchSkins()
+            touchSkinsVersion &+= 1
+        }
+        NotGames.remember(names)
     }
 
     /// Deletes the tapped-away rows from Documents, then rescans.
@@ -4307,6 +4387,8 @@ final class EngineHost: ObservableObject {
             status = "cannot import: no Documents directory"
             return
         }
+        // A new import is the next thing to read, so the Library's moved line has been seen.
+        libraryNotice = ""
 
         // Skins, cheats, saves and manuals go to their own stores, and archives are unpacked (or
         // kept whole for arcade, DOS and Amiga) before anything is copied. See ImportCenter.
@@ -4321,6 +4403,9 @@ final class EngineHost: ObservableObject {
         var imported: [String] = []
         var replaced: [String] = []
         var rejected: [String] = []
+        // A rejected Switch or Wii game is still a game, never "a file that isn't a game".
+        var rejectedGame = false
+        var notGames: [String] = []
         var failures: [String] = []
 
         for url in urls {
@@ -4334,6 +4419,7 @@ final class EngineHost: ObservableObject {
                     || ImportCenter.extraContentExtensions.contains(ext) else {
                 let extLabel = ext.isEmpty ? "no extension" : ".\(ext)"
                 rejected.append("\(name) [\(extLabel)]")
+                if NotGames.gameTypesThisBuildCantRun.contains(ext) { rejectedGame = true }
                 status = "skipped \(name): \(extLabel) is not content this build can run "
                     + "(want one of "
                     + "\(CoreCatalog.extensionList(CoreCatalog.importableExtensions)))"
@@ -4349,6 +4435,14 @@ final class EngineHost: ObservableObject {
             let scoped = url.startAccessingSecurityScopedResource()
             defer {
                 if scoped { url.stopAccessingSecurityScopedResource() }
+            }
+
+            // A ROM extension holding plain text (README.md, LICENSE.md) is not a game, loose or
+            // out of a zip: skipped and counted, never copied. A binary file always goes through.
+            if let reason = NotGames.reason(for: url) {
+                notGames.append(name)
+                FeedbackCenter.step("import: skipped \(name): \(reason)")
+                continue
             }
 
             // The original filename, untouched. See point 1 above.
@@ -4394,16 +4488,39 @@ final class EngineHost: ObservableObject {
         if !rejected.isEmpty {
             summary += " | skipped: \(Self.nameList(rejected))"
         }
+        if !notGames.isEmpty {
+            summary += " | not games: \(Self.nameList(notGames))"
+        }
         if !failures.isEmpty {
             summary += " | failed: \(Self.nameList(failures))"
         }
         if !importCenter.lastNote.isEmpty {
             summary += " | \(importCenter.lastNote)"
         }
-        status = summary
 
         // Shared extensions are read now, and the user is asked about the unsure ones once.
-        importCenter.finishImport(imported, documents: documents)
+        let asking = Set(importCenter.finishImport(imported, documents: documents))
+
+        // Files that aren't games get the tester's casual line ("Added 3 games. Skipped 41 files
+        // that aren't games."), and the technical one goes to the activity log. The technical
+        // line stays when a copy failed (it says "failed" and shows red), when a game for a
+        // console this build can't run was skipped (it names the file type), and when a skin,
+        // save or archive went wrong. Anything else ImportCenter said (a save's "your old save is
+        // in Older copies") follows the casual line. A game waiting for "Which system?" counts.
+        let skipped = notGames.count + rejected.count
+        let otherNote = importCenter.lastOtherNote
+        if skipped > 0 && failures.isEmpty && !rejectedGame
+            && StatusTint.tint(for: otherNote) == ShellPalette.metadata {
+            FeedbackCenter.step("import: \(summary)")
+            let added = imported.filter {
+                asking.contains($0)
+                    || CoreCatalog.isLaunchable(path: documents.appendingPathComponent($0).path)
+            }.count
+            let line = NotGames.importLine(added: added, skipped: skipped)
+            status = otherNote.isEmpty ? line : "\(line) | \(otherNote)"
+        } else {
+            status = summary
+        }
 
         // Refresh last, so a freshly imported .cue is tappable straight away. This writes
         // `libraryStatus`, not `status`, so the summary above survives.

@@ -22,6 +22,11 @@
 //!   `.com` or `.bat` means DOS, Amiga disk images mean Amiga, and a known romset name or a zip of
 //!   rom chips means arcade. Arcade, DOS and Amiga keep the archive whole, because those cores load
 //!   the archive itself.
+//! - **Text is never a game.** A file with a cartridge ROM extension ([`CARTRIDGE_EXTENSIONS`])
+//!   whose first bytes are plain text (no 0x00, nearly every byte printable or UTF-8) is not one:
+//!   `.md` is a Mega Drive extension AND every README. Real ROMs always hold binary bytes, so a
+//!   binary file is never refused. Formats that are text on purpose (.cue, .m3u, .bat, ...) are
+//!   never looked at this way. See [`not_a_game`].
 //!
 //! Every answer carries a confidence. At [`SURE`] or above the app routes without asking; below it
 //! the app asks the user once with a system picker and remembers the answer per file.
@@ -142,6 +147,136 @@ pub fn system_for_extension(ext: &str) -> Option<&'static str> {
     })
 }
 
+// MARK: - Not a game
+
+/// The most a text check reads. A ROM almost always shows a 0x00 in its first 4 KB, so this much
+/// is only read for a file that looks like text that far.
+pub const TEXT_SNIFF_BYTES: usize = 64 * 1024;
+/// The first read. Stops there when it holds a 0x00, which is what a ROM does.
+const QUICK_SNIFF_BYTES: usize = 4096;
+
+/// Extensions that only ever name a cartridge ROM (or a `.bin` / `.rom` of binary bytes), so a
+/// file with one of them that reads as plain text is not a game. Nothing that is text on purpose
+/// is here: cue sheets, playlists, DOS batch files, player content and every disc or disk format
+/// are never judged by their bytes.
+pub const CARTRIDGE_EXTENSIONS: &[&str] = &[
+    "nes", "unf", "unif", "fc", "sfc", "smc", "swc", "fig", "snes", "gb", "gbc", "sgb", "gba", "agb",
+    "sms", "gg", "sg", "mv", "bms", "md", "gen", "smd", "32x", "bin", "rom", "pce", "sgx", "n64",
+    "z64", "v64", "nds", "ds", "3ds", "cci", "cxi", "a26", "a52", "a78", "lnx", "lyx", "j64", "jag",
+    "ws", "wsc", "pc2", "pcv2", "ngp", "ngc", "ngpc", "npc", "min", "vb", "vboy", "crt",
+];
+
+/// Extensions a Mega Drive ROM is stored under, for the header check that can keep a file.
+const MEGA_DRIVE_EXTENSIONS: &[&str] = &["md", "gen", "smd", "32x", "bin"];
+
+/// Whether an extension (with or without its dot, any case) is a cartridge ROM one.
+pub fn is_cartridge_extension(ext: &str) -> bool {
+    let ext = ext.trim_start_matches('.').to_ascii_lowercase();
+    CARTRIDGE_EXTENSIONS.contains(&ext.as_str())
+}
+
+/// A control byte plain text does not use: C0 controls other than tab, newline, carriage return
+/// and form feed, and DEL.
+fn is_odd_control(b: u8) -> bool {
+    (b < 0x20 && !matches!(b, b'\t' | b'\n' | b'\r' | 0x0C)) || b == 0x7F
+}
+
+/// Whether these bytes (the start of a file) are plain text: not empty, no 0x00, and at most one
+/// byte in 50 "odd" (an odd control byte, or part of an invalid UTF-8 sequence). Valid UTF-8 in
+/// any script counts as text, and a character cut in half at the end is not counted. UTF-16 and
+/// old 8-bit code pages read as binary, which keeps those files: the safe direction.
+pub fn looks_like_text(bytes: &[u8]) -> bool {
+    if bytes.is_empty() || bytes.contains(&0) {
+        return false;
+    }
+    let len = bytes.len();
+    let mut odd = 0usize;
+    let mut rest = bytes;
+    loop {
+        match std::str::from_utf8(rest) {
+            Ok(valid) => {
+                odd += valid.bytes().filter(|&b| is_odd_control(b)).count();
+                break;
+            }
+            Err(e) => {
+                let (valid, after) = rest.split_at(e.valid_up_to());
+                odd += valid.iter().filter(|&&b| is_odd_control(b)).count();
+                match e.error_len() {
+                    Some(n) => {
+                        odd += n;
+                        rest = &after[n..];
+                    }
+                    // A character cut off by the read limit.
+                    None => break,
+                }
+            }
+        }
+        if odd * 50 > len {
+            return false;
+        }
+    }
+    odd * 50 <= len
+}
+
+/// `SEGA` at 0x100 or 0x101, where every Mega Drive header starts.
+fn sega_at_0x100(rom: &[u8]) -> bool {
+    rom.get(0x100..0x104) == Some(&b"SEGA"[..]) || rom.get(0x101..0x105) == Some(&b"SEGA"[..])
+}
+
+/// Whether the start of a file carries a Mega Drive header: `SEGA` at 0x100 or 0x101 in a raw
+/// ROM, or an SMD copier header (the same test BlastEm uses) whose first 16 KB block, put back in
+/// order, has it. Only ever used to KEEP a file: a ROM without a header is still a game.
+pub fn has_mega_drive_header(head: &[u8]) -> bool {
+    if sega_at_0x100(head) {
+        return true;
+    }
+    const BLOCK: usize = 0x4000;
+    if head.len() >= 0x200 + BLOCK && head[1] == 0x03 && head[8] == 0xAA && head[9] == 0xBB {
+        // An SMD block holds its odd bytes first, then its even bytes.
+        let block = &head[0x200..0x200 + BLOCK];
+        let mut raw = vec![0u8; BLOCK];
+        for (i, pair) in raw.chunks_exact_mut(2).enumerate() {
+            pair[0] = block[BLOCK / 2 + i];
+            pair[1] = block[i];
+        }
+        return sega_at_0x100(&raw);
+    }
+    false
+}
+
+/// The first bytes of a file for the text check: 4 KB, and up to [`TEXT_SNIFF_BYTES`] only when
+/// those held no 0x00.
+fn sniff_head(path: &Path) -> std::io::Result<Vec<u8>> {
+    let mut file = File::open(path)?;
+    let mut head = Vec::with_capacity(QUICK_SNIFF_BYTES);
+    (&mut file).take(QUICK_SNIFF_BYTES as u64).read_to_end(&mut head)?;
+    if head.len() == QUICK_SNIFF_BYTES && !head.contains(&0) {
+        (&mut file).take((TEXT_SNIFF_BYTES - QUICK_SNIFF_BYTES) as u64).read_to_end(&mut head)?;
+    }
+    Ok(head)
+}
+
+/// Why the file at `path` is not a game, or None when it may be one.
+///
+/// Only a file with a cartridge ROM extension whose start is plain text is refused. Everything
+/// else is None: another extension, a file that can't be read, binary bytes, an empty file (a
+/// copy through Files can be empty for a moment), and a Mega Drive file with a Mega Drive header.
+pub fn not_a_game(path: &Path) -> Option<String> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if !is_cartridge_extension(&ext) {
+        return None;
+    }
+    let head = sniff_head(path).ok()?;
+    if !looks_like_text(&head) {
+        return None;
+    }
+    if MEGA_DRIVE_EXTENSIONS.contains(&ext.as_str()) && has_mega_drive_header(&head) {
+        return None;
+    }
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("this file");
+    Some(format!("{name} is a text file, not a game"))
+}
+
 /// Detects the system of a file on disk, reading only what it needs (headers, a few sectors,
 /// an archive's directory). Never panics; an unreadable file is an unknown with the reason.
 pub fn detect_path(path: &Path) -> Detection {
@@ -149,6 +284,11 @@ pub fn detect_path(path: &Path) -> Detection {
 }
 
 fn detect_depth(path: &Path, depth: u32) -> Detection {
+    // A text file is no system at all, whatever its extension says (README.md is not a Mega Drive
+    // game, and a text .bin is neither a cartridge nor a disc track).
+    if let Some(reason) = not_a_game(path) {
+        return Detection::unknown(reason, &[]);
+    }
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -980,6 +1120,7 @@ pub fn classify_archive(stem: &str, names: &[String]) -> Detection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::import::fixtures;
     use crate::import::testdir::TestDir;
 
     /// A raw 2352-byte mode 1 sector holding `user` (padded to 2048).
@@ -1272,12 +1413,146 @@ mod tests {
     #[test]
     fn unique_extensions_are_sure() {
         let dir = TestDir::new("ext");
-        let d = detect_path(&dir.write("x.sfc", b"x"));
+        let d = detect_path(&dir.write("x.sfc", &[0x00, 0x01, 0x02]));
         assert_eq!(d.system, "snes");
         assert!(d.is_sure());
         assert_eq!(system_for_extension(".ws"), Some("wswan"));
         assert_eq!(system_for_extension("mv"), Some("sg1000"));
         assert_eq!(system_for_extension("SG"), Some("sg1000"));
         assert_eq!(system_for_extension("cue"), None);
+    }
+
+    // MARK: Not a game
+
+    /// Text that is plainly markdown.
+    fn markdown() -> Vec<u8> {
+        b"# Notes\n\nSome *notes* about the project.\n\n```sh\ncargo test\n```\n\n- one\n- two\n".repeat(40)
+    }
+
+    /// ASCII text with one byte in every `every` replaced by `odd`.
+    fn ascii_with(odd: u8, every: usize, len: usize) -> Vec<u8> {
+        let base = b"The quick brown fox jumps over the lazy dog. ";
+        (0..len).map(|i| if i % every == every - 1 { odd } else { base[i % base.len()] }).collect()
+    }
+
+    /// Every format that is text on purpose, or a disc or disk image: never judged by its bytes.
+    const NEVER_JUDGED: &[&str] = &[
+        "cue", "m3u", "gdi", "toc", "ccd", "cmd", "bat", "ini", "cfg", "lua", "js", "conf", "exe", "com",
+        "dosz", "swf", "jar", "jad", "sis", "sisx", "n-gage", "wad", "iwad", "pwad", "uae", "vfl", "txt",
+        "iso", "chd", "cso", "pbp", "img", "mdf", "cdi", "fds", "adf", "d64", "zip", "7z",
+    ];
+
+    #[test]
+    fn text_rule_tells_text_from_binary() {
+        assert!(looks_like_text(&markdown()));
+        assert!(looks_like_text(&fixtures::license_text()), "CRLF text");
+        assert!(looks_like_text(&fixtures::readme_ru()), "Cyrillic UTF-8");
+        let zh = fixtures::readme_zh();
+        assert!(zh.len() > TEXT_SNIFF_BYTES);
+        assert!(looks_like_text(&zh[..TEXT_SNIFF_BYTES]), "CJK UTF-8 at the read limit");
+        let text = std::str::from_utf8(&zh).unwrap();
+        let mid = (TEXT_SNIFF_BYTES - 16..TEXT_SNIFF_BYTES).rev().find(|&i| !text.is_char_boundary(i)).unwrap();
+        assert!(looks_like_text(&zh[..mid]), "a character cut in half at the end is not counted");
+        assert!(looks_like_text(&ascii_with(0x93, 200, 8000)), "0.5% cp1252 smart quotes");
+        assert!(looks_like_text(&ascii_with(0x94, 200, 8000)));
+        let mut bom = vec![0xEF, 0xBB, 0xBF];
+        bom.extend(markdown());
+        assert!(looks_like_text(&bom), "a UTF-8 BOM");
+
+        assert!(!looks_like_text(&[]), "empty is never judged");
+        assert!(!looks_like_text(b"hello\0world, this is text with one NUL"));
+        assert!(!looks_like_text(&ascii_with(0x01, 33, 8000)), "3% odd bytes");
+        assert!(!looks_like_text(&fixtures::nul_free_rom(0x8000)), "binary with no NUL");
+        assert!(!looks_like_text(&fixtures::rom_bytes(0x8000, 1)));
+        assert!(!looks_like_text(&[0xFF; 4096]));
+        assert!(!looks_like_text(&[0xEA; 4096]), "an Atari 2600 ROM of NOPs");
+    }
+
+    #[test]
+    fn mega_drive_header_raw_and_smd() {
+        let mut raw = vec![b' '; 0x200];
+        raw[0x100..0x104].copy_from_slice(b"SEGA");
+        assert!(has_mega_drive_header(&raw));
+        let mut shifted = vec![b' '; 0x200];
+        shifted[0x100..0x105].copy_from_slice(b" SEGA");
+        assert!(has_mega_drive_header(&shifted), "SEGA at 0x101");
+        let smd = fixtures::smd_dump(&fixtures::mega_drive_rom());
+        assert!(!sega_at_0x100(&smd), "the SMD dump has no raw header");
+        assert!(has_mega_drive_header(&smd), "the de-interleaved SMD block has it");
+        assert!(!has_mega_drive_header(&fixtures::rom_bytes(0x8000, 3)));
+        assert!(!has_mega_drive_header(&fixtures::license_text()));
+        assert!(!has_mega_drive_header(&[]));
+    }
+
+    #[test]
+    fn text_with_a_cartridge_extension_is_not_a_game() {
+        let dir = TestDir::new("text");
+        let text: [(&str, Vec<u8>); 8] = [
+            ("README_ru.md", fixtures::readme_ru()),
+            ("README_zh-TW.md", fixtures::readme_zh()),
+            ("LICENSE.md", fixtures::license_text()),
+            ("notes.gba", markdown()),
+            ("x.nes", markdown()),
+            ("x.SFC", fixtures::license_text()),
+            ("otool.bin", fixtures::license_text()),
+            ("x.smd", markdown()),
+        ];
+        for (name, bytes) in text {
+            let reason = not_a_game(&dir.write(name, &bytes));
+            assert!(reason.as_deref().is_some_and(|r| r.contains(name) && r.contains("text")), "{name}: {reason:?}");
+        }
+
+        let mut ines = b"NES\x1A\x02\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00".to_vec();
+        ines.extend(fixtures::rom_bytes(0x8000, 9));
+        // The header only ever keeps: text with SEGA at 0x100 is kept as a Mega Drive file.
+        let mut sega_text = fixtures::license_text();
+        sega_text[0x100..0x104].copy_from_slice(b"SEGA");
+        let games: [(&str, Vec<u8>); 9] = [
+            ("Sonic (USA).md", fixtures::mega_drive_rom()),
+            ("Streets.smd", fixtures::smd_dump(&fixtures::mega_drive_rom())),
+            ("Odd Header (Proto).gen", fixtures::rom_bytes(0x8000, 11)),
+            ("No Zeros.sfc", fixtures::nul_free_rom(0x8000)),
+            ("Mario.nes", ines),
+            ("Pong.a26", vec![0xEA; 4096]),
+            ("Empty.gba", Vec::new()),
+            ("Header.md", sega_text),
+            ("Tetris.gb", fixtures::rom_bytes(0x8000, 13)),
+        ];
+        for (name, bytes) in games {
+            assert_eq!(not_a_game(&dir.write(name, &bytes)), None, "{name}");
+        }
+        assert_eq!(not_a_game(&dir.path().join("missing.md")), None);
+        let folder = dir.path().join("Folder.md");
+        std::fs::create_dir_all(&folder).unwrap();
+        assert_eq!(not_a_game(&folder), None, "a folder is never judged");
+    }
+
+    #[test]
+    fn legit_text_formats_are_never_judged() {
+        let dir = TestDir::new("legit");
+        for ext in NEVER_JUDGED {
+            assert!(!is_cartridge_extension(ext), ".{ext} must never be a cartridge extension");
+            assert!(!CARTRIDGE_EXTENSIONS.contains(ext));
+            let path = dir.write(&format!("notes.{ext}"), &fixtures::license_text());
+            assert_eq!(not_a_game(&path), None, ".{ext}");
+        }
+        assert!(is_cartridge_extension(".MD"));
+        assert!(is_cartridge_extension("gba"));
+    }
+
+    #[test]
+    fn detect_path_names_no_system_for_a_text_rom() {
+        let dir = TestDir::new("textdetect");
+        for name in ["README.md", "otool.bin"] {
+            let d = detect_path(&dir.write(name, &fixtures::license_text()));
+            assert!(d.system.is_empty() && !d.is_sure(), "{name}: {d:?}");
+            assert!(d.reason.contains("text"), "{name}: {}", d.reason);
+            assert!(d.candidates.is_empty(), "{name}: no picker for a text file");
+        }
+        let d = detect_path(&dir.write("Sonic.md", &fixtures::mega_drive_rom()));
+        assert_eq!(d.system, "genesis", "{}", d.reason);
+        assert!(d.is_sure());
+        let d = detect_path(&dir.write("Sonic.bin", &fixtures::mega_drive_rom()));
+        assert_eq!(d.system, "genesis", "{}", d.reason);
     }
 }

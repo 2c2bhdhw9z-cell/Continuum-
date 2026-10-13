@@ -26,6 +26,14 @@ the licence swap below. No phone has tried it yet: TESTING.md "This install only
   old save states from the removed emulators are kept in a slot but can't load. Every licence left
   only asks for the credits and public source.
 - Phone checks for both: TESTING.md "This install only" and section K.
+- **After 181 (on master, not in a build yet): text files are never games.** Build 181 listed
+  README, LICENSE and other notes ending in `.md` as Mega Drive games (`.md` is also a Mega Drive
+  file type, and nothing looked inside; this goes back long before 181). Now the engine looks: a
+  cartridge file that's plain text is skipped on import, in zips and folder downloads too ("Added
+  3 games. Skipped 41 files that aren't games."). Ones already in the library move to Files →
+  Continuum → Not games the next time the app opens, never deleted, and the sync and backups
+  don't bring them back. A file with real binary content (any zero byte) always counts as a
+  game. Phone check: TESTING.md "Next install (after 181)".
 
 **After that install,** the owner's order is in "Next up": emulator updates (with the heads-up
 line and a fuller weekly check), small cleanup leftovers, cBoy's jobs (MP2K music and the rest),
