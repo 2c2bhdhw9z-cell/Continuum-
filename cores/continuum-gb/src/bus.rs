@@ -22,6 +22,14 @@ pub const INT_JOYPAD: u8 = 16;
 /// oldest kept, so a test's report is never truncated at the front.
 pub const SERIAL_LOG_MAX: usize = 8192;
 
+/// How long one byte takes on a Game Boy's own link clock: 8192 bits a second, so 512 ticks a
+/// bit and eight bits to the byte. A Color asking for its fast clock takes a thirty-second of
+/// this, and double speed halves whichever one is in use.
+pub const SERIAL_BYTE_CYCLES: u64 = 8 * 512;
+
+/// How far ahead of DIV's count the link port's own count runs (see `serial_clock_high`).
+const SERIAL_CLOCK_PHASE: u16 = 4;
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Bus {
     pub cart: Cart,
@@ -99,11 +107,33 @@ pub struct Bus {
     /// Link cable loopback (core option): a transfer reads back the byte sent.
     #[serde(skip)]
     pub link_loopback: bool,
-    /// Bytes the other machine has sent, and bytes this machine has sent for it.
+    /// A real partner is on the other end of the cable (the app has a two-phone session going).
+    /// With nothing attached an internally clocked transfer finishes on its own reading 1s, the
+    /// way a loose cable does; with a partner it holds open until the partner answers.
     #[serde(skip)]
-    pub link_in: std::collections::VecDeque<u8>,
+    pub link_connected: bool,
+    /// Bytes this machine has put on the cable, oldest first, for the cable to carry over.
+    /// Only ever filled while a partner is attached, so a game sending into a loose cable
+    /// cannot pile bytes up here.
     #[serde(skip)]
-    pub link_out: Vec<u8>,
+    pub link_out: std::collections::VecDeque<u8>,
+    /// The transfer the port is shifting: bits still to clock, 8 down to 0 (0 = nothing going
+    /// on), the byte going out (latched when it started, which is what the partner is told) and
+    /// the byte coming in, whose top bit lands in SB on each clock.
+    ///
+    /// None of this is in a save state: adding fields to one would stop every state players
+    /// already have from loading. A state taken half way through a byte starts that byte again
+    /// when it is loaded (`resume_serial`), which costs at most one byte's worth of cable time.
+    #[serde(skip)]
+    serial_bits: u8,
+    #[serde(skip)]
+    serial_tx: u8,
+    #[serde(skip)]
+    serial_rx: u8,
+    /// All eight bits are clocked and the port is holding the transfer open, waiting for the
+    /// partner's answer. Only ever happens with a partner attached.
+    #[serde(skip)]
+    serial_waiting: bool,
     last_mode: u8,
     /// Set by the CPU before each instruction so a hardware event can name where it came from.
     #[serde(skip)]
@@ -139,8 +169,12 @@ impl Bus {
             boot: Vec::new(),
             boot_on: false,
             link_loopback: false,
-            link_in: std::collections::VecDeque::new(),
-            link_out: Vec::new(),
+            link_connected: false,
+            link_out: std::collections::VecDeque::new(),
+            serial_bits: 0,
+            serial_tx: 0,
+            serial_rx: 0xFF,
+            serial_waiting: false,
             dma_src: 0,
             dma_pos: 0,
             dma_active: false,
@@ -219,11 +253,131 @@ impl Bus {
         }
     }
 
+    /// The link port's own clock, high or low right now.
+    ///
+    /// It is counted down from the console's clock and never restarted, so where in that count
+    /// a transfer starts is what decides how long its first bit takes, and the port's clock and
+    /// the console's never drift apart (Mooneye boot_sclk_align). Bit 8 is 8192 bits a second,
+    /// the only speed a Game Boy has; a Color that asks for the fast clock (SC bit 1) taps bit 3
+    /// instead, 32 times quicker. Double speed doubles both, because the count itself runs twice
+    /// as fast then.
+    ///
+    /// The port's count runs [`SERIAL_CLOCK_PHASE`] ticks ahead of the one DIV is read from. The
+    /// two boot tests together say so: boot_div pins where DIV's steps fall against the CPU,
+    /// boot_sclk_align pins when a transfer started straight after boot finishes, and the gap
+    /// between the two answers is that one step.
+    fn serial_clock_high(&self) -> bool {
+        let tap = if self.cgb && self.sc & 0x02 != 0 { 3 } else { 8 };
+        (self.timer.counter.wrapping_add(SERIAL_CLOCK_PHASE) >> tap) & 1 != 0
+    }
+
+    /// Starts (or restarts) the transfer SC bit 7 has just asked for.
+    fn serial_start(&mut self) {
+        self.serial_bits = 8;
+        self.serial_waiting = false;
+        self.serial_tx = self.sb;
+        // What comes back: the partner's byte once it answers, the byte just sent if the cable
+        // is plugged into itself, and all 1s if nothing is attached at all.
+        self.serial_rx = if self.link_loopback { self.sb } else { 0xFF };
+        // This machine drives the clock, so the partner is told straight away: it has to have
+        // this byte before it can answer with its own. The cap is for a game that restarts the
+        // transfer in a tight loop: the cable is emptied every frame, so it is never reached in
+        // normal play, and bytes past it would be ones the game had already thrown away.
+        if self.link_connected && self.sc & 0x01 != 0 && self.link_out.len() < 1024 {
+            self.link_out.push_back(self.sb);
+        }
+    }
+
+    /// One clock pulse of an internally clocked transfer: a bit out, a bit in.
+    fn serial_pulse(&mut self) {
+        // Only the side driving the clock shifts by itself. The other side waits to be clocked.
+        if self.serial_bits == 0 || self.sc & 0x81 != 0x81 {
+            return;
+        }
+        self.sb = (self.sb << 1) | (self.serial_rx >> 7);
+        self.serial_rx <<= 1;
+        self.serial_bits -= 1;
+        if self.serial_bits == 0 {
+            if self.link_connected {
+                // The eight bits are clocked, but the byte the partner shifted back is still on
+                // its way. Hold the transfer open rather than hand the game a made-up byte.
+                self.serial_waiting = true;
+            } else {
+                self.serial_done();
+            }
+        }
+    }
+
+    /// The transfer is over: the game gets its interrupt and SC bit 7 falls.
+    fn serial_done(&mut self) {
+        self.serial_bits = 0;
+        self.serial_waiting = false;
+        self.sc &= 0x7F;
+        self.iflag |= INT_SERIAL;
+    }
+
+    /// The partner's answer to a byte this machine clocked out. Ignored when nothing is waiting
+    /// for one, so a late answer to a byte already given up on cannot land in the next one.
+    pub fn link_answer(&mut self, byte: u8) {
+        if !self.serial_waiting {
+            return;
+        }
+        self.sb = byte;
+        self.serial_done();
+    }
+
+    /// The partner's clock, carrying the byte it shifted out. Answers with this machine's own
+    /// byte when it had a transfer armed on the external clock, so the partner's transfer can
+    /// finish too; answers with nothing when this machine was not expecting anything, which
+    /// leaves its own SB alone instead of corrupting a game that is not linking.
+    pub fn link_clock(&mut self, byte: u8) -> Option<u8> {
+        if self.sc & 0x81 != 0x80 {
+            return None;
+        }
+        let ours = self.sb;
+        self.sb = byte;
+        self.serial_tx = ours;
+        self.serial_done();
+        Some(ours)
+    }
+
+    /// Whether a transfer is still open: either shifting, or waiting for the partner's answer.
+    pub fn link_busy(&self) -> bool {
+        self.serial_bits > 0 || self.serial_waiting
+    }
+
+    /// The byte this machine last put on the cable (what the partner is told). For the tests.
+    pub fn link_sent(&self) -> u8 {
+        self.serial_tx
+    }
+
+    /// Gives up on a partner that is not answering: the transfer finishes reading 1s, the way a
+    /// cable that has been pulled out does, instead of leaving the game waiting for ever.
+    pub fn link_give_up(&mut self) {
+        if self.serial_waiting {
+            self.sb = 0xFF;
+            self.serial_done();
+        }
+    }
+
+    /// After a save state is loaded: the state does not carry the half-shifted byte, so a
+    /// transfer the game still has open is started again from the top.
+    pub fn resume_serial(&mut self) {
+        if self.sc & 0x80 != 0 {
+            self.serial_start();
+        }
+    }
+
     /// One M-cycle of everything but the CPU.
     pub fn tick(&mut self) {
         self.cycles += 4;
+        let serial_clock_was_high = self.serial_clock_high();
         if self.timer.tick_m() {
             self.iflag |= INT_TIMER;
+        }
+        // The port's own clock, so a transfer this machine drives shifts a bit here.
+        if serial_clock_was_high && !self.serial_clock_high() {
+            self.serial_pulse();
         }
         // In double speed the CPU, timer and DMA run twice as fast; the PPU, sound and clock do not.
         let dots = if self.double_speed { 2 } else { 4 };
@@ -351,7 +505,10 @@ impl Bus {
             0xFEA0..=0xFEFF => 0x00,
             0xFF00 => self.joyp(),
             0xFF01 => self.sb,
-            0xFF02 => self.sc | 0x7E,
+            // A Game Boy has one cable speed, so only the start bit and the clock choice are
+            // real and everything between them reads as 1. In colour mode the fast-clock bit is
+            // a real bit the game can read back.
+            0xFF02 => self.sc | if self.cgb { 0x7C } else { 0x7E },
             0xFF04 => self.timer.div(),
             0xFF05 => self.timer.tima,
             0xFF06 => self.timer.tma,
@@ -424,20 +581,20 @@ impl Bus {
             0xFF01 => self.sb = v,
             0xFF02 => {
                 self.sc = v;
-                // No link partner: an internally clocked transfer completes at once, shifting in
-                // 1s, which is what a disconnected cable reads as.
-                if v & 0x81 == 0x81 {
-                    if self.serial_out.len() < SERIAL_LOG_MAX {
+                if v & 0x80 != 0 {
+                    // Writing the start bit again part way through a byte starts it over, which
+                    // is what the hardware's bit counter does.
+                    self.serial_start();
+                    // The test ROMs report through this port, and they do not all wait for the
+                    // transfer to finish, so the log takes the byte as it is sent rather than
+                    // when it lands.
+                    if v & 0x01 != 0 && self.serial_out.len() < SERIAL_LOG_MAX {
                         self.serial_out.push(self.sb);
                     }
-                    if let Some(b) = self.link_in.pop_front() {
-                        self.link_out.push(self.sb);
-                        self.sb = b;
-                    } else if !self.link_loopback {
-                        self.sb = 0xFF;
-                    }
-                    self.sc &= 0x7F;
-                    self.iflag |= INT_SERIAL;
+                } else {
+                    // The game called the transfer off.
+                    self.serial_bits = 0;
+                    self.serial_waiting = false;
                 }
             }
             0xFF04 => self.timer.write_div(),

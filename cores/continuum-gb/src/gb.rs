@@ -173,9 +173,12 @@ impl GameBoy {
         let mut next: GameBoy = crate::state_decode(&data[8..])?;
         next.bus.cart.rom = std::mem::take(&mut self.bus.cart.rom);
         next.bus.link_loopback = self.bus.link_loopback;
+        next.bus.link_connected = self.bus.link_connected;
         // Which console this is comes from the core option, not from the state.
         next.bus.cgb_hardware = self.bus.cgb_hardware;
         *self = next;
+        // A byte the game had half way down the cable is not in the state; start it again.
+        self.bus.resume_serial();
         Ok(())
     }
 }
@@ -283,26 +286,126 @@ mod tests {
         for i in 0..crate::bus::SERIAL_LOG_MAX * 2 {
             gb.bus.write(0xFF01, if i == 0 { 0x11 } else { 0x5A });
             gb.bus.write(0xFF02, 0x81);
+            // One byte at a time, the way a game does: the port is a shift register, so a game
+            // that wrote the next byte mid-transfer would be writing over the one in flight.
+            while gb.bus.link_busy() {
+                gb.bus.tick();
+            }
         }
         assert_eq!(gb.bus.serial_out.len(), crate::bus::SERIAL_LOG_MAX);
         assert_eq!(gb.bus.serial_out[0], 0x11, "the first bytes sent are the ones kept");
         assert!(gb.bus.serial_out[1..].iter().all(|b| *b == 0x5A));
     }
 
+    /// A transfer takes the time a real cable takes: eight bits at 8192 bits a second. It used
+    /// to finish inside the write that started it, so a game got its interrupt before the
+    /// instruction after it had run.
     #[test]
-    fn two_machines_swap_a_byte_over_the_link_cable() {
-        let mut a = GameBoy::new(vec![0u8; 0x8000]).unwrap();
-        let mut b = GameBoy::new(vec![0u8; 0x8000]).unwrap();
-        a.bus.link_in.push_back(0x22);
-        b.bus.link_in.push_back(0x11);
-        a.bus.write(0xFF01, 0x11);
-        a.bus.write(0xFF02, 0x81);
-        b.bus.write(0xFF01, 0x22);
-        b.bus.write(0xFF02, 0x81);
-        assert_eq!(a.bus.sb, 0x22);
-        assert_eq!(b.bus.sb, 0x11);
-        assert_eq!(a.bus.link_out, vec![0x11]);
-        assert_eq!(b.bus.link_out, vec![0x22]);
+    fn a_byte_down_the_cable_takes_a_real_cables_time() {
+        let mut gb = GameBoy::new(vec![0u8; 0x8000]).unwrap();
+        gb.bus.iflag = 0;
+        gb.bus.write(0xFF01, 0x5A);
+        let started = gb.bus.cycles;
+        gb.bus.write(0xFF02, 0x81);
+        assert_eq!(gb.bus.raw_read(0xFF02) & 0x80, 0x80, "still going");
+        assert_eq!(gb.bus.iflag & crate::bus::INT_SERIAL, 0, "no interrupt yet");
+        while gb.bus.iflag & crate::bus::INT_SERIAL == 0 && gb.bus.cycles - started < 20_000 {
+            gb.bus.tick();
+        }
+        let took = gb.bus.cycles - started;
+        // The port's clock is a tap of the console's own counter, so the first bit is however
+        // much of a bit is left when the game starts the transfer: a byte takes a whole byte's
+        // time, give or take that one bit.
+        assert!(took > crate::bus::SERIAL_BYTE_CYCLES - 512 && took <= crate::bus::SERIAL_BYTE_CYCLES + 8,
+            "{took} ticks");
+        assert_eq!(gb.bus.sb, 0xFF, "nothing attached, so all 1s come back");
+        assert_eq!(gb.bus.raw_read(0xFF02) & 0x80, 0, "and the start bit falls");
+    }
+
+    /// The cable plugged into itself (the Loopback setting some test programs want) reads back
+    /// exactly what was sent, and still takes the cable's time over it.
+    #[test]
+    fn loopback_reads_back_what_was_sent() {
+        let mut gb = GameBoy::new(vec![0u8; 0x8000]).unwrap();
+        gb.bus.link_loopback = true;
+        gb.bus.write(0xFF01, 0x3C);
+        gb.bus.write(0xFF02, 0x81);
+        for _ in 0..crate::bus::SERIAL_BYTE_CYCLES / 4 + 1 {
+            gb.bus.tick();
+        }
+        assert_eq!(gb.bus.sb, 0x3C);
+        assert!(!gb.bus.link_busy());
+    }
+
+    /// Set to the external clock, a console does nothing by itself: the other end of the cable
+    /// is what moves the bits, so with nothing attached the transfer simply stays open. A game
+    /// waiting to be linked to must not be handed a byte that never came.
+    #[test]
+    fn the_external_clock_waits_for_the_other_end() {
+        let mut gb = GameBoy::new(vec![0u8; 0x8000]).unwrap();
+        gb.bus.iflag = 0;
+        gb.bus.write(0xFF01, 0x42);
+        gb.bus.write(0xFF02, 0x80);
+        for _ in 0..4000 {
+            gb.bus.tick();
+        }
+        assert_eq!(gb.bus.sb, 0x42, "nothing has shifted");
+        assert_eq!(gb.bus.iflag & crate::bus::INT_SERIAL, 0);
+        assert_eq!(gb.bus.raw_read(0xFF02) & 0x80, 0x80, "and the game is still waiting");
+        assert!(gb.bus.link_busy());
+        // Until the other end clocks it, and then both ends have each other's byte.
+        assert_eq!(gb.bus.link_clock(0x99), Some(0x42));
+        assert_eq!(gb.bus.sb, 0x99);
+        assert_eq!(gb.bus.iflag & crate::bus::INT_SERIAL, crate::bus::INT_SERIAL);
+        assert!(!gb.bus.link_busy());
+    }
+
+    /// A Color can ask for a faster cable (SC bit 1), which a Game Boy has no bit for.
+    #[test]
+    fn a_colour_can_ask_for_the_fast_cable() {
+        let mut slow = cgb_machine();
+        slow.bus.write(0xFF02, 0x81);
+        let mut fast = cgb_machine();
+        fast.bus.write(0xFF02, 0x83);
+        assert_eq!(fast.bus.raw_read(0xFF02) & 0x02, 0x02, "a Color reads the bit back");
+        let took = |gb: &mut GameBoy| {
+            let start = gb.bus.cycles;
+            while gb.bus.link_busy() && gb.bus.cycles - start < 20_000 {
+                gb.bus.tick();
+            }
+            gb.bus.cycles - start
+        };
+        let (slow_took, fast_took) = (took(&mut slow), took(&mut fast));
+        assert!(fast_took * 8 < slow_took, "fast {fast_took} ticks against slow {slow_took}");
+        // A Game Boy has no such bit: it reads as 1 whatever is written, and changes nothing.
+        let mut dmg = GameBoy::with_model(vec![0u8; 0x8000], Model::Dmg, None).unwrap();
+        dmg.bus.write(0xFF02, 0x81);
+        assert_eq!(dmg.bus.raw_read(0xFF02) & 0x02, 0x02, "no fast-cable bit on a Game Boy");
+        assert_eq!(took(&mut dmg), slow_took);
+    }
+
+    /// A save state taken with a byte half way down the cable does not carry the half-shifted
+    /// byte (adding to the state would stop every state players already have from loading), so
+    /// the transfer starts again on load instead of being left open for ever.
+    #[test]
+    fn a_state_saved_mid_byte_finishes_its_transfer_after_loading() {
+        let mut gb = GameBoy::new(vec![0u8; 0x8000]).unwrap();
+        gb.bus.write(0xFF01, 0x5A);
+        gb.bus.write(0xFF02, 0x81);
+        for _ in 0..200 {
+            gb.bus.tick();
+        }
+        assert!(gb.bus.link_busy(), "saved mid-byte");
+        let state = gb.save_state();
+        let mut other = GameBoy::new(vec![0u8; 0x8000]).unwrap();
+        other.load_state(&state).unwrap();
+        assert!(other.bus.link_busy(), "and the transfer is still the game's");
+        other.bus.iflag = 0;
+        for _ in 0..crate::bus::SERIAL_BYTE_CYCLES / 4 + 1 {
+            other.bus.tick();
+        }
+        assert_eq!(other.bus.iflag & crate::bus::INT_SERIAL, crate::bus::INT_SERIAL, "it finished");
+        assert_eq!(other.bus.raw_read(0xFF02) & 0x80, 0);
     }
 
     #[test]

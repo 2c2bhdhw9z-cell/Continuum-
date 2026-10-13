@@ -165,8 +165,8 @@ fn mooneye_acceptance_report() {
     }
     let mut names = Vec::new();
     for sub in ["acceptance", "acceptance/bits", "acceptance/instr", "acceptance/interrupts",
-                "acceptance/oam_dma", "acceptance/ppu", "acceptance/timer", "emulator-only/mbc1",
-                "emulator-only/mbc5"] {
+                "acceptance/oam_dma", "acceptance/ppu", "acceptance/serial", "acceptance/timer",
+                "emulator-only/mbc1", "emulator-only/mbc5"] {
         let Ok(rd) = std::fs::read_dir(dir.join(sub)) else { continue };
         for e in rd.flatten() {
             let n = e.file_name().to_string_lossy().to_string();
@@ -198,7 +198,9 @@ fn mooneye_acceptance_report() {
         }
         assert!(failed.is_empty(), "Mooneye DMG acceptance regressed on the {label} drawer: {failed:?}");
     }
-    assert_eq!(names.len(), 86, "expected the 86 DMG acceptance tests");
+    // 86 until the link port got a real clock of its own, which brought the serial folder's
+    // boot_sclk_align in with it.
+    assert_eq!(names.len(), 87, "expected the 87 DMG acceptance tests");
 }
 
 /// A save state taken mid-run and loaded into a fresh machine continues identically.

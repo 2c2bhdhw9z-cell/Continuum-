@@ -521,6 +521,158 @@ from the exact-drawer work going on at the same time):
   risk of playing a tune differently from the game. The song list and instrument tables are read,
   but only to be sure the engine is really there.
 
+### The two-phone link cable — cBoy's half is built, the app's half is not written yet
+
+Two people, two phones, one Game Boy cable between them: trading Pokemon, racing in F-Zero,
+playing Tetris head to head. cBoy's side of that is now real. The app's side is not, and is not
+mine to write, so the exact three things the engine has to do are written out below for whoever
+picks it up. **Until that lands, nothing has changed for a player**, which is the point: a phone
+with no other phone on the end behaves as a console with nothing plugged in, which is what every
+phone is today.
+
+What was there before: the link port kept a byte, and a transfer finished inside the very write
+that started it — instantly, before the next instruction. There was no clock, no notion of the
+other console driving it, and no way for a second machine to be on the end.
+
+What is there now:
+
+- **A real clock.** A byte takes the time a byte takes: 8192 bits a second, so 512 ticks a bit and
+  4096 ticks a byte, shifted a bit at a time. The clock is counted down from the console's own
+  clock and never restarted, so where in that count a game starts a transfer decides how long its
+  first bit lasts, exactly as on hardware. A Game Boy Color can ask for its fast cable (32 times
+  quicker) and read that choice back; a Game Boy has no such bit and reads it as 1. Double speed
+  doubles whichever is in use.
+- **Both clock modes.** One console drives the cable and the other is dragged along, which is how
+  a Game Boy cable works — there is no master or slave in the plug, only in the setting. A console
+  set to be driven now really does wait, for ever if need be, instead of being handed a byte that
+  never came. That is what a game sitting on "waiting for a partner" is doing, and it is why the
+  waiting side used to see nonsense.
+- **A cable with an agreement on it** (`cores/continuum-gb/src/link.rs`). Every byte that crosses
+  is one of two things with a number on it: a **clock** ("I drove the cable and shifted this byte
+  out") or an **answer** ("this is what my register held at that moment"). Both ends apply them in
+  the order they arrive. The number is why they cannot drift: an answer that turns up late, after
+  its byte has been given up on, is dropped instead of landing in the next byte. If no answer
+  comes at all, the driving end gives up after six frames and reads all 1s — the way a console
+  whose cable has been yanked out does — so a connection problem can never leave a game frozen.
+- **It is cBoy that owns the format**, not the app. The app carries three opaque bytes from one
+  phone to the other and back, in order. Every rule stays in the core, where it is testable.
+
+A by-product worth having: the real clock made **Mooneye's serial test pass**, so the Game Boy
+acceptance gate went from 86 of 86 to **87 of 87**, on both picture drawers. That test
+(`boot_sclk_align`) measures when a transfer started straight after switch-on finishes, which is
+the one thing that pins the link clock's phase against the console's. Getting it green needed one
+real fact: the port's count runs one step ahead of the count DIV is read from. Both boot tests
+together say so, and both now pass together.
+
+#### What the engine has to do (three things, and the core does the rest)
+
+cBoy asks for libretro's own two-player packet interface,
+`RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE` (**78** — note 76 was an earlier number for this and
+was removed from the API), once, inside `retro_load_game`, and only for a Game Boy game. The
+engine says no to it today, which is why nothing has changed. To say yes:
+
+1. **Answer environment call 78.** It hands over a `retro_netpacket_callback` (six function
+   pointers and a protocol string, laid out in `libretro.h`). Keep `start`, `receive`, `stop` and
+   `poll`. The pattern to copy is `crate::peripherals::try_environment`, called from
+   `on_environment` in `crates/emulator-bridge/src/cores/native_core.rs`; this belongs next to
+   the existing two-player code in `crates/emulator-bridge/src/netplay/`.
+2. **Call these four, on the thread that calls `retro_run`, never inside it:**
+   - `start(client_id, send_fn, poll_receive_fn)` when the two phones are joined up. `client_id`
+     0 means this phone is hosting. cBoy keeps `send_fn`; `poll_receive_fn` may be null.
+   - `receive(buf, len, client_id)` for every block the other phone sent, in the order it sent
+     them. cBoy refuses anything that is not its own three bytes, so rubbish off the network
+     cannot reach a game (that is a test).
+   - `poll()` once between frames. cBoy sends everything waiting from inside it, through
+     `send_fn`, as reliable and in order, to `RETRO_NETPACKET_BROADCAST`.
+   - `stop()` when the session ends. cBoy unplugs the cable and finishes any byte left open.
+3. **Hold the two phones to the same frame, and don't rewind.** The existing lockstep code already
+   does the hard half of this: both phones must run the same number of frames with the same
+   inputs, and save-state loading, rewind, fast-forward and pause have to be off during a session
+   (libretro's own documentation says the frontend must disable them, and
+   `netplay/session.rs` already refuses rewind and state loads). The two phones must also be
+   running the same game: `content_fingerprint` in `netplay/mod.rs` is already there for that.
+   cBoy sends its own protocol string, `cboy-link-1`, and the frontend compares it between the two
+   phones, so two different versions of the core refuse to link rather than quietly disagreeing.
+
+Two notes for whoever writes that half:
+
+- **The one player-visible line to change in the same push.** cBoy's "Link cable" setting says
+  "Unplugged is a console with nothing attached. Loopback connects the cable to itself, which some
+  test programs use. **Linking two phones is not available yet.**" That last sentence has to go,
+  and the setting needs a line saying how two phones are joined up, in the owner's plain voice.
+  It was left alone tonight on purpose: announcing something a player cannot do yet would be worse
+  than saying nothing. No new choice is needed in the setting itself — the cable comes from the
+  app's session, and "Unplugged" stays true until one starts.
+- **Latency.** A byte crosses on the frame boundary, so a round trip costs about two frames —
+  roughly 33 ms plus the network. Trading in Pokemon, which is a byte-at-a-time conversation with
+  no deadline, will not notice. A fast-action link game (Tetris head to head, F-Zero) may feel
+  loose. The fix, when somebody measures it on two real phones, is the `poll_receive_fn` cBoy is
+  already handed and does not yet use: it lets the core read mid-frame instead of waiting for the
+  frame to end. That is a change inside `libretro.rs` and `link.rs` only, and it cannot be
+  measured until the app's half exists, so it was not guessed at.
+
+### What the tests prove
+
+Fourteen new tests (the suite was 120 when the music work was pushed and `cargo test --release`
+in `cores/continuum-gb` reports 134 as this is written; it keeps moving as the exact-drawer work
+lands its own, so read it from cargo rather than from here):
+
+1. **Mooneye's own serial test is now a gated test**, in with the other 86, and the Game Boy
+   acceptance set is 87 of 87 on both drawers. It is the hardware's own answer to "when does a
+   transfer started right after switch-on finish", to the M-cycle, and nothing about it is pinned
+   by hand: `boot_div` and `boot_sclk_align` both pass, together, unchanged.
+2. A byte takes a real cable's time, and no longer finishes inside the write that started it.
+3. The cable plugged into itself (the Loopback setting) reads back exactly what was sent, and
+   still takes the cable's time over it.
+4. A console set to be driven does nothing on its own: four thousand ticks later its byte has not
+   moved, no interrupt has happened, and the game is still waiting — then one clock from the other
+   end finishes it and both ends hold each other's byte.
+5. A Color's fast cable really is more than eight times quicker than the normal one, reads its own
+   bit back, and a Game Boy told to use it reads that bit as 1 and takes the normal time.
+6. **Two machines swap a byte down the cable**, both ends checked: each one ends up holding the
+   other's byte, both get their interrupt, both see the start bit fall, and the driving end is
+   shown waiting — with no interrupt — while the answer is still crossing.
+7. A partner that stops answering is given up on after six frames and reads all 1s, with the byte
+   it sent still the byte it sent.
+8. A clock arriving for a machine that is not linking at all is answered, so the other end cannot
+   hang, but the game's own byte is left alone and it gets no interrupt it did not ask for.
+9. An answer that turns up late cannot land in the wrong byte: the numbers are checked, the late
+   one is dropped, and the right one still works.
+10. The session ending unplugs the cable, finishes anything left open, and from then on transfers
+    behave as an unplugged console's do.
+11. A block survives the trip both ways, and anything that is not one of cBoy's two kinds — too
+    short, too long, empty, an unknown kind — is refused.
+12. **End to end through the real libretro entry points**, with the test playing the app and the
+    other phone: a cartridge that sends `$11` down the cable and writes back what came. cBoy asks
+    for the interface exactly once, sends its protocol string, puts out the right block with the
+    right flags to the right end, holds the game waiting until the answer arrives, and then the
+    game reads `$22`.
+13. The same, with an app that cannot link at all: the core asks once, is told no, the game reads
+    a loose cable's all-1s and plays on, and nothing is sent anywhere. **This is every phone
+    today.**
+14. The same, with the other phone going quiet mid-byte: the game is not left stuck. And with the
+    app handing over five kinds of rubbish plus a null pointer: none of it reaches the game or
+    disturbs the transfer that is open, and the real answer still works afterwards.
+
+### What was deliberately left
+
+- **The app's half**, which is not mine to write. The three things it has to do are above.
+- **Mid-frame reading** (`poll_receive_fn`), which would cut the two-frame round trip. It cannot be
+  measured without the app's half, so it is written down rather than guessed at.
+- **A save state taken half way through a byte** does not carry the half-shifted byte, because
+  adding to the save state would stop every state players already have from loading. The transfer
+  is started again from the top when the state loads, which costs at most one byte's worth of
+  cable time and is invisible in a game. That is a test. (Save states are off during a link
+  session anyway, by libretro's own rule.)
+- **A clock arriving for a machine with no transfer armed** leaves that machine's own byte alone.
+  Real hardware would shift it in regardless, because the register is always live, but doing that
+  would let a stray packet corrupt a game that is not linking, for no gain. Every two-player
+  emulator makes the same choice.
+- **The Advance's own link** (four-player, and the Advance's much faster cable) is untouched. The
+  interface is only offered for Game Boy games.
+- **The Game Boy Printer**, which also hangs off this port, is still not emulated. The real clock
+  is the half of it that was missing, so it is now a much smaller job than it was.
+
 ## For whoever is editing the notes
 
 STATUS.md and HANDOFF.md still say mosaic is missing. Three places to fix:
@@ -576,6 +728,18 @@ rather than from here. Two things for the notes, though:
   "built, needs the owner's ears" rather than done, until the owner has tried check 22.
 - Nothing about it is on by default, so it cannot have broken anything in this build. A game that
   does not use Nintendo's music engine is bit-for-bit untouched either way, and that is a test.
+
+The same two lists have "the two-phone link" as the last cBoy job under item 6. **Half done, and
+say so**: cBoy's side of a Game Boy cable between two phones is built and tested, and the app's
+side is not written and was never mine to write. Please describe it as "the core's half is done;
+the app's half is three calls, written out in docs/CBOY_NIGHT.md" rather than as done or as not
+started. Two things that genuinely changed in this build and belong in the notes:
+
+- The Game Boy acceptance gate is **87 of 87**, up from 86 of 86: the link port got a real clock,
+  which brought Mooneye's serial test in with it.
+- Every link transfer now takes the time a real cable takes instead of finishing instantly. That
+  is accuracy work with nothing for a player to set, and check 23 below is the one that would
+  catch it having gone wrong.
 
 ## Phone checks for the owner
 
@@ -657,3 +821,14 @@ rather than from here. Two things for the notes, though:
       jumping or buzzing, or the sound effects changing. If any of that happens, put the setting
       back to "Console (as it was)" — which fixes it instantly — and tell me the game. Nobody
       else can be affected: it is off unless you turn it on.
+23. Open a Game Boy game that has a link screen in it — a Pokemon (go to a Cable Club counter and
+    talk to the lady), or Tetris and pick 2-Player — on cBoy, with nothing to link to. It should
+    behave exactly as it did before: sit there waiting, let you back out with B, and not hang,
+    freeze or drop you to a black screen. The cable's timing changed underneath (it now takes the
+    time a real cable takes rather than finishing instantly), so if a link screen that used to
+    work now sticks, that is this and I want to know which game.
+24. Nothing else about two-phone play is testable yet — joining two phones up is the app's half
+    and it is not written. You will not see a new setting for it, and that is on purpose: cBoy's
+    "Link cable" setting still only offers Unplugged and Loopback, and still says linking two
+    phones is not available yet. When the app's half lands, that line changes and there will be
+    something real to try.

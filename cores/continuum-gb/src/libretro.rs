@@ -73,6 +73,17 @@ pub const ENV_GET_CAMERA_INTERFACE: u32 = 26 | 0x10000;
 /// libretro.h `RETRO_CAMERA_BUFFER_RAW_FRAMEBUFFER`: the frame as pixels in memory, which is
 /// the only kind this app serves (the other is an OpenGL texture).
 const CAMERA_BUFFER_RAW_FRAMEBUFFER: u64 = 1;
+/// libretro.h `RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE`: the core takes over what crosses
+/// between two players, which is how the link cable reaches a second phone. (76 was an earlier
+/// number for this and was taken out of the API; 78 is the one that is there.)
+pub const ENV_SET_NETPACKET_INTERFACE: u32 = 78;
+/// libretro.h: the packet must arrive, and in the order it was sent, which a cable's bytes must.
+const NETPACKET_RELIABLE: i32 = 1 << 0;
+/// libretro.h: send it now rather than at the frontend's convenience.
+const NETPACKET_FLUSH_HINT: i32 = 1 << 2;
+/// libretro.h `RETRO_NETPACKET_BROADCAST`: to everyone else in the session. A Game Boy cable has
+/// two ends, so that is the one other phone.
+const NETPACKET_BROADCAST: u16 = 0xFFFF;
 
 /// The RTC block the frontend saves: live registers (5), latched (5), 6 spare, then the Unix
 /// time (u64, little-endian) the registers were true at. HuC3 uses it differently (see
@@ -119,6 +130,102 @@ struct CameraInterface {
 /// by 120 shades of grey. libretro hands frames over on the thread that runs `retro_run`, just
 /// before it, so it is parked here and picked up at the top of the frame.
 static CAMERA_FRAME: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+
+type NetpacketSendFn = unsafe extern "C" fn(i32, *const c_void, usize, u16);
+type NetpacketPollReceiveFn = unsafe extern "C" fn();
+type NetpacketStartFn = unsafe extern "C" fn(u16, Option<NetpacketSendFn>, Option<NetpacketPollReceiveFn>);
+type NetpacketReceiveFn = unsafe extern "C" fn(*const c_void, usize, u16);
+type NetpacketStopFn = unsafe extern "C" fn();
+type NetpacketPollFn = unsafe extern "C" fn();
+type NetpacketConnectedFn = unsafe extern "C" fn(u16) -> bool;
+type NetpacketDisconnectedFn = unsafe extern "C" fn(u16);
+
+/// libretro.h `struct retro_netpacket_callback`, field for field and in order.
+#[repr(C)]
+struct NetpacketInterface {
+    start: Option<NetpacketStartFn>,
+    receive: Option<NetpacketReceiveFn>,
+    stop: Option<NetpacketStopFn>,
+    poll: Option<NetpacketPollFn>,
+    connected: Option<NetpacketConnectedFn>,
+    disconnected: Option<NetpacketDisconnectedFn>,
+    protocol_version: *const c_char,
+}
+
+/// The version of cBoy's own cable talk. Two phones must agree on it or the frontend tells them
+/// so instead of letting the games get out of step. Bump it if the packet ever changes shape.
+const LINK_PROTOCOL: &[u8] = b"cboy-link-1\0";
+
+/// This phone's end of the cable, and the frontend's way of putting a packet on it. Kept apart
+/// from `CORE` on purpose: the frontend touches these from its own thread, between frames, and a
+/// callback that waited for the machine's own lock could sit there for a whole frame.
+static LINK: Mutex<crate::link::Cable> = Mutex::new(crate::link::Cable::new());
+static LINK_SEND: Mutex<Option<NetpacketSendFn>> = Mutex::new(None);
+
+/// The app has joined this phone to another one.
+unsafe extern "C" fn netpacket_start(_client: u16, send: Option<NetpacketSendFn>, _poll_receive: Option<NetpacketPollReceiveFn>) {
+    if let Ok(mut s) = LINK_SEND.lock() {
+        *s = send;
+    }
+    if let Ok(mut c) = LINK.lock() {
+        c.start();
+    }
+    log_line("linked up with another phone");
+}
+
+/// A packet from the other phone. Parked only: the machine is touched on its own frame.
+unsafe extern "C" fn netpacket_receive(buf: *const c_void, len: usize, _client: u16) {
+    if buf.is_null() || len == 0 || len > 64 {
+        return;
+    }
+    let bytes = std::slice::from_raw_parts(buf as *const u8, len);
+    if let Ok(mut c) = LINK.lock() {
+        c.deliver(bytes);
+    }
+}
+
+/// Between frames: everything the machine has put on the cable goes over now.
+unsafe extern "C" fn netpacket_poll() {
+    let Some(send) = LINK_SEND.lock().ok().and_then(|s| *s) else { return };
+    let mut queued = Vec::new();
+    if let Ok(mut c) = LINK.lock() {
+        while let Some(p) = c.take_out() {
+            queued.push(p);
+        }
+    }
+    // Outside the lock: the frontend may answer a send by handing a packet straight back.
+    for p in queued {
+        send(NETPACKET_RELIABLE | NETPACKET_FLUSH_HINT, p.as_ptr() as *const c_void, p.len(), NETPACKET_BROADCAST);
+    }
+}
+
+/// The session is over.
+unsafe extern "C" fn netpacket_stop() {
+    if let Ok(mut s) = LINK_SEND.lock() {
+        *s = None;
+    }
+    if let Ok(mut c) = LINK.lock() {
+        c.stop();
+    }
+    log_line("the other phone is gone, so the cable is unplugged");
+}
+
+/// Offers the frontend cBoy's side of a two-phone link. A frontend that has no such thing says
+/// no and nothing changes: the console simply has nothing plugged into it.
+unsafe fn offer_the_link(env: EnvFn) {
+    let mut cb = NetpacketInterface {
+        start: Some(netpacket_start),
+        receive: Some(netpacket_receive),
+        stop: Some(netpacket_stop),
+        poll: Some(netpacket_poll),
+        connected: None,
+        disconnected: None,
+        protocol_version: LINK_PROTOCOL.as_ptr() as *const c_char,
+    };
+    if !env(ENV_SET_NETPACKET_INTERFACE, &mut cb as *mut NetpacketInterface as *mut c_void) {
+        log_line("this app cannot join two phones up, so the link cable has nothing on the end");
+    }
+}
 
 /// The frontend's camera frame: XRGB8888 pixels in memory. Shrunk to the sensor's size (nearest
 /// sampling, which is plenty for 128 pixels across) and turned to shades of grey, because the
@@ -840,6 +947,14 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
         (Some(env), true) => ask_for_camera(env),
         _ => None,
     };
+    // A fresh game starts with nothing on the cable, whatever the last one was up to.
+    if let Ok(mut c) = LINK.lock() {
+        c.stop();
+    }
+    // Only a Game Boy game: the Advance's own link is not modelled yet.
+    if let (Some(env), true) = (env, gba_machine.is_none()) {
+        offer_the_link(env);
+    }
     if gba_machine.is_some() {
         log_line("loaded a Game Boy Advance ROM");
     } else {
@@ -886,6 +1001,13 @@ pub extern "C" fn retro_unload_game() {
     }
     if let Ok(mut f) = CAMERA_FRAME.lock() {
         *f = None;
+    }
+    // The cable goes with the game: the next one starts with nothing attached.
+    if let Ok(mut c) = LINK.lock() {
+        c.stop();
+    }
+    if let Ok(mut s) = LINK_SEND.lock() {
+        *s = None;
     }
 }
 
@@ -950,6 +1072,13 @@ pub unsafe extern "C" fn retro_run() {
     }
     core.start_sensors();
     core.run_camera();
+    // On or off the cable before the frame runs, so a transfer the game starts in it knows
+    // whether there is anybody to wait for.
+    if core.gba.is_none() {
+        if let Ok(c) = LINK.lock() {
+            c.attach(&mut core.gb.bus);
+        }
+    }
     let inputs = core.read_inputs(input);
     core.feed(&inputs);
     if core.gba.is_none() && !core.rtc_synced {
@@ -970,6 +1099,12 @@ pub unsafe extern "C" fn retro_run() {
     core.run_one(ahead == 0 && !skip);
     if core.gba.is_none() {
         core.watch_lockup(vblanks);
+        // One frame's worth of cable: what the other phone sent goes into the machine, and what
+        // the machine put on the cable goes out. Before the log is drained, so the cable's own
+        // lines come out with the frame they happened in.
+        if let Ok(mut c) = LINK.lock() {
+            c.pump(&mut core.gb.bus);
+        }
         for line in std::mem::take(&mut core.gb.bus.events) {
             log_line(&line);
         }
