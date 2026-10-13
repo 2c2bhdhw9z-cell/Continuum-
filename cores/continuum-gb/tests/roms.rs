@@ -519,6 +519,7 @@ fn mealybug(name: &str, cgb: bool) -> Option<MealyDiff> {
         gb.run_frame();
     }
     let got = &gb.bus.ppu.frame;
+    let src = &gb.bus.ppu.source;
     if let Ok(d) = std::env::var("MEALY_DUMP") {
         let mut out = format!("P6 320 144 255\n").into_bytes();
         for y in 0..144 {
@@ -558,6 +559,13 @@ fn mealybug(name: &str, cgb: bool) -> Option<MealyDiff> {
             eprintln!("    {y:>3} got  {}", row(&|x| got[y * 160 + x]));
             eprintln!("    {y:>3} want {}", row(&|x| map(want[y * 160 + x])));
             eprintln!("    {y:>3} diff {}", (0..160).map(|x| if map(want[y * 160 + x]) == got[y * 160 + x] { '.' } else { 'X' }).collect::<String>());
+            // Which stage each pixel came out of: 0 background, 1 or 2 an object through OBP0 or
+            // OBP1. A differing pixel means something quite different depending on this, and the
+            // picture alone cannot say: the four pixels left in m3_lcdc_bg_en_change sit on lines
+            // where the test puts a sprite at X=2, which made an object's left-edge pixel the
+            // obvious suspect, and this row is what ruled it out - those lines draw no object
+            // pixel anywhere, so all four are background the drawer failed to suppress.
+            eprintln!("    {y:>3} from {}", (0..160).map(|x| char::from(b'0' + src[y * 160 + x])).collect::<String>());
         }
     }
     Some(diff)

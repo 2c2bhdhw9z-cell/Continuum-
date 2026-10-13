@@ -15,7 +15,7 @@ owner should read is the last section.
 |---|---|---|
 | dmg-acid2 | pass | pass |
 | cgb-acid2 | pass | pass |
-| Mooneye DMG acceptance | 86 / 86 | 86 / 86 |
+| Mooneye DMG acceptance | 87 / 87 | 87 / 87 |
 | Mealybug Tearoom | not applicable | **24 / 55** |
 
 **23 of the 24 DMG pictures**, and the first of the 31 Color ones. The DMG picture that still
@@ -26,6 +26,11 @@ it is Color hardware, 4 can never reach zero at all, and Group 1 below has each 
 
 `tests/roms.rs::MEALYBUG_PASSING` pins all 24 by name: a change that drops one of them is wrong,
 whatever else it fixes.
+
+The Mooneye gate reads 87 rather than the 86 this file quotes further down. Nothing in this work
+moved it: another agent's link-cable work gave the serial port a real clock and added a ROM to the
+gate. Both drawers pass all 87, which is the thing that matters here — the two drawers must never
+differ in anything the CPU can see.
 
 Several rules are in that no Mealybug picture can probe, so the score does not move for them and
 they are pinned by unit tests in `ppu.rs` instead. The window's last two (the `WY` comparison
@@ -490,16 +495,39 @@ blended Color colours rather than in white against them. That is expected and me
 four of the eight lines where the test places its sprite at X=2; the other four have colour 0
 there anyway, so they carry no evidence either way.
 
-**It is not a difference between Game Boy revisions, and that is now measured too.** Mealybug
-ships a second Game Boy reference for this very test, `expected/DMG-CPU B/m3_lcdc_bg_en_change.png`
-— one of only two pictures in that folder, which is itself a hint that this test is where units
-disagree. The two Game Boy references differ in **228 pixels**, and every one of them is the
-*right-hand* end of a suppression window: `DMG-blob` suppresses one pixel more than `DMG-CPU B` at
-x=10 through x=15 and x=26 through x=31, moving one pixel right for each group of eight lines as
-the test moves its sprite. This drawer matches `DMG-blob` at all 228 of them, which is a good sign
-on its own. At x=0 on lines 19 to 22, though, **both** Game Boy references are colour 0. So the
-extra blank pixel at the left edge is what Game Boy hardware does on both units, not a quirk of
-the one the harness compares against, and switching references would trade 4 wrong pixels for 228.
+Two things about it were settled by measurement afterwards. Neither makes the four pixels pass;
+both rule out a wrong answer that looks obvious, and together they say the shape of what is
+missing.
+
+**It is not a difference between Game Boy revisions.** Mealybug ships a second Game Boy reference
+for this very test, `expected/DMG-CPU B/m3_lcdc_bg_en_change.png` — one of only two pictures in
+that folder, which is itself a hint that this test is where units disagree. The two Game Boy
+references differ in **228 pixels**, and every one of them is the *right-hand* end of a
+suppression window: `DMG-blob` suppresses one pixel more than `DMG-CPU B` at x=10 through x=15 and
+x=26 through x=31, moving one pixel right for each group of eight lines as the test moves its
+sprite. This drawer matches `DMG-blob` at all 228. At x=0 on lines 19 to 22, though, **both**
+references are colour 0, so the extra blank pixel at the left edge is what both units do.
+
+Read as windows, with the first suppression window of one of those lines written as first and last
+suppressed pixel: `DMG-CPU B` has **[0, 11]**, twelve pixels from the handler's twelve-dot gap;
+`DMG-blob` has **[0, 12]**, thirteen pixels from the same twelve dots; this drawer has
+**[1, 12]**, twelve pixels one place to the right. Both units start at the line's first pixel and
+this drawer starts at its second. **So the fix is not to move the window**: shifting it one dot
+earlier would land on `DMG-CPU B`'s window exactly and give up all 228 pixels where this drawer
+currently agrees with the reference the harness uses, trading four wrong pixels for 228. What is
+missing has to *add* a suppressed pixel at the line's first pixel while leaving the window's end
+where it is — thirteen pixels out of twelve dots — which is the one-pixel LCD/PPU desync SameBoy
+describes for some DMG units and not others, and which cBoy deliberately does not model because
+modelling it in the window breaks five passing pictures. `DMG-blob` looks like a unit that has it
+and `DMG-CPU B` like one that does not.
+
+**It is not an object's pixel either**, which was the other obvious suspect, since all four lines
+are ones where the test places a sprite at X=2 and an object's left-hand pixels are clipped there.
+`MEALY_DETAIL` now prints a `from` row saying which stage each pixel left the drawer through — 0
+for the background, 1 or 2 for an object through `OBP0` or `OBP1` — and on lines 16 to 22 that row
+is 0 across all 160 pixels: those lines draw no object pixel at all. (The row is not decoration:
+56 lines of this same test do draw object pixels, and `m3_lcdc_obj_en_change` shows them at x=0.)
+All four differing pixels are background the drawer failed to suppress.
 
 The measurement is worth writing down in full, because it rules out the obvious answers and the
 next session should not pay for it twice. The test's handler writes LCDC four times a line -
@@ -522,9 +550,14 @@ same lines and both draw ink at x=0, pixel for pixel, in the reference and here.
 
 Neither this drawer's model nor the model `Core/display.c` describes produces that pixel: in both,
 an object matching at position -6 waits three dots for the fetcher to reach its last read, then
-takes six, and the pixel stream resumes unbroken. Whatever the DMG does there is a left-edge
-detail of the object fetch that is not in the material to hand, so it is recorded and left: one
-pixel on four lines, chased no further. **Do not go looking for it by trying values.**
+takes six, and the pixel stream resumes unbroken. `fifo_overlay_object_row` lays all eight of an
+object's pixels into the object FIFO at its head and lets the left-edge clipping fall out of the
+discard, and SameBoy pops the object FIFO in lockstep with the background one through the whole
+discard, exactly as `render_pixel` does — so for an object at X=2 both put the object's seventh
+pixel at x=0 and both leave the background stream unbroken. Whatever the DMG does there is a
+left-edge detail that is not in the material to hand, so it is recorded and left: one pixel on four
+lines, chased no further. **Do not go looking for it by trying values**, and in particular do not
+move the window start: the paragraph above measures what that costs.
 
 Re-checked once more while the object model was being gone over against `Core/display.c` line by
 line (the wait before a fetch, the six dots, the X=0 hold, the row address, the 8x16 masking, the
