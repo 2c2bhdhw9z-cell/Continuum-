@@ -59,6 +59,32 @@ fourth player in Continuum. The four-pad poll that came with the multitap work f
 every J-Cart game the database knows (Micro Machines 2, Micro Machines Military, Micro Machines
 96, Pete Sampras Tennis and now Super Skidmarks).
 
+## Not done tonight (A9: Mesen 2 as a second SNES choice), and why
+
+Mesen 2 does play SNES games, but everything the Continuum patch
+(`scripts/patches/mesen2-nes-memory-cheats-saves.patch`) gave it is written for the NES only, and
+that was checked line by line tonight:
+
+- **Memory for RAM search and achievements:** `retro_get_memory_data`,
+  `retro_get_memory_size` and the memory map all return early unless the console is
+  `ConsoleType::Nes`. On SNES the app would get nothing: no RAM search, no achievements.
+- **Cheats:** `retro_cheat_set` returns on the same test, so a typed code would be stored and do
+  nothing.
+- **In-game saves:** the patch tells Mesen the frontend owns the battery RAM
+  (`BatteryManager::SetFrontendOwnsSaveRam(true)`, honoured in `NES/BaseMapper`), and the SNES
+  cartridge code never saw that change. With no `RETRO_MEMORY_SAVE_RAM` on SNES either, an SNES
+  save would end up in a file of Mesen's own, outside Continuum's saves, so it would not be backed
+  up, synced or visible in the app.
+
+So Mesen 2 was NOT offered for SNES. Offering it would have given players a core that cannot
+cheat, cannot search RAM, cannot earn achievements, and whose saves quietly leave the app's save
+system, which is worse than not offering it. What it needs: the three gates widened to SNES
+(`MemoryType::SnesSaveRam` and `SnesWorkRam`, the SNES cheat types, WRAM at `$7E0000` in the
+memory map) and the SNES cartridge's own battery load/save skipped the way `BaseMapper`'s is.
+Mesen 2 is a REQUIRED core in `scripts/build-core.sh`, so a patch that does not compile fails the
+whole build and the owner gets no .ipa: that work wants a session that can build it, not a blind
+patch overnight. Speed on an iPhone still needs the phone either way.
+
 ## Notes for whoever builds next
 
 - **Editing `scripts/build-core.sh` rebuilds every core** (the per-core fingerprint hashes the
