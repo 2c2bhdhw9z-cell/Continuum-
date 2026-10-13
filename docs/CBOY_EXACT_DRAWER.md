@@ -16,15 +16,15 @@ owner should read is the last section.
 | dmg-acid2 | pass | pass |
 | cgb-acid2 | pass | pass |
 | Mooneye DMG acceptance | 86 / 86 | 86 / 86 |
-| Mealybug Tearoom | not applicable | **23 / 55** |
+| Mealybug Tearoom | not applicable | **24 / 55** |
 
-All 23 are DMG pictures, which is **23 of the 24 DMG pictures**. The one that still fails is
-`m3_lcdc_bg_en_change`, and it is **four pixels** away: one pixel on each of four lines, all of
-them x=0, all of them on the eight lines where that test places a sprite at X=2. The 31 CGB
-pictures are blocked outside this drawer, as Group 1 below explains, and 4 of those can never
-reach zero at all.
+**23 of the 24 DMG pictures**, and the first of the 31 Color ones. The DMG picture that still
+fails is `m3_lcdc_bg_en_change`, and it is **four pixels** away: one pixel on each of four lines,
+all of them x=0, all of them on the eight lines where that test places a sprite at X=2. Of the
+Color pictures, 3 now need nothing but the compatibility palette, 6 need only the drawer to know
+it is Color hardware, 4 can never reach zero at all, and Group 1 below has each one by name.
 
-`tests/roms.rs::MEALYBUG_PASSING` pins all 23 by name: a change that drops one of them is wrong,
+`tests/roms.rs::MEALYBUG_PASSING` pins all 24 by name: a change that drops one of them is wrong,
 whatever else it fixes.
 
 Several rules are in that no Mealybug picture can probe, so the score does not move for them and
@@ -64,6 +64,16 @@ register-write dots below.
 With the three together you get, for each of the eighteen sprite positions a test sweeps, the
 exact first and last pixel of every window of suppressed pixels, in both pictures. A window that
 is one pixel wide at the wrong place is then a fact, not a guess.
+
+A fourth kind of measurement settled Group 1, and it needs no emulator at all: compare two
+**reference** pictures to each other. Map each one back to shade indices 0-3 through the palette
+its console used — the Game Boy's four greys, or the compatibility palette below — and the answer
+says which half of a difference you are looking at. Same shade index everywhere means the two
+consoles drew the same picture and only the colour differs, which is a palette matter; a different
+shade index means the hardware really did draw something else, which is a timing matter. Counting
+the distinct colours in a reference is worth doing first for the same reason: a reference that
+contains only black and white cannot be failing on palette at all. Both were done with a throwaway
+PNG reader outside the repository; neither needs to live in the tests.
 
 ## Where the specification comes from
 
@@ -361,43 +371,103 @@ dot 452 and the start of line 144.
 See "Needed in files this work does not own" below for the three lines that switch it on, and what
 was measured with them in place.
 
-## The 32 failures, grouped
+## The 31 failures, grouped
 
 Counts are differing pixels as the report prints them.
 
-### Group 1 — blocked outside this drawer: CGB DMG-compatibility colour (31 pictures)
+### Group 1 — the Color pictures: the harness was running the wrong console (30 pictures)
 
-**Every one of the 31 CGB pictures is held back by this, before any timing question.** The
-Mealybug ROMs are DMG cartridges; the CGB references were captured from a DMG cartridge running on
-a CGB, where the boot ROM picks a colour palette from a hash of the cartridge title and the game
-keeps using `BGP`/`OBP0`/`OBP1`. Measured from the reference pictures, they use exactly one
-palette set: background `FFFFFF` / `7BFF31` / `0063C6` / `000000`, objects `FFFFFF` / `FF8484` /
-`943939` / `000000`.
+This group was misread until it was measured, so the finding comes first: **the Color references
+were being compared against a machine they were never captured on.**
 
-cBoy has no DMG-compatibility mode. `gb.rs` starts a CGB with every palette entry white
-(`bg_pal = vec![0xFF, 0x7F].repeat(32)`), and both drawers take the CGB path, which indexes
-`bg_pal` by the tile attribute and ignores `BGP` entirely. So a DMG ROM forced into CGB mode draws
-a white screen, which is why these failures are enormous and nearly all report `got FFFFFF`:
-`cgb:m3_window_timing_wx_0` 21942, `cgb:m3_window_timing` 21687, `cgb:m3_bgp_change_sprites`
-20340, `cgb:m3_lcdc_win_en_change_multiple` 18990, `cgb:m3_scy_change` 18188,
-`cgb:m3_scx_high_5_bits` 17419, `cgb:m3_bgp_change` 15936, `cgb:m3_lcdc_bg_en_change` 15894, and
-so on down to `cgb:m3_lcdc_obj_en_change` at 206.
+Every one of the 31 Mealybug ROMs is a **Game Boy cartridge** — header byte `$143` is `00` in all
+of them, no test invokes the `cgb_mode` macro that would set it, and no test reads register `A` at
+boot to ask which console it is. Mealybug's README says the folder a reference sits in names the
+console it was photographed on, and that these tests deliberately give different results on a
+Game Boy and a Color. So the `CPU CGB C` pictures are **a Game Boy cartridge in a Color console**,
+which is that console's **Game Boy-compatibility mode**: the boot ROM picks a colour palette from
+a hash of the cartridge title, and the game goes on using `BGP`/`OBP0`/`OBP1`. Measured from the
+references, all of them use one palette set: background `FFFFFF` / `7BFF31` / `0063C6` / `000000`,
+objects `FFFFFF` / `FF8484` / `943939` / `000000`.
+
+The harness was instead building the machine with `GameBoy::new_mode(rom, true)`, which is full
+**colour** mode — the same thing the core's own "Game Boy cartridge in Color mode" option does by
+rewriting `$143`. In colour mode the drawer indexes `bg_pal` by the tile attribute and ignores
+`BGP`, and `gb.rs` starts every palette entry white, so a Game Boy cartridge drew a **white
+screen** and all 31 pictures failed enormously. (That is not a bug in colour mode: a real Color
+console given a cartridge whose header claims colour does not colourise it either, and its boot
+ROM leaves the palettes white. It is simply not this reference's machine.)
+
+`tests/roms.rs` now builds the Color runs with `GameBoy::with_model(rom, Model::Cgb, None)`, which
+for a Game Boy cartridge is exactly compatibility mode — `gb.rs` already implements it, and it is
+what a player gets today when they pick the Color console for an old game. **That alone took
+Mealybug from 23 to 24**, and it turned the other failures from "everything is white" into real,
+small, readable differences: `m3_window_timing` 21687 → **138**, `m3_window_timing_wx_0` 21942 →
+**144**, `m3_lcdc_obj_en_change` 206 → **60**, `m3_lcdc_win_map_change` 1102 → **182**,
+`m3_lcdc_bg_map_change` 1362 → **384**.
+
+The 30 that still fail now split four ways, each measured rather than guessed. The method was to
+map both references back to **shade indices** through the palettes above: where the Color
+reference and the DMG reference have the same shade index everywhere, the two consoles drew the
+same picture and only the colour differs; where they do not, the Color hardware really did draw
+something else.
+
+1. **Needs nothing but the compatibility palette (3 pictures).** `cgb:m2_win_en_toggle`,
+   `cgb:m3_lcdc_win_en_change_multiple` and `cgb:m3_wx_4_change_sprites`. Their references are the
+   DMG picture shade for shade, and this drawer already draws all three of those DMG pictures
+   pixel for pixel. Every differing pixel is a shade 1 or 2 that wants `7BFF31` or `FF8484` and
+   gets the Game Boy's `AAAAAA`. **Load the palette in `gb.rs` and these three pass**, taking the
+   score to 27 with no change to the drawer at all.
+2. **Black and white already, so no palette needed — but the Color drew a different picture
+   (6 pictures).** `cgb:m3_lcdc_bg_map_change` 384, `cgb:m3_lcdc_obj_en_change_variant` 268,
+   `cgb:m3_lcdc_win_map_change` 182, `cgb:m3_window_timing_wx_0` 144,
+   `cgb:m3_window_timing` 138, `cgb:m3_lcdc_obj_en_change` 60. These references contain only
+   `FFFFFF` and `000000`, which are the same two colours in the compatibility palette as in the
+   Game Boy's greys, so colour cannot be what is wrong: what is left is Color **timing**. Note the
+   shape of it — `m3_window_timing` differs by 138 pixels on 138 lines and `m3_window_timing_wx_0`
+   by 144 on 144, i.e. **one pixel per line**, the window starting a pixel later on a Color than
+   on a Game Boy. SameBoy has exactly one DMG-only pixel in its window start (the `lcd_x--`
+   desync described above, which cBoy leaves out because the DMG references do not show it), and
+   this is very likely its other side. **It is not implemented, because it cannot be measured
+   yet:** the drawer only knows it is Color hardware through `ppu.cgb_hardware`, which nothing
+   sets (three lines in `gb.rs`, below). Writing the rule now would mean asserting an inference
+   against a test written from the same inference, which is how the score moved up and down
+   before. Once those three lines land, these six have the clearest evidence of anything left
+   here, and each one's gap is already counted to the pixel.
+3. **The seven `*2` variants.** `m3_lcdc_bg_en_change2`, `m3_lcdc_bg_map_change2`,
+   `m3_lcdc_tile_sel_change2`, `m3_lcdc_tile_sel_win_change2`, `m3_lcdc_win_map_change2`,
+   `m3_scx_high_5_bits_change2` and `m3_scy_change2` have a Color reference and no DMG one. They
+   are also Game Boy cartridges, so they run in compatibility mode too, where the Color palette
+   registers cannot be written — which is why their references show the boot palette's `FF8484`
+   and not the colours the ROMs try to set. All seven need the palette, and most need Color timing
+   as well.
+4. **The remaining 10 need both the palette and Color timing.** `cgb:m3_bgp_change`,
+   `cgb:m3_bgp_change_sprites`, `cgb:m3_lcdc_bg_en_change`, `cgb:m3_lcdc_obj_size_change`,
+   `cgb:m3_lcdc_obj_size_change_scx`, `cgb:m3_lcdc_tile_sel_change`,
+   `cgb:m3_lcdc_tile_sel_win_change`, `cgb:m3_obp0_change`, `cgb:m3_scx_high_5_bits` and
+   `cgb:m3_scy_change`. (`m3_scy_change` is the known revision difference: `Y` is re-read at the
+   `0` and `1` address dots on a Game Boy and on Color revisions up to CPU CGB C, so this one also
+   needs the drawer to tell CGB-C from CGB-D.)
 
 **What is needed, and where.** Two halves, and only the second is in a file this work owns:
 
-1. **In `gb.rs` (not owned by this work).** When a CGB is given a cartridge whose header byte
-   `$143` does not have bit 7 set, enter DMG-compatibility mode: load the boot ROM's colourisation
-   palette into `bg_pal` and `obj_pal` and record that the machine is in compatibility mode. For
-   these test ROMs the palette above is the one required. A real boot ROM derives it from the
-   title hash; a table of the boot ROM's palette sets, keyed by that hash, is the honest
-   implementation.
-2. **In the drawers (owned).** While in compatibility mode, `BGP` must index background palette 0
-   and `OBP0`/`OBP1` must index object palettes 0 and 1, exactly as on a DMG, instead of the tile
-   attribute selecting the palette. Without step 1 this changes a white screen into a white
-   screen, so it cannot be done or tested first.
-
-Until step 1 exists, **the CGB half of Mealybug cannot move**, and chasing it from `fifo.rs` would
-be guessing. The honest ceiling for this work is therefore the 24 DMG pictures, of which 23 pass.
+1. **In `gb.rs` (not owned by this work).** When a Color is given a cartridge whose header byte
+   `$143` does not have bit 7 set, load the boot ROM's colourisation palette into `bg_pal` and
+   `obj_pal`. For these test ROMs the palette above is the one required. A real boot ROM derives
+   it from the title hash; a table of the boot ROM's palette sets, keyed by that hash, is the
+   honest implementation. The mode itself already exists and works — `with_model` runs a Game Boy
+   cartridge on a Color in Game Boy mode today — so this is the palette and nothing else.
+2. **In the drawers (owned), one change, and it needs the flag first.** In compatibility mode the
+   hardware really does draw through the Color's palette memory — the boot ROM writes the palette
+   it picked into it — but the index comes from `BGP`/`OBP0`/`OBP1` as on a Game Boy, not from the
+   tile attribute. So both drawers need: while in compatibility mode, look the colour up in
+   `bg_pal` entry `BGP`-shade and in `obj_pal` entry `OBP`-shade of palette 0 or 1, instead of
+   using the fixed `SHADES` greys. Today they use `SHADES`, because `ppu.cgb` is false in
+   compatibility mode and that is all they can see. The condition for it is
+   `cgb_hardware && !cgb`, so **this cannot be written until `ppu.cgb_hardware` is set** (the
+   three lines below); with the flag unwired the code would be unreachable and untestable, and
+   writing it blind is what this work is not allowed to do. It is small, and it is the same change
+   in `ppu.rs::render_line` and in `fifo.rs`'s output stage.
 
 ### Group 1a — four CGB references that can never reach zero
 
@@ -405,16 +475,31 @@ be guessing. The honest ceiling for this work is therefore the 24 DMG pictures, 
 `cgb:m3_lcdc_win_en_change_multiple_wx` each contain **1146 pixels in 169 colours that a CGB
 cannot output**: their channel values are not on the 5-bit ladder `(v << 3) | (v >> 2)` that every
 real CGB colour sits on. The reference pictures were evidently captured through some blending.
-All four currently report 1211 differing pixels, so they are already within 65 pixels of a floor
-of 1146. **They must never be counted as achievable, and no change should ever be made to chase
-them.** Note the DMG references for the same four tests are clean four-grey pictures, and all
-four of those DMG pictures pass.
+**They must never be counted as achievable, and no change should ever be made to chase them.**
+Note the DMG references for the same four tests are clean four-grey pictures, and all four of
+those DMG pictures pass.
+
+Their counts moved with the console fix in Group 1 and are no longer near the floor — 18648,
+19811, 19701 and 23038 — because these four are now being drawn in the Game Boy's greys against
+blended Color colours rather than in white against them. That is expected and means nothing: the
+1146-pixel floor is a property of the reference pictures, not of the drawer.
 
 ### Group 2 — the one DMG picture still failing, and exactly what it is
 
 `dmg:m3_lcdc_bg_en_change`, **4 pixels on 4 lines**, all of them x=0, on lines 19 to 22. Those are
 four of the eight lines where the test places its sprite at X=2; the other four have colour 0
 there anyway, so they carry no evidence either way.
+
+**It is not a difference between Game Boy revisions, and that is now measured too.** Mealybug
+ships a second Game Boy reference for this very test, `expected/DMG-CPU B/m3_lcdc_bg_en_change.png`
+— one of only two pictures in that folder, which is itself a hint that this test is where units
+disagree. The two Game Boy references differ in **228 pixels**, and every one of them is the
+*right-hand* end of a suppression window: `DMG-blob` suppresses one pixel more than `DMG-CPU B` at
+x=10 through x=15 and x=26 through x=31, moving one pixel right for each group of eight lines as
+the test moves its sprite. This drawer matches `DMG-blob` at all 228 of them, which is a good sign
+on its own. At x=0 on lines 19 to 22, though, **both** Game Boy references are colour 0. So the
+extra blank pixel at the left edge is what Game Boy hardware does on both units, not a quirk of
+the one the harness compares against, and switching references would trade 4 wrong pixels for 228.
 
 The measurement is worth writing down in full, because it rules out the obvious answers and the
 next session should not pay for it twice. The test's handler writes LCDC four times a line -
@@ -474,13 +559,17 @@ right edge for edge and all five differences left are the Color's.
 
 ## What is left, in order
 
-1. **Three lines in `gb.rs` to tell the PPU it is Color hardware** (not owned here; see below).
-   The cheapest thing left anywhere in this file by a wide margin: the rule is already written and
-   tested, and applying them was measured to take Mooneye Color from 4 of 5 ROMs to 5 of 5 with
-   nothing else moving. Do this one first.
-2. **CGB DMG-compatibility colour, in `gb.rs`** (not owned here). 31 pictures, none reachable
-   before it, and 4 of them not reachable at all. This is now by far the largest item, and it is
-   worth doing for players as much as for the tests.
+1. **The compatibility palette, in `gb.rs`** (not owned here). Group 1 step 1. **Three Color
+   pictures pass the moment it lands, with no change to either drawer** — that is measured, not
+   hoped for — and it is worth far more than the tests: it is why an old black-and-white game
+   looks grey on cBoy's Color console instead of coloured the way a real one colours it. Nine
+   more pictures need it as well as other things.
+2. **Three lines in `gb.rs` to tell the PPU it is Color hardware** (not owned here; see below).
+   Still the cheapest change in this file: the rule it switches on is already written and tested,
+   and applying them was measured to take Mooneye Color from 4 of 5 ROMs to 5 of 5 with nothing
+   else moving. It has become worth more since, because it is also what unblocks the six
+   black-and-white Color pictures in Group 1 step 2 and the drawer half of the palette work —
+   neither of which can honestly be written while the flag is dead.
 3. **`Bus::write` applying an IO write at the hardware's point in the M-cycle** (not owned here;
    see below). That would let `WRITE_BIAS` and `WX_LAG` go to zero and the staging be written
    purely as the hardware's, with no correction constants at all. It would not move the score.
@@ -570,13 +659,24 @@ while sprites are switched off. Both are now the timing the real chip has. No ga
 notice, and a game that counts those moments closely can only be better off; all 86 timing tests
 still pass on both drawers.
 
+Nothing in this latest piece of work changes a game at all: it was a mistake in the *test*, not in
+cBoy. Half of that test set is photographs of these test games running on a Game Boy Color, and
+cBoy was being asked to match them while pretending the game was a Colour game — which a real
+Colour console never does with an old black-and-white cartridge. Running them the way a real
+console runs them made the first of those 31 pictures pass, and shrank the gap on the others from
+thousands of wrong pixels to a hundred or so, which is what makes the rest findable. It also
+turned up one thing worth doing for you rather than for the tests, written down for whoever owns
+that file: when cBoy's Colour console plays an old black-and-white game it shows it in grey, where
+a real Colour console tints it (greens and blues). That is one palette away, and three more of
+those pictures pass the moment it is in.
+
 The exact drawer has been rebuilt from scratch to work the way the real Game Boy chip does, step
 by step, instead of the pile of patches it was. On the test set that measures this exactly, it
-went from **5 pictures right out of 55 to 23**. Twenty-three is also all but one of the 24 tests
-that are *possible* to pass today, and the last one is four pixels away: the other 31 are held up
-by a separate problem (cBoy does not yet colour an old black-and-white game the way a Game Boy
-Color does, so those come out white in Colour mode), which is written down for whoever fixes that
-file.
+went from **5 pictures right out of 55 to 24**. Twenty-three of those are the Game Boy half, which
+is all but one of the 24 Game Boy pictures, and that last one is four pixels away. The 24th is the
+first of the Colour half, and the rest of that half is held up by the colouring described above
+and by cBoy's drawer not yet being told when it is Colour hardware - both written down for whoever
+owns those files, with the exact number of pictures each one is worth.
 
 **It is still not worth switching on for playing games.** No real game has been tried on it on a
 phone, so Standard stays the one to use. The next session can pick this up from the notes above

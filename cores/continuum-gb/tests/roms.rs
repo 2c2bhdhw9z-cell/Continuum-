@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use continuum_gb::gb::GameBoy;
+use continuum_gb::gb::{GameBoy, Model};
 
 fn rom(name: &str) -> Option<Vec<u8>> {
     let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms").join(name);
@@ -504,7 +504,16 @@ fn mealybug(name: &str, cgb: bool) -> Option<MealyDiff> {
     let data = std::fs::read(dir.join(format!("{name}.gb"))).ok()?;
     let exp = std::fs::read(dir.join("expected").join(if cgb { "CPU CGB C" } else { "DMG-blob" }).join(format!("{name}.png"))).ok()?;
     let want = png_rgb(&exp);
-    let mut gb = GameBoy::new_mode(data, cgb).ok()?;
+    // Every one of these ROMs is a Game Boy cartridge (header $143 = 0, and no test sets the
+    // colour flag or asks which console it is), and the folder a reference sits in names the
+    // console it was photographed on. So the Color references are a Game Boy cartridge in a
+    // Color console: that console's Game Boy-compatibility mode, which keeps the cartridge's own
+    // BGP/OBP palettes, and NOT its colour mode, which would leave every palette entry white.
+    let mut gb = if cgb {
+        GameBoy::with_model(data, Model::Cgb, None).ok()?
+    } else {
+        GameBoy::new_mode(data, false).ok()?
+    };
     gb.bus.ppu.exact = true;
     for _ in 0..600 {
         gb.run_frame();
@@ -640,9 +649,17 @@ fn mealybug_report() {
 
 /// The Mealybug pictures the exact drawer gets pixel for pixel. This list only ever grows: a
 /// change that drops one of these is wrong, whatever else it fixes. All 24 DMG pictures are here
-/// bar `m3_lcdc_bg_en_change`, which is four pixels away (see docs/CBOY_EXACT_DRAWER.md); the 31
-/// CGB ones are blocked on CGB DMG-compatibility colourisation in gb.rs.
+/// bar `m3_lcdc_bg_en_change`, which is four pixels away (see docs/CBOY_EXACT_DRAWER.md).
+///
+/// One of the 31 Color pictures is here too, and it is the only one that can be: these ROMs are
+/// Game Boy cartridges, so a Color console runs them in Game Boy-compatibility mode and colours
+/// them with the palette its boot ROM picked. `m3_scx_low_3_bits` is the one whose reference uses
+/// nothing but black and white, which are the same two colours in that palette as in the Game
+/// Boy's greys, so it needs no colourisation at all. The other 30 need the compatibility palette
+/// loaded in gb.rs, and most of them also need the drawer to know it is Color hardware - both
+/// are set out in docs/CBOY_EXACT_DRAWER.md.
 const MEALYBUG_PASSING: &[&str] = &[
+    "cgb:m3_scx_low_3_bits",
     "dmg:m2_win_en_toggle",
     "dmg:m3_bgp_change",
     "dmg:m3_bgp_change_sprites",
