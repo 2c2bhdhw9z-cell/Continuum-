@@ -1,5 +1,5 @@
 diff --git a/libblastem.c b/libblastem.c
-index 9bb014f..943c4ad 100644
+index 9bb014f..3e099c5 100644
 --- a/libblastem.c
 +++ b/libblastem.c
 @@ -14,6 +14,8 @@
@@ -91,7 +91,41 @@ index 9bb014f..943c4ad 100644
  }
  
  static vid_std video_standard;
-@@ -1032,6 +1086,48 @@ static void release_media(void)
+@@ -823,6 +877,8 @@ RETRO_API void retro_reset(void)
+  */
+ static uint8_t started;
+ static void poll_input(void);
++//Continuum: the cheat list, which lives with the loaded machine further down.
++static void continuum_apply_cheats(void);
+ RETRO_API void retro_run(void)
+ {
+ 	bool options_updated = false;
+@@ -842,6 +898,8 @@ RETRO_API void retro_run(void)
+ 	}
+ 	//once per frame, before the machine that will read it runs
+ 	poll_input();
++	//Continuum: and the cheats, so a RAM code holds against the game writing over it.
++	continuum_apply_cheats();
+ 	frame_presented = 0;
+ 	if (started) {
+ 		current_system->resume_context(current_system);
+@@ -904,13 +962,8 @@ RETRO_API bool retro_unserialize(const void *data, size_t size)
+ 	return 1;
+ }
+ 
+-RETRO_API void retro_cheat_reset(void)
+-{
+-}
+-
+-RETRO_API void retro_cheat_set(unsigned index, bool enabled, const char *code)
+-{
+-}
++//Continuum: retro_cheat_reset() and retro_cheat_set() are further down, next to the loaded
++//machine they write into.
+ 
+ static system_type option_system_type(void)
+ {
+@@ -1032,6 +1085,260 @@ static void release_media(void)
  /* Loads a game. */
  static system_type stype;
  static bool load_game(const struct retro_game_info *game);
@@ -137,10 +171,222 @@ index 9bb014f..943c4ad 100644
 +	struct retro_memory_map map = { desc, 3 };
 +	retro_environment(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &map);
 +}
++
++//Continuum: typed cheat codes, which this glue used to throw away. Two shapes, which is
++//every shape a Mega Drive, Sega CD or 32X code is written in:
++//
++//  - Game Genie, eight symbols with an optional hyphen (SCRA-BAX0). The device sat between
++//    the cartridge and the console and answered one ROM word itself, so a code is a ROM
++//    address and the word to put there. Each symbol is five bits out of
++//    "ABCDEFGHJKLMNPRSTVWXYZ0123456789" (no I, O, Q or U) and the 40 bits they make are
++//    shuffled: counting from the top, the address is bits 17-24, 9-16, 33-40 and the value
++//    is bits 30-32, 25-29, 1-8. Written from the public description of the encoding at
++//    https://wiki.gamehacking.org/Hacking_Genesis and checked against its worked example
++//    (SCRA-BAX0 puts $5078 at $009C76).
++//  - Pro Action Replay, and a plain address and value: a 24-bit address, a colon, then a
++//    byte or a word (FFFE12:0003). The colon is what tells the two apart, since eight hex
++//    digits would also be eight valid Game Genie symbols.
++//
++//A ROM address is patched once and put back when the code is switched off. A work RAM
++//address is written again after every frame, because the game writes over it.
++#define CONTINUUM_MAX_CHEATS 128
++typedef struct {
++	uint8_t  used;
++	uint8_t  enabled;
++	uint8_t  width;    //1 or 2 bytes
++	uint8_t  held;     //original holds the word that was under a ROM patch
++	uint32_t address;
++	uint16_t value;
++	uint16_t original;
++} continuum_cheat;
++static continuum_cheat continuum_cheats[CONTINUUM_MAX_CHEATS];
++
++static int continuum_hex_digit(char c)
++{
++	if (c >= '0' && c <= '9') {
++		return c - '0';
++	}
++	if (c >= 'a' && c <= 'f') {
++		return c - 'a' + 10;
++	}
++	if (c >= 'A' && c <= 'F') {
++		return c - 'A' + 10;
++	}
++	return -1;
++}
++
++static uint8_t continuum_genie_decode(const char *code, uint32_t *address, uint16_t *value)
++{
++	static const char symbols[] = "ABCDEFGHJKLMNPRSTVWXYZ0123456789";
++	uint64_t bits = 0;
++	int digits = 0;
++	for (const char *c = code; *c; c++)
++	{
++		if (*c == '-' || *c == ' ' || *c == '\t') {
++			continue;
++		}
++		char upper = (*c >= 'a' && *c <= 'z') ? *c - ('a' - 'A') : *c;
++		const char *at = strchr(symbols, upper);
++		if (!at || digits == 8) {
++			return 0;
++		}
++		bits = bits << 5 | (uint64_t)(at - symbols);
++		digits++;
++	}
++	if (digits != 8) {
++		return 0;
++	}
++	*address = (uint32_t)((bits & 0xFF0000) | ((bits >> 16) & 0xFF00) | (bits & 0xFF));
++	*value = (uint16_t)(((bits & 0x700) << 5) | ((bits >> 3) & 0x1F00) | (bits >> 32));
++	return 1;
++}
++
++static uint8_t continuum_pair_decode(const char *code, uint32_t *address, uint16_t *value, uint8_t *width)
++{
++	const char *colon = strchr(code, ':');
++	if (!colon) {
++		return 0;
++	}
++	uint32_t addr = 0, val = 0;
++	int addr_digits = 0, value_digits = 0;
++	for (const char *c = code; c != colon; c++)
++	{
++		if (*c == ' ' || *c == '\t') {
++			continue;
++		}
++		int nibble = continuum_hex_digit(*c);
++		if (nibble < 0 || addr_digits == 6) {
++			return 0;
++		}
++		addr = addr << 4 | (uint32_t)nibble;
++		addr_digits++;
++	}
++	for (const char *c = colon + 1; *c; c++)
++	{
++		if (*c == ' ' || *c == '\t') {
++			continue;
++		}
++		int nibble = continuum_hex_digit(*c);
++		if (nibble < 0 || value_digits == 4) {
++			return 0;
++		}
++		val = val << 4 | (uint32_t)nibble;
++		value_digits++;
++	}
++	if (!addr_digits || (value_digits != 2 && value_digits != 4)) {
++		return 0;
++	}
++	*address = addr;
++	*value = (uint16_t)val;
++	*width = value_digits == 2 ? 1 : 2;
++	return 1;
++}
++
++//The word a Mega Drive address lives in, or NULL for an address this cannot reach. Work RAM
++//answers from $E00000 up, where it is mirrored; a cartridge is only patchable on a machine
++//that has one, and only inside the image that was loaded.
++static uint16_t *continuum_cheat_target(uint32_t address, uint8_t *is_rom)
++{
++	if (!current_system || (stype != SYSTEM_GENESIS && stype != SYSTEM_SEGACD && stype != SYSTEM_32X)) {
++		return NULL;
++	}
++	genesis_context *gen = (genesis_context *)current_system;
++	if (address >= 0xE00000) {
++		*is_rom = 0;
++		return gen->work_ram + ((address & 0xFFFF) >> 1);
++	}
++	if (stype == SYSTEM_SEGACD || !gen->cart || address + 1 >= current_system->info.rom_size) {
++		return NULL;
++	}
++	*is_rom = 1;
++	return gen->cart + (address >> 1);
++}
++
++static void continuum_write_cheat(const continuum_cheat *cheat, uint16_t *word)
++{
++	if (cheat->width == 2) {
++		*word = cheat->value;
++	} else if (cheat->address & 1) {
++		//A word is held in host order, and the console is big endian, so an odd address is
++		//the low half of it.
++		*word = (*word & 0xFF00) | (cheat->value & 0xFF);
++	} else {
++		*word = (*word & 0x00FF) | (uint16_t)((cheat->value & 0xFF) << 8);
++	}
++}
++
++//Once a frame from retro_run(), and again whenever the list changes, so a RAM code holds
++//against the game writing over it.
++static void continuum_apply_cheats(void)
++{
++	for (size_t i = 0; i < CONTINUUM_MAX_CHEATS; i++)
++	{
++		continuum_cheat *cheat = continuum_cheats + i;
++		if (!cheat->used) {
++			continue;
++		}
++		uint8_t is_rom = 0;
++		uint16_t *word = continuum_cheat_target(cheat->address, &is_rom);
++		if (!word) {
++			continue;
++		}
++		if (cheat->enabled) {
++			if (is_rom && !cheat->held) {
++				cheat->original = *word;
++				cheat->held = 1;
++			}
++			continuum_write_cheat(cheat, word);
++		} else if (is_rom && cheat->held) {
++			*word = cheat->original;
++			cheat->held = 0;
++		}
++	}
++}
++
++RETRO_API void retro_cheat_reset(void)
++{
++	//Switched off first, so a ROM word a code was holding goes back before it is forgotten.
++	for (size_t i = 0; i < CONTINUUM_MAX_CHEATS; i++)
++	{
++		continuum_cheats[i].enabled = 0;
++	}
++	continuum_apply_cheats();
++	memset(continuum_cheats, 0, sizeof(continuum_cheats));
++}
++
++RETRO_API void retro_cheat_set(unsigned index, bool enabled, const char *code)
++{
++	if (index >= CONTINUUM_MAX_CHEATS || !code) {
++		return;
++	}
++	continuum_cheat *cheat = continuum_cheats + index;
++	uint32_t address = 0;
++	uint16_t value = 0;
++	uint8_t width = 2;
++	if (!continuum_pair_decode(code, &address, &value, &width)
++	    && !continuum_genie_decode(code, &address, &value)) {
++		//A code this cannot read is dropped rather than guessed at. The app has already
++		//told the player which kinds this emulator takes.
++		return;
++	}
++	//Whatever this slot held before goes back first, so changing a code does not leave the
++	//old ROM word patched.
++	if (cheat->used && cheat->held) {
++		cheat->enabled = 0;
++		continuum_apply_cheats();
++	}
++	cheat->used = 1;
++	cheat->enabled = enabled ? 1 : 0;
++	cheat->width = width;
++	cheat->address = address;
++	cheat->value = value;
++	continuum_apply_cheats();
++}
++
  RETRO_API bool retro_load_game(const struct retro_game_info *game)
  {
  	last_warning[0] = 0;
-@@ -1114,6 +1210,7 @@ static bool load_game(const struct retro_game_info *game)
+@@ -1114,6 +1421,7 @@ static bool load_game(const struct retro_game_info *game)
  	retro_environment(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &format);
  
  	update_av_info();
@@ -148,7 +394,7 @@ index 9bb014f..943c4ad 100644
  
  	return 1;
  }
-@@ -1154,7 +1251,9 @@ RETRO_API void *retro_get_memory_data(unsigned id)
+@@ -1154,7 +1462,9 @@ RETRO_API void *retro_get_memory_data(unsigned id)
  	switch (id) {
  	case RETRO_MEMORY_SYSTEM_RAM:
  		switch (stype) {
@@ -159,7 +405,7 @@ index 9bb014f..943c4ad 100644
  			genesis_context *gen = (genesis_context *)current_system;
  			return (uint8_t *)gen->work_ram;
  		}
-@@ -1167,10 +1266,15 @@ RETRO_API void *retro_get_memory_data(unsigned id)
+@@ -1167,10 +1477,15 @@ RETRO_API void *retro_get_memory_data(unsigned id)
  		}
  		break;
  	case RETRO_MEMORY_SAVE_RAM:
@@ -176,7 +422,7 @@ index 9bb014f..943c4ad 100644
  		}
  		break;
  	default:
-@@ -1185,6 +1289,8 @@ RETRO_API size_t retro_get_memory_size(unsigned id)
+@@ -1185,6 +1500,8 @@ RETRO_API size_t retro_get_memory_size(unsigned id)
  	case RETRO_MEMORY_SYSTEM_RAM:
  		switch (stype) {
  		case SYSTEM_GENESIS:
@@ -185,7 +431,7 @@ index 9bb014f..943c4ad 100644
  			return RAM_WORDS * sizeof(uint16_t);
  #ifndef NO_Z80
  		case SYSTEM_SMS:
-@@ -1193,10 +1299,12 @@ RETRO_API size_t retro_get_memory_size(unsigned id)
+@@ -1193,10 +1510,12 @@ RETRO_API size_t retro_get_memory_size(unsigned id)
  		}
  		break;
  	case RETRO_MEMORY_SAVE_RAM:
@@ -199,7 +445,7 @@ index 9bb014f..943c4ad 100644
  		}
  		break;
  	default:
-@@ -1312,15 +1420,16 @@ uint32_t render_overscan_bot()
+@@ -1312,15 +1631,16 @@ uint32_t render_overscan_bot()
  //never arrive.
  static void poll_input(void)
  {

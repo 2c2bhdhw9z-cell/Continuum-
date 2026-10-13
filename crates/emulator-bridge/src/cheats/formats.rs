@@ -49,6 +49,11 @@ pub fn code_support(core_id: &str) -> CodeSupport {
              Game Boy",
         ),
         "gearsystem" => reads("Game Genie, Pro Action Replay, or a raw address:value like C000:FF"),
+        // The Continuum patch (scripts/patches/blastem-continuum-memory.patch) reads these;
+        // BlastEm's own retro_cheat_set does nothing.
+        "blastem" => {
+            reads("Game Genie, Pro Action Replay, or a raw address:value like FFC000:FF")
+        }
         "pcsx_rearmed" | "mednafen_psx_hw" => reads("PlayStation GameShark codes"),
         "melonds" => reads("Action Replay DS"),
         "parallel_n64" => reads("N64 GameShark codes"),
@@ -59,7 +64,7 @@ pub fn code_support(core_id: &str) -> CodeSupport {
         "prboom" => reads("DOOM's own cheat words, like iddqd or idkfa"),
         "virtualjaguar" => reads(""),
         "azahar" | "flycast" | "stella2023" | "mednafen_pce" | "mednafen_vb" | "puae"
-        | "vice_x64sc" | "handy" | "a5200" | "pokemini" | "yabause" | "blastem" => IGNORES,
+        | "vice_x64sc" | "handy" | "a5200" | "pokemini" | "yabause" => IGNORES,
         _ => reads(""),
     }
 }
@@ -70,10 +75,18 @@ pub fn code_support(core_id: &str) -> CodeSupport {
 ///   `+`-joined code becomes one entry per part and a raw `AAAA:VV` its Pro Action Replay form.
 /// - bsnes reads Pro Action Replay `AAAAAADD` and Game Genie, not `AAAAAA:DD`, so a raw part is
 ///   rewritten and the `+` join kept.
+/// - BlastEm reads one code per entry, so a `+`-joined code becomes one entry per part. The
+///   shapes themselves are already what the Continuum patch reads.
 /// - Every other core gets the code exactly as typed.
 pub fn normalise_for_core(core_id: &str, code: &str) -> Vec<String> {
     let is_hex = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_hexdigit());
     match core_id {
+        "blastem" => code
+            .split('+')
+            .map(str::trim)
+            .filter(|part| !part.is_empty())
+            .map(str::to_owned)
+            .collect(),
         "gearsystem" => code
             .split('+')
             .map(str::trim)
@@ -257,7 +270,7 @@ mod tests {
 
     #[test]
     fn the_cores_that_throw_codes_away_say_so() {
-        for core in ["azahar", "flycast", "stella2023", "blastem", "pokemini", "yabause"] {
+        for core in ["azahar", "flycast", "stella2023", "pokemini", "yabause"] {
             assert!(!code_support(core).reads_typed_codes, "{core}");
         }
     }
@@ -286,6 +299,20 @@ mod tests {
         assert_eq!(normalise_for_core("bsnes", "DD32-6DAD"), vec!["DD32-6DAD"]);
         assert_eq!(normalise_for_core("fceumm", "0075:09"), vec!["0075:09"]);
         assert_eq!(normalise_for_core("mesen2", "SXIOPO+0075:09"), vec!["SXIOPO+0075:09"]);
+        // BlastEm takes one code per entry, unchanged.
+        assert_eq!(normalise_for_core("blastem", "SCRA-BAX0"), vec!["SCRA-BAX0"]);
+        assert_eq!(
+            normalise_for_core("blastem", "SCRA-BAX0 + FFC000:FF"),
+            vec!["SCRA-BAX0", "FFC000:FF"]
+        );
+    }
+
+    #[test]
+    fn the_mega_drive_cores_name_their_code_types() {
+        let blastem = code_support("blastem");
+        assert!(blastem.reads_typed_codes);
+        assert!(blastem.kinds.contains("Game Genie"));
+        assert!(blastem.kinds.contains("Pro Action Replay"));
     }
 
     #[test]
