@@ -53,3 +53,21 @@ if [ ! -d mealybug ]; then
     && cp -r mealybug-src/expected mealybug/expected && cp mealybug-src/LICENSE mealybug/ \
     && rm -rf mealybug-src || echo "mealybug download failed (optional)"
 fi
+# Real Game Boy Advance homebrew games, for tests/homebrew.rs: whole games, not test ROMs, so the
+# Advance side is run the way a player runs it. Every one is published free by its author under an
+# open licence and pinned to the release the test was written against; never a commercial
+# cartridge, and none of them is committed (this whole folder is git-ignored). Each is optional:
+# a host that is down must not stop the rest of the suite, so a failed download is just reported.
+mkdir -p homebrew
+try() { [ -s "homebrew/$2" ] || curl -fsSL "$1" -o "homebrew/$2" || { rm -f "homebrew/$2"; echo "homebrew/$2 not downloaded (optional)"; }; }
+try https://raw.githubusercontent.com/ZeroDayArcade/Pong-Homebrew-GBA/c784b6036a4f188c50932b411e98126bfcbd07d6/Pong-Homebrew-GBA.gba pong.gba          # Pong, MIT
+try https://github.com/rawbits2010/Wigly-Hunt/releases/download/v0.1/wigly_hunt_-_LD48.gba wigly-hunt.gba                                            # Wigly Hunt, GPL-3.0
+try https://github.com/Godless-1/everything-counts/releases/download/v0.1.0-alpha/everything-counts-v0.1.0-alpha.gba everything-counts.gba           # Everything Counts, AGPL-3.0
+try https://github.com/copyrat90/sym_merged/releases/download/Day-44/sym_merged.gba sym-merged.gba                                                   # Symbol Merged, MIT
+try https://github.com/evanbowman/skyland-gba/releases/download/2022.1.7.0/Skyland.gba skyland.gba                                                   # Skyland, MPL-2.0
+# Attack on Voxelburg (GPL-3.0) ships as an archive; only the game itself is kept.
+if [ ! -s homebrew/voxelburg.gba ]; then
+  (curl -fsSL https://github.com/MutantStargoat/voxelburg/releases/download/jam/voxelburg_jam.tar.gz -o homebrew/voxelburg.tar.gz \
+    && tar -xzf homebrew/voxelburg.tar.gz -C homebrew --strip-components=1 voxelburg_jam/voxelburg.gba \
+    && rm -f homebrew/voxelburg.tar.gz) || { rm -f homebrew/voxelburg.tar.gz; echo "homebrew/voxelburg.gba not downloaded (optional)"; }
+fi

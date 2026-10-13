@@ -216,6 +216,63 @@ fn unpacking_either_stops_at_the_declared_size_or_spills_over() {
     assert!(spilled[11..].iter().all(|b| *b == 0), "only the run itself spills over: {spilled:?}");
 }
 
+/// Waiting for the next VBlank (BIOS call 5) is "throw away any VBlank that already came, then
+/// wait for a new one". The wait halts the machine and runs itself again after each interrupt, so
+/// the throwing away has to happen on the call itself and never on those re-runs. It used to
+/// happen every time, which threw away the very VBlank the interrupt had just brought: every game
+/// that waits for VBlank this way - which is most of them, and all of the ones built with libgba
+/// or butano - sat frozen on its first frame with nothing but a blank screen.
+#[test]
+fn the_vblank_wait_ends_on_the_vblank_it_waited_for() {
+    let mut gba = Gba::new(vec![0u8; 0x8000]);
+    // The BIOS's own note of which interrupts have been dealt with, at the end of its RAM.
+    let flag = |g: &Gba| g.bus.peek16(0x0300_7FF8) & 1;
+    let wait = |g: &mut Gba| {
+        g.bus.halted = false;
+        g.cpu.pc = 0x0800_0100;
+        continuum_gb::gba::bios::swi(&mut g.cpu, &mut g.bus, 5);
+    };
+    // A VBlank that came and went before the call is thrown away: the game wants the next one.
+    gba.bus.write16(0x0300_7FF8, 1);
+    wait(&mut gba);
+    assert!(gba.bus.halted, "the wait halts the machine");
+    assert_eq!(gba.bus.io[0x208], 1, "and turns interrupts on, or it could never end");
+    assert_eq!(flag(&gba), 0, "the older VBlank is thrown away");
+    assert_eq!(gba.cpu.pc, 0x0800_0100 - 4, "and the call is left to run itself again");
+    // Nothing has come yet: running again halts again instead of letting the game on.
+    wait(&mut gba);
+    assert!(gba.bus.halted, "nothing has come, so it keeps waiting");
+    assert_eq!(flag(&gba), 0);
+    // The interrupt's own handler notes the VBlank; the next run of the call ends the wait.
+    gba.bus.write16(0x0300_7FF8, 1);
+    wait(&mut gba);
+    assert!(!gba.bus.halted, "the wait is over");
+    assert_eq!(flag(&gba), 0, "and the VBlank it waited for is taken");
+    // The next call is a new call again, so an older VBlank is thrown away once more.
+    gba.bus.write16(0x0300_7FF8, 1);
+    wait(&mut gba);
+    assert!(gba.bus.halted, "a new call waits for a new VBlank");
+    assert_eq!(flag(&gba), 0);
+    // Waiting for any other interrupt (call 4) works the same way, and a game that asks not to
+    // throw the old flag away is let straight through when that interrupt has already come.
+    let mut gba = Gba::new(vec![0u8; 0x8000]);
+    gba.bus.write16(0x0300_7FF8, 0x40); // a keypad interrupt, already dealt with
+    gba.cpu.r[0] = 0; // "do not throw it away"
+    gba.cpu.r[1] = 0x40;
+    gba.cpu.pc = 0x0800_0100;
+    continuum_gb::gba::bios::swi(&mut gba.cpu, &mut gba.bus, 4);
+    assert!(!gba.bus.halted, "it had already come, so there is nothing to wait for");
+    assert_eq!(gba.bus.peek16(0x0300_7FF8) & 0x40, 0);
+    // The same call asking to throw it away waits for a new one.
+    gba.bus.write16(0x0300_7FF8, 0x40);
+    gba.cpu.r[0] = 1;
+    gba.cpu.r[1] = 0x40;
+    gba.cpu.pc = 0x0800_0100;
+    continuum_gb::gba::bios::swi(&mut gba.cpu, &mut gba.bus, 4);
+    assert!(gba.bus.halted);
+    assert_eq!(gba.bus.peek16(0x0300_7FF8) & 0x40, 0);
+}
+
 #[test]
 fn eeprom_write_then_read() {
     use continuum_gb::gba::save::{Save, SaveKind};

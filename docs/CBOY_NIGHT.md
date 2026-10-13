@@ -345,6 +345,86 @@ is a Game Boy one. The 86 Game Boy tests still pass on both picture drawers.
 - $FF74, the Color's fourth scratch byte, is left absent. No test measures it and no game is known
   to use it, so nothing was invented for it.
 
+### Real Advance games, not just test ROMs — and the frozen-screen bug they found
+
+Until tonight cBoy's Advance side had only ever been given test ROMs: little programs that check
+one thing and print a pass or a fail. Six **real homebrew games** now run in the test suite, all
+the way through the same plumbing the app uses, with the buttons being pressed on a timetable. They
+are all published free by their authors under open licences; none is a commercial cartridge, and
+none of them is kept in the repository — they are downloaded when the tests are run, into a folder
+git ignores.
+
+The games, and what happened:
+
+| Game | What it is | What happened |
+| --- | --- | --- |
+| **Pong** (ZeroDayArcade) | a tiny 9 KB Pong | Was a blank screen. Now plays: both bats, the ball, the scores and the "P1 / CPU" labels. Silent game, no sound to lose. |
+| **Wigly Hunt** (rawbits2010) | a Duck Hunt-style jam game | Was a blank screen with the music playing behind it. Now draws the sky and the duck, with its music. |
+| **Everything Counts** (Godless-1) | a story game | Worked already, and still does: its night-time city scene, speech box and music all came out right. |
+| **Attack on Voxelburg** (Mutant Stargoat) | a 3D voxel shooter | Worked already: its title screen draws in 264 colours and its menu answers the buttons. |
+| **Symbol Merged** (copyrat90) | a puzzle-platformer built with butano | Was frozen and silent. Now plays its level, with its music, and fades between screens. |
+| **Skyland** (Evan Bowman) | a big strategy game, about 3 MB | Was frozen and silent. Now gets through its own Game Boy Player splash screen, into its menu and on to its island-and-lighthouse scene, with sound. |
+
+**The bug: every game that waits for the screen the usual way sat frozen for ever.** Four of the
+six never got past their first frame, and this is why. A Game Boy Advance game normally does its
+work and then asks the console's built-in software to "wake me when the screen has finished
+drawing" — the call every ready-made toolkit uses (libgba, butano, tonc), so most Advance games
+alive use it. The call means two things: *throw away any screen-finish that already happened*, then
+*wait for a new one*. cBoy's copy of that call threw the old one away **every time it looked**,
+including the look that came right after the interrupt it had been waiting for — so it threw away
+the very thing it wanted and went back to sleep, for ever. The game's sound and interrupts carried
+on (which is why two of them played music to a blank screen), but no game logic ever ran again.
+It now throws away only on the call itself, and the waits end on the screen-finish they were
+waiting for.
+
+This never showed up before because test ROMs do not wait like that: they poll the line counter
+or just run flat out. It is the single biggest Advance fix of the night: without it, a large share
+of real Advance games could never have worked in cBoy at all.
+
+### What the tests prove
+
+Two new tests (106 pass in total, up from 104):
+
+1. The wait itself, checked step by step with no game needed, so it is gated even on a machine
+   with no network: a screen-finish that happened before the call is thrown away; looking again
+   with nothing new keeps waiting; the moment the interrupt's own handler notes a new one, the
+   wait ends and takes it; and the *next* call is a new call again and throws an older one away.
+   Waiting for any other interrupt is checked too, both ways round ("throw the old one away" and
+   "do not"). Put the old code back and this test fails — that was checked, not assumed.
+2. The six games, run through the real libretro entry points for 300 frames each (900 for
+   Skyland, which spends its first 500 on its own splash screen), with A, Start and the pad
+   pressed on a fixed timetable. Each one has to:
+   - never panic, and never refuse to load;
+   - send a 240x160 picture, with the right row length, on every single frame, in the colour
+     format the app was promised — one picture per frame, none dropped;
+   - keep drawing **new** pictures (a frozen game draws one picture for ever, which is exactly
+     what three of these did before the fix);
+   - draw a rich enough picture at some point in the run (the fewest colours allowed is about
+     half what each game really draws, so a game going blank fails but a few pixels moving does
+     not);
+   - hand over a full frame's worth of sound every frame, and the four games that have music must
+     really make some (so a broken sound engine cannot pass quietly);
+   - and **survive a save state taken half way through**: the state is loaded back, the second
+     half is replayed with the same buttons, and the game has to come out on exactly the same
+     picture, pixel for pixel.
+
+Every picture above was looked at by eye as well, not just counted.
+
+### What was deliberately left
+
+- **Skyland's splash screen takes about three times as many frames as it should.** Its own code
+  waits for the screen 50 times there; cBoy takes about 190 frames to get through it, so cBoy is
+  giving the game roughly a third of the work per frame that a real Advance would. That points at
+  the cartridge read timing — the console has a small read-ahead buffer (the "prefetch"), and
+  cBoy only approximates it (it hides the waiting for runs of reads when the game asks for it,
+  rather than modelling the buffer). Nothing looks or sounds wrong because of it, and all six
+  games play, but a game that leans on the console's exact speed could run slow. Measuring it
+  properly needs a timing test ROM and is its own piece of work, so it is written down rather
+  than guessed at.
+- No Advance game is added to the committed test ROMs. The rule stands: fetch, never commit.
+- The two games that are silent (Pong and Voxelburg, in the parts the test reaches) are marked as
+  silent in the test, rather than pretending they prove anything about sound.
+
 ## For whoever is editing the notes
 
 STATUS.md and HANDOFF.md still say mosaic is missing. Three places to fix:
@@ -376,8 +456,16 @@ Nothing is needed from the Swift side for the camera: the capture session in
 needed in `fifo.rs` or `ppu.rs` either.
 
 The same two lists have "the Mooneye Game Boy Color tests (0 of 5)" as a job under item 6. It now
-reads 4 of 5, gated like the Game Boy ones, with the fifth waiting on `ppu.rs` (see above). Where
-TESTING.md or STATUS.md quotes a cBoy test count, the suite is 104 tests, up from 100.
+reads 4 of 5, gated like the Game Boy ones, with the fifth waiting on `ppu.rs` (see above).
+
+The same two lists have "real Advance games tried, not only test ROMs" as a job under item 6 —
+that is done, and it found the big one: most real Advance games could not run at all, because the
+"wake me when the screen is drawn" call never finished (see above). **STATUS.md's line that the
+Advance side has only ever run test ROMs is now out of date**: six real homebrew games are in the
+suite and gated. If the Advance side is described anywhere as unproven on real games, it can say
+instead that six open-licence homebrew games run headless in the tests, pictures, sound and save
+states checked, with phone testing still to come. Where TESTING.md or STATUS.md quotes a cBoy
+test count, the suite is 106 tests, up from 100 at the start of the night.
 
 ## Phone checks for the owner
 
@@ -435,3 +523,13 @@ TESTING.md or STATUS.md quotes a cBoy test count, the suite is 104 tests, up fro
     minutes. It should look, sound and play exactly as it did before — this change was accuracy
     work deep inside, and if you can see or hear any difference at all, something is wrong and I
     want to know. Then load one of your older save states for the same game: it must still load.
+19. **The big one for Advance games.** Open any Advance game on cBoy (pick cBoy, not mGBA, in the
+    game's settings) and just play it for a couple of minutes. Before tonight most Advance games
+    would have come up as a black or frozen screen on cBoy, sometimes with the music playing
+    behind it; that is fixed, and this is the check that matters most. If any Advance game still
+    sits on a blank or frozen screen, tell me which one.
+20. With that Advance game running, make a save state, carry on playing for a minute, then load
+    the state back. It should drop you exactly where you were and keep playing normally.
+21. If an Advance game feels slower than it does on mGBA — slow motion, choppy where mGBA is
+    smooth — tell me which game. Something known is a bit off in how fast cBoy lets Advance games
+    read their cartridge, and knowing which games show it tells me whether it is worth chasing.

@@ -31,11 +31,18 @@ pub fn swi(cpu: &mut Cpu, bus: &mut Bus, n: u32) {
         0x01 => register_ram_reset(bus, r[0]),
         0x02 | 0x03 => bus.halted = true,
         0x04 | 0x05 => {
+            // VBlankIntrWait is IntrWait(throw the old flag away, VBlank). "Throw away" must
+            // happen on the call itself and never on the re-runs this wait does after each
+            // interrupt, or the flag the interrupt just set is thrown away too and the game
+            // halts for ever. The wait says which it is in r3.
+            let again = r[3] == WAITING;
             if n == 0x05 {
-                r[0] = 1;
                 r[1] = 1;
+                if !again {
+                    r[0] = 1;
+                }
             }
-            intr_wait(cpu, bus);
+            intr_wait(cpu, bus, again);
         }
         0x06 | 0x07 => {
             let (num, den) = if n == 6 { (r[0] as i32, r[1] as i32) } else { (r[1] as i32, r[0] as i32) };
@@ -81,20 +88,28 @@ pub fn swi(cpu: &mut Cpu, bus: &mut Bus, n: u32) {
     let _ = (MODE_SVC, MODE_SYS);
 }
 
-fn intr_wait(cpu: &mut Cpu, bus: &mut Bus) {
+/// Left in r3 while a wait is halted, so the same wait running again knows it is not a new call.
+/// A real BIOS leaves rubbish in r0, r1 and r3 after any of its calls (only r2 and r4 upwards
+/// are promised back), so no game can mind what is in there, and the register travels with save
+/// states and run-ahead the way the rest of the machine does.
+const WAITING: u32 = 0xCB07_7A17;
+
+fn intr_wait(cpu: &mut Cpu, bus: &mut Bus, again: bool) {
     // The BIOS's own copy of acknowledged interrupts lives at $03007FF8 (IWRAM end - 8).
     bus.io[0x208] = 1; // IME
     let flags = bus.peek16(0x0300_7FF8) as u16;
     let want = cpu.r[1] as u16;
-    if cpu.r[0] != 0 {
-        // Discard old flags on the first call, then wait for a new one.
+    if !again && cpu.r[0] != 0 {
+        // Discard old flags on the call itself, then wait for a new one.
         bus.write16(0x0300_7FF8, flags & !want);
-        cpu.r[0] = 0;
     } else if flags & want != 0 {
         bus.write16(0x0300_7FF8, flags & !want);
+        cpu.r[3] = 0;
         return;
     }
     // Not yet: halt and run this SWI again after the interrupt returns.
+    cpu.r[0] = 0;
+    cpu.r[3] = WAITING;
     bus.halted = true;
     cpu.pc = cpu.pc.wrapping_sub(if cpu.thumb() { 2 } else { 4 });
     cpu.cpsr &= !0x80;
