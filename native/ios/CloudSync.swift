@@ -41,8 +41,8 @@
 //                                                             by ROM filename
 //
 // Kept on this phone on purpose: the RetroAchievements login, the last online-play address,
-// microphone and camera consent, and the sync's own bookmark and history. `excludedKeys` and
-// `excludedPrefixes` say why for each.
+// microphone and camera consent, the home screen icon choice, and the sync's own bookmark and
+// history. `excludedKeys` and `excludedPrefixes` say why for each.
 //
 // SKINS AND FAVOURITES USED TO BE ON THAT LIST and are not any more, because both exclusions
 // rested on something that has been fixed rather than on anything per-phone. Favourites were
@@ -947,6 +947,10 @@ final class CloudSync: ObservableObject {
     private static let excludedPrefixes = [
         "continuum.sync.", "continuum.artwork.choice.", "continuum.artwork.address.",
         "continuum.artwork.sources.", "continuum.artwork.misses.", "continuum.n64.lastCrumb.",
+        // Which home screen icon is on is held by iOS, per install, and a fresh install always
+        // starts on the icon the app shipped with. The name carried across would tick an icon in
+        // Settings that this phone is not showing (`AppIconSettingsSection.storageKey`).
+        "continuum.appIcon.",
         // `continuum.controls.touchSkins.` was here, excluded because the skin bytes under
         // Skins/ did not sync. They do now, so the per-system skin visuals travel with them.
     ]

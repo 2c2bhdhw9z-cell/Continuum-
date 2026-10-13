@@ -196,7 +196,12 @@ struct AppIconSettingsSection: View {
             note = "This install cannot change its icon."
             return
         }
-        if selected == choice.alternateName {
+        // Only skip the work when the live system value AND the remembered name both say this
+        // icon is already on. Going by the grid's mark alone blocked the player from picking an
+        // icon the phone was not actually showing, and going by the live value alone would refuse
+        // to restore the primary icon on an install that reads nil while an alternate is set.
+        if UIApplication.shared.alternateIconName == choice.alternateName,
+           Self.remembered() == choice.alternateName {
             return
         }
         let previous = selected
