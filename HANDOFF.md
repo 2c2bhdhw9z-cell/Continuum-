@@ -3,119 +3,37 @@
 Paste this to start a new chat:
 
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
-> `HANDOFF.md`, then `STATUS.md` ("Next up" first), `docs/CORE_UPDATES.md` and `TESTING.md`
-> section A. Then carry on.
+> then `HANDOFF.md`, then carry on.
 
-## Where this left off (13 October 2026)
+## Where this left off (13 October 2026, 6:30 PM Eastern)
 
-- **Build 182** (`6e41cd5`) is the NEWEST published install, handed over at about 11:30 PM
-  Eastern on 12 October:
-  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-182-6e41cd5/Continuum-182.ipa
-  0.8.0 (182), 36 core files, checked by Kiro. It holds the emulator update batch, the not-games
-  fix, the heads-up lines and the Mesen → FCEUmm retry; everything in the bullets below about
-  "not built" is built in 182. Phone steps: TESTING.md "Next install (after 181)". The owner had
-  no saves on the phone, so steps that load a state saved on 181 don't apply to them. **Build 183
-  is the first real test of the per-core cache:** check its log to see that only changed cores
-  rebuilt.
-- **Build 181** (`b88308f`), the install before it, was handed to the owner on 12 October at
-  about 6:15 PM Eastern:
-  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-181-b88308f/Continuum-181.ipa
-  0.8.0 (181), 36 core files (33 cores plus 3 JIT builds). It carries the cleanup and the licence
-  swap described below. It took about 67 minutes, because every core was rebuilt once. The owner
-  is testing it with TESTING.md "This install only": record the results, and fix nothing until
-  they say they're done testing.
-- **Build 181 = the cleanup + the licence swap.**
-  - **The cleanup (12 October, done)** fixed what earlier sessions left broken or out of date.
-    It's all on master and tested here, but not built and not on a phone yet. In it: the new
-    feedback address, cBoy's drawer choice, no made-up startup picture, backup, restore and
-    auto-save fixes, cBoy clocks and tilt, Symbian firmware, Amiibo and NES fixes, QA Wolf
-    removed, GPL v3 on the code, clippy in CI, and cBoy out of the core cache. Full list:
-    STATUS.md "Where we stopped". Phone checks: TESTING.md "This install only" and section K.
-  - **The licence swap (12 October, done):** Snes9x, Genesis Plus GX, PicoDrive, FinalBurn Neo and
-    MAME 2003-Plus are out; bsnes (SNES), Gearsystem (Master System, Game Gear, SG-1000) and
-    BlastEm (Mega Drive, Sega CD, 32X) are in, each built here from a pinned commit with a
-    Continuum patch in `scripts/patches/`. **Mesen 2 outcome A:** the NES default is now built here
-    too (libretro/MesenCE with `mesen2-nes-memory-cheats-saves.patch`), so the app keeps its
-    in-game saves (Mesen's old `.sav` files are picked up), and achievements, cheats and RAM search
-    work on it. Arcade is out until Continuum has its own core; imported arcade games stay and open
-    to one line. 32X needs `32X_M_BIOS.bin` and `32X_S_BIOS.bin`. Old Mega Drive saves stay in
-    their old layout on disk and are converted as they load (`battery_layout.rs`). An auto-save
-    from a removed emulator is always moved to a free slot. The three removed zips are deleted from
-    the `core-mirror-1` pre-release. Phone checks: TESTING.md "This install only", 5 to 11.
-- **The emulator update batch is done on master, not built (12-13 October).** Five pieces, all
-  pushed with `[skip ci]`:
-  - Newer emulators: FCEUmm `7a542dab`→`ac0d00a7` (NES, Disk System), Gearsystem
-    `02b9d9e7`→`692494c8` (Master System, Game Gear, SG-1000), ParaLLEl N64 `0bd516ee`→`a8280501`
-    (and its JIT build), Azahar `065c9222`→`bfa76872` (3DS), PPSSPP `53fae900`→`dd6bd1a5` (PSP),
-    Flycast `59ed35a7`→`f03faffd` (Dreamcast, and its JIT build), plus newer buildbot builds of
-    Beetle SuperGrafx, PUAE (Amiga), DOSBox Pure and Beetle Saturn. Skipped, with the reason in
-    STATUS.md: Beetle PSX, PrBoom, Virtual Jaguar, Beetle VB.
-  - One heads-up line per updated emulator, the first time a game opens on it
-    (`crates/emulator-bridge/src/core_updates.rs`). Old save states load where the engine records
-    the version pair as proven: every updated emulator except Azahar, which refuses them itself
-    (its heads-up says so, and that in-game saves are fine).
-  - Kart Fighter: Mesen won't open a file shorter than its header says (the owner's copy is one).
-    Not our patch and not a missing board. A default core that refuses a game now retries once on
-    the system's other core (`launch_retry.rs`), so it runs on FCEUmm and says so.
-  - The weekly check (`scripts/check-core-updates.sh`) now covers every core, and the iOS build
-    caches each core on its own fingerprint (`scripts/check-core-cache.sh` tests that).
-  - **The build waits for the owner's "done testing" on 181.** Then everything goes into ONE
-    build (182). 182 is still a full rebuild of every core, because the old cache list has no
-    fingerprints: expect about 67 minutes, like 181. Later builds only rebuild cores whose pin,
-    patch, recipe or toolchain changed.
-  - After 182, read the launch log line `core '<id>' reports version …` for FCEUmm, Gearsystem,
-    ParaLLEl N64, PPSSPP and Flycast: each must show its new commit hash, because the save-state
-    pairs match on it.
-  - The `core-mirror-1` copies were NOT replaced: the upload fails from this sandbox. It still
-    holds the old zips for Beetle SuperGrafx, PUAE, DOSBox Pure and Beetle Saturn. Builds take
-    those four from the buildbot meanwhile (still pinned), and the next master build uploads them
-    by itself while the buildbot still serves those exact zips.
-  - Phone checks: TESTING.md "Next install (after 181)", rows 3 to 11.
-- **New support and feedback email: ContinuumDev2c2b@gmail.com** (owner, 12 October). It's in
-  the app (`FeedbackDestination.email`), the README and the notes. The old address is retired
-  everywhere.
-- **cBoy's drawer:** the older per-line drawer, "Standard", is the default. The pixel-by-pixel
-  one stays as the "Exact (experimental)" choice in Core settings → Picture drawing. Finishing it
-  comes right after the cBoy jobs (item 7 below): before starting it, stop and tell the owner so
-  they can turn Kiro's thinking up to max. Follow SameBoy; never guess its test pictures one
-  pixel at a time.
-- **No made-up startup picture.** A boot picture only plays when the player's own real boot file
-  is there.
-- **The owner's order from here (12 October; details in STATUS.md "Next up"):**
-  1. The cleanup + licence swap are done and on master: one install (it rebuilds every core).
-  2. Emulator updates: check every core each session and take the safe ones. This batch is
-     done on master, waiting for the next build (see above).
-  3. The one-time heads-up line for players when an emulator was updated. Done on master.
-  4. Make the weekly update checker cover every core, the 16 downloaded ones included. Done on
-     master.
-  5. Small leftovers from the cleanup (the LOW and SUSPECTED findings). **Done in the night batch
-     of 13 October, built, untested** (`docs/reports/night-2026-10-13-batch-a.md`). Four things
-     were deliberately left, with reasons, and STATUS.md "Next up" item 5 names them: Continuum's
-     own 32X start-up code, Sega CD disc swap and RAM-cart saves, Mesen 2 as a second SNES choice,
-     and the EEPROM in Sampras Tennis 96.
-  6. cBoy. **Most of this landed in the night batch of 13 October, built, untested**
-     (`docs/CBOY_NIGHT.md`): MP2K high-quality Advance music (off by default, and nobody has heard
-     it on a real game yet), real Advance games tried (six are in the suite, and they found that
-     most Advance games could not run at all), Advance mosaic, the phone's camera into the Game Boy
-     Camera, the four extra settings, and the Mooneye Color tests (0 of 5 → 4 of 5, now a gate).
-     Left: a Game Boy Color playing an old black-and-white game in colour (a white screen today,
-     and it holds 31 of the 55 Mealybug pictures), the fifth Mooneye Color test (three measured
-     lines in `gb.rs`, written out in `docs/CBOY_EXACT_DRAWER.md`), the two-phone link, and where
-     an IO write lands inside its M-cycle (`bus.rs`).
-  7. The exact Game Boy drawer. **Taken up on 13 October** with the owner's thinking set to max:
-     rebuilt as the hardware's state machine, 5 of 55 test pictures → 23, still not the default and
-     not played on a phone (`docs/CBOY_EXACT_DRAWER.md`).
-  8. Phone test rounds, in small batches: PSP picture fixes, 3DS stutter, Symbian / N-Gage, the
-     new Backup and Restore, Dreamcast and PSP speed, NAS (SMB) sharing, 3DS camera and Amiibo,
-     cheat files and RAM search.
-  9. Continuum's own arcade core.
-  10. The Switch (raise JIT with the owner first).
-  11. Android.
-  12. Remaining phone tests: online play with a second phone; JIT (needs a tester who can
-      switch it on).
-
-  Owner-only, any time: direct Google Drive, Dropbox and OneDrive logins (the owner's developer
-  app ids), and a new app icon. Not possible: GameCube and Wii (no JIT).
+- **New Kiro account.** The old one ran out of credits. First thing: save every line of "Memories
+  to save on a new account" (end of `.kiro/steering/owner-rules.md`) as a global learning, and tell
+  the owner they're saved.
+- **Build 184** (`8760638`) is the newest published install, checked, 0.8.0 (184), 36 core files:
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-184-8760638/Continuum-184.ipa
+  It holds the night batch (TESTING.md "Night batch (13 October)"). The owner hasn't reported on
+  182, 183 or 184 yet.
+- **Eight jobs were stopped part-way at 6:25 PM** when the credits ran out. Everything they finished
+  is on master. What's left, with full instructions and how to restart them, is in
+  `.kiro/notes/tasks/` (start with its README). Restart all eight. No deadline: the owner wants
+  every item finished properly, nothing left out.
+- **On master since 184, not built yet:** cBoy's real link-cable timing and 5 of 5 Game Boy Color
+  tests; the exact drawer at 27 of 55 Mealybug pictures; cBoy colouring black-and-white games like
+  a Game Boy Color (off by default); the app's half of the two-phone Game Boy link; cArcade's Z80
+  (no board, not in the app yet); the build cache judging each emulator on its own recipe
+  (393f12c: the next build rebuilds every emulator once); the four tabs floating with the covers
+  scrolling under them; the Default icon tile fixed; the first half of Settings shortened, with the
+  technical read-outs moved to Technical details; last night's scheduled build removed.
+- **Still to finish from the owner's 13 October requests** (all in the task files): the "80 games"
+  strip gone, a Game card size setting, light mode with Settings, Appearance: Dark, Light, System;
+  the 12 app icons they circled; every explanation in the app condensed; the repo cleaned up so it
+  reads like a person wrote it; cArcade's Pac-Man, Galaxian and Donkey Kong boards; the rest of the
+  cBoy, cache and leftover jobs. **Then ONE build**, the .ipa link and the phone steps.
+- What went wrong today, so it doesn't again: the session restarted at 2:31 AM and three loops slept
+  five hours (check every workflow whenever you wake); a scheduled morning build stayed in ios.yml
+  until 3:40 PM (only for a night the owner asks); screenshots sent mid-reply never arrive (say so
+  at once); the owner reads the Thought sections in the app.
 
 Older, kept as history: build 144 (`build-144-74050e5`) passed the owner's four phone checks on
 9 October (Home readable after the big cover, Home and All Games scroll, re-importing keeps a

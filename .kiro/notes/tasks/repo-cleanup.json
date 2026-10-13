@@ -1,0 +1,77 @@
+{
+  "complete": false,
+  "title": "Clean up the GitHub repository so a visitor sees a tidy project that reads like a person wrote it (part 1 of 2)",
+  "repo": "/projects/sandbox/.scratch/clean-work",
+  "branch": "master",
+  "the_owner_asked": "13 October, 5:40 PM: 'I want the repo cleaned up so if people go to it it's clean. Make it sound human.' The owner posts the app in Telegram and Reddit, and some testers will open the GitHub page. Today a visitor sees at the top level HANDOFF.md (it starts 'Handoff for the next chat. Paste this to start a new chat'), STATUS.md (1,400 lines of build-by-build notes), TESTING.md (800 lines) and a docs folder full of internal working notes, old screenshots and an archive. The GitHub 'About' box (description, website, topics) is empty.",
+  "two_parts": "Part 1, this checklist, does everything no other job is touching tonight. Part 2 (moving the working notes off the front page and fixing every reference to them) waits until the other jobs finish, because they are writing some of those files right now. Part 1 ends by writing an exact plan for part 2.",
+  "what_human_means": "Short sentences and plain words, like a hobbyist developer writing about their own app. No 'This document describes', no walls of bold, no build numbers, commit hashes or internal IDs, no mention of 'the owner', Kiro, AI or agents in anything public, no hype or marketing voice. Honest: it's a beta, games and BIOS files aren't included, some systems are early. Never claim something works that STATUS.md doesn't show as working on a phone: describe untested features modestly ('new', 'early') or leave them out.",
+  "read_first": [
+    "/projects/sandbox/.scratch/clean-work/.kiro/steering/owner-rules.md",
+    "/projects/sandbox/.scratch/clean-work/README.md",
+    "/projects/sandbox/.scratch/clean-work/docs/PRODUCT_SCOPE.md",
+    "/projects/sandbox/.scratch/clean-work/STATUS.md: the top section, the 'Systems' table and 'Next up' (to know what is really true today)"
+  ],
+  "hard_rules": [
+    "Work ONLY in /projects/sandbox/.scratch/clean-work. Six other jobs push to the same master tonight from other folders.",
+    "In part 1 do NOT move, rename or edit: STATUS.md, TESTING.md, HANDOFF.md, docs/CBOY_*.md, docs/ARCADE_CORE.md, docs/MANIC_PARITY.md, docs/reports/**, docs/CORE_UPDATES.md, docs/ideas/**, docs/samples/**, docs/option-sources/**, anything under cores/, crates/, native/ or scripts/ (read them freely), .github/workflows/ios.yml except the release-notes text (R5), and .kiro/steering/owner-rules.md except the one docs/archive line (R4).",
+    "Push straight to master. No branches, no pull requests. Every commit message is one short line a person would write and ends with [skip ci].",
+    "Never rewrite git history and never force-push.",
+    "Push after every finished item: stage files by name (never `git add -A` or `git add .`), commit, `git pull --rebase origin master && git push origin master`, retry if rejected; on a conflict keep both sides.",
+    "Before deleting any file, grep the whole repository for its name, including scripts, workflows, Swift, Rust, project.yml and the #[[file:...]] includes in owner-rules.md. If anything that runs, builds or ships uses it, keep it.",
+    "Check every Markdown file you change: every relative link must point at a file that exists.",
+    "Never open or view an image whose bytes you have not checked: run `file` on it first. A JPEG named .png once killed a whole chat session.",
+    "The retired support address must never appear anywhere. The address is ContinuumDev2c2b@gmail.com."
+  ],
+  "per_iteration": [
+    "1. Read this file. Pick the FIRST item with done=false.",
+    "2. Do it, check it, commit and push with [skip ci].",
+    "3. Set done=true with a one-sentence 'result' naming the commit. If every item is done, set the top-level \"complete\": true.",
+    "4. Stop the iteration."
+  ],
+  "items": [
+    {
+      "id": "R1",
+      "done": true,
+      "result": "Wrote .agents/tasks/cleanup-inventory.md against master 381d5d7 (no commit: the .agents folder is gitignored and no tracked file changed); all 81 files are placed, R4's deletions are the 7 screenshots, docs/archive/ and the dead docs/HISTORY.md, docs/side-projects/ is not stale so it moves in part 2, and the retired address is at docs/reports/cleanup-2026-10-12/FINDINGS.md:80 for part 2 to remove.",
+      "title": "Inventory (no changes)",
+      "detail": "Write /projects/sandbox/.scratch/clean-work/.agents/tasks/cleanup-inventory.md (the .agents folder is gitignored): every tracked file outside cores/, crates/ and native/ (the root, docs/**, .github/**, .kiro/**, and any .md under scripts/): what it is; every place that references it; whether something that runs, builds or ships uses it (a script reads or writes it, a workflow watches or commits it, the app bundles it); which other job is writing it tonight (STATUS.md, TESTING.md, HANDOFF.md, docs/CBOY_*.md, docs/ARCADE_CORE.md, docs/MANIC_PARITY.md, docs/reports/**); and its proposed home: stays public (and gets a human pass), moves to the working-notes folder in part 2, or is deleted."
+    },
+    {
+      "id": "R2",
+      "done": false,
+      "title": "A README a visitor wants to read",
+      "detail": "Rewrite README.md in a human voice: what Continuum is (an all-in-one emulator for iPhone, free and open source, in public beta, not on the App Store); what it plays (check the real list of systems in the app today, after the 12 October licence swap; arcade is out for now unless Continuum's own arcade emulator lands tonight, so write what is true now and note in the part-2 plan to revisit it); how to get it (the latest-release link, sideload the .ipa with any signing app, never naming one tool as the only way; games and BIOS files not included); what it does, as a short plain list; that it has emulators of its own (cBoy, for Game Boy, Game Boy Color and Game Boy Advance, written from scratch); feedback (ContinuumDev2c2b@gmail.com, or Send feedback in the app); credits and licence (GPL-3.0, each emulator's own licence and credit listed in the app under Settings, About, and thanks to the people who make them). Keep every true fact from the current README, drop anything that reads like internal notes."
+    },
+    {
+      "id": "R3",
+      "done": false,
+      "title": "Fill in the GitHub 'About' box",
+      "detail": "Set the repository's description, website and topics with gh api: `gh api -X PATCH repos/2c2bhdhw9z-cell/Continuum- -f description='...' -f homepage='https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest'` and `gh api -X PUT repos/2c2bhdhw9z-cell/Continuum-/topics -f 'names[]=emulator' -f 'names[]=ios' ...`. Description short and human, for example 'An all-in-one emulator for iPhone. Free, open source, in public beta.' Topics lowercase with hyphens: emulator, ios, iphone, retro-gaming, libretro, rust, swift, game-boy and a few more that are true. Verify with `gh api repos/2c2bhdhw9z-cell/Continuum- --jq '[.description,.homepage,.topics]'`. If the API refuses through this sandbox's connection, write the exact text into the part-2 plan for the orchestrator instead."
+    },
+    {
+      "id": "R4",
+      "done": false,
+      "title": "Delete the clutter",
+      "detail": "Delete what nothing that runs, builds or ships uses: the old screenshots in docs/ (mobile-before.png, mobile-after.png, library-mobile.png, settings-mobile.png, shot-detail.png, detail-artwork.png, mobile-player.png) unless the new README uses one; docs/archive/ (old history, which owner-rules.md says not to follow: change that one line to say the archive was removed and the history is in git); docs/side-projects/ if it is a stale note (read it first); and anything else R1 found dead. The app icon pictures that scripts/make-app-icon.py uses stay. Where a file you may edit in part 1 linked to something you deleted, fix the link; list links in files you may not edit for part 2."
+    },
+    {
+      "id": "R5",
+      "done": false,
+      "title": "The release notes the build writes",
+      "detail": "In .github/workflows/ios.yml, the step 'Publish the .ipa as a Release' writes the notes every Release shows. Make that text short and human: what this is, which file to download, that games and BIOS files aren't included, how to send feedback, and one plain line on what the get-task-allow files are for. Change only that text: other jobs edit other parts of ios.yml tonight. The commit must end with [skip ci]."
+    },
+    {
+      "id": "R6",
+      "done": false,
+      "title": "The docs a visitor might open",
+      "detail": "From R1, decide which docs are for visitors (for example the skin format, for people who make skins) and give each a human pass. Leave every other doc alone for part 2."
+    },
+    {
+      "id": "R7",
+      "done": false,
+      "title": "The exact plan for part 2",
+      "detail": "Write /projects/sandbox/.scratch/clean-work/.agents/tasks/cleanup-phase2.md: the exact moves (the working notes, HANDOFF.md, STATUS.md, TESTING.md and the internal docs R1 marked, into ONE tucked-away folder, proposed `.kiro/notes/`); every reference to update (owner-rules.md's paths and its #[[file:...]] includes, the paste-this-to-start text in HANDOFF.md, links inside the notes, code comments that cite them, and every script and workflow that reads or writes them, for example scripts/check-core-updates.sh writing docs/CORE_UPDATES.md and .github/workflows/core-updates.yml committing it, the cBoy option inventory generator, scripts/extract-core-option-keys.sh with docs/option-sources; docs/samples stays where it is because the skin check and CI use it); the commands that prove nothing broke; and the public lines to revisit once tonight's work lands (the README's systems list and arcade line). Then set the top-level complete to true."
+    }
+  ]
+}

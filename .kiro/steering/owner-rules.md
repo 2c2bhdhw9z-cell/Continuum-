@@ -173,6 +173,33 @@ These come straight from the owner. They are not suggestions.
   - Work in the daytime is built the same day, as soon as it is done. Never plan a daytime batch
     around the next morning. Always check the clock in Eastern time before saying when anything
     will be ready.
+- **Text in the app is short** (owner, 13 October 2026, with 13 screenshots of circled paragraphs):
+  every explanation is one or two short, casual sentences, or none when the control says it all.
+  Technical read-outs live only in Settings, Technical details and behind (i).
+- **Appearance reads Dark, Light, System** (owner: "just System", never "Match my phone").
+- **The owner deletes the app before every install.** Never tell them to install over the old one.
+- **No deadlines or cutoffs on a batch** (owner, 13 October): finish every item properly. Never
+  promise a finish time you can't know.
+- **Screenshots sent while a reply is in progress never reach the assistant**, only the words. If
+  the owner mentions pictures you can't see, say so at once; never guess or call it vague.
+- **The owner reads the assistant's Thought sections** in the app. Keep them as respectful as replies.
 - When the owner puts a ★ on something, save it permanently: in this file if it is about Continuum, or as a Kiro learning if it applies everywhere.
   A ⭐ counts the same. Kiro may also save general learnings on its own whenever something is
   worth remembering.
+
+## Memories to save on a new account
+
+Kiro's global memories belong to the account, and a new account starts empty. In the first session
+on a new account, save each line below as a global learning (user_preferences), then tell the owner.
+
+1. One build per batch, never one build per fix. Put [skip ci] on intermediate pushes and leave it off the last push of the batch. After every build, check the result yourself (for an .ipa: version and contents). Without being asked, give the direct download link plus a short list of easy test steps written out in that same reply; the owner often tests at work.
+2. Never ask the owner to re-test or re-answer anything they already covered, in a screenshot or an earlier message; work it out from what they sent. When they ask what to test, give the full numbered steps in that reply, never "see my last message". While they are testing, fix nothing until they say they are done testing; just record what they report.
+3. The owner allows Kiro to save general learnings on its own initiative whenever something seems worth remembering across sessions; no ★ is needed for that. A ★ means the owner definitely wants that item remembered permanently.
+4. When the user puts a "★" (or ⭐) on something in a message, it is an instruction to save it as a permanent memory for all future sessions. Save it right away: if it is about one project, write it into that repo's .kiro/steering/ rules file (for Continuum: .kiro/steering/owner-rules.md) and push it; if it applies everywhere, save it as a global learning. Confirm in plain English what was saved.
+5. Never leave a background workflow sitting stopped. Whenever you become active again (any user message, any notification, after any restart or interruption), first check every workflow you launched with inspect_workflow. If one is paused or stopped for any reason other than waiting on the owner's answer, resume it immediately without asking, then tell the owner plainly what happened.
+6. The owner (GitHub 2c2bhdhw9z-cell) is not a programmer and uses only an iPhone; they will never use a computer. Write every reply in plain everyday English and explain any technical word in normal words. Describe what they will see on the phone. Never ask them to read files, logs, code or GitHub pages: read it yourself and say what it says.
+7. For the owner's repos: no branches and no pull requests. Commit and push straight to master/main. Save constantly: push each finished, checked piece right away, because the owner has limited credits and a session can end at any moment. Never leave work only in the sandbox.
+8. The owner sometimes marks a hard job as "stop and tell me before you start, so I can turn your thinking to max". For any job marked like that, stop when it comes up next and tell the owner plainly, and begin nothing on it until they reply that the setting is changed. In Continuum that is cBoy's exact pixel-by-pixel drawer (go-ahead given at max on 13 October 2026; if a later session continues it, stop and tell them again first).
+9. The owner (Continuum, GitHub 2c2bhdhw9z-cell) lives in US Eastern time (UTC-4 in summer, UTC-5 in winter). Convert every time to Eastern; never assume Pacific time.
+10. Automatic, scheduled or deadline builds are only for a night the owner explicitly asks for one, and come out first thing the next morning without being asked. Otherwise a build starts only from a push or a manual start. Daytime work is built the same day as soon as it is finished; always check the current Eastern time before giving any time.
+11. Screenshots the owner sends while a reply is in progress arrive as text only. If they mention pictures you cannot see, say so at once instead of guessing.

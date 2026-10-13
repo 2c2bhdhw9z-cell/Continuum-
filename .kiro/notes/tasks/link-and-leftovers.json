@@ -1,0 +1,71 @@
+{
+  "complete": false,
+  "title": "Continuum, evening of 13 October 2026: the two-phone Game Boy link (app half) and the leftovers from 'Next up' item 5",
+  "repo": "/projects/sandbox/Continuum-",
+  "branch": "master",
+  "read_first": [
+    "/projects/sandbox/Continuum-/.kiro/steering/owner-rules.md",
+    "/projects/sandbox/Continuum-/HANDOFF.md ('How to check work before pushing' at the bottom)",
+    "/projects/sandbox/Continuum-/STATUS.md 'Next up' item 5 (the four 'Still open' bullets, each with its reason) and 'Where we stopped: the night batch (13 October 2026)'",
+    "/projects/sandbox/Continuum-/docs/reports/night-2026-10-13-batch-a.md (what last night found out about 32X, Sega CD, Mesen 2 and the EEPROM carts)",
+    "/projects/sandbox/Continuum-/docs/CBOY_NIGHT.md, section 'The two-phone link cable - cBoy's half is built, the app's half is not written yet' (the three things the app has to do)"
+  ],
+  "ORDERS_CHANGED_NO_DEADLINE": "CANCELLED by the owner at 4 PM on 13 October: the 7:30 PM Eastern deadline your prompt mentions, and the 6:45 PM time box on H5. There is NO deadline and NO cutoff. Do not watch the clock, do not stop early, and do not leave anything out or cut anything short to save time. Finish every item properly. For H2 to H5 the owner said 'as much as you can do': do everything that can genuinely be done and proven here. The only thing that may be left is something that is truly impossible here (never merely slow or hard), with the exact reason written down. The orchestrator starts the build when all three of tonight's jobs are finished.",
+  "hard_rules": [
+    "Work ONLY in /projects/sandbox/Continuum-. Two other agents are working on the same repository right now: one on cBoy in /projects/sandbox/.scratch/cboy-work (it owns cores/continuum-gb/** and docs/CBOY_*.md: never touch those), and one writing Continuum's own arcade core in /projects/sandbox/.scratch/arcade-work (it owns cores/continuum-arcade/**, docs/ARCADE_CORE.md and the arcade wiring in the app: the arcade system's routing, its line for games it can't play, and its registry entry).",
+    "You own the rest of crates/emulator-bridge/**, native/ios/**, scripts/patches/blastem-* and mesen2-*, the BlastEm and Mesen regions of scripts/build-core.sh, and docs/reports/evening-2026-10-13.md. Do NOT edit STATUS.md, TESTING.md or HANDOFF.md tonight: the orchestrator writes those at the end from the three agents' reports.",
+    "Shared files (crates/emulator-bridge/src/cores/registry.rs and the like, native/ios/SettingsScreen.swift, scripts/build-core.sh, native/ios/project.yml) may be edited by the arcade agent too: keep your edits small and in your own lines, and when `git pull --rebase` conflicts, keep BOTH sides, then re-run the checks before pushing.",
+    "Push straight to master. No branches, no pull requests, ever. EVERY commit message ends with [skip ci].",
+    "Push after every finished item: stage your files by name (never `git add -A` or `git add .`), commit, `git pull --rebase origin master && git push origin master`, retry if rejected. Never leave finished work only in the sandbox.",
+    "Green before every push: `cargo test --workspace --features emulator-bridge/native-core`, `cargo clippy --workspace --features emulator-bridge/native-core` (a clippy error stops the real build), `swiftc -frontend -parse <file>` on every changed Swift file (a new Swift file must also be listed in native/ios/project.yml sources), `bash scripts/check-core-cache.sh` whenever you touch scripts/build-core.sh, scripts/patches/** or scripts/fetch-*.sh. If you change the bindings, regenerate and type-check them as HANDOFF.md says. Set CARGO_BUILD_JOBS=3.",
+    "Anything a player reads is short, casual and plain, like a person wrote it. No jargon, no file paths, no hex.",
+    "Keep everything honest: all of tonight's work is 'Built, untested'. If an item cannot be proved off the phone, say exactly what was proved and what was not. Never guess a number (a checksum, a header value) you could not read from a real source."
+  ],
+  "per_iteration": [
+    "1. Read this file, including ORDERS_CHANGED_NO_DEADLINE. Pick the first item with done=false.",
+    "2. Read the real code before changing anything.",
+    "3. Implement it, with tests where the engine is testable. Run the checks. Fix anything you broke.",
+    "4. Commit and push with [skip ci].",
+    "5. Set done=true with a one-sentence plain-English 'result'. If every item is done, set the top-level \"complete\": true.",
+    "6. Stop the iteration."
+  ],
+  "items": [
+    {
+      "id": "H1",
+      "done": true,
+      "result": "Pushed as 1dee835: a Game Boy game on cBoy now gets a link cable from the same online-play menu (each phone keeps its own game and saves, plain lines for a phone not on cBoy and a dropped connection), proved by two host-built cBoys in one test swapping bytes both ways on both clocks and giving up on a quiet cable; cBoy's own 'not available yet' setting text is handed on in the report.",
+      "title": "The two-phone Game Boy link: the app's half",
+      "detail": "cBoy's half of the link cable is built and tested (commit 5c73e93): a byte takes a real cable's time, the console being driven waits for the other one, and two phones can swap bytes over one agreement that cannot drift, with a give-up so a bad connection can never freeze a game. docs/CBOY_NIGHT.md spells out the three things the app must do. Do them using the online-play connection the app already has (crates/emulator-bridge/src/netplay/, uniffi_online.rs, and the online-play screens in native/ios), so two players running Game Boy or Game Boy Color games on cBoy can link: trade Pokemon, play Tetris head to head. The player-facing part must be plain: one clear way to start a link with the other phone, and a plain line if the other phone isn't running cBoy or the connection drops. Prove it with two engine instances talking to each other in one test process (a byte exchange through the real libretro entry points of a host-built cBoy, both directions, with internal and external clock, plus the give-up). Do not edit cores/continuum-gb: if cBoy needs a change, write it into the report and work around it."
+    },
+    {
+      "id": "H2",
+      "done": false,
+      "title": "The EEPROM save in Sampras Tennis 96, and every other Mega Drive EEPROM cartridge",
+      "detail": "Last night found that the save item named the wrong game: Pete Sampras Tennis 96 is the one with an EEPROM, and its BlastEm cartridge entry needs that cartridge's real checksum and EEPROM layout, which were not guessed. MAME's software lists are CC0-licensed data: hash/megadriv.xml in the MAME repository lists each Mega Drive cartridge's CRC32 and SHA1 and its save hardware. Read the entries from there (fetch the one file into scratch, never commit it), add the cartridge entry to BlastEm's cartridge list in scripts/patches/blastem-continuum-memory.patch (or a new blastem-*.patch), and check every other EEPROM Mega Drive cartridge in that list against BlastEm's (the Codemasters Micro Machines games, the EA sports games, the Sega ones), adding any that are missing. Unit-test that the patch applies and the entries parse. Say in the report which games now save that did not."
+    },
+    {
+      "id": "H3",
+      "done": false,
+      "title": "Mesen 2 as the second SNES choice",
+      "detail": "Last night checked and did not offer it, for a good reason: everything the Continuum Mesen patch gives the NES (memory for RAM search and achievements, cheats, and letting the app own the battery save) is written NES-only, so SNES players would have lost all three. Extend the patch (scripts/patches/mesen2-nes-memory-cheats-saves.patch, or a new mesen2-snes-*.patch) so the SNES gets the same three: the console's work RAM and the cartridge's save RAM exposed to the app, typed SNES cheat codes (Game Genie and Pro Action Replay) reaching Mesen's own cheat code, and the battery save owned by the app like every other core. Build Mesen 2 for the host, boot open-licensed SNES homebrew through the engine, and prove a battery save round-trips, a save state round-trips and a cheat changes memory. Compare its speed with bsnes on the host and write the numbers down. Then offer it as the second core for SNES (bsnes stays the default). If one of the three cannot be made to hold tonight, do not offer it, and say exactly what is left."
+    },
+    {
+      "id": "H4",
+      "done": false,
+      "title": "Sega CD: changing discs, and the RAM-cart saves",
+      "detail": "Last night found that BlastEm registers no libretro disc interface and has no hook for changing a disc, and that libretro's one save region is already used by the Sega CD's internal backup memory. Add the disc interface to BlastEm's libretro front end in a Continuum patch so the app's existing 'Next disc' control (the one PS1 uses) works for multi-disc Sega CD games, and store the backup RAM cartridge (the add-on save cartridge) as its own file next to the internal one, loaded and saved with it. A Sega CD game needs a BIOS nobody here has, so prove what can be proved without one (the interface's calls, the disc list from a .m3u, the cartridge file being created, saved and reloaded) and say plainly that a real disc swap needs the phone."
+    },
+    {
+      "id": "H5",
+      "done": false,
+      "title": "Continuum's own 32X start-up code, so 32X games need no BIOS files",
+      "detail": "Today a 32X game asks for 32X_M_BIOS.bin and 32X_S_BIOS.bin. Last night's report says where Continuum's own start-up code would hook in and what it has to do (set up the two SH-2 processors, check and copy the cartridge's SH-2 program as its header describes, hand over, and the handshake the Mega Drive side waits for). Write it as Continuum's own code, assembled with an SH-2 assembler you build from source in scratch (GNU binutils builds for sh-elf in a few minutes), and prove it by booting open-licensed 32X homebrew in a host build of BlastEm. No time box: keep at it until it boots real 32X homebrew in the host build. Never ship start-up code that has not booted something. Only if it is truly impossible here (name the reason; slow or hard is not a reason) keep the existing needs-the-BIOS line exactly as it is, so nothing gets worse, and write what you learned into the report."
+    },
+    {
+      "id": "H6",
+      "done": false,
+      "title": "Write it up",
+      "detail": "Write docs/reports/evening-2026-10-13.md: what landed, each as 'Built, untested'; what the tests prove; what is left and why; and a short numbered list of phone checks in the owner's plain, casual voice, one per thing a player can see. Do NOT edit STATUS.md, TESTING.md or HANDOFF.md: the orchestrator folds the three reports in. Then set the top-level complete to true."
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "complete": false,
+  "title": "Continuum build cache, second pass: a comment, the cache's own code, or adding an emulator must stop rebuilding every emulator",
+  "repo": "/projects/sandbox/.scratch/cache-work",
+  "branch": "master",
+  "why": "The owner is a non-programmer who waits on every build from their phone. Touching scripts/build-core.sh for almost any reason still rebuilds every emulator, about an hour of macOS build, and they are furious about it. A first attempt at this job at 4 PM produced nothing at all (no plan, no code, no commit); this is the restart. Tonight's build has to rebuild every emulator once anyway (this morning's commit 393f12c changed every stored fingerprint), so this change costs nothing extra as long as it lands before that build.",
+  "read_first": [
+    "/projects/sandbox/.scratch/cache-work/.kiro/steering/owner-rules.md",
+    "`git -C /projects/sandbox/.scratch/cache-work show 393f12c` (this morning's per-core fingerprint change: its message and its diff)",
+    "/projects/sandbox/Continuum-/.agents/tasks/per-core-fp/review.md (this morning's independent review of 393f12c: approved, with three non-blocking findings) and the plan.md and verification.md next to it",
+    "/projects/sandbox/.scratch/cache-work/scripts/build-core.sh: ios_core_fingerprint, ios_core_is_cached, ios_record_source_version, ios_recipe_text, ios_core_patch_family, the `# recipe-start: <family>` / `# recipe-end: <family>` regions, the ios-recipe-shared and ios-fingerprint commands",
+    "/projects/sandbox/.scratch/cache-work/scripts/check-core-cache.sh (105 checks today; the gate for all of this)"
+  ],
+  "facts": [
+    "Since 393f12c a core's fingerprint hashes `recipe` (that core's own regions) plus `shared` (every line OUTSIDE every region, with the IOS_PIN= lines filtered out), plus its pin, its scripts/patches/<family>-*.patch files, the toolchain id, and for Continuum Symbian its plug files and the headers script. `bash scripts/build-core.sh ios-recipe-shared` prints the shared text; `bash scripts/build-core.sh ios-fingerprint <core>` prints one core's fingerprint.",
+    "Measured at master fccdcf8 (5:30 PM, 13 October): the shared text is 1290 lines, of which 548 are comment lines and 73 are blank. It also holds the lists of cores, IOS_CORES=(...) and IOS_OPTIONAL_CORES=(...), and the cache machinery itself: ios_record_source_version, ios_core_patch_family, ios_recipe_text, ios_core_fingerprint, ios_core_is_cached, and the usage/help text. So a one-word comment edit, adding or removing a core, or fixing the cache's own code changes EVERY core's fingerprint.",
+    "Tonight another agent is adding a brand-new core, continuum_arcade (cArcade, Continuum's own arcade emulator): its own `# recipe-start: continuum_arcade` region in build-core.sh and its name appended inside the IOS_OPTIONAL_CORES=( ... ) parentheses. Under today's rules that alone rebuilds every existing core."
+  ],
+  "hard_rules": [
+    "Work ONLY in /projects/sandbox/.scratch/cache-work. Other agents are pushing to the same master right now from other folders: the arcade agent (cores/continuum-arcade/**, docs/ARCADE_CORE.md, its own region and list entry in scripts/build-core.sh, a test step and a push path in .github/workflows/ios.yml), the cBoy agent (cores/continuum-gb/**, docs/CBOY_*.md), the engine agent (crates/**, native/ios/**, the blastem and mesen2 regions of build-core.sh and their patches), and a Home-screen agent (native/ios/**).",
+    "You own: the cache machinery in scripts/build-core.sh, the new markers, the classifier, scripts/check-core-cache.sh, and the comment blocks that describe what counts (above ios_core_is_cached, and a SMALL edit to the cache comment in .github/workflows/ios.yml). Do NOT touch cores/**, docs/CBOY_*.md, docs/ARCADE_CORE.md, STATUS.md, TESTING.md or HANDOFF.md.",
+    "Commit and push straight to master. No branches, no pull requests, no worktree. EVERY commit message ends with [skip ci]: the orchestrator starts tonight's single build deliberately, after this lands.",
+    "Before every push: `git pull --rebase origin master`; if it conflicts, keep both sides, then run every check again. If another agent's newly added lines violate one of your guards after a rebase, fix where the markers sit, never their code.",
+    "Push finished, green work at once. Stage files by name, never `git add -A` or `git add .`. Nothing may be left only in the sandbox.",
+    "Commit messages are plain English for a non-programmer owner, saying what changed for them.",
+    "Safety first, always. A stale emulator library reaching the app is far worse than an unnecessary rebuild. Anything in doubt rebuilds; any failure to compute a fingerprint makes the core rebuild (fp:unknown never matches), and no path may turn a failure into a match.",
+    "Everything that rebuilds today must still rebuild: any EXECUTABLE change in the shared part (compiler and linker flags, shared helpers, staging, install_name, toolchain handling) rebuilds every core; a change inside one core's own region rebuilds that core and the plain or JIT build sharing its source, as today; a patch change rebuilds its family; a pin, toolchain id or Symbian plug change behaves exactly as today; a heredoc body change rebuilds whatever it can affect.",
+    "The checks, all of which must pass before every push: `bash scripts/check-core-cache.sh` (105 today, more after you), `bash scripts/check-skins.sh`, `bash scripts/check-players.sh`, `cargo test --workspace --features emulator-bridge/native-core`, `cargo clippy --workspace --features emulator-bridge/native-core`. There is no macOS or Xcode here: the shell checks and `bash scripts/build-core.sh ios-fingerprint <core>` are the proof. Record commands and results in /projects/sandbox/.scratch/cache-work/.agents/tasks/cache-v2/verification.md (the .agents folder is gitignored). Set CARGO_BUILD_JOBS=3."
+  ],
+  "per_iteration": [
+    "1. Read this file. Pick the FIRST item with done=false.",
+    "2. Read the real code before changing anything.",
+    "3. Do the item, with checks in scripts/check-core-cache.sh for every behaviour it promises. Run every check.",
+    "4. Commit and push with [skip ci].",
+    "5. Set done=true on the item with a one-sentence plain-English 'result' naming the commit. If every item is done, set the top-level \"complete\": true.",
+    "6. Stop the iteration."
+  ],
+  "items": [
+    {
+      "id": "K1",
+      "done": false,
+      "title": "Comments, blank lines, the cache's own code and the lists of emulators stop counting",
+      "detail": "Make the shared hash (and each core's recipe hash) cover only what can change how a core's library is built. (1) Full-line comments (first non-space character `#`) and blank lines are dropped, EXCEPT where such a line is content and not a comment: inside a heredoc body, inside a multi-line quoted string, after a line continuation where bash would not treat it as a comment, or anywhere else bash itself would not treat it as a comment. Detect those conservatively; if the script contains any construct you cannot classify with certainty, fail closed (no fingerprint, so every core rebuilds). One approach worth weighing is letting bash canonicalise the code itself (for example `declare -f` on the script's functions in a subshell that does not run the main dispatch, which drops comments), but only if top-level code outside functions is covered too and nothing runs as a side effect. Pick whichever you can make provably safe and write the reasoning in the code's comments. The `# recipe-start:` / `# recipe-end:` markers keep their meaning. (2) Wrap the cache machinery (the functions that compute, record and check fingerprints and slice recipes, plus the usage/help text) in an explicit excluded region, for example `# not-a-build-input-start: cache` ... `# not-a-build-input-end: cache`, with a structural guard: the region may contain only function definitions whose names are on an allow-list kept in check-core-cache.sh, and the help text; a violation makes every fingerprint fail closed and makes check-core-cache.sh fail with a clear message. (3) Wrap the lists of cores (IOS_CORES, IOS_OPTIONAL_CORES and any other array of core names) in their own excluded region with a guard that allows only array assignments of plain core-name identifiers (violation: fail closed, check fails). Which cores are in a list decides which cores get built, never how one of them is built, so adding a core (its own region plus its name in a list) or removing one must leave every other core's fingerprint unchanged. Make the list region wrap the whole assignments, so when the arcade agent appends continuum_arcade inside the IOS_OPTIONAL_CORES=( ... ) parentheses it lands inside your region automatically. New checks in check-core-cache.sh, each on a throwaway copy: adding, editing or removing a comment line in the shared part changes no fingerprint; the same for a blank line; editing a cache-machinery function changes no fingerprint; adding a fake core (own region plus its name in a list) changes no existing core's fingerprint, and removing a core changes no other; editing an executable shared line changes every fingerprint; editing a heredoc body line that starts with `#` changes the fingerprints it can affect; a `#`-leading line inside a multi-line quoted string counts as content; an unclassifiable construct fails closed; each guard violation fails closed and fails the check. All 105 existing checks still pass. In verification.md print ios-fingerprint for several cores before and after a comment edit, a list edit and a shared flag edit."
+    },
+    {
+      "id": "K2",
+      "done": false,
+      "title": "This morning's three review findings",
+      "detail": "From /projects/sandbox/Continuum-/.agents/tasks/per-core-fp/review.md: (a) add a structural guard on the patches arms (ios_apply_core_patches) and the per-core patch helpers, so a core's patch step cannot sit outside its region unnoticed; (b) correct the 'thirty-six cores' wording in the comments (count what is really built from source); (c) put a separator between a family's concatenated regions in ios_recipe_text, so moving a line from one region of a family to another changes the hash. A check for (a) and (c) in check-core-cache.sh."
+    },
+    {
+      "id": "K3",
+      "done": false,
+      "title": "Hunt for a stale emulator: a fresh, adversarial review of K1 and K2",
+      "detail": "You are a new session and did not write K1 or K2: review them as a hostile reviewer would. Read the diff of the K1 and K2 commits (their hashes are in the items' results). Hunt specifically for ways this could silently ship a stale core: a line classified as a comment that bash actually executes or writes into a file; a heredoc (including <<- and quoted delimiters), here-string, multi-line string, line continuation or `$'...'` string the classifier mishandles; build logic sitting inside an excluded region; a list region that could swallow something other than core names; a fingerprint that stays the same across a meaningful edit; any path where a failure to compute returns success. For each hazard, try to break it on a throwaway copy. Fix every real problem you find, add a check that would have caught it, run every check, and push. Write what you tried and what you found into verification.md, including the hazards you tried that held."
+    },
+    {
+      "id": "K4",
+      "done": false,
+      "title": "Summary for the orchestrator",
+      "detail": "Write /projects/sandbox/.scratch/cache-work/.agents/tasks/cache-v2/summary.md in plain English: what now rebuilds every emulator, what rebuilds one, and what rebuilds none; the commits; the check count; and anything a future change to build-core.sh must keep in mind. Then set the top-level complete to true."
+    }
+  ]
+}

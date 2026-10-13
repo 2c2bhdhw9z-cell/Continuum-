@@ -77,7 +77,7 @@ HIGH · CONFIRMED · `SaveStates.swift:1401-1405, 1134, 1317`; `ContinuumApp.swi
 
 ### IOS-03 · Tester feedback still goes to the retired address
 HIGH · CONFIRMED · `Feedback.swift:28`; `.kiro/steering/owner-rules.md:76-78`
-- Evidence: `FeedbackDestination.email = "idkplswrk@gmail.com"`. Since fd51c47 (today), owner-rules says "Support and feedback email: ContinuumDev2c2b@gmail.com … The old address is retired: it must not appear anywhere in the repository". Every Send in build 180 opens Mail addressed to the old inbox. Outside this area, the old address is also in README.md:52, STATUS.md:208/322/389/944, TESTING.md:282, HANDOFF.md:63 and docs/MANIC_PARITY.md:178.
+- Evidence: `FeedbackDestination.email = the retired address`. Since fd51c47 (today), owner-rules says "Support and feedback email: ContinuumDev2c2b@gmail.com … The old address is retired: it must not appear anywhere in the repository". Every Send in build 180 opens Mail addressed to the old inbox. Outside this area, the old address is also in README.md:52, STATUS.md:208/322/389/944, TESTING.md:282, HANDOFF.md:63 and docs/MANIC_PARITY.md:178.
 - Fix: set `FeedbackDestination.email` to `ContinuumDev2c2b@gmail.com` and replace every other occurrence in the same push. The rule's "history included" would need a history rewrite, which conflicts with the no-force-push practice. That is for the orchestrator to raise, not to do silently.
 
 ### IOS-04 · The feedback and crash-report forms open fully folded on a fresh install

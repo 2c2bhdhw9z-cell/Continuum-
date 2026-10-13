@@ -1,0 +1,80 @@
+{
+  "complete": false,
+  "title": "Continuum, evening of 13 October 2026: cBoy colour for black-and-white games, the exact drawer, the IO write timing",
+  "repo": "/projects/sandbox/.scratch/cboy-work",
+  "branch": "master",
+  "read_first": [
+    "/projects/sandbox/.scratch/cboy-work/.kiro/steering/owner-rules.md",
+    "/projects/sandbox/.scratch/cboy-work/docs/CBOY_EXACT_DRAWER.md (the working map of the exact drawer, including 'Needed in files this work does not own')",
+    "/projects/sandbox/.scratch/cboy-work/docs/CBOY_NIGHT.md (what landed in cBoy last night)",
+    "/projects/sandbox/.scratch/cboy-work/docs/CBOY_OPTIONS_INVENTORY.md",
+    "/projects/sandbox/.scratch/cboy-work/STATUS.md 'Next up' items 6 and 7"
+  ],
+  "ORDERS_CHANGED_NO_DEADLINE": "CANCELLED by the owner at 4 PM on 13 October: the 7:30 PM Eastern deadline your prompt mentions. There is NO deadline and NO cutoff. Do not watch the clock, do not stop early, and do not leave anything out or cut anything short to save time. Finish every item on this list properly. The orchestrator starts the build when all three of tonight's jobs are finished. The quality rules below (follow SameBoy, never guess a picture, never weaken a test) still stand: they are how the work is done, not limits on how much of it gets done.",
+  "hard_rules": [
+    "Work ONLY in /projects/sandbox/.scratch/cboy-work. Two other agents are working on the same repository right now in /projects/sandbox/Continuum- and /projects/sandbox/.scratch/arcade-work.",
+    "You own cores/continuum-gb/** and docs/CBOY_*.md. Touch NOTHING else (no STATUS.md, TESTING.md, HANDOFF.md, no crates/, no native/, no scripts/ outside cores/continuum-gb/scripts/). If something outside is needed, write exactly what into docs/CBOY_EVENING.md and work around it.",
+    "Push straight to master. No branches, no pull requests, ever. EVERY commit message ends with [skip ci]: the orchestrator starts the one build at the end.",
+    "Push after every finished item, immediately: stage your files by name, commit, `git pull --rebase origin master && git push origin master`, retry if another agent pushed first. Never leave finished work only in the sandbox.",
+    "Green before every push: `cd cores/continuum-gb && scripts/fetch-test-roms.sh && cargo test --release`. dmg-acid2, cgb-acid2, Mooneye DMG 87/87 and Mooneye Color 5/5 must pass on BOTH drawers after every change. Set CARGO_BUILD_JOBS=3.",
+    "The exact drawer is the job the owner set Kiro's thinking to maximum for, and they asked for it again this afternoon. The method is not optional: understand the hardware behaviour, follow how SameBoy does it (already cloned at /projects/sandbox/.scratch/sameboy; Mealybug's sources and descriptions at /projects/sandbox/.scratch/mealybug-src; never commit either), implement that in cBoy's own Rust, then compare. NEVER guess a test picture pixel by pixel. A change you cannot explain in one sentence of hardware behaviour is not allowed, however many pictures it fixes.",
+    "Standard stays the default drawer. Never make Exact the default. A pinned score only ever goes up; never weaken, skip or re-pin a test to make it pass.",
+    "No existing save state may stop loading. If a state has to grow, use the state format's existing versioning and prove an old state still loads.",
+    "No made-up startup picture, ever (owner's rule): without the player's real boot file, a game starts straight away.",
+    "Anything a player reads (option names and descriptions) is short, casual and plain. No jargon.",
+    "Record the Mealybug score in the message of every commit that touches the drawer ('Mealybug 24 -> N of 55')."
+  ],
+  "per_iteration": [
+    "1. Read this file, including ORDERS_CHANGED_NO_DEADLINE. Pick the first item with done=false.",
+    "2. Read the real code and the hardware behaviour before changing anything.",
+    "3. Implement it with tests. Run the cBoy suite. Fix anything you broke.",
+    "4. Commit and push with [skip ci].",
+    "5. Set done=true with a one-sentence plain-English 'result'. If every item is done, set the top-level \"complete\": true.",
+    "6. Stop the iteration."
+  ],
+  "items": [
+    {
+      "id": "G1",
+      "done": true,
+      "result": "Pushed as 381d5d7: the Picture setting is now 'Colour for black-and-white games' (Off by default), and Automatic or one of the twelve button schemes plays a black-and-white game on a Game Boy Color in the colours the real one gives it, from the documented table (with a real Color start-up file it runs and gives the same colours, checked on 284 starts with SameBoy's free one), both drawers draw it, dmg-acid2 matches its Color reference, old save states load in colour, the inventory regenerates unchanged (two stale notes in files not ours are written up in docs/CBOY_EVENING.md), and Mealybug went 24 -> 27 of 55.",
+      "title": "A Game Boy Color playing an old black-and-white game in colour",
+      "detail": "Today cBoy runs a black-and-white-only cartridge as a plain Game Boy, and asking it to be a Color for one gives a white screen. A real Game Boy Color colours those games: its start-up code picks a colour scheme from a table keyed by the title's checksum (with the title's fourth letter to tell apart games that share a checksum), or the scheme the player chose by holding a button combination while it starts (Up, Up+A, Up+B, Left, Left+A, Left+B, Down, Down+A, Down+B, Right, Right+A, Right+B), writes those colours into the colour palette memory, switches itself into compatibility mode, and the game's own three black-and-white palette registers then pick from those colours. cBoy ships no start-up code, so reproduce that result in Rust: the table is documented in Pan Docs ('Power Up Sequence', compatibility palettes) and SameBoy's own open-source start-up code has the same table; take the data from the documentation, not by copying code. When the player HAS installed a real Color start-up file, the real one must run and give the same result. Settings: keep today's behaviour as the default for everyone (a black-and-white game still looks like a Game Boy unless the player chooses otherwise), and add one plain choice for black-and-white games, for example 'Colour for black-and-white games': 'Off (like a Game Boy)' / 'Automatic (like a Game Boy Color)' / the twelve schemes in plain names. Fit it to the existing options (docs/CBOY_OPTIONS_INVENTORY.md and options.rs) and regenerate the inventory. Works on both drawers. Tests: the scheme chosen for a header (including a shared checksum split by the fourth letter, and an unknown game getting the default scheme), each manual scheme, the registers a Color leaves in compatibility mode, a black-and-white test picture coming out in the expected colours, and nothing changing for colour games or for anyone who leaves the setting alone."
+    },
+    {
+      "id": "G1b",
+      "done": false,
+      "title": "The Link cable setting's text is out of date (small, do it first)",
+      "detail": "Added by the orchestrator at 5:40 PM. The engine agent has built the app's half of the two-phone Game Boy link (commit 1dee835): in a game's ... menu the online-play row now reads 'Link cable to a second phone' when the game is on cBoy. But cBoy's own 'Link cable' option (cboy_link in cores/continuum-gb/src/options.rs) still ends 'Linking two phones is not available yet.', which is now false. Change that sentence to say how to do it, short and casual, for example: 'To link two phones, open the ... menu in a game and choose Link cable to a second phone.' Regenerate docs/CBOY_OPTIONS_INVENTORY.md if the option text is in it, run the cBoy suite, push with [skip ci]."
+    },
+    {
+      "id": "G1c",
+      "done": false,
+      "title": "Shorter descriptions for cBoy's own settings (small, do it before G2)",
+      "detail": "Added by the orchestrator at 6 PM: the owner wants every explanation in the app condensed and made shorter. Go through every option description in cores/continuum-gb/src/options.rs: each becomes one short, casual sentence a player can act on, or none if the label already says it. No words a player wouldn't know (no M-cycle, FIFO, register, HLE, DMG/CGB codes in descriptions). Keep every fact needed to choose, never change a key, a default or what an option does. Regenerate docs/CBOY_OPTIONS_INVENTORY.md; if a test pins a description's text, update the expected text without weakening what it checks. Run the cBoy suite, push with [skip ci]."
+    },
+    {
+      "id": "G2",
+      "done": false,
+      "title": "Where an IO write lands inside its M-cycle (the last black-and-white Mealybug picture)",
+      "detail": "docs/CBOY_EXACT_DRAWER.md says the last DMG picture's four wrong pixels come from the dot on which a CPU write to an IO register reaches the picture hardware, which lives in bus.rs (yours tonight). Implement the hardware's timing for that, following SameBoy's model of when each register write takes effect relative to the dot, with a one-line comment per rule naming the behaviour. Mealybug must go up or stay the same, never down, and the Standard drawer must not change."
+    },
+    {
+      "id": "G3",
+      "done": false,
+      "title": "The exact drawer on the Color half of Mealybug",
+      "detail": "Thirty-one of the 55 Mealybug pictures were photographed on a Game Boy Color playing black-and-white test cartridges, so they could never be run before G1. Run them now, map every failure by the hardware behaviour it probes (add the map to docs/CBOY_EXACT_DRAWER.md, the same way C1 did for the black-and-white half), then fix them group by group in the order that fixes the most pictures per change, committing after each group with the new score. Color-only behaviour (its different mode-3 timings, its palette RAM access during drawing, its object priority) must come from how SameBoy models the Color, never from the picture."
+    },
+    {
+      "id": "G4",
+      "done": false,
+      "title": "Keep pushing the score honestly, all the way",
+      "detail": "Carry on through every remaining Mealybug failure, one hardware behaviour at a time, committing with the score each time, until all 55 pass. A run of changes that fixes nothing is NOT a reason to stop: go back to how the hardware and SameBoy do it and look harder. The only failures that may be left are ones that genuinely cannot be explained from the hardware behaviour, each written down in docs/CBOY_EXACT_DRAWER.md with exactly what was checked. Never guess."
+    },
+    {
+      "id": "G5",
+      "done": false,
+      "title": "Write it up for the owner",
+      "detail": "Write docs/CBOY_EVENING.md: what landed, each as 'Built, untested'; what the tests prove; the new Mealybug score; what is left and why; and a short numbered list of phone checks in the owner's plain, casual voice (one per thing a player can see or hear: for example picking the colour setting and opening Tetris or the original Pokemon Red, Blue or Super Mario Land). The orchestrator folds it into TESTING.md and STATUS.md. Update docs/CBOY_EXACT_DRAWER.md's top lines to the new score. Then set the top-level complete to true."
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "complete": false,
+  "title": "Continuum Home screen, 13 October 2026: floating tabs, no game-count strip, and a card size setting",
+  "repo": "/projects/sandbox/.scratch/ui-work",
+  "branch": "master",
+  "the_owner_asked": "The owner sent a screenshot of the Home screen (13 October, 5:30 PM). In their words: they want the game cards to go UNDER the four tabs at the bottom (Home, All Games, Favorites, Settings), and their best guess at explaining it was 'make the four tabs hover, so the games can be seen scrolling off the screen'. They want the strip just above the tabs that reads '● 80 games ^' gone ('there's already that in the settings, I think'). And written on the screenshot: 'Give users ability to control the size the game cards take up (basically meaning more rows can fit on screen)'. They are not a programmer and only use an iPhone.",
+  "read_first": [
+    "/projects/sandbox/.scratch/ui-work/.kiro/steering/owner-rules.md (iOS controls keep Apple's glass look; tester-facing text is short and casual)",
+    "/projects/sandbox/.scratch/ui-work/docs/PRODUCT_SCOPE.md",
+    "/projects/sandbox/.scratch/ui-work/native/ios/LibraryShell.swift (892 lines: the long comment at the top explains why the tab bar is hand-built instead of a TabView; enum LibraryTab ~l.37; the bottom strip is `statusStrip` ~l.302-360, its text is built around l.322; the All Games grid uses GridItem(.adaptive(minimum: 104, maximum: 150)) ~l.607)",
+    "/projects/sandbox/.scratch/ui-work/native/ios/SettingsScreen.swift (where the new setting goes)",
+    "/projects/sandbox/.scratch/ui-work/native/ios/project.yml (deploymentTarget iOS 16.0; every Swift file must be listed in `sources`)"
+  ],
+  "hard_rules": [
+    "Work ONLY in /projects/sandbox/.scratch/ui-work. Other agents are pushing to the same master right now from other folders: the engine agent in /projects/sandbox/Continuum- (it edits native/ios for the two-phone link, the online-play screens and a Mesen SNES choice in Settings), the arcade agent in /projects/sandbox/.scratch/arcade-work (arcade wiring, possibly ContinuumApp.swift and ImportCenter.swift), the cBoy agent and a build-cache agent. Keep your edits to the Home, All Games, Favorites and tab bar code and one new Settings row; when `git pull --rebase` conflicts, keep both sides and re-check.",
+    "Do NOT touch cores/**, crates/**, scripts/**, .github/**, STATUS.md, TESTING.md or HANDOFF.md. Write your report to docs/reports/evening-2026-10-13-library.md.",
+    "Commit and push straight to master. No branches, no pull requests. EVERY commit message ends with [skip ci]: the orchestrator starts tonight's single build after all the work is in. Push each finished item at once: stage files by name, commit, `git pull --rebase origin master && git push origin master`, retry if rejected.",
+    "THERE IS NO iOS SDK, XCODE OR SIMULATOR HERE. `swiftc -frontend -parse <file>` only checks the writing, not the types, and nothing can be seen on a screen until the build reaches the owner's phone. So: use only SwiftUI and UIKit APIs available on iOS 16, or put anything newer behind `if #available(iOS NN, *)` with an iOS 16 fallback; prefer APIs and patterns this codebase already uses; check every modifier's real signature and availability before using it (look at how the code already uses it); keep types simple and explicit. A Swift type error here breaks the owner's build. Run `swiftc -frontend -parse` on every changed file before every push.",
+    "The look: iOS keeps Apple's glass look (owner rule). Behaviour lives in the Rust engine where it is behaviour; this job is pure presentation, so it stays in Swift.",
+    "Anything a player reads is short and casual, like a person wrote it.",
+    "A separate job, in /projects/sandbox/.scratch/text-work, is shortening every explanation in Settings and the other screens at the same time (owner, 6 PM: 'condensed and made shorter'). Give your new rows one short line of text at most, do not rewrite text in other sections, and on a merge conflict in SettingsScreen.swift keep both sides. Put Game card size in the existing LAYOUT section next to 'All Games: Grid / List', and Appearance in its own short section near the top of Settings."
+  ],
+  "per_iteration": [
+    "1. Read this file. Pick the FIRST item with done=false.",
+    "2. Read the real code first, all of the view code the item touches.",
+    "3. Make the change. Parse-check every changed Swift file.",
+    "4. Commit and push with [skip ci].",
+    "5. Set done=true with a one-sentence plain-English 'result' naming the commit. If every item is done, set the top-level \"complete\": true.",
+    "6. Stop the iteration."
+  ],
+  "items": [
+    {
+      "id": "U1",
+      "done": true,
+      "result": "Commit a06aeec: the four tabs now float over Home, All Games, Favorites and Settings, so the covers scroll underneath see-through glass tabs (Apple's ultraThinMaterial under a 60% black wash so the labels stay readable; iOS 26's glassEffect left out on purpose because it can turn light under fixed white text), and every tab, Settings included (its padding now sits inside its own scroll view), ends with room for its last row to scroll clear of the bar.",
+      "checked": "Home (hero, shelves, empty library: end spacer = bar + 22), All Games grid and search results (bar + 16), All Games list (fixed clear row instead of a Spacer, bar + 16), Favorites with and without games (same grid; its empty and no-match notices are short and top-anchored), Settings (end padding moved inside its ScrollView, bar + 24; sub-screens are sheets so the bar never covers them), landscape (the hero's Play pill stays above the bar on every phone size, same as before), the keyboard (the app root ignores the keyboard area, so the keyboard covers the bar exactly as it did before; nothing new is hidden), the diagnostics panel inside the bar (it keeps its own dark backing), and taps on the bar still stop at the bar. No new API: both modifiers are ones the code already uses, iOS 15+. SettingsScreen's new defaulted bottomClearance property was proven to keep its constructor usable from another file with a local swiftc build.",
+      "title": "The four tabs float, and the games scroll underneath them",
+      "detail": "Make the hand-built tab bar float over the content instead of sitting below it: the Home, All Games, Favorites and Settings content runs all the way to the bottom edge of the screen, and as you scroll, the covers pass underneath the tabs and can be seen through them. Give the bar a translucent glass background (an iOS material such as .ultraThinMaterial or .regularMaterial, iOS 15+; on iOS 26, Apple's own glass effect behind `if #available(iOS 26, *)` if it fits the existing look, with the material as the fallback), keep the selected tab's colour and the tap targets, and keep it readable over any cover art. Nothing may end up permanently hidden: every scrolling screen gets enough space at the end (the bar's height plus the home indicator) so its last row and its last control can scroll fully clear of the bar. Check every screen the bar sits over, including Settings, an empty library, search results, Favorites with nothing in it, landscape, and the keyboard showing for search. Do not change how the tabs switch or what they show."
+    },
+    {
+      "id": "U2",
+      "done": false,
+      "title": "The '● 80 games' strip goes, and nothing it carried gets lost",
+      "detail": "Remove `statusStrip` from above the tab bar. First, read it fully and list everything it shows: the game count, what the dot means (sync? activity?), what the ^ expands to, and every message that is ever written into it (for example import results like 'Added 3 games. Skipped 41 files that aren't games.', the line saying files that aren't games were moved to the Not games folder, sync or backup status, errors). The owner believes it is already in Settings; check each piece. Anything already in Settings simply goes. Anything useful that is not in Settings moves there (for example the game count and whatever the expanded part showed, in the most fitting Settings section). Anything a player needs to see at the moment it happens (an import result, the Not games move, an error) becomes a short pop-up line over the content, just above the floating tabs, that fades away by itself after a few seconds and can be tapped away, so no message is lost. List in your report which owner phone checks in TESTING.md mention 'a line at the bottom' or the strip, so the orchestrator can reword them."
+    },
+    {
+      "id": "U3",
+      "done": false,
+      "title": "A setting for how big the game cards are",
+      "detail": "Add one setting so players choose how big the game cards are, so more rows (and more covers per row) fit on screen. In Settings, in the section that fits best (a Library or Appearance section if there is one): 'Game card size' with four choices, Extra small, Small, Medium (today's size, the default, so nothing changes for anyone who leaves it alone) and Large. It changes the covers on Home (the rows of each section: card width and height, with the title and badge text scaling to fit, never cut off unreadably) and the All Games and Favorites grids (the adaptive grid's minimum and maximum, so Extra small fits roughly twice as many covers per row as Medium on an iPhone). The library updates at once when the setting changes, without a restart. Store it the way the app stores its other settings, so it is backed up and synced like them (check CloudSync's settings handling and any exclusion lists). Keep the big featured cover at the top of Home as it is."
+    },
+    {
+      "id": "U3b",
+      "done": false,
+      "title": "Light mode, and an Appearance setting to control it",
+      "detail": "Added by the orchestrator at 5:50 PM: the owner wants a light mode, with a setting in Settings to control it. Add Settings, Appearance, with three choices labelled exactly Dark, Light and System (System follows the iPhone's own light or dark setting; the owner's word is 'System', never 'Match my phone' or 'Automatic'). The default is exactly how the app looks today, so nobody's app changes until they pick something: if today's app forces dark, the default is Dark. Apply it once at the root of the app (SwiftUI's preferredColorScheme, nil for System) so every screen, sheet and menu follows at once, live, without a restart. Then make every screen actually look right in light mode: find every hard-coded colour (Color.black, .white, Color(red:green:blue:), hex values, UIColor literals, gradients and shadows tuned for a dark background) in the library, the tab bar, Settings, the game card sheet, import, feedback, save slots, skins and every other menu, and replace them with adaptive colours (system semantic colours such as Color(.systemBackground), .primary and .secondary, or one small palette with a light and a dark value each, defined in one place). Text must stay readable over cover art in both modes (badges, titles, the big featured cover fading into the background), and U1's floating glass tab bar must look right in both. The game screen itself, where the game picture and the skin are drawn, stays black around the game in both modes, like every emulator, and so does anything drawn over a running game; menus opened from a game follow the setting. Store the choice like the app's other settings, so it is backed up and synced with them. iOS 16 is the minimum: anything newer behind `if #available`."
+    },
+    {
+      "id": "U4",
+      "done": false,
+      "title": "A fresh, careful review of U1 to U3 before the owner's phone sees them",
+      "detail": "You are a new session and did not write U1 to U3: review their commits (hashes in the results above) as a hostile reviewer would, since nothing here can be seen before the build. Look for: an API or modifier that does not exist on iOS 16 or has a different signature; a type mistake the parse check cannot catch; content or a control permanently hidden under the floating bar; a double or missing safe-area inset; the bar unreadable over light cover art; a pop-up line that never goes away or covers the tabs; a message the old strip carried that is now shown nowhere; the card size not reaching one of the three screens or not updating live; Medium not being exactly today's size; text cut off at Extra small. And for light mode (U3b): any screen, sheet or control still dark, or with unreadable text, in Light (white on white, black on black, a dark fade on a light background); a hard-coded colour that was missed; the Appearance setting not applying live; System not following the phone; the game screen turning light. Fix everything real, parse-check, push. Record what you checked in the report."
+    },
+    {
+      "id": "U5",
+      "done": false,
+      "title": "Write it up",
+      "detail": "Write docs/reports/evening-2026-10-13-library.md: what changed, each as 'Built, untested'; what the owner should try on the phone, as a short numbered list in their plain, casual voice (scroll Home and watch the covers pass under the tabs; the '80 games' strip is gone; where the game count lives now; an import shows its result as a pop-up line that fades; Settings, Game card size, try each size on Home and All Games; Settings, Appearance, try Light on every tab and in a game's card, then System and switch the iPhone between light and dark in Control Centre); and the TESTING.md lines that need rewording because of U2. Then set the top-level complete to true."
+    }
+  ]
+}

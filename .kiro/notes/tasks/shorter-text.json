@@ -1,0 +1,62 @@
+{
+  "complete": false,
+  "title": "Shorter text everywhere in the app: every explanation condensed (13 October 2026)",
+  "repo": "/projects/sandbox/.scratch/text-work",
+  "branch": "master",
+  "the_owner_asked": "At 6 PM the owner sent 13 screenshots of Settings with nearly every explanation paragraph circled in red, and said: 'I want stuff that can be condensed. Condensed and made shorter.' On the PSP section they wrote 'why are we here'. What they circled: the cores note ('A choice here applies from the next game you open...' and 'Not sure which to pick?...'), Screen fit ('Fit is the normal choice...'), Scaling ('Sharp keeps hard pixel edges...'), the volume note ('Volume is applied inside the emulator...'), Fast forward ('How fast the fast-forward button...'), Rewind (two long paragraphs), the controller notes (five paragraphs under 'Hide the on-screen pad while a controller is connected'), On-screen controls (both paragraphs, including '.deltaskin ... screens[]'), Haptics and turbo, Cheats (both paragraphs), RetroAchievements, Two screens, TV and mouse (both notes), Touch screen as a mouse, Microphone, Camera, Amiibo ('Amiibo dumps are .bin files of 540 or 572 bytes...'), Cover art (three paragraphs, plus the one under 'Forget the downloaded cover lists'), Layout ('These two are remembered... confusingly similar name'), the whole PSP section, the BIOS paragraph with its wall of file names, Save states (both long notes), Storage ('Games live in the app's own Documents directory...'), and Sync folder (the backup note, the live folder note and 'Back up the games too').",
+  "the_goal": "Every explanation a player reads becomes one or two short, casual sentences that help them choose, or disappears when the control already says it. Technical read-outs leave the normal sections. Nothing a player needs to make a choice is lost, and nothing about how the app works changes.",
+  "read_first": [
+    "/projects/sandbox/.scratch/text-work/.kiro/steering/owner-rules.md (text testers read is short and casual, never like documentation; technical read-outs only behind the (i) button and Settings, Technical details)",
+    "/projects/sandbox/.scratch/text-work/native/ios/SettingsScreen.swift (1,536 lines), EmulationSettings.swift and CoreSettingsScreen.swift",
+    "/projects/sandbox/.scratch/text-work/native/ios/GameDetailSheet.swift (674 lines)"
+  ],
+  "hard_rules": [
+    "Work ONLY in /projects/sandbox/.scratch/text-work. Other jobs edit native/ios tonight: the Home screen job (LibraryShell.swift, colours across many files for a new light mode, and new Settings rows: Appearance, Game card size and the game count), the icons job (AppIcons.swift and SF Symbol names), and the engine job (the online-play and link screens, and a Mesen choice for SNES in the cores section). Rebase often with `git pull --rebase origin master`; on a conflict keep both sides (their new rows stay, your shorter text stays), then parse-check again. Leave the Home screen job's new rows' text alone. Do the online-play and link screens last.",
+    "Only text changes: string literals, and removing explanation-only Text views. Never change what a control does, its stored key, its default, or its choices. The only whole sections you may remove are the PSP section (the owner asked why it's there) and any other section that holds nothing but an explanation.",
+    "There is no iOS SDK here. Run `swiftc -frontend -parse` on every changed file before every push. Keep string interpolations and escapes intact, and when you remove a view leave no empty Text(\"\"), stray modifier or empty container behind.",
+    "Technical read-outs (the small monospace STATE, STORED, LAST and NOW lines, such as 'no cheats stored · no core resident, so nothing is active', 'save states: 0 record(s) for 0 game(s)', 'library: 80 game(s) of 86 file(s) in Documents', 'BIOS (pcsx_rearmed): none, HLE fallback', and the sync folder's file-name line) move into Settings, Technical details, kept as they are and grouped by section. The normal section keeps at most one plain line where it really helps, with real plurals: '78 covers saved (27 MB)', 'No cheats yet', 'Last backup: today at 12:54 PM', 'Not logged in'.",
+    "How it should read: like a person talking to a friend. Second person, short words, one idea per sentence. No 'which is deliberate', 'on purpose', 'the read-out above', 'core resident', 'payload', 'HLE', 'Documents directory', and no file-format trivia (byte counts, 'screens[]', '.bin files of 540 or 572 bytes') unless a player needs it to make something work. Name buttons and sections exactly as they appear on screen.",
+    "Push straight to master. No branches, no pull requests. Every commit message is one short line a person would write and ends with [skip ci]. Stage files by name, `git pull --rebase origin master && git push origin master`, retry if rejected.",
+    "Don't touch STATUS.md, TESTING.md or HANDOFF.md, or cBoy's own option text (cores/continuum-gb, another job does it). List in your report every TESTING.md step whose quoted wording you changed."
+  ],
+  "per_iteration": [
+    "1. Read this file. Pick the FIRST item with done=false.",
+    "2. Read every string in the part you are doing before you change any.",
+    "3. Rewrite, parse-check, commit and push with [skip ci].",
+    "4. Set done=true with a one-sentence 'result' naming the commit. If every item is done, set the top-level \"complete\": true.",
+    "5. Stop the iteration."
+  ],
+  "items": [
+    {
+      "id": "T1",
+      "done": true,
+      "title": "Settings, first half",
+      "detail": "The cores section, Picture (Screen fit, Scaling), Sound, Speed and rewind, Controllers (the five paragraphs become one or two sentences: a controller and the on-screen pad both work; pair it in the iPhone's Bluetooth settings; up to four players), On-screen controls, Haptics and turbo, Cheats, RetroAchievements, Two screens, TV and mouse, Touch screen as a mouse, and Microphone, camera and Amiibo (the camera note must also be true for the Game Boy Camera on cBoy now, not only 3DS games).",
+      "result": "Pushed as ec63823 (the first half of Settings shortened, read-outs moved to Technical details). Ticked by the orchestrator: the session was stopped at 6:25 PM on 13 October before it could tick the item itself."
+    },
+    {
+      "id": "T2",
+      "done": false,
+      "title": "Settings, second half",
+      "detail": "Cover art (three paragraphs become one or two sentences: covers are looked up by the game's file name on the libretro thumbnail server and nothing else is sent; the clear buttons get one short line between them), Layout (remove the 'These two are remembered... confusingly similar name' note), PSP (remove the whole section; the JIT note already lives in Technical details), BIOS (replace the paragraph and the wall of file names with one line, for example 'Put BIOS files in the Continuum folder in Files, then tap Install. Each system below says what it needs.', and make the per-system lines short and friendly, for example 'Sega CD: needs bios_CD_U.bin, bios_CD_E.bin or bios_CD_J.bin' and 'Doom: ready'), Save states, Storage, App icon, Sync folder, Online play, About, and the walls of text in Technical details (its read-outs stay)."
+    },
+    {
+      "id": "T3",
+      "done": false,
+      "title": "The other screens",
+      "detail": "The game card (GameDetailSheet.swift), save slots, import and the + menu, skins and the controls editor, feedback and the crash report, the backup prompts, and any other long explanation in native/ios. Core settings: each emulator writes its own option descriptions (cBoy's are another job's), but the app's own text on that screen is yours. Online play and link screens last, after a fresh rebase."
+    },
+    {
+      "id": "T4",
+      "done": false,
+      "title": "A fresh review",
+      "detail": "You are a new session: review the T1 to T3 commits as a hostile reviewer would. Every changed file parses; no interpolation or escape broken; no fact a player needs to choose was lost; nothing technical is left in a normal section; every button or section a sentence names really exists with that name; removing PSP left nothing dangling; every line reads like a person. Fix what you find, parse-check, push."
+    },
+    {
+      "id": "T5",
+      "done": false,
+      "title": "Write it up",
+      "detail": "Write docs/reports/evening-2026-10-13-text.md: what was shortened (a few before-and-after examples), what was removed, where the read-outs went, and every TESTING.md step whose quoted wording changed. Then set the top-level complete to true."
+    }
+  ]
+}
