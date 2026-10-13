@@ -276,6 +276,39 @@ pub fn declared_rom_bytes(code: u8) -> Option<usize> {
     }
 }
 
+/// The Nintendo logo at $104-$133. The console's own start-up code compares it byte for byte and
+/// refuses the cartridge if it differs, so every cartridge that ever ran on a Game Boy has it.
+pub const LOGO: [u8; 48] = [
+    0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
+    0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E, 0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
+    0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
+];
+
+/// The header checksum at $14D: every byte of $134-$14C subtracted from zero, one at a time.
+fn header_checksum_ok(rom: &[u8]) -> bool {
+    let sum = rom[0x134..0x14D].iter().fold(0u8, |a, b| a.wrapping_sub(*b).wrapping_sub(1));
+    sum == rom[0x14D]
+}
+
+/// The file carries a Game Boy cartridge header: the Nintendo logo, or a header checksum that
+/// adds up (a little homebrew leaves the logo out but gets the checksum right). Used to tell a
+/// Game Boy game from a Game Boy Advance one, whose header sits somewhere else entirely.
+pub fn looks_like_gb_rom(rom: &[u8]) -> bool {
+    rom.len() >= 0x150 && (rom[0x104..0x134] == LOGO || header_checksum_ok(rom))
+}
+
+/// What a cartridge's chip is called, for a refusal a player can read. The ones cBoy plays are
+/// not in here: this only names what it has to turn away.
+fn chip_name(kind: u8) -> &'static str {
+    match kind {
+        0x0B..=0x0D => "MMM01, the one Momotaro Collection uses",
+        0x20 => "MBC6, the one Net de Get uses",
+        0xFD => "TAMA5, the Tamagotchi one",
+        0x15..=0x17 => "MBC4",
+        _ => "an unknown one",
+    }
+}
+
 /// How the Library sizes a file, so a refusal names the same number the list already shows.
 fn size_label(bytes: usize) -> String {
     if bytes >= 1024 * 1024 {
@@ -321,7 +354,7 @@ pub fn ram_size(code: u8) -> usize {
 impl Cart {
     pub fn new(rom: Vec<u8>) -> Result<Cart, String> {
         if rom.len() < 0x150 {
-            return Err("the file is too small to be a Game Boy ROM".into());
+            return Err("This file is too small to be a Game Boy game. It may have been cut short, or it may not be a game at all.".into());
         }
         let t = rom[0x147];
         let (kind, battery, rtc) = match t {
@@ -335,7 +368,12 @@ impl Cart {
             0xFF => (MbcKind::HuC1, true, false),
             0xFE => (MbcKind::HuC3, true, true),
             0xFC => (MbcKind::Camera, true, false),
-            other => return Err(format!("cartridge type ${other:02X} is not supported yet")),
+            other => {
+                return Err(format!(
+                    "This cartridge has a chip cBoy cannot play yet ({}). Try this game on mGBA instead: open its settings and pick mGBA as the emulator.",
+                    chip_name(other)
+                ))
+            }
         };
         let mut ram_len = match kind {
             MbcKind::Mbc7 => 256,
@@ -1043,6 +1081,39 @@ mod tests {
         assert_eq!(c.read_ram(0xA000), 0x42);
         c.write_rom(0x4000, 1);
         assert_ne!(c.read_ram(0xA000), 0x42);
+    }
+
+    /// A cartridge cBoy cannot play says so in words a player can read, and never in code. The
+    /// app shows the core's own last line when a game is refused, so this is what a tester sees.
+    #[test]
+    fn an_unsupported_cartridge_is_refused_in_plain_words() {
+        for (kind, name) in [(0x0Bu8, "MMM01"), (0x0D, "MMM01"), (0x20, "MBC6"), (0xFD, "TAMA5"), (0x15, "MBC4"), (0x77, "an unknown one")] {
+            let why = Cart::new(rom(kind, 2)).unwrap_err();
+            assert!(why.starts_with("This cartridge has a chip cBoy cannot play yet ("), "{why}");
+            assert!(why.contains(name), "${kind:02X} should be named as {name}: {why}");
+            assert!(why.contains("mGBA"), "say where the game can be played: {why}");
+            assert!(!why.contains('$') && !why.contains("0x"), "no codes in a refusal: {why}");
+        }
+        // Every cartridge cBoy does play is still accepted.
+        for kind in [0x00u8, 0x03, 0x06, 0x10, 0x13, 0x1B, 0x22, 0xFC, 0xFE, 0xFF] {
+            assert!(Cart::new(rom(kind, 2)).is_ok(), "${kind:02X}");
+        }
+        let why = Cart::new(vec![0u8; 0x100]).unwrap_err();
+        assert!(why.starts_with("This file is too small to be a Game Boy game"), "{why}");
+    }
+
+    /// Telling a Game Boy cartridge from an Advance one: the logo the console checks, or a header
+    /// checksum that adds up.
+    #[test]
+    fn a_game_boy_header_is_recognised_by_its_logo_or_its_checksum() {
+        let mut r = rom(0x1B, 2);
+        assert!(!looks_like_gb_rom(&r), "nothing but a cartridge type is not a header");
+        r[0x104..0x134].copy_from_slice(&LOGO);
+        assert!(looks_like_gb_rom(&r), "the Nintendo logo is enough");
+        let mut c = rom(0x1B, 2);
+        c[0x14D] = c[0x134..0x14D].iter().fold(0u8, |a, b| a.wrapping_sub(*b).wrapping_sub(1));
+        assert!(looks_like_gb_rom(&c), "a header checksum that adds up is enough");
+        assert!(!looks_like_gb_rom(&r[..0x14F]), "a file that stops inside the header is not one");
     }
 
     #[test]

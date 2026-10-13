@@ -39,6 +39,43 @@ fn jsmolka(name: &str) {
     }
 }
 
+/// Which machine a file is run in. The byte that marks an Advance ROM ($96 at $B2) is ordinary
+/// code on a Game Boy cartridge, and a Game Boy game started as a 240x160 Advance cannot be
+/// played at all, so a file carrying a Game Boy header has to prove the Advance header too.
+#[test]
+fn a_game_boy_cartridge_is_not_run_as_an_advance_game() {
+    // A Game Boy cartridge, with the Nintendo logo, a header checksum that adds up, and $96 at
+    // $B2 where its own code happens to put it.
+    let mut gb = vec![0u8; 0x8000];
+    gb[0x104..0x134].copy_from_slice(&continuum_gb::cart::LOGO);
+    gb[0x134..0x13A].copy_from_slice(b"TETRIS");
+    gb[0x147] = 0x1B;
+    gb[0x149] = 3;
+    gb[0x14D] = gb[0x134..0x14D].iter().fold(0u8, |a, b| a.wrapping_sub(*b).wrapping_sub(1));
+    gb[0xB2] = 0x96;
+    assert!(!continuum_gb::gba::is_gba_rom(&gb), "a Game Boy cartridge must stay a Game Boy one");
+    // The same cartridge with its logo replaced, as some fan-made ones have: the checksum still
+    // adds up, so it is still a Game Boy cartridge.
+    let mut hack = gb.clone();
+    hack[0x104..0x134].fill(0x00);
+    assert!(!continuum_gb::gba::is_gba_rom(&hack));
+    // An Advance cartridge: $96 at $B2 and its own check byte at $BD.
+    let mut gba = vec![0u8; 0x200];
+    gba[0xB2] = 0x96;
+    let sum = gba[0xA0..=0xBC].iter().fold(0u8, |a, b| a.wrapping_add(*b));
+    gba[0xBD] = 0u8.wrapping_sub(sum).wrapping_sub(0x19);
+    assert!(continuum_gb::gba::is_gba_rom(&gba));
+    // Homebrew whose check byte was never put right is still an Advance game: nothing about it
+    // looks like a Game Boy cartridge.
+    let mut rough = gba.clone();
+    rough[0xBD] = rough[0xBD].wrapping_add(1);
+    assert!(continuum_gb::gba::is_gba_rom(&rough));
+    // And a real one.
+    if let Some(real) = rom("arm/arm.gba") {
+        assert!(continuum_gb::gba::is_gba_rom(&real));
+    }
+}
+
 #[test]
 fn jsmolka_arm() {
     jsmolka("arm/arm.gba");

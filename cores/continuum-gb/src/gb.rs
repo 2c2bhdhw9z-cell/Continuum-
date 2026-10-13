@@ -189,6 +189,22 @@ mod tests {
         assert_eq!((gb.cpu.a, gb.cpu.f, gb.cpu.d, gb.cpu.e, gb.cpu.l), (0x11, 0x80, 0xFF, 0x56, 0x0D));
     }
 
+    /// A game that keeps sending down the cable with nothing plugged in finished every transfer
+    /// at once and piled the bytes up for ever (470 MB an hour in a spin loop, enough for the
+    /// phone to shut the app down). The log stops at its limit, keeping what came first, which is
+    /// what the test ROMs report through.
+    #[test]
+    fn the_serial_log_stops_growing_with_nothing_plugged_in() {
+        let mut gb = GameBoy::new(vec![0u8; 0x8000]).unwrap();
+        for i in 0..crate::bus::SERIAL_LOG_MAX * 2 {
+            gb.bus.write(0xFF01, if i == 0 { 0x11 } else { 0x5A });
+            gb.bus.write(0xFF02, 0x81);
+        }
+        assert_eq!(gb.bus.serial_out.len(), crate::bus::SERIAL_LOG_MAX);
+        assert_eq!(gb.bus.serial_out[0], 0x11, "the first bytes sent are the ones kept");
+        assert!(gb.bus.serial_out[1..].iter().all(|b| *b == 0x5A));
+    }
+
     #[test]
     fn two_machines_swap_a_byte_over_the_link_cable() {
         let mut a = GameBoy::new(vec![0u8; 0x8000]).unwrap();

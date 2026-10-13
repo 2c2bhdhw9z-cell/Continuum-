@@ -49,7 +49,22 @@ pub struct Variable {
 pub const ENV_GET_VARIABLE: u32 = 15;
 pub const ENV_SET_VARIABLES: u32 = 16;
 pub const ENV_GET_VARIABLE_UPDATE: u32 = 17;
+pub const ENV_SET_CORE_OPTIONS_DISPLAY: u32 = 55;
 pub const ENV_SET_CORE_OPTIONS_V2: u32 = 67;
+pub const ENV_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: u32 = 69;
+
+/// `struct retro_core_option_display`: one key, and whether the settings page shows it.
+#[repr(C)]
+pub struct OptDisplay {
+    pub key: *const c_char,
+    pub visible: bool,
+}
+
+/// `struct retro_core_options_update_display_callback`.
+#[repr(C)]
+pub struct UpdateDisplayCallback {
+    pub callback: Option<unsafe extern "C" fn() -> bool>,
+}
 
 const NULL_VALUE: OptValue = OptValue { value: std::ptr::null(), label: std::ptr::null() };
 
@@ -78,9 +93,9 @@ const SPECS: &[Spec] = &[
      &[(c"auto", c"Auto"), (c"auto_sgb", c"Auto (Super Game Boy for SGB games)"), (c"dmg", c"Game Boy"), (c"dmg0", c"Game Boy (first revision)"), (c"mgb", c"Game Boy Pocket"), (c"sgb", c"Super Game Boy"),
        (c"sgb2", c"Super Game Boy 2"), (c"sgb_pal", c"Super Game Boy (PAL)"), (c"cgb", c"Game Boy Color"), (c"agb", c"Game Boy Advance (Color games)")],
      c"auto"),
-    (c"system", c"cboy_cgb_revision", c"Game Boy Color revision",
-     c"Which Game Boy Color hardware revision to model. Revision 0 (the first Japanese units) leaves the timer at a different point after start-up; later revisions match each other. Next start.",
-     &[(c"e", c"CPU CGB E (most common)"), (c"d", c"CPU CGB D"), (c"c", c"CPU CGB C"), (c"b", c"CPU CGB B"), (c"a", c"CPU CGB A"), (c"0", c"CPU CGB (revision 0)")],
+    (c"system", c"cboy_cgb_revision", c"Which Game Boy Color",
+     c"The very first Japanese Colors start a game with their timer in a different place, which a handful of games notice. Every Color after that behaves the same, so there is nothing else to choose between. Next start.",
+     &[(c"e", c"The usual one"), (c"0", c"The first Japanese one")],
      c"e"),
     (c"system", c"cboy_hybrid_model", c"Console for games that run on both",
      c"Some cartridges work on a plain Game Boy and a Game Boy Color. With the console above on Auto, this picks the one they get: Color for the extra colours, Game Boy for the four shades, or one of the other two for that console's own colours and start-up. Next start.",
@@ -113,7 +128,7 @@ const SPECS: &[Spec] = &[
      &[(c"auto", c"Auto"), (c"none", c"None"), (c"rtc", c"Clock"), (c"solar", c"Solar sensor"),
        (c"gyro", c"Gyro sensor"), (c"tilt", c"Tilt sensor"), (c"rumble", c"Rumble")], c"auto"),
     (c"system", c"cboy_gbp", c"Game Boy Player rumble",
-     c"Answers the Game Boy Player handshake so Advance games that rumble through the Player can turn the phone's motor on. Leave off for link-cable games. Next start.",
+     c"Lets an Advance game that shakes through a Game Boy Player (the GameCube attachment) shake the phone instead. Leave it off for link-cable games. Next start.",
      OFF_ON, c"off"),
     (c"system", c"cboy_rtc", c"Cartridge clock",
      c"For Game Boy and Color cartridges with a clock in them. Real time keeps the clock running while the game is closed. Game time counts only while playing. Phone clock sets it to the phone's time at each start. Advance cartridges have their own setting below.",
@@ -125,7 +140,7 @@ const SPECS: &[Spec] = &[
        (c"-6", c"-6 hours"), (c"-12", c"-12 hours"), (c"-24", c"-1 day")], c"0"),
     // Picture
     (c"video", c"cboy_dmg_palette", c"Game Boy palette",
-     c"The four shades of original Game Boy games. Custom uses your own palette.txt with four colours like #E0F8D0, lightest first: put it in the Continuum folder in Files, then tap Install a BIOS in Settings.",
+     c"The four shades original Game Boy games are drawn in. Custom uses four colours of your own, lightest first, written in a palette.txt: put it in the Continuum folder in Files, then tap Install a BIOS in Settings.",
      &[(c"grayscale", c"Grayscale"), (c"green", c"Original green"), (c"pocket", c"Pocket"), (c"light", c"Light (backlit)"),
        (c"kiosk", c"Kiosk"), (c"sepia", c"Sepia"), (c"ice", c"Ice"), (c"custom", c"Custom")], c"grayscale"),
     (c"video", c"cboy_dmg_colorize", c"Colour Game Boy games",
@@ -145,7 +160,7 @@ const SPECS: &[Spec] = &[
      c"Mix blends each frame with the last, which makes flicker effects solid. Ghosting leaves trails like the slow original screens.",
      &[(c"off", c"Off"), (c"mix", c"Mix"), (c"light", c"Ghosting, light"), (c"heavy", c"Ghosting, heavy")], c"off"),
     (c"video", c"cboy_sgb_border", c"Super Game Boy border",
-     c"Shows the frame a Super Game Boy game draws around the picture (with the Super Game Boy console). Always also puts Game Boy games on any other console inside a plain 256x224 frame.",
+     c"Shows the frame a Super Game Boy game draws around the picture (with the Super Game Boy console). Always puts a plain frame around every Game Boy game, on any console, so the screen stays the same size either way. Takes effect when the game restarts.",
      &[(c"on", c"Super Game Boy games"), (c"off", c"Off"), (c"always", c"Always")], c"on"),
     (c"video", c"cboy_renderer", c"Picture drawing",
      c"Standard is the tried and tested way. Exact (experimental) draws the screen dot by dot, for the rare game that changes the picture halfway along a line. It isn't finished yet and may look wrong.",
@@ -159,22 +174,30 @@ const SPECS: &[Spec] = &[
     (c"video", c"cboy_dark_filter", c"Darken",
      c"Dims bright colours, easier on the eyes in the dark.",
      &[(c"0", c"Off"), (c"10", c"10%"), (c"20", c"20%"), (c"30", c"30%"), (c"40", c"40%"), (c"50", c"50%")], c"0"),
+    (c"video", c"cboy_sprite_limit", c"Sprite flicker",
+     c"A Game Boy can only draw ten sprites on one line, so busy games flicker. On keeps that flicker, which is how the game looked. Off draws them all and the flicker goes.",
+     ON_OFF, c"on"),
+    (c"video", c"cboy_gba_sprite_limit", c"Advance sprite flicker",
+     c"A real Advance runs out of time on a very busy line and leaves some of the moving things out. On copies that. Off draws them all, which can look cleaner than the console did.",
+     OFF_ON, c"off"),
     // Sound
     (c"audio", c"cboy_volume", c"Volume", c"Overall volume.", PCT, c"100"),
     (c"audio", c"cboy_vol_sq1", c"Pulse channel 1", c"Volume of the first pulse (square) channel.", PCT, c"100"),
     (c"audio", c"cboy_vol_sq2", c"Pulse channel 2", c"Volume of the second pulse channel.", PCT, c"100"),
     (c"audio", c"cboy_vol_wave", c"Wave channel", c"Volume of the wave channel.", PCT, c"100"),
     (c"audio", c"cboy_vol_noise", c"Noise channel", c"Volume of the noise channel.", PCT, c"100"),
-    (c"audio", c"cboy_vol_fifo_a", c"Advance sample channel A", c"Volume of the Advance's first sampled (DirectSound) channel.", PCT, c"100"),
-    (c"audio", c"cboy_vol_fifo_b", c"Advance sample channel B", c"Volume of the Advance's second sampled channel.", PCT, c"100"),
+    (c"audio", c"cboy_vol_fifo_a", c"Advance recorded sound A",
+     c"Volume of the first of the two channels an Advance plays recorded sound through: drums, voices and most of the music.", PCT, c"100"),
+    (c"audio", c"cboy_vol_fifo_b", c"Advance recorded sound B",
+     c"Volume of the second of those two channels.", PCT, c"100"),
     (c"audio", c"cboy_lowpass", c"Treble cut",
      c"Softens harsh high tones, like a small speaker. Off is the console's full output.",
      &[(c"off", c"Off"), (c"light", c"Light"), (c"medium", c"Medium"), (c"strong", c"Strong")], c"off"),
-    (c"audio", c"cboy_highpass", c"Output capacitor",
-     c"Centres the waveform the way the console's output capacitor does. Gentle keeps more bass; Off passes the raw signal, offset and all.",
+    (c"audio", c"cboy_highpass", c"Sound centring",
+     c"A real console's own circuit pulls the sound back to the middle, which keeps a steady hum out of it. Gentle leaves more of the deep bass in. Off leaves the sound exactly as the chip made it, hum and all.",
      &[(c"on", c"Like the console"), (c"gentle", c"Gentle"), (c"off", c"Off")], c"on"),
     (c"audio", c"cboy_audio_quality", c"Sound quality",
-     c"High averages the sound between output samples (less harshness and aliasing); Fast takes one point per sample and costs less work.",
+     c"High listens to everything that happens between one sample and the next, so the sound comes out smoother. Fast takes a single point each time and costs the phone less work.",
      &[(c"fast", c"Fast"), (c"high", c"High")], c"fast"),
     (c"audio", c"cboy_gba_smooth", c"Smooth Advance samples",
      c"Ramps the Advance's sampled sound between samples, including the music most games mix in software. Less gritty, slightly duller.",
@@ -183,7 +206,7 @@ const SPECS: &[Spec] = &[
      c"Adds the faint buzz the screen's circuitry puts into a real Game Boy's sound.",
      &[(c"0", c"Off"), (c"25", c"Faint"), (c"50", c"Medium"), (c"100", c"Loud")], c"0"),
     (c"audio", c"cboy_sample_rate", c"Output sample rate",
-     c"Lower rates cost less work. Next start.",
+     c"Lower rates cost the phone less work. Takes effect when the game restarts.",
      &[(c"48000", c"48000 Hz"), (c"44100", c"44100 Hz"), (c"32768", c"32768 Hz")], c"48000"),
     // Controls
     (c"input", c"cboy_turbo", c"Turbo buttons",
@@ -213,7 +236,7 @@ const SPECS: &[Spec] = &[
      c"For the gyro cartridge (WarioWare: Twisted!): the phone's rotation or the left stick.",
      &[(c"phone", c"Phone rotation"), (c"stick", c"Left stick"), (c"off", c"Off")], c"phone"),
     (c"input", c"cboy_solar", c"Sunlight",
-     c"For solar cartridges (Boktai): the phone's light sensor if it has one, or a fixed level.",
+     c"How much sun a cartridge with a sun sensor in it (Boktai) thinks it is in. Light sensor follows the phone's own, and sits at half on a phone that has none to read, so the game is still playable.",
      &[(c"50", c"50%"), (c"phone", c"Light sensor"), (c"0", c"Dark"), (c"25", c"25%"), (c"75", c"75%"), (c"100", c"Full sun")], c"50"),
     // Link
     (c"link", c"cboy_link", c"Link cable",
@@ -235,23 +258,17 @@ const SPECS: &[Spec] = &[
     (c"performance", c"cboy_idle_skip", c"Skip idle loops (Advance)",
      c"Fast-forwards through loops where an Advance game only waits. Saves battery; a few games may run at the wrong pace.",
      OFF_ON, c"off"),
-    // Debug
+    // Debug. Every option in this category is hidden from the settings page (see `hide_debug`).
     (c"debug", c"cboy_layer_bg", c"Background", c"Game Boy and Color background layer.", ON_OFF, c"on"),
     (c"debug", c"cboy_layer_window", c"Window", c"Game Boy and Color window layer.", ON_OFF, c"on"),
     (c"debug", c"cboy_layer_obj", c"Sprites", c"Game Boy, Color and Advance sprites.", ON_OFF, c"on"),
-    (c"debug", c"cboy_layer_bg0", c"Advance BG0", c"Advance background 0.", ON_OFF, c"on"),
-    (c"debug", c"cboy_layer_bg1", c"Advance BG1", c"Advance background 1.", ON_OFF, c"on"),
-    (c"debug", c"cboy_layer_bg2", c"Advance BG2", c"Advance background 2.", ON_OFF, c"on"),
-    (c"debug", c"cboy_layer_bg3", c"Advance BG3", c"Advance background 3.", ON_OFF, c"on"),
-    (c"debug", c"cboy_layer_win0", c"Advance window 0", c"Off draws as if window 0 were disabled.", ON_OFF, c"on"),
-    (c"debug", c"cboy_layer_win1", c"Advance window 1", c"Off draws as if window 1 were disabled.", ON_OFF, c"on"),
-    (c"debug", c"cboy_layer_objwin", c"Advance object window", c"Off draws as if the object window were disabled.", ON_OFF, c"on"),
-    (c"debug", c"cboy_gba_sprite_limit", c"Advance object time limit",
-     c"Drops objects that a real Advance has no time to draw on a busy line. Off draws every object.",
-     OFF_ON, c"off"),
-    (c"debug", c"cboy_sprite_limit", c"Ten-sprite limit",
-     c"The Game Boy shows at most ten sprites on a line, which makes some games flicker. Off lifts the limit.",
-     ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_bg0", c"Advance background 0", c"Advance background layer 0.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_bg1", c"Advance background 1", c"Advance background layer 1.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_bg2", c"Advance background 2", c"Advance background layer 2.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_bg3", c"Advance background 3", c"Advance background layer 3.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_win0", c"Advance window 0", c"Off draws as if window 0 were switched off.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_win1", c"Advance window 1", c"Off draws as if window 1 were switched off.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_objwin", c"Advance object window", c"Off draws as if the object window were switched off.", ON_OFF, c"on"),
 ];
 
 /// Every key, for tests and for the fallback table.
@@ -286,6 +303,13 @@ pub unsafe fn declare(env: unsafe extern "C" fn(u32, *mut c_void) -> bool) {
     cats.push(OptCategory { key: std::ptr::null(), desc: std::ptr::null(), info: std::ptr::null() });
     let mut opts = OptionsV2 { categories: cats.as_ptr(), definitions: defs.as_ptr() };
     if env(ENV_SET_CORE_OPTIONS_V2, &mut opts as *mut OptionsV2 as *mut c_void) {
+        // After the table, never before: declaring it clears what the frontend was hiding.
+        if let Ok(mut slot) = ENV.lock() {
+            *slot = Some(env);
+        }
+        hide_debug(env);
+        let mut cb = UpdateDisplayCallback { callback: Some(refresh_display) };
+        env(ENV_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK, &mut cb as *mut UpdateDisplayCallback as *mut c_void);
         return;
     }
     // Older frontends: "Label; default|other|...".
@@ -304,6 +328,29 @@ pub unsafe fn declare(env: unsafe extern "C" fn(u32, *mut c_void) -> bool) {
     }
     vars.push(Variable { key: std::ptr::null(), value: std::ptr::null() });
     env(ENV_SET_VARIABLES, vars.as_mut_ptr() as *mut c_void);
+}
+
+/// The frontend's environment call, kept so the display callback can answer it.
+static ENV: std::sync::Mutex<Option<unsafe extern "C" fn(u32, *mut c_void) -> bool>> =
+    std::sync::Mutex::new(None);
+
+/// Keeps the layer switches out of the settings page. They are for finding a drawing problem, and
+/// a player who turns one off just gets a game that looks broken, so they are not shown with the
+/// ordinary settings; the app has its own switch for seeing what a core is hiding.
+unsafe fn hide_debug(env: unsafe extern "C" fn(u32, *mut c_void) -> bool) {
+    for (cat, key, ..) in SPECS {
+        if *cat == c"debug" {
+            let mut d = OptDisplay { key: key.as_ptr(), visible: false };
+            env(ENV_SET_CORE_OPTIONS_DISPLAY, &mut d as *mut OptDisplay as *mut c_void);
+        }
+    }
+}
+
+/// Asked by the frontend, before it lists the settings, which ones to show right now.
+unsafe extern "C" fn refresh_display() -> bool {
+    let Some(env) = ENV.lock().ok().and_then(|e| *e) else { return false };
+    hide_debug(env);
+    true
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -454,6 +501,20 @@ impl Settings {
     /// Answer the Game Boy Player handshake: the Player model, or the rumble option on its own.
     pub fn player_handshake(&self) -> bool {
         self.gbp || self.gba_model == GbaModel::Gbp
+    }
+}
+
+/// The sunlight a cartridge with a sun sensor in it sees: the level the player set, or the
+/// phone's own light reading turned into 0-255 (full sun saturates well before daylight levels).
+///
+/// `lux` is None when there is no light reading to be had, which is every iPhone today: the app
+/// turns the request down, and a sensor that always reads nothing left Boktai in the pitch dark
+/// and unplayable. With nothing to read, half sun it is.
+pub fn sunlight(level: Option<u8>, lux: Option<f32>) -> u8 {
+    match (level, lux) {
+        (Some(level), _) => level,
+        (None, Some(lux)) => (lux / 4000.0 * 255.0).clamp(0.0, 255.0) as u8,
+        (None, None) => 128,
     }
 }
 
@@ -824,6 +885,82 @@ mod tests {
             assert!(values.iter().any(|v| v.0 == *default), "{k}");
             assert!(!info.to_bytes().is_empty());
         }
+    }
+
+    /// Everything a player reads in cBoy's settings is plain words. These are the ones the owner
+    /// picked out of the page itself on 12 October 2026; nothing may bring them back.
+    #[test]
+    fn no_jargon_in_anything_a_player_reads() {
+        let jargon = ["directsound", "capacitor", "aliasing", "256x224", "handshake", "fifo", "hex", "waveform"];
+        for (cat, key, desc, info, values, _) in SPECS {
+            // The layer switches are not shown with the ordinary settings (see `hide_debug`).
+            if *cat == c"debug" {
+                continue;
+            }
+            let labels: Vec<String> = values.iter().map(|v| v.1.to_string_lossy().into_owned()).collect();
+            let text = format!("{} {} {}", desc.to_string_lossy(), info.to_string_lossy(), labels.join(" ")).to_lowercase();
+            for word in jargon {
+                assert!(!text.contains(word), "{}: \"{word}\"", key.to_string_lossy());
+            }
+        }
+    }
+
+    /// What the core asked the frontend to hide, and whether it offered to be asked again.
+    static HIDDEN: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+    static ASKED_AGAIN: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+
+    unsafe extern "C" fn declaring_env(cmd: u32, d: *mut c_void) -> bool {
+        match cmd {
+            ENV_SET_CORE_OPTIONS_V2 => true,
+            ENV_SET_CORE_OPTIONS_DISPLAY => {
+                let v = &*(d as *const OptDisplay);
+                if !v.visible {
+                    HIDDEN.lock().unwrap().push(CStr::from_ptr(v.key).to_string_lossy().into_owned());
+                }
+                true
+            }
+            ENV_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK => {
+                *ASKED_AGAIN.lock().unwrap() = (*(d as *const UpdateDisplayCallback)).callback.is_some();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The layer switches are declared, so anyone hunting a drawing problem can still reach them
+    /// through the app's own "show what the core hid", but they are not in the settings page a
+    /// player sees: turning "Sprites" off there just makes a game look broken.
+    #[test]
+    fn the_layer_switches_are_kept_out_of_the_settings_page() {
+        HIDDEN.lock().unwrap().clear();
+        unsafe { declare(declaring_env) };
+        let hidden = HIDDEN.lock().unwrap().clone();
+        let debug: Vec<String> = SPECS.iter().filter(|s| s.0 == c"debug").map(|s| s.1.to_string_lossy().into_owned()).collect();
+        assert!(debug.len() >= 10, "{debug:?}");
+        assert_eq!(hidden, debug, "every Debug option, and nothing else, is hidden");
+        assert!(*ASKED_AGAIN.lock().unwrap(), "the frontend must be able to ask again before it lists them");
+        // Settings a player has a use for stay in the page, including the two accuracy switches
+        // that used to sit in the Debug group.
+        for key in ["cboy_sprite_limit", "cboy_gba_sprite_limit", "cboy_dmg_palette", "cboy_solar"] {
+            assert!(!hidden.iter().any(|h| h == key), "{key} must stay visible");
+        }
+    }
+
+    #[test]
+    fn sunlight_sits_at_half_when_there_is_no_light_reading_to_be_had() {
+        // A level the player picked is used as it stands.
+        assert_eq!(sunlight(Some(0), None), 0);
+        assert_eq!(sunlight(Some(255), Some(4000.0)), 255);
+        assert_eq!(settings(&[("cboy_solar", "0")]).solar, Some(0));
+        // "Light sensor" with a reading: dark to full sun.
+        assert_eq!(settings(&[("cboy_solar", "phone")]).solar, None);
+        assert_eq!(sunlight(None, Some(0.0)), 0);
+        assert_eq!(sunlight(None, Some(4000.0)), 255);
+        assert_eq!(sunlight(None, Some(40_000.0)), 255, "daylight is not brighter than full sun");
+        assert!((100..150).contains(&sunlight(None, Some(2000.0))));
+        // "Light sensor" where there is no sensor to read, which is every iPhone: half sun, so
+        // Boktai can be played instead of sitting in the dark.
+        assert_eq!(sunlight(None, None), 128);
     }
 
     #[test]

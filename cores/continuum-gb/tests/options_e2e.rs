@@ -105,6 +105,11 @@ fn rom(name: &str) -> Option<Vec<u8>> {
 /// Loads `name` with `opts`, runs `n` frames, returns the output.
 fn run(name: &str, opts: &[(&str, &str)], n: usize, change: Option<(usize, &[(&str, &str)])>) -> Out {
     let data = rom(name).expect("test ROM (run scripts/fetch-test-roms.sh)");
+    drive(&data, opts, n, change)
+}
+
+/// The same, for a cartridge the test builds itself.
+fn drive(data: &[u8], opts: &[(&str, &str)], n: usize, change: Option<(usize, &[(&str, &str)])>) -> Out {
     *OPTS.lock().unwrap() = Some(opts.iter().map(|(k, v)| (k.to_string(), CString::new(*v).unwrap())).collect());
     {
         let mut o = OUT.lock().unwrap();
@@ -369,6 +374,36 @@ fn tilt_cartridge_asks_the_frontend_for_motion() {
     // And back to Off: the accelerometer is released.
     let (_, after) = sensors(&[], Some(&[("cboy_tilt_source", "off")]));
     assert_eq!(after, vec![1], "switched off mid-game");
+}
+
+/// The two settings whose text promises "Next start" really do wait for one. The app asks the
+/// core for the sound rate and the shape of the picture as the game loads and keeps what it was
+/// told, so moving either under a running game only made the sound crackle (32768 Hz played back
+/// as 48000) and squashed the picture by about 3%. Needs no ROM download: the cartridge switches
+/// the screen on and loops.
+#[test]
+fn the_next_start_settings_wait_for_the_next_start() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut data = vec![0u8; 0x8000];
+    // LD A,$91 / LDH ($40),A (screen and background on) / JR -2.
+    data[0x100..0x106].copy_from_slice(&[0x3E, 0x91, 0xE0, 0x40, 0x18, 0xFE]);
+    // Sound: the same number of samples comes out whether or not the rate is changed mid-game.
+    let base = drive(&data, &[], 60, None);
+    let mid = drive(&data, &[], 60, Some((30, &[("cboy_sample_rate", "32768")])));
+    assert_eq!(mid.samples.len(), base.samples.len(), "the sound rate moved under a running game");
+    // Chosen before the game starts, it does take effect.
+    let at_load = drive(&data, &[("cboy_sample_rate", "32768")], 60, None);
+    let ratio = at_load.samples.len() as f64 / base.samples.len() as f64;
+    assert!((ratio - 32768.0 / 48000.0).abs() < 0.02, "{ratio}");
+    // Picture: the border keeps the shape the app set up with, and changes at the next start.
+    let mid = drive(&data, &[], 30, Some((15, &[("cboy_sgb_border", "always")])));
+    assert_eq!((last(&mid).1, last(&mid).2), (160, 144), "the picture changed shape under a running game");
+    let at_load = drive(&data, &[("cboy_sgb_border", "always")], 30, None);
+    assert_eq!((last(&at_load).1, last(&at_load).2), (256, 224));
+    // Everything else still applies there and then: the palette on the same frames.
+    let green = continuum_gb::options::palette("green");
+    let live = drive(&data, &[], 30, Some((15, &[("cboy_dmg_palette", "green")])));
+    assert!(last(&live).3.iter().all(|p| green.contains(p)));
 }
 
 /// A cartridge that runs on both a plain Game Boy and a Game Boy Color (header $143 = $80, like

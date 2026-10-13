@@ -15,6 +15,13 @@ pub const INT_TIMER: u8 = 4;
 pub const INT_SERIAL: u8 = 8;
 pub const INT_JOYPAD: u8 = 16;
 
+/// How much of the serial port's output is kept. Only the test ROMs read it, and their whole
+/// report is a few hundred bytes; a game that keeps sending with no link partner finishes every
+/// transfer at once and used to pile up hundreds of thousands of bytes a minute, which on a phone
+/// ends with the app being shut down for using too much memory. Past this the bytes are dropped,
+/// oldest kept, so a test's report is never truncated at the front.
+pub const SERIAL_LOG_MAX: usize = 8192;
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Bus {
     pub cart: Cart,
@@ -30,7 +37,8 @@ pub struct Bus {
     pub buttons: u8,
     pub sb: u8,
     sc: u8,
-    /// What the game sent out of the serial port (the test ROMs report through it).
+    /// What the game sent out of the serial port (the test ROMs report through it), to at most
+    /// `SERIAL_LOG_MAX` bytes.
     #[serde(skip)]
     pub serial_out: Vec<u8>,
     dma_src: u16,
@@ -392,7 +400,9 @@ impl Bus {
                 // No link partner: an internally clocked transfer completes at once, shifting in
                 // 1s, which is what a disconnected cable reads as.
                 if v & 0x81 == 0x81 {
-                    self.serial_out.push(self.sb);
+                    if self.serial_out.len() < SERIAL_LOG_MAX {
+                        self.serial_out.push(self.sb);
+                    }
                     if let Some(b) = self.link_in.pop_front() {
                         self.link_out.push(self.sb);
                         self.sb = b;

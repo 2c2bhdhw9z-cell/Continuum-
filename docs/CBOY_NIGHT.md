@@ -118,6 +118,89 @@ Five new tests in the core (87 pass in total, up from 82):
   real machines do not either (bar the screen). If a reason ever turns up, the setting is already
   there to hang it on.
 
+### Six small things from the clean-up, fixed — built, untested on a phone
+
+The October clean-up left a list of small cBoy problems. These six are done.
+
+**A Game Boy game could be started as an Advance game.** cBoy decided a file was an Advance game
+from a single byte, and on a Game Boy cartridge that byte is ordinary code that can hold the same
+value by chance. When it did, the game came up as a 240 by 160 Advance and could not be played at
+all, with no setting to force it back. Now a file that carries a Game Boy cartridge header (the
+Nintendo logo the console itself checks, or a header sum that adds up) has to pass the Advance
+header's own check as well before it is treated as an Advance game. Real Advance games, including
+home-made ones that were never finished off properly, are unaffected.
+
+**Settings that said "next start" were changing things straight away.** The sound rate and the
+border were applied to the running game, but the app sets the sound up and sizes the picture once,
+when the game opens, and keeps what it was told. So picking the lowest sound rate mid-game played
+it back too fast and crackly, and switching the border on squashed the picture by about 3%. Both
+now hold what the game started with, and their lines say "Takes effect when the game restarts",
+which is also what makes the app offer you its "Restart the game now" button for them.
+
+**A cartridge cBoy can't play now says so in words.** Before, it said nothing at all and you got
+"the game file was refused: retro_load_game rejected the content". Now it says, for example, "This
+cartridge has a chip cBoy cannot play yet (MBC6). Try this game on mGBA instead: open its settings
+and pick mGBA as the emulator." Same for a file that is too small to be a game. The handful of
+cartridges this covers are MMM01, MBC6, MBC4 and the Tamagotchi one.
+
+**A game left talking to a cable with nothing on the end filled the phone's memory.** Every byte a
+game sent was kept for ever, and a game that spins waiting for a friend sent about 470 MB an hour
+— enough for iOS to shut the app down. The log now stops at 8 KB, keeping the first bytes, which
+is all the test ROMs ever read.
+
+**Boktai is playable again.** The "Sunlight" setting's "Light sensor" choice asks the phone how
+bright it is, the app turns that request down (no iPhone offers a light reading), and the answer
+was always nothing — so the sun sensor in Boktai's cartridge sat in permanent darkness and the game
+could not be played. When there is no reading to be had it now sits at half sun, and the setting
+says so. Picking a fixed level yourself still works exactly as before.
+
+**cBoy's settings page is in plain words, and the layer switches are out of it.** The page used to
+show a "Debug" group of thirteen switches, one per part of the picture: turning "Sprites" off makes
+a game look broken, and no player has a reason to touch them. The ten layer switches are now hidden
+from the page (the app's own "Show settings the core hid for now" switch still brings them back for
+anyone hunting a drawing problem), and the two that are about how the real console looked —
+"Sprite flicker" and "Advance sprite flicker" — moved into Picture, where they belong, with plain
+descriptions. The jargon went too: "DirectSound", "output capacitor", "aliasing", "256x224",
+"handshake" and a colour written as #E0F8D0 are all gone, and "Game Boy Color revision", which
+offered five choices that behaved identically, is now "Which Game Boy Color" with the only two that
+differ.
+
+### What the tests prove
+
+Ten new tests in the core (95 pass in total, up from 85):
+
+1. A Game Boy cartridge with that Advance marker byte in its code stays a Game Boy game, with its
+   logo and without it; an Advance cartridge is still an Advance game, including one whose own
+   check byte was never put right; and the real Advance test ROM still comes up as Advance.
+2. The sound rate and the border, changed while the game runs, change nothing: the same number of
+   sound samples comes out and the picture keeps its size. Chosen before the game starts, both
+   still do exactly what they say. Everything else (the palette) still changes on the spot.
+3. Every unsupported cartridge type is refused with a sentence that names the chip in human terms,
+   points at mGBA, and contains no codes; every type cBoy does play is still accepted.
+4. A game sending down the cable for ever fills the log to its limit and then stops, keeping the
+   first bytes sent.
+5. The sunlight level: a level you picked is used as it stands; a real reading runs from dark to
+   full sun; with no reading to be had it is half.
+6. Every one of the ten layer switches is hidden from the settings page, nothing else is, the
+   frontend is told it can ask again, and the settings a player has a use for stay visible.
+7. Nothing a player reads in cBoy's settings contains any of the jargon words the owner picked out
+   — so it cannot creep back in.
+
+### What was deliberately left
+
+- Eleven other cBoy settings still end with "Next start." rather than the word "restart". They do
+  wait, and always have (they only matter while the machine is being built), but because they do
+  not use the word, the app does not offer its "Restart the game now" button for them, and you have
+  to close and reopen the game yourself. Changing all eleven also changes how the app holds them
+  mid-session, which is a bigger decision than this clean-up item: worth doing, but as its own
+  piece of work with the owner's say-so.
+- The Debug group is hidden while a cBoy game is running, which is where the settings page is
+  normally opened from. Opened from the emulator list with no game running, the app lists cBoy's
+  settings from what it remembers, and the layer switches show up again. Closing that needs a change
+  in the engine's own options code (`crates/emulator-bridge/src/cores/options.rs`), which belongs
+  to another agent tonight: either remember what a core hid alongside the table it caches, or add
+  cBoy's ten `cboy_layer_*` keys to that file's own hidden list.
+
 ## For whoever is editing the notes
 
 STATUS.md and HANDOFF.md still say mosaic is missing. Three places to fix:
@@ -131,6 +214,12 @@ The same two lists have "the four missing Advance and model settings" as a job �
 too. cBoy now has 66 settings of its own, and the list of settings other emulators have that it
 does not is down from 23 to 22 on the libretro side and from 14 to 9 on the standalone side
 (docs/CBOY_OPTIONS_INVENTORY.md is regenerated and says so).
+
+Six of the clean-up findings are fixed and can be closed in
+docs/reports/cleanup-2026-10-12/: CBOY-05 (a Game Boy ROM run as an Advance game), CBOY-06
+("next start" options applying live), CBOY-07 (a code-like refusal), CBOY-08 (the serial log
+growing for ever), CBOY-10 (the sunlight choice always dark) and CBOY-12 (jargon and debug
+switches in the settings page). CBOY-01 to CBOY-04, CBOY-09 and CBOY-11 are untouched so far.
 
 ## Phone checks for the owner
 
@@ -155,3 +244,19 @@ does not is down from 23 to 22 on the libretro side and from 14 to 9 on the stan
 7. Have a look down cBoy's System settings and tell me if any of the four new lines read oddly or
    sound like a computer wrote them. They are: "Console for games that run on both", "Advance
    console", "Advance cartridge clock" and "Old fan-made game fixes".
+8. Open cBoy's settings with a cBoy game running and look at the whole page. There should be no
+   "Debug" group of layer switches any more. Picture should now end with "Sprite flicker" and
+   "Advance sprite flicker". Tell me if any line still reads like documentation.
+9. In cBoy's Sound settings, change "Output sample rate" to 32768 Hz while a game is playing. The
+   sound should carry on exactly as it was, and the app should offer you "Restart the game now" —
+   tap it, and the game should come back sounding normal, not fast or crackly.
+10. Play a Game Boy game on cBoy and check it still looks and sounds right — the Picture group
+    gained two lines but nothing's default changed.
+11. If you have an oddball cartridge cBoy can't play (a Tamagotchi game, Net de Get, a Momotaro
+    collection), open it on cBoy. Instead of the old "retro_load_game rejected the content" you
+    should get a sentence naming the chip and telling you to use mGBA.
+12. If you have Boktai, open it on cBoy with Sunlight on "Light sensor". The game should play in
+    half sunlight instead of pitch dark (before, it was unplayable).
+13. Leave a cBoy game that uses the link cable (Pokemon, Tetris) sitting at its trade screen for a
+    few minutes with nothing to link to. The app should stay put and not get killed for using too
+    much memory.

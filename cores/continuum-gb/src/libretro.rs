@@ -106,12 +106,34 @@ struct Core {
     rumble: Option<RumbleFn>,
     sensors: Option<SensorInterface>,
     sensors_started: bool,
+    /// The frontend took the request for a light reading (no iPhone does). Until it has, the
+    /// sunlight setting's "Light sensor" choice falls back to half sun instead of pitch dark.
+    light_sensor: bool,
+    /// What the "Next start" options were when the game loaded.
+    next_start: NextStart,
     last_motor: Option<bool>,
     /// Auto frame skip: the last retro_run took longer than a frame.
     behind: bool,
     /// Frames skipped in a row by auto frame skip.
     skipped_run: u32,
     buzz_phase: u32,
+}
+
+/// The options whose text promises "Next start". The app asks the core for the sound rate and
+/// the size of the picture once, as the game loads, and keeps what it was told, so changing
+/// either one under a running game only made the sound crackle and the picture squash. They are
+/// held at what the game started with until it is loaded again.
+#[derive(Clone, Copy)]
+struct NextStart {
+    sample_rate: u32,
+    sgb_border: bool,
+    border_always: bool,
+}
+
+impl NextStart {
+    fn of(s: &crate::options::Settings) -> NextStart {
+        NextStart { sample_rate: s.sample_rate, sgb_border: s.sgb_border, border_always: s.border_always }
+    }
 }
 
 struct Callbacks {
@@ -257,6 +279,16 @@ impl Core {
         }
     }
 
+    /// Puts the "Next start" options back to what the game started with, after a re-read has
+    /// picked up the player's new choice (see `NextStart`). The choice is kept by the frontend
+    /// and takes effect the next time the game is opened.
+    fn hold_next_start(&mut self) {
+        let held = self.next_start;
+        self.settings.sample_rate = held.sample_rate;
+        self.settings.sgb_border = held.sgb_border;
+        self.settings.border_always = held.border_always;
+    }
+
     /// Settings that apply to a running machine. Called on load, on every option change and
     /// after a state is loaded (the state does not carry them).
     fn apply_live(&mut self) {
@@ -334,11 +366,7 @@ impl Core {
         let k = s.motion_scale;
         i.tilt = ((i.tilt.0 * k).clamp(-1.0, 1.0), (i.tilt.1 * k).clamp(-1.0, 1.0));
         i.turn = (i.turn * k).clamp(-1.0, 1.0);
-        i.light = match s.solar {
-            Some(level) => Some(level),
-            // Lux to 0-255: full sun saturates well before daylight levels.
-            None => Some((read(6) / 4000.0 * 255.0).clamp(0.0, 255.0) as u8),
-        };
+        i.light = Some(crate::options::sunlight(s.solar, self.light_sensor.then(|| read(6))));
         i
     }
 
@@ -365,7 +393,14 @@ impl Core {
             if s.gyro == phone { set(0, 2, 60) } else { set(0, 3, 0) };
         }
         if has_light {
-            if s.solar.is_none() { set(0, 4, 10) } else { set(0, 5, 0) };
+            // A frontend that turns the light reading down leaves `light_sensor` false, and the
+            // Light sensor choice then sits at half sun rather than pitch dark.
+            self.light_sensor = if s.solar.is_none() {
+                set(0, 4, 10)
+            } else {
+                set(0, 5, 0);
+                false
+            };
         }
     }
 
@@ -612,7 +647,15 @@ fn build_machine(rom: Vec<u8>, s: &crate::options::Settings, dir: Option<&str>) 
         rom[0x143] = 0x80;
         log_line("Game Boy cartridge run in Color mode (option)");
     }
-    let cart = crate::cart::Cart::new(rom.clone()).ok()?;
+    // The reason is logged, not dropped: the app shows the core's last line when a game is
+    // refused, so an unsupported cartridge says so in words instead of "rejected the content".
+    let cart = match crate::cart::Cart::new(rom.clone()) {
+        Ok(c) => c,
+        Err(why) => {
+            log_line(&why);
+            return None;
+        }
+    };
     let colour = cart.cgb_flag & 0x80 != 0;
     // Header byte 0x146 = 3 marks Super Game Boy support (needs the old licensee code 0x33).
     let sgb_cart = rom.get(0x146) == Some(&3) && rom.get(0x14B) == Some(&0x33);
@@ -694,10 +737,12 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
             c.file_len.max(1) / 1024,
             c.ram.len() / 1024, c.has_battery, c.has_rtc, c.cgb_flag));
     }
+    let next_start = NextStart::of(&settings);
     let mut core = Core {
         gb, gba: gba_machine, frame: vec![0; W * H], out: Vec::new(), rtc_block: [0; RTC_LEN], rtc_synced: false,
         stuck_frames: 0, stuck_reports: 0, settings, post: crate::options::Post::default(), system_dir,
-        frame_no: 0, rumble, sensors, sensors_started: false, last_motor: None, behind: false, skipped_run: 0, buzz_phase: 0,
+        frame_no: 0, rumble, sensors, sensors_started: false, light_sensor: false, next_start,
+        last_motor: None, behind: false, skipped_run: 0, buzz_phase: 0,
     };
     core.apply_live();
     core.write_rtc_block();
@@ -774,6 +819,7 @@ pub unsafe extern "C" fn retro_run() {
     if let Some(env) = env {
         if crate::options::changed(env) {
             core.settings = crate::options::read(env, core.system_dir.as_deref());
+            core.hold_next_start();
             core.apply_live();
             // The tilt, turn or sunlight source may have changed: ask for the sensors again.
             core.sensors_started = false;

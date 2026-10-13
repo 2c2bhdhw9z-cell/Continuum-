@@ -16,9 +16,24 @@ use cpu::Cpu;
 /// Cycles in one frame: 228 lines of 1232.
 pub const FRAME_CYCLES: u64 = 280_896;
 
-/// A GBA ROM: the fixed header byte $96 at $B2.
+/// The Advance header's own check byte at $BD: $19, every byte of $A0-$BC and the check byte
+/// itself add up to zero. Every cartridge a real Advance will start has it right, and the tool
+/// homebrew is finished with puts it right too.
+fn header_check_ok(rom: &[u8]) -> bool {
+    let sum = rom[0xA0..=0xBC].iter().fold(0u8, |a, b| a.wrapping_add(*b));
+    sum.wrapping_add(0x19).wrapping_add(rom[0xBD]) == 0
+}
+
+/// A Game Boy Advance ROM. The fixed byte $96 at $B2 is what marks one, but on a Game Boy
+/// cartridge that byte is ordinary code and can be $96 by chance ($96 is a real instruction), so
+/// a file that also carries a Game Boy header is only taken as an Advance game when the Advance
+/// header's own check byte adds up as well. That kept Game Boy games out of the 240x160 Advance
+/// machine they could not be played in.
 pub fn is_gba_rom(rom: &[u8]) -> bool {
-    rom.len() >= 0xC0 && rom[0xB2] == 0x96
+    if rom.len() < 0xC0 || rom[0xB2] != 0x96 {
+        return false;
+    }
+    !crate::cart::looks_like_gb_rom(rom) || header_check_ok(rom)
 }
 
 #[derive(Clone, Serialize, Deserialize)]
