@@ -272,6 +272,31 @@ pub fn clock_footer(len: usize, size: usize, ext: &str) -> Option<usize> {
     matches!(extra, 44 | 48).then_some(extra)
 }
 
+/// cBoy's cartridge-clock block: 24 bytes, the clock itself and then the 8-byte Unix time it was
+/// true at (`cores/continuum-gb/src/libretro.rs`, `RTC_LEN` and `write_rtc_block`).
+const CBOY_CLOCK_LEN: usize = 24;
+const CBOY_CLOCK_STAMP: usize = 8;
+
+/// Whether the live cartridge clock `live` reads exactly as the one in the file already
+/// (`on_disk`), with only the "true at" stamp at its end moved on.
+///
+/// cBoy keeps MBC3's and HuC3's clock in `RETRO_MEMORY_RTC` and re-stamps the block with the
+/// current Unix time on every frame, so a second later the block's bytes differ even for a clock
+/// the game has stopped (MBC3's halt bit). The battery save is flushed every twenty seconds while
+/// a game runs, and every one of those flushes rewrote `<game>.rtc` and had the sync upload it
+/// again, for a clock that had not moved.
+///
+/// Keeping the older stamp is safe exactly when the reading is identical: a clock that is running
+/// shows a different second, so an identical reading means either the game stopped the clock, and
+/// a stopped clock has nothing added to it when it is read back, or that under a second passed.
+pub fn clock_reading_unchanged(core_id: &str, live: &[u8], on_disk: &[u8]) -> bool {
+    if core_id != "continuum_gb" || live.len() != CBOY_CLOCK_LEN || on_disk.len() != CBOY_CLOCK_LEN {
+        return false;
+    }
+    let reading = CBOY_CLOCK_LEN - CBOY_CLOCK_STAMP;
+    live[..reading] == on_disk[..reading]
+}
+
 /// Battery files another core wrote for this game, which a first load may pick up. Never
 /// written or deleted by the engine.
 pub fn migration_candidates(core_id: &str, ext: &str, content_name: &str, support_dir: &Path) -> Vec<PathBuf> {
@@ -545,6 +570,27 @@ mod tests {
         assert_eq!(fit_padded(&zeros, 0x2000, "mesen2").len(), 0x4000);
         // Shorter or equal: untouched.
         assert_eq!(fit_padded(&[1, 2], 8, "bsnes"), &[1, 2]);
+    }
+
+    #[test]
+    fn a_clock_is_only_rewritten_when_the_clock_itself_moved() {
+        // cBoy's block: 5 live registers, 5 latched, 6 spare, then the Unix time they were true at.
+        let block = |regs: [u8; 5], stamp: u64| {
+            let mut b = vec![0u8; 24];
+            b[..5].copy_from_slice(&regs);
+            b[16..].copy_from_slice(&stamp.to_le_bytes());
+            b
+        };
+        let stopped = [1, 2, 3, 4, 0x40]; // MBC3's halt bit: the game stopped the clock
+        let on_disk = block(stopped, 1_760_000_000);
+        // Only the stamp moved on, twenty seconds later: the file still says the truth.
+        assert!(clock_reading_unchanged("continuum_gb", &block(stopped, 1_760_000_020), &on_disk));
+        // One second of a clock that is running: the seconds register moved, so it is written.
+        assert!(!clock_reading_unchanged("continuum_gb", &block([2, 2, 3, 4, 0], 1_760_000_001), &on_disk));
+        // Another core's clock block, or one of another size: never guessed at, always written.
+        assert!(!clock_reading_unchanged("mgba", &block(stopped, 1_760_000_020), &on_disk));
+        assert!(!clock_reading_unchanged("continuum_gb", &block(stopped, 1_760_000_020), &[0u8; 48]));
+        assert!(!clock_reading_unchanged("continuum_gb", &[0u8; 8], &on_disk));
     }
 
     #[test]

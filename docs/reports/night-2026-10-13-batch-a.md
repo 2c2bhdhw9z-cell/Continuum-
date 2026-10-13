@@ -184,6 +184,27 @@ phones using that peripheral in online play could still drift. Fixing that means
 pending cycles in the state and not syncing at save time, which changes what the field means and so
 needs the save-state version gate upstream uses (`if (version >= 108)`).
 
+## A24: the clock file, what stopped being rewritten and what still is
+
+The item read "only write it when the clock data actually changed", which is now what happens, and
+it is worth writing down why that still leaves writes behind.
+
+cBoy's 24-byte clock block is the clock (MBC3's live and latched registers, or HuC3's minutes and
+days) followed by the Unix time those were true at, and it re-stamps that time on **every frame**.
+The engine's "unchanged, so don't write" test compared the whole block, so it never matched: every
+twenty-second flush rewrote `<game>.rtc` and had the sync upload it again. The engine now compares
+the clock's own bytes and leaves the file alone when only the stamp moved
+(`battery_layout::clock_reading_unchanged`), which ends the churn for a clock the game has stopped
+(MBC3's halt bit) and for any flush less than a second after the last one.
+
+A clock that is **running** is still written every twenty seconds, and that is correct, not a
+leftover: a second of real play changes the seconds register, so the file on disk really is out of
+date. It cannot be skipped by keeping the old stamp and trusting the catch-up either, tempting as
+that looks: the catch-up adds *wall* time, while the registers advance with *emulated* time, so a
+player who fast-forwards (or whose clock registers the game itself writes) would come back to a
+clock that lost exactly what it skipped. Any further saving here is a trade of clock accuracy for
+writes, which is the owner's call, not a cleanup edit. It is 24 bytes.
+
 ## Notes for whoever builds next
 
 - **Editing `scripts/build-core.sh` rebuilds every core** (the per-core fingerprint hashes the

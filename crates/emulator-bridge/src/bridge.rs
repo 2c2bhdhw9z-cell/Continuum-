@@ -1950,7 +1950,8 @@ impl EmulatorBridge {
     ///
     /// THE CARTRIDGE CLOCK goes next to it, as `<game>.rtc` (the name RetroArch uses), for a core
     /// that keeps the clock apart from save RAM in `RETRO_MEMORY_RTC`: cBoy does for MBC3 and HuC3
-    /// cartridges (Pokemon Gold, Silver, Crystal). Same triggers as the `.srm`. Without it the
+    /// cartridges (Pokemon Gold, Silver, Crystal). Same triggers as the `.srm`, and written only
+    /// when the clock itself has moved on ([`battery_layout::clock_reading_unchanged`]). Without it the
     /// clock lived only inside the auto-save state, froze while the game was closed and went back
     /// to day 0 whenever that state was missing or refused.
     pub fn persist_battery_save(&self, path: &str) -> Result<usize, BridgeError> {
@@ -1962,7 +1963,17 @@ impl EmulatorBridge {
         let clock_size = self.memory_size(crate::memory::MEMORY_RTC);
         if clock_size > 0 {
             let clock = self.read_memory(crate::memory::MEMORY_RTC, 0, clock_size as u64)?;
-            written += Self::write_save_file(&Self::clock_path(path), &clock, "rtc.writing")?;
+            let clock_file = Self::clock_path(path);
+            // A clock that reads the same as the file is left alone, stamp and all: cBoy re-stamps
+            // the block every frame, so without this the twenty-second flush rewrote the file (and
+            // had the sync upload it) for a clock the game had stopped. See
+            // `battery_layout::clock_reading_unchanged`.
+            let core_id = self.session.as_ref().map_or("", |session| session.core_id.as_str());
+            let same = std::fs::read(&clock_file)
+                .is_ok_and(|old| battery_layout::clock_reading_unchanged(core_id, &clock, &old));
+            if !same {
+                written += Self::write_save_file(&clock_file, &clock, "rtc.writing")?;
+            }
         }
         Ok(written)
     }
@@ -2974,6 +2985,39 @@ mod tests {
         let plain_path = dir.join("Red.gb.srm");
         running_diagnostic().persist_battery_save(plain_path.to_str().unwrap()).unwrap();
         assert!(!dir.join("Red.gb.rtc").exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_clock_that_only_got_a_new_stamp_is_not_written_again() {
+        use crate::memory::MEMORY_RTC;
+        let dir = scratch_dir("gb-clock-stamp");
+        let path = dir.join("Pokemon Gold.gbc.srm");
+        let path = path.to_str().unwrap().to_string();
+        let clock_file = dir.join("Pokemon Gold.gbc.rtc");
+        // cBoy's block: the registers, then the Unix time they were true at. Halt bit set, so the
+        // clock is one the game has stopped.
+        let block = |seconds: u8, stamp: u64| {
+            let mut b = vec![0u8; 24];
+            b[..5].copy_from_slice(&[seconds, 2, 3, 4, 0x40]);
+            b[16..].copy_from_slice(&stamp.to_le_bytes());
+            b
+        };
+        let mut bridge = running_as("continuum_gb", "gbc", b"rtc rom", "Pokemon Gold.gbc");
+        let size = bridge.memory_size(crate::memory::MEMORY_SAVE_RAM);
+        let first = block(1, 1_760_000_000);
+        bridge.write_memory(MEMORY_RTC, 0, &first).unwrap();
+        assert_eq!(bridge.persist_battery_save(&path).unwrap(), size + 24);
+        // Twenty seconds of play later, cBoy has re-stamped the block but the clock itself has not
+        // moved: the file is left exactly as it was instead of being written (and synced) again.
+        bridge.write_memory(MEMORY_RTC, 0, &block(1, 1_760_000_020)).unwrap();
+        assert_eq!(bridge.persist_battery_save(&path).unwrap(), 0);
+        assert_eq!(std::fs::read(&clock_file).unwrap(), first);
+        // The clock moving on is written, stamp and all.
+        let moved = block(2, 1_760_000_021);
+        bridge.write_memory(MEMORY_RTC, 0, &moved).unwrap();
+        assert_eq!(bridge.persist_battery_save(&path).unwrap(), 24);
+        assert_eq!(std::fs::read(&clock_file).unwrap(), moved);
         let _ = std::fs::remove_dir_all(dir);
     }
 
