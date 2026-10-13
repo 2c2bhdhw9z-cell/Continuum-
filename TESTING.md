@@ -3,6 +3,8 @@
 Last updated 13 October 2026. **Build 182 is now the newest install.** Its steps are under
 "Next install (after 181)" further down. The results below are for build 181: the cleanup plus the
 licence swap. Steps 1 to 4 cover the cleanup, 5 to 11 the new emulators, and 12 save imports.
+**The install after 182** carries the night batch of 13 October: its steps are under "Night batch
+(13 October)".
 
 ## This install only
 
@@ -83,6 +85,152 @@ Do not retest Home, scrolling, re-import, or fast-forward. Those already passed.
 10. Only if you have one: open a Famicom Disk System game. ✅ It plays.
 11. Only if you have them: open a Dreamcast, SuperGrafx, Amiga, DOS, or Saturn game (Saturn on
     **Beetle Saturn**). ✅ It plays, and a state you saved on 181 loads.
+
+## Night batch (13 October)
+
+For the install after 182. Nothing here has been on a phone, and nothing here repeats a check you
+have already passed. Skip anything you don't have the game or the gear for. If you only have ten
+minutes, do 1, 2 and 3.
+
+**Start here — Game Boy Advance on cBoy**
+
+1. **The big one.** Pick **cBoy** (not mGBA) for Game Boy Advance games, then open any Advance game
+   and just play for a couple of minutes. ✅ It plays. Before this, most Advance games came up as a
+   black or frozen screen on cBoy, sometimes with the music playing behind it. If any Advance game
+   still sits on a blank or frozen screen, tell me which one.
+2. In that Advance game: make a save state, play on for a minute, then load the state back.
+   ✅ You're back exactly where you were and it keeps playing normally.
+3. **This one needs your ears.** Open an Advance game whose music you know well on cBoy (Pokémon,
+   Mario, Zelda, Fire Emblem, Golden Sun — not homebrew) with headphones. Listen for a few seconds,
+   then, while it's still playing, **⋯ → Core settings… → Sound → Advance music quality** and change
+   **Console (as it was)** to **High**. ✅ The same tune, same speed, same loudness, but clean — the
+   hiss and grain behind it gone. Nothing at all happening is a fine answer too (that game's music
+   engine is laid out an older way and cBoy left it alone on purpose) — just tell me the game. What
+   must **not** happen: the music changing speed, going silent, wrong notes, buzzing, or the sound
+   effects changing. If any of that happens, put the setting back to **Console (as it was)**, which
+   fixes it instantly, and tell me the game. It's off unless you turn it on, so nobody else can be
+   affected.
+
+**The rest of cBoy**
+
+4. In an Advance game on cBoy, start a battle or walk through a door. ✅ Where the screen changes it
+   breaks into big squares for a moment, instead of just fading or cutting. In a Pokémon game, surf
+   out onto the water: the underwater wobble looks chunky, not smooth. If a picture that used to be
+   sharp is now chunky all the time, that's this gone wrong — say so and it comes straight out.
+5. Open Pokémon Yellow (or any Game Boy game that also has a colour version) on cBoy. ✅ It looks
+   the same as always. Then **⋯ → Core settings… → System → Console for games that run on both** →
+   **Game Boy**, restart the game: it goes to four shades and your Game Boy palette applies. Set it
+   to **Super Game Boy**, restart: a frame appears round the picture. Put it back to **Game Boy
+   Color** when you're done.
+6. With that Super Game Boy frame on screen, look at the shape of the picture. ✅ It fills the space
+   properly — slightly wider than it used to be, not squashed. (It was about 3% too narrow.)
+7. Only if you have a game that rumbles through the GameCube's Game Boy Player: in an Advance game
+   on cBoy, **System → Advance console → Game Boy Player**. ✅ The game plays normally, and the
+   phone buzzes where the game would rumble.
+8. Only if you have Pokémon Ruby or Sapphire on cBoy: **System → Advance cartridge clock → Game time
+   only**, play a few minutes, close the app for an hour, come back. ✅ In-game time moved by the few
+   minutes you played, not by the hour you were away.
+9. Have a read down cBoy's settings page with a game running. ✅ There's no **Debug** group of layer
+   switches any more, **Picture** ends with "Sprite flicker" and "Advance sprite flicker", and the
+   four new System lines read like a person wrote them: "Console for games that run on both",
+   "Advance console", "Advance cartridge clock", "Old fan-made game fixes". Tell me if any line
+   still reads like documentation.
+10. In cBoy's **Sound** settings, change **Output sample rate** to 32768 Hz while a game is playing.
+    ✅ The sound carries on exactly as it was, and the app offers **Restart the game now** — tap it
+    and the game comes back sounding normal, not fast or crackly.
+11. Only if you have one: open an oddball cartridge cBoy can't play (a Tamagotchi game, Net de Get,
+    a Momotaro collection) on cBoy. ✅ You get a sentence naming the chip and telling you to use
+    mGBA, not "retro_load_game rejected the content".
+12. Only if you have Boktai: open it on cBoy with **Sunlight** on **Light sensor**. ✅ It plays in
+    half sunlight instead of pitch dark.
+13. Only if you have the Game Boy Camera: turn **Allow camera in games** on in the app's settings
+    (iOS asks for camera permission the first time — say yes), open it on cBoy and go to **Shoot**.
+    ✅ You see what the phone's camera is pointing at, in four shades of grey and speckly, moving as
+    you move the phone, and the button keeps the picture you were looking at. If you had photos
+    saved in it before, check your old album still opens — the place a photo is written moved, which
+    was a bug fix, but it's worth a look. Then turn the switch off and open it again: ✅ Shoot shows
+    an even grey and the game still works. Turn it back on afterwards.
+14. Open any other cBoy game — Tetris, Pokémon, anything. ✅ The phone does **not** ask for camera
+    permission. If it ever does for a game with no camera in it, that's wrong, tell me.
+15. Leave a cBoy game that uses the link cable (Pokémon, Tetris) sitting at its trade screen for a
+    few minutes with nothing to link to. ✅ The app stays put and isn't killed for using too much
+    memory.
+16. Play a plain Game Boy game (Tetris, Link's Awakening, a Pokémon) on cBoy for a few minutes, then
+    load one of your older save states for it. ✅ It looks, sounds and plays exactly as it did, and
+    the old state still loads. This was accuracy work deep inside: if you can see or hear any
+    difference at all, something is wrong and I want to know.
+17. Keep half an eye out in Game Boy games for a status bar or a text box arriving a frame later
+    than it used to. ✅ Nothing looks late. One rule changed for every Game Boy game: the fixed
+    panel games use for status bars only starts if it was switched on before the screen got to it,
+    which is what a real Game Boy does. It should only look more right — but if something looks
+    late, that's this, and it's worth telling me.
+
+**Lines you read in the app**
+
+18. Open any game's card and read the **SAVE STATES** paragraph. ✅ It's two short sentences that
+    sound like a person wrote them, and it doesn't claim a state needs the same build.
+19. **Settings**, and read the note under **CORES** and the two notes around **SYNC FOLDER**. ✅ They
+    point at buttons that really exist ("Open the game and pick it there", "Sync now"), and they're
+    short. A restore line says "1 skin", not "1 skin(s)".
+20. In a 3DS game: **⋯ → Core settings…**. ✅ The option is **Smoother loading**, On or Off, not
+    "Shader Compile (Continuum)" or anything about shaders.
+21. Only if you have one: open a file that has never opened (a damaged or half-downloaded game).
+    ✅ The line says which of three things it is — the file itself, a file it still needs, or this
+    phone's graphics — in plain words, with no code in it.
+22. Open the NES game that showed 49.8 FPS in Apple's overlay and tap **(i)**. ✅ It says it's
+    running as a European copy at 50 frames a second instead of 60, and that nothing is wrong. (That
+    was the answer: a European NES game runs at 50. It was never broken.)
+23. Only if you have one: open a SNES game with a chip in the cartridge — Super Mario Kart,
+    Pilotwings, Top Gear 3000, Mega Man X2, Dungeon Master — without that chip's file installed.
+    ✅ It names the exact file it needs and tells you to put it in the Continuum folder and install
+    it in Settings, instead of just not starting. (Star Fox, Yoshi's Island and Super Mario RPG
+    don't need a file: their chips are emulated.)
+
+**Backup and restore**
+
+24. Only if you can spare a junk backup: **Restore from a backup** with a zip that's damaged or
+    didn't finish downloading. ✅ It says so and changes nothing — no save of yours is replaced.
+25. Delete a save state (the app keeps it in **Continuum Sync → Deleted** in case you change your
+    mind), then **Restore from a backup**. ✅ That copy is still in the Deleted folder afterwards —
+    a restore no longer wipes it.
+26. **Settings → SYNC FOLDER → Back up to Files**, and tap it again straight away while it's
+    working. ✅ The second tap says one is already running, and both buttons go dim while it works.
+27. Take a backup, then open that zip anywhere outside Continuum (the **Files** app's own unzip, or
+    send it to a computer). ✅ It unzips completely. A backup made by build 180 still restores in the
+    app, too.
+28. Change your home screen icon, then **Restore from a backup** made when a different icon was set.
+    ✅ The tick stays on the icon your phone is really showing, and tapping any icon in the list
+    still changes it — including one that already has the tick.
+
+**Emulators and the rest**
+
+29. Only if you have the gear: a 3 or 4 player Mega Drive game, with **⋯ → Core settings… →
+    Multitap** set to **Team Player (4 pads)** — or **EA 4-Way Play (4 pads)** for an EA game — and
+    the controllers paired. ✅ Players 3 and 4 work. Leave it **Off** for normal games, which is how
+    it comes.
+30. Type a cheat into a Mega Drive, Sega CD or 32X game (a Game Genie or Pro Action Replay code for
+    your exact copy) and turn it on. ✅ The cheat does what it says, and turning it off puts the game
+    back. Codes joined with "+" count as one cheat.
+31. Only if you have a Symbian / N-Gage game: open it, then pause with **⋯**. ✅ The game stops and
+    goes silent instead of carrying on behind the menu. Leave it and open it again: ✅ it starts
+    quicker the second time (it's only installed once now).
+32. Only if you have a NAS: **Import → Add an SMB share (NAS)**, and type a wrong user name or
+    password on purpose. ✅ The message is plain English ("wrong user name or password", "that share
+    isn't there", "nothing answered at that address"), with no code or hex in it. Then add it again
+    with a port after the address, like `nas.local:1445`. ✅ It uses that port instead of ignoring
+    it and going to the usual one.
+33. Play a PSP game for about three minutes, then tap **(i)** and read down the activity log.
+    ✅ The launch, sync and save lines are still there — they used to get pushed out by PSP frame
+    markers after a couple of minutes.
+34. Only if you use Amiibo on the 3DS: tap a figure's file in while a 3DS game is waiting for one.
+    ✅ It lands within about half a second, as before.
+35. Only if you have one: import a Pokémon Gold, Silver or Crystal battery save made in mGBA or
+    VisualBoy Advance (the kind with the clock on the end) and open the game. ✅ Your save loads and
+    the in-game clock is right, and it's still right after playing and coming back.
+
+If a restore ever stops part-way, it now tells you in that same message where the copies it had
+already moved went (**Files** → **Continuum** → **Older copies**). Nothing to set up for it — just
+worth knowing it won't leave you guessing.
 
 ## Beta tester checklist (short)
 

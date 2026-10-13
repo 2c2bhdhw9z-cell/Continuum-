@@ -88,13 +88,23 @@ Paste this to start a new chat:
   3. The one-time heads-up line for players when an emulator was updated. Done on master.
   4. Make the weekly update checker cover every core, the 16 downloaded ones included. Done on
      master.
-  5. Small leftovers from the cleanup (the LOW and SUSPECTED findings).
-  6. cBoy: MP2K high-quality Advance music (doesn't exist yet: no MP2K code and no option; what
-     exists is per-channel volumes, `cboy_gba_smooth` in `cores/continuum-gb/src/gba/bus.rs`,
-     and `cboy_audio_quality`); real Advance games tried; Advance mosaic; the two-phone link;
-     the phone's camera into the Game Boy Camera; the extra settings (Advance clock mode,
-     Advance model, hybrid model, VBA bug compatibility); the Mooneye CGB tests (0 of 5).
-  7. The exact Game Boy drawer (stop and tell the owner first, see above).
+  5. Small leftovers from the cleanup (the LOW and SUSPECTED findings). **Done in the night batch
+     of 13 October, built, untested** (`docs/reports/night-2026-10-13-batch-a.md`). Four things
+     were deliberately left, with reasons, and STATUS.md "Next up" item 5 names them: Continuum's
+     own 32X start-up code, Sega CD disc swap and RAM-cart saves, Mesen 2 as a second SNES choice,
+     and the EEPROM in Sampras Tennis 96.
+  6. cBoy. **Most of this landed in the night batch of 13 October, built, untested**
+     (`docs/CBOY_NIGHT.md`): MP2K high-quality Advance music (off by default, and nobody has heard
+     it on a real game yet), real Advance games tried (six are in the suite, and they found that
+     most Advance games could not run at all), Advance mosaic, the phone's camera into the Game Boy
+     Camera, the four extra settings, and the Mooneye Color tests (0 of 5 → 4 of 5, now a gate).
+     Left: a Game Boy Color playing an old black-and-white game in colour (a white screen today,
+     and it holds 31 of the 55 Mealybug pictures), the fifth Mooneye Color test (three measured
+     lines in `gb.rs`, written out in `docs/CBOY_EXACT_DRAWER.md`), the two-phone link, and where
+     an IO write lands inside its M-cycle (`bus.rs`).
+  7. The exact Game Boy drawer. **Taken up on 13 October** with the owner's thinking set to max:
+     rebuilt as the hardware's state machine, 5 of 55 test pictures → 23, still not the default and
+     not played on a phone (`docs/CBOY_EXACT_DRAWER.md`).
   8. Phone test rounds, in small batches: PSP picture fixes, 3DS stutter, Symbian / N-Gage, the
      new Backup and Restore, Dreamcast and PSP speed, NAS (SMB) sharing, 3DS camera and Amiibo,
      cheat files and RAM search.
