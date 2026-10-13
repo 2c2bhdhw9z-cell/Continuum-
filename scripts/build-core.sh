@@ -248,8 +248,10 @@ ios_core_config() {
     gearsystem)
       # Master System, Game Gear and SG-1000. platforms/libretro/Makefile has an ios-arm64 block
       # that emits gearsystem_libretro_ios.dylib. Continuum patch
-      # (scripts/patches/gearsystem-sg1000-memory-map.patch): the SG-1000 memory map, so
-      # achievements see its RAM.
+      # (scripts/patches/gearsystem-sg1000-memory-map.patch, which its name now undersells): the
+      # SG-1000 memory map, so achievements see its RAM, AND the save-state fix that made two
+      # phones' states match byte for byte (the Sports Pad's timing was being written as this
+      # phone's own running cycle count, which broke the state hash online play compares).
       IOS_REPO="https://github.com/drhelius/Gearsystem"
       IOS_PIN="692494c8d3e322faeea204fd54f582f00d77f03a"
       IOS_DYLIB_NAME="gearsystem_libretro_ios.dylib"
@@ -1329,16 +1331,40 @@ build_ios_continuum_symbian_core() {
   local core="$1"
   local src="$IOS_SRC_DIR"
   local plug="$ROOT/native/continuum-symbian"
+  # This core is the only one that fetches its own build tools, and both are PINNED BY SHA256 like
+  # every other download this project makes. Moving a pin: change the version in the url and the
+  # path, and take the new sha256 from Kitware's published cmake-<version>-SHA-256.txt, or from the
+  # ninja release asset's own digest. Both sums below were checked against the published ones.
   local cmake_dir="$IOS_WORK/cmake-3.31.6"
   local cmake3="$cmake_dir/cmake-3.31.6-macos-universal/CMake.app/Contents/bin/cmake"
   if [[ ! -x "$cmake3" ]]; then
     echo "==> fetching CMake 3.31.6 for $core"
     mkdir -p "$cmake_dir"
-    curl -fsSL -o "$cmake_dir/cmake.tar.gz" \
-      https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-macos-universal.tar.gz
+    ios_fetch_pinned \
+      https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-macos-universal.tar.gz \
+      "$cmake_dir/cmake.tar.gz" \
+      330b9514f5112e5ed4fb08b8b05803b776fd9b539a6ae12927d14dcc0ee2ba8d \
+      "CMake 3.31.6 for $core" || exit 1
     tar xzf "$cmake_dir/cmake.tar.gz" -C "$cmake_dir"
   fi
-  command -v ninja >/dev/null 2>&1 || brew install ninja
+  # ninja's own macOS build (one universal x86_64 + arm64 binary at the root of the zip), not
+  # brew's: `brew install ninja` took whatever version brew had that day, and was the one download
+  # here that nothing could check. Passed to CMake below as CMAKE_MAKE_PROGRAM, so the pinned one
+  # is the one that runs even when the runner image happens to ship a ninja of its own.
+  local ninja_dir="$IOS_WORK/ninja-1.13.2"
+  local ninja="$ninja_dir/ninja"
+  if [[ ! -x "$ninja" ]]; then
+    echo "==> fetching ninja 1.13.2 for $core"
+    mkdir -p "$ninja_dir"
+    ios_fetch_pinned \
+      https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-mac.zip \
+      "$ninja_dir/ninja-mac.zip" \
+      c99048673aa765960a99cf10c6ddb9f1fad506099ff0a0e137ad8960a88f321b \
+      "ninja 1.13.2 for $core" || exit 1
+    ( cd "$ninja_dir" && unzip -oq ninja-mac.zip )
+    chmod +x "$ninja"
+    [[ -x "$ninja" ]] || { echo "error: $core: the ninja zip left no ninja binary" >&2; exit 1; }
+  fi
   local build_dir="$src/build-ios-device"
   local gen="$build_dir/continuum-symbian"
 
@@ -1402,6 +1428,7 @@ ASSETS
 
   echo "==> configuring $core ($IOS_DISPLAY)"
   "$cmake3" -S "$src" -B "$build_dir" -G Ninja \
+    -DCMAKE_MAKE_PROGRAM="$ninja" \
     -DCMAKE_SYSTEM_NAME=iOS \
     -DCMAKE_OSX_SYSROOT=iphoneos \
     -DCMAKE_OSX_ARCHITECTURES=arm64 \
@@ -1667,6 +1694,30 @@ ios_sha256() {
   hex="${out%% *}"
   [[ "$hex" =~ ^[0-9a-f]{64}$ ]] || return 1
   echo "$hex"
+}
+
+# Downloads $1 to $2, and keeps it only if its sha256 is $3. $4 names it in the messages.
+#
+# An unchecked tarball from a release page is the one place a changed byte upstream could walk
+# into the .ipa unnoticed, so nothing here downloads without a pin. A mismatch deletes the file
+# and fails rather than building from whatever arrived.
+ios_fetch_pinned() {
+  local url="$1" dest="$2" want="$3" what="$4" got
+  curl -fsSL -o "$dest" "$url" || {
+    echo "error: $what could not be downloaded from $url" >&2
+    return 1
+  }
+  got="$(ios_sha256 "$dest")" || {
+    echo "error: the sha256 of $what could not be read" >&2
+    rm -f "$dest"
+    return 1
+  }
+  [[ "$got" == "$want" ]] || {
+    echo "error: $what came down as sha256 $got, not the pinned $want; refusing it" >&2
+    rm -f "$dest"
+    return 1
+  }
+  echo "==> $what: sha256 matches the pin ($want)"
 }
 
 # Which scripts/patches/<family>-*.patch files belong to a core: its id without _jit (a JIT

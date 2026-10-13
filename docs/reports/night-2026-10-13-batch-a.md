@@ -195,3 +195,18 @@ needs the save-state version gate upstream uses (`if (version >= 108)`).
   editing `build-core.sh` and rebuilding all 33 cores. Its name now undersells it: next time
   `build-core.sh` is edited for some other reason, its gearsystem comment should say the patch
   carries the SG-1000 memory map **and** the save-state fix.
+- **That happened in A23, so tonight's build is the long one.** Pinning the CMake and ninja
+  downloads (RUST-16) could only be done in `build-core.sh`, so every from-source core rebuilds
+  once on the next build and it costs the 45-50 minutes rather than 6-8. The gearsystem comment
+  above was corrected in the same edit, as this note asked.
+
+## Left alone on purpose (A23)
+
+- **The "Beetle has no HLE" line in the launch message cannot be reached.** `ContinuumApp.swift`
+  has a PlayStation branch telling the player Beetle PSX HW needs a real BIOS, but it only runs
+  when `missingFirmware(for:)` returns something, and since `876fe64` nothing puts PlayStation in
+  either firmware table (`requiredFirmware` has no `.ps1` entry, `requiredCoreFirmware` only
+  Saturn). So no player can see that line, and its wording is stale: with no BIOS file Beetle
+  boots its own built-in OpenBIOS. The comments around it were corrected; the line itself is text
+  a tester would read, so changing or dropping it is the owner's call, not a cleanup edit. Whoever
+  picks it up should delete the dead branch rather than reword it.

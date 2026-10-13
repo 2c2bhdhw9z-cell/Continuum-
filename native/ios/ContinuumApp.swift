@@ -295,8 +295,9 @@ enum CoreCatalog {
     ///
     /// Soft PCSX ReARMed stays the default PlayStation route. This dylib ships in the IPA so a
     /// Mac/CI build can exercise the Vulkan HW path; Settings → PlayStation core switches
-    /// launches here. Same BIOS names as PCSX; Beetle expects a real BIOS (no HLE fallback
-    /// like ReARMed). Geometry seed matches the soft path; the HW renderer will renegotiate
+    /// launches here. Its own BIOS names, not PCSX's (see `biosNames` below), and no BIOS file is
+    /// required: with none installed it boots its own built-in OpenBIOS, so a launch is never
+    /// gated on one. Geometry seed matches the soft path; the HW renderer will renegotiate
     /// through SET_HW_RENDER once the MoltenVK context is live on device.
     ///
     /// Priority lower than everyday soft cores on purpose: registry order must not steal PS1
@@ -3411,18 +3412,6 @@ final class EngineHost: ObservableObject {
         }
     }
 
-    /// Copies any recognised BIOS file out of Documents and into the directory the cores read.
-    ///
-    /// THIS EXISTS BECAUSE THE TWO DIRECTORIES ARE NOT THE SAME ONE, which is easy to miss and
-    /// impossible to diagnose from the outside. `UIFileSharingEnabled` exposes DOCUMENTS as the
-    /// Continuum folder in the Files app, and that is where an import lands, but the system
-    /// directory handed to a core through GET_SYSTEM_DIRECTORY is APPLICATION SUPPORT, which the
-    /// Files app does not show at all. So a user can put scph1001.bin somewhere perfectly sensible
-    /// and the core will never see it. This is the one step across.
-    ///
-    /// Copies rather than moves, so the file the user put in the visible folder stays where they
-    /// can see it. Overwrites, because re-installing a BIOS is a normal thing to do. Every outcome
-    /// gets its own line, including the two that are conditions rather than errors.
     /// Continuum Symbian reads its firmware from `<system>/continuum-symbian/firmware`, which is
     /// in Application Support, where the Files app cannot look. Testers are told to put it in the
     /// Continuum folder under `system/continuum-symbian/firmware` (TESTING S1 and the core's own
@@ -3470,6 +3459,18 @@ final class EngineHost: ObservableObject {
         }
     }
 
+    /// Copies any recognised BIOS file out of Documents and into the directory the cores read.
+    ///
+    /// THIS EXISTS BECAUSE THE TWO DIRECTORIES ARE NOT THE SAME ONE, which is easy to miss and
+    /// impossible to diagnose from the outside. `UIFileSharingEnabled` exposes DOCUMENTS as the
+    /// Continuum folder in the Files app, and that is where an import lands, but the system
+    /// directory handed to a core through GET_SYSTEM_DIRECTORY is APPLICATION SUPPORT, which the
+    /// Files app does not show at all. So a user can put scph1001.bin somewhere perfectly sensible
+    /// and the core will never see it. This is the one step across.
+    ///
+    /// Copies rather than moves, so the file the user put in the visible folder stays where they
+    /// can see it. Overwrites, because re-installing a BIOS is a normal thing to do. Every outcome
+    /// gets its own line, including the two that are conditions rather than errors.
     func installBiosFromDocuments() {
         guard let documents = documentsDirectory() else {
             status = "BIOS install failed: no Documents directory"
@@ -3813,7 +3814,7 @@ final class EngineHost: ObservableObject {
     ///
     /// Two tables, both in `CoreCatalog`: `requiredFirmware` per SYSTEM (Disk System, Mega-CD,
     /// 32X, PC Engine CD, DOOM; every need listed must be met) and `requiredCoreFirmware` per CORE (Beetle Saturn, which has no HLE
-    /// BIOS while Yabause does). Beetle PSX HW keeps its own check below.
+    /// BIOS while Yabause does). Beetle PSX HW is not in either table: see the note at the end.
     func missingFirmware(for entry: LibraryEntry) -> (name: String, what: String)? {
         let system = CoreCatalog.system(for: entry)
         var needs: [CoreCatalog.FirmwareNeed] = []
@@ -3895,8 +3896,8 @@ final class EngineHost: ObservableObject {
         if let present {
             return "BIOS (\(spec.coreId)): \(present)"
         }
-        // Beetle has no HLE path. Saying "HLE fallback" here sent Brett looking for a soft
-        // boot that cannot happen on the HW core.
+        // Beetle has no HLE BIOS: with no file it boots its own built-in OpenBIOS. Saying
+        // "HLE fallback" here sent Brett looking for a soft boot this core does not have.
         if spec.coreId == CoreCatalog.mednafenPsxHw.coreId {
             return "BIOS (\(spec.coreId)): none, built-in OpenBIOS (some games need a real "
                 + "scph5501.bin / scph5500.bin / scph5502.bin)"

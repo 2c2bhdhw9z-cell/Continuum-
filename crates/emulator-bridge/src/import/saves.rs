@@ -68,8 +68,8 @@ pub const SAVE_EXTENSIONS: &[&str] = &[
 pub fn location(system: &str, game_stem: &str) -> SaveLocation {
     match system {
         // flycast with per-game VMUs off (its default, and the app does not set it) keeps the
-        // shared VMUs in `<system>/dc/` (core/stdclass.cpp get_writable_vmu_path), and the
-        // system and save directories are the same folder here.
+        // shared VMUs in `<system>/dc/` (shell/libretro/oslib.cpp getVmuPath, checked at the
+        // pinned commit), and the system and save directories are the same folder here.
         "dreamcast" => SaveLocation::CoreFile("dc/vmu_save_A1.bin".into()),
         "saturn" => SaveLocation::CoreFile(format!("{game_stem}.bkr")),
         "psp" => SaveLocation::Folder("PSP/SAVEDATA".into()),

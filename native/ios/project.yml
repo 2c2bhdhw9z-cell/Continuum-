@@ -95,8 +95,8 @@ targets:
         # Online play (Netplay.swift): the host listens on the local network and advertises over
         # Bonjour, and the guest browses for it. iOS shows this sentence in the Local Network
         # permission prompt, and refuses to browse a service type not listed below.
-        # Also covers Wi-Fi transfer (WiFiTransfer.swift) and WebDAV browsing (RemoteSources.swift;
-        # SMB is not in this build).
+        # Also covers Wi-Fi transfer (WiFiTransfer.swift) and browsing a NAS or computer over
+        # WebDAV or SMB (RemoteSources.swift, SmbClient.swift; SMB is libsmb2, linked in above).
         NSLocalNetworkUsageDescription: "Continuum uses the local network for two-player online play with another phone, for Wi-Fi transfer of games and saves from a computer's browser, and to browse a NAS or computer over WebDAV or SMB file sharing."
         NSBonjourServices:
           - _continuum._tcp
