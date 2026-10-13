@@ -618,8 +618,8 @@ Two notes for whoever writes that half:
 ### What the tests prove
 
 Fourteen new tests (the suite was 120 when the music work was pushed and `cargo test --release`
-in `cores/continuum-gb` reports 134 as this is written; it keeps moving as the exact-drawer work
-lands its own, so read it from cargo rather than from here):
+in `cores/continuum-gb` reports **136** as this is pushed, the other two being the exact-drawer
+work's; that number keeps moving all night, so read it from cargo rather than from here):
 
 1. **Mooneye's own serial test is now a gated test**, in with the other 86, and the Game Boy
    acceptance set is 87 of 87 on both drawers. It is the hardware's own answer to "when does a
@@ -747,6 +747,27 @@ started. Two things that genuinely changed in this build and belong in the notes
 - Every link transfer now takes the time a real cable takes instead of finishing instantly. That
   is accuracy work with nothing for a player to set, and check 23 below is the one that would
   catch it having gone wrong.
+
+### Where item 6 stands, in one place
+
+Every cBoy job named under "Next up" item 6 is finished, except the half of the two-phone link
+that lives in the app. In the order the item lists them:
+
+| Job | State |
+| --- | --- |
+| MP2K high-quality Advance music | Built, off by default, **needs the owner's ears** (check 22) |
+| Advance mosaic | Built, untested on a phone |
+| The four missing Advance and model settings | Built, untested on a phone |
+| The small clean-up leftovers (CBOY-05 to CBOY-12) | Built, untested on a phone |
+| The phone's camera into the Game Boy Camera | Built, untested on a phone |
+| The Mooneye Game Boy Color tests | 5 of 5, gated |
+| Real Advance games, not only test ROMs | Six homebrew games gated; found and fixed the bug that stopped most Advance games running |
+| The two-phone link | Core's half built and tested; the app's half is three calls, written out above |
+
+cBoy has **67** settings of its own. Its test suite was 100 at the start of the night and reports
+**136** as this is pushed — but the exact-drawer work is landing its own tests at the same time,
+so take that number from `cargo test --release` in `cores/continuum-gb`, not from here. The Game
+Boy test gate is 87 of 87 on both picture drawers and the Color one is 5 of 5.
 
 ## Phone checks for the owner
 
