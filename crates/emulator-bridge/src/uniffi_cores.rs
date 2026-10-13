@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use crate::core_updates;
+use crate::{core_updates, launch_retry};
 
 /// Once per app start, before the feedback session files in `dir` are rewritten. Returns "" or one
 /// line for the activity log naming the emulators that changed since the last install.
@@ -25,4 +25,16 @@ pub fn core_updates_take_heads_up(dir: String, core_id: String) -> Option<String
 #[uniffi::export]
 pub fn save_state_version_loads(core_id: String, saved_version: Option<String>, running_version: Option<String>) -> bool {
     core_updates::state_version_loads(&core_id, saved_version.as_deref(), running_version.as_deref())
+}
+
+/// The core to try once after `refused_core` refused a game, or none (see `launch_retry`).
+#[uniffi::export]
+pub fn launch_retry_core(system_cores: Vec<String>, refused_core: String, refused_was_default: bool) -> Option<String> {
+    launch_retry::retry_core(&system_cores, &refused_core, refused_was_default)
+}
+
+/// The player's line when the retry worked.
+#[uniffi::export]
+pub fn launch_retry_line(refused_name: String, fallback_name: String) -> String {
+    launch_retry::retry_line(&refused_name, &fallback_name)
 }

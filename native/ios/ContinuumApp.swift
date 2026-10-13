@@ -4625,7 +4625,11 @@ final class EngineHost: ObservableObject {
     /// first would serialize a megabyte, load it, and throw it away one line later, and the status
     /// line would claim a resume that the next call immediately overwrote. Every other caller wants
     /// the default, which is why it has one.
-    func launch(entry: LibraryEntry, resumingAuto: Bool = true) {
+    ///
+    /// `forcedCoreId` is set by exactly one caller: the safety net in the `catch` below, when the
+    /// system's default core refused the game and the engine named another core to try once
+    /// (launch_retry.rs). A forced launch never retries again.
+    func launch(entry: LibraryEntry, resumingAuto: Bool = true, forcedCoreId: String? = nil) {
         // Breadcrumb, written before the re-entrancy stop and before ANY guard below can
         // return. A tap that reaches this method therefore always changes the HUD. If the HUD
         // ever stays on the previous line, this method provably was not reached, which narrows
@@ -4662,8 +4666,12 @@ final class EngineHost: ObservableObject {
 
         // Routing, from the one table the Library row also reads. Resolved BEFORE the stop
         // below on purpose: an unmapped extension is a tap that should change nothing, so a
-        // running game is not torn down to report it.
-        guard let spec = CoreCatalog.core(
+        // running game is not torn down to report it. A retry names its core instead.
+        if let forcedCoreId, CoreCatalog.core(id: forcedCoreId) == nil {
+            status = "\(forcedCoreId) isn\u{2019}t in this version, so \(entry.name) cannot be launched on it"
+            return
+        }
+        guard let spec = forcedCoreId.flatMap({ CoreCatalog.core(id: $0) }) ?? CoreCatalog.core(
             forPath: entry.path,
             ps1CoreId: ps1CoreChoice.coreId
         ) else {
@@ -4671,16 +4679,21 @@ final class EngineHost: ObservableObject {
             status = "no core is mapped to \(extLabel), so \(entry.name) cannot be launched"
             return
         }
+        // Only a refusal by the core the player didn't pick gets the retry below.
+        let chosenByDefault: Bool
         do {
             let system = CoreCatalog.system(for: entry)
             let source: String
-            if let system, CoreCatalog.gameCoreChoice(forPath: entry.path, system: system) != nil {
+            if forcedCoreId != nil {
+                source = "a retry after a refusal"
+            } else if let system, CoreCatalog.gameCoreChoice(forPath: entry.path, system: system) != nil {
                 source = "this game's own choice"
             } else if let system, system == .ps1 || CoreCatalog.storedCoreChoice(for: system) != nil {
                 source = "the Settings choice for \(system.displayName)"
             } else {
                 source = "the default"
             }
+            chosenByDefault = forcedCoreId == nil && source == "the default"
             FeedbackCenter.step("launch core: \(spec.coreId) (\(spec.displayName)) for "
                 + "\(entry.name) [\(system?.rawValue ?? "?")], from \(source)")
         }
@@ -4933,6 +4946,24 @@ final class EngineHost: ObservableObject {
             activeCoreId = ""
             n64AwaitingFirstTick = false
             let failed = "launch failed on \(spec.coreId): \(entry.name): \(error)"
+            // The owner's safety net: the system's default core refused this game, so the engine
+            // names the system's other core and it gets exactly one try (the forced launch never
+            // comes back here). It is a normal launch, so saves follow the usual rules.
+            if forcedCoreId == nil, case EngineError.ContentRejected = error, chosenByDefault,
+               let system = CoreCatalog.system(for: entry),
+               let fallback = launchRetryCore(systemCores: CoreCatalog.coreOptions(for: system),
+                                              refusedCore: spec.coreId, refusedWasDefault: true),
+               CoreCatalog.core(id: fallback) != nil {
+                FeedbackCenter.step("launch retry: \(spec.coreId) refused \(entry.name); trying \(fallback) once")
+                launch(entry: entry, resumingAuto: resumingAuto, forcedCoreId: fallback)
+                if running && activeCoreId == fallback {
+                    status = launchRetryLine(refusedName: SaveStates.shortCoreName(spec.coreId),
+                                             fallbackName: SaveStates.shortCoreName(fallback))
+                } else {
+                    status = failed
+                }
+                return
+            }
             if isN64 {
                 setN64Crumb(failed)
             } else {

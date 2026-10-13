@@ -74,6 +74,8 @@ pub mod rewind;
 pub mod saves;
 // Emulator updates: which old save states still load on a newer core, and the players' heads-up.
 pub mod core_updates;
+// A system's default core that refuses a game gets one retry on that system's other core.
+pub mod launch_retry;
 pub mod feedback;
 pub mod netplay;
 pub mod sync;
