@@ -10,8 +10,15 @@
 //!   both peers start from bytes that went through the same `retro_unserialize`);
 //! - a state hash every N frames for desync detection;
 //! - refusals for everything that would make the two phones diverge.
+//!
+//! And for a link cable (a core that offers libretro's packet interface, cBoy for a Game Boy
+//! game), which is not lockstep at all: the ordinary tick runs each phone's own game, and around
+//! every frame the cable is pumped (what the other phone sent goes into the core before the
+//! frame, the core's `poll` sends after it), the session's keepalive runs once a tick even while
+//! paused, and the core's cable goes in and comes out when the session says. Every call into the
+//! core's cable is made here, between frames, on the thread that runs them, as libretro asks.
 
-use super::EmulatorBridge;
+use super::{EmulatorBridge, Session};
 use crate::error::BridgeError;
 use crate::input::{InputSnapshot, PortState, MAX_PORTS};
 use crate::netplay::{
@@ -26,8 +33,26 @@ impl EmulatorBridge {
         self.netplay.as_ref().is_some_and(NetplaySession::is_live)
     }
 
+    /// True when online play for the running game is a link cable (each phone plays its own game)
+    /// rather than one shared game: the session's own kind while there is one, otherwise what the
+    /// running core offers.
+    pub fn netplay_link_cable(&self) -> bool {
+        match self.netplay.as_ref() {
+            Some(netplay) => netplay.is_link(),
+            None => self
+                .session
+                .as_ref()
+                .is_some_and(|session| session.core.link_protocol().is_some()),
+        }
+    }
+
+    /// Only a shared game takes the tick over. A link cable runs in the ordinary tick.
     pub(super) fn netplay_owns_tick(&self) -> bool {
-        self.session.is_some() && self.netplay_is_live()
+        self.session.is_some()
+            && self
+                .netplay
+                .as_ref()
+                .is_some_and(|netplay| netplay.is_live() && !netplay.is_link())
     }
 
     /// Refuses `what` while a peer is playing along. For anything that changes the emulated
@@ -45,7 +70,13 @@ impl EmulatorBridge {
     /// every refusal reads alike and says why.
     pub(super) fn netplay_refusal(&self, what: &str) -> Option<String> {
         self.netplay_is_live().then(|| {
-            format!("{what} is off during online play: the other phone would not do the same")
+            if self.netplay.as_ref().is_some_and(NetplaySession::is_link) {
+                // libretro.h:2512 asks a frontend to keep time still while a cable is in, and one
+                // phone's game jumping about mid-conversation is what would break it.
+                format!("{what} is off while the link cable is on")
+            } else {
+                format!("{what} is off during online play: the other phone would not do the same")
+            }
         })
     }
 
@@ -53,10 +84,17 @@ impl EmulatorBridge {
         self.netplay.as_ref()
     }
 
-    fn netplay_local_info(&self, content_path: &str) -> Result<PeerInfo, BridgeError> {
+    /// This phone's half of the handshake, and the cable its core offers (`None` for none, which
+    /// makes the session one shared game).
+    fn netplay_local_info(
+        &self,
+        content_path: &str,
+    ) -> Result<(PeerInfo, Option<String>), BridgeError> {
         let session = self.session.as_ref().ok_or(BridgeError::NoSession)?;
+        let cable = session.core.link_protocol();
         let state_size = session.core.state_size();
-        if state_size == 0 {
+        // A cable carries no state, so only a shared game needs one.
+        if state_size == 0 && cable.is_none() {
             return Err(BridgeError::SaveState(
                 "this core cannot save states, so it cannot play online".into(),
             ));
@@ -66,7 +104,7 @@ impl EmulatorBridge {
         } else {
             content_fingerprint(content_path)
         };
-        Ok(PeerInfo {
+        let info = PeerInfo {
             version: PROTOCOL_VERSION,
             core_id: session.core_id.clone(),
             core_version: session.core.version().unwrap_or("").to_string(),
@@ -76,7 +114,8 @@ impl EmulatorBridge {
             // The user's typed codes, not the core entries they were split into.
             active_cheats: session.enabled_codes as u32,
             options_hash: options_hash(&session.core.core_options()),
-        })
+        };
+        Ok((info, cable))
     }
 
     /// Everything that must be true on both phones before the first lockstep frame.
@@ -93,17 +132,20 @@ impl EmulatorBridge {
         content_path: &str,
         config: NetplayConfig,
     ) -> Result<(), BridgeError> {
-        let info = self.netplay_local_info(content_path)?;
+        let (info, cable) = self.netplay_local_info(content_path)?;
         self.netplay_prepare();
-        self.netplay = Some(NetplaySession::new_host(config, info));
+        // A session this replaces may still have the cable in.
+        self.service_netplay_requests();
+        self.netplay = Some(NetplaySession::new_host(config, info).with_link(cable));
         Ok(())
     }
 
     /// Prepares to join a host with the running game.
     pub fn netplay_join(&mut self, content_path: &str) -> Result<(), BridgeError> {
-        let info = self.netplay_local_info(content_path)?;
+        let (info, cable) = self.netplay_local_info(content_path)?;
         self.netplay_prepare();
-        self.netplay = Some(NetplaySession::new_guest(info));
+        self.service_netplay_requests();
+        self.netplay = Some(NetplaySession::new_guest(info).with_link(cable));
         Ok(())
     }
 
@@ -141,16 +183,42 @@ impl EmulatorBridge {
 
     /// Forgets the session entirely, returning any last bytes (the goodbye) to flush.
     pub fn netplay_clear(&mut self) -> Vec<u8> {
+        // A cable the session ended with goes back out of the core before the session is gone.
+        self.service_netplay_requests();
         self.netplay
             .take()
             .map(|mut netplay| netplay.take_outgoing())
             .unwrap_or_default()
     }
 
-    /// Runs whatever the handshake asked of the engine.
-    fn service_netplay_requests(&mut self) {
+    /// Runs whatever the session asked of the engine: the handshake's two state operations, and
+    /// the link cable going in and coming out.
+    pub(super) fn service_netplay_requests(&mut self) {
         while let Some(request) = self.netplay.as_mut().and_then(NetplaySession::take_request) {
             match request {
+                Request::StartLink { local, peer } => {
+                    let Some(session) = self.session.as_mut() else {
+                        continue;
+                    };
+                    let accepted = session.core.link_start(local, peer);
+                    if let Some(netplay) = self.netplay.as_mut() {
+                        // Whatever the core sent from inside `start` goes out with the rest.
+                        for block in session.core.link_take_sent() {
+                            netplay.send_link_block(&block);
+                        }
+                        if !accepted {
+                            // Ends the session, which queues the matching unplug for this loop.
+                            netplay.link_refused_by_core();
+                        }
+                    }
+                }
+                Request::StopLink { peer } => {
+                    if let Some(session) = self.session.as_mut() {
+                        session.core.link_stop(peer);
+                        // Too late to carry anything: the session is over.
+                        session.core.link_take_sent();
+                    }
+                }
                 Request::CaptureState => {
                     let result = self
                         .save_state()
@@ -169,6 +237,43 @@ impl EmulatorBridge {
                     }
                 }
             }
+        }
+    }
+
+    /// Link mode, once a tick before anything runs: the cable going in or out, and the session's
+    /// keepalive and silence timeout. Here rather than with the frames, so a paused game still
+    /// answers pings and still notices that the other phone has gone.
+    pub(super) fn tick_link_cable(&mut self, now_ms: f64) {
+        if !self.netplay.as_ref().is_some_and(NetplaySession::is_link) {
+            return;
+        }
+        self.service_netplay_requests();
+        if let Some(netplay) = self.netplay.as_mut() {
+            netplay.poll(now_ms);
+        }
+        // The poll can end the session (silence), and then the cable comes out on this tick.
+        self.service_netplay_requests();
+    }
+
+    /// Link mode, just before one frame: every block the other phone sent, in its order.
+    pub(super) fn link_before_frame(session: &mut Session, netplay: Option<&mut NetplaySession>) {
+        let Some(netplay) = netplay.filter(|netplay| netplay.is_link()) else {
+            return;
+        };
+        let from = netplay.peer_client_id();
+        for block in netplay.take_link_blocks() {
+            session.core.link_receive(&block, from);
+        }
+    }
+
+    /// Link mode, just after one frame: the core's turn to send, and what it sent goes out.
+    pub(super) fn link_after_frame(session: &mut Session, netplay: Option<&mut NetplaySession>) {
+        let Some(netplay) = netplay.filter(|netplay| netplay.is_link() && netplay.is_live()) else {
+            return;
+        };
+        session.core.link_poll();
+        for block in session.core.link_take_sent() {
+            netplay.send_link_block(&block);
         }
     }
 
@@ -636,6 +741,451 @@ mod tests {
             ]
         );
         crate::cores::options::reset_for_tests();
+    }
+
+    // ------------------------------------------------------------ the link cable
+
+    #[derive(Default)]
+    struct CableLog {
+        /// Every time the engine plugged the cable in or pulled it out, in order.
+        calls: Vec<String>,
+        /// Every block that reached this core, in order.
+        received: Vec<Vec<u8>>,
+    }
+    type CableWitness = std::sync::Arc<std::sync::Mutex<CableLog>>;
+
+    /// The lockstep core with a cable on it: while plugged in, every frame its game puts one
+    /// numbered block on the cable (`[name, n]`), which goes out when the engine polls.
+    struct CableCore {
+        inner: LockstepCore,
+        name: u8,
+        plugged: bool,
+        next: u8,
+        on_the_cable: Vec<Vec<u8>>,
+        sent: Vec<Vec<u8>>,
+        log: CableWitness,
+    }
+
+    impl EmulatorCore for CableCore {
+        fn descriptor(&self) -> &CoreDescriptor {
+            self.inner.descriptor()
+        }
+        fn load_content(&mut self, rom: &[u8], hint: &ContentHint) -> Result<(), BridgeError> {
+            self.inner.load_content(rom, hint)
+        }
+        fn run_frame(&mut self, input: &InputSnapshot) -> Result<(), BridgeError> {
+            self.inner.run_frame(input)?;
+            if self.plugged {
+                self.on_the_cable.push(vec![self.name, self.next]);
+                self.next = self.next.wrapping_add(1);
+            }
+            Ok(())
+        }
+        fn video(&self) -> Option<FrameView<'_>> {
+            None
+        }
+        fn drain_audio(&mut self, _: &mut dyn crate::audio::AudioSink) {}
+        fn reset(&mut self) -> Result<(), BridgeError> {
+            Ok(())
+        }
+        fn state_size(&self) -> usize {
+            self.inner.state_size()
+        }
+        fn save_state(&self, dst: &mut [u8]) -> Result<usize, BridgeError> {
+            self.inner.save_state(dst)
+        }
+        fn load_state(&mut self, src: &[u8]) -> Result<(), BridgeError> {
+            self.inner.load_state(src)
+        }
+        fn frame_count(&self) -> u64 {
+            self.inner.frame_count()
+        }
+        fn link_protocol(&self) -> Option<String> {
+            Some("test-cable-1".into())
+        }
+        fn link_start(&mut self, local: u16, peer: u16) -> bool {
+            self.log.lock().unwrap().calls.push(format!("start {local} {peer}"));
+            self.plugged = true;
+            true
+        }
+        fn link_receive(&mut self, block: &[u8], _from: u16) {
+            assert!(self.plugged, "a block reached a core with no cable in");
+            self.log.lock().unwrap().received.push(block.to_vec());
+        }
+        fn link_poll(&mut self) {
+            self.sent.append(&mut self.on_the_cable);
+        }
+        fn link_stop(&mut self, peer: u16) {
+            self.log.lock().unwrap().calls.push(format!("stop {peer}"));
+            self.plugged = false;
+        }
+        fn link_take_sent(&mut self) -> Vec<Vec<u8>> {
+            std::mem::take(&mut self.sent)
+        }
+    }
+
+    fn cable_bridge(seed: u64, name: u8, log: CableWitness) -> EmulatorBridge {
+        let mut bridge = bridge_with(seed);
+        if let Some(session) = bridge.session.as_mut() {
+            session.core = Box::new(CableCore {
+                inner: LockstepCore::new(seed),
+                name,
+                plugged: false,
+                next: 0,
+                on_the_cable: Vec::new(),
+                sent: Vec::new(),
+                log,
+            });
+        }
+        bridge
+    }
+
+    /// One tick on each phone, then the connection carries each one's bytes to the other.
+    fn link_round(a: &mut EmulatorBridge, b: &mut EmulatorBridge, now: f64) {
+        a.tick(now).unwrap();
+        b.tick(now).unwrap();
+        let from_a = a.netplay_take_outgoing();
+        let from_b = b.netplay_take_outgoing();
+        b.netplay_receive(&from_a);
+        a.netplay_receive(&from_b);
+    }
+
+    const FRAME_MS: f64 = 1000.0 / 60.0;
+
+    /// Two engines on a cable: each runs its own game (no state crosses, and the two machines stay
+    /// different), the cable goes in once on each with the right numbers, every block crosses in
+    /// order, a paused phone keeps the connection alive and gets its blocks when it resumes, time
+    /// is held still while linked, and leaving pulls both cables out.
+    #[test]
+    fn two_engines_on_a_link_cable_each_play_their_own_game() {
+        let (host_log, guest_log) = (CableWitness::default(), CableWitness::default());
+        let mut host = cable_bridge(7, b'H', host_log.clone());
+        let mut guest = cable_bridge(99, b'G', guest_log.clone());
+        assert!(host.netplay_link_cable(), "the core offers a cable");
+        host.netplay_host("", NetplayConfig::default()).unwrap();
+        guest.netplay_join("").unwrap();
+        host.netplay_transport_connected();
+        guest.netplay_transport_connected();
+
+        let mut now = 0.0;
+        for _ in 0..120 {
+            link_round(&mut host, &mut guest, now);
+            now += FRAME_MS;
+        }
+        for bridge in [&host, &guest] {
+            let np = bridge.netplay().unwrap();
+            assert!(np.is_link());
+            assert_eq!(np.phase(), crate::netplay::Phase::Running);
+            assert!(bridge.netplay_is_live());
+            assert!(bridge.netplay_link_cable());
+        }
+        assert_eq!(host_log.lock().unwrap().calls, ["start 0 1"]);
+        assert_eq!(guest_log.lock().unwrap().calls, ["start 1 0"]);
+        // Each phone's blocks reached the other, whole, in order, with none missing.
+        for (log, name) in [(&host_log, b'G'), (&guest_log, b'H')] {
+            let received = &log.lock().unwrap().received;
+            assert!(received.len() > 100, "{} blocks", received.len());
+            for (n, block) in received.iter().enumerate() {
+                assert_eq!(block, &vec![name, n as u8]);
+            }
+        }
+        // Two games, not one: nothing replaced the guest's machine with the host's.
+        assert_ne!(core_state(&host), core_state(&guest));
+
+        // Time stands still while linked.
+        let refused = "is off while the link cable is on";
+        assert!(host.load_state(&[0; 8]).unwrap_err().to_string().contains(refused));
+        assert!(guest.rewind_step().unwrap_err().to_string().contains(refused));
+        host.set_rewinding(true);
+        assert!(!host.is_rewinding());
+        guest.set_speed(4.0);
+        assert_eq!(guest.speed(), 1.0);
+
+        // The host pauses for longer than the silence timeout: its tick still answers the other
+        // phone, so neither side gives up, and nothing reaches the paused game.
+        let before = host_log.lock().unwrap().received.len();
+        host.pause();
+        for _ in 0..900 {
+            link_round(&mut host, &mut guest, now);
+            now += FRAME_MS;
+        }
+        assert!(host.netplay_is_live() && guest.netplay_is_live(), "15 s paused is not silence");
+        assert_eq!(host_log.lock().unwrap().received.len(), before, "a paused game takes nothing");
+        host.resume(now);
+        now += FRAME_MS;
+        link_round(&mut host, &mut guest, now);
+        let after = host_log.lock().unwrap().received.len();
+        assert!(after >= before + 900, "the blocks held while paused arrive: {before} -> {after}");
+
+        // Leaving: this phone's cable comes out when the session is forgotten, the other phone's
+        // when its next tick hears the goodbye.
+        guest.netplay_leave("the other player went back to the library");
+        let bye = guest.netplay_clear();
+        assert_eq!(guest_log.lock().unwrap().calls, ["start 1 0", "stop 0"]);
+        host.netplay_receive(&bye);
+        host.tick(now).unwrap();
+        assert_eq!(host_log.lock().unwrap().calls, ["start 0 1", "stop 1"]);
+        assert!(!host.netplay_is_live());
+        assert_eq!(
+            host.netplay().unwrap().status_line(),
+            "Link cable unplugged: the other player went back to the library"
+        );
+        // And time moves again.
+        assert!(host.load_state(&[0; 8]).is_ok());
+    }
+
+    /// A connection that drops is noticed on the network's own thread, but the core's cable only
+    /// ever comes out on the engine's tick (libretro asks for its calls on the frame's thread).
+    /// And closing the game pulls the cable before the core goes.
+    #[test]
+    fn the_cable_comes_out_on_the_tick_and_before_the_game_closes() {
+        let (host_log, guest_log) = (CableWitness::default(), CableWitness::default());
+        let mut host = cable_bridge(7, b'H', host_log.clone());
+        let mut guest = cable_bridge(99, b'G', guest_log.clone());
+        host.netplay_host("", NetplayConfig::default()).unwrap();
+        guest.netplay_join("").unwrap();
+        host.netplay_transport_connected();
+        guest.netplay_transport_connected();
+        let mut now = 0.0;
+        for _ in 0..10 {
+            link_round(&mut host, &mut guest, now);
+            now += FRAME_MS;
+        }
+        guest.netplay_transport_lost("POSIXErrorCode(rawValue: 54): Connection reset by peer");
+        assert_eq!(guest_log.lock().unwrap().calls, ["start 1 0"], "not from the network thread");
+        guest.tick(now).unwrap();
+        assert_eq!(guest_log.lock().unwrap().calls, ["start 1 0", "stop 0"]);
+        assert_eq!(
+            guest.netplay().unwrap().status_line(),
+            "Link cable unplugged: the connection to the other phone dropped"
+        );
+
+        host.stop();
+        assert_eq!(host_log.lock().unwrap().calls, ["start 0 1", "stop 1"]);
+    }
+
+    /// The real thing: two engines, each with its own copy of a host build of cBoy loaded through
+    /// the real libretro entry points, joined by the session's cable. Phone A drives the cable and
+    /// phone B is driven, then the other way round, then phone A drives into a cable that has gone
+    /// quiet and must give up rather than freeze; and when the session times out, cBoy's cable is
+    /// really unplugged. Opt-in like `tests/cboy_frontend.rs`: CBOY_SO=path/to/libcontinuum_gb.so.
+    #[cfg(feature = "native-core")]
+    #[test]
+    fn two_phones_link_two_cboys_through_the_real_entry_points() {
+        let Ok(so) = std::env::var("CBOY_SO") else {
+            eprintln!("CBOY_SO not set: the two-cBoy link test was skipped");
+            return;
+        };
+        let _options = crate::cores::options::test_guard();
+        crate::cores::options::reset_for_tests();
+        let dir = std::env::temp_dir().join(format!("continuum-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Phone A: wait about ten frames, drive $11 (result to $C000); be driven offering $33
+        // ($C001); wait for the test's go at $C010, then drive $55 ($C002) and mark $C003; wait for
+        // a second go at $C011, then drive $77 ($C004).
+        let mut a = init_wram();
+        a.extend(delay_frames());
+        a.extend(transfer(0x11, 0x81, 0xC000));
+        a.extend(transfer(0x33, 0x80, 0xC001));
+        a.extend(wait_for(0xC010));
+        a.extend(transfer(0x55, 0x81, 0xC002));
+        a.extend(store(0xC003, 1));
+        a.extend(wait_for(0xC011));
+        a.extend(transfer(0x77, 0x81, 0xC004));
+        a.extend([0x18, 0xFE]); // JR -2: done
+        // Phone B: be driven offering $22 ($C000); wait about ten frames, drive $44 ($C001).
+        let mut b = init_wram();
+        b.extend(transfer(0x22, 0x80, 0xC000));
+        b.extend(delay_frames());
+        b.extend(transfer(0x44, 0x81, 0xC001));
+        b.extend([0x18, 0xFE]);
+
+        let load = |name: &str, code: &[u8]| -> EmulatorBridge {
+            // Its own copy of the library, so the two cBoys share nothing, like two phones.
+            let library = dir.join(format!("libcboy_{name}.so"));
+            std::fs::copy(&so, &library).unwrap();
+            let rom = dir.join(format!("{name}.gb"));
+            std::fs::write(&rom, gb_rom(code)).unwrap();
+            let descriptor = CoreDescriptor {
+                id: "continuum_gb".into(),
+                display_name: "cBoy".into(),
+                systems: vec!["gb".into()],
+                geometry: FrameGeometry::new(160, 144, 10.0 / 9.0),
+                target_fps: 59.7275,
+                audio_sample_rate: 48_000,
+                pixel_format: PixelFormat::Xrgb8888,
+                module_url: String::new(),
+                priority: 0,
+            };
+            let mut core = unsafe {
+                crate::cores::native_core::NativeLibretroCore::load(
+                    descriptor,
+                    &library,
+                    dir.to_str(),
+                    dir.to_str(),
+                )
+            }
+            .unwrap();
+            let mut hint = ContentHint::from_filename(rom.to_str().unwrap());
+            hint.full_path = rom.to_str().map(str::to_string);
+            core.load_content(&[], &hint).unwrap();
+            assert_eq!(core.link_protocol().as_deref(), Some("cboy-link-1"));
+            let mut bridge = bridge_with(0);
+            bridge.session.as_mut().unwrap().core = Box::new(core);
+            bridge.session.as_mut().unwrap().core_id = "continuum_gb".into();
+            bridge
+        };
+        let mut phone_a = load("a", &a);
+        let mut phone_b = load("b", &b);
+        let wram = |bridge: &EmulatorBridge, at: u16| -> u8 {
+            bridge.session.as_ref().unwrap().core.memory_region(crate::memory::MEMORY_SYSTEM_RAM)
+                .unwrap()[usize::from(at - 0xC000)]
+        };
+        let poke = |bridge: &mut EmulatorBridge, at: u16| {
+            bridge.session.as_mut().unwrap().core.memory_region_mut(crate::memory::MEMORY_SYSTEM_RAM)
+                .unwrap()[usize::from(at - 0xC000)] = 1;
+        };
+
+        assert!(phone_a.netplay_link_cable() && phone_b.netplay_link_cable());
+        phone_a.netplay_host("", NetplayConfig::default()).unwrap();
+        phone_b.netplay_join("").unwrap();
+        phone_a.netplay_transport_connected();
+        phone_b.netplay_transport_connected();
+
+        // Both directions, both clocks: A drives then is driven, B the reverse.
+        let mut now = 0.0;
+        let mut rounds = 0;
+        while (wram(&phone_a, 0xC001) == 0 || wram(&phone_b, 0xC001) == 0) && rounds < 600 {
+            link_round(&mut phone_a, &mut phone_b, now);
+            now += FRAME_MS;
+            rounds += 1;
+        }
+        assert!(phone_a.netplay().unwrap().is_link());
+        assert_eq!(wram(&phone_a, 0xC000), 0x22, "A drove the cable and read B's byte");
+        assert_eq!(wram(&phone_b, 0xC000), 0x11, "B was driven and read A's byte");
+        assert_eq!(wram(&phone_b, 0xC001), 0x33, "B drove the cable and read A's byte");
+        assert_eq!(wram(&phone_a, 0xC001), 0x44, "A was driven and read B's byte");
+        let (a_in, a_out, _) = phone_a.netplay().unwrap().link_counts();
+        let (b_in, b_out, _) = phone_b.netplay().unwrap().link_counts();
+        assert_eq!((a_in, a_out), (b_out, b_in), "every block crossed");
+        assert_eq!((a_in, a_out), (2, 2), "a clock and an answer each way");
+        eprintln!("both directions done after {rounds} rounds ({:.0} ms of play)", now);
+
+        // The connection goes quiet. A drives into it: it must wait, not be answered at once, and
+        // then give up and carry on rather than freeze.
+        poke(&mut phone_a, 0xC010);
+        for frame in 0..5 {
+            phone_a.tick(now).unwrap();
+            phone_b.tick(now).unwrap();
+            phone_a.netplay_take_outgoing();
+            phone_b.netplay_take_outgoing();
+            now += FRAME_MS;
+            assert_eq!(wram(&phone_a, 0xC002), 0, "still waiting at frame {frame}");
+        }
+        let mut waited = 5;
+        while wram(&phone_a, 0xC003) == 0 && waited < 60 {
+            phone_a.tick(now).unwrap();
+            phone_b.tick(now).unwrap();
+            phone_a.netplay_take_outgoing();
+            phone_b.netplay_take_outgoing();
+            now += FRAME_MS;
+            waited += 1;
+        }
+        assert_eq!(wram(&phone_a, 0xC002), 0xFF, "a pulled-out cable's all 1s");
+        assert_eq!(wram(&phone_a, 0xC003), 1, "and the game played on");
+        assert!(waited < 30, "gave up after {waited} frames");
+        eprintln!("the quiet cable was given up on after {waited} frames");
+
+        // Ten seconds of nothing ends the session on both phones, and cBoy's cable is unplugged:
+        // a byte driven now finishes at once, the way it does on a console with nothing attached.
+        for _ in 0..700 {
+            phone_a.tick(now).unwrap();
+            phone_b.tick(now).unwrap();
+            phone_a.netplay_take_outgoing();
+            phone_b.netplay_take_outgoing();
+            now += FRAME_MS;
+        }
+        for phone in [&phone_a, &phone_b] {
+            assert!(!phone.netplay_is_live());
+            let line = phone.netplay().unwrap().status_line();
+            assert!(line.starts_with("Link cable unplugged: nothing heard"), "{line}");
+        }
+        poke(&mut phone_a, 0xC011);
+        for _ in 0..2 {
+            phone_a.tick(now).unwrap();
+            now += FRAME_MS;
+        }
+        assert_eq!(wram(&phone_a, 0xC004), 0xFF, "unplugged: finished at once, all 1s");
+
+        drop(phone_a);
+        drop(phone_b);
+        std::fs::remove_dir_all(&dir).ok();
+        crate::cores::options::reset_for_tests();
+    }
+
+    /// Clears the result bytes and the two go flags.
+    fn init_wram() -> Vec<u8> {
+        let mut code = vec![0xAF]; // XOR A
+        for at in [0xC000u16, 0xC001, 0xC002, 0xC003, 0xC004, 0xC010, 0xC011] {
+            code.extend([0xEA, at as u8, (at >> 8) as u8]); // LD (at), A
+        }
+        code
+    }
+
+    /// About ten frames of nothing: 24576 turns of a seven-cycle loop.
+    fn delay_frames() -> Vec<u8> {
+        vec![
+            0x01, 0x00, 0x60, // LD BC, $6000
+            0x0B, // DEC BC          <- loop
+            0x78, // LD A, B
+            0xB1, // OR C
+            0x20, 0xFB, // JR NZ, loop
+        ]
+    }
+
+    /// Puts `byte` in SB, starts a transfer with `sc` ($81 drives the cable, $80 waits to be
+    /// driven), waits for it to finish and stores what came back at `at`.
+    fn transfer(byte: u8, sc: u8, at: u16) -> Vec<u8> {
+        vec![
+            0x3E, byte, // LD A, byte
+            0xE0, 0x01, // LDH (SB), A
+            0x3E, sc, // LD A, sc
+            0xE0, 0x02, // LDH (SC), A
+            0xF0, 0x02, // LDH A, (SC)     <- wait
+            0xCB, 0x7F, // BIT 7, A
+            0x20, 0xFA, // JR NZ, wait
+            0xF0, 0x01, // LDH A, (SB)
+            0xEA, at as u8, (at >> 8) as u8, // LD (at), A
+        ]
+    }
+
+    /// Spins until the byte at `at` is no longer 0.
+    fn wait_for(at: u16) -> Vec<u8> {
+        vec![
+            0xFA, at as u8, (at >> 8) as u8, // LD A, (at)     <- spin
+            0xA7, // AND A
+            0x28, 0xFA, // JR Z, spin
+        ]
+    }
+
+    fn store(at: u16, value: u8) -> Vec<u8> {
+        vec![0x3E, value, 0xEA, at as u8, (at >> 8) as u8]
+    }
+
+    /// A 32 KB cartridge with no mapper and no save RAM, starting `code` at $0150.
+    fn gb_rom(code: &[u8]) -> Vec<u8> {
+        let mut rom = vec![0u8; 0x8000];
+        rom[0x100..0x104].copy_from_slice(&[0x00, 0xC3, 0x50, 0x01]); // NOP; JP $0150
+        rom[0x134..0x13D].copy_from_slice(b"LINKTEST\0");
+        rom[0x147] = 0x00;
+        rom[0x148] = 0x00;
+        rom[0x149] = 0x00;
+        rom[0x14D] = rom[0x134..0x14D]
+            .iter()
+            .fold(0u8, |x, b| x.wrapping_sub(*b).wrapping_sub(1));
+        rom[0x150..0x150 + code.len()].copy_from_slice(code);
+        rom
     }
 
     #[test]

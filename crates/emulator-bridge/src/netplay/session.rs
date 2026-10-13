@@ -17,6 +17,18 @@
 //! "nothing pressed", which is the same on both sides by construction.
 //!
 //! Host is player 1 (port 0), guest is player 2 (port 1), on both phones.
+//!
+//! ## The link cable
+//!
+//! A session is one of two [`Mode`]s, and the running core decides which, on each phone: a core
+//! that offers libretro's two-player packet interface (cBoy does, for every Game Boy game) gets a
+//! [`Mode::Link`] session, everything else [`Mode::Lockstep`]. A link is two consoles and a cable,
+//! not one shared game: each phone keeps its own game, save and pace, nothing above runs, and the
+//! only thing that crosses (besides the keepalive) is what the core puts on the cable, as
+//! [`Message::Link`] blocks the session never looks inside. So the two games can differ (Pokemon
+//! Red trades with Blue), and the handshake checks only that both phones speak the same cable.
+//! The engine is told when to plug the core's cable in and when to pull it out with
+//! [`Request::StartLink`] and [`Request::StopLink`].
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -35,6 +47,35 @@ pub const DEFAULT_TIMEOUT_MS: f64 = 10_000.0;
 const PING_INTERVAL_MS: f64 = 1_000.0;
 /// A stall shorter than this is ordinary network jitter and is not reported as a stall.
 const STALL_REPORT_MS: f64 = 150.0;
+
+/// libretro's client numbers for the two ends of a link: 0 is the host and any number above it a
+/// player who joined (libretro.h:6275). There is only ever one of those here, and it is 1.
+pub const HOST_CLIENT_ID: u16 = 0;
+pub const GUEST_CLIENT_ID: u16 = 1;
+
+/// Link blocks held for the next frame before newer ones are dropped. A game puts a few bytes a
+/// frame on the cable at most, and the queue is emptied every frame, so this is only reached while
+/// this phone's game is paused or in the background, when every block is stale anyway; the cap is
+/// what keeps a peer that never stops sending from filling the phone's memory.
+const LINK_QUEUE_MAX: usize = 1024;
+
+/// The refusal both phones read when only one of them has a game that can use the link cable. It
+/// is sent to the other phone as well, so it names neither side.
+pub const LINK_NEEDS_A_CABLE_GAME: &str =
+    "the link cable needs a Game Boy game running on cBoy on both phones";
+/// The refusal for two phones whose cBoy speaks different versions of its cable.
+pub const LINK_DIFFERENT_CABLES: &str =
+    "the two phones have different versions of cBoy, so put the same Continuum build on both";
+
+/// One shared game or two games and a cable. See the module header.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// One game, two pads: both phones run the same machine frame by frame.
+    Lockstep,
+    /// Two games and a cable: each phone runs its own machine, and only what its core puts on the
+    /// cable crosses.
+    Link,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
@@ -101,6 +142,13 @@ pub enum Request {
     CaptureState,
     /// Guest: load this state, then call [`NetplaySession::guest_state_loaded`].
     LoadState(Vec<u8>),
+    /// Link mode, once both phones agree: plug the core's cable in. `local` is this phone's
+    /// libretro client number and `peer` the other phone's. If the core turns the other phone
+    /// away, say so with [`NetplaySession::link_refused_by_core`].
+    StartLink { local: u16, peer: u16 },
+    /// Link mode, when the session ends after a [`Request::StartLink`] was handed out: pull the
+    /// cable out. Exactly one follows each start.
+    StopLink { peer: u16 },
 }
 
 /// What the engine may do this step.
@@ -158,6 +206,20 @@ pub struct NetplaySession {
     last_ping_ms: f64,
     rtt_ms: Option<f64>,
     disconnect_reason: Option<String>,
+
+    /// The cable this phone's core offers (its protocol name), `None` for no cable. `Some` is
+    /// what makes this a [`Mode::Link`] session.
+    link_protocol: Option<String>,
+    /// Host: the guest's `Hello`, held until the `LinkOffer` that follows it says which kind of
+    /// session the guest is asking for.
+    peer_hello: Option<PeerInfo>,
+    /// Blocks from the other phone's core, waiting for this phone's next frame.
+    link_in: VecDeque<Vec<u8>>,
+    /// A [`Request::StartLink`] was handed out and its [`Request::StopLink`] has not been.
+    link_plugged: bool,
+    link_blocks_in: u64,
+    link_blocks_out: u64,
+    link_blocks_dropped: u64,
 }
 
 impl NetplaySession {
@@ -199,6 +261,13 @@ impl NetplaySession {
             last_ping_ms: f64::NEG_INFINITY,
             rtt_ms: None,
             disconnect_reason: None,
+            link_protocol: None,
+            peer_hello: None,
+            link_in: VecDeque::new(),
+            link_plugged: false,
+            link_blocks_in: 0,
+            link_blocks_out: 0,
+            link_blocks_dropped: 0,
         }
     }
 
@@ -209,6 +278,14 @@ impl NetplaySession {
 
     pub fn new_guest(local_info: PeerInfo) -> Self {
         Self::new(Role::Guest, NetplayConfig::default(), local_info)
+    }
+
+    /// Makes this a link cable session when this phone's core offers a cable (`protocol` is the
+    /// name it gave it), and leaves it one shared game when it offers none. Before the transport
+    /// opens.
+    pub fn with_link(mut self, protocol: Option<String>) -> Self {
+        self.link_protocol = protocol.filter(|p| !p.is_empty());
+        self
     }
 
     // ------------------------------------------------------------ accessors
@@ -246,6 +323,34 @@ impl NetplaySession {
     pub fn peer_name(&self) -> Option<&str> {
         self.peer_name.as_deref()
     }
+    pub fn mode(&self) -> Mode {
+        if self.link_protocol.is_some() {
+            Mode::Link
+        } else {
+            Mode::Lockstep
+        }
+    }
+    pub fn is_link(&self) -> bool {
+        self.mode() == Mode::Link
+    }
+    /// Link mode: blocks carried in from the other phone, blocks sent to it, and blocks dropped
+    /// because this phone was not running its game to take them.
+    pub fn link_counts(&self) -> (u64, u64, u64) {
+        (self.link_blocks_in, self.link_blocks_out, self.link_blocks_dropped)
+    }
+    /// The libretro client number of the other phone (see [`HOST_CLIENT_ID`]).
+    pub fn peer_client_id(&self) -> u16 {
+        match self.role {
+            Role::Host => GUEST_CLIENT_ID,
+            Role::Guest => HOST_CLIENT_ID,
+        }
+    }
+    fn local_client_id(&self) -> u16 {
+        match self.role {
+            Role::Host => HOST_CLIENT_ID,
+            Role::Guest => GUEST_CLIENT_ID,
+        }
+    }
     /// How long the current stall has lasted, `0` when not stalled.
     pub fn stall_ms(&self) -> f64 {
         self.stalled_since
@@ -272,6 +377,9 @@ impl NetplaySession {
 
     /// One plain line for the HUD. Every state has its own wording.
     pub fn status_line(&self) -> String {
+        if self.is_link() {
+            return self.link_status_line();
+        }
         let other = match self.role {
             Role::Host => "player 2",
             Role::Guest => "the host",
@@ -326,6 +434,31 @@ impl NetplaySession {
         }
     }
 
+    /// The same, for a link cable. A link has no starting state, no frames in step and no
+    /// desyncs, so it only ever has four things to say.
+    fn link_status_line(&self) -> String {
+        match (self.status_kind(), self.role) {
+            (StatusKind::Disconnected, _) => format!(
+                "Link cable unplugged: {}",
+                self.disconnect_reason.as_deref().unwrap_or("the link ended")
+            ),
+            (StatusKind::Waiting, Role::Host) => {
+                "Link cable: waiting for the other phone to join".to_string()
+            }
+            (StatusKind::Waiting, Role::Guest) => "Link cable: reaching the other phone".to_string(),
+            (StatusKind::Connected, Role::Host) => {
+                "Link cable: the other phone is here, checking its game".to_string()
+            }
+            (StatusKind::Connected, Role::Guest) => {
+                "Link cable: connected, waiting for the other phone to say yes".to_string()
+            }
+            _ => match self.rtt_ms {
+                Some(rtt) => format!("Link cable plugged in (ping {rtt:.0} ms)"),
+                None => "Link cable plugged in".to_string(),
+            },
+        }
+    }
+
     // ------------------------------------------------------------ transport
 
     /// The socket is open. The guest introduces itself; the host waits to be introduced to.
@@ -341,6 +474,11 @@ impl NetplaySession {
                 let mut hello = self.local_info.clone();
                 hello.version = PROTOCOL_VERSION;
                 self.send(&Message::Hello(hello));
+                // Always, even with no cable to offer: the host waits for it to know which kind
+                // of session this guest is asking for.
+                self.send(&Message::LinkOffer {
+                    protocol: self.link_protocol.clone().unwrap_or_default(),
+                });
             }
         }
     }
@@ -348,7 +486,14 @@ impl NetplaySession {
     /// The socket failed or closed underneath us.
     pub fn transport_lost(&mut self, reason: &str) {
         self.transport_connected = false;
-        self.end(&format!("the connection was lost ({reason})"), false);
+        if self.is_link() {
+            // The network's own words ("Connection reset by peer") are for the log, not the
+            // player.
+            log::info!("link cable: the connection was lost ({reason})");
+            self.end("the connection to the other phone dropped", false);
+        } else {
+            self.end(&format!("the connection was lost ({reason})"), false);
+        }
     }
 
     /// Ends the session from this side, telling the peer why.
@@ -367,7 +512,19 @@ impl NetplaySession {
         }
         self.phase = Phase::Disconnected;
         self.disconnect_reason = Some(reason.to_string());
+        // A cable that was never plugged in (its start still waiting here) needs no pulling out.
+        let start_pending = self
+            .requests
+            .iter()
+            .any(|request| matches!(request, Request::StartLink { .. }));
         self.requests.clear();
+        if self.link_plugged && !start_pending {
+            self.requests.push_back(Request::StopLink {
+                peer: self.peer_client_id(),
+            });
+        }
+        self.link_plugged = false;
+        self.link_in.clear();
         self.stalled_since = None;
     }
 
@@ -433,10 +590,12 @@ impl NetplaySession {
             && now_ms - started > self.config.timeout_ms
         {
             let seconds = (self.config.timeout_ms / 1000.0).round();
-            self.end(
-                &format!("could not reach the host within {seconds} s; check the address and that both phones are on the same network"),
-                false,
-            );
+            let reason = if self.is_link() {
+                format!("couldn't reach the other phone in {seconds} seconds. Check the address, and that both phones are on the same Wi-Fi")
+            } else {
+                format!("could not reach the host within {seconds} s; check the address and that both phones are on the same network")
+            };
+            self.end(&reason, false);
             return;
         }
         if self.phase == Phase::Disconnected || !self.transport_connected {
@@ -468,13 +627,32 @@ impl NetplaySession {
             }
             Message::Bye { reason } => {
                 self.transport_connected = false;
-                self.end(&format!("the other player left ({reason})"), false);
+                if self.is_link() {
+                    // The other phone's own words ("the other player went back to the library"),
+                    // which already say who left.
+                    self.end(&reason, false);
+                } else {
+                    self.end(&format!("the other player left ({reason})"), false);
+                }
             }
             Message::Reject { reason } => {
                 self.transport_connected = false;
-                self.end(&format!("refused: {reason}"), false);
+                if self.is_link() {
+                    self.end(&reason, false);
+                } else {
+                    self.end(&format!("refused: {reason}"), false);
+                }
             }
             Message::Hello(info) => self.on_hello(info),
+            Message::LinkOffer { protocol } => self.on_link_offer(protocol),
+            Message::LinkWelcome => {
+                if self.role == Role::Guest && self.phase == Phase::Handshaking && self.is_link() {
+                    self.start_link();
+                } else {
+                    self.protocol_error("an unexpected link cable welcome");
+                }
+            }
+            Message::Link { block } => self.on_link_block(block),
             Message::Welcome {
                 input_delay,
                 checksum_interval,
@@ -495,8 +673,8 @@ impl NetplaySession {
             }
             Message::Input { frame, input } => self.on_input(frame, input),
             Message::Checksum { frame, hash } => {
-                if self.phase != Phase::Running {
-                    self.protocol_error("a checksum before the game started");
+                if self.phase != Phase::Running || self.is_link() {
+                    self.protocol_error("a checksum outside a shared game");
                     return;
                 }
                 self.remote_checks.insert(frame, hash);
@@ -559,22 +737,139 @@ impl NetplaySession {
         None
     }
 
+    /// Why a guest whose game offers the cable `theirs` (empty for none) cannot join a host whose
+    /// game offers `ours`, as far as the cable decides it, or `None` when it does not stand in the
+    /// way. Two phones with no cable at all are a shared game, judged by [`Self::incompatibility`].
+    pub fn cable_mismatch(ours: Option<&str>, theirs: &str) -> Option<&'static str> {
+        match ours {
+            None if theirs.is_empty() => None,
+            Some(ours) if ours == theirs => None,
+            // Both have a cable, and they are not the same one.
+            Some(_) if !theirs.is_empty() => Some(LINK_DIFFERENT_CABLES),
+            // One phone has a cable and the other does not.
+            _ => Some(LINK_NEEDS_A_CABLE_GAME),
+        }
+    }
+
     fn on_hello(&mut self, info: PeerInfo) {
-        if self.role != Role::Host || self.phase != Phase::Handshaking {
+        if self.role != Role::Host || self.phase != Phase::Handshaking || self.peer_hello.is_some()
+        {
             self.protocol_error("a second Hello");
             return;
         }
         self.peer_name = Some(info.content_name.clone());
+        // An app from before the link cable sends no offer after its Hello, so it is refused here,
+        // on the Hello alone, with the reason it can read.
+        if info.version != PROTOCOL_VERSION {
+            let reason = Self::incompatibility(&self.local_info, &info).unwrap_or_default();
+            self.refuse(&reason);
+            return;
+        }
+        self.peer_hello = Some(info);
+    }
+
+    /// Host: the guest's offer, which says what kind of session it wants. Decided here.
+    fn on_link_offer(&mut self, protocol: String) {
+        if self.role != Role::Host || self.phase != Phase::Handshaking {
+            self.protocol_error("an unexpected link cable offer");
+            return;
+        }
+        let Some(info) = self.peer_hello.take() else {
+            self.protocol_error("a link cable offer before its Hello");
+            return;
+        };
+        if let Some(reason) = Self::cable_mismatch(self.link_protocol.as_deref(), &protocol) {
+            self.refuse(reason);
+            return;
+        }
+        if self.is_link() {
+            // Two consoles and a cable: the games are their own business, and may differ.
+            self.send(&Message::LinkWelcome);
+            self.start_link();
+            return;
+        }
         if let Some(reason) = Self::incompatibility(&self.local_info, &info) {
-            self.send(&Message::Reject {
-                reason: reason.clone(),
-            });
-            self.transport_connected = false;
-            self.end(&format!("refused player 2: {reason}"), false);
+            self.refuse(&reason);
             return;
         }
         self.phase = Phase::Syncing;
         self.requests.push_back(Request::CaptureState);
+    }
+
+    /// Host: turns the guest away, telling it why.
+    fn refuse(&mut self, reason: &str) {
+        self.send(&Message::Reject {
+            reason: reason.to_string(),
+        });
+        self.transport_connected = false;
+        if self.is_link() {
+            self.end(reason, false);
+        } else {
+            self.end(&format!("refused player 2: {reason}"), false);
+        }
+    }
+
+    /// Both phones, link mode: the two have agreed, so the cable goes in.
+    fn start_link(&mut self) {
+        self.phase = Phase::Running;
+        self.link_plugged = true;
+        self.requests.push_back(Request::StartLink {
+            local: self.local_client_id(),
+            peer: self.peer_client_id(),
+        });
+    }
+
+    /// The engine plugged the cable in and the core turned the other phone away (libretro's
+    /// `connected` said no). The link ends, and the other phone is told.
+    pub fn link_refused_by_core(&mut self) {
+        if !self.is_link() || self.phase != Phase::Running {
+            return;
+        }
+        // Each phone reads it from its own side.
+        if self.transport_connected {
+            self.send(&Message::Bye {
+                reason: "the game on the other phone turned this phone away".into(),
+            });
+        }
+        self.end("this game turned the other phone away", false);
+    }
+
+    fn on_link_block(&mut self, block: Vec<u8>) {
+        if !self.is_link() || self.phase != Phase::Running {
+            self.protocol_error("a link cable block outside a link");
+            return;
+        }
+        if block.is_empty() {
+            return;
+        }
+        self.link_blocks_in += 1;
+        if self.link_in.len() >= LINK_QUEUE_MAX {
+            self.link_blocks_dropped += 1;
+            return;
+        }
+        self.link_in.push_back(block);
+    }
+
+    /// Link mode: every block the other phone's core sent since the last call, in the order it
+    /// sent them, for this phone's core before its next frame.
+    pub fn take_link_blocks(&mut self) -> VecDeque<Vec<u8>> {
+        std::mem::take(&mut self.link_in)
+    }
+
+    /// Link mode: one block this phone's core put on the cable, for the other phone. Dropped when
+    /// there is no cable to put it on, which is what a core sending after the session ended gets.
+    pub fn send_link_block(&mut self, block: &[u8]) {
+        if !self.is_link() || self.phase != Phase::Running || !self.link_plugged {
+            return;
+        }
+        if block.is_empty() || block.len() > super::wire::MAX_LINK_BLOCK_BYTES {
+            log::warn!("link cable: a {} byte block was not sent", block.len());
+            return;
+        }
+        self.link_blocks_out += 1;
+        self.send(&Message::Link {
+            block: block.to_vec(),
+        });
     }
 
     /// Host: the engine serialized the core and loaded that same state locally.
@@ -609,7 +904,7 @@ impl NetplaySession {
     }
 
     fn on_welcome(&mut self, delay: u8, interval: u32, len: u64, hash: u64) {
-        if self.role != Role::Guest || self.phase != Phase::Handshaking {
+        if self.role != Role::Guest || self.phase != Phase::Handshaking || self.is_link() {
             self.protocol_error("an unexpected Welcome");
             return;
         }
@@ -691,7 +986,8 @@ impl NetplaySession {
     /// Call once per frame the pacer wants. The input is only consumed when a new frame slot is
     /// open, so calling it again while stalled does not resample the pad into a later frame.
     pub fn begin_frame(&mut self, local: WireInput) -> Step {
-        if self.phase != Phase::Running {
+        // A link cable never runs frames in step: each phone plays its own game.
+        if self.phase != Phase::Running || self.is_link() {
             return Step::Wait;
         }
         let delay = u64::from(self.config.input_delay);
@@ -726,7 +1022,7 @@ impl NetplaySession {
     /// The frame from the last `Step::Run` was executed. Returns true when the engine should
     /// hash its state now and pass it to [`Self::record_checksum`].
     pub fn end_frame(&mut self) -> bool {
-        if self.phase != Phase::Running {
+        if self.phase != Phase::Running || self.is_link() {
             return false;
         }
         let ran = self.frame;
@@ -738,7 +1034,7 @@ impl NetplaySession {
     }
 
     pub fn record_checksum(&mut self, hash: u64) {
-        if self.phase != Phase::Running {
+        if self.phase != Phase::Running || self.is_link() {
             return;
         }
         let frame = self.frame;
@@ -773,8 +1069,8 @@ impl NetplaySession {
     }
 
     fn on_input(&mut self, frame: u64, input: WireInput) {
-        if self.phase != Phase::Running {
-            self.protocol_error("input before the game started");
+        if self.phase != Phase::Running || self.is_link() {
+            self.protocol_error("input outside a shared game");
             return;
         }
         if frame != self.remote_next {
@@ -855,6 +1151,9 @@ mod tests {
                     Request::LoadState(bytes) => {
                         self.core.load(&bytes);
                         self.session.guest_state_loaded(Ok(()));
+                    }
+                    Request::StartLink { .. } | Request::StopLink { .. } => {
+                        panic!("a shared game asked for a link cable: {request:?}")
                     }
                 }
             }
@@ -1176,5 +1475,318 @@ mod tests {
         deliver(&mut g, &mut h);
         assert_eq!(h.session.status_kind(), StatusKind::Syncing);
         assert!(h.session.status_line().contains("syncing"));
+    }
+
+    // ------------------------------------------------------------ the link cable
+
+    const CABLE: &str = "cboy-link-1";
+
+    fn cable_info(content: &str) -> PeerInfo {
+        PeerInfo {
+            core_id: "continuum_gb".into(),
+            ..info(content)
+        }
+    }
+
+    fn link_host(content: &str, cable: Option<&str>) -> NetplaySession {
+        NetplaySession::new_host(NetplayConfig::default(), cable_info(content))
+            .with_link(cable.map(str::to_string))
+    }
+
+    fn link_guest(content: &str, cable: Option<&str>) -> NetplaySession {
+        NetplaySession::new_guest(cable_info(content)).with_link(cable.map(str::to_string))
+    }
+
+    /// Opens both transports and passes everything back and forth until nothing is left to say.
+    fn connect(host: &mut NetplaySession, guest: &mut NetplaySession) {
+        host.transport_connected();
+        guest.transport_connected();
+        for _ in 0..4 {
+            host.receive(&guest.take_outgoing());
+            guest.receive(&host.take_outgoing());
+        }
+    }
+
+    fn requests(session: &mut NetplaySession) -> Vec<Request> {
+        std::iter::from_fn(|| session.take_request()).collect()
+    }
+
+    /// Red trades with Blue: two different games join, each phone keeps its own (no state is
+    /// asked for or sent), both are told to plug their cable in with the right numbers, and blocks
+    /// cross both ways, in order, untouched.
+    #[test]
+    fn a_link_cable_joins_two_different_games_and_carries_blocks_both_ways() {
+        let mut host = link_host("Pokemon Red.gb", Some(CABLE));
+        let mut guest = link_guest("Pokemon Blue.gb", Some(CABLE));
+        assert_eq!(host.mode(), Mode::Link);
+        connect(&mut host, &mut guest);
+        for side in [&host, &guest] {
+            assert_eq!(side.phase(), Phase::Running);
+            assert_eq!(side.status_kind(), StatusKind::Running);
+            assert!(side.is_live());
+            assert_eq!(side.status_line(), "Link cable plugged in");
+        }
+        assert_eq!(requests(&mut host), vec![Request::StartLink { local: 0, peer: 1 }]);
+        assert_eq!(requests(&mut guest), vec![Request::StartLink { local: 1, peer: 0 }]);
+
+        for byte in [0x11u8, 0x12, 0x13] {
+            host.send_link_block(&[b'C', byte - 0x11, byte]);
+        }
+        guest.send_link_block(&[b'A', 0, 0x22]);
+        guest.receive(&host.take_outgoing());
+        host.receive(&guest.take_outgoing());
+        assert_eq!(
+            guest.take_link_blocks(),
+            vec![vec![b'C', 0, 0x11], vec![b'C', 1, 0x12], vec![b'C', 2, 0x13]]
+        );
+        assert_eq!(host.take_link_blocks(), vec![vec![b'A', 0, 0x22]]);
+        assert!(guest.take_link_blocks().is_empty(), "taken once");
+        assert_eq!(host.link_counts(), (1, 3, 0));
+        assert_eq!(guest.link_counts(), (3, 1, 0));
+        // A link never runs frames in step: each phone paces its own game.
+        assert_eq!(host.begin_frame(WireInput::default()), Step::Wait);
+        assert!(!host.end_frame());
+        assert_eq!(host.phase(), Phase::Running);
+    }
+
+    /// The other phone is not playing on cBoy. Both phones read the same plain sentence, which
+    /// names neither, and nobody plugs anything in.
+    #[test]
+    fn a_phone_without_the_cable_is_refused_in_plain_words_on_both_sides() {
+        // This phone links; the other one is on another emulator.
+        let mut host = link_host("Tetris.gb", Some(CABLE));
+        let mut guest = link_guest("Tetris.gb", None);
+        connect(&mut host, &mut guest);
+        assert_eq!(host.phase(), Phase::Disconnected);
+        assert_eq!(guest.phase(), Phase::Disconnected);
+        assert_eq!(
+            host.status_line(),
+            format!("Link cable unplugged: {LINK_NEEDS_A_CABLE_GAME}")
+        );
+        assert!(guest.status_line().contains(LINK_NEEDS_A_CABLE_GAME), "{}", guest.status_line());
+        assert!(requests(&mut host).is_empty() && requests(&mut guest).is_empty());
+
+        // The other way round: this phone joins with the cable, the host shares one game.
+        let mut host = link_host("Tetris.gb", None);
+        let mut guest = link_guest("Tetris.gb", Some(CABLE));
+        connect(&mut host, &mut guest);
+        assert_eq!(host.phase(), Phase::Disconnected);
+        assert!(host.status_line().contains(LINK_NEEDS_A_CABLE_GAME));
+        assert_eq!(
+            guest.status_line(),
+            format!("Link cable unplugged: {LINK_NEEDS_A_CABLE_GAME}")
+        );
+        assert!(requests(&mut host).is_empty() && requests(&mut guest).is_empty());
+    }
+
+    #[test]
+    fn two_versions_of_the_cable_are_refused() {
+        let mut host = link_host("a.gb", Some(CABLE));
+        let mut guest = link_guest("a.gb", Some("cboy-link-2"));
+        connect(&mut host, &mut guest);
+        assert_eq!(
+            guest.status_line(),
+            format!("Link cable unplugged: {LINK_DIFFERENT_CABLES}")
+        );
+        assert_eq!(host.phase(), Phase::Disconnected);
+    }
+
+    /// An app from before the cable sends a version-1 Hello and no offer after it. It is refused on
+    /// the Hello alone, with the version in words, instead of being left waiting for an offer.
+    #[test]
+    fn an_app_from_before_the_cable_is_refused_on_its_version() {
+        for mut host in [link_host("a.gb", Some(CABLE)), link_host("a.gb", None)] {
+            host.transport_connected();
+            let old = PeerInfo {
+                version: 1,
+                ..cable_info("a.gb")
+            };
+            host.receive(&Message::Hello(old).encode());
+            assert_eq!(host.phase(), Phase::Disconnected);
+            let mut decoder = super::super::wire::Decoder::new();
+            decoder.push(&host.take_outgoing());
+            match decoder.next_message() {
+                Ok(Some(Message::Reject { reason })) => {
+                    assert!(reason.contains("different online versions"), "{reason}")
+                }
+                other => panic!("expected a refusal, got {other:?}"),
+            }
+        }
+    }
+
+    /// Both cables plugged in, then the connection goes. Exactly one unplug each, and the line
+    /// is a sentence, not the network's error.
+    #[test]
+    fn a_dropped_connection_unplugs_the_cable_once_and_says_so_plainly() {
+        let mut host = link_host("a.gb", Some(CABLE));
+        let mut guest = link_guest("b.gb", Some(CABLE));
+        connect(&mut host, &mut guest);
+        requests(&mut host);
+        requests(&mut guest);
+        host.transport_lost("POSIXErrorCode(rawValue: 54): Connection reset by peer");
+        assert_eq!(host.phase(), Phase::Disconnected);
+        assert!(!host.is_live());
+        assert_eq!(requests(&mut host), vec![Request::StopLink { peer: 1 }]);
+        assert_eq!(
+            host.status_line(),
+            "Link cable unplugged: the connection to the other phone dropped"
+        );
+        host.transport_lost("again");
+        host.leave("and again");
+        assert!(requests(&mut host).is_empty(), "one unplug for one plug");
+        // Blocks that turn up after the end go nowhere.
+        host.send_link_block(&[1, 2, 3]);
+        assert!(host.take_outgoing().is_empty());
+
+        // The guest hears nothing more and gives up on its own clock.
+        guest.poll(0.0);
+        guest.poll(DEFAULT_TIMEOUT_MS + 1_000.0);
+        assert_eq!(guest.phase(), Phase::Disconnected);
+        assert_eq!(requests(&mut guest), vec![Request::StopLink { peer: 0 }]);
+        assert!(guest.status_line().contains("nothing heard from the other phone"));
+    }
+
+    /// The other player leaving reads as their own words, and pulls this phone's cable out too.
+    #[test]
+    fn the_other_player_leaving_unplugs_this_phone() {
+        let mut host = link_host("a.gb", Some(CABLE));
+        let mut guest = link_guest("b.gb", Some(CABLE));
+        connect(&mut host, &mut guest);
+        requests(&mut host);
+        requests(&mut guest);
+        guest.leave("the other player went back to the library");
+        assert_eq!(requests(&mut guest), vec![Request::StopLink { peer: 0 }]);
+        host.receive(&guest.take_outgoing());
+        assert_eq!(
+            host.status_line(),
+            "Link cable unplugged: the other player went back to the library"
+        );
+        assert_eq!(requests(&mut host), vec![Request::StopLink { peer: 1 }]);
+    }
+
+    /// A session that ends before the engine ever plugged the cable in leaves nothing to pull out.
+    #[test]
+    fn a_cable_that_never_went_in_is_not_pulled_out() {
+        let mut host = link_host("a.gb", Some(CABLE));
+        let mut guest = link_guest("b.gb", Some(CABLE));
+        connect(&mut host, &mut guest);
+        host.leave("changed my mind");
+        assert!(requests(&mut host).is_empty());
+    }
+
+    #[test]
+    fn the_core_turning_the_other_phone_away_ends_the_link() {
+        let mut host = link_host("a.gb", Some(CABLE));
+        let mut guest = link_guest("b.gb", Some(CABLE));
+        connect(&mut host, &mut guest);
+        requests(&mut host);
+        host.link_refused_by_core();
+        assert_eq!(host.phase(), Phase::Disconnected);
+        assert_eq!(requests(&mut host), vec![Request::StopLink { peer: 1 }]);
+        guest.receive(&host.take_outgoing());
+        assert!(guest.status_line().contains("turned this phone away"), "{}", guest.status_line());
+    }
+
+    /// Shared-game messages on a cable, and cable blocks in a shared game, are a broken peer.
+    #[test]
+    fn the_two_kinds_of_session_do_not_take_each_others_messages() {
+        let mut host = link_host("a.gb", Some(CABLE));
+        let mut guest = link_guest("b.gb", Some(CABLE));
+        connect(&mut host, &mut guest);
+        host.receive(
+            &Message::Input {
+                frame: 0,
+                input: WireInput::default(),
+            }
+            .encode(),
+        );
+        assert_eq!(host.phase(), Phase::Disconnected);
+        assert!(host.status_line().contains("protocol error"));
+        guest.receive(&Message::Checksum { frame: 60, hash: 1 }.encode());
+        assert_eq!(guest.phase(), Phase::Disconnected);
+
+        let (mut lock_host, mut lock_guest) = pair(2);
+        handshake(&mut lock_host, &mut lock_guest);
+        lock_host.session.receive(&Message::Link { block: vec![1, 2, 3] }.encode());
+        assert_eq!(lock_host.session.phase(), Phase::Disconnected);
+        assert!(lock_host.session.status_line().contains("protocol error"));
+        // And a guest offering no cable is sent the shared game as always.
+        assert_eq!(lock_guest.core.state, 1234);
+    }
+
+    /// A peer that keeps sending while this phone's game is not running to take the blocks is
+    /// held to a bounded queue.
+    #[test]
+    fn blocks_waiting_for_a_paused_game_are_capped() {
+        let mut host = link_host("a.gb", Some(CABLE));
+        let mut guest = link_guest("b.gb", Some(CABLE));
+        connect(&mut host, &mut guest);
+        for n in 0..LINK_QUEUE_MAX + 10 {
+            guest.send_link_block(&[b'C', n as u8, 0]);
+        }
+        host.receive(&guest.take_outgoing());
+        assert_eq!(host.take_link_blocks().len(), LINK_QUEUE_MAX);
+        assert_eq!(host.link_counts(), (LINK_QUEUE_MAX as u64 + 10, 0, 10));
+        assert_eq!(host.phase(), Phase::Running, "not a protocol error");
+    }
+
+    #[test]
+    fn every_link_state_has_its_own_plain_line() {
+        let host = link_host("a.gb", Some(CABLE));
+        assert_eq!(host.status_line(), "Link cable: waiting for the other phone to join");
+        let mut guest = link_guest("a.gb", Some(CABLE));
+        assert_eq!(guest.status_line(), "Link cable: reaching the other phone");
+        guest.transport_connected();
+        assert_eq!(
+            guest.status_line(),
+            "Link cable: connected, waiting for the other phone to say yes"
+        );
+        let mut host = host;
+        host.transport_connected();
+        assert_eq!(
+            host.status_line(),
+            "Link cable: the other phone is here, checking its game"
+        );
+        host.receive(&guest.take_outgoing());
+        guest.receive(&host.take_outgoing());
+        assert_eq!(guest.status_line(), "Link cable plugged in");
+        host.poll(1000.0);
+        guest.receive(&host.take_outgoing());
+        guest.poll(1000.0);
+        host.poll(1012.0);
+        host.receive(&guest.take_outgoing());
+        assert_eq!(host.status_line(), "Link cable plugged in (ping 12 ms)");
+
+        let mut lost = link_guest("a.gb", Some(CABLE));
+        lost.poll(0.0);
+        lost.poll(DEFAULT_TIMEOUT_MS + 500.0);
+        assert_eq!(
+            lost.status_line(),
+            "Link cable unplugged: couldn't reach the other phone in 10 seconds. Check the \
+             address, and that both phones are on the same Wi-Fi"
+        );
+        for line in [host.status_line(), lost.status_line()] {
+            assert!(!line.contains("online:"), "{line}");
+        }
+    }
+
+    #[test]
+    fn the_cable_check_covers_every_pairing() {
+        assert_eq!(NetplaySession::cable_mismatch(None, ""), None);
+        assert_eq!(NetplaySession::cable_mismatch(Some(CABLE), CABLE), None);
+        assert_eq!(
+            NetplaySession::cable_mismatch(Some(CABLE), ""),
+            Some(LINK_NEEDS_A_CABLE_GAME)
+        );
+        assert_eq!(
+            NetplaySession::cable_mismatch(None, CABLE),
+            Some(LINK_NEEDS_A_CABLE_GAME)
+        );
+        assert_eq!(
+            NetplaySession::cable_mismatch(Some(CABLE), "cboy-link-2"),
+            Some(LINK_DIFFERENT_CABLES)
+        );
+        // An empty name is no cable at all, not a cable called "".
+        assert_eq!(link_host("a", Some("")).mode(), Mode::Lockstep);
     }
 }

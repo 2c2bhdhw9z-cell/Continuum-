@@ -4851,6 +4851,8 @@ final class EngineHost: ObservableObject {
             // over a session that does not exist.
             activeEntry = entry
             activeCoreId = spec.coreId
+            // Whether this game's online play is a link cable (cBoy offers one for Game Boy games).
+            netplay.gameStarted()
             // So a crash report can say which game was running.
             feedbackSessionGame(game: entry.name)
             // The system's own filter and brightness. See CoreSettingsScreen.swift.

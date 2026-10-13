@@ -20,6 +20,12 @@
 // If player 2's connection drops, the host listens and advertises again on the same port, and its
 // game runs on alone meanwhile. When player 2 connects again the host opens a fresh engine session
 // (a lost one is over for good) and the handshake sends the host's game as it is by then.
+//
+// THE LINK CABLE. A Game Boy game on cBoy gets a link cable here instead of one shared game: the
+// engine decides from the running core (`NetplayStatus.linkCable`), and this file only changes its
+// words, hides the input delay, and keeps this phone's own saves on, because each phone plays its
+// own game and nothing of the other phone's ever replaces it. Same connection, same Host, Join and
+// Nearby; the two games may differ (Red trades with Blue).
 
 import Darwin
 import Foundation
@@ -454,6 +460,9 @@ final class NetplayController: ObservableObject {
     @Published private(set) var nearby: [NetplayNearbyHost] = []
     @Published private(set) var browseNote = ""
     @Published private(set) var isHost = false
+    /// Online play for the running game is a link cable (each phone plays its own game) rather
+    /// than one shared game. From the engine, which reads it off the running core.
+    @Published private(set) var linkCable = false
     @Published var inputDelay: Int {
         didSet { UserDefaults.standard.set(inputDelay, forKey: Self.delayKey) }
     }
@@ -494,9 +503,15 @@ final class NetplayController: ObservableObject {
         }
     }
 
+    /// A game has just started: which kind of online play it gets. Called from `launch`.
+    func gameStarted() {
+        linkCable = engine.netplayStatus().linkCable
+    }
+
     func refresh() {
         let status = engine.netplayStatus()
         let snap = link.snapshot()
+        linkCable = status.linkCable
         // The engine calls this "disconnected", which reads as the end of online play. It is not:
         // this phone is listening again (see `NetplayLink.lost`) and lets player 2 back in as soon
         // as they reconnect, so it is shown as a wait, with the reason it ended in the detail.
@@ -504,10 +519,17 @@ final class NetplayController: ObservableObject {
             && status.kind == .disconnected
         kind = awaitingRejoin ? .waiting : status.kind
         isHost = status.role == .host
-        var text = awaitingRejoin
-            ? "online: the other phone left; waiting for it to rejoin (your game carries on)"
-            : status.line
-        if !snap.transportNote.isEmpty, status.kind != .running {
+        var text: String
+        if awaitingRejoin {
+            text = status.linkCable
+                ? "Link cable: the other phone left. Waiting for it to come back (your game carries on)"
+                : "online: the other phone left; waiting for it to rejoin (your game carries on)"
+        } else {
+            text = status.line
+        }
+        // The network's own words. A link cable's lines are kept plain, and say what happened
+        // without them.
+        if !snap.transportNote.isEmpty, status.kind != .running, !status.linkCable {
             text += " (\(snap.transportNote))"
         }
         line = text
@@ -526,6 +548,10 @@ final class NetplayController: ObservableObject {
         if awaitingRejoin {
             // Why the last session ended ("the other player left (...)", "refused player 2: ...").
             detailLine = status.line
+        } else if status.linkCable {
+            let ping = status.pingMs >= 0 ? String(format: "%.0f ms", status.pingMs) : "--"
+            detailLine = "Ping \(ping). \(status.linkSent) sent and \(status.linkReceived) "
+                + "received over the cable"
         } else {
             let ping = status.pingMs >= 0 ? String(format: "%.0f ms", status.pingMs) : "--"
             detailLine = "frame \(status.frame), delay \(status.inputDelay), ping \(ping), "
@@ -550,9 +576,12 @@ final class NetplayController: ObservableObject {
         do {
             try openHostSession(for: entry)
             link.listen(serviceName: "Continuum \(UIDevice.current.name): \(entry.name)")
-            host?.status = "online: hosting \(entry.name), waiting for player 2"
+            host?.status = linkCable
+                ? "Link cable: waiting for the other phone"
+                : "online: hosting \(entry.name), waiting for player 2"
         } catch {
-            line = "online: could not host: \(error)"
+            line = linkCable ? "Link cable: couldn't start it: \(error)"
+                : "online: could not host: \(error)"
         }
         refresh()
     }
@@ -582,7 +611,9 @@ final class NetplayController: ObservableObject {
         do {
             try openHostSession(for: entry)
             link.admitReturningGuest()
-            host?.status = "online: the other phone is back; sending it this game as it is now"
+            host?.status = linkCable
+                ? "Link cable: the other phone is back"
+                : "online: the other phone is back; sending it this game as it is now"
         } catch {
             link.close(sendingLast: Data())
             host?.status = "online: the other phone came back, but hosting could not restart: "
@@ -594,7 +625,8 @@ final class NetplayController: ObservableObject {
     func join(address text: String) {
         guard let parsed = NetplayLink.parse(text),
               let nwPort = NWEndpoint.Port(rawValue: parsed.port) else {
-            line = "online: \"\(text)\" is not an address; type it like 192.168.1.20:\(netplayDefaultPort())"
+            line = (linkCable ? "Link cable: " : "online: ")
+                + "\"\(text)\" is not an address; type it like 192.168.1.20:\(netplayDefaultPort())"
             return
         }
         joinAddress = text
@@ -608,36 +640,49 @@ final class NetplayController: ObservableObject {
 
     private func join(endpoint: NWEndpoint, label: String) {
         guard let entry = gameEntry() else { return }
+        // Asked of the engine now, before the session exists: the running core decides it.
+        let cable = engine.netplayStatus().linkCable
         do {
-            // This phone's own progress is kept first: the host's state is about to replace the
-            // running game, and from then until the session stops the auto-save stays off.
-            host?.saveStates.writeAutoSave(reason: "before joining online play")
+            if !cable {
+                // This phone's own progress is kept first: the host's state is about to replace
+                // the running game, and from then until the session stops the auto-save stays off.
+                // A link cable replaces nothing (each phone keeps its own game), so its saves stay
+                // on: a Pokemon traded in must reach this phone's save file.
+                host?.saveStates.writeAutoSave(reason: "before joining online play")
+            }
             try engine.netplayJoin(contentPath: entry.path)
-            host?.suppressAutoSave = true
+            if !cable {
+                host?.suppressAutoSave = true
+            }
             host?.emulation.releaseHeldControls()
             if host?.paused == true { host?.togglePause() }
             link.connect(to: endpoint)
-            host?.status = "online: joining \(label) as player 2"
+            host?.status = cable ? "Link cable: reaching \(label)" : "online: joining \(label) as player 2"
         } catch {
-            line = "online: could not join: \(error)"
+            line = cable ? "Link cable: couldn't join: \(error)" : "online: could not join: \(error)"
         }
         refresh()
     }
 
     /// Ends online play from this phone and closes the connection. The game carries on locally.
-    func leave(reason: String = "the other player ended online play") {
+    /// `reason` is what the other phone reads.
+    func leave(reason: String? = nil) {
         guard isActive || engine.netplayIsLive() else { return }
-        engine.netplayLeave(reason: reason)
+        let cable = linkCable
+        engine.netplayLeave(reason: reason
+            ?? (cable ? "the other player unplugged the cable" : "the other player ended online play"))
         let last = engine.netplayStop()
         link.close(sendingLast: last)
         refresh()
-        line = "online: off (you ended online play)"
-        host?.status = "online play ended"
+        line = cable ? "Link cable: off (you unplugged it)" : "online: off (you ended online play)"
+        host?.status = cable ? "link cable unplugged" : "online play ended"
     }
 
     /// Called before the session stops, so the other phone hears why rather than timing out.
     func endForLeavingGame() {
         leave(reason: "the other player went back to the library")
+        // The next game says for itself whether it has a cable (`gameStarted`).
+        linkCable = false
     }
 
     func startBrowsing() { link.startBrowsing() }
@@ -674,7 +719,37 @@ struct NetplayHUDLine: View {
 struct NetplaySheet: View {
     @ObservedObject var netplay: NetplayController
     let gameName: String
+    /// A Game Boy game on another emulator, which could have the link cable on cBoy.
+    var offerCBoy = false
     let onClose: () -> Void
+
+    private var leaveTitle: String {
+        if netplay.linkCable {
+            return netplay.kind == .disconnected ? "Close" : "Unplug the link cable"
+        }
+        return netplay.kind == .disconnected ? "Close online play" : "Leave online play"
+    }
+
+    private var hostFooter: String {
+        if netplay.linkCable {
+            return "The other phone joins with the address shown here, or finds this phone under "
+                + "Nearby."
+        }
+        return "The other phone joins with the address shown here, or finds this phone "
+            + "under Nearby. More delay hides more network lag; 2 suits home Wi-Fi."
+    }
+
+    private var aboutText: String {
+        if netplay.linkCable {
+            return "Like two Game Boys with a cable between them. Each phone plays its own game "
+                + "and keeps its own save, so you can trade, battle or play head to head, even Red "
+                + "with Blue. Both phones need cBoy for Game Boy games (Settings, Cores). Rewind, "
+                + "fast forward, pause, reset and loading a state are off while the cable is on."
+        }
+        return "Both phones need the same ROM file and the same Continuum build, with "
+            + "cheats off. The host's game is copied to the other phone when you connect. "
+            + "Rewind, fast forward, reset and loading a state are off while you play online."
+    }
 
     var body: some View {
         NavigationView {
@@ -701,21 +776,24 @@ struct NetplaySheet: View {
                         Button(role: .destructive) {
                             netplay.leave()
                         } label: {
-                            Text(netplay.kind == .disconnected ? "Close online play" : "Leave online play")
+                            Text(leaveTitle)
                         }
                     }
                 } else {
                     Section {
-                        Stepper("Input delay: \(netplay.inputDelay) frame\(netplay.inputDelay == 1 ? "" : "s")",
-                                value: $netplay.inputDelay, in: 0...8)
-                        Button("Host this game (you are player 1)") {
+                        // A cable has no input delay: each phone runs its own game at its own pace.
+                        if !netplay.linkCable {
+                            Stepper("Input delay: \(netplay.inputDelay) frame\(netplay.inputDelay == 1 ? "" : "s")",
+                                    value: $netplay.inputDelay, in: 0...8)
+                        }
+                        Button(netplay.linkCable ? "Wait for the other phone"
+                                                 : "Host this game (you are player 1)") {
                             netplay.hostGame()
                         }
                     } header: {
-                        Text("Host")
+                        Text(netplay.linkCable ? "Plug in on this phone" : "Host")
                     } footer: {
-                        Text("The other phone joins with the address shown here, or finds this phone "
-                             + "under Nearby. More delay hides more network lag; 2 suits home Wi-Fi.")
+                        Text(hostFooter)
                     }
 
                     Section {
@@ -723,7 +801,7 @@ struct NetplaySheet: View {
                             .keyboardType(.numbersAndPunctuation)
                             .autocorrectionDisabled(true)
                             .textInputAutocapitalization(.never)
-                        Button("Join (you are player 2)") {
+                        Button(netplay.linkCable ? "Join" : "Join (you are player 2)") {
                             netplay.join(address: netplay.joinAddress)
                         }
                     } header: {
@@ -732,7 +810,8 @@ struct NetplaySheet: View {
 
                     Section {
                         if netplay.nearby.isEmpty {
-                            Text(netplay.browseNote.isEmpty ? "No hosts found yet" : netplay.browseNote)
+                            Text(!netplay.browseNote.isEmpty ? netplay.browseNote
+                                 : netplay.linkCable ? "No phones found yet" : "No hosts found yet")
                                 .foregroundStyle(.secondary)
                         }
                         ForEach(netplay.nearby) { nearby in
@@ -746,14 +825,18 @@ struct NetplaySheet: View {
                 }
 
                 Section {
-                    Text("Both phones need the same ROM file and the same Continuum build, with "
-                         + "cheats off. The host's game is copied to the other phone when you connect. "
-                         + "Rewind, fast forward, reset and loading a state are off while you play online.")
+                    Text(aboutText)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                    if offerCBoy {
+                        Text("Want to trade or battle instead? Switch Game Boy games to cBoy in "
+                             + "Settings, Cores, and this becomes a link cable.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
-            .navigationTitle("Online play")
+            .navigationTitle(netplay.linkCable ? "Link cable" : "Online play")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -784,6 +867,9 @@ struct OnlinePlaySettingsSection: View {
                          + "and shows its address; the other types it or picks it under Nearby. "
                          + "Same Wi-Fi works out of the box; over the internet the host's router "
                          + "must forward TCP port \(netplayDefaultPort()).")
+            SettingsNote("Game Boy and Game Boy Color games on cBoy get a link cable instead: each "
+                         + "phone plays its own game, so you can trade Pokemon or play Tetris head "
+                         + "to head. Choose Link cable in the same \u{2026} menu.")
         }
     }
 }

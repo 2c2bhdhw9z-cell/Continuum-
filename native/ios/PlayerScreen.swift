@@ -229,7 +229,9 @@ struct PlayerScreen: View {
         .modifier(SkinFunctionSheets(host: host))
         .sheet(isPresented: $showNetplay) {
             NetplaySheet(netplay: host.netplay,
-                         gameName: host.activeEntry?.name ?? "no game") {
+                         gameName: host.activeEntry?.name ?? "no game",
+                         offerCBoy: (system == .gb || system == .gbc)
+                             && host.activeCoreId != CoreCatalog.continuumGb.coreId) {
                 showNetplay = false
             }
         }
@@ -366,6 +368,7 @@ struct PlayerScreen: View {
                           system: system,
                           entryID: host.activeEntry?.id,
                           netplayLive: host.netplayLive,
+                          linkCable: host.netplay.linkCable,
                           paused: host.paused,
                           status: host.status,
                           showingSlots: $showingSlots,
@@ -504,6 +507,8 @@ struct PlayerActionsMenu: View, Equatable {
     let system: GameSystem?
     let entryID: LibraryEntry.ID?
     let netplayLive: Bool
+    /// Online play for this game is a link cable (cBoy, a Game Boy game) rather than one shared game.
+    let linkCable: Bool
     let paused: Bool
     let status: String
     let showingSlots: Binding<Bool>
@@ -519,6 +524,7 @@ struct PlayerActionsMenu: View, Equatable {
             && lhs.system == rhs.system
             && lhs.entryID == rhs.entryID
             && lhs.netplayLive == rhs.netplayLive
+            && lhs.linkCable == rhs.linkCable
             && lhs.paused == rhs.paused
             && lhs.status == rhs.status
     }
@@ -554,7 +560,8 @@ struct PlayerActionsMenu: View, Equatable {
 
             let states = host.activeEntry.map { saveStates.states(for: $0) } ?? []
             if netplayLive {
-                Button("Loading a state is off during online play") {}
+                Button(linkCable ? "Loading a state is off while the link cable is on"
+                                 : "Loading a state is off during online play") {}
                     .disabled(true)
             } else if states.isEmpty {
                 // Disabled and explicit rather than absent. An empty menu reads as a broken
@@ -632,13 +639,21 @@ struct PlayerActionsMenu: View, Equatable {
                     Label("Shake", systemImage: "iphone.radiowaves.left.and.right")
                 }
             }
-            Section("Online play") {
+            // One way in for both: a Game Boy game on cBoy gets the link cable, everything else one
+            // shared game. The engine says which (`NetplayController.linkCable`).
+            Section(linkCable ? "Link cable" : "Online play") {
                 Button {
                     showNetplay.wrappedValue = true
                 } label: {
-                    Label(netplayLive ? "Online play: status and leave"
-                                           : "Play online with a second phone",
-                          systemImage: "person.2")
+                    if linkCable {
+                        Label(netplayLive ? "Link cable: status and unplug"
+                                          : "Link cable to a second phone",
+                              systemImage: "cable.connector")
+                    } else {
+                        Label(netplayLive ? "Online play: status and leave"
+                                          : "Play online with a second phone",
+                              systemImage: "person.2")
+                    }
                 }
             }
 

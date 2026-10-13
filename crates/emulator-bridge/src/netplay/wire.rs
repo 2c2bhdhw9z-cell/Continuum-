@@ -3,6 +3,15 @@
 //! Pure data, no I/O. The Swift side moves these bytes over a TCP `NWConnection` and never looks
 //! inside them, so Android can carry the same bytes over its own sockets and talk to an iPhone.
 //!
+//! ## The handshake, from version 2
+//!
+//! A guest says [`Message::Hello`] and then, straight after it, [`Message::LinkOffer`]: the link
+//! cable its game can plug in, or nothing. The host answers with [`Message::Welcome`] and the
+//! starting state (one shared game), [`Message::LinkWelcome`] (a link cable: each phone keeps its
+//! own game and only [`Message::Link`] blocks cross), or [`Message::Reject`]. `Hello` itself kept
+//! its version-1 shape, so an app from before the link cable still reads a newer phone's `Hello`
+//! and refuses it on the version number, in words, rather than failing to parse what follows.
+//!
 //! ## Framing
 //!
 //! TCP is a byte stream, so every message is length-prefixed:
@@ -26,7 +35,10 @@ use crate::input::{PortState, AXIS_COUNT};
 
 /// Bumped whenever a message changes shape. A peer with a different number is refused at the
 /// handshake with a readable reason instead of misparsing frames later.
-pub const PROTOCOL_VERSION: u16 = 1;
+///
+/// 2: the link cable (`LinkOffer`, `LinkWelcome`, `Link`), and every guest's `LinkOffer` after its
+/// `Hello`.
+pub const PROTOCOL_VERSION: u16 = 2;
 
 /// Four bytes at the start of `Hello`, so a stray connection from something that is not
 /// Continuum is refused immediately.
@@ -39,6 +51,11 @@ pub const MAX_MESSAGE_BYTES: usize = STATE_CHUNK_BYTES + 1024;
 /// Size of one save-state chunk. Small enough that a chunk never holds the socket for long,
 /// large enough that a 4 MB PlayStation state is about a hundred messages.
 pub const STATE_CHUNK_BYTES: usize = 48 * 1024;
+
+/// Largest block a core may put on the link cable. libretro allows 64 KB in one packet; this
+/// stays inside [`MAX_MESSAGE_BYTES`], and the only core that links today (cBoy) sends three bytes
+/// at a time. A bigger block is dropped where the core sends it, with a line in the log.
+pub const MAX_LINK_BLOCK_BYTES: usize = STATE_CHUNK_BYTES;
 
 /// One player's controller for one frame, in a form that is identical on both peers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -180,6 +197,17 @@ pub enum Message {
     Bye {
         reason: String,
     },
+    /// Guest to host, straight after `Hello`: the link cable this phone's game can plug in (the
+    /// core's own protocol name, `cboy-link-1` for cBoy), empty when it has none.
+    LinkOffer {
+        protocol: String,
+    },
+    /// Host to guest: accepted as a link cable. No state follows: each phone keeps its own game.
+    LinkWelcome,
+    /// Either way, once linked: one block a core put on the cable, carried as it is.
+    Link {
+        block: Vec<u8>,
+    },
 }
 
 mod tag {
@@ -193,6 +221,9 @@ mod tag {
     pub const PING: u8 = 8;
     pub const PONG: u8 = 9;
     pub const BYE: u8 = 10;
+    pub const LINK_OFFER: u8 = 11;
+    pub const LINK_WELCOME: u8 = 12;
+    pub const LINK: u8 = 13;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -285,6 +316,16 @@ impl Message {
                 out.push(tag::BYE);
                 put_str(out, reason);
             }
+            Message::LinkOffer { protocol } => {
+                out.push(tag::LINK_OFFER);
+                put_str(out, protocol);
+            }
+            Message::LinkWelcome => out.push(tag::LINK_WELCOME),
+            Message::Link { block } => {
+                out.push(tag::LINK);
+                out.extend_from_slice(&(block.len() as u32).to_le_bytes());
+                out.extend_from_slice(block);
+            }
         }
         let len = (out.len() - start - 4) as u32;
         out[start..start + 4].copy_from_slice(&len.to_le_bytes());
@@ -353,6 +394,19 @@ impl Message {
             tag::BYE => Message::Bye {
                 reason: r.string()?,
             },
+            tag::LINK_OFFER => Message::LinkOffer {
+                protocol: r.string()?,
+            },
+            tag::LINK_WELCOME => Message::LinkWelcome,
+            tag::LINK => {
+                let len = r.u32()? as usize;
+                if len > MAX_LINK_BLOCK_BYTES {
+                    return Err(WireError::TooLarge(len));
+                }
+                Message::Link {
+                    block: r.take(len)?.to_vec(),
+                }
+            }
             other => return Err(WireError::UnknownTag(other)),
         };
         if r.remaining() != 0 {
@@ -492,7 +546,66 @@ mod tests {
             Message::Bye {
                 reason: "left".into(),
             },
+            Message::LinkOffer {
+                protocol: "cboy-link-1".into(),
+            },
+            Message::LinkOffer {
+                protocol: String::new(),
+            },
+            Message::LinkWelcome,
+            Message::Link {
+                block: vec![b'C', 0, 0x11],
+            },
+            Message::Link { block: Vec::new() },
         ]
+    }
+
+    #[test]
+    fn a_link_block_bigger_than_the_cap_is_refused() {
+        let fits = Message::Link {
+            block: vec![7; MAX_LINK_BLOCK_BYTES],
+        };
+        let mut decoder = Decoder::new();
+        decoder.push(&fits.encode());
+        assert_eq!(decoder.next_message().unwrap(), Some(fits));
+
+        let mut body = vec![tag::LINK];
+        body.extend_from_slice(&(MAX_LINK_BLOCK_BYTES as u32 + 1).to_le_bytes());
+        body.extend_from_slice(&vec![7; MAX_LINK_BLOCK_BYTES + 1]);
+        let mut framed = (body.len() as u32).to_le_bytes().to_vec();
+        framed.extend_from_slice(&body);
+        let mut decoder = Decoder::new();
+        decoder.push(&framed);
+        assert!(matches!(decoder.next_message(), Err(WireError::TooLarge(_))));
+    }
+
+    /// The version-1 `Hello`, byte for byte, as an app from before the link cable sends it. Its
+    /// shape must not move, or that app could not read a newer phone's `Hello` far enough to refuse
+    /// it on the version number.
+    #[test]
+    fn hello_keeps_its_version_one_shape() {
+        let hello = Message::Hello(PeerInfo {
+            version: 1,
+            core_id: "a".into(),
+            core_version: "b".into(),
+            content_name: "c".into(),
+            content_fingerprint: 2,
+            state_size: 3,
+            active_cheats: 4,
+            options_hash: 5,
+        });
+        let mut expected = vec![tag::HELLO];
+        expected.extend_from_slice(&MAGIC);
+        expected.extend_from_slice(&1u16.to_le_bytes());
+        for text in ["a", "b", "c"] {
+            expected.extend_from_slice(&1u16.to_le_bytes());
+            expected.extend_from_slice(text.as_bytes());
+        }
+        expected.extend_from_slice(&2u64.to_le_bytes());
+        expected.extend_from_slice(&3u64.to_le_bytes());
+        expected.extend_from_slice(&4u32.to_le_bytes());
+        expected.extend_from_slice(&5u64.to_le_bytes());
+        assert_eq!(&hello.encode()[4..], expected.as_slice());
     }
 
     #[test]

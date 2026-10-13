@@ -43,6 +43,13 @@ pub struct NetplayStatus {
     pub stall_ms: f64,
     pub desync_frame: Option<u64>,
     pub checks_compared: u64,
+    /// True when online play for the running game is a link cable (each phone plays its own game,
+    /// like two Game Boys with a cable between them) rather than one shared game. Answered with no
+    /// session too, from what the running core offers, so the menu and the sheet can say which.
+    pub link_cable: bool,
+    /// Link cable only: blocks sent to the other phone and received from it.
+    pub link_sent: u64,
+    pub link_received: u64,
 }
 
 /// TCP port a host listens on unless it is taken. Shared with Android through this function.
@@ -62,6 +69,8 @@ impl ContinuumEngine {
     /// Starts hosting the running game. `content_path` is the ROM file, fingerprinted so a
     /// guest with a different game is refused by name. `input_delay` is in frames (2 is the
     /// default and 0 is allowed); `checksum_interval` is frames between desync checks, 0 off.
+    /// When the running core offers a link cable (`NetplayStatus.link_cable`), this hosts the
+    /// cable instead: the games may differ, and the delay and checks do not apply.
     pub fn netplay_host(
         &self,
         content_path: String,
@@ -116,20 +125,25 @@ impl ContinuumEngine {
 
     pub fn netplay_status(&self) -> NetplayStatus {
         let guard = self.lock();
+        let link_cable = guard.netplay_link_cable();
         let Some(np) = guard.netplay() else {
             return NetplayStatus {
                 kind: NetplayStatusKind::Idle,
                 role: None,
                 live: false,
-                line: "online: off".to_string(),
+                line: if link_cable { "Link cable: off" } else { "online: off" }.to_string(),
                 frame: 0,
                 input_delay: 0,
                 ping_ms: -1.0,
                 stall_ms: 0.0,
                 desync_frame: None,
                 checks_compared: 0,
+                link_cable,
+                link_sent: 0,
+                link_received: 0,
             };
         };
+        let (link_received, link_sent, _) = np.link_counts();
         NetplayStatus {
             kind: match np.status_kind() {
                 StatusKind::Waiting => NetplayStatusKind::Waiting,
@@ -152,6 +166,9 @@ impl ContinuumEngine {
             stall_ms: np.stall_ms(),
             desync_frame: np.desync_frame(),
             checks_compared: np.checks_compared(),
+            link_cable,
+            link_sent,
+            link_received,
         }
     }
 }

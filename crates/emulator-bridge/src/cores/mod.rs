@@ -273,6 +273,38 @@ pub trait EmulatorCore: crate::MaybeSend {
         false
     }
 
+    // The link cable: libretro's two-player packet interface (`SET_NETPACKET_INTERFACE`), which is
+    // how two phones' consoles are joined by a cable. The engine calls these between frames, on
+    // the thread that runs them, and never from inside one. See `crate::netplay`'s session.
+
+    /// The cable this core offers for the running game, named by the core's own protocol string
+    /// (so two phones can tell whether they speak the same one), or `None` when it offers none.
+    /// cBoy offers `cboy-link-1` for every Game Boy game.
+    fn link_protocol(&self) -> Option<String> {
+        None
+    }
+
+    /// The two phones are joined up: plug the cable in. `local` is this phone's libretro client
+    /// number (0 when it hosts), `peer` the other phone's. False when the core turns the other
+    /// phone away (libretro's `connected`, asked on the host only).
+    fn link_start(&mut self, _local: u16, _peer: u16) -> bool {
+        true
+    }
+
+    /// One block the other phone's core sent, in the order it sent them.
+    fn link_receive(&mut self, _block: &[u8], _from: u16) {}
+
+    /// Once between frames: the core's turn to send what it has put on the cable.
+    fn link_poll(&mut self) {}
+
+    /// The session is over: pull the cable out.
+    fn link_stop(&mut self, _peer: u16) {}
+
+    /// Every block the core has sent since the last call, oldest first.
+    fn link_take_sent(&mut self) -> Vec<Vec<u8>> {
+        Vec::new()
+    }
+
     /// Frames emulated since load. Used for the HUD and state metadata.
     fn frame_count(&self) -> u64;
 

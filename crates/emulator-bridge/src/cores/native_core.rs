@@ -234,6 +234,7 @@ const ENV_SET_CORE_OPTIONS_V2_INTL: c_uint = 68; // libretro.h:2362 RETRO_ENVIRO
 const ENV_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: c_uint = 69; // libretro.h:2383
 const ENV_SET_VARIABLE: c_uint = 70; // libretro.h:2417 RETRO_ENVIRONMENT_SET_VARIABLE
 const ENV_GET_JIT_CAPABLE: c_uint = 74; // libretro.h:2476 RETRO_ENVIRONMENT_GET_JIT_CAPABLE
+const ENV_SET_NETPACKET_INTERFACE: c_uint = 78; // libretro.h:2512 RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE
 /// `RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS`, under BOTH numbers it has had. The libretro.h this
 /// project vendors (and Beetle PSX at its pin) defines it as 87; older copies, including the one
 /// Azahar builds against at its pin, define it as 44. Neither number means anything else (44 with
@@ -309,6 +310,134 @@ pub fn plan_unserialize(src_len: usize, expected: usize, declared_variable: bool
     } else {
         UnserializePlan::Padded(expected)
     }
+}
+
+// ------------------------------------------------------------- the link cable
+//
+// `SET_NETPACKET_INTERFACE` (libretro.h:2512, the types at :6228-6338): a core that can talk to
+// another console of its own kind (cBoy's Game Boy link cable) hands over its callbacks, and the
+// engine carries what it sends to the other phone and back. `crate::netplay` decides when.
+
+type NetpacketSend = unsafe extern "C" fn(c_int, *const c_void, usize, u16);
+type NetpacketPollReceive = unsafe extern "C" fn();
+type NetpacketStart = unsafe extern "C" fn(u16, Option<NetpacketSend>, Option<NetpacketPollReceive>);
+type NetpacketReceive = unsafe extern "C" fn(*const c_void, usize, u16);
+
+/// `struct retro_netpacket_callback` (libretro.h:6329), field for field and in order.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct RetroNetpacketCallback {
+    start: Option<NetpacketStart>,
+    receive: Option<NetpacketReceive>,
+    stop: Option<unsafe extern "C" fn()>,
+    poll: Option<unsafe extern "C" fn()>,
+    connected: Option<unsafe extern "C" fn(u16) -> bool>,
+    disconnected: Option<unsafe extern "C" fn(u16)>,
+    protocol_version: *const c_char,
+}
+
+/// A core's link callbacks, copied out of its table (whose protocol string the core owns).
+#[derive(Clone)]
+struct Netpacket {
+    start: NetpacketStart,
+    receive: NetpacketReceive,
+    stop: Option<unsafe extern "C" fn()>,
+    poll: Option<unsafe extern "C" fn()>,
+    connected: Option<unsafe extern "C" fn(u16) -> bool>,
+    disconnected: Option<unsafe extern "C" fn(u16)>,
+    /// `protocol_version`, `None` when the core left it null.
+    protocol: Option<String>,
+}
+
+/// The table a core registered during `retro_init` or `retro_load_game`, picked up by the core
+/// object as each returns, the way the memory map is.
+static PENDING_NETPACKET: std::sync::Mutex<Option<Netpacket>> = std::sync::Mutex::new(None);
+
+fn take_pending_netpacket() -> Option<Netpacket> {
+    match PENDING_NETPACKET.lock() {
+        Ok(mut guard) => guard.take(),
+        Err(poisoned) => poisoned.into_inner().take(),
+    }
+}
+
+/// # Safety
+/// `data` is null or a valid `retro_netpacket_callback`.
+unsafe fn register_netpacket(data: *const RetroNetpacketCallback) -> bool {
+    if data.is_null() {
+        return false;
+    }
+    let table = unsafe { *data };
+    // libretro.h marks only these two as required; without them there is no cable to offer.
+    let (Some(start), Some(receive)) = (table.start, table.receive) else {
+        return false;
+    };
+    let protocol = (!table.protocol_version.is_null()).then(|| {
+        unsafe { CStr::from_ptr(table.protocol_version) }
+            .to_string_lossy()
+            .into_owned()
+    });
+    log::info!(
+        "core offered a link cable ({})",
+        protocol.as_deref().unwrap_or("no protocol name")
+    );
+    let netpacket = Netpacket {
+        start,
+        receive,
+        stop: table.stop,
+        poll: table.poll,
+        connected: table.connected,
+        disconnected: table.disconnected,
+        protocol,
+    };
+    match PENDING_NETPACKET.lock() {
+        Ok(mut guard) => *guard = Some(netpacket),
+        Err(poisoned) => *poisoned.into_inner() = Some(netpacket),
+    }
+    true
+}
+
+/// Most blocks one core may leave unsent between two drains. A cable sends a few a frame; a core
+/// past this is broken, and the rest of its blocks are dropped rather than held.
+const LINK_SENT_MAX: usize = 4096;
+
+thread_local! {
+    /// Blocks the core handed to `on_netpacket_send`. libretro.h:6257 says a core sends only from
+    /// inside `retro_run` or one of its own link callbacks, which the engine only ever calls on
+    /// this thread, so each call's blocks are collected here and moved onto that core straight
+    /// after the call returns: two cores on one thread (the two phones in a test) never mix.
+    static LINK_SENT: std::cell::RefCell<Vec<Vec<u8>>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The `send_fn` every core is handed at `start`. Reliable and in order is the only kind the
+/// connection has, so the flags are met whatever they say, and a two-phone cable has one other
+/// end, so every block goes to it whatever `client_id` names. A null or empty block is
+/// libretro's "just flush", and everything is flushed after every tick anyway.
+unsafe extern "C" fn on_netpacket_send(_flags: c_int, buf: *const c_void, len: usize, _client: u16) {
+    if buf.is_null() || len == 0 {
+        return;
+    }
+    if len > crate::netplay::MAX_LINK_BLOCK_BYTES {
+        log::warn!("link cable: the core sent a {len} byte block, more than one block can carry");
+        return;
+    }
+    let block = unsafe { std::slice::from_raw_parts(buf.cast::<u8>(), len) }.to_vec();
+    LINK_SENT.with(|cell| {
+        let mut sent = cell.borrow_mut();
+        if sent.len() < LINK_SENT_MAX {
+            sent.push(block);
+        }
+    });
+}
+
+/// The `poll_receive_fn` every core is handed at `start`: "read what has come in, now". Nothing
+/// can have: every block the other phone sent is handed to the core just before each frame, and
+/// no new one can arrive while a frame runs, because the connection's bytes come in under the
+/// same engine lock the frame holds. So there is nothing to do, and a core that calls this in a
+/// loop to wait for an answer has to give up on its own, as libretro.h:6266 tells it to.
+unsafe extern "C" fn on_netpacket_poll_receive() {}
+
+fn take_link_sent() -> Vec<Vec<u8>> {
+    LINK_SENT.with(|cell| std::mem::take(&mut *cell.borrow_mut()))
 }
 
 /// The rotation the core last asked for with `SET_ROTATION`, 0..=3 quarter turns counter-clockwise
@@ -652,6 +781,13 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
             unsafe { *(data as *mut bool) = true };
             true
         }
+        ENV_SET_NETPACKET_INTERFACE => {
+            // data is `const struct retro_netpacket_callback *`. Kept for the core object to pick
+            // up when `retro_init` or `retro_load_game` returns; nothing is called until two
+            // phones are joined up (see `crate::netplay`). Refused without its two required
+            // callbacks, so the core knows there is no cable rather than waiting on one.
+            unsafe { register_netpacket(data as *const RetroNetpacketCallback) }
+        }
         ENV_GET_JIT_CAPABLE => {
             // data is `bool *` (libretro.h:2476). PPSSPP and Azahar ask this on iOS and only use
             // their recompilers on a yes. The answer was frozen when this core loaded (see
@@ -945,6 +1081,16 @@ pub struct NativeLibretroCore {
     memory_map: Vec<crate::memory_maps::MemoryDescriptor>,
     /// Everything the core declared through `SET_SERIALIZATION_QUIRKS`, at init and at each load.
     serialization_quirks: u64,
+    /// The link cable the core offered through `SET_NETPACKET_INTERFACE`, if it did.
+    netpacket: Option<Netpacket>,
+    /// It was offered from `retro_init`, so it belongs to the core rather than to one game. One
+    /// offered from `retro_load_game` is that game's, and the next load offers again or not
+    /// (cBoy offers for a Game Boy game and not for an Advance one).
+    netpacket_from_init: bool,
+    /// `start` was called (with this client number for this phone) and `stop` has not been.
+    link_started: Option<u16>,
+    /// Blocks the core has sent and the engine has not taken yet.
+    link_sent: Vec<Vec<u8>>,
 }
 
 impl NativeLibretroCore {
@@ -1115,6 +1261,8 @@ impl NativeLibretroCore {
         crate::input::reset_for_load();
         // And its serialization quirks: this core declares its own during init, or not at all.
         take_serialization_quirks();
+        // And its link cable.
+        take_pending_netpacket();
 
         // Order matters and is specified by libretro: the environment callback must be
         // installed before `retro_init`, because cores query it during
@@ -1136,6 +1284,7 @@ impl NativeLibretroCore {
             descriptor.id,
             path.display()
         );
+        let netpacket = take_pending_netpacket();
 
         let negotiated_format = descriptor.pixel_format;
         // Read here, before any content is loaded, because `retro_get_system_info` is one of
@@ -1192,6 +1341,11 @@ impl NativeLibretroCore {
             memory_map: take_published_memory_map().unwrap_or_default(),
             // Likewise the quirks a core declares from `retro_init`.
             serialization_quirks: take_serialization_quirks(),
+            // And a link cable offered from `retro_init` (libretro.h:2512 allows either place).
+            netpacket_from_init: netpacket.is_some(),
+            netpacket,
+            link_started: None,
+            link_sent: Vec::new(),
         })
     }
 
@@ -1249,6 +1403,41 @@ impl NativeLibretroCore {
         if info.timing.sample_rate > 0.0 {
             self.descriptor.audio_sample_rate = info.timing.sample_rate as u32;
         }
+    }
+
+    /// Moves what the core sent during the call that just returned onto this core.
+    fn collect_link_sent(&mut self) {
+        let sent = take_link_sent();
+        if sent.is_empty() {
+            return;
+        }
+        let room = LINK_SENT_MAX.saturating_sub(self.link_sent.len());
+        if sent.len() > room {
+            log::warn!("link cable: {} block(s) dropped, the engine is not taking them", sent.len() - room);
+        }
+        self.link_sent.extend(sent.into_iter().take(room));
+    }
+
+    /// Pulls the cable out if it is in: `disconnected` for the other phone (`peer`) on the host,
+    /// then `stop` (libretro.h:6295, after which the core must not use what `start` gave it).
+    fn unplug_link(&mut self, peer: u16) {
+        let (Some(local), Some(netpacket)) = (self.link_started.take(), self.netpacket.clone()) else {
+            return;
+        };
+        unsafe {
+            if local == crate::netplay::HOST_CLIENT_ID {
+                if let Some(disconnected) = netpacket.disconnected {
+                    disconnected(peer);
+                }
+            }
+            if let Some(stop) = netpacket.stop {
+                stop();
+            }
+        }
+        self.collect_link_sent();
+        // Nothing sent from here on has anywhere to go.
+        self.link_sent.clear();
+        log::info!("link cable unplugged from '{}'", self.descriptor.id);
     }
 }
 
@@ -1343,6 +1532,12 @@ impl EmulatorCore for NativeLibretroCore {
         AV_INFO_REPUBLISHED.store(false, std::sync::atomic::Ordering::Relaxed);
         // Quirks declared during this load are added to the ones declared at init.
         take_serialization_quirks();
+        // A cable the last game offered is that game's: this one offers its own, or none.
+        take_pending_netpacket();
+        if !self.netpacket_from_init {
+            self.unplug_link(crate::netplay::GUEST_CLIENT_ID);
+            self.netpacket = None;
+        }
 
         // PPSSPP's context_reset is only safe once retro_load_game has returned (see
         // `vulkan_hw::set_defer_reset`). Other cores keep the reset they already work with.
@@ -1355,6 +1550,10 @@ impl EmulatorCore for NativeLibretroCore {
         let ok = unsafe { (self.symbols.load_game)(&info) };
         vulkan_hw::set_defer_reset(false);
         self.serialization_quirks |= take_serialization_quirks();
+        if let Some(netpacket) = take_pending_netpacket() {
+            self.netpacket = Some(netpacket);
+            self.netpacket_from_init = false;
+        }
         if !ok {
             let reason = refusal_from_log(&self.descriptor.id, &last_core_log_line())
                 .unwrap_or_else(|| "retro_load_game rejected the content".into());
@@ -1435,6 +1634,10 @@ impl EmulatorCore for NativeLibretroCore {
         unsafe { (self.symbols.run)() };
         if self.frame_count == 0 {
             crate::feedback::launch_step("first frame done");
+        }
+        // libretro.h:6257 lets a core send on the cable from inside `retro_run` too.
+        if self.link_started.is_some() {
+            self.collect_link_sent();
         }
         super::options::note_frame();
         // A core that republishes mid-game (a mapper change) does it from inside retro_run.
@@ -1750,6 +1953,86 @@ impl EmulatorCore for NativeLibretroCore {
         super::options::refresh_visibility(&self.descriptor.id)
     }
 
+    fn link_protocol(&self) -> Option<String> {
+        if !self.content_loaded {
+            return None;
+        }
+        let netpacket = self.netpacket.as_ref()?;
+        // libretro.h:6325: with no protocol name, the core's own version decides compatibility.
+        Some(netpacket.protocol.clone().unwrap_or_else(|| {
+            format!(
+                "{} {}",
+                self.descriptor.id,
+                self.library_version.as_deref().unwrap_or("")
+            )
+        }))
+    }
+
+    fn link_start(&mut self, local: u16, peer: u16) -> bool {
+        if !self.content_loaded {
+            return false;
+        }
+        let Some(netpacket) = self.netpacket.clone() else {
+            return false;
+        };
+        // A cable that is somehow still in from an earlier session comes out first, so the core
+        // never hears `start` twice in a row.
+        self.unplug_link(peer);
+        take_link_sent();
+        unsafe {
+            (netpacket.start)(
+                local,
+                Some(on_netpacket_send as NetpacketSend),
+                Some(on_netpacket_poll_receive as NetpacketPollReceive),
+            )
+        };
+        self.link_started = Some(local);
+        self.collect_link_sent();
+        // libretro.h:6306: `connected` is the host's alone, asked for each player that joins.
+        let accepted = match (local == crate::netplay::HOST_CLIENT_ID, netpacket.connected) {
+            (true, Some(connected)) => unsafe { connected(peer) },
+            _ => true,
+        };
+        self.collect_link_sent();
+        log::info!(
+            "link cable plugged into '{}' as client {local}{}",
+            self.descriptor.id,
+            if accepted { "" } else { ", and the core turned the other phone away" }
+        );
+        accepted
+    }
+
+    fn link_receive(&mut self, block: &[u8], from: u16) {
+        if self.link_started.is_none() || block.is_empty() {
+            return;
+        }
+        let Some(netpacket) = self.netpacket.as_ref() else {
+            return;
+        };
+        let receive = netpacket.receive;
+        unsafe { receive(block.as_ptr().cast::<c_void>(), block.len(), from) };
+        self.collect_link_sent();
+    }
+
+    fn link_poll(&mut self) {
+        if self.link_started.is_none() {
+            return;
+        }
+        let Some(poll) = self.netpacket.as_ref().and_then(|n| n.poll) else {
+            return;
+        };
+        unsafe { poll() };
+        self.collect_link_sent();
+    }
+
+    fn link_stop(&mut self, peer: u16) {
+        self.unplug_link(peer);
+    }
+
+    fn link_take_sent(&mut self) -> Vec<Vec<u8>> {
+        std::mem::take(&mut self.link_sent)
+    }
+
     fn frame_count(&self) -> u64 {
         self.frame_count
     }
@@ -1764,6 +2047,9 @@ impl Drop for NativeLibretroCore {
         super::disk::forget_core(&self.descriptor.id);
         // A callback into an unloaded library must never be made.
         crate::input::reset_for_load();
+        // A cable still in when the core goes (the engine pulls it out first; this is the
+        // backstop) is pulled out while the library is still there to hear it.
+        self.unplug_link(crate::netplay::GUEST_CLIENT_ID);
         if self.content_loaded {
             unsafe { (self.symbols.unload_game)() };
         }

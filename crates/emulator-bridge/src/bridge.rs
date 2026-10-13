@@ -229,9 +229,10 @@ pub struct EmulatorBridge {
     dual_config: DualScreenConfig,
     /// The running core's two-screen geometry, from its declared systems. `None` otherwise.
     dual_geometry: Option<DualScreenGeometry>,
-    /// Two-player online session, if one exists. While it is live the tick runs in lockstep
-    /// (see `netplay_glue`), and rewind, fast forward, reset, cheats and state loads are refused,
-    /// because any of them on one phone and not the other is a desync.
+    /// Two-player online session, if one exists. While a shared game is live the tick runs in
+    /// lockstep (see `netplay_glue`), and rewind, fast forward, reset, cheats and state loads are
+    /// refused, because any of them on one phone and not the other is a desync. A link cable runs
+    /// in the ordinary tick with its cable pumped around each frame, under the same refusals.
     netplay: Option<crate::netplay::NetplaySession>,
     /// Speed presets, console switches, rotation, the look and the TV's choices. See
     /// `bridge_actions.rs`.
@@ -519,6 +520,8 @@ impl EmulatorBridge {
             // session ended. `netplay_stop` is what forgets it.
             netplay.leave("the game was closed");
         }
+        // A link cable comes out of the core while the core is still here to hear it.
+        self.service_netplay_requests();
         if let Some(session) = self.session.take() {
             let core_id = session.core_id.clone();
             log::info!(
@@ -705,6 +708,9 @@ impl EmulatorBridge {
         if self.netplay_owns_tick() {
             return self.tick_netplay(now_ms);
         }
+        // A link cable is not lockstep: each phone runs its own game in this ordinary tick, and the
+        // cable is pumped around every frame below. Its session is serviced first, paused or not.
+        self.tick_link_cable(now_ms);
         // Rewind replaces the normal step entirely rather than running alongside it. Doing
         // it from the host instead - calling a rewind method and then `tick` - would advance
         // the core and then jump it back within the same frame, so the two would fight and
@@ -727,6 +733,7 @@ impl EmulatorBridge {
             #[cfg(feature = "native-core")]
             achievements,
             actions,
+            netplay,
             ..
         } = self;
 
@@ -792,7 +799,11 @@ impl EmulatorBridge {
             }
             // Last of all: the buttons as this core reads them (BlastEm's Mega Drive layout).
             crate::input::core_layout::translate_for(&session.core_id, &mut step);
+            // A link cable: what the other phone sent goes in before the frame, and the core
+            // sends after it. Nothing happens here for any other session, or none.
+            Self::link_before_frame(session, netplay.as_mut());
             session.core.run_frame(&step)?;
+            Self::link_after_frame(session, netplay.as_mut());
             if phases {
                 crate::feedback::frame_phase(session.core.frame_count(), "ran");
             }

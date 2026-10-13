@@ -1,8 +1,10 @@
-//! Two-player online play: deterministic lockstep with a small input delay.
+//! Two-player online play: deterministic lockstep with a small input delay, or, for a core that
+//! offers one (cBoy, for Game Boy games), a link cable between two phones each playing its own
+//! game (see `session`'s "The link cable").
 //!
 //! - [`wire`] is the byte format, with an incremental decoder for a TCP stream.
 //! - [`session`] is the state machine: handshake, starting-state transfer, the per-frame input
-//!   exchange, checksums, keepalive and every status line.
+//!   exchange, checksums, keepalive, the link cable's blocks and every status line.
 //! - The engine side (running frames only when the session allows, servicing state requests,
 //!   hashing state for checksums, refusing rewind and state loads) is in `bridge.rs`'s
 //!   `netplay_glue` child module, because it needs the bridge's private fields.
@@ -22,10 +24,11 @@ pub mod session;
 pub mod wire;
 
 pub use session::{
-    NetplayConfig, NetplaySession, Phase, Request, Role, StatusKind, Step,
-    DEFAULT_CHECKSUM_INTERVAL, DEFAULT_INPUT_DELAY, MAX_INPUT_DELAY,
+    Mode, NetplayConfig, NetplaySession, Phase, Request, Role, StatusKind, Step,
+    DEFAULT_CHECKSUM_INTERVAL, DEFAULT_INPUT_DELAY, GUEST_CLIENT_ID, HOST_CLIENT_ID,
+    MAX_INPUT_DELAY,
 };
-pub use wire::{PeerInfo, WireInput, PROTOCOL_VERSION};
+pub use wire::{PeerInfo, WireInput, MAX_LINK_BLOCK_BYTES, PROTOCOL_VERSION};
 
 /// TCP port a host listens on. Fixed so it can be typed; the host falls back to any free port
 /// (and shows it) if this one is taken.
