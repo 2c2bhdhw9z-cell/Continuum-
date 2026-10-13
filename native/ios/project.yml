@@ -621,8 +621,8 @@ targets:
       # is permanent is the pipeline around it (`--from` plus these two lines), which takes
       # any square picture.
       - path: Assets.xcassets
-      # 180px copies of the alternate icons, so Settings can draw them. App icon
-      # sets are not available through UIImage(named:).
+      # 180px copies of every icon (the primary's is AppIcon.png), so Settings can draw
+      # them. App icon sets are not available through UIImage(named:).
       - path: AppIconPreviews
         type: folder
         buildPhase: resources

@@ -17,6 +17,8 @@ struct AppIconChoice: Identifiable, Hashable {
     /// Passed to `setAlternateIconName`. Nil restores the primary icon.
     let alternateName: String?
     var id: String { alternateName ?? "primary" }
+    /// Its picture in AppIconPreviews/, named after its icon set: the primary's is AppIcon.png.
+    var previewName: String { alternateName ?? "AppIcon" }
 }
 
 enum AppIconCatalog {
@@ -80,7 +82,7 @@ enum AppIconCatalog {
     ]
 
     /// The settings grid cannot read an app-icon set through `UIImage(named:)`.
-    /// Each choice has a matching 180px PNG in AppIconPreviews/.
+    /// Each choice has a matching 180px PNG in AppIconPreviews/, Default included.
     static func preview(_ name: String) -> UIImage? {
         guard let url = Bundle.main.url(
             forResource: name, withExtension: "png", subdirectory: "AppIconPreviews"
@@ -176,7 +178,7 @@ struct AppIconSettingsSection: View {
 
     @ViewBuilder
     private func preview(_ choice: AppIconChoice) -> some View {
-        if let name = choice.alternateName, let image = AppIconCatalog.preview(name) {
+        if let image = AppIconCatalog.preview(choice.previewName) {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFill()
