@@ -104,6 +104,12 @@ pub struct Bus {
     pub boot: Vec<u8>,
     #[serde(default)]
     pub boot_on: bool,
+    /// Buttons held down for as long as the boot ROM runs, on top of the player's own: how a
+    /// player picks one of a Color's colour schemes for a black-and-white game, which its start-up
+    /// code reads off the pad while the logo is up (see `GameBoy::pick_colours`). A core option,
+    /// so not saved.
+    #[serde(skip)]
+    pub boot_buttons: u8,
     /// Link cable loopback (core option): a transfer reads back the byte sent.
     #[serde(skip)]
     pub link_loopback: bool,
@@ -168,6 +174,7 @@ impl Bus {
             sgb: None,
             boot: Vec::new(),
             boot_on: false,
+            boot_buttons: 0,
             link_loopback: false,
             link_connected: false,
             link_out: std::collections::VecDeque::new(),
@@ -205,6 +212,11 @@ impl Bus {
         }
     }
 
+    /// A Color's start-up code is still running: it owns a few registers no game can touch.
+    fn colour_start_up(&self) -> bool {
+        self.cgb_hardware && self.boot_on
+    }
+
     pub fn set_buttons(&mut self, pressed: u8) {
         let newly = pressed & !self.buttons;
         self.buttons = pressed;
@@ -214,12 +226,13 @@ impl Bus {
     }
 
     fn joyp(&self) -> u8 {
+        let held = self.buttons | if self.boot_on { self.boot_buttons } else { 0 };
         let mut low = 0x0F;
         if self.joyp_select & 0x20 == 0 {
-            low &= !(self.buttons & 0x0F);
+            low &= !(held & 0x0F);
         }
         if self.joyp_select & 0x10 == 0 {
-            low &= !(self.buttons >> 4);
+            low &= !(held >> 4);
         }
         if self.joyp_select == 0x30 {
             if let Some(sgb) = &self.sgb {
@@ -539,9 +552,9 @@ impl Bus {
             // The two palette pointers are the console's, so a Game Boy game on a Color reads
             // them back as its start-up code left them; the palettes behind them are not.
             0xFF68 if self.cgb_hardware => self.ppu.bcps | 0x40,
-            0xFF69 if self.cgb => self.ppu.read_pal(false),
+            0xFF69 if self.cgb || self.colour_start_up() => self.ppu.read_pal(false),
             0xFF6A if self.cgb_hardware => self.ppu.ocps | 0x40,
-            0xFF6B if self.cgb => self.ppu.read_pal(true),
+            0xFF6B if self.cgb || self.colour_start_up() => self.ppu.read_pal(true),
             0xFF6C if self.cgb => 0xFE | self.ppu.opri,
             0xFF70 if self.cgb => 0xF8 | self.svbk,
             0xFF72 if self.cgb_hardware => self.scratch[0],
@@ -635,6 +648,13 @@ impl Bus {
                 self.ppu.note_wx(v);
                 self.ppu.wx = v;
             }
+            // KEY0: a Color's start-up code says here which mode the cartridge runs in - Game Boy
+            // mode when bit 2 or 3 is set - and only it can: once it is unmapped this is locked.
+            0xFF4C if self.colour_start_up() => {
+                let colour = v & 0x0C == 0;
+                self.cgb = colour;
+                self.ppu.cgb = colour;
+            }
             0xFF4D if self.cgb => self.speed_prepare = v & 1 != 0,
             0xFF4F if self.cgb => self.vbk = v & 1,
             0xFF51 if self.cgb => {
@@ -692,11 +712,14 @@ impl Bus {
                     self.hdma_blocks = 0; // FF55 reads $FF when done
                 }
             }
-            0xFF68 if self.cgb => self.ppu.bcps = v & 0xBF,
-            0xFF69 if self.cgb => self.ppu.write_pal(false, v),
-            0xFF6A if self.cgb => self.ppu.ocps = v & 0xBF,
-            0xFF6B if self.cgb => self.ppu.write_pal(true, v),
-            0xFF6C if self.cgb => self.ppu.opri = v & 1,
+            // A Color's start-up code still reaches the palettes and the object order after it has
+            // put the console into Game Boy mode, for as long as it is mapped: that is when it
+            // writes a black-and-white game's colours (Pan Docs, "Power Up Sequence").
+            0xFF68 if self.cgb || self.colour_start_up() => self.ppu.bcps = v & 0xBF,
+            0xFF69 if self.cgb || self.colour_start_up() => self.ppu.write_pal(false, v),
+            0xFF6A if self.cgb || self.colour_start_up() => self.ppu.ocps = v & 0xBF,
+            0xFF6B if self.cgb || self.colour_start_up() => self.ppu.write_pal(true, v),
+            0xFF6C if self.cgb || self.colour_start_up() => self.ppu.opri = v & 1,
             0xFF70 if self.cgb => self.svbk = v & 7,
             0xFF72 if self.cgb_hardware => self.scratch[0] = v,
             0xFF73 if self.cgb_hardware => self.scratch[1] = v,

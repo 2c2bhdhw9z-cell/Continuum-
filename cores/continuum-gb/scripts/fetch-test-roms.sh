@@ -16,6 +16,8 @@ fetch $B/mem_timing/mem_timing.gb mem_timing.gb
 fetch $B/halt_bug.gb halt_bug.gb
 fetch https://github.com/mattcurrie/dmg-acid2/releases/download/v1.0/dmg-acid2.gb dmg-acid2.gb
 fetch https://raw.githubusercontent.com/mattcurrie/dmg-acid2/master/img/reference-dmg.png dmg-acid2-reference.png
+# The same test on a Game Boy Color in Game Boy mode, in the colours its start-up code picks.
+fetch https://raw.githubusercontent.com/mattcurrie/dmg-acid2/master/img/reference-cgb.png dmg-acid2-reference-cgb.png
 fetch https://github.com/mattcurrie/cgb-acid2/releases/download/v1.1/cgb-acid2.gbc cgb-acid2.gbc
 fetch https://raw.githubusercontent.com/mattcurrie/cgb-acid2/master/img/reference.png cgb-acid2-reference.png
 if [ ! -d mts ]; then

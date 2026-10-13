@@ -615,13 +615,13 @@ impl Ppu {
             } else {
                 let pal = self.fifo.pal[1 + usize::from(o.pal)];
                 let s = (pal >> (o.c * 2)) & 3;
-                (SHADES[s as usize], s, 1 + o.pal)
+                (self.mono_colour(true, o.pal, s), s, 1 + o.pal)
             }
         } else if self.cgb {
             (Self::cgb_colour(&self.bg_pal, usize::from(bg.pal) * 4 + usize::from(c)), 0, 0)
         } else {
             let s = (self.fifo.pal[0] >> (c * 2)) & 3;
-            (SHADES[s as usize], s, 0)
+            (self.mono_colour(false, 0, s), s, 0)
         };
         let x = usize::from(self.fifo.lcd_x);
         if x < W {
@@ -674,7 +674,7 @@ impl Ppu {
         while x < W {
             let (px, shade, source) = if x == 0 {
                 let s = self.fifo.pal[0] & 3;
-                (if self.cgb { Self::cgb_colour(&self.bg_pal, 0) } else { SHADES[s as usize] }, s, 0)
+                (if self.cgb { Self::cgb_colour(&self.bg_pal, 0) } else { self.mono_colour(false, 0, s) }, s, 0)
             } else {
                 (self.fifo.row[x - 1], self.fifo.shade[x - 1], self.fifo.source[x - 1])
             };

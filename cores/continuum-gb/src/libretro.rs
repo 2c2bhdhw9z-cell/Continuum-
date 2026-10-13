@@ -680,7 +680,11 @@ impl Core {
             self.out.extend_from_slice(&self.frame);
             return (W, H);
         }
-        let machine = if self.gb.bus.cgb { Machine::Cgb } else { Machine::Dmg };
+        // A Color colours a black-and-white game through its own palette memory, so when the
+        // player has asked for a Color's colours the picture already is them. Otherwise the Game
+        // Boy palette or cBoy's own look goes over the shades, as on a Game Boy.
+        let colour = self.gb.bus.cgb || (self.gb.bus.cgb_hardware && self.settings.gbc_colours());
+        let machine = if colour { Machine::Cgb } else { Machine::Dmg };
         let (shade, source) = (ppu.shade.clone(), ppu.source.clone());
         self.post.video(&mut self.frame, &shade, &source, &self.settings, machine, &title);
         self.out.clear();
@@ -872,14 +876,7 @@ fn build_machine(rom: Vec<u8>, s: &crate::options::Settings, dir: Option<&str>) 
     let sgb_cart = rom.get(0x146) == Some(&3) && rom.get(0x14B) == Some(&0x33);
     let model = s.console_for(cart.cgb_flag, sgb_cart);
     let boot = if s.boot_rom {
-        let name = match model {
-            Model::Dmg0 => "dmg0_boot.bin",
-            Model::Mgb => "mgb_boot.bin",
-            Model::Sgb => "sgb_boot.bin",
-            Model::Sgb2 => "sgb2_boot.bin",
-            Model::Cgb | Model::Agb if colour => "cgb_boot.bin",
-            _ => "dmg_boot.bin",
-        };
+        let name = boot_file(model, colour || s.gbc_colours());
         let f = system_file(dir, name);
         if f.is_none() {
             log_line(&format!("no {name} in the system folder, so the game simply starts"));
@@ -899,7 +896,34 @@ fn build_machine(rom: Vec<u8>, s: &crate::options::Settings, dir: Option<&str>) 
     if s.cgb_rev0 && !had_boot {
         gb.set_cgb_revision_0();
     }
+    // A black-and-white game on a Color, in the colours the player asked for.
+    if let (crate::options::Colorize::Gbc(choice), false, true) = (s.colorize, colour, gb.bus.cgb_hardware) {
+        let how = match choice {
+            Some(i) => {
+                gb.pick_colours(&crate::compat::PICKS[i % crate::compat::PICKS.len()]);
+                "the button scheme picked in the settings"
+            }
+            None if had_boot => "the colours its own start-up file picks for it",
+            None => "the colours a Color picks for it",
+        };
+        log_line(&format!("black-and-white game on a Game Boy Color, in {how}"));
+    }
     Some((gb, None))
+}
+
+/// The start-up file a console runs when the player has one: the Color's own for a game that
+/// wants its colours (a colour game, or a black-and-white one in a Color's colours, which are
+/// that file's to pick), and otherwise each console's own.
+fn boot_file(model: crate::gb::Model, colour: bool) -> &'static str {
+    use crate::gb::Model;
+    match model {
+        Model::Dmg0 => "dmg0_boot.bin",
+        Model::Mgb => "mgb_boot.bin",
+        Model::Sgb => "sgb_boot.bin",
+        Model::Sgb2 => "sgb2_boot.bin",
+        Model::Cgb | Model::Agb if colour => "cgb_boot.bin",
+        _ => "dmg_boot.bin",
+    }
 }
 
 #[no_mangle]
@@ -1265,5 +1289,57 @@ pub extern "C" fn retro_get_memory_size(id: u32) -> usize {
         MEMORY_SYSTEM_RAM => core.gb.bus.wram.len(),
         MEMORY_VIDEO_RAM => core.gb.bus.ppu.vram.len(),
         _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gb::Model;
+
+    /// A player who has put a Color's start-up file in place gets it for a black-and-white game
+    /// they want in a Color's colours, because that file is what picks them; with the setting
+    /// left alone each console keeps the file it always had.
+    #[test]
+    fn the_start_up_file_a_console_runs() {
+        assert_eq!(boot_file(Model::Cgb, true), "cgb_boot.bin");
+        assert_eq!(boot_file(Model::Agb, true), "cgb_boot.bin");
+        assert_eq!(boot_file(Model::Cgb, false), "dmg_boot.bin", "unchanged for the setting left alone");
+        for (model, name) in [(Model::Dmg, "dmg_boot.bin"), (Model::Dmg0, "dmg0_boot.bin"), (Model::Mgb, "mgb_boot.bin"),
+                              (Model::Sgb, "sgb_boot.bin"), (Model::Sgb2, "sgb2_boot.bin")] {
+            assert_eq!((boot_file(model, true), boot_file(model, false)), (name, name), "{model:?}");
+        }
+    }
+
+    /// The whole way through, with start-up files of our own in a system folder: a black-and-white
+    /// game the player wants in a Color's colours starts from the Color's file, in colour mode,
+    /// with the buttons for the scheme they picked held down for it; with the setting left alone
+    /// it starts from the Game Boy's file, as it always has.
+    #[test]
+    fn a_black_and_white_game_starts_from_the_colours_own_file() {
+        let dir = std::env::temp_dir().join(format!("cboy-boot-test-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("cboy")).unwrap();
+        // Hand over at once ($FF50), so each start is a real one.
+        let mut colour_file = vec![0u8; 0x900];
+        colour_file[..4].copy_from_slice(&[0x3E, 0x11, 0xE0, 0x50]);
+        let mut mono_file = vec![0u8; 0x100];
+        mono_file[..4].copy_from_slice(&[0x3E, 0x01, 0xE0, 0x50]);
+        std::fs::write(dir.join("cboy/cgb_boot.bin"), &colour_file).unwrap();
+        std::fs::write(dir.join("cboy/dmg_boot.bin"), &mono_file).unwrap();
+        let dir_text = dir.to_string_lossy().into_owned();
+        let mut rom = vec![0u8; 0x8000];
+        rom[0x134..0x13A].copy_from_slice(b"TETRIS");
+        rom[0x14B] = 0x01;
+        let start = |colorize| {
+            let s = crate::options::Settings { boot_rom: true, colorize, ..Default::default() };
+            build_machine(rom.clone(), &s, Some(&dir_text)).unwrap().0
+        };
+        let off = start(crate::options::Colorize::Off);
+        assert_eq!((off.bus.boot.len(), off.bus.cgb_hardware), (0x100, false), "the setting left alone: a Game Boy's start");
+        let auto = start(crate::options::Colorize::Gbc(None));
+        assert_eq!((auto.bus.boot.len(), auto.bus.boot_on, auto.bus.cgb, auto.bus.boot_buttons), (0x900, true, true, 0));
+        let picked = start(crate::options::Colorize::Gbc(Some(3)));
+        assert_eq!(picked.bus.boot_buttons, crate::compat::PICKS[3].buttons, "Left, held for the start-up code to read");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

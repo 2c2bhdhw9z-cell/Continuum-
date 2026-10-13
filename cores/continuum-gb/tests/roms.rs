@@ -71,8 +71,15 @@ pub fn mooneye_on(name: &str, cgb: bool, exact: bool) -> Result<(), String> {
 /// `mooneye` on a chosen console, as the console model option starts it. The Color and Advance
 /// tests are Game Boy cartridges: what they measure is the console, not the cartridge.
 pub fn mooneye_model(name: &str, model: continuum_gb::gb::Model) -> Result<(), String> {
+    mooneye_model_on(name, model, false)
+}
+
+/// `mooneye_model` on a chosen drawer.
+pub fn mooneye_model_on(name: &str, model: continuum_gb::gb::Model, exact: bool) -> Result<(), String> {
     let Some(data) = rom(name) else { return Ok(()) };
-    mooneye_run(GameBoy::with_model(data, model, None)?, name)
+    let mut gb = GameBoy::with_model(data, model, None)?;
+    gb.bus.ppu.exact = exact;
+    mooneye_run(gb, name)
 }
 
 fn mooneye_run(mut gb: GameBoy, name: &str) -> Result<(), String> {
@@ -135,6 +142,46 @@ fn dmg_acid2_on(exact: bool, label: &str) {
     }
     assert_eq!(wrong, 0, "dmg-acid2 ({label} drawer): {wrong} pixels differ, first at {first:?}");
     eprintln!("DRAWER {label}: dmg-acid2 passed");
+}
+
+/// dmg-acid2 on a Game Boy Color: the console runs it in Game Boy mode, and draws it in the
+/// colours its start-up code picks for it, which for this cartridge (not Nintendo's) is the
+/// default set. The test's own reference for a Color in Game Boy mode must match pixel for
+/// pixel, on both drawers. Behind it, every pixel is also checked to be its Game Boy shade looked
+/// up in the Color's palette memory, so a wrong colour says which palette it came out of.
+#[test]
+fn dmg_acid2_on_a_colour() {
+    let Some(data) = rom("dmg-acid2.gb") else { return };
+    let Some(png_bytes) = rom("dmg-acid2-reference-cgb.png") else { return };
+    let want = png_rgb(&png_bytes);
+    for (exact, label) in DRAWERS {
+        let run = |model: Model| {
+            let mut gb = GameBoy::with_model(data.clone(), model, None).unwrap();
+            gb.bus.ppu.exact = exact;
+            for _ in 0..120 {
+                gb.run_frame();
+            }
+            gb
+        };
+        let (colour, mono) = (run(Model::Cgb), run(Model::Dmg));
+        assert!(colour.bus.cgb_hardware && !colour.bus.cgb, "Game Boy mode on a Color");
+        assert_eq!(colour.bus.ppu.shade, mono.bus.ppu.shade, "{label} drawer: not the Game Boy's shades");
+        assert_eq!(colour.bus.ppu.source, mono.bus.ppu.source, "{label} drawer: not the Game Boy's palettes");
+        let p = continuum_gb::compat::picked(&data);
+        let five = |c: u32| {
+            let v = u32::from(continuum_gb::compat::rgb15(c));
+            let ch = |x: u32| (x << 3) | (x >> 2);
+            ch(v & 31) << 16 | ch(v >> 5 & 31) << 8 | ch(v >> 10 & 31)
+        };
+        let ppu = &colour.bus.ppu;
+        for i in 0..160 * 144 {
+            let set = [p.bg, p.obj0, p.obj1][usize::from(ppu.source[i])];
+            assert_eq!(ppu.frame[i], five(set[usize::from(ppu.shade[i])]), "{label} drawer, pixel {i}");
+        }
+        let wrong = (0..160 * 144).filter(|i| ppu.frame[*i] != want[*i]).count();
+        assert_eq!(wrong, 0, "dmg-acid2 on a Color ({label} drawer): {wrong} pixels differ from its reference");
+        eprintln!("DRAWER {label}: dmg-acid2 on a Color passed");
+    }
 }
 
 /// Writes the screen after N frames to $DUMP_PNG (a debugging aid, not a check).
@@ -396,12 +443,113 @@ fn mooneye_cgb() {
         // and hangs off Ppu::cgb_hardware, which gb.rs now sets, so this one is a gate too.
         ("mts/misc/ppu/vblank_stat_intr-C.gb", Model::Cgb),
     ];
-    let failed: Vec<String> = gated.iter().filter_map(|(n, m)| mooneye_model(n, *m).err()).collect();
-    eprintln!("MOONEYE CGB: {} of {} runs passed", gated.len() - failed.len(), gated.len());
-    for f in &failed {
-        eprintln!("  FAIL {f}");
+    // On both drawers: what the CPU can see never depends on which one draws.
+    for (exact, label) in DRAWERS {
+        let failed: Vec<String> = gated.iter().filter_map(|(n, m)| mooneye_model_on(n, *m, exact).err()).collect();
+        eprintln!("MOONEYE CGB ({label} drawer): {} of {} runs passed", gated.len() - failed.len(), gated.len());
+        for f in &failed {
+            eprintln!("  FAIL {f}");
+        }
+        assert!(failed.is_empty(), "the Mooneye Color tests regressed on the {label} drawer: {failed:?}");
     }
-    assert!(failed.is_empty(), "the Mooneye Color tests regressed: {failed:?}");
+}
+
+/// A black-and-white cartridge that only loops, with this sixteen-byte title, from Nintendo or
+/// not, and a header a real start-up file accepts: `logo` is the 48 logo bytes (taken from a
+/// test ROM, so the bitmap is not copied into the source), and the header sum is right.
+fn mono_cart(title: &[u8; 16], nintendo: bool, logo: &[u8]) -> Vec<u8> {
+    let mut rom = vec![0u8; 0x8000];
+    rom[0x100..0x104].copy_from_slice(&[0x00, 0xC3, 0x50, 0x01]); // NOP / JP $0150
+    rom[0x104..0x134].copy_from_slice(logo);
+    rom[0x134..0x144].copy_from_slice(title);
+    rom[0x14B] = if nintendo { 0x01 } else { 0x00 };
+    rom[0x150..0x152].copy_from_slice(&[0x18, 0xFE]); // JR -2
+    rom[0x14D] = rom[0x134..0x14D].iter().fold(0u8, |x, b| x.wrapping_sub(*b).wrapping_sub(1));
+    rom
+}
+
+/// A title with this sum and this fourth letter. Byte 15 is the cartridge's colour flag, so it
+/// stays 0 (a black-and-white game) and byte 14 takes up the difference.
+fn title_with(sum: u8, fourth: u8) -> [u8; 16] {
+    let mut t = [b'Q'; 16];
+    t[3] = fourth;
+    t[15] = 0;
+    t[14] = 0;
+    t[14] = sum.wrapping_sub(t.iter().fold(0u8, |s, b| s.wrapping_add(*b)));
+    t
+}
+
+/// What a Color has left when the game itself starts, for comparing two ways of starting it.
+fn colour_compat_state(gb: &GameBoy) -> (bool, Vec<u8>, Vec<u8>, u8, u8, u8, [u8; 6]) {
+    let (b, c) = (&gb.bus, &gb.cpu);
+    (b.cgb || b.ppu.cgb, b.ppu.bg_pal[..8].to_vec(), b.ppu.obj_pal[..16].to_vec(), b.ppu.opri,
+     b.ppu.bcps, b.ppu.ocps, [c.a, c.f, c.b, c.c, c.d, c.e])
+}
+
+/// When the player HAS a Color's own start-up file, it runs for real - in colour mode, reading
+/// the header and the pad, then putting the console into Game Boy mode itself - and the game
+/// starts with the same colours, registers and object order cBoy gives it without one: for every
+/// title the start-up code knows, every shared title sum with a fourth letter it does not know,
+/// sums it knows nothing about, a game that is not Nintendo's, and all twelve button schemes, on
+/// a Color and on an Advance.
+///
+/// Needs a Color start-up file, which is never in the repository: `CBOY_CGB_BOOT` and
+/// `CBOY_AGB_BOOT` name 2304-byte ones. SameBoy's free reimplementations (MIT, built from its
+/// BootROMs folder with rgbds) are what this was run against; they pick from the same tables.
+#[test]
+fn a_colour_start_up_file_gives_the_same_colours() {
+    let Some(logo) = rom("dmg-acid2.gb").map(|r| r[0x104..0x134].to_vec()) else { return };
+    for (var, model) in [("CBOY_CGB_BOOT", Model::Cgb), ("CBOY_AGB_BOOT", Model::Agb)] {
+        let Ok(path) = std::env::var(var) else {
+            eprintln!("SKIPPED: set {var} to a Color start-up file to run this");
+            continue;
+        };
+        let boot = std::fs::read(&path).unwrap();
+        let mut carts: Vec<(Vec<u8>, Option<usize>)> = Vec::new();
+        for (sum, letter) in continuum_gb::compat::known_titles() {
+            carts.push((mono_cart(&title_with(sum, letter.unwrap_or(b'Q')), true, &logo), None));
+            if letter.is_some() {
+                carts.push((mono_cart(&title_with(sum, b'Z'), true, &logo), None));
+            }
+        }
+        for sum in [0x02u8, 0x03, 0x7F, 0x80, 0xC0, 0xFE] {
+            carts.push((mono_cart(&title_with(sum, b'Q'), true, &logo), None));
+        }
+        carts.push((mono_cart(&title_with(0xDB, b'Q'), false, &logo), None));
+        for pick in 0..12 {
+            carts.push((mono_cart(&title_with(0xDB, b'Q'), true, &logo), Some(pick)));
+        }
+        let mut differ = Vec::new();
+        for (cart, pick) in &carts {
+            let mut real = GameBoy::with_model(cart.clone(), model, Some(boot.clone())).unwrap();
+            let mut ours = GameBoy::with_model(cart.clone(), model, None).unwrap();
+            if let Some(i) = pick {
+                real.pick_colours(&continuum_gb::compat::PICKS[*i]);
+                ours.pick_colours(&continuum_gb::compat::PICKS[*i]);
+            }
+            assert!(real.bus.cgb, "a Color's start-up file runs in colour mode");
+            let start = real.bus.cycles;
+            while real.bus.boot_on && real.bus.cycles - start < 70_224 * 60 * 20 {
+                real.cpu.step(&mut real.bus);
+            }
+            assert!(!real.bus.boot_on, "{path}: the start-up file never handed over");
+            let (sum, fourth) = (cart[0x134..0x144].iter().fold(0u8, |s, b| s.wrapping_add(*b)), cart[0x137]);
+            let (a, b) = (colour_compat_state(&real), colour_compat_state(&ours));
+            if a != b {
+                differ.push(format!("sum {sum:02X} fourth {:?} pick {pick:?}: start-up file {a:02X?}, cBoy {b:02X?}", fourth as char));
+            }
+            // The two titles the start-up code draws the logo map for: the map itself. HL is
+            // left past that map by a route SameBoy's start-up code does not take, so HL is
+            // compared for every other start only.
+            if continuum_gb::compat::draws_the_logo(Some(sum)) && cart[0x14B] == 1 {
+                assert_eq!(real.bus.ppu.vram[0x1900..0x1940], ours.bus.ppu.vram[0x1900..0x1940], "the logo map, sum {sum:02X}");
+            } else if (real.cpu.h, real.cpu.l) != (ours.cpu.h, ours.cpu.l) {
+                differ.push(format!("sum {sum:02X}: HL {:02X}{:02X} against {:02X}{:02X}", real.cpu.h, real.cpu.l, ours.cpu.h, ours.cpu.l));
+            }
+        }
+        eprintln!("{var}: {} starts compared, {} differ", carts.len(), differ.len());
+        assert!(differ.is_empty(), "{}", differ.join("\n"));
+    }
 }
 
 /// Runs every .gb in $GB_ROM_DIR (e.g. SameSuite, built locally with rgbds) in CGB mode, Mooneye
@@ -652,15 +800,17 @@ fn mealybug_report() {
 /// change that drops one of these is wrong, whatever else it fixes. All 24 DMG pictures are here
 /// bar `m3_lcdc_bg_en_change`, which is four pixels away (see docs/CBOY_EXACT_DRAWER.md).
 ///
-/// One of the 31 Color pictures is here too, and it is the only one that can be: these ROMs are
-/// Game Boy cartridges, so a Color console runs them in Game Boy-compatibility mode and colours
-/// them with the palette its boot ROM picked. `m3_scx_low_3_bits` is the one whose reference uses
-/// nothing but black and white, which are the same two colours in that palette as in the Game
-/// Boy's greys, so it needs no colourisation at all. The other 30 need the compatibility palette
-/// loaded in gb.rs, and most of them also need the drawer to know it is Color hardware - both
-/// are set out in docs/CBOY_EXACT_DRAWER.md.
+/// Four of the 31 Color pictures are here too. These ROMs are Game Boy cartridges, so a Color
+/// console runs them in Game Boy mode, in the colours its start-up code picks for a cartridge
+/// that is not Nintendo's (compat.rs). `m3_scx_low_3_bits` uses only black and white, so it passed
+/// before those colours were in; the other three are the Color drawing exactly what a Game Boy
+/// draws, and passed the moment the colours were. The rest also need the drawer to do what a
+/// Color does differently, set out in docs/CBOY_EXACT_DRAWER.md.
 const MEALYBUG_PASSING: &[&str] = &[
+    "cgb:m2_win_en_toggle",
+    "cgb:m3_lcdc_win_en_change_multiple",
     "cgb:m3_scx_low_3_bits",
+    "cgb:m3_wx_4_change_sprites",
     "dmg:m2_win_en_toggle",
     "dmg:m3_bgp_change",
     "dmg:m3_bgp_change_sprites",

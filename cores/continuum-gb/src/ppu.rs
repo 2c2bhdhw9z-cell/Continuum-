@@ -57,13 +57,13 @@ pub struct Ppu {
     /// The dot mode 0 starts at on this line (mode 3 is 172 dots plus SCX and sprite delays).
     #[serde(default)]
     hblank_at: u16,
-    /// Game Boy Color mode (from the cartridge header).
+    /// Game Boy Color mode (from the cartridge header, or set by a Color's own start-up file
+    /// through KEY0).
     pub cgb: bool,
     /// Color hardware, whichever mode the cartridge runs in: a Color playing a Game Boy game is
-    /// still a Color, and its STAT interrupt timing is the Color's. Comes from the console the
-    /// player picked, so it is not part of a save state. NOT WIRED UP YET - nothing sets it, so
-    /// every console still behaves like a Game Boy: see "A Color's line 144" in
-    /// docs/CBOY_EXACT_DRAWER.md for the three lines gb.rs needs.
+    /// still a Color, so its STAT interrupt timing is the Color's and its pixels come out of its
+    /// palette memory (`mono_colour`). Comes from the console the player picked, so it is not
+    /// part of a save state; gb.rs sets it.
     #[serde(skip)]
     pub cgb_hardware: bool,
     pub bg_pal: Vec<u8>,
@@ -492,6 +492,31 @@ impl Ppu {
         ch(c) << 16 | ch(c >> 5) << 8 | ch(c >> 10)
     }
 
+    /// The colour of a Game Boy-mode pixel, from its shade after BGP, OBP0 or OBP1. A Game Boy
+    /// shows the shade as it is. A Color in Game Boy mode still draws through its palette memory,
+    /// with the shade as the colour number: the background through palette 0 and an object
+    /// through palette 0 or 1 as its OBP0/OBP1 bit says, which is where its start-up code wrote
+    /// the colours it picked for the game (Pan Docs, "Compatibility palettes").
+    fn mono_colour(&self, obj: bool, pal: u8, shade: u8) -> u32 {
+        if !self.cgb_hardware {
+            return SHADES[usize::from(shade & 3)];
+        }
+        let memory = if obj { &self.obj_pal } else { &self.bg_pal };
+        Self::cgb_colour(memory, usize::from(pal & 1) * 4 + usize::from(shade & 3))
+    }
+
+    /// The Game Boy logo's map, as a Game Boy's own start-up code leaves it: the logo's two rows
+    /// of twelve tiles in the middle of the first map, with the trademark tile at the end of the
+    /// top row. A Color's start-up code draws it only for the two titles that need it
+    /// (`compat::draws_the_logo`).
+    pub(crate) fn dmg_logo_map(&mut self) {
+        for i in 0..12u8 {
+            self.vram[0x1904 + usize::from(i)] = 1 + i;
+            self.vram[0x1924 + usize::from(i)] = 13 + i;
+        }
+        self.vram[0x1910] = 0x19;
+    }
+
     fn render_line(&mut self) {
         if self.no_render {
             // Frame skip: only the window's line counter, which later lines depend on.
@@ -541,7 +566,7 @@ impl Ppu {
                 Self::cgb_colour(&self.bg_pal, usize::from(bg_attr[x] & 7) * 4 + usize::from(bg_index[x]))
             } else {
                 shade[x] = (self.bgp >> (bg_index[x] * 2)) & 3;
-                SHADES[shade[x] as usize]
+                self.mono_colour(false, 0, shade[x])
             };
         }
         if self.lcdc & 0x02 != 0 && self.layers & 4 != 0 {
@@ -606,7 +631,7 @@ impl Ppu {
                         let pal = if attr & 0x10 != 0 { self.obp1 } else { self.obp0 };
                         shade[x] = (pal >> (c * 2)) & 3;
                         source[x] = 1 + u8::from(attr & 0x10 != 0);
-                        SHADES[shade[x] as usize]
+                        self.mono_colour(true, source[x] - 1, shade[x])
                     };
                 }
             }

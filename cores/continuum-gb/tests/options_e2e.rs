@@ -391,6 +391,79 @@ fn every_option_through_the_libretro_api() {
     assert_eq!(o.rumble, vec![0]);
 }
 
+/// A picture file as XRGB pixels.
+fn png_xrgb(bytes: &[u8]) -> Vec<u32> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::EXPAND);
+    let mut reader = decoder.read_info().unwrap();
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).unwrap();
+    let bpp = info.line_size / info.width as usize;
+    let mut out = Vec::new();
+    for y in 0..info.height as usize {
+        for x in 0..info.width as usize {
+            let p = &buf[y * info.line_size + x * bpp..];
+            out.push(u32::from(p[0]) << 16 | u32::from(p[1]) << 8 | u32::from(p[2]));
+        }
+    }
+    out
+}
+
+/// "Colour for black-and-white games", driven the way the app drives it. Off is the default and
+/// leaves every picture exactly as it was. Automatic plays a black-and-white game on a Game Boy
+/// Color, and the picture is the Color's own: dmg-acid2's reference for a Color, pixel for pixel.
+/// A button scheme gives that scheme's colours. A colour game looks the same whatever is picked,
+/// a console the player chose is kept, and a change mid-game to a Color's colours waits for the
+/// next start while a change back to the Game Boy look happens at once.
+#[test]
+fn black_and_white_games_in_a_colours_colours() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let (Some(_), Some(reference)) = (rom("dmg-acid2.gb"), rom("dmg-acid2-reference-cgb.png")) else {
+        eprintln!("SKIPPED: test ROMs missing");
+        return;
+    };
+    let dmg = "dmg-acid2.gb";
+    let shot = |opts: &[(&str, &str)]| last(&run(dmg, opts, 60, None)).3.clone();
+    let base = shot(&[]);
+    assert!(base.iter().all(|p| continuum_gb::ppu::SHADES.contains(p)), "a Game Boy picture by default");
+    assert_eq!(shot(&[("cboy_dmg_colorize", "off")]), base, "Off is the default");
+    // Automatic: the Color's picture of this game.
+    let auto = shot(&[("cboy_dmg_colorize", "gbc")]);
+    let want = png_xrgb(&reference);
+    let wrong = auto.iter().zip(&want).filter(|(a, b)| a != b).count();
+    assert_eq!(wrong, 0, "dmg-acid2 in a Color's colours: {wrong} pixels differ from its reference");
+    // Left: a blue background, red objects through OBP0 and green ones through OBP1.
+    let five = |c: u32| {
+        let v = u32::from(continuum_gb::compat::rgb15(c));
+        let ch = |x: u32| (x << 3) | (x >> 2);
+        ch(v & 31) << 16 | ch(v >> 5 & 31) << 8 | ch(v >> 10 & 31)
+    };
+    let left = continuum_gb::compat::PICKS[3].palettes;
+    let allowed: Vec<u32> = left.bg.iter().chain(&left.obj0).chain(&left.obj1).map(|c| five(*c)).collect();
+    let blue = shot(&[("cboy_dmg_colorize", "gbc_left")]);
+    assert!(blue.iter().all(|p| allowed.contains(p)), "only the Left scheme's colours");
+    assert!(blue.contains(&five(0x63A5FF)) && blue.contains(&five(0xFF8484)), "its background and its objects both show");
+    assert_ne!(blue, auto);
+    // The Color screen look applies to it like any Color picture.
+    assert_ne!(shot(&[("cboy_dmg_colorize", "gbc"), ("cboy_gbc_color", "soft")]), auto);
+    // A console the player chose is kept: a Game Boy shows its own shades.
+    assert_eq!(shot(&[("cboy_dmg_colorize", "gbc"), ("cboy_gb_model", "dmg")]), base);
+    // A Color console with the setting left alone looks as it always has: the Game Boy palette
+    // over the same shades.
+    assert_eq!(shot(&[("cboy_gb_model", "cgb")]), base);
+    // A colour game is the same picture whatever is picked.
+    let cgb = "cgb-acid2.gbc";
+    if rom(cgb).is_some() {
+        let colour = last(&run(cgb, &[], 60, None)).3.clone();
+        for v in ["gbc", "gbc_right_b", "meadow"] {
+            assert_eq!(last(&run(cgb, &[("cboy_dmg_colorize", v)], 60, None)).3, colour, "{v} on a colour game");
+        }
+    }
+    // Mid-game: to a Color's colours waits for the next start; back to Off is at once.
+    assert_eq!(last(&run(dmg, &[], 60, Some((30, &[("cboy_dmg_colorize", "gbc")])))).3, base);
+    assert_eq!(last(&run(dmg, &[("cboy_dmg_colorize", "gbc")], 60, Some((30, &[("cboy_dmg_colorize", "off")])))).3, base);
+}
+
 /// A tilt cartridge (MBC7, like Kirby Tilt 'n' Tumble) gets the phone's motion sensor through
 /// the frontend's real sensor request, and switching "Tilt input" mid-game turns it on or off.
 /// Needs no ROM download: the cartridge is a header and a loop.

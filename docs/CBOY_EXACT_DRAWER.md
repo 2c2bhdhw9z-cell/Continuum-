@@ -14,17 +14,21 @@ owner should read is the last section.
 | Suite | Standard | Exact |
 |---|---|---|
 | dmg-acid2 | pass | pass |
+| dmg-acid2 on a Color (its Color reference) | pass | pass |
 | cgb-acid2 | pass | pass |
 | Mooneye DMG acceptance | 87 / 87 | 87 / 87 |
-| Mealybug Tearoom | not applicable | **24 / 55** |
+| Mooneye Color | 7 / 7 runs | 7 / 7 runs |
+| Mealybug Tearoom | not applicable | **27 / 55** |
 
-**23 of the 24 DMG pictures**, and the first of the 31 Color ones. The DMG picture that still
-fails is `m3_lcdc_bg_en_change`, and it is **four pixels** away: one pixel on each of four lines,
-all of them x=0, all of them on the eight lines where that test places a sprite at X=2. Of the
-Color pictures, 3 now need nothing but the compatibility palette, 6 need only the drawer to know
-it is Color hardware, 4 can never reach zero at all, and Group 1 below has each one by name.
+**23 of the 24 DMG pictures**, and 4 of the 31 Color ones. The DMG picture that still fails is
+`m3_lcdc_bg_en_change`, and it is **four pixels** away: one pixel on each of four lines, all of
+them x=0, all of them on the eight lines where that test places a sprite at X=2. The Color half
+went from 1 to 4 the moment a Color drew a black-and-white game in the colours its start-up code
+picks (`compat.rs`, evening of 13 October): exactly the three Group 1 step 1 names below, with no
+change to either drawer's timing. What is left of the Color half is Color timing, and 4 of those
+pictures can never reach zero at all; Group 1 below has each one by name.
 
-`tests/roms.rs::MEALYBUG_PASSING` pins all 24 by name: a change that drops one of them is wrong,
+`tests/roms.rs::MEALYBUG_PASSING` pins all 27 by name: a change that drops one of them is wrong,
 whatever else it fixes.
 
 The Mooneye gate reads 87 rather than the 86 this file quotes further down. Nothing in this work
@@ -420,12 +424,12 @@ reference and the DMG reference have the same shade index everywhere, the two co
 same picture and only the colour differs; where they do not, the Color hardware really did draw
 something else.
 
-1. **Needs nothing but the compatibility palette (3 pictures).** `cgb:m2_win_en_toggle`,
-   `cgb:m3_lcdc_win_en_change_multiple` and `cgb:m3_wx_4_change_sprites`. Their references are the
-   DMG picture shade for shade, and this drawer already draws all three of those DMG pictures
-   pixel for pixel. Every differing pixel is a shade 1 or 2 that wants `7BFF31` or `FF8484` and
-   gets the Game Boy's `AAAAAA`. **Load the palette in `gb.rs` and these three pass**, taking the
-   score to 27 with no change to the drawer at all.
+1. **Needs nothing but the compatibility palette (3 pictures) — DONE, all three pass.**
+   `cgb:m2_win_en_toggle`, `cgb:m3_lcdc_win_en_change_multiple` and `cgb:m3_wx_4_change_sprites`.
+   Their references are the DMG picture shade for shade, and this drawer already draws all three
+   of those DMG pictures pixel for pixel. Every differing pixel was a shade 1 or 2 that wants
+   `7BFF31` or `FF8484` and got the Game Boy's `AAAAAA`. With the palette in, these three passed
+   and nothing else moved either way: 24 to 27, exactly as predicted here.
 2. **Black and white already, so no palette needed — but the Color drew a different picture
    (6 pictures).** `cgb:m3_lcdc_bg_map_change` 384, `cgb:m3_lcdc_obj_en_change_variant` 268,
    `cgb:m3_lcdc_win_map_change` 182, `cgb:m3_window_timing_wx_0` 144,
@@ -459,25 +463,41 @@ something else.
    `0` and `1` address dots on a Game Boy and on Color revisions up to CPU CGB C, so this one also
    needs the drawer to tell CGB-C from CGB-D.)
 
-**What is needed, and where.** Two halves, and only the second is in a file this work owns:
+Steps 3 and 4 were written before the palette went in. With it in, every colour those seventeen
+references use is one cBoy now draws, and their counts fell accordingly - `cgb:m3_bgp_change`
+10864 → 496 pixels, `cgb:m3_scx_high_5_bits` 6421 → 65, `cgb:m3_lcdc_bg_en_change2` 2971 → 106.
+What is left in them is where and when a Color draws those colours, which is the next thing to
+map. The six in step 2 did not move, as their black-and-white references said they would not.
 
-1. **In `gb.rs` (not owned by this work).** When a Color is given a cartridge whose header byte
-   `$143` does not have bit 7 set, load the boot ROM's colourisation palette into `bg_pal` and
-   `obj_pal`. For these test ROMs the palette above is the one required. A real boot ROM derives
-   it from the title hash; a table of the boot ROM's palette sets, keyed by that hash, is the
-   honest implementation. The mode itself already exists and works — `with_model` runs a Game Boy
-   cartridge on a Color in Game Boy mode today — so this is the palette and nothing else.
-2. **In the drawers (owned), one change, and it needs the flag first.** In compatibility mode the
-   hardware really does draw through the Color's palette memory — the boot ROM writes the palette
-   it picked into it — but the index comes from `BGP`/`OBP0`/`OBP1` as on a Game Boy, not from the
-   tile attribute. So both drawers need: while in compatibility mode, look the colour up in
-   `bg_pal` entry `BGP`-shade and in `obj_pal` entry `OBP`-shade of palette 0 or 1, instead of
-   using the fixed `SHADES` greys. Today they use `SHADES`, because `ppu.cgb` is false in
-   compatibility mode and that is all they could see when this was written. The condition for it
-   is `cgb_hardware && !cgb`, and **`ppu.cgb_hardware` is now set** — another agent wired it up in
-   `gb.rs` later the same night — so this is writable at last. It is small, and it is the same
-   change in `ppu.rs::render_line` and in `fifo.rs`'s output stage. It still shows nothing until
-   step 1 puts real colours in those palette entries, so do the two together.
+**Both halves of the palette are in (evening of 13 October).**
+
+1. **The colours, in `gb.rs` and `compat.rs`.** A Color given a cartridge whose header byte `$143`
+   does not have bit 7 set gets what its start-up code leaves: the palette set it picks from the
+   title sum (and, for the fourteen shared sums, the fourth letter) when the game is Nintendo's,
+   the default set otherwise — which is what every Mealybug ROM gets, their licensee being `00` —
+   written into background palette 0 and object palettes 0 and 1, OPRI set, and B holding the
+   title sum. The table is the documentation's (Pan Docs for the algorithm, The Cutting Room
+   Floor for the data). One row of that page has its two numbers swapped (Radar Mission), and the
+   start-up code's own byte settles it; `compat.rs` says so where the row is. Checked twice: once
+   by a throwaway script outside the repository against the tables in SameBoy's start-up code,
+   for all 256 sums and every printable fourth letter (no difference), and by running a real
+   start-up file - SameBoy's free one, built from its source - through cBoy, which leaves the
+   same palette memory, object order and registers as cBoy's own for every title the table knows,
+   every shared sum with a letter it does not know, a game that is not Nintendo's, and all twelve
+   button schemes, on a Color and on an Advance (284 starts,
+   `tests/roms.rs::a_colour_start_up_file_gives_the_same_colours`, which needs the file, so it
+   is run by hand).
+2. **The drawers, `ppu.rs::mono_colour`.** In compatibility mode both drawers look the colour up
+   in palette memory: the background in palette 0 and an object in palette 0 or 1 by its OBP bit,
+   with the `BGP`/`OBP0`/`OBP1` shade as the colour number, which is SameBoy's
+   `render_pixel_if_possible`. The shade and source buffers are filled as before, so the Game Boy
+   palette and cBoy's own looks still go over the shades whenever the player has not asked for a
+   Color's colours. dmg-acid2 on a Color now matches that test's own Color reference on both
+   drawers.
+
+The attribute byte stays 0 in compatibility mode in both drawers. SameBoy reads it from VRAM bank
+1 on any Color, but the start-up code clears that bank and a game in Game Boy mode cannot reach
+it, so the two agree; it is written here so nobody mistakes it for a difference.
 
 ### Group 1a — four CGB references that can never reach zero
 
@@ -597,11 +617,10 @@ right edge for edge and all five differences left are the Color's.
 
 ## What is left, in order
 
-1. **The compatibility palette, in `gb.rs`** (not owned here). Group 1 step 1. **Three Color
-   pictures pass the moment it lands, with no change to either drawer** — that is measured, not
-   hoped for — and it is worth far more than the tests: it is why an old black-and-white game
-   looks grey on cBoy's Color console instead of coloured the way a real one colours it. Nine
-   more pictures need it as well as other things.
+1. ~~**The compatibility palette.**~~ **DONE, evening of 13 October:** `compat.rs`, `gb.rs` and
+   both drawers (Group 1, "Both halves of the palette are in"). The three Color pictures it was
+   predicted to pass passed, and the player-facing half is the "Colour for black-and-white games"
+   setting.
 2. **The six black-and-white Color pictures in Group 1 step 2.** The `gb.rs` flag they were
    waiting on was wired up by another agent during this same night, so these are the first real
    drawer work available to the next session, and they are the best-value item in this file: no
@@ -633,21 +652,12 @@ right edge for edge and all five differences left are the Color's.
 
 ## Needed in files this work does not own
 
-Collected for whoever owns them; nothing here has been changed by this work.
+Collected for whoever owns them. On the evening of 13 October `gb.rs` and `bus.rs` were this
+work's to change, and the first item below was done then.
 
-- **`gb.rs`: the Game Boy-compatibility colour palette. The best-value change left anywhere in
-  this file.** As set out in Group 1 step 1. The mode itself already exists and is already what a
-  player gets — `with_model` runs a Game Boy cartridge on a Color console in Game Boy mode — so
-  all that is missing is the palette the boot ROM picks from a hash of the cartridge title, loaded
-  into `bg_pal`/`obj_pal`. For these test ROMs it is background `FFFFFF` / `7BFF31` / `0063C6` /
-  `000000`, objects `FFFFFF` / `FF8484` / `943939` / `000000`. **Three Mealybug pictures pass the
-  moment it lands with no change to either drawer** (`cgb:m2_win_en_toggle`,
-  `cgb:m3_lcdc_win_en_change_multiple`, `cgb:m3_wx_4_change_sprites` — their references are the
-  DMG picture shade for shade and this drawer already draws all three of those right), and 17 more
-  need it as well as other things. It matters more for players than for the tests: without it an
-  old black-and-white game on cBoy's Color console is plain grey where a real one tints it. Note
-  the drawer half in Group 1 step 2 cannot be written until the flag in the third bullet below is
-  set, so these two `gb.rs` changes are best done together.
+- **~~`gb.rs`: the Game Boy-compatibility colour palette~~ — DONE, evening of 13 October.** See
+  Group 1, "Both halves of the palette are in". The three Mealybug pictures this said would pass
+  the moment it landed did, and nothing else moved.
 - **`bus.rs`: where an IO write lands inside its M-cycle.** `Bus::write` calls `tick()` first and
   applies the write after, so a register write reaches the PPU three dots later than on hardware,
   and a register the hardware writes in two stages a dot apart arrives in one. `fifo.rs` corrects
@@ -724,10 +734,12 @@ ever look more right, but they are the only things here worth watching for:
   Both are now the real chip's timing. No game is likely to notice, and one that counts those
   moments closely can only be better off.
 
-One more thing turned up that is worth doing for you rather than for the tests, and it is written
-down for whoever owns that file: when cBoy's Colour console plays an old black-and-white game it
-shows it in plain grey, where a real Colour console tints it (greens and blues). That is one
-palette away from working, and three more test pictures pass the moment it is in.
+One more thing turned up that was worth doing for you rather than for the tests: cBoy's Colour
+console played an old black-and-white game in plain grey, where a real Colour console tints it.
+**That is done now (evening of 13 October).** A new choice under Picture, "Colour for
+black-and-white games", plays old Game Boy games in the colours a Game Boy Color gives them, or
+in one of the twelve a Color lets you pick with the buttons. It is off unless you pick it, and
+the three test pictures it was meant to fix passed the moment it was in, which makes 27.
 
 If you want to look at Exact anyway, on the phone: **Settings → Core settings → cBoy → Picture
 drawing → Exact (experimental)**, then open a game. Switch it back to **Standard** to return to

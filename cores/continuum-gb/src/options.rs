@@ -143,9 +143,14 @@ const SPECS: &[Spec] = &[
      c"The four shades original Game Boy games are drawn in. Custom uses four colours of your own, lightest first, written in a palette.txt: put it in the Continuum folder in Files, then tap Install a BIOS in Settings.",
      &[(c"grayscale", c"Grayscale"), (c"green", c"Original green"), (c"pocket", c"Pocket"), (c"light", c"Light (backlit)"),
        (c"kiosk", c"Kiosk"), (c"sepia", c"Sepia"), (c"ice", c"Ice"), (c"custom", c"Custom")], c"grayscale"),
-    (c"video", c"cboy_dmg_colorize", c"Colour Game Boy games",
-     c"Gives original Game Boy games separate colours for background and sprites. Auto picks a scheme from the game's title. Overrides the palette above.",
-     &[(c"off", c"Off"), (c"auto", c"Auto"), (c"meadow", c"Meadow"), (c"ocean", c"Ocean"), (c"ember", c"Ember"),
+    (c"video", c"cboy_dmg_colorize", c"Colour for black-and-white games",
+     c"Off keeps the Game Boy look. Automatic gives each game the colours a Game Boy Color gives it. The ones with buttons are the twelve a Color lets you pick by holding those buttons as it starts. Those play the game on a Color, so the console setting has to be on Auto or a Color, and they start with the next game. The last seven are cBoy's own and work on any console.",
+     &[(c"off", c"Off (like a Game Boy)"), (c"gbc", c"Automatic (like a Game Boy Color)"),
+       (c"gbc_up", c"Brown (Up)"), (c"gbc_up_a", c"Red (Up + A)"), (c"gbc_up_b", c"Dark brown (Up + B)"),
+       (c"gbc_left", c"Blue (Left)"), (c"gbc_left_a", c"Dark blue (Left + A)"), (c"gbc_left_b", c"Grey (Left + B)"),
+       (c"gbc_down", c"Pastel (Down)"), (c"gbc_down_a", c"Orange (Down + A)"), (c"gbc_down_b", c"Yellow (Down + B)"),
+       (c"gbc_right", c"Green (Right)"), (c"gbc_right_a", c"Dark green (Right + A)"), (c"gbc_right_b", c"Reversed (Right + B)"),
+       (c"auto", c"cBoy's pick"), (c"meadow", c"Meadow"), (c"ocean", c"Ocean"), (c"ember", c"Ember"),
        (c"dusk", c"Dusk"), (c"candy", c"Candy"), (c"slate", c"Slate")], c"off"),
     (c"video", c"cboy_gbc_color", c"Game Boy Color screen colour",
      c"Off shows the colours as stored. Screen mimics the Color's own LCD; Soft is a lighter version of it.",
@@ -465,8 +470,14 @@ pub enum GbaModel {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Colorize {
     Off,
+    /// cBoy's own scheme for the title (`auto_scheme`), drawn over the shades.
     Auto,
+    /// One of cBoy's own `SCHEMES`.
     Scheme(usize),
+    /// A Game Boy Color's colours: the ones its start-up code picks for the game, or one of the
+    /// twelve a player picks with the buttons (`compat::PICKS`). These play a black-and-white
+    /// game on a Color, which draws it in them itself.
+    Gbc(Option<usize>),
 }
 
 impl Default for Settings {
@@ -500,9 +511,17 @@ impl Settings {
             Model::Auto if both => self.hybrid_model,
             Model::Auto if colour => Model::Cgb,
             Model::Auto if self.auto_sgb && sgb_cart => Model::Sgb,
+            // A black-and-white game the player wants in a Game Boy Color's colours goes on the
+            // console that has them.
+            Model::Auto if self.gbc_colours() => Model::Cgb,
             Model::Auto => Model::Dmg,
             m => m,
         }
+    }
+
+    /// The player wants black-and-white games in a Game Boy Color's colours.
+    pub fn gbc_colours(&self) -> bool {
+        matches!(self.colorize, Colorize::Gbc(_))
     }
 
     /// Answer the Game Boy Player handshake: the Player model, or the rumble option on its own.
@@ -536,6 +555,12 @@ pub fn palette(name: &str) -> [u32; 4] {
         _ => crate::ppu::SHADES,
     }
 }
+
+/// The option values for a Game Boy Color's twelve button schemes, in the order of
+/// `compat::PICKS`: Up, Up + A, Up + B, Left, Left + A, Left + B, Down, Down + A, Down + B, Right,
+/// Right + A, Right + B.
+const GBC_PICKS: [&str; 12] = ["gbc_up", "gbc_up_a", "gbc_up_b", "gbc_left", "gbc_left_a", "gbc_left_b",
+    "gbc_down", "gbc_down_a", "gbc_down_b", "gbc_right", "gbc_right_a", "gbc_right_b"];
 
 /// Colour schemes for Game Boy games: (background, sprite palette 0, sprite palette 1).
 pub const SCHEMES: [[[u32; 4]; 3]; 6] = [
@@ -645,7 +670,10 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
         Some("auto") => Colorize::Auto,
         Some("meadow") => Colorize::Scheme(0), Some("ocean") => Colorize::Scheme(1), Some("ember") => Colorize::Scheme(2),
         Some("dusk") => Colorize::Scheme(3), Some("candy") => Colorize::Scheme(4), Some("slate") => Colorize::Scheme(5),
-        _ => Colorize::Off,
+        Some("gbc") => Colorize::Gbc(None),
+        // In the order of `compat::PICKS`.
+        Some(v) => GBC_PICKS.iter().position(|k| *k == v).map_or(Colorize::Off, |i| Colorize::Gbc(Some(i))),
+        None => Colorize::Off,
     };
     s.gbc_color = match get(c"cboy_gbc_color").as_deref() { Some("screen") => 1, Some("soft") => 2, _ => 0 };
     s.gba_color = match get(c"cboy_gba_color").as_deref() { Some("gba") => 1, Some("sp") => 2, Some("tv") => 3, _ => 0 };
@@ -792,7 +820,9 @@ impl Post {
         match machine {
             Machine::Dmg => {
                 let scheme = match s.colorize {
-                    Colorize::Off => None,
+                    // A Color draws its own colours, so a picture that gets here is not one: the
+                    // player picked another console, or the game has not restarted on a Color yet.
+                    Colorize::Off | Colorize::Gbc(_) => None,
                     Colorize::Auto => Some(SCHEMES[auto_scheme(title)]),
                     Colorize::Scheme(i) => Some(SCHEMES[i % SCHEMES.len()]),
                 };
@@ -1056,6 +1086,51 @@ mod tests {
         assert_eq!(a.console_for(0x80, true), Model::Dmg);
         let p = settings(&[("cboy_gb_model", "mgb"), ("cboy_hybrid_model", "agb")]);
         assert_eq!(p.console_for(0x80, false), Model::Mgb);
+    }
+
+    /// "Colour for black-and-white games": Off is the default and changes nothing; Automatic and
+    /// the twelve button schemes are a Game Boy Color's colours, which put a black-and-white game
+    /// on a Color when the console is Auto and leave every other choice of console alone; cBoy's
+    /// own looks are what they always were.
+    #[test]
+    fn the_colour_choices_for_black_and_white_games() {
+        assert_eq!(Settings::default().colorize, Colorize::Off);
+        assert_eq!(settings(&[("cboy_dmg_colorize", "off")]), Settings::default());
+        assert_eq!(settings(&[("cboy_dmg_colorize", "gbc")]).colorize, Colorize::Gbc(None));
+        for (i, v) in GBC_PICKS.iter().enumerate() {
+            assert_eq!(settings(&[("cboy_dmg_colorize", v)]).colorize, Colorize::Gbc(Some(i)), "{v}");
+        }
+        // Every value the settings page offers parses to what it says, and the twelve button
+        // schemes are in `compat::PICKS`'s order: Up first, Right + B last.
+        let values = &SPECS.iter().find(|s| s.1 == c"cboy_dmg_colorize").unwrap().4;
+        assert_eq!(values.len(), 2 + 12 + 7);
+        assert_eq!(values[2].1, c"Brown (Up)");
+        assert_eq!(values[13].1, c"Reversed (Right + B)");
+        for (v, _) in values.iter() {
+            let v = v.to_str().unwrap();
+            assert!(v == "off" || settings(&[("cboy_dmg_colorize", v)]).colorize != Colorize::Off, "{v} is not read");
+        }
+        assert_eq!(settings(&[("cboy_dmg_colorize", "auto")]).colorize, Colorize::Auto, "cBoy's own pick keeps its value");
+        // The console: a black-and-white game goes on a Color for a Color's colours, but only on
+        // Auto. A console the player picked, and Super Game Boy games under Auto (Super Game
+        // Boy), stay where they are; so do colour games and cBoy's own looks.
+        let gbc = settings(&[("cboy_dmg_colorize", "gbc_left")]);
+        assert!(gbc.gbc_colours());
+        assert_eq!(gbc.console_for(0x00, false), Model::Cgb);
+        assert_eq!(gbc.console_for(0x80, false), Model::Cgb);
+        assert_eq!(gbc.console_for(0xC0, false), Model::Cgb);
+        assert_eq!(settings(&[("cboy_dmg_colorize", "gbc"), ("cboy_gb_model", "dmg")]).console_for(0x00, false), Model::Dmg);
+        assert_eq!(settings(&[("cboy_dmg_colorize", "gbc"), ("cboy_gb_model", "agb")]).console_for(0x00, false), Model::Agb);
+        assert_eq!(settings(&[("cboy_dmg_colorize", "gbc"), ("cboy_gb_model", "auto_sgb")]).console_for(0x00, true), Model::Sgb);
+        assert_eq!(settings(&[("cboy_dmg_colorize", "gbc"), ("cboy_hybrid_model", "dmg")]).console_for(0x80, false), Model::Dmg);
+        assert_eq!(settings(&[("cboy_dmg_colorize", "meadow")]).console_for(0x00, false), Model::Dmg);
+        assert!(!settings(&[("cboy_dmg_colorize", "slate")]).gbc_colours());
+        // A Color's colours never reach a Game Boy's picture: on one, they leave the Game Boy
+        // palette in charge.
+        let mut post = Post::default();
+        let mut f = vec![0u32; 4];
+        post.video(&mut f, &[0, 1, 2, 3], &[0, 1, 2, 0], &settings(&[("cboy_dmg_colorize", "gbc"), ("cboy_dmg_palette", "green")]), Machine::Dmg, "T");
+        assert_eq!(f, palette("green").to_vec());
     }
 
     #[test]

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::bus::Bus;
 use crate::cart::Cart;
+use crate::compat;
 use crate::cpu::Cpu;
 
 /// T-cycles in one frame (154 lines of 456 dots).
@@ -14,6 +15,12 @@ pub const FRAME_CYCLES: u64 = 70_224;
 pub struct GameBoy {
     pub cpu: Cpu,
     pub bus: Bus,
+    /// The colours a Color's start-up code gives this black-and-white game: its own pick, or the
+    /// scheme the player held the buttons for. Kept so that a save state from before the game was
+    /// in colour - a Game Boy's, or an older cBoy's, whose palette memory nothing ever wrote -
+    /// comes back in them on a Color instead of blank. Settings, not state, so not saved.
+    #[serde(skip)]
+    pub compat: Option<compat::Palettes>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -47,8 +54,9 @@ impl GameBoy {
 
     /// The machine for a model chosen in the core options, optionally starting from a boot ROM.
     /// A Color or Advance model given a Game Boy-only cartridge runs it the way those consoles
-    /// do (in Game Boy mode, telling the game which console it is through the registers); a
-    /// Game Boy model given a Color cartridge runs it in Game Boy mode.
+    /// do (in Game Boy mode, telling the game which console it is through the registers, and in
+    /// the colours its start-up code picks for the game); a Game Boy model given a Color
+    /// cartridge runs it in Game Boy mode.
     pub fn with_model(rom: Vec<u8>, model: Model, boot: Option<Vec<u8>>) -> Result<GameBoy, String> {
         let cart = Cart::new(rom)?;
         let colour_cart = cart.cgb_flag & 0x80 != 0;
@@ -58,7 +66,11 @@ impl GameBoy {
             model
         };
         let cgb = colour_cart && matches!(model, Model::Cgb | Model::Agb);
-        let mut gb = Self::build(cart, cgb);
+        // A Color's own start-up file runs in colour mode whatever the cartridge is, and puts the
+        // console into Game Boy mode itself at the end (KEY0) when the cartridge is a
+        // black-and-white one, after writing the colours it picked.
+        let colour_start = !cgb && matches!(model, Model::Cgb | Model::Agb) && boot.as_ref().is_some_and(|b| b.len() == 0x900);
+        let mut gb = Self::build(cart, cgb || colour_start);
         let c = &mut gb.cpu;
         match (model, cgb) {
             (Model::Mgb, _) => c.a = 0xFF,
@@ -79,13 +91,21 @@ impl GameBoy {
                 c.b = 0x01;
             }
             (Model::Cgb | Model::Agb, false) => {
-                (c.a, c.f, c.b, c.c, c.d, c.e, c.h, c.l) = (0x11, 0x80, 0x00, 0x00, 0x00, 0x08, 0x00, 0x7C);
+                // B is the title sum the start-up code looked the game up by, when the game is
+                // Nintendo's (0 when it did not look), and HL is left past the logo map for the
+                // two titles it draws one for (Pan Docs, "Power Up Sequence").
+                let sum = compat::title_checksum(&gb.bus.cart.rom);
+                let (h, l) = if compat::draws_the_logo(sum) { (0x99, 0x1A) } else { (0x00, 0x7C) };
+                (c.a, c.f, c.b, c.c, c.d, c.e, c.h, c.l) = (0x11, 0x80, sum.unwrap_or(0), 0x00, 0x00, 0x08, h, l);
                 // The CGB boot ROM spends longer on a DMG cartridge (palette pick); DIV after it
                 // (Mooneye boot_div-cgbABCDE, boot_div-A).
                 gb.bus.timer.counter = 0x2674;
                 if model == Model::Agb {
-                    c.b = 0x01;
-                    c.f = 0x00;
+                    // An Advance's start-up code ends with one more `inc b`, and its flags are
+                    // that instruction's: zero when B wraps, half-carry out of the low four bits.
+                    let b = c.b;
+                    c.b = b.wrapping_add(1);
+                    c.f = (if c.b == 0 { 0x80 } else { 0 }) | (if b & 0x0F == 0x0F { 0x20 } else { 0 });
                     gb.bus.timer.counter = 0x2678;
                 }
                 // It is still Color hardware, so the registers the console owns stay readable,
@@ -97,11 +117,23 @@ impl GameBoy {
                 gb.bus.joyp_select = 0x30;
                 gb.bus.ppu.bcps = 0x88;
                 gb.bus.ppu.ocps = 0x90;
+                // It also switches on the Game Boy's object order (OPRI) and writes the colours
+                // it picked into palette memory, which is what the game's BGP, OBP0 and OBP1 then
+                // index. A Color's own start-up file does all of that itself as it runs.
+                let picked = compat::picked(&gb.bus.cart.rom);
+                gb.compat = Some(picked);
+                if !colour_start {
+                    gb.bus.ppu.opri = 1;
+                    gb.load_compat_palettes(&picked);
+                    if compat::draws_the_logo(sum) {
+                        gb.bus.ppu.dmg_logo_map();
+                    }
+                }
             }
             _ => {}
         }
         if let Some(boot) = boot {
-            let want = if cgb { 0x900 } else { 0x100 };
+            let want = if cgb || colour_start { 0x900 } else { 0x100 };
             if boot.len() != want {
                 return Err(format!("that boot ROM is {} bytes; this model needs {want}", boot.len()));
             }
@@ -128,6 +160,37 @@ impl GameBoy {
         self.bus.sgb.is_some()
     }
 
+    /// The colours a Color's start-up code writes for a black-and-white game: its pick for the
+    /// background into background palette 0, and the two object palettes into object palettes
+    /// 0 and 1, which are the only ones Game Boy mode reads. It fades every background palette
+    /// to white before that, so the other seven are left white.
+    fn load_compat_palettes(&mut self, palettes: &compat::Palettes) {
+        let ppu = &mut self.bus.ppu;
+        ppu.bg_pal = [0xFF, 0x7F].repeat(32);
+        ppu.obj_pal = [0xFF, 0x7F].repeat(32);
+        let [bg, obj0, obj1] = palettes.bytes();
+        ppu.bg_pal[..8].copy_from_slice(&bg);
+        ppu.obj_pal[..8].copy_from_slice(&obj0);
+        ppu.obj_pal[8..16].copy_from_slice(&obj1);
+    }
+
+    /// The player holding one of the twelve button combinations while a Color starts, which makes
+    /// its start-up code use that scheme instead of the one it picked for the game. A Color's own
+    /// start-up file is handed the buttons to read, the way a player's thumbs would hand them
+    /// over; without one the scheme goes straight into palette memory. Only a black-and-white
+    /// game on a Color has a scheme to pick, so anything else is left exactly as it is.
+    pub fn pick_colours(&mut self, pick: &compat::Pick) {
+        if !self.bus.cgb_hardware || self.bus.cart.cgb_flag & 0x80 != 0 {
+            return;
+        }
+        self.compat = Some(pick.palettes);
+        if self.bus.boot_on && self.bus.boot.len() == 0x900 {
+            self.bus.boot_buttons = pick.buttons;
+        } else {
+            self.load_compat_palettes(&pick.palettes);
+        }
+    }
+
     fn build(cart: Cart, cgb: bool) -> GameBoy {
         let mut bus = Bus::new(cart);
         bus.ppu.boot_logo(&bus.cart.rom);
@@ -143,7 +206,7 @@ impl GameBoy {
         } else {
             Cpu::default()
         };
-        GameBoy { cpu, bus }
+        GameBoy { cpu, bus, compat: None }
     }
 
     /// Runs until the PPU finishes a frame (or one frame's worth of cycles with the LCD off).
@@ -176,9 +239,20 @@ impl GameBoy {
         next.bus.cart.rom = std::mem::take(&mut self.bus.cart.rom);
         next.bus.link_loopback = self.bus.link_loopback;
         next.bus.link_connected = self.bus.link_connected;
-        // Which console this is comes from the core option, not from the state.
+        // Which console this is comes from the core option, not from the state, and so do the
+        // buttons held for a Color's colour scheme.
         next.bus.cgb_hardware = self.bus.cgb_hardware;
         next.bus.ppu.cgb_hardware = self.bus.ppu.cgb_hardware;
+        next.bus.boot_buttons = self.bus.boot_buttons;
+        next.compat = self.compat;
+        // A state from before this game was in colour carries palette memory nothing ever wrote,
+        // which every start-up code on a Color does write (its high bytes are never $FF). On a
+        // Color it comes back in the colours the game would have had from the start.
+        let p = &next.bus.ppu;
+        let unwritten = p.bg_pal.iter().chain(&p.obj_pal).all(|b| *b == 0xFF);
+        if let (Some(colours), true, false, false) = (self.compat, unwritten, next.bus.cgb, next.bus.boot_on) {
+            next.load_compat_palettes(&colours);
+        }
         *self = next;
         // A byte the game had half way down the cable is not in the state; start it again.
         self.bus.resume_serial();
@@ -237,6 +311,146 @@ mod tests {
         assert_eq!(b.raw_read(0xFF4F), 0xFE);
         b.raw_write(0x8000, 0xAB);
         assert_eq!(b.ppu.vram[0], 0xAB, "still the first bank");
+    }
+
+    /// A black-and-white cartridge with this title, from Nintendo or not.
+    fn mono_cart(title: &[u8], nintendo: bool) -> Vec<u8> {
+        let mut rom = vec![0u8; 0x8000];
+        rom[0x134..0x134 + title.len()].copy_from_slice(title);
+        rom[0x14B] = if nintendo { 0x01 } else { 0x00 };
+        rom
+    }
+
+    /// The palettes in palette memory, as the start-up code's three runs of eight bytes.
+    fn palette_memory(gb: &GameBoy) -> [Vec<u8>; 3] {
+        let p = &gb.bus.ppu;
+        [p.bg_pal[..8].to_vec(), p.obj_pal[..8].to_vec(), p.obj_pal[8..16].to_vec()]
+    }
+
+    /// What a Color's start-up code leaves for a black-and-white game when the game itself
+    /// starts (Pan Docs, "Power Up Sequence"): Game Boy mode, its colours for the game in
+    /// palette memory, the Game Boy's object order, and in B the title sum it looked the game up
+    /// by - but only for Nintendo's games, which are the only ones it looks up.
+    #[test]
+    fn a_colour_leaves_a_black_and_white_game_its_colours_and_registers() {
+        let gb = GameBoy::with_model(mono_cart(b"TETRIS", true), Model::Cgb, None).unwrap();
+        assert!(gb.bus.cgb_hardware && !gb.bus.cgb && !gb.bus.ppu.cgb, "Game Boy mode on a Color");
+        let c = &gb.cpu;
+        assert_eq!((c.a, c.f, c.b, c.c, c.d, c.e, c.h, c.l), (0x11, 0x80, 0xDB, 0x00, 0x00, 0x08, 0x00, 0x7C));
+        let tetris = compat::picked(&mono_cart(b"TETRIS", true));
+        assert_eq!(palette_memory(&gb), tetris.bytes().map(|r| r.to_vec()));
+        assert_eq!(tetris.bg[1], 0xFFFF00, "Tetris is yellow and red");
+        assert_eq!((gb.bus.ppu.opri, gb.bus.ppu.bcps, gb.bus.ppu.ocps), (1, 0x88, 0x90));
+        // The other seven background palettes are left white, as its fade leaves them.
+        assert!(gb.bus.ppu.bg_pal[8..].chunks(2).all(|c| c == [0xFF, 0x7F]));
+        // Someone else's game: no title sum in B, and the default colours.
+        let other = GameBoy::with_model(mono_cart(b"TETRIS", false), Model::Cgb, None).unwrap();
+        assert_eq!(other.cpu.b, 0);
+        assert_eq!(palette_memory(&other), compat::DEFAULT.bytes().map(|r| r.to_vec()));
+        // The two titles it draws the Game Boy logo's map for: the map, and HL left past it.
+        let x = GameBoy::with_model(mono_cart(b"X", true), Model::Cgb, None).unwrap();
+        assert_eq!((x.cpu.b, x.cpu.h, x.cpu.l), (0x58, 0x99, 0x1A));
+        assert_eq!(x.bus.ppu.vram[0x1904..0x1911], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0x19]);
+        assert_eq!(x.bus.ppu.vram[0x1924..0x1930], [13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]);
+        assert!(gb.bus.ppu.vram[0x1800..0x2000].iter().all(|b| *b == 0), "no map for any other game");
+    }
+
+    /// An Advance's start-up code ends on one more `inc b`, so B is one past the Color's and the
+    /// flags are that instruction's (Pan Docs).
+    #[test]
+    fn an_advance_leaves_b_one_further_on() {
+        let regs = |title: &[u8]| {
+            let gb = GameBoy::with_model(mono_cart(title, true), Model::Agb, None).unwrap();
+            (gb.cpu.b, gb.cpu.f)
+        };
+        assert_eq!(regs(b"TETRIS"), (0xDC, 0x00));
+        // $0F + 1 carries out of the low four bits; $FF + 1 is zero as well.
+        assert_eq!(regs(&[0x0F]), (0x10, 0x20));
+        assert_eq!(regs(&[0xFF]), (0x00, 0xA0));
+        let gb = GameBoy::with_model(mono_cart(b"TETRIS", false), Model::Agb, None).unwrap();
+        assert_eq!((gb.cpu.b, gb.cpu.f), (0x01, 0x00), "someone else's game, as Mooneye boot_regs-A has it");
+    }
+
+    /// Holding a button combination picks one of the twelve schemes instead of the game's own,
+    /// and changes nothing else. A colour game on a Color, and any game on a Game Boy, have no
+    /// scheme to pick, so they are left exactly as they were.
+    #[test]
+    fn a_button_scheme_replaces_the_colours_and_nothing_else() {
+        let mut gb = GameBoy::with_model(mono_cart(b"TETRIS", true), Model::Cgb, None).unwrap();
+        let rest = |gb: &GameBoy| {
+            let c = &gb.cpu;
+            ([c.a, c.f, c.b, c.c, c.d, c.e, c.h, c.l], c.sp, c.pc, gb.bus.ppu.opri, gb.bus.ppu.bcps, gb.bus.ppu.ocps, gb.bus.cgb)
+        };
+        let before = rest(&gb);
+        for pick in &compat::PICKS {
+            gb.pick_colours(pick);
+            assert_eq!(palette_memory(&gb), pick.palettes.bytes().map(|r| r.to_vec()));
+        }
+        assert_eq!(rest(&gb), before);
+        let mut colour = cgb_machine();
+        let colour_before = (colour.bus.ppu.bg_pal.clone(), colour.bus.ppu.obj_pal.clone());
+        colour.pick_colours(&compat::PICKS[3]);
+        assert_eq!((colour.bus.ppu.bg_pal.clone(), colour.bus.ppu.obj_pal.clone()), colour_before);
+        let mut dmg = GameBoy::with_model(mono_cart(b"TETRIS", true), Model::Dmg, None).unwrap();
+        dmg.pick_colours(&compat::PICKS[3]);
+        assert_eq!(dmg.bus.ppu.bg_pal, vec![0xFF; 64], "a Game Boy has no palette memory to fill");
+    }
+
+    /// A save state from before a black-and-white game was in colour - made on a Game Boy, or by
+    /// an older cBoy, so its palette memory was never written - loads on a Color in the colours
+    /// the game has there, not blank white. A state that has colours of its own keeps them, and
+    /// a Game Boy loading any state stays a Game Boy.
+    #[test]
+    fn an_old_state_comes_back_in_colour_on_a_colour() {
+        let rom = mono_cart(b"TETRIS", true);
+        let old = GameBoy::with_model(rom.clone(), Model::Dmg, None).unwrap().save_state();
+        let mut colour = GameBoy::with_model(rom.clone(), Model::Cgb, None).unwrap();
+        colour.pick_colours(&compat::PICKS[3]);
+        colour.load_state(&old).unwrap();
+        assert_eq!(palette_memory(&colour), compat::PICKS[3].palettes.bytes().map(|r| r.to_vec()));
+        let coloured = colour.save_state();
+        let mut other = GameBoy::with_model(rom.clone(), Model::Cgb, None).unwrap();
+        other.load_state(&coloured).unwrap();
+        assert_eq!(palette_memory(&other), compat::PICKS[3].palettes.bytes().map(|r| r.to_vec()), "the state's own colours");
+        let mut dmg = GameBoy::with_model(rom, Model::Dmg, None).unwrap();
+        dmg.load_state(&coloured).unwrap();
+        assert!(!dmg.bus.cgb_hardware && dmg.compat.is_none());
+    }
+
+    /// A Color's own start-up file runs in colour mode, puts the console into Game Boy mode
+    /// itself through KEY0, and can still write the palettes and the object order afterwards,
+    /// for as long as it is mapped. Once it is gone, a game can do none of that. Played here by a
+    /// few instructions in a 2304-byte start-up file of our own.
+    #[test]
+    fn a_colour_start_up_file_switches_the_console_into_game_boy_mode() {
+        let mut boot = vec![0u8; 0x900];
+        let code = [
+            0x3E, 0x04, 0xE0, 0x4C, // LD A,4 / LDH (KEY0),A: Game Boy mode
+            0x3E, 0x01, 0xE0, 0x6C, // LD A,1 / LDH (OPRI),A
+            0x3E, 0x80, 0xE0, 0x68, // LD A,$80 / LDH (BCPS),A
+            0x3E, 0x1F, 0xE0, 0x69, // LD A,$1F / LDH (BCPD),A: colour 0 red...
+            0x3E, 0x00, 0xE0, 0x69, // ...and its high byte
+            0xF0, 0x00, 0x47, // LDH A,(P1) / LD B,A: the pad, as it reads the buttons
+            0x3E, 0x11, 0xE0, 0x50, // LD A,$11 / LDH ($FF50),A: hand over
+        ];
+        boot[..code.len()].copy_from_slice(&code);
+        let mut gb = GameBoy::with_model(mono_cart(b"TETRIS", true), Model::Cgb, Some(boot)).unwrap();
+        assert!(gb.bus.cgb && gb.bus.boot_on, "the start-up file starts in colour mode");
+        gb.pick_colours(&compat::PICKS[0]); // Up
+        gb.bus.write(0xFF00, 0x20); // the d-pad half, as the start-up code would select it
+        while gb.bus.boot_on {
+            gb.cpu.step(&mut gb.bus);
+        }
+        assert!(!gb.bus.cgb && !gb.bus.ppu.cgb && gb.bus.cgb_hardware, "Game Boy mode, on a Color");
+        assert_eq!((gb.bus.ppu.bg_pal[0], gb.bus.ppu.bg_pal[1], gb.bus.ppu.opri), (0x1F, 0x00, 1));
+        assert_eq!(gb.cpu.b & 0x0F, 0x0B, "the start-up code read Up off the pad");
+        // The game cannot reach any of it.
+        gb.bus.write(0xFF4C, 0x00);
+        assert!(!gb.bus.cgb, "KEY0 is locked once the start-up code is gone");
+        gb.bus.write(0xFF68, 0x80);
+        gb.bus.write(0xFF69, 0x55);
+        assert_eq!(gb.bus.ppu.bg_pal[0], 0x1F, "palette memory is shut in Game Boy mode");
+        assert_eq!(gb.bus.read(0xFF00) & 0x0F, 0x0F, "and the start-up code's buttons are let go");
     }
 
     /// On a Game Boy none of those registers exist at all (Mooneye boot_hwio-dmgABCmgb).
