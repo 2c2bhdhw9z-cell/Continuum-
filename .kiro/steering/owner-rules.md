@@ -161,6 +161,17 @@ These come straight from the owner. They are not suggestions.
     line, for example: "Arcade games aren't playable right now. We're building our own arcade
     emulator." Don't ask "Which system?" for it, and never crash. Remove the arcade test
     rows, and the `neogeo.zip` BIOS mention, from TESTING.md.
+- **The owner must never wake up without a new build** (owner, 13 October 2026). When they hand over
+  a night's work and go to sleep, a stopped session, a restart, a freeze, a timeout or a model
+  outage must not be able to cost them the install. So: don't save the whole night for one build at
+  the end — get an insurance build published as soon as the first finished batch is on master — and
+  put the guarantee on GitHub's side as well, where nothing in the assistant's sandbox can reach it.
+  The pattern that does this is a temporary `schedule:` on `.github/workflows/ios.yml` for the
+  morning in question, with the `gate` job that is already in the file: it builds only when the
+  newest code on master has no published build, nothing is already building, and that commit has
+  not already failed twice, and it does nothing at all on any other date. Remove the `schedule:`
+  block once that morning has passed. Also write the running work and how to resume it into a plan
+  file, so a fresh session can pick it up without the owner explaining anything.
 - When the owner puts a ★ on something, save it permanently: in this file if it is about Continuum, or as a Kiro learning if it applies everywhere.
   A ⭐ counts the same. Kiro may also save general learnings on its own whenever something is
   worth remembering.
