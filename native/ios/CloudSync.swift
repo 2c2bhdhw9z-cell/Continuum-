@@ -1382,7 +1382,8 @@ final class CloudSync: ObservableObject {
         host?.saveStates.reloadFromDisk()
         let states = host?.saveStates.records.count ?? 0
         FeedbackCenter.step("restore: save-state list now has \(states) entr(ies)")
-        var text = "sync folder: restore finished: \(skins) skin(s), \(states) save state(s). "
+        var text = "sync folder: restore finished: \(skins) \(skins == 1 ? "skin" : "skins"), "
+            + "\(states) save \(states == 1 ? "state" : "states"). "
             + "Close Continuum fully and reopen it once to apply the rest of your settings."
         if let older = olderCopiesLine { text += " " + older }
         olderCopiesLine = nil
@@ -2093,6 +2094,12 @@ struct CloudSyncSection: View {
                            role: .normal) {
                 sync.chooseFolder()
             }
+            SettingsNote("A live folder keeps your saves, states, cheats, skins, stars, manuals, "
+                         + "Amiibo, cover choices and settings in a \"Continuum Sync\" folder "
+                         + "inside any folder in Files: iCloud Drive, Google Drive, Dropbox. It "
+                         + "updates when the app opens, when you leave a game, and when you tap "
+                         + "Sync now. The newest copy wins, and the other one is kept in "
+                         + "Continuum Sync/Conflicts rather than thrown away.")
 
             if sync.folderName != nil {
                 SettingsButton(title: sync.isSyncing ? "Syncing..." : "Sync now", role: .normal) {
@@ -2120,14 +2127,8 @@ struct CloudSyncSection: View {
                 }
             }
             .tint(ShellPalette.accent)
-            SettingsNote("Save states, battery saves, Flash and J2ME saves, cheats, skins, "
-                         + "starred games, manuals, Amiibo, cover choices and settings sync with a "
-                         + "\"Continuum Sync\" folder inside "
-                         + "the folder you choose. Any folder in Files works: iCloud Drive, Google "
-                         + "Drive, Dropbox. Newest wins; a conflict keeps both copies in Continuum "
-                         + "Sync/Conflicts, and a deleted save state is moved to Continuum Sync/Deleted "
-                         + "rather than removed. Sync runs when the app opens, when you leave a game, "
-                         + "and from this button.")
+            SettingsNote("A save state you delete is moved to Continuum Sync/Deleted, so it is "
+                         + "still there if you change your mind.")
         }
     }
 }

@@ -8,16 +8,16 @@ index c3e4a70..f48be81 100644
      },
 +    {
 +        "azahar_continuum_async_pipelines",
-+        "Shader Compile (Continuum)",
-+        "Shader Compile",
-+        "Async shaders: new graphics pipelines compile in the background, so a track or menu "
-+        "load does not hitch, but something can appear a moment late. Old: the game waits for "
-+        "each pipeline, which may stutter. Takes effect when the game restarts.",
++        "Smoother loading",
++        "Smoother loading",
++        "Keeps the game going while new graphics get ready, so loading a track or a menu does "
++        "not hitch. Something can show up a moment late. Off waits for everything instead, "
++        "which can stutter. Takes effect when the game restarts.",
 +        nullptr,
 +        config::category::graphics,
 +        {
-+            { "async", "Async shaders (fix, may pop in)" },
-+            { "old", "Old (may stutter)" },
++            { "async", "On (may pop in)" },
++            { "old", "Off (may stutter)" },
 +            { nullptr, nullptr }
 +        },
 +        "async"

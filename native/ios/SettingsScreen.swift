@@ -609,15 +609,15 @@ struct SettingsScreen: View {
                 )
             }
             SettingsNote(
-                "Each choice applies from the next game you open. One game can use a different "
-                + "core: open its card and pick one under CORE. Game Boy, Game Boy Color and Game "
-                + "Boy Advance default to mGBA; cBoy is this app's own core for all three, new and "
-                + "still being tested. PCSX ReARMed works without a BIOS; Beetle PSX HW is more "
-                + "accurate and uses a real BIOS when there is one. Mesen is the default NES core, "
-                + "FCEUmm the fallback (the Disk System stays on FCEUmm for its disk-side button). "
-                + "Yabause runs Saturn games without a BIOS; "
-                + "Beetle Saturn needs sega_101.bin or mpr-17933.bin. Save states only load on the "
-                + "core that made them; battery saves carry over."
+                "A choice here applies from the next game you open. Want one game on another "
+                + "core? Open the game and pick it there. Your battery saves carry over either "
+                + "way; save states only load on the core that made them."
+            )
+            SettingsNote(
+                "Not sure which to pick? cBoy is our own Game Boy core and still being tested, "
+                + "mGBA is the safe one. Beetle PSX HW looks better but wants a real PlayStation "
+                + "BIOS; PCSX ReARMed needs none. Beetle Saturn needs a Saturn BIOS file, Yabause "
+                + "doesn't. Disk System games always play on FCEUmm, whichever NES core you pick."
             )
         }
     }
