@@ -6,7 +6,7 @@ Paste this to start a new chat:
 > `HANDOFF.md`, then `STATUS.md` ("Next up" first), `docs/CORE_UPDATES.md` and `TESTING.md`
 > section A. Then carry on.
 
-## Where this left off (12 October 2026)
+## Where this left off (13 October 2026)
 
 - **Build 181** (`b88308f`) is the newest published install, handed to the owner on 12 October
   at about 6:15 PM Eastern:
@@ -33,6 +33,35 @@ Paste this to start a new chat:
     their old layout on disk and are converted as they load (`battery_layout.rs`). An auto-save
     from a removed emulator is always moved to a free slot. The three removed zips are deleted from
     the `core-mirror-1` pre-release. Phone checks: TESTING.md "This install only", 5 to 11.
+- **The emulator update batch is done on master, not built (12-13 October).** Five pieces, all
+  pushed with `[skip ci]`:
+  - Newer emulators: FCEUmm `7a542dab`→`ac0d00a7` (NES, Disk System), Gearsystem
+    `02b9d9e7`→`692494c8` (Master System, Game Gear, SG-1000), ParaLLEl N64 `0bd516ee`→`a8280501`
+    (and its JIT build), Azahar `065c9222`→`bfa76872` (3DS), PPSSPP `53fae900`→`dd6bd1a5` (PSP),
+    Flycast `59ed35a7`→`f03faffd` (Dreamcast, and its JIT build), plus newer buildbot builds of
+    Beetle SuperGrafx, PUAE (Amiga), DOSBox Pure and Beetle Saturn. Skipped, with the reason in
+    STATUS.md: Beetle PSX, PrBoom, Virtual Jaguar, Beetle VB.
+  - One heads-up line per updated emulator, the first time a game opens on it
+    (`crates/emulator-bridge/src/core_updates.rs`). Old save states load where the engine records
+    the version pair as proven: every updated emulator except Azahar, which refuses them itself
+    (its heads-up says so, and that in-game saves are fine).
+  - Kart Fighter: Mesen won't open a file shorter than its header says (the owner's copy is one).
+    Not our patch and not a missing board. A default core that refuses a game now retries once on
+    the system's other core (`launch_retry.rs`), so it runs on FCEUmm and says so.
+  - The weekly check (`scripts/check-core-updates.sh`) now covers every core, and the iOS build
+    caches each core on its own fingerprint (`scripts/check-core-cache.sh` tests that).
+  - **The build waits for the owner's "done testing" on 181.** Then everything goes into ONE
+    build (182). 182 is still a full rebuild of every core, because the old cache list has no
+    fingerprints: expect about 67 minutes, like 181. Later builds only rebuild cores whose pin,
+    patch, recipe or toolchain changed.
+  - After 182, read the launch log line `core '<id>' reports version …` for FCEUmm, Gearsystem,
+    ParaLLEl N64, PPSSPP and Flycast: each must show its new commit hash, because the save-state
+    pairs match on it.
+  - The `core-mirror-1` copies were NOT replaced: the upload fails from this sandbox. It still
+    holds the old zips for Beetle SuperGrafx, PUAE, DOSBox Pure and Beetle Saturn. Builds take
+    those four from the buildbot meanwhile (still pinned), and the next master build uploads them
+    by itself while the buildbot still serves those exact zips.
+  - Phone checks: TESTING.md "Next install (after 181)", rows 3 to 11.
 - **New support and feedback email: ContinuumDev2c2b@gmail.com** (owner, 12 October). It's in
   the app (`FeedbackDestination.email`), the README and the notes. The old address is retired
   everywhere.
@@ -45,11 +74,11 @@ Paste this to start a new chat:
   is there.
 - **The owner's order from here (12 October; details in STATUS.md "Next up"):**
   1. The cleanup + licence swap are done and on master: one install (it rebuilds every core).
-  2. Emulator updates: check every core each session and take the safe ones. Known behind:
-     PSP 132, N64 29, Beetle PSX 14, 3DS 6, Dreamcast 5. The 16 downloaded cores have never
-     been checked.
-  3. The one-time heads-up line for players when an emulator was updated.
-  4. Make the weekly update checker cover every core, the 16 downloaded ones included.
+  2. Emulator updates: check every core each session and take the safe ones. This batch is
+     done on master, waiting for the next build (see above).
+  3. The one-time heads-up line for players when an emulator was updated. Done on master.
+  4. Make the weekly update checker cover every core, the 16 downloaded ones included. Done on
+     master.
   5. Small leftovers from the cleanup (the LOW and SUSPECTED findings).
   6. cBoy: MP2K high-quality Advance music (doesn't exist yet: no MP2K code and no option; what
      exists is per-channel volumes, `cboy_gba_smooth` in `cores/continuum-gb/src/gba/bus.rs`,
@@ -86,9 +115,10 @@ session and takes them itself, after checking thoroughly. The full rule is in
 
 1. Every session, check every core for a newer version. That means the 19 pinned builds from
    source (`bash scripts/build-core.sh ios-pins`: 14 required cores, Dreamcast, Symbian and the
-   3 JIT builds; see `docs/CORE_UPDATES.md` and `scripts/check-core-updates.sh`) AND the 16
-   downloaded ones (sha-pinned in `scripts/fetch-buildbot-cores.sh`), which the weekly check does
-   not cover yet.
+   3 JIT builds) AND the 16 downloaded ones (sha-pinned in `scripts/fetch-buildbot-cores.sh`).
+   `scripts/check-core-updates.sh` covers both: it writes `docs/CORE_UPDATES.md` with what's
+   newer, the last few upstream changes, whether our patches still fit, and the list of updates
+   already checked and skipped.
 2. For each one that is newer, check it thoroughly before taking it: read the upstream changes
    for anything removed or broken (systems, options, iOS support, save formats), make sure our
    patches still apply, build it, run every check, and check whether old save states and
@@ -97,15 +127,19 @@ session and takes them itself, after checking thoroughly. The full rule is in
    plain words.
 3. Take the good ones in the next batch (one build), and tell the owner in plain words which
    consoles got newer emulators and what changed for them.
-4. Players get a one-time heads-up in the app for each updated emulator (owner's idea, not
-   built yet; do it with the first batch of updates). See "Players get a heads-up" in
+4. Players get a one-time heads-up in the app for each updated emulator (built on master,
+   13 October: `crates/emulator-bridge/src/core_updates.rs`). See "Players get a heads-up" in
    owner-rules.md for the wording and the rules.
 
-The weekly scheduled job (`.github/workflows/core-updates.yml`) has not run once yet (0 runs on
-12 October). Its page is only a hint, never the whole answer.
+Moving a pin: follow "MOVING A PIN" in `scripts/build-core.sh` (and "Moving a pin" in
+`scripts/fetch-buildbot-cores.sh`, which needs the zip pin and the dylib pin). Also update
+`crates/emulator-bridge/src/core_updates.rs` (the version it ships, and an entry for the update,
+saying whether old states still load): a test fails until it matches the scripts.
 
-The only check so far, a manual run on 7 October 2026, found 5 of 13 behind: PSP (132 commits),
-N64 (29), Beetle PSX HW (14), 3DS (6), Dreamcast (5).
+The weekly scheduled job (`.github/workflows/core-updates.yml`) has not run on GitHub yet (0
+runs on 13 October). The script was run here on 13 October: all 32 sources up to date (27 on
+their newest version, 5 newer ones already checked and skipped). Its page is only a hint, never
+the whole answer.
 
 ## Older notes (7 October 2026, history)
 
@@ -255,13 +289,14 @@ for one exact game version; the cheat screen names the version for GBA and Game 
 
 ## How to check work before pushing (the sandbox can't build the iPhone app)
 
-- `cargo test --workspace --features emulator-bridge/native-core` (650 tests)
+- `cargo test --workspace --features emulator-bridge/native-core` (682 tests)
 - `cargo clippy --workspace --features emulator-bridge/native-core` (CI runs it too; an error
   stops the build)
 - cBoy: `cd cores/continuum-gb && scripts/fetch-test-roms.sh && cargo test --release` (78 tests).
   Run it before any cBoy push: builds 178 and 179 failed on these alone.
 - `bash scripts/check-skins.sh`, `bash scripts/check-players.sh`
 - `bash scripts/fetch-libretro-headers.sh && bash native/switch-wrapper/build.sh host` (15/15)
+- `bash scripts/check-core-cache.sh` (39 checks; the per-core build cache)
 - `swiftc -frontend -parse <file>` on each changed Swift file. This only checks the writing, not
   the types, so a Swift type mistake shows up only on the build server.
 - A new Swift file must be listed in `native/ios/project.yml` `sources`, or it is silently skipped.

@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-12 October 2026. **Build 181** (`b88308f`) is the newest published install:
+13 October 2026. **Build 181** (`b88308f`) is the newest published install:
 [Continuum-181.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-181-b88308f/Continuum-181.ipa).
 Checked by Kiro: 0.8.0 (181), 36 core files (33 cores plus 3 JIT builds). bsnes, Gearsystem,
 BlastEm, Mesen 2, cBoy and Continuum Symbian are inside, and none of the five non-commercial
@@ -34,6 +34,19 @@ the licence swap below. No phone has tried it yet: TESTING.md "This install only
   Continuum → Not games the next time the app opens, never deleted, and the sync and backups
   don't bring them back. A file with real binary content (any zero byte) always counts as a
   game. Phone check: TESTING.md "Next install (after 181)".
+- **After 181 (on master, not in a build yet): newer emulators.** Built here from newer code:
+  NES and Disk System FCEUmm `7a542dab`→`ac0d00a7`; Master System, Game Gear and SG-1000
+  Gearsystem `02b9d9e7`→`692494c8`; N64 ParaLLEl N64 `0bd516ee`→`a8280501` (JIT build too); 3DS
+  Azahar `065c9222`→`bfa76872`; PSP PPSSPP `53fae900`→`dd6bd1a5`; Dreamcast Flycast
+  `59ed35a7`→`f03faffd` (JIT build too). SuperGrafx, Amiga, DOS and Saturn (Beetle Saturn) get
+  newer buildbot builds. The first time a player opens a game on an updated emulator, one short
+  heads-up line says so, once per emulator. Old save states keep loading, except on the 3DS
+  (Azahar refuses them itself; in-game saves are fine, and the 3DS heads-up says so). Kart
+  Fighter: Mesen won’t open a game file that’s shorter than its header says (the owner’s copy is
+  one) and FCEUmm will, so the app now switches to FCEUmm by itself and says so. Checked and
+  kept as they are: Beetle PSX (3-7% slower), PrBoom (louder default sound that clips), Virtual
+  Jaguar (about 13% slower) and Beetle VB (about 19% slower). All of it is **Built, untested**.
+  Phone checks: TESTING.md "Next install (after 181)".
 
 **After that install,** the owner's order is in "Next up": emulator updates (with the heads-up
 line and a fuller weekly check), small cleanup leftovers, cBoy's jobs (MP2K music and the rest),
@@ -231,13 +244,14 @@ order on this page:
    Gearsystem and BlastEm in, the five non-commercial cores out, arcade out for now, and Mesen 2
    built here with its patch. One install is next, with both in it. Phone checks: TESTING.md
    "This install only" and section K.
-2. **Emulator updates.** Check every core each session and take the safe ones (owner-rules
+2. **Emulator updates.** Done on master (12-13 October), waiting for the next build. Check every core each session and take the safe ones (owner-rules
    "Emulator updates", HANDOFF.md). Known behind on 7 October: PSP 132 commits, N64 29, Beetle
    PSX 14, 3DS 6, Dreamcast 5. The 16 downloaded cores have never been checked.
 3. **The one-time heads-up line for players** when an emulator was updated (owner-rules
-   "Players get a heads-up").
+   "Players get a heads-up"). Done on master (12-13 October), waiting for the next build.
 4. **Make the weekly update checker cover every core**, the 16 downloaded ones included
-   (`scripts/check-core-updates.sh`, `.github/workflows/core-updates.yml`).
+   (`scripts/check-core-updates.sh`, `.github/workflows/core-updates.yml`). Done on master
+   (12-13 October), waiting for the next build.
 5. **Small leftovers from the cleanup**, the LOW and SUSPECTED findings. Known ones: Symbian
    ignores pause and reinstalls its game on every launch, on the main thread; a Game Boy file
    might be taken for an Advance one; a failed restore mentions its older copies only on the next
@@ -255,6 +269,11 @@ order on this page:
    - a launch line naming the SNES chip files a game needs;
    - Pete Sampras Tennis and Super Skidmarks EEPROM saves (BlastEm doesn't know those carts);
    - the Gearsystem online-play state hash (16 bytes differ between phones).
+   Left over from the emulator updates, same item:
+   - the game card's SAVE STATES paragraph (`native/ios/GameDetailSheet.swift` ~l.246, "A state
+     can only be loaded back into the same build of the same core…") reads like documentation.
+     Testers need it short and casual, and it now overstates "same build": some updates keep
+     old states loading.
 6. **cBoy:**
    - MP2K high-quality Advance music. It would spot Nintendo's MP2K music engine, which many
      Game Boy Advance games use, and play their music at a higher quality than the console's own
@@ -334,26 +353,26 @@ is still ahead, hardest last (road steps 10 to 12).
 
 | System | Core | State | What is missing |
 | --- | --- | --- | --- |
-| NES | mesen2 (default), fceumm (fallback) | **Partial** | Mesen 2 confirmed on the owner's phone, build 153 (9 October 2026): AccuracyCoin.nes **142 of 146 passed, 0 skipped** (FCEUmm baseline on the phone: 86 of 146, 7 skipped). Save state slot 1 saved and loaded on Super Mario Bros 2 (Lost Levels). FCEUmm stays selectable in Settings, NES core. Save states from one core do not load on the other. From the next install Mesen 2 is built here with Continuum's patch: the app keeps its in-game saves (the `.sav` files Mesen wrote are picked up), and achievements, typed cheats and RAM search reach its memory. Checked here, not on a phone yet |
+| NES | mesen2 (default), fceumm (fallback) | **Partial** | Mesen 2 confirmed on the owner's phone, build 153 (9 October 2026): AccuracyCoin.nes **142 of 146 passed, 0 skipped** (FCEUmm baseline on the phone: 86 of 146, 7 skipped). Save state slot 1 saved and loaded on Super Mario Bros 2 (Lost Levels). FCEUmm stays selectable in Settings, NES core. Save states from one core do not load on the other. From the next install Mesen 2 is built here with Continuum's patch: the app keeps its in-game saves (the `.sav` files Mesen wrote are picked up), and achievements, typed cheats and RAM search reach its memory. Checked here, not on a phone yet. Newer FCEUmm in the next install, not on a phone yet. Kart Fighter: Mesen won’t open the owner’s copy (shorter than its header says), so from the next install the app runs it on FCEUmm by itself and says so |
 | SNES | bsnes | **Built, untested** | New emulator in the next install (bsnes, with Continuum's patch). Checked here: in-game saves match byte for byte, achievements and RAM search read work RAM, and the speed estimate is full speed on an iPhone 8 or newer. Old save states can't load (kept in a slot); in-game saves carry over. Two Japan-only games (SD Gundam GX, Morita Shougi) now need their chip file |
 | Game Boy | mgba | **Done** | Build 125: a game ran, saved and loaded |
 | Game Boy Color | mgba | **Done** | |
 | Game Boy Advance | mgba | **Done** | |
-| Master System | gearsystem | **Built, untested** | New emulator in the next install (Gearsystem). No `.sms` file has ever been imported |
-| Game Gear | gearsystem | **Built, untested** | New emulator in the next install. Old save states can't load (kept in a slot); in-game saves carry over |
+| Master System | gearsystem | **Built, untested** | New emulator in the next install (Gearsystem). No `.sms` file has ever been imported. Newer Gearsystem in the next install, not on a phone yet |
+| Game Gear | gearsystem | **Built, untested** | New emulator in the next install. Old save states can't load (kept in a slot); in-game saves carry over. Newer Gearsystem in the next install, not on a phone yet |
 | Mega Drive / Genesis | blastem | **Built, untested** | New emulator in the next install (BlastEm, interpreter only). Old in-game saves are converted as they load, and the file keeps its old layout. Buttons do what they did before. Uses 3 to 6 times the CPU of the old one, so it needs a speed check on a phone. Typed cheats don't work; RAM search does. Only two controller ports |
 | PlayStation | pcsx_rearmed | **Done** | Interpreter, not the recompiler. Fast enough; see Recompiler below. Runs without a BIOS. **Beetle PSX HW** is a second PlayStation option (Settings → PlayStation core) and needs a real BIOS file. Beetle booted Crash at ~60 fps on build 98 (with `scph1001.bin`) on its software renderer; the engine now keeps Beetle on software by default. The hardware (Vulkan) renderer is a choice in Core settings and has not been seen on a phone. Since build 124 the BIOS line reads `BIOS (mednafen_psx_hw)` with Beetle selected and finds BIOS names in capitals (TESTING A7). A save state from one PlayStation option does not load on the other. See road step 4 |
-| **Famicom Disk System** | fceumm (default), mesen2 (choice) | **Built, untested** | Mesen 2 is a Settings choice here, not the default, because the app's disk-side button drives FCEUmm only; Mesen inserts disks on its own. Needs `disksys.rom`, which is Nintendo's own code and cannot ship with the app. The launch path checks for it by name and says so rather than letting the core fail |
-| **Sega SG-1000** | gearsystem | **Built, untested** | Needs nothing extra. `.mv` files open as SG-1000 too |
-| **Nintendo 64** | parallel_n64 | **Done** | Device-proven on build 97 (`258a828`): past `N64 first tick…`, frames climbing, ~60 fps into Smash character select. Soft/interp only (no JIT on this signed IPA). `.n64`, `.z64`, `.v64` |
+| **Famicom Disk System** | fceumm (default), mesen2 (choice) | **Built, untested** | Mesen 2 is a Settings choice here, not the default, because the app's disk-side button drives FCEUmm only; Mesen inserts disks on its own. Needs `disksys.rom`, which is Nintendo's own code and cannot ship with the app. The launch path checks for it by name and says so rather than letting the core fail. Newer FCEUmm in the next install, not on a phone yet |
+| **Sega SG-1000** | gearsystem | **Built, untested** | Needs nothing extra. `.mv` files open as SG-1000 too. Newer Gearsystem in the next install, not on a phone yet |
+| **Nintendo 64** | parallel_n64 | **Built, untested** | Newer ParaLLEl N64 in the next install, not on a phone yet; build 97 proved the older one. Device-proven on build 97 (`258a828`): past `N64 first tick…`, frames climbing, ~60 fps into Smash character select. Soft/interp only (no JIT on this signed IPA). `.n64`, `.z64`, `.v64` |
 | **TurboGrafx-16** | mednafen_pce_fast | **Done** | HuCard games (`.pce`): a game ran, saved and loaded on build 125. PC Engine CD is its own system (Beetle PCE) and needs a system card BIOS you supply (TESTING C15) |
 | **Atari 2600** | stella2023 | **Done** | A game ran, saved and loaded on build 125. `.a26`, or a lone `.bin` (the app asks **Which system?** once; renaming to `.a26` skips the question). A `.bin` imported beside a `.cue` is always a disc track |
-| **Nintendo 3DS** | azahar | **Partial** | A game runs (Mario Kart 7, again on build 122). Confirmed 5 October (build 122): skin holes sideways (Mario Kart 7), and changing a "restart required" setting no longer crashes. Upright skin holes and swapping them confirmed 9 October (build 150 screenshots). A stutter after transitions was seen on builds 100 and 101; a fix has been in every build since 2 October and Mario Kart 7 ran on 122, and on 9 October (build 150) Brett confirmed the stutter is **still there**. Open bug. A second fix is built (9 October, after build 150) and **not tried on a phone**: the first fix stopped one wait, but Azahar still asked the graphics driver for each new pipeline on the game's own thread first, and on iPhone that request does the slow Metal compile right there. The new patch sends every new pipeline to the background worker, and the software-vertex path now skips the draw instead of waiting. No JIT. Decrypted `.3ds`, `.3dsx`, `.cci`, `.cxi` only. A retail game can still need 3DS system archives this app does not ship |
+| **Nintendo 3DS** | azahar | **Partial** | A game runs (Mario Kart 7, again on build 122). Confirmed 5 October (build 122): skin holes sideways (Mario Kart 7), and changing a "restart required" setting no longer crashes. Upright skin holes and swapping them confirmed 9 October (build 150 screenshots). A stutter after transitions was seen on builds 100 and 101; a fix has been in every build since 2 October and Mario Kart 7 ran on 122, and on 9 October (build 150) Brett confirmed the stutter is **still there**. Open bug. A second fix is built (9 October, after build 150) and **not tried on a phone**: the first fix stopped one wait, but Azahar still asked the graphics driver for each new pipeline on the game's own thread first, and on iPhone that request does the slow Metal compile right there. The new patch sends every new pipeline to the background worker, and the software-vertex path now skips the draw instead of waiting. No JIT. Decrypted `.3ds`, `.3dsx`, `.cci`, `.cxi` only. A retail game can still need 3DS system archives this app does not ship. Newer Azahar in the next install, not on a phone yet: its older save states can't load on it, in-game saves are fine |
 | **Nintendo DS** | melonDS | **Done** | Confirmed on device (build 80): Mario Kart DS and Pokémon SoulSilver, dual screens live, ~60 fps, 0 dropped |
 | **Sega CD** | blastem | **Built, untested** | Needs `bios_CD_U.bin`, `bios_CD_E.bin` or `bios_CD_J.bin`. Its backup RAM saves carry over. No disc swap (a playlist opens its first disc), RAM-cart saves are not carried, and real discs can only be checked on a phone |
 | **Sega 32X** | blastem | **Built, untested** | Needs two files from a real 32X, `32X_M_BIOS.bin` and `32X_S_BIOS.bin`; without them the game says so |
 | **Arcade** | none | **Out on purpose** | Removed by the owner's choice (12 October 2026); Continuum's own arcade core is planned. Arcade games already imported stay in the Library and open to one line saying so |
-| **PlayStation Portable** | ppsspp | **Partial** | In the IPA as `ppsspp_libretro_ios.dylib`. CPU is the IR interpreter: the core's option value "IR JIT" is `CPUCore::IR_INTERPRETER` with compile-to-native off. No dynarec, no executable memory. Picture is Vulkan `set_image`, the same hook as the 3DS. No BIOS is shipped; PPSSPP does not need one. A PSP game can be `.cso`, `.iso`, `.chd`, a PSP `EBOOT.PBP`, or `.prx`. `.cso` and `.prx` are always PSP. An `.iso`, `.chd` or `.pbp` is looked inside: a PSP disc or EBOOT opens on the PSP, a PlayStation one as PlayStation, and if the app cannot tell it asks **Which system?** once and remembers. `.elf` is not accepted. **Not tried on a phone.** Do not claim a game runs or quote a frame rate |
+| **PlayStation Portable** | ppsspp | **Partial** | In the IPA as `ppsspp_libretro_ios.dylib`. CPU is the IR interpreter: the core's option value "IR JIT" is `CPUCore::IR_INTERPRETER` with compile-to-native off. No dynarec, no executable memory. Picture is Vulkan `set_image`, the same hook as the 3DS. No BIOS is shipped; PPSSPP does not need one. A PSP game can be `.cso`, `.iso`, `.chd`, a PSP `EBOOT.PBP`, or `.prx`. `.cso` and `.prx` are always PSP. An `.iso`, `.chd` or `.pbp` is looked inside: a PSP disc or EBOOT opens on the PSP, a PlayStation one as PlayStation, and if the app cannot tell it asks **Which system?** once and remembers. `.elf` is not accepted. **Not tried on a phone.** Do not claim a game runs or quote a frame rate. Newer PPSSPP in the next install, not on a phone yet |
 
 ### Nintendo DS, in detail
 
@@ -396,7 +415,7 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Cheats | **Partial** | Confirmed: typed codes (GameShark, Game Genie, Action Replay and the rest go straight to each system's emulator, which reads its own kinds). Build 126, confirmed: a typed code can be added inside a game, and both cheat screens say which kinds that system reads. **Bug found on 126, fixed in 127, not on a phone yet:** a switched-off cheat kept running on the GBA and Game Boy (mGBA ignores the off flag), so a code for the wrong version of a game froze it with no way out; the cheat screen now also names the exact game and version from the file (TESTING.md A2). Not on a phone: importing a RetroArch `.cht` file, and the RAM search (lives, money and so on) that turns an address into a cheat. Up to 128 codes per game. Build 122: a `.cht` file's RAM cheats land where RetroArch puts them (on GBA they used to hit the wrong memory). From the next install, typed codes don't work on Mega Drive, Sega CD or 32X (BlastEm ignores them); RAM search and `.cht` RAM pokes still work on Mega Drive |
 | On-screen control layout editor | **Partial** | **Done bar (Brett):** every control in the skin file works, not only the ones he names. Picture in the screen hole both ways you hold the phone. Two screens when the skin has two. A joystick or circle pad is a real stick, not a dead picture. Shoulders too. Debug text off the picture. Confirmed on the phone 5 October (build 122, a 3DS skin, Mario Kart 7): both screens sit in their own holes sideways, the eye button hides and shows the top bar (remembered), nothing sits on the picture of a sideways 3DS skin, the false overlap line is gone. Portrait and swapped holes on a 3DS skin confirmed 9 October (build 150). DS skin confirmed both ways 9 October (HeartGold). Other systems' skins not confirmed yet. Do **not** stamp Done until the owner says the skin is right |
 | Battery saves (the game's own save) | **Done** | Confirmed on build 125: an in-game save is still there after leaving and coming back. Found broken while building the save manager: in-game saves (Pokemon, Zelda, PS1 memory card) were never written to disk, so they only survived inside a save state. Now restored before the first frame and written when you leave or switch apps |
-| Save state compatibility refusal | **Partial** | Refuses a state from a different core or core build, and (since build 120) one saved under different restart-required core settings. Confirmed on the phone 5 October (build 122): changing a 3DS restart setting no longer closes the app. **Bug found on 126, fixed in 127, not on a phone yet:** changing the 3DS System Model mid-game crashed the app and showed no restart button (TESTING.md A1). Azahar re-reads every option on an update, so it switched models under the running game; the engine now holds a restart-required option until the next start, and every state is stamped with the value the game is really running with. From the next install an auto-save made by an emulator that was swapped out is always moved to a free slot and kept, even with resume off |
+| Save state compatibility refusal | **Partial** | Refuses a state from a different core or core build, and (since build 120) one saved under different restart-required core settings. Confirmed on the phone 5 October (build 122): changing a 3DS restart setting no longer closes the app. **Bug found on 126, fixed in 127, not on a phone yet:** changing the 3DS System Model mid-game crashed the app and showed no restart button (TESTING.md A1). Azahar re-reads every option on an update, so it switched models under the running game; the engine now holds a restart-required option until the next start, and every state is stamped with the value the game is really running with. From the next install an auto-save made by an emulator that was swapped out is always moved to a free slot and kept, even with resume off. From the next install a state from a different build of the same emulator loads only when the engine records that version pair as proven (this batch: every updated emulator except the 3DS); a refused auto-save still goes to a free slot |
 | Hide the player's top bar | **Done** | Build 122, confirmed on the phone 5 October: the eye button next to Back hides and shows the top bar, and the choice is remembered between games |
 | Import several skins at once | **Done** | Build 122, confirmed on the phone 5 October (skin library, Import skins) |
 | A paused game stays paused after leaving the app | **Done** | Build 122, confirmed on the phone 5 October |

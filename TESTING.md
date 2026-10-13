@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 12 October 2026. **Build 181** is the newest published install: the cleanup plus the
+Last updated 13 October 2026. **Build 181** is the newest published install: the cleanup plus the
 licence swap. Steps 1 to 4 cover the cleanup, 5 to 11 the new emulators, and 12 save imports.
 
 ## This install only
@@ -65,6 +65,22 @@ Do not retest Home, scrolling, re-import, or fast-forward. Those already passed.
    the games go in (ones you already have are replaced, not doubled), no README or LICENSE shows
    up in **All Games**, and a line says "Added … games. Skipped … files that aren't games." (Not
    sure which one it was? Skip this one.)
+3. Open a PSP game you played before. ✅ After a few seconds a line at the top says "Heads up:
+   the PSP emulator (PPSSPP) just got an update from the people who make it. If anything seems
+   off, send us feedback."
+4. Leave that PSP game and open it again. ✅ No heads-up this time.
+5. Same PSP game. ✅ It plays at the speed it had, and if it had an auto-save it carries on from
+   it.
+6. Open a 3DS game. ✅ It plays like before, and the heads-up says older save states can’t load
+   on it but your in-game saves are fine. Your in-game save is still there.
+7. Open an N64 game. ✅ The picture looks right and it runs like before, and a state you saved on
+   181 loads.
+8. In a Master System or Game Gear game, load a state you saved on 181. ✅ It loads.
+9. Open Kart Fighter. ✅ It plays, and a line says "Mesen couldn’t open this one, so it’s running
+   on FCEUmm."
+10. Only if you have one: open a Famicom Disk System game. ✅ It plays.
+11. Only if you have them: open a Dreamcast, SuperGrafx, Amiga, DOS, or Saturn game (Saturn on
+    **Beetle Saturn**). ✅ It plays, and a state you saved on 181 loads.
 
 ## Beta tester checklist (short)
 
