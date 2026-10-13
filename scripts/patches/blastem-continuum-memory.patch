@@ -1,5 +1,5 @@
 diff --git a/libblastem.c b/libblastem.c
-index 9bb014f..39cd853 100644
+index 9bb014f..943c4ad 100644
 --- a/libblastem.c
 +++ b/libblastem.c
 @@ -14,6 +14,8 @@
@@ -11,7 +11,87 @@ index 9bb014f..39cd853 100644
  
  tern_node *config;
  
-@@ -1032,6 +1034,48 @@ static void release_media(void)
+@@ -128,6 +130,14 @@ static const struct retro_core_option_value io_2_values[] = {
+ 	{ "none", "None" },
+ 	{ NULL, NULL }
+ };
++//Continuum: the multitaps io.c already drives, which this glue never offered. One choice
++//sets several config keys, so apply_multitap() writes them instead of a single config path.
++static const struct retro_core_option_value multitap_values[] = {
++	{ "none", "Off" },
++	{ "sega", "Team Player (4 pads)" },
++	{ "ea", "EA 4-Way Play (4 pads)" },
++	{ NULL, NULL }
++};
+ static const struct retro_core_option_value lowpass_values[] = {
+ 	{ "3390", "3390 Hz (Model 1)" },
+ 	{ "2000", "2000 Hz" },
+@@ -226,6 +236,11 @@ static const core_option core_options[] = {
+ 		"What is plugged into the second controller port.",
+ 		"input", "io\0devices\0" "2\0", io_2_values
+ 	},
++	{
++		"blastem_multitap", "Multitap",
++		"A multitap, so a game that supports one can see four pads. Off leaves the two port devices above as they are.",
++		"input", NULL, multitap_values
++	},
+ 	{
+ 		"blastem_gain", "Overall Gain",
+ 		"Gain applied to the mix of every sound chip.",
+@@ -693,6 +708,43 @@ static const char *core_option_value(const char *key)
+ 	return var.value;
+ }
+ 
++//Continuum: the multitap choice, which is several config keys rather than one, so it is
++//written here instead of through core_option::config_path. A Sega Team Player goes in the
++//first port with four pads on it and the second port is emptied, because find_gamepad()
++//takes the first port that claims a pad number and a pad left in port 2 would answer for
++//the tap's second pad. The EA 4-Way Play is one adapter across both ports, which is how
++//the real thing is wired. The pad numbers are what poll_input() sends: 1 to 4.
++static void apply_multitap(void)
++{
++	const char *value = core_option_value("blastem_multitap");
++	if (!value) {
++		value = multitap_values[0].value;
++	}
++	uint8_t sega = !strcmp(value, "sega");
++	if (!sega && strcmp(value, "ea")) {
++		return;
++	}
++	config = tern_insert_path(
++		config, "io\0devices\0" "1\0",
++		(tern_val){.ptrval = strdup(sega ? "sega_multitap.1" : "ea_multitap_port_a")}, TVAL_PTR
++	);
++	config = tern_insert_path(
++		config, "io\0devices\0" "2\0",
++		(tern_val){.ptrval = strdup(sega ? "none" : "ea_multitap_port_b")}, TVAL_PTR
++	);
++	for (int i = 0; i < 4; i++)
++	{
++		char sega_path[] = "io\0sega_multitap.1\0X\0";
++		char ea_path[] = "io\0ea_multitap\0X\0";
++		char pad[] = "gamepad6.X";
++		sega_path[19] = '1' + i;
++		ea_path[15] = '1' + i;
++		pad[9] = '1' + i;
++		config = tern_insert_path(config, sega ? sega_path : ea_path,
++		                          (tern_val){.ptrval = strdup(pad)}, TVAL_PTR);
++	}
++}
++
+ //Every option that names a config path is simply written into the tree the
+ //emulator reads while it builds a machine, which is why this has to run before
+ //alloc_config_system() rather than at any later point.
+@@ -715,6 +767,8 @@ static void apply_core_options(void)
+ 		//anywhere else once it has been replaced.
+ 		config = tern_insert_path(config, (char *)opt->config_path, (tern_val){.ptrval = strdup(value)}, TVAL_PTR);
+ 	}
++	//Continuum: last, so it wins over the two port devices it replaces.
++	apply_multitap();
+ }
+ 
+ static vid_std video_standard;
+@@ -1032,6 +1086,48 @@ static void release_media(void)
  /* Loads a game. */
  static system_type stype;
  static bool load_game(const struct retro_game_info *game);
@@ -60,7 +140,7 @@ index 9bb014f..39cd853 100644
  RETRO_API bool retro_load_game(const struct retro_game_info *game)
  {
  	last_warning[0] = 0;
-@@ -1114,6 +1158,7 @@ static bool load_game(const struct retro_game_info *game)
+@@ -1114,6 +1210,7 @@ static bool load_game(const struct retro_game_info *game)
  	retro_environment(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &format);
  
  	update_av_info();
@@ -68,7 +148,7 @@ index 9bb014f..39cd853 100644
  
  	return 1;
  }
-@@ -1154,7 +1199,9 @@ RETRO_API void *retro_get_memory_data(unsigned id)
+@@ -1154,7 +1251,9 @@ RETRO_API void *retro_get_memory_data(unsigned id)
  	switch (id) {
  	case RETRO_MEMORY_SYSTEM_RAM:
  		switch (stype) {
@@ -79,7 +159,7 @@ index 9bb014f..39cd853 100644
  			genesis_context *gen = (genesis_context *)current_system;
  			return (uint8_t *)gen->work_ram;
  		}
-@@ -1167,10 +1214,15 @@ RETRO_API void *retro_get_memory_data(unsigned id)
+@@ -1167,10 +1266,15 @@ RETRO_API void *retro_get_memory_data(unsigned id)
  		}
  		break;
  	case RETRO_MEMORY_SAVE_RAM:
@@ -96,7 +176,7 @@ index 9bb014f..39cd853 100644
  		}
  		break;
  	default:
-@@ -1185,6 +1237,8 @@ RETRO_API size_t retro_get_memory_size(unsigned id)
+@@ -1185,6 +1289,8 @@ RETRO_API size_t retro_get_memory_size(unsigned id)
  	case RETRO_MEMORY_SYSTEM_RAM:
  		switch (stype) {
  		case SYSTEM_GENESIS:
@@ -105,7 +185,7 @@ index 9bb014f..39cd853 100644
  			return RAM_WORDS * sizeof(uint16_t);
  #ifndef NO_Z80
  		case SYSTEM_SMS:
-@@ -1193,10 +1247,12 @@ RETRO_API size_t retro_get_memory_size(unsigned id)
+@@ -1193,10 +1299,12 @@ RETRO_API size_t retro_get_memory_size(unsigned id)
  		}
  		break;
  	case RETRO_MEMORY_SAVE_RAM:
@@ -119,3 +199,23 @@ index 9bb014f..39cd853 100644
  		}
  		break;
  	default:
+@@ -1312,15 +1420,16 @@ uint32_t render_overscan_bot()
+ //never arrive.
+ static void poll_input(void)
+ {
+-	static int16_t prev_state[2][RETRO_DEVICE_ID_JOYPAD_L2];
++	static int16_t prev_state[4][RETRO_DEVICE_ID_JOYPAD_L2];
+ 	static const uint8_t map[] = {
+ 		BUTTON_A, BUTTON_X, BUTTON_MODE, BUTTON_START, DPAD_UP, DPAD_DOWN,
+ 		DPAD_LEFT, DPAD_RIGHT, BUTTON_B, BUTTON_Y, BUTTON_Z, BUTTON_C
+ 	};
+ 	//TODO: handle other input device types
+-	//TODO: handle more than 2 ports when appropriate
++	//Continuum: four pads, not two, for the multitap option. A pad number no port claims is
++	//dropped by find_gamepad(), so ports 3 and 4 cost nothing when no tap is plugged in.
+ 	retro_input_poll();
+-	for (int port = 0; port < 2; port++)
++	for (int port = 0; port < 4; port++)
+ 	{
+ 		for (int id = RETRO_DEVICE_ID_JOYPAD_B; id < RETRO_DEVICE_ID_JOYPAD_L2; id++)
+ 		{

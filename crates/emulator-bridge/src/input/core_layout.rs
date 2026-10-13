@@ -33,10 +33,12 @@ pub fn table_for(core_id: &str) -> Option<Table> {
     }
 }
 
-/// Rewrites the joypad buttons on ports 0 and 1 (BlastEm reads only two) through `table`.
+/// Rewrites the joypad buttons on every port through `table`. All four, not the first two:
+/// with the multitap the Continuum patch adds, BlastEm reads players 3 and 4 as well, and they
+/// hold the same pad as players 1 and 2.
 pub fn translate(snapshot: &mut InputSnapshot, table: Table) {
     let moved: u32 = table.iter().fold(0, |mask, (from, _)| mask | 1 << *from as u32);
-    for port in snapshot.ports.iter_mut().take(2) {
+    for port in snapshot.ports.iter_mut() {
         let pressed = port.buttons;
         let mut out = pressed & !moved;
         for (from, to) in table {
@@ -101,12 +103,20 @@ mod tests {
         translate_for("blastem", &mut s);
         assert_eq!(s.port(0).buttons.count_ones(), 4);
         assert!(s.button(0, Button::B) && s.button(0, Button::A) && s.button(0, Button::R));
-        // Another core, and ports past the second, are left alone.
+        // Another core is left alone.
         let mut s = pressed(&[Button::Y], 0);
         translate_for("gearsystem", &mut s);
         assert!(s.button(0, Button::Y));
-        let mut s = pressed(&[Button::Y], 2);
-        translate_for("blastem", &mut s);
-        assert!(s.button(2, Button::Y));
+    }
+
+    #[test]
+    fn players_three_and_four_are_translated_too() {
+        // The multitap: the same pad, so the same translation, on every port.
+        for port in 0..crate::input::MAX_PORTS {
+            let mut s = pressed(&[Button::Y], port);
+            translate_for("blastem", &mut s);
+            assert!(s.button(port, Button::B), "port {port}");
+            assert!(!s.button(port, Button::Y), "port {port}");
+        }
     }
 }
