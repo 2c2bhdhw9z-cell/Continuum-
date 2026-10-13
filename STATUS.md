@@ -280,8 +280,19 @@ order on this page:
      can only be loaded back into the same build of the same core…") reads like documentation.
      Testers need it short and casual, and it now overstates "same build": some updates keep
      old states loading.
-   - an NES game on Mesen showed 49.8 FPS in the owner's Apple overlay (12 October). Correct if it
-     is a European copy (50 Hz). The owner parked it: check it when this item comes up.
+   - ~~an NES game on Mesen showed 49.8 FPS in the owner's Apple overlay (12 October).~~
+     **Answered, 13 October: that game is a European copy, and European NES games run at 50 frames
+     a second instead of 60, so 49.8 was right.** Nothing was broken. Neither NES core is told the
+     region by the app: Mesen recognises the cartridge itself, from the database built into it
+     (keyed by the ROM's own checksum) or from an NES 2.0 header, and FCEUmm reads an NES 2.0
+     header or else the region tag in the file name — `(E)`, `(Europe)`, `(PAL)`, `(F)`, `(G)` and
+     the rest — so a European file renamed without its tag runs at 60 on FCEUmm and still at 50 on
+     Mesen. Each core then reports its own speed and the app paces to it. What changed: the (i)
+     read-out and the activity log now say which region a game is running as, in plain words
+     ("It's running at 50 frames a second instead of 60, which is right for a European copy.
+     Nothing is wrong."), and a core that changes its own speed mid-game — which FCEUmm does the
+     moment the NES region setting is changed — is now followed instead of ignored. Built,
+     untested. See `crates/emulator-bridge/src/game_region.rs`.
 6. **cBoy:**
    - MP2K high-quality Advance music. It would spot Nintendo's MP2K music engine, which many
      Game Boy Advance games use, and play their music at a higher quality than the console's own

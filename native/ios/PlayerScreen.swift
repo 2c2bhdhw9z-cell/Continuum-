@@ -819,6 +819,15 @@ struct DiagnosticsPanel: View {
                 // causes, and this line names which one it is.
                 Text(host.peripherals.statusLine)
                     .fixedSize(horizontal: false, vertical: true)
+                // Which region this copy is running as, in plain words. Here because the question
+                // it answers ("why does this say 49.8 frames a second?") is asked of the frame
+                // read-out above, and nothing in the app was saying that 50 is right for a
+                // European game. This is the tenth child of the Group, so anything added after it
+                // needs a Group of its own; see the note above.
+                if !host.regionNote.isEmpty {
+                    Text(host.regionNote)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .font(.system(.caption2, design: .monospaced))

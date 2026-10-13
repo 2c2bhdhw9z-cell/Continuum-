@@ -665,6 +665,13 @@ impl ContinuumEngine {
         self.lock().current_content_id().map(str::to_string)
     }
 
+    /// One plain sentence saying what speed the running game is at and which region that is right
+    /// for, or "" when there is nothing worth saying. Read once after a launch: the answer only
+    /// changes when the core changes its own refresh rate. See `game_region`.
+    pub fn session_region_note(&self) -> String {
+        self.lock().session_region_note()
+    }
+
     pub fn resident_core_count(&self) -> u32 {
         self.lock().resident_core_count() as u32
     }

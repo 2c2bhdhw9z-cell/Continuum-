@@ -4901,6 +4901,16 @@ final class EngineHost: ObservableObject {
             }
             screenLayoutVersion &+= 1
 
+            // Which region this copy is running as, from the rate the core reported once it had
+            // read the game (game_region.rs). It goes in the (i) read-out and, once, in the
+            // activity log, so "why does this say 49.8 frames a second" has an answer in the app
+            // rather than needing one asked for. Not on the player's own status line: a line about
+            // frames a second is not what someone starting a game wants read out to them.
+            regionNote = engine.sessionRegionNote()
+            if !regionNote.isEmpty {
+                FeedbackCenter.record(regionNote)
+            }
+
             // AFTER the launch, because a cheat table belongs to a session: the core builds it on
             // `retro_load_game` and it dies with the session, so it has to be pushed again every
             // time. Before the resume below on purpose, so that a state restored into this session
@@ -4966,6 +4976,7 @@ final class EngineHost: ObservableObject {
             running = false
             activeEntry = nil
             activeCoreId = ""
+            regionNote = ""
             n64AwaitingFirstTick = false
             let failed = "launch failed on \(spec.coreId): \(entry.name): \(error)"
             // The technical sentence goes to the activity log; the player reads the engine's
@@ -5079,6 +5090,7 @@ final class EngineHost: ObservableObject {
         // session ends must not be pushed into the next one.
         activeEntry = nil
         activeCoreId = ""
+        regionNote = ""
         feedbackSessionGame(game: "")
         n64AwaitingFirstTick = false
         paused = false
@@ -5626,6 +5638,14 @@ final class EngineHost: ObservableObject {
     /// tick. The id cannot change without going through `launch` or `stopSession`, both of which
     /// set this.
     @Published var activeCoreId: String = ""
+
+    /// Which region the running game is in, in plain words, or "" when there is nothing to say.
+    ///
+    /// The owner read 49.8 frames a second off Apple's overlay on an NES game and could not tell
+    /// whether that was a fault; it was a European copy, which runs at 50. The engine works the
+    /// answer out from the rate the core itself reports (game_region.rs). Read once at launch, like
+    /// `activeCoreId`, because it only changes when the core changes its own refresh rate.
+    @Published var regionNote: String = ""
 
     /// How many pads the ENGINE'S OWN connection table has registered, read once when the surface
     /// attaches.

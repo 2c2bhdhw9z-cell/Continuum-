@@ -679,6 +679,19 @@ impl EmulatorBridge {
             .map(|s| s.core.descriptor().display_name.as_str())
     }
 
+    /// One plain sentence saying what speed the running game is at and which region that is right
+    /// for, or "" when there is nothing worth saying. See [`crate::game_region`]: the rate is the
+    /// core's own, so this reports what the game IS running as rather than what the file claims.
+    pub fn session_region_note(&self) -> String {
+        match self.session.as_ref() {
+            Some(session) => crate::game_region::note(
+                &session.content_ext,
+                session.core.descriptor().target_fps,
+            ),
+            None => String::new(),
+        }
+    }
+
     // --------------------------------------------------------------------- tick
 
     /// The unified step: input → core → audio → GPU. Called once per display-link
@@ -801,6 +814,20 @@ impl EmulatorBridge {
         // so a drag during a skipped frame is not lost.
         if plan.steps > 0 {
             gamepads.end_mouse_frame();
+            // A core can change its own refresh rate in the middle of a game, and one of ours
+            // does: FCEUmm re-reads its av info and publishes it the moment the NES region option
+            // moves between NTSC and PAL. Until this, the pacer kept the rate the game started
+            // at, so a game switched to Europe still ran at 60 steps a second (and the (i) line
+            // still called it an American copy). The core's figure is the authority either way;
+            // see `cores::native_core::sync_descriptor_from_core`.
+            let core_fps = session.core.descriptor().target_fps;
+            if core_fps > 1.0 && (core_fps - pacer.target_fps()).abs() > 0.01 {
+                log::info!(
+                    "core '{}' changed its refresh rate to {core_fps:.4} fps; pacing follows it",
+                    session.core_id
+                );
+                pacer.set_target_fps(core_fps);
+            }
         }
 
         // 3b. Rewind tape. Counted in core steps rather than ticks, so the spacing between
@@ -3031,6 +3058,86 @@ mod tests {
         bridge.attach_core("gbamap", Box::new(MappedGba::new())).unwrap();
         bridge.launch_headless_for_test("gbamap", b"rom").unwrap();
         bridge
+    }
+
+    /// A core that changes its own refresh rate on its third frame, which is what FCEUmm does when
+    /// the NES region option moves from NTSC to PAL: it re-reads its av info, publishes it with
+    /// `SET_SYSTEM_AV_INFO`, and `sync_descriptor_from_core` writes the new rate into the
+    /// descriptor. That is the step this stands in for.
+    struct RegionSwitcher {
+        descriptor: CoreDescriptor,
+        frames: u64,
+    }
+
+    /// 50.0070 and 60.0988: `NesConsole::GetFps` in Mesen 2, `NES_PAL_FPS`/`NES_NTSC_FPS` in FCEUmm.
+    const NES_PAL_FPS: f64 = 50.006_978_908_188_6;
+    const NES_NTSC_FPS: f64 = 60.098_811_862_348_4;
+
+    impl EmulatorCore for RegionSwitcher {
+        fn descriptor(&self) -> &CoreDescriptor {
+            &self.descriptor
+        }
+        fn load_content(&mut self, _: &[u8], _: &ContentHint) -> Result<(), BridgeError> {
+            Ok(())
+        }
+        fn run_frame(&mut self, _: &crate::input::InputSnapshot) -> Result<(), BridgeError> {
+            self.frames += 1;
+            if self.frames == 3 {
+                self.descriptor.target_fps = NES_PAL_FPS;
+            }
+            Ok(())
+        }
+        fn video(&self) -> Option<crate::frame::FrameView<'_>> {
+            None
+        }
+        fn drain_audio(&mut self, _: &mut dyn AudioSink) {}
+        fn reset(&mut self) -> Result<(), BridgeError> {
+            Ok(())
+        }
+        fn frame_count(&self) -> u64 {
+            self.frames
+        }
+    }
+
+    #[test]
+    fn an_nes_game_says_which_region_it_is_running_as() {
+        let bridge = running_as("mesen2", "nes", b"rom", "Smurfs, The (E).nes");
+        // The diagnostic descriptor runs at 60, so this copy is reported as a 60 Hz one. What the
+        // file name says is not consulted: the rate the core reports is the only authority.
+        let line = bridge.session_region_note();
+        assert!(line.contains("60 frames a second"), "{line}");
+        assert!(line.contains("American or Japanese"), "{line}");
+        // Nothing is said for a system where there is only one speed, or with no game running.
+        assert!(running_as("mgba", "gb", b"rom", "Tetris.gb").session_region_note().is_empty());
+        assert!(EmulatorBridge::new().session_region_note().is_empty());
+    }
+
+    #[test]
+    fn the_pacer_follows_a_core_that_changes_its_refresh_rate_mid_game() {
+        let mut bridge = EmulatorBridge::new();
+        let mut spec = descriptor("fceumm", "nes");
+        spec.target_fps = NES_NTSC_FPS;
+        bridge.declare_core(spec.clone());
+        bridge
+            .attach_core("fceumm", Box::new(RegionSwitcher { descriptor: spec, frames: 0 }))
+            .unwrap();
+        bridge.launch_headless_named_for_test("fceumm", b"rom", "Smurfs, The.nes").unwrap();
+        bridge.pacer.set_target_fps(NES_NTSC_FPS);
+        assert!(bridge.session_region_note().contains("60 frames a second"));
+
+        // Five ticks at 60 Hz, which is a step each: the switch happens on the third.
+        let mut now = 0.0;
+        for _ in 0..5 {
+            bridge.tick(now).unwrap();
+            now += 1000.0 / 60.0;
+        }
+
+        // The game is paced at the rate the core now reports, and the plain line follows it. Before
+        // this, both stayed at 60 for the rest of the session.
+        assert!((bridge.pacer.target_fps() - NES_PAL_FPS).abs() < 0.001);
+        let line = bridge.session_region_note();
+        assert!(line.contains("50 frames a second"), "{line}");
+        assert!(line.contains("European"), "{line}");
     }
 
     #[test]

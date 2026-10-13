@@ -320,6 +320,12 @@ pub fn requested_rotation() -> u32 {
     ROTATION.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Set when a core publishes new timing with `SET_SYSTEM_AV_INFO` from inside a frame. A process
+/// global for the same reason as [`ROTATION`]: the call arrives on the core's own thread. Taken by
+/// the next `run_frame`, which re-reads the core's av info; see [`NativeLibretroCore::run_frame`].
+static AV_INFO_REPUBLISHED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 /// `struct retro_rumble_interface`, libretro.h:5649. One field, and its order is the layout.
 #[repr(C)]
 struct RetroRumbleInterface {
@@ -690,6 +696,16 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
             unsafe { continuum_fill_retro_log_callback(data) };
             true
         }
+        ENV_SET_SYSTEM_AV_INFO => {
+            // libretro.h:1369: the core's timing or geometry has changed mid-session. The struct
+            // it points at is not read here — `retro_get_system_av_info` answers the same thing
+            // and is the one source the rest of the engine already trusts — so this only records
+            // that there is something new to ask for, and the next frame asks. FCEUmm sends this
+            // when the NES region option moves between NTSC and PAL, which is a real change of
+            // refresh rate: see `game_region`.
+            AV_INFO_REPUBLISHED.store(true, std::sync::atomic::Ordering::Relaxed);
+            true
+        }
         // Accept-and-noop: the core announces these, and a minimal host need only tolerate
         // them. Returning true means "recognized" without claiming any behaviour a callback
         // would later have to honour. Deliberately absent: SET_AUDIO_BUFFER_STATUS_CALLBACK
@@ -700,7 +716,6 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
         | ENV_SET_CONTENT_INFO_OVERRIDE
         | ENV_SET_INPUT_DESCRIPTORS
         | ENV_SET_PERFORMANCE_LEVEL
-        | ENV_SET_SYSTEM_AV_INFO
         | ENV_SET_GEOMETRY
         | ENV_SET_MESSAGE
         | ENV_SET_MESSAGE_EXT
@@ -1323,6 +1338,9 @@ impl EmulatorCore for NativeLibretroCore {
         reset_negotiated_format();
         // A map is for one game's memory: published again (or not) by this load.
         publish_memory_map(None);
+        // This load reads the core's av info itself at the end, so a flag left over from the last
+        // game would only buy a pointless re-read on the first frame.
+        AV_INFO_REPUBLISHED.store(false, std::sync::atomic::Ordering::Relaxed);
         // Quirks declared during this load are added to the ones declared at init.
         take_serialization_quirks();
 
@@ -1422,6 +1440,12 @@ impl EmulatorCore for NativeLibretroCore {
         // A core that republishes mid-game (a mapper change) does it from inside retro_run.
         if let Some(table) = take_published_memory_map() {
             self.memory_map = table;
+        }
+        // Same for its own timing: a core that changed its refresh rate during this frame said so
+        // with SET_SYSTEM_AV_INFO, and the figure is read back here rather than from the struct it
+        // passed. The bridge's tick notices the new rate and re-paces to it.
+        if AV_INFO_REPUBLISHED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            self.sync_descriptor_from_core();
         }
 
         EXCHANGE.with(|cell| {

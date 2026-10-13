@@ -80,6 +80,8 @@ pub mod launch_retry;
 pub mod launch_failure;
 // Which extra chip file a SNES cartridge needs before it can start.
 pub mod snes_chips;
+// Which region a running game is in (why a European NES game runs at 50 frames a second).
+pub mod game_region;
 pub mod feedback;
 pub mod netplay;
 pub mod sync;
