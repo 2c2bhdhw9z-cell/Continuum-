@@ -465,3 +465,45 @@ index 9bb014f..3e099c5 100644
  	{
  		for (int id = RETRO_DEVICE_ID_JOYPAD_B; id < RETRO_DEVICE_ID_JOYPAD_L2; id++)
  		{
+diff --git a/rom.db b/rom.db
+index bcb66a6..fa2f727 100644
+--- a/rom.db
++++ b/rom.db
+@@ -671,6 +671,37 @@ T-120096 {
+ 		}
+ 	}
+ }
++#Continuum: Super Skidmarks is a J-Cart game that was missing from this database, so its two
++#extra pads answered nothing. Keyed by the sha1 of the European cartridge dump and by its
++#product code, so another dump of the same game is covered too. Same shape as the Pete Sampras
++#Tennis entry above, which is the other 2 MB J-Cart without an EEPROM. The dump's sha1 and size
++#are the ones published at https://segaretro.org/Super_Skidmarks/Technical_information
++957850ce688dcf9c5966f6712b4804f0a5b7457d {
++	name Super Skidmarks
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device jcart
++			last 3FFFFF
++		}
++	}
++}
++T-120136 {
++	name Super Skidmarks
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device jcart
++			last 3FFFFF
++		}
++	}
++}
+ MK-12056 {
+ 	name Super Street Fighter 2: The New Challengers
+ 	map {

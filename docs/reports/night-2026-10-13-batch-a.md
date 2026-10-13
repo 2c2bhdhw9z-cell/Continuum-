@@ -15,6 +15,50 @@ repository the same night, so anything that could only be fixed inside `cores/co
   the app decides success with `line.contains("tapped")`. The clean fix is a real result from the
   engine rather than a sentence to match.
 
+## Not done tonight, with what the next session needs (A6: Sega CD disc swap and RAM-cart saves)
+
+Both turned out to be bigger than the item looked, and neither can be proved off a phone: a Sega
+CD game needs a BIOS file nobody here has, so there is no way to run one through a harness. What
+was read out of BlastEm at its pin (`ab74365`), so the next attempt starts informed:
+
+- **Disc swap.** `libblastem.c` registers no disc control interface at all (the engine's side is
+  ready: `crates/emulator-bridge/src/cores/disk.rs` takes `SET_DISK_CONTROL_EXT_INTERFACE` and the
+  app already has the control for PlayStation). BlastEm has no hook for changing a disc either:
+  `system_header` has `lockon_change` for the lock-on cartridge and nothing for media. A swap
+  would have to repoint `segacd_context::media` AND `segacd_context::cdd.media` (`cdd_mcu` holds
+  its own `system_media *`), then put the drive through tray-open and tray-close (`DS_NO_DISC` in
+  `cdd_mcu.h`) so the BIOS re-reads the table of contents. The core would also have to expand an
+  `.m3u` itself, since `load_media()` does not know that extension. That is core surgery with no
+  way to test it tonight, so nothing was changed: a multi-disc Sega CD game behaves exactly as it
+  did.
+- **RAM-cart saves.** The cart is `segacd_context::bram_cart` (with `bram_cart_id` and
+  `bram_cart_write_enabled`), separate from the 8 KB internal backup RAM at `bram`, which is what
+  `RETRO_MEMORY_SAVE_RAM` returns today (deliberately: that layout matches the `.brm` files the
+  old core wrote, and `battery_layout.rs` migrates them). libretro has one save region, so the two
+  cannot both be it. The two ways out: hand over one buffer holding internal RAM then cart RAM and
+  teach `battery_layout.rs` to split it (an old 8 KB save still has to load), or expose the cart
+  under its own memory id and store it as a second file. Either needs the save plumbing changed,
+  not just the patch.
+
+## What A7 (the "EEPROM carts BlastEm does not know") really turned out to be
+
+The two games named in the item do not save to an EEPROM:
+
+- **Pete Sampras Tennis** (1994) is a J-Cart game with no save at all, and BlastEm's database
+  already has both revisions of it, as J-Cart. The Codemasters tennis game that DOES carry an
+  EEPROM is the 1996 sequel, *Sampras Tennis 96*, and that one is missing from the database. It
+  was not added: the entry needs the EEPROM's size and a dump's sha1, and guessing either would
+  give a save that silently does the wrong thing.
+- **Super Skidmarks** was missing from the database altogether, so its two extra J-Cart pads
+  answered nothing. That entry was added (keyed by the published sha1 of the European cartridge
+  and by its product code). No EEPROM: nothing published says that cartridge has one.
+
+Worth knowing for whoever picks up the rest: a J-Cart's two extra pads are players 3 and 4, and
+until tonight the libretro glue only ever polled two, so NO J-Cart game could have a third or
+fourth player in Continuum. The four-pad poll that came with the multitap work fixes that for
+every J-Cart game the database knows (Micro Machines 2, Micro Machines Military, Micro Machines
+96, Pete Sampras Tennis and now Super Skidmarks).
+
 ## Notes for whoever builds next
 
 - **Editing `scripts/build-core.sh` rebuilds every core** (the per-core fingerprint hashes the
