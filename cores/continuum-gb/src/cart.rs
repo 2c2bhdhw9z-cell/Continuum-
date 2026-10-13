@@ -210,11 +210,26 @@ impl HuC3 {
     }
 }
 
-/// Game Boy Camera registers. `image` is 128 by 112 shades, 0 to 3, from the phone.
+/// What the Game Boy Camera's sensor hands its controller: 128 across, 120 down. Only the
+/// middle 112 rows become the picture; the four spare rows top and bottom feed the edge filter.
+pub const SENSOR_W: usize = 128;
+pub const SENSOR_H: usize = 120;
+/// The picture the cartridge writes: 128 by 112, as 14 rows of 16 tiles.
+pub const CAM_W: usize = 128;
+pub const CAM_H: usize = 112;
+/// Where the cartridge puts the picture: RAM bank 0, 256 bytes in. The first 256 bytes are the
+/// game's own, so writing at the start of the bank trampled them.
+const CAM_IMAGE_AT: usize = 0x0100;
+
+/// Game Boy Camera registers (A000-A035) and the newest picture from the phone's camera.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Camera {
     regs: Vec<u8>,
     busy: u8,
+    /// The phone's camera as the sensor sees it: `SENSOR_W` by `SENSOR_H` shades of grey, 0 to
+    /// 255, newest frame first. Empty until a frame arrives, and then the viewfinder is a flat
+    /// grey rather than a picture nobody took. Filled by `libretro.rs` from the frontend's
+    /// camera, not part of a save state.
     #[serde(skip)]
     pub image: Vec<u8>,
 }
@@ -222,6 +237,24 @@ pub struct Camera {
 impl Default for Camera {
     fn default() -> Self {
         Self { regs: vec![0; 54], busy: 0, image: Vec::new() }
+    }
+}
+
+impl Camera {
+    /// Contrast and dithering: the 4x4 matrix at A006-A035, three thresholds per cell, which
+    /// turns one shade of grey into one of the Game Boy's four.
+    fn matrix(&self, value: i32, x: usize, y: usize) -> u8 {
+        let base = 6 + ((y & 3) * 4 + (x & 3)) * 3;
+        let at = |i: usize| i32::from(self.regs[base + i]);
+        if value < at(0) {
+            0x00
+        } else if value < at(1) {
+            0x40
+        } else if value < at(2) {
+            0x80
+        } else {
+            0xC0
+        }
     }
 }
 
@@ -561,7 +594,7 @@ impl Cart {
             MbcKind::Mbc7 => return None,
             MbcKind::HuC3 => (self.ram_bank & 3) as usize,
             MbcKind::Camera => {
-                if self.ram_bank == 0x10 {
+                if self.cam_regs() {
                     return None;
                 }
                 self.ram_bank as usize & 0x0F
@@ -570,10 +603,16 @@ impl Cart {
         Some((bank * 0x2000 + (addr as usize & 0x1FFF)) % self.ram.len())
     }
 
+    /// The Game Boy Camera's registers are in the A000-BFFF window: any RAM bank number with
+    /// bit 4 set picks them, not only bank $10.
+    fn cam_regs(&self) -> bool {
+        self.kind == MbcKind::Camera && self.ram_bank & 0x10 != 0
+    }
+
     pub fn read_ram(&self, addr: u16) -> u8 {
         if self.kind != MbcKind::None
             && self.kind != MbcKind::HuC3
-            && !(self.kind == MbcKind::Camera && self.ram_bank == 0x10)
+            && !self.cam_regs()
             && !self.ram_enabled
         {
             return 0xFF;
@@ -584,8 +623,13 @@ impl Cart {
         if self.kind == MbcKind::HuC3 {
             return self.huc3_read(addr);
         }
-        if self.kind == MbcKind::Camera && self.ram_bank == 0x10 {
+        if self.cam_regs() {
             return self.camera_read(addr);
+        }
+        // While the picture is being taken the cartridge's RAM is unreadable; only A000 above
+        // answers, which is how the game knows the camera is still working.
+        if self.kind == MbcKind::Camera && self.camera.busy > 0 {
+            return 0x00;
         }
         if self.kind == MbcKind::HuC1 && self.mode == 1 {
             return 0xC0; // infrared: no light received
@@ -607,7 +651,7 @@ impl Cart {
     pub fn write_ram(&mut self, addr: u16, v: u8) {
         if self.kind != MbcKind::None
             && self.kind != MbcKind::HuC3
-            && !(self.kind == MbcKind::Camera && self.ram_bank == 0x10)
+            && !self.cam_regs()
             && !self.ram_enabled
         {
             return;
@@ -620,8 +664,12 @@ impl Cart {
             self.huc3_write(addr, v);
             return;
         }
-        if self.kind == MbcKind::Camera && self.ram_bank == 0x10 {
+        if self.cam_regs() {
             self.camera_write(addr, v);
+            return;
+        }
+        // The capture has the RAM; writes to it are dropped until the picture is finished.
+        if self.kind == MbcKind::Camera && self.camera.busy > 0 {
             return;
         }
         if self.kind == MbcKind::HuC1 && self.mode == 1 {
@@ -672,16 +720,17 @@ impl Cart {
         }
     }
 
+    /// Only A000 reads back, and only its lower three bits; every other register reads as 0.
+    /// They are mirrored every $80 bytes through A000-BFFF.
     fn camera_read(&self, addr: u16) -> u8 {
-        let i = (addr as usize) & 0x3F;
-        if i >= self.camera.regs.len() {
-            return 0xFF;
+        match (addr as usize) & 0x7F {
+            0 => self.camera.regs[0] & 7,
+            _ => 0x00,
         }
-        self.camera.regs[i]
     }
 
     fn camera_write(&mut self, addr: u16, v: u8) {
-        let i = (addr as usize) & 0x3F;
+        let i = (addr as usize) & 0x7F;
         if i >= self.camera.regs.len() {
             return;
         }
@@ -693,38 +742,118 @@ impl Cart {
         }
     }
 
-    /// Writes a 128 by 112 picture into cartridge RAM as Game Boy tiles.
+    /// Takes a picture: the phone's camera frame through the sensor's own processing and the
+    /// controller's dither matrix, into cartridge RAM as 14 rows of 16 Game Boy tiles.
+    ///
+    /// The order of work is the hardware's (Pan Docs, "Game Boy Camera"): exposure time and the
+    /// sensor's narrow output range, the invert bit, the edge filter the registers chose, then
+    /// the 4x4 contrast and dithering matrix. With no frame from the phone the sensor sees a
+    /// flat mid-grey, so the game shows an even picture instead of one nobody took.
     fn capture(&mut self) {
-        let shade = |x: usize, y: usize| -> u8 {
-            if self.camera.image.len() == 128 * 112 {
-                self.camera.image[y * 128 + x] & 3
-            } else {
-                (x / 32) as u8
-            }
+        let regs = self.camera.regs.clone();
+        // A000 bits 1-2 pick which of the sensor's own 1-D filter taps are added and subtracted.
+        let (p_bits, m_bits) = match (regs[0] >> 1) & 3 {
+            0 => (0u8, 1u8),
+            1 => (1, 0),
+            _ => (1, 2),
         };
-        for ty in 0..14 {
-            for tx in 0..16 {
-                let tile = ty * 16 + tx;
-                for row in 0..8 {
-                    let mut lo = 0u8;
-                    let mut hi = 0u8;
-                    for col in 0..8 {
-                        let s = shade(tx * 8 + col, ty * 8 + row);
-                        let bit = 7 - col;
-                        if s & 1 != 0 {
-                            lo |= 1 << bit;
-                        }
-                        if s & 2 != 0 {
-                            hi |= 1 << bit;
+        let n_bit = u32::from(regs[1] & 0x80 != 0);
+        let vh = u32::from((regs[1] >> 5) & 3);
+        let exposure = i32::from(regs[3]) | i32::from(regs[2]) << 8;
+        let alpha = [0.5f32, 0.75, 1.0, 1.25, 2.0, 3.0, 4.0, 5.0][usize::from((regs[4] & 0x70) >> 4)];
+        let e3_bit = u32::from(regs[4] & 0x80 != 0);
+        let invert = regs[4] & 0x08 != 0;
+        let at = |x: usize, y: usize| y * SENSOR_W + x;
+
+        // The sensor: the phone's grey picture (or a flat grey), through the exposure time and
+        // the small voltage swing the chip actually puts out, then made signed.
+        let flat = self.camera.image.len() != SENSOR_W * SENSOR_H;
+        let mut buf = vec![0i32; SENSOR_W * SENSOR_H];
+        for (i, px) in buf.iter_mut().enumerate() {
+            let grey = if flat { 128 } else { i32::from(self.camera.image[i]) };
+            let v = grey * exposure / 0x300;
+            let v = (128 + (v - 128) / 8).clamp(0, 255);
+            *px = (if invert { 255 - v } else { v }) - 128;
+        }
+
+        let mut temp = buf.clone();
+        match (n_bit << 3) | (vh << 1) | e3_bit {
+            // Plain 1-D filtering, and the same with horizontal edge enhancement first.
+            mode @ (0x0 | 0x2) => {
+                if mode == 0x2 {
+                    for y in 0..SENSOR_H {
+                        for x in 0..SENSOR_W {
+                            let west = buf[at(x.saturating_sub(1), y)];
+                            let east = buf[at((x + 1).min(SENSOR_W - 1), y)];
+                            let px = buf[at(x, y)];
+                            let edge = (2 * px - west - east) as f32 * alpha;
+                            temp[at(x, y)] = (px + edge as i32).clamp(0, 255);
                         }
                     }
-                    let at = tile * 16 + row * 2;
-                    if at + 1 < self.ram.len() {
-                        self.ram[at] = lo;
-                        self.ram[at + 1] = hi;
+                }
+                for y in 0..SENSOR_H {
+                    for x in 0..SENSOR_W {
+                        let south = temp[at(x, (y + 1).min(SENSOR_H - 1))];
+                        let px = temp[at(x, y)];
+                        let mut v = 0;
+                        if p_bits & 1 != 0 {
+                            v += px;
+                        }
+                        if p_bits & 2 != 0 {
+                            v += south;
+                        }
+                        if m_bits & 1 != 0 {
+                            v -= px;
+                        }
+                        if m_bits & 2 != 0 {
+                            v -= south;
+                        }
+                        buf[at(x, y)] = v.clamp(-128, 127);
                     }
                 }
             }
+            // Two-dimensional edge enhancement, all four neighbours.
+            0xE => {
+                for y in 0..SENSOR_H {
+                    for x in 0..SENSOR_W {
+                        let north = buf[at(x, y.saturating_sub(1))];
+                        let south = buf[at(x, (y + 1).min(SENSOR_H - 1))];
+                        let west = buf[at(x.saturating_sub(1), y)];
+                        let east = buf[at((x + 1).min(SENSOR_W - 1), y)];
+                        let px = buf[at(x, y)];
+                        let edge = (4 * px - north - south - west - east) as f32 * alpha;
+                        temp[at(x, y)] = (px + edge as i32).clamp(-128, 127);
+                    }
+                }
+                buf.copy_from_slice(&temp);
+            }
+            // The real cartridge gives one flat colour here; the sensor's datasheet does not
+            // document the combination at all.
+            0x1 => buf.fill(-128),
+            // Anything else: the sensor passes the picture through unfiltered.
+            _ => {}
+        }
+
+        // The controller: its matrix picks one of four shades, and the picture goes out as
+        // tiles. The darkest shade of grey is the Game Boy's colour 3, so the count is flipped.
+        const EXTRA: usize = (SENSOR_H - CAM_H) / 2;
+        let mut tiles = [0u8; CAM_H / 8 * 16 * 16];
+        for y in 0..CAM_H {
+            for x in 0..CAM_W {
+                let shade = 3 - (self.camera.matrix(buf[at(x, y + EXTRA)] + 128, x, y) >> 6);
+                let base = ((y / 8) * 16 + x / 8) * 16 + (y & 7) * 2;
+                let bit = 1 << (7 - (x & 7));
+                if shade & 1 != 0 {
+                    tiles[base] |= bit;
+                }
+                if shade & 2 != 0 {
+                    tiles[base + 1] |= bit;
+                }
+            }
+        }
+        let end = CAM_IMAGE_AT + tiles.len();
+        if self.ram.len() >= end {
+            self.ram[CAM_IMAGE_AT..end].copy_from_slice(&tiles);
         }
     }
 
@@ -973,20 +1102,144 @@ mod tests {
         assert_eq!(c.read_ram(0xA000) & 0x0F, 0xD, "61 minutes, low nybble");
     }
 
+    /// The four shades the dither matrix below picks out, and the grey that produces each.
+    const BANDS: [u8; 4] = [0, 64, 152, 255];
+
+    /// A picture the camera cartridge can be given: four vertical bands of 32 pixels, with the
+    /// four rows top and bottom that the controller throws away filled with the opposite shade.
+    fn test_picture() -> Vec<u8> {
+        let mut image = vec![0u8; SENSOR_W * SENSOR_H];
+        for y in 0..SENSOR_H {
+            for x in 0..SENSOR_W {
+                let band = BANDS[x / 32];
+                image[y * SENSOR_W + x] =
+                    if (4..SENSOR_H - 4).contains(&y) { band } else { 255 - band };
+            }
+        }
+        image
+    }
+
+    /// Programs the camera for a straight-through capture: the exposure that leaves the picture
+    /// as it came, and a matrix that splits the sensor's output range into the four shades.
+    fn set_up_camera(c: &mut Cart) {
+        c.write_ram(0xA002, 0x03); // exposure $0300
+        c.write_ram(0xA003, 0x00);
+        for cell in 0..16u16 {
+            for (i, threshold) in [116u8, 124, 132].iter().enumerate() {
+                c.write_ram(0xA006 + cell * 3 + i as u16, *threshold);
+            }
+        }
+    }
+
     #[test]
-    fn camera_capture_writes_tiles() {
+    fn camera_capture_turns_a_picture_into_tiles() {
         let mut c = Cart::new(rom(0xFC, 4)).unwrap();
         c.write_rom(0x0000, 0x0A);
+        // A byte of the game's own, in the 256 bytes the picture must not reach.
+        c.write_ram(0xA0FF, 0x5A);
         c.write_rom(0x4000, 0x10);
-        c.write_ram(0xA000, 0x01);
-        assert_eq!(c.read_ram(0xA000) & 1, 1);
+        c.camera.image = test_picture();
+        set_up_camera(&mut c);
+        // Bit 1: the sensor hands the pixel straight through. Bit 0 takes the picture.
+        c.write_ram(0xA000, 0x03);
+        assert_eq!(c.read_ram(0xA000) & 1, 1, "the camera says it is working");
+        assert_eq!(c.read_ram(0xA002), 0x00, "only A000 reads back");
+        c.write_rom(0x4000, 0x11);
+        assert_eq!(c.read_ram(0xA080), c.read_ram(0xA000), "the registers repeat every $80");
+        c.write_rom(0x4000, 0);
+        assert_eq!(c.read_ram(0xA100), 0x00, "the RAM is unreadable while the picture is taken");
         for _ in 0..4 {
             c.tick(4);
         }
+        c.write_rom(0x4000, 0x10);
         assert_eq!(c.read_ram(0xA000) & 1, 0, "the capture finishes");
+
         c.write_rom(0x4000, 0);
-        assert_eq!(c.read_ram(0xA000), 0, "the left of the picture is empty");
-        assert_eq!(c.read_ram(0xA040), 0xFF, "the next band is shade 1");
+        assert_eq!(c.read_ram(0xA0FF), 0x5A, "the game's own 256 bytes were trampled");
+        // The four bands, darkest to lightest, four tiles each, in the two bitplanes.
+        for (tile, shade) in [(0u16, 3u8), (4, 2), (8, 1), (12, 0)] {
+            let at = 0xA100 + tile * 16;
+            let planes = (
+                if shade & 1 != 0 { 0xFF } else { 0x00 },
+                if shade & 2 != 0 { 0xFF } else { 0x00 },
+            );
+            assert_eq!((c.read_ram(at), c.read_ram(at + 1)), planes, "band at tile {tile}");
+        }
+        // Every one of the 14 tile rows is the darkest band, so the four spare rows the sensor
+        // sends top and bottom really are dropped instead of showing up in the picture.
+        for row in 0..14u16 {
+            let at = 0xA100 + row * 16 * 16;
+            assert_eq!((c.read_ram(at), c.read_ram(at + 1)), (0xFF, 0xFF), "tile row {row}");
+        }
+    }
+
+    #[test]
+    fn camera_with_no_picture_is_an_even_grey() {
+        let mut c = Cart::new(rom(0xFC, 4)).unwrap();
+        c.write_rom(0x0000, 0x0A);
+        c.write_rom(0x4000, 0x10);
+        set_up_camera(&mut c);
+        c.write_ram(0xA000, 0x03);
+        for _ in 0..4 {
+            c.tick(4);
+        }
+        c.write_rom(0x4000, 0);
+        // Mid-grey everywhere: one shade, the same in every tile, and no made-up picture.
+        for byte in 0..14 * 16 * 16u16 {
+            let want = if byte % 2 == 0 { 0xFF } else { 0x00 };
+            assert_eq!(c.read_ram(0xA100 + byte), want, "byte {byte} of the picture");
+        }
+    }
+
+    #[test]
+    fn camera_invert_bit_swaps_dark_for_light() {
+        let picture = test_picture();
+        let bands = |invert: bool| -> Vec<u8> {
+            let mut c = Cart::new(rom(0xFC, 4)).unwrap();
+            c.write_rom(0x0000, 0x0A);
+            c.write_rom(0x4000, 0x10);
+            c.camera.image = picture.clone();
+            set_up_camera(&mut c);
+            c.write_ram(0xA004, if invert { 0x08 } else { 0x00 });
+            c.write_ram(0xA000, 0x03);
+            for _ in 0..4 {
+                c.tick(4);
+            }
+            c.write_rom(0x4000, 0);
+            // One tile of each band, read back as the Game Boy colour its two bitplanes hold.
+            [0u16, 4, 8, 12]
+                .iter()
+                .map(|t| {
+                    u8::from(c.read_ram(0xA100 + t * 16) != 0)
+                        | u8::from(c.read_ram(0xA100 + t * 16 + 1) != 0) << 1
+                })
+                .collect()
+        };
+        assert_eq!(bands(false), vec![3, 2, 1, 0], "the four bands, darkest to lightest");
+        let inverted = bands(true);
+        assert_eq!(inverted[0], 0, "the invert bit makes the darkest band the lightest");
+        assert_eq!(inverted[3], 3, "and the lightest band the darkest");
+    }
+
+    #[test]
+    fn camera_matrix_dithers_within_a_tile() {
+        let mut c = Cart::new(rom(0xFC, 4)).unwrap();
+        c.write_rom(0x0000, 0x0A);
+        c.write_rom(0x4000, 0x10);
+        // No picture, so an even grey, and the dithering is the only thing that can vary it.
+        // Every other column of the 4x4 matrix is given a threshold above that grey.
+        for cell in 0..16u16 {
+            let high = cell % 2 == 1;
+            c.write_ram(0xA006 + cell * 3 + 2, if high { 0xFF } else { 0x00 });
+        }
+        c.write_ram(0xA000, 0x03);
+        for _ in 0..4 {
+            c.tick(4);
+        }
+        c.write_rom(0x4000, 0);
+        // The matrix repeats every four pixels, so one flat grey comes out striped.
+        assert_eq!(c.read_ram(0xA100), 0b0101_0101, "the matrix did not dither the grey");
+        assert_eq!(c.read_ram(0xA101), 0x00);
     }
 
     #[test]

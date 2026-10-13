@@ -68,6 +68,11 @@ const ENV_GET_RUMBLE_INTERFACE: u32 = 23;
 /// libretro.h: `25 | RETRO_ENVIRONMENT_EXPERIMENTAL` (0x10000). The bit is part of the number; a
 /// plain 25 is answered by nobody, which left every motion cartridge with a still console.
 pub const ENV_GET_SENSOR_INTERFACE: u32 = 25 | 0x10000;
+/// libretro.h: `26 | RETRO_ENVIRONMENT_EXPERIMENTAL`.
+pub const ENV_GET_CAMERA_INTERFACE: u32 = 26 | 0x10000;
+/// libretro.h `RETRO_CAMERA_BUFFER_RAW_FRAMEBUFFER`: the frame as pixels in memory, which is
+/// the only kind this app serves (the other is an OpenGL texture).
+const CAMERA_BUFFER_RAW_FRAMEBUFFER: u64 = 1;
 
 /// The RTC block the frontend saves: live registers (5), latched (5), 6 spare, then the Unix
 /// time (u64, little-endian) the registers were true at. HuC3 uses it differently (see
@@ -89,6 +94,82 @@ struct SensorInterface {
     get_sensor_input: Option<SensorInputFn>,
 }
 
+type CameraStartFn = unsafe extern "C" fn() -> bool;
+type CameraStopFn = unsafe extern "C" fn();
+type CameraFrameRawFn = unsafe extern "C" fn(*const u32, u32, u32, usize);
+type CameraFrameGlFn = unsafe extern "C" fn(u32, u32, *const f32);
+type CameraLifetimeFn = unsafe extern "C" fn();
+
+/// libretro.h `struct retro_camera_callback`, field for field and in order. `caps`, the size and
+/// the three callbacks are the core's to fill in; `start` and `stop` come back from the frontend.
+#[repr(C)]
+struct CameraInterface {
+    caps: u64,
+    width: u32,
+    height: u32,
+    start: Option<CameraStartFn>,
+    stop: Option<CameraStopFn>,
+    frame_raw_framebuffer: Option<CameraFrameRawFn>,
+    frame_opengl_texture: Option<CameraFrameGlFn>,
+    initialized: Option<CameraLifetimeFn>,
+    deinitialized: Option<CameraLifetimeFn>,
+}
+
+/// The newest picture from the frontend's camera, as the Game Boy Camera's sensor sees it: 128
+/// by 120 shades of grey. libretro hands frames over on the thread that runs `retro_run`, just
+/// before it, so it is parked here and picked up at the top of the frame.
+static CAMERA_FRAME: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+
+/// The frontend's camera frame: XRGB8888 pixels in memory. Shrunk to the sensor's size (nearest
+/// sampling, which is plenty for 128 pixels across) and turned to shades of grey, because the
+/// camera chip in the cartridge only ever saw brightness.
+unsafe extern "C" fn camera_frame(data: *const u32, width: u32, height: u32, pitch: usize) {
+    use crate::cart::{SENSOR_H, SENSOR_W};
+    let (w, h) = (width as usize, height as usize);
+    if data.is_null() || w == 0 || h == 0 || pitch < w * 4 {
+        return;
+    }
+    let stride = pitch / 4;
+    let pixels = std::slice::from_raw_parts(data, stride * (h - 1) + w);
+    let mut grey = vec![0u8; SENSOR_W * SENSOR_H];
+    for y in 0..SENSOR_H {
+        let row = (y * h / SENSOR_H) * stride;
+        for x in 0..SENSOR_W {
+            let p = pixels[row + x * w / SENSOR_W];
+            let (r, g, b) = ((p >> 16) & 0xFF, (p >> 8) & 0xFF, p & 0xFF);
+            grey[y * SENSOR_W + x] = ((77 * r + 150 * g + 29 * b) >> 8) as u8;
+        }
+    }
+    if let Ok(mut slot) = CAMERA_FRAME.lock() {
+        *slot = Some(grey);
+    }
+}
+
+/// Asks the frontend for its camera, at the size the Game Boy Camera's sensor works in. Returns
+/// its start and stop, or `None` when there is no camera to be had: every frontend is allowed to
+/// refuse, and then the game simply sees a flat grey instead of a picture.
+unsafe fn ask_for_camera(env: EnvFn) -> Option<(CameraStartFn, CameraStopFn)> {
+    let mut cb = CameraInterface {
+        caps: 1 << CAMERA_BUFFER_RAW_FRAMEBUFFER,
+        width: crate::cart::SENSOR_W as u32,
+        height: crate::cart::SENSOR_H as u32,
+        start: None,
+        stop: None,
+        frame_raw_framebuffer: Some(camera_frame),
+        frame_opengl_texture: None,
+        initialized: None,
+        deinitialized: None,
+    };
+    let got = env(ENV_GET_CAMERA_INTERFACE, &mut cb as *mut CameraInterface as *mut c_void);
+    match (got, cb.start, cb.stop) {
+        (true, Some(start), Some(stop)) => Some((start, stop)),
+        _ => {
+            log_line("no camera from the app, so the Game Boy Camera sees a flat grey");
+            None
+        }
+    }
+}
+
 struct Core {
     gb: GameBoy,
     /// Set when the loaded ROM is a Game Boy Advance one (then `gb` is an idle placeholder).
@@ -106,6 +187,9 @@ struct Core {
     rumble: Option<RumbleFn>,
     sensors: Option<SensorInterface>,
     sensors_started: bool,
+    /// The frontend's camera start and stop, for a Game Boy Camera cartridge only.
+    camera: Option<(CameraStartFn, CameraStopFn)>,
+    camera_started: bool,
     /// The frontend took the request for a light reading (no iPhone does). Until it has, the
     /// sunlight setting's "Light sensor" choice falls back to half sun instead of pitch dark.
     light_sensor: bool,
@@ -401,6 +485,22 @@ impl Core {
                 set(0, 5, 0);
                 false
             };
+        }
+    }
+
+    /// Starts the phone's camera, once, and hands the cartridge whatever picture has arrived
+    /// since the last frame. Only a Game Boy Camera cartridge ever gets here, so no other game
+    /// makes the phone ask for camera permission.
+    unsafe fn run_camera(&mut self) {
+        let Some((start, _)) = self.camera else { return };
+        if !self.camera_started {
+            self.camera_started = true;
+            if !start() {
+                log_line("the camera is switched off for games, so the Game Boy Camera sees a flat grey");
+            }
+        }
+        if let Some(frame) = CAMERA_FRAME.lock().ok().and_then(|mut f| f.take()) {
+            self.gb.bus.cart.camera.image = frame;
         }
     }
 
@@ -727,6 +827,15 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     }
     let settings = env.map(|e| crate::options::read(e, system_dir.as_deref())).unwrap_or_default();
     let Some((gb, gba_machine)) = build_machine(rom, &settings, system_dir.as_deref()) else { return false };
+    // Only the Game Boy Camera cartridge asks for the phone's camera, and nothing is captured
+    // until the first frame starts it.
+    if let Ok(mut f) = CAMERA_FRAME.lock() {
+        *f = None;
+    }
+    let camera = match (env, gba_machine.is_none() && gb.bus.cart.kind == crate::cart::MbcKind::Camera) {
+        (Some(env), true) => ask_for_camera(env),
+        _ => None,
+    };
     if gba_machine.is_some() {
         log_line("loaded a Game Boy Advance ROM");
     } else {
@@ -742,6 +851,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
         gb, gba: gba_machine, frame: vec![0; W * H], out: Vec::new(), rtc_block: [0; RTC_LEN], rtc_synced: false,
         stuck_frames: 0, stuck_reports: 0, settings, post: crate::options::Post::default(), system_dir,
         frame_no: 0, rumble, sensors, sensors_started: false, light_sensor: false, next_start,
+        camera, camera_started: false,
         last_motor: None, behind: false, skipped_run: 0, buzz_phase: 0,
     };
     core.apply_live();
@@ -762,7 +872,16 @@ pub extern "C" fn retro_load_game_special(_t: u32, _info: *const RetroGameInfo, 
 #[no_mangle]
 pub extern "C" fn retro_unload_game() {
     if let Ok(mut core) = CORE.lock() {
+        if let Some(c) = core.as_ref() {
+            // The phone's camera goes off with the game, not when the app next notices.
+            if let (Some((_, stop)), true) = (c.camera, c.camera_started) {
+                unsafe { stop() };
+            }
+        }
         *core = None;
+    }
+    if let Ok(mut f) = CAMERA_FRAME.lock() {
+        *f = None;
     }
 }
 
@@ -826,6 +945,7 @@ pub unsafe extern "C" fn retro_run() {
         }
     }
     core.start_sensors();
+    core.run_camera();
     let inputs = core.read_inputs(input);
     core.feed(&inputs);
     if core.gba.is_none() && !core.rtc_synced {

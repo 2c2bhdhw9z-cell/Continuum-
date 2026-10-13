@@ -201,6 +201,79 @@ Ten new tests in the core (95 pass in total, up from 85):
   to another agent tonight: either remember what a core hid alongside the table it caches, or add
   cBoy's ten `cboy_layer_*` keys to that file's own hidden list.
 
+### The phone's camera into the Game Boy Camera — built, untested on a phone
+
+The Game Boy Camera was a cartridge with a little camera on a swivel. cBoy already pretended to
+have the cartridge, but nothing was ever plugged into it: the code had a slot for "the last
+picture from the phone" that nothing on earth filled, so every photo you took came out as four
+fixed stripes. The phone's camera now reaches it, end to end.
+
+What was already there and what was missing: the app's side was finished and working (it is what
+feeds the 3DS camera — the capture session in Swift, and the engine's own camera code in
+`crates/emulator-bridge/src/peripherals/camera.rs`). The missing half was cBoy itself, which
+never asked for a camera. It does now:
+
+- As a Game Boy Camera game loads, and **only** then, cBoy asks the app for the camera, at 128 by
+  120 — the size the real camera chip worked in. No other game asks, so opening Tetris will never
+  make the phone ask for camera permission.
+- On the first frame it switches the camera on. Each frame after that, the newest picture is
+  handed over, shrunk to the chip's size and turned to shades of grey (the real chip only ever saw
+  brightness, never colour).
+- Taking a photo in the game now runs the picture through what the cartridge actually did, in the
+  hardware's own order: the exposure time the game chose, its narrow brightness range, the invert
+  switch, the edge-sharpening the game asked for, and then the contrast-and-dithering grid the
+  game programs — 16 little cells of three thresholds each, which is what turns shades of grey
+  into the Game Boy's four colours and gives Camera photos their speckled look.
+- The camera goes off when the game closes, rather than when the app next notices.
+- With no camera — the app has none, or "Allow camera in games" is off — the game sees an even
+  grey and carries on. No made-up picture, ever.
+
+Also fixed while in there (this closes finding CBOY-11, both halves):
+
+- **The photo was landing 256 bytes too early.** Pan Docs is clear that the cartridge writes the
+  picture into save RAM 256 bytes in, and cBoy was writing it at the very start, on top of the
+  game's own first 256 bytes. Anyone who had used the camera had those bytes quietly scribbled on.
+- The comments that claimed a phone picture it never got are gone, because it gets one now.
+- Smaller things the real cartridge does that cBoy did not: only the trigger register reads back
+  (and only its bottom three bits), the registers repeat every 128 bytes through the window, any
+  bank number with bit 4 set reaches the registers rather than only bank 16, and while a photo is
+  being taken the cartridge's RAM goes unreadable and ignores writes, which is how the game knows
+  it is still working.
+
+### What the tests prove
+
+Six new tests (100 tests pass in total, up from 95). Two of them drive the whole thing through the
+real libretro entry points, with a made-up camera frame and a Game Boy Camera cartridge built
+inside the test, so nothing needs downloading:
+
+1. End to end: the core asks for a camera once, at 128 by 120, before the game runs; starts it on
+   the first frame; a frame handed over turns into the right four shades in the cartridge's RAM at
+   the right address; a second, different frame replaces it; and the camera is stopped when the
+   game closes.
+2. The game's own first 256 bytes are still intact after a photo — the CBOY-11 bug, pinned so it
+   cannot come back.
+3. No camera, no harm: an app with no camera to give, and an app whose camera switch is off, both
+   leave the game running and the picture an even grey. An ordinary cartridge (MBC5) never asks
+   for a camera at all.
+4. The four rows the cartridge throws away really are thrown away: the test frame has its top and
+   bottom filled with the opposite shade, and none of it reaches the picture.
+5. The dithering grid genuinely dithers: one flat grey, with every other cell of the grid given a
+   different threshold, has to come out striped.
+6. The invert switch turns the darkest band into the lightest and the lightest into the darkest.
+
+### What was deliberately left
+
+- **The photo is taken instantly.** On the real cartridge it takes a measurable time, and Pan Docs
+  gives the sum (`4 * (32446 + (N ? 0 : 512) + 16 * exposure)` T-cycles). cBoy finishes it in a
+  couple of ticks instead. Games only poll a bit of the trigger register until it clears, so they
+  work either way, and nothing visible is wrong. It is left alone because the countdown needs a
+  wider number than the one-byte one in the save state, and widening it changes the save-state
+  layout — which means the tag has to be bumped and **every save state anyone already has stops
+  loading**. That is the owner's call, not a thing to slip into a clean-up: worth doing, but as
+  its own piece of work, together with any other state change.
+- No new setting was added for the camera. The app's existing "Allow camera in games" switch and
+  iOS's own permission already cover it, and the camera chip's own knobs are the game's to set.
+
 ## For whoever is editing the notes
 
 STATUS.md and HANDOFF.md still say mosaic is missing. Three places to fix:
@@ -215,11 +288,21 @@ too. cBoy now has 66 settings of its own, and the list of settings other emulato
 does not is down from 23 to 22 on the libretro side and from 14 to 9 on the standalone side
 (docs/CBOY_OPTIONS_INVENTORY.md is regenerated and says so).
 
-Six of the clean-up findings are fixed and can be closed in
+Seven of the clean-up findings are fixed and can be closed in
 docs/reports/cleanup-2026-10-12/: CBOY-05 (a Game Boy ROM run as an Advance game), CBOY-06
 ("next start" options applying live), CBOY-07 (a code-like refusal), CBOY-08 (the serial log
-growing for ever), CBOY-10 (the sunlight choice always dark) and CBOY-12 (jargon and debug
-switches in the settings page). CBOY-01 to CBOY-04, CBOY-09 and CBOY-11 are untouched so far.
+growing for ever), CBOY-10 (the sunlight choice always dark), CBOY-11 (the Game Boy Camera
+claiming a phone picture it never got, and the 256-byte offset — both halves confirmed against
+Pan Docs and fixed) and CBOY-12 (jargon and debug switches in the settings page). CBOY-01 to
+CBOY-04 and CBOY-09 are untouched so far.
+
+The same two lists have "the phone's camera into the Game Boy Camera" as a job under item 6 —
+that is done too, and the Game Boy Camera can now go in a tester-facing list of what cBoy plays
+(CBOY-11 said to keep it out until it really worked; it does).
+
+Nothing is needed from the Swift side for the camera: the capture session in
+`native/ios/Peripherals.swift` already drives any core that asks, and cBoy now asks. No change is
+needed in `fifo.rs` or `ppu.rs` either.
 
 ## Phone checks for the owner
 
@@ -260,3 +343,16 @@ switches in the settings page). CBOY-01 to CBOY-04, CBOY-09 and CBOY-11 are unto
 13. Leave a cBoy game that uses the link cable (Pokemon, Tetris) sitting at its trade screen for a
     few minutes with nothing to link to. The app should stay put and not get killed for using too
     much memory.
+14. If you have the Game Boy Camera, open it on cBoy and make sure "Allow camera in games" is on
+    in the app's settings (iOS will ask for camera permission the first time — say yes). Go to
+    Shoot in the game's menu. You should see what the phone's camera is pointing at, in four
+    shades of grey and speckly, moving as you move the phone. Press the button to take a photo and
+    it should keep the picture you were looking at.
+15. Open any other cBoy game — Tetris, Pokemon, anything. The phone must **not** ask for camera
+    permission. If it ever does for a game without a camera, that is wrong, tell me.
+16. If you have the Game Boy Camera and turn "Allow camera in games" off, open it again: Shoot
+    should show an even grey rather than a picture, and the game should still work normally (you
+    can still move around its menus). Turn the switch back on afterwards.
+17. Only if you had already saved photos in the Game Boy Camera before this build: open it and
+    check your old album still opens and your old photos are still there. The place a photo gets
+    written moved 256 bytes, which was a bug fix, but it is worth a look.

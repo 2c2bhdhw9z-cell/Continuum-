@@ -46,6 +46,53 @@ struct SensorIface {
     get: Option<unsafe extern "C" fn(u32, u32) -> f32>,
 }
 
+/// The frontend's side of the camera, the way the app's own one works: it keeps the core's frame
+/// callback and hands it a frame on the core's thread, just before `retro_run`.
+type CameraFrameRaw = unsafe extern "C" fn(*const u32, u32, u32, usize);
+#[repr(C)]
+struct CameraIface {
+    caps: u64,
+    width: u32,
+    height: u32,
+    start: Option<unsafe extern "C" fn() -> bool>,
+    stop: Option<unsafe extern "C" fn()>,
+    frame_raw: Option<CameraFrameRaw>,
+    frame_gl: Option<unsafe extern "C" fn(u32, u32, *const f32)>,
+    initialized: Option<unsafe extern "C" fn()>,
+    deinitialized: Option<unsafe extern "C" fn()>,
+}
+
+/// What the core asked for and what it was told, so a test can check the whole handshake.
+struct CameraMock {
+    /// False to play a frontend with no camera to give.
+    offered: bool,
+    /// True when the app's "Allow camera in games" switch is on.
+    allowed: bool,
+    requests: u32,
+    size: (u32, u32),
+    frame: Option<CameraFrameRaw>,
+    starts: u32,
+    stops: u32,
+}
+static CAMERA: Mutex<CameraMock> = Mutex::new(CameraMock {
+    offered: true,
+    allowed: true,
+    requests: 0,
+    size: (0, 0),
+    frame: None,
+    starts: 0,
+    stops: 0,
+});
+
+unsafe extern "C" fn camera_start() -> bool {
+    let mut c = CAMERA.lock().unwrap();
+    c.starts += 1;
+    c.allowed
+}
+unsafe extern "C" fn camera_stop() {
+    CAMERA.lock().unwrap().stops += 1;
+}
+
 unsafe extern "C" fn env(cmd: u32, d: *mut c_void) -> bool {
     match cmd {
         15 => {
@@ -73,6 +120,21 @@ unsafe extern "C" fn env(cmd: u32, d: *mut c_void) -> bool {
         // GET_SENSOR_INTERFACE is 25 | RETRO_ENVIRONMENT_EXPERIMENTAL; a frontend answers only that.
         0x10019 => {
             *(d as *mut SensorIface) = SensorIface { set: Some(sensor_state), get: Some(sensor_input) };
+            true
+        }
+        // GET_CAMERA_INTERFACE, 26 | RETRO_ENVIRONMENT_EXPERIMENTAL. The app serves raw pixels
+        // only, so a core that does not ask for those is refused, as the real one refuses it.
+        0x1001A => {
+            let iface = &mut *(d as *mut CameraIface);
+            let mut c = CAMERA.lock().unwrap();
+            c.requests += 1;
+            if !c.offered || iface.caps & 2 == 0 || iface.frame_raw.is_none() {
+                return false;
+            }
+            c.size = (iface.width, iface.height);
+            c.frame = iface.frame_raw;
+            iface.start = Some(camera_start);
+            iface.stop = Some(camera_stop);
             true
         }
         10 | 67 => true,
@@ -606,4 +668,169 @@ fn replay_after_state(game: &str, opt: &[(&str, &str)]) {
             .collect();
         assert!(pa == pb, "{game} {opt:?}: replay after state differs: {detail:?}");
     }
+}
+
+/// One `LD A,v` / `LD [at],A` pair.
+fn store(code: &mut Vec<u8>, at: u16, v: u8) {
+    code.extend_from_slice(&[0x3E, v, 0xEA, at as u8, (at >> 8) as u8]);
+}
+
+/// A Game Boy Camera cartridge that keeps taking pictures: it switches its RAM on, leaves a byte
+/// of its own in the 256 bytes just before where the picture goes, programs the exposure and the
+/// dither matrix, and loops on the trigger. Built here, so no ROM download is needed.
+fn camera_cart() -> Vec<u8> {
+    let mut data = vec![0u8; 0x8000];
+    data[0x100..0x104].copy_from_slice(&[0x00, 0xC3, 0x50, 0x01]); // NOP / JP $0150
+    data[0x147] = 0xFC; // Game Boy Camera
+    data[0x149] = 3; // 32 KB of cartridge RAM
+    let mut code: Vec<u8> = Vec::new();
+    store(&mut code, 0x0000, 0x0A);
+    store(&mut code, 0xA0FF, 0x5A);
+    let again = 0x0150 + code.len() as u16;
+    store(&mut code, 0x4000, 0x10); // the camera registers in the A000-BFFF window
+    store(&mut code, 0xA002, 0x03); // exposure $0300
+    store(&mut code, 0xA003, 0x00);
+    for cell in 0..16u16 {
+        for (i, threshold) in [116u8, 124, 132].iter().enumerate() {
+            store(&mut code, 0xA006 + cell * 3 + i as u16, *threshold);
+        }
+    }
+    store(&mut code, 0xA000, 0x03); // take the picture
+    store(&mut code, 0x4000, 0x00); // back to RAM bank 0, where the picture lands
+    code.extend_from_slice(&[0xC3, again as u8, (again >> 8) as u8]);
+    data[0x150..0x150 + code.len()].copy_from_slice(&code);
+    data
+}
+
+/// A camera frame the way the app delivers one: XRGB8888 pixels in memory, larger than the
+/// sensor so the core has to shrink it, four vertical bands of grey, and the rows the cartridge
+/// throws away (the top and bottom of the frame) in the opposite shade.
+fn camera_test_frame(bands: [u8; 4]) -> (Vec<u32>, u32, u32) {
+    let (w, h) = (256usize, 240usize);
+    let mut px = vec![0u32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let v = bands[x / 64];
+            let v = if (8..h - 8).contains(&y) { v } else { 255 - v };
+            px[y * w + x] = u32::from(v) * 0x0001_0101;
+        }
+    }
+    (px, w as u32, h as u32)
+}
+
+fn reset_camera(offered: bool, allowed: bool) {
+    *CAMERA.lock().unwrap() =
+        CameraMock { offered, allowed, requests: 0, size: (0, 0), frame: None, starts: 0, stops: 0 };
+}
+
+unsafe fn set_callbacks() {
+    retro_set_environment(env);
+    retro_set_video_refresh(video);
+    retro_set_audio_sample_batch(audio);
+    retro_set_input_poll(poll);
+    retro_set_input_state(input);
+    retro_init();
+}
+
+/// One tile of each of the four bands of the picture in cartridge RAM, as the Game Boy colour
+/// its two bitplanes hold. Also checks the game's own first 256 bytes are still there.
+unsafe fn picture_bands() -> Vec<u8> {
+    let ram = retro_get_memory_data(0) as *const u8;
+    let len = retro_get_memory_size(0);
+    assert!(!ram.is_null() && len >= 0x100 + 14 * 16 * 16, "no cartridge RAM to read");
+    let ram = std::slice::from_raw_parts(ram, len);
+    assert_eq!(ram[0xFF], 0x5A, "the picture trampled the game's own 256 bytes");
+    [0usize, 4, 8, 12]
+        .iter()
+        .map(|t| u8::from(ram[0x100 + t * 16] != 0) | u8::from(ram[0x100 + t * 16 + 1] != 0) << 1)
+        .collect()
+}
+
+/// The phone's camera reaches the Game Boy Camera cartridge through the real libretro camera
+/// interface: the core asks for it as the game loads, starts it on the first frame, is handed
+/// frames on its own thread, and the picture turns up in cartridge RAM where the game looks for
+/// it. Needs no ROM download: the cartridge is built above.
+#[test]
+fn the_phones_camera_reaches_the_game_boy_camera() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let data = camera_cart();
+    *OPTS.lock().unwrap() = Some(HashMap::new());
+    reset_camera(true, true);
+    unsafe {
+        set_callbacks();
+        let info = RetroGameInfo { path: std::ptr::null(), data: data.as_ptr() as *const c_void, size: data.len(), meta: std::ptr::null() };
+        assert!(retro_load_game(&info));
+        {
+            let c = CAMERA.lock().unwrap();
+            assert_eq!(c.requests, 1, "the core did not ask the app for a camera");
+            assert_eq!(c.size, (128, 120), "the core asked for the wrong size");
+            assert_eq!(c.starts, 0, "the camera was started before the game ran");
+        }
+        retro_run();
+        assert_eq!(CAMERA.lock().unwrap().starts, 1, "the core did not start the camera");
+        // No frame yet, so an even grey: every band the same, and no made-up picture.
+        assert_eq!(picture_bands(), vec![1, 1, 1, 1], "a picture appeared from nowhere");
+
+        // Frames, delivered the way the app does it: on this thread, just before retro_run.
+        let shades = |bands: [u8; 4]| -> Vec<u8> {
+            let (px, w, h) = camera_test_frame(bands);
+            let frame = CAMERA.lock().unwrap().frame.expect("the core registered no frame callback");
+            frame(px.as_ptr(), w, h, w as usize * 4);
+            retro_run();
+            picture_bands()
+        };
+        assert_eq!(shades([0, 64, 152, 255]), vec![3, 2, 1, 0], "the picture did not arrive");
+        assert_eq!(shades([255, 152, 64, 0]), vec![0, 1, 2, 3], "the next frame did not replace it");
+
+        retro_unload_game();
+        assert_eq!(CAMERA.lock().unwrap().stops, 1, "the camera was left running after the game");
+        retro_deinit();
+    }
+}
+
+/// No camera, no harm: an app that has none to give, or whose camera switch is off, leaves the
+/// Game Boy Camera showing an even grey and the game running. And an ordinary cartridge never
+/// asks for a camera at all, so no normal game makes the phone ask for camera permission.
+#[test]
+fn a_game_with_no_camera_still_runs_and_an_ordinary_game_never_asks() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let data = camera_cart();
+    *OPTS.lock().unwrap() = Some(HashMap::new());
+    let grey = |offered: bool, allowed: bool| -> (Vec<u8>, u32) {
+        reset_camera(offered, allowed);
+        unsafe {
+            set_callbacks();
+            let info = RetroGameInfo { path: std::ptr::null(), data: data.as_ptr() as *const c_void, size: data.len(), meta: std::ptr::null() };
+            assert!(retro_load_game(&info), "the game must still load without a camera");
+            for _ in 0..3 {
+                retro_run();
+            }
+            let bands = picture_bands();
+            let starts = CAMERA.lock().unwrap().starts;
+            retro_unload_game();
+            retro_deinit();
+            (bands, starts)
+        }
+    };
+    // The app has no camera: the core never gets a start, and the picture is an even grey.
+    assert_eq!(grey(false, false), (vec![1, 1, 1, 1], 0), "refused camera");
+    // The app has one but the switch is off: started, told no, and still an even grey.
+    assert_eq!(grey(true, false), (vec![1, 1, 1, 1], 1), "camera not allowed");
+
+    // An ordinary cartridge: no camera is ever asked for.
+    let mut plain = vec![0u8; 0x8000];
+    plain[0x100..0x102].copy_from_slice(&[0x18, 0xFE]); // JR -2
+    plain[0x147] = 0x1B; // MBC5 + RAM + battery
+    plain[0x149] = 3;
+    reset_camera(true, true);
+    unsafe {
+        set_callbacks();
+        let info = RetroGameInfo { path: std::ptr::null(), data: plain.as_ptr() as *const c_void, size: plain.len(), meta: std::ptr::null() };
+        assert!(retro_load_game(&info));
+        retro_run();
+        retro_unload_game();
+        retro_deinit();
+    }
+    let c = CAMERA.lock().unwrap();
+    assert_eq!((c.requests, c.starts), (0, 0), "an ordinary game asked for the camera");
 }
