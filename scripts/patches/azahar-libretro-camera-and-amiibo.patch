@@ -87,7 +87,7 @@ new file mode 100644
 index 0000000..1111111
 --- /dev/null
 +++ b/src/citra_libretro/continuum_peripherals.cpp
-@@ -0,0 +1,239 @@
+@@ -0,0 +1,246 @@
 +// Continuum: the iPhone camera and Amiibo reach Azahar.
 +//
 +// The libretro frontend never asked for a camera, and its camera factory was the blank one, so a
@@ -290,6 +290,13 @@ index 0000000..1111111
 +
 +void ContinuumPollAmiibo() {
 +    static std::string seen;
++    // Every thirtieth frame, not every one. A tap is something a person does, so half a second
++    // later is not noticeable, while opening the stamp file sixty times a second is work this
++    // thread does not have to spare: on a phone the 3DS runs without a JIT.
++    static unsigned int polls = 0;
++    if (polls++ % 30 != 0) {
++        return;
++    }
 +    const std::string dir = LibRetro::GetSaveDir();
 +    if (dir.empty() || !Core::System::GetInstance().IsPoweredOn()) {
 +        return;
@@ -319,8 +326,8 @@ index 0000000..1111111
 +            LOG_INFO(Service_NFC, "Continuum: amiibo loaded from {}", path);
 +        } else {
 +            // The game was looking and refused the file. Remember the stamp so this does not
-+            // repeat every frame. A tap that arrived before the game was looking is not this
-+            // case: that one continues above and is tried again next frame.
++            // repeat on every poll. A tap that arrived before the game was looking is not this
++            // case: that one continues above and is tried again on the next poll.
 +            seen = stamp;
 +            LOG_WARNING(Service_NFC, "Continuum: amiibo at {} was refused", path);
 +        }

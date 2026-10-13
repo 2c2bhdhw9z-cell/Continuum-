@@ -1887,8 +1887,12 @@ impl EmulatorBridge {
         if data.is_empty() {
             return Err(BridgeError::Memory("that battery save is empty".into()));
         }
-        let (core_id, layout) = match self.session.as_ref() {
-            Some(session) => (session.core_id.clone(), session.battery_layout),
+        let (core_id, layout, ext) = match self.session.as_ref() {
+            Some(session) => (
+                session.core_id.clone(),
+                session.battery_layout,
+                session.content_ext.clone(),
+            ),
             None => return Err(BridgeError::NoSession),
         };
         // BlastEm on a Mega Drive cartridge: the file is in the GPGX layout.
@@ -1900,10 +1904,10 @@ impl EmulatorBridge {
         // Padding another emulator added past the end of the save RAM (0xFF, or 0x00 for bsnes).
         let data = battery_layout::fit_padded(data, size, &core_id);
         // A Game Boy save written by mGBA or VBA for a cart with a clock (MBC3, e.g. Pokemon
-        // Gold) carries the clock after the RAM: 48 bytes (or 44, the 32-bit-time variant). A
-        // core that keeps the clock elsewhere (cBoy) has save RAM of exactly the cart's size, so
-        // the RAM part is taken and the clock footer left out rather than refusing the save.
-        let data = if data.len() > size && matches!(data.len() - size, 44 | 48) {
+        // Gold) carries the clock after the RAM. A core that keeps the clock elsewhere (cBoy) has
+        // save RAM of exactly the cart's size, so the RAM part is taken and the clock footer left
+        // out rather than refusing the save. Game Boy files only: see `battery_layout::clock_footer`.
+        let data = if battery_layout::clock_footer(data.len(), size, &ext).is_some() {
             &data[..size]
         } else {
             data
@@ -1938,7 +1942,7 @@ impl EmulatorBridge {
     pub fn persist_battery_save(&self, path: &str) -> Result<usize, BridgeError> {
         let mut written = 0;
         if self.memory_size(crate::memory::MEMORY_SAVE_RAM) > 0 {
-            let data = self.battery_save()?;
+            let data = self.keep_clock_footer(path, self.battery_save()?);
             written += Self::write_save_file(std::path::Path::new(path), &data, "srm.writing")?;
         }
         let clock_size = self.memory_size(crate::memory::MEMORY_RTC);
@@ -1947,6 +1951,31 @@ impl EmulatorBridge {
             written += Self::write_save_file(&Self::clock_path(path), &clock, "rtc.writing")?;
         }
         Ok(written)
+    }
+
+    /// `data` with the cartridge-clock footer the file at `path` already has put back after it
+    /// (see `battery_layout::clock_footer`), or `data` unchanged when there is no footer.
+    ///
+    /// An imported mGBA or VBA Game Boy save keeps its clock after the RAM, and the core keeps its
+    /// own clock elsewhere (`<game>.rtc`), so writing only the RAM back would throw those bytes
+    /// away on the first periodic flush, even if the player never saved. They are kept both
+    /// because the file is still the file another emulator can read, and because an unchanged save
+    /// then compares equal to what is on disk, so nothing is rewritten at all.
+    fn keep_clock_footer(&self, path: &str, data: Vec<u8>) -> Vec<u8> {
+        let Some(session) = self.session.as_ref() else {
+            return data;
+        };
+        let Ok(old) = std::fs::read(path) else {
+            return data;
+        };
+        match battery_layout::clock_footer(old.len(), data.len(), &session.content_ext) {
+            Some(footer) => {
+                let mut out = data;
+                out.extend_from_slice(&old[old.len() - footer..]);
+                out
+            }
+            None => data,
+        }
     }
 
     /// Keeps `bytes` (the battery file at `path`) as `<path>.<suffix>`. Never over an existing
@@ -2617,7 +2646,8 @@ mod tests {
 
     #[test]
     fn battery_save_with_an_rtc_footer_loads_the_ram_part() {
-        let mut bridge = running_diagnostic();
+        // A Game Boy cartridge with a clock, as mGBA saved it: the RAM and 48 bytes of clock.
+        let mut bridge = running_as("cboy", "gbc", b"rom", "Pokemon Gold.gbc");
         let size = bridge.memory_size(crate::memory::MEMORY_SAVE_RAM);
         let mut data = vec![0x5A; size];
         data.extend(vec![1u8; 48]);
@@ -2625,6 +2655,39 @@ mod tests {
         assert_eq!(bridge.battery_save().unwrap(), vec![0x5A; size]);
         data.extend(vec![1u8; 7]);
         assert!(bridge.restore_battery_save(&data).is_err());
+        // No other system writes its clock there, so a file 48 bytes too long belongs to another
+        // game and is refused instead of being cut down to fit.
+        let mut nes = running_as("fceumm", "nes", b"rom", "Zelda.nes");
+        let mut other_game = vec![0x5A; size];
+        other_game.extend(vec![1u8; 48]);
+        assert!(nes.restore_battery_save(&other_game).is_err());
+    }
+
+    #[test]
+    fn an_imported_clock_footer_is_kept_through_a_save() {
+        let dir = scratch_dir("gb-clock-footer");
+        let path = dir.join("Pokemon Gold.gbc.srm");
+        let path = path.to_str().unwrap().to_string();
+        let mut bridge = running_as("cboy", "gbc", b"rom", "Pokemon Gold.gbc");
+        let size = bridge.memory_size(crate::memory::MEMORY_SAVE_RAM);
+        let mut file = vec![0x5A; size];
+        file.extend(vec![0xC3; 48]);
+        std::fs::write(&path, &file).unwrap();
+        assert_eq!(bridge.load_battery_save_file(&path).unwrap(), Some(size + 48));
+        // The periodic flush, with nothing saved in the game: the file is left exactly as it was,
+        // clock and all, instead of being rewritten without it.
+        assert_eq!(bridge.persist_battery_save(&path).unwrap(), 0);
+        assert_eq!(std::fs::read(&path).unwrap(), file);
+        // An in-game save writes the RAM part and keeps the clock after it.
+        bridge
+            .write_memory(crate::memory::MEMORY_SAVE_RAM, 0, &[0xA5, 0xA5])
+            .unwrap();
+        assert_eq!(bridge.persist_battery_save(&path).unwrap(), size + 48);
+        let on_disk = std::fs::read(&path).unwrap();
+        assert_eq!(on_disk.len(), size + 48);
+        assert_eq!(&on_disk[..2], &[0xA5, 0xA5]);
+        assert_eq!(&on_disk[size..], &[0xC3; 48]);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

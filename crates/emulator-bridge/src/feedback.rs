@@ -27,6 +27,14 @@ const PREVIOUS_FILE: &str = "activity-previous.txt";
 /// The launch before the previous one, so a quick relaunch after a crash keeps the crash's log.
 const OLDER_FILE: &str = "activity-older.txt";
 const MARKER_FILE: &str = "session.txt";
+/// The newest frame marker, in one slot of its own that is overwritten (see [`frame_phase`]).
+const FRAME_FILE: &str = "frame.txt";
+/// The last session's frame slot: the one a crash report wants.
+const FRAME_PREVIOUS_FILE: &str = "frame-previous.txt";
+/// Core frames between two frames the slot is written for. The slot answers "how far did it get
+/// before it died", so a couple of seconds apart is close enough, and a file rewritten four times
+/// a frame would cost more than it tells.
+const FRAME_SLOT_FRAMES: u64 = 120;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     match mutex.lock() {
@@ -43,6 +51,9 @@ struct Log {
     lines: VecDeque<String>,
     last: String,
     file_lines: usize,
+    /// The frame the slot is being written for (see [`frame_phase`]). Every phase of that one
+    /// frame is written, so the slot names the phase, not just the frame.
+    frame_slot: u64,
 }
 
 #[cfg(not(test))]
@@ -75,6 +86,12 @@ pub fn log_open(dir: &Path) {
             let _ = fs::rename(&previous, dir.join(OLDER_FILE));
         }
         let _ = fs::rename(&current, previous);
+    }
+    // The frame slot belongs to its session too, so this session's frames cannot overwrite the
+    // marker a crash report is about to send.
+    let frame = dir.join(FRAME_FILE);
+    if frame.exists() {
+        let _ = fs::rename(&frame, dir.join(FRAME_PREVIOUS_FILE));
     }
     *lock(LOG_REF()) = Some(Log {
         dir: Some(dir.to_path_buf()),
@@ -156,14 +173,48 @@ pub fn launch_step(text: &str) {
     }
 }
 
-/// A per-frame phase marker (`frame: N phase`) for a session that needs one (PSP). Only the
-/// first frames and then every 120th are written, so the log is not flooded; the line is not
-/// fsynced (a crash mid-frame still leaves the last one that reached the page cache, and the
-/// launch steps before it are fsynced).
+/// A per-frame phase marker (`frame: N phase`) for a session that needs one (PSP).
+///
+/// The first frames go in the activity log, where "it started drawing at all" belongs next to the
+/// launch lines. Every later marker goes in a slot of its own instead: one small file, overwritten
+/// (`frame.txt`). The log keeps 300 lines, and markers in it pushed the launch, sync and save lines
+/// out of the log, the attached log and the crash report after about two and a half minutes of
+/// play. A crash report carries the last session's slot beside the log (see [`compose`]).
+///
+/// Neither the slot nor the line is fsynced: a crash mid-frame still leaves what reached the page
+/// cache, and the launch steps before it are fsynced.
 pub fn frame_phase(frame: u64, phase: &str) {
-    if frame < 4 || frame % 120 == 0 {
+    if frame < 4 {
         log_add("", &format!("frame: {frame} {phase}"));
+        return;
     }
+    let path = {
+        let mut guard = lock(LOG_REF());
+        let log = guard.get_or_insert_with(Log::default);
+        if frame >= log.frame_slot + FRAME_SLOT_FRAMES {
+            log.frame_slot = frame;
+        }
+        if frame != log.frame_slot {
+            return;
+        }
+        match log.dir.as_ref() {
+            Some(dir) => dir.join(FRAME_FILE),
+            None => return,
+        }
+    };
+    let _ = fs::write(path, format!("frame: {frame} {phase}\n"));
+}
+
+/// The last session's frame marker, empty when there is none.
+fn frame_previous_text() -> String {
+    let dir = lock(LOG_REF()).as_ref().and_then(|log| log.dir.clone());
+    let Some(dir) = dir else {
+        return String::new();
+    };
+    fs::read_to_string(dir.join(FRAME_PREVIOUS_FILE))
+        .unwrap_or_default()
+        .trim()
+        .to_owned()
 }
 
 /// This session's log, oldest line first, at most `limit` lines (the newest ones).
@@ -456,12 +507,17 @@ pub fn compose(report: &Report) -> (String, String) {
         body.push(format!("--\n{}", details.join("\n")));
     }
     // A crash report carries the end of the log that ended in the crash in its body too, not
-    // only in the attached file: the last `launch:` and `frame:` lines say where it died, and
-    // a mail client that drops the attachment must not lose them.
+    // only in the attached file: the last `launch:` lines say where it died, and a mail client
+    // that drops the attachment must not lose them. The frame marker comes from its own slot
+    // (see `frame_phase`), which is why it is a line of its own here.
     if kind.to_ascii_lowercase().contains("crash") {
         let tail = log_previous_text(CRASH_BODY_LINES);
         if !tail.trim().is_empty() {
             body.push(format!("-- last {CRASH_BODY_LINES} activity lines --\n{tail}"));
+        }
+        let frame = frame_previous_text();
+        if !frame.is_empty() {
+            body.push(format!("-- last frame marker --\n{frame}"));
         }
     }
     // A subject is one line: a game file name with a line break in it must not split it.
@@ -552,6 +608,37 @@ mod tests {
         log_open(&dir);
         assert!(log_previous_text(5).contains("surface ready"));
         assert!(!log_older_text(5).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn frame_markers_keep_to_their_own_slot() {
+        let _g = lock(&TEST_LOCK);
+        let dir = temp_dir("frames");
+        log_open(&dir);
+        log_add("10:00:01", "launch: opening God of War");
+        for frame in 0..600u64 {
+            for phase in ["run", "ran", "adopt", "present"] {
+                frame_phase(frame, phase);
+            }
+        }
+        // Ten seconds of PSP play. It used to leave 32 frame lines in the log, and two and a half
+        // minutes of it left nothing else at all. Now the log holds the launch line and the first
+        // four frames, and nothing was pushed out of it.
+        let text = log_text(LOG_KEEP);
+        assert!(text.contains("launch: opening God of War"), "{text}");
+        assert_eq!(text.lines().filter(|line| line.starts_with("frame:")).count(), 16);
+        // The slot holds the newest marker, phase and all.
+        let slot = fs::read_to_string(dir.join(FRAME_FILE)).unwrap();
+        assert_eq!(slot.trim(), "frame: 480 present");
+        // The next launch keeps it, and a crash report sends it beside the log.
+        log_open(&dir);
+        assert_eq!(frame_previous_text(), "frame: 480 present");
+        let (_, body) = compose(&Report {
+            kind: "Crash".into(),
+            ..Report::default()
+        });
+        assert!(body.contains("-- last frame marker --\nframe: 480 present"), "{body}");
         let _ = fs::remove_dir_all(&dir);
     }
 

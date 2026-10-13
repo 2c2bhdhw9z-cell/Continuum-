@@ -257,6 +257,21 @@ pub fn fit_padded<'a>(data: &'a [u8], size: usize, core_id: &str) -> &'a [u8] {
     }
 }
 
+/// How many bytes at the end of a `len`-byte battery file are a cartridge-clock footer past a
+/// `size`-byte save RAM, or `None` when that file is not one.
+///
+/// mGBA and VBA write the MBC3 / HuC3 clock after the RAM in a Game Boy `.srm`: 48 bytes, or 44 in
+/// the variant with a 32-bit time. Only the Game Boy has that convention, which is why the
+/// extension decides: on any other system a file 44 or 48 bytes too long for this cartridge is a
+/// different game's save, and cutting it down would write its bytes into this one.
+pub fn clock_footer(len: usize, size: usize, ext: &str) -> Option<usize> {
+    if !matches!(ext.to_ascii_lowercase().as_str(), "gb" | "gbc" | "sgb") {
+        return None;
+    }
+    let extra = len.checked_sub(size)?;
+    matches!(extra, 44 | 48).then_some(extra)
+}
+
 /// Battery files another core wrote for this game, which a first load may pick up. Never
 /// written or deleted by the engine.
 pub fn migration_candidates(core_id: &str, ext: &str, content_name: &str, support_dir: &Path) -> Vec<PathBuf> {
