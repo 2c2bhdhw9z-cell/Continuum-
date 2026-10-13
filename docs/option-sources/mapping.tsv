@@ -118,7 +118,7 @@ gpsp	gpsp_frameskip	yes	cboy_frameskip
 gpsp	gpsp_frameskip_interval	yes	cboy_frameskip_interval
 gpsp	gpsp_frameskip_threshold	yes	cboy_frameskip_threshold
 gpsp	gpsp_rtc	yes	cboy_gba_hardware
-gpsp	gpsp_rtc_time_source	gap		Advance clock always follows the phone; no frame-counted clock yet
+gpsp	gpsp_rtc_time_source	yes	cboy_gba_clock	Phone clock, or game time counted from the machine's own running time
 gpsp	gpsp_rumble	yes	cboy_rumble
 gpsp	gpsp_serial	gap		Advance link modes (wireless adapter, multiplayer): comes with the two-console link
 gpsp	gpsp_sound_rate	yes	cboy_sample_rate

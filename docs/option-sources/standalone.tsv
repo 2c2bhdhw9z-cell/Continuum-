@@ -1,5 +1,5 @@
 # source	setting	status(yes|app|gap|no|n/a)	cboy keys	note
-std_sameboy	agb_revision	gap		Advance revision choice for Game Boy games; cBoy has one Advance model
+std_sameboy	agb_revision	yes	cboy_gba_model	Advance, Advance SP or Game Boy Player
 std_sameboy	allow_background_controllers	app		controllers are the app's
 std_sameboy	allow_mouse_controls	yes	cboy_tilt_source	MBC7 tilt from another input
 std_sameboy	audio_driver	n/a		desktop audio back end
@@ -35,7 +35,7 @@ std_sameboy	use_faux_analog_inputs	yes	cboy_stick_dpad	reverse direction; stick 
 std_sameboy	volume	yes	cboy_volume	
 std_sameboy	vsync_mode	app		
 std_sameboy	windows_associations_prompted	n/a		Windows file associations
-std_sameboy	GBAGBModel	gap		see agb_revision
+std_sameboy	GBAGBModel	yes	cboy_gba_model	see agb_revision
 std_sameboy	GBAudioMode	app		
 std_sameboy	GBButtonHaptics	app		
 std_sameboy	GBCGBModel	yes	cboy_cgb_revision	
@@ -77,9 +77,9 @@ std_mgba	lastDirectory	n/a
 std_mgba	lastGame	n/a		
 std_mgba	showOSD	app		
 std_mgba	allowOpposingDirections	yes	cboy_opposing	
-std_mgba	cgb.hybridModel	gap		model for cartridges that are both Color and Super Game Boy; cBoy picks Color
+std_mgba	cgb.hybridModel	yes	cboy_hybrid_model	the console a cartridge that runs on both a Game Boy and a Color gets
 std_mgba	cgb.model	yes	cboy_gb_model	
-std_mgba	cgb.sgbModel	gap		see cgb.hybridModel
+std_mgba	cgb.sgbModel	yes	cboy_hybrid_model	see cgb.hybridModel (Super Game Boy is one of its choices)
 std_mgba	frameskip	yes	cboy_frameskip	
 std_mgba	gb.bios	yes	cboy_boot_rom	
 std_mgba	gb.colors	yes	cboy_dmg_palette	
@@ -96,7 +96,7 @@ std_mgba	gba.forceGbp	yes	cboy_gbp	Game Boy Player rumble for Advance games
 std_mgba	idleOptimization	yes	cboy_idle_skip	
 std_mgba	threadedVideo	n/a		desktop threading
 std_mgba	threadedVideo.flushScanline	n/a		
-std_mgba	vbaBugCompat	gap		VBA bug compatibility for old ROM hacks
+std_mgba	vbaBugCompat	yes	cboy_vba_compat	unpacking stops at the declared size, which old ROM hacks depend on
 std_mgba	camera	gap		which camera feeds the Game Boy Camera. cBoy runs Camera cartridges now, but the phone's camera isn't connected to them yet
 std_mgba	darkenMode	yes	cboy_dark_filter	
 std_mgba	logLevel	app		

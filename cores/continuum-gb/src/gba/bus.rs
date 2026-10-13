@@ -49,6 +49,10 @@ fn full_fifo() -> [u8; 2] {
     [100; 2]
 }
 
+fn yes() -> bool {
+    true
+}
+
 fn mini_bios() -> Vec<u8> {
     let mut b = vec![0u8; 0x4000];
     let mut put = |a: usize, op: u32| b[a..a + 4].copy_from_slice(&op.to_le_bytes());
@@ -88,6 +92,10 @@ pub struct Bus {
     /// Answer the Game Boy Player handshake and take its rumble bit (core option).
     #[serde(skip)]
     pub gbp: bool,
+    /// Keep the BIOS's unpacking inside the size the data asks for, the way VisualBoy Advance
+    /// did, instead of spilling over it like a real console (core option). Output only.
+    #[serde(skip, default = "yes")]
+    pub vba_compat: bool,
     #[serde(skip)]
     gbp_i: u8,
     #[serde(skip)]
@@ -150,6 +158,7 @@ impl Bus {
             fifo_period: [1; 2],
             fifo_age: [0; 2],
             gbp: false,
+            vba_compat: true,
             gbp_i: 0,
             gbp_motor: false,
             bios: mini_bios(),
@@ -482,6 +491,8 @@ impl Bus {
             0x06 => w(&mut self.vram, Self::vram_index(addr)),
             0x07 => w(&mut self.oam, (addr & 0x3FF) as usize),
             0x08 if (0x0800_00C4..=0x0800_00C9).contains(&addr) => {
+                // The clock reads the time on a write, so tell it how long the game has run.
+                self.gpio.run_secs = self.cycles / CPU_HZ;
                 self.gpio.write(addr, v);
             }
             0x0D if self.save.kind == SaveKind::Eeprom => self.save.eeprom_write(v),

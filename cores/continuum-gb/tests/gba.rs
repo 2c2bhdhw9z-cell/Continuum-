@@ -148,6 +148,37 @@ fn gba_save_state_round_trip() {
     assert_eq!(a.bus.ppu.frame, b.bus.ppu.frame);
 }
 
+/// "Old fan-made game fixes": compressed data that asks the BIOS to unpack past the size it
+/// declared. On, the unpacking stops at that size, the way VisualBoy Advance did and the way
+/// those games were built for; off, the extra bytes are written, the way a real console does.
+#[test]
+fn unpacking_either_stops_at_the_declared_size_or_spills_over() {
+    let Some(data) = rom("arm/arm.gba") else { return };
+    let (src, dst) = (0x0200_0000u32, 0x0200_1000u32);
+    let unpack = |keep_inside: bool| -> Vec<u8> {
+        let mut gba = Gba::new(data.clone());
+        gba.bus.vba_compat = keep_inside;
+        gba.bus.write32(src, 0x10 | (4 << 8)); // LZ77, four bytes of output declared
+        gba.bus.write8(src + 4, 0x40); // first piece plain, second a copy
+        gba.bus.write8(src + 5, b'A');
+        gba.bus.write8(src + 6, 0x70); // copy the byte before it, ten times over
+        gba.bus.write8(src + 7, 0x00);
+        for i in 0..16 {
+            gba.bus.write8(dst + i, 0);
+        }
+        gba.cpu.r[0] = src;
+        gba.cpu.r[1] = dst;
+        continuum_gb::gba::bios::swi(&mut gba.cpu, &mut gba.bus, 0x11);
+        (0..16).map(|i| gba.bus.peek8(dst + i) as u8).collect()
+    };
+    let inside = unpack(true);
+    assert_eq!(&inside[..4], b"AAAA");
+    assert!(inside[4..].iter().all(|b| *b == 0), "nothing past the declared size: {inside:?}");
+    let spilled = unpack(false);
+    assert_eq!(&spilled[..11], b"AAAAAAAAAAA");
+    assert!(spilled[11..].iter().all(|b| *b == 0), "only the run itself spills over: {spilled:?}");
+}
+
 #[test]
 fn eeprom_write_then_read() {
     use continuum_gb::gba::save::{Save, SaveKind};

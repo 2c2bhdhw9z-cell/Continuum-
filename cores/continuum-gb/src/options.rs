@@ -74,7 +74,7 @@ const OFF_ON: Values = &[(c"off", c"Off"), (c"on", c"On")];
 const SPECS: &[Spec] = &[
     // System
     (c"system", c"cboy_gb_model", c"Console for Game Boy and Color games",
-     c"Auto runs Color cartridges on a Game Boy Color and the rest on a Game Boy. Takes effect on the next start.",
+     c"Auto runs Color cartridges on a Game Boy Color and the rest on a Game Boy; cartridges that run on both have their own setting below. Takes effect on the next start.",
      &[(c"auto", c"Auto"), (c"auto_sgb", c"Auto (Super Game Boy for SGB games)"), (c"dmg", c"Game Boy"), (c"dmg0", c"Game Boy (first revision)"), (c"mgb", c"Game Boy Pocket"), (c"sgb", c"Super Game Boy"),
        (c"sgb2", c"Super Game Boy 2"), (c"sgb_pal", c"Super Game Boy (PAL)"), (c"cgb", c"Game Boy Color"), (c"agb", c"Game Boy Advance (Color games)")],
      c"auto"),
@@ -82,6 +82,19 @@ const SPECS: &[Spec] = &[
      c"Which Game Boy Color hardware revision to model. Revision 0 (the first Japanese units) leaves the timer at a different point after start-up; later revisions match each other. Next start.",
      &[(c"e", c"CPU CGB E (most common)"), (c"d", c"CPU CGB D"), (c"c", c"CPU CGB C"), (c"b", c"CPU CGB B"), (c"a", c"CPU CGB A"), (c"0", c"CPU CGB (revision 0)")],
      c"e"),
+    (c"system", c"cboy_hybrid_model", c"Console for games that run on both",
+     c"Some cartridges work on a plain Game Boy and a Game Boy Color. With the console above on Auto, this picks the one they get: Color for the extra colours, Game Boy for the four shades, or one of the other two for that console's own colours and start-up. Next start.",
+     &[(c"cgb", c"Game Boy Color"), (c"dmg", c"Game Boy"), (c"sgb", c"Super Game Boy"), (c"agb", c"Game Boy Advance")],
+     c"cgb"),
+    (c"system", c"cboy_gba_model", c"Advance console",
+     c"Which Advance an Advance game thinks it is in. Game Boy Player is the one that plugs into a GameCube: pick it and games that shake through it can shake the phone. The Advance and the SP play exactly the same; only their screens differ, which is under Picture. Next start.",
+     &[(c"gba", c"Game Boy Advance"), (c"sp", c"Game Boy Advance SP"), (c"gbp", c"Game Boy Player")], c"gba"),
+    (c"system", c"cboy_gba_clock", c"Advance cartridge clock",
+     c"For Advance cartridges with a clock in them (Pokemon Ruby, Boktai). Phone clock follows the phone's time. Game time starts at the phone's time and then only moves while you are playing.",
+     &[(c"phone", c"Phone clock"), (c"game", c"Game time only")], c"phone"),
+    (c"system", c"cboy_vba_compat", c"Old fan-made game fixes",
+     c"Some fan-made Advance games were built on an older emulator and unpack more graphics than they left room for. On stops at the room they asked for, the way that emulator did. Off lets it spill over, like a real console. A properly made game plays the same either way.",
+     ON_OFF, c"on"),
     (c"system", c"cboy_force_color", c"Run Game Boy games as Color",
      c"Runs Game Boy-only cartridges in Color mode, for colourisation hacks that write Color palettes. Ordinary Game Boy games may look wrong. Next start.",
      OFF_ON, c"off"),
@@ -103,7 +116,7 @@ const SPECS: &[Spec] = &[
      c"Answers the Game Boy Player handshake so Advance games that rumble through the Player can turn the phone's motor on. Leave off for link-cable games. Next start.",
      OFF_ON, c"off"),
     (c"system", c"cboy_rtc", c"Cartridge clock",
-     c"Real time keeps the clock running while the game is closed. Game time counts only while playing. Phone clock sets it to the phone's time at each start. The Advance's clock always follows the phone.",
+     c"For Game Boy and Color cartridges with a clock in them. Real time keeps the clock running while the game is closed. Game time counts only while playing. Phone clock sets it to the phone's time at each start. Advance cartridges have their own setting below.",
      &[(c"real", c"Real time"), (c"game", c"Game time only"), (c"phone", c"Phone clock")], c"real"),
     (c"system", c"cboy_rtc_offset", c"Clock offset",
      c"Moves the phone-clock time by whole hours (Advance clocks, and the Phone clock setting).",
@@ -303,6 +316,14 @@ pub enum Source {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     pub model: Model,
+    /// The console a cartridge that runs on both a Game Boy and a Color gets, when the model is Auto.
+    pub hybrid_model: Model,
+    /// Which Advance an Advance game is told it is in.
+    pub gba_model: GbaModel,
+    /// Count the Advance cartridge clock from play time instead of the phone's clock.
+    pub gba_game_clock: bool,
+    /// Keep the Advance BIOS's unpacking inside the size the data asks for (old fan-made games).
+    pub vba_compat: bool,
     pub boot_rom: bool,
     pub gba_bios_file: bool,
     pub gba_save: Option<(SaveKind, u8)>,
@@ -379,6 +400,15 @@ pub enum RtcMode {
     Phone,
 }
 
+/// The Advance a game is told it is running in. The Advance and the SP are the same machine to
+/// the game; the Game Boy Player answers its own handshake.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GbaModel {
+    Gba,
+    Sp,
+    Gbp,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Colorize {
     Off,
@@ -389,7 +419,8 @@ pub enum Colorize {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
-            model: Model::Auto, boot_rom: false, gba_bios_file: false, gba_save: None, gba_hardware: None,
+            model: Model::Auto, hybrid_model: Model::Cgb, gba_model: GbaModel::Gba, gba_game_clock: false,
+            vba_compat: true, boot_rom: false, gba_bios_file: false, gba_save: None, gba_hardware: None,
             rtc_mode: RtcMode::Real, rtc_offset_hours: 0, dmg_palette: crate::ppu::SHADES, custom_palette: false,
             colorize: Colorize::Off, gbc_color: 0, gba_color: 0, blend: 0, sgb_border: true, volume: 100,
             chan_vol: [100; 4], fifo_vol: [100; 2], lowpass: 0, highpass: true, gba_smooth: false,
@@ -401,6 +432,28 @@ impl Default for Settings {
             frameskip_threshold: 85, frameskip_interval: 1, gba_obj_limit: false, force_color: false, gbp: false, gbc_light: 0, frameskip_auto: false, interference: 0,
             exact_renderer: false,
         }
+    }
+}
+
+impl Settings {
+    /// Which console runs this cartridge: the chosen model, or for Auto the one the cartridge
+    /// asks for. A cartridge that runs on both a Game Boy and a Color (header $143 = $80) gets
+    /// the "runs on both" setting; a Color-only one ($C0) always gets a Color.
+    pub fn console_for(&self, cgb_flag: u8, sgb_cart: bool) -> Model {
+        let colour = cgb_flag & 0x80 != 0;
+        let both = cgb_flag & 0xC0 == 0x80;
+        match self.model {
+            Model::Auto if both => self.hybrid_model,
+            Model::Auto if colour => Model::Cgb,
+            Model::Auto if self.auto_sgb && sgb_cart => Model::Sgb,
+            Model::Auto => Model::Dmg,
+            m => m,
+        }
+    }
+
+    /// Answer the Game Boy Player handshake: the Player model, or the rumble option on its own.
+    pub fn player_handshake(&self) -> bool {
+        self.gbp || self.gba_model == GbaModel::Gbp
     }
 }
 
@@ -477,6 +530,14 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
         };
     }
     s.auto_sgb = get(c"cboy_gb_model").is_some_and(|v| v == "auto_sgb");
+    s.hybrid_model = match get(c"cboy_hybrid_model").as_deref() {
+        Some("dmg") => Model::Dmg, Some("sgb") => Model::Sgb, Some("agb") => Model::Agb, _ => Model::Cgb,
+    };
+    s.gba_model = match get(c"cboy_gba_model").as_deref() {
+        Some("sp") => GbaModel::Sp, Some("gbp") => GbaModel::Gbp, _ => GbaModel::Gba,
+    };
+    s.gba_game_clock = get(c"cboy_gba_clock").is_some_and(|v| v == "game");
+    s.vba_compat = on(c"cboy_vba_compat", true);
     s.cgb_rev0 = get(c"cboy_cgb_revision").is_some_and(|v| v == "0");
     s.stick_deadzone = get(c"cboy_stick_deadzone").and_then(|v| v.parse::<f32>().ok()).unwrap_or(15.0).clamp(0.0, 50.0) / 100.0;
     s.swap_stick = on(c"cboy_swap_stick", false);
@@ -817,7 +878,45 @@ mod tests {
         let r = settings(&[("cboy_gb_model", "auto_sgb"), ("cboy_cgb_revision", "0")]);
         assert!(r.auto_sgb && r.cgb_rev0 && r.model == Model::Auto);
         assert_eq!(settings(&[("cboy_gb_model", "dmg0")]).model, Model::Dmg0);
+        let m = settings(&[("cboy_hybrid_model", "sgb"), ("cboy_gba_model", "gbp"), ("cboy_gba_clock", "game"),
+            ("cboy_vba_compat", "off")]);
+        assert_eq!((m.hybrid_model, m.gba_model), (Model::Sgb, GbaModel::Gbp));
+        assert!(m.gba_game_clock && !m.vba_compat);
         assert_eq!((u.model, u.sgb_pal, u.frameskip_auto, u.frameskip, u.interference), (Model::Sgb, true, true, 0, 50));
+    }
+
+    #[test]
+    fn the_console_a_cartridge_runs_on() {
+        // Plain Game Boy, Color-only and both-consoles cartridges, on the default settings: the
+        // same choices cBoy has always made.
+        let d = Settings::default();
+        assert_eq!(d.console_for(0x00, false), Model::Dmg);
+        assert_eq!(d.console_for(0xC0, false), Model::Cgb);
+        assert_eq!(d.console_for(0x80, false), Model::Cgb);
+        // "Runs on both" only touches the both-consoles ones.
+        for (v, want) in [("dmg", Model::Dmg), ("sgb", Model::Sgb), ("agb", Model::Agb), ("cgb", Model::Cgb)] {
+            let s = settings(&[("cboy_hybrid_model", v)]);
+            assert_eq!(s.console_for(0x80, false), want, "{v}");
+            assert_eq!(s.console_for(0xC0, false), Model::Cgb, "{v} must not move a Color-only game");
+            assert_eq!(s.console_for(0x00, false), Model::Dmg, "{v} must not move a Game Boy game");
+        }
+        // Auto (Super Game Boy) still catches a Super Game Boy cartridge, and a chosen console
+        // still wins over both.
+        let a = settings(&[("cboy_gb_model", "auto_sgb"), ("cboy_hybrid_model", "dmg")]);
+        assert_eq!(a.console_for(0x00, true), Model::Sgb);
+        assert_eq!(a.console_for(0x80, true), Model::Dmg);
+        let p = settings(&[("cboy_gb_model", "mgb"), ("cboy_hybrid_model", "agb")]);
+        assert_eq!(p.console_for(0x80, false), Model::Mgb);
+    }
+
+    #[test]
+    fn the_game_boy_player_handshake_follows_the_advance_console() {
+        assert!(!Settings::default().player_handshake());
+        assert!(settings(&[("cboy_gba_model", "gbp")]).player_handshake());
+        assert!(!settings(&[("cboy_gba_model", "sp")]).player_handshake());
+        assert!(!settings(&[("cboy_gba_model", "gba")]).player_handshake());
+        // The older rumble option on its own still answers it.
+        assert!(settings(&[("cboy_gbp", "on")]).player_handshake());
     }
 
     #[test]

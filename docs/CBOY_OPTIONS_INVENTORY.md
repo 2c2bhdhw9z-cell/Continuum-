@@ -16,7 +16,7 @@ edit `docs/option-sources/mapping.tsv` and rerun.
 | tgbdual | https://github.com/libretro/tgbdual-libretro | `0392c9c469e653205e471114c7949c07c83bfce9` | 5 |
 | vbam | https://github.com/libretro/vbam-libretro | `115defb3a318258ab84746d45258a1aec19d0b4b` | 32 |
 
-Extracted keys: **132**. Covered by cBoy: 102. Gaps: 23. Deliberately not done: 4. Not applicable: 3. cBoy options: **62**.
+Extracted keys: **132**. Covered by cBoy: 103. Gaps: 22. Deliberately not done: 4. Not applicable: 3. cBoy options: **66**.
 
 ## Libretro core options, key by key
 
@@ -141,7 +141,7 @@ Extracted keys: **132**. Covered by cBoy: 102. Gaps: 23. Deliberately not done: 
 | gpsp | `gpsp_frameskip_interval` | yes | `cboy_frameskip_interval` |  |
 | gpsp | `gpsp_frameskip_threshold` | yes | `cboy_frameskip_threshold` |  |
 | gpsp | `gpsp_rtc` | yes | `cboy_gba_hardware` |  |
-| gpsp | `gpsp_rtc_time_source` | gap |  | Advance clock always follows the phone; no frame-counted clock yet |
+| gpsp | `gpsp_rtc_time_source` | yes | `cboy_gba_clock` | Phone clock, or game time counted from the machine's own running time |
 | gpsp | `gpsp_rumble` | yes | `cboy_rumble` |  |
 | gpsp | `gpsp_serial` | gap |  | Advance link modes (wireless adapter, multiplayer): comes with the two-console link |
 | gpsp | `gpsp_sound_rate` | yes | `cboy_sample_rate` |  |
@@ -157,7 +157,7 @@ Extracted keys: **132**. Covered by cBoy: 102. Gaps: 23. Deliberately not done: 
 
 ## cBoy options no libretro core above has
 
-`cboy_contrast`, `cboy_gba_save_type`, `cboy_gyro_source`, `cboy_layer_bg`, `cboy_layer_window`, `cboy_renderer`, `cboy_rtc_offset`, `cboy_run_ahead`, `cboy_sprite_limit`, `cboy_stick_dpad`, `cboy_tilt_source`, `cboy_volume`
+`cboy_contrast`, `cboy_gba_model`, `cboy_gba_save_type`, `cboy_gyro_source`, `cboy_hybrid_model`, `cboy_layer_bg`, `cboy_layer_window`, `cboy_renderer`, `cboy_rtc_offset`, `cboy_run_ahead`, `cboy_sprite_limit`, `cboy_stick_dpad`, `cboy_tilt_source`, `cboy_vba_compat`, `cboy_volume`
 
 ## Standalone emulators
 
@@ -173,7 +173,7 @@ Emulicious is closed source and publishes no settings list (https://emulicious.n
 
 | Emulator | Setting | cBoy | cBoy option | Note | Cited from |
 |---|---|---|---|---|---|
-| sameboy | `agb_revision` | gap |  | Advance revision choice for Game Boy games; cBoy has one Advance model | https://github.com/LIJI32/SameBoy/blob/8a2e496b485f00794ae6bf9680287bd6a3d51935/SDL/configuration.h |
+| sameboy | `agb_revision` | yes | `cboy_gba_model` | Advance, Advance SP or Game Boy Player | https://github.com/LIJI32/SameBoy/blob/8a2e496b485f00794ae6bf9680287bd6a3d51935/SDL/configuration.h |
 | sameboy | `allow_background_controllers` | app |  | controllers are the app's | https://github.com/LIJI32/SameBoy/blob/8a2e496b485f00794ae6bf9680287bd6a3d51935/SDL/configuration.h |
 | sameboy | `allow_mouse_controls` | yes | `cboy_tilt_source` | MBC7 tilt from another input | https://github.com/LIJI32/SameBoy/blob/8a2e496b485f00794ae6bf9680287bd6a3d51935/SDL/configuration.h |
 | sameboy | `audio_driver` | n/a |  | desktop audio back end | https://github.com/LIJI32/SameBoy/blob/8a2e496b485f00794ae6bf9680287bd6a3d51935/SDL/configuration.h |
@@ -209,7 +209,7 @@ Emulicious is closed source and publishes no settings list (https://emulicious.n
 | sameboy | `volume` | yes | `cboy_volume` |  | https://github.com/LIJI32/SameBoy/blob/8a2e496b485f00794ae6bf9680287bd6a3d51935/SDL/configuration.h |
 | sameboy | `vsync_mode` | app |  |  | https://github.com/LIJI32/SameBoy/blob/8a2e496b485f00794ae6bf9680287bd6a3d51935/SDL/configuration.h |
 | sameboy | `windows_associations_prompted` | n/a |  | Windows file associations | https://github.com/LIJI32/SameBoy/blob/8a2e496b485f00794ae6bf9680287bd6a3d51935/SDL/configuration.h |
-| sameboy | `GBAGBModel` | gap |  | see agb_revision | https://github.com/LIJI32/SameBoy/blob/8a2e496b485f00794ae6bf9680287bd6a3d51935/iOS/GBSettingsViewController.m |
+| sameboy | `GBAGBModel` | yes | `cboy_gba_model` | see agb_revision | https://github.com/LIJI32/SameBoy/blob/8a2e496b485f00794ae6bf9680287bd6a3d51935/iOS/GBSettingsViewController.m |
 | sameboy | `GBAudioMode` | app |  |  | https://github.com/LIJI32/SameBoy/blob/8a2e496b485f00794ae6bf9680287bd6a3d51935/iOS/GBSettingsViewController.m |
 | sameboy | `GBButtonHaptics` | app |  |  | https://github.com/LIJI32/SameBoy/blob/8a2e496b485f00794ae6bf9680287bd6a3d51935/iOS/GBSettingsViewController.m |
 | sameboy | `GBCGBModel` | yes | `cboy_cgb_revision` |  | https://github.com/LIJI32/SameBoy/blob/8a2e496b485f00794ae6bf9680287bd6a3d51935/iOS/GBSettingsViewController.m |
@@ -251,9 +251,9 @@ Emulicious is closed source and publishes no settings list (https://emulicious.n
 | mgba | `lastGame` | n/a |  |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/feature/gui/gui-runner.c |
 | mgba | `showOSD` | app |  |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/feature/gui/gui-runner.c |
 | mgba | `allowOpposingDirections` | yes | `cboy_opposing` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
-| mgba | `cgb.hybridModel` | gap |  | model for cartridges that are both Color and Super Game Boy; cBoy picks Color | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
+| mgba | `cgb.hybridModel` | yes | `cboy_hybrid_model` | the console a cartridge that runs on both a Game Boy and a Color gets | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
 | mgba | `cgb.model` | yes | `cboy_gb_model` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
-| mgba | `cgb.sgbModel` | gap |  | see cgb.hybridModel | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
+| mgba | `cgb.sgbModel` | yes | `cboy_hybrid_model` | see cgb.hybridModel (Super Game Boy is one of its choices) | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
 | mgba | `frameskip` | yes | `cboy_frameskip` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
 | mgba | `gb.bios` | yes | `cboy_boot_rom` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
 | mgba | `gb.colors` | yes | `cboy_dmg_palette` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
@@ -270,7 +270,7 @@ Emulicious is closed source and publishes no settings list (https://emulicious.n
 | mgba | `idleOptimization` | yes | `cboy_idle_skip` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
 | mgba | `threadedVideo` | n/a |  | desktop threading | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
 | mgba | `threadedVideo.flushScanline` | n/a |  |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
-| mgba | `vbaBugCompat` | gap |  | VBA bug compatibility for old ROM hacks | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
+| mgba | `vbaBugCompat` | yes | `cboy_vba_compat` | unpacking stops at the declared size, which old ROM hacks depend on | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
 | mgba | `camera` | gap |  | which camera feeds the Game Boy Camera. cBoy runs Camera cartridges now, but the phone's camera isn't connected to them yet | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/3ds/main.c |
 | mgba | `darkenMode` | yes | `cboy_dark_filter` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/3ds/main.c |
 | mgba | `logLevel` | app |  |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/example/client-server/server.c |
@@ -355,5 +355,5 @@ Emulicious is closed source and publishes no settings list (https://emulicious.n
 | bgb | `Waitloop detection` | gap |  | idle skip is Advance-only in cBoy | https://bgb.bircd.org/manual.html |
 | bgb | `boot roms` | yes | `cboy_boot_rom` |  | https://bgb.bircd.org/manual.html |
 
-Standalone settings: **181**. In cBoy: 69. App: 79. Gaps: 14. Not applicable: 19.
+Standalone settings: **181**. In cBoy: 74. App: 79. Gaps: 9. Not applicable: 19.
 

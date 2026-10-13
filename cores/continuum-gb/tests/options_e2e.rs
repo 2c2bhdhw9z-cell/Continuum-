@@ -371,6 +371,56 @@ fn tilt_cartridge_asks_the_frontend_for_motion() {
     assert_eq!(after, vec![1], "switched off mid-game");
 }
 
+/// A cartridge that runs on both a plain Game Boy and a Game Boy Color (header $143 = $80, like
+/// Pokemon Yellow): "Console for games that run on both" decides which one it gets, and that
+/// changes the colours on screen and, for the Super Game Boy, the size of the picture.
+/// Needs no ROM download: the cartridge switches the screen on and loops.
+#[test]
+fn a_cartridge_that_runs_on_both_consoles_follows_its_own_setting() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut data = vec![0u8; 0x8000];
+    // LD A,$91 / LDH ($40),A (screen and background on) / JR -2.
+    data[0x100..0x107].copy_from_slice(&[0x3E, 0x91, 0xE0, 0x40, 0x18, 0xFE, 0x00]);
+    data[0x143] = 0x80; // runs on both
+    let green = continuum_gb::options::palette("green");
+    let shot = |opts: &[(&str, &str)]| -> (u32, u32, Vec<u32>) {
+        *OPTS.lock().unwrap() = Some(opts.iter().map(|(k, v)| (k.to_string(), CString::new(*v).unwrap())).collect());
+        OUT.lock().unwrap().frames.clear();
+        unsafe {
+            retro_set_environment(env);
+            retro_set_video_refresh(video);
+            retro_set_audio_sample_batch(audio);
+            retro_set_input_poll(poll);
+            retro_set_input_state(input);
+            retro_init();
+            let info = RetroGameInfo { path: std::ptr::null(), data: data.as_ptr() as *const c_void, size: data.len(), meta: std::ptr::null() };
+            assert!(retro_load_game(&info));
+            for _ in 0..4 {
+                retro_run();
+            }
+            retro_unload_game();
+            retro_deinit();
+        }
+        let f = OUT.lock().unwrap().frames.iter().rev().find(|f| f.0).cloned().unwrap();
+        (f.1, f.2, f.3)
+    };
+    // The default picks the Color, so the Game Boy palette is not used.
+    let (w, h, px) = shot(&[("cboy_dmg_palette", "green")]);
+    assert_eq!((w, h), (160, 144));
+    assert!(!px.iter().all(|p| green.contains(p)), "Color by default");
+    // Game Boy: the four shades of the chosen palette, and nothing else.
+    let (w, h, px) = shot(&[("cboy_hybrid_model", "dmg"), ("cboy_dmg_palette", "green")]);
+    assert_eq!((w, h), (160, 144));
+    assert!(px.iter().all(|p| green.contains(p)), "Game Boy palette: {:06X}", px[0]);
+    // Super Game Boy: its frame around the picture.
+    let (w, h, _) = shot(&[("cboy_hybrid_model", "sgb")]);
+    assert_eq!((w, h), (256, 224));
+    // Advance: a Color machine again, so not the Game Boy palette.
+    let (w, h, px) = shot(&[("cboy_hybrid_model", "agb"), ("cboy_dmg_palette", "green")]);
+    assert_eq!((w, h), (160, 144));
+    assert!(!px.iter().all(|p| green.contains(p)), "Advance runs it as a Color game");
+}
+
 /// The cartridge clock block (RETRO_MEMORY_RTC), which the frontend keeps as `<game>.rtc` and
 /// writes back before the first frame: with "Real time" the clock carries on from where it was,
 /// plus the time the game was closed. MBC3 (Pokemon Gold's) and HuC3. Needs no ROM download.

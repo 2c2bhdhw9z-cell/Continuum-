@@ -239,8 +239,13 @@ fn write_out(bus: &mut Bus, dst: u32, out: &[u8], halfwords: bool) {
     }
 }
 
+/// LZ77 unpacking. Badly made data can ask for a run that carries on past the size it declared;
+/// a real console writes those bytes anyway, past the end of the space the game set aside, while
+/// VisualBoy Advance stopped at the declared size. Some old fan-made games were built against
+/// that, so `bus.vba_compat` (a core option, on by default) stops there too.
 fn lz77(bus: &Bus, src: u32) -> Vec<u8> {
     let size = (rd32(bus, src) >> 8) as usize;
+    let keep_inside = bus.vba_compat;
     let mut out = Vec::with_capacity(size);
     let mut s = src + 4;
     while out.len() < size {
@@ -257,6 +262,9 @@ fn lz77(bus: &Bus, src: u32) -> Vec<u8> {
                 let disp = ((b0 & 0xF) << 8 | b1) + 1;
                 let len = (b0 >> 4) + 3;
                 for _ in 0..len {
+                    if keep_inside && out.len() >= size {
+                        break;
+                    }
                     let v = if disp <= out.len() { out[out.len() - disp] } else { 0 };
                     out.push(v);
                 }
@@ -266,7 +274,9 @@ fn lz77(bus: &Bus, src: u32) -> Vec<u8> {
             }
         }
     }
-    out.truncate(size);
+    if keep_inside {
+        out.truncate(size);
+    }
     out
 }
 

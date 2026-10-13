@@ -70,20 +70,38 @@ pub struct Gpio {
     /// Seconds to add to the phone's clock (core option), and the clock source.
     #[serde(skip)]
     pub clock_offset: i64,
+    /// Count the cartridge clock from the game's own running time instead of the phone's clock
+    /// (core option "Advance cartridge clock").
+    #[serde(skip)]
+    pub game_clock: bool,
+    /// Seconds this machine has run, fed by the bus for the game-time clock.
+    #[serde(skip)]
+    pub run_secs: u64,
+    /// The phone's time, and the run time, the game-time clock is measured from. Taken afresh at
+    /// each start and after a save state is loaded, so game time begins at the phone's time.
+    #[serde(skip)]
+    clock_anchor: Option<(i64, u64)>,
 }
 
 fn bcd(v: u32) -> u8 {
     ((v / 10) << 4 | (v % 10)) as u8
 }
 
-/// Local date and time as (year 0-99, month, day, weekday 0-6, hour, minute, second).
-pub fn local_time(offset: i64) -> [u32; 7] {
-    let now = std::time::SystemTime::now()
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
-        + offset;
-    let t = now as libc::time_t;
+}
+
+/// Local date and time as (year 0-99, month, day, weekday 0-6, hour, minute, second).
+pub fn local_time(offset: i64) -> [u32; 7] {
+    time_at(now_unix() + offset)
+}
+
+/// The same for a chosen moment, so a clock counted from play time converts the same way.
+pub fn time_at(unix: i64) -> [u32; 7] {
+    let t = unix as libc::time_t;
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     unsafe { libc::localtime_r(&t, &mut tm) };
     [
@@ -251,6 +269,16 @@ impl Gpio {
         }
     }
 
+    /// The time the cartridge's clock reads: the phone's, or one that started at the phone's time
+    /// and since then has only moved while the game was running.
+    fn clock_now(&mut self) -> [u32; 7] {
+        if !self.game_clock {
+            return local_time(self.clock_offset);
+        }
+        let (base, from) = *self.clock_anchor.get_or_insert((now_unix(), self.run_secs));
+        time_at(base + (self.run_secs.saturating_sub(from)) as i64 + self.clock_offset)
+    }
+
     fn rtc_command(&mut self, c: u8) {
         let reg = (c >> 1) & 7;
         self.rtc_cmd = Some(c);
@@ -262,7 +290,7 @@ impl Gpio {
             }
             return;
         }
-        let t = local_time(self.clock_offset);
+        let t = self.clock_now();
         let hour = |h: u32, status: u8| -> u8 {
             if status & 0x40 != 0 {
                 bcd(h) | if h >= 12 { 0x80 } else { 0 }
@@ -362,6 +390,31 @@ mod tests {
             n
         };
         assert!(count(0) > count(255));
+    }
+
+    /// Seconds into the day, so two clock readings can be compared across midnight.
+    fn gap(later: [u32; 7], earlier: [u32; 7]) -> i64 {
+        let secs = |t: [u32; 7]| i64::from(t[4]) * 3600 + i64::from(t[5]) * 60 + i64::from(t[6]);
+        (secs(later) - secs(earlier)).rem_euclid(86_400)
+    }
+
+    #[test]
+    fn the_cartridge_clock_can_count_play_time_instead_of_the_phone() {
+        // Phone clock (the default): the phone's time, however long the game has been running.
+        let mut phone = Gpio::new(Hardware::Rtc);
+        phone.run_secs = 7 * 3600;
+        assert!(gap(phone.clock_now(), local_time(0)) <= 1);
+        // Game time: starts at the phone's time, then moves only with the game's running time.
+        let mut game = Gpio::new(Hardware::Rtc);
+        game.game_clock = true;
+        let start = game.clock_now();
+        assert!(gap(start, local_time(0)) <= 1);
+        game.run_secs = 3661; // an hour, a minute and a second of play
+        let later = game.clock_now();
+        assert_eq!(gap(later, start), 3661);
+        // The clock offset setting still moves it.
+        game.clock_offset = 3600;
+        assert_eq!(gap(game.clock_now(), later), 3600);
     }
 
     #[test]

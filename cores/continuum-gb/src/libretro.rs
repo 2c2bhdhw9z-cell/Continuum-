@@ -266,8 +266,10 @@ impl Core {
             g.bus.apu.chan_vol = s.chan_vol;
             g.bus.fifo_vol = s.fifo_vol;
             g.bus.fifo_smooth = s.gba_smooth;
-            g.bus.gbp = s.gbp;
+            g.bus.gbp = s.player_handshake();
+            g.bus.vba_compat = s.vba_compat;
             g.bus.gpio.clock_offset = s.rtc_offset_hours * 3600;
+            g.bus.gpio.game_clock = s.gba_game_clock;
             g.idle_skip = s.idle_skip;
             g.bus.apu.out_hz = s.sample_rate;
             g.bus.apu.hq = s.audio_hq;
@@ -614,12 +616,7 @@ fn build_machine(rom: Vec<u8>, s: &crate::options::Settings, dir: Option<&str>) 
     let colour = cart.cgb_flag & 0x80 != 0;
     // Header byte 0x146 = 3 marks Super Game Boy support (needs the old licensee code 0x33).
     let sgb_cart = rom.get(0x146) == Some(&3) && rom.get(0x14B) == Some(&0x33);
-    let model = match s.model {
-        Model::Auto if colour => Model::Cgb,
-        Model::Auto if s.auto_sgb && sgb_cart => Model::Sgb,
-        Model::Auto => Model::Dmg,
-        m => m,
-    };
+    let model = s.console_for(cart.cgb_flag, sgb_cart);
     let boot = if s.boot_rom {
         let name = match model {
             Model::Dmg0 => "dmg0_boot.bin",
