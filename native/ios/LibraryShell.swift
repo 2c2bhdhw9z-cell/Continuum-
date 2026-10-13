@@ -17,12 +17,19 @@
 //     disturb what is underneath.
 //
 //  2. THE TAB BAR IS HAND-BUILT RATHER THAN A TabView, and that is a deliberate departure from
-//     FEAT-003's wording. The reference tab bar is text only, red when active, on an opaque black
-//     bar with a hairline above it. Getting that out of TabView means mutating UITabBarAppearance
-//     globally and accepting a translucent bar over a live Metal layer, and the thin status strip
-//     would have to be duplicated into all four tabs or overlaid anyway. A selection enum plus an
-//     HStack is the same four-destination shell with none of that, and it is what makes the strip
-//     and the bar one opaque unit at the bottom.
+//     FEAT-003's wording. The reference tab bar is text only, red when active, with a hairline
+//     above it. Getting that out of TabView means mutating UITabBarAppearance globally and
+//     accepting a translucent bar over a live Metal layer, and the thin status strip would have to
+//     be duplicated into all four tabs or overlaid anyway. A selection enum plus an HStack is the
+//     same four-destination shell with none of that, and it is what makes the strip and the bar
+//     one unit at the bottom.
+//
+//     THAT UNIT FLOATS (owner, 13 October 2026: the tabs should "hover", with the games seen
+//     scrolling underneath). Every tab runs to the bottom edge of the screen, the bar is see-through
+//     glass (Apple's `ultraThinMaterial` under a dark wash; see `bottomChrome`) over it, and every
+//     scrolling tab ends with at least `bottomBarHeight` of empty space so its last row scrolls
+//     clear of the bar. The material only ever blurs the shell's own content: the shell's black
+//     backdrop still covers the canvas, so no Metal layer is behind it.
 //
 //  3. THE HEAVY VIEWS OBSERVE NOTHING. `EngineHost` used to publish telemetry on every frame and
 //     still publishes often, so this file observes it once, here, and hands plain values to the cards. See the
@@ -110,6 +117,11 @@ struct LibraryShell: View {
     /// tabs ~42, inset 34), so the last row of every grid stayed under the bar (BUG_AUDIT #33).
     @State private var measuredBottomChrome: CGFloat = 0
     private var bottomBarHeight: CGFloat { max(84, measuredBottomChrome) }
+    /// The empty space at the end of the All Games and Favorites grid and list: the floating
+    /// bar's height, home indicator included, plus one grid gap of air, so the last row's titles
+    /// scroll fully clear of the glass instead of stopping against its edge. Home gets the same air
+    /// from its stack spacing, and Settings from its own end padding.
+    private var scrollEndClearance: CGFloat { bottomBarHeight + 16 }
 
     /// How tall the featured hero is.
     ///
@@ -302,7 +314,22 @@ struct LibraryShell: View {
             statusStrip
             tabBar
         }
-        .background(Color.black)
+        // THE FLOATING BAR'S GLASS: the content runs underneath, and this is what you see it
+        // through. The material is the same `ultraThinMaterial` the segmented selectors use as
+        // their glass, iOS 15+, so it is a real blur of the covers passing under it. The black
+        // wash over it is the readability half, and it is not optional: the labels are fixed white
+        // and red, and over a white cover the bare material is light enough to swallow both.
+        //
+        // NOT iOS 26's `glassEffect`, on purpose. That glass can shift between light and dark with
+        // whatever is behind it, and these fixed-colour labels would not shift with it, so a bright
+        // cover could turn the bar light under white text, on a screen nobody can look at before
+        // the build. The material reads the same on every iOS this app runs on, 16 included.
+        //
+        // The black wash also covers exactly the frame the old opaque black did, so a tap on the
+        // bar (the home-indicator strip under the tabs included) still stops at the bar and never
+        // reaches a cover passing underneath it.
+        .background(Color.black.opacity(0.6))
+        .background(.ultraThinMaterial)
         .background(GeometryReader { proxy in
             Color.clear
                 .onAppear { measuredBottomChrome = proxy.size.height }
@@ -558,9 +585,11 @@ struct LibraryShell: View {
                        controllers: host.controllers,
                        saveStates: host.saveStates,
                        cheats: host.cheats,
-                       screenModes: host.screenModes)
+                       screenModes: host.screenModes,
+                       // Inside Settings' own scroll view, not padding around it, so the page
+                       // runs under the floating bar like the other tabs and still ends clear of it.
+                       bottomClearance: bottomBarHeight)
             .padding(.top, topBarHeight + max(metrics.insets.top, 8) + 6)
-            .padding(.bottom, bottomBarHeight)
     }
 
     // MARK: Pieces the tabs share
@@ -622,7 +651,7 @@ struct LibraryShell: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, bottomBarHeight)
+            .padding(.bottom, scrollEndClearance)
         }
     }
 
@@ -672,7 +701,12 @@ struct LibraryShell: View {
                 })
                 host.deleteEntries(at: host.indices(matching: ids))
             }
-            Spacer(minLength: bottomBarHeight)
+            // A fixed-height clear row rather than a Spacer: a Spacer alone in a List row has no
+            // stack to take its minimum length from, so how tall it comes out is the List's call,
+            // and the last game has to scroll clear of the floating bar for certain.
+            Color.clear
+                .frame(height: scrollEndClearance)
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
         }

@@ -47,6 +47,10 @@ struct SettingsScreen: View {
     /// Two-screen layouts, the TV and trackpad mode.
     @ObservedObject var screenModes: ScreenModes
 
+    /// Empty space at the end of the page, inside the scroll view, for the library's floating tab
+    /// bar: the page scrolls under the bar and its last row still comes up clear of it.
+    var bottomClearance: CGFloat = 0
+
     /// Whether the control layout editor is up.
     ///
     /// Presented full screen rather than as a sheet, and that is the one thing about it that is not
@@ -141,7 +145,7 @@ struct SettingsScreen: View {
                     aboutSection
                 }
             }
-            .padding(.bottom, 24)
+            .padding(.bottom, 24 + bottomClearance)
         }
         .onAppear {
             // Read on appearance rather than continuously: this is a sentence about the rewind
