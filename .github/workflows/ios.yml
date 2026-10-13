@@ -8,6 +8,19 @@ name: iOS
 # and come back to a downloadable artefact *is* the build system.
 on:
   workflow_dispatch:
+  # MORNING SAFETY NET (owner, 13 October 2026). The owner asked never to wake up without a new
+  # app because the session that was building it stopped in the night (a restart, a freeze, a
+  # timeout, a model outage). These two times run on GitHub's own computers, so nothing that can
+  # happen to the assistant's sandbox can stop them.
+  #
+  # 10:10 UTC is 6:10 AM Eastern and 11:40 UTC is 7:40 AM Eastern, on 13 October only: the `gate`
+  # job below does nothing on any other date, and nothing when the newest code on master is
+  # already published as a build, already building, or has already failed twice. Safe to delete
+  # after that morning.
+  schedule:
+    - cron: "10 8 13 10 *"
+    - cron: "10 10 13 10 *"
+    - cron: "40 11 13 10 *"
   push:
     branches: [master]
     paths:
@@ -68,10 +81,97 @@ permissions:
   contents: write
 
 jobs:
+  # Is this run worth paying for? A push or a hand-started run always is: somebody asked for it.
+  # A scheduled run (the morning safety net in `on:` above) only is if master holds app code that
+  # no published build contains, nothing is already building it, and it hasn't already failed
+  # twice. Fifteen seconds on a Linux runner; `checks` and the macOS `ipa` job that needs it are
+  # skipped when the answer is no, so a scheduled run that isn't needed costs almost nothing and
+  # shows as skipped rather than failed.
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      build: ${{ steps.decide.outputs.build }}
+    steps:
+      - name: Decide whether to build
+        id: decide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          say() { echo "$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
+          go() { echo "build=true" >> "$GITHUB_OUTPUT"; }
+          stop() { echo "build=false" >> "$GITHUB_OUTPUT"; }
+
+          if [ "$EVENT" != "schedule" ]; then
+            say "Started by $EVENT, so this build was asked for. Building."
+            go; exit 0
+          fi
+
+          # The safety net is for one morning only. The cron above would otherwise fire again on
+          # 13 October of later years.
+          TODAY=$(date -u +%F)
+          if [ "$TODAY" != "2026-10-13" ]; then
+            say "The morning safety net was set up for 13 October 2026, and today is $TODAY. Nothing to do."
+            stop; exit 0
+          fi
+
+          HEAD="$GITHUB_SHA"
+          LATEST_TAG=$(gh api "repos/$REPO/releases/latest" --jq .tag_name 2>/dev/null || echo "")
+          say "Newest commit on master: ${HEAD:0:7}. Newest published build: ${LATEST_TAG:-none}."
+
+          if [ -z "$LATEST_TAG" ]; then
+            say "No published build at all, so build."
+            go; exit 0
+          fi
+
+          # Tags are build-<run>-<sha7>.
+          BASE=${LATEST_TAG##*-}
+          if [ "${HEAD:0:7}" = "$BASE" ]; then
+            say "The newest code is exactly what is already published. Nothing to do."
+            stop; exit 0
+          fi
+
+          # Only the paths that can change the app (the `on: push: paths:` list above). A
+          # notes-only night must not cost a macOS build.
+          CODE=$(gh api --paginate "repos/$REPO/compare/${BASE}...${HEAD}" --jq '.files[].filename' \
+            | grep -E '^(native/|crates/|cores/continuum-gb/|scripts/build-core\.sh|scripts/fetch-|scripts/patches/|scripts/check-|scripts/skin-check/|scripts/player-check/|docs/samples/|Cargo\.toml|Cargo\.lock|rust-toolchain\.toml|\.github/workflows/ios\.yml)' \
+            | grep -v -E '^scripts/check-core-updates\.sh$' || true)
+          if [ -z "$CODE" ]; then
+            say "Nothing that changes the app has landed since $LATEST_TAG. Nothing to do."
+            stop; exit 0
+          fi
+          say "$(printf '%s\n' "$CODE" | wc -l | tr -d ' ') app files changed since $LATEST_TAG."
+
+          OTHERS=$(gh api "repos/$REPO/actions/workflows/ios.yml/runs?per_page=30" \
+            --jq "[.workflow_runs[] | select(.status != \"completed\") | select(.id != $GITHUB_RUN_ID)] | length")
+          if [ "$OTHERS" != "0" ]; then
+            say "An iOS build is already running or queued ($OTHERS). Leaving it to finish."
+            stop; exit 0
+          fi
+
+          TRIED=$(gh api "repos/$REPO/actions/workflows/ios.yml/runs?head_sha=$HEAD&per_page=30" \
+            --jq "[.workflow_runs[] | select(.id != $GITHUB_RUN_ID)] | length")
+          if [ "$TRIED" -ge 2 ]; then
+            say "This exact code has already been built $TRIED times with no published app, so something is wrong with it rather than with the schedule. Not trying a third time."
+            stop; exit 0
+          fi
+
+          say "No build exists for the newest code, so building it now."
+          go
+
   # The checks that need no Mac, on a Linux runner a tenth of the price, BEFORE the macOS build.
   # A failure here stops the run in minutes with the failing test named, instead of after a
   # ~30 minute .ipa build, or worse, letting a broken engine reach the phone.
   checks:
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     # Reads the repository and nothing else; the write permission above is for the ipa job.
