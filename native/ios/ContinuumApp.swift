@@ -3838,6 +3838,20 @@ final class EngineHost: ObservableObject {
         return nil
     }
 
+    /// A SNES cartridge with a second processor inside it needs that chip's own file, and which
+    /// file depends on the GAME rather than the system, so it cannot be a `FirmwareNeed`: the
+    /// engine reads the cartridge header and names the file (`snes_chips.rs`). Nil when the game
+    /// needs nothing, or when the file it needs is already installed.
+    func missingSnesChip(for entry: LibraryEntry) -> String? {
+        guard CoreCatalog.system(for: entry) == .snes,
+              let need = snesChipNeed(path: entry.path, gameName: entry.name) else { return nil }
+        guard let dir = systemDirectory() else { return need.line }
+        let found = need.files.contains { name in
+            Self.firmwarePresent(name, subfolder: nil, in: dir)
+        }
+        return found ? nil : need.line
+    }
+
     /// Whether a firmware file is in the system folder, at its top or in the subfolder its core
     /// reads, matched case-insensitively in both (a user's SEGA_101.BIN is the right file). The
     /// ONE lookup for "is this BIOS here": the Settings checklist, the launch gate and the HUD's
@@ -4741,6 +4755,14 @@ final class EngineHost: ObservableObject {
                     + "Continuum folder in Files, then use Settings, Install a BIOS from the "
                     + "Continuum folder"
             }
+            return
+        }
+        // The SNES chip cartridges, which are per game rather than per system: the engine reads
+        // the header and names the file, instead of the player getting a game that will not start.
+        if let chipLine = missingSnesChip(for: entry) {
+            status = chipLine
+            FeedbackCenter.step("launch refused: \(entry.name) needs a SNES chip file that is not "
+                                + "in the system folder")
             return
         }
         // Name the core in the breadcrumb, so a routing bug is one glance rather than a

@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use crate::{core_updates, launch_retry};
+use crate::{core_updates, launch_retry, snes_chips};
 
 /// Once per app start, before the feedback session files in `dir` are rewritten. Returns "" or one
 /// line for the activity log naming the emulators that changed since the last install.
@@ -37,4 +37,25 @@ pub fn launch_retry_core(system_cores: Vec<String>, refused_core: String, refuse
 #[uniffi::export]
 pub fn launch_retry_line(refused_name: String, fallback_name: String) -> String {
     launch_retry::retry_line(&refused_name, &fallback_name)
+}
+
+/// What a SNES cartridge with a chip inside it needs before it can start.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SnesChipNeed {
+    /// The file names the core looks for, best first. Any one of them is enough.
+    pub files: Vec<String>,
+    /// The player's line, for when none of them is installed.
+    pub line: String,
+}
+
+/// The chip file the SNES game at `path` needs, or none for a game that needs none (almost all of
+/// them). The app checks the system folder for the names and shows `line` when none is there.
+#[uniffi::export]
+pub fn snes_chip_need(path: String, game_name: String) -> Option<SnesChipNeed> {
+    let rom = std::fs::read(&path).ok()?;
+    let chip = snes_chips::chip_file(&rom)?;
+    Some(SnesChipNeed {
+        files: chip.files.iter().map(|name| (*name).to_string()).collect(),
+        line: chip.missing_line(&game_name),
+    })
 }
