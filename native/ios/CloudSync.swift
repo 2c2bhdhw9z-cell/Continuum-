@@ -1317,7 +1317,17 @@ final class CloudSync: ObservableObject {
                         except: alreadyAside)
                     // A merge that failed keeps its own "sync folder failed: ..." line, and the
                     // backup's settings are not queued to apply: it did not finish.
-                    guard ok else { return }
+                    //
+                    // It DOES say where the copies it had already moved went, in this same
+                    // message. Before, that line was held for the next restore's finished line,
+                    // so a player whose restore stopped part-way was never told at all.
+                    guard ok else {
+                        if let self, let older = self.olderCopiesLine {
+                            self.olderCopiesLine = nil
+                            self.setLine(self.line.isEmpty ? older : self.line + " " + older)
+                        }
+                        return
+                    }
                     self?.finishRestore(backupSettings: backupSettings)
                 }
                 self.runSync(folder: staging, target: "staging", scoped: false, exportFirst: false,
