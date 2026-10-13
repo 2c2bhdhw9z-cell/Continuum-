@@ -15,6 +15,12 @@
 // keeps a multi-gigabyte backup fast). The reader takes stored and deflated entries, ZIP64
 // included, so a zip made by Files' own Compress restores too.
 //
+// EVERY ENTRY CARRIES ITS OWN SIZES (review finding IOS-17). Each file's check number and size
+// go in its own header, filled in by seeking back once the file has been written, instead of in
+// a trailer after it. Unzippers that read front to back and never look at the directory at the
+// end (Java's, and some phone and website ones) refuse a trailer on an uncompressed file, so
+// they used to refuse the whole backup; Files, unzip and Python always took it and still do.
+//
 // CHECKED ON THE WAY BACK IN (review finding IOS-13). Unpacking works out each file's check
 // number (CRC-32) from what it writes and compares it with the one the zip recorded, and a
 // deflated entry whose stream stops before its end marker is refused. A backup that was damaged
@@ -147,8 +153,9 @@ enum BackupArchive {
             let big = size >= 0xFFFF_FFFF || offset >= 0xFFFF_FFFF
             let headerOffset = offset
 
-            // Local header. CRC is not known yet: bit 3 (data descriptor) follows the data.
-            var local: [UInt8] = le32(0x0403_4B50) + le16(big ? 45 : 20) + le16(0x0808) + le16(0)
+            // Local header. The CRC and the sizes are not known until the data has been written,
+            // so they are left blank here and filled in below, in place (IOS-17).
+            var local: [UInt8] = le32(0x0403_4B50) + le16(big ? 45 : 20) + le16(0x0800) + le16(0)
                 + le16(dosTime) + le16(dosDate) + le32(0)
             local += big ? le32(0xFFFF_FFFF) + le32(0xFFFF_FFFF) : le32(0) + le32(0)
             let localExtra: [UInt8] = (big ? le16(1) + le16(16) + le64(0) + le64(0) : []) + stamp
@@ -166,18 +173,27 @@ enum BackupArchive {
                 written += UInt64(piece.count)
             }
             offset += written
-            let descriptor: [UInt8] = big
-                ? le32(0x0807_4B50) + le32(crcValue) + le64(written) + le64(written)
-                : le32(0x0807_4B50) + le32(crcValue) + le32(UInt32(written)) + le32(UInt32(written))
-            try out.write(contentsOf: Data(descriptor))
-            offset += UInt64(descriptor.count)
+
+            // Back up to the header and fill in the check number and the sizes: at +14 the CRC,
+            // then the two 32-bit sizes for a normal file, or the ZIP64 field's two 64-bit ones
+            // for a big one (its 32-bit fields keep the 0xFFFFFFFF that points at it).
+            try out.seek(toOffset: headerOffset + 14)
+            if big {
+                try out.write(contentsOf: Data(le32(crcValue)))
+                try out.seek(toOffset: headerOffset + 30 + UInt64(name.count) + 4)
+                try out.write(contentsOf: Data(le64(written) + le64(written)))
+            } else {
+                try out.write(contentsOf: Data(le32(crcValue) + le32(UInt32(written))
+                    + le32(UInt32(written))))
+            }
+            try out.seek(toOffset: offset)
 
             let needs64 = written >= 0xFFFF_FFFF || headerOffset >= 0xFFFF_FFFF
             var extra: [UInt8] = []
             if needs64 { extra = le16(1) + le16(24) + le64(written) + le64(written) + le64(headerOffset) }
             extra += stamp
             var entry: [UInt8] = le32(0x0201_4B50) + le16(0x031E) + le16(needs64 ? 45 : 20)
-                + le16(0x0808) + le16(0) + le16(dosTime) + le16(dosDate) + le32(crcValue)
+                + le16(0x0800) + le16(0) + le16(dosTime) + le16(dosDate) + le32(crcValue)
             entry += needs64 ? le32(0xFFFF_FFFF) + le32(0xFFFF_FFFF)
                              : le32(UInt32(written)) + le32(UInt32(written))
             entry += le16(UInt16(name.count)) + le16(UInt16(extra.count)) + le16(0) + le16(0) + le16(0)
