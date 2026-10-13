@@ -27,13 +27,17 @@ reach zero at all.
 `tests/roms.rs::MEALYBUG_PASSING` pins all 23 by name: a change that drops one of them is wrong,
 whatever else it fixes.
 
-The last two window rules (the `WY` comparison needing the window switched on, and `WX` = 166) are
-in and the score is unchanged at 23, because no Mealybug picture probes either: both are pinned
-instead by unit tests in `ppu.rs` - `the_window_waits_for_the_next_frame_when_it_is_switched_on_late`,
+Several rules are in that no Mealybug picture can probe, so the score does not move for them and
+they are pinned by unit tests in `ppu.rs` instead. The window's last two (the `WY` comparison
+needing the window switched on, and `WX` = 166):
+`the_window_waits_for_the_next_frame_when_it_is_switched_on_late`,
 `switching_the_window_on_during_its_own_line_catches_the_match`,
-`wx_166_leaves_the_window_running_into_the_next_line` and `wx_167_never_starts_the_window`. Each
-of them was checked to fail when the rule it covers is taken back out, so they are evidence and
-not decoration.
+`wx_166_leaves_the_window_running_into_the_next_line` and `wx_167_never_starts_the_window`. The
+object stalls and the length of mode 3 that comes out of them:
+`the_object_stalls_are_mode_3s_length`,
+`an_object_at_x_0_waits_a_whole_tile_fetch_whatever_scx_says` and
+`a_colour_pays_for_an_object_it_has_been_told_not_to_draw`. Every one of them was checked to fail
+when the rule it covers is taken back out, so they are evidence and not decoration.
 
 ### The two tools that make a picture into evidence
 
@@ -233,15 +237,51 @@ An object is fetched when its X matches the PPU position plus 8. The fetch does 
 immediately: the background fetcher first runs on until it has reached its last read dot *and* the
 background FIFO is non-empty, so an object landing early in a tile costs more dots than one
 landing late. The object fetch itself takes six dots, during which the background fetcher is
-stalled and the LCD is handed nothing; an object still waiting at X 0 holds up even the line's
-fine-scroll discard. **Mode 3's length is the sum of those stalls.** `fifo.rs` now works that way
-and its own dot count agrees with `ppu.rs::mode3_length`, which stays as the authority for STAT
-and HBlank so that the two drawers cannot differ in anything the CPU can see.
+stalled and the LCD is handed nothing - the fetcher does take one further step on each of the
+first two of those six - and an object still waiting at X 0 holds up even the line's fine-scroll
+discard. **Mode 3's length is the sum of those stalls.** `fifo.rs` works that way, and
+`ppu.rs::mode3_length` stays the authority for STAT and HBlank so the two drawers cannot differ in
+anything the CPU can see.
 
 The object's row address is worked out twice, once per byte, so LCDC bit 2 changing the object's
 height between the two mixes two rows. Objects are kept reverse sorted by X, and among objects
 sharing an X the lower OAM index is fetched first and so wins on a DMG; on the Color the OAM index
 is carried into the FIFO and the lower index wins wherever they overlap.
+
+#### The two stalls `mode3_length` was not charging for
+
+The drawer's dot count and `mode3_length` were measured against each other for every sprite
+layout, and they disagreed in two places. Both are about what a stall *costs* rather than what it
+draws, so no Mealybug picture can see either: they are pinned by
+`ppu.rs::the_object_stalls_are_mode_3s_length`, which compares the dot the drawer hands over its
+last pixel on against the dot `mode3_length` puts mode 0 at, for one object at every X, for pairs
+that share a tile and pairs that do not, and for the ten-object limit at every spacing - with the
+objects inserted in the reverse of X order so the OAM order is not the fetch order - across SCX
+0-7, on a DMG, on a Color, on a Color with objects switched off, and with 8x16 objects. The
+drawer counts single dots and STAT shows whole M-cycles; that rounding is now the only difference
+left, in all of them.
+
+- **An object at X=0 waits a whole tile fetch, whatever SCX's low bits say.** Rendering, *and the
+  fine-scroll adjustment with it*, does not happen while an object at X=0 is pending, so such an
+  object is always fetched with the fetcher still on the first step of its tile: five dots of
+  waiting and six of fetching, eleven in all. `mode3_length` was shortening that wait by the fine
+  scroll, which is the one case where the two drawers' idea of mode 3 differed - by up to five
+  dots, whenever a line had a sprite at X=0 and a non-zero `SCX & 7`. With the rule in, the
+  formula reproduces the drawer's dot count **exactly** (not merely to the M-cycle) in all 2140
+  layouts measured; without it, 129 of them are wrong.
+- **A Color pays for an object even when it has been told not to draw one.** Clearing LCDC bit 1
+  makes a DMG skip the object fetch entirely, but a Color runs the fetch anyway and only drops the
+  pixel as it leaves the FIFO, so mode 3 is just as long as with objects on. `mode3_length` was
+  returning the bare length for both, while the drawer - rightly - was spending the dots.
+
+#### One thing from SameBoy that is deliberately *not* here
+
+`Core/display.c` moves the LCD back a pixel (`lcd_x--`) when a DMG starts the window through the
+"one pixel late" case, and calls it an LCD-PPU horizontal desync that happens on DMG units but not
+all of them. cBoy has that window case but not the pixel it swallows, and that is correct for
+these references: the `DMG-blob` pictures do not show the desync, and `m3_window_timing`,
+`m3_wx_4_change`, `m3_wx_5_change`, `m3_wx_6_change` and `m3_lcdc_win_en_change_multiple_wx` all
+pass pixel for pixel without it. Adding it would break five passing pictures.
 
 ## The 32 failures, grouped
 
@@ -323,6 +363,13 @@ takes six, and the pixel stream resumes unbroken. Whatever the DMG does there is
 detail of the object fetch that is not in the material to hand, so it is recorded and left: one
 pixel on four lines, chased no further. **Do not go looking for it by trying values.**
 
+Re-checked once more while the object model was being gone over against `Core/display.c` line by
+line (the wait before a fetch, the six dots, the X=0 hold, the row address, the 8x16 masking, the
+DMG's X-then-index order and the Color's index order): all of them agree, the left-edge pixel is
+still unexplained, and nothing else about objects differs. The one SameBoy behaviour cBoy leaves
+out on purpose is the window's LCD desync described above, which cannot reach this test because it
+uses no window.
+
 ### Group 3 — what the register-write work fixed
 
 `dmg:m3_lcdc_obj_en_change_variant` went from 96 differing pixels to pixel-for-pixel with the
@@ -353,8 +400,9 @@ CPU side and passes 86/86 on both drawers. `m2_win_en_toggle`, the one `m2_*` pi
    see below). That would let `WRITE_BIAS` and `WX_LAG` go to zero and the staging be written
    purely as the hardware's, with no correction constants at all. It would not move the score.
 3. **The last 4 pixels of `m3_lcdc_bg_en_change`**, which Group 2 above characterises exactly and
-   which nothing in the material to hand explains. Worth one look by someone who has a DMG and a
-   logic analyser; not worth another session's guessing.
+   which nothing in the material to hand explains. Looked at twice now, from the register-write
+   side and from the object side, with the same answer both times. Worth one look by someone who
+   has a DMG and a logic analyser; not worth another session's guessing.
 4. **Two window edges left alone on purpose**, both written down here so nobody has to rediscover
    them:
    - On the Color, a window started by `WX` = 166 also makes STAT report mode 0 for the rest of
@@ -399,6 +447,13 @@ console waits for the next frame, which is now what cBoy does. It should only ev
 right, and all 86 timing tests and both picture tests still pass - but if a status bar or text box
 ever looks like it arrives a frame later than it used to, that is this change and it is worth
 telling Kiro.
+
+One more thing changed for both drawers, far smaller: the console tells a game when it has
+finished drawing each line, and in two cases cBoy was telling it a few millionths of a second too
+early - when a sprite sits hard against the left edge of a scrolled line, and on a Game Boy Color
+while sprites are switched off. Both are now the timing the real chip has. No game is likely to
+notice, and a game that counts those moments closely can only be better off; all 86 timing tests
+still pass on both drawers.
 
 The exact drawer has been rebuilt from scratch to work the way the real Game Boy chip does, step
 by step, instead of the pile of patches it was. On the test set that measures this exactly, it

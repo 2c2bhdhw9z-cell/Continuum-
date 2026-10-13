@@ -273,10 +273,15 @@ impl Ppu {
 
     /// Mode 3's length: 172 dots, plus the SCX fine scroll, plus each sprite on the line
     /// (6 dots, more while the background tile under it is still being fetched; Pan Docs).
+    /// Measured against the exact drawer's own dot count, which is the same number in whole
+    /// M-cycles for every sprite layout (`the_object_stalls_are_mode_3s_length`).
     fn mode3_length(&self) -> u16 {
         let base = 172 + u16::from(self.scx & 7);
         let mut len = 0u16;
-        if self.lcdc & 0x02 == 0 {
+        // A DMG skips the object fetch altogether while LCDC bit 1 is clear, so it costs nothing.
+        // A Color runs the fetch anyway and only drops the pixel as it leaves the FIFO, so the
+        // dots are still spent and mode 3 is still longer.
+        if self.lcdc & 0x02 == 0 && !self.cgb {
             return base;
         }
         let height: i16 = if self.lcdc & 0x04 != 0 { 16 } else { 8 };
@@ -297,7 +302,10 @@ impl Ppu {
             if x >= 168 {
                 continue;
             }
-            let pos = u16::from(x) + u16::from(self.scx & 7);
+            // An object at X=0 is fetched before the line's fine-scroll discard has run, because
+            // the discard is held while one is pending, so it always waits a whole tile fetch
+            // however many pixels SCX's low bits would have dropped.
+            let pos = if x == 0 { 0 } else { u16::from(x) + u16::from(self.scx & 7) };
             let tile = pos / 8;
             if paid_tile != Some(tile) {
                 paid_tile = Some(tile);
@@ -673,6 +681,107 @@ mod tests {
         }
         assert!(p.frame[..W].iter().all(|c| *c == SHADES[1]), "line 0 is all background");
         assert!(p.frame[W..W * 2].iter().all(|c| *c == SHADES[3]), "line 1 is all window");
+    }
+
+    /// Runs line 0 on the exact drawer with the given objects (OAM Y, X) and returns the dot the
+    /// drawer handed the LCD its last pixel on together with the dot `mode3_length` puts mode 0
+    /// at. Both are measured from the same line, so the difference between two runs is the cost
+    /// of what changed between them.
+    fn mode3_dots(objs: &[(u8, u8)], scx: u8, tall: bool, cgb: bool, obj_en: bool) -> (u16, u16) {
+        let mut p = Ppu {
+            exact: true,
+            cgb,
+            // LCD on, tile data $8000, background on, plus the objects under test.
+            lcdc: 0x80 | 0x10 | 0x01 | u8::from(obj_en) << 1 | u8::from(tall) << 2,
+            scx,
+            ..Ppu::default()
+        };
+        for (i, (y, x)) in objs.iter().enumerate() {
+            p.oam[i * 4] = *y;
+            p.oam[i * 4 + 1] = *x;
+        }
+        while !p.fifo.active {
+            p.tick();
+        }
+        let (hblank_at, mut end) = (p.hblank_at, 0);
+        while p.fifo.active && p.dot < 455 {
+            p.tick();
+            end = p.dot;
+        }
+        (end, hblank_at)
+    }
+
+    /// Sprite layouts to measure: one object at every X, pairs that share a tile and pairs that
+    /// do not, and the ten-object limit at every spacing (inserted in the reverse of X order, so
+    /// the OAM order is not the fetch order).
+    fn object_layouts() -> Vec<Vec<(u8, u8)>> {
+        let mut out: Vec<Vec<(u8, u8)>> = (0..=24u8).map(|x| vec![(16, x)]).collect();
+        out.extend([40u8, 83, 159, 160, 164, 167, 168, 175].map(|x| vec![(16, x)]));
+        for a in 0..=16u8 {
+            for b in a..=20u8 {
+                out.push(vec![(16, a), (16, b)]);
+            }
+        }
+        for step in 0..=9u8 {
+            out.push((0..10u8).map(|i| (16, (9 - i) * step)).collect());
+        }
+        out
+    }
+
+    /// Mode 3 ends on the exact drawer where STAT says it does, for every sprite layout: an
+    /// object's stall IS mode 3's extra length, not a number worked out beside it. Both drawers
+    /// take their STAT and HBlank timing from `mode3_length`, so this is what stops the picture
+    /// and the timing the CPU can see from drifting apart. The drawer counts single dots and
+    /// STAT shows whole M-cycles, which is the only difference allowed here.
+    #[test]
+    fn the_object_stalls_are_mode_3s_length() {
+        // A DMG, a Color, a Color with objects switched off (which still fetches them), and
+        // 8x16 objects.
+        for (cgb, obj_en, tall) in [(false, true, false), (true, true, false), (true, false, false), (false, true, true)] {
+            for scx in 0..8u8 {
+                let (base_end, base_hb) = mode3_dots(&[], scx, tall, cgb, obj_en);
+                for objs in object_layouts() {
+                    let (end, hb) = mode3_dots(&objs, scx, tall, cgb, obj_en);
+                    assert_eq!(
+                        (end - base_end) & !3,
+                        hb - base_hb,
+                        "cgb {cgb} objects on {obj_en} tall {tall} scx {scx}: the drawer took \
+                         {} dots over the objects {objs:?} and STAT allowed {}",
+                        end - base_end,
+                        hb - base_hb
+                    );
+                }
+            }
+        }
+    }
+
+    /// An object at X=0 is fetched before the line's fine-scroll discard has run, because the
+    /// discard is held while one is pending, so it always waits a whole tile fetch: five dots of
+    /// background fetch and six of its own, whatever SCX's low bits say.
+    #[test]
+    fn an_object_at_x_0_waits_a_whole_tile_fetch_whatever_scx_says() {
+        for scx in 0..8u8 {
+            let (base_end, base_hb) = mode3_dots(&[], scx, false, false, true);
+            let (end, hb) = mode3_dots(&[(16, 0)], scx, false, false, true);
+            assert_eq!(end - base_end, 11, "scx {scx}: five dots of tile fetch, six of object");
+            assert_eq!(hb - base_hb, 8, "scx {scx}: the same, in the whole M-cycles STAT shows");
+        }
+    }
+
+    /// A Color runs the object fetch even with LCDC bit 1 clear - it only drops the pixel as it
+    /// leaves the FIFO - so mode 3 is just as long as with objects switched on. A DMG skips the
+    /// fetch outright, and pays nothing.
+    #[test]
+    fn a_colour_pays_for_an_object_it_has_been_told_not_to_draw() {
+        let cost = |cgb: bool, obj_en: bool| {
+            let (base_end, base_hb) = mode3_dots(&[], 0, false, cgb, obj_en);
+            let (end, hb) = mode3_dots(&[(16, 8)], 0, false, cgb, obj_en);
+            (end - base_end, hb - base_hb)
+        };
+        assert_eq!(cost(true, false), cost(true, true), "a Color fetches the object either way");
+        assert_eq!(cost(true, false), (11, 8), "and mode 3 is eleven dots longer for it");
+        assert_eq!(cost(false, false), (0, 0), "a DMG skips the fetch, so it costs nothing");
+        assert_eq!(cost(false, true), (11, 8));
     }
 
     /// WX 167 never starts the window at all: it would need a position of 161.
