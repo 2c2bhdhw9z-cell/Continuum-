@@ -426,6 +426,100 @@ Every picture above was looked at by eye as well, not just counted.
 - The two games that are silent (Pong and Voxelburg, in the parts the test reaches) are marked as
   silent in the test, rather than pretending they prove anything about sound.
 
+### High-quality Advance music — built, and **nobody has heard it yet**
+
+This is the one that makes Advance music stop hissing, and it needs reading before it is trusted.
+
+Almost every Advance game uses Nintendo's own music engine (its real name is MusicPlayer2000;
+people call it m4a or Sappy). It is not a sound chip — it is a program inside the game. Every
+frame, the game mixes its own instruments together in software, at about 13 thousand samples a
+second with eight bits each, and lets the sums wrap round when a tune gets loud. Then it pours
+that finished mix into the Advance's two recorded-sound channels. So the hiss, the crunch and the
+grainy drums in Advance music are **in the game**, not in the emulation: a perfect emulator plays
+them back perfectly, hiss included.
+
+There is now a setting in cBoy's Sound group, **"Advance music quality"**, with two choices:
+
+- **Console (as it was)** — the default, and what everyone gets unless they change it. Bit for bit
+  the sound cBoy has always made.
+- **High** — cBoy reads the engine's own working notes out of the console's memory once a frame
+  (which instrument each of its twelve voices is playing, how far through the sound it has got,
+  how loud it is on each side) and plays those same voices again at the phone's full 48 thousand
+  samples a second, filling in the steps between the sample's own points. Same tune, same notes,
+  same loudness. No hiss.
+
+Only the music channels are touched, and only when they really are the engine's: the two
+recorded-sound channels are taken over one at a time, and only if the game's own transfer is
+really feeding that channel out of the engine's mix. A game streaming a spoken line into one of
+them keeps it. The console's four beep channels, which the engine also drives, are untouched
+because they come out of real hardware that cBoy already emulates properly.
+
+Nothing is guessed. Before any frame is taken over, all of this has to hold: the cartridge has to
+carry the engine's own "start this song number" routine, and the address inside it has to lead to
+a real list of songs, and one of those songs has to lead to a set of instruments with a real
+sample behind it; the engine's working notes have to start with its own marker word; and every
+voice that is playing has to point at a real sample, sitting where it says it is, with the place
+it has reached inside that sample. The moment any of that does not add up — or the game asks the
+engine for an echo, which the engine folds into its own mix and this does not make, or uses a
+squeezed-down sample, or is part way through its own sound work — cBoy steps aside for that frame
+and the game is heard exactly as the console made it. Silently, with no setting to change and
+nothing for a player to notice.
+
+The layout of the engine's notes is not reverse-engineered guesswork: the field order is
+Nintendo's own, published in the `pret` disassembly of the Pokemon games, and the way to spot the
+engine in a cartridge is Bregalad and loveemu's, from the open-source `sappy_detector` in GBA Mus
+Ripper. Both are credited in the code.
+
+### What the tests prove
+
+Six new tests (113 pass in total, up from 107):
+
+1. The engine is found in a built cartridge that carries it (both builds of the engine
+   Nintendo shipped), and **not** found in: a game with no engine, a cartridge carrying the
+   thirty give-away bytes but no song list behind them, a song list pointing at nothing like a
+   song, an instrument whose sample does not fit in the cartridge, and a squeezed-down sample.
+2. A voice is played again at the phone's rate correctly: thirty-six output samples are each
+   worked out by hand from a sawtooth sample and must match exactly, on both sides, with the two
+   sides at different volumes so they cannot be crossed over.
+3. A sample that loops goes back round to its loop point; the same sample without the loop flag
+   stops when it runs out.
+4. A note held across a frame keeps its place (so there is no buzz at every frame's edge), and a
+   note that jumps a long way is started again from the engine's own place instead.
+5. Every "this does not add up" case really does hand the sound back: marker word gone, a voice
+   playing from outside its own sample, a squeezed sample, an impossible note, an echo asked for,
+   a game not using this engine at all, and a channel the game is feeding itself.
+6. End to end through a running machine, a frame at a time: with the setting left alone the frame
+   is **silent** (nothing else in that machine makes a sound), on High the voice is heard and is
+   louder on the right exactly as the engine's notes say, and a cartridge whose music is not this
+   engine's comes out **bit for bit identical** to the default. Through the real libretro entry
+   points as well: a real Advance test ROM with the setting on High gives the same picture and
+   sample-for-sample the same sound as with it off.
+
+### What was deliberately left
+
+- **The honest limit: no real game's music has been heard through this.** It is right by
+  construction and right on every test that can be built, but every test uses a cartridge this
+  repository made. Proving it needs a commercial Advance game, which cannot be fetched or
+  committed, so **this one really does need the phone** (check 22 below). Until the owner has
+  heard it, "Console (as it was)" stays the default and nothing changes for anyone.
+- The engine was rebuilt part way through the Advance's life and the two builds lay their working
+  notes out slightly differently. The later layout is the one implemented. A game on an older
+  build simply fails the checks and keeps the console's mix — no harm, just no benefit. Which
+  games those are is not known without trying them.
+- Squeezed-down and backwards samples (only the later engine can do either) are left to the
+  console's mix.
+- An echo (the engine's "reverb") is left to the console's mix, rather than mixing music without
+  the echo the game asked for.
+- Volume steps still move once a frame, which is exactly how often the engine itself moves them.
+  The gain is all in the carrier: no resampling down to 13 kHz, and no eight-bit rounding.
+- One deliberate difference: when a tune is loud enough to overflow, the engine's own sums wrap
+  right round (which is the nasty crackle on loud Advance music) and this one stops at the ends
+  instead. That is a large part of what High is for, so it is not treated as a fault.
+- The plan in the job list mentioned reading the songs and following the tune. That is not needed
+  and is not done: following the engine's own twelve voices gives the same notes with none of the
+  risk of playing a tune differently from the game. The song list and instrument tables are read,
+  but only to be sure the engine is really there.
+
 ## For whoever is editing the notes
 
 STATUS.md and HANDOFF.md still say mosaic is missing. Three places to fix:
@@ -469,6 +563,16 @@ states checked, with phone testing still to come. Where TESTING.md or STATUS.md 
 test count: it was 100 at the start of the night and `cargo test --release` in
 `cores/continuum-gb` reports 107 as this is written (two of tonight's belong to this job, and the
 exact-drawer work is adding its own as it goes).
+
+The same two lists have "MP2K high-quality Advance music" as the first job under item 6 — that is
+done, as a setting that defaults to off (see above). cBoy now has **67** settings of its own. The
+test count is **113** as the music work is pushed. Two things for the notes, though:
+
+- It is the one piece of tonight's work that **has not been heard on a real game at all**, by
+  anybody, because that needs a commercial Advance cartridge. Please keep it described as
+  "built, needs the owner's ears" rather than done, until the owner has tried check 22.
+- Nothing about it is on by default, so it cannot have broken anything in this build. A game that
+  does not use Nintendo's music engine is bit-for-bit untouched either way, and that is a test.
 
 ## Phone checks for the owner
 
@@ -536,3 +640,17 @@ exact-drawer work is adding its own as it goes).
 21. If an Advance game feels slower than it does on mGBA — slow motion, choppy where mGBA is
     smooth — tell me which game. Something known is a bit off in how fast cBoy lets Advance games
     read their cartridge, and knowing which games show it tells me whether it is worth chasing.
+22. **The one I most need your ears on.** Open an Advance game with music you know well on cBoy
+    (a Pokemon, Mario, Zelda, Fire Emblem, Golden Sun — anything that is not homebrew) and listen
+    to the music for a few seconds with headphones. Then, while it is still playing, go into
+    cBoy's Sound settings and change "Advance music quality" from "Console (as it was)" to
+    "High", and listen to the same tune again.
+    - If it worked: the same tune, same speed, same loudness, but clean — the hiss and grain
+      behind it gone.
+    - If it did nothing at all, that is a perfectly possible answer too: it means that game's
+      music engine is laid out the older way, or it uses an echo, and cBoy left it alone on
+      purpose. Tell me which game and I will know what to chase.
+    - What must **not** happen: the music changing speed, going silent, playing the wrong notes,
+      jumping or buzzing, or the sound effects changing. If any of that happens, put the setting
+      back to "Console (as it was)" — which fixes it instantly — and tell me the game. Nobody
+      else can be affected: it is off unless you turn it on.

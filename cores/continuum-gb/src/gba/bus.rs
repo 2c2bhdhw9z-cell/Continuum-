@@ -81,6 +81,10 @@ pub struct Bus {
     /// Smooth DirectSound between samples (core option). Output only.
     #[serde(skip)]
     pub fifo_smooth: bool,
+    /// The game's own music engine, mixed again at the output rate ("Advance music quality").
+    /// Output only: it reads the engine's state out of the machine's memory every frame.
+    #[serde(skip)]
+    pub mp2k: super::mp2k::Mp2k,
     #[serde(skip)]
     fifo_from: [i32; 2],
     #[serde(skip)]
@@ -150,9 +154,11 @@ impl Bus {
         let save = Save::detect(&rom);
         let mut apu = Apu::default();
         apu.write(0xFF26, 0); // the GBA starts with sound off
+        let mp2k = super::mp2k::Mp2k::new(&rom);
         Bus {
             fifo_vol: [100; 2],
             fifo_smooth: false,
+            mp2k,
             fifo_from: [0; 2],
             fifo_to: [0; 2],
             fifo_period: [1; 2],
@@ -774,6 +780,14 @@ impl Bus {
         }
     }
 
+    /// Reads the game's music engine out of the machine's memory, ready to be played again at the
+    /// output rate. Lifted out of the bus for a moment so it can read the machine it lives in.
+    pub fn mp2k_sync(&mut self) {
+        let mut m = std::mem::take(&mut self.mp2k);
+        m.sync(self, self.apu.out_hz);
+        self.mp2k = m;
+    }
+
     fn timer_overflow_sound(&mut self, timer: usize) {
         let cnth = self.io16(0x82);
         for n in 0..2 {
@@ -821,12 +835,26 @@ impl Bus {
         self.apu.tick(t);
         let cnth = self.io16(0x82);
         let psg_shift = [2, 1, 0, 0][(cnth & 3) as usize];
+        let hq = self.mp2k.live;
         let mut i = before;
         while i + 1 < self.apu.samples.len() {
+            if hq {
+                self.mp2k.step();
+            }
             let mut l = i32::from(self.apu.samples[i]) >> psg_shift;
             let mut r = i32::from(self.apu.samples[i + 1]) >> psg_shift;
             for n in 0..2 {
                 let full = cnth & (4 << n) != 0;
+                // The game's own music engine, mixed again at the output rate, in place of what
+                // the engine itself squeezed into this channel. Only where it is really the
+                // engine feeding it, and only with the setting on High.
+                if let Some(hq) = if hq { self.mp2k.lane(n) } else { None } {
+                    let mut v = hq * if full { 128 } else { 64 };
+                    v = v * i32::from(self.fifo_vol[n]) / 100;
+                    if cnth & (0x100 << (n * 4)) != 0 { r += v }
+                    if cnth & (0x200 << (n * 4)) != 0 { l += v }
+                    continue;
+                }
                 let mut v = if self.fifo_smooth {
                     let span = self.fifo_period[n].max(1) as i32;
                     let along = (self.fifo_age[n] as i32).min(span);
@@ -942,6 +970,11 @@ impl Bus {
         self.line += 1;
         if self.line == 228 {
             self.line = 0;
+            // The start of a frame, by which time a game has done its once-a-frame sound work:
+            // the music engine's own notes are at their freshest here.
+            if self.mp2k.on {
+                self.mp2k_sync();
+            }
         }
         let stat = self.io16(4);
         if self.line == 160 {

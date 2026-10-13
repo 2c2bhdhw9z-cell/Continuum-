@@ -4,6 +4,7 @@
 pub mod bios;
 pub mod bus;
 pub mod cpu;
+pub mod mp2k;
 pub mod ppu;
 pub mod gpio;
 pub mod save;
@@ -149,6 +150,10 @@ impl Gba {
         let mut next: Gba = crate::state_decode(&data[8..])?;
         next.bus.rom = std::mem::take(&mut self.bus.rom);
         next.bus.bios = std::mem::take(&mut self.bus.bios);
+        // The music engine's own notes are read back out of the machine's memory, so only the
+        // player's setting and where this cartridge keeps its songs carry over.
+        next.bus.mp2k = std::mem::take(&mut self.bus.mp2k);
+        next.bus.mp2k.restart();
         // A state from a session with the real BIOS, loaded without one: built-in calls take over.
         next.bus.real_bios = next.bus.real_bios && self.bus.real_bios;
         *self = next;

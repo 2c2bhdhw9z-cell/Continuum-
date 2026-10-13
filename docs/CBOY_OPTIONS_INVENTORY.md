@@ -16,7 +16,7 @@ edit `docs/option-sources/mapping.tsv` and rerun.
 | tgbdual | https://github.com/libretro/tgbdual-libretro | `0392c9c469e653205e471114c7949c07c83bfce9` | 5 |
 | vbam | https://github.com/libretro/vbam-libretro | `115defb3a318258ab84746d45258a1aec19d0b4b` | 32 |
 
-Extracted keys: **132**. Covered by cBoy: 103. Gaps: 22. Deliberately not done: 4. Not applicable: 3. cBoy options: **66**.
+Extracted keys: **132**. Covered by cBoy: 103. Gaps: 22. Deliberately not done: 4. Not applicable: 3. cBoy options: **67**.
 
 ## Libretro core options, key by key
 
@@ -157,7 +157,7 @@ Extracted keys: **132**. Covered by cBoy: 103. Gaps: 22. Deliberately not done: 
 
 ## cBoy options no libretro core above has
 
-`cboy_contrast`, `cboy_gba_model`, `cboy_gba_save_type`, `cboy_gyro_source`, `cboy_hybrid_model`, `cboy_layer_bg`, `cboy_layer_window`, `cboy_renderer`, `cboy_rtc_offset`, `cboy_run_ahead`, `cboy_sprite_limit`, `cboy_stick_dpad`, `cboy_tilt_source`, `cboy_vba_compat`, `cboy_volume`
+`cboy_contrast`, `cboy_gba_model`, `cboy_gba_music`, `cboy_gba_save_type`, `cboy_gyro_source`, `cboy_hybrid_model`, `cboy_layer_bg`, `cboy_layer_window`, `cboy_renderer`, `cboy_rtc_offset`, `cboy_run_ahead`, `cboy_sprite_limit`, `cboy_stick_dpad`, `cboy_tilt_source`, `cboy_vba_compat`, `cboy_volume`
 
 ## Standalone emulators
 

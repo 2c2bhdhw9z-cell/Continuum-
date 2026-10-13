@@ -199,6 +199,9 @@ const SPECS: &[Spec] = &[
     (c"audio", c"cboy_audio_quality", c"Sound quality",
      c"High listens to everything that happens between one sample and the next, so the sound comes out smoother. Fast takes a single point each time and costs the phone less work.",
      &[(c"fast", c"Fast"), (c"high", c"High")], c"fast"),
+    (c"audio", c"cboy_gba_music", c"Advance music quality",
+     c"Most Advance games mix their own music in software, at a rate the console could keep up with, which is where that hiss and crunch comes from. High plays the same tune again at full quality. Games that make music another way, and anything else in the sound, are untouched either way.",
+     &[(c"console", c"Console (as it was)"), (c"high", c"High")], c"console"),
     (c"audio", c"cboy_gba_smooth", c"Smooth Advance samples",
      c"Ramps the Advance's sampled sound between samples, including the music most games mix in software. Less gritty, slightly duller.",
      OFF_ON, c"off"),
@@ -390,6 +393,9 @@ pub struct Settings {
     pub lowpass: u8,
     pub highpass: bool,
     pub gba_smooth: bool,
+    /// Play the music an Advance game mixes in software again at the output rate, instead of
+    /// taking the game's own low-quality mix ("Advance music quality").
+    pub gba_music_hq: bool,
     pub sample_rate: u32,
     /// Turbo period in frames (0 off).
     pub turbo_period: u32,
@@ -471,6 +477,7 @@ impl Default for Settings {
             rtc_mode: RtcMode::Real, rtc_offset_hours: 0, dmg_palette: crate::ppu::SHADES, custom_palette: false,
             colorize: Colorize::Off, gbc_color: 0, gba_color: 0, blend: 0, sgb_border: true, volume: 100,
             chan_vol: [100; 4], fifo_vol: [100; 2], lowpass: 0, highpass: true, gba_smooth: false,
+            gba_music_hq: false,
             sample_rate: 48_000, turbo_period: 0, rumble: true, tilt: Source::Phone, gyro: Source::Phone,
             solar: Some(128), link_loopback: false, frameskip: 0, run_ahead: 0, idle_skip: false,
             gb_layers: 7, gba_layers: 0xFF, gba_bios_skip_logo: false, border_always: false, color_temp: 0,
@@ -656,6 +663,7 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     s.highpass = s.highpass_hz > 0.0;
     s.audio_hq = get(c"cboy_audio_quality").is_some_and(|v| v == "high");
     s.gba_smooth = on(c"cboy_gba_smooth", false);
+    s.gba_music_hq = get(c"cboy_gba_music").is_some_and(|v| v == "high");
     s.sample_rate = get(c"cboy_sample_rate").and_then(|v| v.parse().ok()).filter(|r| [48_000, 44_100, 32_768].contains(r)).unwrap_or(48_000);
     s.turbo_period = get(c"cboy_turbo").and_then(|v| v.parse::<u32>().ok()).map_or(0, |per_s| (60 / per_s.max(1)).max(2));
     s.rumble_strength = match get(c"cboy_rumble").as_deref() {
@@ -977,7 +985,7 @@ mod tests {
             ("cboy_gbc_color", "soft"), ("cboy_gba_color", "tv"), ("cboy_blend", "heavy"), ("cboy_sgb_border", "off"),
             ("cboy_volume", "50"), ("cboy_vol_sq1", "0"), ("cboy_vol_sq2", "25"), ("cboy_vol_wave", "75"),
             ("cboy_vol_noise", "50"), ("cboy_vol_fifo_a", "25"), ("cboy_vol_fifo_b", "0"), ("cboy_lowpass", "strong"),
-            ("cboy_highpass", "off"), ("cboy_gba_smooth", "on"), ("cboy_sample_rate", "32768"), ("cboy_turbo", "10"),
+            ("cboy_highpass", "off"), ("cboy_gba_smooth", "on"), ("cboy_gba_music", "high"), ("cboy_sample_rate", "32768"), ("cboy_turbo", "10"),
             ("cboy_rumble", "off"), ("cboy_tilt_source", "stick"), ("cboy_gyro_source", "off"), ("cboy_solar", "100"),
             ("cboy_link", "loopback"), ("cboy_frameskip", "2"), ("cboy_run_ahead", "1"), ("cboy_idle_skip", "on"),
             ("cboy_layer_bg", "off"), ("cboy_layer_window", "off"), ("cboy_layer_obj", "off"), ("cboy_layer_bg0", "off"),
@@ -993,6 +1001,10 @@ mod tests {
         assert_eq!((s.gbc_color, s.gba_color, s.blend, s.sgb_border), (2, 3, 3, false));
         assert_eq!((s.volume, s.chan_vol, s.fifo_vol), (50, [0, 25, 75, 50], [25, 0]));
         assert_eq!((s.lowpass, s.highpass, s.gba_smooth, s.sample_rate), (3, false, true, 32_768));
+        // Advance music quality: High has to be asked for; "Console (as it was)" is the default,
+        // so nobody's sound changes by surprise.
+        assert!(s.gba_music_hq && !Settings::default().gba_music_hq);
+        assert!(!settings(&[("cboy_gba_music", "console")]).gba_music_hq);
         assert_eq!((s.turbo_period, s.rumble, s.tilt, s.gyro, s.solar), (6, false, Source::Stick, Source::Off, Some(255)));
         assert_eq!((s.link_loopback, s.frameskip, s.run_ahead, s.idle_skip), (true, 2, 1, true));
         assert_eq!((s.gb_layers, s.gba_layers), (0, 0b1110_1010));

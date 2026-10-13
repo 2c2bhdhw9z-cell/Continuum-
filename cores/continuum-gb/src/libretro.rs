@@ -382,6 +382,10 @@ impl Core {
             g.bus.apu.chan_vol = s.chan_vol;
             g.bus.fifo_vol = s.fifo_vol;
             g.bus.fifo_smooth = s.gba_smooth;
+            if g.bus.mp2k.on != s.gba_music_hq {
+                g.bus.mp2k.on = s.gba_music_hq;
+                g.bus.mp2k.restart();
+            }
             g.bus.gbp = s.player_handshake();
             g.bus.vba_compat = s.vba_compat;
             g.bus.gpio.clock_offset = s.rtc_offset_hours * 3600;

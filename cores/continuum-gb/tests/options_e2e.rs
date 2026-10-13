@@ -364,6 +364,11 @@ fn every_option_through_the_libretro_api() {
     }
     let o = run(gba, &[("cboy_idle_skip", "on")], 120, None);
     assert_eq!(last(&o).3, last(&b).3, "idle skip must not change the result");
+    // "Advance music quality: High" on a game that does not use Nintendo's music engine has to
+    // change nothing whatsoever: same picture, same sound, sample for sample.
+    let o = run(gba, &[("cboy_gba_music", "high")], 120, None);
+    assert_eq!(last(&o).3, last(&b).3, "high-quality music must not touch the picture");
+    assert_eq!(o.samples, b.samples, "a game with other music must sound exactly as it did");
     let o = run(gba, &[("cboy_gba_save_type", "flash128"), ("cboy_gba_hardware", "rtc"), ("cboy_run_ahead", "1")], 30, None);
     assert_eq!(o.frames.len(), 30);
     unsafe {
