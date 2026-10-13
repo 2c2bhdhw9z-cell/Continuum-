@@ -7,6 +7,14 @@ repository the same night, so anything that could only be fixed inside `cores/co
 
 ## Handed on (another agent owns the file)
 
+- **RUST-08, a cBoy refusal showing an unrelated line.** `cores/continuum-gb/src/libretro.rs`
+  around line 587 drops `Cart::new`'s reason with `.ok()?`, so the screen shows whatever cBoy
+  logged last (an unsupported cartridge with force-colour on is refused as "Game Boy cartridge run
+  in Color mode (option)"). The engine side is now plain either way: a refusal the engine cannot
+  place is shown as "the file isn't one it can play", and the core's own sentence stays in the
+  activity log. cBoy should still log `Cart::new`'s reason and only pass on lines that really are
+  refusals.
+
 - **RUST-19, the Amiibo tag id in the tap line.** The hex id is built in
   `crates/emulator-bridge/src/peripherals/amiibo.rs` (`tap`, both the "tapped" and the "not
   tapped" line). It should be dropped: the player tapped a figure they can already see by name,

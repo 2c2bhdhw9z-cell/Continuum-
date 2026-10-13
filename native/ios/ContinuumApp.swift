@@ -4968,6 +4968,18 @@ final class EngineHost: ObservableObject {
             activeCoreId = ""
             n64AwaitingFirstTick = false
             let failed = "launch failed on \(spec.coreId): \(entry.name): \(error)"
+            // The technical sentence goes to the activity log; the player reads the engine's
+            // plain line, which says which of the three things went wrong (the file, another
+            // file it needs, or this phone's graphics). See launch_failure.rs.
+            FeedbackCenter.step(failed)
+            var isGraphicsFault = false
+            if case EngineError.Graphics = error { isGraphicsFault = true }
+            let plainFailure = launchFailureLine(
+                gameName: entry.name,
+                coreName: SaveStates.shortCoreName(spec.coreId),
+                reason: "\(error)",
+                graphics: isGraphicsFault
+            )
             // The owner's safety net: the system's default core refused this game, so the engine
             // names the system's other core and it gets exactly one try (the forced launch never
             // comes back here). It is a normal launch, so saves follow the usual rules.
@@ -4982,15 +4994,16 @@ final class EngineHost: ObservableObject {
                     status = launchRetryLine(refusedName: SaveStates.shortCoreName(spec.coreId),
                                              fallbackName: SaveStates.shortCoreName(fallback))
                 } else {
-                    status = failed
+                    status = plainFailure
                 }
                 return
             }
             if isN64 {
+                // The N64 crumb is a diagnostic file, not a line anyone reads, so it keeps the
+                // technical sentence.
                 setN64Crumb(failed)
-            } else {
-                status = failed
             }
+            status = plainFailure
         }
     }
 

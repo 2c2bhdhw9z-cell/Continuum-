@@ -1349,11 +1349,14 @@ impl EmulatorCore for NativeLibretroCore {
             crate::feedback::launch_step("HW context negotiation (Vulkan create_device, context_reset)");
             if let Err(reason) = crate::gfx::moltenvk_device::finish_deferred_install() {
                 // No graphics context: running this core would crash it. Unload and say why.
+                //
+                // A GRAPHICS error, not a refused file (cleanup finding RUST-09): the game file
+                // is fine and nothing about it is the problem, so the player must not be told to
+                // find another copy of it.
                 unsafe { (self.symbols.unload_game)() };
-                return Err(BridgeError::InvalidContent {
-                    core_id: self.descriptor.id.clone(),
-                    reason: format!("graphics setup failed: {reason}"),
-                });
+                return Err(BridgeError::Gfx(crate::error::GfxError::DeviceRequest(
+                    reason,
+                )));
             }
         }
 

@@ -76,6 +76,8 @@ pub mod saves;
 pub mod core_updates;
 // A system's default core that refuses a game gets one retry on that system's other core.
 pub mod launch_retry;
+// Why a game would not start, in words a player can act on.
+pub mod launch_failure;
 // Which extra chip file a SNES cartridge needs before it can start.
 pub mod snes_chips;
 pub mod feedback;

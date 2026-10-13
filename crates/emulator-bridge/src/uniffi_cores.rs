@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use crate::{core_updates, launch_retry, snes_chips};
+use crate::{core_updates, launch_failure, launch_retry, snes_chips};
 
 /// Once per app start, before the feedback session files in `dir` are rewritten. Returns "" or one
 /// line for the activity log naming the emulators that changed since the last install.
@@ -37,6 +37,15 @@ pub fn launch_retry_core(system_cores: Vec<String>, refused_core: String, refuse
 #[uniffi::export]
 pub fn launch_retry_line(refused_name: String, fallback_name: String) -> String {
     launch_retry::retry_line(&refused_name, &fallback_name)
+}
+
+/// The player's line when a game will not start: which of the three things went wrong (the file,
+/// another file it needs, or the phone's graphics), in plain words. `reason` is the engine's own
+/// technical sentence, which belongs in the activity log and not on screen. `graphics` is true
+/// when the engine raised a graphics error rather than a refused file.
+#[uniffi::export]
+pub fn launch_failure_line(game_name: String, core_name: String, reason: String, graphics: bool) -> String {
+    launch_failure::line_for(&game_name, &core_name, &reason, graphics)
 }
 
 /// What a SNES cartridge with a chip inside it needs before it can start.
