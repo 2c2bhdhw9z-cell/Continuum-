@@ -625,9 +625,8 @@ struct AchievementsSettingsSection: View {
     var body: some View {
         SettingsSection(title: "RETROACHIEVEMENTS") {
             if let name = store.username {
-                SettingsReadout(label: "Logged in as",
-                                value: "\(store.displayName.isEmpty ? name : store.displayName), "
-                                    + "\(store.score) points")
+                SettingsNote("Logged in as \(store.displayName.isEmpty ? name : store.displayName), "
+                             + "\(store.score) \(store.score == 1 ? "point" : "points")")
                 SettingsButton(title: "Log out", role: .destructive) { store.logout() }
             } else {
                 TextField("Username", text: $username)
@@ -651,14 +650,22 @@ struct AchievementsSettingsSection: View {
                 .disabled(store.loggingIn)
                 .opacity(store.loggingIn ? 0.5 : 1)
             }
-            SettingsReadout(label: "Status", value: store.line)
+            // The STATUS read-out is in Settings, TECHNICAL DETAILS (`AchievementsReadouts`).
             SettingsNote(
-                "Uses your retroachievements.org account. The password is sent once, to log in, and "
-                + "is never stored: the server returns a token, and only the token is kept, in the "
-                + "Keychain on this device. Hardcore mode is off, because it forbids save states, "
-                + "rewind and cheats. A game is identified by its file when it starts."
+                "Your password is only used to log in and is never saved. Hardcore mode is off, "
+                + "so save states, rewind and cheats still work."
             )
         }
+    }
+}
+
+/// The RETROACHIEVEMENTS read-out, shown in Settings, TECHNICAL DETAILS. Its own view so the line
+/// stays live there: the Settings screen does not observe the store.
+struct AchievementsReadouts: View {
+    @ObservedObject var store: AchievementsStore
+
+    var body: some View {
+        SettingsReadout(label: "Status", value: store.line)
     }
 }
 

@@ -281,24 +281,37 @@ struct SettingsScreen: View {
     /// control now says which of the three it is in.
     private var autoHideExplanation: String {
         guard controllers.autoHidesOnScreenPad else {
-            return "Off, so both work at once, including on the same button."
+            return "Off. The on-screen pad stays put."
         }
         // Named before the other two, because a switch that is on, with a controller attached, and
         // a pad still on screen is the most confusing state of all, and it is CORRECT.
         if controllers.runningSystemNeedsOverlay {
-            return "On, but this system's touch screen is part of the on-screen controls, so they "
-                + "stay up while it is running. No controller has a stylus."
+            return "On, but the pad stays up for this game's touch screen."
         }
         if controllers.playablePads > 0 {
-            return "On, and the picture is using the space the controls were holding."
+            // The pad with no View or Share button keeps the overlay up (see
+            // `portZeroPadIsComplete`). Said here, because the sentence that explained it moved
+            // to TECHNICAL DETAILS with the read-out.
+            return controllers.hidesOnScreenPadNow
+                ? "On. The pad is hidden while your controller is connected."
+                : "On, but your controller has no View or Share button, so the pad stays for "
+                    + "SELECT."
         }
-        return "On, but waiting: nothing is hidden until a controller is connected. Pair one in "
-            + "iOS Settings, then Bluetooth."
+        return "On. The pad hides once a controller connects."
+    }
+
+    /// The one plain line GAME CONTROLLERS keeps. The full read-out is in TECHNICAL DETAILS.
+    private var controllerCountLine: String {
+        switch controllers.playablePads {
+        case 0: return "No controller connected"
+        case 1: return "1 controller connected"
+        default: return "\(controllers.playablePads) controllers connected"
+        }
     }
 
     private var controllerSection: some View {
         SettingsSection(title: "GAME CONTROLLERS") {
-            SettingsReadout(label: "Attached", value: controllers.summary)
+            SettingsNote(controllerCountLine)
 
             Toggle(isOn: $controllers.autoHidesOnScreenPad) {
                 VStack(alignment: .leading, spacing: 3) {
@@ -317,50 +330,8 @@ struct SettingsScreen: View {
             .tint(ShellPalette.accent)
 
             SettingsNote(
-                "Off is the default on purpose. A controller can be connected and not in your "
-                + "hands, charging on a desk or paired from yesterday and across the room, and a "
-                + "pad that vanished on its own with no way back would leave the game unplayable. "
-                + "With this on, the controls come straight back the moment the controller "
-                + "disconnects. Either way the buttons along the top of the player, pause, reset, "
-                + "save state, the diagnostics and the way back to the library, stay where they "
-                + "are: this only hides the game pad."
-            )
-
-            SettingsNote(
-                "One exception, and the read-out above names it when it applies: a pad with no View "
-                + "or Share button has no SELECT, so the on-screen pad stays put even with this on. "
-                + "Hiding it would leave SELECT reachable from nothing at all, and that is how a "
-                + "Game Boy or NES game opens its own menu."
-            )
-
-            SettingsNote(
-                "Pairing is done by iOS, not here: hold the pairing button on the controller, then "
-                + "open Settings, Bluetooth and tap it. It appears above as soon as it connects, "
-                + "with no need to restart this app, and the light or number on the controller "
-                + "shows which player it became. Xbox, DualShock, DualSense and MFi pads all "
-                + "arrive the same way. Up to four are read at once, one per port, and the first "
-                + "one to connect is player 1 and keeps that place when others join or leave."
-            )
-
-            SettingsNote(
-                "The buttons are mapped by POSITION rather than by the letter printed on them, "
-                + "which is what makes a DualSense and an Xbox pad behave identically: the bottom "
-                + "button of the diamond is always B, the right one is always A, and the left and "
-                + "top are Y and X. That is the arrangement these consoles used, where A sits to "
-                + "the right of B. Shoulders and triggers are L, R, L2 and R2. The Menu button, "
-                + "Options on a DualShock, is START, and the small button on the left, View or "
-                + "Share, is SELECT. The left stick works as a D-pad as well, so a game that only "
-                + "reads directions is playable without touching the D-pad, and both sticks are "
-                + "passed through for the cores that read them."
-            )
-
-            SettingsNote(
-                "A controller and the on-screen pad are independent, all the way down: the "
-                + "emulator keeps a separate set of buttons for each and combines them when the "
-                + "game reads its controls, so one cannot cancel the other out even when both are "
-                + "pressing the same button in the same instant. A controller that disconnects "
-                + "mid-press releases everything it was holding rather than leaving the game "
-                + "stuck running in one direction."
+                "Your controller and the on-screen pad both work, and up to four controllers can "
+                + "play at once. Pair one in your iPhone's Bluetooth settings."
             )
         }
     }
@@ -374,20 +345,13 @@ struct SettingsScreen: View {
     /// were confusing enough while only one of them existed.
     private var controlsSection: some View {
         SettingsSection(title: "ON-SCREEN CONTROLS") {
-            SettingsReadout(label: "Arrangement", value: host.touchLayoutLine)
-
             SettingsButton(title: "Move the on-screen controls", role: .normal) {
                 showControlEditor = true
             }
 
             SettingsNote(
-                "Opens the pad full screen. Pick a preview console, then drag face buttons, "
-                + "shoulders, SELECT, or START. Size and opacity, left-handed swap, and Import "
-                + ".manicskin or .deltaskin (layout, art, and game screen hole). Each console's layout and skin "
-                + "are remembered on their own between launches. Extra buttons (combos, turbo, "
-                + "quick save and load, fast forward, rewind, screenshot, menu) are added there "
-                + "too, per console and per orientation, and an imported skin can be edited "
-                + "without changing the file."
+                "Drag the buttons where you want them, or add extras like turbo and quick save. "
+                + "Each console keeps its own layout."
             )
 
             // Reachable from here as well as inside the editor, on the same reasoning as the
@@ -409,15 +373,6 @@ struct SettingsScreen: View {
             }
             .disabled(!host.hasCustomControlsOrSkins)
             .opacity(host.hasCustomControlsOrSkins ? 1 : 0.45)
-
-            SettingsNote(
-                "Each console keeps its own arrangement (import a GBA .deltaskin without moving "
-                + "your PS1 buttons). Positions are fractions of the screen, so one layout works "
-                + "on every device and in both orientations, and stays clear of the edge swipe "
-                + "bands. The pad reports overlapping controls on the diagnostic line. Importing "
-                + "a .deltaskin also draws its PDF/PNG art and places the game picture from "
-                + "screens[] when the pack includes them."
-            )
         }
     }
 
@@ -441,8 +396,8 @@ struct SettingsScreen: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
                     Text(feel.rumbleEnabled
-                         ? "On. A game that rumbles plays it on the phone, and on a controller with motors."
-                         : "Off. The game is told rumble is not available.")
+                         ? "On. Games that rumble shake your phone or controller."
+                         : "Off. No rumble.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
                 }
@@ -459,10 +414,7 @@ struct SettingsScreen: View {
             }
 
             SettingsNote(
-                "The tap plays when a finger lands on an on-screen button or slides into a new "
-                + "D-pad direction. Rumble only happens in games whose core asks for it. Turbo "
-                + "applies to extra buttons set to Turbo in the control editor: Slow is about 4 "
-                + "presses a second, Normal 7, Fast 15."
+                "Turbo speed is for the turbo buttons you add in Move the on-screen controls."
             )
         }
     }
@@ -541,6 +493,37 @@ struct SettingsScreen: View {
             if host.showDiagnostics {
                 DiagnosticsPanel(host: host, emulation: emulation, saveStates: saveStates)
             }
+
+            technicalReadouts
+        }
+    }
+
+    /// The read-outs that used to sit in the other sections, word for word, under the section
+    /// they came from and in the same order as the screen. In a Group, for the ten-children
+    /// reason in `body`; the next sections' read-outs go in a second Group.
+    private var technicalReadouts: some View {
+        Group {
+            TechnicalReadoutGroup(title: "SPEED AND REWIND") {
+                SettingsReadout(label: "Rewind holds", value: emulation.rewindReadout)
+            }
+            TechnicalReadoutGroup(title: "GAME CONTROLLERS") {
+                SettingsReadout(label: "Attached", value: controllers.summary)
+            }
+            TechnicalReadoutGroup(title: "ON-SCREEN CONTROLS") {
+                SettingsReadout(label: "Arrangement", value: host.touchLayoutLine)
+            }
+            TechnicalReadoutGroup(title: "CHEATS") {
+                SettingsReadout(label: "Stored", value: cheats.storageLine)
+                SettingsReadout(label: "Last", value: cheats.line)
+            }
+            // These two observe their own objects, which this screen does not, so their lines
+            // stay live. See Achievements.swift and Peripherals.swift.
+            TechnicalReadoutGroup(title: "RETROACHIEVEMENTS") {
+                AchievementsReadouts(store: host.achievements)
+            }
+            TechnicalReadoutGroup(title: "MICROPHONE, CAMERA AND AMIIBO") {
+                PeripheralsReadouts(peripherals: host.peripherals)
+            }
         }
     }
 
@@ -613,15 +596,11 @@ struct SettingsScreen: View {
                 )
             }
             SettingsNote(
-                "A choice here applies from the next game you open. Want one game on another "
-                + "core? Open the game and pick it there. Your battery saves carry over either "
-                + "way; save states only load on the core that made them."
+                "Kicks in from the next game you open. For just one game, press and hold it and "
+                + "pick a core on its card."
             )
             SettingsNote(
-                "Not sure which to pick? cBoy is our own Game Boy core and still being tested, "
-                + "mGBA is the safe one. Beetle PSX HW looks better but wants a real PlayStation "
-                + "BIOS; PCSX ReARMed needs none. Beetle Saturn needs a Saturn BIOS file, Yabause "
-                + "doesn't. Disk System games always play on FCEUmm, whichever NES core you pick."
+                "Not sure? Keep the first one. Save states only load on the core that made them."
             )
         }
     }
@@ -785,8 +764,8 @@ struct SettingsScreen: View {
     /// was accepted.
     private var cheatsSection: some View {
         SettingsSection(title: "CHEATS") {
-            SettingsReadout(label: "Stored", value: cheats.storageLine)
-            SettingsReadout(label: "Last", value: cheats.line)
+            // The STORED and LAST read-outs are in TECHNICAL DETAILS (`technicalReadouts`).
+            SettingsNote(cheatCountLine)
 
             SettingsButton(title: "Delete every stored cheat", role: .destructive) {
                 confirmDeleteCheats = true
@@ -799,20 +778,19 @@ struct SettingsScreen: View {
             }
 
             SettingsNote(
-                "Cheats are added in a game's card, from the library, because a code is written for "
-                + "one game and one region of it. The list is pushed into the emulated console when "
-                + "the game starts and again whenever it changes, so a code added mid-game takes "
-                + "effect without a relaunch. Not every core takes them: the read-out above says "
-                + "what the running one does, and a core that takes none is a stated fact about "
-                + "that core rather than a failure."
-            )
-            SettingsNote(
-                "Codes are never checked for shape. Each system has its own convention and cores "
-                + "accept several, so a front end that insisted on one pattern would reject codes "
-                + "that work. A code the core cannot parse is ignored by it, which is the same "
-                + "outcome as a code for the wrong region of the same game."
+                "Add cheats on a game's card (press and hold the game), or from the ⋯ menu while "
+                + "you play. Some emulators ignore them."
             )
         }
+    }
+
+    /// The one plain line CHEATS keeps, with real plurals.
+    private var cheatCountLine: String {
+        let count = cheats.cheats.count
+        guard count > 0 else { return "No cheats yet" }
+        let games = cheats.gameCount
+        return "\(count) \(count == 1 ? "cheat" : "cheats") for "
+            + "\(games) \(games == 1 ? "game" : "games")"
     }
 
     // MARK: Storage
@@ -859,29 +837,15 @@ struct SettingsScreen: View {
                             title: { $0.label },
                             selection: $emulation.screenFit)
             SettingsNote(
-                "Fit is the normal choice: as large as the picture goes while keeping the right "
-                + "shape, with black bars on the short edge. Pixel perfect makes every emulated "
-                + "pixel exactly the same size as its neighbours so the grid stays even, which "
-                + "costs a little more of the screen and is the reason people ask for it. Fill "
-                + "uses the whole screen and stretches the picture to do it: nothing is cut off, "
-                + "but circles stop being round."
+                "Fit keeps the shape right. Pixel perfect keeps every pixel the same size, and "
+                + "Fill stretches to the whole screen."
             )
 
             SettingsLabel("Scaling")
             SegmentedChoice(options: EmulationSettings.PixelFilter.allCases,
                             title: { $0.label },
                             selection: $emulation.pixelFilter)
-            SettingsNote(
-                "Sharp keeps hard pixel edges, the way these games were drawn, and is the "
-                + "default. Smooth blends neighbouring pixels, which some people prefer on the "
-                + "older systems."
-            )
-
-            SettingsNote(
-                "Both apply the moment you change them, to the game running now and to every "
-                + "game after it. They are remembered, so a game started tomorrow looks the way "
-                + "you left this."
-            )
+            SettingsNote("Sharp keeps the pixels crisp. Smooth softens them a little.")
         }
     }
 
@@ -913,13 +877,7 @@ struct SettingsScreen: View {
                     .disabled(emulation.muted)
             }
 
-            SettingsNote(
-                "Volume is applied inside the emulator rather than by the system, so it is "
-                + "separate from the phone's own volume and the two multiply. Muting is not the "
-                + "same as sliding to zero: muting also throws away the sound already queued, so "
-                + "unmuting picks up at the present moment instead of replaying the second you "
-                + "missed."
-            )
+            SettingsNote("This works on top of your phone's own volume.")
         }
     }
 
@@ -931,36 +889,16 @@ struct SettingsScreen: View {
             SegmentedChoice(options: EmulationSettings.FastForward.allCases,
                             title: { $0.label },
                             selection: $emulation.fastForward)
-            SettingsNote(
-                "How fast the fast-forward button in the player runs while you hold it. Sound "
-                + "keeps playing and rises in pitch, the way fast-forward has always sounded. "
-                + "The list stops at 4x because that is genuinely where the emulator stops: "
-                + "beyond it the extra frames are dropped rather than run, so a 8x button would "
-                + "read 8x and give you 4x."
-            )
 
-            SettingsLabel("Rewind memory")
+            SettingsLabel("Rewind")
             SegmentedChoice(options: EmulationSettings.RewindBudget.allCases,
                             title: { $0.label },
                             selection: $emulation.rewindBudget)
 
-            SettingsReadout(label: "Rewind holds", value: emulation.rewindReadout)
-
+            // What the rewind memory bought is in TECHNICAL DETAILS (`technicalReadouts`).
             SettingsNote(
-                "Rewind works by quietly saving the game ten times a second and stepping back "
-                + "through those saves while you hold the rewind button in the player. How much "
-                + "memory that takes is set by Rewind memory above. The line above says what it "
-                + "came to and, once a game is running, how many seconds of rewind it bought."
-            )
-            SettingsNote(
-                "How far back it reaches depends entirely on the game, which is why it is not "
-                + "offered in seconds. A PlayStation save is around a hundred times the size of an "
-                + "NES one, so the same memory is minutes of Super Mario Bros and seconds of Crash "
-                + "Bandicoot. Off is the default and costs nothing, because the memory is spent "
-                + "for as long as a game is running, and on a phone that matters: iOS closes an "
-                + "app that grows too large rather than slowing it down. Resetting a game or "
-                + "loading a save clears the history, since winding back past either would take "
-                + "you somewhere you never were."
+                "Hold the rewind button in a game to go back. It uses extra memory, and how far "
+                + "back you can go depends on the game."
             )
         }
     }
@@ -1235,6 +1173,29 @@ struct SettingsReadout: View {
                 .font(.system(.caption2, design: .monospaced))
                 .foregroundStyle(Color.white.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// One section's read-outs in TECHNICAL DETAILS, under that section's name as it appears on
+/// screen. The read-outs moved there from the sections themselves, so a player reads plain lines
+/// and a tester can still quote the exact strings.
+struct TechnicalReadoutGroup<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.9))
+            content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

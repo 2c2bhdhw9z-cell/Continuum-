@@ -448,10 +448,8 @@ struct ScreenModesSettingsSection: View {
                 .tint(ShellPalette.accent)
             }
             SettingsNote(
-                "Each system remembers its own layout. The swap button in the player exchanges "
-                + "which screen goes where, and with an imported skin it trades the pictures in "
-                + "the skin's two holes. The touch screen follows the bottom screen wherever it is "
-                + "drawn."
+                "The swap button in a game flips the two screens. Touch moves with the touch "
+                + "screen."
             )
 
             Toggle(isOn: $modes.useTV) {
@@ -467,10 +465,8 @@ struct ScreenModesSettingsSection: View {
             }
             .tint(ShellPalette.accent)
             SettingsNote(
-                "With AirPlay or a cable, the game goes to the TV and the controls stay on the "
-                + "phone. On a DS or 3DS the TV shows the top screen and the phone keeps the touch "
-                + "screen, unless the second switch is off, in which case the TV shows the whole "
-                + "layout."
+                "With AirPlay or a cable, the game plays on the TV and your phone becomes the "
+                + "controller."
             )
 
             SettingsLabel("Touch screen as a mouse")
@@ -487,10 +483,8 @@ struct ScreenModesSettingsSection: View {
                 .tint(ShellPalette.accent)
             }
             SettingsNote(
-                "Drag on the picture to move the mouse. Tap to left click, tap with two fingers "
-                + "to right click, press and hold then drag to hold the button down. Only games "
-                + "that support a mouse respond, such as Mario Paint on the Super Nintendo or "
-                + "PlayStation mouse games. Takes effect the next time a game of that system starts."
+                "For mouse games like Mario Paint: drag to move, tap to click, and tap with two "
+                + "fingers to right-click. Kicks in from the next game you start."
             )
         }
     }

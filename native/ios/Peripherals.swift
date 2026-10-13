@@ -825,8 +825,8 @@ struct PeripheralsSettingsSection: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
                     Text(peripherals.microphoneAllowed
-                         ? "A game that asks for the microphone hears the iPhone's."
-                         : "Games that ask for the microphone hear silence.")
+                         ? "Games that listen can hear you."
+                         : "Games hear silence.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
                 }
@@ -834,9 +834,8 @@ struct PeripheralsSettingsSection: View {
             .tint(ShellPalette.accent)
 
             SettingsNote(
-                "The microphone is only switched on while a game holds it open, and iOS shows its "
-                + "orange dot while it is. 3DS games on Azahar ask for it. The DS core used here "
-                + "does not read a microphone at all: it fakes a blow with a held button instead."
+                "3DS games use it, and only while they're listening. On the DS, hold the mic "
+                + "button in the game to blow instead."
             )
 
             Toggle(isOn: $peripherals.cameraAllowed) {
@@ -845,7 +844,7 @@ struct PeripheralsSettingsSection: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
                     Text(peripherals.cameraAllowed
-                         ? "A game that starts the camera sees the iPhone's."
+                         ? "Games that use a camera see your iPhone's."
                          : "Games see no camera.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
@@ -859,14 +858,40 @@ struct PeripheralsSettingsSection: View {
                             selection: $peripherals.cameraSide)
 
             SettingsNote(
-                "Azahar asks for the iPhone camera when a 3DS game starts it. The switch above "
-                + "has to be on, and iOS has to allow Continuum to use the camera. What the game "
-                + "sees is the phone's picture, scaled to the size the game asked for."
+                "3DS games and the Game Boy Camera on cBoy can use it. iOS asks for permission "
+                + "the first time."
             )
 
-            SettingsReadout(label: "Now", value: peripherals.statusLine)
-
+            // The NOW and AMIIBO FOLDER read-outs are in Settings, TECHNICAL DETAILS
+            // (`PeripheralsReadouts`).
             SettingsLabel("Amiibo")
+            SettingsNote(amiiboCountLine)
+            SettingsButton(title: "Import Amiibo files", role: .normal) {
+                peripherals.importAmiibo { line in report(line) }
+            }
+            SettingsNote("In a 3DS game, tap one from the ⋯ menu to use it.")
+        }
+        .onAppear { peripherals.refreshAmiibo() }
+    }
+
+    /// The one plain line the Amiibo part keeps, with real plurals.
+    private var amiiboCountLine: String {
+        switch peripherals.amiiboFiles.count {
+        case 0: return "No Amiibo files yet"
+        case 1: return "1 Amiibo file"
+        default: return "\(peripherals.amiiboFiles.count) Amiibo files"
+        }
+    }
+}
+
+/// The MICROPHONE, CAMERA AND AMIIBO read-outs, shown in Settings, TECHNICAL DETAILS. Its own
+/// view so both lines stay live there: the Settings screen does not observe `Peripherals`.
+struct PeripheralsReadouts: View {
+    @ObservedObject var peripherals: Peripherals
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SettingsReadout(label: "Now", value: peripherals.statusLine)
             SettingsReadout(
                 label: "Amiibo folder",
                 value: peripherals.amiiboFiles.isEmpty
@@ -874,18 +899,7 @@ struct PeripheralsSettingsSection: View {
                     : peripherals.amiiboFiles.map { $0.lastPathComponent }
                         .joined(separator: ", ")
             )
-            SettingsButton(title: "Import Amiibo files", role: .normal) {
-                peripherals.importAmiibo { line in report(line) }
-            }
-            SettingsNote(
-                "Amiibo dumps are .bin files of 540 or 572 bytes. Each file is checked and copied "
-                + "into the Amiibo folder under its own name, with a number added if a different "
-                + "tag already has that name. While a 3DS game runs, the ... menu "
-                + "lists them to tap. The game sees the tag when it is looking for one. A tap "
-                + "before that is kept and applied when the game starts looking."
-            )
         }
-        .onAppear { peripherals.refreshAmiibo() }
     }
 }
 
