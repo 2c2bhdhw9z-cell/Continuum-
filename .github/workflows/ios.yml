@@ -137,6 +137,12 @@ jobs:
       - name: Player checks (Swift and node)
         run: ./scripts/check-players.sh
 
+      # The per-core build cache's fingerprints, tested on a throwaway copy of the scripts: a
+      # changed pin, patch, recipe, toolchain or Symbian plug must rebuild exactly the right cores,
+      # and a dylib is reused only when its manifest line matches exactly.
+      - name: Core cache checks
+        run: ./scripts/check-core-cache.sh
+
   ipa:
     needs: checks
     runs-on: macos-latest
@@ -212,25 +218,37 @@ jobs:
       # THE CORE CACHE, and the reason this is restore/save rather than one `actions/cache`
       # step.
       #
-      # Building the 35 emulator cores is 35 of this job's ~40 minutes, on EVERY build,
-      # including one that changed a line of documentation. Each core is pinned to an exact
-      # upstream commit, so its dylib is a pure function of that commit, build-core.sh and
-      # the patches, and can be kept between runs. build-core.sh only reuses one when its
-      # provenance manifest says the dylib really was built from the pin (see
-      # ios_core_is_cached), and CONTINUUM_CORE_CACHE=1 below is what switches that on.
+      # Building the from-source emulator cores is most of this job's time (about 60 minutes when
+      # every one builds), on EVERY build, including one that changed a line of documentation.
+      # Each core is pinned to an exact upstream commit, so its dylib is a pure function of that
+      # commit, build-core.sh, its patches and the toolchain, and can be kept between runs.
+      # build-core.sh only reuses one when its provenance manifest says the dylib really was built
+      # from the pin with the same inputs (see ios_core_is_cached), and CONTINUUM_CORE_CACHE=1
+      # below is what switches that on.
       #
-      # THE KEY is a prefix naming everything a core's dylib depends on besides its pin, then
-      # this run's id:
+      # THE KEY is only the toolchain prefix, then this run's id:
       #
-      #   ios-cores-<os>-<toolchain>-<build-core.sh + scripts/patches>-<run id>-<attempt>
+      #   ios-cores-<os>-<toolchain>-<run id>-<attempt>
       #
-      # The patches are in it because a patch changes the output without changing any pin. The
-      # toolchain is in it (the step below says what that covers) because a new Xcode changes
-      # the output too. Without it, when the runner image moved to a new compiler, builds kept
-      # shipping cores made by the old one until an unrelated edit flushed the cache, and that
-      # unrelated commit then took the blame for whatever the new compiler broke. Changing any
-      # of these starts a new prefix, nothing restores, and everything rebuilds, which is the
-      # correct and safe behaviour.
+      # EACH CORE'S OWN INPUTS ARE ITS FINGERPRINT, in its core-sources.txt line
+      # ("<core> <repo> <pin> pinned fp:<fingerprint>"): its pin, its patches, build-core.sh with
+      # the pins taken out, the toolchain id (passed in as CONTINUUM_CORE_TOOLCHAIN), and for
+      # Continuum Symbian its plug and the headers script (ios_core_fingerprint). A core whose
+      # fingerprint no longer matches is rebuilt; every other core is reused. So moving one pin
+      # or editing one patch rebuilds that core, not all of them, while a recipe change in
+      # build-core.sh still rebuilds everything. scripts/check-core-cache.sh (the checks job)
+      # tests it.
+      #
+      # The toolchain is in the prefix as well as the fingerprint (the step below says what it
+      # covers) because a new Xcode changes every output. Without it, when the runner image moved
+      # to a new compiler, builds kept shipping cores made by the old one until an unrelated edit
+      # flushed the cache, and that unrelated commit then took the blame for whatever the new
+      # compiler broke. A new toolchain starts a new prefix, nothing restores, and everything
+      # rebuilds, which is the correct and safe behaviour.
+      #
+      # A restore takes the NEWEST entry under the prefix. Entries saved before the fingerprint
+      # still restore, but their 4-field lines match no core, so the first build with it rebuilds
+      # everything once.
       #
       # scripts/fetch-buildbot-cores.sh is deliberately NOT in it. Its cores are deleted and
       # downloaded again on every run and checked against their pinned sha256 (fetch_one), so a
@@ -266,8 +284,9 @@ jobs:
       # source is checked out, before the compile). The next run would trust that file and ship
       # it. A set is only ever saved from a build step that finished.
 
-      # WHAT THE CORES ARE COMPILED WITH, as a short id for the key above. Everything here
-      # changes a core's dylib without changing its pin, build-core.sh or a patch:
+      # WHAT THE CORES ARE COMPILED WITH, as a short id for the key above and for every core's
+      # fingerprint. Everything here changes a core's dylib without changing its pin,
+      # build-core.sh or a patch:
       #   - xcodebuild -version: Xcode, which is the clang and the iphoneos SDK every core uses;
       #   - cmake --version: mgba, azahar, ppsspp and flycast are CMake builds;
       #   - native/ios/build-engine.sh: it exports IPHONEOS_DEPLOYMENT_TARGET, which every core
@@ -276,8 +295,6 @@ jobs:
       # The whole prefix is made here once, so the restore and the save cannot disagree on it.
       - name: Fingerprint the core toolchain
         id: toolchain
-        env:
-          CORE_SOURCES_HASH: ${{ hashFiles('scripts/build-core.sh', 'scripts/patches/**', 'native/continuum-symbian/**') }}
         run: |
           set -euo pipefail
           FP="$RUNNER_TEMP/core-toolchain.txt"
@@ -288,7 +305,7 @@ jobs:
           } > "$FP"
           cat "$FP"
           id="$(shasum -a 256 "$FP" | cut -c1-16)"
-          prefix="ios-cores-${RUNNER_OS}-${id}-${CORE_SOURCES_HASH}-"
+          prefix="ios-cores-${RUNNER_OS}-${id}-"
           echo "toolchain id: $id"
           echo "core cache prefix: $prefix"
           echo "id=$id" >> "$GITHUB_OUTPUT"
@@ -312,9 +329,11 @@ jobs:
           # upload is a warning. Uses this job's `contents: write`.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CONTINUUM_MIRROR_UPLOAD: ${{ github.ref == 'refs/heads/master' && '1' || '0' }}
-          # Reuse a staged core dylib when its manifest line still names its pinned commit.
-          # Off unless set, so a build run by hand is unchanged.
+          # Reuse a staged core dylib when its manifest line still names its pinned commit and its
+          # fingerprint. Off unless set, so a build run by hand is unchanged.
           CONTINUUM_CORE_CACHE: "1"
+          # The toolchain id, part of every core's fingerprint (see THE CORE CACHE above).
+          CONTINUUM_CORE_TOOLCHAIN: ${{ steps.toolchain.outputs.id }}
         run: ./native/ios/build-engine.sh
 
       # Placed here, before anything that can fail, rather than guarded with `always()`:

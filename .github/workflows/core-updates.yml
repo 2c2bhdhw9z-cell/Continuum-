@@ -1,18 +1,21 @@
-# Watch the seventeen other people's repositories so nobody here has to.
+# Watch every emulator's upstream so nobody here has to: the ones built here from source and the
+# ones downloaded from the libretro buildbot.
 #
-# Every emulator in Continuum is locked to one exact upstream commit, on purpose: a change
-# landing overnight must not be able to alter or break a build nobody touched. The cost is
-# that nothing ever says when an emulator has genuinely improved — the pins just sit there
-# ageing until somebody happens to look, and nobody was looking.
+# Every emulator in Continuum is locked to one exact version, on purpose: an upstream commit or a
+# buildbot build landing overnight must not be able to alter or break a build nobody touched.
+# The cost is that nothing ever says when an emulator has genuinely improved — the pins just sit
+# there ageing until somebody happens to look, and nobody was looking.
 #
-# So this looks, weekly, and writes the answer into docs/CORE_UPDATES.md. The owner does not
+# So this looks, weekly: newer code (and its newest change subjects) for each core built here,
+# whether our patches still fit upstream's newest code, and whether the buildbot has a newer
+# build of each downloaded core. It writes the answer into docs/CORE_UPDATES.md. The owner does not
 # have to track anything and will never read this file: HANDOFF.md tells whoever works on the
 # project next to read that page at the start of a session and say, in plain English, whether
 # anything is worth taking.
 #
 # IT CHANGES NOTHING ABOUT THE APP. It moves no pin, builds no core and produces no .ipa.
-# Taking an update stays a deliberate edit to scripts/build-core.sh, then a build, then a test
-# on a phone.
+# Taking an update stays a deliberate edit to scripts/build-core.sh (or the pins in
+# scripts/fetch-buildbot-cores.sh), then a build, then a test on a phone.
 name: Core updates
 
 on:
@@ -33,6 +36,9 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    # It fetches upstream's newest code for every from-source core and downloads every buildbot
+    # core, so a stuck download must not hold the runner for the default six hours.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
 

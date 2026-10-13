@@ -40,6 +40,9 @@ WORK="$ROOT/.work"
 #   scripts/build-core.sh ios-names              # print the canonical dylib filenames and stop
 #   scripts/build-core.sh ios-optional-names     # the same for the optional from-source cores
 #   scripts/build-core.sh ios-stage-prebuilt ... # check and stage a dylib built elsewhere
+#   scripts/build-core.sh ios-fingerprint fceumm # the core's build-cache fingerprint
+#   scripts/build-core.sh ios-is-cached fceumm   # exit 0 if the staged dylib would be reused
+#   scripts/build-core.sh ios-apply-patches <core> <dir>  # our patches onto a source tree
 #
 # A bare core name is not a subcommand. The dispatch at the end refuses it and names the
 # `ios <core>` spelling instead. The one exception is `build-core.sh pcsx_rearmed`, the spelling
@@ -48,9 +51,9 @@ WORK="$ROOT/.work"
 # native/ios/build-engine.sh has been moved onto it.
 #
 # `ios` and `ios-all` need a macOS host and say so clearly anywhere else, the same contract as
-# native/ios/build-engine.sh. `ios-names`, `ios-optional-names` and `ios-stage-prebuilt` are
-# the exceptions: they only print the table or check and copy a file, so they run on any host,
-# which is what makes the filenames checkable from Linux.
+# native/ios/build-engine.sh. Every other subcommand above is the exception: they only print
+# the table, hash files, patch a directory, or check and copy a file, so they run on any host,
+# which is what makes the filenames, the cache and the patches checkable from Linux.
 #
 # PER-CORE GROUND TRUTH, read out of each upstream makefile rather than assumed:
 #
@@ -680,6 +683,15 @@ scripts/build-core.sh - build the libretro cores the iOS app dlopens.
   ios-stage-prebuilt <dylib> <name>
                 check a dylib this script did not build (all libretro entry points),
                 set its @rpath install name and stage it. Any host.
+  ios-fingerprint <core>
+                print the core's build fingerprint (what the CI core cache
+                matches on). Any host.
+  ios-is-cached <core>
+                exit 0 when the staged dylib can be reused as it is, 1 when it
+                must be built. Any host.
+  ios-apply-patches <core> <source dir>
+                apply the core's Continuum patches to a checkout of its source,
+                failing if one no longer fits. Any host.
 
 'ios' and 'ios-all' need a macOS host with the Xcode command line tools.
 
@@ -747,7 +759,7 @@ ios_jobs() {
 #      CORE_UPDATES entry saying whether old save states load on the new commit (players get a
 #      heads-up from it). cargo test fails until you do.
 # core-sources.txt always records the commit really built, pinned or not, with a fourth field
-# saying which.
+# saying which, and a fifth with the core's build fingerprint (see ios_core_fingerprint).
 ios_unpinned() {
   [[ "${CONTINUUM_UNPINNED:-0}" == "1" ]]
 }
@@ -853,7 +865,9 @@ ios_clone() {
   ios_record_source_version "$core"
 }
 
-# Where every core's source came from, written down: "<core> <repo> <commit> pinned|unpinned".
+# Where every core's source came from, written down:
+# "<core> <repo> <commit> pinned|unpinned fp:<fingerprint>". The fingerprint names everything
+# else the dylib is made from (ios_core_fingerprint); ios_core_is_cached needs it to match.
 #
 # The commit is read back from the checkout (the one really built), not copied from IOS_PIN, so
 # the record stays true under CONTINUUM_UNPINNED=1, and it is where a new pin is taken from (see
@@ -881,7 +895,12 @@ ios_record_source_version() {
     grep -v "^$core " "$manifest" > "$manifest.tmp" 2>/dev/null || true
     mv "$manifest.tmp" "$manifest"
   fi
-  echo "$core $IOS_REPO $sha $state" >> "$manifest"
+  # A fingerprint that cannot be worked out is written as fp:unknown, which never matches, so
+  # the cache can only ever rebuild this core rather than trust it.
+  local fp
+  fp="$(ios_core_fingerprint "$core")" || fp="unknown"
+  [[ -n "$fp" ]] || fp="unknown"
+  echo "$core $IOS_REPO $sha $state fp:$fp" >> "$manifest"
   LC_ALL=C sort -o "$manifest" "$manifest"
 }
 
@@ -1636,6 +1655,69 @@ build_ios_core() {
   esac
 }
 
+# The sha256 of a file, or of stdin when no file is given, as just the hex. shasum on a Mac,
+# sha256sum elsewhere; the same answer either way. Fails rather than printing something else.
+ios_sha256() {
+  local out hex
+  if command -v shasum >/dev/null 2>&1; then
+    out="$(shasum -a 256 ${1:+"$1"})" || return 1
+  else
+    out="$(sha256sum ${1:+"$1"})" || return 1
+  fi
+  hex="${out%% *}"
+  [[ "$hex" =~ ^[0-9a-f]{64}$ ]] || return 1
+  echo "$hex"
+}
+
+# Which scripts/patches/<family>-*.patch files belong to a core: its id without _jit (a JIT
+# build applies its plain build's patches and its own), with Symbian's file prefix spelled
+# with a dash.
+ios_core_patch_family() {
+  local family="${1%_jit}"
+  case "$family" in
+    continuum_symbian) family="continuum-symbian" ;;
+  esac
+  echo "$family"
+}
+
+# The first 16 hex of a sha256 over everything a core's dylib is made from besides the upstream
+# tree itself (the note above ios_core_is_cached says what and why). Any host. Every step can
+# fail the function, so a missing tool means no fingerprint, never a partial one.
+ios_core_fingerprint() {
+  local core="$1"
+  ios_core_config "$core" || return 1
+  local family recipe lines name sum path files
+  family="$(ios_core_patch_family "$core")"
+  recipe="$(grep -v "^[[:space:]]*IOS_PIN=" "$IOS_SELF" | ios_sha256)" || return 1
+  lines="core $core"$'\n'"pin $IOS_PIN"$'\n'"toolchain ${CONTINUUM_CORE_TOOLCHAIN:-local}"$'\n'
+  lines="${lines}recipe $recipe"$'\n'
+  files="$(cd "$ROOT/scripts/patches" 2>/dev/null && for name in "$family"-*.patch; do
+             if [[ -f "$name" ]]; then echo "$name"; fi
+           done | LC_ALL=C sort)" || return 1
+  if [[ -n "$files" ]]; then
+    while IFS= read -r name; do
+      sum="$(ios_sha256 "$ROOT/scripts/patches/$name")" || return 1
+      lines="${lines}patch $name $sum"$'\n'
+    done <<<"$files"
+  fi
+  if [[ "$core" == "continuum_symbian" ]]; then
+    files="$(git -C "$ROOT" ls-files -- native/continuum-symbian 2>/dev/null || true)"
+    if [[ -z "$files" ]]; then
+      files="$(cd "$ROOT" && find native/continuum-symbian -path native/continuum-symbian/build -prune \
+                 -o -type f -print | LC_ALL=C sort)" || return 1
+    fi
+    [[ -n "$files" ]] || return 1
+    while IFS= read -r path; do
+      sum="$(ios_sha256 "$ROOT/$path")" || return 1
+      lines="${lines}plug $path $sum"$'\n'
+    done <<<"$files"
+    sum="$(ios_sha256 "$ROOT/scripts/fetch-libretro-headers.sh")" || return 1
+    lines="${lines}headers $sum"$'\n'
+  fi
+  sum="$(printf '%s' "$lines" | ios_sha256)" || return 1
+  echo "${sum:0:16}"
+}
+
 # Builds them all, and keeps going after a failure on purpose.
 #
 # The macOS runner is the only compiler this project has, so a run that stops at the first
@@ -1660,16 +1742,26 @@ build_ios_core() {
 # including one that only changed a line of documentation. Worse, the owner feels that cost
 # twice: anything that goes wrong late in the job means waiting the whole 35 minutes again
 # for the retry. Every core is pinned to an exact upstream commit, so the output is a pure
-# function of (that commit + this script + the patches) and is safe to keep.
+# function of (that commit + this script + its patches + the toolchain) and is safe to keep.
 #
 # The proof of provenance is ios_record_source_version's manifest, not the file's presence:
-# the line has to name this core's repository, its pinned sha, and the word `pinned`, which
-# that function only writes when the checkout's HEAD really was the pin. A dylib left over
-# from a different commit cannot satisfy that.
+# the line has to name this core's repository, its pinned sha, the word `pinned`, which
+# that function only writes when the checkout's HEAD really was the pin, and this core's
+# fingerprint as it is NOW. A dylib left over from a different commit cannot satisfy that.
 #
-# PATCHES ARE NOT COVERED BY THE PIN, so they are covered by the CI cache key instead
-# (hashFiles over scripts/patches/** in .github/workflows/ios.yml): editing a patch throws
-# the whole cache away and everything rebuilds.
+# THE FINGERPRINT (ios_core_fingerprint) covers everything else the dylib is made from, PER
+# CORE: its pin, every scripts/patches/<family>-*.patch, this script with its IOS_PIN= lines
+# taken out (so a recipe or flag change still rebuilds every core, while moving one pin only
+# rebuilds that core and the JIT or plain build sharing it), the toolchain id CI passes in
+# CONTINUUM_CORE_TOOLCHAIN, and for Continuum Symbian its plug (native/continuum-symbian) and
+# the libretro headers script. Editing one core's patch rebuilds that core and nothing else.
+# Matching patches by family puts a JIT build's patch in the plain build's fingerprint too,
+# which only costs an extra rebuild, never a stale dylib. scripts/check-core-cache.sh tests it.
+#
+# AN OLD 4-FIELD LINE ("<core> <repo> <pin> pinned", from before the fingerprint) NEVER
+# MATCHES, so the first build with this (build 182) rebuilds every core once, and later builds
+# rebuild only the cores whose inputs changed. If in doubt it rebuilds: a fingerprint that
+# cannot be worked out is never a match.
 #
 # OFF BY DEFAULT. Only CI sets CONTINUUM_CORE_CACHE=1. A build run by hand stays exactly as
 # predictable as it was, and `rm -rf native/ios/build/lib` is still the way to force
@@ -1691,7 +1783,10 @@ ios_core_is_cached() {
   [[ -f "$IOS_OUT_DIR/$IOS_DYLIB_NAME" ]] || return 1
   local manifest="$IOS_OUT_DIR/core-sources.txt"
   [[ -f "$manifest" ]] || return 1
-  grep -qx "$core $IOS_REPO $IOS_PIN pinned" "$manifest" || return 1
+  local fp
+  fp="$(ios_core_fingerprint "$core")" || return 1
+  [[ -n "$fp" ]] || return 1
+  grep -qxF "$core $IOS_REPO $IOS_PIN pinned fp:$fp" "$manifest" || return 1
   return 0
 }
 
@@ -1856,6 +1951,44 @@ case "${1:-}" in
       exit 1
     fi
     ios_stage_dylib "$2" "$3"
+    exit 0
+    ;;
+  ios-fingerprint)
+    # Any host: scripts/check-core-cache.sh tests the per-core cache with it on Linux.
+    if [[ "$#" -lt 2 ]] || ! ios_core_config "$2"; then
+      echo "error: 'ios-fingerprint' needs a core name. Valid: ${IOS_CORES[*]} ${IOS_OPTIONAL_CORES[*]}" >&2
+      exit 1
+    fi
+    ios_core_fingerprint "$2" || { echo "error: could not work out $2's fingerprint" >&2; exit 1; }
+    exit 0
+    ;;
+  ios-is-cached)
+    # Exit 0 when ios-all would reuse the staged dylib, 1 when it would build it.
+    if [[ "$#" -lt 2 ]] || ! ios_core_config "$2"; then
+      echo "error: 'ios-is-cached' needs a core name. Valid: ${IOS_CORES[*]} ${IOS_OPTIONAL_CORES[*]}" >&2
+      exit 1
+    fi
+    if ios_core_is_cached "$2"; then
+      exit 0
+    fi
+    exit 1
+    ;;
+  ios-apply-patches)
+    # Any host. The weekly check (scripts/check-core-updates.sh) runs it on a fresh copy of
+    # upstream's newest code to say whether our patches still fit. It changes that copy.
+    if [[ "$#" -lt 3 ]] || ! ios_core_config "$2"; then
+      echo "error: 'ios-apply-patches' needs <core> <source dir>. Valid: ${IOS_CORES[*]} ${IOS_OPTIONAL_CORES[*]}" >&2
+      exit 1
+    fi
+    [[ -d "$3" ]] || { echo "error: no source directory at $3" >&2; exit 1; }
+    IOS_SRC_DIR="$(cd "$3" && pwd)"
+    if [[ "$2" == "continuum_symbian" ]]; then
+      # Its patch is applied inside its build function, after the iOS port's own patches, so
+      # this only checks that it would apply.
+      git -C "$IOS_SRC_DIR" apply --check "$ROOT/scripts/patches/continuum-symbian-frame-readback.patch"
+    else
+      ios_apply_core_patches "$2"
+    fi
     exit 0
     ;;
   "$IOS_LEGACY_ALIAS")
