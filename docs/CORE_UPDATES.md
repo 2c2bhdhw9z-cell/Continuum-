@@ -1,6 +1,6 @@
 # Have any of the emulators been updated?
 
-Checked automatically, weekly. **Last checked: 13 October 2026, 01:48 UTC.**
+Checked automatically, weekly. **Last checked: 13 October 2026, 04:56 UTC.**
 
 Written by `scripts/check-core-updates.sh`. Do not edit by hand; it is overwritten.
 
