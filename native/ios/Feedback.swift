@@ -617,7 +617,11 @@ final class FeedbackCenter: ObservableObject {
         guard !started else { return }
         started = true
         guard let dir = Self.directory() else { return }
+        // Before the session files below are rewritten: the engine tells an update from a first
+        // install by them, and queues the emulator heads-ups.
+        let updates = coreUpdatesOpen(dir: dir.path)
         feedbackLogOpen(dir: dir.path)
+        if !updates.isEmpty { Self.record(updates) }
         let closed = feedbackSessionOpen(dir: dir.path, build: EngineHost.versionLabel,
                                          started: FeedbackStamp.longNow())
         // Not on screen until iOS says the app is active. iOS also starts apps in the background
@@ -706,7 +710,7 @@ final class FeedbackCenter: ObservableObject {
             + " Sorry about that. Want to send a quick report? It really helps me fix it."
     }
 
-    private static func directory() -> URL? {
+    static func directory() -> URL? {
         guard let base = FileManager.default.urls(for: .applicationSupportDirectory,
                                                   in: .userDomainMask).first else { return nil }
         let dir = base.appendingPathComponent("Feedback", isDirectory: true)

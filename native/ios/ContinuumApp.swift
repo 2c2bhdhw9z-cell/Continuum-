@@ -4926,6 +4926,7 @@ final class EngineHost: ObservableObject {
                     saveStates.resumeIfPossible(entry: entry)
                 }
             }
+            showCoreUpdateHeadsUp(entry: entry, coreId: spec.coreId)
         } catch {
             running = false
             activeEntry = nil
@@ -4937,6 +4938,21 @@ final class EngineHost: ObservableObject {
             } else {
                 status = failed
             }
+        }
+    }
+
+    /// The owner's rule: the first game opened on an emulator that changed since the last install
+    /// gets one short heads-up, once per emulator version. The engine decides whether there is
+    /// one and what it says (core_updates.rs); this only shows it on the player's fade line, 6 s
+    /// in so the launch or resume line is read first, and only if the same game is still running.
+    private func showCoreUpdateHeadsUp(entry: LibraryEntry, coreId: String) {
+        let path = entry.path
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            guard let self, self.running, self.activeEntry?.path == path,
+                  let dir = FeedbackCenter.directory()?.path,
+                  let line = coreUpdatesTakeHeadsUp(dir: dir, coreId: coreId) else { return }
+            self.status = line
         }
     }
 

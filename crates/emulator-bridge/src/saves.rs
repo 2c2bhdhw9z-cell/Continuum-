@@ -11,7 +11,9 @@
 //!
 //! The compatibility checks themselves (core id, core version, core options, byte length) stay in
 //! the host store, where the live engine is: this module only guarantees the facts survive the
-//! round trip.
+//! round trip. The one exception is the version decision, which is
+//! `core_updates::state_version_loads`: a different core version loads only where the engine
+//! records that pair as proven.
 
 use std::collections::BTreeMap;
 

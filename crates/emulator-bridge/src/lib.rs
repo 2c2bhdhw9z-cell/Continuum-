@@ -72,6 +72,8 @@ pub mod players;
 pub mod vulkan_probe;
 pub mod rewind;
 pub mod saves;
+// Emulator updates: which old save states still load on a newer core, and the players' heads-up.
+pub mod core_updates;
 pub mod feedback;
 pub mod netplay;
 pub mod sync;
@@ -119,6 +121,10 @@ pub mod uniffi_players;
 // Tester feedback (src/feedback.rs): the activity log, the crash marker, the load guard, reports.
 #[cfg(feature = "uniffi-bindings")]
 pub mod uniffi_feedback;
+
+// Emulator updates (src/core_updates.rs): save-state version pairs and the heads-up line.
+#[cfg(feature = "uniffi-bindings")]
+pub mod uniffi_cores;
 
 pub use bridge::{BridgeStatus, EmulatorBridge, TickReport};
 pub use error::{BridgeError, GfxError};

@@ -742,7 +742,10 @@ ios_jobs() {
 #   2. check that build on a phone;
 #   3. take the core's commit from that build's core-sources.txt (third field of its line, in the
 #      ios-build-metadata artefact) and paste it into the core's IOS_PIN above;
-#   4. dry-run its patches against that commit (patch -p1 --dry-run --forward), if it has any.
+#   4. dry-run its patches against that commit (patch -p1 --dry-run --forward), if it has any;
+#   5. update crates/emulator-bridge/src/core_updates.rs: the core's build in CORE_BUILDS, and one
+#      CORE_UPDATES entry saying whether old save states load on the new commit (players get a
+#      heads-up from it). cargo test fails until you do.
 # core-sources.txt always records the commit really built, pinned or not, with a fourth field
 # saying which.
 ios_unpinned() {

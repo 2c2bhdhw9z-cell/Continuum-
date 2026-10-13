@@ -43,7 +43,10 @@
 #      than shipping a newer build of it, but CI gets a ::warning:: naming the core and
 #      core-sources.txt records it as unpinned. Moving a pin: check that build on a phone, then
 #      copy the sha256 from its core-sources.txt into pinned_sha256 (the mirror copy is replaced
-#      by the next master build, which uploads with --clobber).
+#      by the next master build, which uploads with --clobber) and its dylib: sha256 into
+#      pinned_dylib_sha256. Then update crates/emulator-bridge/src/core_updates.rs: the core's
+#      zip sha256 in CORE_BUILDS, and one CORE_UPDATES entry saying whether old save states load
+#      (players get a heads-up from it). cargo test fails until you do.
 # Each core also has a pinned sha256 of the dylib inside its zip (pinned_dylib_sha256). The
 # buildbot re-zips every core nightly, so a zip can change while the dylib in it is the same build:
 # a zip that misses its pin but whose dylib matches the dylib pin is the same checked core, and is

@@ -1007,7 +1007,8 @@ final class SaveStates: ObservableObject {
     ///
     ///   1. is the payload still on disk
     ///   2. is the running core the one that wrote it
-    ///   3. is it the same BUILD of that core
+    ///   3. is it the same BUILD of that core (a different build is allowed when the engine records
+    ///      that pair as proven compatible: `saveStateVersionLoads`, core_updates.rs)
     ///   4. was it saved under the same restart-required core settings
     ///
     /// Each check needs both halves to be known. A record with no stored core id, or a running core
@@ -1030,7 +1031,9 @@ final class SaveStates: ObservableObject {
 
         let runningVersion = engine.coreVersion()
         if let saved = record.coreVersion, !saved.isEmpty,
-           let running = runningVersion, !running.isEmpty, saved != running {
+           let running = runningVersion, !running.isEmpty,
+           !saveStateVersionLoads(coreId: record.coreId ?? runningCore ?? "",
+                                  savedVersion: saved, runningVersion: running) {
             return .versionMismatch(core: record.coreId ?? runningCore ?? "the core",
                                     saved: saved, running: running)
         }

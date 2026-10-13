@@ -873,7 +873,8 @@ struct StatusFlash: View {
         Text(text)
             .font(.system(.caption2, design: .monospaced))
             .foregroundStyle(Color.white.opacity(0.9))
-            .lineLimit(3)
+            // 4: the longest emulator-update heads-up needs 4 lines on a phone held upright.
+            .lineLimit(4)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
