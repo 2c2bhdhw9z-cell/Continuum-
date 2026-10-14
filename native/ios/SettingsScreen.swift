@@ -74,7 +74,7 @@ struct SettingsScreen: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Settings")
                         .font(.system(size: 26, weight: .heavy))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                     Spacer(minLength: 8)
                     Button("Open all") { SettingsFolds.shared.openAll() }
                         .buttonStyle(SettingsFoldButtonStyle())
@@ -93,6 +93,10 @@ struct SettingsScreen: View {
                 // other systems with a choice, after Online Play), and once folded, or after
                 // "Close all", Brett could not find any core switch at all.
                 coreSwitchSection
+
+                // Dark, Light or System, in its own short section near the top (owner, 13
+                // October 2026). Third, so CORES keeps the place the note above gives it.
+                appearanceSection
 
                 // Grouped, and NOT for tidiness: a SwiftUI view builder accepts at most ten
                 // children, and this screen has more sections than that. Exceeding it fails with
@@ -183,7 +187,7 @@ struct SettingsScreen: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Look up cover art")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                     Text(artwork.fetchEnabled
                          ? "On. Your games get real box art."
                          : "Off. Games show a title card instead.")
@@ -285,7 +289,7 @@ struct SettingsScreen: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Hide the on-screen pad while a controller is connected")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                     // Says what it is doing RIGHT NOW rather than only what it means, because this
                     // switch cannot act without a controller attached and that was reported as it
                     // not working. Nothing was wrong, but a switch that is on and visibly changing
@@ -352,7 +356,7 @@ struct SettingsScreen: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Tap on a button press")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                 SegmentedChoice(options: ButtonHapticStrength.allCases,
                                 title: { $0.label },
                                 selection: $feel.buttonHaptics)
@@ -362,7 +366,7 @@ struct SettingsScreen: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Rumble")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                     Text(feel.rumbleEnabled
                          ? "On. Games that rumble shake your phone or controller."
                          : "Off. No rumble.")
@@ -375,7 +379,7 @@ struct SettingsScreen: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Turbo speed")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                 SegmentedChoice(options: TurboRate.allCases,
                                 title: { $0.label },
                                 selection: $feel.turboRate)
@@ -394,7 +398,7 @@ struct SettingsScreen: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("All Games")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                 // Converted along with the others. It had the same fault and only escaped the
                 // report because it is one row further down the page than the ones being tested.
                 SegmentedChoice(options: LibraryLayout.allCases,
@@ -407,7 +411,7 @@ struct SettingsScreen: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Game card size")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                 SegmentedChoice(options: LibraryCardSize.allCases,
                                 title: { $0.title },
                                 selection: $host.libraryCardSize)
@@ -417,7 +421,7 @@ struct SettingsScreen: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("A shelf per system on Home")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                     Text("Off leaves Home as the featured game and Recently added.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
@@ -451,7 +455,7 @@ struct SettingsScreen: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Show technical stuff")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                     Text("FPS and what's going on behind the scenes. Feedback already includes it.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
@@ -549,7 +553,7 @@ struct SettingsScreen: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Use JIT when it's available")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                 // "and N64 on older iPhones" until build 138, which is no longer true: the N64
                 // was the last system that could not use JIT on an iPhone 13 or newer running
                 // iOS 26, and it can now. Every system with a JIT build gets it on every phone
@@ -578,6 +582,20 @@ struct SettingsScreen: View {
             SettingsNote(
                 "Only needed if you turned JIT on in StikDebug yourself, with the universal script."
             )
+        }
+    }
+
+    // MARK: Appearance
+
+    /// How the whole app looks: Dark (the default, and how it always looked), Light, or System,
+    /// which follows the iPhone's own light or dark setting. The three words are the owner's.
+    /// `RootView` applies the choice the moment it changes, so this screen turns with it. No
+    /// sentence under it: the three choices say it all.
+    private var appearanceSection: some View {
+        SettingsSection(title: "APPEARANCE") {
+            SegmentedChoice(options: AppAppearance.allCases,
+                            title: { $0.title },
+                            selection: $host.appearance)
         }
     }
 
@@ -653,7 +671,7 @@ struct SettingsScreen: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Auto-save")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                     Text(saveStates.autoSavesEnabled
                          ? "On. Leaving a game saves your spot."
                          : "Off. Nothing's saved unless you save it.")
@@ -670,7 +688,7 @@ struct SettingsScreen: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Pick up where you left off")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                     Text(saveStates.resumesAutomatically
                          ? "On. Games open right where you left them."
                          : "Off. Every game starts from the beginning.")
@@ -846,7 +864,7 @@ struct SettingsScreen: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Mute")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                     Text(emulation.muted
                          ? "Silent. The game still runs at full speed."
                          : "Sound on.")
@@ -860,7 +878,7 @@ struct SettingsScreen: View {
                 Text("VOLUME \(Int((emulation.volume * 100).rounded()))%")
                     .font(.system(size: 10, weight: .bold))
                     .tracking(1.1)
-                    .foregroundStyle(Color.white.opacity(0.45))
+                    .foregroundStyle(ShellPalette.tertiaryText)
                 Slider(value: $emulation.volume, in: 0...1)
                     .tint(ShellPalette.accent)
                     .disabled(emulation.muted)
@@ -927,7 +945,7 @@ struct SettingsScreen: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(gap.name)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color.white.opacity(0.9))
+                        .foregroundStyle(ShellPalette.text.opacity(0.9))
                     Text(gap.reason)
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
@@ -1045,7 +1063,8 @@ private struct SettingsFoldButtonStyle: ButtonStyle {
     }
 }
 
-/// A titled group on a dark card. The heading opens and closes the card.
+/// A titled group on a card (`ShellPalette.surface`: a shade lighter than the page in Dark, a
+/// shade darker in Light). The heading opens and closes the card.
 struct SettingsSection<Content: View>: View {
     let title: String
     /// False for a card that is a form rather than a Settings group (the feedback and crash
@@ -1123,7 +1142,7 @@ struct SettingsLabel: View {
         Text(text.uppercased())
             .font(.system(size: 10, weight: .bold))
             .tracking(1.1)
-            .foregroundStyle(Color.white.opacity(0.45))
+            .foregroundStyle(ShellPalette.tertiaryText)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -1157,10 +1176,10 @@ struct SettingsReadout: View {
             Text(label.uppercased())
                 .font(.system(size: 10, weight: .bold))
                 .tracking(1.1)
-                .foregroundStyle(Color.white.opacity(0.45))
+                .foregroundStyle(ShellPalette.tertiaryText)
             Text(value)
                 .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(Color.white.opacity(0.85))
+                .foregroundStyle(ShellPalette.text.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1183,7 +1202,7 @@ struct TechnicalReadoutGroup<Content: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.9))
+                .foregroundStyle(ShellPalette.text.opacity(0.9))
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1205,7 +1224,7 @@ struct SettingsButton: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(role == .destructive ? ShellPalette.accent : .white)
+                .foregroundStyle(role == .destructive ? ShellPalette.accent : ShellPalette.text)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .frame(maxWidth: .infinity)
@@ -1237,7 +1256,9 @@ struct SettingsButton: View {
 /// Material Design's language, not the recessed-groove-with-a-floating-thumb that iOS uses, and
 /// on a phone running a version of iOS whose whole design language is translucency it looked
 /// like an Android app. So the track is a dark groove and the thumb is `ultraThinMaterial` with
-/// a hairline specular edge and a small soft shadow.
+/// a hairline specular edge and a small soft shadow. In Light (Settings, APPEARANCE) the groove is
+/// the faint grey of iOS's own light selector and the glass sits on white (`ShellPalette.groove`,
+/// `thumbFill`); Dark is drawn exactly as it always was.
 ///
 /// The material matters more than the colour. It is a real blur of what sits behind it, so it
 /// inherits whatever the running OS does with materials rather than being a grey that had to be
@@ -1316,11 +1337,12 @@ struct SegmentedChoice<Option: Hashable>: View {
                 // more to make it look like an Android control than the colour ever was. A capsule
                 // takes its radius from its own height, so this cannot drift back to looking boxy
                 // if the track height changes.
+                // The groove: black at 28% in Dark, a faint grey in Light (`ShellPalette.groove`).
                 Capsule(style: .continuous)
-                    .fill(Color.black.opacity(0.28))
+                    .fill(ShellPalette.groove)
                     .overlay(
                         Capsule(style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.5)
+                            .strokeBorder(ShellPalette.text.opacity(0.07), lineWidth: 0.5)
                     )
 
                 // The thumb, and this is the part being asked for: glass rather than a painted
@@ -1335,6 +1357,9 @@ struct SegmentedChoice<Option: Hashable>: View {
                     // and whatever the system is doing with materials on the running OS, instead
                     // of being a colour that has to be guessed to match.
                     .fill(.ultraThinMaterial)
+                    // Nothing in Dark. In Light, white under the glass, so the thumb rises out of
+                    // the light groove the way iOS's own light selector does (`thumbFill`).
+                    .background(Capsule(style: .continuous).fill(ShellPalette.thumbFill))
                     .overlay(
                         // The specular edge. A single hairline of white at low opacity is what
                         // reads as a lit top edge on a physical control, and it is the difference
@@ -1365,7 +1390,7 @@ struct SegmentedChoice<Option: Hashable>: View {
                             .font(.system(size: 14,
                                           weight: option == selection ? .semibold : .medium))
                             .foregroundStyle(option == selection
-                                             ? Color.white
+                                             ? ShellPalette.text
                                              : ShellPalette.secondaryText)
                             .lineLimit(1)
                             // Shrinks rather than truncating, because a label clipped to "Pixel

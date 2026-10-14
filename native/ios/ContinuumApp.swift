@@ -64,10 +64,10 @@ struct ContinuumApp: App {
 
     var body: some Scene {
         WindowGroup {
+            // Light or dark is chosen inside `RootView`, which owns the setting (Settings,
+            // APPEARANCE). Dark stays the default, and the game's own screen stays black in both:
+            // a light letterbox around a dark game is glare rather than design.
             RootView()
-                // Always dark: the app surrounds emulated output, and a light letterbox around a
-                // dark game is glare rather than design.
-                .preferredColorScheme(.dark)
                 .statusBarHidden(true)
                 .ignoresSafeArea()
         }
@@ -3302,6 +3302,16 @@ final class EngineHost: ObservableObject {
         }
     }
 
+    /// Settings, APPEARANCE: Dark, Light or System (`AppAppearance`). Dark, the default, is how
+    /// the app always looked. `RootView` applies it to the whole app as it changes. A plain
+    /// `continuum.` key, so it is synced and backed up with the other settings.
+    @Published var appearance: AppAppearance = .dark {
+        didSet {
+            guard oldValue != appearance else { return }
+            UserDefaults.standard.set(appearance.rawValue, forKey: Self.appearanceKey)
+        }
+    }
+
     /// Favourites, BY FILE NAME.
     ///
     /// v1 held absolute paths, and that was the reason favourites were the one library setting
@@ -3338,6 +3348,7 @@ final class EngineHost: ObservableObject {
     private static let layoutKey = "continuum.library.layout.v1"
     private static let systemShelvesKey = "continuum.library.systemShelves.v1"
     private static let cardSizeKey = "continuum.library.cardSize.v1"
+    private static let appearanceKey = "continuum.appearance.v1"
     private static let ps1CoreKey = "continuum.cores.ps1.v1"
     /// Named for the GAME controls, not for the library layout `layoutKey` holds. The two are
     /// unrelated settings with confusingly similar names, and a key that did not say which it meant
@@ -3718,6 +3729,10 @@ final class EngineHost: ObservableObject {
         if let stored = defaults.string(forKey: Self.cardSizeKey),
            let size = LibraryCardSize(rawValue: stored) {
             libraryCardSize = size
+        }
+        if let stored = defaults.string(forKey: Self.appearanceKey),
+           let choice = AppAppearance(rawValue: stored) {
+            appearance = choice
         }
         if let stored = defaults.string(forKey: Self.ps1CoreKey),
            let choice = Ps1CoreChoice(rawValue: stored) {
@@ -4570,7 +4585,7 @@ final class EngineHost: ObservableObject {
                 || CoreCatalog.isLaunchable(path: documents.appendingPathComponent($0).path)
         }.count
         let wentRight = failures.isEmpty && !rejectedGame
-            && StatusTint.tint(for: otherNote) == ShellPalette.metadata
+            && StatusTint.isEveryday(otherNote)
         // What pops up over the Library afterwards (`libraryNotice`): the casual line, or with
         // nothing skipped the same line without its second half ("Added 3 games."). An import that
         // went wrong leaves this empty: its summary reads as a problem, so it pops up from `status`.
@@ -6159,6 +6174,14 @@ struct RootView: View {
             }
         }
         .background(.black)
+        // Settings, APPEARANCE, applied ONCE, here, so every screen, sheet and menu follows at
+        // once with no restart: SwiftUI's own preference (nil is System, the iPhone's own setting),
+        // and the same choice on the app's windows for everything UIKit presents by itself. See
+        // `AppAppearance.applyToWindows`. The black above stays black in both: it is the
+        // letterbox around a game.
+        .preferredColorScheme(host.appearance.colorScheme)
+        .onAppear { host.appearance.applyToWindows() }
+        .onChange(of: host.appearance) { choice in choice.applyToWindows() }
         // The "which system is this?" picker, over the library or the player.
         .background(ImportCenterPresenter(center: host.importCenter))
         // Open in / Share to Continuum, from Files, Mail, Safari and AirDrop.

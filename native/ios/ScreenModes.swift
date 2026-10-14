@@ -455,13 +455,13 @@ struct ScreenModesSettingsSection: View {
             Toggle(isOn: $modes.useTV) {
                 Text("Use TV when connected")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
             }
             .tint(ShellPalette.accent)
             Toggle(isOn: $modes.touchOnPhone) {
                 Text("Keep the DS and 3DS touch screen on the phone")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
             }
             .tint(ShellPalette.accent)
             SettingsNote(
@@ -478,7 +478,7 @@ struct ScreenModesSettingsSection: View {
                 )) {
                     Text(system.displayName)
                         .font(.system(size: 14))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                 }
                 .tint(ShellPalette.accent)
             }

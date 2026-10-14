@@ -604,7 +604,7 @@ struct ArtworkOptionCell: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(isInUse ? ShellPalette.accent : Color.white.opacity(0.12),
+                        .strokeBorder(isInUse ? ShellPalette.accent : ShellPalette.text.opacity(0.12),
                                       lineWidth: isInUse ? 2 : 0.5)
                 )
                 .overlay(alignment: .topTrailing) {
@@ -619,7 +619,7 @@ struct ArtworkOptionCell: View {
 
                 Text(option.label)
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(isInUse ? ShellPalette.accent : Color.white.opacity(0.85))
+                    .foregroundStyle(isInUse ? ShellPalette.accent : ShellPalette.text.opacity(0.85))
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .frame(width: 74, alignment: .leading)

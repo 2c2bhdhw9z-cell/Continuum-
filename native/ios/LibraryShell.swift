@@ -1,7 +1,8 @@
 // Continuum - the library shell: the screen the app opens into.
 //
 // This replaces the monospace debug HUD over a plain List. The structure is the design reference,
-// docs/library-mobile.png: a dark full-bleed shell, a top bar with the logo, a search field and an
+// docs/library-mobile.png: a full-bleed shell (dark, as the reference has it, or light when the
+// player picks Light in Settings, APPEARANCE; see `ShellPalette`), a top bar with the logo, a search field and an
 // import button, a featured hero with real cover art, horizontal shelves of cover cards each badged
 // with its system, and a bottom tab bar whose active tab is red. The reference's thin status strip
 // above the tabs ("● 80 games ^") was taken out at the owner's request on 13 October 2026: what it
@@ -29,7 +30,7 @@
 //
 //     THE BAR FLOATS (owner, 13 October 2026: the tabs should "hover", with the games seen
 //     scrolling underneath). Every tab runs to the bottom edge of the screen, the bar is see-through
-//     glass (Apple's `ultraThinMaterial` under a dark wash; see `bottomChrome`) over it, and every
+//     glass (Apple's `ultraThinMaterial` under a wash of the page colour; see `bottomChrome`) over it, and every
 //     scrolling tab ends with at least `bottomBarHeight` of empty space so its last row scrolls
 //     clear of the bar. The material only ever blurs the shell's own content: the shell's black
 //     backdrop still covers the canvas, so no Metal layer is behind it.
@@ -395,7 +396,8 @@ struct LibraryShell: View {
             // Opaque, and that is the point: the canvas stays mounted underneath so a game can
             // open without building a new surface, and a library you can see a game through is
             // the debug overlay this screen replaces. The frame loop itself is not running here.
-            Color.black
+            // The page colour: black in Dark, white in Light.
+            ShellPalette.background
                 .ignoresSafeArea()
 
             content
@@ -467,13 +469,15 @@ struct LibraryShell: View {
     private var topBarBackground: some View {
         if host.libraryTab == .home && !homeBarSolid && heroEntry != nil {
             LinearGradient(
-                colors: [.black.opacity(0.92), .black.opacity(0.55), .black.opacity(0)],
+                colors: [ShellPalette.background.opacity(0.92),
+                         ShellPalette.background.opacity(0.55),
+                         ShellPalette.background.opacity(0)],
                 startPoint: .top,
                 endPoint: .bottom
             )
             .ignoresSafeArea(edges: .top)
         } else {
-            Color.black
+            ShellPalette.background
                 .ignoresSafeArea(edges: .top)
         }
     }
@@ -486,7 +490,7 @@ struct LibraryShell: View {
             Text("CONTINUUM")
                 .font(.system(size: 14, weight: .heavy))
                 .tracking(1.6)
-                .foregroundStyle(.white)
+                .foregroundStyle(ShellPalette.text)
         }
         .accessibilityAddTraits(.isHeader)
     }
@@ -495,11 +499,11 @@ struct LibraryShell: View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.55))
+                .foregroundStyle(ShellPalette.text.opacity(0.55))
             // The placeholder counts what is actually there, from the one library array.
             TextField("Search \(host.library.count) titles...", text: $host.librarySearch)
                 .font(.system(size: 14))
-                .foregroundStyle(.white)
+                .foregroundStyle(ShellPalette.text)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
                 .submitLabel(.search)
@@ -509,7 +513,7 @@ struct LibraryShell: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 13))
-                        .foregroundStyle(Color.white.opacity(0.5))
+                        .foregroundStyle(ShellPalette.text.opacity(0.5))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Clear the search")
@@ -533,7 +537,7 @@ struct LibraryShell: View {
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(ShellPalette.text)
                 .frame(width: 36, height: 36)
                 .background(ShellPalette.surfaceStrong, in: Circle())
         }
@@ -572,7 +576,7 @@ struct LibraryShell: View {
     /// The pop-up line just above the tabs: the oldest waiting line (an import's result, the Not
     /// games move, a problem). It fades by itself (`startPopUpClock`), and a tap takes it away.
     ///
-    /// The tabs' own glass and dark wash, so it reads the same over any cover passing under it.
+    /// The tabs' own glass and wash, so it reads the same over any cover passing under it.
     @ViewBuilder
     private var popUpLine: some View {
         if let line = popUps.first {
@@ -588,7 +592,7 @@ struct LibraryShell: View {
                         .padding(.top, 5)
                     Text(line)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color.white.opacity(0.92))
+                        .foregroundStyle(ShellPalette.text.opacity(0.92))
                         // 4, like the status line over a game: a problem line can be long, and
                         // the whole of it is in Settings, TECHNICAL DETAILS.
                         .lineLimit(4)
@@ -599,7 +603,7 @@ struct LibraryShell: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.black.opacity(0.6),
+                .background(ShellPalette.background.opacity(0.6),
                             in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .background(.ultraThinMaterial,
                             in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -632,7 +636,7 @@ struct LibraryShell: View {
     /// lines ("surface ready", "deleted Tetris.gb") do not, exactly as the strip left them out:
     /// every line is in Settings, TECHNICAL DETAILS, and in the activity log feedback sends.
     private func popUpIfProblem(_ line: String) {
-        guard StatusTint.tint(for: line) != ShellPalette.metadata else { return }
+        guard !StatusTint.isEveryday(line) else { return }
         popUp(line)
     }
 
@@ -664,7 +668,7 @@ struct LibraryShell: View {
         popUpShowing += 1
         let mine = popUpShowing
         guard let line = popUps.first else { return }
-        let seconds = StatusTint.tint(for: line) == ShellPalette.metadata ? 5 : 10
+        let seconds = StatusTint.isEveryday(line) ? 5 : 10
         Task { @MainActor in
             var seen = 0
             while seen < seconds {
@@ -719,19 +723,22 @@ struct LibraryShell: View {
         }
         // THE FLOATING BAR'S GLASS: the content runs underneath, and this is what you see it
         // through. The material is the same `ultraThinMaterial` the segmented selectors use as
-        // their glass, iOS 15+, so it is a real blur of the covers passing under it. The black
-        // wash over it is the readability half, and it is not optional: the labels are fixed white
-        // and red, and over a white cover the bare material is light enough to swallow both.
+        // their glass, iOS 15+, so it is a real blur of the covers passing under it, and it is
+        // dark glass in Dark and light glass in Light. The wash over it is the readability half,
+        // and it is not optional: it is the page colour at 60% (black in Dark, white in Light),
+        // and without it a white cover under the Dark bar, or a black one under the Light bar,
+        // would swallow the labels. The two modes are mirror images, so the labels read the same.
         //
         // NOT iOS 26's `glassEffect`, on purpose. That glass can shift between light and dark with
-        // whatever is behind it, and these fixed-colour labels would not shift with it, so a bright
-        // cover could turn the bar light under white text, on a screen nobody can look at before
-        // the build. The material reads the same on every iOS this app runs on, 16 included.
+        // whatever is behind it, and these labels follow the app's Appearance rather than the
+        // cover, so a bright cover could turn the Dark bar light under white text, on a screen
+        // nobody can look at before the build. The material reads the same on every iOS this app
+        // runs on, 16 included.
         //
-        // The black wash also covers exactly the frame the old opaque black did, so a tap on the
-        // bar (the home-indicator strip under the tabs included) still stops at the bar and never
+        // The wash also covers exactly the frame the old opaque black did, so a tap on the bar
+        // (the home-indicator strip under the tabs included) still stops at the bar and never
         // reaches a cover passing underneath it.
-        .background(Color.black.opacity(0.6))
+        .background(ShellPalette.background.opacity(0.6))
         .background(.ultraThinMaterial)
         .background(GeometryReader { proxy in
             Color.clear
@@ -750,7 +757,7 @@ struct LibraryShell: View {
                     Text(item.title)
                         .font(.system(size: 15, weight: selected ? .semibold : .regular))
                         .foregroundStyle(selected ? ShellPalette.accent
-                                                  : Color.white.opacity(0.62))
+                                                  : ShellPalette.text.opacity(0.62))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .contentShape(Rectangle())
@@ -947,7 +954,7 @@ struct LibraryShell: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(title)
                 .font(.system(size: 26, weight: .heavy))
-                .foregroundStyle(.white)
+                .foregroundStyle(ShellPalette.text)
             Text(subtitle)
                 .font(.system(size: 12))
                 .foregroundStyle(ShellPalette.secondaryText)
@@ -969,7 +976,7 @@ struct LibraryShell: View {
                   ? "square.grid.2x2.fill"
                   : "list.bullet")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(ShellPalette.text)
                 .frame(width: 34, height: 34)
                 .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 9))
         }
@@ -1033,7 +1040,7 @@ struct LibraryShell: View {
                     host.detailEntry = entry
                 }
                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 10))
-                .listRowBackground(Color.white.opacity(0.05))
+                .listRowBackground(ShellPalette.text.opacity(0.05))
                 .listRowSeparatorTint(ShellPalette.hairline)
                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
                     Button {

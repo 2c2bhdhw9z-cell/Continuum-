@@ -34,7 +34,7 @@ struct PlayerCheatsSheet: View {
                 }
                 .padding(14)
             }
-            .background(Color.black.ignoresSafeArea())
+            .background(ShellPalette.background.ignoresSafeArea())
             .navigationTitle("Cheats")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -44,7 +44,7 @@ struct PlayerCheatsSheet: View {
             }
         }
         .navigationViewStyle(.stack)
-        .preferredColorScheme(.dark)
+        // No colour scheme of its own: opened from a game, it follows Settings, APPEARANCE.
     }
 
     private var listBlock: some View {
@@ -107,7 +107,7 @@ struct CheatCodeEntry: View {
             if !identityLine.isEmpty {
                 Text(identityLine)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let coreId {
@@ -116,7 +116,7 @@ struct CheatCodeEntry: View {
 
             TextField("Code, for example SXIOPO", text: $draftCode)
                 .font(.system(.footnote, design: .monospaced))
-                .foregroundStyle(.white)
+                .foregroundStyle(ShellPalette.text)
                 .autocorrectionDisabled(true)
                 .textInputAutocapitalization(.characters)
                 .padding(10)
@@ -124,7 +124,7 @@ struct CheatCodeEntry: View {
 
             TextField("What it does, optional", text: $draftLabel)
                 .font(.system(size: 13))
-                .foregroundStyle(.white)
+                .foregroundStyle(ShellPalette.text)
                 .padding(10)
                 .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 9))
 
@@ -198,7 +198,7 @@ struct CheatRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(cheat.label.isEmpty ? "Unnamed cheat" : cheat.label)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(cheat.enabled ? Color.white : ShellPalette.secondaryText)
+                    .foregroundStyle(cheat.enabled ? ShellPalette.text : ShellPalette.secondaryText)
                 Text(CheatStore.pokeSummary(for: cheat.code) ?? cheat.code)
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(ShellPalette.secondaryText)
@@ -413,7 +413,7 @@ struct CheatSearchView: View {
                 HStack {
                     Text(Self.hex(hit.address))
                         .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                     Spacer()
                     Text("now \(hit.current), was \(hit.previous)")
                         .font(.system(.caption2, design: .monospaced))
@@ -430,11 +430,13 @@ struct CheatSearchView: View {
         }
     }
 
+    /// Tinted with the page's text colour: white in Dark, as these always were, and black in
+    /// Light, where a white tint would be white words on a near-white button.
     private func filterButton(_ title: String, _ filter: RamSearchFilter) -> some View {
         Button(title) { apply(filter) }
             .font(.system(size: 12, weight: .semibold))
             .buttonStyle(.bordered)
-            .tint(.white)
+            .tint(ShellPalette.text)
     }
 
     private func valueButton(_ title: String,
@@ -448,7 +450,7 @@ struct CheatSearchView: View {
         }
         .font(.system(size: 12, weight: .semibold))
         .buttonStyle(.bordered)
-        .tint(.white)
+        .tint(ShellPalette.text)
     }
 
     private func apply(_ filter: RamSearchFilter) {

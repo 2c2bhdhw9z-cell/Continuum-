@@ -4134,6 +4134,10 @@ struct TouchControlsHost: UIViewRepresentable {
 
     func makeUIView(context: Context) -> TouchControlsView {
         let view = TouchControlsView(system: system, layout: layout)
+        // The pad is drawn over the game, which looks the same in both appearances (Settings,
+        // APPEARANCE). Its own colours are fixed; this keeps the system ones it uses (the orange
+        // and teal of the extra floating buttons) on their dark values too.
+        view.overrideUserInterfaceStyle = .dark
         view.pictureAspect = pictureAspect
         view.onDiagnostic = onDiagnostic
         view.onPictureArea = onPictureArea

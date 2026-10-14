@@ -11,6 +11,10 @@
 //
 // Every choice is stored by `EngineHost` (the skin library section of ContinuumApp.swift) and
 // takes effect on the next frame, because the player reads its skin through the same resolver.
+//
+// None of these sheets sets a colour scheme of its own any more: each follows Settings,
+// APPEARANCE, including the ones opened from a game. The layout editor is the exception (see
+// `TouchLayoutEditor`): it shows the game screen, which stays dark.
 
 import SwiftUI
 import UIKit
@@ -61,7 +65,7 @@ struct SkinLibrarySettingsSection: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Button sounds")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                     Text("Plays a skin's own click when you press a button. Silent when Mute "
                          + "is on or your phone is on silent.")
                         .font(.system(size: 12))
@@ -166,7 +170,6 @@ struct SkinLibrarySheet: View {
                      + "their system's default.")
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     /// Systems that have at least one skin made for them.
@@ -340,7 +343,7 @@ struct SkinCardBlock: View {
                     HStack {
                         Text(currentWords(system))
                             .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(ShellPalette.text)
                         Spacer()
                         Image(systemName: "chevron.up.chevron.down")
                             .foregroundStyle(ShellPalette.secondaryText)
@@ -438,7 +441,6 @@ struct SimpleSheet<Content: View>: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done", action: onDone) }
             }
         }
-        .preferredColorScheme(.dark)
     }
 }
 
@@ -474,7 +476,6 @@ struct PlayerSkinSheet: View {
                 SkinLibrarySheet(host: host, onDone: { showLibrary = false })
             }
         }
-        .preferredColorScheme(.dark)
     }
 }
 
@@ -510,7 +511,6 @@ struct SkinFunctionMenu: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done", action: onDone) }
             }
         }
-        .preferredColorScheme(.dark)
     }
 
     /// Closes this sheet first, because several functions open a sheet of their own and only one
@@ -550,7 +550,6 @@ struct HapticsQuickSheet: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done", action: onDone) }
             }
         }
-        .preferredColorScheme(.dark)
     }
 }
 

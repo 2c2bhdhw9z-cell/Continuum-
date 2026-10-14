@@ -228,7 +228,10 @@ struct PDFKitView: UIViewRepresentable {
         let view = PDFView()
         view.autoScales = true
         view.displayMode = .singlePageContinuous
-        view.backgroundColor = .black
+        // Around the pages: black in Dark, as it always was, and a light grey in Light, so the
+        // white pages keep their edges (Settings, APPEARANCE).
+        view.backgroundColor = ShellPalette.dynamic(
+            dark: .black, light: UIColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1))
         view.document = PDFDocument(url: url)
         return view
     }
@@ -263,7 +266,8 @@ struct ManualViewer: View {
             }
         }
         .navigationViewStyle(.stack)
-        .preferredColorScheme(.dark)
+        // No colour scheme of its own: presented by UIKit from the app's window, it follows
+        // Settings, APPEARANCE through the window (`AppAppearance.applyToWindows`).
     }
 }
 

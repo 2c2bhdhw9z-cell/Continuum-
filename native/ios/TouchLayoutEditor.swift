@@ -103,6 +103,12 @@ struct TouchLayoutEditor: View {
             pad
             panel
         }
+        // DARK IN BOTH APPEARANCES, on purpose. This is the game screen, laid out for editing:
+        // the pad over the game's place on black, and the panel drawn over it the way everything
+        // over a running game is. The game screen stays dark whatever Settings, APPEARANCE says,
+        // like every emulator, so its editor does too. Full screen, so it is its own presentation
+        // and the Settings page behind it keeps the player's choice.
+        .preferredColorScheme(.dark)
         .onDisappear {
             let finished = draft
             let system = previewSystem
@@ -591,8 +597,9 @@ private final class PreviewSystemMenuButton: UIButton {
         config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 11, weight: .bold)
         config.imagePlacement = .trailing
         config.imagePadding = 6
-        config.baseForegroundColor = UIColor(ShellPalette.metadata)
-        config.background.backgroundColor = UIColor(ShellPalette.surfaceStrong)
+        // The Dark values, as UIKit colours: the editor is dark in both appearances.
+        config.baseForegroundColor = ShellPalette.Dark.metadata
+        config.background.backgroundColor = ShellPalette.Dark.surfaceStrong
         config.cornerStyle = .capsule
         config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14)
         config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in

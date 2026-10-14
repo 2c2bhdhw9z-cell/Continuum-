@@ -8,6 +8,9 @@
 // top, and hands values down, so a card is only rebuilt when the card's own inputs change.
 
 import SwiftUI
+// For the dynamic colours below. Imported explicitly rather than relying on SwiftUI to re-export
+// UIKit, which it is not documented to do (the same note as SettingsScreen.swift).
+import UIKit
 
 // MARK: - The palette
 
@@ -15,13 +18,134 @@ import SwiftUI
 ///
 /// Red is the accent the design reference uses for Play, the active tab and the logo tile; teal is
 /// for metadata values. Named rather than inlined so a second red cannot drift in.
+///
+/// EVERY COLOUR HAS A DARK AND A LIGHT VALUE (Settings, APPEARANCE: Dark, Light, System; owner,
+/// 13 October 2026). The Dark values are exactly the colours this palette always had, so Dark,
+/// the default, looks the way the app always did. The Light values mirror them: black where Dark
+/// has white, white where Dark has black, at opacities picked so text reads as well on white as it
+/// does on black. The right value is picked by whatever the view is drawn in, so one name works on
+/// both and a screen changes the moment the setting does.
+///
+/// `text.opacity(x)` is the Light-aware form of the old `Color.white.opacity(x)`, and
+/// `background.opacity(x)` of `Color.black.opacity(x)` used as a wash behind the page's own
+/// content. Colours drawn OVER COVER ART (a card's badge and star) or over a running game stay
+/// fixed white and black, because the art and the game look the same in both modes.
 enum ShellPalette {
     static let accent = Color(red: 0.93, green: 0.16, blue: 0.29)
-    static let metadata = Color(red: 0.36, green: 0.86, blue: 0.79)
-    static let surface = Color.white.opacity(0.08)
-    static let surfaceStrong = Color.white.opacity(0.14)
-    static let hairline = Color.white.opacity(0.12)
-    static let secondaryText = Color.white.opacity(0.62)
+    /// The light teal on black; a deeper teal on white, so it reads there too.
+    static let metadata = adaptive(dark: Dark.metadata,
+                                   light: UIColor(red: 0.0, green: 0.47, blue: 0.42, alpha: 1))
+    /// The page: black in Dark, white in Light. A game's own screen stays black in both.
+    static let background = adaptive(dark: .black, light: .white)
+    /// Text and icons on the page: white in Dark, black in Light.
+    static let text = adaptive(dark: .white, light: .black)
+    static let surface = adaptive(dark: UIColor(white: 1, alpha: 0.08),
+                                  light: UIColor(white: 0, alpha: 0.05))
+    static let surfaceStrong = adaptive(dark: Dark.surfaceStrong,
+                                        light: UIColor(white: 0, alpha: 0.08))
+    static let hairline = adaptive(dark: UIColor(white: 1, alpha: 0.12),
+                                   light: UIColor(white: 0, alpha: 0.12))
+    static let secondaryText = adaptive(dark: UIColor(white: 1, alpha: 0.62),
+                                        light: UIColor(white: 0, alpha: 0.6))
+    /// The small capital labels over a control ("VOLUME 80%", a read-out's name). A little
+    /// stronger in Light, where black at 45% on white is fainter than white at 45% on black.
+    static let tertiaryText = adaptive(dark: UIColor(white: 1, alpha: 0.45),
+                                       light: UIColor(white: 0, alpha: 0.55))
+    /// The recessed groove a segmented selector's thumb sits in (`SegmentedChoice`). Black at 28%
+    /// in Dark; in Light a black that strong would be a dark bar, so it is the faint grey iOS's own
+    /// light selector uses.
+    static let groove = adaptive(dark: UIColor(white: 0, alpha: 0.28),
+                                 light: UIColor(white: 0, alpha: 0.07))
+    /// Under the selector's glass thumb. Nothing in Dark, as always; in Light, white, so the thumb
+    /// stands out of the light groove the way iOS's own does instead of melting into it.
+    static let thumbFill = adaptive(dark: .clear, light: UIColor(white: 1, alpha: 0.75))
+
+    /// The Dark values as UIKit colours, for UIKit views on a screen that stays dark in both modes
+    /// (the on-screen control editor's console menu).
+    enum Dark {
+        static let metadata = UIColor(red: 0.36, green: 0.86, blue: 0.79, alpha: 1)
+        static let surfaceStrong = UIColor(white: 1, alpha: 0.14)
+    }
+
+    /// One UIKit colour with a Dark and a Light value, for UIKit views that follow the setting.
+    /// Anything that is not Light (Dark, or not decided yet) gets the Dark value: the app was
+    /// always dark.
+    static func dynamic(dark: UIColor, light: UIColor) -> UIColor {
+        UIColor(dynamicProvider: { traits in
+            traits.userInterfaceStyle == .light ? light : dark
+        })
+    }
+
+    /// The same as a SwiftUI colour. SwiftUI resolves it against the colour scheme the view is
+    /// drawn in, so a screen that stays dark in Light (the layout editor and the skin editor, with
+    /// `.preferredColorScheme(.dark)`) gets the Dark value there.
+    static func adaptive(dark: UIColor, light: UIColor) -> Color {
+        Color(uiColor: dynamic(dark: dark, light: light))
+    }
+}
+
+/// Settings, APPEARANCE: how the whole app looks (owner, 13 October 2026). The words are the
+/// owner's own, Dark, Light and System, never "Match my phone" or "Automatic".
+///
+/// DARK IS THE DEFAULT because the app was always dark, so nothing changes for anyone who leaves
+/// it alone. Applied once, at the root (`RootView`), so every screen, sheet and menu follows at
+/// once, with no restart. A game's own screen stays black around the picture in both, like every
+/// emulator; the menus and sheets opened from a game follow the setting.
+enum AppAppearance: String, CaseIterable, Identifiable {
+    case dark
+    case light
+    case system
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .dark: return "Dark"
+        case .light: return "Light"
+        case .system: return "System"
+        }
+    }
+
+    /// For SwiftUI's `preferredColorScheme`. Nil is System: the iPhone's own light or dark.
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .dark: return .dark
+        case .light: return .light
+        case .system: return nil
+        }
+    }
+
+    /// The same choice for UIKit. Unspecified is System.
+    var interfaceStyle: UIUserInterfaceStyle {
+        switch self {
+        case .dark: return .dark
+        case .light: return .light
+        case .system: return .unspecified
+        }
+    }
+
+    /// Puts the choice on every window of the app's own scenes, and on each window's root view
+    /// controller, alongside the root's `preferredColorScheme`.
+    ///
+    /// BOTH, ON PURPOSE. The window is what every sheet, alert, menu, picker and share sheet takes
+    /// its look from, including the ones UIKit presents by itself (the Files picker, Mail, a
+    /// game's manual). And going back to System through `preferredColorScheme(nil)` alone has been
+    /// reported to leave the old style in place on some iOS versions until the app restarts;
+    /// `.unspecified` here is UIKit's own documented way to follow the phone. The TV's window is
+    /// another kind of scene and is left alone: it only ever shows the game, on black. So are
+    /// windows above the normal level (the keyboard's own), which iOS styles itself.
+    @MainActor
+    func applyToWindows() {
+        let style = interfaceStyle
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene,
+                  windowScene.session.role == .windowApplication else { continue }
+            for window in windowScene.windows where window.windowLevel == .normal {
+                window.overrideUserInterfaceStyle = style
+                window.rootViewController?.overrideUserInterfaceStyle = style
+            }
+        }
+    }
 }
 
 /// What colour the little status dot is, read from the last status line.
@@ -33,14 +157,36 @@ enum ShellPalette {
 /// an error looks like.
 enum StatusTint {
     static func tint(for status: String) -> Color {
+        switch level(for: status) {
+        case .broken: return ShellPalette.accent
+        case .wary: return Color.orange
+        case .everyday: return ShellPalette.metadata
+        }
+    }
+
+    /// Whether a status line is everyday (teal), rather than something skipped (orange) or
+    /// something broken (red). What pops up, and how long a line stays, ask this. They used to
+    /// compare the colour itself with the teal, which stopped being a safe question once the teal
+    /// had a light and a dark value.
+    static func isEveryday(_ status: String) -> Bool {
+        level(for: status) == .everyday
+    }
+
+    private enum Level {
+        case everyday
+        case wary
+        case broken
+    }
+
+    private static func level(for status: String) -> Level {
         let text = status.lowercased()
         let broken = ["failed", "cannot", "could not", "refused", "is missing", "not loaded",
                       "unavailable", "no core", "did not take", "error"]
-        if broken.contains(where: { text.contains($0) }) { return ShellPalette.accent }
+        if broken.contains(where: { text.contains($0) }) { return .broken }
         let wary = ["skipped", "missing", "unreadable", "without a pick", "cancelled", "ignored",
                     "no output path", "not scanned", "empty"]
-        if wary.contains(where: { text.contains($0) }) { return Color.orange }
-        return ShellPalette.metadata
+        if wary.contains(where: { text.contains($0) }) { return .wary }
+        return .everyday
     }
 }
 
@@ -89,7 +235,8 @@ struct PillButton: View {
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))
             }
-            .foregroundStyle(.white)
+            // White on the red pill in both modes; the grey pill's text follows the page.
+            .foregroundStyle(filled ? Color.white : ShellPalette.text)
             .padding(.horizontal, 18)
             .padding(.vertical, 11)
             .frame(minWidth: 108)
@@ -111,7 +258,7 @@ struct FavouriteButton: View {
         Button(action: action) {
             Image(systemName: isFavourite ? "star.fill" : "star")
                 .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(isFavourite ? Color.yellow : Color.white.opacity(0.75))
+                .foregroundStyle(isFavourite ? Color.yellow : ShellPalette.text.opacity(0.75))
                 .frame(width: size + 18, height: size + 18)
                 .contentShape(Rectangle())
         }
@@ -160,13 +307,15 @@ struct HeroCard: View {
                 }
 
             // The scrim is what keeps the title legible over art nobody has vetted: a cover can be
-            // any brightness at all, and light text on a white box art is unreadable.
+            // any brightness at all, and light text on a white box art is unreadable. It fades
+            // into the page colour, so the cover runs into the shelves below it: black under white
+            // text in Dark, white under black text in Light, at the same strengths.
             LinearGradient(
                 stops: [
-                    .init(color: .black.opacity(0), location: 0),
-                    .init(color: .black.opacity(0.35), location: 0.45),
-                    .init(color: .black.opacity(0.88), location: 0.86),
-                    .init(color: .black, location: 1),
+                    .init(color: ShellPalette.background.opacity(0), location: 0),
+                    .init(color: ShellPalette.background.opacity(0.35), location: 0.45),
+                    .init(color: ShellPalette.background.opacity(0.88), location: 0.86),
+                    .init(color: ShellPalette.background, location: 1),
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -191,7 +340,7 @@ struct HeroCard: View {
 
             Text(GameMetadata.displayTitle(for: entry))
                 .font(.system(size: 34, weight: .heavy))
-                .foregroundStyle(.white)
+                .foregroundStyle(ShellPalette.text)
                 .lineLimit(2)
                 .minimumScaleFactor(0.6)
                 .fixedSize(horizontal: false, vertical: true)
@@ -207,7 +356,7 @@ struct HeroCard: View {
             // the real size, any missing cue track, and the core the tap will route to.
             Text("Imported \(entry.name) \u{00B7} \(entry.routedDetail(ps1CoreId: host.ps1CoreChoice.coreId))")
                 .font(.system(size: 13))
-                .foregroundStyle(Color.white.opacity(0.78))
+                .foregroundStyle(ShellPalette.text.opacity(0.78))
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -268,7 +417,7 @@ struct CoverCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: cardSize.cornerRadius))
                 .overlay(
                     RoundedRectangle(cornerRadius: cardSize.cornerRadius)
-                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
+                        .strokeBorder(ShellPalette.text.opacity(0.10), lineWidth: 0.5)
                 )
                 .overlay(alignment: .topLeading) {
                     SystemBadge(text: system?.badge ?? entry.ext.uppercased(), cardSize: cardSize)
@@ -290,7 +439,7 @@ struct CoverCard: View {
             if showsLabel {
                 Text(GameMetadata.displayTitle(for: entry))
                     .font(.system(size: cardSize.titleFont, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -337,7 +486,7 @@ struct ShelfRow: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title)
                     .font(.system(size: 21, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                 Text(entries.count == 1 ? "1 title" : "\(entries.count) titles")
                     .font(.system(size: 13))
                     .foregroundStyle(ShellPalette.secondaryText)
@@ -401,14 +550,14 @@ struct GameListRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(GameMetadata.displayTitle(for: entry))
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                     .lineLimit(1)
                 // The filename on disk, in the monospace the debug list used. Truncated in the
                 // MIDDLE, so a long No-Intro name keeps both its start and its extension, which is
                 // what tells two dumps of one game apart.
                 Text(entry.name)
                     .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.7))
+                    .foregroundStyle(ShellPalette.text.opacity(0.7))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 // Exactly what the debug list's second line carried, core id last: a routing
@@ -433,7 +582,7 @@ struct GameListRow: View {
             } label: {
                 Image(systemName: "info.circle")
                     .font(.system(size: 16))
-                    .foregroundStyle(Color.white.opacity(0.7))
+                    .foregroundStyle(ShellPalette.text.opacity(0.7))
                     .frame(width: 34, height: 34)
                     .contentShape(Rectangle())
             }
@@ -458,10 +607,10 @@ struct EmptyLibraryNotice: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.system(size: 19, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(ShellPalette.text)
             Text(guidance)
                 .font(.system(size: 13))
-                .foregroundStyle(Color.white.opacity(0.75))
+                .foregroundStyle(ShellPalette.text.opacity(0.75))
                 .fixedSize(horizontal: false, vertical: true)
             if let actionTitle, let action {
                 PillButton(title: actionTitle, systemImage: "plus", filled: true, action: action)

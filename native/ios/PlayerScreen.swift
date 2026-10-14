@@ -849,6 +849,9 @@ struct DiagnosticsPanel: View {
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
+        // White on its own dark box in BOTH appearances (Settings, APPEARANCE), on purpose: it is
+        // drawn over a running game, which looks the same in Light, and the Library and Settings
+        // show the very same block, so it reads the same everywhere, like a console.
         .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: 8))
         // A READ-OUT MUST NEVER EAT A TOUCH. This panel is full width, has a filled background,
         // grows to fourteen-odd lines, and sits above the control overlay in the player's z-order,
@@ -890,7 +893,7 @@ struct StatusFlash: View {
     /// Long enough to read two lines of small text, short enough not to sit on the game. A problem
     /// stays twice as long, because it is the line a tester needs to read or screenshot.
     private var seconds: Double {
-        StatusTint.tint(for: text) == ShellPalette.metadata ? 5 : 10
+        StatusTint.isEveryday(text) ? 5 : 10
     }
 
     var body: some View {

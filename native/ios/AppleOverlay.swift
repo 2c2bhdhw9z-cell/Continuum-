@@ -40,7 +40,7 @@ struct AppleOverlayToggle: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Apple performance overlay")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                 Text("Apple's FPS box over the game. If it's still there after you turn this "
                      + "off, close Continuum fully and open it again.")
                     .font(.system(size: 12))

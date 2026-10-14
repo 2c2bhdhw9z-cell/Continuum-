@@ -70,7 +70,8 @@ from `docs/` in October 2026, once the shell below was built; git history still 
 Library screen, as it should look on iOS:
 
 - Dark, full-bleed, Netflix-style shell. Red accent (`Play`, active tab, logo tile), teal or
-  cyan for metadata values.
+  cyan for metadata values. Settings, Appearance offers Dark (the default), Light and System
+  (owner, 13 October 2026); a game's own screen stays black around the picture in all three.
 - Top bar: logo, a search field reading `Search N titles...`, an import (`+`) button, and a
   small status indicator.
 - A **featured hero** at the top: full-bleed cover art behind a `FEATURED` label, the game

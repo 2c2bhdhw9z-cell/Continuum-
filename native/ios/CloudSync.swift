@@ -2219,7 +2219,7 @@ struct CloudSyncSection: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Back up the games too")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                     Text("Games can take up a lot of space. BIOS files are never included.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)

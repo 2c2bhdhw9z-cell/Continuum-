@@ -71,7 +71,8 @@ struct GameDetailSheet: View {
             }
             .padding(18)
         }
-        .background(Color.black.ignoresSafeArea())
+        // The page colour, so the card follows Settings, APPEARANCE: black in Dark, white in Light.
+        .background(ShellPalette.background.ignoresSafeArea())
         .presentationDragIndicator(.visible)
         .sheet(isPresented: $showingSlots) {
             SaveSlotsSheet(entry: entry, host: host, saveStates: saveStates,
@@ -89,14 +90,14 @@ struct GameDetailSheet: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
+                        .strokeBorder(ShellPalette.text.opacity(0.12), lineWidth: 0.5)
                 )
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .top, spacing: 6) {
                     Text(GameMetadata.displayTitle(for: entry))
                         .font(.system(size: 21, weight: .heavy))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     FavouriteButton(isFavourite: host.favourites.contains(entry.name), size: 17) {
@@ -275,7 +276,7 @@ struct GameDetailSheet: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(record.isAuto ? "Auto-save" : record.displayName)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                 Text("\(record.ageText) \u{00B7} \(record.sizeText) \u{00B7} frame \(record.frame)")
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(ShellPalette.secondaryText)
@@ -305,7 +306,7 @@ struct GameDetailSheet: View {
             } label: {
                 Text(isRunningThisGame ? "Load" : "Play")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                     .frame(minWidth: 58, minHeight: 44)
                     .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 9))
                     .contentShape(Rectangle())
@@ -402,7 +403,7 @@ struct GameDetailSheet: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(cheat.label.isEmpty ? "Unnamed cheat" : cheat.label)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(cheat.enabled ? Color.white : ShellPalette.secondaryText)
+                    .foregroundStyle(cheat.enabled ? ShellPalette.text : ShellPalette.secondaryText)
                 Text(CheatStore.pokeSummary(for: cheat.code) ?? cheat.code)
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(ShellPalette.secondaryText)

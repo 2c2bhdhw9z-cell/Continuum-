@@ -823,7 +823,7 @@ struct PeripheralsSettingsSection: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Allow microphone in games")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                     Text(peripherals.microphoneAllowed
                          ? "Games that listen can hear you."
                          : "Games hear silence.")
@@ -842,7 +842,7 @@ struct PeripheralsSettingsSection: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Allow camera in games")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                     Text(peripherals.cameraAllowed
                          ? "Games that use a camera see your iPhone's."
                          : "Games see no camera.")

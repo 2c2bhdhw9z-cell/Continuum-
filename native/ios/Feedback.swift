@@ -188,7 +188,7 @@ struct FeedbackSheet: View {
                 }
                 .padding(.vertical, 16)
             }
-            .background(Color.black.ignoresSafeArea())
+            .background(ShellPalette.background.ignoresSafeArea())
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -198,7 +198,7 @@ struct FeedbackSheet: View {
             }
         }
         .navigationViewStyle(.stack)
-        .preferredColorScheme(.dark)
+        // No colour scheme of its own: it follows Settings, APPEARANCE, from a game too.
         .task {
             await takePicture()
         }
@@ -225,7 +225,7 @@ struct FeedbackSheet: View {
         SettingsSection(title: "WHAT HAPPENED", foldable: false) {
             Text(FeedbackCenter.crashSentence(crash))
                 .font(.system(size: 14))
-                .foregroundStyle(.white)
+                .foregroundStyle(ShellPalette.text)
                 .fixedSize(horizontal: false, vertical: true)
             SettingsNote("If you remember what you were doing right before, tell me below. The "
                          + "app's own record of its last few minutes gets attached too.")
@@ -237,7 +237,7 @@ struct FeedbackSheet: View {
             if let entry {
                 Text(entry.name)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                     .lineLimit(2)
             }
             SegmentedChoice(options: GameRating.allCases, title: { $0.title },
@@ -274,7 +274,7 @@ struct FeedbackSheet: View {
                 Spacer(minLength: 0)
             }
             .font(.system(size: 14, weight: on ? .semibold : .regular))
-            .foregroundStyle(on ? Color.white : ShellPalette.secondaryText)
+            .foregroundStyle(on ? ShellPalette.text : ShellPalette.secondaryText)
             .padding(.horizontal, 10)
             .padding(.vertical, 10)
             .background(on ? ShellPalette.accent.opacity(0.35) : ShellPalette.surfaceStrong,
@@ -289,12 +289,12 @@ struct FeedbackSheet: View {
             TextField(placeholder, text: $message, axis: .vertical)
                 .lineLimit(4...12)
                 .font(.system(size: 15))
-                .foregroundStyle(.white)
+                .foregroundStyle(ShellPalette.text)
                 .padding(10)
                 .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 9))
             TextField("Your name or username (optional)", text: $tester)
                 .font(.system(size: 14))
-                .foregroundStyle(.white)
+                .foregroundStyle(ShellPalette.text)
                 .padding(10)
                 .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 9))
         }
@@ -327,7 +327,7 @@ struct FeedbackSheet: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                 Text(note)
                     .font(.system(size: 12))
                     .foregroundStyle(ShellPalette.secondaryText)
@@ -347,7 +347,7 @@ struct FeedbackSheet: View {
             if !resultLine.isEmpty {
                 Text(resultLine)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if center.sentCount > 0 {
@@ -886,7 +886,7 @@ struct FeedbackMarkup: View {
                 .padding(.horizontal, 16)
             }
             .padding(.vertical, 14)
-            .background(Color.black.ignoresSafeArea())
+            .background(ShellPalette.background.ignoresSafeArea())
             .navigationTitle("Draw on it")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -899,7 +899,6 @@ struct FeedbackMarkup: View {
             }
         }
         .navigationViewStyle(.stack)
-        .preferredColorScheme(.dark)
     }
 
     /// The picture with the drawing on it, at the picture's own size.

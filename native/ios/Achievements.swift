@@ -634,11 +634,11 @@ struct AchievementsSettingsSection: View {
                     .autocorrectionDisabled(true)
                     .padding(10)
                     .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 9))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                 SecureField("Password", text: $password)
                     .padding(10)
                     .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 9))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                 SettingsButton(title: store.loggingIn ? "Logging in..." : "Log in",
                                role: .normal) {
                     store.login(username: username, password: password)
@@ -719,7 +719,7 @@ struct AchievementsCardBlock: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(row.title)
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(row.unlocked ? Color.white : ShellPalette.secondaryText)
+                            .foregroundStyle(row.unlocked ? ShellPalette.text : ShellPalette.secondaryText)
                         Text(row.detail)
                             .font(.system(size: 11))
                             .foregroundStyle(ShellPalette.secondaryText)

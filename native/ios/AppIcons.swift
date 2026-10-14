@@ -117,7 +117,7 @@ struct AppIconSettingsSection: View {
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                                         .strokeBorder(
-                                            isCurrent(choice) ? ShellPalette.accent : Color.white.opacity(0.16),
+                                            isCurrent(choice) ? ShellPalette.accent : ShellPalette.text.opacity(0.16),
                                             lineWidth: isCurrent(choice) ? 3 : 1
                                         )
                                 )
@@ -127,13 +127,16 @@ struct AppIconSettingsSection: View {
                                             .font(.system(size: 16, weight: .bold))
                                             .symbolRenderingMode(.palette)
                                             .foregroundStyle(.white, ShellPalette.accent)
-                                            .background(Circle().fill(.black).padding(2))
+                                            // A ring of the page colour around the badge, so
+                                            // it stands off the icon: black in Dark, white in
+                                            // Light.
+                                            .background(Circle().fill(ShellPalette.background).padding(2))
                                             .offset(x: 4, y: 4)
                                     }
                                 }
                             Text(choice.name)
                                 .font(.system(size: 10, weight: isCurrent(choice) ? .bold : .semibold))
-                                .foregroundStyle(isCurrent(choice) ? ShellPalette.accent : .white)
+                                .foregroundStyle(isCurrent(choice) ? ShellPalette.accent : ShellPalette.text)
                                 .lineLimit(1)
                         }
                     }
@@ -188,7 +191,7 @@ struct AppIconSettingsSection: View {
                 .overlay(
                     Text(String(choice.name.prefix(1)))
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(ShellPalette.text)
                 )
         }
     }

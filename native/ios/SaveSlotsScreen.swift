@@ -157,7 +157,7 @@ struct SaveSlotsSheet: View {
                 }
                 .padding(14)
             }
-            .background(Color.black.ignoresSafeArea())
+            .background(ShellPalette.background.ignoresSafeArea())
             .navigationTitle("Save slots")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -167,7 +167,8 @@ struct SaveSlotsSheet: View {
             }
         }
         .navigationViewStyle(.stack)
-        .preferredColorScheme(.dark)
+        // No colour scheme of its own: the sheet follows Settings, APPEARANCE, from the player
+        // as well as from a game's card.
         .confirmationDialog(chosen?.displayName ?? "", isPresented: Binding(
             get: { chosen != nil }, set: { if !$0 { chosen = nil } }
         ), titleVisibility: .visible) {
@@ -230,7 +231,7 @@ struct SaveSlotsSheet: View {
                     }
                     Spacer()
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(ShellPalette.text)
                 .padding(12)
                 .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 10))
             }
@@ -251,7 +252,7 @@ struct SaveSlotsSheet: View {
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06))
+                    RoundedRectangle(cornerRadius: 8).fill(ShellPalette.text.opacity(0.06))
                     if let record, let image = saveStates.thumbnail(for: record) {
                         Image(uiImage: image)
                             .resizable()
@@ -270,7 +271,7 @@ struct SaveSlotsSheet: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 Text(record?.displayName ?? "Slot \(slot)")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
                     .lineLimit(1)
                 if let record {
                     Text(record.dateText)
@@ -345,7 +346,7 @@ struct SaveSlotsSheet: View {
                         HStack {
                             Text(record.summaryLine)
                                 .font(.system(.caption2, design: .monospaced))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(ShellPalette.text)
                             Spacer()
                         }
                         .padding(10)

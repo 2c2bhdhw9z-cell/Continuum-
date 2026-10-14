@@ -1338,7 +1338,7 @@ struct InputSettingsSection: View {
             Toggle(isOn: $extras.motionEnabled) {
                 Text("Tilt and motion sensor")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(ShellPalette.text)
             }
             .tint(ShellPalette.accent)
             SettingsNote(

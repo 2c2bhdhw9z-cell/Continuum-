@@ -344,7 +344,7 @@ struct AddRemoteServerView: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
+        // No colour scheme of its own: it follows Settings, APPEARANCE.
     }
 }
 

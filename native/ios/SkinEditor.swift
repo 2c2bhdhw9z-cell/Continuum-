@@ -93,6 +93,9 @@ struct SkinEditor: View {
             }
         }
         .background(Color.black.ignoresSafeArea())
+        // Dark in both appearances: this is the skin as the game screen draws it, which stays
+        // dark like every emulator's (see `TouchLayoutEditor`).
+        .preferredColorScheme(.dark)
     }
 
     // MARK: Header
