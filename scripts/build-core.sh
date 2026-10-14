@@ -44,6 +44,7 @@ WORK="$ROOT/.work"
 #   scripts/build-core.sh ios-is-cached fceumm   # exit 0 if the staged dylib would be reused
 #   scripts/build-core.sh ios-recipe-slice fceumm # the part of this file that is fceumm's recipe
 #   scripts/build-core.sh ios-recipe-shared      # the part of this file every core shares
+#   scripts/build-core.sh ios-cache-check        # exit 0 if this file keeps the cache's rules
 #   scripts/build-core.sh ios-apply-patches <core> <dir>  # our patches onto a source tree
 #
 # A bare core name is not a subcommand. The dispatch at the end refuses it and names the
@@ -81,6 +82,11 @@ WORK="$ROOT/.work"
 # All but one of the canonical filenames below are therefore exactly what upstream emits.
 # Only mgba's is ours, because only mgba's link is ours.
 
+# THE LISTS OF CORES are not a build input (see "WHAT COUNTS", above ios_cache_scan): which
+# cores are listed decides which cores get built, never how any one of them is built, so adding
+# or removing a core here rebuilds no other core. Only the two array assignments may sit in this
+# region, and only plain core names inside them; anything else and every core rebuilds.
+# not-a-build-input-start: lists
 # The iOS cores, in build order. Never empty, which matters: macOS ships bash 3.2,
 # where an empty array expanded under `set -u` is an error rather than nothing.
 IOS_CORES=(fceumm mesen2 mgba bsnes gearsystem blastem pcsx_rearmed mednafen_psx_hw melonds
@@ -96,6 +102,7 @@ IOS_CORES=(fceumm mesen2 mgba bsnes gearsystem blastem pcsx_rearmed mednafen_psx
 # ARM64 dynarec and refuses to run without JIT. Interpreter only (TARGET_NO_REC); see its
 # ios_core_config entry. It has built green and shipped in every IPA since build 119.
 IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb)
+# not-a-build-input-end: lists
 
 # THE JIT BUILDS (pcsx_rearmed_jit, parallel_n64_jit, flycast_jit). Same source and pin as the
 # core they are named after, built with its recompiler on, as <core>_jit_libretro_ios.dylib. The
@@ -711,6 +718,9 @@ ios_tool() {
   echo "$name"
 }
 
+# not-a-build-input-start: cache
+# The help text. Part of the cache region (see "WHAT COUNTS", above ios_cache_scan): it only
+# prints, so editing it rebuilds nothing.
 ios_usage() {
   cat <<EOF
 scripts/build-core.sh - build the libretro cores the iOS app dlopens.
@@ -738,7 +748,17 @@ scripts/build-core.sh - build the libretro cores the iOS app dlopens.
                 part its fingerprint hashes per core. Any host.
   ios-recipe-shared
                 print the part of this script every core shares. A change in
-                there rebuilds all of them. Any host.
+                there rebuilds all of them. Comments, blank lines, the cache's
+                own code and the lists of cores are not in it. Any host.
+  ios-cache-check
+                exit 0 only when this script keeps every rule of the build
+                cache: which lines count, and where its regions may sit.
+                Any host.
+  ios-cache-fingerprints
+                every core's fingerprint, from one reading of this script.
+  ios-cache-scan <mode> [family]
+                how the cache reads this script, line by line (mode table),
+                and the parts it hashes. For scripts/check-core-cache.sh.
   ios-apply-patches <core> <source dir>
                 apply the core's Continuum patches to a checkout of its source,
                 failing if one no longer fits. Any host.
@@ -749,6 +769,7 @@ Each core is built from its pinned commit (IOS_PIN). CONTINUUM_UNPINNED=1 builds
 every core at its default branch's HEAD instead, to try newer cores on purpose.
 EOF
 }
+# not-a-build-input-end: cache
 
 ios_require_darwin() {
   if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -912,9 +933,13 @@ ios_clone() {
       ( cd "$IOS_SRC_DIR" && git submodule update --init --recursive )
     fi
   fi
-  ios_record_source_version "$core"
+  # In a subshell: ios_record_source_version is cache machinery, which is not a build input, so
+  # nothing it sets may reach the build that follows. A subshell keeps every variable, option and
+  # directory change inside it. scripts/check-core-cache.sh checks this line stays a subshell.
+  ( ios_record_source_version "$core" )
 }
 
+# not-a-build-input-start: cache
 # Where every core's source came from, written down:
 # "<core> <repo> <commit> pinned|unpinned fp:<fingerprint>". The fingerprint names everything
 # else the dylib is made from (ios_core_fingerprint); ios_core_is_cached needs it to match.
@@ -953,6 +978,7 @@ ios_record_source_version() {
   echo "$core $IOS_REPO $sha $state fp:$fp" >> "$manifest"
   LC_ALL=C sort -o "$manifest" "$manifest"
 }
+# not-a-build-input-end: cache
 
 # The one place an install name is fixed and a dylib is staged.
 #
@@ -1806,6 +1832,17 @@ ios_fetch_pinned() {
   echo "==> $what: sha256 matches the pin ($want)"
 }
 
+# THE CACHE'S OWN RULES, as data. These two lines sit in the SHARED part on purpose, so they count:
+# changing either one rebuilds every core once. IOS_CACHE_FUNCTIONS is the allow-list of the only
+# functions a `# not-a-build-input-start: cache` region may hold (scripts/check-core-cache.sh keeps
+# the same list and fails when the two disagree); IOS_CORE_LIST_NAMES names the only arrays a
+# `# not-a-build-input-start: lists` region may assign. See "WHAT COUNTS" below.
+IOS_CACHE_FUNCTIONS=(ios_usage ios_record_source_version ios_core_patch_family ios_recipe_family
+                     ios_cache_scan ios_cache_bash_parse ios_cache_split ios_recipe_text
+                     ios_core_fingerprint ios_core_is_cached ios_cache_command)
+IOS_CORE_LIST_NAMES=(IOS_CORES IOS_OPTIONAL_CORES)
+
+# not-a-build-input-start: cache
 # Which scripts/patches/<family>-*.patch files belong to a core: its id without _jit (a JIT
 # build applies its plain build's patches and its own), with Symbian's file prefix spelled
 # with a dash.
@@ -1822,8 +1859,8 @@ ios_core_patch_family() {
 # WHY. The fingerprint below used to hash this WHOLE file, so ANY edit anywhere rebuilt all
 # nineteen from-source cores: 45-50 minutes instead of 6-8. On 13 October a one-line fix to the
 # checksums of two build tools only the Symbian core downloads cost the owner an hour of
-# recompiling thirty-six cores that had not changed. So each core's own recipe is now hashed on
-# its own, and a core is only rebuilt when ITS recipe, or something shared, moved.
+# recompiling every core that had not changed. So each core's own recipe is now hashed on its
+# own, and a core is only rebuilt when ITS recipe, or something shared, moved.
 #
 # HOW. Each core's own recipe - its ios_core_config arm, its patches arm, the build function only
 # it uses, its own patch helpers - is wrapped in a pair of marker comments:
@@ -1835,19 +1872,28 @@ ios_core_patch_family() {
 # (written with two `#` here on purpose: with one, this very comment would parse as a real
 # marker and unbalance the file.)
 #
-# A core's fingerprint hashes TWO things: the SHARED remainder - every line outside every region,
-# marker lines included - and its OWN regions. Every byte of this file is in exactly one of those
-# two, so there is nowhere to edit that no fingerprint covers:
+# A core's fingerprint hashes TWO things: the SHARED remainder - every line that counts (see WHAT
+# COUNTS below) outside every region - and its OWN regions. Every line that counts is in exactly
+# one of those, or in a not-a-build-input region, so there is nowhere to edit that changes a build
+# without changing a fingerprint:
 #
 #   - a shared change (ios_stage_dylib, build_ios_make_core, ios_clone, the common flags, the
 #     required-symbol list, the toolchain) moves the shared hash, so EVERY core rebuilds;
 #   - a change inside one family's region moves only that family's recipe hash, so only that
 #     core rebuilds - with the JIT or plain build sharing its source, because regions are keyed
 #     by FAMILY (the id without `_jit`), the same split scripts/patches/ already uses;
-#   - the marker lines themselves are shared text, so adding, moving or renaming a region
-#     rebuilds everything ONCE. That is the safe direction, and it means new per-core code that
-#     someone forgets to mark lands in the shared part and OVER-rebuilds, instead of being
-#     invisible and reusing a stale dylib.
+#   - the marker lines are comments, so they count for nothing themselves: adding a new core's
+#     regions (with its name in the lists) rebuilds only that core. Code moved INTO a region
+#     leaves the shared part, so that move rebuilds everything once; new per-core code someone
+#     forgets to mark lands in the shared part and OVER-rebuilds, never the other way round.
+#
+# WHERE A REGION MAY SIT, checked every time (ios_cache_scan), because a region that held code
+# other cores run would let an edit there reach them without moving their fingerprints:
+#
+#   - whole case arms of ios_core_config, every pattern a core of the region's family;
+#   - whole case arms of ios_apply_core_patches, the same;
+#   - whole functions at the top level of the file;
+#   and the region's family must be a core in IOS_CORES or IOS_OPTIONAL_CORES.
 #
 # WHY MARKED REGIONS AND NOT scripts/core-recipes/<core>.sh. One file per core would hash just as
 # well, but it would mean moving ~900 lines of working, Mac-only build code that nothing here can
@@ -1858,73 +1904,537 @@ ios_core_patch_family() {
 # NOTHING HERE IS A NUMBER A HUMAN MAINTAINS. Every hash comes from the file's own bytes, so a
 # forgotten declaration cannot silently reuse an old dylib.
 #
-# AND IT FAILS CLOSED, EVERY WAY. A malformed, nested, unbalanced or missing marker makes
-# ios_recipe_text return non-zero, which makes ios_core_fingerprint return no fingerprint at all,
-# which writes fp:unknown and rebuilds. A core whose family has no region never gets a
+# AND IT FAILS CLOSED, EVERY WAY. A malformed, mistyped, nested, unbalanced or misplaced marker
+# makes ios_recipe_text return non-zero, which makes ios_core_fingerprint return no fingerprint at
+# all, which writes fp:unknown and rebuilds. A core whose family has no region never gets a
 # fingerprint, so a newly added core rebuilds for ever until it is marked - never the other way
 # round. If anything at all is in doubt here, the answer is REBUILD.
 
 # The core id with any _jit suffix taken off: the family a recipe region is named for.
 ios_recipe_family() { echo "${1%_jit}"; }
 
-# mode=shared prints every line OUTSIDE every region (marker lines included); mode=recipe prints
-# the body of every region named $1, in file order (a family can own several regions: its config
-# arm, its patches arm, its build function). IOS_PIN= lines are filtered out of both, because the
-# pin is already hashed on its own line.
+# ------------------------------------------------------------- WHAT COUNTS (and what does not)
 #
-# Returns 1 - printing nothing usable - on a malformed, nested or unbalanced marker, or when
-# mode=recipe and no region of that name exists. A failed parse can print part of its output
-# before it gives up, so CALLERS MUST CHECK THE STATUS, not whether anything was printed.
+# A core's fingerprint covers the lines of this file that can change how its library is built.
+# Four kinds of line are left out, so editing them rebuilds nothing:
 #
-# The awk compares fields instead of matching [[:space:]] classes: macOS ships BWK awk, and
-# comparing $1/$2 also makes the markers' indentation irrelevant.
+#   1. COMMENT LINES AND BLANK LINES: a line that is empty, or whose first non-blank character is
+#      `#`, when bash reads it as a comment. It does NOT when the line is inside a here-document
+#      (any form: <<, <<-, a quoted delimiter), inside a quoted string that runs over several
+#      lines ('...', "...", $'...'), right after a line ending in a backslash, or inside $( ),
+#      backquotes, <( ) or >( ), (( )) or $(( )), [[ ]], ${ } or an array's ( ). Such lines are
+#      content, and they count. A comment at the END of a line of code is part of that line, so
+#      it counts too.
+#   2. THE CACHE'S OWN CODE, between `# not-a-build-input-start: cache` and
+#      `# not-a-build-input-end: cache`: the functions that compute, record and check
+#      fingerprints and slice recipes, plus the help text. They decide WHETHER a core is rebuilt,
+#      never HOW it is built, and scripts/check-core-cache.sh proves what they decide on every
+#      CI run. Only whole definitions of the functions in IOS_CACHE_FUNCTIONS may sit there, and
+#      code outside the region may call them only from the places it does today (ios_clone and
+#      build_all_ios_cores, each in a subshell so nothing leaks into a build, and the dispatch).
+#   3. THE LISTS OF CORES, between `# not-a-build-input-start: lists` and
+#      `# not-a-build-input-end: lists`: IOS_CORES=( ... ) and IOS_OPTIONAL_CORES=( ... ), and
+#      nothing else, holding nothing but plain core names. Which cores are listed decides which
+#      get built, never how one of them is built, so adding or removing a core rebuilds no other.
+#   4. The IOS_PIN="<sha>" lines of ios_core_config, as before: each core's pin is hashed on its
+#      own line of its fingerprint instead.
+#
+# HOW THAT IS PROVED, every time a fingerprint is worked out rather than once by a person:
+#
+#   a. ios_cache_scan (one awk program, plain POSIX so it runs on the Mac's awk too) reads the
+#      file the way bash does, character by character: quotes, here-documents, line
+#      continuations, $( ), (( )), [[ ]] and the rest. It decides which lines are comments,
+#      which region each line is in, and checks every rule above. A construct it cannot follow
+#      for certain (a here-document starting inside a string, a case statement inside $( ), a
+#      line that looks like a marker inside a here-document, a mistyped marker, a function
+#      defined twice, ...) is an error.
+#   b. Then BASH ITSELF checks the result (ios_cache_split): it parses the whole file
+#      twice, as it is and with every left-out comment and blank line removed, in a separate
+#      restricted shell that runs nothing, and the two programs it prints (`declare -f`) must be
+#      identical. So a line awk took for a comment that bash would have used is caught by bash.
+#   c. Only then are the kept lines hashed. What is hashed is the file's own text, not bash's
+#      printout, so a fingerprint does not depend on which version of bash worked it out.
+#
+# Any error anywhere returns no fingerprint, so every core rebuilds and scripts/check-core-cache.sh
+# goes red with the reason. Nothing here can turn a failure into a match.
+
+# Classifies every line of this file and checks every rule in WHAT COUNTS. mode is one of:
+#   kept     every line that counts, wherever it is (what bash must parse the same way)
+#   shared   the lines that count outside every region: the part every core shares
+#   recipe   the lines that count inside the regions of family $2
+#   cores    the core names in the lists region, one per line
+#   allow    the cache region's allow-list, as IOS_CACHE_FUNCTIONS declares it
+#   table    one line per line of the file: number, class, region, function, text (for checks)
+#   split    kept, shared and recipe ($2, or * for every family) at once, into the files kept,
+#            shared and recipe.<family> in the directory $3: one reading for all of them, so they
+#            cannot disagree
+# Exits 1, with the reason on stderr, when any rule is broken; CALLERS MUST CHECK THE STATUS.
+# No single quote may appear inside the program below: it is one single-quoted argument.
+ios_cache_scan() {
+  local mode="$1" want="${2:-}" dir="${3:-}"
+  awk -v mode="$mode" -v want="$want" -v dir="$dir" '
+function fail(msg) { if (bad == "") bad = "line " NR ": " msg }
+function failat(n, msg) { if (bad == "") bad = "line " n ": " msg }
+function push(c) { sp++; stk[sp] = c }
+function pop() { if (sp > 0) sp--; else fail("a closing quote or bracket with nothing open") }
+function nested(   k) {
+  for (k = 1; k <= sp; k++) if (stk[k] != "Q" && stk[k] != "S" && stk[k] != "D") return 1
+  return 0
+}
+function endword(   t) {
+  t = stk[sp]
+  if (w == "[[" && (t == "N" || t == "C" || t == "X" || t == "P")) push("T")
+  else if (w == "]]" && t == "T") pop()
+  else if (w == "case" && (t == "C" || t == "X" || t == "P")) fail("a case statement inside $( ), which this scan does not follow")
+  w = ""
+}
+function heredoc_word(s, i, strip,   n, c, d, q, quoted) {
+  n = length(s)
+  while (i <= n && (substr(s, i, 1) == " " || substr(s, i, 1) == "\t")) i++
+  d = ""; quoted = 0
+  while (i <= n) {
+    c = substr(s, i, 1)
+    if (c == " " || c == "\t" || index(";&|()<>", c)) break
+    if (c == SQ) {
+      quoted = 1; i++
+      while (i <= n && substr(s, i, 1) != SQ) { d = d substr(s, i, 1); i++ }
+      if (i > n) { fail("a here-document delimiter with an open quote"); return n }
+      i++; continue
+    }
+    if (c == DQ) {
+      quoted = 1; i++
+      while (i <= n && substr(s, i, 1) != DQ) {
+        q = substr(s, i, 1)
+        if (q == BS || q == "$" || q == BT) { fail("a here-document delimiter with an escape or expansion in quotes"); return n }
+        d = d q; i++
+      }
+      if (i > n) { fail("a here-document delimiter with an open quote"); return n }
+      i++; continue
+    }
+    if (c == BS) {
+      quoted = 1; i++
+      if (i > n) { fail("a here-document delimiter ending in a backslash"); return n }
+      d = d substr(s, i, 1); i++; continue
+    }
+    if (c == "$" || c == BT) { fail("a here-document delimiter with an expansion in it"); return n }
+    d = d c; i++
+  }
+  if (d == "") { fail("a here-document operator with no delimiter"); return n }
+  hd_n++; hd_delim[hd_n] = d; hd_strip[hd_n] = strip; hd_quoted[hd_n] = quoted
+  return i - 1
+}
+# One line: updates the context stack, cont (the line ends in a continuation), hd_n (the
+# here-documents it opens) and cpos (where a comment starts on it, 0 for none). The contexts:
+# N plain, S single quotes, D $-single quotes, Q double quotes, B backquotes, V ${ }, A (( )) or
+# $(( )), a a bracket inside A, C $( ), X <( ) or >( ), P a bracket inside C X or R, R an array
+# assignment, T [[ ]].
+function lex(s,   n, i, c, c2, c3, t) {
+  n = length(s); w = ""; prev = ""; cpos = 0
+  for (i = 1; i <= n; i++) {
+    c = substr(s, i, 1); c2 = substr(s, i + 1, 1); c3 = substr(s, i + 2, 1); t = stk[sp]
+    if (t == "S") { if (c == SQ) pop(); continue }
+    if (t == "D") { if (c == BS) { if (i == n) cont = 1; i++; continue }; if (c == SQ) pop(); continue }
+    if (t == "B") { if (c == BS) { i++; continue }; if (c == BT) pop(); continue }
+    if (t == "Q" || t == "V" || t == "A" || t == "a") {
+      if (c == BS) { if (i == n) cont = 1; i++; continue }
+      if (t == "Q" && c == DQ) { pop(); continue }
+      if (t == "V" && c == "}") { pop(); continue }
+      if (t == "A" && c == ")") {
+        if (c2 == ")") { pop(); i++; continue }
+        fail("an arithmetic expression closed by a single bracket"); return
+      }
+      if (t == "A" || t == "a") { if (c == "(") { push("a"); continue }; if (t == "a" && c == ")") { pop(); continue } }
+      if (t != "Q" && c == SQ) { push("S"); continue }
+      if (t != "Q" && c == DQ) { push("Q"); continue }
+      if (c == BT) { push("B"); continue }
+      if (c == "$") {
+        if (t != "Q" && c2 == SQ) { push("D"); i++; continue }
+        if (c2 == "(" && c3 == "(") { push("A"); i += 2; continue }
+        if (c2 == "(") { push("C"); i++; w = ""; continue }
+        if (c2 == "{") { push("V"); i++; continue }
+      }
+      continue
+    }
+    # The word contexts (N C X P R T): a # that starts a word starts a comment in all of them.
+    if (c == " " || c == "\t") { endword(); prev = c; continue }
+    if (c == "#" && w == "") { cpos = i; break }
+    if (c == BS) { if (i == n) { cont = 1; break }; w = w "e"; i++; prev = "e"; continue }
+    if (c == SQ) { w = w "q"; push("S"); prev = "q"; continue }
+    if (c == DQ) { w = w "q"; push("Q"); prev = "q"; continue }
+    if (c == BT) { w = w "q"; push("B"); prev = "q"; continue }
+    if (c == "$") {
+      if (c2 == SQ) { w = w "q"; push("D"); i++; prev = "q"; continue }
+      if (c2 == DQ) { w = w "q"; push("Q"); i++; prev = "q"; continue }
+      if (c2 == "(" && c3 == "(") { w = w "q"; push("A"); i += 2; prev = "q"; continue }
+      if (c2 == "(") { push("C"); i++; prev = ""; w = ""; continue }
+      if (c2 == "{") { w = w "q"; push("V"); i++; prev = "q"; continue }
+      w = w c; prev = c; continue
+    }
+    if (c == "(") {
+      if (t != "T" && w ~ /^[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=$/) { w = ""; push("R"); prev = c; continue }
+      if (t != "T" && w == "" && (prev == "<" || prev == ">")) { push("X"); prev = ""; continue }
+      if (t != "T" && t != "R" && w == "" && c2 == "(") { push("A"); i++; prev = c; continue }
+      endword()
+      if (t == "C" || t == "X" || t == "P" || t == "R") push("P")
+      prev = c; continue
+    }
+    if (c == ")") {
+      endword()
+      if (t == "C" || t == "X") { pop(); w = "q" } else if (t == "P" || t == "R") pop()
+      prev = c; continue
+    }
+    if (c == "<" && c2 == "<" && t != "T") {
+      endword()
+      if (c3 == "<") { i += 2; prev = "<"; continue }
+      if (t == "R") { fail("a here-document inside an array assignment"); return }
+      i += 2
+      if (substr(s, i, 1) == "-") i = heredoc_word(s, i + 1, 1); else i = heredoc_word(s, i, 0)
+      prev = "w"; continue
+    }
+    if (index(";&|<>", c)) { endword(); prev = c; continue }
+    w = w c; prev = c
+  }
+  if (!cont) endword()
+}
+function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+function family(core) { sub(/_jit$/, "", core); return core }
+# 1 when name appears in s as a whole word, not inside a longer identifier.
+function hasword(s, name,   p, b, a) {
+  while ((p = index(s, name)) > 0) {
+    b = (p == 1) ? "" : substr(s, p - 1, 1)
+    a = substr(s, p + length(name), 1)
+    if (b !~ /[A-Za-z0-9_]/ && a !~ /[A-Za-z0-9_]/) return 1
+    s = substr(s, p + length(name))
+  }
+  return 0
+}
+function kept(n) { return L_c[n] != "blank" && L_c[n] != "comment" }
+function pinline(n) { return L_f[n] == "ios_core_config" && L_c[n] == "code" && L_t[n] ~ /^[ \t]*IOS_PIN="[0-9a-f]*"[ \t]*$/ }
+function isshared(n) { return kept(n) && L_b[n] == "shared" && !pinline(n) }
+function isrecipe(n) { return kept(n) && L_b[n] == "r:" want && !pinline(n) }
+# The words of the top-level declaration NAME=( ... ) in the shared part, into arr; returns how
+# many, or -1 when it is missing, declared twice, or not plain identifiers.
+function decl(name, arr,   n, txt, cnt, m, k, e, el) {
+  cnt = 0; txt = ""
+  for (n = 1; n <= last; n++) {
+    if (!kept(n) || L_d[n] != name) continue
+    if (L_b[n] != "shared" || L_f[n] != "") { failat(n, name " must be declared in the shared part, outside any function"); return -1 }
+    if (L_c[n] == "code") cnt++
+    txt = txt " " L_t[n]
+  }
+  if (cnt != 1) { fail(name "=( ... ) must be declared exactly once, at the top level"); return -1 }
+  sub(/^[ \t]*[A-Z_]+=\(/, "", txt); sub(/\)[ \t]*$/, "", txt)
+  if (txt !~ /^[a-zA-Z0-9_ \t]*$/) { fail(name " must hold plain names only"); return -1 }
+  m = split(txt, el, /[ \t]+/); k = 0
+  for (e = 1; e <= m; e++) if (el[e] != "") { k++; arr[k] = el[e] }
+  return k
+}
+BEGIN {
+  SQ = sprintf("%c", 39); DQ = "\""; BS = "\\"; BT = "`"
+  sp = 0; stk[0] = "N"; hd_cur = 0; hd_total = 0
+  rname = ""; xname = ""; ninst = 0; inst = 0; fname = ""; indecl = ""
+  # The only places outside the cache region allowed to call a function inside it: the function
+  # the call sits in, a separator, and the whole line.
+  approved["ios_clone" SUBSEP "( ios_record_source_version \"$core\" )"] = 1
+  approved["build_all_ios_cores" SUBSEP "if ( ios_core_is_cached \"$core\" ); then"] = 1
+  approved["" SUBSEP "ios_cache_command \"$@\""] = 1
+  approved["" SUBSEP "ios_usage"] = 1
+  approved["" SUBSEP "ios_usage >&2"] = 1
+  # Comments and blank lines only count for nothing if nothing outside the cache reads this
+  # file, its text or its line numbers. These are the only lines that may use those words.
+  nself = split("IOS_SELF BASH_SOURCE LINENO BASH_LINENO", selfword, " ")
+  selfok["" SUBSEP "ROOT=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")/..\" && pwd)\""] = 1
+  selfok["" SUBSEP "IOS_SELF=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)/$(basename \"${BASH_SOURCE[0]}\")\""] = 1
+  selfok["build_all_ios_cores" SUBSEP "if bash \"$IOS_SELF\" ios \"$core\"; then"] = 1
+}
+{
+  line = $0; cpos = 0
+  if (hd_cur > 0) {
+    cls = "heredoc"
+    t = line
+    if (hd_strip[hd_cur]) sub(/^\t+/, "", t)
+    if (t == hd_delim[hd_cur]) {
+      hd_cur++
+      if (hd_cur > hd_total) { hd_cur = 0; hd_total = 0 }
+    } else if (!hd_quoted[hd_cur] && line ~ /\\$/) {
+      t = line; sub(/\\+$/, "", t)
+      if ((length(line) - length(t)) % 2 == 1) fail("a here-document line ending in a backslash, which joins it to the next line")
+    }
+  } else {
+    top = stk[sp]
+    if (cont) start = "cont"
+    else if (top == "Q" || top == "S" || top == "D") start = "string"
+    else if (nested()) start = "nested"
+    else start = "plain"
+    cont = 0; hd_n = 0
+    lex(line)
+    if (start == "plain") {
+      if (line ~ /^[ \t]*$/) cls = "blank"
+      else if (NR == 1 && line ~ /^#!/) cls = "code"
+      else if (line ~ /^[ \t]*#/) cls = "comment"
+      else cls = "code"
+    } else cls = start
+    if (hd_n > 0) {
+      top = stk[sp]
+      if (cont || !(top == "N" || top == "C" || top == "X" || top == "P")) fail("a here-document starts on a line that does not end plainly")
+      hd_total = hd_n; hd_cur = 1
+    }
+  }
+  # Region markers: comment lines read in the plain state only, spelled exactly.
+  ismarker = 0
+  looks = (tolower(line) ~ /^[ \t]*#+[ \t]*(recipe|not-a-build-input)[-_ ]*(start|end)/)
+  if (cls == "comment" && looks) {
+    if ($1 == "#" && NF == 3 && ($2 == "recipe-start:" || $2 == "recipe-end:") && $3 ~ /^[a-z][a-z0-9_]*$/) ismarker = 1
+    else if ($1 == "#" && NF == 3 && ($2 == "not-a-build-input-start:" || $2 == "not-a-build-input-end:") && ($3 == "cache" || $3 == "lists")) ismarker = 2
+    else fail("a mistyped region marker; it must be exactly # recipe-start: <family>, # recipe-end: <family>, # not-a-build-input-start: cache|lists or # not-a-build-input-end: cache|lists")
+  } else if (looks) fail("a line that looks like a region marker sits inside a here-document, a string or a continued line")
+  if (ismarker) {
+    if ($2 ~ /-start:$/) {
+      if (rname != "" || xname != "") fail("a region opens inside another region")
+      ninst++; ikind[ninst] = (ismarker == 1) ? "r" : "x"; iname[ninst] = $3; istart[ninst] = NR; inst = ninst
+      if (ismarker == 1) rname = $3; else xname = $3
+    } else {
+      if (inst == 0 || iname[inst] != $3 || ikind[inst] != ((ismarker == 1) ? "r" : "x")) fail($2 " " $3 " does not close the region that is open")
+      iend[inst] = NR; rname = ""; xname = ""; inst = 0
+    }
+    L_b[NR] = "marker"
+  } else if (inst > 0) L_b[NR] = ikind[inst] ":" iname[inst]
+  else L_b[NR] = "shared"
+  L_i[NR] = ismarker ? 0 : inst
+  # Top-level functions: name() { at the start of a line, closed by a } alone at the start of a line.
+  if (cls == "code") {
+    code = (cpos > 0) ? substr(line, 1, cpos - 1) : line
+    isdef = (code ~ /^[A-Za-z_][A-Za-z0-9_]*\(\)[ \t]*\{/)
+    if (code ~ /^[ \t]*function[ \t]/ || code ~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]+\(\)/ || (code ~ /^[A-Za-z_][A-Za-z0-9_]*\(\)/ && !isdef))
+      fail("a function written another way; this file writes them as name() { ... }")
+    if (fname == "") {
+      if (isdef) {
+        f = code; sub(/\(.*/, "", f)
+        if (f in fstart) fail("function " f " is defined twice, so the second would silently replace the first")
+        fstart[f] = NR; L_f[NR] = f
+        if (trim(code) ~ /\{$/) fname = f
+        else if (trim(code) ~ /\}$/) fend[f] = NR
+        else fail("a function definition line that ends with neither { nor }")
+      } else {
+        if (code == "}") fail("a } at the start of a line outside any function")
+        L_f[NR] = ""
+      }
+    } else {
+      L_f[NR] = fname
+      if (isdef) fail("function " fname " has no } at the start of a line before the next function")
+      if (code == "}") { fend[fname] = NR; fname = "" }
+    }
+  } else L_f[NR] = fname
+  # The two declarations of the rules themselves, which may span lines.
+  if (cls == "code" && line ~ /^(IOS_CACHE_FUNCTIONS|IOS_CORE_LIST_NAMES)=\(/) { indecl = line; sub(/=.*/, "", indecl) }
+  L_d[NR] = indecl
+  if (indecl != "" && sp == 0) indecl = ""
+  L_c[NR] = cls; L_t[NR] = line
+}
+END {
+  last = NR
+  if (hd_cur > 0) fail("a here-document with no closing line")
+  if (sp > 0) fail("an open quote or bracket at the end of the file")
+  if (cont) fail("a line continuation at the end of the file")
+  if (fname != "") fail("function " fname " never closes")
+  if (inst > 0) fail("region " iname[inst] " never closes")
+  nallow = decl("IOS_CACHE_FUNCTIONS", allowed)
+  for (k = 1; k <= nallow; k++) isallowed[allowed[k]] = 1
+  nlistn = decl("IOS_CORE_LIST_NAMES", lnames)
+  for (k = 1; k <= nlistn; k++) islistname[lnames[k]] = 1
+  # The lists region: only NAME=( core names ) for the names in IOS_CORE_LIST_NAMES.
+  ncore = 0
+  for (k = 1; k <= ninst; k++) {
+    if (ikind[k] != "x" || iname[k] != "lists") continue
+    txt = ""
+    for (n = istart[k] + 1; n < iend[k]; n++) if (kept(n)) txt = txt " " L_t[n]
+    while (txt ~ /[^ \t]/) {
+      if (!match(txt, /^[ \t]*[A-Z_][A-Z0-9_]*=\([a-z0-9_ \t]*\)/)) { failat(istart[k], "the lists region holds something other than array assignments of plain core names"); break }
+      one = substr(txt, RSTART, RLENGTH); txt = substr(txt, RSTART + RLENGTH)
+      an = one; sub(/^[ \t]*/, "", an); sub(/=.*/, "", an)
+      if (!(an in islistname)) { failat(istart[k], "the lists region assigns " an ", which is not in IOS_CORE_LIST_NAMES"); break }
+      if (an in listseen) { failat(istart[k], an " is assigned twice in the lists region"); break }
+      listseen[an] = 1
+      body = one; sub(/^[^(]*\(/, "", body); sub(/\)$/, "", body)
+      m = split(body, el, /[ \t]+/)
+      for (e = 1; e <= m; e++) if (el[e] != "") {
+        if (el[e] !~ /^[a-z][a-z0-9_]*$/) { failat(istart[k], "not a plain core name: " el[e]); break }
+        ncore++; cores[ncore] = el[e]; listfam[family(el[e])] = 1
+      }
+    }
+  }
+  for (k = 1; k <= nlistn; k++) if (!(lnames[k] in listseen)) fail("no " lnames[k] "=( ... ) inside a not-a-build-input: lists region")
+  # The cache region: nothing but whole definitions of allow-listed functions.
+  for (k = 1; k <= ninst; k++) {
+    if (ikind[k] != "x" || iname[k] != "cache") continue
+    for (n = istart[k] + 1; n < iend[k]; n++) {
+      if (!kept(n)) continue
+      f = L_f[n]
+      if (f == "") { failat(n, "code outside any function inside the cache region"); break }
+      if (!(f in isallowed)) { failat(n, "function " f " is inside the cache region but not in IOS_CACHE_FUNCTIONS"); break }
+      if (fstart[f] < istart[k] || fend[f] > iend[k]) { failat(n, "function " f " is only partly inside the cache region"); break }
+    }
+  }
+  # And nothing outside it calls into it except from the approved places, or reads this file.
+  for (n = 1; n <= last; n++) {
+    if (!kept(n) || L_b[n] == "x:cache" || L_d[n] != "") continue
+    for (k = 1; k <= nallow; k++) if (hasword(L_t[n], allowed[k]) && !((L_f[n] SUBSEP trim(L_t[n])) in approved))
+      failat(n, allowed[k] " is cache machinery, so it may not be used here (only ios_clone, build_all_ios_cores and the dispatch may call it, as they do today)")
+    for (k = 1; k <= nself; k++) if (hasword(L_t[n], selfword[k]) && !((L_f[n] SUBSEP trim(L_t[n])) in selfok))
+      failat(n, selfword[k] " outside the cache: a build that read this file or its line numbers would see comments, so they could not be left out")
+  }
+  # Recipe regions: whole case arms of ios_core_config or ios_apply_core_patches, or whole functions.
+  for (k = 1; k <= ninst; k++) {
+    if (ikind[k] != "r") continue
+    if (!(iname[k] in listfam)) { failat(istart[k], "recipe region " iname[k] " belongs to no core in IOS_CORES or IOS_OPTIONAL_CORES, so no fingerprint would cover it"); continue }
+    kind = ""; first = 0; lastk = 0
+    for (n = istart[k] + 1; n < iend[k]; n++) {
+      if (!kept(n)) continue
+      if (!first) first = n
+      lastk = n; f = L_f[n]
+      if (f == "ios_core_config" || f == "ios_apply_core_patches") lk = f
+      else if (f != "" && fstart[f] > istart[k] && fend[f] < iend[k]) lk = "functions"
+      else { failat(n, "recipe region " iname[k] " holds code that is neither a whole case arm nor a whole function"); break }
+      if (kind == "") kind = lk
+      else if (kind != lk) { failat(n, "recipe region " iname[k] " mixes case arms and functions"); break }
+    }
+    if (kind == "ios_core_config" || kind == "ios_apply_core_patches") {
+      if (L_t[first] !~ /^[ \t]*[a-z][a-z0-9_]*([ \t]*\|[ \t]*[a-z][a-z0-9_]*)*\)[ \t]*$/) failat(first, "recipe region " iname[k] " must start with its case arm pattern")
+      if (trim(L_t[lastk]) != ";;") failat(lastk, "recipe region " iname[k] " must end with the ;; of its case arm")
+      for (n = first; n <= lastk; n++) {
+        if (!kept(n) || L_t[n] !~ /^[ \t]*[a-z][a-z0-9_]*([ \t]*\|[ \t]*[a-z][a-z0-9_]*)*\)[ \t]*$/) continue
+        s = trim(L_t[n]); sub(/\)$/, "", s); m = split(s, el, /[ \t]*\|[ \t]*/)
+        for (e = 1; e <= m; e++) if (family(el[e]) != iname[k]) failat(n, "the case arm for " el[e] " sits in recipe region " iname[k])
+      }
+    }
+  }
+  if ((mode == "recipe" || (mode == "split" && want != "" && want != "*")) && bad == "") {
+    found = 0
+    for (k = 1; k <= ninst; k++) if (ikind[k] == "r" && iname[k] == want) found = 1
+    if (!found) fail("there is no recipe region named " want)
+  }
+  if (bad != "") { print "error: " bad > "/dev/stderr"; exit 1 }
+  if (mode == "table") { for (n = 1; n <= last; n++) printf "%d\t%s\t%s\t%s\t%s\n", n, L_c[n], L_b[n], L_f[n], L_t[n]; exit 0 }
+  if (mode == "kept") { for (n = 1; n <= last; n++) if (kept(n)) print L_t[n]; exit 0 }
+  if (mode == "shared") { for (n = 1; n <= last; n++) if (isshared(n)) print L_t[n]; exit 0 }
+  if (mode == "recipe") { for (n = 1; n <= last; n++) if (isrecipe(n)) print L_t[n]; exit 0 }
+  if (mode == "split") {
+    printf "" > (dir "/kept"); printf "" > (dir "/shared")
+    for (n = 1; n <= last; n++) {
+      if (kept(n)) print L_t[n] > (dir "/kept")
+      if (isshared(n)) print L_t[n] > (dir "/shared")
+    }
+    close(dir "/kept"); close(dir "/shared")
+    # One file per family asked for (* for every family), each closed before the next is opened.
+    for (k = 1; k <= ninst; k++) {
+      if (ikind[k] != "r" || (want != "*" && iname[k] != want) || (iname[k] in written)) continue
+      fam = iname[k]; written[fam] = 1; want_was = want; want = fam
+      printf "" > (dir "/recipe." fam)
+      for (n = 1; n <= last; n++) if (isrecipe(n)) print L_t[n] > (dir "/recipe." fam)
+      close(dir "/recipe." fam); want = want_was
+    }
+    exit 0
+  }
+  if (mode == "cores") { for (k = 1; k <= ncore; k++) print cores[k]; exit 0 }
+  if (mode == "allow") { for (k = 1; k <= nallow; k++) print allowed[k]; exit 0 }
+  print "error: ios_cache_scan has no mode " mode > "/dev/stderr"
+  exit 1
+}
+' "$IOS_SELF"
+}
+
+# What bash itself makes of file $1: its parse, printed back by `declare -f`. Prints nothing and
+# returns 1 unless bash parses it as a complete script (`bash -n`, which runs nothing) AND as the
+# body of one function. The second parse runs in a separate, restricted shell with an empty
+# environment and no PATH, so even a file that went wrong could not run a command; and the -n
+# check first means the file cannot close that function early and run the rest of itself.
+ios_cache_bash_parse() {
+  local out
+  # A NUL byte would end the text bash is handed early, so a file holding one is never trusted.
+  LC_ALL=C tr -d '\000' < "$1" | cmp -s - "$1" || return 1
+  "$BASH" -n "$1" 2>/dev/null || return 1
+  out="$(env -i PATH=/nonexistent-continuum "$BASH" --norc --noprofile -r -c '
+IFS= read -r -d "" text
+eval "__continuum_parse_check__() {
+$text
+__continuum_parse_check_end__
+}" || exit 1
+declare -f __continuum_parse_check__' < "$1" 2>/dev/null)" || return 1
+  [[ "$out" == "__continuum_parse_check__ () "* ]] || return 1
+  [[ "$out" == *"__continuum_parse_check_end__"$'\n'"}" ]] || return 1
+  printf '%s\n' "$out"
+}
+
+# One reading of this file, checked and split (steps a and b of WHAT COUNTS): writes the files
+# kept, shared and recipe.<family> (for family $1; every family for *, none for "") into
+# directory $2.
+# Returns 0 only when every rule holds AND bash parses this script, and the script with its
+# left-out lines removed, into the same program. Anything else, a missing tool included, is a 1.
+ios_cache_split() {
+  local family="$1" dir="$2" whole cut
+  ios_cache_scan split "$family" "$dir" || return 1
+  whole="$(ios_cache_bash_parse "$IOS_SELF")" || return 1
+  cut="$(ios_cache_bash_parse "$dir/kept")" || return 1
+  [[ -n "$whole" && "$whole" == "$cut" ]] || {
+    echo "error: bash reads $IOS_SELF differently once its comment and blank lines are taken out, so something taken for a comment is not one" >&2
+    return 1
+  }
+}
+
+# mode=shared prints the lines that count outside every region; mode=recipe prints the lines that
+# count inside every region named $1, in file order (a family can own several regions: its config
+# arm, its patches arm, its build function). See WHAT COUNTS for which lines count. IOS_PIN= lines
+# of ios_core_config are left out of both, because each pin is hashed on its own.
+#
+# Returns 1 when any rule of WHAT COUNTS is broken, when bash does not confirm what was left out,
+# or when mode=recipe and no region of that name exists. CALLERS MUST CHECK THE STATUS.
 ios_recipe_text() {
-  local want="$1" mode="$2"
-  grep -v "^[[:space:]]*IOS_PIN=" "$IOS_SELF" | awk -v want="$want" -v mode="$mode" '
-    $1 == "#" && $2 == "recipe-start:" {
-      if (NF != 3 || open != "") { bad = 1; exit }
-      open = $3; seen[$3] = 1
-      if (mode == "shared") print
-      next
-    }
-    $1 == "#" && $2 == "recipe-end:" {
-      if (NF != 3 || open != $3) { bad = 1; exit }
-      open = ""
-      if (mode == "shared") print
-      next
-    }
-    { if (mode == "shared") { if (open == "") print } else if (open == want) print }
-    END {
-      if (bad || open != "") exit 1
-      if (mode != "shared" && !(want in seen)) exit 1
-    }
-  '
+  local want="$1" mode="$2" dir rc=1
+  [[ "$mode" == "shared" ]] && want=""
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/continuum-cache.XXXXXX")" || return 1
+  if ios_cache_split "$want" "$dir"; then
+    if [[ "$mode" == "shared" ]]; then cat "$dir/shared" && rc=0; else cat "$dir/recipe.$want" && rc=0; fi
+  fi
+  rm -rf "$dir"
+  return "$rc"
 }
 
 # The first 16 hex of a sha256 over everything a core's dylib is made from besides the upstream
 # tree itself (the note above ios_core_is_cached says what and why). Any host. Every step can
-# fail the function, so a missing tool - or a recipe region that cannot be located - means NO
-# fingerprint, never a partial one, and therefore a rebuild.
+# fail the function, so a missing tool - or a recipe region that cannot be located, or a broken
+# rule of WHAT COUNTS - means NO fingerprint, never a partial one, and therefore a rebuild.
+#
+# $2, only from ios-cache-fingerprints: a directory ios_cache_split already wrote for every family,
+# so the checks can fingerprint every core from one reading. Every build path passes nothing and
+# gets a fresh, checked reading of its own.
 ios_core_fingerprint() {
-  local core="$1"
+  local core="$1" split="${2:-}"
   ios_core_config "$core" || return 1
-  local family rfamily shared slice recipe lines name sum path files
+  local family rfamily dir shared recipe lines name sum path files
   family="$(ios_core_patch_family "$core")"
   rfamily="$(ios_recipe_family "$core")"
   # TWO hashes of this script, not one: the part every core shares, and this core's own recipe
-  # regions. Every line is in exactly one of them, so nothing is left uncovered, and a change to
-  # another core's recipe cannot move this fingerprint. Either one failing to parse returns NO
-  # fingerprint, which rebuilds.
-  shared="$(ios_recipe_text "" shared)" || return 1
-  [[ -n "$shared" ]] || return 1
-  slice="$(ios_recipe_text "$rfamily" recipe)" || return 1
-  [[ -n "$slice" ]] || return 1
+  # regions, both from ONE checked reading of the file (ios_cache_split). Every line that counts
+  # is in exactly one of them (or in a not-a-build-input region), so nothing that builds a core is
+  # left uncovered, and a change to another core's recipe cannot move this fingerprint. Any
+  # failure returns NO fingerprint, which rebuilds.
+  shared="" recipe=""
+  if [[ -n "$split" ]]; then
+    dir="$split"
+  else
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/continuum-cache.XXXXXX")" || return 1
+    ios_cache_split "$rfamily" "$dir" || { rm -rf "$dir"; return 1; }
+  fi
   # The slice has to be THIS core's recipe: only its ios_core_config arm sets its dylib name.
   # A slice without that line means a marker is in the wrong place, so refuse to fingerprint
   # rather than hash some other core's recipe and then reuse a stale dylib.
-  [[ "$slice" == *"IOS_DYLIB_NAME=\"$IOS_DYLIB_NAME\""* ]] || return 1
-  shared="$(printf '%s\n' "$shared" | ios_sha256)" || return 1
-  recipe="$(printf '%s\n' "$slice" | ios_sha256)" || return 1
+  if [[ -s "$dir/shared" && -s "$dir/recipe.$rfamily" ]] \
+      && grep -qF "IOS_DYLIB_NAME=\"$IOS_DYLIB_NAME\"" "$dir/recipe.$rfamily"; then
+    shared="$(ios_sha256 "$dir/shared")" || shared=""
+    recipe="$(ios_sha256 "$dir/recipe.$rfamily")" || recipe=""
+  fi
+  [[ -n "$split" ]] || rm -rf "$dir"
+  [[ -n "$shared" && -n "$recipe" ]] || return 1
   lines="core $core"$'\n'"pin $IOS_PIN"$'\n'"toolchain ${CONTINUUM_CORE_TOOLCHAIN:-local}"$'\n'
   lines="${lines}shared $shared"$'\n'"recipe $rfamily $recipe"$'\n'
   files="$(cd "$ROOT/scripts/patches" 2>/dev/null && for name in "$family"-*.patch; do
@@ -1987,32 +2497,37 @@ ios_core_fingerprint() {
 #
 # THE FINGERPRINT (ios_core_fingerprint) covers everything else the dylib is made from, PER
 # CORE: its pin, every scripts/patches/<family>-*.patch, TWO parts of this script - the SHARED
-# part (everything outside the `# recipe-start:` regions, IOS_PIN= lines taken out) and this
-# core's OWN regions - the toolchain id CI passes in
-# CONTINUUM_CORE_TOOLCHAIN, and for Continuum Symbian its plug (native/continuum-symbian) and
-# the libretro headers script. Editing one core's patch rebuilds that core and nothing else.
-# Matching patches by family puts a JIT build's patch in the plain build's fingerprint too,
-# which only costs an extra rebuild, never a stale dylib. scripts/check-core-cache.sh tests it.
+# part (every line that counts outside the regions) and this core's OWN regions, as WHAT COUNTS
+# above ios_cache_scan sets out - the toolchain id CI passes in CONTINUUM_CORE_TOOLCHAIN, and for
+# Continuum Symbian its plug (native/continuum-symbian) and the libretro headers script. Editing
+# one core's patch rebuilds that core and nothing else. Matching patches by family puts a JIT
+# build's patch in the plain build's fingerprint too, which only costs an extra rebuild, never a
+# stale dylib. scripts/check-core-cache.sh tests it.
 #
-# SO WHICH CHANGE REBUILDS WHAT. A change to the SHARED part - a helper every core goes through
-# (ios_clone, build_ios_make_core, ios_stage_dylib), the staging and install_name logic, the
-# common compiler and linker flags, the required-symbol list, ios_core_config's defaults, or the
-# toolchain - still rebuilds EVERY core, because it can change every dylib. A change to ONE
-# core's own recipe - its clone and checkout, its cmake or make invocation, its own flags, its
-# post-processing, or a tool only it downloads, like the Symbian core's pinned CMake and ninja -
-# rebuilds that core and the JIT or plain build sharing its source, and leaves the others
-# cached. That is the whole point: the 13 October Symbian build-tool fix cost an hour of
-# rebuilding thirty-six unchanged cores, and now it would cost one core.
+# SO WHICH CHANGE REBUILDS WHAT.
+#   - EVERY core: a change to the SHARED part that bash would run - a helper every core goes
+#     through (ios_clone, build_ios_make_core, ios_stage_dylib), the staging and install_name
+#     logic, the common compiler and linker flags, the required-symbol list, ios_core_config's
+#     defaults - or a new toolchain, because it can change every dylib.
+#   - ONE core (with the JIT or plain build sharing its source): a change inside its own region -
+#     its clone and checkout, its cmake or make invocation, its own flags, its post-processing, or
+#     a tool only it downloads, like the Symbian core's pinned CMake and ninja - or to its pin, its
+#     patches, or (Symbian) its plug. That is the whole point: the 13 October Symbian build-tool
+#     fix cost an hour of rebuilding every unchanged core, and now it costs one core.
+#   - NO core: a comment or a blank line anywhere they are really comments, the cache's own code
+#     and the help text (the cache regions), adding a core to the lists or taking one out (the
+#     lists region; the new core builds, the others are reused), and a new core's own regions.
 #
 # AN OLD 4-FIELD LINE ("<core> <repo> <pin> pinned", from before the fingerprint) NEVER
 # MATCHES, so the first build with this (build 182) rebuilds every core once, and later builds
 # rebuild only the cores whose inputs changed. If in doubt it rebuilds: a fingerprint that
 # cannot be worked out is never a match.
 #
-# THE SAME ONE-OFF COST APPLIES TO THE PER-CORE SPLIT ITSELF: it changed the SHAPE of what is
-# hashed (`shared` + `recipe <family>` instead of one `recipe`), so every stored fingerprint
-# changed with it and the first build after that edit rebuilds every core once. The builds after
-# it are the quick ones.
+# THE SAME ONE-OFF COST APPLIES WHENEVER THE SHAPE OF WHAT IS HASHED CHANGES: the per-core split
+# (13 October, `shared` + `recipe <family>` instead of one `recipe`) and WHAT COUNTS (14 October,
+# comments, blank lines, the cache's code and the lists left out) each changed every stored
+# fingerprint, so the first build after each rebuilds every core once. The builds after it are
+# the quick ones.
 #
 # OFF BY DEFAULT. Only CI sets CONTINUUM_CORE_CACHE=1. A build run by hand stays exactly as
 # predictable as it was, and `rm -rf native/ios/build/lib` is still the way to force
@@ -2040,6 +2555,94 @@ ios_core_is_cached() {
   grep -qxF "$core $IOS_REPO $IOS_PIN pinned fp:$fp" "$manifest" || return 1
   return 0
 }
+
+# The cache's own subcommands, every one of them, so the dispatch hands them over in one line and
+# changing them rebuilds nothing. All of them run on any host.
+ios_cache_command() {
+  case "$1" in
+    ios-fingerprint)
+      # scripts/check-core-cache.sh tests the per-core cache with it on Linux.
+      if [[ "$#" -lt 2 ]] || ! ios_core_config "$2"; then
+        echo "error: 'ios-fingerprint' needs a core name. Valid: ${IOS_CORES[*]} ${IOS_OPTIONAL_CORES[*]}" >&2
+        exit 1
+      fi
+      ios_core_fingerprint "$2" || { echo "error: could not work out $2's fingerprint" >&2; exit 1; }
+      exit 0
+      ;;
+    ios-is-cached)
+      # Exit 0 when ios-all would reuse the staged dylib, 1 when it would build it.
+      if [[ "$#" -lt 2 ]] || ! ios_core_config "$2"; then
+        echo "error: 'ios-is-cached' needs a core name. Valid: ${IOS_CORES[*]} ${IOS_OPTIONAL_CORES[*]}" >&2
+        exit 1
+      fi
+      if ios_core_is_cached "$2"; then
+        exit 0
+      fi
+      exit 1
+      ;;
+    ios-recipe-slice)
+      # Prints the part of this script that is THIS core's own recipe, which is what the
+      # fingerprint hashes per core. Takes a core name and resolves it to its family, so
+      # `ios-recipe-slice flycast_jit` prints the `flycast` region. Exits 1, printing nothing
+      # usable, when the region cannot be located - the fail-closed path, which is what
+      # scripts/check-core-cache.sh asserts on.
+      if [[ "$#" -lt 2 ]] || ! ios_core_config "$2"; then
+        echo "error: 'ios-recipe-slice' needs a core name. Valid: ${IOS_CORES[*]} ${IOS_OPTIONAL_CORES[*]}" >&2
+        exit 1
+      fi
+      ios_recipe_text "$(ios_recipe_family "$2")" recipe || {
+        echo "error: no recipe region for $2 in $IOS_SELF (so it would be rebuilt)" >&2
+        exit 1
+      }
+      exit 0
+      ;;
+    ios-recipe-shared)
+      # Prints the shared remainder: every line that counts outside every region. A change in
+      # here rebuilds every core.
+      ios_recipe_text "" shared || {
+        echo "error: the recipe regions in $IOS_SELF do not parse (so every core would be rebuilt)" >&2
+        exit 1
+      }
+      exit 0
+      ;;
+    ios-cache-check)
+      # Exit 0 only when every rule of WHAT COUNTS holds and bash confirms what is left out.
+      ios_recipe_text "" shared > /dev/null || {
+        echo "error: $IOS_SELF breaks a build cache rule (see above), so every core would be rebuilt" >&2
+        exit 1
+      }
+      exit 0
+      ;;
+    ios-cache-fingerprints)
+      # "<core> <fingerprint>" for every listed core ("none" when it has none), all from ONE
+      # checked reading of this file, so scripts/check-core-cache.sh can compare every core before
+      # and after an edit quickly. It checks this matches ios-fingerprint, core by core.
+      local dir core fp read_ok=0
+      dir="$(mktemp -d "${TMPDIR:-/tmp}/continuum-cache.XXXXXX")" || exit 1
+      ios_cache_split "*" "$dir" && read_ok=1
+      for core in "${IOS_CORES[@]}" "${IOS_OPTIONAL_CORES[@]}"; do
+        fp="none"
+        if [[ "$read_ok" == "1" ]]; then fp="$(ios_core_fingerprint "$core" "$dir")" || fp="none"; fi
+        echo "$core ${fp:-none}"
+      done
+      rm -rf "$dir"
+      exit 0
+      ;;
+    ios-cache-scan)
+      # The classification itself, for scripts/check-core-cache.sh: ios-cache-scan <mode> [family],
+      # with the modes ios_cache_scan lists. It runs the rules but not the bash check.
+      [[ "$#" -ge 2 ]] || { echo "error: 'ios-cache-scan' needs a mode" >&2; exit 1; }
+      ios_cache_scan "$2" "${3:-}" || exit 1
+      exit 0
+      ;;
+    *)
+      echo "error: unknown subcommand '$1'." >&2
+      ios_usage >&2
+      exit 1
+      ;;
+  esac
+}
+# not-a-build-input-end: cache
 
 # THE "SOMETHING WAS BUILT" MARKER: native/ios/build/lib/cores-rebuilt.txt, one core per line.
 # The CI core cache saves a new entry only when this file exists (the "Save the built cores" step
@@ -2097,7 +2700,9 @@ build_all_ios_cores() {
   for core in "${IOS_CORES[@]}"; do
     echo
     echo "======================================================== ios: $core"
-    if ios_core_is_cached "$core"; then
+    # Both cache questions below run in a subshell: the cache's own code is not a build input
+    # (WHAT COUNTS, above ios_cache_scan), so nothing it sets may reach the builds that follow.
+    if ( ios_core_is_cached "$core" ); then
       echo "==> $core: reusing the cached dylib, still at its pinned commit"
       reused=$((reused + 1))
       continue
@@ -2120,7 +2725,7 @@ build_all_ios_cores() {
   for core in "${IOS_OPTIONAL_CORES[@]}"; do
     echo
     echo "======================================================== ios (optional): $core"
-    if ios_core_is_cached "$core"; then
+    if ( ios_core_is_cached "$core" ); then
       echo "==> $core: reusing the cached dylib, still at its pinned commit"
       reused=$((reused + 1))
       continue
@@ -2204,50 +2809,10 @@ case "${1:-}" in
     ios_stage_dylib "$2" "$3"
     exit 0
     ;;
-  ios-fingerprint)
-    # Any host: scripts/check-core-cache.sh tests the per-core cache with it on Linux.
-    if [[ "$#" -lt 2 ]] || ! ios_core_config "$2"; then
-      echo "error: 'ios-fingerprint' needs a core name. Valid: ${IOS_CORES[*]} ${IOS_OPTIONAL_CORES[*]}" >&2
-      exit 1
-    fi
-    ios_core_fingerprint "$2" || { echo "error: could not work out $2's fingerprint" >&2; exit 1; }
-    exit 0
-    ;;
-  ios-is-cached)
-    # Exit 0 when ios-all would reuse the staged dylib, 1 when it would build it.
-    if [[ "$#" -lt 2 ]] || ! ios_core_config "$2"; then
-      echo "error: 'ios-is-cached' needs a core name. Valid: ${IOS_CORES[*]} ${IOS_OPTIONAL_CORES[*]}" >&2
-      exit 1
-    fi
-    if ios_core_is_cached "$2"; then
-      exit 0
-    fi
-    exit 1
-    ;;
-  ios-recipe-slice)
-    # Any host. Prints the part of this script that is THIS core's own recipe, which is what the
-    # fingerprint hashes per core. Takes a core name and resolves it to its family, so
-    # `ios-recipe-slice flycast_jit` prints the `flycast` region. Exits 1, printing nothing
-    # usable, when the region cannot be located - the fail-closed path, which is what
-    # scripts/check-core-cache.sh asserts on.
-    if [[ "$#" -lt 2 ]] || ! ios_core_config "$2"; then
-      echo "error: 'ios-recipe-slice' needs a core name. Valid: ${IOS_CORES[*]} ${IOS_OPTIONAL_CORES[*]}" >&2
-      exit 1
-    fi
-    ios_recipe_text "$(ios_recipe_family "$2")" recipe || {
-      echo "error: no recipe region for $2 in $IOS_SELF (so it would be rebuilt)" >&2
-      exit 1
-    }
-    exit 0
-    ;;
-  ios-recipe-shared)
-    # Any host. Prints the shared remainder: everything outside every recipe region. A change in
-    # here rebuilds every core.
-    ios_recipe_text "" shared || {
-      echo "error: the recipe regions in $IOS_SELF do not parse (so every core would be rebuilt)" >&2
-      exit 1
-    }
-    exit 0
+  ios-fingerprint|ios-is-cached|ios-recipe-slice|ios-recipe-shared|ios-cache-*)
+    # The build cache's own subcommands. Their code is in the cache region (WHAT COUNTS above
+    # ios_cache_scan), so changing it rebuilds no core.
+    ios_cache_command "$@"
     ;;
   ios-apply-patches)
     # Any host. The weekly check (scripts/check-core-updates.sh) runs it on a fresh copy of

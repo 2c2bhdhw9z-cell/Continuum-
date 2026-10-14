@@ -14,6 +14,14 @@
 # a shared edit still moves EVERY core while a one-core edit moves only that core (and its JIT
 # twin), and that a broken or missing region rebuilds instead of reusing a stale dylib.
 #
+# SINCE 14 OCTOBER ("WHAT COUNTS" in build-core.sh) comments, blank lines, the cache's own code and
+# the lists of cores count for nothing. Section 13 proves both halves of that: that editing them
+# moves no fingerprint, and that everything bash would really run or write - a here-document line,
+# a line inside a string that spans lines, a line after a continuation - still moves the right
+# ones; that anything the cache cannot read for certain gives no core a fingerprint; and that
+# breaking any of its rules does too, with the reason named. It also keeps the cache region's
+# allow-list (CACHE_FUNCTIONS), which must match build-core.sh's IOS_CACHE_FUNCTIONS.
+#
 # Touches nothing in this checkout: everything happens in a temporary copy that is removed at
 # the end. Bash 3.2 safe (macOS) as well as Linux.
 set -euo pipefail
@@ -89,18 +97,34 @@ all_cores_sorted() { all_cores | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//'; }
 
 # One "<core> <fingerprint>" line per core, into file $1. A core whose fingerprint cannot be
 # worked out is written as `none`, so it compares equal to itself and a check that expects it to
-# MOVE cannot pass by accident.
+# MOVE cannot pass by accident. All cores come from one reading of the script
+# (ios-cache-fingerprints); agree() below checks that gives what ios-fingerprint gives, core by core.
 snapshot() {
   local core
-  : > "$1"
+  bash "$BC" ios-cache-fingerprints > "$1" 2>/dev/null || : > "$1"
+  # A core the command did not print (it crashed, say) is `none`, never simply absent.
   for core in $(all_cores); do
-    echo "$core $(bash "$BC" ios-fingerprint "$core" 2>/dev/null || echo none)" >> "$1"
+    awk -v c="$core" '$1 == c { found = 1 } END { exit !found }' "$1" || echo "$core none" >> "$1"
+  done
+}
+# Every core's ios-fingerprint, one process each (the path a build takes), equals the snapshot's.
+agree() {
+  local core want got
+  snapshot "$W/fp-agree"
+  [[ -s "$W/fp-agree" ]] || return 1
+  for core in $(all_cores); do
+    want="$(bash "$BC" ios-fingerprint "$core" 2>/dev/null || echo none)"
+    got="$(awk -v c="$core" '$1 == c { print $2 }' "$W/fp-agree")"
+    [[ -n "$got" && "$got" == "$want" ]] || { echo "        ($core: $got from one reading, $want on its own)"; return 1; }
   done
 }
 
 # The sorted, space-separated core names whose fingerprint differs between snapshots $1 and $2.
+# A core that has NO fingerprint in $2 is printed as <core>(none): losing a fingerprint is not a
+# move, so no check that expects a list of moved cores can pass because of it.
 moved() {
   awk 'NR == FNR { was[$1] = $2; next }
+       $2 == "none" { print $1 "(none)"; next }
        !($1 in was) || was[$1] != $2 { print $1 }' "$1" "$2" \
     | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//'
 }
@@ -133,6 +157,61 @@ drop_lines() {
   ' "$BC" > "$BC.new" && mv "$BC.new" "$BC"
 }
 
+# ---- helpers for the WHAT COUNTS checks (section 13 on) ----
+
+# Inserts the text $2 (one or more lines) before, or after, the first line of the copy that is
+# exactly $1, and fails if there is no such line. Through ENVIRON for the same reason as above.
+insert_before() {
+  CCC_AT="$1" CCC_TEXT="$2" awk '
+    !done && $0 == ENVIRON["CCC_AT"] { print ENVIRON["CCC_TEXT"]; done = 1 }
+    { print }
+    END { exit !done }
+  ' "$BC" > "$BC.new" && mv "$BC.new" "$BC"
+}
+insert_after() {
+  CCC_AT="$1" CCC_TEXT="$2" awk '
+    { print }
+    !done && $0 == ENVIRON["CCC_AT"] { print ENVIRON["CCC_TEXT"]; done = 1 }
+    END { exit !done }
+  ' "$BC" > "$BC.new" && mv "$BC.new" "$BC"
+}
+# Deletes the first line of the copy that is exactly $1 (the empty string means the first blank
+# line), and fails if there is none.
+delete_line() {
+  CCC_AT="$1" awk '
+    !done && $0 == ENVIRON["CCC_AT"] { done = 1; next }
+    { print }
+    END { exit !done }
+  ' "$BC" > "$BC.new" && mv "$BC.new" "$BC"
+}
+# The script's own verdict on its rules: ios-cache-check passes, or fails with a message that
+# contains $1 (so a check cannot pass on some other, unrelated failure).
+rules_hold() { bash "$BC" ios-cache-check >/dev/null 2>&1; }
+rules_fail_saying() {
+  local out
+  if out="$(bash "$BC" ios-cache-check 2>&1)"; then return 1; fi
+  [[ "$out" == *"$1"* ]] || { echo "        (said: $out)"; return 1; }
+}
+# Snapshots $W/fp-base, applies the edit "$@" (which must succeed), snapshots $W/fp-after, and
+# prints the cores whose fingerprint moved. "EDIT-FAILED" when the edit did not land.
+moves_after() {
+  snapshot "$W/fp-base"
+  "$@" || { echo "EDIT-FAILED"; return 0; }
+  snapshot "$W/fp-after"
+  moved "$W/fp-base" "$W/fp-after"
+}
+nothing_moves() { same "$(moves_after "$@")x" "x"; }
+everything_moves() { same "$(moves_after "$@")" "$(all_cores_sorted)"; }
+# Like moves_after, for an edit that has to be set up first: the snapshot is taken after $1.
+moves_after_setup() {
+  local setup="$1"
+  shift
+  eval "$setup" || { echo "SETUP-FAILED"; return 0; }
+  moves_after "$@"
+}
+# No core at all gets a fingerprint: three different kinds checked, as the failure is global.
+no_core_has_fp() { no_fp fceumm && no_fp flycast_jit && no_fp continuum_symbian; }
+
 echo "==> core cache checks (copy in $W)"
 
 # 1. Stable.
@@ -163,7 +242,9 @@ check "a parallel_n64 patch leaves azahar alone" same "$azahar_before" "$(fp aza
 
 # 4. An edit to the SHARED part of the recipe moves every core. (Appending at the end of the file
 # lands after the last recipe region, so this is a shared edit; section 10 does the per-core ones.)
-echo "# a shared recipe change" >> "$BC"
+# A line of CODE, not a comment: since 14 October a comment counts for nothing (section 13 proves
+# that), so this appends a command bash would run, which is what this check has always meant.
+echo ": a shared recipe change" >> "$BC"
 fceumm_c="$(fp fceumm)"
 check "a shared build-core.sh edit changes fceumm" differ "$fceumm_a" "$fceumm_c"
 check "a shared build-core.sh edit changes azahar" differ "$azahar_before" "$(fp azahar)"
@@ -313,6 +394,7 @@ check "the flycast flag edit landed" replace_line '    -DUSE_OPENMP=OFF \' '    
 snapshot "$W/fp-flycast"
 check "changing one of flycast's own flags rebuilds flycast and its JIT build only" \
   same "$(moved "$W/fp-base" "$W/fp-flycast")" "flycast flycast_jit"
+check "after that edit, alone and all at once still agree" agree
 
 # And one core with no twin.
 reset_copy
@@ -368,6 +450,315 @@ echo "stella2023 $(repo_of stella2023) $(pin_of stella2023) pinned fp:unknown" >
 check "an unmarked core is never reused" not_cached stella2023
 unset CONTINUUM_CORE_CACHE
 check "the other cores still work when one core is unmarked" has_fp fceumm
+
+# 13. WHAT COUNTS (14 October): comments, blank lines, the cache's own code and the lists of
+# cores count for nothing; everything bash would run or write still counts. See "WHAT COUNTS" in
+# scripts/build-core.sh. Every case starts from the real script.
+reset_copy
+check "the real build-core.sh keeps every rule of WHAT COUNTS (bash agrees too)" rules_hold
+check "every core's fingerprint is the same worked out alone or all at once" agree
+
+# The allow-list of the cache region is kept HERE as well as in build-core.sh, so adding a function
+# to the cache region takes a deliberate edit in both files, and this check fails until they agree.
+CACHE_FUNCTIONS="ios_usage ios_record_source_version ios_core_patch_family ios_recipe_family
+ios_cache_scan ios_cache_bash_parse ios_cache_split ios_recipe_text ios_core_fingerprint
+ios_core_is_cached ios_cache_command"
+want_allow="$(printf '%s\n' $CACHE_FUNCTIONS | LC_ALL=C sort | tr '\n' ' ')"
+got_allow="$(bash "$BC" ios-cache-scan allow 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')"
+check "build-core.sh's IOS_CACHE_FUNCTIONS is exactly the allow-list kept here" same "$got_allow" "$want_allow"
+in_cache="$(bash "$BC" ios-cache-scan table 2>/dev/null \
+  | awk -F'\t' '$3 == "x:cache" && $4 != "" { print $4 }' | LC_ALL=C sort -u | tr '\n' ' ')"
+check "the cache regions hold exactly the allow-listed functions, all of them" same "$in_cache" "$want_allow"
+listed_cores="$(bash "$BC" ios-cache-scan cores 2>/dev/null | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+check "the lists region holds every core ios-names and ios-optional-names report" \
+  same "$listed_cores" "$(all_cores_sorted)"
+shared_now="$(shared_text)"
+check "ios_clone still records the source in a subshell" \
+  contains "$shared_now" '  ( ios_record_source_version "$core" )'
+check "build_all_ios_cores still asks the cache in a subshell, for both lists" \
+  same "$(count_in "$shared_now" 'if ( ios_core_is_cached "$core" ); then')" "2"
+check "the cache machinery is not in the shared text" lacks "$shared_now" "ios_core_is_cached() {"
+check "the help text is not in the shared text" lacks "$shared_now" "ios_usage() {"
+check "the lists of cores are not in the shared text" lacks "$shared_now" "IOS_OPTIONAL_CORES=("
+
+# Comment lines.
+reset_copy
+check "adding a comment line to the shared part moves no fingerprint" nothing_moves \
+  insert_before 'ios_stage_dylib() {' '# a brand-new comment, which bash never runs'
+reset_copy
+check "editing a comment line in the shared part moves no fingerprint" nothing_moves \
+  replace_line '# The one place an install name is fixed and a dylib is staged.' \
+               '# The one place an install name is set and a dylib is staged (reworded).'
+reset_copy
+check "removing a comment line from the shared part moves no fingerprint" nothing_moves \
+  delete_line '# The one place an install name is fixed and a dylib is staged.'
+reset_copy
+check "editing a comment inside a core's own region moves no fingerprint" nothing_moves \
+  replace_line '      # NES, the default NES core. Makefile.libretro'"'"'s ios-arm64 block emits' \
+               '      # NES, the default NES core (reworded). Its ios-arm64 block emits'
+
+# Blank lines.
+reset_copy
+check "adding a blank line to the shared part moves no fingerprint" nothing_moves \
+  insert_before 'ios_stage_dylib() {' ''
+reset_copy
+check "removing a blank line from the shared part moves no fingerprint" nothing_moves delete_line ''
+
+# The cache's own code, and the help text.
+reset_copy
+check "editing the cache's own code (ios_core_is_cached) moves no fingerprint" nothing_moves \
+  replace_line '  grep -qxF "$core $IOS_REPO $IOS_PIN pinned fp:$fp" "$manifest" || return 1' \
+               '  grep -qxF "$core $IOS_REPO $IOS_PIN pinned fp:$fp" "$manifest" || { return 1; }'
+reset_copy
+check "editing ios_record_source_version's message moves no fingerprint" nothing_moves \
+  replace_line '  echo "==> $core source: $IOS_REPO @ $sha ($state)"' \
+               '  echo "==> $core source: $IOS_REPO at $sha ($state)"'
+reset_copy
+check "editing the help text moves no fingerprint" nothing_moves \
+  replace_line '  ios-all       build all ${#IOS_CORES[@]} cores, continuing past a failure and' \
+               '  ios-all       build every one of the ${#IOS_CORES[@]} cores, going on past a failure and'
+
+# The lists, and adding or removing a core. The fake core is shaped like a new core of our own:
+# its config arm and its build function each in its own region, and its name appended INSIDE the
+# IOS_OPTIONAL_CORES=( ... ) parentheses, where it lands in the lists region by itself.
+add_fake_core() {
+  insert_before '    *)' '    # recipe-start: continuum_fake
+    continuum_fake)
+      # A core that only exists in these checks.
+      IOS_REPO=""
+      IOS_PIN=""
+      IOS_DYLIB_NAME="continuum_fake_libretro_ios.dylib"
+      IOS_KIND="cargo-continuum-fake"
+      IOS_DISPLAY="A fake core for the cache checks"
+      ;;
+    # recipe-end: continuum_fake' \
+  && insert_before 'build_ios_make_core() {' '# recipe-start: continuum_fake
+# The fake core'"'"'s own build function.
+build_ios_continuum_fake_core() {
+  echo "==> building $1 (a fake)"
+}
+# recipe-end: continuum_fake
+' \
+  && replace_line \
+    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb)' \
+    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_fake)'
+}
+reset_copy
+check "adding a core (its regions and its name in a list) moves no other core's fingerprint" \
+  same "$(moves_after add_fake_core)" "continuum_fake"
+check "the added core lands in the lists region by itself" \
+  contains "$(bash "$BC" ios-cache-scan cores 2>/dev/null | tr '\n' ' ')" "continuum_fake"
+check "the added core has a fingerprint of its own" has_fp continuum_fake
+check "with the added core, alone and all at once still agree" agree
+reset_copy
+check "a list wrapped onto a second line still lands in the lists region" nothing_moves \
+  replace_line \
+    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb)' \
+    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit
+                    continuum_symbian continuum_gb)'
+remove_stella() {
+  drop_lines "recipe-start: stella2023" && drop_lines "recipe-end: stella2023" \
+    && CCC_FROM='    stella2023)' awk '
+         $0 == ENVIRON["CCC_FROM"] { skip = 1; done = 1 }
+         skip && $0 == "      ;;" { skip = 0; next }
+         !skip { print }
+         END { exit !done }' "$BC" > "$BC.new" && mv "$BC.new" "$BC" \
+    && replace_line '           mednafen_pce_fast stella2023 parallel_n64 azahar ppsspp)' \
+                    '           mednafen_pce_fast parallel_n64 azahar ppsspp)'
+}
+reset_copy
+check "removing a core (its region and its name) moves no other core's fingerprint" \
+  nothing_moves remove_stella
+check "the removed core is really gone from the lists" \
+  lacks "$(bash "$BC" ios-cache-scan cores 2>/dev/null | tr '\n' ' ')x" "stella2023"
+check "the removed core is really gone from the script" eval '! grep -q "stella2023)" "$BC"'
+reset_copy
+check "moving a core from the optional list to the required one moves no fingerprint" nothing_moves \
+  eval 'replace_line "           mednafen_pce_fast stella2023 parallel_n64 azahar ppsspp)" \
+          "           mednafen_pce_fast stella2023 parallel_n64 azahar ppsspp flycast)" \
+        && replace_line "IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb)" \
+          "IOS_OPTIONAL_CORES=(pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb)"'
+
+# What still counts: a line bash runs, anywhere in the shared part, moves every core.
+reset_copy
+check "editing an executable shared line (the make call every make core uses) moves every core" \
+  everything_moves replace_line '      ${IOS_MAKE_VARS[@]+"${IOS_MAKE_VARS[@]}"} -j"$(ios_jobs)" )' \
+                                '      ${IOS_MAKE_VARS[@]+"${IOS_MAKE_VARS[@]}"} -j1 )'
+reset_copy
+check "adding a line of code to the shared part moves every core" \
+  everything_moves insert_before 'ios_stage_dylib() {' 'CONTINUUM_NEW_SHARED_SETTING=1'
+reset_copy
+check "a #-line inside a shared here-document counts: editing it moves every core" \
+  everything_moves insert_after 'error: the iOS cores build only on a macOS host.' \
+                                '# a line starting with # inside a here-document is text, not a comment'
+reset_copy
+check "a #-line inside the Symbian core's here-document counts, for Symbian alone" \
+  same "$(moves_after replace_line '# Continuum Symbian (added by Continuum'"'"'s scripts/build-core.sh).' \
+                                   '# Continuum Symbian (added by build-core.sh, reworded).')" "continuum_symbian"
+reset_copy
+check "a blank line inside a here-document counts" \
+  everything_moves insert_after 'error: the iOS cores build only on a macOS host.' ''
+reset_copy
+check "the #! line at the top counts (it picks the shell that runs the build)" \
+  everything_moves replace_line '#!/usr/bin/env bash' '#!/bin/bash'
+
+# A #-line inside a string that runs over several lines is text, so editing it moves every core.
+# Each string is first put into the shared part (in build_ios_make_core), then its #-line edited.
+string_case() {
+  reset_copy
+  insert_after '  local make_dir="$IOS_SRC_DIR/$IOS_MAKE_SUBDIR"' "$1" || return 1
+  snapshot "$W/fp-base"
+  replace_line "$2" "$3" || return 1
+  snapshot "$W/fp-after"
+  same "$(moved "$W/fp-base" "$W/fp-after")" "$(all_cores_sorted)"
+}
+check "a #-line inside a double-quoted string counts" string_case \
+  '  local continuum_note="one
+# inside a double-quoted string
+two"' '# inside a double-quoted string' '# inside a double-quoted string, edited'
+check "a #-line inside a single-quoted string counts" string_case \
+  "  local continuum_note='one
+# inside a single-quoted string
+two'" '# inside a single-quoted string' '# inside a single-quoted string, edited'
+check "a #-line inside a \$'...' string counts" string_case \
+  "  local continuum_note=\$'one
+# inside an ANSI-C string
+two'" '# inside an ANSI-C string' '# inside an ANSI-C string, edited'
+check "a #-line right after a line continuation counts" string_case \
+  '  : one \
+# right after a continuation' '# right after a continuation' '# right after a continuation, edited'
+check "a #-line inside \$( ) that runs over several lines counts" string_case \
+  '  local continuum_note="$(echo one
+# inside a command substitution
+echo two)"' '# inside a command substitution' '# inside a command substitution, edited'
+check "a #-line inside an array's ( ) counts" string_case \
+  '  local continuum_list=(one
+# inside an array
+two)' '# inside an array' '# inside an array, edited'
+check "a #-line inside a <<- here-document with a quoted delimiter counts" string_case \
+  "  cat <<-'CONTINUUM_DOC' >/dev/null
+	# inside a tab-stripped here-document
+	CONTINUUM_DOC" '	# inside a tab-stripped here-document' '	# inside a tab-stripped here-document, edited'
+check "the end-of-line comment on a line of code counts with that line" string_case \
+  '  : a command # with a comment after it' '  : a command # with a comment after it' \
+  '  : a command # with a comment after it, edited'
+
+# Anything the scan cannot follow for certain gives NO core a fingerprint, so every core rebuilds.
+unclassifiable() {
+  reset_copy
+  insert_after '  local make_dir="$IOS_SRC_DIR/$IOS_MAKE_SUBDIR"' "$1" || return 1
+  no_core_has_fp && rules_fail_saying "$2"
+}
+check "a case statement inside \$( ) fails closed" unclassifiable \
+  '  local continuum_x="$(case a in a) echo;; esac)"' "case statement inside"
+check "a here-document delimiter with an expansion in it fails closed" unclassifiable \
+  '  cat <<$continuum_delim >/dev/null
+$continuum_delim' "here-document delimiter with an expansion"
+check "a here-document that starts inside an open string fails closed" unclassifiable \
+  '  cat <<CONTINUUM_DOC "one
+two"
+CONTINUUM_DOC' "does not end plainly"
+check "an unquoted here-document line ending in a backslash fails closed" unclassifiable \
+  '  cat <<CONTINUUM_DOC >/dev/null
+a line ending in a backslash \
+joins this one
+CONTINUUM_DOC' "ending in a backslash"
+check "a line that looks like a marker inside a here-document fails closed" unclassifiable \
+  '  cat <<CONTINUUM_DOC >/dev/null
+# recipe-end: mgba
+CONTINUUM_DOC' "looks like a region marker"
+check "a function written another way fails closed" unclassifiable \
+  'function continuum_other_style { :; }' "written another way"
+check "a script bash cannot parse fails closed" unclassifiable '  if then fi' "syntax error"
+check "a build step that reads this script's own text fails closed" unclassifiable \
+  '  grep -c recipe "$IOS_SELF" >/dev/null' "a build that read this file"
+check "a build step that uses line numbers fails closed" unclassifiable \
+  '  echo "line $LINENO" >/dev/null' "a build that read this file"
+reset_copy
+check "the mistyped marker landed" replace_line '    # recipe-start: fceumm' '    # recipe-start fceumm'
+check "a mistyped marker fails closed" no_core_has_fp
+check "a mistyped marker is named" rules_fail_saying "mistyped region marker"
+
+# Bash is the second line of defence: a comment the scan wrongly drops must still be caught.
+# These break the SCAN in the copy on purpose, the way a bug in it would.
+reset_copy
+check "the scan was broken on purpose (it drops a line of code)" \
+  replace_line '      else if (line ~ /^[ \t]*#/) cls = "comment"' \
+               '      else if (line ~ /^[ \t]*#/ || line ~ /local canonical=/) cls = "comment"'
+check "bash catches a dropped line of code, and no core gets a fingerprint" no_core_has_fp
+check "bash's verdict is named" rules_fail_saying "bash reads"
+reset_copy
+check "the scan was broken on purpose (it drops a here-document line)" \
+  replace_line '    cls = "heredoc"' '    cls = (line ~ /^#/) ? "comment" : "heredoc"'
+check "bash catches a dropped here-document line, and no core gets a fingerprint" no_core_has_fp
+
+# Every guard: breaking it gives no core a fingerprint, and says why.
+guard() {
+  local why="$1"
+  shift
+  reset_copy
+  "$@" || return 1
+  no_core_has_fp && rules_fail_saying "$why"
+}
+check "a function that is not on the allow-list inside the cache region fails closed" guard \
+  "not in IOS_CACHE_FUNCTIONS" insert_before 'ios_core_is_cached() {' 'ios_cache_helper() { :; }'
+check "code outside any function inside the cache region fails closed" guard \
+  "code outside any function inside the cache region" \
+  insert_before 'ios_core_is_cached() {' 'CONTINUUM_SETTING=1'
+check "a cache region that ends in the middle of a function fails closed" guard \
+  "only partly inside the cache region" \
+  insert_after 'ios_core_is_cached() {' '# not-a-build-input-end: cache
+# not-a-build-input-start: cache'
+check "build code calling the cache machinery fails closed" guard "is cache machinery" \
+  insert_after '  local make_dir="$IOS_SRC_DIR/$IOS_MAKE_SUBDIR"' '  ios_core_fingerprint "$1" >/dev/null'
+check "recording the source outside a subshell fails closed" guard "is cache machinery" \
+  replace_line '  ( ios_record_source_version "$core" )' '  ios_record_source_version "$core"'
+move_ios_jobs_into_the_cache() {
+  CCC_AT='ios_jobs() {' awk '
+      !done && $0 == ENVIRON["CCC_AT"] { skip = 3; done = 1 }
+      skip > 0 { skip--; next }
+      { print }
+      END { exit !done }' "$BC" > "$BC.new" && mv "$BC.new" "$BC" \
+    && insert_before 'ios_core_is_cached() {' 'ios_jobs() {
+  sysctl -n hw.ncpu 2>/dev/null || echo 4
+}' \
+    && replace_line '                     ios_core_fingerprint ios_core_is_cached ios_cache_command)' \
+                    '                     ios_core_fingerprint ios_core_is_cached ios_cache_command ios_jobs)'
+}
+check "build code moved into the cache region (and allow-listed) fails closed" guard \
+  "is cache machinery" move_ios_jobs_into_the_cache
+check "a function defined a second time (in a region, overriding shared code) fails closed" guard \
+  "defined twice" insert_before 'build_ios_make_core() {' '# recipe-start: fceumm
+ios_stage_dylib() { :; }
+# recipe-end: fceumm'
+check "the allow-list declared a second time fails closed" guard "declared exactly once" \
+  insert_before 'ios_stage_dylib() {' 'IOS_CACHE_FUNCTIONS=(ios_stage_dylib)'
+check "something other than a list of cores in the lists region fails closed" guard \
+  "something other than array assignments" \
+  insert_before '# not-a-build-input-end: lists' 'echo "not a list"'
+check "an array that is not a list of cores in the lists region fails closed" guard \
+  "not in IOS_CORE_LIST_NAMES" insert_before '# not-a-build-input-end: lists' 'IOS_REQUIRED_EXTRA=(retro_run)'
+check "an expansion inside a list of cores fails closed" guard "something other than array assignments" \
+  replace_line \
+    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb)' \
+    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian $(echo continuum_gb))'
+check "lists of cores outside the lists region fail closed" guard "inside a not-a-build-input: lists region" \
+  eval 'delete_line "# not-a-build-input-start: lists" && delete_line "# not-a-build-input-end: lists"'
+check "a recipe region for a core that is not listed fails closed" guard "belongs to no core" \
+  insert_before 'build_ios_make_core() {' '# recipe-start: nosuchcore
+nosuchcore_helper() { :; }
+# recipe-end: nosuchcore'
+check "a recipe region inside a shared function fails closed" guard \
+  "neither a whole case arm nor a whole function" \
+  replace_line '  local canonical="$2"' '    # recipe-start: fceumm
+  local canonical="$2"
+    # recipe-end: fceumm'
+merge_mesen2_into_fceumm() {
+  delete_line '    # recipe-end: fceumm' && delete_line '    # recipe-start: mesen2' \
+    && replace_line '    # recipe-end: mesen2' '    # recipe-end: fceumm'
+}
+check "one core's config arm inside another core's region fails closed" guard \
+  "the case arm for mesen2 sits in recipe region fceumm" merge_mesen2_into_fceumm
 
 reset_copy
 

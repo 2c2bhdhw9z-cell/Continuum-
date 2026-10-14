@@ -238,8 +238,10 @@ jobs:
       # (ios_core_fingerprint). A core whose fingerprint no longer matches is rebuilt; every other
       # core is reused. So moving one pin, editing one patch, or changing one core's own recipe in
       # build-core.sh rebuilds that core, not all of them, while a change to the SHARED part of
-      # build-core.sh still rebuilds everything. scripts/check-core-cache.sh (the checks job)
-      # tests it.
+      # build-core.sh that bash would run still rebuilds everything. Comments, blank lines, the
+      # cache's own code and the lists of cores count for nothing ("WHAT COUNTS" in
+      # build-core.sh), so editing those, or adding a core, rebuilds no other core.
+      # scripts/check-core-cache.sh (the checks job) tests it.
       #
       # The toolchain is in the prefix as well as the fingerprint (the step below says what it
       # covers) because a new Xcode changes every output. Without it, when the runner image moved
