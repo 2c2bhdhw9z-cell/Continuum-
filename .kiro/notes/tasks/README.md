@@ -65,6 +65,16 @@ H3, H6 (link-work). `wf_911331e1a7cb243c` emulator updates CU1-CU5 (updates-work
 Swift files). cBoy G2-G5 waits for the owner's go-ahead on max thinking. A session that wakes up
 checks each id with inspect_workflow and resumes any that stopped.
 
+## Build 188 (started 14 October, 9:01 AM Eastern, at e82432a)
+
+Started early on purpose: the owner was waiting and couldn't see any of the work. It holds
+everything finished by 9 AM: icons, shorter text (T1, T2, most of T3), the Home screen (U1, U2, U3,
+U3b; the U4 review was still running), arcade on cArcade (I3, I4: 65 Pac-Man sets), the build cache
+(complete), H2 EEPROM carts, H4 Sega CD discs, H5 our own 32X start-up code, cBoy G1 to G1c, and the
+Gearsystem and Azahar updates (CU1, CU2). Every emulator rebuilds once (new fingerprints). Check
+the .ipa: 0.8.0 (188), and 37 core files if cArcade compiled (36 plus continuum_arcade). Everything
+after e82432a goes in the next build.
+
 ## Then the build
 
 1. When all eight are done, fold their reports (`docs/reports/evening-2026-10-13*.md`,
