@@ -126,9 +126,14 @@ cached 393f12c's, so the next build rebuilds every core once and the ones after 
   moving a family's regions, or moving lines between them, changes that family's fingerprint and
   no other.
 
+A follow-up commit right after K2 makes the rules read the code of a line rather than a comment
+at its end (so a note after an assignment in a config arm is legal; the whole line is still
+hashed) and accepts a dispatch written as `elif [[ "$IOS_KIND" == "<kind>" ]]; then`, two
+ordinary ways tonight's helpers might write their lines. Fingerprints are unchanged by it.
+
 Commands and results (K2, on master after K1 plus this change): `bash scripts/check-core-cache.sh`
 201 passed, 0 failed (21 new checks in section 14), and 201 passed, 0 failed again under bash
-3.2.57 with BWK awk 20200816; `check-skins.sh` 720 checks, 0 failed;
+3.2.57 with BWK awk 20200816; with the follow-up, 203 and 203; `check-skins.sh` 720 checks, 0 failed;
 `check-players.sh` 0 failed; `cargo test` 723 passed, 0 failed; `cargo clippy` clean. K1 is
 3651403, K2 is 1de468f.
 

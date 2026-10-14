@@ -2146,17 +2146,17 @@ function out(s, dest) { if (dest == "") print s; else print s > dest }
 function patchprefix(fam) { return (fam == "continuum_symbian") ? "continuum-symbian" : fam }
 function ownkind(kd, fam) { return (kd in kfam) && kfam[kd] == fam && !(kd in kmulti) }
 # Line n of build_ios_core calls f the way the dispatch does, for a kind only family fam sets:
-# "<kind>) f "$core" ;;", or f "$core" right after if [[ "$IOS_KIND" == "<kind>" ]]; then.
+# "<kind>) f "$core" ;;", or f "$core" right after if (or elif) [[ "$IOS_KIND" == "<kind>" ]]; then.
 function dispatch_ok(n, f, fam,   s, kd, p) {
-  s = trim(L_t[n])
+  s = trim(L_k[n])
   if (s ~ /^[a-z0-9-]+\) [A-Za-z_][A-Za-z0-9_]* "\$core" ;;$/) {
     kd = s; sub(/\).*/, "", kd)
     return s == kd ") " f " \"$core\" ;;" && ownkind(kd, fam)
   }
   if (s != f " \"$core\"") return 0
   for (p = n - 1; p > 0 && !kept(p); p--) continue
-  if (p < 1 || trim(L_t[p]) !~ /^if \[\[ "\$IOS_KIND" == "[a-z0-9-]+" \]\]; then$/) return 0
-  kd = trim(L_t[p]); sub(/^if \[\[ "\$IOS_KIND" == "/, "", kd); sub(/".*/, "", kd)
+  if (p < 1 || trim(L_k[p]) !~ /^(el)?if \[\[ "\$IOS_KIND" == "[a-z0-9-]+" \]\]; then$/) return 0
+  kd = trim(L_k[p]); sub(/^(el)?if \[\[ "\$IOS_KIND" == "/, "", kd); sub(/".*/, "", kd)
   return ownkind(kd, fam)
 }
 # The words of the top-level declaration NAME=( ... ) in the shared part, into arr; returns how
@@ -2281,6 +2281,9 @@ BEGIN {
   L_d[NR] = indecl
   if (indecl != "" && sp == 0) indecl = ""
   L_c[NR] = cls; L_t[NR] = line
+  # The code part of the line, without a comment at its end: what the rules below read. (What is
+  # hashed is still the whole line, so editing such a comment still counts.)
+  L_k[NR] = (cpos > 0) ? substr(line, 1, cpos - 1) : line
 }
 END {
   last = NR
@@ -2329,17 +2332,17 @@ END {
   # And nothing outside it calls into it except from the approved places, or reads this file.
   for (n = 1; n <= last; n++) {
     if (!kept(n) || L_b[n] == "x:cache" || L_d[n] != "") continue
-    for (k = 1; k <= nallow; k++) if (hasword(L_t[n], allowed[k]) && !((L_f[n] SUBSEP trim(L_t[n])) in approved))
+    for (k = 1; k <= nallow; k++) if (hasword(L_k[n], allowed[k]) && !((L_f[n] SUBSEP trim(L_k[n])) in approved))
       failat(n, allowed[k] " is cache machinery, so it may not be used here (only ios_clone, build_all_ios_cores and the dispatch may call it, as they do today)")
-    for (k = 1; k <= nself; k++) if (hasword(L_t[n], selfword[k]) && !((L_f[n] SUBSEP trim(L_t[n])) in selfok))
+    for (k = 1; k <= nself; k++) if (hasword(L_k[n], selfword[k]) && !((L_f[n] SUBSEP trim(L_k[n])) in selfok))
       failat(n, selfword[k] " outside the cache: a build that read this file or its line numbers would see comments, so they could not be left out")
   }
   # Who owns what, for the rules below: the family each IOS_KIND belongs to (kmulti: more than
   # one), the family each function defined inside a recipe region belongs to, and how many shared
   # lines that count come before each line (where a region sits).
   for (n = 1; n <= last; n++) {
-    if (L_b[n] ~ /^r:/ && L_f[n] == "ios_core_config" && L_c[n] == "code" && L_t[n] ~ /^[ \t]*IOS_KIND="[^"]+"[ \t]*$/) {
-      kd = trim(L_t[n]); sub(/^IOS_KIND="/, "", kd); sub(/"$/, "", kd); fam = substr(L_b[n], 3)
+    if (L_b[n] ~ /^r:/ && L_f[n] == "ios_core_config" && L_c[n] == "code" && L_k[n] ~ /^[ \t]*IOS_KIND="[^"]+"[ \t]*$/) {
+      kd = trim(L_k[n]); sub(/^IOS_KIND="/, "", kd); sub(/"$/, "", kd); fam = substr(L_b[n], 3)
       if ((kd in kfam) && kfam[kd] != fam) kmulti[kd] = 1
       kfam[kd] = fam
     }
@@ -2365,11 +2368,11 @@ END {
       else if (kind != lk) { failat(n, "recipe region " F " mixes case arms and functions"); break }
     }
     if (kind == "ios_core_config" || kind == "ios_apply_core_patches") {
-      if (L_t[first] !~ /^[ \t]*[a-z][a-z0-9_]*([ \t]*\|[ \t]*[a-z][a-z0-9_]*)*\)[ \t]*$/) failat(first, "recipe region " F " must start with its case arm pattern")
-      if (trim(L_t[lastk]) != ";;") failat(lastk, "recipe region " F " must end with the ;; of its case arm")
+      if (L_k[first] !~ /^[ \t]*[a-z][a-z0-9_]*([ \t]*\|[ \t]*[a-z][a-z0-9_]*)*\)[ \t]*$/) failat(first, "recipe region " F " must start with its case arm pattern")
+      if (trim(L_k[lastk]) != ";;") failat(lastk, "recipe region " F " must end with the ;; of its case arm")
       for (n = first; n <= lastk; n++) {
         if (!kept(n)) continue
-        s = trim(L_t[n])
+        s = trim(L_k[n])
         if (s ~ /^[a-z][a-z0-9_]*([ \t]*\|[ \t]*[a-z][a-z0-9_]*)*\)$/) {
           sub(/\)$/, "", s); m = split(s, el, /[ \t]*\|[ \t]*/)
           for (e = 1; e <= m; e++) if (family(el[e]) != F) failat(n, "the case arm for " el[e] " sits in recipe region " F)
@@ -2379,9 +2382,9 @@ END {
         # A config arm only sets IOS_ variables to plain values: no expansion, no command, nothing
         # it could leave behind for another core (ios_core_config runs for every core in turn).
         if (kind == "ios_core_config") {
-          if (L_c[n] == "code" && L_t[n] ~ /^[ \t]*IOS_[A-Z0-9_]+=("[^"$`\\]*"|[A-Za-z0-9_.\/:@+,=%-]*)[ \t]*$/) continue
-          if (L_c[n] == "code" && L_t[n] ~ /^[ \t]*IOS_[A-Z0-9_]+=\(([ \t]*("[^"$`\\]*"|[A-Za-z0-9_.\/:@+,=%-]+))*[ \t]*\)?[ \t]*$/) continue
-          if (L_c[n] == "nested" && L_t[n] ~ /^[ \t]*(("[^"$`\\]*"|[A-Za-z0-9_.\/:@+,=%-]+)[ \t]*)*\)?[ \t]*$/) continue
+          if (L_c[n] == "code" && L_k[n] ~ /^[ \t]*IOS_[A-Z0-9_]+=("[^"$`\\]*"|[A-Za-z0-9_.\/:@+,=%-]*)[ \t]*$/) continue
+          if (L_c[n] == "code" && L_k[n] ~ /^[ \t]*IOS_[A-Z0-9_]+=\(([ \t]*("[^"$`\\]*"|[A-Za-z0-9_.\/:@+,=%-]+))*[ \t]*\)?[ \t]*$/) continue
+          if (L_c[n] == "nested" && L_k[n] ~ /^[ \t]*(("[^"$`\\]*"|[A-Za-z0-9_.\/:@+,=%-]+)[ \t]*)*\)?[ \t]*$/) continue
           failat(n, "a config arm in recipe region " F " may only set IOS_ variables to plain values: " s)
           continue
         }
@@ -2401,7 +2404,7 @@ END {
     }
     if (kind == "build_ios_core") {
       nl = 0
-      for (n = first; n <= lastk; n++) if (kept(n)) { nl++; dl[nl] = trim(L_t[n]) }
+      for (n = first; n <= lastk; n++) if (kept(n)) { nl++; dl[nl] = trim(L_k[n]) }
       if (dl[1] ~ /^if \[\[ "\$IOS_KIND" == "[a-z0-9-]+" \]\]; then$/) {
         kd = dl[1]; sub(/^if \[\[ "\$IOS_KIND" == "/, "", kd); sub(/".*/, "", kd)
         f = dl[2]; sub(/ .*/, "", f)
@@ -2424,7 +2427,7 @@ END {
   # recipe that does not set its dylib name.)
   for (n = 1; n <= last; n++) {
     if (!kept(n) || L_b[n] != "shared") continue
-    s = trim(L_t[n])
+    s = trim(L_k[n])
     if (L_f[n] == "ios_apply_core_patches" && s ~ /^[a-z][a-z0-9_]*([ \t]*\|[ \t]*[a-z][a-z0-9_]*)*\)$/)
       failat(n, "the ios_apply_core_patches arm " s " is outside its recipe region")
     if (hasword(s, "ios_apply_simple_patch") && n != fstart["ios_apply_simple_patch"])
@@ -2433,12 +2436,12 @@ END {
   # Every scripts/patches/ file named outside the cache: in a recipe region, a patch of that
   # family; in the shared part, only the two lines that name one today.
   for (n = 1; n <= last; n++) {
-    if (!kept(n) || L_b[n] == "x:cache" || index(L_t[n], "scripts/patches/") == 0) continue
+    if (!kept(n) || L_b[n] == "x:cache" || index(L_k[n], "scripts/patches/") == 0) continue
     if (L_b[n] == "shared") {
-      if (!((L_f[n] SUBSEP trim(L_t[n])) in patchok)) failat(n, "a scripts/patches/ file is named in the shared part, so editing that patch would not rebuild every core that uses it")
+      if (!((L_f[n] SUBSEP trim(L_k[n])) in patchok)) failat(n, "a scripts/patches/ file is named in the shared part, so editing that patch would not rebuild every core that uses it")
       continue
     }
-    F = substr(L_b[n], 3); rest = L_t[n]
+    F = substr(L_b[n], 3); rest = L_k[n]
     while ((p = index(rest, "scripts/patches/")) > 0) {
       rest = substr(rest, p + 16)
       if (!match(rest, /^[A-Za-z0-9_.+-]+\.patch/) || index(rest, patchprefix(F) "-") != 1) {
@@ -2452,7 +2455,7 @@ END {
   for (f in rfun) {
     F = rfun[f]; uses = 0
     for (n = 1; n <= last; n++) {
-      if (!kept(n) || L_b[n] == "x:cache" || n == fstart[f] || !hasword(L_t[n], f)) continue
+      if (!kept(n) || L_b[n] == "x:cache" || n == fstart[f] || !hasword(L_k[n], f)) continue
       uses++
       if (L_b[n] == "r:" F || (L_f[n] == "build_ios_core" && dispatch_ok(n, f, F))) continue
       failat(n, f " belongs to recipe region " F ", so only the regions of " F " may use it (or the dispatch in build_ios_core, for a kind only " F " sets)")

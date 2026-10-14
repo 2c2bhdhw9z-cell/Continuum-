@@ -869,6 +869,26 @@ check "a dispatch in a region for a kind another family sets too fails closed" g
                           "  if [[ \"\$IOS_KIND\" == \"cargo-continuum-gb\" ]]; then"'
 check "a dispatch region holding anything else fails closed" guard "in build_ios_core may only hold" \
   eval 'add_fake_core && insert_after "    build_ios_continuum_fake_core \"\$core\"" "    echo extra"'
+# The rules read the code of a line, not a comment at its end, so ordinary edits by the people
+# adding cores stay legal: a note after an assignment, a dispatch written as an elif.
+reset_copy
+check "a comment at the end of a config arm line is fine" eval \
+  'replace_line "      IOS_DISPLAY=\"NES\"" "      IOS_DISPLAY=\"NES\"  # the NES, a note" && rules_hold && has_fp fceumm'
+fake_core_by_elif() {
+  add_fake_core || return 1
+  CCC_PAT="# recipe-start: continuum_fake" awk '
+    $0 == "  # recipe-start: continuum_fake" { skip = 1; done = 1 }
+    skip { if ($0 == "  # recipe-end: continuum_fake") skip = 0; next }
+    { print }
+    END { exit !done }' "$BC" > "$BC.new" && mv "$BC.new" "$BC" || return 1
+  replace_line '    build_ios_continuum_gb_core "$core"' '    build_ios_continuum_gb_core "$core"
+    return
+  elif [[ "$IOS_KIND" == "cargo-continuum-fake" ]]; then
+    build_ios_continuum_fake_core "$core"'
+}
+reset_copy
+check "a new core dispatched by an elif after cBoy's if is fine" \
+  eval 'fake_core_by_elif && rules_hold && has_fp continuum_fake && has_fp continuum_gb'
 
 # (c) A separator between a family's regions: each region is hashed after a header naming which
 # one it is, where it sits and how many lines it holds, so lines moving between a family's regions,
