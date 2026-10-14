@@ -1,5 +1,5 @@
 {
-  "complete": false,
+  "complete": true,
   "title": "Continuum build cache, second pass: a comment, the cache's own code, or adding an emulator must stop rebuilding every emulator",
   "repo": "/projects/sandbox/.scratch/cache-work",
   "branch": "master",
@@ -59,7 +59,8 @@
     },
     {
       "id": "K4",
-      "done": false,
+      "done": true,
+      "result": "Wrote .agents/tasks/cache-v2/summary.md (plain English: what rebuilds every emulator, one, or none; the commits 3651403/1de468f/d8d8654/3d411b3; the check count 213; and what a future build-core.sh change must keep in mind). The committed, orchestrator-readable version of all of this is docs/reports/cache-v2-verification.md. All four items are done, so complete is now true.",
       "title": "Summary for the orchestrator",
       "detail": "Write /projects/sandbox/.scratch/cache-work/.agents/tasks/cache-v2/summary.md in plain English: what now rebuilds every emulator, what rebuilds one, and what rebuilds none; the commits; the check count; and anything a future change to build-core.sh must keep in mind. Then set the top-level complete to true."
     }
