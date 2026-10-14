@@ -499,7 +499,7 @@ ios_core_config() {
       # picture hook this host accepts. CPU JIT is compiled out by -DIOS (no
       # dynarec, no executable memory). The fast interpreter stays on.
       IOS_REPO="https://github.com/azahar-emu/azahar"
-      IOS_PIN="bfa768727c60ad5bcb9397ad1471f8586605adf8"
+      IOS_PIN="68202bc4ff7edf9d7280ec0dcd6572b7cd1ae26e"
       IOS_DYLIB_NAME="azahar_libretro_ios.dylib"
       IOS_KIND="cmake-shared"
       IOS_CMAKE_TARGET="citra_libretro"

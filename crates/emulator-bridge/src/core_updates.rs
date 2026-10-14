@@ -59,7 +59,7 @@ pub const CORE_BUILDS: &[CoreBuild] = &[
     core("mednafen_pce_fast", "3f946f277aef3aa99a95551618bbcd1dd2bda0d9", "TurboGrafx-16", "Beetle PCE Fast"),
     core("stella2023", "ba52c43b9eda950eb0c0eec69cda9b17dee8c39b", "Atari 2600", "Stella"),
     core("parallel_n64", "a8280501a71c1bcd4c85c5b8bfe75cfa62cd6127", "N64", "ParaLLEl N64"),
-    core("azahar", "bfa768727c60ad5bcb9397ad1471f8586605adf8", "3DS", "Azahar"),
+    core("azahar", "68202bc4ff7edf9d7280ec0dcd6572b7cd1ae26e", "3DS", "Azahar"),
     core("ppsspp", "dd6bd1a53d38773c1d07985fcb7d2f56fcaa872c", "PSP", "PPSSPP"),
     core("flycast", "f03faffd2f89cb2c7c73ff08dce51a774a61ee27", "Dreamcast", "Flycast"),
     core("continuum_symbian", "661031f9d8ccd37612797e32a52b2d4c6aadfcdc", "Symbian", "EKA2L1"),
@@ -215,11 +215,18 @@ pub const CORE_UPDATES: &[CoreUpdate] = &[
     commits("gearsystem", "692494c8d3e322faeea204fd54f582f00d77f03a", "4a801d223ce687e68165d750a0fdda4bd8bc0a7e"),
     // Covers parallel_n64_jit too: same core id and version string.
     commits("parallel_n64", "0bd516ee793bb87b57e9eef19993b37ac0098d74", "a8280501a71c1bcd4c85c5b8bfe75cfa62cd6127"),
-    // Azahar refuses states from another revision itself.
+    // Azahar refuses states from another revision itself (System::LoadStateBuffer compares the
+    // commit a state was made on with its own), so both moves are refused.
     CoreUpdate {
         core_id: "azahar",
         from_build: "065c9222ae7e8ce5535aa2672c8565e82c0a6d54",
-        to_build: "bfa768727c60ad5bcb9397ad1471f8586605adf8",
+        to_build: "68202bc4ff7edf9d7280ec0dcd6572b7cd1ae26e",
+        old_states: OldStates::Refused,
+    },
+    CoreUpdate {
+        core_id: "azahar",
+        from_build: "bfa768727c60ad5bcb9397ad1471f8586605adf8",
+        to_build: "68202bc4ff7edf9d7280ec0dcd6572b7cd1ae26e",
         old_states: OldStates::Refused,
     },
     // Versioned sections, no minimum raised.
@@ -519,7 +526,7 @@ mod tests {
                 assert_eq!(to_version, VersionMatch::Commit(u.to_build), "{}", u.core_id);
             }
         }
-        assert_eq!(CORE_UPDATES.len(), 11);
+        assert_eq!(CORE_UPDATES.len(), 12);
     }
 
     fn loads(core: &str, saved: &str, running: &str) -> bool {
@@ -550,6 +557,8 @@ mod tests {
     #[test]
     fn everything_else_stays_refused() {
         assert!(!loads("azahar", "065c922", "bfa7687"));
+        assert!(!loads("azahar", "065c922", "68202bc"));
+        assert!(!loads("azahar", "bfa7687", "68202bc"));
         assert!(!loads("azahar", "a", "b"));
         assert!(!loads("fceumm", "(SVN) ac0d00a", "(SVN) 7a542da"));
         assert!(!loads("gearsystem", "4a801d2-dirty", "692494c-dirty"));
