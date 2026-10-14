@@ -47,9 +47,8 @@ arcade job's two ios.yml lines are parked, written down in `repo-cleanup-phase2.
 the arcade report. Two comment-only edits to ios.yml's cache notes landed with K1/K2 (3651403,
 1de468f) before this was known; they change nothing a build does.
 
-**cBoy G2, G3 and G4 are the exact drawer.** Before any of it starts, stop and tell the owner so
-they can turn the thinking up to max, and begin nothing until they reply that it's set (owner
-rule, asked again on 14 October).
+**cBoy G2, G3 and G4 are the exact drawer.** Go-ahead given on 14 October at 8 AM ("Been max"): the
+owner keeps the thinking at max, so it runs without asking again.
 
 cBoy's exact drawer follows SameBoy: clone github.com/LIJI32/SameBoy and (with `GIT_CONFIG_GLOBAL=/dev/null`)
 github.com/mattcurrie/mealybug-tearoom-tests into `/projects/sandbox/.scratch/sameboy` and

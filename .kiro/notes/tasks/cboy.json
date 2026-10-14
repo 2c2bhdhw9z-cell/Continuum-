@@ -78,5 +78,13 @@
       "title": "Write it up for the owner",
       "detail": "Write docs/CBOY_EVENING.md: what landed, each as 'Built, untested'; what the tests prove; the new Mealybug score; what is left and why; and a short numbered list of phone checks in the owner's plain, casual voice (one per thing a player can see or hear: for example picking the colour setting and opening Tetris or the original Pokemon Red, Blue or Super Mario Land). The orchestrator folds it into TESTING.md and STATUS.md. Update docs/CBOY_EXACT_DRAWER.md's top lines to the new score. Then set the top-level complete to true."
     }
+  ],
+  "notes_14_october": [
+    "GO-AHEAD GIVEN: the owner confirmed on 14 October at 8 AM Eastern that Kiro's thinking is at max (it has been since 13 October). Start G2 and carry on through G3, G4 and G5 without asking again.",
+    "Score at the start: Mealybug 27 of 55 (after G1). Record the new score in every commit that touches a drawer ('Mealybug 27 -> N of 55').",
+    "SameBoy and Mealybug's sources: `GIT_CONFIG_GLOBAL=/dev/null git clone --depth 1 https://github.com/LIJI32/SameBoy.git /projects/sandbox/.scratch/sameboy` and `GIT_CONFIG_GLOBAL=/dev/null git clone --depth 1 https://github.com/mattcurrie/mealybug-tearoom-tests.git /projects/sandbox/.scratch/mealybug-src` (skip if already there). Never commit either. The method in hard_rules is not optional: hardware behaviour, how SameBoy models it, cBoy's own Rust, then compare. Never guess a test picture pixel by pixel; a change you can't explain in one sentence of hardware behaviour is not allowed.",
+    "Builds do not wait for G4: every build ships whatever score Exact has reached. Push each green improvement at once, with the score in its message. Standard stays the default drawer; never make Exact the default.",
+    "Cargo here: export CARGO_HOME=/projects/sandbox/.scratch/cboy-tmp/cargo-home and RUSTUP_TOOLCHAIN=1.92.0-x86_64-unknown-linux-gnu (the shared /root/.cargo is read-only). The gate before every push: cd cores/continuum-gb && scripts/fetch-test-roms.sh && cargo test --release (158 tests after G1c); dmg-acid2, cgb-acid2, Mooneye DMG 87/87 and Mooneye Color 5/5 must pass on BOTH drawers.",
+    "From G1c: the app treats the word 'restart' in an option's description specially (says_restart in crates/emulator-bridge/src/cores/options.rs holds the option until the next start and shows a Restart button), so never add that word to a description unless the option really needs a restart. Don't edit docs/option-sources/mapping.tsv (not cBoy's)."
   ]
 }

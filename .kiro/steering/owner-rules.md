@@ -100,6 +100,9 @@ These come straight from the owner. They are not suggestions.
   STATUS.md and HANDOFF.md list it there. **Before starting it, STOP and tell the owner** so
   they can turn Kiro's thinking up to max first. Do not begin any of it, not even a first look, until they
   reply that it is set.
+  **Update, 14 October 2026: the owner keeps Kiro's thinking at max all the time** and was angry at
+  being asked again ("Been max"). The go-ahead stands: carry on with the drawer in every session
+  without asking, unless the owner says they turned the thinking down.
   Earlier sessions burned through the owner's usage guessing its test pictures (Mealybug) one
   pixel at a time. When it is picked up again, never guess pixel by pixel: follow how a proven
   accurate emulator (SameBoy) draws, and compare against it. Do not make it the default until
@@ -199,7 +202,7 @@ on a new account, save each line below as a global learning (user_preferences), 
 5. Never leave a background workflow sitting stopped. Whenever you become active again (any user message, any notification, after any restart or interruption), first check every workflow you launched with inspect_workflow. If one is paused or stopped for any reason other than waiting on the owner's answer, resume it immediately without asking, then tell the owner plainly what happened.
 6. The owner (GitHub 2c2bhdhw9z-cell) is not a programmer and uses only an iPhone; they will never use a computer. Write every reply in plain everyday English and explain any technical word in normal words. Describe what they will see on the phone. Never ask them to read files, logs, code or GitHub pages: read it yourself and say what it says.
 7. For the owner's repos: no branches and no pull requests. Commit and push straight to master/main. Save constantly: push each finished, checked piece right away, because the owner has limited credits and a session can end at any moment. Never leave work only in the sandbox.
-8. The owner sometimes marks a hard job as "stop and tell me before you start, so I can turn your thinking to max". For any job marked like that, stop when it comes up next and tell the owner plainly, and begin nothing on it until they reply that the setting is changed. In Continuum that is cBoy's exact pixel-by-pixel drawer (go-ahead given at max on 13 October 2026; if a later session continues it, stop and tell them again first).
+8. The owner sometimes marks a hard job as "stop and tell me before you start, so I can turn your thinking to max". For any job marked like that, stop when it comes up next and tell the owner plainly, and begin nothing on it until they reply that the setting is changed. In Continuum that is cBoy's exact pixel-by-pixel drawer (go-ahead given at max on 13 and 14 October 2026; the owner keeps thinking at max, so carry on with it without asking again unless they say they turned it down).
 9. The owner (Continuum, GitHub 2c2bhdhw9z-cell) lives in US Eastern time (UTC-4 in summer, UTC-5 in winter). Convert every time to Eastern; never assume Pacific time.
 10. Automatic, scheduled or deadline builds are only for a night the owner explicitly asks for one, and come out first thing the next morning without being asked. Otherwise a build starts only from a push or a manual start. Daytime work is built the same day as soon as it is finished; always check the current Eastern time before giving any time.
 11. Screenshots the owner sends while a reply is in progress arrive as text only. If they mention pictures you cannot see, say so at once instead of guessing.
