@@ -284,9 +284,11 @@ ios_core_config() {
       # Mega Drive, Sega CD and 32X. Makefile.libretro's ios-arm64 block builds the generated
       # (interpreter) 68K and Z80 cores, as iOS has no writable executable memory, and its `core`
       # rule copies libblastem.dylib to blastem_libretro_ios.dylib. The generator needs python3,
-      # and the LTO link takes about 12 minutes. Continuum patch
-      # (scripts/patches/blastem-continuum-memory.patch): Sega CD and 32X memory for achievements
-      # and RAM search, and the Sega CD's backup RAM as its save.
+      # and the LTO link takes about 12 minutes. Continuum patches, applied in this order
+      # (scripts/patches/): blastem-continuum-memory.patch, Sega CD and 32X memory for
+      # achievements and RAM search, the Sega CD's backup RAM as its save, typed cheats, the
+      # multitaps and Super Skidmarks; blastem-cartridge-saves.patch, every EEPROM and J-Cart
+      # cartridge dump in MAME's software list that rom.db did not know by checksum.
       IOS_REPO="https://github.com/libretro/blastem"
       IOS_PIN="ab743653ed110eeb7b1fe64d00cc5f9279c2bfec"
       IOS_DYLIB_NAME="blastem_libretro_ios.dylib"
@@ -1626,6 +1628,8 @@ ios_apply_core_patches() {
     blastem)
       ios_apply_simple_patch blastem blastem-continuum-memory.patch \
         libblastem.c "Continuum: Sega CD and 32X memory"
+      ios_apply_simple_patch blastem blastem-cartridge-saves.patch \
+        rom.db "Continuum: every EEPROM and J-Cart cartridge dump"
       ;;
     # recipe-end: blastem
   esac

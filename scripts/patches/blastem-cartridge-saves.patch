@@ -1,0 +1,1071 @@
+diff --git a/rom.db b/rom.db
+index fa2f727..00d2faf 100644
+--- a/rom.db
++++ b/rom.db
+@@ -74,7 +74,8 @@ T-081276 {
+ 		200002 {
+ 			device ROM
+ 			offset 200000
+-			last 2FFFFF
++			#Continuum: MAME's dump (nflqb) is one 4 MB chip, so all of it, like College Slam
++			last 3FFFFF
+ 		}
+ 	}
+ }
+@@ -598,11 +599,17 @@ e8ff759679a0df2b3f9ece37ef686f248d3cf37b {
+ 		}
+ 		380000 {
+ 			device EEPROM
+-			last 3FFFFF
++			last 387FFF
+ 			bits_read {
+ 				7 sda
+ 			}
+ 		}
++		#Continuum: MAME's microm96a is the J-Cart board like the dump above, so its two extra
++		#pads are wired the same way
++		388000 {
++			device jcart
++			last 38FFFF
++		}
+ 	}
+ }
+ 6d3df64ab8bb0b559f216adca62d1cdd74704a26 {
+@@ -702,6 +709,1037 @@ T-120136 {
+ 		}
+ 	}
+ }
++#Continuum: every EEPROM and J-Cart cartridge dump in MAME's software list (hash/megadriv.xml,
++#CC0 data) that this database did not list by checksum. Each is keyed by the sha1 MAME gives for
++#that dump, so it is found whatever product code its header carries. The save hardware is the
++#board MAME gives the set (the comment in each names the set); the wiring and the EEPROM size
++#are this database's own entry for the same game, so a dump it already found by product code
++#behaves exactly as before, or, for a game it did not have, its entry for a game MAME puts on
++#the same board. The last one is the opposite case: a Rockman Mega World with SRAM, not the
++#EEPROM the other one has, which the product code entry would otherwise give it.
++eb4aca22f8b5837a0a0b10491c46714948b09844 {
++	#evander: Evander Holyfield's 'Real Deal' Boxing (World)
++	name Evander 'Real Deal' Holyfield's Boxing
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++9673b519c16883c146924c347ec6764281fa3a57 {
++	#gameto: Game Toshokan (Japan, rev. A)
++	name Game Toshokan
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++db28d70f9b744004cadd06eb77d6223534f59215 {
++	#ghw: Greatest Heavyweights (Europe)
++	name Greatest Heavyweights of the Ring
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++4ef7aec80003aab0e1d2260b7fc0d22d63d90038 {
++	#ghwu: Greatest Heavyweights (USA)
++	name Greatest Heavyweights of the Ring
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++1d5fe812df75e0dc1ff379c563058e078b839a09 {
++	#ghwj: Greatest Heavyweights (Japan)
++	name Greatest Heavyweights of the Ring
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++ea9ae2043c97db716a8d31ee90e581c3d75f4e3e {
++	#megaman: Mega Man - The Wily Wars (Europe)
++	name Mega Man - The Wily Wars
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++a435ac53589a29dbb655662c942daab425d3f6bd {
++	#rockman1: Rockman Mega World (Japan, EEPROM)
++	name Rockman Mega World
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++e223513d9bcecb49a6798720f3195dbd1c34681c {
++	#sporttbb: Sports Talk Baseball (USA)
++	name Sports Talk Baseball
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++772c3c71973762eac46e6c180a036c1f3bbd937a {
++	#wboymw: Wonder Boy in Monster World (Europe, USA)
++	name Wonder Boy in Monster World
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++1582f159e1969ff0541319a9bd7e6f7a53505d01 {
++	#wboy5: Wonder Boy V - Monster World III (Japan, Korea)
++	name Wonder Boy V - Monster World III
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++80fc2a6a6b8b943f781598094f3b5a5fe4f05ede {
++	#turmamon: Turma da Monica na Terra dos Monstros (Brazil)
++	name Turma da Monica na Terra dos Monstros
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++ebdf20fd8aaeb3c7ec97302089b3330265118cf0 {
++	#ddanpei: Honoo no Toukyuuji - Dodge Danpei (Japan)
++	name Honoo no Toukyuuji Dodge Danpei
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++9cc3419ca7ecaf0d106aa896ffc0266c7145fff7 {
++	#ninjab: Ninja Burai Densetsu (Japan)
++	name Ninja Burai Densetsu
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++2bbb454900ac99172a2d72d1e6f96a96b8d6840b {
++	#billwlsh: Bill Walsh College Football (Europe, USA)
++	name Bill Walsh College Football
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				7 sda
++			}
++			bits_write {
++				6 scl
++				7 sda
++			}
++		}
++	}
++}
++59d2352ecb31bc1305128a9d8df894a3bfd684cf {
++	#madden93: John Madden Football '93 (Europe, USA)
++	name John Madden Football '93
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				7 sda
++			}
++			bits_write {
++				6 scl
++				7 sda
++			}
++		}
++	}
++}
++417acacb9f9ef90d08b3cfb81972a9d8b56f4293 {
++	#madd93ce: John Madden Football '93 - Championship Edition (USA)
++	name John Madden Football '93: Championship Edition
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				7 sda
++			}
++			bits_write {
++				6 scl
++				7 sda
++			}
++		}
++	}
++}
++2ab048fc7209df28b00ef47f2f686f5b7208466e {
++	#nhlpa93: NHLPA Hockey 93 (Europe, USA, v1.1)
++	name NHLPA Hockey '93
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 7FFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				7 sda
++			}
++			bits_write {
++				6 scl
++				7 sda
++			}
++		}
++	}
++}
++8efc1cacb079ea223966dda065c16c49e584cac2 {
++	#nhlpa93a: NHLPA Hockey 93 (Europe, USA)
++	name NHLPA Hockey '93
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 7FFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				7 sda
++			}
++			bits_write {
++				6 scl
++				7 sda
++			}
++		}
++	}
++}
++af5dbf3e70417753164ceeb76be63f51e492626f {
++	#nhlpa93b: NHLPA Hockey 93 (Europe, USA, v1.1 alt)
++	name NHLPA Hockey '93
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last 7FFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				7 sda
++			}
++			bits_write {
++				6 scl
++				7 sda
++			}
++		}
++	}
++}
++84851ce4527761b8d74ce581c19e15d0dd17f368 {
++	#ringspow: Rings of Power (Europe, USA)
++	name Rings of Power
++	EEPROM {
++		type i2c
++		size 128
++	}
++	map {
++		0 {
++			device ROM
++			last FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				7 sda
++			}
++			bits_write {
++				6 scl
++				7 sda
++			}
++		}
++	}
++}
++99c5bc57fdea7f9df0cd8dec54160b162342344d {
++	#nbajam1: NBA Jam (Europe, USA)
++	name NBA Jam
++	EEPROM {
++		type i2c
++		size 256
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				1 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++55f2b26a932c69b2c7cb4f24f56b43f24f113a7c {
++	#nbajam: NBA Jam (Europe, USA, v1.1)
++	name NBA Jam
++	EEPROM {
++		type i2c
++		size 256
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				1 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++2a88b2e1ecf115fa6246397d829448b755a5385e {
++	#nbajamj: NBA Jam (Japan)
++	name NBA Jam
++	EEPROM {
++		type i2c
++		size 256
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				1 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++1aad8b146ec1eb2a9823878fbfddc02efe3f6ad9 {
++	#nbajamp: NBA Jam (prototype 199304xx)
++	name NBA Jam (Prototype)
++	EEPROM {
++		type i2c
++		size 256
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				1 sda
++			}
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++	}
++}
++5c8b6eb2934cb97e35af36efd70c39dae899048f {
++	#nflqb: NFL Quarterback Club (World)
++	name NFL Quarterback Club
++	EEPROM {
++		type i2c
++		size 256
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 200001
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				8 scl
++			}
++		}
++		200002 {
++			device ROM
++			offset 200000
++			last 3FFFFF
++		}
++	}
++}
++0f5bb5d5352fe2ebe4b4051a1dd9b9fde4b505ab {
++	#nbajamtef: NBA Jam T.E. - Tournament Edition (World, 2002 fix release)
++	name NBA Jam TE
++	EEPROM {
++		type i2c
++		size 512
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 200001
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				8 scl
++			}
++		}
++		200002 {
++			device ROM
++			offset 200000
++			last 2FFFFF
++		}
++	}
++}
++1a06213a3a26c9105fc3013a141c22d212045a0b {
++	#blockb: Blockbuster World Video Game Championship II (USA)
++	name Blockbuster World Video Game Championship II
++	EEPROM {
++		type i2c
++		size 512
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 200001
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				8 scl
++			}
++		}
++		200002 {
++			device ROM
++			offset 200000
++			last 3FFFFF
++		}
++	}
++}
++2948419532a6079404f05348bc4bbf2dd989622d {
++	#nflqb96: NFL Quarterback Club 96 (Europe, USA)
++	name NFL Quarterback Club '96
++	EEPROM {
++		type i2c
++		size 2048
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 200001
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				8 scl
++			}
++		}
++		200002 {
++			device ROM
++			offset 200000
++			last 3FFFFF
++		}
++	}
++}
++0dbbe740b14077fe8648955f7e17965ea25f382a {
++	#collslam: College Slam (USA)
++	name College Slam
++	EEPROM {
++		type i2c
++		size 8192
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 200001
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				8 scl
++			}
++		}
++		200002 {
++			device ROM
++			offset 200000
++			last 3FFFFF
++		}
++	}
++}
++9c978aaab10e16be59558561b07a0c610c74b43e {
++	#bighurt: Frank Thomas Big Hurt Baseball (Europe, USA)
++	name Frank Thomas Big Hurt Baseball
++	EEPROM {
++		type i2c
++		size 8192
++	}
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device EEPROM
++			last 200001
++			bits_read {
++				0 sda
++			}
++			bits_write {
++				0 sda
++				8 scl
++			}
++		}
++		200002 {
++			device ROM
++			offset 200000
++			last 3FFFFF
++		}
++	}
++}
++032eb1a15c95540b392b52ee17eef7eee6ac436d {
++	#brianlar: Brian Lara Cricket (Europe, 199506)
++	name Brian Lara Cricket
++	EEPROM {
++		type i2c
++		size 1024
++	}
++	map {
++		0 {
++			device ROM
++			last 2FFFFF
++		}
++		300000 {
++			device EEPROM
++			last 37FFFF
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++		380000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				7 sda
++			}
++		}
++	}
++}
++0f4bec98af08027fc034b9801c28bb299a04be35 {
++	#brianlar1: Brian Lara Cricket (Europe, 199503)
++	name Brian Lara Cricket
++	EEPROM {
++		type i2c
++		size 1024
++	}
++	map {
++		0 {
++			device ROM
++			last 2FFFFF
++		}
++		300000 {
++			device EEPROM
++			last 37FFFF
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++		380000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				7 sda
++			}
++		}
++	}
++}
++3e1ef39e9008a4a55fd57b25948668c8c52ba9e3 {
++	#brianl96: Brian Lara Cricket 96 (Europe, 199604)
++	name Brian Lara Cricket 96
++	EEPROM {
++		type i2c
++		size 8192
++	}
++	map {
++		0 {
++			device ROM
++			last 2FFFFF
++		}
++		300000 {
++			device EEPROM
++			last 37FFFF
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++		380000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				7 sda
++			}
++		}
++	}
++}
++0b08788a0f8214c5d07b8e2293f0b954dd05bef5 {
++	#brianl96a: Brian Lara Cricket 96 (Europe, 199603)
++	name Brian Lara Cricket 96
++	EEPROM {
++		type i2c
++		size 8192
++	}
++	map {
++		0 {
++			device ROM
++			last 2FFFFF
++		}
++		300000 {
++			device EEPROM
++			last 37FFFF
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++		380000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				7 sda
++			}
++		}
++	}
++}
++4264625be91c3d96edca9c5bfe6259d00ca8b737 {
++	#shanewar: Shane Warne Cricket (Australia)
++	name Shane Warne Cricket
++	EEPROM {
++		type i2c
++		size 8192
++	}
++	map {
++		0 {
++			device ROM
++			last 2FFFFF
++		}
++		300000 {
++			device EEPROM
++			last 37FFFF
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++		380000 {
++			device EEPROM
++			last 3FFFFF
++			bits_read {
++				7 sda
++			}
++		}
++	}
++}
++ab29077a6a5c2ccc777b0bf22f4d5908401f4d47 {
++	#micromc2: Micro Machines 2 - Turbo Tournament (Europe, J-Cart)
++	name Micro Machines 2: Turbo Tournament
++	EEPROM {
++		type i2c
++		size 2048
++	}
++	map {
++		0 {
++			device ROM
++			last 2FFFFF
++		}
++		300000 {
++			device EEPROM
++			last 37FFFF
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++		380000 {
++			device EEPROM
++			last 387FFF
++			bits_read {
++				7 sda
++			}
++		}
++		388000 {
++			device jcart
++			last 38FFFF
++		}
++	}
++}
++cb5fb33212592809639b37c2babd72a7953fa102 {
++	#micromc2a: Micro Machines 2 - Turbo Tournament (Europe, J-Cart, alt)
++	name Micro Machines 2: Turbo Tournament
++	EEPROM {
++		type i2c
++		size 2048
++	}
++	map {
++		0 {
++			device ROM
++			last 2FFFFF
++		}
++		300000 {
++			device EEPROM
++			last 37FFFF
++			bits_write {
++				0 sda
++				1 scl
++			}
++		}
++		380000 {
++			device EEPROM
++			last 387FFF
++			bits_read {
++				7 sda
++			}
++		}
++		388000 {
++			device jcart
++			last 38FFFF
++		}
++	}
++}
++139b9cea418c7c932033ddff87bf10466828cbfa {
++	#sampra96: Pete Sampras Tennis '96 (Europe, J-Cart)
++	name Pete Sampras Tennis '96
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device jcart
++			last 3FFFFF
++		}
++	}
++}
++3f73dcabcdf0d781834fcc673533301b82f0e91b {
++	#sampras1: Pete Sampras Tennis (Europe, USA, J-Cart, alt)
++	name Pete Sampras Tennis
++	map {
++		0 {
++			device ROM
++			last 1FFFFF
++		}
++		200000 {
++			device jcart
++			last 3FFFFF
++		}
++	}
++}
++4dfcf5c07106f6db4d8b7e73a053bb46a21686c3 {
++	#rockman: Rockman Mega World (Japan, SRAM)
++	name Rockman Mega World
++}
+ MK-12056 {
+ 	name Super Street Fighter 2: The New Challengers
+ 	map {
