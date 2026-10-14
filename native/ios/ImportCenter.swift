@@ -562,8 +562,8 @@ final class ImportCenter: ObservableObject {
         do {
             let imported = try DeltaSkinImporter.importPackage(at: url)
             guard let system = imported.previewSystem else {
-                return "\(url.lastPathComponent): the skin does not say which console it is for; "
-                    + "import it from Settings, Layout, Import .deltaskin and pick the console there"
+                return "\(url.lastPathComponent): the skin doesn't say which console it's for. "
+                    + "Import it in Settings, Skins, Open the skin library, and pick the console"
             }
             let resolved = imported.applying(system: system)
             host.setTouchLayout(resolved.layout.sanitised, for: system)
@@ -605,8 +605,8 @@ final class ImportCenter: ObservableObject {
             return "\(url.lastPathComponent) could not be read"
         }
         guard let entry = game(matching: url) else {
-            return "\(url.lastPathComponent): no game in the library has that name, so the save has "
-                + "nowhere to go. Open the game's card, Save slots, Import a save file"
+            return "\(url.lastPathComponent): no game in the library has that name. Open the "
+                + "game's card and use Save slots, export and import"
         }
         guard let system = systemId(for: entry) else {
             return "\(url.lastPathComponent): \(entry.name) has no system yet"
@@ -758,8 +758,8 @@ struct SystemQuestionSheet: View {
             List {
                 Section {
                     Text(question.fileName).font(.headline)
-                    Text("Continuum could not tell which system this is for: \(question.reason). "
-                         + "Pick one and it is remembered for this file.")
+                    Text("Continuum couldn't tell which system this is (\(question.reason)). "
+                         + "Pick one and it'll remember.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

@@ -49,9 +49,8 @@ struct ImportScreen: View {
                 } header: {
                     Text("On this phone")
                 } footer: {
-                    Text("Files also reaches iCloud Drive, Google Drive, Dropbox and OneDrive: install "
-                         + "their app and they appear under Browse in the Files picker. The clipboard "
-                         + "takes files copied in Files, or on a Mac with Handoff.")
+                    Text("Files also reaches iCloud Drive, Google Drive, Dropbox and OneDrive, once "
+                         + "their apps are on your phone.")
                 }
 
                 Section {
@@ -70,8 +69,8 @@ struct ImportScreen: View {
                 } header: {
                     Text("From a computer")
                 } footer: {
-                    Text("Type the address into a browser on the same Wi-Fi to send games and saves, "
-                         + "see the library, and download battery saves. It stops when you leave the app.")
+                    Text("Open the address in a browser on the same Wi-Fi to send games and saves. "
+                         + "It stops when you leave the app.")
                 }
 
                 Section {
@@ -96,9 +95,8 @@ struct ImportScreen: View {
                 }
 
                 Section {
-                    Text("Drag files from another app onto the library, or use Share or Open in from "
-                         + "Files, Mail and Safari. Games, .deltaskin and .manicskin skins, .cht cheats, "
-                         + "save files and PDF manuals are all recognised.")
+                    Text("You can also drag files onto the library, or use Share or Open in from "
+                         + "Files, Mail or Safari. Games, skins, cheats, saves and PDF manuals all work.")
                         .font(.footnote)
                     Text(center.line).font(.footnote).foregroundStyle(.secondary)
                 } header: {

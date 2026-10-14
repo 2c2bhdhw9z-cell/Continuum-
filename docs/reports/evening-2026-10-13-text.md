@@ -281,6 +281,31 @@ each under the name of the section it came from.
 - The small line at the top of the sheet (what the last save, load or import did) is unchanged: it
   is the sheet's answer to each tap.
 
+### Import (the + button) and what an import says
+
+- On this phone: "Files also reaches iCloud Drive, Google Drive, Dropbox and OneDrive: install
+  their app and they appear under Browse in the Files picker. The clipboard takes files copied in
+  Files, or on a Mac with Handoff." became **"Files also reaches iCloud Drive, Google Drive,
+  Dropbox and OneDrive, once their apps are on your phone."**
+- From a computer: "Type the address into a browser on the same Wi-Fi to send games and saves, see
+  the library, and download battery saves. It stops when you leave the app." became **"Open the
+  address in a browser on the same Wi-Fi to send games and saves. It stops when you leave the
+  app."** (The line under the address, "Type this whole address, including the last part...", is
+  unchanged: TESTING B1 relies on it.)
+- Also: "Drag files from another app onto the library, or use Share or Open in from Files, Mail and
+  Safari. Games, .deltaskin and .manicskin skins, .cht cheats, save files and PDF manuals are all
+  recognised." became **"You can also drag files onto the library, or use Share or Open in from
+  Files, Mail or Safari. Games, skins, cheats, saves and PDF manuals all work."**
+- Which system?: "Continuum could not tell which system this is for: <why>. Pick one and it is
+  remembered for this file." became **"Continuum couldn't tell which system this is (<why>). Pick
+  one and it'll remember."**
+- A skin that names no console used to say to import it from "Settings, Layout, Import .deltaskin"
+  (no such place). It now says **"... the skin doesn't say which console it's for. Import it in
+  Settings, Skins, Open the skin library, and pick the console"**.
+- A save file for no game in the library: "... so the save has nowhere to go. Open the game's
+  card, Save slots, Import a save file" became **"... no game in the library has that name. Open
+  the game's card and use Save slots, export and import"** (the card's real button).
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)
