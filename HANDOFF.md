@@ -42,13 +42,11 @@ Paste this to start a new chat:
   files: the 36 plus cArcade), and give the link and the phone steps in the same reply. Repo cleanup
   part 2 comes after the build starts (`.kiro/notes/tasks/repo-cleanup-phase2.md`).
 - **Tools:** every account has the same tools (the owner was right; the first session on the second
-  account missed the loop tool for hours). Jobs run as `bundled://ralph` loops, at most four at a
-  time. Fetching anyone else's repository needs `GIT_CONFIG_GLOBAL=/dev/null` in front (the
+  account missed the loop tool for hours). Jobs run as `bundled://ralph` loops, one per job, all started at once. Fetching anyone else's repository needs `GIT_CONFIG_GLOBAL=/dev/null` in front (the
   sandbox's git sends github.com through a gateway that only serves this repository). The GitHub
   token can't edit the repo's About box (403), and Kiro's rules allow no workflow-file change
   without a pull request, so those wait (tasks README, "Parked").
-- **What went wrong on 14 October, so it doesn't again:** eleven sub-agents started at once were
-  throttled (four loops at a time is fine); a Kiro restart paused three loops for half an hour and
+- **What went wrong on 14 October, so it doesn't again:** a Kiro restart paused three loops for half an hour and
   nobody resumed them until the owner wrote (check every loop whenever you wake); the owner was told
   they couldn't see the jobs, but their app has a Workflows tab (this chat's loops didn't appear in
   it, reason unknown, so post a one-line update in the chat whenever a piece lands); the owner was

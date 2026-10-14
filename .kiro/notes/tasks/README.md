@@ -26,14 +26,13 @@ checks) and the icons (`docs/reports/evening-2026-10-13-icons.md`).
 
 One `bundled://ralph` loop per job (run_workflow; `inputs.prd_path` = `<clone>/.kiro/notes/tasks/<job>.json`,
 and a goal naming the clone and telling every iteration to read HELPER_RULES.md first). A loop
-stops when its file says `"complete": true`. **At most four at a time**: eleven sub-agents at once
-were throttled on 14 October. Each job works in its own fresh clone, the `"repo"` field
+stops when its file says `"complete": true`. Start a loop for every job at once. Each job works in its own fresh clone, the `"repo"` field
 (`/projects/sandbox/.scratch/<x>-work`); apply its WIP patch first if it has one. Review items (U4,
 T4) need a fresh session that didn't write the work; each loop iteration is one. A Kiro restart
 pauses loops: check every loop you started whenever you wake, and resume it.
 
-Order: cboy, arcade, link-and-leftovers, core-updates first; then home-screen, and only after it
-shorter-text (both edit the same Swift files).
+Home screen and shorter text edit the same Swift files, so each rebases before every file and
+keeps both sides on a conflict.
 
 The essentials, if HELPER_RULES.md isn't read: clone fresh; every commit ends `[skip ci]`; stage by
 name; `git pull --rebase` and keep both sides; `CARGO_BUILD_JOBS=2`; a loop agent needs its own
