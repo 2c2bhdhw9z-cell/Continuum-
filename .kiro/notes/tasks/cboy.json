@@ -42,7 +42,8 @@
     },
     {
       "id": "G1b",
-      "done": false,
+      "done": true,
+      "result": "Pushed as 1b0ba90: cBoy's Link cable setting now ends 'To link two phones, open the ... menu in a game and choose Link cable to a second phone.' (the row's exact words from native/ios/PlayerScreen.swift) instead of 'Linking two phones is not available yet.', with a test pinning that, the inventory regenerating unchanged, and the stale link notes in docs/option-sources/mapping.tsv (not ours) written up in docs/CBOY_EVENING.md.",
       "title": "The Link cable setting's text is out of date (small, do it first)",
       "detail": "Added by the orchestrator at 5:40 PM. The engine agent has built the app's half of the two-phone Game Boy link (commit 1dee835): in a game's ... menu the online-play row now reads 'Link cable to a second phone' when the game is on cBoy. But cBoy's own 'Link cable' option (cboy_link in cores/continuum-gb/src/options.rs) still ends 'Linking two phones is not available yet.', which is now false. Change that sentence to say how to do it, short and casual, for example: 'To link two phones, open the ... menu in a game and choose Link cable to a second phone.' Regenerate docs/CBOY_OPTIONS_INVENTORY.md if the option text is in it, run the cBoy suite, push with [skip ci]."
     },
