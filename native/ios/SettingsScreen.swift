@@ -489,6 +489,10 @@ struct SettingsScreen: View {
             TechnicalReadoutGroup(title: "SYNC FOLDER") {
                 CloudSyncReadouts(sync: host.cloudSync)
             }
+            // The same again, for the motion line. See InputExtras.swift.
+            TechnicalReadoutGroup(title: "CONTROLLERS, MAPPING AND MOTION") {
+                InputExtrasReadouts(extras: host.inputExtras)
+            }
         }
     }
 

@@ -149,6 +149,16 @@ each under the name of the section it came from.
   "No backup yet". Worth knowing: a backup or restore that fails now says so only under
   TECHNICAL DETAILS (and in the activity log a feedback report sends), not in the section itself.
 
+### CONTROLLERS, MAPPING AND MOTION
+
+- "Tilt games (Yoshi Topsy-Turvy, WarioWare: Twisted!) read the phone's motion sensor. It only
+  runs while a game asks for it. Calibrate in Controllers by holding the phone the way you play."
+  became **"Tilt games like Yoshi Topsy-Turvy use your phone's motion. Calibrate it in
+  Controllers, button mapping and motion."** (the button right above it; the calibrate button on
+  that screen still tells you to hold the phone the way you play).
+- Read-out: **Motion** ("motion: not started" and so on) moved to TECHNICAL DETAILS →
+  CONTROLLERS, MAPPING AND MOTION.
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)

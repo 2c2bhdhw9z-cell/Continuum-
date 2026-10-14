@@ -1342,11 +1342,10 @@ struct InputSettingsSection: View {
             }
             .tint(ShellPalette.accent)
             SettingsNote(
-                "Tilt games (Yoshi Topsy-Turvy, WarioWare: Twisted!) read the phone's motion "
-                + "sensor. It only runs while a game asks for it. Calibrate in Controllers by "
-                + "holding the phone the way you play."
+                "Tilt games like Yoshi Topsy-Turvy use your phone's motion. Calibrate it in "
+                + "Controllers, button mapping and motion."
             )
-            SettingsReadout(label: "Motion", value: extras.motionLine)
+            // The MOTION read-out is in Settings, TECHNICAL DETAILS (`InputExtrasReadouts`).
         }
         // Only with no game on screen; while one is, the player layer presents it. See the
         // sheet in `InputPlayerLayer` for why the two must never both be able to.
@@ -1359,5 +1358,15 @@ struct InputSettingsSection: View {
                 extras.showingControllers = false
             }
         }
+    }
+}
+
+/// The CONTROLLERS, MAPPING AND MOTION read-out, shown in Settings, TECHNICAL DETAILS. Its own
+/// view so the line stays live there: the Settings screen does not observe `InputExtras`.
+struct InputExtrasReadouts: View {
+    @ObservedObject var extras: InputExtras
+
+    var body: some View {
+        SettingsReadout(label: "Motion", value: extras.motionLine)
     }
 }
