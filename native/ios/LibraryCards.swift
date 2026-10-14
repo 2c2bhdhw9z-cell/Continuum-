@@ -26,8 +26,9 @@ enum ShellPalette {
 
 /// What colour the little status dot is, read from the last status line.
 ///
-/// A dot is not a diagnostic on its own, so this only ever summarises: the full sentence is one tap
-/// away on the status strip and the whole block is behind the diagnostics toggle. The vocabulary
+/// A dot is not a diagnostic on its own, so this only ever summarises: a line that is not everyday
+/// pops up in full just above the Library's tabs, and the whole block is behind the diagnostics
+/// toggle. The same answer decides which status lines pop up (LibraryShell). The vocabulary
 /// below is taken from the status strings this app actually writes, not from a general idea of what
 /// an error looks like.
 enum StatusTint {

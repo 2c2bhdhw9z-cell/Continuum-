@@ -3,7 +3,11 @@
 // This replaces the monospace debug HUD over a plain List. The structure is the design reference,
 // docs/library-mobile.png: a dark full-bleed shell, a top bar with the logo, a search field and an
 // import button, a featured hero with real cover art, horizontal shelves of cover cards each badged
-// with its system, a thin status strip, and a bottom tab bar whose active tab is red.
+// with its system, and a bottom tab bar whose active tab is red. The reference's thin status strip
+// above the tabs ("● 80 games ^") was taken out at the owner's request on 13 October 2026: what it
+// said that a player needs now pops up just above the tabs and fades (`popUpLine`), the game count
+// is in Settings, STORAGE, and the diagnostic block it opened is behind the status dot in the top
+// bar and in Settings, TECHNICAL DETAILS.
 //
 // THREE THINGS IN HERE ARE LOAD-BEARING AND NOT COSMETIC.
 //
@@ -19,12 +23,11 @@
 //  2. THE TAB BAR IS HAND-BUILT RATHER THAN A TabView, and that is a deliberate departure from
 //     FEAT-003's wording. The reference tab bar is text only, red when active, with a hairline
 //     above it. Getting that out of TabView means mutating UITabBarAppearance globally and
-//     accepting a translucent bar over a live Metal layer, and the thin status strip would have to
-//     be duplicated into all four tabs or overlaid anyway. A selection enum plus an HStack is the
-//     same four-destination shell with none of that, and it is what makes the strip and the bar
-//     one unit at the bottom.
+//     accepting a translucent bar over a live Metal layer, and the diagnostic block and the pop-up
+//     line would have to be overlaid on it anyway. A selection enum plus an HStack is the same
+//     four-destination shell with none of that.
 //
-//     THAT UNIT FLOATS (owner, 13 October 2026: the tabs should "hover", with the games seen
+//     THE BAR FLOATS (owner, 13 October 2026: the tabs should "hover", with the games seen
 //     scrolling underneath). Every tab runs to the bottom edge of the screen, the bar is see-through
 //     glass (Apple's `ultraThinMaterial` under a dark wash; see `bottomChrome`) over it, and every
 //     scrolling tab ends with at least `bottomBarHeight` of empty space so its last row scrolls
@@ -101,6 +104,16 @@ struct LibraryShell: View {
     /// True once Home has scrolled past the big cover. The bar then stays solid, so shelf titles
     /// do not show through the logo and the search field.
     @State private var homeBarSolid = false
+    /// The lines waiting to pop up just above the tabs, oldest first. The first is the one on
+    /// screen. See `popUpLine`.
+    @State private var popUps: [String] = []
+    /// Which showing the running fade clock belongs to, so an old clock cannot take a newer line
+    /// away (the same guard `StatusFlash` uses over a game).
+    @State private var popUpShowing = 0
+    /// Whether the status line has been checked on appear. Once per Library (at launch, and on
+    /// coming back from a game), because `onAppear` runs again when a full-screen editor closes
+    /// over the Library, and that must not bring back a problem line that already popped up.
+    @State private var checkedStatusOnAppear = false
 
     /// The empty state, carried over from the debug library verbatim in substance. It names the
     /// accepted extensions from the one routing table, explains selecting a .cue with every .bin
@@ -111,9 +124,11 @@ struct LibraryShell: View {
         + "folder in Files. For a disc game, pick the .cue and all its .bin files together."
 
     private var topBarHeight: CGFloat { 52 }
-    /// The real height of the bottom chrome (status strip + tab bar + home-indicator inset),
-    /// measured. It was a fixed 84 pt while the chrome is ~100 pt on a Face ID phone (strip ~25,
-    /// tabs ~42, inset 34), so the last row of every grid stayed under the bar (BUG_AUDIT #33).
+    /// The real height of the bottom chrome (tab bar + home-indicator inset, plus the diagnostic
+    /// block while it is open), measured. It was a fixed 84 pt while the chrome was ~100 pt on a
+    /// Face ID phone with the old status strip (strip ~25, tabs ~42, inset 34), so the last row of
+    /// every grid stayed under the bar (BUG_AUDIT #33). Without the strip it is ~76 pt there and
+    /// the 84 pt floor below decides, which only adds air at the end of a page.
     @State private var measuredBottomChrome: CGFloat = 0
     private var bottomBarHeight: CGFloat { max(84, measuredBottomChrome) }
     /// The empty space at the end of the All Games and Favorites grid and list: the floating
@@ -152,10 +167,25 @@ struct LibraryShell: View {
 
             VStack(spacing: 0) {
                 Spacer(minLength: 0)
+                // Above the bar, never on it, so a line can never cover a tab.
+                popUpLine
                 bottomChrome
             }
         }
         .background(SafeAreaProbe { metrics = $0 })
+        // WHAT POPS UP: the Library's own line for the player (an import's result, the Not games
+        // move; see `EngineHost.libraryNotice`), and every status line that reads as a problem,
+        // which is what the old strip showed in orange or red. On appear too, for what was written
+        // before the Library was on screen: the moved line at launch, a game that failed to start.
+        .onAppear {
+            takeLibraryNotice()
+            if !checkedStatusOnAppear {
+                checkedStatusOnAppear = true
+                popUpIfProblem(host.status)
+            }
+        }
+        .onChange(of: host.libraryNotice) { _ in takeLibraryNotice() }
+        .onChange(of: host.status) { line in popUpIfProblem(line) }
         // A sheet rather than a pushed view, so nothing in the view tree under it is replaced.
         .sheet(item: $host.detailEntry) { entry in
             GameDetailSheet(entry: entry, host: host, artwork: artwork,
@@ -296,10 +326,144 @@ struct LibraryShell: View {
         .accessibilityLabel("Diagnostics")
     }
 
-    // MARK: The bottom: status strip, then tab bar
+    // MARK: The bottom: the pop-up line, then the diagnostic block and the tab bar
+
+    /// The pop-up line just above the tabs: the oldest waiting line (an import's result, the Not
+    /// games move, a problem). It fades by itself (`startPopUpClock`), and a tap takes it away.
+    ///
+    /// The tabs' own glass and dark wash, so it reads the same over any cover passing under it.
+    @ViewBuilder
+    private var popUpLine: some View {
+        if let line = popUps.first {
+            Button {
+                dismissPopUp()
+            } label: {
+                HStack(alignment: .top, spacing: 9) {
+                    // The colour the old strip's dot had: teal when all is well, orange when
+                    // something was skipped, red when something failed.
+                    Circle()
+                        .fill(StatusTint.tint(for: line))
+                        .frame(width: 7, height: 7)
+                        .padding(.top, 5)
+                    Text(line)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.92))
+                        // 4, like the status line over a game: a problem line can be long, and
+                        // the whole of it is in Settings, TECHNICAL DETAILS.
+                        .lineLimit(4)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.black.opacity(0.6),
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(.ultraThinMaterial,
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(ShellPalette.hairline, lineWidth: 0.5)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+            // A new view per line, so one line fades out as the next comes in.
+            .id(line)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .accessibilityHint("Tap to dismiss")
+        }
+    }
+
+    /// Moves the Library's waiting line (`EngineHost.libraryNotice`) into the pop-up and clears
+    /// it, so the same line can come again later and opening a game does not bring it back.
+    private func takeLibraryNotice() {
+        let notice = host.libraryNotice
+        guard !notice.isEmpty else { return }
+        host.libraryNotice = ""
+        popUp(notice)
+    }
+
+    /// A status line that reads as a problem (orange or red, see `StatusTint`) pops up. Everyday
+    /// lines ("surface ready", "deleted Tetris.gb") do not, exactly as the strip left them out:
+    /// every line is in Settings, TECHNICAL DETAILS, and in the activity log feedback sends.
+    private func popUpIfProblem(_ line: String) {
+        guard StatusTint.tint(for: line) != ShellPalette.metadata else { return }
+        popUp(line)
+    }
+
+    /// Queues a line. One already on screen or waiting is not queued twice (an import's line can
+    /// arrive both as the Library's line and as the status line), and at most two wait behind the
+    /// one on screen, newest kept, so a burst at launch never turns into a minute of pop-ups.
+    private func popUp(_ text: String) {
+        let line = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty, !popUps.contains(line) else { return }
+        withAnimation(.easeOut(duration: 0.25)) {
+            popUps.append(line)
+            if popUps.count > 3 {
+                popUps.remove(at: 1)
+            }
+        }
+        if popUps.count == 1 {
+            startPopUpClock()
+        }
+    }
+
+    /// Starts the fade for the line on screen: after five seconds, or ten for a problem, the same
+    /// as the status line over a game (`StatusFlash`).
+    ///
+    /// TIME ONLY COUNTS WHILE THE LIBRARY CAN BE SEEN. While anything is presented over it (a
+    /// game's card, the Files picker, "Which system?", an alert) the clock starts again, so a line
+    /// written from under a sheet is still there to read when the sheet closes, as the old strip's
+    /// line was.
+    private func startPopUpClock() {
+        popUpShowing += 1
+        let mine = popUpShowing
+        guard let line = popUps.first else { return }
+        let seconds = StatusTint.tint(for: line) == ShellPalette.metadata ? 5 : 10
+        Task { @MainActor in
+            var seen = 0
+            while seen < seconds {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard popUpShowing == mine else { return }
+                seen = Self.libraryIsCovered() ? 0 : seen + 1
+            }
+            dismissPopUp()
+        }
+    }
+
+    /// Takes the line on screen away (its time is up, or it was tapped), and starts the next one.
+    private func dismissPopUp() {
+        guard !popUps.isEmpty else { return }
+        withAnimation(.easeOut(duration: 0.25)) {
+            // `_ =` so the closure is Void: as a lone expression it would return the String.
+            _ = popUps.removeFirst()
+        }
+        if popUps.isEmpty {
+            // Nothing left, so no clock may still be running for a line that is gone.
+            popUpShowing += 1
+        } else {
+            startPopUpClock()
+        }
+    }
+
+    /// Whether something is presented over the Library right now: a sheet, a picker, an alert.
+    /// Asked of UIKit through the presenter walk the import picker already uses, so every sheet
+    /// counts, including the ones the Library does not present itself.
+    @MainActor
+    private static func libraryIsCovered() -> Bool {
+        guard let top = EngineHost.topmostViewController() else { return false }
+        return top.presentingViewController != nil
+    }
 
     private var bottomChrome: some View {
         VStack(spacing: 0) {
+            // The full diagnostic block, behind the status dot in the top bar (and the switch in
+            // Settings, TECHNICAL DETAILS). It used to sit above the "● 80 games ^" strip, whose
+            // tap opened it too; the strip is gone (owner, 13 October 2026).
             if host.showDiagnostics {
                 // Capped and scrollable so a long error cannot push the tab bar off screen, which
                 // would leave the user with no way back to Home.
@@ -310,7 +474,6 @@ struct LibraryShell: View {
                 }
                 .frame(maxHeight: 260)
             }
-            statusStrip
             tabBar
         }
         // THE FLOATING BAR'S GLASS: the content runs underneath, and this is what you see it
@@ -334,60 +497,6 @@ struct LibraryShell: View {
                 .onAppear { measuredBottomChrome = proxy.size.height }
                 .onChange(of: proxy.size.height) { measuredBottomChrome = $0 }
         })
-    }
-
-    /// The thin strip: always visible, one tap from the whole diagnostic block.
-    ///
-    /// On a sideloaded build this line is the only debugger there is, so it does not get traded for
-    /// a tidier library. It carries the library count and the last status line, and the dot repeats
-    /// the colour from the top bar so the two cannot disagree.
-    /// The game count, plus the latest status line when it is a problem or technical details are
-    /// on. An everyday line ("surface ready", "imported 3 of 3") is not worth a tester reading.
-    private var stripText: String {
-        let count = host.library.count
-        let games = count == 1 ? "1 game" : "\(count) games"
-        // The Library's "Moved 23 files that aren't games..." line stays until it is seen, even
-        // after later status lines (see `EngineHost.libraryNotice`).
-        if !host.libraryNotice.isEmpty && !host.showDiagnostics {
-            return "\(games) \u{00B7} \(host.libraryNotice)"
-        }
-        let everyday = StatusTint.tint(for: host.status) == ShellPalette.metadata
-        if host.showDiagnostics || !everyday {
-            return "\(games) \u{00B7} \(host.status)"
-        }
-        return games
-    }
-
-    private var statusStrip: some View {
-        Button {
-            host.libraryNotice = ""
-            host.showDiagnostics.toggle()
-        } label: {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(StatusTint.tint(for: host.status))
-                    .frame(width: 6, height: 6)
-                Text(stripText)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.66))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 4)
-                Image(systemName: host.showDiagnostics ? "chevron.down" : "chevron.up")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Color.white.opacity(0.5))
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(ShellPalette.hairline)
-                .frame(height: 0.5)
-        }
     }
 
     private var tabBar: some View {

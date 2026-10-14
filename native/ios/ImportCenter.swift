@@ -300,7 +300,7 @@ enum NotGames {
         "vec", "chf", "tzx", "z80", "dsk", "st", "msa", "atr",
     ]
 
-    /// The tester's line after an import that skipped files.
+    /// The tester's line after an import: the games that went in, then the files skipped, if any.
     static func importLine(added: Int, skipped: Int) -> String {
         let addedText: String
         switch added {
@@ -308,6 +308,7 @@ enum NotGames {
         case 1: addedText = "Added 1 game."
         default: addedText = "Added \(added) games."
         }
+        guard skipped > 0 else { return addedText }
         let skippedText = skipped == 1
             ? "Skipped 1 file that isn\u{2019}t a game."
             : "Skipped \(skipped) files that aren\u{2019}t games."

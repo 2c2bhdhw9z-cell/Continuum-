@@ -79,8 +79,11 @@ Library screen, as it should look on iOS:
 - **Horizontal shelves** below it (`Recently added` and similar), each with a title and a
   count, holding cover-art cards. Each card carries a small system badge (`NES`, `SMS`) in
   its top-left corner.
-- A **bottom tab bar**: Home, All Games, Favorites, Settings, with the active tab in red.
-- A thin status strip above the tab bar for diagnostics.
+- A **bottom tab bar**: Home, All Games, Favorites, Settings, with the active tab in red. It
+  floats, with the covers scrolling underneath it.
+- No status strip above the tab bar. The reference had one for diagnostics; the owner had it
+  taken out on 13 October 2026. Messages pop up just above the tabs and fade, and the diagnostic
+  block is behind the status dot in the top bar and in Settings, Technical details.
 
 Player screen:
 

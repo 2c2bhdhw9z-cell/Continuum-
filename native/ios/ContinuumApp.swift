@@ -1869,10 +1869,12 @@ final class EngineHost: ObservableObject {
         // Every line, with its time, into the activity log a feedback report sends (Feedback.swift).
         didSet { FeedbackCenter.record(status) }
     }
-    /// "Moved 23 files that aren't games to the Not games folder in Files." It is kept apart from
-    /// `status`, because at launch "surface ready" and the sync write over that line straight
-    /// away, and the strip hides everyday lines. The strip shows this first until it is tapped or
-    /// the next import starts.
+    /// A line for the player that pops up over the Library, just above the tabs, and fades
+    /// (LibraryShell's `popUpLine`): "Moved 23 files that aren't games to the Not games folder in
+    /// Files.", and an import's result ("Added 3 games."). It is kept apart from `status`, because
+    /// at launch "surface ready" and the sync write over that line straight away, and the pop-up
+    /// only takes problem lines from `status`. The Library takes it and clears it, so the same line
+    /// can come again later; one that arrives while a game is open waits for the Library.
     @Published var libraryNotice: String = ""
     @Published var gpu: String = ""
     /// The on-screen BIOS/HLE line. Written when the cores are declared at attach, and
@@ -1898,9 +1900,9 @@ final class EngineHost: ObservableObject {
     var n64AwaitingFirstTick = false
 
     /// Last N64 diagnostic crumb restored from disk. Empty when the previous N64 attempt reached
-    /// "tick ok" (cleared on success) or when N64 has never been tapped. Surfaced on the home
-    /// status strip and in Settings without starting a game, so a freeze → force-quit still
-    /// leaves a readable line.
+    /// "tick ok" (cleared on success) or when N64 has never been tapped. Surfaced in the Library
+    /// (its pop-up line when it reads as a problem, and the diagnostic block) and in Settings
+    /// without starting a game, so a freeze → force-quit still leaves a readable line.
     @Published var lastN64Crumb: String = ""
 
     /// The game currently on screen, or nil when the Library is showing.
@@ -1926,8 +1928,8 @@ final class EngineHost: ObservableObject {
     /// Whether the full diagnostic block is on screen.
     ///
     /// The block itself is unchanged and nothing in it was dropped; it simply stopped being
-    /// permanently in front of the game. The thin status line above it is always visible, so a
-    /// failure is still legible with this off.
+    /// permanently in front of the game. A failure is still legible with this off: a problem line
+    /// pops up over the Library (LibraryShell's `popUpLine`) and over a game (`StatusFlash`).
     @Published var showDiagnostics = false
 
     /// Which PlayStation core launches `.cue` / `.chd` / `.pbp` / `.iso` and friends.
@@ -3726,7 +3728,7 @@ final class EngineHost: ObservableObject {
 
         // Wired last, because it hands the store a reference to a fully initialised host. The store
         // keeps its read-out in its own `line`, and writes a network failure through `status`, so an
-        // artwork problem is legible on the strip rather than only behind the Settings tab.
+        // artwork problem pops up over the Library rather than only showing behind the Settings tab.
         artwork.attach(host: self)
 
         // Same reason, and these two need more from the host than the artwork store does: which
@@ -4410,8 +4412,6 @@ final class EngineHost: ObservableObject {
             status = "cannot import: no Documents directory"
             return
         }
-        // A new import is the next thing to read, so the Library's moved line has been seen.
-        libraryNotice = ""
 
         // Skins, cheats, saves and manuals go to their own stores, and archives are unpacked (or
         // kept whole for arcade, DOS and Amiga) before anything is copied. See ImportCenter.
@@ -4420,6 +4420,8 @@ final class EngineHost: ObservableObject {
         FeedbackCenter.step("import: \(urls.count) to copy, \(handledElsewhere) handled elsewhere")
         if urls.isEmpty && handledElsewhere > 0 {
             refreshLibrary()
+            // Only skins, cheats, saves or manuals: what ImportCenter said about them pops up.
+            noticeForLibrary(importCenter.lastNote)
             return
         }
 
@@ -4532,22 +4534,42 @@ final class EngineHost: ObservableObject {
         // in Older copies") follows the casual line. A game waiting for "Which system?" counts.
         let skipped = notGames.count + rejected.count
         let otherNote = importCenter.lastOtherNote
-        if skipped > 0 && failures.isEmpty && !rejectedGame
-            && StatusTint.tint(for: otherNote) == ShellPalette.metadata {
+        let added = imported.filter {
+            asking.contains($0)
+                || CoreCatalog.isLaunchable(path: documents.appendingPathComponent($0).path)
+        }.count
+        let wentRight = failures.isEmpty && !rejectedGame
+            && StatusTint.tint(for: otherNote) == ShellPalette.metadata
+        // What pops up over the Library afterwards (`libraryNotice`): the casual line, or with
+        // nothing skipped the same line without its second half ("Added 3 games."). An import that
+        // went wrong leaves this empty: its summary reads as a problem, so it pops up from `status`.
+        var notice = ""
+        if skipped > 0 && wentRight {
             FeedbackCenter.step("import: \(summary)")
-            let added = imported.filter {
-                asking.contains($0)
-                    || CoreCatalog.isLaunchable(path: documents.appendingPathComponent($0).path)
-            }.count
             let line = NotGames.importLine(added: added, skipped: skipped)
             status = otherNote.isEmpty ? line : "\(line) | \(otherNote)"
+            notice = status
         } else {
             status = summary
+            if wentRight {
+                // No game among the files (only a disc's tracks, say): the summary names them.
+                let line = added > 0 ? NotGames.importLine(added: added, skipped: 0) : summary
+                notice = otherNote.isEmpty || added == 0 ? line : "\(line) | \(otherNote)"
+            }
         }
 
         // Refresh last, so a freshly imported .cue is tappable straight away. This writes
         // `libraryStatus`, not `status`, so the summary above survives.
         refreshLibrary()
+        // After the rescan, so a Not games move it made follows the import's own line.
+        noticeForLibrary(notice)
+    }
+
+    /// Hands the Library a line to pop up for the player (`libraryNotice`). A line already
+    /// waiting there (a Not games move from the same rescan) follows it instead of being replaced.
+    private func noticeForLibrary(_ line: String) {
+        guard !line.isEmpty else { return }
+        libraryNotice = libraryNotice.isEmpty ? line : "\(line) \(libraryNotice)"
     }
 
     /// Joins names for the HUD, capped so one line cannot push the rest of the HUD off screen.
@@ -5897,8 +5919,9 @@ final class EngineHost: ObservableObject {
             refreshLibrary()
             if !lastN64Crumb.isEmpty {
                 // Prefer the stuck crumb over the cheerful ready line: Brett force-quit after an
-                // N64 freeze and reopened specifically to read this. Visible on the home strip
-                // without starting a game.
+                // N64 freeze and reopened specifically to read this. Visible in the Library's
+                // diagnostic block (and its pop-up line, if it reads as a problem) without
+                // starting a game.
                 status = "Last N64: \(lastN64Crumb)"
             } else if !allCoresPresent {
                 // The `cores` line already names what is wrong. Say out loud that it is worth

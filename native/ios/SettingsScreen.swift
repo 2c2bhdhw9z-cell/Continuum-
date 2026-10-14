@@ -18,7 +18,8 @@
 // engine cannot do yet belongs in exactly that place. See `notYetWiredSection`.
 //
 // Nothing was deleted from the diagnostic HUD in moving it here. The same strings, in the same
-// order, are still one tap away from the status strip on both screens.
+// order, are still one tap away on both screens: the status dot at the top of the Library, and the
+// (i) button in a game.
 
 import SwiftUI
 // For UISelectionFeedbackGenerator in SegmentedChoice. Imported explicitly rather than relying
@@ -779,12 +780,24 @@ struct SettingsScreen: View {
 
     private var storageSection: some View {
         SettingsSection(title: "STORAGE") {
+            // The game count the Library's "● 80 games" strip used to show, before the owner had
+            // the strip taken out (13 October 2026).
+            SettingsNote(gameCountLine)
             // The LIBRARY read-out is in TECHNICAL DETAILS (`moreTechnicalReadouts`). The other
             // three were the same lines as COVER ART's and SAVE STATES', and are under those.
             SettingsNote(
                 "Your games are in the Continuum folder in the Files app. Don't rename a disc "
                 + "game's files there, or it won't load."
             )
+        }
+    }
+
+    /// The one plain line STORAGE keeps, with real plurals, like CHEATS and SAVE STATES.
+    private var gameCountLine: String {
+        switch host.library.count {
+        case 0: return "No games yet"
+        case 1: return "1 game in your library"
+        default: return "\(host.library.count) games in your library"
         }
     }
 
