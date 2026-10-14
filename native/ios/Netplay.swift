@@ -859,17 +859,27 @@ struct OnlinePlaySettingsSection: View {
 
     var body: some View {
         SettingsSection(title: "ONLINE PLAY") {
+            // The NOW and INPUT DELAY read-outs are in Settings, TECHNICAL DETAILS
+            // (`OnlinePlayReadouts`).
+            SettingsNote("Open the same game on both phones, then tap \u{22EF} and Play online "
+                         + "with a second phone. Over the internet, the host's router needs TCP "
+                         + "port \(netplayDefaultPort()) open.")
+            SettingsNote("Game Boy and Color games on cBoy get Link cable to a second phone "
+                         + "there instead, so you can trade Pokémon or battle.")
+        }
+    }
+}
+
+/// The ONLINE PLAY read-outs, shown in Settings, TECHNICAL DETAILS. Its own view so both lines
+/// stay live there: the Settings screen does not observe `NetplayController`.
+struct OnlinePlayReadouts: View {
+    @ObservedObject var netplay: NetplayController
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
             SettingsReadout(label: "Now", value: netplay.isActive ? netplay.line : "off")
             SettingsReadout(label: "Input delay",
                             value: "\(netplay.inputDelay) frame\(netplay.inputDelay == 1 ? "" : "s")")
-            SettingsNote("Two players on two phones. Load the same game on both, then open the "
-                         + "\u{2026} menu in the player and choose Play online. One phone hosts "
-                         + "and shows its address; the other types it or picks it under Nearby. "
-                         + "Same Wi-Fi works out of the box; over the internet the host's router "
-                         + "must forward TCP port \(netplayDefaultPort()).")
-            SettingsNote("Game Boy and Game Boy Color games on cBoy get a link cable instead: each "
-                         + "phone plays its own game, so you can trade Pokemon or play Tetris head "
-                         + "to head. Choose Link cable in the same \u{2026} menu.")
         }
     }
 }

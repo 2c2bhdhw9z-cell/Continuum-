@@ -487,7 +487,10 @@ struct SettingsScreen: View {
             TechnicalReadoutGroup(title: "SYNC FOLDER") {
                 CloudSyncReadouts(sync: host.cloudSync)
             }
-            // The same again, for the motion line. See InputExtras.swift.
+            // The same again for these two. See Netplay.swift and InputExtras.swift.
+            TechnicalReadoutGroup(title: "ONLINE PLAY") {
+                OnlinePlayReadouts(netplay: host.netplay)
+            }
             TechnicalReadoutGroup(title: "CONTROLLERS, MAPPING AND MOTION") {
                 InputExtrasReadouts(extras: host.inputExtras)
             }

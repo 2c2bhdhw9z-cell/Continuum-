@@ -159,6 +159,20 @@ each under the name of the section it came from.
 - Read-out: **Motion** ("motion: not started" and so on) moved to TECHNICAL DETAILS →
   CONTROLLERS, MAPPING AND MOTION.
 
+### ONLINE PLAY
+
+- "Two players on two phones. Load the same game on both, then open the … menu in the player and
+  choose Play online. One phone hosts and shows its address; the other types it or picks it under
+  Nearby. Same Wi-Fi works out of the box; over the internet the host's router must forward TCP
+  port 55435." became **"Open the same game on both phones, then tap ⋯ and Play online with a
+  second phone. Over the internet, the host's router needs TCP port 55435 open."** (the menu row's
+  real name; the screen it opens already shows the address and Nearby).
+- "Game Boy and Game Boy Color games on cBoy get a link cable instead: each phone plays its own
+  game, so you can trade Pokemon or play Tetris head to head. Choose Link cable in the same …
+  menu." became **"Game Boy and Color games on cBoy get Link cable to a second phone there
+  instead, so you can trade Pokémon or battle."** (again the row's real name).
+- Read-outs: **Now** and **Input delay** moved to TECHNICAL DETAILS → ONLINE PLAY.
+
 ### TECHNICAL DETAILS
 
 - **Use JIT when it's available**: "Makes PSP, 3DS, PlayStation, N64 and Dreamcast faster. If a
