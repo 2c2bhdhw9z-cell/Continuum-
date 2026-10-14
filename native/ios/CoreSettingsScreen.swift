@@ -304,8 +304,8 @@ extension EngineHost {
         let resume = saveStates.autoSavesEnabled
         launch(entry: entry, resumingAuto: resume)
         if !resume, running {
-            status = "restarted \(entry.name) from the beginning: auto-save is off in Settings, "
-                + "so there was no save of where you were to pick up from"
+            status = "restarted \(entry.name) from the beginning, because auto-save is off in "
+                + "Settings"
         }
     }
 
@@ -358,7 +358,7 @@ struct CoreSettingsScreen: View {
                     Section {
                         Text(host.engine.coreOptionsKnown(coreId: coreId)
                              ? "This core has no settings that can be changed here."
-                             : "This core's settings are learned the first time a game runs on it. Start any game for it once, then come back.")
+                             : "Play any game on this emulator once and its settings show up here.")
                             .foregroundStyle(.secondary)
                     }
                 }

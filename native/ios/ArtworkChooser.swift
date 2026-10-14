@@ -138,11 +138,9 @@ enum ArtworkOptions {
         switch options.count {
         case 0:
             return searchedOtherSystems
-                ? "The server has no cover for this game under its own system or any other, so the "
-                    + "generated plate is showing. An image from Files is the answer for a game the "
-                    + "thumbnail database has never heard of."
-                : "No cover was found for this game in its own system's lists. Looking in the other "
-                    + "systems may still find one."
+                ? "No cover anywhere for this game. Choose an image from Files instead."
+                : "No cover for this game under its own system. Looking in other systems may "
+                    + "still find one."
         case 1:
             return options[0].isCrossSystem
                 ? "One cover exists for this game, and it is filed under "
@@ -163,9 +161,8 @@ enum ArtworkOptions {
     /// ONE CONSTANT FOR BOTH, so the refusal on the status line and the line on the card can never
     /// disagree about what the switch does. It names the two things that still work, because both
     /// are local: a picked image and a captured frame never touch the server.
-    static let lookupsOffLine = "Cover lookups are off in Settings, so no cover list and no cover "
-        + "is downloaded from the server. An image from Files still works, and so does a frame "
-        + "captured from the running game."
+    static let lookupsOffLine = "Cover lookups are off in Settings, so nothing is downloaded. An "
+        + "image from Files or a frame from the game still works."
 
     /// The one sentence under the row when some of the lists could not be had.
     ///
