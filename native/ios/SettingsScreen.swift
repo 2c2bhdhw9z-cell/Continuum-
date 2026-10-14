@@ -122,7 +122,6 @@ struct SettingsScreen: View {
                 Group {
                     artworkSection
                     layoutSection
-                    pspSection
                     biosSection
                     // Every core's own settings, and the TV's fit and layout. See CoreSettingsScreen.swift.
                     CoreSettingsSettingsSection(host: host)
@@ -577,17 +576,6 @@ struct SettingsScreen: View {
             )
             SettingsNote(
                 "Not sure? Keep the first one. Save states only load on the core that made them."
-            )
-        }
-    }
-
-    /// PSP. One note, not a picker: there is one core and it is not optional.
-    private var pspSection: some View {
-        SettingsSection(title: "PSP") {
-            SettingsNote(
-                "PSP games don't need a BIOS. .cso, .iso, .chd and EBOOT.PBP all work, and the app "
-                + "figures out if a disc is PSP or PlayStation. Heavier games can be slow unless JIT is "
-                + "on (Technical details, at the bottom)."
             )
         }
     }

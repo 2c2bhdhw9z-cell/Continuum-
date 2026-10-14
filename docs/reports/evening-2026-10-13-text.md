@@ -37,6 +37,14 @@ each under the name of the section it came from.
   on-screen game controls are a separate setting with a confusingly similar name: they are in
   ON-SCREEN CONTROLS above." Both rows already say what they do.
 
+### PSP
+
+- The whole section is gone (the owner wrote "why are we here" on it). It held one note: "PSP games
+  don't need a BIOS. .cso, .iso, .chd and EBOOT.PBP all work, and the app figures out if a disc is
+  PSP or PlayStation. Heavier games can be slow unless JIT is on (Technical details, at the
+  bottom)." Nothing in it was a choice. JIT's own switch in TECHNICAL DETAILS already says it makes
+  PSP faster, and a PSP disc is still asked about when the app can't tell.
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)
