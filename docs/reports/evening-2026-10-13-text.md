@@ -360,6 +360,14 @@ each under the name of the section it came from.
 - The rest of the form (the toggles under SENT WITH IT, the placeholders) was already short and
   casual, and is unchanged.
 
+### The backup question ("Save a backup file now?")
+
+- "Deleting Continuum deletes everything in it. If you ever reinstall, tap Restore from a backup and
+  pick this file. "With games" puts your games in too, which can take a lot of space." became
+  **"Deleting Continuum deletes everything in it. This file brings it all back (Settings, Restore
+  from a backup), and with games it takes more space."** The title and the three buttons (Back up
+  with games, Back up without games, Not now) are unchanged, and it still asks at the same times.
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)

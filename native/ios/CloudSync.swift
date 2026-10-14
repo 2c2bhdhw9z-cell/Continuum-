@@ -2074,7 +2074,7 @@ struct BackupFolderPrompt: ViewModifier {
     /// The crash question (Feedback.swift) is the other alert at launch. This one waits for it.
     @ObservedObject private var feedback = FeedbackCenter.shared
     @State private var shown = false
-    private static let promptMessage: String = "Deleting Continuum deletes everything in it. If you ever reinstall, tap Restore from a backup and pick this file. \"With games\" puts your games in too, which can take a lot of space."
+    private static let promptMessage: String = "Deleting Continuum deletes everything in it. This file brings it all back (Settings, Restore from a backup), and with games it takes more space."
 
     private static let askedKey = "continuum.sync.backupOffered.v1"
     /// When the prompt was last answered with "Not now". `CloudSyncPaths.lastBackupKey` is the other date.
