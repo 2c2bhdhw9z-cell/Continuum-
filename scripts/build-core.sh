@@ -271,7 +271,7 @@ ios_core_config() {
       # phones' states match byte for byte (the Sports Pad's timing was being written as this
       # phone's own running cycle count, which broke the state hash online play compares).
       IOS_REPO="https://github.com/drhelius/Gearsystem"
-      IOS_PIN="692494c8d3e322faeea204fd54f582f00d77f03a"
+      IOS_PIN="4a801d223ce687e68165d750a0fdda4bd8bc0a7e"
       IOS_DYLIB_NAME="gearsystem_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile"

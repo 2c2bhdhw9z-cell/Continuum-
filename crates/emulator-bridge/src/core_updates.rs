@@ -51,7 +51,7 @@ pub const CORE_BUILDS: &[CoreBuild] = &[
     core("mesen2", "4c4e069f16a8ad6ed79e046046c56d51558c7daf", "NES", "Mesen"),
     core("mgba", "7a12d6d4b9acb14c0ae62c9166b6a2f3d08007f6", "Game Boy", "mGBA"),
     core("bsnes", "05439f96121d2b9d7ad7a5fc1f29d7eebdcc8c43", "SNES", "bsnes"),
-    core("gearsystem", "692494c8d3e322faeea204fd54f582f00d77f03a", "Master System and Game Gear", "Gearsystem"),
+    core("gearsystem", "4a801d223ce687e68165d750a0fdda4bd8bc0a7e", "Master System and Game Gear", "Gearsystem"),
     core("blastem", "ab743653ed110eeb7b1fe64d00cc5f9279c2bfec", "Mega Drive", "BlastEm"),
     core("pcsx_rearmed", "c8816799b50388e61cfe237fe2cdbb7d8175f20a", "PlayStation", "PCSX ReARMed"),
     core("mednafen_psx_hw", "5ec9909f2654fb2041315a13fac0b704c5065c0e", "PlayStation", "Beetle PSX"),
@@ -198,13 +198,21 @@ const fn exact(
     }
 }
 
-/// Every move from [`BUILD_181`] to [`CORE_BUILDS`] (12 October 2026,
-/// `.agents/tasks/updates-2026-10-12/EVALUATION.md`). When a pin moves, add one entry here saying
-/// whether old save states load.
+/// Every move to [`CORE_BUILDS`] from a pin an earlier install can have run, each saying whether
+/// old save states load. Only direct pairs count ([`state_version_loads`]), so when a pin moves,
+/// that core's entries are checked again and pointed at the new pin, and one is added from the pin
+/// it moved off. Build 181's pins ([`BUILD_181`]) always stay a "from": an install without
+/// `core-builds.txt` is compared against them, and a heads-up still waiting since then keeps them.
+/// 12 October 2026: the first moves from build 181. 14 October 2026
+/// (`docs/reports/core-updates-2026-10-14.md`): the cores that moved again, from the pins builds
+/// 182 to 185 shipped.
 pub const CORE_UPDATES: &[CoreUpdate] = &[
     // Built from source.
     commits("fceumm", "7a542dab1e87679921962a9f056186eca425c0c2", "ac0d00a7fc01166f84c7bac01d1084ebfd2b865e"),
-    commits("gearsystem", "02b9d9e792559f3e871472548ca1fd72d9cc3e2a", "692494c8d3e322faeea204fd54f582f00d77f03a"),
+    // Save-state format 111 at all three pins: states saved on build 181 and on builds 182 to 185
+    // were loaded on the new pin on a computer, and the game carried on frame for frame.
+    commits("gearsystem", "02b9d9e792559f3e871472548ca1fd72d9cc3e2a", "4a801d223ce687e68165d750a0fdda4bd8bc0a7e"),
+    commits("gearsystem", "692494c8d3e322faeea204fd54f582f00d77f03a", "4a801d223ce687e68165d750a0fdda4bd8bc0a7e"),
     // Covers parallel_n64_jit too: same core id and version string.
     commits("parallel_n64", "0bd516ee793bb87b57e9eef19993b37ac0098d74", "a8280501a71c1bcd4c85c5b8bfe75cfa62cd6127"),
     // Azahar refuses states from another revision itself.
@@ -511,7 +519,7 @@ mod tests {
                 assert_eq!(to_version, VersionMatch::Commit(u.to_build), "{}", u.core_id);
             }
         }
-        assert_eq!(CORE_UPDATES.len(), 10);
+        assert_eq!(CORE_UPDATES.len(), 11);
     }
 
     fn loads(core: &str, saved: &str, running: &str) -> bool {
@@ -523,8 +531,12 @@ mod tests {
     fn proven_pairs_load() {
         assert!(loads("fceumm", "(SVN) 7a542da", "(SVN) ac0d00a"));
         assert!(loads("fceumm", "(SVN) 7a542dab1e", "(SVN) ac0d00a7fc"));
-        assert!(loads("gearsystem", "02b9d9e-dirty", "692494c-dirty"));
-        assert!(loads("gearsystem", "v3.5.0-1-g02b9d9e-dirty", "692494c"));
+        assert!(loads("gearsystem", "02b9d9e-dirty", "4a801d2-dirty"));
+        assert!(loads("gearsystem", "v3.5.0-1-g02b9d9e-dirty", "4a801d2"));
+        assert!(loads("gearsystem", "692494c-dirty", "4a801d2-dirty"));
+        // What host builds of the three pins reported (git describe with tags), 14 October 2026.
+        assert!(loads("gearsystem", "3.9.22-4-g02b9d9e-dirty", "3.9.22-10-g4a801d2-dirty"));
+        assert!(loads("gearsystem", "3.9.22-5-g692494c-dirty", "3.9.22-10-g4a801d2-dirty"));
         assert!(loads("parallel_n64", "1.0 0bd516e", "1.0 a828050"));
         assert!(loads("ppsspp", "53fae90", "v1.19.3-1501-gdd6bd1a5"));
         assert!(loads("flycast", "59ed35a7", "f03faffd"));
@@ -540,6 +552,7 @@ mod tests {
         assert!(!loads("azahar", "065c922", "bfa7687"));
         assert!(!loads("azahar", "a", "b"));
         assert!(!loads("fceumm", "(SVN) ac0d00a", "(SVN) 7a542da"));
+        assert!(!loads("gearsystem", "4a801d2-dirty", "692494c-dirty"));
         assert!(!loads("mesen2", "(SVN) 7a542da", "(SVN) ac0d00a"));
         assert!(!loads("fceumm", "(SVN) 1234567", "(SVN) ac0d00a"));
         assert!(!loads("fceumm", "(SVN)", "(SVN) ac0d00a"));
@@ -595,6 +608,24 @@ mod tests {
         assert_eq!(dues(&dir.0), before);
         assert!(before.contains_key("fceumm"));
         assert_eq!(take_heads_up(&dir.0, "nonexistent"), None);
+    }
+
+    #[test]
+    fn an_update_from_builds_182_to_185_says_old_states_load() {
+        let dir = TempDir::new("from-185");
+        // core-builds.txt as builds 182 to 185 wrote it, for an install where only Gearsystem moved since.
+        let mut text = String::from("# Continuum\n");
+        for c in CORE_BUILDS {
+            let build = if c.core_id == "gearsystem" { "692494c8d3e322faeea204fd54f582f00d77f03a" } else { c.build };
+            text.push_str(&format!("seen {} {build}\n", c.core_id));
+        }
+        fs::write(dir.0.join(STATE_FILE), text).unwrap();
+        assert_eq!(open(&dir.0), "emulator updates since the last install: gearsystem");
+        assert_eq!(
+            take_heads_up(&dir.0, "gearsystem").unwrap(),
+            "Heads up: the Master System and Game Gear emulator (Gearsystem) just got an update from the people who make it. \
+             If anything seems off, send us feedback."
+        );
     }
 
     #[test]
