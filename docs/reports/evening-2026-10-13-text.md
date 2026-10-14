@@ -342,6 +342,24 @@ each under the name of the section it came from.
 - The controls editor had no other long text. The Skin sheet in a game ("Kept for <game>. Change
   the default for every <system> game in the skin library.") was already two short sentences.
 
+### Feedback and the crash report
+
+- Settings, FEEDBACK: "Something broken, or got an idea? Let me know here. If it's about a specific
+  game, open the game and tap ⋯ then Send feedback about this game: you can rate it and draw on a
+  screenshot. And if the app ever crashes, it'll offer to send a report next time you open it."
+  became **"Something broken, or got an idea? Tell me here, or tap ⋯ in a game and Send feedback
+  about this game to rate it and draw on a screenshot."**
+- Under Send: "Opens Mail with everything filled in, going to ContinuumDev2c2b@gmail.com. You'll
+  see it all before it sends. No Mail app? Pick another way to send it to that address." became
+  **"Opens Mail with everything filled in, to ContinuumDev2c2b@gmail.com. No Mail app? Pick another
+  way to send it there."**
+- After a crash: "... It was loading a save right then, so that save won't load by itself again
+  (it's still there if you want to try it). Sorry about that. Want to send a quick report? It
+  really helps me fix it." became **"... It was loading a save, so that save won't load by itself
+  next time (it's still there). Sorry! Want to send a quick report? It really helps."**
+- The rest of the form (the toggles under SENT WITH IT, the placeholders) was already short and
+  casual, and is unchanged.
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)

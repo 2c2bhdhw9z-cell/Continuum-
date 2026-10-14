@@ -383,9 +383,8 @@ struct FeedbackSheet: View {
 
     private var sendNote: String {
         if FeedbackDestination.hasEmail {
-            return "Opens Mail with everything filled in, going to \(FeedbackDestination.email). "
-                + "You'll see it all before it sends. No Mail app? Pick another way to send it to "
-                + "that address."
+            return "Opens Mail with everything filled in, to \(FeedbackDestination.email). No "
+                + "Mail app? Pick another way to send it there."
         }
         return "Opens the share menu with everything filled in. Nothing sends until you tap send."
     }
@@ -698,8 +697,8 @@ final class FeedbackCenter: ObservableObject {
         var line = crash.game.isEmpty ? "Looks like Continuum crashed last time."
             : "Looks like Continuum crashed last time, while you were playing \(crash.game)."
         if !crash.loading.isEmpty {
-            line += " It was loading a save right then, so that save won't load by itself again "
-                + "(it's still there if you want to try it)."
+            line += " It was loading a save, so that save won't load by itself next time (it's "
+                + "still there)."
         }
         return line
     }
@@ -707,7 +706,7 @@ final class FeedbackCenter: ObservableObject {
     var crashPromptText: String {
         guard let unexpectedClose else { return "" }
         return Self.crashSentence(unexpectedClose)
-            + " Sorry about that. Want to send a quick report? It really helps me fix it."
+            + " Sorry! Want to send a quick report? It really helps."
     }
 
     static func directory() -> URL? {
@@ -945,10 +944,8 @@ struct FeedbackSettingsSection: View {
 
     var body: some View {
         SettingsSection(title: "FEEDBACK") {
-            SettingsNote("Something broken, or got an idea? Let me know here. If it's about a "
-                         + "specific game, open the game and tap ⋯ then Send feedback about this "
-                         + "game: you can rate it and draw on a screenshot. And if the app ever "
-                         + "crashes, it'll offer to send a report next time you open it.")
+            SettingsNote("Something broken, or got an idea? Tell me here, or tap ⋯ in a game and "
+                         + "Send feedback about this game to rate it and draw on a screenshot.")
             SettingsButton(title: "Send feedback", role: .normal) {
                 showForm = true
             }
