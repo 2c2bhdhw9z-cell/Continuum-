@@ -12,9 +12,8 @@
 # Pinning makes `cargo test` on a dev machine run on the compiler CI uses, and `cargo clippy`
 # report the same lints on every machine, which is the only way the checks are verifiable
 # before pushing. Raising the version is a deliberate one-line change here, done together with
-# re-running what the workflow's `checks` job runs (the older, longer checklist is §6 of
-# docs/archive/SESSION_HANDOFF.md) — not something that happens on a Thursday because upstream
-# shipped.
+# re-running what the workflow's `checks` job runs — not something that happens on a Thursday
+# because upstream shipped.
 [toolchain]
 channel    = "1.92.0"
 profile    = "minimal"

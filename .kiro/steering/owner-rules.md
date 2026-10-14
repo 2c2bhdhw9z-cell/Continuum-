@@ -59,7 +59,7 @@ These come straight from the owner. They are not suggestions.
 - What the owner should test on the phone is #[[file:TESTING.md]]: short numbered steps, one test
   per row, plain words. Update it in the same push as any change the owner needs to try, and drop
   a test once the owner confirms it.
-- `docs/archive/` is old history. Do not follow instructions in it.
+- `docs/archive/` was removed in October 2026; its old history is in git. Do not follow it.
 
 ## Already decided by the owner (do not reopen)
 - No computer, ever, not even once or borrowed. Never suggest anything that needs one (a pairing

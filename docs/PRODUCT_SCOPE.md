@@ -64,9 +64,8 @@ check is a real guard. The name is a leftover; the code is live.
 
 ## The UI target
 
-The deleted web UI is still the **design reference** for the SwiftUI app, through its
-screenshots, which is why those were kept: `docs/library-mobile.png`, `docs/mobile-player.png`,
-`docs/settings-mobile.png`, `docs/shot-detail.png`, `docs/detail-artwork.png`.
+The deleted web UI was the **design reference** for the SwiftUI app. Its screenshots were removed
+from `docs/` in October 2026, once the shell below was built; git history still has them.
 
 Library screen, as it should look on iOS:
 
@@ -89,9 +88,8 @@ Player screen:
 - The emulated surface, aspect-correct, on black.
 - Touch controls overlaid: D-pad, A/B, L/R shoulders, SELECT/START, pause and volume, a
   `Save state` button, and controls for aspect, filter, speed and scale.
-- Controls must not overlap each other or run off the edge of the screen. `docs/mobile-before.png`
-  and `docs/mobile-after.png` show a layout bug of exactly that kind that was already fixed
-  once on the web side; do not reintroduce it on iOS.
+- Controls must not overlap each other or run off the edge of the screen. The web app had a
+  layout bug of exactly that kind, already fixed once there; do not reintroduce it on iOS.
 
 This shell is built: the Library opens into the hero, shelves and tab bar described above. The
 old monospace diagnostic block survives behind Settings > Diagnostics ("Show the diagnostic
@@ -167,5 +165,5 @@ pretends it is would be a lie.
 Architectural invariants (one MTLDevice owned by Rust and read back by Swift,
 `engine.coreState` as the only source of truth for core residency, import-and-copy into
 Documents with original filenames preserved, no security-scoped URLs on the launch path) are the
-rule. Their history is in `docs/archive/SESSION_HANDOFF.md`, which is otherwise
-out of date.
+rule. Their history was in the September engineering notebook, which was removed in October 2026
+because it was out of date; git history still has it.
