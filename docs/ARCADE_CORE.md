@@ -34,7 +34,7 @@ emulator. Until then an imported arcade game stays in the Library and opens to o
 | `pacman.rs` | Namco's Pac-Man board |
 | `namco_wsg.rs` | Pac-Man's sound chip: three voices playing 32-step waves from the sound PROM |
 | `galaxian.rs` | Namco's Galaxian board and Konami's Scramble variant |
-| `ay8910.rs` | The AY-3-8910, two of them on Konami's sound board |
+| `ay8910.rs` | The AY-3-8910, two of them on Konami's sound board (written and proven, see below) |
 | `galaxian_sound.rs` | Galaxian's analogue sound, approximated |
 | `dkong.rs` | Nintendo's Donkey Kong board |
 | `mcs48.rs` | The Intel 8035 that plays Donkey Kong's music into a DAC (written and proven, see below) |
@@ -164,6 +164,29 @@ part runs 400,000 cycles a second.
     stack's wrap, the page rules, both RAM sizes, reset and a save state.
   - A trace comparison with MAME's core on our own programs, run on MAME's Donkey Kong sound
     board, is the last proof; it waits for the MAME build in scratch.
+
+## The AY-3-8910, Konami's sound chip (`ay8910.rs`)
+
+General Instrument's sound chip, two of which play Scramble, Super Cobra, Frogger and Amidar.
+It divides its clock by 8; `tick` is one period of that and gives the three channels' levels.
+
+- **What's in:** three tone generators (a square wave of 16 × TP clocks), the 17-bit noise
+  generator (taps at bits 0 and 3, a shift every 16 × NP clocks), the envelope generator with all
+  16 shapes (each step 16 × EP clocks), the mixer, fixed or envelope amplitude per channel, the
+  address latch with the chip's own code in its top four bits, what each register reads back, and
+  the two I/O ports through which Konami's boards read the sound command and a timer.
+- **The output levels** are the data manual's (Fig. 9): 1, .707, .5, .303, .25, .1515 and .125 V
+  for levels 15 down to 9, halving every two steps below that, level 0 off. A board can use them
+  or model its own output stage; the chip itself hands out the levels.
+- **Where the manual leaves it open, MAME's core decides:** the counters count up and wrap when
+  they reach their period (so lowering a period takes effect at once), a tone or noise period of
+  0 is 1, an envelope period of 0 steps twice as fast as 1, and writing the shape restarts the
+  envelope.
+- **How it's proved:** unit tests in `src/ay8910.rs` against the data manual: tone periods from
+  1 to 4095, period 0, the noise sequence bit for bit against an independent shift register and
+  its 131,071-shift length, all 16 envelope shapes over four cycles, the envelope step length,
+  the mixer, each channel on its own, the register masks, the chip code, the ports, reset and a
+  save state. A comparison with MAME's AY-3-8910 on register writes of our own is the last proof.
 
 ## The core as the app sees it
 
