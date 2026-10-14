@@ -743,9 +743,8 @@ struct CoreSettingsSettingsSection: View {
     var body: some View {
         SettingsSection(title: "CORE SETTINGS") {
             SettingsNote(
-                "Each emulator core has its own settings: resolution, renderer, palettes and more. "
-                + "A core's list appears after a game has run on it once. In a game, the menu also "
-                + "offers settings for that game only."
+                "Each emulator has its own settings, and they show up once you've played a game "
+                + "on it. A game's ⋯ menu can change them for that game only."
             )
             ForEach(CoreCatalog.all, id: \.coreId) { spec in
                 SettingsButton(title: spec.displayName + (host.engine.coreOptionsKnown(coreId: spec.coreId)
@@ -754,12 +753,13 @@ struct CoreSettingsSettingsSection: View {
                     openCore = spec.coreId
                 }
             }
-            SettingsReadout(label: "TV scaling", value: CoreActionPrefs.scaleLabel(tvScale))
+            // Plain lines: these are the TV's current choices, not technical read-outs.
+            SettingsNote("TV scaling: \(CoreActionPrefs.scaleLabel(tvScale))")
             SettingsButton(title: "Change TV scaling", role: .normal) {
                 host.cycleAirPlayScaling()
                 tvScale = CoreActionPrefs.tvScale
             }
-            SettingsReadout(label: "TV layout (DS, 3DS)", value: tvLayout?.label ?? "same as the phone")
+            SettingsNote("TV layout (DS, 3DS): \(tvLayout?.label ?? "same as the phone")")
             SettingsButton(title: "Change TV layout", role: .normal) {
                 host.cycleAirPlayLayout()
                 tvLayout = CoreActionPrefs.tvLayout

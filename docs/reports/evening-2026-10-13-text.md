@@ -100,6 +100,15 @@ each under the name of the section it came from.
   shown twice. Deleting a game is still on its card (**Delete this game**) and a swipe in the
   All Games list.
 
+### CORE SETTINGS
+
+- "Each emulator core has its own settings: resolution, renderer, palettes and more. A core's list
+  appears after a game has run on it once. In a game, the menu also offers settings for that game
+  only." became **"Each emulator has its own settings, and they show up once you've played a game
+  on it. A game's ⋯ menu can change them for that game only."**
+- **TV scaling** and **TV layout (DS, 3DS)** are the TV's current choices, not read-outs, so they
+  stay in the section, as plain lines ("TV scaling: Fit") instead of typewriter text.
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)
