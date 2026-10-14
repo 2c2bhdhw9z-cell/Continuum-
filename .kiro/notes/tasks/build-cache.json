@@ -45,7 +45,8 @@
     },
     {
       "id": "K2",
-      "done": false,
+      "done": true,
+      "result": "Pushed as 1de468f: (a) a core's patch steps, patch helpers and the patch files they name must sit in its own region, and a function in a region may only be used by that family (or build_ios_core's dispatch for a kind only it sets), or no core gets a fingerprint; a new core's dispatch may sit in its own region, so adding one needs no shared line; (b) the comments count what is really built from source (twenty, nineteen kept by the cache, sixteen downloaded); (c) each region of a family is hashed after a header with its place and size; check-core-cache.sh now has 201 checks, all passing on Linux and with the Mac's bash 3.2 and awk.",
       "title": "This morning's three review findings",
       "detail": "From /projects/sandbox/Continuum-/.agents/tasks/per-core-fp/review.md: (a) add a structural guard on the patches arms (ios_apply_core_patches) and the per-core patch helpers, so a core's patch step cannot sit outside its region unnoticed; (b) correct the 'thirty-six cores' wording in the comments (count what is really built from source); (c) put a separator between a family's concatenated regions in ios_recipe_text, so moving a line from one region of a family to another changes the hash. A check for (a) and (c) in check-core-cache.sh."
     },

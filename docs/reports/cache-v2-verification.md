@@ -128,8 +128,9 @@ cached 393f12c's, so the next build rebuilds every core once and the ones after 
 
 Commands and results (K2, on master after K1 plus this change): `bash scripts/check-core-cache.sh`
 201 passed, 0 failed (21 new checks in section 14), and 201 passed, 0 failed again under bash
-3.2.57 with BWK awk 20200816; `check-skins.sh`, `check-players.sh`, `cargo test` and
-`cargo clippy` as listed under K1 (CHECKS_K2).
+3.2.57 with BWK awk 20200816; `check-skins.sh` 720 checks, 0 failed;
+`check-players.sh` 0 failed; `cargo test` 723 passed, 0 failed; `cargo clippy` clean. K1 is
+3651403, K2 is 1de468f.
 
 K2 changes every fingerprint once more (the recipe text gained its headers), so the next build
 rebuilds every core once, as K1 already does; the three edits above again move only what they
