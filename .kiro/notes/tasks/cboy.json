@@ -49,7 +49,8 @@
     },
     {
       "id": "G1c",
-      "done": false,
+      "done": true,
+      "result": "Pushed as e08d69d: every cBoy setting's description is one short, casual sentence (at most 22 words) or none where the name says it all (the 57 shown settings went from 1,396 words to 704), with keys, labels, choices, defaults and behaviour proven unchanged, exactly the two settings the app holds for a restart (Super Game Boy border, Output sample rate) still saying 'restart', three new tests guarding all of that, the inventory regenerating unchanged and the cBoy suite green (158 tests).",
       "title": "Shorter descriptions for cBoy's own settings (small, do it before G2)",
       "detail": "Added by the orchestrator at 6 PM: the owner wants every explanation in the app condensed and made shorter. Go through every option description in cores/continuum-gb/src/options.rs: each becomes one short, casual sentence a player can act on, or none if the label already says it. No words a player wouldn't know (no M-cycle, FIFO, register, HLE, DMG/CGB codes in descriptions). Keep every fact needed to choose, never change a key, a default or what an option does. Regenerate docs/CBOY_OPTIONS_INVENTORY.md; if a test pins a description's text, update the expected text without weakening what it checks. Run the cBoy suite, push with [skip ci]."
     },
