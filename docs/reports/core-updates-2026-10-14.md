@@ -114,9 +114,10 @@ metadata and game files.
 
 - **The cache.** The pin move rebuilds Azahar only. `ios-fingerprint azahar` went from
   `0c0c314f28853b38` to `4a2dc54790918f88`, while mgba, ppsspp, flycast and flycast_jit stayed the
-  same. `scripts/check-core-cache.sh`: 217 passed.
-- **The checks.** `cargo test --workspace --features emulator-bridge/native-core`: 735 passed.
-  `cargo clippy`: clean.
+  same. `scripts/check-core-cache.sh`: 218 passed on master after the push (217 before another
+  helper's 32X commit added one).
+- **The checks**, on master after the push: `cargo test --workspace --features
+  emulator-bridge/native-core`, 739 passed. `cargo clippy`: clean.
 
 **In the table:** `065c9222` → `68202bc4` (build 181) and `bfa76872` → `68202bc4` (builds 182 to 185),
 both refused.

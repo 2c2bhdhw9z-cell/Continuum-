@@ -32,7 +32,9 @@
     },
     {
       "id": "CU2",
-      "done": false,
+      "done": true,
+      "result": "Taken in 4ca5b80: Azahar moved to 68202bc (the bundle-file fix plus a desktop-and-Android translations commit that landed after the morning check) with all four of our patches unchanged; old 3DS save states are refused by Azahar itself, as on 12 October, so both table entries (from builds 181 and 182-185) say refused and the heads-up says in-game saves are fine (details in docs/reports/core-updates-2026-10-14.md).",
+      "notes_for_cu3_cu4": "CORE_UPDATES.len() is 12 after CU2 (Azahar has two refused entries now).",
       "title": "Azahar (3DS)",
       "detail": "One upstream change ('core: Fix bundle file oversights', #2673). Read it, dry-run scripts/patches/azahar-*.patch, decide whether old save states load (read whether the change touches serialization). No host build. Move the pin, update core_updates.rs, run the checks, push."
     },
