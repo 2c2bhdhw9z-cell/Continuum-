@@ -54,6 +54,9 @@ pub struct DiagnosticCore {
     /// content starts with `rtc`, so the clock file next to a battery save is testable while
     /// every other test still sees a core with no clock.
     rtc: Vec<u8>,
+    /// A pretend Sega CD save cartridge (`MEMORY_SEGACD_RAM_CART`, 8 KB), only when the loaded
+    /// content starts with `cart`, the same way.
+    ram_cart: Vec<u8>,
 }
 
 impl DiagnosticCore {
@@ -100,6 +103,7 @@ impl DiagnosticCore {
             save_ram: vec![0; Self::SAVE_RAM_BYTES],
             a_was_held: false,
             rtc: Vec::new(),
+            ram_cart: Vec::new(),
         }
     }
 
@@ -218,6 +222,7 @@ impl EmulatorCore for DiagnosticCore {
         ));
         self.frame_count = 0;
         self.rtc = if content.starts_with(b"rtc") { vec![0; 24] } else { Vec::new() };
+        self.ram_cart = if content.starts_with(b"cart") { vec![0; 8192] } else { Vec::new() };
         // Paint an initial frame so the framebuffer is meaningful the moment content
         // is loaded, rather than a black flash until the first `run_frame`. Real
         // cores behave the same way — `retro_load_game` leaves the framebuffer in a
@@ -336,6 +341,7 @@ impl EmulatorCore for DiagnosticCore {
             crate::memory::MEMORY_SYSTEM_RAM => Some(&self.system_ram),
             crate::memory::MEMORY_SAVE_RAM => Some(&self.save_ram),
             crate::memory::MEMORY_RTC if !self.rtc.is_empty() => Some(&self.rtc),
+            crate::memory::MEMORY_SEGACD_RAM_CART if !self.ram_cart.is_empty() => Some(&self.ram_cart),
             _ => None,
         }
     }
@@ -345,6 +351,7 @@ impl EmulatorCore for DiagnosticCore {
             crate::memory::MEMORY_SYSTEM_RAM => Some(&mut self.system_ram),
             crate::memory::MEMORY_SAVE_RAM => Some(&mut self.save_ram),
             crate::memory::MEMORY_RTC if !self.rtc.is_empty() => Some(&mut self.rtc),
+            crate::memory::MEMORY_SEGACD_RAM_CART if !self.ram_cart.is_empty() => Some(&mut self.ram_cart),
             _ => None,
         }
     }

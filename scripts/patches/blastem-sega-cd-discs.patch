@@ -1,0 +1,598 @@
+diff --git a/libblastem.c b/libblastem.c
+index 3e099c5..30b2cf6 100644
+--- a/libblastem.c
++++ b/libblastem.c
+@@ -693,7 +693,8 @@ RETRO_API void retro_get_system_info(struct retro_system_info *info)
+ 	//gz and vgz are absent from the content info override for the same reason as
+ 	//smd: they only decompress on the need_fullpath path, where romopen() is a
+ 	//gzopen(). Handed over as data they would be loaded as raw deflate streams.
+-	info->valid_extensions = "md|gen|smd|32x|sms|gg|sg|sg1|sc|sc3|sf7|col|cue|toc|iso|chd|vgm|vgz|flac|wav|bin|rom|gz";
++	//Continuum: m3u, a playlist of a multi-disc game's discs (continuum_disc_list() below).
++	info->valid_extensions = "md|gen|smd|32x|sms|gg|sg|sg1|sc|sc3|sf7|col|cue|toc|iso|chd|m3u|vgm|vgz|flac|wav|bin|rom|gz";
+ 	info->need_fullpath = 1;
+ 	info->block_extract = 0;
+ }
+@@ -879,6 +880,11 @@ static uint8_t started;
+ static void poll_input(void);
+ //Continuum: the cheat list, which lives with the loaded machine further down.
+ static void continuum_apply_cheats(void);
++//Continuum: the Sega CD's disc tray and disc list, also further down.
++static void continuum_tray_tick(void);
++static size_t continuum_state_extra(void);
++static size_t continuum_save_disc_section(uint8_t *out, size_t room);
++static size_t continuum_load_disc_section(const uint8_t *in, size_t size);
+ RETRO_API void retro_run(void)
+ {
+ 	bool options_updated = false;
+@@ -900,6 +906,8 @@ RETRO_API void retro_run(void)
+ 	poll_input();
+ 	//Continuum: and the cheats, so a RAM code holds against the game writing over it.
+ 	continuum_apply_cheats();
++	//Continuum: a tray that is closing on a new disc.
++	continuum_tray_tick();
+ 	frame_presented = 0;
+ 	if (started) {
+ 		current_system->resume_context(current_system);
+@@ -934,6 +942,9 @@ RETRO_API size_t retro_serialize_size(void)
+ 		serialize_size_cache += 64;
+ 		//We need to store the actual size saved too
+ 		serialize_size_cache += sizeof(size_t);
++		//Continuum: and which disc of a playlist is in, plus room for the next disc's state
++		//to be a little bigger than this one's (see continuum_state_extra()).
++		serialize_size_cache += continuum_state_extra();
+ 	}
+ 	return serialize_size_cache;
+ }
+@@ -943,14 +954,22 @@ RETRO_API size_t retro_serialize_size(void)
+ RETRO_API bool retro_serialize(void *data, size_t size)
+ {
+ 	size_t *buffer = data;
+-	uint8_t *tmp = current_system->serialize(current_system, buffer);
++	size_t state_size = 0;
++	uint8_t *tmp = current_system->serialize(current_system, &state_size);
++	//Continuum: a game played from a playlist starts its state with the disc that is in, as a
++	//section of its own, so loading the state puts that disc back first. Nothing else gets one,
++	//so every other state is byte for byte what it was.
++	uint8_t *out = (uint8_t *)(buffer + 1);
++	size_t room = size > sizeof(size_t) ? size - sizeof(size_t) : 0;
++	size_t extra = continuum_save_disc_section(out, room);
++	*buffer = extra + state_size;
+ 	//the length itself goes in front of the state, so it has to fit as well
+ 	if (*buffer + sizeof(size_t) > size) {
+ 		fprintf(stderr, "retro_serialize failed frontend size %d, actual size %d\n", (int)size, (int)*buffer);
+ 		free(tmp);
+ 		return 0;
+ 	}
+-	memcpy(buffer + 1, tmp, *buffer);
++	memcpy(out + extra, tmp, state_size);
+ 	free(tmp);
+ 	return 1;
+ }
+@@ -958,7 +977,14 @@ RETRO_API bool retro_serialize(void *data, size_t size)
+ RETRO_API bool retro_unserialize(const void *data, size_t size)
+ {
+ 	const size_t *buffer = data;
+-	current_system->deserialize(current_system, (uint8_t *)(buffer + 1), *buffer);
++	//Continuum: a state that does not fit in what the frontend handed over is refused rather than
++	//read past its end.
++	if (size < sizeof(size_t) || *buffer > size - sizeof(size_t)) {
++		return 0;
++	}
++	const uint8_t *in = (const uint8_t *)(buffer + 1);
++	size_t skip = continuum_load_disc_section(in, *buffer);
++	current_system->deserialize(current_system, (uint8_t *)in + skip, *buffer - skip);
+ 	return 1;
+ }
+ 
+@@ -1116,6 +1142,11 @@ static void publish_memory_maps(void)
+ 	//What load_save() does in the standalone build, which a libretro build never calls: a
+ 	//formatted, empty backup RAM, which the frontend's saved copy then replaces.
+ 	segacd_format_bram(cd->bram, 8 * 1024);
++	//Continuum: and the same for the backup RAM cartridge, which the standalone build keeps as
++	//cart.bram; here the frontend keeps it under CONTINUUM_MEMORY_RAM_CART.
++	if (cd->bram_cart && cd->bram_cart_id < 8) {
++		segacd_format_bram(cd->bram_cart, 0x2000 << cd->bram_cart_id);
++	}
+ 	desc[1].flags = RETRO_MEMDESC_SYSTEM_RAM;
+ 	desc[1].ptr = cd->prog_ram;
+ 	desc[1].start = 0x80020000;
+@@ -1128,6 +1159,414 @@ static void publish_memory_maps(void)
+ 	retro_environment(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &map);
+ }
+ 
++//Continuum: Sega CD discs. A game on more than one disc comes as an .m3u playlist: one disc
++//(.cue, .chd or .iso) per line, relative to the playlist, with an optional "|label" after it.
++//This glue had no way to open one. Now a playlist opens its first disc, and every disc game
++//offers the frontend libretro's disk control interface, so a player can put the next disc in.
++//A swap goes through the drive the way a real one does: the tray opens and the drive says its
++//door is open; the disc goes in; the tray closes, the drive says the tray is moving for half a
++//second and then reads the new disc's table of contents, so a game waiting for its next disc
++//sees one arrive. The new disc is loaded with load_media() into the same system_media the drive
++//was built on (cdd_mcu keeps a pointer to it), and a disc that will not open leaves the old one
++//in the drive.
++#define CONTINUUM_MAX_DISCS 32
++#define CONTINUUM_TRAY_CLOSE_FRAMES 30
++static char *continuum_disc_path[CONTINUUM_MAX_DISCS];
++static char *continuum_disc_label[CONTINUUM_MAX_DISCS];
++static unsigned continuum_disc_count;
++//The disc in the drive, and the one set_image_index() chose while the tray was open.
++static unsigned continuum_disc_index;
++static unsigned continuum_disc_chosen;
++static uint8_t continuum_tray_open;
++static uint32_t continuum_tray_closing;
++static uint8_t continuum_discs_offered;
++//What set_initial_image() asked for before a load: the disc of the playlist to start on.
++static unsigned continuum_initial_index;
++static char *continuum_initial_path;
++
++static void continuum_discs_clear(void)
++{
++	for (unsigned i = 0; i < continuum_disc_count; i++)
++	{
++		free(continuum_disc_path[i]);
++		free(continuum_disc_label[i]);
++		continuum_disc_path[i] = continuum_disc_label[i] = NULL;
++	}
++	continuum_disc_count = continuum_disc_index = continuum_disc_chosen = 0;
++	continuum_tray_open = 0;
++	continuum_tray_closing = 0;
++}
++
++static void continuum_add_disc(char *path, char *label)
++{
++	if (continuum_disc_count == CONTINUUM_MAX_DISCS) {
++		free(path);
++		free(label);
++		return;
++	}
++	continuum_disc_path[continuum_disc_count] = path;
++	continuum_disc_label[continuum_disc_count] = label ? label : basename_no_extension(path);
++	continuum_disc_count++;
++}
++
++//The disc list for a load: the playlist's discs for an .m3u, the one file for anything else.
++//Returns the disc to open first, or NULL for a playlist that names no disc.
++static const char *continuum_disc_list(const char *path)
++{
++	continuum_discs_clear();
++	char *ext = path_extension(path);
++	uint8_t playlist = ext && !strcasecmp(ext, "m3u");
++	free(ext);
++	if (!playlist) {
++		continuum_add_disc(strdup(path), NULL);
++		return continuum_disc_path[0];
++	}
++	media_file *f = media_fopen(path, "rb");
++	if (!f) {
++		return NULL;
++	}
++	long size = media_file_size(f);
++	if (size < 0 || size > 64 * 1024) {
++		media_fclose(f);
++		return NULL;
++	}
++	char *text = calloc(1, size + 1);
++	size_t got = media_fread(text, 1, size, f);
++	media_fclose(f);
++	text[got] = 0;
++	char *dir = path_dirname(path);
++	char *line = text;
++	if (!strncmp(line, "\xEF\xBB\xBF", 3)) {
++		line += 3;
++	}
++	while (line && *line)
++	{
++		char *next = strpbrk(line, "\r\n");
++		if (next) {
++			*(next++) = 0;
++		}
++		char *label = strchr(line, '|');
++		if (label) {
++			*(label++) = 0;
++			label = strip_ws(label);
++		}
++		char *entry = strip_ws(line);
++		if (*entry && *entry != '#') {
++			char *full = (dir && !is_absolute_path(entry)) ? path_append(dir, entry) : strdup(entry);
++			continuum_add_disc(full, label && *label ? strdup(label) : NULL);
++		}
++		line = next;
++	}
++	free(dir);
++	free(text);
++	if (!continuum_disc_count) {
++		return NULL;
++	}
++	if (continuum_initial_path && continuum_initial_index < continuum_disc_count
++		&& !strcmp(continuum_disc_path[continuum_initial_index], continuum_initial_path)) {
++		continuum_disc_index = continuum_disc_chosen = continuum_initial_index;
++	}
++	free(continuum_initial_path);
++	continuum_initial_path = NULL;
++	return continuum_disc_path[continuum_disc_index];
++}
++
++//The Sega CD being played from this glue's media, or NULL for anything else.
++static segacd_context *continuum_cd(void)
++{
++	if (!current_system || (stype != SYSTEM_SEGACD && stype != SYSTEM_32XCD)) {
++		return NULL;
++	}
++	segacd_context *cd = ((genesis_context *)current_system)->expansion;
++	return cd && cd->cdd.media == &media ? cd : NULL;
++}
++
++//Everything a disc holds: the track files (tracks of one cue sheet can share a file), the CHD,
++//the first sector and the names load_media() allocated.
++static void continuum_close_disc(system_media *m)
++{
++	if (m->type == MEDIA_CDROM) {
++		for (uint32_t i = 0; m->tracks && i < m->num_tracks; i++)
++		{
++			uint8_t file_seen = 0, flac_seen = 0;
++			for (uint32_t j = 0; j < i; j++)
++			{
++				file_seen |= m->tracks[j].f == m->tracks[i].f;
++				flac_seen |= m->tracks[j].flac == m->tracks[i].flac;
++			}
++			if (m->tracks[i].flac && !flac_seen) {
++				free(m->tracks[i].flac);
++			}
++			if (m->tracks[i].f && !file_seen) {
++				media_fclose(m->tracks[i].f);
++			}
++		}
++		cdimage_free(m);
++		free(m->tmp_buffer);
++	} else {
++		aligned_free(m->buffer);
++	}
++	free(m->dir);
++	free(m->name);
++	free(m->extension);
++	memset(m, 0, sizeof(*m));
++}
++
++static void continuum_disc_log(const char *what, unsigned index)
++{
++	if (retro_log) {
++		retro_log(RETRO_LOG_INFO, "Continuum: %s %s (disc %u of %u, %u track%s)\n", continuum_disc_label[index], what,
++			index + 1, continuum_disc_count, (unsigned)media.num_tracks, media.num_tracks == 1 ? "" : "s");
++	}
++}
++
++//Puts disc `index` in the drive in place of the one there. A disc that will not open (a track
++//file missing, say) leaves the old one in and returns 0; load_media() reports that through
++//fatal_error(), which unwinds to here instead of ending the program.
++static uint8_t continuum_insert_disc(unsigned index)
++{
++	segacd_context *cd = continuum_cd();
++	if (!cd || index >= continuum_disc_count) {
++		return 0;
++	}
++	if (index == continuum_disc_index) {
++		return 1;
++	}
++	static system_media next;
++	memset(&next, 0, sizeof(next));
++	system_type next_type = SYSTEM_UNKNOWN;
++	if (setjmp(fatal_recover)) {
++		if (retro_log) {
++			retro_log(RETRO_LOG_WARN, "Continuum: %s would not open, so the disc before it stays in\n", continuum_disc_label[index]);
++		}
++		return 0;
++	}
++	fatal_recover_valid = 1;
++	uint32_t size = load_media(continuum_disc_path[index], &next, &next_type);
++	fatal_recover_valid = 0;
++	if (!size || next.type != MEDIA_CDROM) {
++		continuum_close_disc(&next);
++		if (retro_log) {
++			retro_log(RETRO_LOG_WARN, "Continuum: %s is not a disc, so the disc before it stays in\n", continuum_disc_label[index]);
++		}
++		return 0;
++	}
++	system_media *chain = media.chain;
++	continuum_close_disc(&media);
++	media = next;
++	media.chain = chain;
++	continuum_disc_index = index;
++	return 1;
++}
++
++static bool RETRO_CALLCONV continuum_set_eject_state(bool ejected)
++{
++	segacd_context *cd = continuum_cd();
++	if (!cd) {
++		return false;
++	}
++	if (ejected) {
++		if (!continuum_tray_open) {
++			continuum_tray_open = 1;
++			continuum_tray_closing = 0;
++			continuum_disc_chosen = continuum_disc_index;
++			cd->cdd.status = DS_DOOR_OPEN;
++			cd->cdd.toc_valid = 0;
++			cd->cdd.seeking = 0;
++		}
++		return true;
++	}
++	if (!continuum_tray_open) {
++		return true;
++	}
++	uint8_t inserted = continuum_insert_disc(continuum_disc_chosen);
++	//Shut either way: with the chosen disc, or with the old one if the chosen one would not
++	//open, so a game never waits on a tray left open.
++	continuum_disc_chosen = continuum_disc_index;
++	continuum_tray_open = 0;
++	continuum_tray_closing = CONTINUUM_TRAY_CLOSE_FRAMES;
++	cd->cdd.status = DS_TRAY_MOVING;
++	if (inserted) {
++		continuum_disc_log("is going in", continuum_disc_index);
++	}
++	return inserted;
++}
++
++static bool RETRO_CALLCONV continuum_get_eject_state(void)
++{
++	return continuum_tray_open;
++}
++
++static unsigned RETRO_CALLCONV continuum_get_image_index(void)
++{
++	return continuum_tray_open ? continuum_disc_chosen : continuum_disc_index;
++}
++
++//Only with the tray open, as libretro asks, and only a disc of the list: an empty drive is
++//not offered.
++static bool RETRO_CALLCONV continuum_set_image_index(unsigned index)
++{
++	if (!continuum_tray_open || index >= continuum_disc_count) {
++		return false;
++	}
++	continuum_disc_chosen = index;
++	return true;
++}
++
++static unsigned RETRO_CALLCONV continuum_get_num_images(void)
++{
++	return continuum_disc_count;
++}
++
++static bool RETRO_CALLCONV continuum_replace_image_index(unsigned index, const struct retro_game_info *info)
++{
++	return false;
++}
++
++static bool RETRO_CALLCONV continuum_add_image_index(void)
++{
++	return false;
++}
++
++static bool RETRO_CALLCONV continuum_set_initial_image(unsigned index, const char *path)
++{
++	free(continuum_initial_path);
++	continuum_initial_path = path ? strdup(path) : NULL;
++	continuum_initial_index = index;
++	return true;
++}
++
++static bool RETRO_CALLCONV continuum_get_image_path(unsigned index, char *path, size_t len)
++{
++	if (index >= continuum_disc_count || !path || !len) {
++		return false;
++	}
++	snprintf(path, len, "%s", continuum_disc_path[index]);
++	return true;
++}
++
++static bool RETRO_CALLCONV continuum_get_image_label(unsigned index, char *label, size_t len)
++{
++	if (index >= continuum_disc_count || !label || !len) {
++		return false;
++	}
++	snprintf(label, len, "%s", continuum_disc_label[index]);
++	return true;
++}
++
++//Offered for a disc game only, so a cartridge shows no disc controls; taken back if a
++//cartridge follows a disc in the same session of the core.
++static void continuum_offer_discs(void)
++{
++	static struct retro_disk_control_ext_callback ext = {
++		continuum_set_eject_state, continuum_get_eject_state, continuum_get_image_index,
++		continuum_set_image_index, continuum_get_num_images, continuum_replace_image_index,
++		continuum_add_image_index, continuum_set_initial_image, continuum_get_image_path,
++		continuum_get_image_label
++	};
++	static struct retro_disk_control_callback basic = {
++		continuum_set_eject_state, continuum_get_eject_state, continuum_get_image_index,
++		continuum_set_image_index, continuum_get_num_images, continuum_replace_image_index,
++		continuum_add_image_index
++	};
++	if (continuum_cd()) {
++		unsigned version = 0;
++		if (retro_environment(RETRO_ENVIRONMENT_GET_DISK_CONTROL_INTERFACE_VERSION, &version) && version >= 1) {
++			retro_environment(RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE, &ext);
++		} else {
++			retro_environment(RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE, &basic);
++		}
++		continuum_discs_offered = 1;
++	} else if (continuum_discs_offered) {
++		retro_environment(RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE, NULL);
++		continuum_discs_offered = 0;
++	}
++}
++
++//Once a frame from retro_run(): the tray closing on a disc. Shut, the drive reads the table of
++//contents of whatever is in it, as it does at power on.
++static void continuum_tray_tick(void)
++{
++	if (!continuum_tray_closing) {
++		return;
++	}
++	segacd_context *cd = continuum_cd();
++	if (!cd) {
++		continuum_tray_closing = 0;
++		return;
++	}
++	if (--continuum_tray_closing) {
++		return;
++	}
++	cd->cdd.status = DS_TOC_READ;
++	cd->cdd.toc_valid = 0;
++	cd->cdd.seeking = 1;
++	cd->cdd.seek_pba = 0;
++	continuum_disc_log("is in the drive", continuum_disc_index);
++}
++
++//A save state of a playlist game remembers which disc was in, so loading it puts that disc back
++//before the drive's own state is restored. It is a section in BlastEm's own format, first in
++//the state: BlastEm skips a section it has no reader for, so an older build still loads the
++//state, on whatever disc it has in. 0xC0DE is far above BlastEm's own section numbers.
++#define CONTINUUM_DISC_SECTION 0xC0DE
++#define CONTINUUM_DISC_SECTION_SIZE (2 + 4 + 8)
++
++static size_t continuum_state_extra(void)
++{
++	//the section, and room for the next disc's drive state to be a little bigger than this
++	//one's (a disc with subcodes adds 96 bytes), as the size may never grow after a load
++	return continuum_cd() && continuum_disc_count > 1 ? CONTINUUM_DISC_SECTION_SIZE + 256 : 0;
++}
++
++static void continuum_put_be32(uint8_t *out, uint32_t value)
++{
++	out[0] = value >> 24;
++	out[1] = value >> 16;
++	out[2] = value >> 8;
++	out[3] = value;
++}
++
++static uint32_t continuum_get_be32(const uint8_t *in)
++{
++	return (uint32_t)in[0] << 24 | (uint32_t)in[1] << 16 | (uint32_t)in[2] << 8 | in[3];
++}
++
++static size_t continuum_save_disc_section(uint8_t *out, size_t room)
++{
++	if (!continuum_cd() || continuum_disc_count < 2) {
++		return 0;
++	}
++	if (room >= CONTINUUM_DISC_SECTION_SIZE) {
++		out[0] = CONTINUUM_DISC_SECTION >> 8;
++		out[1] = CONTINUUM_DISC_SECTION & 0xFF;
++		continuum_put_be32(out + 2, 8);
++		continuum_put_be32(out + 6, continuum_tray_open ? continuum_disc_chosen : continuum_disc_index);
++		continuum_put_be32(out + 10, continuum_disc_count);
++	}
++	return CONTINUUM_DISC_SECTION_SIZE;
++}
++
++static size_t continuum_load_disc_section(const uint8_t *in, size_t size)
++{
++	if (size < CONTINUUM_DISC_SECTION_SIZE || in[0] != (CONTINUUM_DISC_SECTION >> 8)
++		|| in[1] != (CONTINUUM_DISC_SECTION & 0xFF) || continuum_get_be32(in + 2) != 8) {
++		return 0;
++	}
++	uint32_t index = continuum_get_be32(in + 6);
++	uint32_t count = continuum_get_be32(in + 10);
++	//A state is a moment with the tray shut; its own drive section says what the drive was doing.
++	continuum_tray_open = 0;
++	continuum_tray_closing = 0;
++	if (count == continuum_disc_count && index < count && index != continuum_disc_index) {
++		if (continuum_insert_disc(index)) {
++			continuum_disc_log("is back in for the state", index);
++		}
++	}
++	continuum_disc_chosen = continuum_disc_index;
++	return CONTINUUM_DISC_SECTION_SIZE;
++}
++
+ //Continuum: typed cheat codes, which this glue used to throw away. Two shapes, which is
+ //every shape a Mega Drive, Sega CD or 32X code is written in:
+ //
+@@ -1374,6 +1813,8 @@ static bool load_game(const struct retro_game_info *game)
+ 		}
+ 	}
+ 	if (game->data) {
++		//Continuum: no disc list for content handed over as bytes (a cartridge).
++		continuum_discs_clear();
+ 		if (game->path) {
+ 			media.dir = path_dirname(game->path);
+ 			media.name = basename_no_extension(game->path);
+@@ -1385,7 +1826,14 @@ static bool load_game(const struct retro_game_info *game)
+ 		memcpy(media.buffer, game->data, game->size);
+ 		media.size = game->size;
+ 	} else {
+-		load_media((char *)game->path, &media, &stype);
++		//Continuum: a playlist opens its first disc (or the one set_initial_image() asked for).
++		const char *first = continuum_disc_list(game->path);
++		if (!first) {
++			warning("This playlist doesn't name any discs.\n");
++			fatal_recover_valid = 0;
++			return 0;
++		}
++		load_media((char *)first, &media, &stype);
+ 	}
+ 	//Same precedence as blastem.c: an explicit choice wins over whatever load_media()
+ 	//worked out, and detection only runs when nothing has been decided yet.
+@@ -1422,6 +1870,7 @@ static bool load_game(const struct retro_game_info *game)
+ 
+ 	update_av_info();
+ 	publish_memory_maps();
++	continuum_offer_discs();
+ 
+ 	return 1;
+ }
+@@ -1445,6 +1894,8 @@ RETRO_API void retro_unload_game(void)
+ 	media.buffer = NULL;
+ 	current_system->free_context(current_system);
+ 	current_system = NULL;
++	//Continuum: the disc list belongs to the game.
++	continuum_discs_clear();
+ 	//the next system loaded has never run, so retro_run() must start it rather
+ 	//than resume it; resuming would enter the recompiler at a NULL resume_pc
+ 	started = 0;
+@@ -1456,6 +1907,12 @@ RETRO_API unsigned retro_get_region(void)
+ 	return video_standard == VID_NTSC ? RETRO_REGION_NTSC : RETRO_REGION_PAL;
+ }
+ 
++//Continuum: the Sega CD's backup RAM cartridge (the add-on save cartridge), as its own memory
++//next to RETRO_MEMORY_SAVE_RAM, which is the console's internal backup RAM. libretro leaves the
++//ids past its own four to each core; a frontend that does not know this one never asks for it.
++//The bytes are the cartridge's own, one per odd address, as standalone BlastEm writes cart.bram.
++#define CONTINUUM_MEMORY_RAM_CART 0x5C00
++
+ /* Gets region of memory. */
+ RETRO_API void *retro_get_memory_data(unsigned id)
+ {
+@@ -1488,6 +1945,14 @@ RETRO_API void *retro_get_memory_data(unsigned id)
+ 			return cd->bram;
+ 		}
+ 		break;
++	case CONTINUUM_MEMORY_RAM_CART:
++		if (stype == SYSTEM_SEGACD) {
++			segacd_context *cd = ((genesis_context *)current_system)->expansion;
++			if (cd->bram_cart && cd->bram_cart_id < 8) {
++				return cd->bram_cart;
++			}
++		}
++		break;
+ 	default:
+ 		break;
+ 	}
+@@ -1518,6 +1983,14 @@ RETRO_API size_t retro_get_memory_size(unsigned id)
+ 			return 8 * 1024;
+ 		}
+ 		break;
++	case CONTINUUM_MEMORY_RAM_CART:
++		if (stype == SYSTEM_SEGACD) {
++			segacd_context *cd = ((genesis_context *)current_system)->expansion;
++			if (cd->bram_cart && cd->bram_cart_id < 8) {
++				return 0x2000 << cd->bram_cart_id;
++			}
++		}
++		break;
+ 	default:
+ 		break;
+ 	}

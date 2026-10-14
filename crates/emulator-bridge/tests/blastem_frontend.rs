@@ -114,7 +114,7 @@ fn first_ram_long(core: &NativeLibretroCore) -> u32 {
 fn the_patched_cartridge_list_is_what_blastem_reads() {
     let Some(so) = library() else { return };
     let dir = folder("rom-db");
-    let mut check = |name: &str, product: &str, size: usize, code: &[u8], magic_at: Option<usize>| -> (usize, u32) {
+    let check = |name: &str, product: &str, size: usize, code: &[u8], magic_at: Option<usize>| -> (usize, u32) {
         let mut rom = cartridge(size, product, code);
         if let Some(at) = magic_at {
             rom[at..at + 4].copy_from_slice(&0x1234_5678u32.to_be_bytes());

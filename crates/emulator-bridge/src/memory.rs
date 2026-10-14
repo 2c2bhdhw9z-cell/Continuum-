@@ -15,6 +15,11 @@ pub const MEMORY_RTC: u32 = 1;
 pub const MEMORY_SYSTEM_RAM: u32 = 2;
 /// `#define RETRO_MEMORY_VIDEO_RAM 3`, libretro.h line 521.
 pub const MEMORY_VIDEO_RAM: u32 = 3;
+/// Not libretro's: the Sega CD's backup RAM cartridge (the add-on save cartridge) on BlastEm with
+/// Continuum's patch (`CONTINUUM_MEMORY_RAM_CART` in `scripts/patches/blastem-sega-cd-discs.patch`).
+/// libretro leaves the ids past its own four to each core, so this one means something only to
+/// BlastEm, and the engine asks no other core for it.
+pub const MEMORY_SEGACD_RAM_CART: u32 = 0x5C00;
 
 /// A readable name for a region id, for status lines. Never empty.
 pub fn region_name(id: u32) -> &'static str {
@@ -23,6 +28,7 @@ pub fn region_name(id: u32) -> &'static str {
         MEMORY_RTC => "real time clock",
         MEMORY_SYSTEM_RAM => "system RAM",
         MEMORY_VIDEO_RAM => "video RAM",
+        MEMORY_SEGACD_RAM_CART => "save cartridge",
         _ => "unknown memory region",
     }
 }

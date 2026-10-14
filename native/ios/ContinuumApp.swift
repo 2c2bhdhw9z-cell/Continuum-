@@ -4838,20 +4838,14 @@ final class EngineHost: ObservableObject {
         // system and core as the last lines of the log the next crash report sends. The engine
         // adds each step (core load, retro_init, retro_load_game, HW context, first frame).
         feedbackLaunchStep(line: "game \(entry.path) · system \(launchingSystem.map { "\($0)" } ?? "unknown") · core \(spec.coreId)")
-        // BlastEm reads no playlists, so a Sega CD .m3u opens its first disc (the playlist's first
-        // line, beside it). Every other core gets the file the player tapped.
-        var launchPath = entry.path
-        if spec.coreId == CoreCatalog.blastem.coreId, entry.ext.lowercased() == "m3u",
-           let first = importReferencedFiles(path: entry.path).first {
-            let folder = (entry.path as NSString).deletingLastPathComponent
-            launchPath = (folder as NSString).appendingPathComponent(first)
-        }
+        // Every core gets the file the player tapped. A Sega CD .m3u goes to BlastEm as it is: its
+        // Continuum patch reads the playlist and offers the discs to "Next disc", like PlayStation.
         do {
             try engine.launch(
                 coreId: spec.coreId,
                 contentId: entry.name,
                 rom: Data(),
-                filename: launchPath
+                filename: entry.path
             )
             running = true
             // Set HERE, on the success path only, next to `running`. A tap that failed anywhere

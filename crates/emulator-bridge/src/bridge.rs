@@ -37,6 +37,10 @@ pub mod actions;
 // A child module for the same reason as `netplay_glue`.
 #[path = "input/bridge_glue.rs"]
 mod input_glue;
+/// Opt-in tests of a host build of BlastEm inside an engine session (`BLASTEM_SO`).
+#[cfg(all(test, feature = "native-core"))]
+#[path = "cores/blastem_host_tests.rs"]
+mod blastem_host_tests;
 
 /// Video frames of audio to buffer. Three is the usual compromise between
 /// robustness against a slow tick and audible input-to-sound latency.
@@ -1986,7 +1990,32 @@ impl EmulatorBridge {
                 written += Self::write_save_file(&clock_file, &clock, "rtc.writing")?;
             }
         }
+        // THE SEGA CD'S SAVE CARTRIDGE goes next to it too, as `<game>.bcr`: the console's own
+        // backup RAM is this game's `.srm`, and libretro has only the one save region, so
+        // BlastEm hands the cartridge over under an id of its own (`ram_cart_size`).
+        let cart_size = self.ram_cart_size();
+        if cart_size > 0 {
+            let cart = self.read_memory(crate::memory::MEMORY_SEGACD_RAM_CART, 0, cart_size as u64)?;
+            written += Self::write_save_file(&Self::ram_cart_path(path), &cart, "bcr.writing")?;
+        }
         Ok(written)
+    }
+
+    /// The size of the Sega CD's save cartridge in the running game: BlastEm's, for a disc game;
+    /// `0` for everything else, because the id is BlastEm's own and no other core is asked.
+    fn ram_cart_size(&self) -> usize {
+        match self.session.as_ref() {
+            Some(session) if session.core_id == "blastem" => {
+                self.memory_size(crate::memory::MEMORY_SEGACD_RAM_CART)
+            }
+            _ => 0,
+        }
+    }
+
+    /// `<game>.srm` → `<game>.bcr`, beside it: a backup cartridge's RAM, the name Saturn
+    /// emulators use for theirs, which the sync already carries.
+    fn ram_cart_path(battery_path: &str) -> std::path::PathBuf {
+        std::path::Path::new(battery_path).with_extension("bcr")
     }
 
     /// `data` with the cartridge-clock footer the file at `path` already has put back after it
@@ -2164,6 +2193,24 @@ impl EmulatorBridge {
                         "could not read {}: {err}",
                         clock_path.display()
                     )));
+                }
+            }
+        }
+        // The Sega CD's save cartridge (see `persist_battery_save`), the same way. A game that has
+        // never saved to it has no file, and the core's own freshly formatted cartridge stays; a
+        // file of another size is left alone rather than half-loaded.
+        let cart_size = self.ram_cart_size();
+        if cart_size > 0 {
+            let cart_path = Self::ram_cart_path(path);
+            match std::fs::read(&cart_path) {
+                Ok(cart) if cart.len() == cart_size => {
+                    self.write_memory(crate::memory::MEMORY_SEGACD_RAM_CART, 0, &cart)?;
+                    loaded = Some(loaded.unwrap_or(0) + cart.len());
+                }
+                Ok(_) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => {
+                    return Err(BridgeError::Memory(format!("could not read {}: {err}", cart_path.display())));
                 }
             }
         }
@@ -2996,6 +3043,43 @@ mod tests {
         let plain_path = dir.join("Red.gb.srm");
         running_diagnostic().persist_battery_save(plain_path.to_str().unwrap()).unwrap();
         assert!(!dir.join("Red.gb.rtc").exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_sega_cd_save_cartridge_is_kept_next_to_the_battery_save() {
+        use crate::memory::{MEMORY_SAVE_RAM, MEMORY_SEGACD_RAM_CART};
+        let dir = scratch_dir("segacd-cart");
+        let path = dir.join("Lunar.cue.srm");
+        let path = path.to_str().unwrap().to_string();
+        let cart_file = dir.join("Lunar.cue.bcr");
+        let mut bridge = running_as("blastem", "segacd", b"cart disc", "Lunar.cue");
+        let cart: Vec<u8> = (0..8192u32).map(|i| (i * 7) as u8).collect();
+        bridge.write_memory(MEMORY_SEGACD_RAM_CART, 0, &cart).unwrap();
+        bridge.write_memory(MEMORY_SAVE_RAM, 0, &[0x42]).unwrap();
+        assert_eq!(bridge.persist_battery_save(&path).unwrap(), 8192 + 8192);
+        assert_eq!(std::fs::read(&cart_file).unwrap(), cart);
+        // Nothing changed: nothing is rewritten.
+        assert_eq!(bridge.persist_battery_save(&path).unwrap(), 0);
+        // Only the cartridge changed: only it is written.
+        bridge.write_memory(MEMORY_SEGACD_RAM_CART, 100, &[0xEE]).unwrap();
+        assert_eq!(bridge.persist_battery_save(&path).unwrap(), 8192);
+        let mut cart = cart;
+        cart[100] = 0xEE;
+        // The next session gets both back before its first frame.
+        let mut fresh = running_as("blastem", "segacd", b"cart disc", "Lunar.cue");
+        assert_eq!(fresh.load_battery_save_file(&path).unwrap(), Some(8192 + 8192));
+        assert_eq!(fresh.read_memory(MEMORY_SEGACD_RAM_CART, 0, 8192).unwrap(), cart);
+        assert_eq!(fresh.read_memory(MEMORY_SAVE_RAM, 0, 1).unwrap(), vec![0x42]);
+        // A cartridge file of another size (another cartridge size) is left alone, not an error.
+        std::fs::write(&cart_file, [9u8; 4096]).unwrap();
+        let mut other = running_as("blastem", "segacd", b"cart disc", "Lunar.cue");
+        assert_eq!(other.load_battery_save_file(&path).unwrap(), Some(8192));
+        assert_eq!(other.read_memory(MEMORY_SEGACD_RAM_CART, 0, 4).unwrap(), vec![0; 4]);
+        // Another core with the same memory is never asked for it: the id is BlastEm's.
+        let lone = dir.join("Other.cue.srm");
+        running_as("diag", "segacd", b"cart disc", "Other.cue").persist_battery_save(lone.to_str().unwrap()).unwrap();
+        assert!(!dir.join("Other.cue.bcr").exists());
         let _ = std::fs::remove_dir_all(dir);
     }
 

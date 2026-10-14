@@ -288,7 +288,9 @@ ios_core_config() {
       # (scripts/patches/): blastem-continuum-memory.patch, Sega CD and 32X memory for
       # achievements and RAM search, the Sega CD's backup RAM as its save, typed cheats, the
       # multitaps and Super Skidmarks; blastem-cartridge-saves.patch, every EEPROM and J-Cart
-      # cartridge dump in MAME's software list that rom.db did not know by checksum.
+      # cartridge dump in MAME's software list that rom.db did not know by checksum;
+      # blastem-sega-cd-discs.patch, .m3u playlists and disc changing for the Sega CD, and its
+      # save cartridge as memory of its own.
       IOS_REPO="https://github.com/libretro/blastem"
       IOS_PIN="ab743653ed110eeb7b1fe64d00cc5f9279c2bfec"
       IOS_DYLIB_NAME="blastem_libretro_ios.dylib"
@@ -1630,6 +1632,8 @@ ios_apply_core_patches() {
         libblastem.c "Continuum: Sega CD and 32X memory"
       ios_apply_simple_patch blastem blastem-cartridge-saves.patch \
         rom.db "Continuum: every EEPROM and J-Cart cartridge dump"
+      ios_apply_simple_patch blastem blastem-sega-cd-discs.patch \
+        libblastem.c "Continuum: Sega CD discs"
       ;;
     # recipe-end: blastem
   esac
