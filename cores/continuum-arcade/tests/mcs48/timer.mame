@@ -1,0 +1,7 @@
+# MAME 0.289's trace of timer.bin on Donkey Kong's sound CPU (an MB8884, its 8035),
+# made by mame_trace.py: the instructions compared, then an FNV-1a 64 hash of each
+# 1024 trace lines. First and last line:
+# 0:000 A=00 F=00 R=0000000000000000 T=00 P=00 P1=FF P2=FF C=0
+# 0:133 A=01 F=00 R=0000000000020100 T=02 P=1D P1=FF P2=FF C=1586
+instructions 859
+a718ea45902ddb9c

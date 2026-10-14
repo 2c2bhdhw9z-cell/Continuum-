@@ -162,8 +162,14 @@ part runs 400,000 cycles a second.
   - Unit tests in `src/mcs48.rs` cover the interrupts and their priority, RETR, bank 0 inside an
     interrupt routine, the JNI rule, the timer's 32-cycle prescaler, the counter's T1 edges, the
     stack's wrap, the page rules, both RAM sizes, reset and a save state.
-  - A trace comparison with MAME's core on our own programs, run on MAME's Donkey Kong sound
-    board, is the last proof; it waits for the MAME build in scratch.
+  - `tests/mcs48_mame.rs` compares it with MAME's MCS-48 core, instruction by instruction. Four
+    programs of ours (`tests/mcs48/alu.asm`, `flow.asm`, `timer.asm`, `io.asm`: every
+    accumulator value through the arithmetic, all the jumps, banks, stack and PSW values, the
+    timer, counter and both interrupts, and the ports, MOVX and BUS as Donkey Kong's board wires
+    them) ran on MAME 0.289's Donkey Kong sound board with its debugger tracing the program
+    counter, A, PSW, R0-R7, timer, prescaler, both ports and the cycle count before each
+    instruction. All 104,360 instructions match. The `.mame` files keep a hash of each 1,024
+    lines; `tests/mcs48/mame_trace.py` remakes them from a MAME build in scratch.
 
 ## The AY-3-8910, Konami's sound chip (`ay8910.rs`)
 

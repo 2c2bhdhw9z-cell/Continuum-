@@ -292,10 +292,22 @@ impl Mcs48 {
     /// routine runs in the same step: the chip looks at its interrupts only between
     /// instructions.
     pub fn step<B: Bus>(&mut self, bus: &mut B) -> u32 {
-        let cycles = self.take_interrupt(bus);
+        let cycles = self.interrupt(bus);
+        cycles + self.instruction(bus)
+    }
+
+    /// The first half of `step`: takes a waiting interrupt, if any, and returns its cycles (0 or
+    /// 2). A trace that shows each instruction with the state just before it calls the two
+    /// halves itself, as MAME's debugger sees them.
+    pub fn interrupt<B: Bus>(&mut self, bus: &mut B) -> u32 {
+        self.take_interrupt(bus)
+    }
+
+    /// The second half of `step`: one instruction, with no interrupt check before it.
+    pub fn instruction<B: Bus>(&mut self, bus: &mut B) -> u32 {
         self.jni_target = None;
         let op = self.fetch(bus);
-        cycles + self.exec(bus, op)
+        self.exec(bus, op)
     }
 
     /// The interrupt logic, between instructions. Nothing interrupts an interrupt routine.
