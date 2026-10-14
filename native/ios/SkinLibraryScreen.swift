@@ -51,9 +51,7 @@ struct SkinLibrarySettingsSection: View {
     var body: some View {
         SettingsSection(title: "SKINS") {
             let _ = host.touchSkinsVersion
-            Text(host.allSkinRecords.isEmpty
-                 ? "No skins yet. Import Manic EMU (.manicskin) or Delta (.deltaskin) skins."
-                 : "\(host.allSkinRecords.count) skin(s) in the library.")
+            Text(skinCountLine)
                 .font(.system(size: 13))
                 .foregroundStyle(ShellPalette.secondaryText)
             SettingsButton(title: "Open the skin library", role: .normal) {
@@ -64,8 +62,8 @@ struct SkinLibrarySettingsSection: View {
                     Text("Button sounds")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
-                    Text("Plays a skin's own click (sound.caf) on every press, at the game's "
-                         + "volume. Silent while the app is muted or the phone is on silent.")
+                    Text("Plays a skin's own click when you press a button. Silent when Mute "
+                         + "is on or your phone is on silent.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
                 }
@@ -74,6 +72,15 @@ struct SkinLibrarySettingsSection: View {
         }
         .sheet(isPresented: $showLibrary) {
             SkinLibrarySheet(host: host, onDone: { showLibrary = false })
+        }
+    }
+
+    /// The count line, with real plurals.
+    private var skinCountLine: String {
+        switch host.allSkinRecords.count {
+        case 0: return "No skins yet. Import Manic EMU (.manicskin) or Delta (.deltaskin) skins."
+        case 1: return "1 skin in your library"
+        default: return "\(host.allSkinRecords.count) skins in your library"
         }
     }
 }

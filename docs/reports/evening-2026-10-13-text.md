@@ -118,6 +118,14 @@ each under the name of the section it came from.
   **"Back to the Default icon."**; "This install cannot change its icon." became **"This copy of
   Continuum can't change its icon."**
 
+### SKINS
+
+- "3 skin(s) in the library." became **"3 skins in your library"** (and "1 skin in your
+  library").
+- **Button sounds**: "Plays a skin's own click (sound.caf) on every press, at the game's volume.
+  Silent while the app is muted or the phone is on silent." became **"Plays a skin's own click
+  when you press a button. Silent when Mute is on or your phone is on silent."**
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)
