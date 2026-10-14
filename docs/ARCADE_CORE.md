@@ -373,7 +373,7 @@ Found by reading every place cBoy and the arcade system appear, and wired the sa
   only cArcade (about a minute, like cBoy), and so does every build after.
 - `scripts/check-core-cache.sh`: the three checks cBoy has (it's never reused from the cache, its
   build function is in its region, only one core uses its kind), and its checks that pin the
-  `IOS_OPTIONAL_CORES` line now name it. 209 checks pass.
+  `IOS_OPTIONAL_CORES` line now name it. All 217 checks pass.
 - `native/ios/build-engine.sh`: drops a cached `continuum_arcade_libretro_ios.dylib` after the
   cache restore, like cBoy's line: it has no pin, so a cached copy could be from an older commit.
 - `native/ios/project.yml`: a four-line embed in the OPTIONAL CORES block, exactly cBoy's shape.

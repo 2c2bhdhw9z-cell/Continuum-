@@ -54,7 +54,8 @@
     },
     {
       "id": "I4",
-      "done": false,
+      "done": true,
+      "result": "Arcade games open on cArcade (pushed as 5848928): it recognises 65 Pac-Man-board sets by their chips (full, split or merged zips, a clone's parent found next to it), its DIP switches are settings with the factory defaults MAME has, Select is the coin and Start is start, save states and Restart work, a zip it can't play gets one plain line, and our own test programs played through its libretro entry points and through the app's engine match MAME frame for frame; a build without it keeps the old line, adding it rebuilds no other emulator, and the two ios.yml lines are parked in docs/ARCADE_CORE.md.",
       "title": "In the app: arcade games open on cArcade",
       "detail": "The libretro core around the boards (load a zip set, the built-in set list with names and titles, DIP switches as core options with plain labels, coin and start on the controls, the upright picture and its aspect, save states that round-trip exactly, the right frame rate), and the app's wiring from I1: arcade games route to it; a set it knows opens and plays; a set it doesn't know opens to one plain line naming the kind of games it plays now (for example: \"Our arcade emulator can't play this one yet. Right now it plays Pac-Man, Ms. Pac-Man and games on the same board.\"), never a crash and never 'Which system?'; and the old \"Arcade games aren't playable right now\" line stays only for when the core is missing from a build. Add an engine test like crates/emulator-bridge/tests/cboy_frontend.rs that loads a test set through the real entry points. Build it into the .ipa the optional way. Update docs/MANIC_PARITY.md's arcade row to say Continuum's own arcade core is in, and what it plays."
     },
