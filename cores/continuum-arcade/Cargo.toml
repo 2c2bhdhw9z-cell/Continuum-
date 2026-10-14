@@ -17,6 +17,8 @@ bincode = "1.3"
 [dev-dependencies]
 # Reads SingleStepTests' Z80 suite (JSON) in tests/z80_singlestep.rs. Tests only.
 serde_json = "1"
+# Reads MAME's snapshots in tests/pacman_mame.rs (the version cBoy's tests use). Tests only.
+png = "0.17"
 
 [profile.test]
 opt-level = 2

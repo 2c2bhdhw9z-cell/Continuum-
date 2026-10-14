@@ -1,9 +1,12 @@
 # cArcade: Continuum's own arcade emulator
 
-**Where it stands (13 October 2026): the Z80 is written and proven (item I2): all 1,604,000
-SingleStepTests cases pass, and ZEXDOC and ZEXALL report no errors. No board yet, and nothing of
-it is in the app yet.** The write-up at the end of the job finishes this file: the games it plays,
-what the tests prove, what is approximate, and what comes next.
+**Where it stands (14 October 2026): the Z80 is proven (item I2: all 1,604,000 SingleStepTests
+cases pass, and ZEXDOC and ZEXALL report no errors); Donkey Kong's 8035 and Konami's AY-3-8910
+match MAME (their sections below); and the Pac-Man board is proven (item I3: nine test programs
+of our own match MAME on every one of 1,400 frames, pixel for pixel and sound sample for sample;
+see "The Pac-Man board, as proven"). Nothing of it is in the app yet.**
+The write-up at the end of the job finishes this file: the games it plays, what the tests prove,
+what is approximate, and what comes next.
 
 Why it exists: on 12 October the owner took the two arcade emulators with non-commercial licences
 out of the app (FinalBurn Neo and MAME 2003-Plus) and ruled out any outside arcade core for good.
@@ -31,8 +34,8 @@ emulator. Until then an imported arcade game stays in the Library and opens to o
 | `zip.rs` | Reads a zip: its directory (names, sizes, CRC32s), and its files, stored or deflated, with our own inflater and CRC32, so no new dependency |
 | `sets.rs` | The built-in set list (short name, title, parent, board, each ROM's size, CRC32 and place) and the recognition rules below |
 | `board.rs` | What every board does: run one frame, the picture, the sound, the inputs, the DIP switches, save states |
-| `pacman.rs` | Namco's Pac-Man board |
-| `namco_wsg.rs` | Pac-Man's sound chip: three voices playing 32-step waves from the sound PROM |
+| `pacman.rs` | Namco's Pac-Man board (written and proven, see below) |
+| `namco_wsg.rs` | Pac-Man's sound chip: three voices playing 32-step waves from the sound PROM (written and proven with the board) |
 | `galaxian.rs` | Namco's Galaxian board and Konami's Scramble variant |
 | `ay8910.rs` | The AY-3-8910, two of them on Konami's sound board (written and proven, see below) |
 | `galaxian_sound.rs` | Galaxian's analogue sound, approximated |
@@ -116,16 +119,16 @@ upright too.
 - **Each board** is proved with programs we write ourselves:
   - **The test programs** draw tiles and sprites with our own graphics and colour PROMs, play our
     own waves, read the inputs and DIP switches, and exercise the watchdog and interrupts. They're
-    in Z80 assembly, plus 8035 assembly for Donkey Kong's sound. They're assembled with an
-    assembler built from source in scratch: The Macro Assembler AS (it does both the Z80 and the
-    8035), or sjasmplus for the Z80 only.
-  - **MAME is the reference.** The same programs run on MAME built locally from source, as a
-    subset holding only the needed drivers (MAME's own `SOURCES=` build, `-j3`). It lives in
-    scratch and is never committed. It's downloaded as a release tarball, because git in this
-    sandbox only reaches this project's repository.
-  - **The tests.** MAME's frames and sound for each program become small reference files in the
-    crate's `tests/`. The tests compare our picture pixel for pixel. Sound is compared sample for
-    sample where the rates match; any tolerance is stated in the test.
+    in Z80 assembly (sjasmplus, built from source), plus 8035 assembly for Donkey Kong's sound
+    (The Macro Assembler AS does the 8035).
+  - **MAME is the reference.** The same programs run on MAME 0.289 built locally from its release
+    tarball as a subset holding only the three boards' drivers (MAME's own `SOURCES=` build,
+    `-j2`), in `/projects/sandbox/.scratch/mame` (its `READY` file says how to run it). It is
+    never committed or shipped.
+  - **The tests.** MAME's per-frame picture and sound hashes for each program are committed as
+    small reference files in the crate's `tests/references/`, which every run checks; whenever
+    MAME is on the machine, a second test compares against MAME live, frame by frame. The
+    Pac-Man board's tests are described above; they need no tolerance at all.
   - **Licensing.** The programs' sources and assembled bytes are ours and are committed. No
     commercial ROM is ever fetched, not even for a test.
 - **Save states** must round-trip byte for byte, and the frames after a restore must equal the
@@ -205,6 +208,72 @@ It divides its clock by 8; `tick` is one period of that and gives the three chan
   taps, the envelope period-0 rule, the tone period-0 rule, a shape write resetting the envelope's
   prescaler, a write one sample late) all fail it. `tests/ay8910/mame_ay.py` remakes the
   reference from a MAME build in scratch.
+
+## The Pac-Man board, as proven (item I3)
+
+`src/pacman.rs` and `src/namco_wsg.rs`. The board takes its ROM regions as MAME's sets lay them out
+(the set list in item I4 fills them) and one of four program layouts: the plain board (Puck Man,
+Pac-Man and the clones on it; 16 KB at 0000h, mirrored at 8000h), Pac-Man Plus (the same, every
+program byte decoded by its address), bootlegs that wire A15 (a second 16 KB at 8000h, as many
+Ms. Pac-Man bootlegs do), and Ms. Pac-Man's daughterboard (its three scrambled ROMs, the 40
+patches it lays over the Pac-Man program, and the traps that switch between the two programs on
+any read, write or instruction fetch).
+
+What it does: the Z80 at 3.072 MHz, 50,688 cycles a frame, 60.606 frames a second; the 36 × 28
+tile layer with its odd video RAM layout, its mirrors and the screen flip; the eight sprites with
+the board's clipping, wrap-around, priorities, see-through colour and the one-pixel shift of
+sprites 0-2; the palette from the PROM through the resistor weights; the picture turned upright,
+224 × 288; the three-voice sound from the sound PROM; the inputs, DIP switches and cabinet
+setting; the VBLANK interrupt held until the game clears it, with the vector from port 0 in
+modes 0, 1 and 2; and the watchdog's reset after 16 frames without a kick (RAM kept, the latch
+cleared). Save states round-trip byte for byte, and the frames after a restore equal the frames
+without one. Pac-Man Plus's graphics aren't scrambled (MAME's set loads them plain), so only its
+program is decoded.
+
+How it's proved:
+
+- **Nine test programs of our own** in `test-programs/pacman/` (Z80 assembly, with our own
+  graphics and PROMs: `video`, `sprites`, `sound`, `irq`, `watchdog`, `inputs`, `mspacman`,
+  `pacplus`, `upper`), assembled with sjasmplus 1.24.0 built from source by
+  `scripts/build-test-programs.sh`. The assembled bytes are committed; a test checks they are
+  what the sources assemble to whenever the assembler is there. The test scrambles the
+  Ms. Pac-Man and Pac-Man Plus programs the way those boards' ROMs are scrambled, with its own
+  copy of the wiring, so cArcade's decoder must undo MAME's idea of the scrambling, not its own.
+- **MAME 0.289 as the reference**, built locally from its release tarball with only the Pac-Man,
+  Galaxian and Donkey Kong drivers (`SUBTARGET` + `SOURCES`, headless SDL), never committed or
+  shipped. `tests/pacman_mame.rs` runs each program on MAME (its files under MAME's names in
+  MAME's `pacman`, `mspacman`, `pacplus` and `mspacmab` sets; MAME runs them after its
+  wrong-checksum warning), snapshots every frame, records the sound at 192 kHz, presses the same
+  buttons and sets the same DIP switches frame by frame through MAME's Lua console, and compares
+  every frame with cArcade's: the picture pixel for pixel, the sound sample for sample (the
+  voices' sums, recovered exactly from MAME's 16-bit samples). Without MAME it says SKIPPED.
+- **Pinned for everywhere**: the same test writes MAME's per-frame picture and sound hashes into
+  `tests/references/pacman/` (`CARCADE_WRITE_REFERENCES=1`) and otherwise checks those files are
+  still what MAME produces; `tests/pacman_board.rs` runs on any machine and requires cArcade's
+  every frame to hash the same. All 1,400 frames match.
+
+Where it follows MAME's model rather than a measured board (the reference has to be matched
+exactly to be useful, and none of these can be heard or seen):
+
+- The sound runs at 192 kHz, twice the chip's step rate with one more fraction bit (the same
+  pitch), and a voice's phase only moves while the sound is on and its volume isn't 0.
+- A sound register write changes the 192 kHz samples that start at or after it; VBLANK falls in a
+  frame's last CPU cycle.
+- CPU writes to the phase-counter nibbles the chip keeps in its register file are stored but don't
+  move the voices; the 3M timing PROM isn't modelled; the lamps, coin counter and coin lockout
+  have no effect.
+
+Known limits, none of which the tests hit:
+
+- An instruction that straddles VBLANK has its writes placed in time from the instruction's
+  shape (exact for ordinary stores and the LDI family, close for EX (SP),HL); a watchdog reset
+  that lands mid-instruction waits for the instruction's end (exact from HALT).
+- MAME switches the sound on or off from its sound stream's last update rather than at the write
+  (its `sound_enable_w` doesn't bring the stream up to date first); cArcade switches it at the
+  write, as the latch does. The test programs only switch it while every voice is silent, where
+  both agree.
+- Two bootlegs with their blue and green wires swapped (MAME's `woodpek_rbg` sets) aren't
+  modelled; they'd need a palette variant.
 
 ## The core as the app sees it
 
