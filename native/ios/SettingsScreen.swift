@@ -186,8 +186,8 @@ struct SettingsScreen: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
                     Text(artwork.fetchEnabled
-                         ? "On, so the library shows real box art."
-                         : "Off, so every game shows its generated plate.")
+                         ? "On. Your games get real box art."
+                         : "Off. Games show a title card instead.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
                 }
@@ -197,44 +197,13 @@ struct SettingsScreen: View {
             // The disclosure, in plain words. Resolving art sends a filename to a third party, and
             // that is a real disclosure rather than an implementation detail.
             SettingsNote(
-                "Looking up a cover sends that game's filename to thumbnails.libretro.com, which "
-                + "is a server run by the libretro project and not by this app. Nothing else is "
-                + "sent: no account, no device name, and never the game file itself. A cover is "
-                + "downloaded once and kept on this device, so the library keeps showing it with "
-                + "no network at all. With this off, nothing leaves the device and every game "
-                + "shows the generated plate it already has."
+                "Covers come from libretro's free cover server, looked up by each game's file "
+                + "name. Nothing else is sent."
             )
 
-            // The second disclosure, and the reason it is here rather than in a release note: the
-            // fallback search downloads the largest thing this app ever fetches, and it does it
-            // without being asked.
-            SettingsNote(
-                "Most covers are found by name in one request. When a game's name matches nothing, "
-                + "usually because it was dumped under a different naming convention, the app asks "
-                + "the server for its own list of covers and matches on the title. There is one "
-                + "list per system and per folder: box art first, then title screens, then in-game "
-                + "shots, and a folder's list is only downloaded when the cheaper ones found "
-                + "nothing, so a game whose box art is listed costs one list and no more. Only the "
-                + "names are kept and not the page itself, and each list is then used for every "
-                + "later search with no further download for a month. A big system is a few "
-                + "megabytes a list: the NES box art list is about 4 MB and its title screen and "
-                + "in-game shot lists are about 4.9 MB each, while Game Gear is about 240 KB a "
-                + "list. Nothing extra is sent: the request is for the server's own public index."
-            )
-
-            SettingsNote(
-                "If a game has no art anywhere under its own system, the same title is looked for "
-                + "in the other systems' lists, smallest list first, and at most two extra lists "
-                + "are downloaded for any one game. A cover found that way says where it came "
-                + "from, for example \"box art from Game Boy\", and never pretends to be this "
-                + "console's own. A title that matches two or more covers is left alone rather "
-                + "than guessed at: it keeps its plate, and opening that game's card shows every "
-                + "cover the server has for it so you can pick one."
-            )
-
-            SettingsReadout(label: "Stored", value: artwork.storageLine)
-            SettingsReadout(label: "Cover lists", value: artwork.coverListLine)
-            SettingsReadout(label: "Last", value: artwork.line)
+            // The STORED, COVER LISTS and LAST read-outs are in TECHNICAL DETAILS
+            // (`moreTechnicalReadouts`).
+            SettingsNote(coverCountLine)
 
             HStack(spacing: 10) {
                 SettingsButton(title: "Clear artwork cache", role: .destructive) {
@@ -249,17 +218,17 @@ struct SettingsScreen: View {
                 artwork.forgetCoverLists()
             }
 
-            SettingsNote(
-                "Clearing throws away the downloaded covers and nothing else; the plates come "
-                + "straight back and a cover is fetched again next time it is on screen. A title "
-                + "the server has no art for is remembered for a week rather than asked about on "
-                + "every launch, and Retry forgets that so it is asked again now, for every "
-                + "game in the library and not only the ones on screen. Forgetting the cover "
-                + "lists is the separate one: it clears every one of them, per system and per "
-                + "folder, gives back the megabytes they take, and the next game that needs the "
-                + "fallback search downloads the one list it needs again."
-            )
+            SettingsNote("Both clear buttons just free up space. Anything still needed downloads again.")
         }
+    }
+
+    /// The one plain line COVER ART keeps, with real plurals. The full read-outs are in
+    /// TECHNICAL DETAILS.
+    private var coverCountLine: String {
+        let count = artwork.storedFiles
+        guard count > 0 else { return "No covers saved yet" }
+        return "\(count) \(count == 1 ? "cover" : "covers") saved "
+            + "(\(ArtworkStore.byteText(artwork.storedBytes)))"
     }
 
     // MARK: Physical controllers
@@ -495,6 +464,19 @@ struct SettingsScreen: View {
             }
 
             technicalReadouts
+            moreTechnicalReadouts
+        }
+    }
+
+    /// The second half of Settings' read-outs, the same way as `technicalReadouts`: word for word,
+    /// under the section they came from, in screen order, in a Group of their own.
+    private var moreTechnicalReadouts: some View {
+        Group {
+            TechnicalReadoutGroup(title: "COVER ART") {
+                SettingsReadout(label: "Stored", value: artwork.storageLine)
+                SettingsReadout(label: "Cover lists", value: artwork.coverListLine)
+                SettingsReadout(label: "Last", value: artwork.line)
+            }
         }
     }
 
