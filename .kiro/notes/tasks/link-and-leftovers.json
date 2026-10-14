@@ -52,7 +52,8 @@
     },
     {
       "id": "H4",
-      "done": false,
+      "done": true,
+      "result": "Pushed as a4ed549: BlastEm now reads Sega CD .m3u playlists, offers libretro's disc controls so the app's Next disc and Insert disc work (tray open, disc in, tray shut, the drive reads the new disc), keeps the disc in save states, and hands over the save cartridge, which the engine keeps as <game>.bcr; proven with a host-built BlastEm in a real engine session on a stand-in start-up ROM and generated discs, and a real disc swap in a real game still needs the phone.",
       "title": "Sega CD: changing discs, and the RAM-cart saves",
       "detail": "Last night found that BlastEm registers no libretro disc interface and has no hook for changing a disc, and that libretro's one save region is already used by the Sega CD's internal backup memory. Add the disc interface to BlastEm's libretro front end in a Continuum patch so the app's existing 'Next disc' control (the one PS1 uses) works for multi-disc Sega CD games, and store the backup RAM cartridge (the add-on save cartridge) as its own file next to the internal one, loaded and saved with it. A Sega CD game needs a BIOS nobody here has, so prove what can be proved without one (the interface's calls, the disc list from a .m3u, the cartridge file being created, saved and reloaded) and say plainly that a real disc swap needs the phone."
     },
