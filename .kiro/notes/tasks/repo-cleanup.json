@@ -46,7 +46,8 @@
     },
     {
       "id": "R3",
-      "done": false,
+      "done": true,
+      "result": "GitHub refused the About-box calls through the sandbox's connection (PATCH repos/... and PUT .../topics, and gh repo edit, all HTTP 403 UpstreamProviderClientError: the token can push and release but not change repository settings), so the exact description, website, 16 topics, the commands and a by-hand fallback are in .kiro/notes/tasks/repo-cleanup-phase2.md section 1 (commit 743ac27); the box is still empty.",
       "title": "Fill in the GitHub 'About' box",
       "detail": "Set the repository's description, website and topics with gh api: `gh api -X PATCH repos/2c2bhdhw9z-cell/Continuum- -f description='...' -f homepage='https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest'` and `gh api -X PUT repos/2c2bhdhw9z-cell/Continuum-/topics -f 'names[]=emulator' -f 'names[]=ios' ...`. Description short and human, for example 'An all-in-one emulator for iPhone. Free, open source, in public beta.' Topics lowercase with hyphens: emulator, ios, iphone, retro-gaming, libretro, rust, swift, game-boy and a few more that are true. Verify with `gh api repos/2c2bhdhw9z-cell/Continuum- --jq '[.description,.homepage,.topics]'`. If the API refuses through this sandbox's connection, write the exact text into the part-2 plan for the orchestrator instead."
     },
