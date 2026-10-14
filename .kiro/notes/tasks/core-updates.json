@@ -24,7 +24,9 @@
   "items": [
     {
       "id": "CU1",
-      "done": false,
+      "done": true,
+      "result": "Taken in d503e0b: Gearsystem moved to 4a801d2 with our patch unchanged, and on a computer two open-licence homebrews play, states from builds 181, 182-183 and 184-185 load and carry on frame for frame, and the online-play state fix still holds (details in docs/reports/core-updates-2026-10-14.md).",
+      "notes_for_cu3_cu4": "CORE_UPDATES only counts direct pairs, so a core that moves again needs its build-181 entry pointed at the new pin plus a second entry from the 12 October pin (builds 182-185); the test an_update_from_build_181_gets_one_line_per_moved_core needs PPSSPP's 181 entry for its wording, and CORE_UPDATES.len() in every_moved_pin_has_an_update_entry counts entries (11 after CU1).",
       "title": "Gearsystem (Master System, Game Gear, SG-1000)",
       "detail": "Five upstream changes (warnings, ZIP extraction safety, Windows paths, video recorder). Skim the diff for anything in the core, the libretro front end or the save-state code. Dry-run scripts/patches/gearsystem-*.patch, host-build the new pin with our patches, boot an open-licence Master System or Game Gear homebrew through the engine, and prove a state saved on the old pin loads on the new one and that the 13 October state-hash fix still holds. Then move the pin, update core_updates.rs, run the checks, push."
     },
