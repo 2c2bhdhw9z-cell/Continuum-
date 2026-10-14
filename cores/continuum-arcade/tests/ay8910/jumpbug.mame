@@ -1,0 +1,20 @@
+# MAME 0.289's AY-3-8910 on Jump Bug's board (1.536 MHz) playing jumpbug.bin, recorded
+# at the chip's own 192,000 samples a second, made by mame_ay.py: its output value for
+# each fixed amplitude 0-15 and each envelope level 0-15 (one channel playing, the
+# other two at 0), the samples compared, then an FNV-1a 64 hash of each 4096 of them
+# (as little-endian 16-bit values).
+fixed -6144 -6032 -5999 -5955 -5886 -5786 -5664 -5364 -5181 -4568 -3962 -3246 -2272 -1239 348 2048
+envelope -6144 -6070 -6036 -5991 -5923 -5823 -5700 -5398 -5215 -4598 -3990 -3271 -2292 -1254 340 2048
+samples 48715
+b2fdc7d521585c25
+e7d01f40ee0fb685
+bc7b866e143f2da5
+9c987f1dfeb80a45
+b0149ae97fb485a5
+c48692ca1e263115
+32b29a89e5a35bcb
+39f12b4b905136f1
+edb20a84a6cc6e9b
+f07af5da92217f66
+da2b82c0ce0baa20
+c0252825ea8bea95

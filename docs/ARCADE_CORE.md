@@ -192,7 +192,19 @@ It divides its clock by 8; `tick` is one period of that and gives the three chan
   1 to 4095, period 0, the noise sequence bit for bit against an independent shift register and
   its 131,071-shift length, all 16 envelope shapes over four cycles, the envelope step length,
   the mixer, each channel on its own, the register masks, the chip code, the ports, reset and a
-  save state. A comparison with MAME's AY-3-8910 on register writes of our own is the last proof.
+  save state.
+- **And against MAME, sample for sample** (`tests/ay8910_mame.rs`): `tests/ay8910/jumpbug.asm`,
+  a Z80 program of ours, writes a script of registers on Jump Bug's board, where MAME clocks the
+  chip at 1.536 MHz so its output is exactly 192,000 samples a second. MAME 0.289 recorded it at
+  that rate: every channel's tone at many periods, the noise at many periods and through each
+  channel, all 16 envelope shapes, envelope periods 0 to 300, periods and shapes changed
+  mid-wave, the missing register bits and the mixer's combinations. Run on our Z80 and chip, with
+  each write landing on the sample MAME's does, all 48,715 samples match. MAME turns levels into
+  voltages with its own model of the output stage, so the reference keeps its value for each
+  level, taken from a calibration at the start of the script. Planted mistakes (other noise
+  taps, the envelope period-0 rule, the tone period-0 rule, a shape write resetting the envelope's
+  prescaler, a write one sample late) all fail it. `tests/ay8910/mame_ay.py` remakes the
+  reference from a MAME build in scratch.
 
 ## The core as the app sees it
 
