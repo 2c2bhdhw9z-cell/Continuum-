@@ -53,7 +53,8 @@
     },
     {
       "id": "R4",
-      "done": false,
+      "done": true,
+      "result": "Deleted the 7 old web-app screenshots, docs/archive/ (2 files) and the dead docs/HISTORY.md after searching the whole repository (nothing that runs, builds or ships used them, and the new README doesn't), and fixed the four files that named them: PRODUCT_SCOPE.md (3 places), NATIVE_IOS_BLUEPRINT.md, rust-toolchain.toml's comment and owner-rules.md's one archive line (commit e3c185b); docs/side-projects/ was read and kept (not stale, it moves in part 2), 30 relative links, 0 broken, and the 17 code comments that still name the deleted files are listed for part 2.",
       "title": "Delete the clutter",
       "detail": "Delete what nothing that runs, builds or ships uses: the old screenshots in docs/ (mobile-before.png, mobile-after.png, library-mobile.png, settings-mobile.png, shot-detail.png, detail-artwork.png, mobile-player.png) unless the new README uses one; docs/archive/ (old history, which owner-rules.md says not to follow: change that one line to say the archive was removed and the history is in git); docs/side-projects/ if it is a stale note (read it first); and anything else R1 found dead. The app icon pictures that scripts/make-app-icon.py uses stay. Where a file you may edit in part 1 linked to something you deleted, fix the link; list links in files you may not edit for part 2."
     },
