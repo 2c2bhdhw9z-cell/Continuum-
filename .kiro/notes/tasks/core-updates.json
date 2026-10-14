@@ -1,0 +1,56 @@
+{
+  "complete": false,
+  "title": "Emulator updates, 14 October 2026: Gearsystem, Azahar (3DS), PPSSPP (PSP) and Flycast (Dreamcast)",
+  "repo": "/projects/sandbox/.scratch/updates-work",
+  "branch": "master",
+  "why": "The owner's standing rule (owner-rules.md, 'Emulator updates', a star item): every session, check every emulator for a newer version and take each one that does not break, remove or slow down anything players already have, after a FAST check ('what changed, and does it still work', not a line-by-line review). The check run at the start of the 14 October session (docs/CORE_UPDATES.md, commit c4ef0b4) found four cores with newer code, and all our patches still fit: Gearsystem 5 changes, Azahar 1, PPSSPP 69, Flycast 4. Everything else is current or already checked and skipped (melonDS's 'could not be checked' was a one-off network error: asked again it is identical to its pin).",
+  "read_first": [
+    ".kiro/steering/owner-rules.md ('Emulator updates' and 'Players get a heads-up')",
+    "HANDOFF.md 'Check for newer emulator versions at the start of every session'",
+    "docs/CORE_UPDATES.md (the 14 October result)",
+    "scripts/build-core.sh: 'MOVING A PIN' (around line 800) and the four cores' recipe regions",
+    "crates/emulator-bridge/src/core_updates.rs (CORE_BUILDS, CORE_UPDATES, and the test that ties them to the scripts)",
+    "scripts/check-core-updates.sh (checked_skip, for an update you turn down)"
+  ],
+  "hard_rules": [
+    "Fetching other people's repositories here needs GIT_CONFIG_GLOBAL=/dev/null in front of the git or script command (the sandbox's git routes github.com through a gateway that only serves the owner's repository). Never use it for the Continuum repository itself.",
+    "You own: the IOS_PIN lines and anything else inside the gearsystem, azahar, ppsspp and flycast recipe regions of scripts/build-core.sh (and the flycast JIT build's lines if it has its own pin), crates/emulator-bridge/src/core_updates.rs, checked_skip in scripts/check-core-updates.sh, docs/CORE_UPDATES.md (regenerate it, never hand-edit), and your report docs/reports/core-updates-2026-10-14.md. Another helper is editing the cache machinery of scripts/build-core.sh at the same time, others own the blastem, mesen2 and arcade regions: keep your edits to your own lines and keep both sides on a conflict.",
+    "The check is FAST, per the owner: read the upstream change list, skim the diff for risky areas (removed features or systems, file types, the libretro API, iOS, save formats, options renamed or removed), dry-run our patches (patch -p1 --dry-run --forward), build what can be built, one quick boot where a harness exists. Do not host-build the GPU cores (PPSSPP, Azahar, Flycast): the iOS build and the phone confirm those.",
+    "Save states: for each core, decide from the diff and the core's own save-state code whether a state made on the old pin still loads on the new one. Gearsystem can be proved on the host (build both pins, save on the old, load on the new, through the same host harness the 13 October night batch used for its state-hash fix; see docs/reports/night-2026-10-13-batch-a.md). For the GPU cores, read the serialization code that changed; if nothing in it changed, old states load. Record each answer in core_updates.rs's CORE_UPDATES entry exactly as that file's own docs describe, so the heads-up says the right thing.",
+    "An update that would break, remove or slow down something players already have is NOT taken: record it in checked_skip with the reason in plain words, regenerate docs/CORE_UPDATES.md, and explain why in your report.",
+    "Checks before every push: cargo test --workspace --features emulator-bridge/native-core, cargo clippy --workspace --features emulator-bridge/native-core, bash scripts/check-core-cache.sh. Set CARGO_BUILD_JOBS=3.",
+    "Every commit message ends with [skip ci]. Push straight to master, no branches, no pull requests."
+  ],
+  "items": [
+    {
+      "id": "CU1",
+      "done": false,
+      "title": "Gearsystem (Master System, Game Gear, SG-1000)",
+      "detail": "Five upstream changes (warnings, ZIP extraction safety, Windows paths, video recorder). Skim the diff for anything in the core, the libretro front end or the save-state code. Dry-run scripts/patches/gearsystem-*.patch, host-build the new pin with our patches, boot an open-licence Master System or Game Gear homebrew through the engine, and prove a state saved on the old pin loads on the new one and that the 13 October state-hash fix still holds. Then move the pin, update core_updates.rs, run the checks, push."
+    },
+    {
+      "id": "CU2",
+      "done": false,
+      "title": "Azahar (3DS)",
+      "detail": "One upstream change ('core: Fix bundle file oversights', #2673). Read it, dry-run scripts/patches/azahar-*.patch, decide whether old save states load (read whether the change touches serialization). No host build. Move the pin, update core_updates.rs, run the checks, push."
+    },
+    {
+      "id": "CU3",
+      "done": false,
+      "title": "PPSSPP (PSP)",
+      "detail": "Sixty-nine upstream changes. Skim them all for the risky areas (the ARM emitter and disassembler work only matters for the JIT; the GE call-depth change affects emulation accuracy; look for save-state version bumps in Core/SaveState.cpp and the per-module DoState version numbers, libretro front-end changes in libretro/, removed options, iOS changes). Dry-run scripts/patches/ppsspp-*.patch. No host build. If PPSSPP raised a state's version in a way it still reads the old one (it usually does), old states load. Move the pin, update core_updates.rs, run the checks, push."
+    },
+    {
+      "id": "CU4",
+      "done": false,
+      "title": "Flycast (Dreamcast, and its JIT build)",
+      "detail": "Four upstream changes (a dx11/gl clear and scissor fix, 'sh4: set Sh4Cntx address on Reset', NAOMI BIOS through the front end's VFS, a texture dumping option). Read them, dry-run scripts/patches/flycast-*.patch, check the serialization version (core/serialize.cpp) for old states. The plain build and the flycast_jit build share the source: move both together. Move the pin, update core_updates.rs, run the checks, push."
+    },
+    {
+      "id": "CU5",
+      "done": false,
+      "title": "Write it up",
+      "detail": "docs/reports/core-updates-2026-10-14.md: for each of the four, taken or not, what changed for players in one or two plain sentences, whether old save states still load, and the heads-up line players will see. Regenerate docs/CORE_UPDATES.md (GIT_CONFIG_GLOBAL=/dev/null bash scripts/check-core-updates.sh) so it shows them as current. Then set the top-level complete to true."
+    }
+  ]
+}

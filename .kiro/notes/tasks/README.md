@@ -1,6 +1,6 @@
 # Unfinished jobs (stopped 13 October 2026, 6:25 PM Eastern)
 
-The Kiro account ran out of credits, so eight jobs were stopped part-way. Everything they finished
+The Kiro account ran out of credits, so eight jobs were stopped part-way. Every helper reads `HELPER_RULES.md` (this folder) before its checklist. Everything they finished
 is on master. Each file here is one job's checklist: items marked `"done": true` are finished and
 pushed, the rest is the remaining work with full instructions. No deadline (owner): finish every
 item properly, leave nothing out.
@@ -15,16 +15,31 @@ item properly, leave nothing out.
 | `repo-cleanup.json` | Repo cleanup, part 1 | R1 inventory (`repo-cleanup-inventory.md`) | R2 README, R3 About box, R4 clutter, R5 release notes, R6 public docs, R7 part-2 plan |
 | `icons.json` | Icons | IC1 (Default tile fixed) | IC0 the 12 icons the owner circled, IC2 icon names on iOS 16, IC3 write-up |
 | `shorter-text.json` | Shorter text everywhere | T1 first half of Settings | T2 second half (the PSP section and the BIOS name list go), T3 other screens, T4 review, T5 write-up |
+| `core-updates.json` | Emulator updates (added 14 October) | nothing yet | CU1 Gearsystem, CU2 Azahar, CU3 PPSSPP, CU4 Flycast, CU5 write-up |
+
+Added 14 October (new account): `core-updates.json`, the four emulators with newer code that
+morning's check found (Gearsystem, Azahar, PPSSPP, Flycast), CU1 to CU5.
 
 ## Restarting them
 
-Each job had its own clone, named in its file's `"repo"` field (link-and-leftovers used the main
-copy). For each: `git clone https://github.com/2c2bhdhw9z-cell/Continuum-.git <that path>`, copy the
-file to `<that path>/.agents/tasks/` (gitignored), and launch `bundled://ralph` with `prd_path`
-pointing at the copy. All eight can run at once; the files say who owns which files. Every item
-pushes to master with `[skip ci]`. When a job finishes, delete its file here in a docs-only push.
+Each job has its own clone, named in its file's `"repo"` field (since 14 October link-and-leftovers
+uses `/projects/sandbox/.scratch/link-work` and its Mesen item H3 `.../mesen-work`, so the main copy
+stays the orchestrator's). On 14 October they were restarted as parallel helper agents
+(`invoke_sub_agent`, `general-task-execution`), each told to read a shared rules sheet first and to
+mark items done in THESE files on master as they land, so this folder is always the true state.
+The rules sheet's essentials, for a restart: clone fresh; every commit ends `[skip ci]`; stage by
+name; `git pull --rebase` and keep both sides; `CARGO_BUILD_JOBS=2`; never touch STATUS, TESTING or
+HANDOFF; and fetching anyone else's repository needs `GIT_CONFIG_GLOBAL=/dev/null` in front (the
+sandbox's git routes github.com through a gateway that only serves this repository: without it
+`check-core-updates.sh`, `build-core.sh` and every upstream clone fail with "repository not found").
+The review items (K3, U4, T4) go to a fresh helper that did not write the work. When a job
+finishes, delete its file here in a docs-only push.
 
-cBoy's exact drawer follows SameBoy: clone github.com/LIJI32/SameBoy and
+**cBoy G2, G3 and G4 are the exact drawer.** Before any of it starts, stop and tell the owner so
+they can turn the thinking up to max, and begin nothing until they reply that it's set (owner
+rule, asked again on 14 October).
+
+cBoy's exact drawer follows SameBoy: clone github.com/LIJI32/SameBoy and (with `GIT_CONFIG_GLOBAL=/dev/null`)
 github.com/mattcurrie/mealybug-tearoom-tests into `/projects/sandbox/.scratch/sameboy` and
 `/projects/sandbox/.scratch/mealybug-src` again, never into the repo.
 
