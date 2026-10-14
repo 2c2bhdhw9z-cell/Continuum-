@@ -27,7 +27,7 @@
 //! into the bridge, because it is already borrowed during a frame — becomes a deadlock
 //! hazard rather than a panic, and is therefore load-bearing rather than tidy.
 //!
-//! See `docs/NATIVE_IOS_BLUEPRINT.md` §3 and `docs/SET_HW_RENDER_DESIGN.md` §7.
+//! See `.kiro/notes/docs/NATIVE_IOS_BLUEPRINT.md` §3 and `.kiro/notes/docs/SET_HW_RENDER_DESIGN.md` §7.
 
 use std::sync::Mutex;
 

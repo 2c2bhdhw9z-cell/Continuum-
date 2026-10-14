@@ -6,7 +6,7 @@
 // `stopSession()` so the core is handed back to the registry and unloaded under the Drop retention
 // policy, and nothing was calling it.
 //
-// Two layout decisions in here are deliberate and are the reason the bug in docs/mobile-player.png
+// Two layout decisions in here are deliberate and are the reason the bug in `mobile-player.png` (an old web app screenshot, removed in e3c185b)
 // is not reproduced:
 //
 //  1. SESSION controls (pause, reset, save state, diagnostics) live in the TOP bar. GAMEPLAY

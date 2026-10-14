@@ -4,7 +4,7 @@
 #
 # MoltenVK is Vulkan implemented on Metal, and it is the gate on every system this app cannot
 # currently reach: Dreamcast, PSP and the 3DS all render through a GPU API rather than rasterising in
-# software, and the N64 only runs at a playable speed that way. See docs/SET_HW_RENDER_DESIGN.md.
+# software, and the N64 only runs at a playable speed that way. See .kiro/notes/docs/SET_HW_RENDER_DESIGN.md.
 #
 # WHY THE DYNAMIC ONE, AND WHY A FRAMEWORK. The release tarball carries two builds:
 #

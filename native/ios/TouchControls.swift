@@ -1491,7 +1491,7 @@ final class TouchControlsView: UIView {
     /// Deadzone as a fraction of the D-pad's half extent. Below it, nothing is pressed.
     ///
     /// 0.22 and 0.42 below are the numbers the single-surface D-pad has always shipped with and
-    /// that felt right (docs/archive/SESSION_HANDOFF.md's appendix records the decision), so they
+    /// that felt right (SESSION_HANDOFF.md (old notes, removed in e3c185b)'s appendix records the decision), so they
     /// are kept rather than re-derived.
     private static let dpadDeadzone: CGFloat = 0.22
 
@@ -2542,7 +2542,7 @@ final class TouchControlsView: UIView {
     /// Derived from the control rects that were just laid out, so it cannot drift from them. In
     /// portrait the picture takes everything above the topmost control; in landscape it takes the
     /// column between the left group and the right group. Either way no control sits on the game,
-    /// which is the requirement docs/mobile-player.png failed.
+    /// which is the requirement `mobile-player.png` (an old web app screenshot, removed in e3c185b) failed.
     private func publishPictureArea(landscape: Bool, skinCanvas: CGRect? = nil,
                                     skin: ResolvedSkin? = nil) {
         // A hole is a fraction of the skin's mapping, drawn inside the aspect-fit canvas.
@@ -2719,7 +2719,7 @@ final class TouchControlsView: UIView {
     /// The unit every control is sized and placed in.
     ///
     /// Derived from the space available and only THEN scaled, which is the actual fix for the
-    /// layout bug in docs/mobile-player.png: that layout collided because the controls had fixed
+    /// layout bug in `mobile-player.png` (an old web app screenshot, removed in e3c185b): that layout collided because the controls had fixed
     /// sizes and positions while the area they sat in did not.
     private func unit(in play: CGRect, landscape: Bool) -> CGFloat {
         let faceExtent = faceHalfExtent()
@@ -2805,7 +2805,7 @@ final class TouchControlsView: UIView {
 
     /// Checks the laid-out result instead of trusting the arithmetic.
     ///
-    /// A wrong control layout is exactly the bug docs/mobile-player.png captured, where the D-pad
+    /// A wrong control layout is exactly the bug `mobile-player.png` (an old web app screenshot, removed in e3c185b) captured, where the D-pad
     /// sat on top of the aspect selector and B sat on top of START, so it gets a live check and a
     /// named report rather than a comment claiming it cannot happen.
     private func verifyNoOverlap() {
@@ -3669,7 +3669,7 @@ final class TouchControlsView: UIView {
     /// THE D-PAD IS ONE SURFACE, AND THAT IS THE WHOLE POINT. Four separate buttons cannot
     /// express a diagonal: a thumb resting between Up and Right would land on one of them, or
     /// flicker between the two, and most action games would be unplayable.
-    /// docs/archive/SESSION_HANDOFF.md's appendix records the decision, and this is that
+    /// SESSION_HANDOFF.md (old notes, removed in e3c185b)'s appendix records the decision, and this is that
     /// single-surface D-pad, constants included.
     ///
     /// The point is normalised against the pad's half extents, so it is scale independent. A

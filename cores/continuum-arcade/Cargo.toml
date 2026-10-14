@@ -1,5 +1,5 @@
 # cArcade (crate continuum_arcade): Continuum's own arcade emulator, written from scratch, to be
-# exposed as a libretro core (docs/ARCADE_CORE.md). A standalone crate (its own empty [workspace])
+# exposed as a libretro core (.kiro/notes/docs/ARCADE_CORE.md). A standalone crate (its own empty [workspace])
 # like cores/continuum-gb, so it builds and tests without the app's engine. Pure Rust, no C.
 [package]
 name = "continuum_arcade"

@@ -197,7 +197,7 @@ unsafe extern "C" fn on_input_state(
 }
 
 // Environment command numbers. Every value below was machine-checked against
-// `.work/hdr/libretro/libretro.h` (SESSION_HANDOFF §1 records that a dropped experimental
+// `.work/hdr/libretro/libretro.h` (SESSION_HANDOFF (old notes, removed in e3c185b) §1 records that a dropped experimental
 // bit produces a case that can never match, so the experimental commands keep theirs).
 const ENV_SET_ROTATION: c_uint = 1; // libretro.h:743 RETRO_ENVIRONMENT_SET_ROTATION
 const ENV_GET_CAN_DUPE: c_uint = 3; // libretro.h:767 RETRO_ENVIRONMENT_GET_CAN_DUPE
@@ -847,7 +847,7 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
         // them. Returning true means "recognized" without claiming any behaviour a callback
         // would later have to honour. Deliberately absent: SET_AUDIO_BUFFER_STATUS_CALLBACK
         // (62) and GET_INPUT_BITMASKS (51|EXPERIMENTAL) are *not* here — accepting the first
-        // would promise a callback we never make (SESSION_HANDOFF §1), and refusing the
+        // would promise a callback we never make (SESSION_HANDOFF (old notes, removed in e3c185b) §1), and refusing the
         // second makes the core fall back to per-id input_state, which InputSnapshot serves.
         ENV_SET_SUPPORT_NO_GAME
         | ENV_SET_CONTENT_INFO_OVERRIDE
@@ -2490,7 +2490,7 @@ mod tests {
     #[test]
     fn audio_buffer_status_callback_is_refused() {
         // Number 62 is SET_AUDIO_BUFFER_STATUS_CALLBACK. Accepting it would promise a
-        // callback we never make (SESSION_HANDOFF §1); refusing cleanly is correct.
+        // callback we never make (SESSION_HANDOFF (old notes, removed in e3c185b) §1); refusing cleanly is correct.
         const SET_AUDIO_BUFFER_STATUS_CALLBACK: c_uint = 62;
         let ok = unsafe { on_environment(SET_AUDIO_BUFFER_STATUS_CALLBACK, std::ptr::null_mut()) };
         assert!(!ok, "must refuse a callback we cannot honour");

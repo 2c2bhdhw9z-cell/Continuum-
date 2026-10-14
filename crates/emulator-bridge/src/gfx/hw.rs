@@ -12,7 +12,7 @@
 //! and ANGLE (GLES); both end up as Metal textures underneath, which is what makes the
 //! handover to the compositor a zero-copy import rather than a readback.
 //!
-//! See `docs/SET_HW_RENDER_DESIGN.md`.
+//! See `.kiro/notes/docs/SET_HW_RENDER_DESIGN.md`.
 
 use crate::error::GfxError;
 

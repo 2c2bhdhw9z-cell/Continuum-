@@ -6,7 +6,7 @@
 // more — that exercises the gate, the thread affinity, the frame handover and the
 // timeout path with zero emulator variables in play.
 //
-// See docs/SET_HW_RENDER_DESIGN.md §12.
+// See .kiro/notes/docs/SET_HW_RENDER_DESIGN.md §12.
 
 #ifndef CONTINUUM_SWITCH_ENGINE_H
 #define CONTINUUM_SWITCH_ENGINE_H

@@ -340,7 +340,7 @@ ios_core_config() {
       # NO SUBMODULES, unlike pcsx_rearmed: this core vendors everything it needs.
       #
       # AND NO HARDWARE RENDERER, which is the whole reason the DS arrives before the N64
-      # despite the plan in docs/SET_HW_RENDER_DESIGN.md listing it later. That plan put the DS
+      # despite the plan in .kiro/notes/docs/SET_HW_RENDER_DESIGN.md listing it later. That plan put the DS
       # behind ANGLE because melonDS has an OpenGL renderer, and reading the makefile shows iOS
       # never gets it: `HAVE_OPENGL := 0` and `HAVE_OPENGLES3 := 0` are the file's defaults, the
       # unix block is the only one that turns GL on, and the ios block leaves both alone. So this
@@ -443,7 +443,7 @@ ios_core_config() {
       #
       #     HAVE_OPENGL=0     software rasteriser, so it emits pixels through the same path
       #                       the other eight cores already use. No MoltenVK, no ANGLE, none
-      #                       of steps 3 to 6 of docs/SET_HW_RENDER_DESIGN.md.
+      #                       of steps 3 to 6 of .kiro/notes/docs/SET_HW_RENDER_DESIGN.md.
       #     WITH_DYNAREC=     interpreter, so it needs NO executable memory and therefore no
       #                       JIT, no get-task-allow and no debugger attached.
       #
@@ -453,7 +453,7 @@ ios_core_config() {
       #
       # `parallel_n64` and not `mupen64plus_next`: both are on the libretro buildbot for
       # ios-arm64, but Mupen64Plus-Next renders through GLideN64 and has no software path, so
-      # it cannot work until the graphics work is done. See docs/PLATFORM_LIMITS.md.
+      # it cannot work until the graphics work is done. See .kiro/notes/docs/PLATFORM_LIMITS.md.
       #
       # Continuum patches (scripts/patches/, applied by ios_apply_core_patches after clone):
       # 1) parallel_n64-aarch64-gate-hot-state-on-new-dynarec.patch (critical):

@@ -777,7 +777,7 @@ struct ArtPlate: View {
     ///
     /// UTF-16 rather than UTF-8 on purpose: the browser hashed charCodeAt, so matching it keeps a
     /// plate identical across the two builds, which is one less thing to explain when comparing a
-    /// screenshot to docs/mobile-after.png.
+    /// screenshot to `mobile-after.png` (an old web app screenshot, removed in e3c185b).
     static func fnv1a(_ text: String) -> UInt32 {
         var hash: UInt32 = 0x811c_9dc5
         for unit in text.utf16 {

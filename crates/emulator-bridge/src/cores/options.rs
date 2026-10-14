@@ -4,7 +4,7 @@
 //! ## The policy, and why it changed
 //!
 //! The engine used to refuse every `GET_VARIABLE`, so each core ran on its C initialisers. That was
-//! reversed by the owner (docs/MANIC_PARITY.md, "Core settings are answered now"): the engine now
+//! reversed by the owner (.kiro/notes/docs/MANIC_PARITY.md, "Core settings are answered now"): the engine now
 //! answers with the user's choice, else the core's own declared default. Two kinds of exception
 //! survive from the old override table, and both are here as [`HostRule`]s rather than scattered:
 //!
@@ -205,7 +205,7 @@ pub enum HostRule {
     LockedRefused,
 }
 
-/// The engine's own rules per core. The history behind each lives in SESSION_HANDOFF and in the
+/// The engine's own rules per core. The history behind each lives in SESSION_HANDOFF (old notes, removed in e3c185b) and in the
 /// git log of `native_core.rs`, where this table used to be the whole of the option support.
 pub fn host_rules(core_id: &str) -> &'static [(&'static str, HostRule)] {
     host_rules_for(

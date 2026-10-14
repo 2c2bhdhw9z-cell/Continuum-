@@ -1,4 +1,4 @@
-//! Step 3 of `docs/SET_HW_RENDER_DESIGN.md` §13: MoltenVK in-process, a triangle into an
+//! Step 3 of `.kiro/notes/docs/SET_HW_RENDER_DESIGN.md` §13: MoltenVK in-process, a triangle into an
 //! `MTLTexture`, composited by the existing wgpu pass with no CPU copy.
 //!
 //! Part one (`375c3d1`) put MoltenVK in the bundle and asked whether it answers. This module

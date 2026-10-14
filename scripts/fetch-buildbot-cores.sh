@@ -8,7 +8,7 @@
 #   scripts/fetch-buildbot-cores.sh pins       print "<core>\t<zip pin>\t<dylib pin>\t<system>" and stop
 #
 # WHY PREBUILT: sixteen more cores compiled from source would blow the CI time limit
-# (docs/MANIC_PARITY.md, "Decisions already made"). Cores the buildbot does not carry are built
+# (.kiro/notes/docs/MANIC_PARITY.md, "Decisions already made"). Cores the buildbot does not carry are built
 # from source by scripts/build-core.sh like the original twelve.
 #
 # EVERY CORE HERE IS OPTIONAL. A download that fails on the day, or a dylib that fails a check,

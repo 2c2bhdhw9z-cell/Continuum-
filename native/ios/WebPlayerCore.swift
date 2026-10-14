@@ -1,6 +1,6 @@
 // Continuum - the bundled players' pure logic: Flash (Ruffle) and J2ME (J2meJS).
 //
-// docs/MANIC_PARITY.md decided these run the way Manic EMU runs them: in a player view inside the
+// .kiro/notes/docs/MANIC_PARITY.md decided these run the way Manic EMU runs them: in a player view inside the
 // .ipa, a WKWebView that loads LOCAL FILES ONLY. That is a player inside the app, not a web build
 // of Continuum. WebPlayers.swift is the UIKit half (the web view, its scheme handler, the input
 // poll, the settings sheet); this file is everything that can be checked off a Mac with real

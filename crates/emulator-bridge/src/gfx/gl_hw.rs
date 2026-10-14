@@ -1,5 +1,5 @@
 //! OpenGL picture path next to the Vulkan door. Step 7 of
-//! `docs/SET_HW_RENDER_DESIGN.md`, the slice that can be proven without ANGLE.
+//! `.kiro/notes/docs/SET_HW_RENDER_DESIGN.md`, the slice that can be proven without ANGLE.
 //!
 //! `SET_HW_RENDER` for `RETRO_HW_CONTEXT_OPENGL` and the OpenGL ES variants used to be
 //! refused here. That refusal was this app's choice: the phone can host both, and only

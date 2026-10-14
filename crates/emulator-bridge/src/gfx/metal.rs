@@ -2,7 +2,7 @@
 //!
 //! # Which side creates the device
 //!
-//! `docs/SET_HW_RENDER_DESIGN.md` §2 and the header of `native/ios/MetalCanvas.swift` both
+//! `.kiro/notes/docs/SET_HW_RENDER_DESIGN.md` §2 and the header of `native/ios/MetalCanvas.swift` both
 //! said Swift creates the `MTLDevice` and the engine adopts it. Building it proved that
 //! impossible with `wgpu` 30, and the conclusion is the *opposite* of what those documents
 //! assumed, so the reasoning is recorded here rather than in a commit message.

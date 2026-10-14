@@ -14,7 +14,7 @@
 # The owner is not going to track every emulator's repository and the buildbot, and should not
 # have to. So this runs on a schedule, writes one short page, and commits it. Whoever picks the
 # project up next reads that page and tells the owner in plain English whether anything is
-# worth taking. See HANDOFF.md.
+# worth taking. See .kiro/notes/HANDOFF.md.
 #
 # For each core built here it reports how many changes upstream has made, the newest change's
 # date and subjects, and whether our patches (scripts/patches/) still apply to upstream's newest

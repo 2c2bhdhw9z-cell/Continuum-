@@ -23,7 +23,7 @@ enum GameMetadata {
     ///
     /// "Tetris (USA).nes" becomes "Tetris (USA)", and "Super Mario World (USA) [!].sfc" becomes
     /// "Super Mario World (USA)". The parenthesised region STAYS, which matches the design
-    /// reference (docs/library-mobile.png shows the hero titled "Tetris (USA)") and is also the
+    /// reference (`library-mobile.png` (an old web app screenshot, removed in e3c185b) shows the hero titled "Tetris (USA)") and is also the
     /// honest choice: "(USA)" and "(Japan)" are different games often enough to matter, and a
     /// title that hides the difference would make two rows look like a duplicated import.
     ///

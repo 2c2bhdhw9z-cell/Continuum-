@@ -1,5 +1,5 @@
 //! cBoy's core options (libretro SET_CORE_OPTIONS_V2, categories per
-//! docs/CORE_OPTIONS_STANDARD.md), and the output-side effects they drive (palettes, colour,
+//! .kiro/notes/docs/CORE_OPTIONS_STANDARD.md), and the output-side effects they drive (palettes, colour,
 //! blending, Super Game Boy colour and border, filters, volume). Output effects work on the
 //! finished frame and samples, so they apply live and never touch save states.
 

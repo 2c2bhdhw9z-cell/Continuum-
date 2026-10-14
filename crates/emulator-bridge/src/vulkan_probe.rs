@@ -1,6 +1,6 @@
 //! Is MoltenVK actually in this process, and does it answer?
 //!
-//! **Step 3 of the sequence in `docs/SET_HW_RENDER_DESIGN.md` §13, and the riskiest unknown left in
+//! **Step 3 of the sequence in `.kiro/notes/docs/SET_HW_RENDER_DESIGN.md` §13, and the riskiest unknown left in
 //! the project.** Everything commercially interesting sits on top of it: Dreamcast, PSP, the 3DS and
 //! a fast N64 all render through OpenGL or Vulkan, and none of them can be reached while this app
 //! can only display pixels a core rasterised in software. The design's answer is MoltenVK in

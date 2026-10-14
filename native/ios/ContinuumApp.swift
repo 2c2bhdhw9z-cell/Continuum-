@@ -331,7 +331,7 @@ enum CoreCatalog {
     /// and squash both.
     ///
     /// Software rendered on iOS, which is why this core is here at all. The plan in
-    /// docs/SET_HW_RENDER_DESIGN.md put the DS behind ANGLE because melonDS HAS an OpenGL
+    /// .kiro/notes/docs/SET_HW_RENDER_DESIGN.md put the DS behind ANGLE because melonDS HAS an OpenGL
     /// renderer, and its makefile never enables it for iOS: `HAVE_OPENGL := 0` is the default and
     /// only the unix block changes it. So the DS reaches the same pixel path the other five use.
     ///
@@ -681,7 +681,7 @@ enum CoreCatalog {
 
     /// Symbian / N-Gage. Continuum Symbian: this project's libretro plug around EKA2L1's jitless
     /// iOS port (dyncom interpreter). Needs a Symbian device dump the user supplies, placed in
-    /// system/continuum-symbian/ (see TESTING.md). OPTIONAL in the .ipa.
+    /// system/continuum-symbian/ (see .kiro/notes/TESTING.md). OPTIONAL in the .ipa.
     static let continuumSymbian = CoreSpec(
         coreId: "continuum_symbian", displayName: "Continuum Symbian (Symbian / N-Gage)",
         systems: ["symbian"], library: "continuum_symbian_libretro_ios.dylib",
@@ -868,7 +868,7 @@ enum CoreCatalog {
 
         // ---------------------------------------------------------------- wave two
         //
-        // Every Manic EMU extension in docs/MANIC_PARITY.md that belongs to ONE system, plus the
+        // Every Manic EMU extension in .kiro/notes/docs/MANIC_PARITY.md that belongs to ONE system, plus the
         // extras for systems already here. Routed through `on(_:)`, so the core is the system's
         // default from `defaultCoreBySystem` rather than restated, and a Settings core choice
         // (Saturn, for one) applies to every extension of that system at once.
@@ -5467,7 +5467,7 @@ final class EngineHost: ObservableObject {
     ///
     /// Only reachable today when two controls were laid out on top of each other, which is the one
     /// failure the layout arithmetic cannot rule out by itself and exactly the bug
-    /// docs/mobile-player.png captured. It lands in its own field so it cannot be overwritten by
+    /// `mobile-player.png` (an old web app screenshot, removed in e3c185b) captured. It lands in its own field so it cannot be overwritten by
     /// the next status line.
     func noteControlLayout(_ line: String) {
         // Hopped to the next run loop turn and skipped when unchanged, for the same reason as

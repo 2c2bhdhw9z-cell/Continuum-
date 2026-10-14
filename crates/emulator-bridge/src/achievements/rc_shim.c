@@ -4,7 +4,7 @@
  * WHY A SHIM AT ALL: rc_client hands its callers structs (rc_client_user_t, rc_client_event_t,
  * rc_client_achievement_t, rc_api_server_response_t) whose layouts include time_t, float, fixed
  * char arrays and pointers. Mirroring each of those in Rust is exactly the hand-declared-struct
- * mistake this project has paid for before (see the libretro header notes in SESSION_HANDOFF.md).
+ * mistake this project has paid for before (see the libretro header notes in SESSION_HANDOFF.md (old notes, removed in e3c185b)).
  * So every field is read HERE, by the compiler that read the real header, and Rust only ever sees
  * opaque pointers, integers and NUL-terminated strings.
  *

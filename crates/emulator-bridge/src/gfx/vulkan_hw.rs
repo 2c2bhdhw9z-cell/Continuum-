@@ -1,4 +1,4 @@
-//! Step 4 of `docs/SET_HW_RENDER_DESIGN.md` §13: frontend half of
+//! Step 4 of `.kiro/notes/docs/SET_HW_RENDER_DESIGN.md` §13: frontend half of
 //! `RETRO_ENVIRONMENT_SET_HW_RENDER` / `GET_HW_RENDER_INTERFACE` for **Vulkan**.
 //!
 //! Proof core: **Beetle PSX HW** (`mednafen_psx_hw`), not N64 and not Citra — a wrong
@@ -235,7 +235,7 @@ struct RetroHwRenderInterfaceHeader {
     interface_version: u32,
 }
 
-/// Field order from `libretro_vulkan.h` (SESSION_HANDOFF §15): `handle` third;
+/// Field order from `libretro_vulkan.h` (SESSION_HANDOFF (old notes, removed in e3c185b) §15): `handle` third;
 /// `get_device_proc_addr` before `get_instance_proc_addr`; `queue` then `queue_index`.
 #[repr(C)]
 struct RetroHwRenderInterfaceVulkan {

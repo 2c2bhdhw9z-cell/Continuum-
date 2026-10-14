@@ -1,4 +1,4 @@
-//! The sets cArcade knows, and how a zip is recognised as one of them (docs/ARCADE_CORE.md, "How a
+//! The sets cArcade knows, and how a zip is recognised as one of them (.kiro/notes/docs/ARCADE_CORE.md, "How a
 //! game is recognised").
 //!
 //! Arcade games are zips named after the game (pacman.zip) holding the board's ROM chips. Each chip

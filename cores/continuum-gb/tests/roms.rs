@@ -798,14 +798,14 @@ fn mealybug_report() {
 
 /// The Mealybug pictures the exact drawer gets pixel for pixel. This list only ever grows: a
 /// change that drops one of these is wrong, whatever else it fixes. All 24 DMG pictures are here
-/// bar `m3_lcdc_bg_en_change`, which is four pixels away (see docs/CBOY_EXACT_DRAWER.md).
+/// bar `m3_lcdc_bg_en_change`, which is four pixels away (see .kiro/notes/docs/CBOY_EXACT_DRAWER.md).
 ///
 /// Four of the 31 Color pictures are here too. These ROMs are Game Boy cartridges, so a Color
 /// console runs them in Game Boy mode, in the colours its start-up code picks for a cartridge
 /// that is not Nintendo's (compat.rs). `m3_scx_low_3_bits` uses only black and white, so it passed
 /// before those colours were in; the other three are the Color drawing exactly what a Game Boy
 /// draws, and passed the moment the colours were. The rest also need the drawer to do what a
-/// Color does differently, set out in docs/CBOY_EXACT_DRAWER.md.
+/// Color does differently, set out in .kiro/notes/docs/CBOY_EXACT_DRAWER.md.
 const MEALYBUG_PASSING: &[&str] = &[
     "cgb:m2_win_en_toggle",
     "cgb:m3_lcdc_win_en_change_multiple",

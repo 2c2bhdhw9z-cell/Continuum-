@@ -1,7 +1,7 @@
 // Continuum - the library shell: the screen the app opens into.
 //
 // This replaces the monospace debug HUD over a plain List. The structure is the design reference,
-// docs/library-mobile.png: a full-bleed shell (dark, as the reference has it, or light when the
+// `library-mobile.png` (an old web app screenshot, removed in e3c185b): a full-bleed shell (dark, as the reference has it, or light when the
 // player picks Light in Settings, APPEARANCE; see `ShellPalette`), a top bar with the logo, a search field and an
 // import button, a featured hero with real cover art, horizontal shelves of cover cards each badged
 // with its system, and a bottom tab bar whose active tab is red. The reference's thin status strip

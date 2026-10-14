@@ -20,7 +20,7 @@
 //! a console whose cable has been pulled out does, rather than leaving the game waiting for ever.
 //!
 //! The app never has to understand any of this: it carries [`PACKET_LEN`]-byte blocks from one
-//! phone to the other and back, in order, and the rules stay in here. See docs/CBOY_NIGHT.md for
+//! phone to the other and back, in order, and the rules stay in here. See .kiro/notes/docs/CBOY_NIGHT.md for
 //! the three calls the engine owes this module.
 
 use std::collections::VecDeque;

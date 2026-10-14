@@ -12,7 +12,7 @@
 // The rule this file exists to enforce: libretro callbacks may only be used from the
 // thread that called `retro_run`. Nothing inside the engine ever calls one. Frames arrive
 // through the gate, audio through a ring drained here, input through a snapshot written
-// here. See docs/SET_HW_RENDER_DESIGN.md §12.4.
+// here. See .kiro/notes/docs/SET_HW_RENDER_DESIGN.md §12.4.
 
 #include <libretro.h>
 

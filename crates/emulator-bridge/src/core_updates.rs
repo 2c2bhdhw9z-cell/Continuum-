@@ -204,7 +204,7 @@ const fn exact(
 /// it moved off. Build 181's pins ([`BUILD_181`]) always stay a "from": an install without
 /// `core-builds.txt` is compared against them, and a heads-up still waiting since then keeps them.
 /// 12 October 2026: the first moves from build 181. 14 October 2026
-/// (`docs/reports/core-updates-2026-10-14.md`): the cores that moved again, from the pins builds
+/// (`.kiro/notes/docs/reports/core-updates-2026-10-14.md`): the cores that moved again, from the pins builds
 /// 182 to 185 shipped.
 pub const CORE_UPDATES: &[CoreUpdate] = &[
     // Built from source.

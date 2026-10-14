@@ -1,6 +1,6 @@
 //! The libretro entry points. One game at a time, behind a mutex.
 //!
-//! A game is a zip (docs/ARCADE_CORE.md, "How a game is recognised"). The frontend hands over its
+//! A game is a zip (.kiro/notes/docs/ARCADE_CORE.md, "How a game is recognised"). The frontend hands over its
 //! bytes and its path (`need_fullpath` is false); the path is how a split clone's parent zip is
 //! found next to it. A zip cArcade can't play is refused with one plain sentence, logged as the
 //! last line before `retro_load_game` returns false, which is the line the app shows.

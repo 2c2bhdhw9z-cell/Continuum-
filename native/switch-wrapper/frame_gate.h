@@ -8,7 +8,7 @@
 // its threads and its loop; its `Present` call blocks until the frontend asks for another
 // frame.
 //
-// See docs/SET_HW_RENDER_DESIGN.md §12.1.
+// See .kiro/notes/docs/SET_HW_RENDER_DESIGN.md §12.1.
 
 #ifndef CONTINUUM_FRAME_GATE_H
 #define CONTINUUM_FRAME_GATE_H

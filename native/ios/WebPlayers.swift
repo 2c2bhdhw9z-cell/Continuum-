@@ -1,7 +1,7 @@
 // Continuum - the bundled players: Flash in Ruffle and J2ME in J2meJS, each in a WKWebView that
 // loads LOCAL FILES ONLY.
 //
-// docs/MANIC_PARITY.md decided this: these run the way Manic EMU runs them, in a player view inside
+// .kiro/notes/docs/MANIC_PARITY.md decided this: these run the way Manic EMU runs them, in a player view inside
 // the .ipa. That is a player inside the app and not a web build of Continuum. The rest of the app
 // stays around them: the Library row, the on-screen pad and controllers (sending keys), skins and
 // their function buttons, the status line, pause, quit, screenshots, and saves in Manic's formats.

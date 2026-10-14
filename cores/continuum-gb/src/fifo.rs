@@ -20,7 +20,7 @@
 //!
 //! Written from the hardware behaviour: the Mealybug Tearoom PPU documentation (which says which
 //! fetch step samples which register) and Pan Docs, following the same model SameBoy implements
-//! (MIT; read, not copied - see docs/CBOY_EXACT_DRAWER.md). Each piece names the behaviour it
+//! (MIT; read, not copied - see .kiro/notes/docs/CBOY_EXACT_DRAWER.md). Each piece names the behaviour it
 //! reproduces.
 
 use super::*;
@@ -38,7 +38,7 @@ const PUSH: u8 = 6;
 /// performs it part-way through: every write reaches the PPU three dots late. Measured, not
 /// guessed: of the offsets 0 to 5, three is the only one that makes the Mealybug pictures agree
 /// (5, 7, 5, 20, 2, 2 of the 24 DMG pictures). Until bus.rs writes at the hardware's point (see
-/// docs/CBOY_EXACT_DRAWER.md) the drawer runs those three dots behind the dot counter, so a
+/// .kiro/notes/docs/CBOY_EXACT_DRAWER.md) the drawer runs those three dots behind the dot counter, so a
 /// mid-line write still lands on the pixel it belongs to. STAT and HBlank keep their own timing
 /// from `mode3_length`, so nothing the CPU can see moves.
 const WRITE_BIAS: u16 = 3;
@@ -222,7 +222,7 @@ impl Ppu {
     ///     the second the whole value. What that comes to here, measured against the reference
     ///     pictures and not assumed, is that the two bits the pixel output stage reads - bit 0
     ///     and bit 1 - land one dot after the bits the fetcher samples, both edges of a change
-    ///     together (docs/CBOY_EXACT_DRAWER.md);
+    ///     together (.kiro/notes/docs/CBOY_EXACT_DRAWER.md);
     ///   - WX is written at the end of its M-cycle, two dots after all of those.
     fn registers_dot(&mut self) {
         let now = [self.bgp, self.obp0, self.obp1];
@@ -237,7 +237,7 @@ impl Ppu {
         // tile-select bits the fetcher samples. The window enable takes the old AND the new, so
         // switching the window off reaches the PPU a dot before switching it on does. The
         // fetcher's own bits are left where cBoy's single-stage bus write puts them: moving them
-        // exposes object-stall errors instead (docs/CBOY_EXACT_DRAWER.md).
+        // exposes object-stall errors instead (.kiro/notes/docs/CBOY_EXACT_DRAWER.md).
         let was = f.lcdc_was;
         // The object-fetching state machine, which is what a clear of bit 1 interrupts, is
         // running from the dot the object's X matched to the dot before its last read.

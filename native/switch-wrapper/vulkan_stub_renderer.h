@@ -10,7 +10,7 @@
 // that is still a genuine hardware frame: image acquisition, a layout transition, a queue
 // submission under `lock_queue`, and a GPU-side completion signal.
 //
-// See docs/SET_HW_RENDER_DESIGN.md §12.5.
+// See .kiro/notes/docs/SET_HW_RENDER_DESIGN.md §12.5.
 
 #ifndef CONTINUUM_VULKAN_STUB_RENDERER_H
 #define CONTINUUM_VULKAN_STUB_RENDERER_H
