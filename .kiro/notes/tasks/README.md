@@ -59,9 +59,9 @@ github.com/mattcurrie/mealybug-tearoom-tests into `/projects/sandbox/.scratch/sa
 
 Four `bundled://ralph` loops, each on its job's checklist inside its own clone (`prd_path` =
 `<clone>/.kiro/notes/tasks/<job>.json`; a loop stops when that file says `"complete": true`):
-`wf_83206af36719ceef` build cache K3-K4 (cache-work), `wf_3dee4a48a0852a32` Home screen U2-U5
+`wf_83206af36719ceef` build cache K3-K4 (cache-work; **finished** 14 October: complete, 213 checks, summary in `docs/reports/cache-v2-summary.md`), `wf_3dee4a48a0852a32` Home screen U2-U5
 (ui-work), `wf_75a25a793b646377` arcade I4-I7 (arcade-work), `wf_ba2de61354e19672` leftovers H5,
-H3, H6 (link-work). Next, as slots free up: `core-updates.json` (updates-work, already cloned) and
+H3, H6 (link-work). `wf_911331e1a7cb243c` emulator updates CU1-CU5 (updates-work, started after the cache loop finished). Next, as a slot frees up:
 `shorter-text.json` T3-T5 (text-work, only after the Home screen loop, since both edit the same
 Swift files). cBoy G2-G5 waits for the owner's go-ahead on max thinking. A session that wakes up
 checks each id with inspect_workflow and resumes any that stopped.
