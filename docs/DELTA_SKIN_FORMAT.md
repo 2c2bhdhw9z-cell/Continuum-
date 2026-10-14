@@ -1,32 +1,37 @@
-# Delta and Manic EMU skin packages (Continuum import)
+# Making skins for Continuum
 
-Continuum imports controller layouts from the documented **Delta** skin package format:
-a ZIP archive renamed to `.deltaskin`, containing a flat `info.json` plus image assets.
-Manic EMU's `.manicskin` is the same package with extra item fields; see
-[Manic EMU extensions](#manic-emu-extensions) below.
+Continuum reads the same skin files as Delta and Manic EMU, so most skins made for those apps work
+here too. This page is for people who make skins: what Continuum reads, and the few places where
+it does its own thing.
 
-Source of truth for the schema: [Delta Custom Skins](https://noah978.gitbook.io/delta-docs/skins)
-(also mirrored in [altstoreio/Delta-Docs](https://github.com/altstoreio/Delta-Docs/blob/master/skins/README.md)).
+A Delta skin is a ZIP file renamed to `.deltaskin`. Inside are an `info.json` and the pictures it
+uses, all at the top level. A Manic EMU `.manicskin` is the same package with a few extra fields;
+see [Manic EMU extras](#manic-emu-extras) below.
 
-## What you drop in
+Delta documents the format itself: [Delta Custom Skins](https://noah978.gitbook.io/delta-docs/skins)
+(there's a copy in [altstoreio/Delta-Docs](https://github.com/altstoreio/Delta-Docs/blob/master/skins/README.md)).
 
-| Drop | What Continuum reads today |
+## What you can import
+
+| File | What Continuum does with it |
 | --- | --- |
-| `Something.manicskin` | Same as `.deltaskin`, plus Manic's functions, switches and `sound.caf` |
-| `Something.deltaskin` | Unzips, reads `info.json`, maps buttons, loads PDF/PNG art, applies `screens` |
-| `Something.zip` with the same contents | Same as `.deltaskin` |
-| Bare `info.json` | Layout + screens only (no ZIP assets to draw) |
+| `Something.deltaskin` | Unzips it, reads `info.json`, places the buttons, draws the PDF or PNG art, and puts the game picture in each `screens` area |
+| `Something.manicskin` | The same, plus Manic's function buttons, switches and `sound.caf` |
+| `Something.zip` with the same contents | Treated like a `.deltaskin` |
+| A bare `info.json` | The layout and the screen areas only, as there are no pictures to draw |
 
-Import applies hitbox positions from `items`, draws `assets` PDF/PNG behind the pad, and
-places the game picture in every `screens[].outputFrame`.
+There are two ways in. Import skins in the skin library (Settings, Skins, Open the skin library)
+takes as many files as you pick at once. Import .deltaskin, under Settings, Move the on-screen
+controls, takes one skin and shows it right away.
 
-## Package rules (from Delta docs)
+## Packing a skin
 
-1. Put `info.json` and all asset files **flat** in the archive (no parent folder).
-2. Zip those files, then rename the extension to `.deltaskin`.
-3. Zipping the containing folder instead of the files themselves makes the package invalid.
+1. Put `info.json` and every picture at the top level of the archive, with no folder around them.
+2. Zip those files, then change the extension to `.deltaskin`.
 
-## `info.json` (required top level)
+Zipping the folder instead of the files inside it gives a package nothing can read.
+
+## info.json
 
 ```json
 {
@@ -38,18 +43,19 @@ places the game picture in every `screens[].outputFrame`.
 }
 ```
 
-| Field | Role |
+| Field | What it's for |
 | --- | --- |
-| `name` | Display name |
-| `identifier` | Unique reverse-DNS id for the skin |
-| `gameTypeIdentifier` | Which console the skin belongs to (table below) |
-| `debug` | Delta overlay flag; Continuum ignores it |
-| `representations` | Device / size / orientation trees |
+| `name` | The name shown in the app |
+| `identifier` | A unique reverse-DNS id for the skin |
+| `gameTypeIdentifier` | Which console the skin is for (tables below) |
+| `debug` | Delta's debug overlay. Continuum ignores it |
+| `representations` | The layouts, per device, size and orientation |
 
-### `gameTypeIdentifier` values Continuum recognises
+### Which console a skin is for
 
-Mapped by string in `SkinLibrary.swift` (`SkinGameTypes`), so a skin for a console this build
-has no core for yet is still imported, listed and kept.
+A skin for a console Continuum can't play yet still imports, and it stays in your skin library.
+
+Delta's identifiers:
 
 | Delta | Continuum |
 | --- | --- |
@@ -58,7 +64,7 @@ has no core for yet is still imported, listed and kept.
 | `com.rileytestut.delta.game.gba` / `.ds` / `.nes` / `.snes` / `.n64` / `.ps1` | same name |
 | `com.rileytestut.delta.game.genesis` | genesis |
 
-Manic writes `public.aoshuang.game.<x>`:
+Manic EMU writes `public.aoshuang.game.<x>`:
 
 | `<x>` | Continuum | `<x>` | Continuum | `<x>` | Continuum |
 | --- | --- | --- | --- | --- | --- |
@@ -77,14 +83,17 @@ Manic writes `public.aoshuang.game.<x>`:
 | jaguar | jaguar | 32x | sega32x | | |
 | lynx | lynx | | | | |
 
-Also accepted, though not in Manic's published list: `fds` (fds) and `sgx` (sgx).
+Continuum also takes `fds` (Famicom Disk System) and `sgx` (SuperGrafx), which aren't in Manic's
+list.
 
-A skin also fits its related systems: GB and GBC; Mega Drive, Sega CD and 32X; Master System,
-Game Gear and SG-1000; NES and FDS; DOS and DOOM (and, beyond Manic, the PC Engine family).
+A skin also works on related systems: Game Boy and Game Boy Color; Mega Drive, Sega CD and 32X;
+Master System, Game Gear and SG-1000; NES and Famicom Disk System; DOS and DOOM. Beyond Manic's
+list, TurboGrafx-16, PC Engine CD and SuperGrafx share skins too.
 
-Unknown identifiers still import: pick the console under "Import for" in the skin library.
+If Continuum doesn't know the identifier, the skin still imports: pick the console under
+"Import for" in the skin library.
 
-### Representation tree
+### Layouts for each device and orientation
 
 ```text
 representations
@@ -94,13 +103,13 @@ representations
         assets, items, screens, mappingSize, extendedEdges, translucent
 ```
 
-Continuum keeps the best portrait and the best landscape it finds, each chosen separately, and
-uses whichever matches how the phone is held. "Best" is the first, in this order, that has both
+Continuum picks the best portrait layout and the best landscape layout separately, and uses
+whichever matches how you hold the phone. The best one is the first of these that has a
 `mappingSize` and at least one item: `iphone/edgeToEdge`, `iphone/standard`, `iphone/splitView`,
-then the same three under `ipad`. A skin with only one orientation still imports and uses that
-one either way; the missing one is not invented.
+then the same three under `ipad`. A skin with only one orientation still imports, and that layout
+is used both ways; Continuum doesn't make up the missing one.
 
-### One orientation object
+### One layout
 
 ```json
 {
@@ -118,83 +127,90 @@ one either way; the missing one is not invented.
 }
 ```
 
-`mappingSize` is in **points**. Continuum converts each item's frame centre to a fraction
-of that size and writes Continuum layout fields (`buttonFrees`, D-pad / SELECT / START
-centres). Coordinates use the Delta convention: origin top-left, y increases downward.
+`mappingSize` is in points. Positions work the way they do in Delta: they start at the top left,
+and y grows downward. Continuum places each button from the centre of its frame.
 
-### `items` / `inputs`
+### Buttons: `items` and `inputs`
 
-- Simple button: `"inputs": ["a"]` (several names make a combo that holds them all).
-- D-pad / stick: `"inputs": { "up": "up", "down": "down", "left": "left", "right": "right" }`
-  — Continuum places the D-pad cluster from that item's frame centre.
-- Game-button names Continuum maps today (`SkinControls.slot` in `SkinScreens.swift`; case,
-  spaces, `_` and `-` are ignored): `a`, `b`, `x`, `y`, `l` / `l1`, `r` / `r1`, `l2` / `zl`,
-  `r2` / `zr`, `l3`, `r3`, `select`, `start`, the four D-pad directions, the PlayStation
-  `triangle`, `circle`, `cross` and `square`, and the N64 `z` / `trigger` and C-buttons (`cUp`,
-  `cDown`, `cLeft`, `cRight`). A name that matches one of the system's own button labels wins
-  over these aliases (so N64 "A" is the button labelled A). On the 3DS, `menu` and `home` are
-  the Home button.
+- A plain button: `"inputs": ["a"]`. List several names to make a combo that holds them all.
+- A D-pad: `"inputs": { "up": "up", "down": "down", "left": "left", "right": "right" }`. The
+  D-pad goes where the centre of that item's frame is.
+- The button names Continuum understands (capitals, spaces, `_` and `-` don't matter): `a`, `b`,
+  `x`, `y`, `l` / `l1`, `r` / `r1`, `l2` / `zl`, `r2` / `zr`, `l3`, `r3`, `select`, `start`, the
+  four D-pad directions, the PlayStation's `triangle`, `circle`, `cross` and `square`, and the
+  N64's `z` / `trigger` and C-buttons (`cUp`, `cDown`, `cLeft`, `cRight`). A name that matches
+  one of the console's own button labels wins over these, so on the N64 "A" is the button
+  labelled A. On the 3DS, `menu` and `home` are the Home button.
 - An item whose inputs name a thumbstick, analog stick or circle pad (or that has a `thumbstick`
-  key) becomes a real stick, not a D-pad; a right thumbstick or C-stick becomes the right stick.
-- `menu` (outside the 3DS), `quickSave` and the other function names run a function instead
-  (see Manic EMU extensions). A name that is none of these is skipped.
+  key) becomes a real stick, not a D-pad. A right thumbstick or a C-stick becomes the right stick.
+- `menu` (except on the 3DS), `quickSave` and the other function names run a function instead;
+  see below. Any other name is skipped.
 
-## Manic EMU extensions
+## Manic EMU extras
 
-Read by `ManicSkinItems.swift`, drawn by `TouchControls.swift`.
+These are newer than plain Delta skins and have had less testing.
 
-- **Function buttons.** An item whose `inputs` names a function runs it instead of a game
-  button. Every function in Manic's list is handled by one dispatcher
-  (`SkinFunctions.swift`), the same one the extra floating buttons use. A function together with
-  any other input on one item is refused at import with a status line, as Manic's guide warns.
-  Delta's `menu` opens the all-functions menu (`flex`), except on the 3DS, where it stays Home.
-- **Combos.** An item naming several game buttons (`["a", "b"]`) holds all of them.
-- **Press animation.** An item's `asset.normal` is drawn as that button's own layer. A press
-  swaps in `asset.pressed` (or `highlight`) when the file has one; otherwise the layer is pushed
-  in (scaled and dimmed) and springs back.
-- **Switches.** `animation` (`type: spring`, `begin` and `end` frames relative to the item's own
-  frame), `selfRetracting`, or `asset.selected` with `inputs` as a single string make an item a
-  switch. Its picture (the knob) moves between `begin` (off) and `end` (on), showing
-  `asset.selected` when on. A momentary (`selfRetracting`) switch is on only while held. A switch
-  on `reverseScreens`, `volume`, `toggleControlls`, `toggleAnalog`, `tvType`, `leftDifficulty` or
-  `rightDifficulty` reads the real state whenever the skin is laid out. A switch on a game button
-  holds that button while it is on.
-- **Button sound.** `sound.caf` in the package root plays on every press of a skin control, at
-  the game's volume, never while the app is muted or the phone is on silent. Settings, SKINS,
-  "Button sounds" turns it off.
+- Function buttons. An item whose `inputs` names a function runs it instead of pressing a game
+  button. Continuum handles every function in Manic's list, the same way as its extra floating
+  buttons.
+  An item that mixes a function with any other input is turned down at import with a short
+  message, as Manic's guide warns. Delta's `menu` opens a menu of every function (`flex`), except
+  on the 3DS, where it stays the Home button.
+- Combos. An item that names several game buttons (`["a", "b"]`) holds all of them.
+- Press animation. An item's `asset.normal` is drawn as that button's own picture. Pressing it
+  shows `asset.pressed` (or `highlight`) when the skin has one; otherwise the button sinks in a
+  little and springs back.
+- Switches. An item becomes a switch with `animation` (`type: spring`, with `begin` and `end`
+  frames relative to the item's own frame), with `selfRetracting`, or with `asset.selected` and a
+  single string for `inputs`. The knob moves between `begin` (off) and `end` (on), and shows
+  `asset.selected` while on. A `selfRetracting` switch is only on while you hold it. Switches on
+  `reverseScreens`, `volume`, `toggleControlls`, `toggleAnalog`, `tvType`, `leftDifficulty` and
+  `rightDifficulty` show the real setting whenever the skin is drawn. A switch on a game button
+  holds that button down while it's on.
+- Button sound. A `sound.caf` at the top level of the package plays on every press, at the game's
+  volume, and never while the app is muted or the phone is on silent. Settings, Skins, Button
+  sounds turns it off.
 
 ## The skin library
 
-Settings, SKINS, "Open the skin library": every imported skin per system, the default per
-system (or the built-in pad), rename and delete (swipe or long-press a row). A game's card has
-a SKIN choice for that game alone, and the player's ... menu (or a `skins` button) switches skin
-mid-game, kept for that game. Edits made in the skin editor belong to one skin.
+Settings, Skins, Open the skin library lists every skin you've imported, by console. Each console
+can have a default skin (or the built-in pad), and you can rename or delete a skin by swiping or
+holding its row. A game's card has its own skin choice, just for that game, and in a game the ⋯
+menu (or a `skins` button on the skin) switches skin on the spot and remembers it for that game.
+Changes made with Edit this skin belong to that one skin.
 
-## Sample
+With a skin in use, a built-in button the skin doesn't name isn't drawn at all, and the built-in
+D-pad is left out when the skin has a stick or a circle pad but no D-pad.
 
-A Manic sample, [`docs/samples/manic-skin-gba-info.json`](samples/manic-skin-gba-info.json)
+If a skin won't import, the message says what went wrong.
+
+## Samples
+
+A Manic sample, [`docs/samples/manic-skin-gba-info.json`](samples/manic-skin-gba-info.json),
 packed as [`docs/samples/continuum-sample-gba.manicskin`](samples/continuum-sample-gba.manicskin)
-by `scripts/make-manic-skin-sample.py`, has function buttons, a combo, a latching and a momentary
-switch, a refused item and a `sound.caf`.
+by `scripts/make-manic-skin-sample.py`. It has function buttons, a combo, a switch that stays put,
+one that springs back, an item that gets turned down, and a `sound.caf`.
 
-A minimal GBA portrait `info.json` lives at
-[`docs/samples/delta-skin-gba-info.json`](samples/delta-skin-gba-info.json). A packed
-[`docs/samples/continuum-sample-gba.deltaskin`](samples/continuum-sample-gba.deltaskin)
-includes a tiny PNG so Import can exercise art + `screens` together. You can also import
-the bare `info.json` to exercise layout/screens without ZIP assets.
+A small Game Boy Advance portrait `info.json` is at
+[`docs/samples/delta-skin-gba-info.json`](samples/delta-skin-gba-info.json), and
+[`docs/samples/continuum-sample-gba.deltaskin`](samples/continuum-sample-gba.deltaskin) packs it
+with a tiny picture, so an import tries the art and the screen area together. You can also import
+the bare `info.json` to try just the layout and the screen area.
 
-## What still does not work
+## Not supported yet
 
-- iPad and splitView as their own targets: they are only fallbacks in the order above
-- CoreImage `filters`
-- Device proof beyond one case: a 3DS skin sideways shows both screens in their holes, with
-  nothing over the picture, on the owner's phone (build 122, 5 October), and importing several
-  skins at once works there. Upright, and DS skins, are not confirmed yet.
-- A skin saved before build 109 kept only its first screen hole. Delete it and import the same
-  file again; the app cannot re-read the original by itself.
+- iPad and split-view layouts as their own targets. They're only used as fallbacks, in the order
+  above.
+- Core Image `filters`.
 
-Use **Import .deltaskin** in the on-screen control layout editor (one skin, previewed), or
-**Import skins** in the skin library, which takes any number of files picked together. With a
-skin in use, a built-in button the skin does not name is not drawn at all (and a built-in D-pad
-is left out when the skin has a stick or circle pad but no D-pad). Cancelling the picker or
-picking nothing leaves a clear error on that panel; a bad package names what failed.
+So far, 3DS skins (sideways, upright and with the screens swapped) and DS skins both ways round
+have been checked on a phone, along with importing several skins at once. Skins for other
+consoles should behave the same, but they've had less testing, so reports are welcome.
+
+## In the code
+
+For anyone reading the source, all in `native/ios`: `DeltaSkinImport.swift` reads the package,
+`SkinLibrary.swift` maps the console identifiers (`SkinGameTypes`) and the related systems
+(`SkinSharing`), `SkinScreens.swift` maps the button names (`SkinControls.slot`),
+`ManicSkinItems.swift` reads Manic's extras, `SkinFunctions.swift` runs the function buttons and
+`TouchControls.swift` draws the result. `scripts/check-skins.sh` checks both samples.
