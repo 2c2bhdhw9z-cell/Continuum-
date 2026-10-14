@@ -54,6 +54,21 @@ the player picked by hand is kept, so on "Game Boy" a game stays grey, and the s
 so. Switching to one mid-game waits for the next start, like the console setting; switching back
 to Off is immediate.
 
+### 2. The Link cable setting says how to link two phones — Built, untested
+
+- **For players:** cBoy's **Link cable** setting (Core settings, Link) no longer says linking two
+  phones isn't there yet. It points to the row the app added for it (commit 1dee835), in the
+  app's own words from `native/ios/PlayerScreen.swift`.
+  - Before: "Unplugged is a console with nothing attached. Loopback connects the cable to itself,
+    which some test programs use. Linking two phones is not available yet."
+  - After: "Unplugged is a console with nothing attached. Loopback connects the cable to itself,
+    which some test programs use. To link two phones, open the ... menu in a game and choose Link
+    cable to a second phone." (Item 3 below then shortens it to one sentence.)
+- Nothing else changed: same key, values, default, and the cable works the same.
+- **What the tests prove:** a new test checks the text names the ... menu and the row "Link cable
+  to a second phone" word for word, and never says "not available". The inventory regenerates
+  byte for byte the same (it lists keys, not text). Full cBoy suite green.
+
 ## Needed in files cBoy's work does not own
 
 - `docs/option-sources/mapping.tsv`, the `gambatte_gb_internal_palette` row (line 24): its note
@@ -65,3 +80,13 @@ to Off is immediate.
   schemes`.
 - Then rerun `scripts/build-cboy-inventory.py`. Nothing else in the inventory changes: the setting
   kept its key, so cBoy still has 67 options.
+- `docs/option-sources/mapping.tsv`, the two-phone link rows (from item 2): two phones link
+  through the app since commit 1dee835, so "in progress" is out of date.
+  - Line 25, `gambatte_gb_link_mode`: status `gap` to `n/a`, note: `the app links two phones
+    itself: the ... menu's Link cable to a second phone (Host, Join or Nearby)`.
+  - Lines 26 to 38 (`gambatte_gb_link_network_port` and the twelve `..._server_ip_N`): status
+    `gap` to `n/a`, note: `the app's Host shows the address and Join types it in or finds it nearby`.
+  - Line 128, `tgbdual_gblink_enable`: keep `gap`, note: `two consoles on one phone: not built
+    (two phones link through the app)`.
+  - Then rerun `scripts/build-cboy-inventory.py`: the summary line goes from 22 gaps and 3 not
+    applicable to 8 gaps and 17 not applicable. cBoy still has 67 options.

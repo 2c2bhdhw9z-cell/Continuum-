@@ -248,7 +248,7 @@ const SPECS: &[Spec] = &[
      &[(c"50", c"50%"), (c"phone", c"Light sensor"), (c"0", c"Dark"), (c"25", c"25%"), (c"75", c"75%"), (c"100", c"Full sun")], c"50"),
     // Link
     (c"link", c"cboy_link", c"Link cable",
-     c"Unplugged is a console with nothing attached. Loopback connects the cable to itself, which some test programs use. Linking two phones is not available yet.",
+     c"Unplugged is a console with nothing attached. Loopback connects the cable to itself, which some test programs use. To link two phones, open the ... menu in a game and choose Link cable to a second phone.",
      &[(c"off", c"Unplugged"), (c"loopback", c"Loopback")], c"off"),
     // Performance
     (c"performance", c"cboy_frameskip", c"Frame skip",
@@ -941,6 +941,17 @@ mod tests {
                 assert!(!text.contains(word), "{}: \"{word}\"", key.to_string_lossy());
             }
         }
+    }
+
+    /// Two phones link from the game's ... menu since the app's half landed (commit 1dee835), so
+    /// the Link cable setting says how, naming that menu's row exactly as the app writes it
+    /// (`native/ios/PlayerScreen.swift`, "Link cable to a second phone"). If the row is renamed
+    /// there, this text and this test change with it.
+    #[test]
+    fn the_link_cable_setting_says_how_to_link_two_phones() {
+        let info = SPECS.iter().find(|s| s.1 == c"cboy_link").unwrap().3.to_str().unwrap();
+        assert!(info.contains("... menu") && info.contains("Link cable to a second phone"), "{info}");
+        assert!(!info.contains("not available"), "{info}");
     }
 
     /// What the core asked the frontend to hide, and whether it offered to be asked again.
