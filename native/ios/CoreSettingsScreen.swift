@@ -683,7 +683,7 @@ struct CoreActionsMenuSection: View {
                 }
             }
             Button { host.cycleResolution() } label: {
-                Label("Next resolution", systemImage: "square.resize")
+                Label("Next resolution", systemImage: "arrow.up.left.and.arrow.down.right")
             }
             if system == .atari2600 {
                 Button { host.toggleTVType() } label: {
