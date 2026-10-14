@@ -47,7 +47,8 @@
     },
     {
       "id": "I3",
-      "done": false,
+      "done": true,
+      "result": "The Pac-Man board is in cores/continuum-arcade (pushed as 9c39306): Puck Man and Pac-Man's plain board, Pac-Man Plus's decoder, Ms. Pac-Man's daughterboard and the bootleg boards with ROM at 8000h, with the upright picture, colours, Namco sound, inputs, DIP switches, interrupt and watchdog, and nine test programs of our own match MAME 0.289 on all 1,400 frames, pixel for pixel and sound sample for sample (tests/pacman_mame.rs live, tests/pacman_board.rs against MAME's recorded hashes everywhere).",
       "title": "The Pac-Man board",
       "detail": "Namco's Pac-Man hardware: Pac-Man, Puck Man, Ms. Pac-Man (including the way its daughterboard rearranges and patches the program ROMs), Pac-Man Plus (its program and graphics decoding), and the common clones and bootlegs on the same board. The tile and sprite picture with its unusual screen layout, the colour PROMs, the Namco sound chip (three voices playing 32-step waveforms from the sound PROM), the inputs (coin, start, a four-way joystick), the DIP switches (lives, bonus life, difficulty, cocktail or upright), the watchdog, the interrupt vector the game writes to port 0, and the board's real frame rate. The picture comes out upright, the way the cabinet shows it. Prove it without commercial ROMs: write small test programs for this board yourself (an assembler built from source in scratch), and compare our picture and sound against MAME's for the same programs, with MAME built locally from source as a small subset containing only the drivers you need, in scratch, never committed (use -j3 so the other agents keep running). Pin the comparisons as tests."
     },
