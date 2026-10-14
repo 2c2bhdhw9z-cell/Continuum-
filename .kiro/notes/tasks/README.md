@@ -35,6 +35,18 @@ sandbox's git routes github.com through a gateway that only serves this reposito
 The review items (K3, U4, T4) go to a fresh helper that did not write the work. When a job
 finishes, delete its file here in a docs-only push.
 
+**At most three or four helpers at a time.** On 14 October eleven were started at once and the
+service throttled them ("Too many requests"): three finished (cache K1-K2, cBoy G1b-G1c, icons),
+two got most of the way and were cut off (cleanup: R2, R3, R4, R6 and the part-2 plan pushed;
+text: T2 and most of T3 pushed), three were cut off right after cloning, and three never started.
+Pushed work stays, which is why everything is pushed as it goes; restart the rest in small groups.
+
+**No workflow edits.** Kiro's GitHub rules never allow a change under `.github/workflows/` straight
+onto master, only through a pull request, and the owner allows none. So R5 (release notes) and the
+arcade job's two ios.yml lines are parked, written down in `repo-cleanup-phase2.md` section 2 and
+the arcade report. Two comment-only edits to ios.yml's cache notes landed with K1/K2 (3651403,
+1de468f) before this was known; they change nothing a build does.
+
 **cBoy G2, G3 and G4 are the exact drawer.** Before any of it starts, stop and tell the owner so
 they can turn the thinking up to max, and begin nothing until they reply that it's set (owner
 rule, asked again on 14 October).

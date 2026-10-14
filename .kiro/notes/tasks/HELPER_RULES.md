@@ -72,6 +72,9 @@ job. The owner is a non-programmer who only uses an iPhone and tests only the fi
   checklists' "3"): up to ten helpers share an 8-core, 30 GB machine, and running it out of memory
   kills everyone's work. If a build dies with signal 9 or "Killed", that was memory: wait a minute
   and retry with -j1 rather than giving up.
+- `/root/.cargo` is read-only for helpers, so cargo can't download crates there. Use your own:
+  `export CARGO_HOME=/projects/sandbox/.scratch/<job>-tmp/cargo-home` and
+  `export RUSTUP_TOOLCHAIN=1.92.0-x86_64-unknown-linux-gnu`, in every shell that runs cargo.
 - Run the checks your checklist names before every push.
 - Swift: `swiftc -frontend -parse <file>` on every changed Swift file. There is no iOS SDK, Xcode or
   simulator here, so the parse check only catches writing mistakes. Be strict about iOS 16
@@ -87,7 +90,10 @@ job. The owner is a non-programmer who only uses an iPhone and tests only the fi
 - `STATUS.md`, `TESTING.md`, `HANDOFF.md`: the orchestrator writes those from your report.
 - Other jobs' task files in `.kiro/notes/tasks/`.
 - `.kiro/steering/owner-rules.md` (unless your checklist explicitly allows one line).
-- `.github/workflows/*` except exactly what your checklist allows.
+- Anything under `.github/workflows/`, even where your checklist allows an edit. Kiro's GitHub
+  rules never let a workflow change go straight onto master (only through a pull request), and
+  the owner allows no pull requests, so workflow edits are parked. If your job needs one, write
+  the exact change into your report and carry on without it.
 
 ## Your report (the last thing you return)
 
