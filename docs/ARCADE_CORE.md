@@ -37,7 +37,7 @@ emulator. Until then an imported arcade game stays in the Library and opens to o
 | `ay8910.rs` | The AY-3-8910, two of them on Konami's sound board |
 | `galaxian_sound.rs` | Galaxian's analogue sound, approximated |
 | `dkong.rs` | Nintendo's Donkey Kong board |
-| `i8035.rs` | The Intel 8035 that plays Donkey Kong's music into a DAC |
+| `mcs48.rs` | The Intel 8035 that plays Donkey Kong's music into a DAC (written and proven, see below) |
 | `dkong_sound.rs` | Donkey Kong's analogue sound effects, approximated |
 | `libretro.rs`, `options.rs` | The entry points, and the DIP switches as core options |
 
@@ -133,6 +133,37 @@ upright too.
 - **Through the engine**, `crates/emulator-bridge/tests/arcade_frontend.rs` loads a test set built
   from our own programs through the real entry points (`NativeLibretroCore`). Like
   `cboy_frontend.rs`, it only runs when it's given the built core.
+
+## The 8035, Donkey Kong's sound processor (`mcs48.rs`)
+
+The Intel MCS-48 family as Donkey Kong and Donkey Kong Jr. use it: the 8035 (64 bytes of RAM)
+and the 8039 (128). A step is one instruction; a machine cycle is 15 clocks, so the boards' 6 MHz
+part runs 400,000 cycles a second.
+
+- **What's in:** every instruction and its cycles, both register banks, the eight-level stack in
+  RAM, the PSW and its flags, F1, the timer and event counter and their interrupt, the external
+  interrupt, ports 1 and 2, the BUS, T0 and T1, MOVX, the 8243 expander instructions, and the two
+  2 KB program banks (SEL MB0/MB1; Donkey Kong Jr.'s 4 KB sound program uses both).
+- **Where Intel's manual leaves it open, MAME's core decides:** the timer counts an instruction's
+  cycles before the instruction acts, an interrupt that arrives just after a JNI that missed it
+  returns to the JNI's destination, and the 26 undefined opcodes are one-cycle no-ops. MAME's own
+  notes say a real 8048's timer runs one cycle later than that; matching MAME keeps the
+  comparisons with it exact.
+- **How it's proved.** There is no public per-instruction suite for this chip (SingleStepTests
+  has none), so:
+  - `tests/mcs48_opcodes.rs` checks all 256 opcodes against Intel's 1980 MCS-48 User's Manual.
+    Each instruction's operation is written out a second time from the manual, keyed by its
+    mnemonic, and the chip and that description run from 1,500 random machine states per opcode
+    on each RAM size (768,000 cases). Every register, flag, RAM byte, port latch, timer bit, outside
+    access and cycle count must agree. Planted mistakes (a wrong half carry, a missing bank rule, a
+    port read without its latch, a count carrying into bit 11) all fail it.
+  - The opcode table is checked against an independent assembler: `tests/mcs48/opcodes.asm` has
+    every instruction, and `opcodes.bin` is what The Macro Assembler AS made of it.
+  - Unit tests in `src/mcs48.rs` cover the interrupts and their priority, RETR, bank 0 inside an
+    interrupt routine, the JNI rule, the timer's 32-cycle prescaler, the counter's T1 edges, the
+    stack's wrap, the page rules, both RAM sizes, reset and a save state.
+  - A trace comparison with MAME's core on our own programs, run on MAME's Donkey Kong sound
+    board, is the last proof; it waits for the MAME build in scratch.
 
 ## The core as the app sees it
 
