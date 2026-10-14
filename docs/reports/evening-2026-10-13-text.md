@@ -109,6 +109,15 @@ each under the name of the section it came from.
 - **TV scaling** and **TV layout (DS, 3DS)** are the TV's current choices, not read-outs, so they
   stay in the section, as plain lines ("TV scaling: Fit") instead of typewriter text.
 
+### APP ICON
+
+- "iPhone asks every time the icon changes. You can switch again whenever you want." became
+  **"Tap one to switch. Your iPhone pops up a note each time."**; "Bitmap is set. iPhone asks each
+  time, then it stays." became **"Using Bitmap. Tap another to switch."** (and, straight after a
+  tap, **"Using Bitmap now."**); "Primary icon restored. iPhone asks because it has to." became
+  **"Back to the Default icon."**; "This install cannot change its icon." became **"This copy of
+  Continuum can't change its icon."**
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)

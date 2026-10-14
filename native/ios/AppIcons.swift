@@ -159,9 +159,9 @@ struct AppIconSettingsSection: View {
 
     private static func openingNote() -> String {
         if let name = remembered() {
-            return "\(name) is set. iPhone asks each time, then it stays."
+            return "Using \(name). Tap another to switch."
         }
-        return "iPhone asks every time the icon changes. You can switch again whenever you want."
+        return "Tap one to switch. Your iPhone pops up a note each time."
     }
 
     private func refreshFromSystem() {
@@ -195,7 +195,7 @@ struct AppIconSettingsSection: View {
 
     private func apply(_ choice: AppIconChoice) {
         guard UIApplication.shared.supportsAlternateIcons else {
-            note = "This install cannot change its icon."
+            note = "This copy of Continuum can't change its icon."
             return
         }
         // Only skip the work when the live system value AND the remembered name both say this
@@ -219,10 +219,10 @@ struct AppIconSettingsSection: View {
                 selected = choice.alternateName
                 if let name = choice.alternateName {
                     UserDefaults.standard.set(name, forKey: Self.storageKey)
-                    note = "\(choice.name) is set. iPhone asks each time, then it stays."
+                    note = "Using \(choice.name) now."
                 } else {
                     UserDefaults.standard.removeObject(forKey: Self.storageKey)
-                    note = "Primary icon restored. iPhone asks because it has to."
+                    note = "Back to the Default icon."
                 }
             }
         }
