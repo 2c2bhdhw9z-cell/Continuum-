@@ -35,6 +35,10 @@ These come straight from the owner. They are not suggestions.
   and the core count (36 `_libretro_ios.dylib` files from the licence-swap install on: 33 cores plus 3 JIT builds; build 180 had 38). Never say a build is the
   newest without checking the Releases page.
 - With every .ipa, give a short list of easy things to try on it. The owner often tests at work.
+- **Never start a build the owner hasn't said yes to in the middle of a batch** (14 October 2026).
+  Build 188 was started at 9 AM to show progress, after an offer the owner hadn't answered, and they
+  were furious ("Fuck about a fucking build right now"); it was cancelled during its first checks.
+  Offer a build at most once. Start it only when they say so, or when the whole batch is done.
 
 ## Git
 - NO branches. NO pull requests. Ever. Everything is committed and pushed straight to `master`.
