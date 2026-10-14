@@ -67,7 +67,8 @@
     },
     {
       "id": "R6",
-      "done": false,
+      "done": true,
+      "result": "Only one doc is for visitors (R1): docs/DELTA_SKIN_FORMAT.md, now 'Making skins for Continuum' in plain words for skin makers, with every format fact kept and checked against the code (the console identifier tables, related systems, layout order, button names, the Manic extras, the in-app labels), the build numbers and owner mentions gone, the phone-tested part brought up to date (3DS and DS skins both ways), and the code pointers moved to a short last section (commit a9200a1); 5 relative links and its one anchor all resolve, and every other doc is left for part 2.",
       "title": "The docs a visitor might open",
       "detail": "From R1, decide which docs are for visitors (for example the skin format, for people who make skins) and give each a human pass. Leave every other doc alone for part 2."
     },
