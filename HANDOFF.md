@@ -251,7 +251,7 @@ for one exact game version; the cheat screen names the version for GBA and Game 
 - `cargo test --workspace --features emulator-bridge/native-core` (723 tests on 14 October)
 - `cargo clippy --workspace --features emulator-bridge/native-core` (CI runs it too; an error
   stops the build)
-- cBoy: `cd cores/continuum-gb && scripts/fetch-test-roms.sh && cargo test --release` (78 tests).
+- cBoy: `cd cores/continuum-gb && scripts/fetch-test-roms.sh && cargo test --release` (158 tests on 14 October).
   Run it before any cBoy push: builds 178 and 179 failed on these alone.
 - `bash scripts/check-skins.sh`, `bash scripts/check-players.sh`
 - `bash scripts/fetch-libretro-headers.sh && bash native/switch-wrapper/build.sh host` (15/15)
