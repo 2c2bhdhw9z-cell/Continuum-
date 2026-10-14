@@ -1,70 +1,138 @@
 # Continuum
 
-**An all-in-one emulator for iPhone, in public beta.** 38 systems in one app, from the NES to the
-Nintendo 3DS, with skins, save states, rewind, fast forward, cheats, controllers, AirPlay to a TV
-and online play with a second phone.
+![The Continuum app icon](docs/app-icon.png)
 
-It is not on the App Store: you install the `.ipa` yourself.
+Continuum is an all-in-one emulator for iPhone: dozens of systems in one app, from the NES to the
+Nintendo 3DS. It's free and open source, and it's in public beta, so expect a few rough edges. It
+isn't on the App Store: you install it yourself.
 
-## Download
+## Getting it
 
-**[Get the newest build](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest)**, the file
-named `Continuum-<number>.ipa`. Sign and install it with your usual sideloading app and your own
-certificate. Your version number is in Settings, About.
+1. Open the [latest release](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/latest) and
+   download `Continuum-<number>.ipa`. The plain `Continuum.ipa` next to it is the same app.
+2. Sign and install it with the sideloading app you normally use and your own certificate.
 
-Games and BIOS files are **not** included. Use your own.
+It needs iOS 16 or later. Your version number is in Settings, About.
 
-## Systems
+Games and BIOS files aren't included. You'll need your own.
 
-| Plays well on a phone already | In the app, needs testers |
+## What it plays
+
+### Played on an iPhone
+
+| System | Emulator |
 | --- | --- |
-| NES, Game Boy, Game Boy Color, Game Boy Advance | SNES, Mega Drive / Genesis, Game Gear (new emulator) |
-| PlayStation | PSP, Dreamcast, Saturn, Sega CD, 32X |
-| Nintendo 64 | Master System, SG-1000, Famicom Disk System |
-| Nintendo DS | WonderSwan, Neo Geo Pocket, Lynx, Atari 7800 and 5200, Virtual Boy |
-| Nintendo 3DS (decrypted games) | PC Engine CD, SuperGrafx |
-| TurboGrafx-16, Atari 2600, Jaguar, Pokemon Mini | Commodore 64, Amiga, DOS, DOOM |
-| | Flash (.swf) and old phone games (.jar) |
+| NES | Mesen, or FCEUmm |
+| SNES | bsnes |
+| Game Boy, Game Boy Color, Game Boy Advance | mGBA, or cBoy |
+| Game Gear | Gearsystem |
+| Mega Drive / Genesis | BlastEm |
+| PlayStation | PCSX ReARMed, or Beetle PSX |
+| Nintendo 64 | ParaLLEl N64 |
+| Nintendo DS | melonDS |
+| Nintendo 3DS | Azahar |
+| TurboGrafx-16 / PC Engine | Beetle PCE Fast |
+| Atari 2600 | Stella |
+| Atari Jaguar | Virtual Jaguar |
+| Pokémon Mini | PokeMini |
 
-SNES now runs on bsnes, Master System, Game Gear and SG-1000 on Gearsystem, and Mega Drive, Sega
-CD and 32X on BlastEm. 32X games need two BIOS files, 32X_M_BIOS.bin and 32X_S_BIOS.bin. Arcade
-is out for now while we build our own.
+### In the app, not much tested yet
 
-Not supported: GameCube, Wii and Switch. Heavier systems can be slow without JIT. If you can turn
-JIT on (StikDebug or similar), Continuum uses it by itself; see Settings, Technical details.
+| System | Emulator |
+| --- | --- |
+| PSP | PPSSPP |
+| Dreamcast | Flycast |
+| Saturn | Yabause, or Beetle Saturn |
+| Sega CD, 32X | BlastEm |
+| Master System, SG-1000 | Gearsystem |
+| Famicom Disk System | FCEUmm, or Mesen |
+| PC Engine CD | Beetle PCE |
+| SuperGrafx | Beetle SuperGrafx |
+| WonderSwan | Beetle WonderSwan |
+| Neo Geo Pocket | Beetle NeoPop |
+| Atari Lynx | Handy |
+| Atari 7800 | ProSystem |
+| Atari 5200 | a5200 |
+| Virtual Boy | Beetle VB |
+| Commodore 64 | VICE |
+| Amiga | PUAE |
+| DOS | DOSBox Pure |
+| DOOM | PrBoom |
+| Flash games (.swf) | Ruffle |
+| Old Java phone games (.jar) | J2meJS |
+
+A few things to know:
+
+- 3DS games have to be decrypted, and there can be a short stutter after a scene change.
+- 32X games need two BIOS files, 32X_M_BIOS.bin and 32X_S_BIOS.bin.
+- Arcade games aren't playable right now. Continuum is getting an arcade emulator of its own, and
+  arcade games you already added stay in your library until then.
+- GameCube, Wii and Switch aren't supported.
+- Everything runs without JIT, but the heavier systems can be slow. If your setup can turn JIT on
+  (with StikDebug or a similar tool), Continuum should pick it up by itself. That part is new and
+  no tester has tried it yet. Settings, Technical details shows whether it's on.
+
+## What it does
+
+- Save states, 50 slots per game with a picture each, and auto-save, so a game picks up where
+  you left it
+- Rewind, fast forward up to 4x, and slow motion
+- Delta skins for the touch controls, and Manic skins too (newer, less tested). There's a
+  [skin guide](docs/DELTA_SKIN_FORMAT.md) if you make your own
+- Game controllers, even together with the touch controls
+- Cheat codes and RetroAchievements
+- Screen filters, like a CRT look and an LCD grid
+- Your game on a TV with AirPlay
+- Both screens for DS and 3DS games, in a few layouts
+- Cover art for your library
+- Online play with a second phone (new, so it hasn't had much testing)
+
+## cBoy, Continuum's own emulator
+
+Most systems run on well-known open-source emulators. cBoy is Continuum's own: one emulator for
+Game Boy, Game Boy Color and Game Boy Advance, written from scratch in Rust. It's newer than
+mGBA, so mGBA is still the default, and you can switch to cBoy in Settings. Game Boy games have
+played on it on an iPhone. Advance games on cBoy are still early.
 
 ## Adding games
 
-Tap **+** in the Library and pick your files (zip and 7z work too). For a disc game made of a
-`.cue` and `.bin` files, pick the `.cue` and every `.bin` together. You can also put files in the
-Files app under On My iPhone, Continuum. Hold your finger on **+** for Wi-Fi transfer from a
-computer, pasting, and WebDAV servers.
+Tap the + button in the library and pick your files (zip and 7z work too). For a disc game made
+of a .cue and .bin files, pick the .cue and every .bin together. You can also put files in the
+Files app under On My iPhone, Continuum. Press and hold + for Wi-Fi transfer from a computer,
+pasting, and WebDAV servers.
 
-A system that needs a BIOS file says which one when you open a game. Put it in the same Continuum
-folder, then Settings, BIOS, Install a BIOS from the Continuum folder.
+If a game needs a BIOS file, it tells you which one when you open it. Put the file in the same
+Continuum folder, then go to Settings, BIOS and tap Install a BIOS from the Continuum folder.
 
-## Helping test
+## Feedback
 
-What helps most: try a system from the right-hand column, or a game nobody has tried, and say how
-it went.
+It's a beta, so reports really help. Trying a system from the less-tested list, or a game nobody
+has tried, helps most.
 
-- **In a game:** ⋯ then **Send feedback about this game**. Rate how it runs, tick what is wrong,
-  and draw on the picture to point at the problem. The app's details are added for you.
-- **Anything else:** Settings, **Send feedback** (the first card).
-- **If the app closes by itself,** it offers to send a crash report the next time it opens.
+- In a game: tap ⋯, then Send feedback about this game. You can rate how it runs and draw on a
+  screenshot to show what's wrong.
+- Anything else: Settings, Send feedback.
+- If the app closes by itself, it offers to send a crash report the next time you open it.
 
-Reports go by email to ContinuumDev2c2b@gmail.com; you see the whole message before it is sent.
+Reports go by email to ContinuumDev2c2b@gmail.com, and you see the whole message before it's
+sent. You can also just write to that address.
 
-## For development
+## Credits and licence
 
-[STATUS.md](STATUS.md) is what is finished, system by system. [TESTING.md](TESTING.md) is the
-owner's test list. [docs/PRODUCT_SCOPE.md](docs/PRODUCT_SCOPE.md) is what the app is meant to be,
-and [docs/MANIC_PARITY.md](docs/MANIC_PARITY.md) is the feature checklist. Builds come from GitHub
-Actions; every build of `master` that changes the app becomes a Release.
+Continuum is licensed under the GNU General Public License v3.0. See [LICENSE](LICENSE).
 
-## License
+It's built on a lot of other people's work, so a big thank you to everyone who makes the
+emulators and libraries inside it. Each one keeps its own licence. The full list, with each
+licence and a link to the source code, is in the app under Settings, About, Open-source credits.
+None of those licences limits what the app does or what it costs. They ask for credit, and for
+the source code to stay public.
 
-Continuum is licensed under the GNU General Public License v3.0; see [LICENSE](LICENSE). The
-emulator cores and libraries inside the app keep their own licenses (listed in the app under
-Settings → About → Open-source credits). None of them limits what the app does or what it
-costs; they only ask for the credits and for their source code to stay public.
+## The code
+
+- [native/ios](native/ios): the iPhone app, in SwiftUI
+- [crates/emulator-bridge](crates/emulator-bridge): the engine, in Rust. It runs the emulators
+  as libretro cores
+- [cores/continuum-gb](cores/continuum-gb): cBoy
+
+The app is built by GitHub Actions, and every new build is published on the
+[Releases](https://github.com/2c2bhdhw9z-cell/Continuum-/releases) page.
