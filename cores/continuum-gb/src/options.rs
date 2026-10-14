@@ -78,7 +78,7 @@ const CATEGORIES: &[(&CStr, &CStr, &CStr)] = &[
     (c"audio", c"Sound", c"Volume, channel mix and filters."),
     (c"input", c"Controls", c"Turbo buttons, motion and light sensors, rumble."),
     (c"link", c"Link", c"The link cable."),
-    (c"performance", c"Performance", c"Speed and latency."),
+    (c"performance", c"Performance", c"Speed and button delay."),
     (c"debug", c"Debug", c"Switch picture layers off one at a time."),
 ];
 
@@ -89,62 +89,62 @@ const OFF_ON: Values = &[(c"off", c"Off"), (c"on", c"On")];
 const SPECS: &[Spec] = &[
     // System
     (c"system", c"cboy_gb_model", c"Console for Game Boy and Color games",
-     c"Auto runs Color cartridges on a Game Boy Color and the rest on a Game Boy; cartridges that run on both have their own setting below. Takes effect on the next start.",
+     c"Auto picks the right console for each game; changes apply at the next start.",
      &[(c"auto", c"Auto"), (c"auto_sgb", c"Auto (Super Game Boy for SGB games)"), (c"dmg", c"Game Boy"), (c"dmg0", c"Game Boy (first revision)"), (c"mgb", c"Game Boy Pocket"), (c"sgb", c"Super Game Boy"),
        (c"sgb2", c"Super Game Boy 2"), (c"sgb_pal", c"Super Game Boy (PAL)"), (c"cgb", c"Game Boy Color"), (c"agb", c"Game Boy Advance (Color games)")],
      c"auto"),
     (c"system", c"cboy_cgb_revision", c"Which Game Boy Color",
-     c"The very first Japanese Colors start a game with their timer in a different place, which a handful of games notice. Every Color after that behaves the same, so there is nothing else to choose between. Next start.",
+     c"Only a handful of games can tell them apart; changes apply at the next start.",
      &[(c"e", c"The usual one"), (c"0", c"The first Japanese one")],
      c"e"),
     (c"system", c"cboy_hybrid_model", c"Console for games that run on both",
-     c"Some cartridges work on a plain Game Boy and a Game Boy Color. With the console above on Auto, this picks the one they get: Color for the extra colours, Game Boy for the four shades, or one of the other two for that console's own colours and start-up. Next start.",
+     c"Only used when the console above is on Auto; changes apply at the next start.",
      &[(c"cgb", c"Game Boy Color"), (c"dmg", c"Game Boy"), (c"sgb", c"Super Game Boy"), (c"agb", c"Game Boy Advance")],
      c"cgb"),
     (c"system", c"cboy_gba_model", c"Advance console",
-     c"Which Advance an Advance game thinks it is in. Game Boy Player is the one that plugs into a GameCube: pick it and games that shake through it can shake the phone. The Advance and the SP play exactly the same; only their screens differ, which is under Picture. Next start.",
+     c"Only Game Boy Player is different, letting games made for it shake the phone; changes apply at the next start.",
      &[(c"gba", c"Game Boy Advance"), (c"sp", c"Game Boy Advance SP"), (c"gbp", c"Game Boy Player")], c"gba"),
     (c"system", c"cboy_gba_clock", c"Advance cartridge clock",
-     c"For Advance cartridges with a clock in them (Pokemon Ruby, Boktai). Phone clock follows the phone's time. Game time starts at the phone's time and then only moves while you are playing.",
+     c"In Advance games with a clock, like Pokemon Ruby, Game time only moves while you play.",
      &[(c"phone", c"Phone clock"), (c"game", c"Game time only")], c"phone"),
     (c"system", c"cboy_vba_compat", c"Old fan-made game fixes",
-     c"Some fan-made Advance games were built on an older emulator and unpack more graphics than they left room for. On stops at the room they asked for, the way that emulator did. Off lets it spill over, like a real console. A properly made game plays the same either way.",
+     c"On fixes fan-made Advance games built on an old emulator; other games play the same either way.",
      ON_OFF, c"on"),
     (c"system", c"cboy_force_color", c"Run Game Boy games as Color",
-     c"Runs Game Boy-only cartridges in Color mode, for colourisation hacks that write Color palettes. Ordinary Game Boy games may look wrong. Next start.",
+     c"Only for fan-made colour hacks, as normal Game Boy games may look wrong; changes apply at the next start.",
      OFF_ON, c"off"),
     (c"system", c"cboy_boot_rom", c"Start from a boot ROM file",
-     c"Plays the console's real start-up logo from your own boot file (dmg_boot.bin, cgb_boot.bin and so on). Put it in the Continuum folder in Files, then tap Install a BIOS in Settings. Without the file the game simply starts. Next start.",
+     c"Plays the real start-up logo from your own boot file, added with Install a BIOS in Settings.",
      OFF_ON, c"off"),
     (c"system", c"cboy_gba_bios", c"Game Boy Advance BIOS",
-     c"Built-in needs no file. From file uses your own gba_bios.bin (put it in the Continuum folder in Files, then tap Install a BIOS in Settings) and plays the start-up logo; From file, no logo starts the game straight away. Next start.",
+     c"Built-in needs no file, and the other two use your own gba_bios.bin, added with Install a BIOS in Settings.",
      &[(c"builtin", c"Built-in"), (c"file", c"From file"), (c"file_skip", c"From file, no logo")], c"builtin"),
     (c"system", c"cboy_gba_save_type", c"Game Boy Advance save chip",
-     c"Auto finds it from the game. Pick one if a game does not save. Next start.",
+     c"Leave it on Auto unless a game won't save; changes apply at the next start.",
      &[(c"auto", c"Auto"), (c"sram", c"SRAM 32 KB"), (c"flash64", c"Flash 64 KB"), (c"flash128", c"Flash 128 KB"),
        (c"eeprom512", c"EEPROM 512 B"), (c"eeprom8k", c"EEPROM 8 KB"), (c"none", c"None")], c"auto"),
     (c"system", c"cboy_gba_hardware", c"Game Boy Advance cartridge extras",
-     c"Clock, solar sensor, motion sensors or rumble built into some cartridges. Auto knows the games that have them. Next start.",
+     c"Auto knows which games have a clock, sensor or rumble built in; changes apply at the next start.",
      &[(c"auto", c"Auto"), (c"none", c"None"), (c"rtc", c"Clock"), (c"solar", c"Solar sensor"),
        (c"gyro", c"Gyro sensor"), (c"tilt", c"Tilt sensor"), (c"rumble", c"Rumble")], c"auto"),
     (c"system", c"cboy_gbp", c"Game Boy Player rumble",
-     c"Lets an Advance game that shakes through a Game Boy Player (the GameCube attachment) shake the phone instead. Leave it off for link-cable games. Next start.",
+     c"Lets Advance games made for the Game Boy Player shake the phone, from the next start; leave it off for link-cable games.",
      OFF_ON, c"off"),
     (c"system", c"cboy_rtc", c"Cartridge clock",
-     c"For Game Boy and Color cartridges with a clock in them. Real time keeps the clock running while the game is closed. Game time counts only while playing. Phone clock sets it to the phone's time at each start. Advance cartridges have their own setting below.",
+     c"In Game Boy and Color games with a clock, like Pokemon Gold, Real time keeps ticking while the game is closed.",
      &[(c"real", c"Real time"), (c"game", c"Game time only"), (c"phone", c"Phone clock")], c"real"),
     (c"system", c"cboy_rtc_offset", c"Clock offset",
-     c"Moves the phone-clock time by whole hours (Advance clocks, and the Phone clock setting).",
+     c"Shifts the time a game gets from the phone, for Advance clocks and Phone clock above.",
      &[(c"0", c"None"), (c"1", c"+1 hour"), (c"2", c"+2 hours"), (c"3", c"+3 hours"), (c"6", c"+6 hours"),
        (c"12", c"+12 hours"), (c"24", c"+1 day"), (c"-1", c"-1 hour"), (c"-2", c"-2 hours"), (c"-3", c"-3 hours"),
        (c"-6", c"-6 hours"), (c"-12", c"-12 hours"), (c"-24", c"-1 day")], c"0"),
     // Picture
     (c"video", c"cboy_dmg_palette", c"Game Boy palette",
-     c"The four shades original Game Boy games are drawn in. Custom uses four colours of your own, lightest first, written in a palette.txt: put it in the Continuum folder in Files, then tap Install a BIOS in Settings.",
+     c"For Custom, write four colours, lightest first, in a palette.txt and add it with Install a BIOS in Settings.",
      &[(c"grayscale", c"Grayscale"), (c"green", c"Original green"), (c"pocket", c"Pocket"), (c"light", c"Light (backlit)"),
        (c"kiosk", c"Kiosk"), (c"sepia", c"Sepia"), (c"ice", c"Ice"), (c"custom", c"Custom")], c"grayscale"),
     (c"video", c"cboy_dmg_colorize", c"Colour for black-and-white games",
-     c"Off keeps the Game Boy look. Automatic gives each game the colours a Game Boy Color gives it. The ones with buttons are the twelve a Color lets you pick by holding those buttons as it starts. Those play the game on a Color, so the console setting has to be on Auto or a Color, and they start with the next game. The last seven are cBoy's own and work on any console.",
+     c"Automatic and the ones with buttons need the console on Auto or a Color, and change at the next start.",
      &[(c"off", c"Off (like a Game Boy)"), (c"gbc", c"Automatic (like a Game Boy Color)"),
        (c"gbc_up", c"Brown (Up)"), (c"gbc_up_a", c"Red (Up + A)"), (c"gbc_up_b", c"Dark brown (Up + B)"),
        (c"gbc_left", c"Blue (Left)"), (c"gbc_left_a", c"Dark blue (Left + A)"), (c"gbc_left_b", c"Grey (Left + B)"),
@@ -153,127 +153,122 @@ const SPECS: &[Spec] = &[
        (c"auto", c"cBoy's pick"), (c"meadow", c"Meadow"), (c"ocean", c"Ocean"), (c"ember", c"Ember"),
        (c"dusk", c"Dusk"), (c"candy", c"Candy"), (c"slate", c"Slate")], c"off"),
     (c"video", c"cboy_gbc_color", c"Game Boy Color screen colour",
-     c"Off shows the colours as stored. Screen mimics the Color's own LCD; Soft is a lighter version of it.",
+     c"Screen looks like a real Color's screen, and Soft is a lighter version.",
      &[(c"off", c"Off"), (c"screen", c"Screen"), (c"soft", c"Soft")], c"off"),
     (c"video", c"cboy_gbc_light", c"Game Boy Color light position",
-     c"With a Game Boy Color screen colour on: where the light falls on the reflective screen. Above is brighter and washed out, below darker.",
+     c"With a Color screen colour on, light from above looks brighter and washed out, and from below darker.",
      &[(c"central", c"Central"), (c"above", c"Above the screen"), (c"below", c"Below the screen")], c"central"),
     (c"video", c"cboy_gba_color", c"Game Boy Advance screen colour",
-     c"Off shows the colours as stored. Advance mimics the original unlit screen; SP the frontlit SP; TV a Game Boy Player on a television.",
+     c"Advance is the original unlit screen, SP the lit one, and TV a Game Boy Player on a television.",
      &[(c"off", c"Off"), (c"gba", c"Advance"), (c"sp", c"Advance SP"), (c"tv", c"TV")], c"off"),
     (c"video", c"cboy_blend", c"LCD ghosting",
-     c"Mix blends each frame with the last, which makes flicker effects solid. Ghosting leaves trails like the slow original screens.",
+     c"Mix makes flickering things look solid, and Ghosting leaves trails like the slow old screens.",
      &[(c"off", c"Off"), (c"mix", c"Mix"), (c"light", c"Ghosting, light"), (c"heavy", c"Ghosting, heavy")], c"off"),
     (c"video", c"cboy_sgb_border", c"Super Game Boy border",
-     c"Shows the frame a Super Game Boy game draws around the picture (with the Super Game Boy console). Always puts a plain frame around every Game Boy game, on any console, so the screen stays the same size either way. Takes effect when the game restarts.",
+     c"Needs a Super Game Boy console, except Always, which frames every Game Boy game; takes effect when the game restarts.",
      &[(c"on", c"Super Game Boy games"), (c"off", c"Off"), (c"always", c"Always")], c"on"),
     (c"video", c"cboy_renderer", c"Picture drawing",
-     c"Standard is the tried and tested way. Exact (experimental) draws the screen dot by dot, for the rare game that changes the picture halfway along a line. It isn't finished yet and may look wrong.",
+     c"Exact is for rare games that change the picture halfway along a line, but isn't finished yet and may look wrong.",
      &[(c"standard", c"Standard"), (c"exact", c"Exact (experimental)")], c"standard"),
-    (c"video", c"cboy_color_temp", c"Colour temperature",
-     c"Tints the whole picture warmer or cooler, like viewing the screen under different light.",
+    (c"video", c"cboy_color_temp", c"Colour temperature", c"",
      &[(c"neutral", c"Neutral"), (c"warm", c"Warm"), (c"cool", c"Cool")], c"neutral"),
-    (c"video", c"cboy_contrast", c"Contrast",
-     c"Raises or lowers the contrast of the finished picture.",
+    (c"video", c"cboy_contrast", c"Contrast", c"",
      &[(c"normal", c"Normal"), (c"boost", c"Higher"), (c"reduce", c"Lower")], c"normal"),
-    (c"video", c"cboy_dark_filter", c"Darken",
-     c"Dims bright colours, easier on the eyes in the dark.",
+    (c"video", c"cboy_dark_filter", c"Darken", c"",
      &[(c"0", c"Off"), (c"10", c"10%"), (c"20", c"20%"), (c"30", c"30%"), (c"40", c"40%"), (c"50", c"50%")], c"0"),
     (c"video", c"cboy_sprite_limit", c"Sprite flicker",
-     c"A Game Boy can only draw ten sprites on one line, so busy games flicker. On keeps that flicker, which is how the game looked. Off draws them all and the flicker goes.",
+     c"Off stops busy scenes flickering by drawing everything, which a real Game Boy couldn't.",
      ON_OFF, c"on"),
     (c"video", c"cboy_gba_sprite_limit", c"Advance sprite flicker",
-     c"A real Advance runs out of time on a very busy line and leaves some of the moving things out. On copies that. Off draws them all, which can look cleaner than the console did.",
+     c"On drops things from very busy scenes like a real Advance did, and Off draws everything.",
      OFF_ON, c"off"),
     // Sound
-    (c"audio", c"cboy_volume", c"Volume", c"Overall volume.", PCT, c"100"),
-    (c"audio", c"cboy_vol_sq1", c"Pulse channel 1", c"Volume of the first pulse (square) channel.", PCT, c"100"),
-    (c"audio", c"cboy_vol_sq2", c"Pulse channel 2", c"Volume of the second pulse channel.", PCT, c"100"),
-    (c"audio", c"cboy_vol_wave", c"Wave channel", c"Volume of the wave channel.", PCT, c"100"),
-    (c"audio", c"cboy_vol_noise", c"Noise channel", c"Volume of the noise channel.", PCT, c"100"),
+    (c"audio", c"cboy_volume", c"Volume", c"", PCT, c"100"),
+    (c"audio", c"cboy_vol_sq1", c"Pulse channel 1", c"", PCT, c"100"),
+    (c"audio", c"cboy_vol_sq2", c"Pulse channel 2", c"", PCT, c"100"),
+    (c"audio", c"cboy_vol_wave", c"Wave channel", c"", PCT, c"100"),
+    (c"audio", c"cboy_vol_noise", c"Noise channel", c"", PCT, c"100"),
     (c"audio", c"cboy_vol_fifo_a", c"Advance recorded sound A",
-     c"Volume of the first of the two channels an Advance plays recorded sound through: drums, voices and most of the music.", PCT, c"100"),
-    (c"audio", c"cboy_vol_fifo_b", c"Advance recorded sound B",
-     c"Volume of the second of those two channels.", PCT, c"100"),
+     c"Carries an Advance game's drums, voices and most of its music.", PCT, c"100"),
+    (c"audio", c"cboy_vol_fifo_b", c"Advance recorded sound B", c"", PCT, c"100"),
     (c"audio", c"cboy_lowpass", c"Treble cut",
-     c"Softens harsh high tones, like a small speaker. Off is the console's full output.",
+     c"Softens harsh high notes, like a small speaker.",
      &[(c"off", c"Off"), (c"light", c"Light"), (c"medium", c"Medium"), (c"strong", c"Strong")], c"off"),
     (c"audio", c"cboy_highpass", c"Sound centring",
-     c"A real console's own circuit pulls the sound back to the middle, which keeps a steady hum out of it. Gentle leaves more of the deep bass in. Off leaves the sound exactly as the chip made it, hum and all.",
+     c"Gentle keeps more deep bass, and Off leaves the sound raw, hum and all.",
      &[(c"on", c"Like the console"), (c"gentle", c"Gentle"), (c"off", c"Off")], c"on"),
     (c"audio", c"cboy_audio_quality", c"Sound quality",
-     c"High listens to everything that happens between one sample and the next, so the sound comes out smoother. Fast takes a single point each time and costs the phone less work.",
+     c"High sounds smoother, and Fast is easier on the phone.",
      &[(c"fast", c"Fast"), (c"high", c"High")], c"fast"),
     (c"audio", c"cboy_gba_music", c"Advance music quality",
-     c"Most Advance games mix their own music in software, at a rate the console could keep up with, which is where that hiss and crunch comes from. High plays the same tune again at full quality. Games that make music another way, and anything else in the sound, are untouched either way.",
+     c"High plays most Advance games' music at full quality, without the hiss and crunch.",
      &[(c"console", c"Console (as it was)"), (c"high", c"High")], c"console"),
     (c"audio", c"cboy_gba_smooth", c"Smooth Advance samples",
-     c"Ramps the Advance's sampled sound between samples, including the music most games mix in software. Less gritty, slightly duller.",
+     c"Makes Advance sound less gritty but a little duller.",
      OFF_ON, c"off"),
     (c"audio", c"cboy_interference", c"LCD buzz",
-     c"Adds the faint buzz the screen's circuitry puts into a real Game Boy's sound.",
+     c"Adds the faint buzz a real Game Boy's screen puts into its sound.",
      &[(c"0", c"Off"), (c"25", c"Faint"), (c"50", c"Medium"), (c"100", c"Loud")], c"0"),
     (c"audio", c"cboy_sample_rate", c"Output sample rate",
-     c"Lower rates cost the phone less work. Takes effect when the game restarts.",
+     c"Lower rates are easier on the phone; takes effect when the game restarts.",
      &[(c"48000", c"48000 Hz"), (c"44100", c"44100 Hz"), (c"32768", c"32768 Hz")], c"48000"),
     // Controls
     (c"input", c"cboy_turbo", c"Turbo buttons",
-     c"X and Y become rapid-fire A and B. The number is presses per second.",
+     c"X and Y become rapid-fire A and B, at this many presses a second.",
      &[(c"off", c"Off"), (c"30", c"30"), (c"20", c"20"), (c"15", c"15"), (c"10", c"10"), (c"7", c"7.5")], c"off"),
-    (c"input", c"cboy_rumble", c"Rumble", c"Passes a cartridge's rumble motor to the phone or controller, at this strength.",
+    (c"input", c"cboy_rumble", c"Rumble", c"How hard the phone or controller shakes when a game rumbles.",
      &[(c"100", c"100%"), (c"75", c"75%"), (c"50", c"50%"), (c"25", c"25%"), (c"off", c"Off")], c"100"),
     (c"input", c"cboy_motion_sensitivity", c"Motion sensitivity",
-     c"How far the tilt and turn inputs move for a given motion of the phone or stick.",
+     c"How strongly tilt and turn games react to moving the phone or stick.",
      &[(c"100", c"Normal"), (c"50", c"Half"), (c"75", c"Lower"), (c"150", c"Higher"), (c"200", c"Double")], c"100"),
     (c"input", c"cboy_opposing", c"Allow opposite directions",
-     c"Lets left and right (or up and down) be held together, which a real pad cannot do and some games misbehave on.",
+     c"Some games glitch when left and right are held together, which a real pad can't do.",
      OFF_ON, c"off"),
-    (c"input", c"cboy_stick_dpad", c"Left stick as D-pad",
-     c"The analog stick also works as the D-pad.",
+    (c"input", c"cboy_stick_dpad", c"Left stick as D-pad", c"",
      OFF_ON, c"off"),
     (c"input", c"cboy_stick_deadzone", c"Stick dead zone",
-     c"How far the analog stick must move before it counts, for the stick as D-pad, tilt and turn.",
+     c"How far the stick has to move before it counts.",
      &[(c"15", c"15%"), (c"0", c"0%"), (c"5", c"5%"), (c"10", c"10%"), (c"20", c"20%"), (c"25", c"25%"), (c"30", c"30%")], c"15"),
     (c"input", c"cboy_swap_stick", c"Use the right stick",
-     c"The right analog stick does what the left stick does in these settings.",
+     c"The right stick takes over from the left in these settings.",
      OFF_ON, c"off"),
     (c"input", c"cboy_tilt_source", c"Tilt input",
-     c"For tilt cartridges (Kirby Tilt 'n' Tumble, Yoshi Topsy-Turvy): the phone's motion or the left stick.",
+     c"For tilt games like Kirby Tilt 'n' Tumble and Yoshi Topsy-Turvy.",
      &[(c"phone", c"Phone motion"), (c"stick", c"Left stick"), (c"off", c"Off")], c"phone"),
     (c"input", c"cboy_gyro_source", c"Turn input",
-     c"For the gyro cartridge (WarioWare: Twisted!): the phone's rotation or the left stick.",
+     c"For WarioWare: Twisted!",
      &[(c"phone", c"Phone rotation"), (c"stick", c"Left stick"), (c"off", c"Off")], c"phone"),
     (c"input", c"cboy_solar", c"Sunlight",
-     c"How much sun a cartridge with a sun sensor in it (Boktai) thinks it is in. Light sensor follows the phone's own, and sits at half on a phone that has none to read, so the game is still playable.",
+     c"How much sun Boktai sees; Light sensor uses the phone's, or half sun when there's none to read.",
      &[(c"50", c"50%"), (c"phone", c"Light sensor"), (c"0", c"Dark"), (c"25", c"25%"), (c"75", c"75%"), (c"100", c"Full sun")], c"50"),
     // Link
     (c"link", c"cboy_link", c"Link cable",
-     c"Unplugged is a console with nothing attached. Loopback connects the cable to itself, which some test programs use. To link two phones, open the ... menu in a game and choose Link cable to a second phone.",
+     c"Loopback is for test programs; to link two phones, choose Link cable to a second phone in a game's ... menu.",
      &[(c"off", c"Unplugged"), (c"loopback", c"Loopback")], c"off"),
     // Performance
     (c"performance", c"cboy_frameskip", c"Frame skip",
-     c"Skips drawing some frames to save work; the game still runs at full speed.",
+     c"Draws fewer frames to save work, while the game keeps full speed.",
      &[(c"off", c"Off"), (c"auto", c"Auto (when the phone falls behind)"), (c"1", c"Every other frame"), (c"2", c"Two in three"), (c"3", c"Three in four")], c"off"),
     (c"performance", c"cboy_frameskip_threshold", c"Auto frame skip threshold",
-     c"With auto frame skip: how much of a frame's time emulating may take before frames are skipped.",
+     c"With Auto frame skip on, a lower number skips frames sooner.",
      &[(c"85", c"85%"), (c"50", c"50%"), (c"60", c"60%"), (c"70", c"70%"), (c"80", c"80%"), (c"90", c"90%"), (c"95", c"95%")], c"85"),
     (c"performance", c"cboy_frameskip_interval", c"Auto frame skip limit",
-     c"With auto frame skip: the most frames skipped in a row.",
+     c"With Auto frame skip on, the most frames skipped in a row.",
      &[(c"1", c"1"), (c"2", c"2"), (c"3", c"3"), (c"4", c"4"), (c"6", c"6"), (c"9", c"9")], c"1"),
     (c"performance", c"cboy_run_ahead", c"Run-ahead",
-     c"Shows the picture one or two frames ahead, cutting the input delay a game has built in. Costs two or three times the work.",
+     c"Cuts a game's built-in button delay, but costs the phone two or three times the work.",
      &[(c"0", c"Off"), (c"1", c"1 frame"), (c"2", c"2 frames")], c"0"),
     (c"performance", c"cboy_idle_skip", c"Skip idle loops (Advance)",
-     c"Fast-forwards through loops where an Advance game only waits. Saves battery; a few games may run at the wrong pace.",
+     c"Saves battery in Advance games, though a few may run at the wrong speed.",
      OFF_ON, c"off"),
     // Debug. Every option in this category is hidden from the settings page (see `hide_debug`).
-    (c"debug", c"cboy_layer_bg", c"Background", c"Game Boy and Color background layer.", ON_OFF, c"on"),
-    (c"debug", c"cboy_layer_window", c"Window", c"Game Boy and Color window layer.", ON_OFF, c"on"),
-    (c"debug", c"cboy_layer_obj", c"Sprites", c"Game Boy, Color and Advance sprites.", ON_OFF, c"on"),
-    (c"debug", c"cboy_layer_bg0", c"Advance background 0", c"Advance background layer 0.", ON_OFF, c"on"),
-    (c"debug", c"cboy_layer_bg1", c"Advance background 1", c"Advance background layer 1.", ON_OFF, c"on"),
-    (c"debug", c"cboy_layer_bg2", c"Advance background 2", c"Advance background layer 2.", ON_OFF, c"on"),
-    (c"debug", c"cboy_layer_bg3", c"Advance background 3", c"Advance background layer 3.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_bg", c"Background", c"For Game Boy and Color games.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_window", c"Window", c"For Game Boy and Color games.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_obj", c"Sprites", c"For Game Boy, Color and Advance games.", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_bg0", c"Advance background 0", c"", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_bg1", c"Advance background 1", c"", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_bg2", c"Advance background 2", c"", ON_OFF, c"on"),
+    (c"debug", c"cboy_layer_bg3", c"Advance background 3", c"", ON_OFF, c"on"),
     (c"debug", c"cboy_layer_win0", c"Advance window 0", c"Off draws as if window 0 were switched off.", ON_OFF, c"on"),
     (c"debug", c"cboy_layer_win1", c"Advance window 1", c"Off draws as if window 1 were switched off.", ON_OFF, c"on"),
     (c"debug", c"cboy_layer_objwin", c"Advance object window", c"Off draws as if the object window were switched off.", ON_OFF, c"on"),
@@ -912,16 +907,86 @@ mod tests {
         parse(|k| m.get(k.to_str().unwrap()).cloned(), None)
     }
 
+    /// Descriptions are checked by `every_description_is_one_short_sentence_or_none`.
     #[test]
     fn every_option_has_a_unique_cboy_key_a_category_and_its_default_among_its_values() {
         let mut seen = std::collections::HashSet::new();
-        for (cat, key, _, info, values, default) in SPECS {
+        for (cat, key, _, _, values, default) in SPECS {
             let k = key.to_str().unwrap();
             assert!(k.starts_with("cboy_"), "{k}");
             assert!(seen.insert(k), "duplicate {k}");
             assert!(CATEGORIES.iter().any(|c| c.0 == *cat), "{k}");
             assert!(values.iter().any(|v| v.0 == *default), "{k}");
-            assert!(!info.to_bytes().is_empty());
+        }
+    }
+
+    /// Every description is one short sentence a player can act on, or none where the label and
+    /// its choices say it all (the owner, 13 October 2026: every explanation short and casual, or
+    /// none when the control says it all). The ones with none are named here, so a description
+    /// cannot quietly go missing, and none may grow back past about two lines on a phone.
+    #[test]
+    fn every_description_is_one_short_sentence_or_none() {
+        // "Contrast: Normal, Higher, Lower", "Volume: 100%", "Left stick as D-pad: On".
+        let none = [
+            "cboy_color_temp", "cboy_contrast", "cboy_dark_filter", "cboy_volume", "cboy_vol_sq1", "cboy_vol_sq2",
+            "cboy_vol_wave", "cboy_vol_noise", "cboy_vol_fifo_b", "cboy_stick_dpad",
+            "cboy_layer_bg0", "cboy_layer_bg1", "cboy_layer_bg2", "cboy_layer_bg3",
+        ];
+        for (_, key, _, info, _, _) in SPECS {
+            let (k, text) = (key.to_str().unwrap(), info.to_str().unwrap());
+            if none.contains(&k) {
+                assert!(text.is_empty(), "{k}: the label says it all, so it has no description");
+                continue;
+            }
+            assert!(!text.is_empty(), "{k} has lost its description");
+            let words = text.split_whitespace().count();
+            assert!(words <= 22 && text.len() <= 125, "{k}: {words} words, {} letters: \"{text}\"", text.len());
+            // One sentence: it ends once, and nothing inside it starts another.
+            assert!(text.ends_with('.') || text.ends_with('!'), "{k}: \"{text}\"");
+            let inside = &text[..text.len() - 1];
+            for stop in [". ", "! ", "? "] {
+                for (i, _) in inside.match_indices(stop) {
+                    let next = inside[i + stop.len()..].chars().next();
+                    assert!(!next.is_some_and(char::is_uppercase), "{k}: two sentences: \"{text}\"");
+                }
+            }
+        }
+    }
+
+    /// The app reads one word out of this text. An option whose label or description says
+    /// "restart" is held at what the game started with until it starts again, is marked "restart
+    /// needed" with a Restart the game now button, and loading a save state made under another
+    /// value of it gets a warning (`OptionDef::says_restart` in
+    /// crates/emulator-bridge/src/cores/options.rs, `isStateSensitive` in
+    /// native/ios/SaveStates.swift). Exactly the two settings cBoy itself holds until the game is
+    /// loaded again (`NextStart` in libretro.rs) say it. Any other that did would stop changing
+    /// straight away, and none may say it in a way the app reads as "no restart".
+    #[test]
+    fn only_the_two_settings_held_for_a_restart_say_restart() {
+        let not = ["no restart", "without restart", "without a restart", "not require a restart",
+            "n't require a restart", "n't need a restart"];
+        let mut says = Vec::new();
+        for (_, key, desc, info, _, _) in SPECS {
+            let text = format!("{} {}", desc.to_string_lossy(), info.to_string_lossy()).to_lowercase();
+            for n in not {
+                assert!(!text.contains(n), "{}: \"{n}\"", key.to_string_lossy());
+            }
+            if text.contains("restart") || text.contains("(reload") {
+                says.push(key.to_str().unwrap());
+            }
+        }
+        assert_eq!(says, ["cboy_sgb_border", "cboy_sample_rate"]);
+    }
+
+    /// The settings cBoy only picks up as a game starts say so, so nobody changes one mid-game
+    /// and wonders why nothing happened. ("Start from a boot ROM file" and the Advance BIOS are
+    /// about how a game starts, which says it already.)
+    #[test]
+    fn settings_that_wait_for_the_next_start_say_so() {
+        for key in [c"cboy_gb_model", c"cboy_cgb_revision", c"cboy_hybrid_model", c"cboy_gba_model", c"cboy_force_color",
+            c"cboy_gba_save_type", c"cboy_gba_hardware", c"cboy_gbp", c"cboy_dmg_colorize"] {
+            let info = SPECS.iter().find(|s| s.1 == key).unwrap().3.to_str().unwrap();
+            assert!(info.contains("next start"), "{key:?}: \"{info}\"");
         }
     }
 
@@ -930,16 +995,31 @@ mod tests {
     #[test]
     fn no_jargon_in_anything_a_player_reads() {
         let jargon = ["directsound", "capacitor", "aliasing", "256x224", "handshake", "fifo", "hex", "waveform"];
+        // Words a player wouldn't know (the cBoy checklist, 13 October 2026), matched as the start
+        // of a word, so "registers" counts and "while" does not.
+        let words = ["m-cycle", "register", "hle", "dmg", "cgb", "agb", "latency", "scanline"];
+        let check = |key: &str, text: String| {
+            let text = text.to_lowercase();
+            for word in jargon {
+                assert!(!text.contains(word), "{key}: \"{word}\"");
+            }
+            for w in text.split(|c: char| !c.is_ascii_alphanumeric() && c != '-') {
+                for word in words {
+                    assert!(!w.starts_with(word), "{key}: \"{w}\"");
+                }
+            }
+        };
         for (cat, key, desc, info, values, _) in SPECS {
             // The layer switches are not shown with the ordinary settings (see `hide_debug`).
             if *cat == c"debug" {
                 continue;
             }
             let labels: Vec<String> = values.iter().map(|v| v.1.to_string_lossy().into_owned()).collect();
-            let text = format!("{} {} {}", desc.to_string_lossy(), info.to_string_lossy(), labels.join(" ")).to_lowercase();
-            for word in jargon {
-                assert!(!text.contains(word), "{}: \"{word}\"", key.to_string_lossy());
-            }
+            check(key.to_str().unwrap(), format!("{} {} {}", desc.to_string_lossy(), info.to_string_lossy(), labels.join(" ")));
+        }
+        // And the line under each group's heading.
+        for (key, name, info) in CATEGORIES {
+            check(key.to_str().unwrap(), format!("{} {}", name.to_string_lossy(), info.to_string_lossy()));
         }
     }
 
