@@ -290,7 +290,10 @@ ios_core_config() {
       # multitaps and Super Skidmarks; blastem-cartridge-saves.patch, every EEPROM and J-Cart
       # cartridge dump in MAME's software list that rom.db did not know by checksum;
       # blastem-sega-cd-discs.patch, .m3u playlists and disc changing for the Sega CD, and its
-      # save cartridge as memory of its own.
+      # save cartridge as memory of its own; blastem-32x-startup.patch, Continuum's own start-up
+      # code for the 32X's two SH-2s (continuum_32x_boot.s, assembled into continuum_32x_boot.h),
+      # so a 32X cartridge needs no BIOS files and the player's own pair is used when both are
+      # there, plus the SH-2 reset fix it needed (a reset ran an instruction fetched before it).
       IOS_REPO="https://github.com/libretro/blastem"
       IOS_PIN="ab743653ed110eeb7b1fe64d00cc5f9279c2bfec"
       IOS_DYLIB_NAME="blastem_libretro_ios.dylib"
@@ -1662,6 +1665,8 @@ ios_apply_core_patches() {
         rom.db "Continuum: every EEPROM and J-Cart cartridge dump"
       ios_apply_simple_patch blastem blastem-sega-cd-discs.patch \
         libblastem.c "Continuum: Sega CD discs"
+      ios_apply_simple_patch blastem blastem-32x-startup.patch \
+        32x.c "Continuum: 32X start-up code"
       ;;
     # recipe-end: blastem
   esac

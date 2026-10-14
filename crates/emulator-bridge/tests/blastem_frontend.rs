@@ -138,3 +138,150 @@ fn the_patched_cartridge_list_is_what_blastem_reads() {
     assert_eq!(nfl_read, 0x1234_5678, "NFL Quarterback Club's last megabyte is not the ROM's: {nfl_read:#010X}");
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// A word of the 32X's SDRAM, which BlastEm publishes in its memory map at $06000000 as host-order
+/// 16-bit words.
+fn sdram_word(core: &NativeLibretroCore, offset: usize) -> u16 {
+    let sdram = core
+        .memory_map()
+        .iter()
+        .find(|d| d.start == 0x0600_0000)
+        .expect("the 32X's SDRAM in the memory map");
+    assert!(sdram.ptr != 0 && offset + 2 <= sdram.len);
+    let bytes = unsafe { std::slice::from_raw_parts((sdram.ptr + offset) as *const u8, 2) };
+    u16::from_ne_bytes([bytes[0], bytes[1]])
+}
+
+/// How many different colours the last frame has: a stopped 32X shows one (black) or a few.
+fn colours(core: &NativeLibretroCore) -> usize {
+    let video = core.video().expect("a frame");
+    let mut seen = std::collections::HashSet::new();
+    for y in 0..video.height as usize {
+        let row = &video.data[y * video.stride_bytes..][..video.width as usize * 4];
+        for px in row.chunks_exact(4) {
+            seen.insert(u32::from_ne_bytes([px[0], px[1], px[2], px[3]]));
+        }
+    }
+    seen.len()
+}
+
+/// The last frame as a PPM in BLASTEM_OUT, when it is set, for a person to look at.
+fn keep_frame(core: &NativeLibretroCore, name: &str) {
+    let Ok(out) = std::env::var("BLASTEM_OUT") else { return };
+    let video = core.video().expect("a frame");
+    let mut ppm = format!("P6 {} {} 255\n", video.width, video.height).into_bytes();
+    for y in 0..video.height as usize {
+        for x in 0..video.width as usize {
+            let o = y * video.stride_bytes + x * 4;
+            ppm.extend_from_slice(&[video.data[o + 2], video.data[o + 1], video.data[o]]);
+        }
+    }
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::write(Path::new(&out).join(format!("{name}.ppm")), ppm).unwrap();
+}
+
+/// The .32x games in `BLASTEM_32X_DIR`, each copied into `dir`: (name, copy, the file's bytes).
+/// None when the variable is not set. The test does not ship them; fetch them yourself, for example
+/// the 32X port of the 240p Test Suite (GPL-2.0, github.com/Dasutin/32X240pTestSuite, release
+/// v1.0) and HexGL 32X (MIT, github.com/haroldo-ok/hexgl-32x, release v0.0.1).
+fn games_32x(dir: &Path) -> Option<Vec<(String, PathBuf, Vec<u8>)>> {
+    let Ok(games) = std::env::var("BLASTEM_32X_DIR") else {
+        eprintln!("BLASTEM_32X_DIR not set: the 32X start-up test was skipped");
+        return None;
+    };
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(&games).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|e| e.to_str()) != Some("32x") {
+            continue;
+        }
+        let game = dir.join(path.file_name().unwrap());
+        std::fs::copy(&path, &game).unwrap();
+        let name = path.file_stem().unwrap().to_string_lossy().into_owned();
+        found.push((name, game, std::fs::read(&path).unwrap()));
+    }
+    found.sort();
+    assert!(!found.is_empty(), "no .32x file in {games}");
+    Some(found)
+}
+
+/// Continuum's own 32X start-up code (`blastem-32x-startup.patch`) starting real 32X homebrew
+/// with no 32X start-up files anywhere (see `games_32x` for the games). Each must load, have its
+/// SH-2 program in SDRAM where its header asks (for a game that copies one), and be drawing a
+/// picture of many colours after a few seconds, which it cannot do unless both SH-2s were started
+/// and the Mega Drive side got its handshake (`a_players_own_32x_files_come_first` shows the same
+/// games staying dark when the SH-2s never start).
+#[test]
+fn a_32x_game_starts_with_no_32x_files() {
+    let Some(so) = library() else { return };
+    let dir = folder("32x");
+    let Some(games) = games_32x(&dir) else { return };
+    for name in ["32X_M_BIOS.bin", "32X_S_BIOS.bin", "32X_G_BIOS.bin"] {
+        assert!(!dir.join(name).exists());
+    }
+    for (name, game, rom) in games {
+        let mut core = load(&so, &dir, &game);
+        // The header's initial data load ($3D4 source, $3D8 destination, $3DC length).
+        let be32 = |at: usize| u32::from_be_bytes(rom[at..at + 4].try_into().unwrap());
+        let (src, dst, len) = (be32(0x3D4) as usize & 0x3F_FFFC, be32(0x3D8) as usize & 0x3_FFFC, be32(0x3DC) as usize);
+        run(&mut core, 300);
+        if len >= 4 {
+            for at in (0..len.min(64)).step_by(2) {
+                let want = u16::from_be_bytes([rom[src + at], rom[src + at + 1]]);
+                assert_eq!(sdram_word(&core, dst + at), want, "{name}: SDRAM +{:#X}", dst + at);
+            }
+        }
+        let early = colours(&core);
+        keep_frame(&core, &format!("{name}-300"));
+        run(&mut core, 300);
+        let later = colours(&core);
+        keep_frame(&core, &format!("{name}-600"));
+        eprintln!("{name}: {early} colours at 5 s, {later} at 10 s");
+        assert!(early.max(later) >= 8, "{name} is not drawing anything: {early} and {later} colours");
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// The player's own pair of 32X start-up files wins over Continuum's code; an empty placeholder
+/// counts as no file, and so does a pair with one missing, which starts on Continuum's pair rather
+/// than one of each (`sh2_bios_usable` in libblastem.c and `continuum_read_boot_file` in 32x.c
+/// agree). The player's files here are stand-ins that never hand over (their reset vector points at
+/// a branch to itself), so a game started on them must stay dark: that is also what shows the
+/// picture in `a_32x_game_starts_with_no_32x_files` comes from SH-2s that really were started.
+#[test]
+fn a_players_own_32x_files_come_first() {
+    let Some(so) = library() else { return };
+    let dir = folder("32x-own");
+    let Some(games) = games_32x(&dir) else { return };
+    // PC $00000008 and SP $0603F000, then `bra .` and `nop` at $8, as the SH-2 reads them.
+    let stuck: &[u8] = &[0, 0, 0, 8, 0x06, 0x03, 0xF0, 0, 0xAF, 0xFE, 0x00, 0x09];
+    // (32X_M_BIOS.bin, 32X_S_BIOS.bin, whether the game starts); None is no file at all.
+    type Case<'a> = (Option<&'a [u8]>, Option<&'a [u8]>, bool);
+    let cases: [Case; 4] = [
+        (Some(&[]), Some(&[]), true),
+        (Some(stuck), None, true),
+        (None, Some(stuck), true),
+        (Some(stuck), Some(stuck), false),
+    ];
+    for (main, sub, starts) in cases {
+        for (name, bytes) in [("32X_M_BIOS.bin", main), ("32X_S_BIOS.bin", sub)] {
+            let _ = std::fs::remove_file(dir.join(name));
+            if let Some(bytes) = bytes {
+                std::fs::write(dir.join(name), bytes).unwrap();
+            }
+        }
+        let size = |b: Option<&[u8]>| b.map_or("no".to_string(), |b| format!("a {}-byte", b.len()));
+        for (name, game, _) in &games {
+            let mut core = load(&so, &dir, game);
+            run(&mut core, 600);
+            let seen = colours(&core);
+            eprintln!("{name} with {} main and {} sub start-up file: {seen} colours at 10 s", size(main), size(sub));
+            if starts {
+                assert!(seen >= 8, "{name} did not start ({} main, {} sub file): {seen} colours", size(main), size(sub));
+            } else {
+                assert!(seen <= 2, "{name} drew {seen} colours on start-up files that never hand over");
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}

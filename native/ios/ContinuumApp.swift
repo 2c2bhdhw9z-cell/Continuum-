@@ -252,7 +252,8 @@ enum CoreCatalog {
 
     /// Mega Drive, Sega CD and 32X on BlastEm (built here with Continuum's patch, which exposes
     /// the Sega CD and 32X memory and the Sega CD's backup RAM). Interpreter only on iPhone. The
-    /// Sega CD needs a BIOS and the 32X two files (`requiredFirmware`); the discs are shared
+    /// Sega CD needs a BIOS (`requiredFirmware`); the 32X starts on Continuum's own start-up code,
+    /// or on the player's two files when both are there (`optionalFirmware`). The discs are shared
     /// formats, reached through `systemResolver`. Its buttons are translated in the engine
     /// (crates/emulator-bridge/src/input/core_layout.rs), so the pads send what they always did.
     static let blastem = CoreSpec(
@@ -1218,11 +1219,12 @@ enum CoreCatalog {
     /// The copy-across reads BOTH lists for that reason. Anything a system might need has to be
     /// here or the file can never reach the directory the cores actually read.
     static let extraFirmwareNames: [String] = {
-        // disksys.rom, and every name a system-level requirement lists (the Mega-CD BIOSes, the 32X
-        // files and prboom.wad are not declared on a core for the same reason disksys.rom is not).
+        // disksys.rom, and every name a system-level list has (the Mega-CD BIOSes, the 32X files
+        // and prboom.wad are not declared on a core for the same reason disksys.rom is not).
         var names = ["disksys.rom"]
         for system in GameSystem.allCases {
             names += (requiredFirmware[system] ?? []).flatMap { $0.names }
+            names += optionalFirmware[system] ?? []
         }
         // BlastEm's optional 32X file (the 68000 side; it starts without it).
         names.append("32X_G_BIOS.bin")
@@ -1451,11 +1453,10 @@ enum CoreCatalog {
     }
 
     /// Per SYSTEM, like the Disk System's check always was, because a core like BlastEm runs
-    /// cartridges that need nothing and the Mega-CD and 32X that cannot start without their files.
-    /// Systems whose core falls back to a built-in replacement are deliberately absent. Every need
-    /// in a system's list must be met (the 32X needs two files, each with one name).
-    /// Names read from each core's own source: BlastEm's libblastem.c (bios_CD_U/E/J.bin, and
-    /// 32X_M_BIOS.bin with 32X_S_BIOS.bin; its optional 32X_G_BIOS.bin is not a gate),
+    /// cartridges that need nothing and the Mega-CD that cannot start without its file.
+    /// Systems whose core falls back to a built-in replacement are deliberately absent (the 32X
+    /// is in `optionalFirmware`). Every need in a system's list must be met.
+    /// Names read from each core's own source: BlastEm's libblastem.c (bios_CD_U/E/J.bin),
     /// beetle-pce's System Card option (syscard3.pce default), beetle-saturn's mednafen/ss/ss.c
     /// (sega_101.bin Japan, mpr-17933.bin elsewhere), and prboom's I_FindFile (system/prboom,
     /// then system).
@@ -1465,17 +1466,20 @@ enum CoreCatalog {
         .segacd: [FirmwareNeed(names: ["bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin"],
                                subfolder: nil,
                                what: "a Mega-CD / Sega CD BIOS (U is USA, E is Europe, J is Japan)")],
-        .sega32x: [
-            FirmwareNeed(names: ["32X_M_BIOS.bin"], subfolder: nil,
-                         what: "the 32X's main startup file"),
-            FirmwareNeed(names: ["32X_S_BIOS.bin"], subfolder: nil,
-                         what: "the 32X's second startup file"),
-        ],
         .pcecd: [FirmwareNeed(names: ["syscard3.pce", "syscard2.pce", "syscard1.pce",
                                       "gexpress.pce"],
                               subfolder: nil, what: "the PC Engine CD System Card 3")],
         .doom: [FirmwareNeed(names: ["prboom.wad"], subfolder: "prboom",
                              what: "PrBoom's own data file, which the app normally installs itself")],
+    ]
+
+    /// Firmware a SYSTEM uses when it is there and starts without: not a launch gate, but Settings
+    /// lists it and the install action moves it across. A system's files are used all together or
+    /// not at all. The 32X: BlastEm runs the player's own pair of start-up files when both are
+    /// installed, and Continuum's own start-up code otherwise
+    /// (scripts/patches/blastem-32x-startup.patch), so a 32X cartridge needs neither.
+    static let optionalFirmware: [GameSystem: [String]] = [
+        .sega32x: ["32X_M_BIOS.bin", "32X_S_BIOS.bin"],
     ]
 
     /// Firmware the chosen CORE needs regardless of system: Beetle Saturn has no HLE BIOS.
@@ -2035,10 +2039,19 @@ final class EngineHost: ObservableObject {
             return names.dropLast().joined(separator: ", ") + " or " + last
         }
         var rows: [(label: String, value: String)] = []
-        // One line per system, so the 32X's two files read as one line rather than as a "ready"
-        // beside a "needs" for the same system.
+        // One line per system, so the 32X's two files read as one line rather than as a "using"
+        // beside a "works without" for the same system.
         for system in GameSystem.allCases {
             let needs = CoreCatalog.requiredFirmware[system] ?? []
+            if needs.isEmpty, let optional = CoreCatalog.optionalFirmware[system] {
+                // All of them or none: one 32X file without the other is not used.
+                let all = present(optional, nil).count == optional.count
+                rows.append((label: system.displayName,
+                             value: all
+                                ? "using \(optional.joined(separator: " and "))"
+                                : "works without a BIOS (looks for \(optional.joined(separator: " and ")))"))
+                continue
+            }
             guard !needs.isEmpty else { continue }
             let missing = needs.filter { present($0.names, $0.subfolder).isEmpty }
             rows.append((label: system.displayName,
@@ -3869,7 +3882,7 @@ final class EngineHost: ObservableObject {
     /// ask for and what that file is. Nil when nothing is missing.
     ///
     /// Two tables, both in `CoreCatalog`: `requiredFirmware` per SYSTEM (Disk System, Mega-CD,
-    /// 32X, PC Engine CD, DOOM; every need listed must be met) and `requiredCoreFirmware` per CORE (Beetle Saturn, which has no HLE
+    /// PC Engine CD, DOOM; every need listed must be met) and `requiredCoreFirmware` per CORE (Beetle Saturn, which has no HLE
     /// BIOS while Yabause does). Beetle PSX HW is not in either table: see the note at the end.
     func missingFirmware(for entry: LibraryEntry) -> (name: String, what: String)? {
         let system = CoreCatalog.system(for: entry)
@@ -4813,9 +4826,6 @@ final class EngineHost: ObservableObject {
                 status = "\(entry.name) needs \(missing.name), which is Nintendo's own startup "
                     + "file and cannot ship with the app. Put it in the Continuum folder in Files, "
                     + "then use Settings, Install a BIOS from the Continuum folder"
-            } else if launchSystem == .sega32x {
-                status = "32X games need two files from a real 32X: 32X_M_BIOS.bin and "
-                    + "32X_S_BIOS.bin. Put them in the Continuum folder, then Settings, BIOS."
             } else if launchSystem == .doom {
                 status = "\(entry.name) needs \(missing.name), \(missing.what). It was not found "
                     + "in the system folder. Put prboom.wad in the Continuum folder in Files, then "
