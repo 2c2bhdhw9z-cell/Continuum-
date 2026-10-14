@@ -320,6 +320,28 @@ each under the name of the section it came from.
 - No match: "... Search runs over the filename on disk and the title derived from it." is gone;
   it just says **"Nothing in the library matches "<what you typed>"."**
 
+### Skins, the skin editor and the controls editor
+
+- The skin library's footer: "A skin for one system also fits its relatives: Game Boy and Game Boy
+  Color; Mega Drive, Sega CD and 32X; Master System, Game Gear and SG-1000; NES and Famicom Disk
+  System; DOS and DOOM." became **"A skin also fits its system's relatives, like Game Boy and Game
+  Boy Color, or Mega Drive, Sega CD and 32X."**
+- After an import: "Imported 1 skin(s): ..." became **"Imported 1 skin: ..."** (and "Imported 3
+  skins: ..."); "does not say which console it is for" became "doesn't say which console it's
+  for".
+- The skin editor: "Tap an outline to select it. Drag it to move, drag its corner to resize. Blue
+  is a button, orange a function button, green a stick, red a screen hole." became **"Tap an
+  outline to pick it, drag to move, drag a corner to resize. Blue is a button, orange a function,
+  green a stick, red the game screen."**; "Edits are kept on top of the imported skin, which is
+  never changed. Importing the skin again starts from the file." became **"Your edits never
+  change the skin file itself."** (the Reset ... to the file button is right above it).
+- Extra buttons in the controls editor: "None yet for Game Boy in portrait. Added buttons appear in
+  the middle of the screen: drag one to place it, pinch around it or use the size slider to
+  resize." became **"None yet for Game Boy in portrait. New ones appear in the middle: drag to
+  place, pinch or use the size slider to resize."**
+- The controls editor had no other long text. The Skin sheet in a game ("Kept for <game>. Change
+  the default for every <system> game in the skin library.") was already two short sentences.
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)

@@ -124,9 +124,8 @@ struct SkinLibrarySheet: View {
                             .foregroundStyle(ShellPalette.secondaryText)
                     }
                 } footer: {
-                    Text("A skin for one system also fits its relatives: Game Boy and Game Boy "
-                         + "Color; Mega Drive, Sega CD and 32X; Master System, Game Gear and "
-                         + "SG-1000; NES and Famicom Disk System; DOS and DOOM.")
+                    Text("A skin also fits its system's relatives, like Game Boy and Game Boy Color, "
+                         + "or Mega Drive, Sega CD and 32X.")
                 }
 
                 let _ = host.touchSkinsVersion
@@ -255,9 +254,9 @@ struct SkinLibrarySheet: View {
                 case .success(let imported):
                     guard let system = importFor ?? imported.previewSystem else {
                         let named = imported.systemIDs.isEmpty
-                            ? "does not say which console it is for"
+                            ? "doesn't say which console it's for"
                             : "is for \(imported.systemIDs.joined(separator: "/")), which this "
-                                + "build cannot run yet"
+                                + "build can't run yet"
                         problems.append("\(imported.skinName) \(named); pick a console under "
                                         + "Import for and import it again")
                         continue
@@ -275,7 +274,8 @@ struct SkinLibrarySheet: View {
             guard !done.isEmpty || !problems.isEmpty else { return }
             var text = done.isEmpty
                 ? "No skin was imported."
-                : "Imported \(done.count) skin(s): \(done.joined(separator: ", "))."
+                : "Imported \(done.count) \(done.count == 1 ? "skin" : "skins"): "
+                    + "\(done.joined(separator: ", "))."
             if !problems.isEmpty {
                 text += " Not imported: \(problems.joined(separator: "; "))."
             }

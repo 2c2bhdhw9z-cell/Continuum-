@@ -46,8 +46,8 @@ struct FloatingButtonsPanel: View {
             }
 
             if buttons.isEmpty {
-                note("None yet for \(system.displayName) in \(orientationWord). Added buttons "
-                     + "appear in the middle of the screen: drag one to place it, pinch around it or use the size slider to resize.")
+                note("None yet for \(system.displayName) in \(orientationWord). New ones appear "
+                     + "in the middle: drag to place, pinch or use the size slider to resize.")
             } else {
                 chipGrid(items: buttons.map { ($0.id.uuidString, $0.caption(for: system),
                                                $0.id == store.selectedID) }) { key in

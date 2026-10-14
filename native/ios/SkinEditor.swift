@@ -270,8 +270,8 @@ struct SkinEditor: View {
                 if let selection {
                     selectedPanel(selection, face: face)
                 } else {
-                    Text("Tap an outline to select it. Drag it to move, drag its corner to resize. "
-                         + "Blue is a button, orange a function button, green a stick, red a screen hole.")
+                    Text("Tap an outline to pick it, drag to move, drag a corner to resize. Blue is "
+                         + "a button, orange a function, green a stick, red the game screen.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -311,8 +311,7 @@ struct SkinEditor: View {
                         .foregroundStyle(Color.white.opacity(0.85))
                 }
 
-                Text("Edits are kept on top of the imported skin, which is never changed. "
-                     + "Importing the skin again starts from the file.")
+                Text("Your edits never change the skin file itself.")
                     .font(.system(size: 11))
                     .foregroundStyle(ShellPalette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
