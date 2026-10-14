@@ -422,9 +422,8 @@ struct SettingsScreen: View {
         SettingsSection(title: "ABOUT") {
             SettingsReadout(label: "Version", value: EngineHost.versionLabel)
             SettingsNote(
-                "Continuum is still in beta, so expect some rough edges. Games and BIOS files "
-                + "aren't included, you'll need your own. If something breaks, Send feedback at "
-                + "the top of Settings goes straight to me."
+                "Continuum is still in beta, and games and BIOS files aren't included. If "
+                + "something breaks, Send feedback at the top of Settings goes straight to me."
             )
             OpenSourceCreditsList()
         }
@@ -441,8 +440,7 @@ struct SettingsScreen: View {
                     Text("Show technical stuff")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
-                    Text("FPS and what the app is doing behind the scenes. You don't need this "
-                         + "to send feedback, it's attached for you.")
+                    Text("FPS and what's going on behind the scenes. Feedback already includes it.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
                 }
@@ -541,8 +539,8 @@ struct SettingsScreen: View {
                 // was the last system that could not use JIT on an iPhone 13 or newer running
                 // iOS 26, and it can now. Every system with a JIT build gets it on every phone
                 // that can switch JIT on.
-                Text("Makes PSP, 3DS, PlayStation, N64 and Dreamcast faster. If a game acts up "
-                     + "with it, turn this off. Kicks in from the next game you open.")
+                Text("Makes PSP, 3DS, PlayStation, N64 and Dreamcast faster, from the next game "
+                     + "you open. Turn it off if a game acts up.")
                     .font(.system(size: 12))
                     .foregroundStyle(ShellPalette.secondaryText)
             }
@@ -1443,9 +1441,8 @@ struct OpenSourceCreditsList: View {
                            role: .normal) { open.toggle() }
             if open {
                 SettingsNote(
-                    "Continuum is built on these free emulators and libraries. Each one is the "
-                    + "work of its own authors and keeps its own license. Tap a name to see its "
-                    + "source code."
+                    "Continuum is built on these free emulators and libraries, each with its own "
+                    + "authors and license. Tap a name to see its source code."
                 )
                 ForEach(Self.credits) { credit in
                     VStack(alignment: .leading, spacing: 2) {

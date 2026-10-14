@@ -159,6 +159,37 @@ each under the name of the section it came from.
 - Read-out: **Motion** ("motion: not started" and so on) moved to TECHNICAL DETAILS →
   CONTROLLERS, MAPPING AND MOTION.
 
+### TECHNICAL DETAILS
+
+- **Use JIT when it's available**: "Makes PSP, 3DS, PlayStation, N64 and Dreamcast faster. If a
+  game acts up with it, turn this off. Kicks in from the next game you open." became **"Makes PSP,
+  3DS, PlayStation, N64 and Dreamcast faster, from the next game you open. Turn it off if a game
+  acts up."** (It still starts with the words TESTING.md J3 quotes.)
+- **Apple performance overlay**: "Apple's FPS / GPU box drawn over the game. Off hides it. If it is
+  still showing, close Continuum fully (swipe it away) and open it again." became **"Apple's FPS
+  box over the game. If it's still there after you turn this off, close Continuum fully and open
+  it again."**
+- **Show technical stuff**: "FPS and what the app is doing behind the scenes. You don't need this
+  to send feedback, it's attached for you." became **"FPS and what's going on behind the scenes.
+  Feedback already includes it."**
+- The JIT line itself, the StikDebug buttons and the whole technical block are as they were. The
+  section now ends with every read-out moved out of the other sections, under their names, in
+  screen order: SPEED AND REWIND, GAME CONTROLLERS, ON-SCREEN CONTROLS, CHEATS, RETROACHIEVEMENTS,
+  MICROPHONE, CAMERA AND AMIIBO (from T1), then COVER ART, BIOS, SAVE STATES, STORAGE, SYNC
+  FOLDER, ONLINE PLAY and CONTROLLERS, MAPPING AND MOTION.
+
+### ABOUT
+
+- "Continuum is still in beta, so expect some rough edges. Games and BIOS files aren't included,
+  you'll need your own. If something breaks, Send feedback at the top of Settings goes straight to
+  me." became **"Continuum is still in beta, and games and BIOS files aren't included. If something
+  breaks, Send feedback at the top of Settings goes straight to me."**
+- The open-source credits' note: "Continuum is built on these free emulators and libraries. Each
+  one is the work of its own authors and keeps its own license. Tap a name to see its source
+  code." became **"Continuum is built on these free emulators and libraries, each with its own
+  authors and license. Tap a name to see its source code."** Every credit and licence line is
+  untouched.
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)

@@ -41,8 +41,8 @@ struct AppleOverlayToggle: View {
                 Text("Apple performance overlay")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.white)
-                Text("Apple's FPS / GPU box drawn over the game. Off hides it. If it is still "
-                     + "showing, close Continuum fully (swipe it away) and open it again.")
+                Text("Apple's FPS box over the game. If it's still there after you turn this "
+                     + "off, close Continuum fully and open it again.")
                     .font(.system(size: 12))
                     .foregroundStyle(ShellPalette.secondaryText)
             }
