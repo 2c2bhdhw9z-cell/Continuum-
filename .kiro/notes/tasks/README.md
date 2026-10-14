@@ -55,6 +55,17 @@ cBoy's exact drawer follows SameBoy: clone github.com/LIJI32/SameBoy and (with `
 github.com/mattcurrie/mealybug-tearoom-tests into `/projects/sandbox/.scratch/sameboy` and
 `/projects/sandbox/.scratch/mealybug-src` again, never into the repo.
 
+## Running (14 October, from 6:10 AM Eastern)
+
+Four `bundled://ralph` loops, each on its job's checklist inside its own clone (`prd_path` =
+`<clone>/.kiro/notes/tasks/<job>.json`; a loop stops when that file says `"complete": true`):
+`wf_83206af36719ceef` build cache K3-K4 (cache-work), `wf_3dee4a48a0852a32` Home screen U2-U5
+(ui-work), `wf_75a25a793b646377` arcade I4-I7 (arcade-work), `wf_ba2de61354e19672` leftovers H5,
+H3, H6 (link-work). Next, as slots free up: `core-updates.json` (updates-work, already cloned) and
+`shorter-text.json` T3-T5 (text-work, only after the Home screen loop, since both edit the same
+Swift files). cBoy G2-G5 waits for the owner's go-ahead on max thinking. A session that wakes up
+checks each id with inspect_workflow and resumes any that stopped.
+
 ## Then the build
 
 1. When all eight are done, fold their reports (`docs/reports/evening-2026-10-13*.md`,
