@@ -306,6 +306,20 @@ each under the name of the section it came from.
   card, Save slots, Import a save file" became **"... no game in the library has that name. Open
   the game's card and use Save slots, export and import"** (the card's real button).
 
+### The library's empty screens
+
+- Nothing imported yet: "Tap Import games and pick your game files (zips work too). For disc games
+  with a .cue and .bin files, select the .cue and all the .bins at once. You can also drop files
+  into the Files app under On My iPhone, Continuum and they'll show up here." became **"Tap Import
+  games and pick your games (zips work too), or drop them in the Continuum folder in Files. For a
+  disc game, pick the .cue and all its .bin files together."**
+- No favorites yet: "Press and hold a game to open its detail sheet and tap the star, or swipe a
+  row right in All Games. Favorites are remembered by the game's file name, so they survive a
+  relaunch, and a file that is temporarily missing is not forgotten." became **"Press and hold a
+  game and tap its star, or swipe a game right in the All Games list."**
+- No match: "... Search runs over the filename on disk and the title derived from it." is gone;
+  it just says **"Nothing in the library matches "<what you typed>"."**
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)

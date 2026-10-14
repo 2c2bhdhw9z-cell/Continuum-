@@ -107,9 +107,8 @@ struct LibraryShell: View {
     /// track, and mentions the Files app fallback that UIFileSharingEnabled already provides. On a
     /// sideloaded build there is nothing else to tell the user what to do next.
     static let emptyGuidance =
-        "Tap Import games and pick your game files (zips work too). For disc games with a .cue "
-        + "and .bin files, select the .cue and all the .bins at once. You can also drop files "
-        + "into the Files app under On My iPhone, Continuum and they'll show up here."
+        "Tap Import games and pick your games (zips work too), or drop them in the Continuum "
+        + "folder in Files. For a disc game, pick the .cue and all its .bin files together."
 
     private var topBarHeight: CGFloat { 52 }
     /// The real height of the bottom chrome (status strip + tab bar + home-indicator inset),
@@ -531,8 +530,7 @@ struct LibraryShell: View {
             } else if shown.isEmpty {
                 EmptyLibraryNotice(
                     title: "No match",
-                    guidance: "Nothing in the library matches \"\(host.librarySearch)\". Search "
-                        + "runs over the filename on disk and the title derived from it."
+                    guidance: "Nothing in the library matches \"\(host.librarySearch)\"."
                 )
                 Spacer(minLength: 0)
             } else if host.libraryLayout == .grid {
@@ -559,10 +557,8 @@ struct LibraryShell: View {
             if host.favouriteEntries.isEmpty {
                 EmptyLibraryNotice(
                     title: "No favorites yet",
-                    guidance: "Press and hold a game to open its detail sheet and tap the star, or "
-                        + "swipe a row right in All Games. Favorites are remembered by the game's "
-                        + "file name, so they survive a relaunch, and a file that is "
-                        + "temporarily missing is not forgotten."
+                    guidance: "Press and hold a game and tap its star, or swipe a game right in "
+                        + "the All Games list."
                 )
                 Spacer(minLength: 0)
             } else if shown.isEmpty {
