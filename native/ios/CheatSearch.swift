@@ -173,17 +173,15 @@ struct CheatCodeEntry: View {
     static func supportLine(coreId: String) -> String {
         let support = cheatCodeSupport(coreId: coreId)
         if !support.readsTypedCodes {
-            return "Heads up: this system's emulator ignores typed codes (GameShark, Action Replay "
-                + "and so on), so they won't do anything here. The RAM search below can still "
-                + "make cheats for most games."
+            return "Heads up: this system's emulator ignores typed codes, but the RAM search can "
+                + "still make cheats for most games."
         }
         if support.kinds.isEmpty {
             return "Codes go straight to this system's emulator. If one does nothing, it's "
                 + "probably for a different region or version of the game."
         }
-        return "Works with: \(support.kinds). For a multi-line code, put it all in one box with "
-            + "+ between the lines. Codes are made for one exact version of a game, and the wrong "
-            + "one can freeze it. If that happens, switch the cheat off and load an earlier save."
+        return "Works with: \(support.kinds). Join a longer code's lines with +, and if a code "
+            + "freezes the game, turn it off and load an earlier save."
     }
 }
 
@@ -310,11 +308,9 @@ struct CheatSearchView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 SettingsNote(
-                    "Start a search, go back to the game and change the thing you are after (lose "
-                    + "a life, spend some money), then come back and filter: less than before, "
-                    + "unchanged, equal to a number. A few rounds usually leave one address. "
-                    + "\"Changed\" and \"unchanged\" compare with the moment the search started; the "
-                    + "others compare with the last filter. Values are read little endian."
+                    "Start a search, change the thing you're after in the game (lose a life, "
+                    + "spend money), then come back and filter. A few rounds usually leave one "
+                    + "address."
                 )
             }
         }

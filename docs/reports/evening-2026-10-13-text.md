@@ -250,6 +250,22 @@ each under the name of the section it came from.
 - Kept as they are: the facts at the top (On disk as, Detail, Runs on), which are the game's own
   details, and the short core, manual and achievements lines.
 
+### Cheats and RAM search (the game card, and ⋯ → Cheats and RAM search...)
+
+- The line about which codes work: "Works with: Game Genie, ... For a multi-line code, put it all
+  in one box with + between the lines. Codes are made for one exact version of a game, and the
+  wrong one can freeze it. If that happens, switch the cheat off and load an earlier save." became
+  **"Works with: Game Genie, ... Join a longer code's lines with +, and if a code freezes the game,
+  turn it off and load an earlier save."**
+- For an emulator that ignores codes: "Heads up: this system's emulator ignores typed codes
+  (GameShark, Action Replay and so on), so they won't do anything here. The RAM search below can
+  still make cheats for most games." became **"Heads up: this system's emulator ignores typed
+  codes, but the RAM search can still make cheats for most games."** (on the card the RAM search
+  isn't "below", it's in the game).
+- RAM SEARCH: the paragraph (including "Values are read little endian") became **"Start a search,
+  change the thing you're after in the game (lose a life, spend money), then come back and filter.
+  A few rounds usually leave one address."**
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)
