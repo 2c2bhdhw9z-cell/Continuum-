@@ -348,7 +348,7 @@ struct SkinCardBlock: View {
                     .padding(12)
                     .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 10))
                 }
-                Text("This game's own skin. The system default applies when this is on default.")
+                Text("Pick a skin just for this game, or leave it on the system default.")
                     .font(.system(size: 11))
                     .foregroundStyle(ShellPalette.secondaryText)
             }

@@ -180,10 +180,9 @@ struct GameDetailSheet: View {
                 // .bin tracks behind. Said out loud here rather than only as part of the detail
                 // line.
                 SettingsNote(
-                    "This cue sheet is incomplete: "
+                    "This disc isn't complete ("
                     + entry.cueNotes.joined(separator: ", ")
-                    + ". A PlayStation game is a .cue plus every .bin track it names, so import "
-                    + "the missing tracks with the same names and it will boot."
+                    + "). Import its .bin files too, with the same names, and it'll start."
                 )
             }
         }
@@ -219,9 +218,7 @@ struct GameDetailSheet: View {
 
             if states.isEmpty {
                 SettingsNote(
-                    "No states for this game yet. The save button at the top of the player writes "
-                    + "one, and leaving the game or putting the app in the background writes a "
-                    + "separate auto-save that this game picks up from next time."
+                    "No save states yet. In the game, tap \u{22EF} and Save to the next free slot."
                 )
             } else {
                 SettingsReadout(label: "Stored", value: Self.summary(of: states))
@@ -378,24 +375,8 @@ struct GameDetailSheet: View {
             ChtImportButton(gameId: SaveStates.gameId(for: entry), cheats: cheats, line: $chtLine)
 
             SettingsNote(
-                "To find a cheat yourself, start the game and open Cheats and RAM search from the "
-                + "menu at the top of the player. A RAM search reads the running game's memory, so "
-                + "it lives there rather than here."
-            )
-
-            SettingsNote(
-                "Codes are stored exactly as typed, because every system has its own convention: "
-                + "Game Genie letters on the NES and SNES, Action Replay pairs on the Game Boy "
-                + "Advance, plain address and value on the Mega Drive, and a core will often take "
-                + "more than one of them. Checking the shape here would reject codes that work, so "
-                + "the core is left to accept or ignore what it is given. A code that does nothing "
-                + "is usually one meant for a different region of the same game."
-            )
-            SettingsNote(
-                "The cheats that are switched on are handed to the game's emulator each time the "
-                + "list changes and every time the game starts. Turning one off keeps it in the "
-                + "list and takes it out of the game. A code that freezes the game is usually for "
-                + "another version of it: turn it off, then load a save state from before."
+                "To find your own cheats, play the game and open Cheats and RAM search from the "
+                + "\u{22EF} menu. A code that does nothing is usually for another version of the game."
             )
         }
         .padding(14)
@@ -474,8 +455,8 @@ struct GameDetailSheet: View {
                 label: "Source",
                 value: artwork.provenance(for: entry)
                     ?? (artwork.fetchEnabled
-                        ? "no cover stored yet, so the generated plate is showing"
-                        : "artwork lookups are off, so the generated plate is showing")
+                        ? "no cover yet, so it shows a title card"
+                        : "cover lookups are off, so it shows a title card")
             )
 
             coverChoices
@@ -501,10 +482,8 @@ struct GameDetailSheet: View {
                 artwork.clearCover(for: entry)
             }
             SettingsNote(
-                "A cover chosen here wins over anything found automatically, including after a "
-                + "relaunch, and an image from Files or a frame captured from the game wins over "
-                + "everything, which is the answer for a game the thumbnail database has never heard "
-                + "of. The generated plate is always underneath, so nothing is ever blank."
+                "A cover you pick here, an image from Files or a frame from the game always wins "
+                + "over the automatic one."
             )
         }
         .padding(14)
@@ -587,8 +566,8 @@ struct GameDetailSheet: View {
                 ProgressView()
                     .controlSize(.small)
                     .tint(ShellPalette.accent)
-                Text("Looking through the server's own cover lists. Any this device does not "
-                     + "already have is downloaded once and kept for a month.")
+                Text("Looking through the cover lists. Any your phone doesn't have yet are "
+                     + "downloaded once.")
                     .font(.system(size: 12))
                     .foregroundStyle(ShellPalette.secondaryText)
             }
@@ -599,11 +578,8 @@ struct GameDetailSheet: View {
                 chooser.searchOtherSystems(entry: entry, system: system, store: artwork)
             }
             SettingsNote(
-                "The same cartridge is often the same game on four other consoles, and libretro does "
-                + "not have a scanned cover for all of them. This looks in the other systems' cover "
-                + "lists, smallest first, and downloads the ones this device does not already have: "
-                + "all nine box art lists together are about 11 MB if none of them is here yet. A "
-                + "cover found that way says which system it came from."
+                "Lots of games came out on other consoles too. The first look can download about "
+                + "11 MB of cover lists."
             )
         }
     }
@@ -641,11 +617,8 @@ struct GameDetailSheet: View {
             }
         } else {
             SettingsNote(
-                "A cover can also be taken from the game itself, which is the only thing that works "
-                + "for a ROM no cover database has ever heard of. It needs the game to be running: "
-                + "start it, then press and hold the save button at the top of the player and choose "
-                + "\"Use this frame as the cover\". Pausing first is worth doing, because the frame "
-                + "you are looking at while paused is exactly the frame that gets stored."
+                "You can also use a frame from the game: while it plays, tap \u{22EF} and Use this "
+                + "frame as the cover. Pause first to catch the exact moment."
             )
         }
     }
@@ -663,9 +636,8 @@ struct GameDetailSheet: View {
                 host.deleteEntries(at: indices)
             }
             SettingsNote(
-                "Deletes the file from the Continuum folder. If this is a cue sheet, the .bin "
-                + "tracks it named stay on disk: working out which tracks belonged to it means "
-                + "parsing the sheet, and a wrong guess deletes a track another game needs."
+                "Deletes the game with its save states and cheats. In-game saves are kept, and a "
+                + "disc game's .bin files stay in the Continuum folder."
             )
         }
         .padding(14)

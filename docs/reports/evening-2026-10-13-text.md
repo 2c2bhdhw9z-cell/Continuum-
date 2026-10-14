@@ -208,6 +208,48 @@ each under the name of the section it came from.
   authors and license. Tap a name to see its source code."** Every credit and licence line is
   untouched.
 
+## T3: the other screens
+
+### The game card (press and hold a game)
+
+- An incomplete disc: "This cue sheet is incomplete: 1 track missing. A PlayStation game is a .cue
+  plus every .bin track it names, so import the missing tracks with the same names and it will
+  boot." became **"This disc isn't complete (1 track missing). Import its .bin files too, with the
+  same names, and it'll start."**
+- No save states: "No states for this game yet. The save button at the top of the player writes
+  one, and leaving the game or putting the app in the background writes a separate auto-save that
+  this game picks up from next time." became **"No save states yet. In the game, tap ⋯ and Save to
+  the next free slot."** (the old one pointed at a save button the player no longer has; saving is
+  in the ⋯ menu now). The SAVE STATES paragraph under it was already two short sentences from the
+  night batch and is unchanged.
+- CHEATS: three paragraphs (how codes are stored, every system's code style, how cheats reach the
+  emulator) became **"To find your own cheats, play the game and open Cheats and RAM search from
+  the ⋯ menu. A code that does nothing is usually for another version of the game."**
+- COVER ART: "A cover chosen here wins over anything found automatically, including after a
+  relaunch, and an image from Files or a frame captured from the game wins over everything, ...
+  The generated plate is always underneath, so nothing is ever blank." became **"A cover you pick
+  here, an image from Files or a frame from the game always wins over the automatic one."**
+- "Look in other systems for more covers": the paragraph about four other consoles and nine lists
+  became **"Lots of games came out on other consoles too. The first look can download about 11 MB
+  of cover lists."** (the download size is kept: it helps you decide).
+- Taking a cover from the game: the paragraph (which said to press and hold the save button)
+  became **"You can also use a frame from the game: while it plays, tap ⋯ and Use this frame as
+  the cover. Pause first to catch the exact moment."**
+- While it searches: "Looking through the server's own cover lists. Any this device does not
+  already have is downloaded once and kept for a month." became **"Looking through the cover
+  lists. Any your phone doesn't have yet are downloaded once."**
+- The Source line with no cover: "no cover stored yet, so the generated plate is showing" became
+  **"no cover yet, so it shows a title card"** (and the same for lookups off).
+- **Delete this game**: "Deletes the file from the Continuum folder. If this is a cue sheet, the
+  .bin tracks it named stay on disk: working out which tracks belonged to it means parsing the
+  sheet, and a wrong guess deletes a track another game needs." became **"Deletes the game with its
+  save states and cheats. In-game saves are kept, and a disc game's .bin files stay in the
+  Continuum folder."** (what the button already did, said plainly).
+- SKIN: "This game's own skin. The system default applies when this is on default." became **"Pick
+  a skin just for this game, or leave it on the system default."**
+- Kept as they are: the facts at the top (On disk as, Detail, Runs on), which are the game's own
+  details, and the short core, manual and achievements lines.
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)
