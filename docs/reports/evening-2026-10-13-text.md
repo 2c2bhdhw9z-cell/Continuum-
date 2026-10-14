@@ -70,6 +70,24 @@ each under the name of the section it came from.
   DETAILS → BIOS, and the full list of names the install button recognises went with it as
   **Names it looks for**, so nothing was lost: every name a system needs is also on its own line.
 
+### SAVE STATES
+
+- The two switches: "On, so leaving a game writes its auto-save." / "Off, so nothing is saved
+  unless you save it yourself." became **"On. Leaving a game saves your spot."** / **"Off.
+  Nothing's saved unless you save it."**; "On, so starting a game restores its auto-save." / "Off,
+  so every game starts from the beginning." became **"On. Games open right where you left
+  them."** / **"Off. Every game starts from the beginning."**
+- The two long notes (why there's no save every few seconds, what turning it off keeps) became
+  **"It saves when you leave a game or switch to another app. Turning it off keeps the auto-saves
+  you have, and your own save slots are never touched."**
+- The note at the bottom (why states live outside the Continuum folder, device backups) became
+  **"Each game's own states are on its card (press and hold the game)."**
+- The **Delete every game?** message now has real plurals and is shorter: "All 80 games go, with
+  their save states and cheats. In-game saves are kept. This cannot be undone." (one game: "Your
+  one game goes, ...").
+- Read-outs: **Stored** and **Last** moved to TECHNICAL DETAILS → SAVE STATES. The section keeps
+  "12 save states for 5 games", or "No save states yet".
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)

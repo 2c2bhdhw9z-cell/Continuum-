@@ -477,6 +477,10 @@ struct SettingsScreen: View {
                 // Every name the install button acts on, which used to end the BIOS note.
                 SettingsReadout(label: "Names it looks for", value: CoreCatalog.biosNameList())
             }
+            TechnicalReadoutGroup(title: "SAVE STATES") {
+                SettingsReadout(label: "Stored", value: saveStates.storageLine)
+                SettingsReadout(label: "Last", value: saveStates.line)
+            }
         }
     }
 
@@ -627,8 +631,8 @@ struct SettingsScreen: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
                     Text(saveStates.autoSavesEnabled
-                         ? "On, so leaving a game writes its auto-save."
-                         : "Off, so nothing is saved unless you save it yourself.")
+                         ? "On. Leaving a game saves your spot."
+                         : "Off. Nothing's saved unless you save it.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
                 }
@@ -644,8 +648,8 @@ struct SettingsScreen: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
                     Text(saveStates.resumesAutomatically
-                         ? "On, so starting a game restores its auto-save."
-                         : "Off, so every game starts from the beginning.")
+                         ? "On. Games open right where you left them."
+                         : "Off. Every game starts from the beginning.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
                 }
@@ -660,23 +664,12 @@ struct SettingsScreen: View {
             .opacity(saveStates.autoSavesEnabled ? 1 : 0.45)
 
             SettingsNote(
-                "With auto-save on, leaving a game or the app going to the background writes that "
-                + "game's auto-save, and the second switch decides whether starting the game loads "
-                + "it back. There is no save every few seconds while you play, on purpose: saving "
-                + "a PlayStation game's state is a megabyte of work, and a stutter every few "
-                + "seconds would be a worse trade than an auto-save that is a few minutes old. "
-                + "Rewind, in SPEED AND REWIND above, is the setting for undoing the last few "
-                + "seconds."
-            )
-            SettingsNote(
-                "Turning auto-save off does not delete the auto-saves already written. They stay "
-                + "loadable from each game's card, because they are real states and this switch "
-                + "stops a behaviour rather than throwing anything away. Saving by hand from the "
-                + "player keeps working either way, and its slots are never touched by auto-save."
+                "It saves when you leave a game or switch to another app. Turning it off keeps "
+                + "the auto-saves you have, and your own save slots are never touched."
             )
 
-            SettingsReadout(label: "Stored", value: saveStates.storageLine)
-            SettingsReadout(label: "Last", value: saveStates.line)
+            // The STORED and LAST read-outs are in TECHNICAL DETAILS (`moreTechnicalReadouts`).
+            SettingsNote(saveStateCountLine)
 
             // Always shown, even with an empty library. There was never a delete-all before:
             // games went one at a time, from a card or a swipe in the list.
@@ -689,11 +682,7 @@ struct SettingsScreen: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text(host.library.isEmpty
-                     ? "There are no games in the library right now."
-                     : "Deletes all \(host.library.count) game files, and with them each game's "
-                       + "save states and cheats, as deleting one game does. In-game (battery) "
-                       + "saves are kept. This cannot be undone.")
+                Text(deleteGamesMessage)
             }
 
             SettingsButton(title: "Delete every save state", role: .destructive) {
@@ -707,15 +696,30 @@ struct SettingsScreen: View {
                      + "This cannot be undone.")
             }
 
-            SettingsNote(
-                "States are kept outside the Continuum folder the Files app shows, which is "
-                + "deliberate: a slot owns its file, and a payload renamed or moved underneath the "
-                + "list that describes it would leave the app listing states it can no longer load. "
-                + "They are included in a device backup, unlike the artwork, because nothing can "
-                + "reproduce them. Deleting everything here cannot be undone and it includes the "
-                + "auto-saves, so every game starts from the beginning afterwards. One game's states "
-                + "are managed in that game's card, from the library."
-            )
+            SettingsNote("Each game's own states are on its card (press and hold the game).")
+        }
+    }
+
+    /// The one plain line SAVE STATES keeps, with real plurals, like CHEATS.
+    private var saveStateCountLine: String {
+        let count = saveStates.records.count
+        guard count > 0 else { return "No save states yet" }
+        let games = saveStates.gameCount
+        return "\(count) \(count == 1 ? "save state" : "save states") for "
+            + "\(games) \(games == 1 ? "game" : "games")"
+    }
+
+    /// What "Delete every game?" says, with real plurals.
+    private var deleteGamesMessage: String {
+        switch host.library.count {
+        case 0:
+            return "There are no games in the library right now."
+        case 1:
+            return "Your one game goes, with its save states and cheats. In-game saves are kept. "
+                + "This cannot be undone."
+        default:
+            return "All \(host.library.count) games go, with their save states and cheats. "
+                + "In-game saves are kept. This cannot be undone."
         }
     }
 
