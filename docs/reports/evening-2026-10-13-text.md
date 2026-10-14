@@ -266,6 +266,21 @@ each under the name of the section it came from.
   change the thing you're after in the game (lose a life, spend money), then come back and filter.
   A few rounds usually leave one address."**
 
+### Save slots (the card's Save slots, export and import, or ⋯ → Save slots...)
+
+- MORE STATES: "This game had more than 50 states before slots had a fixed number, so these are kept
+  here rather than deleted. They load, export and delete like any other; free a slot to have the
+  next save go there." became **"These are from before there were 50 slots. They load, export and
+  delete like any other."**
+- FILES: "A state file carries the core and core version that wrote it, so an imported state is
+  checked exactly like one saved here and is refused with the reason if the core differs. The
+  battery save is the game's own save, the one made from its menu; it is the .srm file other
+  emulators use, and it is kept automatically whenever you leave the game." became **"An imported
+  state only loads on the emulator that made it. The battery save is the game's own save from its
+  menu, the .srm file other emulators use."**
+- The small line at the top of the sheet (what the last save, load or import did) is unchanged: it
+  is the sheet's answer to each tap.
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)

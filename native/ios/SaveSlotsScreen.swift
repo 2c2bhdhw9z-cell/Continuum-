@@ -337,9 +337,8 @@ struct SaveSlotsSheet: View {
                     .tracking(1.6)
                     .foregroundStyle(ShellPalette.secondaryText)
                 SettingsNote(
-                    "This game had more than \(SaveStates.slotCount) states before slots had a "
-                    + "fixed number, so these are kept here rather than deleted. They load, export "
-                    + "and delete like any other; free a slot to have the next save go there."
+                    "These are from before there were \(SaveStates.slotCount) slots. They load, "
+                    + "export and delete like any other."
                 )
                 ForEach(overflow) { record in
                     Button { chosen = record } label: {
@@ -387,11 +386,8 @@ struct SaveSlotsSheet: View {
             // Rust and written through the battery save path above. See SaveFormats.swift.
             SaveFileButtons(entry: entry, host: host, saveStates: saveStates)
             SettingsNote(
-                "A state file carries the core and core version that wrote it, so an imported state "
-                + "is checked exactly like one saved here and is refused with the reason if the core "
-                + "differs. The battery save is the game's own save, the one made from its menu; it "
-                + "is the .srm file other emulators use, and it is kept automatically whenever you "
-                + "leave the game."
+                "An imported state only loads on the emulator that made it. The battery save is "
+                + "the game's own save from its menu, the .srm file other emulators use."
             )
         }
         .padding(14)
