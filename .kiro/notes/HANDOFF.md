@@ -11,9 +11,12 @@ Paste this to start a new chat:
   running; the owner bought a little more only to get everything saved. First thing: save every
   line of "Memories to save on a new account" (end of `.kiro/steering/owner-rules.md`) as a global
   learning, and tell the owner they're saved.
-- **Old releases deleted (14 October):** only build 185 is left on the Releases page, with its tag
-  (owner's choice: nothing was public yet). Links to older builds in these notes no longer work;
-  their code is still in git.
+- **Old releases deleted (14 October), and a mistake that must be fixed before the next build.**
+  Only build 185 is left, plus `core-mirror-1`, which isn't an install: it held the build's frozen
+  copies of the 16 downloaded emulators and was deleted by mistake with the old releases, then
+  re-created empty. **Do `.kiro/notes/tasks/mirror-restore.json` before any build**, or DOOM,
+  Jaguar, Virtual Boy and C64 come out as the newer builds turned down on 12 October. Links to older
+  builds in these notes no longer work; their code is still in git.
 - **Newest published install: build 185** (`393f12c`, 13 October), checked: 0.8.0 (185), 36 core
   files: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-185-393f12c/Continuum-185.ipa
   It has the night batch (TESTING.md "Night batch (13 October)"). The owner hasn't reported on 182

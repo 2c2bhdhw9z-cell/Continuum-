@@ -11,6 +11,7 @@ README says which). Nothing else was unsaved.
 
 | File | Job | Done | Left |
 |---|---|---|---|
+| `mirror-restore.json` | The build's frozen emulator copies (deleted by mistake, 14 October) | the empty pre-release re-created | M1 refill it for 12, M2 the checked DOOM, Jaguar, Virtual Boy and C64, M3. **Before the next build** |
 | `cboy.json` | cBoy | G1 colour for black-and-white games, G1b link text, G1c short descriptions | G2 IO write timing (WIP patch), G3 Color half of Mealybug, G4 the rest, G5 write-up. The exact drawer: go-ahead given, the owner's thinking is always at max |
 | `arcade.json` | cArcade | I1 plan, I2 Z80, I3 Pac-Man board, I4 in the app (65 sets), the 8035 and AY-3-8910 chips | I5 Galaxian and Konami boards (WIP patch), I6 Donkey Kong board, I7 write-up |
 | `link-and-leftovers.json` | Leftovers | H1 two-phone link, H2 Mega Drive save chips, H4 Sega CD discs, H5 32X with no BIOS | H3 Mesen 2 for SNES, H6 write-up |
@@ -55,6 +56,8 @@ Started at 9:01 AM on 14 October at e82432a without the owner's yes, and cancell
 Linux checks (nothing built, no release). No build until the batch is done or the owner asks.
 
 ## Then the build
+
+**First, `mirror-restore.json` must be complete** (the frozen copies of the downloaded emulators).
 
 1. When every job is done, fold their reports (`.kiro/notes/docs/reports/evening-2026-10-13*.md`,
    `.kiro/notes/docs/ARCADE_CORE.md`, `.kiro/notes/docs/CBOY_EVENING.md`, `.kiro/notes/docs/reports/cache-v2-summary.md`, and `.kiro/notes/docs/reports/core-updates-2026-10-14.md` once CU5 writes it) into STATUS.md, TESTING.md and

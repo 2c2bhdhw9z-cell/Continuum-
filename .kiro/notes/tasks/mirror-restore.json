@@ -1,0 +1,37 @@
+{
+  "complete": false,
+  "title": "Put back the build's frozen copies of the 16 downloaded emulators (deleted by mistake on 14 October 2026)",
+  "repo": "/projects/sandbox/.scratch/mirror-work",
+  "why": "scripts/fetch-buildbot-cores.sh takes the 16 emulators Continuum downloads (instead of building) from this repository's core-mirror-1 pre-release first: exact copies, checked by sha256, of the files build 121 shipped, so a change at the libretro buildbot can never slip into the app (its header comment, 'FROZEN BY CHECKSUM'). Build 185 took all 17 files (16 zips and prboom.wad) from there. On 14 October the old releases were deleted on the owner's say-so, and core-mirror-1 went with them, because the check before deleting looked for uses of tags and missed this script's download URL. It was re-created empty straight away (same tag, pre-release, so /releases/latest still points at build 185). The deleted files cannot be restored, and build 185's .ipa can't stand in: its copies were changed during the build (install name, signing), so none of the 16 matches its dylib pin.",
+  "facts": [
+    "12 of the 16 still match at the buildbot (the 14 October update check: 'same as ours'), so a build gets the same emulators as before, only without the frozen-copy protection: wonderswan, ngp, pce, supergrafx, puae, dosbox_pure, handy, prosystem, a5200, pokemini, yabause, mednafen_saturn.",
+    "4 have moved on at the buildbot, to builds checked and turned down on 12 October (checked_skip in scripts/check-core-updates.sh): prboom (DOOM: default sound and music volume maxed, so it clips), virtualjaguar (about 13% slower), mednafen_vb (Virtual Boy, about 19% slower), vice_x64sc (C64: same code, f63b566, only the build date differs). Until M2 is done, a build would ship those four newer builds (fetch_one keeps a moved core with a ::warning:: and records it as unpinned).",
+    "A master build re-uploads a file to the mirror only when the download matches the ZIP pin, and the buildbot re-zips nightly, so the mirror won't refill by itself.",
+    "Never change a zip pin to make this work: CORE_BUILDS in crates/emulator-bridge/src/core_updates.rs keys the players' one-time heads-up on it, so a new pin tells players their emulator changed when it didn't."
+  ],
+  "hard_rules": [
+    "Read .kiro/notes/tasks/HELPER_RULES.md first and follow it.",
+    "Every commit ends with [skip ci]. scripts/fetch-buildbot-cores.sh is a build push path.",
+    "This job must be complete BEFORE the next build."
+  ],
+  "items": [
+    {
+      "id": "M1",
+      "done": false,
+      "title": "Accept a frozen copy by the emulator file inside it, and refill the mirror for the 12",
+      "detail": "In fetch_pinned's mirror step, when the copy's zip sha256 isn't the pin, unzip it the way fetch_one does and accept it if the dylib inside matches pinned_dylib_sha256 for that core, recorded as pinned: the same rule fetch_one already applies to an upstream download. prboom.wad has no dylib and keeps the zip-only rule. Add checks (next to whatever scripts/check-*.sh already covers this script, or a small new one): an exact zip is accepted; a re-zipped copy of the same dylib is accepted; a different dylib is refused and falls back to upstream; a missing copy falls back to upstream. Then, for each of the 12 cores whose buildbot dylib still matches its dylib pin, upload the buildbot's current zip under the asset name fetch_one asks for: gh release upload core-mirror-1 <file> --repo 2c2bhdhw9z-cell/Continuum- --clobber. Upload prboom.wad if its download matches its pin. Prove each by downloading it back from the mirror and running the new check on it."
+    },
+    {
+      "id": "M2",
+      "done": false,
+      "title": "DOOM, Jaguar, Virtual Boy and C64: the checked builds",
+      "detail": "Their exact checked files are gone. In this order: (1) build each from source at the commit its checked build came from (read the version string in build 185's dylib: release build-185-393f12c, Continuum-185.ipa, Payload/Continuum.app/Frameworks/<core>_libretro_ios.dylib, with strings; vice is f63b566), as an optional core in its own recipe region of scripts/build-core.sh so only it builds, moving its entry in core_updates.rs from the zip pin to the commit with a CORE_UPDATES entry saying old states load, and boot it through the engine on a host build where one exists; (2) if that can't be done for one, tell the owner in plain words what taking the newer build would cost players, and do what they say. The C64's newer build is the same code, so it may simply be taken, with its CORE_UPDATES entry."
+    },
+    {
+      "id": "M3",
+      "done": false,
+      "title": "Write it up",
+      "detail": "A short note in .kiro/notes/docs/reports/ (what was lost, what was put back, how it's proven), fold it into the hand-off, set complete to true."
+    }
+  ]
+}
