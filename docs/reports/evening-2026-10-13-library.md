@@ -9,7 +9,8 @@ System. Everything here is **Built, untested**: nothing has been on a phone yet.
 - U1, the tabs float and the covers scroll under them: `a06aeec` (an earlier session).
 - U2, the "80 games" strip is gone: `c3e8bac`, below.
 - U3, Settings → Layout → Game card size: `d31c627`, below.
-- U3b (light mode), U4 (a fresh review) and U5 (the write-up): added here as each one lands.
+- U3b, light mode and Settings → Appearance: `97e02ef`, below.
+- U4 (a fresh review) and U5 (the write-up): added here as each one lands.
 
 ## U2: the "● 80 games ^" strip is gone (`c3e8bac`) — Built, untested
 
@@ -185,3 +186,133 @@ down the screen, on Home as well as in the grids.
 
 None. Its one Library layout line, "Library layout, Grid and List | Works" (line 708), is still
 true.
+
+## U3b: Light mode, and Settings → Appearance (`97e02ef`) — Built, untested
+
+**Settings → APPEARANCE**, its own short section third from the top (right under CORES, which an
+older note keeps second): **Dark**, **Light**, **System**, the owner's own words. No sentence
+under it. Dark is the default and is exactly how the app always looked (the app used to force
+dark), so nobody's app changes until they pick something. System follows the iPhone's own light
+or dark setting, and changes with it.
+
+### How it works
+
+- **Applied once, at the root** (`RootView`): SwiftUI's `preferredColorScheme` (nil for System),
+  and the same choice on the app's windows (`AppAppearance.applyToWindows`, UIKit's
+  `overrideUserInterfaceStyle`, `.unspecified` for System). The window half covers what UIKit
+  presents by itself (the Files picker, Mail, the share sheet, a game's manual), and going back to
+  System through `preferredColorScheme(nil)` alone has been reported to stick on the old style on
+  some iOS versions. The TV's window and the keyboard's are left alone.
+- **Live:** the root observes the setting, so every screen redraws the moment it changes, no
+  restart. The setting is on the Settings tab, not in a sheet, so no open sheet is left behind in
+  the old style.
+- **Every sheet follows it now.** Thirteen sheets forced dark on their own
+  (`.preferredColorScheme(.dark)` on save slots, cheats, feedback and its drawing screen, the skin
+  library and the four skin sheets a game opens, the manual viewer, "Which system?", Import and
+  Add a server). That's gone from all of them, so menus and sheets opened from a game follow the
+  setting too.
+- **One palette, two values each** (`ShellPalette` in `LibraryCards.swift`). Its Dark values are
+  the exact colours it always had. Light mirrors them: black where Dark has white, white where Dark
+  has black. Two new names, `text` and `background`, replace each `Color.white` used as page text
+  and each `Color.black` used as a page or a wash (about 100 lines in 16 files). The teal is a
+  deeper teal on white so it still reads, and the smallest grey labels are a little stronger.
+- **Saved like the other settings:** `continuum.appearance.v1`, a plain `continuum.` key that no
+  exclusion list matches, so it syncs and goes into Back up to Files like Game card size.
+
+### What it looks like in Light
+
+- **Library:** white page, black text. The big cover at the top fades into white, not black, with
+  the title and Play on the white under it. The top bar's fade over the cover is white too.
+- **The floating tabs:** Apple's light glass under a 60% white wash (the mirror of Dark's 60%
+  black), so the black labels and the red selected tab read over any cover passing underneath. The
+  pop-up line above them is the same glass.
+- **Covers:** the system badge and the favourite star sit on their own dark chips over the art,
+  so they stay white-on-dark in both modes, like the art itself. Titles under grid cards, shelf
+  titles, counts and list rows are black. Cards get a faint dark edge on white.
+- **Settings:** light grey cards on white, black text, red switches. The segmented selectors are
+  a faint grey groove with a white glass thumb, like iOS's own light selector.
+- **A game's card, save slots, cheats, feedback, skins, import, servers, the manual:** white pages
+  with black text. The RAM search's white-tinted buttons take the text colour instead, so they
+  can't turn into white words on white buttons.
+
+### What stays dark in all three, on purpose
+
+- **The game screen:** black around the picture, the pad and every button over it, the status
+  line over the game, the telemetry, the keyboard, the achievement banner, the online-play line.
+  The pad's UIKit view is pinned dark too, so even its two system colours (the orange and teal of
+  extra floating buttons) don't shift.
+- **The on-screen control editor and the skin editor.** Both show the game screen itself, laid
+  out for editing (the pad over the game's place on black, the skin art on black), so they stay
+  dark like the game. Each is a full-screen cover with its own `preferredColorScheme(.dark)`, so
+  Settings behind keeps the player's choice.
+- **The technical block** (behind the top bar's dot, in Settings → Technical details, and behind
+  (i) in a game): white monospace on its own dark box everywhere, because the same block is drawn
+  over a running game. On a light page it reads like a console.
+- **The title cards** a game without a cover gets: they're art, coloured from the game's name.
+- **The Flash and J2ME player surfaces:** black, like the game screen. Their pages don't opt in to
+  dark or light styling, so nothing in them changes.
+
+### What changed in the code
+
+- `LibraryCards.swift`: `ShellPalette` (every colour with a Dark and a Light value, the
+  `dynamic`/`adaptive` helpers, and the Dark values as UIKit colours for the editor's menu
+  button), `AppAppearance` (the three choices and `applyToWindows`), and `StatusTint.isEveryday`.
+  Four places decided "is this line a problem?" by comparing the colour with the teal (two in
+  `LibraryShell`, the player's status line, the import in `ContinuumApp`); they ask `isEveryday`
+  now, so a teal with two values can't break them.
+- `ContinuumApp.swift`: `EngineHost.appearance`, stored and read back like `libraryCardSize`; the
+  root applies it (the window group's old fixed `.preferredColorScheme(.dark)` is gone).
+- `SettingsScreen.swift`: the APPEARANCE section, and its text, labels, buttons and selector on the
+  palette.
+- The other screens: `LibraryShell`, `GameDetailSheet`, `SaveSlotsScreen`, `CheatSearch`,
+  `Feedback`, `SkinLibraryScreen`, `GameplayManuals`, `ImportCenter`, `ImportScreen`,
+  `RemoteSources`, `ArtworkChooser`, `AppIcons`, `Achievements`, `AppleOverlay`, `CloudSync`,
+  `Peripherals`, `ScreenModes`, `InputExtras` (its Settings card only).
+- Kept dark: `TouchLayoutEditor` and `SkinEditor` (one line each), `TouchControls` (one line in
+  `makeUIView`), `PlayerScreen` (a comment on the technical block, and the `isEveryday` change).
+- `docs/PRODUCT_SCOPE.md`: the UI target now says Appearance exists and the game stays black.
+
+### What was checked
+
+- `swiftc -frontend -parse` on all 25 changed Swift files.
+- Dark is unchanged, value for value: every Dark value in the palette is the colour that was
+  there before (white at 8, 12, 14, 45 and 62%, black at 28%, the same teal); `text.opacity(x)`
+  in Dark is the old `Color.white.opacity(x)` and `background.opacity(x)` the old
+  `Color.black.opacity(x)`; the selector's new white layer under the glass is clear in Dark.
+- No API newer than iOS 15: `Color(uiColor:)` (iOS 15); `UIColor(dynamicProvider:)`,
+  `overrideUserInterfaceStyle`, `UIWindowScene.windows`, `UISceneSession.role` and
+  `preferredColorScheme` (iOS 13); single-parameter `onChange` and `tint(_:)` as the app already
+  uses them. The one new `@MainActor` call is made from `onAppear` and `onChange` in `RootView`'s
+  body, the way `onOpenURL` there already reaches the main-actor host.
+- Every remaining fixed `Color.white`/`Color.black` in the app was listed and sorted: each one is
+  over cover art, over the running game, in one of the two editors, or the root's black letterbox.
+- `preferredColorScheme` now appears only at the root and in the two editors.
+- Nothing in Rust was touched.
+
+### Phone checks (for TESTING.md, in the owner's words)
+
+1. Open the app without changing anything. It looks exactly like before: dark.
+2. Go to **Settings → Appearance** (near the top) and pick **Light**. The whole app turns light
+   straight away. Scroll Home: the covers still pass under the tabs, and the tab names are easy to
+   read over light and dark covers.
+3. Look at the big cover at the top of Home. It fades into white, and the game's name and Play
+   under it are easy to read.
+4. Press and hold a game to open its card. It's light too, with dark writing. Open **Save
+   slots** from it, then close it.
+5. Start a game. The game screen is still black around the game, with the same buttons as
+   always. Tap **⋯**: the menu is light. Open **Cheats and RAM search**, then **Skin...**: both are
+   light. Close them and go back to the Library.
+6. In Settings, open **Move the on-screen controls**. The editor stays dark, like the game.
+7. Pick **System**. Open Control Centre and switch your iPhone between light and dark (hold the
+   brightness slider, then tap Dark Mode). The app switches with it.
+8. Pick **Dark** again. Everything's back to how it always looked.
+
+### TESTING.md lines that are out of date because of U3b
+
+None. Its lines about black are about a game's picture, which stays black.
+
+### For the fresh review (U4) to look at hardest
+
+- The window override and `preferredColorScheme` together at the root, and going back to System.
+- The two editors staying dark, and the technical block's dark box on light pages.
+- The Light opacities (text at 60% and 55% on white) and the deeper teal.
