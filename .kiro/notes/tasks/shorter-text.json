@@ -36,9 +36,10 @@
     },
     {
       "id": "T2",
-      "done": false,
+      "done": true,
       "title": "Settings, second half",
-      "detail": "Cover art (three paragraphs become one or two sentences: covers are looked up by the game's file name on the libretro thumbnail server and nothing else is sent; the clear buttons get one short line between them), Layout (remove the 'These two are remembered... confusingly similar name' note), PSP (remove the whole section; the JIT note already lives in Technical details), BIOS (replace the paragraph and the wall of file names with one line, for example 'Put BIOS files in the Continuum folder in Files, then tap Install. Each system below says what it needs.', and make the per-system lines short and friendly, for example 'Sega CD: needs bios_CD_U.bin, bios_CD_E.bin or bios_CD_J.bin' and 'Doom: ready'), Save states, Storage, App icon, Sync folder, Online play, About, and the walls of text in Technical details (its read-outs stay)."
+      "detail": "Cover art (three paragraphs become one or two sentences: covers are looked up by the game's file name on the libretro thumbnail server and nothing else is sent; the clear buttons get one short line between them), Layout (remove the 'These two are remembered... confusingly similar name' note), PSP (remove the whole section; the JIT note already lives in Technical details), BIOS (replace the paragraph and the wall of file names with one line, for example 'Put BIOS files in the Continuum folder in Files, then tap Install. Each system below says what it needs.', and make the per-system lines short and friendly, for example 'Sega CD: needs bios_CD_U.bin, bios_CD_E.bin or bios_CD_J.bin' and 'Doom: ready'), Save states, Storage, App icon, Sync folder, Online play, About, and the walls of text in Technical details (its read-outs stay).",
+      "result": "Pushed as 14 small commits, 14f00b7 to 232ae5e (Cover art 14f00b7, Layout 026a5a9, PSP section removed c905899, BIOS 96d81f0, Save states ef70968, Storage 22cb5d2, Core settings a879ded, App icon 41e49eb, Skins dabf17d, Sync folder fcd496a, Controllers and motion c3f67c3, Technical details and About c5a76a3, Online play 89a0aba, polish 232ae5e): every note in the second half of Settings is one or two short sentences, the PSP section is gone, BIOS lines read like 'Sega CD: needs ...' and 'DOOM: ready', and every read-out moved to Technical details under its section's name; the list is in docs/reports/evening-2026-10-13-text.md."
     },
     {
       "id": "T3",
