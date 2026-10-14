@@ -88,6 +88,18 @@ each under the name of the section it came from.
 - Read-outs: **Stored** and **Last** moved to TECHNICAL DETAILS → SAVE STATES. The section keeps
   "12 save states for 5 games", or "No save states yet".
 
+### STORAGE
+
+- Two long notes (the Documents directory, cue sheets naming their tracks, where artwork, cover
+  lists, save states and cheats are kept and why, a file an old build left behind) became
+  **"Your games are in the Continuum folder in the Files app. Don't rename a disc game's files
+  there, or it won't load."**
+- Read-outs: **Library** ("library: 80 game(s) of 86 file(s) in Documents") moved to TECHNICAL
+  DETAILS → STORAGE. Its other three (Artwork, Cover lists, Save states) were the same lines as
+  COVER ART's Stored and Cover lists and SAVE STATES' Stored, so they are under those and not
+  shown twice. Deleting a game is still on its card (**Delete this game**) and a swipe in the
+  All Games list.
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)

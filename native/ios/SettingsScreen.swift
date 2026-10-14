@@ -125,8 +125,7 @@ struct SettingsScreen: View {
                     biosSection
                     // Every core's own settings, and the TV's fit and layout. See CoreSettingsScreen.swift.
                     CoreSettingsSettingsSection(host: host)
-                    // Beside STORAGE on purpose: the two read-outs are about the same disk, and the
-                    // note in STORAGE now has to explain three directories rather than two.
+                    // Beside STORAGE on purpose: both are about what is kept on the phone.
                     saveStatesSection
                     storageSection
                     notYetWiredSection
@@ -481,6 +480,11 @@ struct SettingsScreen: View {
                 SettingsReadout(label: "Stored", value: saveStates.storageLine)
                 SettingsReadout(label: "Last", value: saveStates.line)
             }
+            // STORAGE's Artwork, Cover lists and Save states lines were the same strings as the
+            // ones under COVER ART and SAVE STATES above, so only Library is new here.
+            TechnicalReadoutGroup(title: "STORAGE") {
+                SettingsReadout(label: "Library", value: host.libraryStatus)
+            }
         }
     }
 
@@ -767,28 +771,11 @@ struct SettingsScreen: View {
 
     private var storageSection: some View {
         SettingsSection(title: "STORAGE") {
-            SettingsReadout(label: "Library", value: host.libraryStatus)
-            SettingsReadout(label: "Artwork", value: artwork.storageLine)
-            SettingsReadout(label: "Cover lists", value: artwork.coverListLine)
-            SettingsReadout(label: "Save states", value: saveStates.storageLine)
+            // The LIBRARY read-out is in TECHNICAL DETAILS (`moreTechnicalReadouts`). The other
+            // three were the same lines as COVER ART's and SAVE STATES', and are under those.
             SettingsNote(
-                "Games live in the app's own Documents directory, which the Files app shows as "
-                + "Continuum, and they keep the filenames they arrived with: a cue sheet names its "
-                + "tracks literally, so renaming one would break the game. Artwork is kept outside "
-                + "Documents, so a folder of downloaded covers never appears there as though it "
-                + "were something you imported, and the downloaded cover lists sit in their own "
-                + "folder beside it so the two can be cleared separately. Deleting a game is a "
-                + "swipe in All Games, or the button in its detail sheet, and it takes that game's "
-                + "save states and cheats with it."
-            )
-            SettingsNote(
-                "Save states and cheats are outside Documents too, each in its own folder, and for "
-                + "a stronger reason than the artwork's: a numbered slot owns its file. Documents is "
-                + "user-visible, so anything in it can be renamed or moved from the Files app, and a "
-                + "payload that moved underneath the list describing it would leave a slot the app "
-                + "can list and cannot load. An earlier build wrote one state per game into "
-                + "Documents and had no way to read it back; that file is not used any more, and "
-                + "any left over from it can be deleted from the Continuum folder."
+                "Your games are in the Continuum folder in the Files app. Don't rename a disc "
+                + "game's files there, or it won't load."
             )
         }
     }
