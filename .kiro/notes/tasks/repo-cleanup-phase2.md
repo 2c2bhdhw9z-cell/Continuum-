@@ -43,4 +43,61 @@ to "About", paste the description and the website, type each topic, then "Save c
 do that, and the owner's rules say not to send them to pages, so try the calls first and only
 offer the owner this as a one-minute favour if nothing else can.
 
+## 2. The release notes (R5): written and checked, not landed
+
+The new text for the "Publish the .ipa as a Release" step is ready, but part 1 did not push it.
+Kiro's GitHub rules say a change to a workflow file never goes straight to the default branch,
+whatever the reason, only through a pull request; the owner's rules say no pull requests, ever.
+A helper can't settle that, so it's the orchestrator's call: open a pull request with just this
+change and merge it, or take it up with the owner. No branch or pull request was made.
+
+In `.github/workflows/ios.yml`, step "Publish the .ipa as a Release", replace everything between
+`cat > /tmp/notes.md <<'EOF'` and the `EOF` line with this (keep the 10-space indent):
+
+```text
+          Continuum is an all-in-one emulator for iPhone, in public beta. Games and BIOS files aren't included, so you'll need your own.
+
+          Download Continuum-${{ github.run_number }}.ipa below and install it with the signing app you normally use. Continuum.ipa is the same app under a name that never changes.
+
+          Found a problem? In the app, tap Settings, then Send feedback. For one game, open it and tap ⋯, then Send feedback about this game. Or email ContinuumDev2c2b@gmail.com.
+
+          The two get-task-allow files are only for turning on JIT, a speed boost some setups allow. Pick one if your signing app asks for an entitlements file; otherwise you can skip them.
+
+          The newest build is always at this link:
+```
+
+Then delete the line right after `echo "$LATEST" >> /tmp/notes.md`, the one that starts
+`printf '\nBuilt from %s on %s.\n'`: it puts the full commit hash in every release's notes. Touch
+nothing else in the file (the arcade and cache jobs edit other parts of it).
+
+Why it reads like that: each paragraph is one line because GitHub shows a line break in release
+notes wherever the text has one, so the old 95-column wrapping broke sentences in half on a phone.
+`${{ github.run_number }}` is filled in by Actions before the shell runs, quoted heredoc or not,
+so the notes name the real file (`Continuum-186.ipa`); the same expression is already used a few
+lines further down. Checked against master on 13 October: the YAML loads, `bash -n` passes on the
+whole step with the expressions filled in, and the notes part runs and writes exactly the text
+above plus the newest-build link. To check again after applying it:
+
+```sh
+python3 -c "import yaml,sys; yaml.safe_load(open(sys.argv[1]))" .github/workflows/ios.yml
+python3 - <<'PY'
+import re, subprocess, yaml
+steps = [s for j in yaml.safe_load(open('.github/workflows/ios.yml'))['jobs'].values()
+         for s in j.get('steps', []) if s.get('name') == 'Publish the .ipa as a Release']
+v = {'github.run_number': '186', 'github.sha': '0' * 40,
+     'github.repository': '2c2bhdhw9z-cell/Continuum-', 'github.ref_name': 'master'}
+script = re.sub(r'\$\{\{(.*?)\}\}', lambda m: v[m.group(1).strip()], steps[0]['run'])
+print('bash -n:', subprocess.run(['bash', '-n'], input=script, text=True).returncode == 0)
+part = script[:script.index('echo "$LATEST" >> /tmp/notes.md')]
+part += 'echo "$LATEST" >> /tmp/notes.md\ncat /tmp/notes.md\n'
+print(subprocess.run(['bash', '-c', part], text=True, capture_output=True).stdout)
+PY
+```
+
+The commit message must end with `[skip ci]`, or the push starts a build.
+
+Not part of R5, for the orchestrator to decide: the next step, "Say how to install it", writes the
+run's summary page and names two signing apps (ESign and Feather) plus the full commit hash.
+That page is public too, but it isn't the notes.
+
 The rest of this plan is item R7.
