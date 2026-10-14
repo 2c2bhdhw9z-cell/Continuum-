@@ -26,6 +26,12 @@
 # (patches arms, patch helpers, the patch files a region names, and functions only their own family
 # may use), and the regions of one family are told apart in its hash.
 #
+# Section 15 is the hostile review (K3): ways a line the scan calls a comment is really run by bash
+# (hidden after a line continuation, or after a ( inside [[ ]]), a build step that reads the script
+# path through $0, and three more ways to apply another family's patch unseen (a continuation line
+# chaining a second step, a patch helper, and a $VAR path to the patches directory). Each must fail
+# closed so no core gets a fingerprint, and say why.
+#
 # Touches nothing in this checkout: everything happens in a temporary copy that is removed at
 # the end. Bash 3.2 safe (macOS) as well as Linux.
 set -euo pipefail
@@ -845,7 +851,7 @@ check "a shared line naming a patch file fails closed" guard "is named in the sh
   insert_after '  local make_dir="$IOS_SRC_DIR/$IOS_MAKE_SUBDIR"' \
                '  patch -p1 -d "$IOS_SRC_DIR" < "$ROOT/scripts/patches/fceumm-extra.patch"'
 check "a region naming another family's patch file fails closed" guard \
-  "names a patch that is not scripts/patches/azahar-" \
+  "recipe region azahar names ppsspp-ios-jit-region.patch, a patch of ppsspp" \
   replace_line '  local patch="$ROOT/scripts/patches/azahar-do-not-wait-on-pipeline-compile.patch"' \
                '  local patch="$ROOT/scripts/patches/ppsspp-ios-jit-region.patch"'
 check "one family's build function used by a second family fails closed" guard "belongs to recipe region" \
@@ -904,6 +910,61 @@ reset_copy
 check "moving flycast's build function to another place rebuilds flycast and its JIT build only" \
   same "$(moves_after move_block '# recipe-start: flycast' '# recipe-end: flycast' 'build_ios_make_core() {')" \
        "flycast flycast_jit"
+
+# 15. The hostile review (K3). Each hazard is tried on a throwaway copy; every one must fail closed
+# (no core gets a fingerprint) and name the reason. These would all have passed before this pass.
+reset_copy
+
+# A line that bash runs but the scan took for a comment, hidden after a line continuation. Without
+# the carry fix the scan read the second line as a comment from column one and every guard that
+# reads the code of a line went blind; bash joins `: x\`+`#;cmd` into one command and runs it.
+check "a cache call hidden after a line continuation fails closed" guard "is cache machinery" \
+  insert_after '  local make_dir="$IOS_SRC_DIR/$IOS_MAKE_SUBDIR"' '  : x\
+#; ios_core_fingerprint "$core" >/dev/null'
+check "the script path read after a line continuation fails closed" guard 'IOS_SELF outside the cache' \
+  insert_after '  local make_dir="$IOS_SRC_DIR/$IOS_MAKE_SUBDIR"' '  : x\
+#; cat "$IOS_SELF" >/dev/null'
+
+# A ( inside [[ ]] (grouping, or an extglob like @( ): bash does not treat a # after it as a
+# comment, but the scan would, so it refuses rather than guess. A grouping ( ) is used here
+# because it parses on both bash 5.2 and 3.2, so the scan (not bash's own parser) is what rejects
+# it on either host; an extglob @( ) would be a parse error on the Mac's bash 3.2 instead.
+check "a ( inside [[ ]] fails closed" guard "a ( inside [[ ]]" \
+  insert_after '  local make_dir="$IOS_SRC_DIR/$IOS_MAKE_SUBDIR"' \
+    '  [[ ( "$core" == x ) ]] && ios_core_fingerprint "$core" >/dev/null'
+
+# A build step that reads the script through $0 (like $IOS_SELF): it would see comments, so they
+# could not be dropped without changing the build.
+check "a build step that reads \$0 fails closed" guard '$0 outside the cache' \
+  insert_after '  local make_dir="$IOS_SRC_DIR/$IOS_MAKE_SUBDIR"' '  grep -c recipe "$0" >/dev/null'
+
+# A patches arm whose continuation line chains a second command: the second line of a two-line
+# ios_apply_simple_patch call is where another patch step could hide, so it may carry only the
+# call's own tail.
+check "a patches-arm continuation line that chains a second command fails closed" guard \
+  "runs more than one patch step" \
+  insert_after '        src/citra_libretro/citra_libretro.cpp "Continuum: the iPhone camera and Amiibo reach Azahar"' \
+    '      ios_apply_simple_patch azahar azahar-x.patch \
+        src/x.cpp "m"; rm -rf "$IOS_SRC_DIR"'
+
+# A patch helper inside a region that applies another family'"'"'s patch: caught by the patch NAME,
+# whatever path spells it, because the fingerprint of that other family (not this one) covers it.
+check "a region patch helper applying another family's patch fails closed" guard \
+  "a patch of ppsspp" \
+  insert_after '  local marker="Continuum: do not block the emulation thread on Vulkan pipeline compile."' \
+    '  ios_apply_simple_patch azahar ppsspp-ios-jit-region.patch Common/MemoryUtil.h "Continuum: code memory"'
+check "a region reaching another family's patch through a \$VAR path fails closed" guard \
+  "a patch of ppsspp" \
+  insert_after '  local marker="Continuum: do not block the emulation thread on Vulkan pipeline compile."' \
+    '  local pp="$ROOT/scripts/patches"
+  patch -p1 --forward -d "$IOS_SRC_DIR" < "$pp/ppsspp-ios-jit-region.patch" || true'
+
+# A line that names the patches directory but no attributable patch file (the shape of a build step
+# reaching patches through a variable) is refused on its own.
+check "a line naming the patches directory with no attributable file fails closed" guard \
+  "names the scripts/patches directory" \
+  insert_after '  local marker="Continuum: do not block the emulation thread on Vulkan pipeline compile."' \
+    '  local pdir="$ROOT/scripts/patches"; ls "$pdir" >/dev/null'
 
 reset_copy
 

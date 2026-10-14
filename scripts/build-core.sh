@@ -2055,7 +2055,16 @@ function heredoc_word(s, i, strip,   n, c, d, q, quoted) {
 # $(( )), a a bracket inside A, C $( ), X <( ) or >( ), P a bracket inside C X or R, R an array
 # assignment, T [[ ]].
 function lex(s,   n, i, c, c2, c3, t) {
-  n = length(s); w = ""; prev = ""; cpos = 0
+  n = length(s); cpos = 0
+  # A line continued from the previous one (a backslash at its end) resumes the SAME word bash was
+  # building, so a leading # is only a comment when the previous line broke at a word boundary.
+  # Carry the pending word and previous character across; otherwise bash would join `x\`+`#y` into
+  # the single word `x#y` and run it, while a reset here would read `#y` as a comment and blind
+  # every guard that reads the code of the line. Only word contexts need it (strings and
+  # here-documents never treat # as a comment).
+  if (L_prevcont && stk[sp] != "Q" && stk[sp] != "S" && stk[sp] != "D" && stk[sp] != "B") { w = wcarry; prev = prevcarry }
+  else { w = ""; prev = "" }
+  wcarry = ""; prevcarry = ""
   for (i = 1; i <= n; i++) {
     c = substr(s, i, 1); c2 = substr(s, i + 1, 1); c3 = substr(s, i + 2, 1); t = stk[sp]
     if (t == "S") { if (c == SQ) pop(); continue }
@@ -2084,7 +2093,7 @@ function lex(s,   n, i, c, c2, c3, t) {
     # The word contexts (N C X P R T): a # that starts a word starts a comment in all of them.
     if (c == " " || c == "\t") { endword(); prev = c; continue }
     if (c == "#" && w == "") { cpos = i; break }
-    if (c == BS) { if (i == n) { cont = 1; break }; w = w "e"; i++; prev = "e"; continue }
+    if (c == BS) { if (i == n) { cont = 1; wcarry = w; prevcarry = prev; break }; w = w "e"; i++; prev = "e"; continue }
     if (c == SQ) { w = w "q"; push("S"); prev = "q"; continue }
     if (c == DQ) { w = w "q"; push("Q"); prev = "q"; continue }
     if (c == BT) { w = w "q"; push("B"); prev = "q"; continue }
@@ -2097,6 +2106,10 @@ function lex(s,   n, i, c, c2, c3, t) {
       w = w c; prev = c; continue
     }
     if (c == "(") {
+      # A ( inside [[ ]] is extglob (@( ?( *( +( !( ) or grouping; bash does NOT treat a # inside
+      # it as a comment, but endword would clear the word here and the next # would look like one.
+      # Nothing in this file needs it, so refuse rather than guess ($( ) is handled above as $).
+      if (t == "T") { fail("a ( inside [[ ]] (extglob or grouping), which this scan does not follow for certain"); return }
       if (t != "T" && w ~ /^[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=$/) { w = ""; push("R"); prev = c; continue }
       if (t != "T" && w == "" && (prev == "<" || prev == ">")) { push("X"); prev = ""; continue }
       if (t != "T" && t != "R" && w == "" && c2 == "(") { push("A"); i++; prev = c; continue }
@@ -2197,7 +2210,7 @@ BEGIN {
   approved["" SUBSEP "ios_usage >&2"] = 1
   # Comments and blank lines only count for nothing if nothing outside the cache reads this
   # file, its text or its line numbers. These are the only lines that may use those words.
-  nself = split("IOS_SELF BASH_SOURCE LINENO BASH_LINENO", selfword, " ")
+  nself = split("IOS_SELF BASH_SOURCE LINENO BASH_LINENO BASH_ARGV0 caller", selfword, " ")
   selfok["" SUBSEP "ROOT=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")/..\" && pwd)\""] = 1
   selfok["" SUBSEP "IOS_SELF=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)/$(basename \"${BASH_SOURCE[0]}\")\""] = 1
   selfok["build_all_ios_cores" SUBSEP "if bash \"$IOS_SELF\" ios \"$core\"; then"] = 1
@@ -2225,7 +2238,7 @@ BEGIN {
     else if (top == "Q" || top == "S" || top == "D") start = "string"
     else if (nested()) start = "nested"
     else start = "plain"
-    cont = 0; hd_n = 0
+    L_prevcont = cont; cont = 0; hd_n = 0
     lex(line)
     if (start == "plain") {
       if (line ~ /^[ \t]*$/) cls = "blank"
@@ -2344,6 +2357,8 @@ END {
       failat(n, allowed[k] " is cache machinery, so it may not be used here (only ios_clone, build_all_ios_cores and the dispatch may call it, as they do today)")
     for (k = 1; k <= nself; k++) if (hasword(L_k[n], selfword[k]) && !((L_f[n] SUBSEP trim(L_k[n])) in selfok))
       failat(n, selfword[k] " outside the cache: a build that read this file or its line numbers would see comments, so they could not be left out")
+    if ((L_k[n] ~ /\$0([^0-9]|$)/ || L_k[n] ~ /\$\{0[^0-9A-Za-z_]/) && !((L_f[n] SUBSEP trim(L_k[n])) in selfok))
+      failat(n, "$0 outside the cache: a build that read the script path could see comments, so they could not be left out")
   }
   # Who owns what, for the rules below: the family each IOS_KIND belongs to (kmulti: more than
   # one), the family each function defined inside a recipe region belongs to, and how many shared
@@ -2398,8 +2413,14 @@ END {
         }
         # A patches arm holds its own patches and nothing else (the K2 guard): calls to
         # ios_apply_simple_patch for a patch of this family, with their continuation lines, and
-        # calls to the own patch helpers of this family.
-        if (L_c[n] == "cont") continue
+        # calls to the own patch helpers of this family. A continuation line is the tail of such a
+        # call (its file and marker); it may not chain a second command, or a `; ios_apply...` on
+        # the second line of a two-line call would apply another patch unseen.
+        if (L_c[n] == "cont") {
+          if (index(trim(L_k[n]), ";") > 0 || index(trim(L_k[n]), "&") > 0 || index(trim(L_k[n]), "|") > 0 || hasword(L_k[n], "ios_apply_simple_patch"))
+            failat(n, "a continuation line in the patches arm of recipe region " F " runs more than one patch step: " trim(L_k[n]))
+          continue
+        }
         if (s ~ /^ios_apply_simple_patch [a-z][a-z0-9_]* [A-Za-z0-9_.+-]+\.patch( |$)/) {
           split(s, el, " ")
           if (family(el[2]) != F) failat(n, "ios_apply_simple_patch in recipe region " F " names the core " el[2])
@@ -2441,21 +2462,43 @@ END {
     if (hasword(s, "ios_apply_simple_patch") && n != fstart["ios_apply_simple_patch"])
       failat(n, "ios_apply_simple_patch is used outside a recipe region: a patch step belongs in its core region")
   }
-  # Every scripts/patches/ file named outside the cache: in a recipe region, a patch of that
-  # family; in the shared part, only the two lines that name one today.
+  # The family each Continuum patch prefix belongs to (azahar- -> azahar, continuum-symbian- ->
+  # continuum_symbian). A patch file this project ships is named <family>-<something>.patch, and
+  # that name is how ios_core_fingerprint finds it, so the name is the one spelling that cannot be
+  # faked: to apply the real patch of a core you must name its file.
+  for (fff in listfam) patchfam[patchprefix(fff)] = fff
+  # Every Continuum patch (scripts/patches/<family>-*.patch) named outside the cache must belong to
+  # the right family, HOWEVER it is spelled: a bare filename, a $VAR path, a continuation line or a
+  # patch helper all carry the file name, so this keys on the name, not on the scripts/patches
+  # path. That shuts the ways a patches arm, a helper or a continuation line could apply the patch
+  # of another family (covered by the fingerprint of that family, not this one) and ship it stale.
+  # An upstream-tree patch that the source of a core ships (cubeb.patch, fmt.patch ...) carries no
+  # core family prefix and is covered by the pin, so it is left alone.
   for (n = 1; n <= last; n++) {
-    if (!kept(n) || L_b[n] == "x:cache" || index(L_k[n], "scripts/patches/") == 0) continue
-    if (L_b[n] == "shared") {
-      if (!((L_f[n] SUBSEP trim(L_k[n])) in patchok)) failat(n, "a scripts/patches/ file is named in the shared part, so editing that patch would not rebuild every core that uses it")
-      continue
-    }
-    F = substr(L_b[n], 3); rest = L_k[n]
-    while ((p = index(rest, "scripts/patches/")) > 0) {
-      rest = substr(rest, p + 16)
-      if (!match(rest, /^[A-Za-z0-9_.+-]+\.patch/) || index(rest, patchprefix(F) "-") != 1) {
-        failat(n, "recipe region " F " names a patch that is not scripts/patches/" patchprefix(F) "-*.patch"); break
+    if (!kept(n) || L_b[n] == "x:cache") continue
+    rest = L_k[n]
+    while (match(rest, /[A-Za-z0-9_.+-]+\.patch/)) {
+      tok = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH)
+      pf = ""
+      for (pp in patchfam) if (index(tok, pp "-") == 1 && length(pp) > length(pf)) pf = pp
+      if (pf == "") continue
+      if (L_b[n] == "shared") {
+        if (!((L_f[n] SUBSEP trim(L_k[n])) in patchok)) { failat(n, "the patch " tok " is named in the shared part, so editing it would not rebuild every core that uses it"); break }
+      } else if (L_b[n] ~ /^r:/) {
+        F = substr(L_b[n], 3)
+        if (patchfam[pf] != F) { failat(n, "recipe region " F " names " tok ", a patch of " patchfam[pf] ", so a fix to it would not rebuild " F); break }
       }
     }
+  }
+  # A line that points at the scripts/patches directory but names no family-prefixed patch file on
+  # the same line (so the rule above cannot attribute it) is refused in a region or the shared
+  # part alike: it is the shape of a build step reaching patches through a variable, exactly how a
+  # cross-family patch would be smuggled past the name rule.
+  for (n = 1; n <= last; n++) {
+    if (!kept(n) || L_b[n] == "x:cache" || index(L_k[n], "scripts/patches") == 0) continue
+    if ((L_f[n] SUBSEP trim(L_k[n])) in patchok) continue
+    if (L_k[n] ~ /scripts\/patches\/[A-Za-z0-9_.+-]+\.patch/) continue
+    failat(n, "a line names the scripts/patches directory with no patch file this scan can attribute to a family; name the full scripts/patches/<family>-*.patch path")
   }
   # A function of a recipe region is for that family alone: only its regions may use it, or the
   # dispatch in build_ios_core for a kind only that family sets. Every one must be called by name,

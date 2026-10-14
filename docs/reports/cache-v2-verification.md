@@ -164,3 +164,87 @@ should:
    of the script with a cache subcommand).
 4. The lists region: anything that makes a listed name change HOW a core is built.
 5. Regions: a region placed so its code runs for another family's core (K2 adds more guards here).
+
+## K3: the hostile review — what broke, what was fixed, what held
+
+A fresh session reviewed K1 and K2 as an attacker. Each hazard was tried on a throwaway copy of
+the scripts; six could ship a stale core or blind a guard and are now fixed, each with a new check
+in `scripts/check-core-cache.sh` (section 15) and the existing section-14 wording updated to the
+new, clearer message. All the fixes live inside `ios_cache_scan` and the other cache-region
+functions, which are NOT hashed, so every one of the twenty cores keeps the exact fingerprint it
+had before K3 (checked, all twenty: fceumm df688ed0e6cd1c83, azahar 0c0c314f28853b38, flycast_jit
+95fdd5876f002edd, continuum_symbian 5d9627dce740556e, ... all unchanged). So K3 is the one pass
+that costs NO extra rebuild.
+
+Found and fixed (each one let a build input escape the fingerprint, or hid build code from a
+guard, before the fix; after it, `ios-cache-check` fails closed and names the reason, and no core
+gets a fingerprint):
+
+- **A line continuation hid code the guards never saw.** A line ending in `\` resumes the previous
+  word in bash, so `  : x\` then `#; ios_core_fingerprint "$core"` is really `: x#; ios_core_...`
+  and bash runs it. The scan reset its word at the new line and read `#...` as a comment from
+  column one, so the code after `#` was invisible to every guard that reads a line's code (the
+  cache-machinery guard, the self-reference guard, the patch guards) while still being run. The
+  lexer now carries the pending word and the previous character across a continuation, so a
+  leading `#` is a comment only at a true word boundary, exactly as bash does. The whole line was
+  always hashed, so this was guard-evasion, not a direct stale core, but it opened the patch and
+  self-reference routes below.
+- **A `(` inside `[[ ]]` did the same.** With extglob (`[[ $x == @(#a) ]]`, which bash 5.2 runs in
+  full), the `(` made the scan drop its word and treat the following `#` as a comment. Nothing in
+  the file uses a `(` inside `[[ ]]`, so the scan now refuses one (grouping or extglob) rather than
+  guess.
+- **A build step could read the script through `$0`.** `grep -c recipe "$0"` passed every guard,
+  and a build that reads this file's own text would be affected by its comments without their being
+  hashed. `$0`, `${0}`, `BASH_ARGV0` and `caller` are now guarded like `IOS_SELF` and `BASH_SOURCE`.
+- **A patches arm could chain a second step on its continuation line.** The second line of a
+  two-line `ios_apply_simple_patch` call was skipped by the rules, so
+  `src/x.cpp "marker"; ios_apply_simple_patch <other core>` applied another patch unseen. A
+  continuation line in a patches arm may now carry only the call's own tail (no `;` `&` `|`, no
+  second `ios_apply_simple_patch`).
+- **A patch helper, or a `$VAR` path, could apply another family's patch.** `ios_apply_simple_patch`
+  inside a region's own helper function was not name-checked, and the old rule only looked for the
+  literal string `scripts/patches/`, so `local p="$ROOT/scripts/patches"` + `"$p/<other>-x.patch"`
+  slipped through. Either way the other family's patch is hashed under THAT family, not this one, so
+  editing it would not rebuild the core that applies it — a stale core. The patch rule now keys on
+  the patch FILE NAME wherever it appears (bare, in a `$VAR` path, on a continuation line, in a
+  helper): a `<family>-*.patch` name in a region must be that region's family, and a line that
+  names the `scripts/patches` directory with no attributable file is refused. Upstream-tree patches
+  a core's own source ships (the Symbian port's `cubeb.patch`, `fmt.patch`, `ffmpeg.patch`,
+  `oaknut.patch`) carry no core-family prefix and are covered by the pin, so they are left alone.
+
+Hazards that held (tried, could not break):
+
+- **`ios_record_source_version` running inside every build.** It writes only `core-sources.txt` in
+  the output directory and runs in a subshell; it touches no source file and no `.dylib`, so it
+  cannot change a build without changing a fingerprint. (Residual guidance for a future editor:
+  the structural guards allow-list the cache FUNCTIONS but do not forbid their bodies from touching
+  the source tree, so keep every cache-region body side-effect-free apart from the manifest.)
+- **A dropped line bash would run.** The bash `declare -f` net still catches any comment/blank line
+  wrongly dropped; the holes above were guard-evasion on lines the scan KEPT, which the net does
+  not police, hence the lexer and guard fixes.
+- **Tricky quoting.** `"${x:-'}"` opens a single quote on bash 5.2 and 3.2 alike, matching the
+  scan; the file then fails `bash -n` and rebuilds. No extglob or `shopt` is used anywhere.
+- **A listed name changing HOW a core is built.** `ios-all` builds each core in a fresh process and
+  the loop expands the lists once, so a config arm that sets a shared global only affects its own
+  core (its fingerprint already moved) or makes a later core's cache check miss and rebuild — never
+  reuse a stale dylib. The K2 arm guard already blocks commands and expansions in config arms.
+- **Region placement.** The K2 dispatch-ownership and function-family guards still hold; no region
+  was found whose code runs for another family's core.
+
+Commands and results (on current master after the H2/H4 blastem changes, plus this change):
+
+| Command | Result |
+| --- | --- |
+| `bash scripts/check-core-cache.sh` (Linux, bash 5.2 + gawk) | 213 passed, 0 failed |
+| the same under bash 3.2.57 + BWK awk (the versions macOS ships) | 213 passed, 0 failed |
+| every core's `ios-fingerprint`, before vs after K3 | identical for all twenty cores |
+| `bash scripts/check-skins.sh` | 720 checks, 0 failed |
+| `bash scripts/check-players.sh` | 0 failed |
+| `cargo test --workspace --features emulator-bridge/native-core` | 726 passed, 0 failed |
+| `cargo clippy --workspace --features emulator-bridge/native-core` | clean |
+
+The eight new checks (section 15), each tried first on a throwaway copy and confirmed to pass only
+after the fix: a cache call and a script read hidden after a line continuation; a `(` inside
+`[[ ]]`; a build step reading `$0`; a patches-arm continuation chaining a second command; a patch
+helper and a `$VAR` path reaching another family's patch; and a bare `scripts/patches` directory
+reference with no attributable file.
