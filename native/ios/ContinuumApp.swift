@@ -3276,6 +3276,16 @@ final class EngineHost: ObservableObject {
         }
     }
 
+    /// How big the game cards are on Home, All Games and Favorites (Settings, LAYOUT, "Game card
+    /// size"). Medium, the default, is the size they always were. A plain `continuum.` key, so it
+    /// is synced and backed up with the other settings.
+    @Published var libraryCardSize: LibraryCardSize = .medium {
+        didSet {
+            guard oldValue != libraryCardSize else { return }
+            UserDefaults.standard.set(libraryCardSize.rawValue, forKey: Self.cardSizeKey)
+        }
+    }
+
     /// Favourites, BY FILE NAME.
     ///
     /// v1 held absolute paths, and that was the reason favourites were the one library setting
@@ -3311,6 +3321,7 @@ final class EngineHost: ObservableObject {
     private static let gameArrivalsKey = "continuum.library.arrivedAt.v1"
     private static let layoutKey = "continuum.library.layout.v1"
     private static let systemShelvesKey = "continuum.library.systemShelves.v1"
+    private static let cardSizeKey = "continuum.library.cardSize.v1"
     private static let ps1CoreKey = "continuum.cores.ps1.v1"
     /// Named for the GAME controls, not for the library layout `layoutKey` holds. The two are
     /// unrelated settings with confusingly similar names, and a key that did not say which it meant
@@ -3687,6 +3698,10 @@ final class EngineHost: ObservableObject {
         }
         if let stored = defaults.object(forKey: Self.systemShelvesKey) as? Bool {
             showsSystemShelves = stored
+        }
+        if let stored = defaults.string(forKey: Self.cardSizeKey),
+           let size = LibraryCardSize(rawValue: stored) {
+            libraryCardSize = size
         }
         if let stored = defaults.string(forKey: Self.ps1CoreKey),
            let choice = Ps1CoreChoice(rawValue: stored) {

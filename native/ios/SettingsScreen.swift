@@ -402,6 +402,17 @@ struct SettingsScreen: View {
                                 selection: $host.libraryLayout)
             }
 
+            // Home's shelves and the All Games and Favorites grids. Medium is the size the cards
+            // always were. See `LibraryCardSize`.
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Game card size")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                SegmentedChoice(options: LibraryCardSize.allCases,
+                                title: { $0.title },
+                                selection: $host.libraryCardSize)
+            }
+
             Toggle(isOn: $host.showsSystemShelves) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("A shelf per system on Home")

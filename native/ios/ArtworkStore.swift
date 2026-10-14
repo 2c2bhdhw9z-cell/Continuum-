@@ -2832,6 +2832,9 @@ struct CoverArtView: View {
     let generation: Int
     /// Off for a thumbnail too small for the caption to be readable.
     var showsCaption = true
+    /// Handed to the plate (`ArtPlate.captionScale`) for the library's card sizes. 1 is the
+    /// caption as it always was.
+    var captionScale: CGFloat = 1
 
     @State private var cover: CoverImage?
 
@@ -2855,7 +2858,8 @@ struct CoverArtView: View {
 
     var body: some View {
         ZStack {
-            ArtPlate(entry: entry, system: system, showsCaption: showsCaption && shown == nil)
+            ArtPlate(entry: entry, system: system, showsCaption: showsCaption && shown == nil,
+                     captionScale: captionScale)
             if let cover = shown {
                 // HIGH INTERPOLATION, and it is not cosmetic fiddling. Every cover here is
                 // scaled: libretro's box art is around 600 by 850, a shelf card draws it

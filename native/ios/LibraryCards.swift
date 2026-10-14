@@ -49,14 +49,22 @@ enum StatusTint {
 /// The system badge a card carries in its top-left corner: NES, SMS, PS1.
 struct SystemBadge: View {
     let text: String
+    /// Settings, LAYOUT, "Game card size". Medium is the badge as it always was.
+    var cardSize: LibraryCardSize = .medium
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .font(.system(size: cardSize.badgeFont, weight: .bold, design: .rounded))
             .foregroundStyle(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: 6))
+            // One line that shrinks before it is cut short, so a long badge on a small card fits
+            // beside the favourite star (`LibraryCardSize.starReserve`). A badge that fits, which
+            // at Medium is every badge, is drawn exactly as before.
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .padding(.horizontal, cardSize.badgeHorizontalPadding)
+            .padding(.vertical, cardSize.badgeVerticalPadding)
+            .background(.black.opacity(0.62),
+                        in: RoundedRectangle(cornerRadius: cardSize.badgeCornerRadius))
     }
 }
 
@@ -238,47 +246,61 @@ struct CoverCard: View {
     /// The title and metadata under the card. On for a grid, off for a shelf, which is how the
     /// design reference reads: a shelf is covers, a grid is a catalogue.
     var showsLabel = false
+    /// Settings, LAYOUT, "Game card size": the card's corners, fonts, badge and star. The width is
+    /// passed on its own because a shelf card and a grid card are different widths at every size
+    /// (`LibraryCardSize`). Medium is the card as it always was.
+    var cardSize: LibraryCardSize = .medium
 
     /// Roughly a box-art aspect. Cards are a fixed shape so a shelf stays a straight line whatever
     /// shape the covers turn out to be.
     private var height: CGFloat { (width * 4.0 / 3.0).rounded() }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: cardSize.labelSpacing) {
+            // The plate's own caption, on a game with no cover. On a shelf it is the only title
+            // such a game has, so it shows at every size, scaled to the card. Under a grid card's
+            // label it shows where it always did, on a card 92 points or wider; a smaller grid
+            // card has the title right under it.
             CoverArtView(entry: entry, system: system, store: store,
-                         generation: generation, showsCaption: width >= 92)
+                         generation: generation, showsCaption: !showsLabel || width >= 92,
+                         captionScale: cardSize.plateCaptionScale)
                 .frame(width: width, height: height)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: cardSize.cornerRadius))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: cardSize.cornerRadius)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
                 )
                 .overlay(alignment: .topLeading) {
-                    SystemBadge(text: system?.badge ?? entry.ext.uppercased())
-                        .padding(6)
+                    SystemBadge(text: system?.badge ?? entry.ext.uppercased(), cardSize: cardSize)
+                        .padding(cardSize.badgeInset)
+                        // Room for the star on a favourite, so the two never overlap.
+                        .padding(.trailing, isFavourite ? cardSize.starReserve : 0)
                 }
                 .overlay(alignment: .topTrailing) {
                     if isFavourite {
                         Image(systemName: "star.fill")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.system(size: cardSize.starFont, weight: .bold))
                             .foregroundStyle(Color.yellow)
-                            .padding(5)
+                            .padding(cardSize.starPadding)
                             .background(.black.opacity(0.55), in: Circle())
-                            .padding(6)
+                            .padding(cardSize.badgeInset)
                     }
                 }
 
             if showsLabel {
                 Text(GameMetadata.displayTitle(for: entry))
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: cardSize.titleFont, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(GameMetadata.cardLine(for: entry, system: system))
-                    .font(.system(size: 10))
-                    .foregroundStyle(ShellPalette.secondaryText)
-                    .lineLimit(1)
+                if cardSize.showsCardLine {
+                    Text(GameMetadata.cardLine(for: entry, system: system))
+                        .font(.system(size: cardSize.cardLineFont))
+                        .foregroundStyle(ShellPalette.secondaryText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(cardSize.cardLineMinimumScale)
+                }
             }
         }
         .frame(width: width)
@@ -307,6 +329,8 @@ struct ShelfRow: View {
     let generation: Int
     let favourites: Set<String>
     let host: EngineHost
+    /// Settings, LAYOUT, "Game card size": how wide the cards are and how far apart.
+    var cardSize: LibraryCardSize = .medium
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -326,7 +350,7 @@ struct ShelfRow: View {
                 // the shelf immediately, and every card starts an artwork lookup task when it is
                 // created, so a per-system shelf holding two hundred games would spin up two
                 // hundred tasks for the dozen cards a phone can actually show.
-                LazyHStack(alignment: .top, spacing: 12) {
+                LazyHStack(alignment: .top, spacing: cardSize.shelfSpacing) {
                     // Identity is the entry id, the absolute path, never an index: the array is
                     // rebuilt from disk after every import and every delete.
                     ForEach(entries) { entry in
@@ -336,8 +360,9 @@ struct ShelfRow: View {
                             store: store,
                             generation: generation,
                             isFavourite: favourites.contains(entry.name),
-                            width: 124,
-                            host: host
+                            width: cardSize.shelfCardWidth,
+                            host: host,
+                            cardSize: cardSize
                         )
                     }
                 }

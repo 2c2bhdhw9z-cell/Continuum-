@@ -81,6 +81,247 @@ enum LibraryLayout: String, CaseIterable, Identifiable {
     }
 }
 
+/// How big the game cards are, on Home's shelves and in the All Games and Favorites grids (owner,
+/// 13 October 2026: "Give users ability to control the size the game cards take up", so more rows
+/// fit on screen). Settings, LAYOUT, "Game card size". The big featured cover at the top of Home is
+/// not a card and never changes.
+///
+/// MEDIUM IS EXACTLY THE SIZE THE CARDS ALWAYS WERE, and it is the default, so nothing changes for
+/// anyone who leaves it alone. Every Medium number below is the one the code had before this
+/// setting existed: a 124 point shelf card 12 apart, a grid of 104 to 150 point columns 12 apart
+/// and 16 down holding a 110 point card, and the card's own corners, fonts, badge and star. Do not
+/// change one without the owner.
+///
+/// In a grid row on an iPhone in portrait, Medium fits 3 covers, Extra small 6 (7 on the 430 and
+/// 440 point phones), Small 4 and Large 2. Away from Medium each grid card is exactly its column's
+/// narrowest width, so it never runs into the next column. A shelf card is a little bigger than the
+/// grid's, as at Medium (the same at Large), and a card's height is always 4:3 of its width
+/// (`CoverCard`).
+enum LibraryCardSize: String, CaseIterable, Identifiable {
+    case extraSmall
+    case small
+    case medium
+    case large
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .extraSmall: return "Extra small"
+        case .small: return "Small"
+        case .medium: return "Medium"
+        case .large: return "Large"
+        }
+    }
+
+    // MARK: Home's shelves
+
+    var shelfCardWidth: CGFloat {
+        switch self {
+        case .extraSmall: return 64
+        case .small: return 92
+        case .medium: return 124
+        case .large: return 160
+        }
+    }
+
+    var shelfSpacing: CGFloat {
+        switch self {
+        case .extraSmall: return 8
+        case .small: return 10
+        case .medium: return 12
+        case .large: return 14
+        }
+    }
+
+    // MARK: The All Games and Favorites grid
+
+    /// The narrowest a column may be. The grid fits as many columns of at least this as the row
+    /// has room for, so this is what decides how many covers a row holds.
+    var gridMinimum: CGFloat {
+        switch self {
+        case .extraSmall: return 50
+        case .small: return 78
+        case .medium: return 104
+        case .large: return 160
+        }
+    }
+
+    var gridMaximum: CGFloat {
+        switch self {
+        case .extraSmall: return 72
+        case .small: return 112
+        case .medium: return 150
+        case .large: return 230
+        }
+    }
+
+    var gridCardWidth: CGFloat {
+        switch self {
+        case .extraSmall: return 50
+        case .small: return 78
+        case .medium: return 110
+        case .large: return 160
+        }
+    }
+
+    /// The gap between columns.
+    var gridSpacing: CGFloat {
+        switch self {
+        case .extraSmall: return 8
+        case .small: return 10
+        case .medium: return 12
+        case .large: return 14
+        }
+    }
+
+    /// The gap between rows.
+    var gridRowSpacing: CGFloat {
+        switch self {
+        case .extraSmall: return 10
+        case .small: return 12
+        case .medium: return 16
+        case .large: return 18
+        }
+    }
+
+    // MARK: The card itself
+
+    var cornerRadius: CGFloat {
+        switch self {
+        case .extraSmall: return 6
+        case .small: return 8
+        case .medium: return 10
+        case .large: return 12
+        }
+    }
+
+    /// The gap between the cover and the title under it in a grid.
+    var labelSpacing: CGFloat {
+        switch self {
+        case .extraSmall: return 4
+        case .small: return 5
+        case .medium: return 6
+        case .large: return 7
+        }
+    }
+
+    /// The title under a grid card, two lines at most.
+    var titleFont: CGFloat {
+        switch self {
+        case .extraSmall: return 10
+        case .small: return 11
+        case .medium: return 12
+        case .large: return 14
+        }
+    }
+
+    /// Whether the line under the title ("NES · USA · 24.0 KB") shows. Not at Extra small: on a
+    /// 50 point card it would only have room for its first word, which the badge already says.
+    var showsCardLine: Bool { self != .extraSmall }
+
+    var cardLineFont: CGFloat {
+        switch self {
+        case .extraSmall: return 9
+        case .small: return 9
+        case .medium: return 10
+        case .large: return 11
+        }
+    }
+
+    /// How far that line may shrink before it is cut short. 1, so not at all, at Medium, as before.
+    var cardLineMinimumScale: CGFloat { self == .medium ? 1 : 0.85 }
+
+    /// The system badge in the cover's top-left corner (`SystemBadge`).
+    var badgeFont: CGFloat {
+        switch self {
+        case .extraSmall: return 8
+        case .small: return 9
+        case .medium: return 10
+        case .large: return 11
+        }
+    }
+
+    var badgeHorizontalPadding: CGFloat {
+        switch self {
+        case .extraSmall: return 3
+        case .small: return 5
+        case .medium: return 6
+        case .large: return 7
+        }
+    }
+
+    var badgeVerticalPadding: CGFloat {
+        switch self {
+        case .extraSmall: return 1.5
+        case .small: return 2
+        case .medium: return 3
+        case .large: return 3.5
+        }
+    }
+
+    var badgeCornerRadius: CGFloat {
+        switch self {
+        case .extraSmall: return 4
+        case .small: return 5
+        case .medium: return 6
+        case .large: return 7
+        }
+    }
+
+    /// How far the badge and the favourite star sit in from the cover's corners.
+    var badgeInset: CGFloat {
+        switch self {
+        case .extraSmall: return 3
+        case .small: return 5
+        case .medium: return 6
+        case .large: return 7
+        }
+    }
+
+    /// The favourite star in the cover's top-right corner, and the padding of its dark circle.
+    var starFont: CGFloat {
+        switch self {
+        case .extraSmall: return 6.5
+        case .small: return 9
+        case .medium: return 11
+        case .large: return 12
+        }
+    }
+
+    var starPadding: CGFloat {
+        switch self {
+        case .extraSmall: return 2.5
+        case .small: return 4
+        case .medium: return 5
+        case .large: return 5.5
+        }
+    }
+
+    /// The room the badge leaves on its right for the star, on a favourite: the star's circle, its
+    /// inset and a 2 point gap. A long badge ("PCECD") on a small card shrinks into what is left
+    /// rather than running under the star. At Medium every badge fits in it at its full size.
+    var starReserve: CGFloat {
+        switch self {
+        case .extraSmall: return 17
+        case .small: return 25
+        case .medium: return 30
+        case .large: return 33
+        }
+    }
+
+    /// The size of the plate's own badge and title, on a game with no cover (`ArtPlate`). 1 is the
+    /// caption as it always was.
+    var plateCaptionScale: CGFloat {
+        switch self {
+        case .extraSmall: return 0.75
+        case .small: return 0.9
+        case .medium: return 1
+        case .large: return 1
+        }
+    }
+}
+
 // MARK: - The shell
 
 struct LibraryShell: View {
@@ -574,7 +815,10 @@ struct LibraryShell: View {
                         store: artwork,
                         generation: artworkGeneration.value,
                         favourites: host.favourites,
-                        host: host
+                        host: host,
+                        // Handed down as a value, so a new size redraws the shelves at once; the
+                        // cached shelves hold only which games are on them, not how big they are.
+                        cardSize: host.libraryCardSize
                     )
                 }
 
@@ -734,13 +978,17 @@ struct LibraryShell: View {
     }
 
     private func gameGrid(_ entries: [LibraryEntry]) -> some View {
-        ScrollView {
+        // Settings, LAYOUT, "Game card size". Read from the host, which this view observes, so the
+        // grid redraws at the new size the moment it changes.
+        let size = host.libraryCardSize
+        return ScrollView {
             LazyVGrid(
                 // Adaptive so one grid works in portrait and landscape and on an iPad, rather than
                 // a fixed column count that would be wrong in one of them.
-                columns: [GridItem(.adaptive(minimum: 104, maximum: 150), spacing: 12)],
+                columns: [GridItem(.adaptive(minimum: size.gridMinimum, maximum: size.gridMaximum),
+                                   spacing: size.gridSpacing)],
                 alignment: .leading,
-                spacing: 16
+                spacing: size.gridRowSpacing
             ) {
                 ForEach(entries) { entry in
                     CoverCard(
@@ -749,9 +997,10 @@ struct LibraryShell: View {
                         store: artwork,
                         generation: artworkGeneration.value,
                         isFavourite: host.favourites.contains(entry.name),
-                        width: 110,
+                        width: size.gridCardWidth,
                         host: host,
-                        showsLabel: true
+                        showsLabel: true,
+                        cardSize: size
                     )
                 }
             }

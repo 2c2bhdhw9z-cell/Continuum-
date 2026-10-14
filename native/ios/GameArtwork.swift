@@ -663,6 +663,9 @@ struct ArtPlate: View {
     /// Whether to draw the badge and title. Off behind real art, and off for a thumbnail too
     /// small to read.
     var showsCaption: Bool = true
+    /// How big the badge and title are drawn, for a library card smaller or bigger than the
+    /// standard one (Settings, LAYOUT, "Game card size"). 1 is the caption as it always was.
+    var captionScale: CGFloat = 1
 
     var body: some View {
         ZStack {
@@ -743,19 +746,19 @@ struct ArtPlate: View {
     /// system badge and a display title already, and a plate that says which game it is beats a
     /// prettier one that does not.
     private var caption: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 4 * captionScale) {
             Spacer(minLength: 0)
             Text(system?.badge ?? entry.ext.uppercased())
-                .font(.system(size: 13, weight: .heavy, design: .rounded))
+                .font(.system(size: 13 * captionScale, weight: .heavy, design: .rounded))
                 .foregroundStyle(Color.white.opacity(0.85))
             Text(GameMetadata.displayTitle(for: entry))
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 12 * captionScale, weight: .semibold))
                 .foregroundStyle(Color.white.opacity(0.92))
                 .lineLimit(3)
                 .multilineTextAlignment(.leading)
         }
         .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 1)
-        .padding(8)
+        .padding(8 * captionScale)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     }
 
