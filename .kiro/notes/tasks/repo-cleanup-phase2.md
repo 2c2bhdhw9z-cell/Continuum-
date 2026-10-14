@@ -1,6 +1,12 @@
 # Repo cleanup, part 2: the plan
 
-Written by part 1 of the cleanup (`repo-cleanup.json`, items R3, R5 and R7) on the night of 13
+**Done on 14 October 2026:** sections 3, 4, 5 and 7 (the notes moved into `.kiro/notes`, and every
+reference and code comment follows them). **Left:** section 1, the About box (this sandbox's
+GitHub token gets 403); sections 2 and 6, the release notes and `docs/CORE_UPDATES.md`, which wait
+on a workflow edit (parked); and section 9, the README's list of systems, once the next build is
+out.
+
+Written by part 1 of the cleanup (`repo-cleanup.json` (removed 14 October, in git history), items R3, R5 and R7) on the night of 13
 October 2026, against master `9e72cfa`. Part 2 starts once tonight's other jobs are finished and
 the one build has started. Line numbers below are from that commit: tonight's jobs edit several of
 these files, so search again before editing (every section gives the search).
@@ -433,7 +439,7 @@ it (STATUS.md's rule: Done means a phone showed it).
 
 ## 10. After part 2
 
-- Delete `repo-cleanup.json`, `repo-cleanup-inventory.md` and this plan from `.kiro/notes/tasks/`
+- Delete `repo-cleanup.json` (removed 14 October, in git history), `repo-cleanup-inventory.md` (removed 14 October, in git history) and this plan from `.kiro/notes/tasks/`
   in a docs-only push, once every item here is done (sections 1, 2 and 6 may stay open longer,
   waiting on GitHub settings and the workflow decision; keep this file until they're settled).
 - Tell the owner in one plain line: the GitHub page now shows the README, the licence and the

@@ -17,10 +17,10 @@ README says which). Nothing else was unsaved.
 | `core-updates.json` | Emulator updates | CU1 Gearsystem, CU2 Azahar | CU3 PPSSPP, CU4 Flycast, CU5 write-up |
 | `home-screen.json` | Home screen | U1 floating tabs, U2 strip gone, U3 card size, U3b light mode | U4 fresh review, U5 write-up |
 | `shorter-text.json` | Shorter text | T1, T2, most of T3 | the rest of T3, T4 review, T5 write-up |
-| `repo-cleanup.json` | Repo cleanup, part 1 | R1 to R4, R6, R7 | R5 parked (below) |
 
 Finished and removed: the build cache's second pass (`.kiro/notes/docs/reports/cache-v2-summary.md`, 213
-checks) and the icons (`.kiro/notes/docs/reports/evening-2026-10-13-icons.md`).
+checks) and the icons (`.kiro/notes/docs/reports/evening-2026-10-13-icons.md`), and the repo cleanup (its plan, `repo-cleanup-phase2.md`, keeps the parked texts
+and the README lines to update after the next build).
 
 ## Running them
 
@@ -69,5 +69,6 @@ Linux checks (nothing built, no release). No build until the batch is done or th
 4. Check the .ipa (0.8.0 and the build number; 36 core files, plus cArcade once it is in) and give
    the owner the link and the numbered phone steps in the same reply.
 5. Repo cleanup part 2 is done (14 October): the working notes are in `.kiro/notes/`. Left from
-   its plan: the About box (section 1; this sandbox's GitHub token can't set it) and code
-   comments that still say `docs/...` (section 7; the notes README explains those paths).
+   its plan: the About box (section 1; this sandbox's GitHub token can't set it) the release
+   notes (section 2, parked), and the README's list of systems once the next build is out
+   (section 9).

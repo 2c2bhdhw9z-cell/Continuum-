@@ -40,7 +40,8 @@ Paste this to start a new chat:
   (CU3, CU4) and CU5; the Home screen review and write-up (U4, U5); the rest of the shorter text (T3
   to T5). Then fold the reports into STATUS.md and TESTING.md, ONE build, check the .ipa (37 core
   files: the 36 plus cArcade), and give the link and the phone steps in the same reply. Repo cleanup part 2 (the notes off the front page) is done; only the
-  About box and the release-notes text are left, both blocked (tasks README, "Parked").
+  About box and the release-notes text are left, both blocked (tasks README, "Parked"); after the next build, update the README's list of
+  systems (`.kiro/notes/tasks/repo-cleanup-phase2.md` section 9).
 - **Tools:** every account has the same tools (the owner was right; the first session on the second
   account missed the loop tool for hours). Jobs run as `bundled://ralph` loops, one per job, all started at once. Fetching anyone else's repository needs `GIT_CONFIG_GLOBAL=/dev/null` in front (the
   sandbox's git sends github.com through a gateway that only serves this repository). The GitHub
