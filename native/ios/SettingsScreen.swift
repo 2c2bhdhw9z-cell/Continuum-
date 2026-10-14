@@ -564,8 +564,7 @@ struct SettingsScreen: View {
                 host.setUpJitNow()
             }
             SettingsNote(
-                "Only works if you turned JIT on with StikDebug and picked the universal script. "
-                + "If you used the button above, this is already done for you."
+                "Only needed if you turned JIT on in StikDebug yourself, with the universal script."
             )
         }
     }
@@ -612,7 +611,7 @@ struct SettingsScreen: View {
             // DETAILS (`moreTechnicalReadouts`). Each row below names its own files.
             SettingsNote(
                 "Put BIOS files in the Continuum folder in Files (or add them with +), then tap "
-                + "the button below. Each system below says what it needs."
+                + "the button below. Each system under it says what it needs."
             )
 
             SettingsButton(title: "Install a BIOS from the Continuum folder", role: .normal) {

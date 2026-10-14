@@ -51,8 +51,8 @@ each under the name of the section it came from.
   and I can't include those. Drop yours in the Files app under On My iPhone, Continuum (or import
   it with the + button), then tap the button below. If a game needs one, it'll tell you which file.
   Names it looks for: scph1001.bin, scph5501.bin, ...") became **"Put BIOS files in the Continuum
-  folder in Files (or add them with +), then tap the button below. Each system below says what it
-  needs."** The button is still **Install a BIOS from the Continuum folder** (the engine's launch
+  folder in Files (or add them with +), then tap the button below. Each system under it says what
+  it needs."** The button is still **Install a BIOS from the Continuum folder** (the engine's launch
   messages, cBoy's options and the README all send people to it by that name).
 - Each system's line is now plain text instead of typewriter text, and says it the way a person
   would:
@@ -183,6 +183,10 @@ each under the name of the section it came from.
   still showing, close Continuum fully (swipe it away) and open it again." became **"Apple's FPS
   box over the game. If it's still there after you turn this off, close Continuum fully and open
   it again."**
+- **Finish setting JIT up** (only on a phone that needs it): "Only works if you turned JIT on with
+  StikDebug and picked the universal script. If you used the button above, this is already done
+  for you." became **"Only needed if you turned JIT on in StikDebug yourself, with the universal
+  script."** (the old second sentence pointed at a button that isn't always there).
 - **Show technical stuff**: "FPS and what the app is doing behind the scenes. You don't need this
   to send feedback, it's attached for you." became **"FPS and what's going on behind the scenes.
   Feedback already includes it."**
