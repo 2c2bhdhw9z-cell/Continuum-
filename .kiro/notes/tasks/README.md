@@ -1,80 +1,64 @@
-# Unfinished jobs (stopped 13 October 2026, 6:25 PM Eastern)
+# Unfinished jobs
 
-The Kiro account ran out of credits, so eight jobs were stopped part-way. Every helper reads `HELPER_RULES.md` (this folder) before its checklist. Everything they finished
-is on master. Each file here is one job's checklist: items marked `"done": true` are finished and
-pushed, the rest is the remaining work with full instructions. No deadline (owner): finish every
-item properly, leave nothing out.
+The batch began on 13 October 2026 and carried on through 14 October. Each JSON file here is one
+job's checklist: items marked `"done": true` are finished and on master; the rest is the remaining
+work with full instructions. No deadline (owner): finish every item properly, leave nothing out.
+Every helper reads `HELPER_RULES.md` (this folder) before its checklist.
+
+**Last updated 14 October, 1:40 PM Eastern.** Everything stopped at about 9:10 AM, when the Kiro
+account ran out of credits. The two items cut off mid-way are saved as patches in `../wip/` (its
+README says which). Nothing else was unsaved.
 
 | File | Job | Done | Left |
 |---|---|---|---|
-| `link-and-leftovers.json` | Two-phone Game Boy link, then the leftovers | H1 (link, app half) | H2 Sampras Tennis 96 EEPROM, H3 Mesen 2 for SNES, H4 Sega CD disc swap and RAM cart, H5 our own 32X start-up code, H6 write-up |
-| `arcade.json` | cArcade, our own arcade emulator | I1 plan, I2 Z80 (all 1,604,000 SingleStepTests, ZEXDOC, ZEXALL) | I3 Pac-Man board, I4 in the app, I5 Galaxian, I6 Donkey Kong, I7 write-up |
-| `cboy.json` | cBoy | G1 colour for black-and-white games (Mealybug 24 to 27 of 55) | G1b link option text, G1c shorter option descriptions, G2 IO write timing, G3 Color half of Mealybug, G4 the rest, G5 write-up |
-| `build-cache.json` | Build cache, second pass | nothing yet | K1 to K4. Must land BEFORE the next build |
-| `home-screen.json` | Home screen | U1 floating tabs | U2 remove the "80 games" strip, U3 Game card size, U3b light mode (Dark, Light, System), U4 review, U5 write-up |
-| `repo-cleanup.json` | Repo cleanup, part 1 | R1 inventory (`repo-cleanup-inventory.md`) | R2 README, R3 About box, R4 clutter, R5 release notes, R6 public docs, R7 part-2 plan |
-| `icons.json` | Icons | IC1 (Default tile fixed) | IC0 the 12 icons the owner circled, IC2 icon names on iOS 16, IC3 write-up |
-| `shorter-text.json` | Shorter text everywhere | T1 first half of Settings | T2 second half (the PSP section and the BIOS name list go), T3 other screens, T4 review, T5 write-up |
-| `core-updates.json` | Emulator updates (added 14 October) | nothing yet | CU1 Gearsystem, CU2 Azahar, CU3 PPSSPP, CU4 Flycast, CU5 write-up |
+| `cboy.json` | cBoy | G1 colour for black-and-white games, G1b link text, G1c short descriptions | G2 IO write timing (WIP patch), G3 Color half of Mealybug, G4 the rest, G5 write-up. The exact drawer: go-ahead given, the owner's thinking is always at max |
+| `arcade.json` | cArcade | I1 plan, I2 Z80, I3 Pac-Man board, I4 in the app (65 sets), the 8035 and AY-3-8910 chips | I5 Galaxian and Konami boards (WIP patch), I6 Donkey Kong board, I7 write-up |
+| `link-and-leftovers.json` | Leftovers | H1 two-phone link, H2 Mega Drive save chips, H4 Sega CD discs, H5 32X with no BIOS | H3 Mesen 2 for SNES, H6 write-up |
+| `core-updates.json` | Emulator updates | CU1 Gearsystem, CU2 Azahar | CU3 PPSSPP, CU4 Flycast, CU5 write-up |
+| `home-screen.json` | Home screen | U1 floating tabs, U2 strip gone, U3 card size, U3b light mode | U4 fresh review, U5 write-up |
+| `shorter-text.json` | Shorter text | T1, T2, most of T3 | the rest of T3, T4 review, T5 write-up |
+| `repo-cleanup.json` | Repo cleanup, part 1 | R1 to R4, R6, R7 | R5 parked (below) |
 
-Added 14 October (new account): `core-updates.json`, the four emulators with newer code that
-morning's check found (Gearsystem, Azahar, PPSSPP, Flycast), CU1 to CU5.
+Finished and removed: the build cache's second pass (`docs/reports/cache-v2-summary.md`, 213
+checks) and the icons (`docs/reports/evening-2026-10-13-icons.md`).
 
-## Restarting them
+## Running them
 
-Each job has its own clone, named in its file's `"repo"` field (since 14 October link-and-leftovers
-uses `/projects/sandbox/.scratch/link-work` and its Mesen item H3 `.../mesen-work`, so the main copy
-stays the orchestrator's). On 14 October they were restarted as parallel helper agents
-(`invoke_sub_agent`, `general-task-execution`), each told to read a shared rules sheet first and to
-mark items done in THESE files on master as they land, so this folder is always the true state.
-The rules sheet's essentials, for a restart: clone fresh; every commit ends `[skip ci]`; stage by
-name; `git pull --rebase` and keep both sides; `CARGO_BUILD_JOBS=2`; never touch STATUS, TESTING or
-HANDOFF; and fetching anyone else's repository needs `GIT_CONFIG_GLOBAL=/dev/null` in front (the
-sandbox's git routes github.com through a gateway that only serves this repository: without it
-`check-core-updates.sh`, `build-core.sh` and every upstream clone fail with "repository not found").
-The review items (K3, U4, T4) go to a fresh helper that did not write the work. When a job
-finishes, delete its file here in a docs-only push.
+One `bundled://ralph` loop per job (run_workflow; `inputs.prd_path` = `<clone>/.kiro/notes/tasks/<job>.json`,
+and a goal naming the clone and telling every iteration to read HELPER_RULES.md first). A loop
+stops when its file says `"complete": true`. **At most four at a time**: eleven sub-agents at once
+were throttled on 14 October. Each job works in its own fresh clone, the `"repo"` field
+(`/projects/sandbox/.scratch/<x>-work`); apply its WIP patch first if it has one. Review items (U4,
+T4) need a fresh session that didn't write the work; each loop iteration is one. A Kiro restart
+pauses loops: check every loop you started whenever you wake, and resume it.
 
-**At most three or four helpers at a time.** On 14 October eleven were started at once and the
-service throttled them ("Too many requests"): three finished (cache K1-K2, cBoy G1b-G1c, icons),
-two got most of the way and were cut off (cleanup: R2, R3, R4, R6 and the part-2 plan pushed;
-text: T2 and most of T3 pushed), three were cut off right after cloning, and three never started.
-Pushed work stays, which is why everything is pushed as it goes; restart the rest in small groups.
+Order: cboy, arcade, link-and-leftovers, core-updates first; then home-screen, and only after it
+shorter-text (both edit the same Swift files).
 
-**No workflow edits.** Kiro's GitHub rules never allow a change under `.github/workflows/` straight
-onto master, only through a pull request, and the owner allows none. So R5 (release notes) and the
-arcade job's two ios.yml lines are parked, written down in `repo-cleanup-phase2.md` section 2 and
-the arcade report. Two comment-only edits to ios.yml's cache notes landed with K1/K2 (3651403,
-1de468f) before this was known; they change nothing a build does.
+The essentials, if HELPER_RULES.md isn't read: clone fresh; every commit ends `[skip ci]`; stage by
+name; `git pull --rebase` and keep both sides; `CARGO_BUILD_JOBS=2`; a loop agent needs its own
+`CARGO_HOME` (`/root/.cargo` is read-only for it); never touch STATUS, TESTING or HANDOFF; never
+edit `.github/workflows/`; fetching anyone else's repository needs `GIT_CONFIG_GLOBAL=/dev/null` in
+front.
 
-**cBoy G2, G3 and G4 are the exact drawer.** Go-ahead given on 14 October at 8 AM ("Been max"): the
-owner keeps the thinking at max, so it runs without asking again.
+## Parked: workflow file edits
 
-cBoy's exact drawer follows SameBoy: clone github.com/LIJI32/SameBoy and (with `GIT_CONFIG_GLOBAL=/dev/null`)
-github.com/mattcurrie/mealybug-tearoom-tests into `/projects/sandbox/.scratch/sameboy` and
-`/projects/sandbox/.scratch/mealybug-src` again, never into the repo.
+Kiro's GitHub rules never allow a change under `.github/workflows/` straight onto master, only
+through a pull request, and the owner allows none. Ready if that ever changes: R5's shorter release
+notes (`repo-cleanup-phase2.md` section 2), and two ios.yml lines for cArcade (its crate's tests in
+the `checks` job next to cBoy's; `cores/continuum-arcade/**` in the push paths). Until then CI
+doesn't run cArcade's own tests, so run `cargo test --release` in `cores/continuum-arcade` before
+every push, and a cArcade-only push doesn't start a build by itself.
 
-## Running (14 October, from 6:10 AM Eastern)
+## Build 188 (cancelled)
 
-Four `bundled://ralph` loops, each on its job's checklist inside its own clone (`prd_path` =
-`<clone>/.kiro/notes/tasks/<job>.json`; a loop stops when that file says `"complete": true`):
-`wf_83206af36719ceef` build cache K3-K4 (cache-work; **finished** 14 October: complete, 213 checks, summary in `docs/reports/cache-v2-summary.md`), `wf_3dee4a48a0852a32` Home screen U2-U5
-(ui-work), `wf_75a25a793b646377` arcade I4-I7 (arcade-work), `wf_ba2de61354e19672` leftovers H5,
-H3, H6 (link-work). `wf_911331e1a7cb243c` emulator updates CU1-CU5 (updates-work, started after the cache loop finished). Next, as a slot frees up:
-`shorter-text.json` T3-T5 (text-work, only after the Home screen loop, since both edit the same
-Swift files). cBoy G2-G5 waits for the owner's go-ahead on max thinking. A session that wakes up
-checks each id with inspect_workflow and resumes any that stopped.
-
-## Build 188 (cancelled, 14 October)
-
-Started at 9:01 AM at e82432a without the owner's yes, and cancelled at 9:04 when they objected,
-while it was still in the Linux checks (nothing built, no release). The build waits until the batch
-is done, or until the owner asks for one.
+Started at 9:01 AM on 14 October at e82432a without the owner's yes, and cancelled at 9:04 in the
+Linux checks (nothing built, no release). No build until the batch is done or the owner asks.
 
 ## Then the build
 
-1. When all eight are done, fold their reports (`docs/reports/evening-2026-10-13*.md`,
-   `docs/ARCADE_CORE.md`, `docs/CBOY_EVENING.md`, the cache summary) into STATUS.md, TESTING.md and
+1. When every job is done, fold their reports (`docs/reports/evening-2026-10-13*.md`,
+   `docs/ARCADE_CORE.md`, `docs/CBOY_EVENING.md`, `docs/reports/cache-v2-summary.md`, and `docs/reports/core-updates-2026-10-14.md` once CU5 writes it) into STATUS.md, TESTING.md and
    HANDOFF.md, and reword the TESTING lines the Home screen and text reports list.
 2. Start ONE build: `gh api -X POST repos/2c2bhdhw9z-cell/Continuum-/actions/workflows/ios.yml/dispatches -f ref=master`.
    Every emulator rebuilds once (new fingerprints), about an hour.

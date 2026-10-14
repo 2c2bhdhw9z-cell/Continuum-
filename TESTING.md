@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 13 October 2026. **Build 182 is now the newest install.** Its steps are under
+Last updated 13 October 2026. **Build 185 (13 October) is now the newest install: it has 182's changes and the night batch.** Its steps are under
 "Next install (after 181)" further down. The results below are for build 181: the cleanup plus the
 licence swap. Steps 1 to 4 cover the cleanup, 5 to 11 the new emulators, and 12 save imports.
 **The install after 182** carries the night batch of 13 October: its steps are under "Night batch

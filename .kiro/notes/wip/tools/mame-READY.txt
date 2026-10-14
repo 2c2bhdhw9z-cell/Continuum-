@@ -1,0 +1,18 @@
+Reference MAME for cArcade's board comparisons (local only: never shipped, never committed).
+
+Binary: /projects/sandbox/.scratch/mame/mame-mame0289/arcaderef
+Version: MAME 0.289, built from the mame0289 release tarball (codeload.github.com).
+Drivers in it (880 machines): every driver in src/mame/pacman/ (Pac-Man, Puck Man, Ms. Pac-Man,
+Pac-Man Plus and clones, Pengo, Jr. Pac-Man, ...), every driver in src/mame/galaxian/ (Galaxian,
+Moon Cresta, Konami's Scramble, Super Cobra, Frogger, Amidar, ...), and
+src/mame/nintendo/dkong.cpp (Donkey Kong, Donkey Kong Jr., ...).
+Built by /projects/sandbox/.scratch/mame/build-mame.sh (SUBTARGET=arcaderef with SOURCES=..., -j2).
+
+Headless use (no X11, no OpenGL; SDL2 here has only its dummy/offscreen video and dummy/disk audio):
+  export SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy
+  arcaderef <set> -rompath <dir> -video none -sound none -nothrottle -skip_gameinfo \
+      -seconds_to_run <n> -wavwrite out.wav -samplerate 192000 \
+      -autoboot_script script.lua
+Your own test-program ROMs go in <dir>/<set>/ under the driver's file names; MAME runs ROMs with
+wrong checksums after a warning. MAME writes cfg/, nvram/, snap/ ... into the current directory,
+so run it from a scratch directory of your own.

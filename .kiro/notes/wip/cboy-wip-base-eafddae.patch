@@ -1,0 +1,110 @@
+diff --git a/cores/continuum-gb/src/bus.rs b/cores/continuum-gb/src/bus.rs
+index 7ed41fb..cb3e4dc 100644
+--- a/cores/continuum-gb/src/bus.rs
++++ b/cores/continuum-gb/src/bus.rs
+@@ -481,6 +481,9 @@ impl Bus {
+ 
+     pub fn read(&mut self, addr: u16) -> u8 {
+         self.tick();
++        if TRACE_READS.load(std::sync::atomic::Ordering::Relaxed) && (addr == 0xFF41 || addr == 0xFF44) {
++            eprintln!("R {addr:04X} pc={:04X} line={:3} dot={:3} val={:02X}", self.trace_pc, self.ppu.ly, self.ppu.dot, self.raw_read(addr));
++        }
+         if self.dma_active && (self.dma_delay == 0 || self.dma_prev_block) && (0xFE00..0xFF00).contains(&addr) {
+             return 0xFF;
+         }
+@@ -494,6 +497,9 @@ impl Bus {
+ 
+     pub fn write(&mut self, addr: u16, v: u8) {
+         self.tick();
++        if TRACE.load(std::sync::atomic::Ordering::Relaxed) && (0xFF40..=0xFF4B).contains(&addr) && self.ppu.ly < 144 {
++            eprintln!("W {addr:04X}={v:02X} {}", self.ppu.trace_state());
++        }
+         if self.dma_active && (0xFE00..0xFEA0).contains(&addr) {
+             return;
+         }
+@@ -754,3 +760,6 @@ impl Bus {
+ fn yes() -> bool {
+     true
+ }
++
++pub static TRACE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
++pub static TRACE_READS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+diff --git a/cores/continuum-gb/src/cpu.rs b/cores/continuum-gb/src/cpu.rs
+index 6f547b8..ea569f3 100644
+--- a/cores/continuum-gb/src/cpu.rs
++++ b/cores/continuum-gb/src/cpu.rs
+@@ -261,7 +261,11 @@ impl Cpu {
+         self.ei_now = ei;
+         bus.trace_pc = self.pc;
+         bus.trace_bank = bus.cart.rom_bank;
++        let at = self.pc;
+         let op = self.fetch(bus);
++        if crate::bus::TRACE.load(std::sync::atomic::Ordering::Relaxed) && (at == 0x48 || at == 0x40) {
++            eprintln!("X {at:04X} line={:3} dot={:3} mode={}", bus.ppu.ly, bus.ppu.dot, bus.ppu.mode());
++        }
+         self.execute(bus, op);
+         self.ei_now = false;
+         if ei && op != 0xF3 {
+diff --git a/cores/continuum-gb/src/fifo.rs b/cores/continuum-gb/src/fifo.rs
+index 1f00f67..36fe9e8 100644
+--- a/cores/continuum-gb/src/fifo.rs
++++ b/cores/continuum-gb/src/fifo.rs
+@@ -713,6 +713,12 @@ impl Ppu {
+         }
+     }
+ 
++    pub fn trace_state(&self) -> String {
++        let f = &self.fifo;
++        format!("line={:3} dot={:3} fdots={:3} pos={:4} lcd_x={:3} fetch={} objs={} obj_fetch={} step={} win={} bglen={} active={}",
++            self.ly, self.dot, f.dots, f.pos as i8, f.lcd_x, f.state, f.objs.len(), f.obj_fetch, f.obj_step, f.win, f.bg_len, f.active)
++    }
++
+     /// WX was written. The drawer watches the register itself (see `WX_LAG`), so nothing to do;
+     /// bus.rs calls this on every WX write.
+     pub fn note_wx(&mut self, _v: u8) {}
+diff --git a/cores/continuum-gb/tests/roms.rs b/cores/continuum-gb/tests/roms.rs
+index 65bba84..938945d 100644
+--- a/cores/continuum-gb/tests/roms.rs
++++ b/cores/continuum-gb/tests/roms.rs
+@@ -759,6 +759,41 @@ fn mealy_baseline() {
+     }
+ }
+ 
++#[test]
++fn trace_reads() {
++    let Ok(path) = std::env::var("CBOY_READS") else { return };
++    let data = std::fs::read(path).unwrap();
++    let mut gb = GameBoy::new_mode(data, false).unwrap();
++    continuum_gb::bus::TRACE_READS.store(true, std::sync::atomic::Ordering::Relaxed);
++    for _ in 0..60 {
++        gb.run_frame();
++        if gb.cpu.ld_b_b {
++            break;
++        }
++    }
++    continuum_gb::bus::TRACE_READS.store(false, std::sync::atomic::Ordering::Relaxed);
++}
++
++#[test]
++fn trace_writes() {
++    let Ok(name) = std::env::var("CBOY_ROM") else { return };
++    let cgb = std::env::var("CBOY_CGB").is_ok();
++    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/mealybug");
++    let data = std::fs::read(dir.join(format!("{name}.gb"))).unwrap();
++    let mut gb = if cgb { GameBoy::with_model(data, Model::Cgb, None).unwrap() } else { GameBoy::new_mode(data, false).unwrap() };
++    gb.bus.ppu.exact = true;
++    for _ in 0..600 {
++        gb.run_frame();
++        if gb.cpu.ld_b_b {
++            break;
++        }
++    }
++    gb.run_frame();
++    continuum_gb::bus::TRACE.store(true, std::sync::atomic::Ordering::Relaxed);
++    gb.run_frame();
++    continuum_gb::bus::TRACE.store(false, std::sync::atomic::Ordering::Relaxed);
++}
++
+ /// Mid-scanline register changes (Mealybug Tearoom). Reports; the passing set is pinned below.
+ #[test]
+ fn mealybug_report() {

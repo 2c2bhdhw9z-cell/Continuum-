@@ -42,7 +42,8 @@
       "id": "CU3",
       "done": false,
       "title": "PPSSPP (PSP)",
-      "detail": "Sixty-nine upstream changes. Skim them all for the risky areas (the ARM emitter and disassembler work only matters for the JIT; the GE call-depth change affects emulation accuracy; look for save-state version bumps in Core/SaveState.cpp and the per-module DoState version numbers, libretro front-end changes in libretro/, removed options, iOS changes). Dry-run scripts/patches/ppsspp-*.patch. No host build. If PPSSPP raised a state's version in a way it still reads the old one (it usually does), old states load. Move the pin, update core_updates.rs, run the checks, push."
+      "detail": "Sixty-nine upstream changes. Skim them all for the risky areas (the ARM emitter and disassembler work only matters for the JIT; the GE call-depth change affects emulation accuracy; look for save-state version bumps in Core/SaveState.cpp and the per-module DoState version numbers, libretro front-end changes in libretro/, removed options, iOS changes). Dry-run scripts/patches/ppsspp-*.patch. No host build. If PPSSPP raised a state's version in a way it still reads the old one (it usually does), old states load. Move the pin, update core_updates.rs, run the checks, push.",
+      "progress": "Stopped at about 9:10 AM Eastern on 14 October, when the Kiro account ran out of credits. Started about 8:55 AM; nothing was finished or saved. Start it from the beginning."
     },
     {
       "id": "CU4",

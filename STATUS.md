@@ -242,6 +242,14 @@ launch with an empty library.
 
 ## Next up
 
+**14 October 2026, read this first.** The batch that began on 13 October is being finished from
+`.kiro/notes/tasks/` (the README there has the table of what's done and what's left). Nothing has
+been built since build 185. Out of date below: item 5's 32X start-up code, Sega CD discs and Mega
+Drive EEPROM carts are done; item 6's colour for black-and-white games, fifth Color test and link
+are done; item 7 (the exact drawer) has the owner's go-ahead and is at G2; item 9 (our own arcade
+core) is in the app with the Pac-Man board. All of it is Built, untested. Fold `docs/reports/` into
+this page before the next build.
+
 For whoever works on this next. The owner's order (12 October 2026), which replaces any older
 order on this page:
 

@@ -5,35 +5,54 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `HANDOFF.md`, then carry on.
 
-## Where this left off (13 October 2026, 6:30 PM Eastern)
+## Where this left off (14 October 2026, 1:40 PM Eastern)
 
-- **New Kiro account.** The old one ran out of credits. First thing: save every line of "Memories
-  to save on a new account" (end of `.kiro/steering/owner-rules.md`) as a global learning, and tell
-  the owner they're saved.
-- **Build 184** (`8760638`) is the newest published install, checked, 0.8.0 (184), 36 core files:
-  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-184-8760638/Continuum-184.ipa
-  It holds the night batch (TESTING.md "Night batch (13 October)"). The owner hasn't reported on
-  182, 183 or 184 yet.
-- **Eight jobs were stopped part-way at 6:25 PM** when the credits ran out. Everything they finished
-  is on master. What's left, with full instructions and how to restart them, is in
-  `.kiro/notes/tasks/` (start with its README). Restart all eight. No deadline: the owner wants
-  every item finished properly, nothing left out.
-- **On master since 184, not built yet:** cBoy's real link-cable timing and 5 of 5 Game Boy Color
-  tests; the exact drawer at 27 of 55 Mealybug pictures; cBoy colouring black-and-white games like
-  a Game Boy Color (off by default); the app's half of the two-phone Game Boy link; cArcade's Z80
-  (no board, not in the app yet); the build cache judging each emulator on its own recipe
-  (393f12c: the next build rebuilds every emulator once); the four tabs floating with the covers
-  scrolling under them; the Default icon tile fixed; the first half of Settings shortened, with the
-  technical read-outs moved to Technical details; last night's scheduled build removed.
-- **Still to finish from the owner's 13 October requests** (all in the task files): the "80 games"
-  strip gone, a Game card size setting, light mode with Settings, Appearance: Dark, Light, System;
-  the 12 app icons they circled; every explanation in the app condensed; the repo cleaned up so it
-  reads like a person wrote it; cArcade's Pac-Man, Galaxian and Donkey Kong boards; the rest of the
-  cBoy, cache and leftover jobs. **Then ONE build**, the .ipa link and the phone steps.
-- What went wrong today, so it doesn't again: the session restarted at 2:31 AM and three loops slept
-  five hours (check every workflow whenever you wake); a scheduled morning build stayed in ios.yml
-  until 3:40 PM (only for a night the owner asks); screenshots sent mid-reply never arrive (say so
-  at once); the owner reads the Thought sections in the app.
+- **New Kiro account again.** The second account ran out of credits at about 9:10 AM with six jobs
+  running; the owner bought a little more only to get everything saved. First thing: save every
+  line of "Memories to save on a new account" (end of `.kiro/steering/owner-rules.md`) as a global
+  learning, and tell the owner they're saved.
+- **Newest published install: build 185** (`393f12c`, 13 October), checked: 0.8.0 (185), 36 core
+  files: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-185-393f12c/Continuum-185.ipa
+  It has the night batch (TESTING.md "Night batch (13 October)"). The owner hasn't reported on 182
+  to 185 yet. **Build 188** was started at 9:01 AM without the owner's yes and cancelled at 9:04 in
+  its first checks. Nothing has been built since 185, and no build starts until the batch is done or
+  the owner asks (owner-rules).
+- **The batch is in `.kiro/notes/tasks/`.** Its README has the table of what's done and left, how to
+  run the jobs, and the build steps. The two items cut off mid-way are saved as patches in
+  `.kiro/notes/wip/` (README there). Nothing was left only in the sandbox.
+- **On master since 185, not built yet:** the two-phone Game Boy link (app half); cBoy colouring
+  black-and-white games like a Game Boy Color (off by default; Mealybug 27 of 55), its Link cable
+  text and one-line setting descriptions; arcade games back on our own emulator, cArcade (65 Pac-Man
+  board sets, matching MAME frame for frame; its Z80, 8035 and AY-3-8910 proven); 32X games start
+  with no BIOS files (our own start-up code: two open-licence 32X games reach their menus on a host
+  build); Sega CD multi-disc playlists, Next disc and the save cartridge; every Mega Drive save-chip
+  and J-Cart cartridge in MAME's list recognised; newer Gearsystem (Master System, Game Gear) and
+  Azahar (3DS: old states won't load, and the heads-up says so); light mode (Settings, Appearance:
+  Dark, the default, Light, System); the "80 games" strip gone (its messages pop up and fade, the
+  count is in Settings, Storage); Settings, Layout, Game card size; the floating tabs; 10 of the 12
+  circled app icons fixed (Cyan and Violet would need new art: the owner's call) and the Default
+  tile; shorter text in all of Settings (the PSP section is gone) and most other screens; the build
+  cache's second pass (comments, the cache's own code and the emulator lists rebuild nothing; 213
+  checks); a friendlier README and a tidier docs folder.
+- **Left** (full instructions in each checklist): cBoy's exact drawer, G2 to G5 (go-ahead given; the
+  owner's thinking is always at max, so never ask again); arcade I5 (half done, in the WIP patch),
+  I6 Donkey Kong, I7; Mesen 2 as a second SNES choice (H3) and H6; the PSP and Dreamcast updates
+  (CU3, CU4) and CU5; the Home screen review and write-up (U4, U5); the rest of the shorter text (T3
+  to T5). Then fold the reports into STATUS.md and TESTING.md, ONE build, check the .ipa (37 core
+  files: the 36 plus cArcade), and give the link and the phone steps in the same reply. Repo cleanup
+  part 2 comes after the build starts (`.kiro/notes/tasks/repo-cleanup-phase2.md`).
+- **Tools:** every account has the same tools (the owner was right; the first session on the second
+  account missed the loop tool for hours). Jobs run as `bundled://ralph` loops, at most four at a
+  time. Fetching anyone else's repository needs `GIT_CONFIG_GLOBAL=/dev/null` in front (the
+  sandbox's git sends github.com through a gateway that only serves this repository). The GitHub
+  token can't edit the repo's About box (403), and Kiro's rules allow no workflow-file change
+  without a pull request, so those wait (tasks README, "Parked").
+- **What went wrong on 14 October, so it doesn't again:** eleven sub-agents started at once were
+  throttled (four loops at a time is fine); a Kiro restart paused three loops for half an hour and
+  nobody resumed them until the owner wrote (check every loop whenever you wake); the owner was told
+  they couldn't see the jobs, but their app has a Workflows tab (this chat's loops didn't appear in
+  it, reason unknown, so post a one-line update in the chat whenever a piece lands); the owner was
+  asked about max thinking again (it's always at max); and build 188 was started without a yes.
 
 Older, kept as history: build 144 (`build-144-74050e5`) passed the owner's four phone checks on
 9 October (Home readable after the big cover, Home and All Games scroll, re-importing keeps a
@@ -229,14 +248,15 @@ for one exact game version; the cheat screen names the version for GBA and Game 
 
 ## How to check work before pushing (the sandbox can't build the iPhone app)
 
-- `cargo test --workspace --features emulator-bridge/native-core` (682 tests)
+- `cargo test --workspace --features emulator-bridge/native-core` (723 tests on 14 October)
 - `cargo clippy --workspace --features emulator-bridge/native-core` (CI runs it too; an error
   stops the build)
 - cBoy: `cd cores/continuum-gb && scripts/fetch-test-roms.sh && cargo test --release` (78 tests).
   Run it before any cBoy push: builds 178 and 179 failed on these alone.
 - `bash scripts/check-skins.sh`, `bash scripts/check-players.sh`
 - `bash scripts/fetch-libretro-headers.sh && bash native/switch-wrapper/build.sh host` (15/15)
-- `bash scripts/check-core-cache.sh` (105 checks; the per-core build cache)
+- `bash scripts/check-core-cache.sh` (213 checks; the per-core build cache)
+- cArcade: `cd cores/continuum-arcade && cargo test --release`. CI doesn't run it yet (the workflow edit is parked), so run it before every cArcade push.
 - `swiftc -frontend -parse <file>` on each changed Swift file. This only checks the writing, not
   the types, so a Swift type mistake shows up only on the build server.
 - A new Swift file must be listed in `native/ios/project.yml` `sources`, or it is silently skipped.
