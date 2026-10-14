@@ -101,6 +101,51 @@ Under master's rules the same comment edit, list edit and added core each change
 of its own (a07bbe59b963e37e). K1 changes every stored fingerprint once, as expected: build 185
 cached 393f12c's, so the next build rebuilds every core once and the ones after are quick.
 
+## K2: the three findings of the review of 393f12c
+
+- **(a) A core's patch step cannot sit outside its own region.** Every rule fails closed (no core
+  gets a fingerprint) and `ios-cache-check` names it: a patches arm in the shared part; a patches
+  arm in another family's region (K1 already); a patches arm holding anything but
+  `ios_apply_simple_patch <own core> <family>-*.patch` lines and calls to its own family's helpers;
+  `ios_apply_simple_patch` used outside a region; a `scripts/patches/` file named in a region that
+  is not that family's, or named in the shared part except by ios_apply_simple_patch and the
+  weekly check's Symbian dry run; a function defined in a region used outside its family's regions
+  (the only exception: build_ios_core's dispatch for an `IOS_KIND` that only that family sets), or
+  never called by name; a config arm doing anything but setting `IOS_` variables to plain values.
+  A new core's dispatch may now sit in its own region inside build_ios_core (one `if` block or
+  `<kind>) <function> "$core" ;;` lines for a kind only it sets), so adding a core of our own
+  needs no shared line at all. A config arm left outside every region still only costs that core
+  its own fingerprint (the existing check 12 expects exactly that).
+- **(b) The counts.** The comments now say what is really built: twenty cores from source
+  (IOS_CORES and IOS_OPTIONAL_CORES), nineteen of them kept by the cache (cBoy is compiled every
+  run), sixteen downloaded ready-made; the 13 October Symbian fix recompiled the eighteen others,
+  not thirty-six. Fixed in build-core.sh and in the workflow's cache comment ("sixteen cores built
+  from source", "all 35 cores").
+- **(c) A separator between a family's regions.** Each region of a family is hashed after a header,
+  `@@ region <n> of <family>, after shared line <count>, <lines> lines`, so merging, splitting or
+  moving a family's regions, or moving lines between them, changes that family's fingerprint and
+  no other.
+
+Commands and results (K2, on master after K1 plus this change): `bash scripts/check-core-cache.sh`
+201 passed, 0 failed (21 new checks in section 14), and 201 passed, 0 failed again under bash
+3.2.57 with BWK awk 20200816; `check-skins.sh`, `check-players.sh`, `cargo test` and
+`cargo clippy` as listed under K1 (CHECKS_K2).
+
+K2 changes every fingerprint once more (the recipe text gained its headers), so the next build
+rebuilds every core once, as K1 already does; the three edits above again move only what they
+should:
+
+| core | master (K1) | this change | comment edit | flycast to the required list | a core added | shared flag |
+| --- | --- | --- | --- | --- | --- | --- |
+| fceumm | d489d753d699fe59 | df688ed0e6cd1c83 | same | same | same | c36691b1c38a5daf |
+| mgba | c113c9bf68ec75ae | 1e0dce5f4510cbde | same | same | same | 16c52953860d5bd2 |
+| flycast | ce92e68d409f7b14 | 192e66119a67fec3 | same | same | same | 69ebde801cdb9482 |
+| flycast_jit | fa3c3dbe044ea5a8 | 95fdd5876f002edd | same | same | same | 05ad65159c095012 |
+| continuum_symbian | 692c0e536f2d4cb7 | 5d9627dce740556e | same | same | same | 2f071dfdf6fab7c0 |
+| continuum_gb | 253550f65691b0e8 | e6367c28819ad120 | same | same | same | 2d2876a7aad3ecfe |
+| ppsspp | 0342e7a15df178f7 | e05fced2954ed33e | same | same | same | ddaf227a5c038eca |
+| stella2023 | bcf7a68e09b05fc5 | d7905f4f3320ed37 | same | same | same | 8491065eca115e35 |
+
 ## For the reviewer (K3): attack these first
 
 1. The awk lexer in `ios_cache_scan` (`lex`, `heredoc_word`, the heredoc branch): any line it calls

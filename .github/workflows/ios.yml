@@ -256,8 +256,8 @@ jobs:
       #
       # scripts/fetch-buildbot-cores.sh is deliberately NOT in it. Its cores are deleted and
       # downloaded again on every run and checked against their pinned sha256 (fetch_one), so a
-      # cached copy of one never ships, and editing that script must not throw away the sixteen
-      # cores built from source.
+      # cached copy of one never ships, and editing that script must not throw away the nineteen
+      # cores built from source that the cache keeps.
       #
       # cores/continuum-gb (cBoy) is deliberately NOT in it either, for the same kind of reason.
       # cBoy has no pin, so ios_core_is_cached never reuses it: build-engine.sh drops any cached
@@ -274,9 +274,9 @@ jobs:
       # attempt number is in the key so a re-run can save too: it has the same run id.
       #
       # `actions/cache` saves in post-job cleanup, which only happens when the whole job
-      # succeeded, and that is exactly the wrong moment here: a job that built all 35 cores
-      # and then failed in xcodebuild or at the release step would save nothing, so the retry
-      # would pay the 35 minutes all over again. That is the single most frustrating thing
+      # succeeded, and that is exactly the wrong moment here: a job that built all twenty cores
+      # from source and then failed in xcodebuild or at the release step would save nothing, so
+      # the retry would pay the 35 minutes all over again. That is the single most frustrating thing
       # about this build. Hence restore/save as separate steps, with the save placed
       # IMMEDIATELY AFTER the cores exist and before anything that might fail.
       #

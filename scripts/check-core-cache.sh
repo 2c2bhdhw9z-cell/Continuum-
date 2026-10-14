@@ -22,6 +22,10 @@
 # breaking any of its rules does too, with the reason named. It also keeps the cache region's
 # allow-list (CACHE_FUNCTIONS), which must match build-core.sh's IOS_CACHE_FUNCTIONS.
 #
+# Section 14 covers the review of 393f12c: a core's patch step cannot sit outside its own region
+# (patches arms, patch helpers, the patch files a region names, and functions only their own family
+# may use), and the regions of one family are told apart in its hash.
+#
 # Touches nothing in this checkout: everything happens in a temporary copy that is removed at
 # the end. Bash 3.2 safe (macOS) as well as Linux.
 set -euo pipefail
@@ -182,6 +186,41 @@ delete_line() {
     !done && $0 == ENVIRON["CCC_AT"] { done = 1; next }
     { print }
     END { exit !done }
+  ' "$BC" > "$BC.new" && mv "$BC.new" "$BC"
+}
+# The Nth line of the copy that is exactly $1: deleted, replaced by $3, or followed by $3. Each fails
+# when there is no Nth such line.
+nth_edit() {
+  CCC_AT="$1" CCC_N="$2" CCC_TEXT="${4:-}" CCC_OP="$3" awk '
+    $0 == ENVIRON["CCC_AT"] { seen++ }
+    $0 == ENVIRON["CCC_AT"] && seen == ENVIRON["CCC_N"] + 0 {
+      done = 1
+      if (ENVIRON["CCC_OP"] == "delete") next
+      if (ENVIRON["CCC_OP"] == "replace") { print ENVIRON["CCC_TEXT"]; next }
+      print; print ENVIRON["CCC_TEXT"]; next
+    }
+    { print }
+    END { exit !done }
+  ' "$BC" > "$BC.new" && mv "$BC.new" "$BC"
+}
+delete_nth() { nth_edit "$1" "$2" delete; }
+replace_nth() { nth_edit "$1" "$2" replace "$3"; }
+insert_after_nth() { nth_edit "$1" "$2" after "$3"; }
+# Moves the lines from the first line that is exactly $1 to the next line that is exactly $2 (both
+# included) to just before the first line that is exactly $3.
+move_block() {
+  CCC_A="$1" CCC_B="$2" CCC_AT="$3" awk '
+    { line[NR] = $0 }
+    END {
+      for (n = 1; n <= NR; n++) if (!s && line[n] == ENVIRON["CCC_A"]) s = n
+      for (n = s; s && n <= NR; n++) if (line[n] == ENVIRON["CCC_B"]) { e = n; break }
+      for (n = 1; n <= NR; n++) if ((n < s || n > e) && line[n] == ENVIRON["CCC_AT"]) { at = n; break }
+      if (!s || !e || !at) exit 1
+      for (n = 1; n <= NR; n++) {
+        if (n == at) for (m = s; m <= e; m++) print line[m]
+        if (n < s || n > e) print line[n]
+      }
+    }
   ' "$BC" > "$BC.new" && mv "$BC.new" "$BC"
 }
 # The script's own verdict on its rules: ios-cache-check passes, or fails with a message that
@@ -539,6 +578,12 @@ build_ios_continuum_fake_core() {
 }
 # recipe-end: continuum_fake
 ' \
+  && insert_before '  ios_clone "$core"' '  # recipe-start: continuum_fake
+  if [[ "$IOS_KIND" == "cargo-continuum-fake" ]]; then
+    build_ios_continuum_fake_core "$core"
+    return
+  fi
+  # recipe-end: continuum_fake' \
   && replace_line \
     'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb)' \
     'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_fake)'
@@ -759,6 +804,86 @@ merge_mesen2_into_fceumm() {
 }
 check "one core's config arm inside another core's region fails closed" guard \
   "the case arm for mesen2 sits in recipe region fceumm" merge_mesen2_into_fceumm
+
+# 14. The three findings of the review of 393f12c (K2).
+#
+# (a) A core's patch step cannot sit outside its own region: every patches arm is in its own
+# family's region and holds only that family's patches and helpers; a function of a region is used
+# only by that family (or by build_ios_core's dispatch for a kind only that family sets).
+reset_copy
+patch_arms_in_shared="$(bash "$BC" ios-cache-scan table 2>/dev/null | awk -F'\t' '
+  $3 == "shared" && $4 == "ios_apply_core_patches" && $5 ~ /^[ \t]*[a-z][a-z0-9_|]*\)[ \t]*$/' | wc -l | tr -d ' ')"
+check "no patches arm sits in the shared part" same "$patch_arms_in_shared" "0"
+check "every patches arm sits in its own family's region" \
+  same "$(bash "$BC" ios-cache-scan table 2>/dev/null | awk -F'\t' '
+    $4 == "ios_apply_core_patches" && $5 ~ /^[ \t]*[a-z][a-z0-9_]*\)[ \t]*$/ {
+      core = $5; gsub(/[ \t)]/, "", core); fam = core; sub(/_jit$/, "", fam)
+      if ($3 != "r:" fam) bad++ ; n++ }
+    END { print (n > 0 && bad == 0) ? "yes" : "no: " n + 0 " arms, " bad + 0 " misplaced" }')" "yes"
+check "a patches arm outside any region fails closed" guard "outside its recipe region" \
+  eval 'delete_nth "    # recipe-start: blastem" 2 && delete_nth "    # recipe-end: blastem" 2'
+check "a patches arm inside another core's region fails closed" guard \
+  "the case arm for gearsystem sits in recipe region bsnes" \
+  eval 'delete_nth "    # recipe-end: bsnes" 2 && delete_nth "    # recipe-start: gearsystem" 2 \
+          && replace_nth "    # recipe-end: gearsystem" 2 "    # recipe-end: bsnes"'
+check "a patches arm applying another family's patch fails closed" guard "is not a patch of mesen2" \
+  replace_line '      ios_apply_simple_patch mesen2 mesen2-nes-memory-cheats-saves.patch \' \
+               '      ios_apply_simple_patch mesen2 bsnes-continuum-memory-and-saves.patch \'
+check "a patches arm naming another core fails closed" guard "names the core bsnes" \
+  replace_line '      ios_apply_simple_patch mesen2 mesen2-nes-memory-cheats-saves.patch \' \
+               '      ios_apply_simple_patch bsnes mesen2-nes-memory-cheats-saves.patch \'
+check "a core's own patch helper moved out of its region fails closed" guard \
+  "holds something other than the patch steps of azahar" \
+  eval 'delete_nth "# recipe-start: azahar" 2 && delete_nth "# recipe-end: azahar" 2'
+check "a core's patch helper called from another core's patches arm fails closed" guard \
+  "holds something other than the patch steps of ppsspp" \
+  insert_after_nth '    ppsspp)' 2 '      ios_apply_azahar_pipeline_wait_patch'
+check "a patch step in the shared part fails closed" guard "ios_apply_simple_patch is used outside a recipe region" \
+  insert_after '  local make_dir="$IOS_SRC_DIR/$IOS_MAKE_SUBDIR"' \
+               '  ios_apply_simple_patch "$core" fceumm-extra.patch Makefile "a marker"'
+check "a shared line naming a patch file fails closed" guard "is named in the shared part" \
+  insert_after '  local make_dir="$IOS_SRC_DIR/$IOS_MAKE_SUBDIR"' \
+               '  patch -p1 -d "$IOS_SRC_DIR" < "$ROOT/scripts/patches/fceumm-extra.patch"'
+check "a region naming another family's patch file fails closed" guard \
+  "names a patch that is not scripts/patches/azahar-" \
+  replace_line '  local patch="$ROOT/scripts/patches/azahar-do-not-wait-on-pipeline-compile.patch"' \
+               '  local patch="$ROOT/scripts/patches/ppsspp-ios-jit-region.patch"'
+check "one family's build function used by a second family fails closed" guard "belongs to recipe region" \
+  replace_line '      IOS_KIND="cmake-ppsspp"' '      IOS_KIND="cmake-flycast"'
+check "one region's function called from another family's region fails closed" guard \
+  "build_ios_cmake_core belongs to recipe region mgba" \
+  insert_after_nth '  local built' 2 '  build_ios_cmake_core "$core"'
+check "a function in a region that nothing calls by name fails closed" guard "is never called by name" \
+  insert_before 'build_ios_make_core() {' '# recipe-start: fceumm
+fceumm_unused_helper() { :; }
+# recipe-end: fceumm'
+check "a config arm that runs a command fails closed" guard "may only set IOS_ variables to plain values" \
+  insert_after '      IOS_DISPLAY="NES"' '      export CFLAGS=-O0'
+check "a config arm value with an expansion in it fails closed" guard \
+  "may only set IOS_ variables to plain values" \
+  insert_after '      IOS_DISPLAY="NES"' '      IOS_MAKE_VARS=("CFLAGS=$HOME")'
+check "a dispatch in a region for a kind another family sets too fails closed" guard \
+  "in build_ios_core may only hold" \
+  eval 'add_fake_core && replace_line "      IOS_KIND=\"cargo-continuum-fake\"" "      IOS_KIND=\"cargo-continuum-gb\"" \
+          && replace_line "  if [[ \"\$IOS_KIND\" == \"cargo-continuum-fake\" ]]; then" \
+                          "  if [[ \"\$IOS_KIND\" == \"cargo-continuum-gb\" ]]; then"'
+check "a dispatch region holding anything else fails closed" guard "in build_ios_core may only hold" \
+  eval 'add_fake_core && insert_after "    build_ios_continuum_fake_core \"\$core\"" "    echo extra"'
+
+# (c) A separator between a family's regions: each region is hashed after a header naming which
+# one it is, where it sits and how many lines it holds, so lines moving between a family's regions,
+# or a region moving, change that family's fingerprint (and nobody else's).
+reset_copy
+check "the recipe text names each region, where it sits and how many lines it holds" \
+  contains "$(slice flycast_jit)" "@@ region 4 of flycast, after shared line "
+reset_copy
+check "merging two of flycast's regions into one rebuilds flycast and its JIT build only" \
+  same "$(moves_after eval 'delete_nth "    # recipe-end: flycast" 1 && delete_nth "    # recipe-start: flycast" 2')" \
+       "flycast flycast_jit"
+reset_copy
+check "moving flycast's build function to another place rebuilds flycast and its JIT build only" \
+  same "$(moves_after move_block '# recipe-start: flycast' '# recipe-end: flycast' 'build_ios_make_core() {')" \
+       "flycast flycast_jit"
 
 reset_copy
 

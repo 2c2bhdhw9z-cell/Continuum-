@@ -1856,11 +1856,14 @@ ios_core_patch_family() {
 
 # ----------------------------------------------------- THE RECIPE REGIONS (the per-core split)
 #
-# WHY. The fingerprint below used to hash this WHOLE file, so ANY edit anywhere rebuilt all
-# nineteen from-source cores: 45-50 minutes instead of 6-8. On 13 October a one-line fix to the
-# checksums of two build tools only the Symbian core downloads cost the owner an hour of
-# recompiling every core that had not changed. So each core's own recipe is now hashed on its
-# own, and a core is only rebuilt when ITS recipe, or something shared, moved.
+# WHY. The fingerprint below used to hash this WHOLE file, so ANY edit anywhere rebuilt every core
+# the cache keeps: 45-50 minutes instead of 6-8. That is the nineteen cores built from source here
+# (IOS_CORES and IOS_OPTIONAL_CORES are twenty, and cBoy, the twentieth, is compiled on every run
+# anyway); the other sixteen of the thirty-six dylibs in the .ipa are downloaded ready-made and never
+# compiled. On 13 October a one-line fix to the checksums of two build tools only the Symbian core
+# downloads cost the owner an hour of recompiling the other eighteen, none of which had changed. So
+# each core's own recipe is now hashed on its own, and a core is only rebuilt when ITS recipe, or
+# something shared, moved.
 #
 # HOW. Each core's own recipe - its ios_core_config arm, its patches arm, the build function only
 # it uses, its own patch helpers - is wrapped in a pair of marker comments:
@@ -1890,10 +1893,25 @@ ios_core_patch_family() {
 # WHERE A REGION MAY SIT, checked every time (ios_cache_scan), because a region that held code
 # other cores run would let an edit there reach them without moving their fingerprints:
 #
-#   - whole case arms of ios_core_config, every pattern a core of the region's family;
-#   - whole case arms of ios_apply_core_patches, the same;
-#   - whole functions at the top level of the file;
-#   and the region's family must be a core in IOS_CORES or IOS_OPTIONAL_CORES.
+#   - whole case arms of ios_core_config, every pattern a core of the region's family, setting
+#     nothing but IOS_ variables to plain values (no $, no backquote, no command);
+#   - whole case arms of ios_apply_core_patches, the same patterns, holding nothing but
+#     `ios_apply_simple_patch <core> <family>-<name>.patch ...` lines and calls to the family's own
+#     patch helpers;
+#   - whole functions at the top level of the file, used by nothing outside the family's regions
+#     except build_ios_core's dispatch for a build kind (IOS_KIND) that only this family sets, and
+#     called by name somewhere;
+#   - in build_ios_core, the dispatch of such a kind: `<kind>) <function> "$core" ;;` lines, or one
+#     `if [[ "$IOS_KIND" == "<kind>" ]]; then <function> "$core"; return; fi` block, so a new core
+#     of our own can be added with no shared line at all;
+#   and the region's family must be a core in IOS_CORES or IOS_OPTIONAL_CORES. Every patch file a
+#   region names must be one of its family's (scripts/patches/<family>-*.patch), and outside the
+#   regions only ios_apply_simple_patch and the weekly check's Symbian dry run may name one, so a
+#   patch is always in the fingerprint of every core that applies it.
+#
+# A family's regions are hashed in file order, each after a header saying which region it is,
+# where it sits and how many lines it holds (recipe_out in ios_cache_scan), so moving lines from
+# one region of a family to another, or moving a region, still changes that family's fingerprint.
 #
 # WHY MARKED REGIONS AND NOT scripts/core-recipes/<core>.sh. One file per core would hash just as
 # well, but it would mean moving ~900 lines of working, Mac-only build code that nothing here can
@@ -2111,7 +2129,36 @@ function hasword(s, name,   p, b, a) {
 function kept(n) { return L_c[n] != "blank" && L_c[n] != "comment" }
 function pinline(n) { return L_f[n] == "ios_core_config" && L_c[n] == "code" && L_t[n] ~ /^[ \t]*IOS_PIN="[0-9a-f]*"[ \t]*$/ }
 function isshared(n) { return kept(n) && L_b[n] == "shared" && !pinline(n) }
-function isrecipe(n) { return kept(n) && L_b[n] == "r:" want && !pinline(n) }
+# The regions of a family, in file order, each after a header saying which region it is, where it
+# sits (how many shared lines that count come before it) and how many lines it holds: so moving a
+# line from one region of a family to another, or a region to another place, changes the hash.
+function recipe_out(fam, dest,   k, n, ord, cnt) {
+  ord = 0
+  for (k = 1; k <= ninst; k++) {
+    if (ikind[k] != "r" || iname[k] != fam) continue
+    ord++; cnt = 0
+    for (n = istart[k] + 1; n < iend[k]; n++) if (kept(n) && !pinline(n)) cnt++
+    out("@@ region " ord " of " fam ", after shared line " shbefore[istart[k]] ", " cnt " lines", dest)
+    for (n = istart[k] + 1; n < iend[k]; n++) if (kept(n) && !pinline(n)) out(L_t[n], dest)
+  }
+}
+function out(s, dest) { if (dest == "") print s; else print s > dest }
+function patchprefix(fam) { return (fam == "continuum_symbian") ? "continuum-symbian" : fam }
+function ownkind(kd, fam) { return (kd in kfam) && kfam[kd] == fam && !(kd in kmulti) }
+# Line n of build_ios_core calls f the way the dispatch does, for a kind only family fam sets:
+# "<kind>) f "$core" ;;", or f "$core" right after if [[ "$IOS_KIND" == "<kind>" ]]; then.
+function dispatch_ok(n, f, fam,   s, kd, p) {
+  s = trim(L_t[n])
+  if (s ~ /^[a-z0-9-]+\) [A-Za-z_][A-Za-z0-9_]* "\$core" ;;$/) {
+    kd = s; sub(/\).*/, "", kd)
+    return s == kd ") " f " \"$core\" ;;" && ownkind(kd, fam)
+  }
+  if (s != f " \"$core\"") return 0
+  for (p = n - 1; p > 0 && !kept(p); p--) continue
+  if (p < 1 || trim(L_t[p]) !~ /^if \[\[ "\$IOS_KIND" == "[a-z0-9-]+" \]\]; then$/) return 0
+  kd = trim(L_t[p]); sub(/^if \[\[ "\$IOS_KIND" == "/, "", kd); sub(/".*/, "", kd)
+  return ownkind(kd, fam)
+}
 # The words of the top-level declaration NAME=( ... ) in the shared part, into arr; returns how
 # many, or -1 when it is missing, declared twice, or not plain identifiers.
 function decl(name, arr,   n, txt, cnt, m, k, e, el) {
@@ -2146,6 +2193,10 @@ BEGIN {
   selfok["" SUBSEP "ROOT=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")/..\" && pwd)\""] = 1
   selfok["" SUBSEP "IOS_SELF=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)/$(basename \"${BASH_SOURCE[0]}\")\""] = 1
   selfok["build_all_ios_cores" SUBSEP "if bash \"$IOS_SELF\" ios \"$core\"; then"] = 1
+  # The only shared lines that may name a file in scripts/patches/: the one helper every patch
+  # step goes through, and the dry run of the Symbian patch for the weekly update check.
+  patchok["ios_apply_simple_patch" SUBSEP "local patch=\"$ROOT/scripts/patches/$name\""] = 1
+  patchok["" SUBSEP "git -C \"$IOS_SRC_DIR\" apply --check \"$ROOT/scripts/patches/continuum-symbian-frame-readback.patch\""] = 1
 }
 {
   line = $0; cpos = 0
@@ -2283,30 +2334,130 @@ END {
     for (k = 1; k <= nself; k++) if (hasword(L_t[n], selfword[k]) && !((L_f[n] SUBSEP trim(L_t[n])) in selfok))
       failat(n, selfword[k] " outside the cache: a build that read this file or its line numbers would see comments, so they could not be left out")
   }
-  # Recipe regions: whole case arms of ios_core_config or ios_apply_core_patches, or whole functions.
+  # Who owns what, for the rules below: the family each IOS_KIND belongs to (kmulti: more than
+  # one), the family each function defined inside a recipe region belongs to, and how many shared
+  # lines that count come before each line (where a region sits).
+  for (n = 1; n <= last; n++) {
+    if (L_b[n] ~ /^r:/ && L_f[n] == "ios_core_config" && L_c[n] == "code" && L_t[n] ~ /^[ \t]*IOS_KIND="[^"]+"[ \t]*$/) {
+      kd = trim(L_t[n]); sub(/^IOS_KIND="/, "", kd); sub(/"$/, "", kd); fam = substr(L_b[n], 3)
+      if ((kd in kfam) && kfam[kd] != fam) kmulti[kd] = 1
+      kfam[kd] = fam
+    }
+  }
+  for (f in fstart) if (L_b[fstart[f]] ~ /^r:/) rfun[f] = substr(L_b[fstart[f]], 3)
+  cnt = 0
+  for (n = 1; n <= last; n++) { shbefore[n] = cnt; if (kept(n) && L_b[n] == "shared") cnt++ }
+  # Recipe regions: whole case arms of ios_core_config or ios_apply_core_patches, whole functions,
+  # or the dispatch of a build kind only this family sets, inside build_ios_core.
   for (k = 1; k <= ninst; k++) {
     if (ikind[k] != "r") continue
-    if (!(iname[k] in listfam)) { failat(istart[k], "recipe region " iname[k] " belongs to no core in IOS_CORES or IOS_OPTIONAL_CORES, so no fingerprint would cover it"); continue }
+    F = iname[k]
+    if (!(F in listfam)) { failat(istart[k], "recipe region " F " belongs to no core in IOS_CORES or IOS_OPTIONAL_CORES, so no fingerprint would cover it"); continue }
     kind = ""; first = 0; lastk = 0
     for (n = istart[k] + 1; n < iend[k]; n++) {
       if (!kept(n)) continue
       if (!first) first = n
       lastk = n; f = L_f[n]
-      if (f == "ios_core_config" || f == "ios_apply_core_patches") lk = f
+      if (f == "ios_core_config" || f == "ios_apply_core_patches" || f == "build_ios_core") lk = f
       else if (f != "" && fstart[f] > istart[k] && fend[f] < iend[k]) lk = "functions"
-      else { failat(n, "recipe region " iname[k] " holds code that is neither a whole case arm nor a whole function"); break }
+      else { failat(n, "recipe region " F " holds code that is neither a whole case arm nor a whole function"); break }
       if (kind == "") kind = lk
-      else if (kind != lk) { failat(n, "recipe region " iname[k] " mixes case arms and functions"); break }
+      else if (kind != lk) { failat(n, "recipe region " F " mixes case arms and functions"); break }
     }
     if (kind == "ios_core_config" || kind == "ios_apply_core_patches") {
-      if (L_t[first] !~ /^[ \t]*[a-z][a-z0-9_]*([ \t]*\|[ \t]*[a-z][a-z0-9_]*)*\)[ \t]*$/) failat(first, "recipe region " iname[k] " must start with its case arm pattern")
-      if (trim(L_t[lastk]) != ";;") failat(lastk, "recipe region " iname[k] " must end with the ;; of its case arm")
+      if (L_t[first] !~ /^[ \t]*[a-z][a-z0-9_]*([ \t]*\|[ \t]*[a-z][a-z0-9_]*)*\)[ \t]*$/) failat(first, "recipe region " F " must start with its case arm pattern")
+      if (trim(L_t[lastk]) != ";;") failat(lastk, "recipe region " F " must end with the ;; of its case arm")
       for (n = first; n <= lastk; n++) {
-        if (!kept(n) || L_t[n] !~ /^[ \t]*[a-z][a-z0-9_]*([ \t]*\|[ \t]*[a-z][a-z0-9_]*)*\)[ \t]*$/) continue
-        s = trim(L_t[n]); sub(/\)$/, "", s); m = split(s, el, /[ \t]*\|[ \t]*/)
-        for (e = 1; e <= m; e++) if (family(el[e]) != iname[k]) failat(n, "the case arm for " el[e] " sits in recipe region " iname[k])
+        if (!kept(n)) continue
+        s = trim(L_t[n])
+        if (s ~ /^[a-z][a-z0-9_]*([ \t]*\|[ \t]*[a-z][a-z0-9_]*)*\)$/) {
+          sub(/\)$/, "", s); m = split(s, el, /[ \t]*\|[ \t]*/)
+          for (e = 1; e <= m; e++) if (family(el[e]) != F) failat(n, "the case arm for " el[e] " sits in recipe region " F)
+          continue
+        }
+        if (s == ";;") continue
+        # A config arm only sets IOS_ variables to plain values: no expansion, no command, nothing
+        # it could leave behind for another core (ios_core_config runs for every core in turn).
+        if (kind == "ios_core_config") {
+          if (L_c[n] == "code" && L_t[n] ~ /^[ \t]*IOS_[A-Z0-9_]+=("[^"$`\\]*"|[A-Za-z0-9_.\/:@+,=%-]*)[ \t]*$/) continue
+          if (L_c[n] == "code" && L_t[n] ~ /^[ \t]*IOS_[A-Z0-9_]+=\(([ \t]*("[^"$`\\]*"|[A-Za-z0-9_.\/:@+,=%-]+))*[ \t]*\)?[ \t]*$/) continue
+          if (L_c[n] == "nested" && L_t[n] ~ /^[ \t]*(("[^"$`\\]*"|[A-Za-z0-9_.\/:@+,=%-]+)[ \t]*)*\)?[ \t]*$/) continue
+          failat(n, "a config arm in recipe region " F " may only set IOS_ variables to plain values: " s)
+          continue
+        }
+        # A patches arm holds its own patches and nothing else (the K2 guard): calls to
+        # ios_apply_simple_patch for a patch of this family, with their continuation lines, and
+        # calls to the own patch helpers of this family.
+        if (L_c[n] == "cont") continue
+        if (s ~ /^ios_apply_simple_patch [a-z][a-z0-9_]* [A-Za-z0-9_.+-]+\.patch( |$)/) {
+          split(s, el, " ")
+          if (family(el[2]) != F) failat(n, "ios_apply_simple_patch in recipe region " F " names the core " el[2])
+          if (index(el[3], patchprefix(F) "-") != 1) failat(n, el[3] " is not a patch of " F " (scripts/patches/" patchprefix(F) "-*.patch), so editing it would not rebuild " F)
+          continue
+        }
+        if (s ~ /^[A-Za-z_][A-Za-z0-9_]*$/ && (s in rfun) && rfun[s] == F) continue
+        failat(n, "the patches arm in recipe region " F " holds something other than the patch steps of " F ": " s)
       }
     }
+    if (kind == "build_ios_core") {
+      nl = 0
+      for (n = first; n <= lastk; n++) if (kept(n)) { nl++; dl[nl] = trim(L_t[n]) }
+      if (dl[1] ~ /^if \[\[ "\$IOS_KIND" == "[a-z0-9-]+" \]\]; then$/) {
+        kd = dl[1]; sub(/^if \[\[ "\$IOS_KIND" == "/, "", kd); sub(/".*/, "", kd)
+        f = dl[2]; sub(/ .*/, "", f)
+        if (nl != 4 || dl[2] != f " \"$core\"" || dl[3] != "return" || dl[4] != "fi" || !ownkind(kd, F) || rfun[f] != F)
+          failat(first, "recipe region " F " in build_ios_core may only hold: if [[ \"$IOS_KIND\" == \"<a kind only " F " sets>\" ]]; then <a function of " F "> \"$core\"; return; fi")
+      } else {
+        for (e = 1; e <= nl; e++) {
+          kd = dl[e]; sub(/\).*/, "", kd); f = dl[e]; sub(/^[^ ]* /, "", f); sub(/ .*/, "", f)
+          if (dl[e] != kd ") " f " \"$core\" ;;" || kd !~ /^[a-z0-9-]+$/ || !ownkind(kd, F) || rfun[f] != F) {
+            failat(first, "recipe region " F " in build_ios_core may only hold <a kind only " F " sets>) <a function of " F "> \"$core\" ;; lines"); break
+          }
+        }
+      }
+    }
+  }
+  # No patches arm outside a recipe region, and no patch step anywhere but in one: a patch step in
+  # the shared part cannot be told apart from one for every core, and one in the region of another
+  # family would not rebuild its core when it changed. (A config arm left outside every region only
+  # costs that core its own fingerprint, so it rebuilds every time: ios_core_fingerprint refuses a
+  # recipe that does not set its dylib name.)
+  for (n = 1; n <= last; n++) {
+    if (!kept(n) || L_b[n] != "shared") continue
+    s = trim(L_t[n])
+    if (L_f[n] == "ios_apply_core_patches" && s ~ /^[a-z][a-z0-9_]*([ \t]*\|[ \t]*[a-z][a-z0-9_]*)*\)$/)
+      failat(n, "the ios_apply_core_patches arm " s " is outside its recipe region")
+    if (hasword(s, "ios_apply_simple_patch") && n != fstart["ios_apply_simple_patch"])
+      failat(n, "ios_apply_simple_patch is used outside a recipe region: a patch step belongs in its core region")
+  }
+  # Every scripts/patches/ file named outside the cache: in a recipe region, a patch of that
+  # family; in the shared part, only the two lines that name one today.
+  for (n = 1; n <= last; n++) {
+    if (!kept(n) || L_b[n] == "x:cache" || index(L_t[n], "scripts/patches/") == 0) continue
+    if (L_b[n] == "shared") {
+      if (!((L_f[n] SUBSEP trim(L_t[n])) in patchok)) failat(n, "a scripts/patches/ file is named in the shared part, so editing that patch would not rebuild every core that uses it")
+      continue
+    }
+    F = substr(L_b[n], 3); rest = L_t[n]
+    while ((p = index(rest, "scripts/patches/")) > 0) {
+      rest = substr(rest, p + 16)
+      if (!match(rest, /^[A-Za-z0-9_.+-]+\.patch/) || index(rest, patchprefix(F) "-") != 1) {
+        failat(n, "recipe region " F " names a patch that is not scripts/patches/" patchprefix(F) "-*.patch"); break
+      }
+    }
+  }
+  # A function of a recipe region is for that family alone: only its regions may use it, or the
+  # dispatch in build_ios_core for a kind only that family sets. Every one must be called by name,
+  # since a function reached any other way could not be checked.
+  for (f in rfun) {
+    F = rfun[f]; uses = 0
+    for (n = 1; n <= last; n++) {
+      if (!kept(n) || L_b[n] == "x:cache" || n == fstart[f] || !hasword(L_t[n], f)) continue
+      uses++
+      if (L_b[n] == "r:" F || (L_f[n] == "build_ios_core" && dispatch_ok(n, f, F))) continue
+      failat(n, f " belongs to recipe region " F ", so only the regions of " F " may use it (or the dispatch in build_ios_core, for a kind only " F " sets)")
+    }
+    if (uses == 0) failat(fstart[f], f " in recipe region " F " is never called by name, and a function reached any other way cannot be checked")
   }
   if ((mode == "recipe" || (mode == "split" && want != "" && want != "*")) && bad == "") {
     found = 0
@@ -2317,7 +2468,7 @@ END {
   if (mode == "table") { for (n = 1; n <= last; n++) printf "%d\t%s\t%s\t%s\t%s\n", n, L_c[n], L_b[n], L_f[n], L_t[n]; exit 0 }
   if (mode == "kept") { for (n = 1; n <= last; n++) if (kept(n)) print L_t[n]; exit 0 }
   if (mode == "shared") { for (n = 1; n <= last; n++) if (isshared(n)) print L_t[n]; exit 0 }
-  if (mode == "recipe") { for (n = 1; n <= last; n++) if (isrecipe(n)) print L_t[n]; exit 0 }
+  if (mode == "recipe") { recipe_out(want, ""); exit 0 }
   if (mode == "split") {
     printf "" > (dir "/kept"); printf "" > (dir "/shared")
     for (n = 1; n <= last; n++) {
@@ -2328,10 +2479,10 @@ END {
     # One file per family asked for (* for every family), each closed before the next is opened.
     for (k = 1; k <= ninst; k++) {
       if (ikind[k] != "r" || (want != "*" && iname[k] != want) || (iname[k] in written)) continue
-      fam = iname[k]; written[fam] = 1; want_was = want; want = fam
+      fam = iname[k]; written[fam] = 1
       printf "" > (dir "/recipe." fam)
-      for (n = 1; n <= last; n++) if (isrecipe(n)) print L_t[n] > (dir "/recipe." fam)
-      close(dir "/recipe." fam); want = want_was
+      recipe_out(fam, dir "/recipe." fam)
+      close(dir "/recipe." fam)
     }
     exit 0
   }
@@ -2513,7 +2664,8 @@ ios_core_fingerprint() {
 #     its clone and checkout, its cmake or make invocation, its own flags, its post-processing, or
 #     a tool only it downloads, like the Symbian core's pinned CMake and ninja - or to its pin, its
 #     patches, or (Symbian) its plug. That is the whole point: the 13 October Symbian build-tool
-#     fix cost an hour of rebuilding every unchanged core, and now it costs one core.
+#     fix cost an hour of rebuilding the eighteen other cores built from source, and now it costs
+#     one core.
 #   - NO core: a comment or a blank line anywhere they are really comments, the cache's own code
 #     and the help text (the cache regions), adding a core to the lists or taking one out (the
 #     lists region; the new core builds, the others are reused), and a new core's own regions.
