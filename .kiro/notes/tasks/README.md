@@ -19,8 +19,8 @@ README says which). Nothing else was unsaved.
 | `shorter-text.json` | Shorter text | T1, T2, most of T3 | the rest of T3, T4 review, T5 write-up |
 | `repo-cleanup.json` | Repo cleanup, part 1 | R1 to R4, R6, R7 | R5 parked (below) |
 
-Finished and removed: the build cache's second pass (`docs/reports/cache-v2-summary.md`, 213
-checks) and the icons (`docs/reports/evening-2026-10-13-icons.md`).
+Finished and removed: the build cache's second pass (`.kiro/notes/docs/reports/cache-v2-summary.md`, 213
+checks) and the icons (`.kiro/notes/docs/reports/evening-2026-10-13-icons.md`).
 
 ## Running them
 
@@ -56,8 +56,8 @@ Linux checks (nothing built, no release). No build until the batch is done or th
 
 ## Then the build
 
-1. When every job is done, fold their reports (`docs/reports/evening-2026-10-13*.md`,
-   `docs/ARCADE_CORE.md`, `docs/CBOY_EVENING.md`, `docs/reports/cache-v2-summary.md`, and `docs/reports/core-updates-2026-10-14.md` once CU5 writes it) into STATUS.md, TESTING.md and
+1. When every job is done, fold their reports (`.kiro/notes/docs/reports/evening-2026-10-13*.md`,
+   `.kiro/notes/docs/ARCADE_CORE.md`, `.kiro/notes/docs/CBOY_EVENING.md`, `.kiro/notes/docs/reports/cache-v2-summary.md`, and `.kiro/notes/docs/reports/core-updates-2026-10-14.md` once CU5 writes it) into STATUS.md, TESTING.md and
    HANDOFF.md, and reword the TESTING lines the Home screen and text reports list.
 2. Start ONE build: `gh api -X POST repos/2c2bhdhw9z-cell/Continuum-/actions/workflows/ios.yml/dispatches -f ref=master`.
    Every emulator rebuilds once (new fingerprints), about an hour.
@@ -68,5 +68,6 @@ Linux checks (nothing built, no release). No build until the batch is done or th
    uploads the files into that release even though it still ends red. Download the .ipa to check.
 4. Check the .ipa (0.8.0 and the build number; 36 core files, plus cArcade once it is in) and give
    the owner the link and the numbered phone steps in the same reply.
-5. After the build starts: repo cleanup part 2, from the plan R7 writes (move HANDOFF.md,
-   STATUS.md, TESTING.md and the internal docs into `.kiro/notes/` and fix every reference).
+5. Repo cleanup part 2 is done (14 October): the working notes are in `.kiro/notes/`. Left from
+   its plan: the About box (section 1; this sandbox's GitHub token can't set it) and code
+   comments that still say `docs/...` (section 7; the notes README explains those paths).

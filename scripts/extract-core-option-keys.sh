@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Clones the libretro cores that the cBoy inventory compares against and extracts every core
 # option KEY (no descriptions) from their option-definition files. Output: one file per core in
-# docs/option-sources/<core>.keys plus <core>.commit. Usage: scripts/extract-core-option-keys.sh [workdir]
+# .kiro/notes/docs/option-sources/<core>.keys plus <core>.commit. Usage: scripts/extract-core-option-keys.sh [workdir]
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 work=${1:-/tmp/option-sources}
-out="$here/docs/option-sources"
+out="$here/.kiro/notes/docs/option-sources"
 mkdir -p "$work" "$out"
 # name|repo|files (globs, relative to the repo)|key prefix regex
 cores=(

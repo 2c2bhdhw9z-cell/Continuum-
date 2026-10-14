@@ -11,7 +11,7 @@ ROM_COPY). The two are cross-checked: every chip the ROM_START block names must 
 
 Which sets go in, and on which board layout, is decided below (BOARDS), set by set, from how
 MAME's driver runs each one: only sets that run on exactly the hardware cArcade models. A board's
-sets are only switched on in cArcade once the board is proven (docs/ARCADE_CORE.md).
+sets are only switched on in cArcade once the board is proven (.kiro/notes/docs/ARCADE_CORE.md).
 
 Run it again whenever a board's list changes; the output is committed. Needs Python 3.8+.
 """

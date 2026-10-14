@@ -3,7 +3,7 @@
 Paste this to start a new chat:
 
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
-> then `HANDOFF.md`, then carry on.
+> then `.kiro/notes/HANDOFF.md`, then carry on.
 
 ## Where this left off (14 October 2026, 1:40 PM Eastern)
 
@@ -118,7 +118,7 @@ the whole answer.
   TESTING.md A1 to A5). The owner posts the .ipa straight into Telegram groups and Reddit, not the GitHub page, so
   testers only ever see the app itself. Feedback email (since 12 October 2026):
   ContinuumDev2c2b@gmail.com. Build 127's 3DS model change and cheat-off fixes are still untested.
-- Everything else that is planned is in STATUS.md "Next up" and docs/MANIC_PARITY.md "Still to do".
+- Everything else that is planned is in STATUS.md "Next up" and .kiro/notes/docs/MANIC_PARITY.md "Still to do".
 - Other remote testing tried and dropped (6 October): Momentic runs only on simulators, so it would
   need a whole simulator build (and 19 buildbot cores have no simulator version); the owner said
   not to. Apptest.ai rejected the .ipa ("The app file is not supported") because it carries no
@@ -215,7 +215,7 @@ for one exact game version; the cheat screen names the version for GBA and Game 
   it, and that single build contains everything. Nothing is ever left only in the sandbox, and the
   owner gets one build.
 - Only the paths listed in `ios.yml`'s `on: push: paths:` start a build at all, so a commit
-  touching only `STATUS.md`, `HANDOFF.md`, `TESTING.md` or `docs/` (but not `docs/samples/`,
+  touching only `.kiro/notes/` or `docs/` (but not `docs/samples/`,
   which the skin check uses) never needs `[skip ci]`.
 - **A build takes about 6-8 minutes on the Mac when the cores are cached, and about 45-50
   minutes when they are not.** The cores built from source are cached between runs (STATUS.md

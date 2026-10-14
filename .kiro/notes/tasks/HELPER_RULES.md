@@ -26,7 +26,7 @@ job. The owner is a non-programmer who only uses an iPhone and tests only the fi
   Never use that prefix for the Continuum repository itself: pushing needs the gateway.
   `curl` downloads (codeload.github.com, raw.githubusercontent.com, release assets) work as is.
 - Read first, all of it: `<clone>/.kiro/steering/owner-rules.md` (the owner's rules; they apply to
-  you), the "How to check work before pushing" section at the end of `<clone>/HANDOFF.md`, and your
+  you), the "How to check work before pushing" section at the end of `<clone>/.kiro/notes/HANDOFF.md`, and your
   checklist `<clone>/.kiro/notes/tasks/<job>.json` (its hard_rules, facts and items).
 
 ## How the checklist applies now

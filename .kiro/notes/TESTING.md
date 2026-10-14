@@ -755,7 +755,7 @@ Two of those lines are narrower than they sound. Cheats means a code you type, n
 Tests 1 to 5 below are a regression check: each says what already passed, and if one fails on a
 new build, something that used to work has broken, which is worth telling me straight away.
 
-Before you start, read [README.md](README.md) if you have not.
+Before you start, read [README.md](../../README.md) if you have not.
 
 ## The single most useful thing you can do
 

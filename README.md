@@ -1,6 +1,6 @@
 # Continuum
 
-![The Continuum app icon](docs/app-icon.png)
+![Three of Continuum's home screen icons: the main one, Quiet and Reactor](docs/app-icon.png)
 
 Continuum is an all-in-one emulator for iPhone: dozens of systems in one app, from the NES to the
 Nintendo 3DS. It's free and open source, and it's in public beta, so expect a few rough edges. It

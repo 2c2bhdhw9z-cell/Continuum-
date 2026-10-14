@@ -48,26 +48,26 @@ These come straight from the owner. They are not suggestions.
 ## How to work
 - Never do one small feature at a time. Do the biggest batch of remaining work possible in one go.
 - Do not stop to ask what is next. The plan is written down: read it and keep going.
-- Start every session by reading HANDOFF.md, then STATUS.md (its "Next up" section first) and
-  TESTING.md section A, then carry on from there. Before a session ends (or when the chat gets
+- Start every session by reading .kiro/notes/HANDOFF.md, then .kiro/notes/STATUS.md (its "Next up" section
+  first) and .kiro/notes/TESTING.md section A, then carry on from there. Before a session ends (or when the chat gets
   long), update HANDOFF.md and "Next up" so the next chat can pick up with no explaining.
 
 ## The goal
 - Continuum must become "the one" iPhone emulator everyone uses. It must do everything Manic EMU
   does, and more. Anything Manic has and Continuum lacks is required work.
-- The checklist is #[[file:docs/MANIC_PARITY.md]]. Tick items off in it as they land.
+- The checklist is #[[file:.kiro/notes/docs/MANIC_PARITY.md]]. Tick items off in it as they land.
 - Product rules (iPhone .ipa only, no web build of the app, Android later, behaviour in the Rust
   engine, native look per platform, installer-neutral, JIT when available but never required) are in
-  #[[file:docs/PRODUCT_SCOPE.md]].
-- What is actually done is #[[file:STATUS.md]]. Keep it honest: Done means a phone showed it.
-- What the owner should test on the phone is #[[file:TESTING.md]]: short numbered steps, one test
+  #[[file:.kiro/notes/docs/PRODUCT_SCOPE.md]].
+- What is actually done is #[[file:.kiro/notes/STATUS.md]]. Keep it honest: Done means a phone showed it.
+- What the owner should test on the phone is #[[file:.kiro/notes/TESTING.md]]: short numbered steps, one test
   per row, plain words. Update it in the same push as any change the owner needs to try, and drop
   a test once the owner confirms it.
 - `docs/archive/` was removed in October 2026; its old history is in git. Do not follow it.
 
 ## Already decided by the owner (do not reopen)
 - No computer, ever, not even once or borrowed. Never suggest anything that needs one (a pairing
-  file, a "JIT certificate"). So the OWNER cannot use JIT (docs/PLATFORM_LIMITS.md).
+  file, a "JIT certificate"). So the OWNER cannot use JIT (.kiro/notes/docs/PLATFORM_LIMITS.md).
 - JIT IS STILL REQUIRED FOR EVERYONE ELSE (owner, 7 October 2026, very angry it was missing).
   "No JIT" only ever meant: everything must keep working without JIT. Any user who can enable JIT
   (development-signed and a JIT enabler attached) must get the JIT speed automatically, and every
@@ -77,7 +77,7 @@ These come straight from the owner. They are not suggestions.
 - The Beetle PSX boot on build 98 was enough to move on to the 3DS. Do not reopen it.
 - The skin layout editor is not Done until the owner says the skin is right.
 - iOS controls keep Apple's glass look; Android will use Material's own look. Same behaviour,
-  different appearance, on purpose (docs/PRODUCT_SCOPE.md).
+  different appearance, on purpose (.kiro/notes/docs/PRODUCT_SCOPE.md).
 - Only Kiro works on this repository. No other AI tool's files, instructions or branches belong
   in it (they were removed on 5 October 2026); do not add any.
 - Public beta from 6 October 2026: strangers download and test the app. Keep what a tester sees
@@ -164,7 +164,7 @@ These come straight from the owner. They are not suggestions.
     Continuum has an arcade core of its own. That core is required future work: keep it on the
     to-do list (after the exact Game Boy drawer and the phone test rounds; see "Next up" in
     STATUS.md), and treat Arcade in
-    docs/MANIC_PARITY.md as "removed by the owner's choice, own core planned", not as a gap
+    .kiro/notes/docs/MANIC_PARITY.md as "removed by the owner's choice, own core planned", not as a gap
     to fill with someone else's core. While arcade is out, an arcade game a player already
     imported stays in the library and is never deleted. Opening it shows one plain, casual
     line, for example: "Arcade games aren't playable right now. We're building our own arcade
