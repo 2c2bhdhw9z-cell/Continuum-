@@ -1,7 +1,7 @@
 {
   "complete": false,
   "title": "Continuum, evening of 13 October 2026: the two-phone Game Boy link (app half) and the leftovers from 'Next up' item 5",
-  "repo": "/projects/sandbox/.scratch/link-work (H3, Mesen 2 for SNES: /projects/sandbox/.scratch/mesen-work)",
+  "repo": "/projects/sandbox/.scratch/link-work",
   "branch": "master",
   "read_first": [
     "/projects/sandbox/Continuum-/.kiro/steering/owner-rules.md",
@@ -45,12 +45,6 @@
       "detail": "Last night found that the save item named the wrong game: Pete Sampras Tennis 96 is the one with an EEPROM, and its BlastEm cartridge entry needs that cartridge's real checksum and EEPROM layout, which were not guessed. MAME's software lists are CC0-licensed data: hash/megadriv.xml in the MAME repository lists each Mega Drive cartridge's CRC32 and SHA1 and its save hardware. Read the entries from there (fetch the one file into scratch, never commit it), add the cartridge entry to BlastEm's cartridge list in scripts/patches/blastem-continuum-memory.patch (or a new blastem-*.patch), and check every other EEPROM Mega Drive cartridge in that list against BlastEm's (the Codemasters Micro Machines games, the EA sports games, the Sega ones), adding any that are missing. Unit-test that the patch applies and the entries parse. Say in the report which games now save that did not."
     },
     {
-      "id": "H3",
-      "done": false,
-      "title": "Mesen 2 as the second SNES choice",
-      "detail": "Last night checked and did not offer it, for a good reason: everything the Continuum Mesen patch gives the NES (memory for RAM search and achievements, cheats, and letting the app own the battery save) is written NES-only, so SNES players would have lost all three. Extend the patch (scripts/patches/mesen2-nes-memory-cheats-saves.patch, or a new mesen2-snes-*.patch) so the SNES gets the same three: the console's work RAM and the cartridge's save RAM exposed to the app, typed SNES cheat codes (Game Genie and Pro Action Replay) reaching Mesen's own cheat code, and the battery save owned by the app like every other core. Build Mesen 2 for the host, boot open-licensed SNES homebrew through the engine, and prove a battery save round-trips, a save state round-trips and a cheat changes memory. Compare its speed with bsnes on the host and write the numbers down. Then offer it as the second core for SNES (bsnes stays the default). If one of the three cannot be made to hold tonight, do not offer it, and say exactly what is left."
-    },
-    {
       "id": "H4",
       "done": true,
       "result": "Pushed as a4ed549: BlastEm now reads Sega CD .m3u playlists, offers libretro's disc controls so the app's Next disc and Insert disc work (tray open, disc in, tray shut, the drive reads the new disc), keeps the disc in save states, and hands over the save cartridge, which the engine keeps as <game>.bcr; proven with a host-built BlastEm in a real engine session on a stand-in start-up ROM and generated discs, and a real disc swap in a real game still needs the phone.",
@@ -61,7 +55,14 @@
       "id": "H5",
       "done": false,
       "title": "Continuum's own 32X start-up code, so 32X games need no BIOS files",
-      "detail": "Today a 32X game asks for 32X_M_BIOS.bin and 32X_S_BIOS.bin. Last night's report says where Continuum's own start-up code would hook in and what it has to do (set up the two SH-2 processors, check and copy the cartridge's SH-2 program as its header describes, hand over, and the handshake the Mega Drive side waits for). Write it as Continuum's own code, assembled with an SH-2 assembler you build from source in scratch (GNU binutils builds for sh-elf in a few minutes), and prove it by booting open-licensed 32X homebrew in a host build of BlastEm. No time box: keep at it until it boots real 32X homebrew in the host build. Never ship start-up code that has not booted something. Only if it is truly impossible here (name the reason; slow or hard is not a reason) keep the existing needs-the-BIOS line exactly as it is, so nothing gets worse, and write what you learned into the report."
+      "detail": "Today a 32X game asks for 32X_M_BIOS.bin and 32X_S_BIOS.bin. Last night's report says where Continuum's own start-up code would hook in and what it has to do (set up the two SH-2 processors, check and copy the cartridge's SH-2 program as its header describes, hand over, and the handshake the Mega Drive side waits for). Write it as Continuum's own code, assembled with an SH-2 assembler you build from source in scratch (GNU binutils builds for sh-elf in a few minutes), and prove it by booting open-licensed 32X homebrew in a host build of BlastEm. No time box: keep at it until it boots real 32X homebrew in the host build. Never ship start-up code that has not booted something. Only if it is truly impossible here (name the reason; slow or hard is not a reason) keep the existing needs-the-BIOS line exactly as it is, so nothing gets worse, and write what you learned into the report.",
+      "progress": "Stopped mid-way at about 5:53 AM Eastern on 14 October (the helper was cut off). In scratch: GNU binutils 2.43.1 for sh-elf and m68k-elf are built (/projects/sandbox/.scratch/link-tmp/tools/bin); the start-up code draft is link-tmp/boot32x/continuum_32x_boot.s, with gen_header.py turning it into continuum_32x_boot.h (dbg*.s are debugging variants); host BlastEm builds with it are link-tmp/blastem-h5 and blastem-h5g; 32X documentation is in link-tmp/32x-docs and openly licensed homebrew in link-tmp/32x-homebrew. Uncommitted in the link-work clone: crates/emulator-bridge/tests/blastem_frontend.rs (+93 lines, a test a_32x_game_starts_with_no_32x_files, FAILING at that point) and crates/emulator-bridge/tests/zz_probe_32x.rs (a throwaway probe: never commit it). Where it stood: with no BIOS files BlastEm says 'Continuum's own start-up code runs this SH-2' for both SH-2s, but the homebrew does not boot yet. Carry on from there; never ship start-up code that has not booted something."
+    },
+    {
+      "id": "H3",
+      "done": false,
+      "title": "Mesen 2 as the second SNES choice",
+      "detail": "Last night checked and did not offer it, for a good reason: everything the Continuum Mesen patch gives the NES (memory for RAM search and achievements, cheats, and letting the app own the battery save) is written NES-only, so SNES players would have lost all three. Extend the patch (scripts/patches/mesen2-nes-memory-cheats-saves.patch, or a new mesen2-snes-*.patch) so the SNES gets the same three: the console's work RAM and the cartridge's save RAM exposed to the app, typed SNES cheat codes (Game Genie and Pro Action Replay) reaching Mesen's own cheat code, and the battery save owned by the app like every other core. Build Mesen 2 for the host, boot open-licensed SNES homebrew through the engine, and prove a battery save round-trips, a save state round-trips and a cheat changes memory. Compare its speed with bsnes on the host and write the numbers down. Then offer it as the second core for SNES (bsnes stays the default). If one of the three cannot be made to hold tonight, do not offer it, and say exactly what is left."
     },
     {
       "id": "H6",
@@ -69,5 +70,8 @@
       "title": "Write it up",
       "detail": "Write docs/reports/evening-2026-10-13.md: what landed, each as 'Built, untested'; what the tests prove; what is left and why; and a short numbered list of phone checks in the owner's plain, casual voice, one per thing a player can see. Do NOT edit STATUS.md, TESTING.md or HANDOFF.md: the orchestrator folds the three reports in. Then set the top-level complete to true."
     }
+  ],
+  "notes_14_october": [
+    "Order now: H5 (resume it first, while its scratch work is fresh), then H3, then H6. One helper does all three in turn, in link-work. For H3 build Mesen 2 and bsnes for the host in /projects/sandbox/.scratch/link-tmp. The build file's cache rules changed on 14 October (3651403, 1de468f, d8d8654: 'WHAT COUNTS' above ios_cache_scan): keep each core's patch steps and helpers inside its own region and run scripts/check-core-cache.sh after every build-core.sh or patch change."
   ]
 }

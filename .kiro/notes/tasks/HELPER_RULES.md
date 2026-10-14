@@ -9,7 +9,7 @@ job. The owner is a non-programmer who only uses an iPhone and tests only the fi
 
 - Repo: `https://github.com/2c2bhdhw9z-cell/Continuum-.git` (git and gh are already
   authenticated). Branch: `master`.
-- Your clone's path is in your prompt. If it doesn't exist:
+- Your clone's path is in your prompt or in your checklist's `"repo"` field. If it doesn't exist:
   `git clone https://github.com/2c2bhdhw9z-cell/Continuum-.git <path>`. If it exists:
   `git -C <path> pull --rebase origin master`.
 - Work only inside your clone, plus a scratch folder of your own,

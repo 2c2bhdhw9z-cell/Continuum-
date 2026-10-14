@@ -52,5 +52,8 @@
       "title": "Write it up",
       "detail": "docs/reports/core-updates-2026-10-14.md: for each of the four, taken or not, what changed for players in one or two plain sentences, whether old save states still load, and the heads-up line players will see. Regenerate docs/CORE_UPDATES.md (GIT_CONFIG_GLOBAL=/dev/null bash scripts/check-core-updates.sh) so it shows them as current. Then set the top-level complete to true."
     }
+  ],
+  "notes_14_october": [
+    "The build file's cache rules changed on 14 October (3651403, 1de468f, d8d8654: 'WHAT COUNTS' above ios_cache_scan): pins stay inside each core's own region, and scripts/check-core-cache.sh must pass after every change. Prove a pin move rebuilds only that core: `bash scripts/build-core.sh ios-fingerprint <core>` for it and for one other core, before and after."
   ]
 }

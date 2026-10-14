@@ -60,5 +60,8 @@
       "title": "Write it up",
       "detail": "Write docs/reports/evening-2026-10-13-text.md: what was shortened (a few before-and-after examples), what was removed, where the read-outs went, and every TESTING.md step whose quoted wording changed. Then set the top-level complete to true."
     }
+  ],
+  "notes_14_october": [
+    "Restarted 14 October after the Home-screen job (light mode, Game card size, the strip's messages as pop-ups), so rebase first and keep its new rows and colours. T4 must be a fresh iteration that did not write T2 or T3."
   ]
 }

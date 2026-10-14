@@ -67,5 +67,8 @@
       "title": "Write it up",
       "detail": "Write docs/reports/evening-2026-10-13-library.md: what changed, each as 'Built, untested'; what the owner should try on the phone, as a short numbered list in their plain, casual voice (scroll Home and watch the covers pass under the tabs; the '80 games' strip is gone; where the game count lives now; an import shows its result as a pop-up line that fades; Settings, Game card size, try each size on Home and All Games; Settings, Appearance, try Light on every tab and in a game's card, then System and switch the iPhone between light and dark in Control Centre); and the TESTING.md lines that need rewording because of U2. Then set the top-level complete to true."
     }
+  ],
+  "notes_14_october": [
+    "Restarted 14 October after service throttling stopped the first attempt before it pushed anything. Since U1, other jobs changed native/ios: the icons job (one SF Symbol, 5b10c45) and the shorter-text job (strings across Settings, the game card, save slots, import, skins, feedback; read-outs moved into Settings, Technical details). Rebase first and build on their text; the shorter-text job's remaining screens run after this job, not alongside it. U4 must be a fresh iteration that did not write U2 to U3b. Start docs/reports/evening-2026-10-13-library.md with U2 and add to it as each item lands."
   ]
 }
