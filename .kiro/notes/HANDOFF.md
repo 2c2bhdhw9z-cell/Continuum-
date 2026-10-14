@@ -15,7 +15,8 @@ Paste this to start a new chat:
   Only build 185 is left, plus `core-mirror-1`, which isn't an install: it held the build's frozen
   copies of the 16 downloaded emulators and was deleted by mistake with the old releases, then
   re-created empty. **Do `.kiro/notes/tasks/mirror-restore.json` before any build**, or DOOM,
-  Jaguar, Virtual Boy and C64 come out as the newer builds turned down on 12 October. Links to older
+  Jaguar, Virtual Boy and C64 come out as the newer builds turned down on 12 October. Nothing
+  is lost: the checked builds are still inside build 185's install, and the job says how to use them. Links to older
   builds in these notes no longer work; their code is still in git.
 - **Newest published install: build 185** (`393f12c`, 13 October), checked: 0.8.0 (185), 36 core
   files: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-185-393f12c/Continuum-185.ipa
