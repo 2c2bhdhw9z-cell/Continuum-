@@ -39,7 +39,8 @@
     },
     {
       "id": "H2",
-      "done": false,
+      "done": true,
+      "result": "Pushed as 6c5ab60: MAME's list says Sampras Tennis 96 has no save chip (plain J-Cart), so it got its J-Cart; every EEPROM and J-Cart dump in MAME's list (40) is now in BlastEm's cartridge list by checksum, with NFL Quarterback Club's last megabyte, Micro Machines 96's second J-Cart and the save-RAM Rockman Mega World fixed; tested by parsing the patch by BlastEm's rules against MAME's numbers, applying it to the pinned source, and loading generated cartridges through a host-built BlastEm.",
       "title": "The EEPROM save in Sampras Tennis 96, and every other Mega Drive EEPROM cartridge",
       "detail": "Last night found that the save item named the wrong game: Pete Sampras Tennis 96 is the one with an EEPROM, and its BlastEm cartridge entry needs that cartridge's real checksum and EEPROM layout, which were not guessed. MAME's software lists are CC0-licensed data: hash/megadriv.xml in the MAME repository lists each Mega Drive cartridge's CRC32 and SHA1 and its save hardware. Read the entries from there (fetch the one file into scratch, never commit it), add the cartridge entry to BlastEm's cartridge list in scripts/patches/blastem-continuum-memory.patch (or a new blastem-*.patch), and check every other EEPROM Mega Drive cartridge in that list against BlastEm's (the Codemasters Micro Machines games, the EA sports games, the Sega ones), adding any that are missing. Unit-test that the patch applies and the entries parse. Say in the report which games now save that did not."
     },
