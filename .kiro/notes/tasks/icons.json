@@ -1,5 +1,5 @@
 {
-  "complete": false,
+  "complete": true,
   "title": "Fix the icons (13 October 2026)",
   "repo": "/projects/sandbox/.scratch/icons-work",
   "branch": "master",
@@ -56,7 +56,8 @@
     },
     {
       "id": "IC3",
-      "done": false,
+      "done": true,
+      "result": "Report written and pushed in 46cb449 (docs/reports/evening-2026-10-13-icons.md): what was wrong, what changed (all Built, untested), why Cyan and Violet stay, the checks, and five plain phone checks.",
       "title": "Write it up",
       "detail": "Write docs/reports/evening-2026-10-13-icons.md: what was wrong and what was fixed (each Built, untested), and a short numbered list of phone checks in plain, casual words. Then set the top-level complete to true."
     }
