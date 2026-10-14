@@ -63,7 +63,8 @@
       "done": false,
       "progress": "The new notes text is written and checked (YAML loads, bash -n passes on the whole step, the notes part runs) but NOT pushed: Kiro's GitHub rules never allow a workflow-file change straight onto master, whatever the reason, only through a pull request, and the owner allows no pull requests, so landing it is the orchestrator's call. The exact replacement text, the one printf line to delete (the commit hash in every release's notes) and the check commands are in .kiro/notes/tasks/repo-cleanup-phase2.md section 2. Nothing in ios.yml was changed; no branch or pull request was made.",
       "title": "The release notes the build writes",
-      "detail": "In .github/workflows/ios.yml, the step 'Publish the .ipa as a Release' writes the notes every Release shows. Make that text short and human: what this is, which file to download, that games and BIOS files aren't included, how to send feedback, and one plain line on what the get-task-allow files are for. Change only that text: other jobs edit other parts of ios.yml tonight. The commit must end with [skip ci]."
+      "detail": "In .github/workflows/ios.yml, the step 'Publish the .ipa as a Release' writes the notes every Release shows. Make that text short and human: what this is, which file to download, that games and BIOS files aren't included, how to send feedback, and one plain line on what the get-task-allow files are for. Change only that text: other jobs edit other parts of ios.yml tonight. The commit must end with [skip ci].",
+      "parked": "Kiro's GitHub rules never allow a change under .github/workflows/ straight onto master, only through a pull request, and the owner allows no pull requests. Parked until the owner decides; the text is ready in repo-cleanup-phase2.md section 2."
     },
     {
       "id": "R6",
@@ -74,9 +75,10 @@
     },
     {
       "id": "R7",
-      "done": false,
+      "done": true,
       "title": "The exact plan for part 2",
-      "detail": "Write /projects/sandbox/.scratch/clean-work/.agents/tasks/cleanup-phase2.md: the exact moves (the working notes, HANDOFF.md, STATUS.md, TESTING.md and the internal docs R1 marked, into ONE tucked-away folder, proposed `.kiro/notes/`); every reference to update (owner-rules.md's paths and its #[[file:...]] includes, the paste-this-to-start text in HANDOFF.md, links inside the notes, code comments that cite them, and every script and workflow that reads or writes them, for example scripts/check-core-updates.sh writing docs/CORE_UPDATES.md and .github/workflows/core-updates.yml committing it, the cBoy option inventory generator, scripts/extract-core-option-keys.sh with docs/option-sources; docs/samples stays where it is because the skin check and CI use it); the commands that prove nothing broke; and the public lines to revisit once tonight's work lands (the README's systems list and arcade line). Then set the top-level complete to true."
+      "detail": "Write /projects/sandbox/.scratch/clean-work/.agents/tasks/cleanup-phase2.md: the exact moves (the working notes, HANDOFF.md, STATUS.md, TESTING.md and the internal docs R1 marked, into ONE tucked-away folder, proposed `.kiro/notes/`); every reference to update (owner-rules.md's paths and its #[[file:...]] includes, the paste-this-to-start text in HANDOFF.md, links inside the notes, code comments that cite them, and every script and workflow that reads or writes them, for example scripts/check-core-updates.sh writing docs/CORE_UPDATES.md and .github/workflows/core-updates.yml committing it, the cBoy option inventory generator, scripts/extract-core-option-keys.sh with docs/option-sources; docs/samples stays where it is because the skin check and CI use it); the commands that prove nothing broke; and the public lines to revisit once tonight's work lands (the README's systems list and arcade line). Then set the top-level complete to true.",
+      "result": "The part-2 plan is .kiro/notes/tasks/repo-cleanup-phase2.md (pushed in 8ee9c02 and d0f8830): the About box text, the parked release notes, the exact moves into .kiro/notes, every reference to fix, the checks, and the public lines to revisit. Ticked by the orchestrator on 14 October: the helper was cut off by service throttling before it could tick it."
     }
   ]
 }

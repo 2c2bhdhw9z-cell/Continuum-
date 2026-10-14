@@ -45,7 +45,8 @@
       "id": "T3",
       "done": false,
       "title": "The other screens",
-      "detail": "The game card (GameDetailSheet.swift), save slots, import and the + menu, skins and the controls editor, feedback and the crash report, the backup prompts, and any other long explanation in native/ios. Core settings: each emulator writes its own option descriptions (cBoy's are another job's), but the app's own text on that screen is yours. Online play and link screens last, after a fresh rebase."
+      "detail": "The game card (GameDetailSheet.swift), save slots, import and the + menu, skins and the controls editor, feedback and the crash report, the backup prompts, and any other long explanation in native/ios. Core settings: each emulator writes its own option descriptions (cBoy's are another job's), but the app's own text on that screen is yours. Online play and link screens last, after a fresh rebase.",
+      "progress": "14 October: the first T3 helper was cut off by service throttling after pushing these screens: the game card (5cf4a2d), save slots (b799c7b), import (4abac4b), cheats and RAM search (0f38af7), skins and the controls editor (ccbff28), feedback and the crash question (f3c66ef), the backup question (a98e731), the empty library screens (cbe37fe), and the cover chooser plus the core settings screen's own lines (86a800d, saved by the orchestrator from its uncommitted work). Left: a sweep of native/ios for any other long explanation (grep every string literal over about 120 characters and every Text with more than one sentence), then the online-play and link screens last, after a fresh rebase. Its running report is docs/reports/evening-2026-10-13-text.md if it was started; if not, start it."
     },
     {
       "id": "T4",
