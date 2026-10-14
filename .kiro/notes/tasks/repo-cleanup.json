@@ -39,7 +39,8 @@
     },
     {
       "id": "R2",
-      "done": false,
+      "done": true,
+      "result": "Rewrote README.md in a plain voice (commit 6f77e14): what Continuum is, two tables of what it plays (13 rows played on an iPhone, 20 not much tested yet, each with its emulator, read from CoreCatalog and GameSystem; Symbian left out because no phone has run a game, arcade one line), how to get it with no signing app named, a short list of what it does (untested things marked new), cBoy, adding games, feedback to ContinuumDev2c2b@gmail.com, credits and the GPL-3.0 licence, with no links to the internal notes; 6 relative links, 0 broken.",
       "title": "A README a visitor wants to read",
       "detail": "Rewrite README.md in a human voice: what Continuum is (an all-in-one emulator for iPhone, free and open source, in public beta, not on the App Store); what it plays (check the real list of systems in the app today, after the 12 October licence swap; arcade is out for now unless Continuum's own arcade emulator lands tonight, so write what is true now and note in the part-2 plan to revisit it); how to get it (the latest-release link, sideload the .ipa with any signing app, never naming one tool as the only way; games and BIOS files not included); what it does, as a short plain list; that it has emulators of its own (cBoy, for Game Boy, Game Boy Color and Game Boy Advance, written from scratch); feedback (ContinuumDev2c2b@gmail.com, or Send feedback in the app); credits and licence (GPL-3.0, each emulator's own licence and credit listed in the app under Settings, About, and thanks to the people who make them). Keep every true fact from the current README, drop anything that reads like internal notes."
     },
