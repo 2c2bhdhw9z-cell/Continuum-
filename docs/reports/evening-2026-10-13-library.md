@@ -8,8 +8,8 @@ System. Everything here is **Built, untested**: nothing has been on a phone yet.
 
 - U1, the tabs float and the covers scroll under them: `a06aeec` (an earlier session).
 - U2, the "80 games" strip is gone: `c3e8bac`, below.
-- U3 (Game card size), U3b (light mode), U4 (a fresh review) and U5 (the write-up): added here as
-  each one lands.
+- U3, Settings → Layout → Game card size: `d31c627`, below.
+- U3b (light mode), U4 (a fresh review) and U5 (the write-up): added here as each one lands.
 
 ## U2: the "● 80 games ^" strip is gone (`c3e8bac`) — Built, untested
 
@@ -97,3 +97,91 @@ System. Everything here is **Built, untested**: nothing has been on a phone yet.
 - Line 792, Test 1 "You should see": "A thin line of small text above the tabs. Tapping it opens
   the diagnostic block." Now: a little dot at the top right, next to +; tapping it opens the
   diagnostic block.
+
+## U3: Game card size (`d31c627`) — Built, untested
+
+**Settings → LAYOUT → Game card size**, right under "All Games: Grid / List": Extra small, Small,
+Medium, Large. Medium is the default and exactly the size the cards always were, so nobody's app
+changes until they pick something. No line of explanation under it; the four choices say it all.
+
+### What each size does
+
+Covers in a grid row (All Games and Favorites), iPhone in portrait:
+
+| Size | 375-428 pt wide phones | 430 and 440 pt (Plus, Pro Max) | Grid card | Home shelf card |
+| --- | --- | --- | --- | --- |
+| Extra small | 6 | 7 | 50 × 67 pt | 64 × 85 pt, about 5 on screen |
+| Small | 4 | 4 | 78 × 104 pt | 92 × 123 pt, about 3½ |
+| Medium (today) | 3 | 3 | 110 × 147 pt | 124 × 165 pt, about 2¾ |
+| Large | 2 | 2 | 160 × 213 pt | 160 × 213 pt, about 2 |
+
+In landscape (852 pt) the grid holds 14, 9, 7 and 4. Shorter cards also mean more rows fit
+down the screen, on Home as well as in the grids.
+
+- **Home:** every shelf's cards (Recently added and each system's shelf) change width, height and
+  the gap between them. The big featured cover at the top doesn't change.
+- **All Games and Favorites:** they share one grid, so both follow the setting. The List layout
+  has no covers to resize and stays as it is.
+- **Text scales with the card:** the system badge, the favourite star, the corners, the title
+  under a grid card (10, 11, 12 and 14 pt, still two lines at most) and the line under it. At Extra
+  small the line under the title ("NES · USA · 24.0 KB") is left out; the badge already says the
+  system. On a small favourite the badge shrinks to fit beside the star instead of running under
+  it. On a game with no cover, the title on its coloured plate scales too, so at Extra small a Home
+  shelf still says which game it is (in a small grid card the title is right under the cover, so
+  the plate leaves it out there, the same way it always did under 92 pt).
+- **Live:** the Library observes the setting, so Home and the grids redraw at the new size at once,
+  with no restart.
+- **Saved like the other settings:** `continuum.library.cardSize.v1`, next to the Grid/List
+  choice's key. It's a plain `continuum.` key that no exclusion list matches, so it travels in
+  `Settings/defaults.plist` with sync and with Back up to Files, the same as Grid/List.
+
+### What changed in the code
+
+- `LibraryShell.swift`: `LibraryCardSize` (the four sizes and every number for each, Medium's
+  copied from the old code), and the grid and the shelves read `host.libraryCardSize`.
+- `LibraryCards.swift`: `CoverCard`, `SystemBadge` and `ShelfRow` take the size, defaulting to
+  Medium. The badge got one line and a 0.7 shrink limit, which changes nothing for a badge that
+  fits (every badge at Medium does).
+- `GameArtwork.swift` (`ArtPlate`) and `ArtworkStore.swift` (`CoverArtView`): a `captionScale` for
+  the plate's caption, defaulting to 1. The hero, the list rows, the game's card and the artwork
+  chooser keep the default.
+- `ContinuumApp.swift`: `EngineHost.libraryCardSize`, stored and read back like `libraryLayout`.
+- `SettingsScreen.swift`: the one new row in LAYOUT.
+
+### What was checked
+
+- `swiftc -frontend -parse` on all six changed Swift files.
+- Medium matches the old numbers one for one: 124 pt shelf cards 12 apart; grid columns 104 to
+  150 pt, 12 apart and 16 down; 110 pt grid cards; corners 10; badge 10 pt bold rounded, padding
+  6 and 3, corner 6, inset 6; star 11 pt, padding 5, inset 6; title 12 pt semibold, two lines;
+  the line under it 10 pt, one line, no shrinking (`minimumScaleFactor(1)` is SwiftUI's default);
+  plate caption at scale 1. The one new rule, `showsCaption: !showsLabel || width >= 92`, gives
+  the same answer as the old `width >= 92` for both Medium cards (124 on a shelf, 110 in the grid).
+- The size table, taken out of the file, built with swiftc and run through the adaptive grid's
+  arithmetic for nine screen widths (375 to 440 pt, and 852 in landscape). That's where the
+  covers-per-row numbers above come from. Away from Medium, every card fits inside its column on
+  every width. (Medium's 110 pt card in a 106 pt column on a 375 pt phone was already like that.)
+- No new kind of API. `GridItem.adaptive`, `lineLimit`, `minimumScaleFactor`, `.font(.system(size:
+  weight:design:))` and `background(_:in:)` were already used in these files. Each new parameter
+  is a defaulted `var` after the existing ones, so every caller in other files still works:
+  `ArtworkChooser` calls `ArtPlate`, and `GameDetailSheet` and the hero call `CoverArtView`.
+- No Rust was touched.
+
+### Phone checks (for TESTING.md, in the owner's words)
+
+1. Go to **Settings → Layout**. Under All Games there's **Game card size**, set to Medium. Home
+   and All Games look exactly like before.
+2. Pick **Extra small**, then go to **All Games**. About twice as many covers fit in a row (6
+   instead of 3), and you can see a lot more games without scrolling. The names under the covers
+   are smaller but still readable.
+3. Go to **Home**. The covers in every row are smaller too, so more rows fit on screen. The big
+   cover at the top is the same as before.
+4. Try **Small** (4 in a row) and **Large** (2 in a row). Each change shows right away, no
+   restart.
+5. Star a game and look at it at **Extra small**. The little star and the system name at the top
+   of the cover don't overlap.
+
+### TESTING.md lines that are out of date because of U3
+
+None. Its one Library layout line, "Library layout, Grid and List | Works" (line 708), is still
+true.
