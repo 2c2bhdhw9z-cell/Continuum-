@@ -45,8 +45,35 @@ each under the name of the section it came from.
   bottom)." Nothing in it was a choice. JIT's own switch in TECHNICAL DETAILS already says it makes
   PSP faster, and a PSP disc is still asked about when the app can't tell.
 
+### BIOS
+
+- The paragraph and its wall of file names ("A few systems need a BIOS file from the real console,
+  and I can't include those. Drop yours in the Files app under On My iPhone, Continuum (or import
+  it with the + button), then tap the button below. If a game needs one, it'll tell you which file.
+  Names it looks for: scph1001.bin, scph5501.bin, ...") became **"Put BIOS files in the Continuum
+  folder in Files (or add them with +), then tap the button below. Each system below says what it
+  needs."** The button is still **Install a BIOS from the Continuum folder** (the engine's launch
+  messages, cBoy's options and the README all send people to it by that name).
+- Each system's line is now plain text instead of typewriter text, and says it the way a person
+  would:
+  - "Sega CD / MISSING, will not start: needs bios_CD_U.bin or bios_CD_E.bin or bios_CD_J.bin"
+    became **"Sega CD: needs bios_CD_U.bin, bios_CD_E.bin or bios_CD_J.bin"**;
+  - "DOOM / found prboom.wad" became **"DOOM: ready"**;
+  - "PCSX ReARMed (PS1) / found scph5501.bin" became **"PCSX ReARMed (PS1): using scph5501.bin"**;
+  - "Handy (Atari Lynx) / none, optional (lynxboot.img)" became **"Handy (Atari Lynx): works
+    without a BIOS (looks for lynxboot.img)"**.
+  - The 32X's two files used to be two lines (a "found" could sit beside a "MISSING" for the same
+    system). They are one line now: "Sega 32X: needs 32X_M_BIOS.bin and 32X_S_BIOS.bin", only the
+    one still missing, or "Sega 32X: ready". This is the only place where the number of lines
+    changed; the check itself (which files count, where it looks) is the same.
+- Read-outs: **State** ("BIOS (pcsx_rearmed): none, HLE fallback" and so on) moved to TECHNICAL
+  DETAILS → BIOS, and the full list of names the install button recognises went with it as
+  **Names it looks for**, so nothing was lost: every name a system needs is also on its own line.
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)
 
-- None yet for T2's COVER ART.
+- **R9** (Beetle PSX HW with no BIOS: "the BIOS line says so"): the Settings BIOS line is now in
+  **Settings → TECHNICAL DETAILS → BIOS → State**. The same line is still in the player's (i)
+  small text.

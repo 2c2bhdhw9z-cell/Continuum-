@@ -2001,24 +2001,32 @@ final class EngineHost: ObservableObject {
         FeedbackCenter.step("core choice: \(entry.name) -> \(coreId.isEmpty ? "system default" : coreId)")
     }
 
-    /// One line per system or core that uses firmware, for the Settings BIOS section: what is
-    /// there, what is missing, and whether missing means "will not start" or "built-in
-    /// replacement used". Read fresh from the system folder each time Settings asks.
+    /// One line per system or core that uses firmware, for the Settings BIOS section, in plain
+    /// words: "Sega CD: needs bios_CD_U.bin, bios_CD_E.bin or bios_CD_J.bin", "DOOM: ready",
+    /// "Handy (Atari Lynx): works without a BIOS (looks for lynxboot.img)". Read fresh from the
+    /// system folder each time Settings asks.
     func firmwareChecklist() -> [(label: String, value: String)] {
         let dir = systemDirectory()
         func present(_ names: [String], _ subfolder: String?) -> [String] {
             guard let dir else { return [] }
             return names.filter { Self.firmwarePresent($0, subfolder: subfolder, in: dir) }
         }
+        /// "a, b or c": any one of them will do.
+        func anyOf(_ names: [String]) -> String {
+            guard names.count > 1, let last = names.last else { return names.first ?? "" }
+            return names.dropLast().joined(separator: ", ") + " or " + last
+        }
         var rows: [(label: String, value: String)] = []
+        // One line per system, so the 32X's two files read as one line rather than as a "ready"
+        // beside a "needs" for the same system.
         for system in GameSystem.allCases {
-            for need in CoreCatalog.requiredFirmware[system] ?? [] {
-                let found = present(need.names, need.subfolder)
-                rows.append((label: system.displayName,
-                             value: found.isEmpty
-                                ? "MISSING, will not start: needs \(need.names.joined(separator: " or "))"
-                                : "found \(found.joined(separator: ", "))"))
-            }
+            let needs = CoreCatalog.requiredFirmware[system] ?? []
+            guard !needs.isEmpty else { continue }
+            let missing = needs.filter { present($0.names, $0.subfolder).isEmpty }
+            rows.append((label: system.displayName,
+                         value: missing.isEmpty
+                            ? "ready"
+                            : "needs " + missing.map { anyOf($0.names) }.joined(separator: " and ")))
         }
         for spec in CoreCatalog.all where !spec.biosNames.isEmpty {
             let found = spec.biosNames.filter { name in
@@ -2026,11 +2034,11 @@ final class EngineHost: ObservableObject {
             }
             let value: String
             if !found.isEmpty {
-                value = "found \(found.joined(separator: ", "))"
+                value = "using \(found.joined(separator: ", "))"
             } else if spec.biosRequired {
-                value = "MISSING, will not start: needs \(spec.biosNames.joined(separator: " or "))"
+                value = "needs \(anyOf(spec.biosNames))"
             } else {
-                value = "none, optional (\(spec.biosNames.joined(separator: ", ")))"
+                value = "works without a BIOS (looks for \(spec.biosNames.joined(separator: ", ")))"
             }
             rows.append((label: spec.displayName, value: value))
         }

@@ -470,6 +470,13 @@ struct SettingsScreen: View {
                 SettingsReadout(label: "Cover lists", value: artwork.coverListLine)
                 SettingsReadout(label: "Last", value: artwork.line)
             }
+            TechnicalReadoutGroup(title: "BIOS") {
+                SettingsReadout(label: "State", value: host.bios.isEmpty
+                                ? "no core in this build needs a BIOS file except the PlayStation cores"
+                                : host.bios)
+                // Every name the install button acts on, which used to end the BIOS note.
+                SettingsReadout(label: "Names it looks for", value: CoreCatalog.biosNameList())
+            }
         }
     }
 
@@ -584,16 +591,11 @@ struct SettingsScreen: View {
 
     private var biosSection: some View {
         SettingsSection(title: "BIOS") {
-            SettingsReadout(label: "State", value: host.bios.isEmpty
-                            ? "no core in this build needs a BIOS file except the PlayStation cores"
-                            : host.bios)
-
+            // The STATE read-out and the full list of file names it recognises are in TECHNICAL
+            // DETAILS (`moreTechnicalReadouts`). Each row below names its own files.
             SettingsNote(
-                "A few systems need a BIOS file from the real console, and I can't include those. "
-                + "Drop yours in the Files app under On My iPhone, Continuum (or import it with "
-                + "the + button), then tap the button below. If a game needs one, it'll tell you "
-                + "which file. Names it looks for: "
-                + CoreCatalog.biosNameList() + "."
+                "Put BIOS files in the Continuum folder in Files (or add them with +), then tap "
+                + "the button below. Each system below says what it needs."
             )
 
             SettingsButton(title: "Install a BIOS from the Continuum folder", role: .normal) {
@@ -604,7 +606,7 @@ struct SettingsScreen: View {
             // `status` is read so the list re-renders after the install button above.
             let _ = host.status
             ForEach(Array(host.firmwareChecklist().enumerated()), id: \.offset) { _, row in
-                SettingsReadout(label: row.label, value: row.value)
+                SettingsNote("\(row.label): \(row.value)")
             }
         }
     }
