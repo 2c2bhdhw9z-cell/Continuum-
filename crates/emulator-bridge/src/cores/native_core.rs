@@ -543,10 +543,11 @@ pub fn last_core_log_line() -> String {
 
 /// The reason to show when `retro_load_game` fails, from the core's last log line, for the cores
 /// this project wrote, whose refusals are sentences written for people: cBoy starts every line
-/// with `cBoy: `, and Continuum Symbian logs nothing but its refusals. Any other core's log lines
-/// are not meant for testers, so the generic reason stays for those (None).
+/// with `cBoy: ` and cArcade with `cArcade: `, and Continuum Symbian logs nothing but its
+/// refusals. Any other core's log lines are not meant for testers, so the generic reason stays for
+/// those (None).
 fn refusal_from_log(core_id: &str, logged: &str) -> Option<String> {
-    let text = match logged.strip_prefix("cBoy: ") {
+    let text = match logged.strip_prefix("cBoy: ").or_else(|| logged.strip_prefix("cArcade: ")) {
         Some(rest) => rest,
         None if core_id == "continuum_symbian" => logged,
         None => return None,
@@ -2092,6 +2093,11 @@ mod tests {
         assert_eq!(refusal_from_log("mgba", "[GBA] cartridge header bad"), None);
         assert_eq!(refusal_from_log("continuum_symbian", "  "), None);
         assert_eq!(refusal_from_log("continuum_gb", "cBoy: "), None);
+        let arcade = "This one needs mspacman.zip next to it.";
+        assert_eq!(
+            refusal_from_log("continuum_arcade", &format!("cArcade: {arcade}\n")).as_deref(),
+            Some(arcade)
+        );
     }
 
     // The negotiated-format global is process-wide, so the format tests must not race each

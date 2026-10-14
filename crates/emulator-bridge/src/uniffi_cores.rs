@@ -48,6 +48,14 @@ pub fn launch_failure_line(game_name: String, core_name: String, reason: String,
     launch_failure::line_for(&game_name, &core_name, &reason, graphics)
 }
 
+/// The player's line when `core_id` refused a game with `refusal` (the reason of a rejected
+/// content error), for a core whose refusals are already written for players (cArcade); none for
+/// every other core, whose line is `launch_failure_line`'s.
+#[uniffi::export]
+pub fn launch_refusal_line(core_id: String, refusal: String) -> Option<String> {
+    launch_failure::own_line(&core_id, &refusal)
+}
+
 /// What a SNES cartridge with a chip inside it needs before it can start.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct SnesChipNeed {

@@ -101,7 +101,7 @@ IOS_CORES=(fceumm mesen2 mgba bsnes gearsystem blastem pcsx_rearmed mednafen_psx
 # flycast (Dreamcast) is built here, not fetched: the libretro iOS buildbot's flycast contains the
 # ARM64 dynarec and refuses to run without JIT. Interpreter only (TARGET_NO_REC); see its
 # ios_core_config entry. It has built green and shipped in every IPA since build 119.
-IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb)
+IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade)
 # not-a-build-input-end: lists
 
 # THE JIT BUILDS (pcsx_rearmed_jit, parallel_n64_jit, flycast_jit). Same source and pin as the
@@ -579,6 +579,18 @@ ios_core_config() {
       IOS_DISPLAY="Game Boy / Color / Advance, cBoy (own Rust core), optional"
       ;;
     # recipe-end: continuum_gb
+    # recipe-start: continuum_arcade
+    continuum_arcade)
+      # Arcade. cArcade: this project's own arcade emulator, written in Rust in
+      # cores/continuum-arcade (no upstream, so no repo or pin), the only arcade core. OPTIONAL: a
+      # failure leaves the .ipa without it, and arcade games keep their "not playable" line.
+      IOS_REPO=""
+      IOS_PIN=""
+      IOS_DYLIB_NAME="continuum_arcade_libretro_ios.dylib"
+      IOS_KIND="cargo-continuum-arcade"
+      IOS_DISPLAY="Arcade, cArcade (own Rust core), optional"
+      ;;
+    # recipe-end: continuum_arcade
     # recipe-start: continuum_symbian
     continuum_symbian)
       # Symbian / N-Gage. Continuum Symbian: native/continuum-symbian (this project's libretro
@@ -1050,6 +1062,22 @@ build_ios_continuum_gb_core() {
   ios_stage_dylib "$built" "$IOS_DYLIB_NAME"
 }
 # recipe-end: continuum_gb
+
+# recipe-start: continuum_arcade
+# cArcade (cores/continuum-arcade): built exactly as cBoy is, a plain cargo cdylib for
+# aarch64-apple-ios on the pinned toolchain, staged through the same symbol and install-name checks.
+build_ios_continuum_arcade_core() {
+  local core="$1"
+  local crate="$ROOT/cores/continuum-arcade"
+  echo "==> building $core ($IOS_DISPLAY)"
+  ( cd "$crate" && rustup target add aarch64-apple-ios >/dev/null \
+      && IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-15.0}" \
+         cargo build --release --target aarch64-apple-ios )
+  local built="$crate/target/aarch64-apple-ios/release/libcontinuum_arcade.dylib"
+  [[ -f "$built" ]] || { echo "error: $core: cargo produced no $built" >&2; exit 1; }
+  ios_stage_dylib "$built" "$IOS_DYLIB_NAME"
+}
+# recipe-end: continuum_arcade
 
 build_ios_make_core() {
   local core="$1"
@@ -1788,6 +1816,12 @@ build_ios_core() {
     build_ios_continuum_gb_core "$core"
     return
   fi
+  # recipe-start: continuum_arcade
+  if [[ "$IOS_KIND" == "cargo-continuum-arcade" ]]; then
+    build_ios_continuum_arcade_core "$core"
+    return
+  fi
+  # recipe-end: continuum_arcade
   ios_clone "$core"
   ios_apply_core_patches "$core"
 

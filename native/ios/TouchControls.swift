@@ -338,8 +338,8 @@ enum GameSystem: String, Sendable, CaseIterable {
     case atari7800
     /// Atari 5200.
     case atari5200
-    /// Arcade romsets. No core in this version (owner, 12 October 2026): they list in the Library
-    /// and open to one line until Continuum has its own arcade core.
+    /// Arcade romsets, on cArcade, Continuum's own arcade emulator (the owner allows no outside
+    /// arcade core, 12 October 2026). A build without cArcade lists them and opens them to one line.
     case arcade
     /// Nintendo Pokemon Mini.
     case pokemini
@@ -825,9 +825,10 @@ enum GameSystem: String, Sendable, CaseIterable {
                 + Self.systemPair(select: "PAUSE", start: "START")
 
         case .arcade:
-            // No arcade core in this version, so this pad is never drawn for a game; kept for the
-            // arcade core Continuum will have. Labels are positions: six buttons (Y X L over B A
-            // R), Select is Coin and Start is Start, the usual arcade arrangement.
+            // cArcade (cores/continuum-arcade/src/libretro.rs, read_controls): the D-pad is the
+            // stick, B A Y X L R are the panel's buttons one to six, Select is Coin and Start is
+            // Start; X is also player 2's start. Labels are positions: six buttons (Y X L over B A
+            // R), the usual arcade arrangement.
             return Self.sixFace(top: [(.y, "3"), (.x, "4"), (.l, "5")],
                                 bottom: [(.b, "1"), (.a, "2"), (.r, "6")])
                 + Self.systemPair(select: "COIN", start: "START")

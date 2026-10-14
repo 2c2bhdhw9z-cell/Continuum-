@@ -65,6 +65,22 @@ pub fn line_for(game_name: &str, core_name: &str, reason: &str, graphics: bool) 
     line(game_name, core_name, trouble(reason, graphics))
 }
 
+/// Cores whose refusals are already the sentence a player should read. cArcade, Continuum's own
+/// arcade emulator, says which games it plays, or which zip would fix the copy ("This one needs
+/// mspacman.zip next to it."), and its words ("missing a piece", "chip") would otherwise read as
+/// a missing BIOS file.
+const SPEAKS_FOR_ITSELF: [&str; 1] = ["continuum_arcade"];
+
+/// What the engine says when a core refused a game without saying why (`native_core.rs`).
+const UNEXPLAINED: &str = "retro_load_game rejected the content";
+
+/// The player's line for a refused game when `core_id` is one of those cores and gave its own
+/// reason (`refusal`); otherwise None, and `line_for` decides.
+pub fn own_line(core_id: &str, refusal: &str) -> Option<String> {
+    let own = refusal.trim();
+    (SPEAKS_FOR_ITSELF.contains(&core_id) && !own.is_empty() && own != UNEXPLAINED).then(|| own.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,6 +118,16 @@ mod tests {
             // Two sentences of advice at most, and it always says what to try.
             assert!(line.len() < 220, "{line}");
         }
+    }
+
+    #[test]
+    fn the_arcade_emulator_says_what_it_plays_in_its_own_words() {
+        let why = "This copy of Pac-Man is missing a piece. A complete copy of pacman.zip fixes it.";
+        assert_eq!(own_line("continuum_arcade", why).as_deref(), Some(why));
+        // A refusal it gave no reason for, and every other core, get the usual line.
+        assert_eq!(own_line("continuum_arcade", "retro_load_game rejected the content"), None);
+        assert_eq!(own_line("continuum_arcade", " "), None);
+        assert_eq!(own_line("mgba", why), None);
     }
 
     #[test]

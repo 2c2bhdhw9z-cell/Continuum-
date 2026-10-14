@@ -700,6 +700,18 @@ enum CoreCatalog {
         priority: 0, biosNames: []
     )
 
+    /// Arcade. cArcade: this project's own arcade emulator, written from scratch in Rust
+    /// (cores/continuum-arcade), the only arcade core. It recognises a set's zip by its chips and
+    /// refuses one it can't play with its own plain line. The picture is upright, 3:4. OPTIONAL
+    /// in the .ipa: a build without it keeps arcade's "not playable" line (`unplayableSystems`).
+    static let continuumArcade = CoreSpec(
+        coreId: "continuum_arcade", displayName: "cArcade (Arcade)",
+        systems: ["arcade"], library: "continuum_arcade_libretro_ios.dylib",
+        width: 224, height: 288, maxWidth: 224, maxHeight: 288,
+        aspectRatio: 3.0 / 4.0, fps: 6_144_000.0 / (384.0 * 264.0), sampleRate: 48000, pixelFormat: 1,
+        priority: 0, biosNames: []
+    )
+
     /// Every core, in the order the HUD reports them.
     static let all: [CoreSpec] = [
         mesen2, fceumm, bsnes, mgba, gearsystem, blastem, pcsxReARMed, mednafenPsxHw, melonDS,
@@ -707,7 +719,7 @@ enum CoreCatalog {
         mednafenWswan, mednafenNgp, mednafenPce, mednafenSupergrafx, puae, viceX64sc,
         dosboxPure, prboom, virtualJaguar, handy, prosystem, a5200,
         pokemini, mednafenVb, yabause, mednafenSaturn, flycast, continuumSymbian,
-        continuumGb,
+        continuumGb, continuumArcade,
     ]
 
     /// The fourteen cores every build must carry, by id: IOS_CORES in scripts/build-core.sh, and the
@@ -1033,10 +1045,9 @@ enum CoreCatalog {
         .lynx: handy.coreId,
         .atari7800: prosystem.coreId,
         .atari5200: a5200.coreId,
-        // No core: arcade is out until Continuum has its own arcade core. Kept, with an empty id,
-        // so arcade zips still route and list as Arcade; `unplayableSystems` says why they will
-        // not open, and nothing is deleted.
-        .arcade: "",
+        // cArcade, Continuum's own. In a build without it, `unplayableSystems` says why arcade
+        // games will not open, and nothing is deleted.
+        .arcade: continuumArcade.coreId,
         .pokemini: pokemini.coreId,
         .vb: mednafenVb.coreId,
         .saturn: yabause.coreId,
@@ -1067,15 +1078,20 @@ enum CoreCatalog {
         for spec in all where spec.systems.contains(system.rawValue) && !ids.contains(spec.coreId) {
             ids.append(spec.coreId)
         }
-        // A system with no core (arcade) has nothing to offer, not an empty choice.
+        // A system with no core has nothing to offer, not an empty choice.
         return ids.filter { !$0.isEmpty }
     }
 
-    /// Systems that list in the Library but cannot be played in this version, and the one line a
+    /// Systems that list in the Library but cannot be played in this build, and the one line a
     /// player sees when they open one. Their games stay in the Library and are never deleted.
-    static let unplayableSystems: [GameSystem: String] = [
-        .arcade: "Arcade games aren\u{2019}t playable right now. We\u{2019}re building our own arcade emulator.",
-    ]
+    /// Arcade is one only when this build has no cArcade: it is optional, so a build where it
+    /// did not compile ships without it. A zip cArcade can't play gets cArcade's own line.
+    static var unplayableSystems: [GameSystem: String] {
+        if bundledLibraries.contains(continuumArcade.library) { return [:] }
+        return [
+            .arcade: "Arcade games aren\u{2019}t playable right now. We\u{2019}re building our own arcade emulator.",
+        ]
+    }
 
     /// The systems with more than one core, in GameSystem order.
     static var switchableSystems: [GameSystem] {
@@ -4715,8 +4731,8 @@ final class EngineHost: ObservableObject {
             return
         }
 
-        // A system this version cannot play (arcade, until Continuum has its own arcade core):
-        // one plain line, before anything is torn down, and the game stays in the Library.
+        // A system this build cannot play (arcade, in a build without cArcade): one plain line,
+        // before anything is torn down, and the game stays in the Library.
         if let system = CoreCatalog.system(for: entry),
            let line = CoreCatalog.unplayableSystems[system] {
             status = line
@@ -5027,12 +5043,18 @@ final class EngineHost: ObservableObject {
             FeedbackCenter.step(failed)
             var isGraphicsFault = false
             if case EngineError.Graphics = error { isGraphicsFault = true }
-            let plainFailure = launchFailureLine(
+            var plainFailure = launchFailureLine(
                 gameName: entry.name,
                 coreName: SaveStates.shortCoreName(spec.coreId),
                 reason: "\(error)",
                 graphics: isGraphicsFault
             )
+            // cArcade's refusal is already the line to show ("This one needs mspacman.zip next
+            // to it."); the engine says which cores speak for themselves.
+            if case EngineError.ContentRejected(let refusal) = error,
+               let own = launchRefusalLine(coreId: spec.coreId, refusal: refusal) {
+                plainFailure = own
+            }
             // The owner's safety net: the system's default core refused this game, so the engine
             // names the system's other core and it gets exactly one try (the forced launch never
             // comes back here). It is a normal launch, so saves follow the usual rules.

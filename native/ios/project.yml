@@ -756,6 +756,11 @@ targets:
         embed: true
         link: false
         codeSign: false
+      # Arcade, cArcade (this project's own Rust core, cores/continuum-arcade).
+      - framework: build/lib/continuum_arcade_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
       # The JIT builds (scripts/build-core.sh, "THE JIT BUILDS"): loaded only when JIT is on.
       - framework: build/lib/pcsx_rearmed_jit_libretro_ios.dylib
         embed: true

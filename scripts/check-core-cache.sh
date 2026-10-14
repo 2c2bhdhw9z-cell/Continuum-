@@ -332,6 +332,9 @@ export CONTINUUM_CORE_CACHE=1
 echo "not a real dylib" > "$LIB/continuum_gb_libretro_ios.dylib"
 echo "continuum_gb   pinned fp:$(fp continuum_gb)" >> "$MANIFEST"
 check "cBoy (continuum_gb, no pin) is never reused" not_cached continuum_gb
+echo "not a real dylib" > "$LIB/continuum_arcade_libretro_ios.dylib"
+echo "continuum_arcade   pinned fp:$(fp continuum_arcade)" >> "$MANIFEST"
+check "cArcade (continuum_arcade, no pin) is never reused" not_cached continuum_arcade
 unset CONTINUUM_CORE_CACHE
 
 # 8. Every patch belongs to a core, so every patch is in some core's fingerprint.
@@ -383,6 +386,8 @@ check "build_ios_continuum_symbian_core is in continuum_symbian's recipe" \
   contains "$(slice continuum_symbian)" "build_ios_continuum_symbian_core() {"
 check "build_ios_continuum_gb_core is in continuum_gb's recipe" \
   contains "$(slice continuum_gb)" "build_ios_continuum_gb_core() {"
+check "build_ios_continuum_arcade_core is in continuum_arcade's recipe" \
+  contains "$(slice continuum_arcade)" "build_ios_continuum_arcade_core() {"
 
 # A helper that many cores go through is SHARED, so a change to it rebuilds all of them.
 check "build_ios_make_core is in the shared part" contains "$shared_now" "build_ios_make_core() {"
@@ -408,6 +413,8 @@ check "only one core uses the cmake-continuum-symbian build" \
   same "$(line_count '      IOS_KIND="cmake-continuum-symbian"')" "1"
 check "only one core uses the cargo-continuum-gb build" \
   same "$(line_count '      IOS_KIND="cargo-continuum-gb"')" "1"
+check "only one core uses the cargo-continuum-arcade build" \
+  same "$(line_count '      IOS_KIND="cargo-continuum-arcade"')" "1"
 # Two, and ONE family: flycast and flycast_jit, which share a source tree and a region name.
 check "only the flycast family uses the cmake-flycast build" \
   same "$(line_count '      IOS_KIND="cmake-flycast"')" "2"
@@ -591,8 +598,8 @@ build_ios_continuum_fake_core() {
   fi
   # recipe-end: continuum_fake' \
   && replace_line \
-    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb)' \
-    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_fake)'
+    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade)' \
+    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade continuum_fake)'
 }
 reset_copy
 check "adding a core (its regions and its name in a list) moves no other core's fingerprint" \
@@ -604,9 +611,9 @@ check "with the added core, alone and all at once still agree" agree
 reset_copy
 check "a list wrapped onto a second line still lands in the lists region" nothing_moves \
   replace_line \
-    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb)' \
+    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade)' \
     'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit
-                    continuum_symbian continuum_gb)'
+                    continuum_symbian continuum_gb continuum_arcade)'
 remove_stella() {
   drop_lines "recipe-start: stella2023" && drop_lines "recipe-end: stella2023" \
     && CCC_FROM='    stella2023)' awk '
@@ -627,8 +634,8 @@ reset_copy
 check "moving a core from the optional list to the required one moves no fingerprint" nothing_moves \
   eval 'replace_line "           mednafen_pce_fast stella2023 parallel_n64 azahar ppsspp)" \
           "           mednafen_pce_fast stella2023 parallel_n64 azahar ppsspp flycast)" \
-        && replace_line "IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb)" \
-          "IOS_OPTIONAL_CORES=(pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb)"'
+        && replace_line "IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade)" \
+          "IOS_OPTIONAL_CORES=(pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade)"'
 
 # What still counts: a line bash runs, anywhere in the shared part, moves every core.
 reset_copy
@@ -791,8 +798,8 @@ check "an array that is not a list of cores in the lists region fails closed" gu
   "not in IOS_CORE_LIST_NAMES" insert_before '# not-a-build-input-end: lists' 'IOS_REQUIRED_EXTRA=(retro_run)'
 check "an expansion inside a list of cores fails closed" guard "something other than array assignments" \
   replace_line \
-    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb)' \
-    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian $(echo continuum_gb))'
+    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade)' \
+    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb $(echo continuum_arcade))'
 check "lists of cores outside the lists region fail closed" guard "inside a not-a-build-input: lists region" \
   eval 'delete_line "# not-a-build-input-start: lists" && delete_line "# not-a-build-input-end: lists"'
 check "a recipe region for a core that is not listed fails closed" guard "belongs to no core" \

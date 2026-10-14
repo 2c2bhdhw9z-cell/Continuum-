@@ -1012,6 +1012,21 @@ const ARCADE_SETS: &[&str] = &[
     "vsav", "vsav2", "wof", "xmcota", "xmvsf", "zookeep",
 ];
 
+/// Every set cArcade (cores/continuum-arcade, Continuum's own arcade emulator) plays, so each is
+/// filed as arcade by its name alone: some of their zips don't pass the chip rule. Its own list,
+/// generated from cArcade's set list; a test in that crate fails if one is missing here.
+const CARCADE_SETS: &[&str] = &[
+    "puckman", "puckmanb", "puckmanf", "puckmanh", "puckmanb3", "pacman", "pacmanso", "pacmanvg",
+    "pacmanf", "puckmod", "pacmod", "pacmanjpm", "pacmanmr", "pacmanpe", "newpuc2", "newpuc2b",
+    "newpuckx", "pacheart", "bucaner", "bucanera", "hangly", "hangly2", "hangly3", "baracuda",
+    "popeyeman", "pacuman", "crockman", "crockmnf", "puckmana", "joyman", "ctrpllrp", "piranhah",
+    "pacmanfm", "pacmanug", "pacmansp", "pacplus", "mspacman", "mspacmnf", "mspacmat", "msheartb",
+    "pacgal2", "mspacmancr", "mspacmab", "mspacmab2", "mspacmab4", "mspacmab6", "mspacmbmc",
+    "mspacmanlai", "mspacmane", "mspacmane2", "pacgal", "mspacpls", "mspacmanhnc", "mspacmanbg",
+    "mspacmanbg2", "mspacmanbgd", "mspacmanblt", "mspacmanblt2", "mspacmanblt3", "mspacmanblt4",
+    "mspacmanbcc", "mspacmanbhe", "mspacmanbi", "mspacmanbgc", "mspacmanbpl",
+];
+
 /// Extensions that only ever name a playable ROM or disc entry inside an archive.
 fn is_content_ext(ext: &str) -> bool {
     system_for_extension(ext).is_some()
@@ -1078,7 +1093,8 @@ pub fn classify_archive(stem: &str, names: &[String]) -> Detection {
     if amiga {
         return keep(Detection::found("amiga", 90, "the archive holds Amiga disk or WHDLoad files"));
     }
-    if ARCADE_SETS.contains(&stem.to_ascii_lowercase().as_str()) {
+    let set = stem.to_ascii_lowercase();
+    if ARCADE_SETS.contains(&set.as_str()) || CARCADE_SETS.contains(&set.as_str()) {
         return keep(Detection::found("arcade", 92, format!("{stem} is a known arcade romset name")));
     }
     let content: Vec<usize> = (0..entries.len()).filter(|&i| is_content_ext(&exts[i])).collect();
@@ -1399,6 +1415,10 @@ mod tests {
         let d = classify_archive("mslug", &s(&["201-p1.p1", "201-s1.s1"]));
         assert_eq!((d.system.as_str(), d.keep_archive), ("arcade", true));
         let d = classify_archive("unknownset", &s(&["a-1.1a", "a-2.2b", "a-3.u12", "prom.6f"]));
+        assert_eq!((d.system.as_str(), d.keep_archive), ("arcade", true));
+        // A set cArcade plays is arcade by its name, even where its files look like five .bin ROMs.
+        let hnc = ["6f.bin", "5e.bin", "5h.bin", "5f.bin", "5j.bin", "82s123-cpu.7f", "82s129-vid.4a", "82s129-vid.1m"];
+        let d = classify_archive("mspacmanhnc", &s(&hnc));
         assert_eq!((d.system.as_str(), d.keep_archive), ("arcade", true));
         let d = classify_archive("Zelda", &s(&["Zelda.sfc", "readme.txt"]));
         assert_eq!((d.system.as_str(), d.keep_archive, d.is_sure()), ("snes", false, true));

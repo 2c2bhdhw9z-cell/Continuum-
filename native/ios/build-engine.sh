@@ -61,6 +61,8 @@ if [ "${CONTINUUM_CORE_CACHE:-0}" = "1" ] && [ -d "$LIBDIR" ]; then
   # checkout on every run, and its source is not in the CI cache key, so a cached copy can be from
   # an older commit and must never get anywhere near the .ipa.
   rm -f "$KEEP/continuum_gb_libretro_ios.dylib"
+  # The same for cArcade (cores/continuum-arcade), this project's own arcade emulator.
+  rm -f "$KEEP/continuum_arcade_libretro_ios.dylib"
   KEPT="$(ls -1 "$KEEP" 2>/dev/null | wc -l | tr -d ' ')"
   rm -rf "$OUT"
   mkdir -p "$LIBDIR" "$GENDIR"

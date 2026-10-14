@@ -17,8 +17,8 @@
 //! A few systems keep saves as their core's own files under the save directory instead, and for
 //! those the answer is a relative path: Dreamcast `.vmu` (flycast's `vmu_save_A1.bin`), Saturn
 //! `.bkr`/`.bcr` (Beetle Saturn's `<game>.bkr`). PSP and 3DS saves are folders and travel as
-//! zips; see [`location`]. Arcade saves are refused: arcade games are not playable until
-//! Continuum has its own arcade core, so there is nowhere for one to go.
+//! zips; see [`location`]. Arcade saves are refused: the boards cArcade, Continuum's own arcade
+//! emulator, plays keep no save files, so there is nowhere for one to go; their save states work.
 //!
 //! An import never destroys the save it replaces: [`keep_before_import`] and [`import_folder`]
 //! first copy it to Files, Continuum, Older copies (the folder a restore uses for the copies it
@@ -149,7 +149,7 @@ pub fn import(system: &str, file_name: &str, data: &[u8], current: &[u8], game_s
             _ => Err(format!(".{ext} is not a Saturn save (want .bkr)")),
         },
         "arcade" => Err(
-            "Arcade games aren\u{2019}t playable right now, so there\u{2019}s nowhere for an arcade save to go yet"
+            "These arcade games don\u{2019}t keep save files, so there\u{2019}s nothing to import. Save states work, though"
                 .into(),
         ),
         _ => match ext.as_str() {
@@ -560,10 +560,10 @@ mod tests {
         assert_eq!(got.location, SaveLocation::Folder("PSP/SAVEDATA".into()));
         assert!(import("psp", "save.sav", b"x", &[], "Game").is_err());
         assert!(import("snes", "a.zip", b"x", &[], "a").is_err());
-        // Arcade is out until Continuum has its own arcade core: every arcade save is refused.
+        // The arcade boards cArcade plays keep no save files: every arcade save is refused.
         for name in ["sf2.nvr", "sf2.nv", "sf2.srm", "sf2.sav"] {
             let err = import("arcade", name, b"nv", &[], "sf2").unwrap_err();
-            assert!(err.contains("aren\u{2019}t playable right now"), "{name}: {err}");
+            assert!(err.contains("don\u{2019}t keep save files"), "{name}: {err}");
         }
     }
 

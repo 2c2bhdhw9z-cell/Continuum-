@@ -2,9 +2,10 @@
 
 **Where it stands (14 October 2026): the Z80 is proven (item I2: all 1,604,000 SingleStepTests
 cases pass, and ZEXDOC and ZEXALL report no errors); Donkey Kong's 8035 and Konami's AY-3-8910
-match MAME (their sections below); and the Pac-Man board is proven (item I3: nine test programs
+match MAME (their sections below); the Pac-Man board is proven (item I3: nine test programs
 of our own match MAME on every one of 1,400 frames, pixel for pixel and sound sample for sample;
-see "The Pac-Man board, as proven"). Nothing of it is in the app yet.**
+see "The Pac-Man board, as proven"); and cArcade is in the app (item I4): arcade games open on it,
+and it plays 65 sets on the Pac-Man board (see "In the app").**
 The write-up at the end of the job finishes this file: the games it plays, what the tests prove,
 what is approximate, and what comes next.
 
@@ -31,9 +32,10 @@ emulator. Until then an imported arcade game stays in the Library and opens to o
 | Module | What it is |
 |---|---|
 | `z80.rs` | The Z80, shared by all three boards and by Konami's sound board |
-| `zip.rs` | Reads a zip: its directory (names, sizes, CRC32s), and its files, stored or deflated, with our own inflater and CRC32, so no new dependency |
-| `sets.rs` | The built-in set list (short name, title, parent, board, each ROM's size, CRC32 and place) and the recognition rules below |
-| `board.rs` | What every board does: run one frame, the picture, the sound, the inputs, the DIP switches, save states |
+| `zip.rs` | Reads a zip: its directory (names, sizes, CRC32s, ZIP64 too), and its files, stored or deflated, with our own inflater and CRC32, so no new dependency (written) |
+| `sets.rs` | The recognition rules below, and what a set's chips are and where they load (written) |
+| `set_list.rs` | The built-in set list: each set's name, title, parent, board, switches, and each chip's name, size, CRC32 and place. Written by `scripts/make-set-list.py` from MAME's driver source and `-listxml` (facts about the chips, no MAME code) |
+| `board.rs` | What every board does for the core: run one frame with the controls and switches, the picture, the sound, save states; the four-way stick (written) |
 | `pacman.rs` | Namco's Pac-Man board (written and proven, see below) |
 | `namco_wsg.rs` | Pac-Man's sound chip: three voices playing 32-step waves from the sound PROM (written and proven with the board) |
 | `galaxian.rs` | Namco's Galaxian board and Konami's Scramble variant |
@@ -42,7 +44,7 @@ emulator. Until then an imported arcade game stays in the Library and opens to o
 | `dkong.rs` | Nintendo's Donkey Kong board |
 | `mcs48.rs` | The Intel 8035 that plays Donkey Kong's music into a DAC (written and proven, see below) |
 | `dkong_sound.rs` | Donkey Kong's analogue sound effects, approximated |
-| `libretro.rs`, `options.rs` | The entry points, and the DIP switches as core options |
+| `libretro.rs`, `options.rs` | The entry points, and the DIP switches as core options (written) |
 
 ## How a game is recognised
 
@@ -275,57 +277,108 @@ Known limits, none of which the tests hit:
 - Two bootlegs with their blue and green wires swapped (MAME's `woodpek_rbg` sets) aren't
   modelled; they'd need a palette variant.
 
-## The core as the app sees it
+## In the app (item I4)
+
+### What it plays
+
+65 sets on the Pac-Man board, every one MAME runs on exactly the hardware cArcade models:
+Puck Man, Pac-Man, Pac-Man Plus, Ms. Pac-Man and 61 of their clones, hacks and bootlegs.
+
+- On the plain board: `puckman` and its clones (`pacman`, `pacmanf`, `pacmod`, `puckmod`,
+  `hangly`, `newpuckx`, `pacheart`, `crockman`, `joyman`, `piranhah` and 24 more).
+- `pacplus` with its decoder.
+- On Ms. Pac-Man's daughterboard: `mspacman`, `mspacmnf`, `mspacmat`, `msheartb`, `pacgal2`,
+  `mspacmancr`.
+- Bootlegs with ROM at 8000h: `mspacmab` and 22 more, among them `pacgal`, `mspacpls` and the
+  "Made in Greece" boards, whose single big EPROMs `set_list.rs` splits the way MAME loads them.
+
+Left out for now, because their hardware isn't modelled: sets whose program is encrypted (Eyes,
+Piranha, Mr. TNT and the encrypted Ms. Pac-Man bootlegs), the two with blue and green swapped,
+and the driver's other machines (Crush Roller, Ms. Pac-Man Champion Edition, Ponpoko, ...).
+
+### The core
 
 - `valid_extensions` is `zip` (7z is not in the first version). `need_fullpath` is false, so the
-  core gets the bytes and the path (see step 3 above).
-- The picture is XRGB8888, upright, 224×288 for Pac-Man and 224×256 for the other two, at a 3:4
-  aspect, 60.606 fps. Sound is 48 kHz.
-- **Save states:** bincode, with the format number carried in `library_version` as cBoy does, so
-  the app refuses a state from a different layout. There are no battery saves: these boards have
-  no battery memory, and the high score goes when the machine is switched off.
-- **DIP switches** are core options with plain labels and factory defaults, keyed
-  `carcade_<board>_<switch>`. Examples: lives, bonus life, difficulty, upright or cocktail. The
-  app's per-game menu already offers core options for one game.
-- **Controls:** Select is coin, Start is the 1-player start, B and A are the first two buttons
-  (fire, bomb, jump), and X is the 2-player start. On a four-way stick, a diagonal from the phone's
-  pad becomes the newer of its two directions, as the stick's gate would.
+  core gets the bytes and the path (see step 3 above); `block_extract` is true.
+- A zip it can't play is refused with one sentence, logged as `cArcade: <sentence>` just before
+  `retro_load_game` returns false: the four in "How a game is recognised", and for a file that
+  isn't a working zip, "This file isn't a working arcade zip. Another copy of the game usually
+  fixes it." The log line before it says what the zip held. A known set's zip whose chips differ
+  (a hack, a homebrew, our own test programs) plays, with the differing chips logged.
+- The picture is XRGB8888, upright, 224×288, at a 3:4 aspect, 60.606 fps; the sound is 48 kHz,
+  the board's mono on both channels.
+- **Save states:** `CARC`, the format (1), the set's name, then the board's bincode state. The
+  format is in `library_version` ("0.1.0 (state format 1)"), as cBoy does, so the app refuses a
+  state from another layout; a state of another set is refused too. There are no battery saves:
+  these boards have no battery memory.
+- **Restart** switches the cabinet off and on again: the game starts as fresh.
+- **DIP switches** are core options in a "Pac-Man games" group, with the factory settings as
+  defaults (a test holds all 65 sets' defaults to MAME's, bit for bit): `carcade_pacman_coinage`
+  (1 coin 1 game, 2 coins 1 game, 1 coin 2 games, free play), `_lives` (1, 2, 3, 5), `_bonus`
+  (an extra life at 10,000, 15,000 or 20,000 points, or none), `_difficulty`, `_ghosts` (Pac-Man's
+  second set of ghost names) and `_cabinet` (upright or cocktail table). Once a game loads, the
+  ones its cabinet doesn't have are hidden (Ms. Pac-Man has no ghost names switch). Where a
+  bootleg's switch means something else, it isn't offered and stays at the factory setting: Come
+  Come's coinage and lives, Newpuc2's bonus scores, Pacu-Man's coinage, and the Spanish Puck Man's
+  difficulty (its Hard setting breaks the game). The rack test, service coin and service mode
+  switches stay off.
+- **Controls** (`read_controls`): the D-pad is the stick, Select is the coin, Start is that
+  player's start, B A Y X L R are the panel's buttons one to six, and X on the first pad is also
+  player 2's start. The second pad is player 2's side of a cocktail table, with its own coin.
+  On a four-way stick a diagonal becomes the newer of its two directions, as the stick's gate
+  would (straight into a diagonal, it goes sideways).
 - Log lines start with `cArcade: `.
 
-## Every place the app wires it in (item I4)
+### How I4 is proved
 
-Found by reading every place cBoy and the arcade system appear.
+- `tests/libretro.rs` drives the core only through its C entry points, with a stand-in frontend:
+  - each of the nine Pac-Man board test programs, zipped under the file names of MAME's set
+    (`pacman.zip`, `mspacman.zip`, `pacplus.zip`, `mspacmab.zip`), plays every frame to the same
+    picture MAME 0.289 drew (its recorded hashes), and the sound is the board's on both channels;
+  - the inputs program is played through the frontend's two pads and the DIP switch settings, and
+    every frame matches MAME's except the 10 where the test has a switch cArcade doesn't offer
+    turned on (a planted mistake, left and right swapped, fails it);
+  - a split `pacman.zip` asks for `puckman.zip`, and with `PuckMan.zip` beside it plays MAME's
+    frames; an unknown zip, a zip missing a chip and a file that isn't a zip each get their
+    sentence; save states round-trip byte for byte with the same frames after; Restart gives a
+    fresh start's frames; the settings, the hidden switches and the av info are checked; and
+    every set name is in the app's import list (`detect.rs`).
+- `src/zip.rs` unpacks what a real deflater (flate2, a test-only dependency) packs at every level;
+  `src/sets.rs` and `src/options.rs` test the recognition rules and the switches.
+- `crates/emulator-bridge/tests/arcade_frontend.rs` loads the host build through the engine's own
+  loader (`NativeLibretroCore`), the way the app opens a game, by its path: the video program's
+  120 frames hash to MAME's, an unknown zip's refusal comes back as the reason word for word, a
+  save state round-trips, and the switches are settings the engine knows. Like
+  `cboy_frontend.rs` it runs only when given the core:
+  `CARCADE_SO=cores/continuum-arcade/target/release/libcontinuum_arcade.so cargo test
+  --features emulator-bridge/native-core -p emulator-bridge --test arcade_frontend`.
+
+## Every place the app wires it in (item I4, done)
+
+Found by reading every place cBoy and the arcade system appear, and wired the same way.
 
 **Build and packaging**
 
-- `scripts/build-core.sh`:
-  - Add `continuum_arcade` to `IOS_OPTIONAL_CORES`.
-  - Its config arm (no repo, no pin, `IOS_KIND="cargo-continuum-arcade"`, the dylib name) and its
-    build function `build_ios_continuum_arcade_core` each go in a
-    `# recipe-start: continuum_arcade` region.
-  - One dispatch line in `build_ios_core`, next to cBoy's.
-  - It needs its own kind, not cBoy's: `check-core-cache.sh` has a tripwire that only one core
-    uses `cargo-continuum-gb`.
-- **What that costs, said up front.** The optional-core list, the dispatch line and the region
-  markers are all in the part every core shares. That's the cache's own design (393f12c: adding
-  a region "rebuilds everything ONCE"). So **the first build with cArcade rebuilds every core
-  once, about 45-50 minutes.** Builds after it are the quick kind, with cArcade compiled from the
-  checkout each time (about a minute, like cBoy).
-  - Checked on a copy of the script: adding the name to the optional list alone changes fceumm's
-    fingerprint.
-  - Builds 185-187 all built 393f12c, so nothing else forces a full rebuild tonight unless
-    another change touches the shared part too.
-- `scripts/check-core-cache.sh`: the three checks cBoy has. It's never reused from the cache, its
-  build function is in its region, and only one core uses its kind.
-- `native/ios/build-engine.sh`: delete a cached `continuum_arcade_libretro_ios.dylib` after the
-  cache restore, like cBoy's line. It has no pin, so a cached copy could be from an older commit.
+- `scripts/build-core.sh`: `continuum_arcade` is in `IOS_OPTIONAL_CORES` (the lists region). Its
+  config arm (no repo, no pin, `IOS_KIND="cargo-continuum-arcade"`), its build function
+  `build_ios_continuum_arcade_core` (cBoy's, for this crate) and its dispatch in `build_ios_core`
+  (an `if` block of its own) each sit in a `# recipe-start: continuum_arcade` region. It has its
+  own build kind, not cBoy's: `check-core-cache.sh` has a tripwire that only one core uses each.
+- **What that costs: nothing for any other emulator.** Since the cache rules of 14 October
+  (3651403, 1de468f, d8d8654) the lists aren't a build input and a dispatch may sit in its core's
+  region, so adding cArcade moved no other core's fingerprint: `bash scripts/build-core.sh
+  ios-fingerprint <core>` gives all 20 existing cores the same fingerprint before and after (fceumm
+  `df688ed0e6cd1c83`, mgba `1e0dce5f4510cbde`, ppsspp `e05fced2954ed33e`, continuum_gb
+  `e6367c28819ad120`, and so on), and cArcade has one of its own. The first build with it compiles
+  only cArcade (about a minute, like cBoy), and so does every build after.
+- `scripts/check-core-cache.sh`: the three checks cBoy has (it's never reused from the cache, its
+  build function is in its region, only one core uses its kind), and its checks that pin the
+  `IOS_OPTIONAL_CORES` line now name it. 209 checks pass.
+- `native/ios/build-engine.sh`: drops a cached `continuum_arcade_libretro_ios.dylib` after the
+  cache restore, like cBoy's line: it has no pin, so a cached copy could be from an older commit.
 - `native/ios/project.yml`: a four-line embed in the OPTIONAL CORES block, exactly cBoy's shape.
-  `package-ipa.sh` drops it when the dylib is missing. It reads `ios-optional-names`, so it needs
-  no edit itself.
-- `.github/workflows/ios.yml`: add `cores/continuum-arcade/**` to the push paths and a "cArcade
-  tests" step after cBoy's in `checks`. Nothing else. The cache key and the .ipa check stay as
-  they are, so a build without cArcade isn't flagged there; the app's cores line still names it as
-  not in the build.
+  `package-ipa.sh` drops it when the dylib is missing (it reads `ios-optional-names`).
+- `.github/workflows/ios.yml`: parked, see "Parked" below.
 - No change: `scripts/extract-core-option-keys.sh` (cBoy's option inventory),
   `scripts/fetch-buildbot-cores.sh` (downloaded cores), and
   `crates/emulator-bridge/src/core_updates.rs`. Like cBoy, cArcade has no pin, so it gets no row
@@ -333,21 +386,20 @@ Found by reading every place cBoy and the arcade system appear.
 
 **Engine (Rust, `crates/emulator-bridge`)**
 
-- `src/cores/native_core.rs`, `refusal_from_log`: also pass lines starting `cArcade: `, with a
-  test next to cBoy's.
-- `src/launch_failure.rs`: cArcade's refusal is already the sentence a player should read. Its
-  words ("missing", "chip") would otherwise file it as a missing BIOS file. So for this core the
-  line on screen is the core's own sentence. The app calls this from the `catch` in
-  `ContinuumApp.swift`'s `launch(entry:)`. A refused arcade game is never retried on another
-  core, because arcade has only one (`launch_retry.rs`).
-- `src/import/detect.rs`, `ARCADE_SETS`: add every set name cArcade knows, so each is filed as
-  arcade by name with no question. Some of these zips don't pass the chip rule (Galaxian's
-  `galmidw.u` and `1h.bin`), and a zip that passes neither rule is asked "Which system?". A test
-  in the core crate reads `detect.rs` and fails if any of its set names is missing.
-- `src/import/saves.rs`: the arcade arm says arcade games aren't playable. Once the core is in, it
-  should say what's true of these boards: they keep no save files, so there's nothing to import,
-  and save states work.
-- `tests/arcade_frontend.rs`: new, as above.
+- `src/cores/native_core.rs`, `refusal_from_log`: lines starting `cArcade: ` are passed on, with
+  a test next to cBoy's.
+- `src/launch_failure.rs`, `own_line`, and `uniffi_cores.rs`, `launch_refusal_line`: cArcade's
+  refusal is already the sentence a player should read, and its words ("missing a piece") would
+  otherwise read as a missing BIOS file, so for this core the line on screen is the core's own
+  sentence (unless it gave none). The app asks for it in the `catch` of `ContinuumApp.swift`'s
+  `launch(entry:)`. A refused arcade game is never retried on another core: arcade has only one.
+- `src/import/detect.rs`: `CARCADE_SETS`, every set name cArcade knows, next to `ARCADE_SETS`, so
+  each is filed as arcade by its name with no question (some don't pass the chip rule:
+  `mspacmanhnc` looks like five .bin ROMs; a test there checks it). A test in the core crate fails
+  if one of its sets is missing from that file.
+- `src/import/saves.rs`: the arcade arm now says what's true of these boards: they keep no save
+  files, so there's nothing to import, and save states work.
+- `tests/arcade_frontend.rs`: new, see "How I4 is proved".
 - No change: `import/mod.rs` and `uniffi_import.rs` (arcade zips are already kept whole),
   `achievements/console.rs` (arcade is already RetroAchievements' console 27; achievements aren't
   a goal of the first version), `gfx/renderer.rs` (arcade already suggests the scanline look), and
@@ -357,28 +409,53 @@ Found by reading every place cBoy and the arcade system appear.
 
 **App (Swift, `native/ios`)**
 
-- `ContinuumApp.swift`:
-  - A `continuumArcade` `CoreSpec`: systems `["arcade"]`, 224×288, aspect 3:4, 60.606 fps,
-    48000 Hz, XRGB8888, no BIOS. Add it to `CoreCatalog.all`, and make it
-    `defaultCoreBySystem[.arcade]`.
-  - Keep `unplayableSystems[.arcade]` only for when its dylib isn't in the bundle, so the old line
-    stays exactly for a build without the core.
-  - That one table already feeds the launch refusal, the Library's "not playable yet" label, the
-    game card's "Runs on" (`GameDetailSheet.swift`) and the picker's `canRun`
-    (`ImportCenter.swift`), so they all follow.
-  - `activePictureAspect` uses the spec's 3:4, which is right for all three boards. A future
-    horizontal board would ask the engine (`corePictureAspect`), as cBoy does.
-- `ImportCenter.swift`: the rule that files an arcade zip as Arcade without asking, kept as the
-  app's guess, stays. Only its comments change.
-- `TouchControls.swift`: the arcade pad (stick, six buttons, COIN on Select, START on Start)
-  already exists. Only its comment ("never drawn for a game") changes.
-- No change: `SettingsScreen.swift` (a system with one core gets no chooser). Also
+- `ContinuumApp.swift`: a `continuumArcade` `CoreSpec` ("cArcade (Arcade)", systems
+  `["arcade"]`, 224×288, aspect 3:4, 60.606 fps, 48000 Hz, XRGB8888, no BIOS), in
+  `CoreCatalog.all` and as `defaultCoreBySystem[.arcade]`. `unplayableSystems` has arcade only
+  when its dylib isn't in the bundle, so the old line stays exactly for a build without it. That
+  one table feeds the launch refusal, the Library's "not playable yet" label, the game card's "Runs
+  on" (`GameDetailSheet.swift`) and the picker's `canRun` (`ImportCenter.swift`), so they all
+  follow. `activePictureAspect` uses the spec's 3:4, right for all three boards; a future
+  horizontal board would ask the engine (`corePictureAspect`), as cBoy does.
+- `ImportCenter.swift`: the rule that files an arcade zip as Arcade without asking stays; only
+  its comments changed. `TouchControls.swift`: the arcade pad (stick, six buttons, COIN on
+  Select, START on Start) was already there; only its comments changed.
+- Checked here: `swiftc -frontend -parse` on the three files, and the new Swift (the
+  `launchRefusalLine` call on a rejected game, the computed `unplayableSystems`, the spec's
+  values) typechecked against the engine's freshly generated bindings.
+- No change: `SettingsScreen.swift` (a system with one core gets no chooser),
   `GameArtwork.swift` ("FBNeo - Arcade Games" is libretro's thumbnail folder name on their server,
   not a core), `SkinLibrary.swift`, and `CloudSync.swift` (which already syncs the arcade
   guesses).
 
 **Docs**
 
-- `docs/MANIC_PARITY.md`, arcade row (I4): Continuum's own arcade core is in, and what it plays.
+- `docs/MANIC_PARITY.md`, arcade row: Continuum's own arcade core is in, and what it plays.
 - `README.md` (line 30, "Arcade is out for now while we build our own") becomes untrue once
   cArcade ships. It isn't on this job's list, so it's left for whoever writes the notes.
+
+## Parked
+
+Kiro's GitHub rules let no workflow change go straight onto master, and the owner allows no pull
+requests, so these two edits to `.github/workflows/ios.yml` wait for whoever can make them.
+Until then CI doesn't run the arcade crate's tests, so `cargo test --release` in
+`cores/continuum-arcade` must pass locally before every push.
+
+1. In `on.push.paths`, right after `- "cores/continuum-gb/**"`:
+
+   ```yaml
+      # cArcade, this project's own arcade emulator. It ships in the .ipa (built from this folder
+      # on every run), so a cArcade-only change must start a build like any other.
+      - "cores/continuum-arcade/**"
+   ```
+
+2. In the `checks` job, right after the "cBoy tests (Game Boy / Color / Advance core)" step:
+
+   ```yaml
+         - name: cArcade tests (arcade core)
+           # Its own crate (cores/continuum-arcade). The CPU test suites are fetched by its script;
+           # without them those tests report SKIPPED and the rest still run.
+           run: |
+             cores/continuum-arcade/scripts/fetch-test-suites.sh || echo "::warning::test suite download failed"
+             cargo test --release --manifest-path cores/continuum-arcade/Cargo.toml
+   ```

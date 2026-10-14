@@ -59,7 +59,8 @@ enum SystemNames {
     /// the day its case lands and not after someone remembers this list.
     static func canRun(_ id: String) -> Bool {
         guard let system = GameSystem(rawValue: id) else { return false }
-        // Arcade lists in the Library but has no core in this version, so it is never offered.
+        // Arcade is offered when this build has cArcade; without it, arcade games list in the
+        // Library and are never offered.
         return CoreCatalog.unplayableSystems[system] == nil
     }
 
@@ -99,9 +100,8 @@ enum SystemChoices {
 /// Systems the app only GUESSED for a file, keyed by filename, kept apart from `SystemChoices`
 /// (the player's own answers). Today that is an archive that looks like arcade chips and is filed
 /// as Arcade without a question. The resolver reads a guess last, after the player's answer and
-/// after a detector that is sure, so a later version (better detection, or Continuum's own arcade
-/// core with a question of its own) can decide these files again; the player's answers are never
-/// touched by that.
+/// after a detector that is sure, so a later version (better detection, or a question of cArcade's
+/// own) can decide these files again; the player's answers are never touched by that.
 enum SystemGuesses {
     private static let key = "import.systemGuesses.v1"
 
@@ -519,9 +519,9 @@ final class ImportCenter: ObservableObject {
             guard SystemChoices.choice(forFileName: name) == nil else { continue }
             let detection = DetectionCache.shared.detection(for: documents.appendingPathComponent(name))
             if detection.sure { continue }
-            // An arcade zip lists as Arcade with no question: there is no arcade core to choose
-            // between right now, and "Which system?" would only offer the wrong answers. Kept as
-            // the app's guess, not as the player's answer, so a later version can decide again.
+            // An arcade zip lists as Arcade with no question: cArcade is the only arcade core, and
+            // "Which system?" would only offer the wrong answers. Kept as the app's guess, not as
+            // the player's answer, so a later version can decide again.
             if detection.system == "arcade" {
                 SystemGuesses.remember(detection.system, forFileName: name)
                 continue
