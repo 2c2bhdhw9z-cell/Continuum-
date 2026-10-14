@@ -31,6 +31,12 @@ each under the name of the section it came from.
 - Read-outs: **Stored**, **Cover lists** and **Last** moved to TECHNICAL DETAILS → COVER ART. The
   section keeps one plain line: "78 covers saved (27.0 MB)", or "No covers saved yet".
 
+### LAYOUT
+
+- Removed: "These two are remembered between launches, and both are about the library. The
+  on-screen game controls are a separate setting with a confusingly similar name: they are in
+  ON-SCREEN CONTROLS above." Both rows already say what they do.
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)

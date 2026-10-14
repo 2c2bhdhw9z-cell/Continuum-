@@ -414,12 +414,6 @@ struct SettingsScreen: View {
                 }
             }
             .tint(ShellPalette.accent)
-
-            SettingsNote(
-                "These two are remembered between launches, and both are about the library. The "
-                + "on-screen game controls are a separate setting with a confusingly similar name: "
-                + "they are in ON-SCREEN CONTROLS above."
-            )
         }
     }
 
