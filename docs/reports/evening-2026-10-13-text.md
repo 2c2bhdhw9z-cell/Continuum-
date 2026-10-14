@@ -126,6 +126,29 @@ each under the name of the section it came from.
   Silent while the app is muted or the phone is on silent." became **"Plays a skin's own click
   when you press a button. Silent when Mute is on or your phone is on silent."**
 
+### SYNC FOLDER
+
+- The backup note ("Back up to Files saves one Continuum Backup .zip wherever you pick (On My
+  iPhone, iCloud Drive and so on). After reinstalling, tap Restore from a backup and pick that
+  .zip. A live folder that syncs by itself needs iOS to allow it, which it often does not for
+  sideloaded apps.") became **"Back up to Files saves everything in one file, wherever you like.
+  After a reinstall, tap Restore from a backup and pick it."**
+- The live folder note (everything it keeps, when it updates, newest copy wins, Conflicts) became
+  **"A live folder in iCloud Drive, Google Drive or Dropbox syncs everything by itself. iOS often
+  doesn't allow it for apps from outside the App Store."**
+- **Back up the games too** (five sentences about disc sizes and track files) became **"Games can
+  take up a lot of space. BIOS files are never included."** It is still off unless you turn it on.
+- "A save state you delete is moved to Continuum Sync/Deleted, so it is still there if you change
+  your mind." became **"Save states you delete are kept in Continuum Sync, Deleted, in case you
+  change your mind."**
+- Read-outs: **Folder** ("none chosen" or the folder's name) and the status line under it (for
+  example "sync folder: backup saved as Continuum Backup ... .zip in Downloads", "sync folder:
+  restore finished: 1 skin, 12 save states. ...", or a failure) moved to TECHNICAL DETAILS → SYNC
+  FOLDER, as **Folder** and **Last**. The section keeps one plain line: "Live folder: <its name>"
+  when one is chosen, otherwise "Last backup: Today at 12:54 PM" (iPhone's own date wording), or
+  "No backup yet". Worth knowing: a backup or restore that fails now says so only under
+  TECHNICAL DETAILS (and in the activity log a feedback report sends), not in the section itself.
+
 ## TESTING.md steps whose quoted wording changed
 
 (For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)
@@ -133,3 +156,18 @@ each under the name of the section it came from.
 - **R9** (Beetle PSX HW with no BIOS: "the BIOS line says so"): the Settings BIOS line is now in
   **Settings → TECHNICAL DETAILS → BIOS → State**. The same line is still in the player's (i)
   small text.
+- **Night batch step 19** ("read the note under CORES and the two notes around SYNC FOLDER ...
+  they point at buttons that really exist ("Open the game and pick it there", "Sync now") ... A
+  restore line says "1 skin", not "1 skin(s)""): both quotes are out of date. The CORES note (T1)
+  now says "For just one game, press and hold it and pick a core on its card."; the SYNC FOLDER
+  notes now name **Back up to Files** and **Restore from a backup**, not Sync now; and the restore
+  line is in **TECHNICAL DETAILS → SYNC FOLDER → Last**.
+- **M1 step 3** ("Tap Sync now and wait for the line above the buttons to say it finished"): that
+  line is in TECHNICAL DETAILS → SYNC FOLDER → Last now. In the section, **Sync now** reads
+  "Syncing..." while it works and goes back to "Sync now" when it's done.
+- **P-PSP4 (b)** ("the Folder row shows its name"): the section's first line now reads "Live
+  folder: <its name>"; the Folder row itself is in TECHNICAL DETAILS → SYNC FOLDER. (Its "Choose a
+  sync folder" button has been called **Live folder (advanced)** for a while.)
+- **P-SYNC2** ("the line says "backup saved as Continuum Sync in ..."") and **H3** ("The status
+  says files were sent"): that line is in TECHNICAL DETAILS → SYNC FOLDER → Last. The section
+  shows "Last backup: ..." after a backup.

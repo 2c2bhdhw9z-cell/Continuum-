@@ -485,6 +485,10 @@ struct SettingsScreen: View {
             TechnicalReadoutGroup(title: "STORAGE") {
                 SettingsReadout(label: "Library", value: host.libraryStatus)
             }
+            // Observes its own object, like the RETROACHIEVEMENTS lines. See CloudSync.swift.
+            TechnicalReadoutGroup(title: "SYNC FOLDER") {
+                CloudSyncReadouts(sync: host.cloudSync)
+            }
         }
     }
 

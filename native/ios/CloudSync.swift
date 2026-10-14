@@ -2175,12 +2175,13 @@ struct BackupFolderPrompt: ViewModifier {
 
 struct CloudSyncSection: View {
     @ObservedObject var sync: CloudSync
-    static let backupNote: String = "Back up to Files saves one Continuum Backup .zip wherever you pick (On My iPhone, iCloud Drive and so on). After reinstalling, tap Restore from a backup and pick that .zip. A live folder that syncs by itself needs iOS to allow it, which it often does not for sideloaded apps."
+    static let backupNote: String = "Back up to Files saves everything in one file, wherever you like. After a reinstall, tap Restore from a backup and pick it."
 
     var body: some View {
         SettingsSection(title: "SYNC FOLDER") {
-            SettingsReadout(label: "Folder", value: sync.folderName ?? "none chosen")
-            SettingsNote(sync.line)
+            // The FOLDER read-out and the full status line are in Settings, TECHNICAL DETAILS
+            // (`CloudSyncReadouts`).
+            SettingsNote(plainLine)
             // Both are off while one is running: tapping Back up twice used to throw the first
             // backup's save away (IOS-15), and a restore refuses mid-sync anyway.
             SettingsButton(title: sync.isSyncing ? "Working..." : "Back up to Files", role: .normal) {
@@ -2199,12 +2200,9 @@ struct CloudSyncSection: View {
                            role: .normal) {
                 sync.chooseFolder()
             }
-            SettingsNote("A live folder keeps your saves, states, cheats, skins, stars, manuals, "
-                         + "Amiibo, cover choices and settings in a \"Continuum Sync\" folder "
-                         + "inside any folder in Files: iCloud Drive, Google Drive, Dropbox. It "
-                         + "updates when the app opens, when you leave a game, and when you tap "
-                         + "Sync now. The newest copy wins, and the other one is kept in "
-                         + "Continuum Sync/Conflicts rather than thrown away.")
+            SettingsNote("A live folder in iCloud Drive, Google Drive or Dropbox syncs everything "
+                         + "by itself. iOS often doesn't allow it for apps from outside the App "
+                         + "Store.")
 
             if sync.folderName != nil {
                 SettingsButton(title: sync.isSyncing ? "Syncing..." : "Sync now", role: .normal) {
@@ -2222,18 +2220,42 @@ struct CloudSyncSection: View {
                     Text("Back up the games too")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
-                    Text("Off by default, because games are big: a few PlayStation discs can be "
-                         + "tens of gigabytes and it all goes in the folder you chose. With it "
-                         + "on, deleting Continuum and installing it again brings your games "
-                         + "back along with everything else. Disc games keep their track files, "
-                         + "so they still load. BIOS files are never copied.")
+                    Text("Games can take up a lot of space. BIOS files are never included.")
                         .font(.system(size: 12))
                         .foregroundStyle(ShellPalette.secondaryText)
                 }
             }
             .tint(ShellPalette.accent)
-            SettingsNote("A save state you delete is moved to Continuum Sync/Deleted, so it is "
-                         + "still there if you change your mind.")
+            SettingsNote("Save states you delete are kept in Continuum Sync, Deleted, in case you "
+                         + "change your mind.")
+        }
+    }
+
+    /// The one plain line SYNC FOLDER keeps: the live folder when there is one, otherwise when
+    /// the last backup was saved to Files ("Last backup: Today at 12:54 PM").
+    private var plainLine: String {
+        if let folder = sync.folderName {
+            return "Live folder: \(folder)"
+        }
+        let saved = UserDefaults.standard.double(forKey: CloudSyncPaths.lastBackupKey)
+        guard saved > 0 else { return "No backup yet" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        return "Last backup: " + formatter.string(from: Date(timeIntervalSince1970: saved))
+    }
+}
+
+/// The SYNC FOLDER read-outs, shown in Settings, TECHNICAL DETAILS. Its own view so both lines
+/// stay live there: the Settings screen does not observe `CloudSync`.
+struct CloudSyncReadouts: View {
+    @ObservedObject var sync: CloudSync
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SettingsReadout(label: "Folder", value: sync.folderName ?? "none chosen")
+            SettingsReadout(label: "Last", value: sync.line)
         }
     }
 }
