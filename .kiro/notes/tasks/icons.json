@@ -49,7 +49,8 @@
     },
     {
       "id": "IC2",
-      "done": false,
+      "done": true,
+      "result": "All 69 symbol names (106 uses, including ternaries, the PillButton and sessionButton/holdButton helpers) checked against Apple's availability list from SFSafeSymbols: only square.resize (Next resolution, in-game menu) needed iOS 17, swapped for arrow.up.left.and.arrow.down.right in 5b10c45; the app asks for no custom pictures by name, and every symbol is drawn at 9 to 17 points in sensible frames.",
       "title": "The icons drawn inside the app",
       "detail": "Every SF Symbol name used in native/ios/*.swift must exist on iOS 16, the app's minimum: a name that doesn't exist, or only exists on a newer iOS, draws nothing at all. Get an authoritative list of SF Symbol names with the iOS version each appeared in (for example the SFSafeSymbols project on GitHub, MIT licensed, which lists every symbol with its availability), fetched into scratch and never committed. For every name that doesn't exist or needs a newer iOS, use the closest symbol that exists on iOS 16, or wrap it in `if #available` with an iOS 16 fallback. Also check that every custom picture the code asks for by name (Image(\"...\"), UIImage(named:)) exists in Assets.xcassets, and that icons sit at a sensible size where they are drawn. Parse-check every changed file."
     },
