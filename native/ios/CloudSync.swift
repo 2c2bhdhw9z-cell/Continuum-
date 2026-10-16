@@ -2231,9 +2231,13 @@ struct CloudSyncSection: View {
         }
     }
 
-    /// The one plain line SYNC FOLDER keeps: the live folder when there is one, otherwise when
-    /// the last backup was saved to Files ("Last backup: Today at 12:54 PM").
+    /// The one plain line SYNC FOLDER keeps: what the last backup or restore said when the player
+    /// needs it (`attentionLine`), otherwise the live folder when there is one, otherwise when the
+    /// last backup was saved to Files ("Last backup: Today at 12:54 PM").
     private var plainLine: String {
+        if let attention = attentionLine {
+            return attention
+        }
         if let folder = sync.folderName {
             return "Live folder: \(folder)"
         }
@@ -2244,6 +2248,23 @@ struct CloudSyncSection: View {
         formatter.timeStyle = .short
         formatter.doesRelativeDateFormatting = true
         return "Last backup: " + formatter.string(from: Date(timeIntervalSince1970: saved))
+    }
+
+    /// The sync's own last line, without its "sync folder" start, when the player has to read it:
+    /// a restore's result (it carries the one step left, closing Continuum and opening it again),
+    /// a backup that left files out, and anything that failed, was refused or was cancelled. A
+    /// restore never writes the status line, so nothing else on screen says these; the full line
+    /// is also in TECHNICAL DETAILS. Nil for an everyday line.
+    private var attentionLine: String? {
+        let last = sync.line
+        guard last.contains("restore") || last.contains("couldn't go in")
+                || !StatusTint.isEveryday(last) else { return nil }
+        var text = last
+        for prefix in ["sync folder: ", "sync folder "] where text.hasPrefix(prefix) {
+            text = String(text.dropFirst(prefix.count))
+            break
+        }
+        return String(text.prefix(1)).uppercased() + String(text.dropFirst())
     }
 }
 
