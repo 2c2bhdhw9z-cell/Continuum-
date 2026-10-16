@@ -5,6 +5,27 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
+## Update, 16 October 2026, about 7 AM Eastern: the whole batch is done, ONE build started
+
+- Every checklist in `.kiro/notes/tasks/` is complete (owner, 1 AM: "I want everything done first
+  before a build"). Highlights: cBoy's exact drawer 27 → 51 of 55 (the other 4 have no reference
+  picture); Mesen 2 as the second SNES choice; cArcade plays 199 sets (Pac-Man, Galaxian/Moon
+  Cresta, Konami's Scramble family, Donkey Kong/Jr.); the newer PSP, Dreamcast and 3DS emulators;
+  the reviews (U4/T4) found no compile problem and fixed two behaviour bugs (ec644be, 49043c9).
+  STATUS.md "Next up", TESTING.md "Next install (after 185)" (63 checks) and the README are
+  updated.
+- Checked on the final master before the build: workspace 749 tests, clippy clean, cBoy 163,
+  cArcade 136, skins, players, core cache 219, core mirror 41, wrapper and Symbian harnesses, all
+  54 Swift files parse and are listed in project.yml, and the bindings typecheck.
+- **The build** was started by hand (workflow dispatch). Every emulator rebuilds once (about an
+  hour). Check the .ipa: 0.8.0 and the run number, 37 `_libretro_ios.dylib` files (36 plus
+  cArcade). If the release step gets HTTP 403, follow `.kiro/notes/tasks/README.md`, "Then the
+  build", step 3. Then give the owner the link and TESTING.md "Next install (after 185)" written
+  out. After it: `bash scripts/check-core-mirror.sh live` should say all 16 come from the mirror.
+- Helpers working through `invoke_sub_agent` (general-task-execution) did the jobs this session;
+  two stopped silently mid-job on the big arcade scope, so give a helper one narrow job and have
+  it push after every step.
+
 ## Update, 16 October 2026, 12:50 AM Eastern (third Kiro account)
 
 - The 11 memories are saved on this account. Workflows (loops) are turned off on this account by
