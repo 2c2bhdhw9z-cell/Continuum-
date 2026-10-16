@@ -432,10 +432,11 @@ How it's proved, as far as an approximation can be:
 
 ### What it plays
 
-65 sets on the Pac-Man board and 119 on the Galaxian family's boards, every one MAME runs on
-exactly the hardware cArcade models: Puck Man, Pac-Man, Pac-Man Plus, Ms. Pac-Man and 61 of their
-clones, hacks and bootlegs; and Galaxian, Moon Cresta, Scramble, The End, Super Cobra, Frogger,
-Amidar, Turtles and their clones (see "The Galaxian family in the app" below).
+65 sets on the Pac-Man board, 119 on the Galaxian family's boards and 15 on Donkey Kong's, every
+one MAME runs on exactly the hardware cArcade models: Puck Man, Pac-Man, Pac-Man Plus, Ms. Pac-Man
+and 61 of their clones, hacks and bootlegs; Galaxian, Moon Cresta, Scramble, The End, Super Cobra,
+Frogger, Amidar, Turtles and their clones (see "The Galaxian family in the app" below); and Donkey
+Kong and Donkey Kong Jr. with theirs (see "The Donkey Kong boards in the app").
 
 - On the plain board: `puckman` and its clones (`pacman`, `pacmanf`, `pacmod`, `puckmod`,
   `hangly`, `newpuckx`, `pacheart`, `crockman`, `joyman`, `piranhah` and 24 more).
@@ -535,6 +536,35 @@ and the driver's other machines (Crush Roller, Ms. Pac-Man Champion Edition, Pon
   board's frames equal to MAME's (before any input changes); Scramble shows exactly its three
   switches; and a unit test in `src/board.rs` checks the controls reach Galaxian's active-high and
   Scramble's active-low bits.
+
+### The Donkey Kong boards in the app (item I6)
+
+- **Which sets**: `scripts/make-set-list.py` takes them from the GAME() lines of MAME's
+  `dkong.cpp` as it does Galaxian's (`DKONG_MACHINES`): the plain `dkong_state` sets on the
+  `dkong2b` machine (Donkey Kong's two-board TKG-04) or the `dkongjr` machine, with no init and
+  exactly the board's ROM regions. That gives 15: `dkong`, `dkonghrd`, `dkongo`, `dkongj`,
+  `dkongjo`, `dkongjo1`, `dkongf` (Foundry) and `dkongpe` (Pauline Edition) on Donkey Kong's
+  board; `dkongjr`, `dkongjr2`, `dkongjrj`, `dkongjnrj`, `dkongjrb`, `dkongjre` and `dkongjrpb` on
+  Jr.'s. Left out for now: Braze's kits (an extra decrypting chip), `dkingjr` and `maguila`
+  (inverted colour PROMs), `jrking` (16 KB of sprites, which no test has held to MAME yet), and the
+  driver's other machines (Radar Scope, Donkey Kong 3, the S2650 conversions, ...).
+- **Controls and switches** come from MAME's port lists the same way: IN0 is player 1's four-way
+  stick and jump (B), IN1 player 2's (the cocktail side), IN2 the starts and the coin, all active
+  high; DSW0's lives, extra life, coins and cabinet are settings in three groups (Donkey Kong,
+  Foundry's free play coinage, Jr.'s bonus scores), keyed `carcade_dkong_*`, `carcade_dkongf_*`
+  and `carcade_dkongjr_*`, with MAME's factory defaults (held to them by the same test). The
+  service button and MAME's "Video Hardware" setting (TKG-04) stay as the factory left them.
+- **The picture** is the board's own 224 x 256, upright, at 3:4 and 60.606 fps, within the
+  224 x 288 the app declares, so the app needed no change.
+- **Proved** by `tests/dkong_board.rs` (everywhere, without MAME): every frame of the nine test
+  programs hashes to MAME 0.289's recorded picture, all 5.2 million 8035 instructions of the two
+  sound programs hash to MAME's trace, the sound follows MAME's recorded levels and measures, and
+  save states round-trip mid-run. And by `tests/libretro.rs`: the programs zipped as `dkong.zip`
+  and `dkongjr.zip` play through the entry points with every frame MAME's and the board's, and the
+  board's sound; the inputs program played through the pads and settings matches MAME on every
+  frame but the two with the service button held (a planted left/right swap fails it); only
+  Donkey Kong's four switches show; and a Jr. state round-trips with the same frames and sound,
+  Restart starts afresh, and the state is refused by Donkey Kong.
 
 ## Every place the app wires it in (item I4, done)
 

@@ -11,10 +11,16 @@
 //! 224 x 256, from a board whose own frames are MAME's (tests/galaxian_board.rs and
 //! tests/konami_board.rs), and on the frames before any input changes, MAME's recorded hashes.
 //!
+//! The Donkey Kong boards' programs (test-programs/dkong) go through them too, zipped as MAME's
+//! dkong and dkongjr sets: every frame the core hands out must be the board's picture and MAME's
+//! recorded one (tests/dkong_board.rs), and the sound the board's. The inputs program is driven
+//! through the pads and the DIP switch settings, frame for frame as on MAME.
+//!
 //! Also: the sets' zips (split, with the parent next to it), the refusals a player reads, save
 //! states, Restart, the settings, and that the app files every set cArcade knows as arcade.
 
 mod common;
+mod dkong;
 mod galaxian;
 mod konami;
 mod measure;
@@ -550,4 +556,162 @@ fn the_galaxian_family_plays_through_the_entry_points() {
         retro_unload_game();
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+/// Donkey Kong's and Jr.'s test programs through the entry points, each zipped as its MAME set: the
+/// core's frames are the board's and MAME's, its sound is the board's on both channels.
+#[test]
+fn the_donkey_kong_boards_play_through_the_entry_points() {
+    use continuum_arcade::dkong::{Dkong, Ports as DkPorts};
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut failures = Vec::new();
+    for c in dkong::cases().into_iter().filter(|c| c.events.is_empty()) {
+        frontend();
+        let dir = work_dir(&format!("dkong-{}", c.name));
+        let zip = dir.join(format!("{}.zip", c.set));
+        write_zip(&zip, &dkong::files(&c));
+        assert!(load(&zip), "{}: {}", c.name, last_log_line());
+        let want = dkong::Reference::read(&c).video;
+        // The board as the core runs it: the set's ports at rest, with the factory switches.
+        let p = continuum_arcade::sets::find(c.set).unwrap().rest;
+        let mut board = Dkong::new(c.variant, &dkong::roms(&c)).unwrap();
+        board.set_ports(DkPorts { in0: p[0], in1: p[1], in2: p[2], dsw0: p[3] });
+        OUT.lock().unwrap().samples.clear();
+        let got = run(c.frames);
+        let sound = std::mem::take(&mut OUT.lock().unwrap().samples);
+        for (i, (w, h, frame)) in got.iter().enumerate() {
+            assert_eq!((*w, *h), (224, 256), "{}: the picture is upright", c.name);
+            board.run_frame();
+            if dkong::video_hash(frame) != want[i] {
+                failures.push(format!("{}: frame {} isn't MAME's", c.name, i + 1));
+                break;
+            }
+            if frame.as_slice() != board.video() {
+                failures.push(format!("{}: frame {} isn't the board's picture", c.name, i + 1));
+                break;
+            }
+            let theirs: Vec<i16> = board.audio().iter().flat_map(|&s| [s, s]).collect();
+            if sound[i * 792 * 2..(i + 1) * 792 * 2] != theirs[..] {
+                failures.push(format!("{}: frame {}'s sound isn't the board's", c.name, i + 1));
+                break;
+            }
+        }
+        eprintln!("{}: {} frames through the entry points, as on MAME", c.name, got.len());
+        retro_unload_game();
+    }
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+/// Donkey Kong's inputs program, driven the way a player would: both sticks, jump, coin and the
+/// starts on the frontend's pads, and the DIP switches through the settings. Every frame must be
+/// MAME's, except while the test holds the service button, which the core doesn't offer.
+#[test]
+fn donkey_kongs_controls_and_switches_reach_the_board_as_on_mame() {
+    use dkong::{Event, Port};
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    frontend();
+    let case = dkong::cases().into_iter().find(|c| c.name == "inputs").unwrap();
+    let dir = work_dir("dkong-inputs");
+    let zip = dir.join("dkong.zip");
+    write_zip(&zip, &dkong::files(&case));
+    assert!(load(&zip), "{}", last_log_line());
+    let want = dkong::Reference::read(&case).video;
+    let (mut in0, mut in1, mut in2, mut dsw0) = (case.ports.in0, case.ports.in1, case.ports.in2, case.ports.dsw0);
+    let (mut compared, mut skipped) = (0, 0);
+    for frame in 1..=case.frames {
+        for &(f, e) in &case.events {
+            if f != frame {
+                continue;
+            }
+            let (port, f): (Port, Box<dyn Fn(u8) -> u8>) = match e {
+                Event::Press(p, b) => (p, Box::new(move |r| r | b)),
+                Event::Release(p, b) => (p, Box::new(move |r| r & !b)),
+                Event::Dip(p, m, v) => (p, Box::new(move |r| (r & !m) | (v & m))),
+            };
+            match port {
+                Port::In0 => in0 = f(in0),
+                Port::In1 => in1 = f(in1),
+                Port::In2 => in2 = f(in2),
+                Port::Dsw0 => dsw0 = f(dsw0),
+            }
+        }
+        let on = |r: u8, b: u8| r & b != 0;
+        // libretro joypad bits: B 0, Select 2, Start 3, Up 4, Down 5, Left 6, Right 7.
+        let pad = |r: u8, select: bool, start: bool| {
+            u16::from(on(r, 0x10)) | u16::from(select) << 2 | u16::from(start) << 3 | u16::from(on(r, 0x04)) << 4
+                | u16::from(on(r, 0x08)) << 5 | u16::from(on(r, 0x02)) << 6 | u16::from(on(r, 0x01)) << 7
+        };
+        *PADS.lock().unwrap() = [pad(in0, on(in2, 0x80), on(in2, 0x04)), pad(in1, false, on(in2, 0x08))];
+        set_option("carcade_dkong_lives", &format!("{:02x}", dsw0 & 0x03));
+        set_option("carcade_dkong_extra_life", &format!("{:02x}", dsw0 & 0x0C));
+        set_option("carcade_dkong_coins", &format!("{:02x}", dsw0 & 0x70));
+        set_option("carcade_dkong_cabinet", &format!("{:02x}", dsw0 & 0x80));
+        let got = run(1);
+        assert_eq!((got[0].0, got[0].1), (224, 256));
+        if on(in2, 0x01) {
+            skipped += 1;
+            continue;
+        }
+        compared += 1;
+        assert_eq!(
+            dkong::video_hash(&got[0].2),
+            want[frame as usize - 1],
+            "frame {frame}: in0 {in0:02x} in1 {in1:02x} in2 {in2:02x} dsw0 {dsw0:02x}"
+        );
+    }
+    eprintln!("dkong inputs: {compared} frames match MAME's ({skipped} left out while the service button is held)");
+    assert!(compared >= 115, "{compared}");
+    // Only Donkey Kong's own switches show.
+    let declared = DECLARED.lock().unwrap().clone();
+    let hidden = HIDDEN.lock().unwrap().clone().unwrap_or_default();
+    let shown: Vec<&str> = declared.iter().map(|(k, _)| k.as_str()).filter(|k| !hidden.contains(*k)).collect();
+    assert_eq!(shown, ["carcade_dkong_lives", "carcade_dkong_extra_life", "carcade_dkong_coins", "carcade_dkong_cabinet"]);
+    // The picture, its shape and its pace.
+    let mut av = std::mem::MaybeUninit::<RetroSystemAvInfo>::uninit();
+    let av = unsafe {
+        retro_get_system_av_info(av.as_mut_ptr());
+        av.assume_init()
+    };
+    assert_eq!((av.geometry.base_width, av.geometry.base_height), (224, 256));
+    assert_eq!(av.geometry.aspect_ratio, 0.75);
+    assert!((av.timing.fps - 6_144_000.0 / (384.0 * 264.0)).abs() < 1e-9);
+    retro_unload_game();
+}
+
+/// A Donkey Kong Jr. state through the entry points: it reads back byte for byte with the same
+/// frames and sound after, Restart starts afresh, and it doesn't load into Donkey Kong.
+#[test]
+fn donkey_kong_save_states_and_restart_through_the_entry_points() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let load_dk = |name: &str| {
+        frontend();
+        let c = dkong::cases().into_iter().find(|c| c.name == name).unwrap();
+        let dir = work_dir(&format!("dkong-state-{name}"));
+        let zip = dir.join(format!("{}.zip", c.set));
+        write_zip(&zip, &dkong::files(&c));
+        assert!(load(&zip), "{name}: {}", last_log_line());
+    };
+    load_dk("jrsound");
+    let fresh = run(10);
+    run(150);
+    let size = retro_serialize_size();
+    let mut state = vec![0u8; size];
+    assert!(unsafe { retro_serialize(state.as_mut_ptr() as *mut c_void, size) });
+    let take = || {
+        OUT.lock().unwrap().samples.clear();
+        let f = run(30);
+        (f, std::mem::take(&mut OUT.lock().unwrap().samples))
+    };
+    let straight = take();
+    assert!(unsafe { retro_unserialize(state.as_ptr() as *const c_void, size) });
+    let mut again_state = vec![0u8; size];
+    assert!(unsafe { retro_serialize(again_state.as_mut_ptr() as *mut c_void, size) });
+    assert!(state == again_state, "the state reads back byte for byte");
+    assert!(take() == straight, "the frames and sound after a restore are the same");
+    retro_reset();
+    assert!(run(10) == fresh, "Restart starts the game afresh");
+    retro_unload_game();
+    load_dk("tiles");
+    assert!(!unsafe { retro_unserialize(state.as_ptr() as *const c_void, size) }, "a Jr. state loads into Donkey Kong");
+    retro_unload_game();
 }
