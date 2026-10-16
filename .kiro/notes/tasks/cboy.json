@@ -70,10 +70,10 @@
     },
     {
       "id": "G4",
-      "done": false,
+      "done": true,
       "title": "Keep pushing the score honestly, all the way",
       "detail": "Carry on through every remaining Mealybug failure, one hardware behaviour at a time, committing with the score each time, until all 55 pass. A run of changes that fixes nothing is NOT a reason to stop: go back to how the hardware and SameBoy do it and look harder. The only failures that may be left are ones that genuinely cannot be explained from the hardware behaviour, each written down in .kiro/notes/docs/CBOY_EXACT_DRAWER.md with exactly what was checked. Never guess.",
-      "progress": "16 October: 27f9821 (the Color's whole tile-select glitch) and 45aa6bd (an object's first byte takes its height a dot before its read) took Mealybug 45 -> 50 of 55: every Color picture a Color can produce now passes. Left: the 4 Color references no Color can produce (never to be chased) and dmg:m3_lcdc_bg_en_change (4 pixels at x=0), being worked on next."
+      "result": "Pushed as 27f9821, 45aa6bd and f67de43: the Color's whole tile-select glitch from the Mealybug PPU documentation (45 -> 49), an object's first byte taking its height a dot before its read (49 -> 50), and a background-enable clear reaching the line's first pixel at the write's first step as SameBoy already has for objects (50 -> 51, which also matches the second Game Boy unit's reference at x=0); Mealybug is 51 of 55, every picture that has a reference, because the 4 left are byte-for-byte Mealybug's 'Expected result not currently available' placeholder (written down with what was checked in .kiro/notes/docs/CBOY_EXACT_DRAWER.md), and on Pokemon Yellow, Gold and Crystal the exact drawer draws every one of 3,000 frames the same as Standard."
     },
     {
       "id": "G5",
