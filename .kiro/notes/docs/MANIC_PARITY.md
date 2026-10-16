@@ -55,7 +55,7 @@ systems in all.
 | Virtual Boy | mednafen_vb | .vb .vboy | [x] code |
 | Sega Saturn | yabause (mednafen_saturn as a choice) | .iso .chd .ccd .cue | [x] code |
 | Sega CD | blastem | .chd .iso .cue | [x] code |
-| Sega 32X | blastem (needs two BIOS files, 32X_M_BIOS.bin and 32X_S_BIOS.bin) | .32x | [x] code |
+| Sega 32X | blastem (no BIOS needed since 13 October: Continuum's own start-up code; the player's 32X_M_BIOS.bin and 32X_S_BIOS.bin are used when both are there) | .32x | [x] code |
 | Master System extra | gearsystem | .bms | [x] code |
 | 3DS extra | azahar | .app .cia | [x] code |
 | PSP extra | ppsspp | .cso and .prx always; .iso .chd .pbp by looking inside (shared with PS1, see below) | [x] code |
