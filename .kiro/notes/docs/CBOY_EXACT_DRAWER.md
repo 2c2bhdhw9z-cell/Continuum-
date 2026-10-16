@@ -595,39 +595,26 @@ the CPU side on both drawers.
 
 ## For the owner
 
-cBoy's exact drawer — the one that draws a Game Boy picture a dot at a time, the way the real chip
-does — was rebuilt from scratch this night instead of being patched again, and on the test set
-that measures this sort of thing exactly it went from **5 pictures right out of 55 to 24**. That
-24 is almost everything currently reachable: 23 of them are the whole Game Boy half bar one
-picture that is four pixels away, and the 24th is the first of the Colour half, which is held up
-by two things in files this work was not allowed to touch (both written down above for whoever
-owns them, with the number of pictures each is worth). **It is still not worth switching on to
-play games** — no real game has been played on it on a phone yet, so Standard stays the one to
-use, and it stays the default either way.
+cBoy's exact drawer is the one that draws a Game Boy picture a dot at a time, the way the real chip
+does. On the test set that measures this exactly (Mealybug) it went from **27 of 55 to 51 of 55**
+on 16 October, and 51 is as high as it can go: the last 4 have no real answer to compare against
+(the test set itself says "Expected result not currently available" for them). That is every Game
+Boy test picture and every Game Boy Color one. For comparison, SameBoy, the emulator these tests
+were checked against, gets 15 of the 24 Game Boy ones and 21 of the 31 Color ones.
 
-Two things did change for both drawers, so they can show up in a game you play. They should only
-ever look more right, but they are the only things here worth watching for:
+The biggest single step was timing: the console doesn't apply every setting a game changes at the
+same instant, and a Game Boy Color does it at different moments from an original Game Boy. cBoy
+now follows the real console for each one, and the Color gets its own timing, which alone fixed 17
+Color pictures.
 
-- **Status bars and text boxes.** A real Game Boy only draws the window — the fixed panel games
-  use for status bars and text boxes — if the window was switched on at the moment the screen
-  passed the line it starts at. cBoy used to start it part-way down the screen when a game
-  switched it on late; a real console waits for the next frame, which is now what cBoy does. If a
-  status bar or text box ever seems to arrive a frame later than it used to, that is this change
-  and it is worth telling Kiro.
-- **Line timing, far smaller.** The console tells a game when it has finished drawing each line,
-  and in two cases cBoy was saying so a few millionths of a second early: when a sprite sits hard
-  against the left edge of a scrolled line, and on a Game Boy Color with sprites switched off.
-  Both are now the real chip's timing. No game is likely to notice, and one that counts those
-  moments closely can only be better off.
+**Nothing changed for the normal (Standard) drawer**, which is still the default: on every test
+program and five Pokémon games, each run on its own console and on a Game Boy Color for 200
+frames, it draws the same frames and the games run exactly the same as before. **Exact is still the experimental choice and stays off unless
+you pick it**: no real game has been played on it on a phone yet. On Pokémon Yellow, Gold and
+Crystal it drew all 3,000 frames tried exactly like Standard; on Red and Blue 5 of 3,000 frames
+differ on one line of the opening fight scene, where the game changes the picture partway along a
+line, which is the kind of thing Exact exists to show.
 
-One more thing turned up that was worth doing for you rather than for the tests: cBoy's Colour
-console played an old black-and-white game in plain grey, where a real Colour console tints it.
-**That is done now (evening of 13 October).** A new choice under Picture, "Colour for
-black-and-white games", plays old Game Boy games in the colours a Game Boy Color gives them, or
-in one of the twelve a Color lets you pick with the buttons. It is off unless you pick it, and
-the three test pictures it was meant to fix passed the moment it was in, which makes 27.
-
-If you want to look at Exact anyway, on the phone: **Settings → Core settings → cBoy → Picture
-drawing → Exact (experimental)**, then open a game. Switch it back to **Standard** to return to
-the drawer every game here has been played on. Both drawers pass the same 87 timing tests and both
-reference pictures, so nothing you can measure from inside a game should differ between them.
+If you want to look at it: **Settings → Core settings → cBoy → Picture drawing → Exact
+(experimental)**, then open a game. Switch it back to **Standard** for the drawer every game here
+has been played on.

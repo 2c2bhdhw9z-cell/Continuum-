@@ -1,7 +1,8 @@
 # cBoy, evening of 13 October 2026
 
 Written item by item as the evening's work lands; the last item turns it into the write-up for the
-owner. Everything here is **Built, untested**: nothing has been seen on a phone yet.
+owner. Everything here is **Built, untested**: nothing has been seen on a phone yet. Items 1 to 3
+landed on 13 October, item 4 on 16 October.
 
 ## What landed
 
@@ -114,6 +115,52 @@ to Off is immediate.
   unchanged (67 options), and the full cBoy suite is green: 158 tests, dmg-acid2, cgb-acid2,
   Mooneye and Mealybug as before.
 
+### 4. The exact drawer: every test picture that has an answer — Built, untested
+
+- **For players:** nothing changes unless you pick **Picture drawing → Exact (experimental)**;
+  Standard is still the default and draws exactly as before. Exact is the drawer that copies the
+  real chip a dot at a time, for the rare games that change the picture partway along a line. It
+  now gets **51 of the 55** Mealybug test pictures right, up from 27, and 51 is the most there is:
+  the other 4 are the test set's own "Expected result not currently available" placeholder. That
+  is all 24 original Game Boy pictures and all 27 real Game Boy Color ones.
+- **What changed (G2):** a game's write to one of the picture settings (scroll, palettes, the
+  window, the LCD control bits) now reaches the drawer on the exact dot the console applies it,
+  as SameBoy models it, and a Game Boy Color uses its own, different timing. Before, the Color
+  used the Game Boy's. This alone fixed 17 Color pictures (27 → 44). The registers a game can read
+  back still change at the same moment as before, so nothing a game can measure moved.
+- **(G3)** On a Game Boy Color playing a black-and-white game, the drawer now follows the Color's
+  own hardware rules (window start, sprite fetching, the background fetch), and the Color's
+  tile-select glitch is in. Its pictures now match SameBoy's pixel for pixel on 27 of the 31
+  (44 → 45).
+- **(G4)** Three more rules from the hardware notes and the measurements: the rest of the Color's
+  tile-select glitch (45 → 49), a sprite's first row byte taking its height setting a dot before
+  it is read (50), and switching the background off right as a line's first pixel is drawn
+  (51, the last black-and-white picture, four pixels away for three sessions).
+- **Old save states:** the state format did not change (nothing new is saved), so every state
+  still loads.
+- **Mealybug: 27 → 51 of 55.**
+
+**What the tests prove.** The full cBoy suite is green (163 tests): dmg-acid2, cgb-acid2,
+Mooneye 87 of 87 and the Mooneye Color set 7 of 7 runs, on both drawers. All 51 pictures are
+pinned by name, so one going wrong fails the build. New tests pin the write timing table for
+both consoles, that a write leaves nothing behind once it has landed, what each step of a write
+carries, and both halves of the Color's tile-select glitch (each checked to fail when its rule is
+taken out). The Standard drawer was fingerprinted before and after every change, over 200 frames
+of every test program and five Pokémon games, each on its own console and on a Color: same
+frames, same CPU state, same save states, 336 of 336. The exact drawer was compared with SameBoy
+write by write (`cores/continuum-gb/scripts/sameboy/`): on the Game Boy set every sideways-scroll,
+palette and window-position write finds both drawers in the same state, and the two places cBoy's Game Boy timing
+differs from SameBoy's were each tested inside a copy of SameBoy, which then passes 22 Game Boy
+pictures instead of 15. Pokémon Yellow, Gold and Crystal draw all 3,000 frames tried exactly the
+same on Exact as on Standard; Red and Blue differ on 5 frames, on one line of the opening fight
+where the game changes the picture partway along the line.
+
+**Left on purpose.** Exact stays experimental and never the default until the owner has seen it
+on a phone. What no test here can measure is written down in
+.kiro/notes/docs/CBOY_EXACT_DRAWER.md ("What is left"): five Color-only memory-access edges,
+double speed, the later Color revisions (the tests are a CPU CGB C), the Super Game Boy's own
+timing, and one mode-3 length case on a Color that would change the Standard drawer's timing.
+
 ## Needed in files cBoy's work does not own
 
 - `docs/option-sources/mapping.tsv`, the `gambatte_gb_internal_palette` row (line 24): its note
@@ -146,3 +193,22 @@ to Off is immediate.
   under a running game.
 - Not done, as it would change what a setting does: the nine settings that wait for the next start
   say "next start", not "restart", so the app doesn't offer its restart button for them.
+
+## Phone checks
+
+Delete the old app first, as always, then install the new build.
+
+1. **Colour for old games.** Settings, Core settings, cBoy, Picture: set "Colour for black-and-white
+   games" to Automatic (leave the console setting on Auto). Open Tetris, Pokémon Red or Blue, or
+   Super Mario Land. It should be in colour, like on a real Game Boy Color (Tetris yellow and red,
+   Pokémon Red red and green). Set it back to Off: grey again.
+2. **Pick a scheme.** Same setting, pick one of the button ones, like "Reversed (Right + B)", then
+   close and reopen the game. The colours should change to that scheme.
+3. **Link cable text.** cBoy's Link cable setting should say to use Link cable to a second phone in
+   a game's ... menu, and every cBoy setting should have one short line at most.
+4. **Exact drawer, a quick look.** Picture drawing: Exact (experimental). Play a few minutes of any
+   Game Boy or Color game. It should look and play the same as Standard. Anything that looks
+   broken: send a screenshot. Then switch back to Standard.
+5. **Nothing changed by default.** With Picture drawing on Standard, your usual cBoy games should
+   look and play exactly like before, and an old save state should still load.
+
