@@ -338,9 +338,9 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     let switches = match env {
         Some(env) => {
             options::game_loaded(env, Some(set.dips));
-            options::read(env, set.dips)
+            options::read(env, set)
         }
-        None => options::switches(set.dips, |_| None),
+        None => options::switches(set, |_| None),
     };
     let core = Core {
         set,
@@ -427,7 +427,7 @@ pub unsafe extern "C" fn retro_run() {
     let Some(core) = slot.as_mut() else { return };
     if let Some(env) = env {
         if options::changed(env) {
-            core.switches = options::read(env, core.set.dips);
+            core.switches = options::read(env, core.set);
         }
     }
     let four_way = core.machine.four_way();

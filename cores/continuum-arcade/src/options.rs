@@ -10,7 +10,8 @@ use std::ffi::{c_char, c_void, CStr};
 use std::sync::Mutex;
 
 use crate::board::Switches;
-use crate::sets::Dips;
+use crate::sets::{Dips, SetSpec};
+use crate::set_list::FAMILIES;
 
 #[repr(C)]
 struct OptValue {
@@ -83,11 +84,26 @@ pub struct Switch {
     pub default: &'static CStr,
 }
 
-const CATEGORIES: &[(&CStr, &CStr, &CStr)] = &[(
-    c"pacman",
-    c"Pac-Man games",
-    c"The switches inside the cabinet of Pac-Man, Ms. Pac-Man and the games on their board.",
-)];
+/// A family of sets with the same switches, generated from MAME's switch lists (`set_list.rs`):
+/// its settings group, keyed by its first set.
+pub struct SwitchFamily {
+    pub key: &'static CStr,
+    pub title: &'static CStr,
+    pub switches: &'static [Switch],
+}
+
+/// The settings groups: the Pac-Man board's, then one per generated family.
+fn categories() -> Vec<(&'static CStr, &'static CStr, &'static CStr)> {
+    let mut c = vec![(
+        c"pacman",
+        c"Pac-Man games",
+        c"The switches inside the cabinet of Pac-Man, Ms. Pac-Man and the games on their board.",
+    )];
+    for f in FAMILIES {
+        c.push((f.key, f.title, c"The switches inside the cabinet."));
+    }
+    c
+}
 
 // The Pac-Man board's switches (DSW1 is port 2; the cabinet switch is IN1's top bit).
 const PAC_COINS: Switch = Switch {
@@ -165,13 +181,19 @@ const PAC_CABINET: Switch = Switch {
 const PAC_ALL: &[&Switch] = &[&PAC_COINS, &PAC_LIVES, &PAC_BONUS, &PAC_DIFFICULTY, &PAC_GHOSTS, &PAC_CABINET];
 
 /// Every switch of every board, in the order the settings list them.
-pub const SWITCHES: &[&Switch] = PAC_ALL;
+pub fn all_switches() -> Vec<&'static Switch> {
+    let mut v: Vec<&'static Switch> = PAC_ALL.to_vec();
+    for f in FAMILIES {
+        v.extend(f.switches.iter());
+    }
+    v
+}
 
 /// A cabinet's switches: the ones it offers, and the bits of the ones it doesn't, which stay at
 /// the factory setting (a game whose switch means something else there, like Come Come's coinage).
 /// `base` is the ports with nothing pressed and every offered switch at 0.
 pub struct Family {
-    pub switches: &'static [&'static Switch],
+    pub switches: Vec<&'static Switch>,
     pub base: [u8; 4],
 }
 
@@ -179,11 +201,27 @@ pub struct Family {
 /// the rack test and service switches, which stay off; DSW2 reads nothing.
 const PAC_REST: [u8; 4] = [0xFF, 0x7F, 0x00, 0x00];
 
+/// The switches a set's cabinet offers, and its ports with nothing pressed and those switches at 0.
+pub fn family_of(set: &SetSpec) -> Family {
+    match set.dips {
+        Dips::Table(i) => {
+            let switches: Vec<&'static Switch> = FAMILIES[i].switches.iter().collect();
+            let mut base = set.rest;
+            for s in &switches {
+                base[s.port] &= !s.mask;
+            }
+            Family { switches, base }
+        }
+        d => family(d),
+    }
+}
+
+/// The Pac-Man board's families (their ports at rest are the same for every set).
 pub fn family(dips: Dips) -> Family {
     let with_fixed = |switches: &'static [&'static Switch], dsw1: u8| {
         let mut base = PAC_REST;
         base[2] = dsw1;
-        Family { switches, base }
+        Family { switches: switches.to_vec(), base }
     };
     match dips {
         Dips::Pacman => with_fixed(PAC_ALL, 0x00),
@@ -205,6 +243,7 @@ pub fn family(dips: Dips) -> Family {
         Dips::PacmanSp => {
             with_fixed(&[&PAC_COINS, &PAC_LIVES, &PAC_BONUS, &PAC_GHOSTS, &PAC_CABINET], 0x40)
         }
+        Dips::Table(i) => Family { switches: FAMILIES[i].switches.iter().collect(), base: [0; 4] },
     }
 }
 
@@ -220,8 +259,8 @@ impl Switch {
 }
 
 /// The ports with the switches set as `value` says (a key's chosen value, or None for the default).
-pub fn switches(dips: Dips, value: impl Fn(&CStr) -> Option<String>) -> Switches {
-    let f = family(dips);
+pub fn switches(set: &SetSpec, value: impl Fn(&CStr) -> Option<String>) -> Switches {
+    let f = family_of(set);
     let mut ports = f.base;
     for s in f.switches {
         ports[s.port] |= s.bits(value(s.key).as_deref());
@@ -243,7 +282,8 @@ static LOADED: Mutex<Option<Dips>> = Mutex::new(None);
 pub unsafe fn declare(env: EnvFn) {
     // Built once and leaked: the frontend may keep the pointers.
     let defs: &'static mut Vec<OptDefinition> = Box::leak(Box::default());
-    for s in SWITCHES {
+    let all = all_switches();
+    for s in &all {
         let mut values = [NULL_VALUE; 128];
         for (i, (v, l, _)) in s.values.iter().enumerate() {
             values[i] = OptValue { value: v.as_ptr(), label: l.as_ptr() };
@@ -270,7 +310,7 @@ pub unsafe fn declare(env: EnvFn) {
         default_value: std::ptr::null(),
     });
     let cats: &'static mut Vec<OptCategory> = Box::leak(Box::default());
-    for (k, d, i) in CATEGORIES {
+    for (k, d, i) in categories() {
         cats.push(OptCategory { key: k.as_ptr(), desc: d.as_ptr(), info: i.as_ptr() });
     }
     cats.push(OptCategory { key: std::ptr::null(), desc: std::ptr::null(), info: std::ptr::null() });
@@ -289,7 +329,7 @@ pub unsafe fn declare(env: EnvFn) {
     // Older frontends: "Label; default|other|...".
     let texts: &'static mut Vec<std::ffi::CString> = Box::leak(Box::default());
     let vars: &'static mut Vec<Variable> = Box::leak(Box::default());
-    for s in SWITCHES {
+    for s in &all {
         let mut list = vec![s.default.to_string_lossy().into_owned()];
         for (v, ..) in s.values {
             if *v != s.default {
@@ -308,8 +348,8 @@ pub unsafe fn declare(env: EnvFn) {
 /// Shows the loaded game's switches and hides the rest (all of them show while no game is loaded).
 unsafe fn show_for(env: EnvFn, dips: Option<Dips>) {
     let offered = dips.map(|d| family(d).switches);
-    for s in SWITCHES {
-        let visible = offered.is_none_or(|o| o.iter().any(|x| x.key == s.key));
+    for s in all_switches() {
+        let visible = offered.as_ref().is_none_or(|o| o.iter().any(|x| x.key == s.key));
         let mut d = OptDisplay { key: s.key.as_ptr(), visible };
         env(ENV_SET_CORE_OPTIONS_DISPLAY, &mut d as *mut OptDisplay as *mut c_void);
     }
@@ -347,8 +387,8 @@ unsafe fn get(env: EnvFn, key: &CStr) -> Option<String> {
 ///
 /// # Safety
 /// `env` must be the frontend's environment callback.
-pub unsafe fn read(env: EnvFn, dips: Dips) -> Switches {
-    switches(dips, |k| get(env, k))
+pub unsafe fn read(env: EnvFn, set: &SetSpec) -> Switches {
+    switches(set, |k| get(env, k))
 }
 
 /// Whether a setting changed since the last look.
@@ -370,13 +410,15 @@ mod tests {
     #[test]
     fn defaults_are_the_factory_settings() {
         for set in SETS {
-            let s = switches(set.dips, |_| None);
+            let s = switches(set, |_| None);
+            let generated = matches!(set.dips, Dips::Table(_));
             for &(port, mask, value) in set.factory {
-                let i = match port {
-                    "IN0" => 0,
-                    "IN1" => 1,
-                    "DSW1" => 2,
-                    other => panic!("{}: a switch in {other}", set.name),
+                let i = match (port, generated) {
+                    ("IN0", _) => 0,
+                    ("IN1", _) => 1,
+                    ("DSW1", false) | ("IN2", true) => 2,
+                    ("IN3", true) => 3,
+                    (other, _) => panic!("{}: a switch in {other}", set.name),
                 };
                 assert_eq!(s.ports[i] & mask, value, "{}: {port}", set.name);
             }
@@ -386,26 +428,30 @@ mod tests {
     #[test]
     fn a_setting_moves_only_its_own_bits() {
         let pick = |key: &'static CStr, v: &'static str| move |k: &CStr| (k == key).then(|| v.to_string());
-        let base = switches(Dips::Pacman, |_| None).ports;
+        let pacman = crate::sets::find("pacman").unwrap();
+        let base = switches(pacman, |_| None).ports;
         assert_eq!(base, [0xFF, 0xFF, 0xC9, 0x00]);
-        assert_eq!(switches(Dips::Pacman, pick(c"carcade_pacman_lives", "5")).ports[2], 0xCD);
-        assert_eq!(switches(Dips::Pacman, pick(c"carcade_pacman_coinage", "free")).ports[2], 0xC8);
-        assert_eq!(switches(Dips::Pacman, pick(c"carcade_pacman_bonus", "none")).ports[2], 0xF9);
-        assert_eq!(switches(Dips::Pacman, pick(c"carcade_pacman_cabinet", "cocktail")).ports[1], 0x7F);
+        assert_eq!(switches(pacman, pick(c"carcade_pacman_lives", "5")).ports[2], 0xCD);
+        assert_eq!(switches(pacman, pick(c"carcade_pacman_coinage", "free")).ports[2], 0xC8);
+        assert_eq!(switches(pacman, pick(c"carcade_pacman_bonus", "none")).ports[2], 0xF9);
+        assert_eq!(switches(pacman, pick(c"carcade_pacman_cabinet", "cocktail")).ports[1], 0x7F);
         // A value that isn't one is the default.
-        assert_eq!(switches(Dips::Pacman, pick(c"carcade_pacman_lives", "9")).ports, base);
+        assert_eq!(switches(pacman, pick(c"carcade_pacman_lives", "9")).ports, base);
         // A switch the cabinet doesn't have stays at the factory setting.
-        assert_eq!(switches(Dips::ComeCome, pick(c"carcade_pacman_lives", "5")).ports[2], 0xCC);
+        let comecome = SETS.iter().find(|s| s.dips == Dips::ComeCome).unwrap();
+        assert_eq!(switches(comecome, pick(c"carcade_pacman_lives", "5")).ports[2], 0xCC);
     }
 
     #[test]
     fn every_switch_is_plain_and_whole() {
-        for s in SWITCHES {
+        let mut keys = std::collections::HashSet::new();
+        for s in all_switches() {
+            assert!(keys.insert(s.key), "{:?} twice", s.key);
             let key = s.key.to_str().unwrap();
             assert!(key.starts_with("carcade_"), "{key}");
             assert!(s.values.iter().any(|(v, ..)| *v == s.default), "{key}'s default");
             assert!(s.values.iter().all(|&(_, _, b)| b & !s.mask == 0), "{key}'s bits");
-            assert!(CATEGORIES.iter().any(|(c, ..)| *c == s.category), "{key}'s category");
+            assert!(categories().iter().any(|(c, ..)| *c == s.category), "{key}'s category");
             let label = s.label.to_str().unwrap();
             assert!(label.len() <= 20 && s.info.to_bytes().len() <= 80, "{key}: short words");
         }

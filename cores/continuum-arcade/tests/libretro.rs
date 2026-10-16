@@ -5,10 +5,19 @@
 //! program (tests/references/pacman). The inputs program is driven through the frontend's pads
 //! and the DIP switch settings, so the controls and switches are held to MAME's too.
 //!
+//! The Galaxian family's programs (test-programs/galaxian and test-programs/konami) go through the
+//! entry points too, zipped as MAME's galaxian, mooncrst, mooncrstuu, scramble, theend, scobra,
+//! frogger and amidar sets: each frame the core hands out must be the board's picture averaged to
+//! 224 x 256, from a board whose own frames are MAME's (tests/galaxian_board.rs and
+//! tests/konami_board.rs), and on the frames before any input changes, MAME's recorded hashes.
+//!
 //! Also: the sets' zips (split, with the parent next to it), the refusals a player reads, save
 //! states, Restart, the settings, and that the app files every set cArcade knows as arcade.
 
 mod common;
+mod galaxian;
+mod konami;
+mod measure;
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -388,7 +397,7 @@ fn a_game_it_cant_play_is_one_plain_sentence() {
         assert!(!load(&p), "{name} loaded");
         last_log_line()
     };
-    let plays = "Our arcade emulator can\u{2019}t play this one yet. Right now it plays Pac-Man, Ms. Pac-Man and games on the same board.";
+    let plays = "Our arcade emulator can\u{2019}t play this one yet. Right now it plays Pac-Man, Ms. Pac-Man, Galaxian, Scramble, Frogger, Amidar and games on the same boards.";
     assert_eq!(refuse("sf2.zip", &[("sf2_30a.bin".into(), vec![1; 4096])]), plays);
     assert_eq!(refuse("my game.zip", &[]), plays);
     let mut short = files(&case("video"));
@@ -418,18 +427,33 @@ fn the_switches_are_settings_and_only_the_games_own_show() {
         assert!(keys.contains(&format!("carcade_pacman_{k}").as_str()), "{k}: {keys:?}");
     }
     assert!(declared.contains(&("carcade_pacman_lives".into(), "3".into())));
-    // Ms. Pac-Man has no ghost names switch.
+    // Ms. Pac-Man has no ghost names switch; the other boards' switches are all hidden.
     assert!(load_case(&case("mspacman")));
+    let others: HashSet<String> = keys.iter().filter(|k| !k.starts_with("carcade_pacman_")).map(|k| k.to_string()).collect();
+    assert!(others.len() > 50, "the Galaxian family's switches: {}", others.len());
     let hidden = || HIDDEN.lock().unwrap().clone().unwrap_or_default();
-    assert_eq!(hidden(), HashSet::from(["carcade_pacman_ghosts".to_string()]));
+    let mut want = others.clone();
+    want.insert("carcade_pacman_ghosts".to_string());
+    assert_eq!(hidden(), want);
     // The frontend asks again before it lists them: the same answer.
     HIDDEN.lock().unwrap().replace(HashSet::new());
     let cb = DISPLAY_CB.lock().unwrap().expect("a display callback");
     assert!(unsafe { cb() });
-    assert_eq!(hidden(), HashSet::from(["carcade_pacman_ghosts".to_string()]));
+    assert_eq!(hidden(), want);
     retro_unload_game();
     assert!(load_case(&case("video")));
-    assert!(hidden().is_empty(), "Pac-Man has every switch");
+    assert_eq!(hidden(), others, "Pac-Man has every Pac-Man switch");
+    retro_unload_game();
+    // Scramble shows its own switches and only those.
+    let k = konami::cases().into_iter().find(|c| c.name == "scramble").unwrap();
+    let dir = work_dir("scramble-switches");
+    let files: Vec<(String, Vec<u8>)> = konami::files(&k).into_iter().map(|(n, _, _, d)| (n, d)).collect();
+    write_zip(&dir.join("scramble.zip"), &files);
+    assert!(load(&dir.join("scramble.zip")), "{}", last_log_line());
+    let shown: Vec<&str> = keys.iter().copied().filter(|k| !hidden().contains(*k)).collect();
+    assert_eq!(shown, ["carcade_scramble_lives", "carcade_scramble_coins", "carcade_scramble_cabinet"]);
+    retro_unload_game();
+    assert!(load_case(&case("video")));
     // The picture, its shape and its pace.
     let mut av = std::mem::MaybeUninit::<RetroSystemAvInfo>::uninit();
     let av = unsafe {
@@ -468,4 +492,62 @@ fn the_app_files_every_set_it_plays_as_arcade() {
         .filter(|n| !text.contains(&format!("\"{n}\"")))
         .collect();
     assert!(missing.is_empty(), "not in detect.rs's arcade sets: {missing:?}");
+}
+
+/// The Galaxian family's test programs through the entry points: each zipped as its MAME set.
+#[test]
+fn the_galaxian_family_plays_through_the_entry_points() {
+    use continuum_arcade::board::galaxian_picture;
+    use continuum_arcade::galaxian::{Galaxian, Rotation};
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    // (name, set, files, roms, variant, MAME's hashes, the first frame inputs change on)
+    let mut runs = Vec::new();
+    for c in galaxian::cases() {
+        let files = galaxian::files(&c);
+        let first = c.events.first().map_or(u32::MAX, |e| e.0);
+        runs.push((c.name.to_string(), c.set, files, galaxian::roms(&c), c.variant, galaxian::read_reference(&c), first, c.frames.min(120)));
+    }
+    for c in konami::cases() {
+        let files = konami::files(&c).into_iter().map(|(n, _, _, d)| (n, d)).collect();
+        let first = c.events.first().map_or(u32::MAX, |e| e.0);
+        runs.push((c.name.to_string(), c.set, files, konami::roms(&c), c.variant, konami::read_reference(&c).video, first, 120));
+    }
+    let mut failures = Vec::new();
+    for (name, set, files, roms, variant, want, first, frames) in runs {
+        frontend();
+        let dir = work_dir(&format!("galaxian-{name}"));
+        let zip = dir.join(format!("{set}.zip"));
+        write_zip(&zip, &files);
+        assert!(load(&zip), "{name}: {}", last_log_line());
+        // The board as the core runs it: the set's ports at rest, with the factory switches.
+        let spec = continuum_arcade::sets::find(set).unwrap();
+        let mut board = Galaxian::new(variant, Rotation::Rot90, &roms).unwrap();
+        let p = spec.rest;
+        board.set_ports(continuum_arcade::galaxian::Ports { in0: p[0], in1: p[1], in2: p[2], in3: p[3] });
+        OUT.lock().unwrap().samples.clear();
+        let got = run(frames);
+        let sound = std::mem::take(&mut OUT.lock().unwrap().samples);
+        let mut picture = vec![0u32; 224 * 256];
+        for (i, (w, h, frame)) in got.iter().enumerate() {
+            assert_eq!((*w, *h), (224, 256), "{name}: the picture");
+            board.run_frame();
+            if (i as u32) + 1 < first && galaxian::video_hash(board.video()) != want[i] {
+                failures.push(format!("{name}: frame {} isn't MAME's", i + 1));
+                break;
+            }
+            galaxian_picture(board.video(), &mut picture);
+            if *frame != picture {
+                failures.push(format!("{name}: frame {} isn't the board's picture", i + 1));
+                break;
+            }
+            let theirs: Vec<i16> = board.audio().iter().flat_map(|&s| [s, s]).collect();
+            if sound[i * 792 * 2..(i + 1) * 792 * 2] != theirs[..] {
+                failures.push(format!("{name}: frame {}'s sound isn't the board's", i + 1));
+                break;
+            }
+        }
+        eprintln!("{name}: {} frames through the entry points", got.len());
+        retro_unload_game();
+    }
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }

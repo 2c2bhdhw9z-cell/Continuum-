@@ -10,6 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::galaxian;
 use crate::pacman::{self, Variant};
 use crate::zip::Zip;
 
@@ -17,6 +18,35 @@ use crate::zip::Zip;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Board {
     Pacman(Variant),
+    /// The Galaxian family: the board variant, which way its monitor is turned, and the bits of
+    /// IN2 that read the protection chip (Scramble's and The End's), as MAME's port lists say.
+    Galaxian(galaxian::Variant, galaxian::Rotation, u8),
+}
+
+/// What an input bit is, on a set whose inputs are generated from MAME's port lists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Control {
+    /// A stick direction of player 0 or 1 (1 is a cocktail table's other side).
+    Up(u8),
+    Down(u8),
+    Left(u8),
+    Right(u8),
+    /// Player, button (0 the first).
+    Button(u8, u8),
+    /// Coin slot 0 or 1.
+    Coin(u8),
+    /// Player 1's or player 2's start.
+    Start(u8),
+}
+
+/// One input bit: which port (0 IN0 to 3 IN3), which bit, whether pressing it sets the bit, and
+/// what it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InputBit {
+    pub port: u8,
+    pub mask: u8,
+    pub active_high: bool,
+    pub control: Control,
 }
 
 /// Which DIP switches a set has (`options.rs` turns them into settings).
@@ -34,6 +64,8 @@ pub enum Dips {
     Pacuman,
     /// The Spanish Puck Man: its Hard setting breaks the game, so it isn't offered.
     PacmanSp,
+    /// Generated from MAME's switch list: `options::FAMILIES`'s n-th family.
+    Table(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,6 +123,12 @@ pub struct SetSpec {
     /// MAME's factory setting of the set's switches: (port, the bits its switches cover, their
     /// setting). `options.rs`'s defaults are held to it.
     pub factory: &'static [(&'static str, u8, u8)],
+    /// On generated sets: every input bit, what the four ports read at rest (nothing pressed, the
+    /// switches at the factory setting), and whether the stick goes only four ways. The Pac-Man
+    /// board's sets have their inputs written out in `board.rs` instead.
+    pub inputs: &'static [InputBit],
+    pub rest: [u8; 4],
+    pub four_way: bool,
     pub roms: &'static [Rom],
     pub regions: &'static [Region],
 }
@@ -111,22 +149,24 @@ pub fn find(name: &str) -> Option<&'static SetSpec> {
 
 /// The games named in the "can't play this one yet" line, per board.
 fn headline(board: Board) -> &'static str {
+    use galaxian::{Konami, Variant as G};
     match board {
         Board::Pacman(_) => "Pac-Man, Ms. Pac-Man",
+        Board::Galaxian(G::Galaxian | G::MoonCresta { .. }, ..) => "Galaxian",
+        Board::Galaxian(G::Konami(Konami::Frogger), ..) => "Frogger",
+        Board::Galaxian(G::Konami(Konami::Turtles), ..) => "Amidar",
+        Board::Galaxian(G::Konami(_), ..) => "Scramble",
     }
 }
 
+/// The order the boards are named in.
+const HEADLINES: &[&str] = &["Pac-Man, Ms. Pac-Man", "Galaxian", "Scramble", "Frogger", "Amidar", "Donkey Kong"];
+
 /// What a player reads when cArcade doesn't know a game, built from the boards it plays.
 pub fn plays_now() -> String {
-    let mut games: Vec<&str> = Vec::new();
-    let mut boards = 0;
-    for s in SETS {
-        let h = headline(s.board);
-        if !games.contains(&h) {
-            games.push(h);
-            boards += 1;
-        }
-    }
+    let on: Vec<&str> = SETS.iter().map(|s| headline(s.board)).collect();
+    let games: Vec<&str> = HEADLINES.iter().copied().filter(|h| on.contains(h)).collect();
+    let boards = games.len();
     format!(
         "Our arcade emulator can\u{2019}t play this one yet. Right now it plays {} and games on the same board{}.",
         games.join(", "),
@@ -429,6 +469,25 @@ impl Found {
             .map_or(&[][..], |i| &regions[i][..])
     }
 
+    /// The Galaxian family's ROMs: maincpu, gfx1 (the two bitplanes), proms (the colour PROM) and,
+    /// on Konami's boards, audiocpu (the sound board's program).
+    pub fn galaxian_roms(&self, regions: &[Vec<u8>], protection_bits: u8) -> galaxian::Roms {
+        let get = |tag: &str, len: usize| -> Vec<u8> {
+            let mut v = self.region(regions, tag).to_vec();
+            if len > 0 {
+                v.resize(len, 0);
+            }
+            v
+        };
+        galaxian::Roms {
+            program: get("maincpu", 0x10000),
+            gfx: get("gfx1", 0),
+            palette: get("proms", 0x20),
+            sound: get("audiocpu", 0),
+            protection_bits,
+        }
+    }
+
     /// The Pac-Man board's ROMs, from the regions as MAME's sets lay them out: maincpu, gfx1
     /// (tiles then sprites), proms (the palette, then the colour lookup at 20h) and namco (the
     /// sound PROM).
@@ -471,8 +530,10 @@ mod tests {
         for s in SETS {
             assert!(names.insert(s.name), "{} twice", s.name);
             assert!(!s.title.is_empty() && !s.roms.is_empty(), "{}", s.name);
+            // A clone's parent is in the list too, except where it runs on hardware cArcade doesn't
+            // model (some Galaxian bootlegs): its zip still lends the clone the chips they share.
             if let Some(p) = s.romof {
-                assert!(find(p).is_some(), "{}'s parent {p} isn't in the list", s.name);
+                assert!(find(p).is_some() || matches!(s.dips, Dips::Table(_)), "{}'s parent {p} isn't in the list", s.name);
             }
             // Every load fits its region and its chip.
             for r in s.regions {
@@ -485,8 +546,19 @@ mod tests {
             }
             // The board's regions are all there.
             let tags: Vec<&str> = s.regions.iter().map(|r| r.tag).collect();
-            for t in ["maincpu", "gfx1", "proms", "namco"] {
-                assert!(tags.contains(&t), "{} has no {t}", s.name);
+            let needs: &[&str] = match s.board {
+                Board::Pacman(_) => &["maincpu", "gfx1", "proms", "namco"],
+                Board::Galaxian(galaxian::Variant::Konami(_), ..) => &["maincpu", "gfx1", "proms", "audiocpu"],
+                Board::Galaxian(..) => &["maincpu", "gfx1", "proms"],
+            };
+            for t in needs {
+                assert!(tags.contains(t), "{} has no {t}", s.name);
+            }
+            assert!(HEADLINES.contains(&headline(s.board)));
+            // A generated set has its controls: a coin and a start at least.
+            if let Dips::Table(_) = s.dips {
+                assert!(s.inputs.iter().any(|i| i.control == Control::Coin(0)), "{}: no coin", s.name);
+                assert!(s.inputs.iter().any(|i| i.control == Control::Start(0)), "{}: no start", s.name);
             }
         }
         assert!(find("pacman").is_some() && find("MsPacman").is_some());
@@ -497,7 +569,7 @@ mod tests {
     fn the_known_boards_are_named_to_the_player() {
         assert_eq!(
             Refusal::Unknown.line(),
-            "Our arcade emulator can\u{2019}t play this one yet. Right now it plays Pac-Man, Ms. Pac-Man and games on the same board."
+            "Our arcade emulator can\u{2019}t play this one yet. Right now it plays Pac-Man, Ms. Pac-Man, Galaxian, Scramble, Frogger, Amidar and games on the same boards."
         );
         assert_eq!(
             Refusal::NeedsParent { parent: "mspacman".into() }.line(),

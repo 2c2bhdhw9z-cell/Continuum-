@@ -69,8 +69,8 @@ Arcade games are zips named after the game (`pacman.zip`), holding the board's R
    needs is there by name and size, it still plays. That's a homebrew or a hack on that board,
    which MAME also runs (with a warning). The log names the chips that differ.
 6. **Otherwise it refuses with one plain sentence**, never a crash. For a game it doesn't know:
-   "Our arcade emulator can't play this one yet. Right now it plays Pac-Man, Ms. Pac-Man and games
-   on the same board." The sentence is built from the boards that are switched on. For a split
+   "Our arcade emulator can't play this one yet. Right now it plays Pac-Man, Ms. Pac-Man, Galaxian,
+   Scramble, Frogger, Amidar and games on the same boards." The sentence is built from the boards that are switched on. For a split
    clone with no parent: "This one needs mspacman.zip next to it." For a missing or bad chip:
    "This copy of Pac-Man is missing a piece. A complete copy of pacman.zip fixes it."
 
@@ -432,8 +432,10 @@ How it's proved, as far as an approximation can be:
 
 ### What it plays
 
-65 sets on the Pac-Man board, every one MAME runs on exactly the hardware cArcade models:
-Puck Man, Pac-Man, Pac-Man Plus, Ms. Pac-Man and 61 of their clones, hacks and bootlegs.
+65 sets on the Pac-Man board and 119 on the Galaxian family's boards, every one MAME runs on
+exactly the hardware cArcade models: Puck Man, Pac-Man, Pac-Man Plus, Ms. Pac-Man and 61 of their
+clones, hacks and bootlegs; and Galaxian, Moon Cresta, Scramble, The End, Super Cobra, Frogger,
+Amidar, Turtles and their clones (see "The Galaxian family in the app" below).
 
 - On the plain board: `puckman` and its clones (`pacman`, `pacmanf`, `pacmod`, `puckmod`,
   `hangly`, `newpuckx`, `pacheart`, `crockman`, `joyman`, `piranhah` and 24 more).
@@ -504,6 +506,36 @@ and the driver's other machines (Crush Roller, Ms. Pac-Man Champion Edition, Pon
   `CARCADE_SO=cores/continuum-arcade/target/release/libcontinuum_arcade.so cargo test
   --features emulator-bridge/native-core -p emulator-bridge --test arcade_frontend`.
 
+### The Galaxian family in the app (item I5)
+
+- **Which sets**: `scripts/make-set-list.py` takes them from the GAME() lines of MAME's
+  `galaxian.cpp`: the sets on the plain `galaxian_state` class whose machine and init are one of
+  ours (galaxian/init_galaxian, mooncrst with init_mooncrst or init_mooncrsu, scramble, theend,
+  scobra, frogger, turtles with their own inits), not flagged by MAME as not working, wrong or
+  imperfect in colours, sound or graphics, unemulated protection or no cocktail, and whose ROM
+  regions are the board's (two sets with extra regions are left out). That gives 119: 47 on
+  Galaxian's board, 32 on Moon Cresta's, and 40 on Konami's (16 Scramble, 3 The End, 9 Super
+  Cobra, 5 Frogger, 9 Turtles/Amidar). Left out for now: everything else in the driver (Jump Bug,
+  Pisces, King & Balloon, the bootlegs with other hardware, ...).
+- **Their controls and switches come from MAME**: the script starts MAME on each set with
+  zero-filled stand-ins for its ROMs (nothing real is read) and has Lua list every input port's
+  fields, so `set_list.rs` knows which bit is which stick direction, button, coin and start, active
+  high or low, what the ports read at rest, and whether the stick is four-way. The DIP switches come
+  from `-listxml`, worded for players (`SWITCH_WORDS`: Lives, Extra life, Coins, Cabinet,
+  Difficulty, ...; service, test and unknown switches stay at the factory setting). Sets with the
+  same switches share one settings group (35 groups, keyed `carcade_<first set>_<switch>`), and
+  only the loaded game's show. The factory defaults are MAME's, bit for bit (a test holds all 184
+  sets to them). Scramble's protection bits (IN2's 20h and 80h) are found in the input definitions.
+- **The picture**: the board draws 224 x 768 (three dots a pixel along the raster, for the
+  stars); the core averages each three into one and hands out 224 x 256 at 3:4, within the
+  224 x 288 the app declares, so the app needed no change.
+- **Proved** by `tests/libretro.rs`: each Galaxian and Konami test program zipped as its MAME set
+  (galaxian, mooncrst, mooncrstuu, scramble, theend, scobra, frogger, amidar) plays through the
+  entry points with the core's frames equal to the board's averaged picture and its sound, the
+  board's frames equal to MAME's (before any input changes); Scramble shows exactly its three
+  switches; and a unit test in `src/board.rs` checks the controls reach Galaxian's active-high and
+  Scramble's active-low bits.
+
 ## Every place the app wires it in (item I4, done)
 
 Found by reading every place cBoy and the arcade system appear, and wired the same way.
@@ -544,7 +576,7 @@ Found by reading every place cBoy and the arcade system appear, and wired the sa
   otherwise read as a missing BIOS file, so for this core the line on screen is the core's own
   sentence (unless it gave none). The app asks for it in the `catch` of `ContinuumApp.swift`'s
   `launch(entry:)`. A refused arcade game is never retried on another core: arcade has only one.
-- `src/import/detect.rs`: `CARCADE_SETS`, every set name cArcade knows, next to `ARCADE_SETS`, so
+- `src/import/detect.rs`: `CARCADE_SETS`, every set name cArcade knows (184 since 16 October), next to `ARCADE_SETS`, so
   each is filed as arcade by its name with no question (some don't pass the chip rule:
   `mspacmanhnc` looks like five .bin ROMs; a test there checks it). A test in the core crate fails
   if one of its sets is missing from that file.

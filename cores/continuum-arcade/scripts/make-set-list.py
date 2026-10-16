@@ -13,12 +13,23 @@ Which sets go in, and on which board layout, is decided below (BOARDS), set by s
 MAME's driver runs each one: only sets that run on exactly the hardware cArcade models. A board's
 sets are only switched on in cArcade once the board is proven (.kiro/notes/docs/ARCADE_CORE.md).
 
+The Galaxian family (Galaxian, Moon Cresta and Konami's Scramble boards) is chosen from the GAME()
+lines of MAME's galaxian.cpp instead (GALAXIAN_MACHINES below: the machine and init each of our
+board variants matches, and no set MAME flags as not working or imperfect), and its sets' inputs
+and DIP switches are generated too: MAME is started on each set with zero-filled stand-ins for its
+ROMs (no real ROM is needed or read) and a Lua script lists every input port's fields: which bit
+is which control, active high or low, and what the port reads at rest. The switches' names and
+settings come from -listxml, worded for players by SWITCH_WORDS below.
+
 Run it again whenever a board's list changes; the output is committed. Needs Python 3.8+.
 """
 
+import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -73,6 +84,50 @@ BOARDS = [
         "reads": {"maincpu": None, "gfx1": (0, 0x2000), "proms": None, "namco": (0, 0x100)},
     },
 ]
+
+
+# The Galaxian family: (machine, init) in MAME's GAME() lines -> our board variant. Only sets of the
+# plain galaxian_state class (subclasses change the hardware) and without these flags go in.
+GALAXIAN_MACHINES = {
+    ("galaxian", "init_galaxian"): "Variant::Galaxian",
+    ("mooncrst", "init_mooncrst"): "Variant::MoonCresta { encrypted: true }",
+    ("mooncrst", "init_mooncrsu"): "Variant::MoonCresta { encrypted: false }",
+    ("scramble", "init_scramble"): "Variant::Konami(Konami::Scramble)",
+    ("theend", "init_theend"): "Variant::Konami(Konami::TheEnd)",
+    ("scobra", "init_scobra"): "Variant::Konami(Konami::SuperCobra)",
+    ("frogger", "init_frogger"): "Variant::Konami(Konami::Frogger)",
+    ("turtles", "init_turtles"): "Variant::Konami(Konami::Turtles)",
+}
+GALAXIAN_BAD_FLAGS = ("NOT_WORKING", "WRONG_COLORS", "IMPERFECT", "UNEMULATED", "NO_SOUND", "NO_COCKTAIL")
+GALAXIAN_REGIONS = {"maincpu", "gfx1", "proms", "audiocpu"}
+
+# How a switch is worded for players: MAME's name -> our label, or None to leave it at the factory
+# setting and not offer it (service and test switches, unknown ones).
+SWITCH_WORDS = {
+    "Lives": "Lives", "Bonus Life": "Extra life", "Coinage": "Coins", "Coin A": "Coins (left)",
+    "Coin B": "Coins (right)", "Cabinet": "Cabinet", "Difficulty": "Difficulty",
+    "Demo Sounds": "Sound in demo", "Free Play": "Free play", "Allow Continue": "Continue",
+    "Game Time": "Time", "Language": "Language", "Players": "Players",
+    "Service Mode": None, "Unknown": None, "Unused": None, "Flip Screen": None, "Test": None,
+    "Freeze": None, "Debug": None, "Rack Test": None, "Invulnerability": None, "Infinite Lives": None,
+}
+
+
+def value_words(text):
+    """A switch setting worded for players: '1 Coin/2 Credits' -> '1 coin, 2 games', numbers with
+    commas, and the rest as MAME has it."""
+    t = text.strip()
+    m = re.fullmatch(r"(\d+) Coins?/(\d+) Credits?", t)
+    if m:
+        a, b = int(m.group(1)), int(m.group(2))
+        return f"{a} coin{'s' if a > 1 else ''}, {b} game{'s' if b > 1 else ''}"
+    if t == "Free Play":
+        return "Free play"
+    if t == "Cocktail":
+        return "Cocktail table"
+    if re.fullmatch(r"\d{4,}", t):
+        return f"{int(t):,}"
+    return re.sub(r"\s+", " ", t)
 
 
 def rs(v):
@@ -192,6 +247,243 @@ def parse_block(name, body):
     return regions, roms
 
 
+def galaxian_games(text):
+    """The GAME() lines of galaxian.cpp: name, machine, init, class, rotation, flags."""
+    out = []
+    for m in re.finditer(r"^GAME\(\s*([^,]+),\s*(\w+),\s*(\w+),\s*(\w+),\s*(\w+),\s*(\w+),\s*(\w+),\s*(ROT\d+),"
+                         r"\s*\"[^\"]*\",\s*\"[^\"]*\",\s*([^)]*)\)", text, re.M):
+        _, name, _, mach, inp, cls, init, rot, flags = m.groups()
+        out.append((name, mach, init, cls, rot, flags, inp))
+    return out
+
+
+def protection_bits(text, inp, seen=None):
+    """The bits of IN2 an input definition wires to the protection chip (MAME's
+    theend_protection_alt_r), following its PORT_INCLUDEs."""
+    seen = seen or set()
+    if inp in seen:
+        return 0
+    seen.add(inp)
+    m = re.search(r"INPUT_PORTS_START\(\s*" + re.escape(inp) + r"\s*\)(.*?)INPUT_PORTS_END", text, re.S)
+    if not m:
+        return 0
+    bits = 0
+    for b in re.finditer(r"PORT_BIT\(\s*(0x[0-9a-fA-F]+)[^)]*\)\s*PORT_READ_LINE_MEMBER\(FUNC\(galaxian_state::theend_protection_alt_r", m.group(1)):
+        bits |= int(b.group(1), 16)
+    for inc in re.findall(r"PORT_INCLUDE\(\s*(\w+)\s*\)", m.group(1)):
+        bits |= protection_bits(text, inc, seen)
+    return bits
+
+
+DUMP_LUA = """
+if _G.done then return end
+_G.done = true
+local f = assert(io.open('ports.txt', 'w'))
+local io_ = manager.machine.ioport
+for tag, port in pairs(io_.ports) do
+  f:write(string.format('port %s %d\\n', tag, port:read()))
+  for name, fld in pairs(port.fields) do
+    f:write(string.format('field %s %d %d %s %s %d %d %s\\n', tag, fld.mask, fld.defvalue,
+      io_:input_type_to_token(fld.type), tostring(fld.type_class), fld.player, fld.way or 0,
+      tostring(fld.cocktail)))
+  end
+end
+f:close()
+manager.machine:exit()
+"""
+
+
+def dump_ports(mame, mach):
+    """Starts MAME on the set with zero-filled stand-ins for its ROMs and lists its input ports:
+    {tag: (value at rest, [(mask, defvalue, token, class, player, way, cocktail)])}."""
+    name = mach.get("name")
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp) / "roms" / name
+        d.mkdir(parents=True)
+        for r in mach.findall("rom"):
+            (d / r.get("name")).write_bytes(bytes(int(r.get("size"))))
+        (Path(tmp) / "dump.lua").write_text(DUMP_LUA)
+        env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
+        subprocess.run([mame, name, "-rompath", str(Path(tmp) / "roms"), "-video", "none", "-sound", "none",
+                        "-nothrottle", "-skip_gameinfo", "-autoboot_script", "dump.lua", "-seconds_to_run", "3",
+                        "-cfg_directory", "cfg", "-nvram_directory", "nvram"],
+                       cwd=tmp, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        f = Path(tmp) / "ports.txt"
+        if not f.exists():
+            fail(f"{name}: MAME didn't list its ports")
+        ports = {}
+        for line in f.read_text().splitlines():
+            w = line.split()
+            if w[0] == "port":
+                ports.setdefault(w[1], [0, []])[0] = int(w[2])
+            else:
+                ports.setdefault(w[1], [0, []])[1].append(
+                    (int(w[2]), int(w[3]), w[4], w[5], int(w[6]), int(w[7]), w[8] == "true"))
+        return ports
+
+
+CONTROL_TOKENS = {
+    "JOYSTICK_UP": "Up", "JOYSTICK_DOWN": "Down", "JOYSTICK_LEFT": "Left", "JOYSTICK_RIGHT": "Right",
+}
+
+
+def galaxian_sets(src_dir, mame, machines, out, families):
+    """Writes the Galaxian family's SetSpecs into `out`, and their switch families into `families`
+    (shared between sets whose switches are the same)."""
+    text = (src_dir / "src/mame/galaxian/galaxian.cpp").read_text()
+    blocks = {m.group(1): m.group(2) for m in re.finditer(r"ROM_START\(\s*(\w+)\s*\)(.*?)ROM_END", text, re.S)}
+    count = 0
+    for name, mach_fn, init, cls, rot, flags, inp in galaxian_games(text):
+        variant = GALAXIAN_MACHINES.get((mach_fn, init))
+        if variant is None or cls != "galaxian_state" or any(b in flags for b in GALAXIAN_BAD_FLAGS):
+            continue
+        mach = machines.get(name)
+        if mach is None or name not in blocks:
+            print(f"  skipped {name}: not in this MAME")
+            continue
+        try:
+            regions, roms = parse_block(name, blocks[name])
+        except SystemExit as e:
+            print(f"  skipped {name}: {e}")
+            continue
+        tags = {r["tag"] for r in regions}
+        sizes = {r["tag"]: r["size"] for r in regions}
+        konami = "Konami" in variant
+        if not tags <= GALAXIAN_REGIONS or "gfx1" not in tags or sizes["gfx1"] not in (0x1000, 0x2000) \
+                or ("audiocpu" in tags) != konami or sizes.get("proms") != 0x20:
+            print(f"  skipped {name}: regions {sorted(sizes.items())} aren't the board's")
+            continue
+        xroms = mach.findall("rom")
+        listed = sorted((r.get("name"), int(r.get("size")), int(r.get("crc"), 16)) for r in xroms if r.get("crc"))
+        parsed = sorted((r["name"], r["size"], r["crc"]) for r in roms)
+        if listed != parsed:
+            fail(f"{name}: its ROM_START block and -listxml disagree:\n{parsed}\n{listed}")
+        ports = dump_ports(mame, mach)
+        tags_in = [":IN0", ":IN1", ":IN2", ":IN3"]
+        rest = [ports.get(t, [0, []])[0] & 0xFF for t in tags_in]
+        inputs, four_way, protection = [], False, 0
+        for pi, t in enumerate(tags_in):
+            for mask, dflt, token, klass, player, way, cocktail in ports.get(t, [0, []])[1]:
+                token = re.sub(r"^P\d_", "", token)
+                active_high = dflt == 0
+                ctl = None
+                if token in CONTROL_TOKENS:
+                    ctl = f"Control::{CONTROL_TOKENS[token]}({player})"
+                    four_way |= way == 4
+                elif re.fullmatch(r"BUTTON(\d)", token):
+                    ctl = f"Control::Button({player}, {int(token[6:]) - 1})"
+                elif re.fullmatch(r"COIN(\d)", token):
+                    ctl = f"Control::Coin({int(token[4:]) - 1})"
+                elif re.fullmatch(r"START(\d)", token):
+                    ctl = f"Control::Start({int(token[5:]) - 1})"
+                if ctl and mask < 0x100:
+                    inputs.append(f"InputBit {{ port: {pi}, mask: {mask:#04x}, active_high: {str(active_high).lower()}, control: {ctl} }}")
+        if "Scramble" in variant or "TheEnd" in variant:
+            protection = protection_bits(text, inp)
+        # The switches, as -listxml has them, worded for players.
+        switches = []
+        for d in mach.findall("dipswitch"):
+            tag = d.get("tag").lstrip(":")
+            words = SWITCH_WORDS.get(d.get("name"), d.get("name") if len(d.get("name")) <= 20 else None)
+            if words is None or f":{tag}" not in tags_in:
+                continue
+            values = [(int(v.get("value")), value_words(v.get("name")), v.get("default") == "yes") for v in d.findall("dipvalue")]
+            switches.append((tags_in.index(f":{tag}"), int(d.get("mask")), words, tuple(values)))
+        sig = tuple(switches)
+        fam = next((i for i, f in enumerate(families) if f["sig"] == sig), None)
+        if fam is None:
+            fam = len(families)
+            families.append({"sig": sig, "key": name, "title": mach.find("description").text.split(" (")[0]})
+        factory = {}
+        for d in mach.findall("dipswitch"):
+            t = d.get("tag").lstrip(":")
+            m = int(d.get("mask"))
+            dv = [int(v.get("value")) for v in d.findall("dipvalue") if v.get("default") == "yes"]
+            fm, fv = factory.get(t, (0, 0))
+            factory[t] = (fm | m, fv | (dv[0] & m))
+        fac = ", ".join(f'("{t}", {m:#04x}, {v:#04x})' for t, (m, v) in sorted(factory.items()))
+        merge = {r.get("name"): r.get("merge") for r in xroms}
+        used = {r["index"] for r in roms}
+        rotation = "Rotation::Rot270" if rot == "ROT270" else "Rotation::Rot90"
+        out.append("    SetSpec {")
+        out.append(f'        name: "{name}",')
+        out.append(f'        title: {rs(mach.find("description").text)},')
+        out.append(f'        year: {rs(mach.find("year").text)},')
+        out.append(f'        maker: {rs(mach.find("manufacturer").text)},')
+        out.append(f"        parent: {opt(mach.get('cloneof'))},")
+        out.append(f"        romof: {opt(mach.get('romof'))},")
+        out.append(f"        board: Board::Galaxian({variant}, {rotation}, {protection:#04x}),")
+        out.append(f"        dips: Dips::Table({fam}),")
+        out.append(f"        factory: &[{fac}],")
+        out.append(f"        inputs: &[{', '.join(inputs)}],")
+        out.append(f"        rest: [{', '.join(f'{v:#04x}' for v in rest)}],")
+        out.append(f"        four_way: {str(four_way).lower()},")
+        out.append("        roms: &[")
+        for r in roms:
+            out.append(
+                f'            Rom {{ name: "{r["name"]}", size: {r["size"]:#x}, crc: 0x{r["crc"]:08x}, '
+                f"merge: {opt(merge.get(r['name']))}, status: Status::{r['status']}, "
+                f"needed: {str(r['index'] in used).lower()} }},")
+        out.append("        ],")
+        out.append("        regions: &[")
+        for reg in regions:
+            out.append(f'            Region {{ tag: "{reg["tag"]}", size: {reg["size"]:#x}, erase: {reg["erase"]:#04x}, ops: &[')
+            for op in reg["ops"]:
+                if op[0] == "load":
+                    out.append(f"                Op::Load {{ rom: {op[1]}, at: {op[2]:#x}, from: {op[3]:#x}, len: {op[4]:#x} }},")
+                elif op[0] == "fill":
+                    out.append(f"                Op::Fill {{ at: {op[1]:#x}, len: {op[2]:#x}, value: {op[3]:#04x} }},")
+                else:
+                    out.append(f"                Op::Copy {{ region: {op[1]}, from: {op[2]:#x}, at: {op[3]:#x}, len: {op[4]:#x} }},")
+            out.append("            ] },")
+        out.append("        ],")
+        out.append("    },")
+        count += 1
+    return count
+
+
+def cstr(v):
+    return 'c"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def slug(v):
+    return re.sub(r"[^a-z0-9]+", "_", v.lower()).strip("_")
+
+
+def write_families(families, out):
+    """The Galaxian family's switches as core options: one group per family of sets with the same
+    switches, keyed carcade_<first set>_<switch>."""
+    out.append("")
+    out.append("/// The switches of the sets generated from MAME's port lists, one family per set of switches.")
+    out.append("pub static FAMILIES: &[SwitchFamily] = &[")
+    for f in families:
+        out.append("    SwitchFamily {")
+        out.append(f"        key: {cstr(f['key'])},")
+        out.append(f"        title: {cstr(f['title'] + ' games')},")
+        out.append("        switches: &[")
+        keys = set()
+        for port, mask, words, values in f["sig"]:
+            dflt = next((v for v in values if v[2]), values[0])
+            key = "carcade_" + slug(f["key"]) + "_" + slug(words)
+            if key in keys:
+                key += f"_{port}_{mask:02x}"
+            keys.add(key)
+            out.append("            Switch {")
+            out.append(f"                key: {cstr(key)},")
+            out.append(f"                label: {cstr(words)},")
+            out.append('                info: c"",')
+            out.append(f"                category: {cstr(f['key'])},")
+            out.append(f"                port: {port},")
+            out.append(f"                mask: {mask:#04x},")
+            vals = ", ".join(f"({cstr(format(v[0], '02x'))}, {cstr(v[1])}, {v[0]:#04x})" for v in values)
+            out.append(f"                values: &[{vals}],")
+            out.append(f"                default: {cstr(format(dflt[0], '02x'))},")
+            out.append("            },")
+        out.append("        ],")
+        out.append("    },")
+    out.append("];")
+
+
 def main():
     if len(sys.argv) != 3:
         fail(__doc__)
@@ -209,8 +501,10 @@ def main():
         "// CRC32 and where its bytes load. Facts about the chips, so a zip can be recognised; no MAME code.",
         "// Don't edit by hand: change the script's lists and run it again.",
         "",
+        "use crate::galaxian::{Konami, Rotation, Variant as GVariant};",
+        "use crate::options::{Switch, SwitchFamily};",
         "use crate::pacman::Variant;",
-        "use crate::sets::{Board, Dips, Op, Region, Rom, SetSpec, Status};",
+        "use crate::sets::{Board, Control, Dips, InputBit, Op, Region, Rom, SetSpec, Status};",
         "",
         "pub static SETS: &[SetSpec] = &[",
     ]
@@ -273,6 +567,9 @@ def main():
                 factory[tag] = (m | mask, v | (dflt[0] & mask))
             fac = ", ".join(f'("{t}", {m:#04x}, {v:#04x})' for t, (m, v) in sorted(factory.items()))
             out.append(f"        factory: &[{fac}],")
+            out.append("        inputs: &[],")
+            out.append("        rest: [0, 0, 0, 0],")
+            out.append("        four_way: true,")
             out.append("        roms: &[")
             for r in roms:
                 m = merge.get(r["name"])
@@ -297,10 +594,17 @@ def main():
                 out.append("            ] },")
             out.append("        ],")
             out.append("    },")
+    families = []
+    galaxian = galaxian_sets(src_dir, mame, machines, out, families)
     out.append("];")
+    write_families(families, out)
+    text = "\n".join(out) + "\n"
+    # The Galaxian board's variant is GVariant here (Pac-Man's is Variant).
+    text = text.replace("Board::Galaxian(Variant::", "Board::Galaxian(GVariant::")
     dest = Path(__file__).resolve().parent.parent / "src" / "set_list.rs"
-    dest.write_text("\n".join(out) + "\n")
-    print(f"wrote {dest}: {sum(len(b['sets']) for b in BOARDS)} sets")
+    dest.write_text(text)
+    print(f"wrote {dest}: {sum(len(b['sets']) for b in BOARDS)} Pac-Man board sets, {galaxian} Galaxian family sets, "
+          f"{len(families)} switch families")
 
 
 if __name__ == "__main__":
