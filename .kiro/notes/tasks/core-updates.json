@@ -1,5 +1,5 @@
 {
-  "complete": false,
+  "complete": true,
   "title": "Emulator updates, 14 October 2026: Gearsystem, Azahar (3DS), PPSSPP (PSP) and Flycast (Dreamcast)",
   "repo": "/projects/sandbox/.scratch/updates-work",
   "branch": "master",
@@ -55,9 +55,10 @@
     },
     {
       "id": "CU5",
-      "done": false,
+      "done": true,
       "title": "Write it up",
-      "detail": ".kiro/notes/docs/reports/core-updates-2026-10-14.md: for each of the four, taken or not, what changed for players in one or two plain sentences, whether old save states still load, and the heads-up line players will see. Regenerate docs/CORE_UPDATES.md (GIT_CONFIG_GLOBAL=/dev/null bash scripts/check-core-updates.sh) so it shows them as current. Then set the top-level complete to true."
+      "detail": ".kiro/notes/docs/reports/core-updates-2026-10-14.md: for each of the four, taken or not, what changed for players in one or two plain sentences, whether old save states still load, and the heads-up line players will see. Regenerate docs/CORE_UPDATES.md (GIT_CONFIG_GLOBAL=/dev/null bash scripts/check-core-updates.sh) so it shows them as current. Then set the top-level complete to true.",
+      "result": "Done 16 October: the report's last two sections (.kiro/notes/docs/reports/core-updates-2026-10-14.md), docs/CORE_UPDATES.md regenerated (all 32 current or checked and skipped)."
     }
   ],
   "notes_14_october": [

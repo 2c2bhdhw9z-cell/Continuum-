@@ -50,9 +50,10 @@
     },
     {
       "id": "T4",
-      "done": false,
+      "done": true,
       "title": "A fresh review",
-      "detail": "You are a new session: review the T1 to T3 commits as a hostile reviewer would. Every changed file parses; no interpolation or escape broken; no fact a player needs to choose was lost; nothing technical is left in a normal section; every button or section a sentence names really exists with that name; removing PSP left nothing dangling; every line reads like a person. Fix what you find, parse-check, push."
+      "detail": "You are a new session: review the T1 to T3 commits as a hostile reviewer would. Every changed file parses; no interpolation or escape broken; no fact a player needs to choose was lost; nothing technical is left in a normal section; every button or section a sentence names really exists with that name; removing PSP left nothing dangling; every line reads like a person. Fix what you find, parse-check, push.",
+      "result": "16 October, the same fresh reviewer as U4: every changed file parses, interpolations intact; the one lost fact a player needed (a restore's result and the 'close and reopen' step) is back (49043c9). Noted, left: which cores need a BIOS is no longer in CORES (the BIOS rows and the launch lines still say it), and two cover-list buttons report only under Technical details."
     },
     {
       "id": "T5",

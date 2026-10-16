@@ -132,3 +132,53 @@ its in-game save still there.
 `065c9222`→`bfa76872`; the next install has `68202bc4`. TESTING.md's "Open a 3DS game. ✅ It plays
 like before, and the heads-up says older save states can’t load on it but your in-game saves are
 fine." still holds.
+
+## 16 October 2026: the second look (CU3, CU4 and a fresh check of every emulator)
+
+The every-session check (`docs/CORE_UPDATES.md`, regenerated) found four with newer code. Commit
+`14375a5`. Afterwards all 32 are current or checked and skipped.
+
+- **PSP: PPSSPP `dd6bd1a5` → `a838053e` (taken).** 300 upstream changes. For players: the
+  interpreter Continuum runs (no JIT) got upstream's newer, more exact work (rounding modes,
+  timing that doesn't drift, chained blocks), and the libretro front end got crash and freeze
+  fixes around save states and closing a game. Upstream removed its old ARM64 JIT; the JIT is now
+  PPSSPP's IR-based one, which our JIT patch (`ppsspp-ios-jit-region.patch`) still fits. Nobody can
+  test JIT yet, so that part rests on upstream. **Old save states still load**: the only state
+  change is the old JITs' own "Jit" section going, and the IR front end writes the same section
+  (same name, versions 1-2, same fields). Entries from builds 181 and 182-185.
+  Heads-up: "Heads up: the PSP emulator (PPSSPP) just got an update from the people who make it.
+  If anything seems off, send us feedback."
+- **Dreamcast: Flycast `f03faffd` → `80471d57` (taken, both builds).** Four fixes: the interpreter
+  sets its context address on reset, the NAOMI BIOS is found through the front end, a texture
+  dumping option is named properly, and two desktop graphics fixes. `core/serialize.cpp` is
+  unchanged, so **old states load**. Heads-up: the same wording, "the Dreamcast emulator (Flycast)".
+- **3DS: Azahar `68202bc4` → `6daa07ab` (taken).** Upstream fixed several GSP accuracy issues (how
+  games hand their frames to the screen) and a bundle-file bug, plus desktop-only changes. Our
+  four patches fit. Old 3DS states are refused by Azahar itself on any revision change, so the
+  entries from builds 181 and 182-185 stay refused, and the heads-up says in-game saves are fine.
+- **Master System, Game Gear, SG-1000: Gearsystem `4a801d22` → `426d4eb6` (skipped).** Nine
+  changes, all in the desktop app plus file-based save and load code the libretro core never
+  calls (it loads games from memory and saves states to memory). The emulator Continuum builds
+  would be the same, so taking it would only show players a heads-up for nothing. In `checked_skip`.
+- **Downloaded emulators:** Amiga and C64 rebuilt at the buildbot with the same code as ours;
+  both added to `checked_skip` (see `mirror-restore-2026-10-16.md` for why five of them now come
+  from build 185's install).
+
+Checks: `cargo test --workspace --features emulator-bridge/native-core` (728 + the rest), clippy
+clean, `scripts/check-core-cache.sh` 218 passed. Only the three moved cores' fingerprints changed
+(azahar, ppsspp, flycast, flycast_jit), so those four rebuild and nothing else does.
+
+## Summary (CU5)
+
+Consoles with a newer emulator in the next install: **PSP, Dreamcast, 3DS, and Master System /
+Game Gear** (Gearsystem from the 14 October move). Old save states keep loading on all of them
+except the 3DS, where Azahar refuses them itself and the heads-up says in-game saves are fine.
+
+Phone checks, in the owner's words:
+
+1. Open a PSP game you played before. A line says the PSP emulator got an update. It plays at
+   the same speed, and a save state from before loads.
+2. Open it again. No line this time.
+3. Open a Dreamcast game if you have one. Same kind of line, and it plays.
+4. Open a 3DS game. The line says older save states can't load but in-game saves are fine, and
+   your in-game save is there.
