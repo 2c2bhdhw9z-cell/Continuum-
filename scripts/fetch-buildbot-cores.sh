@@ -34,11 +34,18 @@
 # every file has a pinned sha256 (pinned_sha256 below): the bytes build 121 shipped, the last build
 # known good on a phone. Per file:
 #   a. the frozen copy on this repository's `core-mirror-1` pre-release is tried first, and used
-#      only if its sha256 is the pin;
+#      if its sha256 is the pin, or, for a core, if the dylib inside it is the dylib pin (a zip is
+#      only a wrapper: the same dylib in a different zip is the same checked core). That second
+#      rule is what let the mirror be refilled after it was emptied by mistake on 14 October 2026:
+#      the pinned zips were gone, but the dylibs in them were not;
 #   b. otherwise the original URL. If it matches the pin it is used, and with
 #      CONTINUUM_MIRROR_UPLOAD=1, GH_TOKEN and `gh` (master builds in CI) it is uploaded to the
 #      mirror, so later builds no longer depend on the buildbot still serving it. A failed upload
 #      is a warning;
+#   b2. for a core whose original is gone or is a different build than the dylib pin, the same
+#      dylib is looked for in the last shipped install (SHIPPED_TAG) and used if it is the dylib
+#      pin. It is uploaded to the mirror like (b), so this costs one install download per build
+#      only until a master build has refilled the mirror;
 #   c. if the original no longer matches the pin, it is STILL used, because losing a system is worse
 #      than shipping a newer build of it, but CI gets a ::warning:: naming the core and
 #      core-sources.txt records it as unpinned. Moving a pin: check that build on a phone, then
@@ -50,9 +57,12 @@
 # Each core also has a pinned sha256 of the dylib inside its zip (pinned_dylib_sha256). The
 # buildbot re-zips every core nightly, so a zip can change while the dylib in it is the same build:
 # a zip that misses its pin but whose dylib matches the dylib pin is the same checked core, and is
-# recorded as pinned with no warning (and not uploaded, so the mirror keeps the pinned zip). A zip
+# recorded as pinned with no warning. It is uploaded to the mirror too: upstream is only reached
+# when the mirror had no copy it could accept, and rule (a) accepts this one from then on. A zip
 # that matches its pin while its dylib does not match the dylib pin gets a ::warning:: naming both
 # sha256s, and the core is kept.
+#
+# scripts/check-core-mirror.sh checks these rules off the network (no download, any host).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -68,6 +78,13 @@ PRBOOM_WAD_URL="https://raw.githubusercontent.com/libretro/libretro-prboom/maste
 # resolves to it) holding <core>.zip and prboom.wad, byte for byte the pinned files.
 MIRROR_TAG="core-mirror-1"
 MIRROR="https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/$MIRROR_TAG"
+# The last install known to carry every checked core. When the mirror has no copy of a core and
+# the original is no longer that build, the core is taken out of this install instead
+# (from_shipped_install), and a master build then puts it on the mirror. Added on 16 October 2026,
+# after the mirror was emptied by mistake: build 185 holds the checked builds the buildbot no
+# longer serves. Move it only to an install that has shipped every pinned core.
+SHIPPED_TAG="build-185-393f12c"
+SHIPPED_IPA_URL="https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/$SHIPPED_TAG/Continuum-185.ipa"
 
 # The pinned sha256 of each downloaded file (the ZIP for a core), as build 121 recorded them;
 # dosbox_pure, mednafen_saturn, mednafen_supergrafx and puae moved on 12 October 2026 after the
@@ -99,6 +116,17 @@ pinned_sha256() {
 # The pinned sha256 of the DYLIB inside each pinned zip. The buildbot re-zips every core nightly,
 # so the zip's bytes change while the dylib inside stays the same build; a matching dylib is the
 # same checked core (see FROZEN BY CHECKSUM at the top).
+#
+# FIVE ARE BUILD 185's OWN COPIES (16 October 2026): prboom, puae, mednafen_vb, virtualjaguar and
+# vice_x64sc. Their pinned zips were lost when core-mirror-1 was emptied by mistake on 14 October,
+# and the buildbot has since moved on to builds that were turned down (checked_skip in
+# scripts/check-core-updates.sh) or merely rebuilt. The same checked builds are inside build 185's
+# install (SHIPPED_TAG), so those copies are what a build takes (rule b2, then the mirror once a
+# master build has uploaded them), and these pins are their sha256: the buildbot's file with its
+# install name already set to @rpath/<name> and ad-hoc signed by package-ipa.sh, which signs it
+# the same way again. The ZIP pins above are
+# left alone on purpose: CORE_BUILDS in crates/emulator-bridge/src/core_updates.rs keys the
+# players' one-time heads-up on them, and the emulator did not change.
 pinned_dylib_sha256() {
   case "$1" in
     a5200)               echo "3c1661671225181d16ec39c4a663fd4bc4cfead9d0d48addccff921f8be51002" ;;
@@ -108,14 +136,14 @@ pinned_dylib_sha256() {
     mednafen_pce)        echo "aa2f4dd3504b9bf80ae693e08013038d6d0b507b2a79c05ffc5c2ddfd251b2a8" ;;
     mednafen_saturn)     echo "404286424732f49e42253898346bf2b6a9c217930c2c963d17dc6a2df737dcab" ;;
     mednafen_supergrafx) echo "19e3804e130944e80bbe8b629d9aa3ff4b29ed35562f4dd3c6cbd0168fb21a29" ;;
-    mednafen_vb)         echo "093bb6341a36b0dc60cc4a3eee59286720af4759040bcd49bfa7a60c645fa64c" ;;
+    mednafen_vb)         echo "929bf66746f7074fe697c1be261e08c0069e232301122e2ad1f0280ec2117cdc" ;;
     mednafen_wswan)      echo "0f3a7249303cbe3be71ac9e99f425a4cc05034abb7615baedfa95d17e8155117" ;;
     pokemini)            echo "ea44fd3e06a0fb0fa74c7c10b632934d1a5ad708068598ec5ad2a71bfe641757" ;;
-    prboom)              echo "fad43c8d4bc5c9dc23306e7d4340428ea664e10c36b78266bb7030fe5089e041" ;;
+    prboom)              echo "e7d16803a856d3f781491452fa4329df109a41c254a26813abc5a5c1a0454a1e" ;;
     prosystem)           echo "69ff2105f2f94e28ffda83ca60a93c83b169fedcb32158faf69f17e165624601" ;;
-    puae)                echo "93a8ba7e9fb337bcc6676e49ba738bf9288fe883acdf9ea077cf829fce4a3e93" ;;
-    vice_x64sc)          echo "5613514bb8142d542f01684f00f4f6c66d220b1261323758c0497b230e2ba64c" ;;
-    virtualjaguar)       echo "0abf4f45b628b1bcfca3a762f0959a72d56c98f9f218ed2bc8fdfb93343f74ed" ;;
+    puae)                echo "6b07a2073cc88bda9207bbe84599b2deb793235629313fa4b9d3f7773fbd0eeb" ;;
+    vice_x64sc)          echo "caeffa2f4342d51726ae203645dbd729834253139397efce0a2296944588ded1" ;;
+    virtualjaguar)       echo "00356c5c609ea418321606fddecb22d554b80399a50ebf141f81dc9f2e4a35b4" ;;
     yabause)             echo "0f4c457fe1ef50cc451ffa7cb1e49b43463df4313b6165180d9fff9769188999" ;;
     *)                   echo "" ;;
   esac
@@ -268,8 +296,72 @@ forget_source() {
   mv "$manifest.tmp" "$manifest"
 }
 
-# Downloads one pinned file to <dest>: the mirror's copy if its sha256 is the pin, else the original.
-#   fetch_pinned <name> <mirror asset> <original url> <dest>
+# The sha256 of the core dylib inside a zip: <member> by name, else the first *_libretro_ios.dylib
+# in it (the same search fetch_one makes). Prints nothing when the zip will not unpack or holds no
+# dylib. Always returns 0, so a bad zip is an answer ("nothing") rather than an error.
+zip_dylib_sha256() {
+  local zip="$1" member="$2" tmp found=""
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/continuum-zip.XXXXXX")" || return 0
+  if unzip -oq "$zip" -d "$tmp" 2>/dev/null; then
+    if [[ -f "$tmp/$member" ]]; then
+      found="$tmp/$member"
+    else
+      found="$(find "$tmp" -name '*_libretro_ios.dylib' -type f | head -1 || true)"
+    fi
+    if [[ -n "$found" && -f "$found" ]]; then
+      sha256_of "$found"
+    fi
+  fi
+  rm -rf "$tmp"
+  return 0
+}
+
+# Zips <dylib> out of the last shipped install (SHIPPED_IPA_URL) into <dest zip>, under its own
+# name. The install is downloaded at most once per run, and only when a core asks for it. Returns 1
+# when the install can't be had or holds no such file.
+from_shipped_install() {
+  local member="$1" dest="$2" ipa="$WORK/shipped/$SHIPPED_TAG.ipa" dir
+  if [[ ! -s "$ipa" ]]; then
+    [[ -z "${SHIPPED_FAILED:-}" ]] || return 1
+    mkdir -p "$WORK/shipped"
+    echo "    downloading $SHIPPED_TAG's install for the checked copies in it (once per run)"
+    if ! curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 -o "$ipa.part" "$SHIPPED_IPA_URL"; then
+      rm -f "$ipa.part"
+      SHIPPED_FAILED=1
+      echo "    could not download $SHIPPED_TAG's install"
+      return 1
+    fi
+    mv -f "$ipa.part" "$ipa"
+  fi
+  dir="$WORK/shipped/$member.d"
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  if ! unzip -oqj "$ipa" "Payload/Continuum.app/Frameworks/$member" -d "$dir" 2>/dev/null \
+      || [[ ! -f "$dir/$member" ]]; then
+    rm -rf "$dir"
+    return 1
+  fi
+  rm -f "$dest"
+  case "$dest" in
+    /*) ;;
+    *) dest="$PWD/$dest" ;;
+  esac
+  if ! (cd "$dir" && zip -qX "$dest" "$member"); then
+    rm -rf "$dir"
+    rm -f "$dest"
+    return 1
+  fi
+  rm -rf "$dir"
+  return 0
+}
+
+# Downloads one pinned file to <dest>: the mirror's copy if it is the pinned one, else the original.
+#   fetch_pinned <name> <mirror asset> <original url> <dest> [<dylib inside the zip>]
+# The mirror's copy is the pinned one when its sha256 is the pin, or, when the fifth argument
+# names the core dylib inside the zip, when that dylib's sha256 is the dylib pin (see FROZEN BY
+# CHECKSUM at the top). prboom.wad passes no fifth argument, so only its exact bytes count.
+# For a core, when the original is gone or is not the pinned build, the last shipped install is
+# tried before giving up on the pin (from_shipped_install).
 # Sets FETCHED_URL, FETCHED_SHA, FETCHED_STATE (pinned|unpinned), FETCHED_UPLOAD (1 when the
 # file is the pinned one but did not come from the mirror, so it should be uploaded once it has
 # passed its checks) and FETCHED_WARNING (the ::warning:: line for an unpinned file, which the
@@ -277,9 +369,10 @@ forget_source() {
 #
 # Callers run this as an `if` condition, where `set -e` is off, so every step checks for itself.
 fetch_pinned() {
-  local name="$1" asset="$2" original="$3" dest="$4"
-  local pin got
+  local name="$1" asset="$2" original="$3" dest="$4" member="${5:-}"
+  local pin dylib_pin="" got inner
   pin="$(pinned_sha256 "$name")"
+  [[ -z "$member" ]] || dylib_pin="$(pinned_dylib_sha256 "$name")"
   FETCHED_URL=""
   FETCHED_SHA=""
   FETCHED_STATE=""
@@ -287,28 +380,61 @@ fetch_pinned() {
   FETCHED_WARNING=""
   rm -f "$dest"
 
-  if [[ -n "$pin" ]]; then
+  if [[ -n "$pin" || -n "$dylib_pin" ]]; then
     # -s without -S: a 404 here is the normal state of an asset not mirrored yet, not an error.
     if curl -fsL --retry 2 --retry-delay 3 --connect-timeout 30 -o "$dest" "$MIRROR/$asset"; then
       got="$(sha256_of "$dest")"
-      if [[ "$got" == "$pin" ]]; then
+      if [[ -n "$pin" && "$got" == "$pin" ]]; then
         echo "    frozen copy from $MIRROR_TAG, sha256 matches the pin"
         FETCHED_URL="$MIRROR/$asset"
         FETCHED_SHA="$got"
         FETCHED_STATE="pinned"
         return 0
       fi
-      echo "    the $MIRROR_TAG copy of $asset is sha256 $got, not the pin; ignoring it"
+      if [[ -n "$dylib_pin" ]]; then
+        inner="$(zip_dylib_sha256 "$dest" "$member")"
+        if [[ "$inner" == "$dylib_pin" ]]; then
+          echo "    frozen copy from $MIRROR_TAG, the dylib inside matches the dylib pin (zip sha256 $got)"
+          FETCHED_URL="$MIRROR/$asset"
+          FETCHED_SHA="$got"
+          FETCHED_STATE="pinned"
+          return 0
+        fi
+        echo "    the $MIRROR_TAG copy of $asset is sha256 $got with dylib ${inner:-(none found)}, neither pin; ignoring it"
+      else
+        echo "    the $MIRROR_TAG copy of $asset is sha256 $got, not the pin; ignoring it"
+      fi
     else
       echo "    no frozen copy of $asset on $MIRROR_TAG; using the original"
     fi
     rm -f "$dest"
   fi
 
+  local have_original=1
   if ! curl -fsSL --retry 3 --retry-delay 5 --connect-timeout 30 -o "$dest" "$original"; then
     rm -f "$dest"
-    return 1
+    have_original=0
   fi
+
+  # The original is gone, or holds a different build than the dylib pin: the checked build may
+  # still be inside the last shipped install (SHIPPED_TAG). Not tried when the original's dylib is
+  # the pinned one, so a normal run never downloads the install.
+  if [[ -n "$dylib_pin" ]] \
+      && { [[ "$have_original" == "0" ]] || [[ "$(zip_dylib_sha256 "$dest" "$member")" != "$dylib_pin" ]]; } \
+      && { [[ "$have_original" == "0" ]] || [[ "$(sha256_of "$dest")" != "$pin" ]]; } \
+      && from_shipped_install "$member" "$dest.shipped" \
+      && [[ "$(zip_dylib_sha256 "$dest.shipped" "$member")" == "$dylib_pin" ]]; then
+    mv -f "$dest.shipped" "$dest"
+    echo "    the original is not the pinned build; using the checked copy from $SHIPPED_TAG's install"
+    FETCHED_URL="$SHIPPED_IPA_URL"
+    FETCHED_SHA="$(sha256_of "$dest")"
+    FETCHED_STATE="pinned"
+    FETCHED_UPLOAD=1
+    return 0
+  fi
+  rm -f "$dest.shipped"
+  [[ "$have_original" == "1" ]] || return 1
+
   got="$(sha256_of "$dest")"
   FETCHED_URL="$original"
   FETCHED_SHA="$got"
@@ -359,7 +485,7 @@ fetch_one() {
   forget_source "$core"
 
   echo "==> $core ($system): $url"
-  if ! fetch_pinned "$core" "$core.zip" "$url" "$zip"; then
+  if ! fetch_pinned "$core" "$core.zip" "$url" "$zip" "$dylib"; then
     echo "warning: $core: download failed; the .ipa ships without $system" >&2
     return 1
   fi
@@ -382,6 +508,9 @@ fetch_one() {
   if [[ "$FETCHED_STATE" == "unpinned" && -n "$dylib_pin" && "$dylib_sha" == "$dylib_pin" ]]; then
     FETCHED_STATE="pinned"
     FETCHED_WARNING=""
+    # Only reached when the mirror had no copy it could accept (fetch_pinned), so this one fills
+    # the gap: the mirror accepts it by its dylib from now on.
+    FETCHED_UPLOAD=1
     echo "    same dylib as the pin (the buildbot re-zipped it)"
   elif [[ "$FETCHED_STATE" == "pinned" && -n "$dylib_pin" && "$dylib_sha" != "$dylib_pin" ]]; then
     # stdout, where every runner version reads workflow commands from.
@@ -469,16 +598,19 @@ fetch_all() {
   fi
 }
 
-case "${1:-fetch}" in
-  names) print_names ;;
-  systems) print_systems ;;
-  pins) print_pins ;;
-  fetch) fetch_all ;;
-  -h|--help|help)
-    sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
-    ;;
-  *)
-    echo "error: unknown subcommand '$1' (use: names, systems, pins, fetch)" >&2
-    exit 1
-    ;;
-esac
+# Run, not sourced. scripts/check-core-mirror.sh sources this file for its functions alone.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  case "${1:-fetch}" in
+    names) print_names ;;
+    systems) print_systems ;;
+    pins) print_pins ;;
+    fetch) fetch_all ;;
+    -h|--help|help)
+      sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      ;;
+    *)
+      echo "error: unknown subcommand '$1' (use: names, systems, pins, fetch)" >&2
+      exit 1
+      ;;
+  esac
+fi
