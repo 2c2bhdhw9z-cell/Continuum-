@@ -13,7 +13,9 @@ Apply with `git apply .kiro/notes/wip/<file>`. Both applied cleanly to master on
 
 `tools/` holds the scratch tools those jobs used, which a new sandbox won't have:
 
-- `build-mame.sh` and `mame-READY.txt`: the local reference MAME 0.289 for cArcade's comparisons
-  (only the drivers it needs; never shipped, never committed).
+- `build-mame-deps.sh`, `build-mame.sh` and `mame-READY.txt`: the local reference MAME 0.289 for
+  cArcade's comparisons (only the drivers it needs; never shipped, never committed). In a new
+  sandbox run `bash .kiro/notes/wip/tools/build-mame-deps.sh` in the foreground (about 15
+  minutes; it says what to do if a run gets cut off).
 - `sbharness/`: our SameBoy reference harness for cBoy's exact drawer (`harness.c`, `mb.py`,
   `show.py`), built against a SameBoy checkout fetched with `GIT_CONFIG_GLOBAL=/dev/null`.
