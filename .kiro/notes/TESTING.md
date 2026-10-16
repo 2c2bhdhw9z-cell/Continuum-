@@ -1,6 +1,6 @@
 # What to test, and what to tell me
 
-Last updated 16 October 2026, 4 AM Eastern. **Build 185 (13 October) is the newest install so
+Last updated 16 October 2026, 7 AM Eastern. **Build 185 (13 October) is the newest install so
 far:** it has 182's changes and the night batch, and its steps are under "Next install (after
 181)" and "Night batch (13 October)" further down. **The next install** adds a big batch on top:
 its steps come first, right below. "This install only" is build 181 (the cleanup plus the licence
@@ -170,7 +170,12 @@ Both phones need this same install.
     extra life, coins and cabinet, in plain words.
 59. Only if you have one: an arcade zip of a game it doesn't play yet. ✅ One short line says it
     can't play this one yet and what it plays now. No crash, and no "Which system?".
-<!-- ARCADE: Donkey Kong checks pending -->
+60. Open Donkey Kong. ✅ It plays with music and sound, the stick only goes four ways, and button
+    **1** jumps.
+61. Open Donkey Kong Jr. ✅ It plays with music and sound.
+62. In Donkey Kong, tap **⋯ → Core settings…**. ✅ Lives, extra life, coins and cabinet are there.
+63. In any arcade game, make a save state, play on a bit, then load it. ✅ You're right back where
+    you saved.
 
 ## This install only
 
@@ -824,9 +829,10 @@ left and is waiting, keeps its game going, and lets the second phone back in.
   Lynx, Atari 5200, Virtual Boy, PC Engine CD, Pokemon Mini and arcade: those emulators ignore
   them. The RAM search can still make a cheat where the game's memory can be read. (Mega Drive,
   Sega CD and 32X take typed codes since build 185.)
-- Arcade: from the next install, cArcade plays the Pac-Man board and the Galaxian family
-  (Galaxian, Moon Cresta, Scramble, Frogger, Amidar and their clones). Any other arcade game stays
-  in the library and opens to one line saying it can't play it yet.
+- Arcade: from the next install, cArcade plays the Pac-Man board, the Galaxian family (Galaxian,
+  Moon Cresta, Scramble, Frogger, Amidar and their clones) and Donkey Kong (Donkey Kong, Donkey
+  Kong Jr. and their clones). Any other arcade game stays in the library and opens to one line
+  saying it can't play it yet.
 
 - SMB (NAS shares) is in build 149. Not tried on a phone yet. WebDAV works.
 - GameCube and Wii: not possible without JIT.

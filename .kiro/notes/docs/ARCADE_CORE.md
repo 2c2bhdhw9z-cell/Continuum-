@@ -879,8 +879,8 @@ Found by reading every place cBoy and the arcade system appear, and wired the sa
 **Docs**
 
 - `docs/MANIC_PARITY.md`, arcade row: Continuum's own arcade core is in, and what it plays.
-- `README.md` (line 30, "Arcade is out for now while we build our own") becomes untrue once
-  cArcade ships. It isn't on this job's list, so it's left for whoever writes the notes.
+- `README.md`: since 16 October it says cArcade plays Pac-Man, Galaxian, Konami's games and
+  Donkey Kong.
 
 ## Parked
 

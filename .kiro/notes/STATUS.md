@@ -246,10 +246,10 @@ launch with an empty library.
 
 ## Next up
 
-**16 October 2026, 4 AM Eastern, read this first.** Nothing has been built since build 185
+**16 October 2026, 7 AM Eastern, read this first.** Nothing has been built since build 185
 (`393f12c`, 13 October), and no build starts until the batch is done or the owner says so. The
-batch that began on 13 October is finished apart from the arcade emulator's Donkey Kong board and
-its write-up, which a helper is still doing. Everything in the list below is on master and
+batch that began on 13 October is finished, the arcade emulator's Donkey Kong board and write-up
+included. Everything in the list below is on master and
 **Built, untested**: no phone has seen any of it. The owner's phone checks for all of it are
 TESTING.md "Next install (after 185)". The checklists are in `.kiro/notes/tasks/` (its README
 has the table).
@@ -304,7 +304,12 @@ has the table).
   the zip is called. Each game has its own controls, and its cabinet's switches are settings.
   Galaxian's and Moon Cresta's sound is our own approximation of their analogue circuit. Our test
   programs match MAME on every frame. A zip it can't play opens to one plain line, never a crash.
-<!-- ARCADE: Donkey Kong pending, the orchestrator fills this in -->
+- **Donkey Kong too.** cArcade also plays the Donkey Kong board's 15 sets (Donkey Kong, Donkey
+  Kong Jr. and their clones and hacks; `8135c8b`, `8be5d9c`, `58be5f0`, `8115d7e`, `4097555`),
+  with the four-way stick, jump, and the lives, extra life, coins and cabinet switches. Its
+  analogue sound effects (walking, jumping and the rest) are our own approximation, like
+  Galaxian's. `docs/ARCADE_CORE.md` now lists all 199 sets it plays and what comes next
+  (`94da7ce`).
 
 **The Library and the words in the app** (`docs/reports/evening-2026-10-13-library.md`,
 `docs/reports/evening-2026-10-13-text.md`, `docs/reports/evening-2026-10-13-icons.md`):
@@ -341,9 +346,6 @@ an hour. Its .ipa should have 37 core files: the 36 plus cArcade. The steps are 
 
 ### Left from this batch
 
-- **Arcade:** the Donkey Kong board (`arcade.json` I6; the unfinished work is
-  `.kiro/notes/wip/arcade-dkong-wip-base-02fa615.patch`) and the write-up with its phone checks
-  (I7). A helper is on both.
 - **Needs two phones:** a real link cable over Wi-Fi, a real Pokémon trade and a Tetris match. If
   fast games feel loose, the cable would have to hand bytes over during a frame (not done: it
   can't be judged without two phones).
@@ -386,8 +388,9 @@ an hour. Its .ipa should have 37 core files: the 36 plus cArcade. The steps are 
    stutter (A7); Symbian / N-Gage (S1); Backup and Restore (K2, K3, O1); Dreamcast and PSP speed
    (C19, C20); NAS (SMB) sharing (B7); the 3DS camera and Amiibo; cheat files and RAM search (F7).
 5. **More arcade boards** (Continuum's own arcade core, owner, 12 October 2026). The first version
-   is in this batch; what comes next will be in `docs/ARCADE_CORE.md` once its write-up is done.
-   Capcom's CPS-1 and the Neo Geo need a 68000 processor first.
+   is in this batch; the order after it is in `docs/ARCADE_CORE.md`, "What's next, in order": more
+   sets on the three boards, Galaga, more Z80 boards, then the 68000 processor that Capcom's CPS-1
+   and the Neo Geo need (the next big step, a job the size of the Z80, before boards far bigger).
 6. **The Switch** (road steps 10 to 12). Raise JIT with the owner first.
 7. **Android.**
 8. **Remaining phone tests:** online play and the Game Boy link cable with a second phone (H1);
@@ -465,7 +468,7 @@ is still ahead, hardest last (road steps 10 to 12).
 | **Nintendo DS** | melonDS | **Done** | Confirmed on device (build 80): Mario Kart DS and Pokémon SoulSilver, dual screens live, ~60 fps, 0 dropped |
 | **Sega CD** | blastem | **Built, untested** | Needs `bios_CD_U.bin`, `bios_CD_E.bin` or `bios_CD_J.bin`. Its backup RAM saves carry over. From the next install: a game on several discs plays from its `.m3u`, with Next disc and Insert disc in the ⋯ menu (the tray opens, the disc goes in, the drive reads it); a save state remembers its disc; the save cartridge is there, formatted, and kept as `<game>.bcr`. An old Genesis Plus GX save-cartridge file isn't picked up. Real discs can only be checked on a phone (`docs/reports/evening-2026-10-13.md` section 3) |
 | **Sega 32X** | blastem | **Built, untested** | From the next install a 32X cartridge needs no BIOS files: Continuum's own start-up code for its two processors (two open-licence 32X games reach their menus on a test build with no files). A player's own `32X_M_BIOS.bin` and `32X_S_BIOS.bin` are used when both are installed. A 32X CD still needs them. Save states keep only the Mega Drive half of a 32X game (BlastEm's own format). No commercial 32X game was run (`docs/reports/evening-2026-10-13.md` section 4) |
-| **Arcade** | continuum_arcade (cArcade, Continuum's own) | **Built, untested** | Out from build 181 to 185 (the owner removed the outside arcade emulators on 12 October 2026). Back in the next install on cArcade: the Pac-Man board's 65 sets and 119 Galaxian-family sets (Galaxian, Moon Cresta, Scramble, The End, Super Cobra, Frogger, Amidar, Turtles and their clones), zips recognised by their chips, the cabinet's switches as settings, Select is the coin. Galaxian's and Moon Cresta's sound is an approximation. A zip it can't play opens to one plain line; a build without cArcade keeps the old "aren't playable right now" line (`docs/ARCADE_CORE.md`) |
+| **Arcade** | continuum_arcade (cArcade, Continuum's own) | **Built, untested** | Out from build 181 to 185 (the owner removed the outside arcade emulators on 12 October 2026). Back in the next install on cArcade: the Pac-Man board's 65 sets, 119 Galaxian-family sets (Galaxian, Moon Cresta, Scramble, The End, Super Cobra, Frogger, Amidar, Turtles and their clones) and the Donkey Kong board's 15 (Donkey Kong, Donkey Kong Jr. and their clones), zips recognised by their chips, the cabinet's switches as settings, Select is the coin. Galaxian's, Moon Cresta's and Donkey Kong's analogue sound is an approximation. A zip it can't play opens to one plain line; a build without cArcade keeps the old "aren't playable right now" line (`docs/ARCADE_CORE.md`) |
 | **PlayStation Portable** | ppsspp | **Partial** | In the IPA as `ppsspp_libretro_ios.dylib`. CPU is the IR interpreter: the core's option value "IR JIT" is `CPUCore::IR_INTERPRETER` with compile-to-native off. No dynarec, no executable memory. Picture is Vulkan `set_image`, the same hook as the 3DS. No BIOS is shipped; PPSSPP does not need one. A PSP game can be `.cso`, `.iso`, `.chd`, a PSP `EBOOT.PBP`, or `.prx`. `.cso` and `.prx` are always PSP. An `.iso`, `.chd` or `.pbp` is looked inside: a PSP disc or EBOOT opens on the PSP, a PlayStation one as PlayStation, and if the app cannot tell it asks **Which system?** once and remembers. `.elf` is not accepted. **Not tried on a phone.** Do not claim a game runs or quote a frame rate. Newer PPSSPP in builds 182 to 185, and again in the next install (`a838053e`: upstream's newer interpreter work and save-state fixes; old states load), not on a phone yet |
 | **Dreamcast** | flycast (and flycast_jit) | **Built, untested** | Optional core, built here. Maybe BIOS files. Speed not known on a phone (TESTING C19). Newer Flycast in builds 182 to 185, and again in the next install (`80471d57`: four small fixes; old states load), not on a phone yet |
 

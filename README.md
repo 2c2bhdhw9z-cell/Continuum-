@@ -67,9 +67,9 @@ A few things to know:
 - 3DS games have to be decrypted, and there can be a short stutter after a scene change.
 - 32X games don't need a BIOS.
 - Arcade games are zip sets, like pacman.zip. Continuum's own arcade emulator plays Pac-Man and
-  Ms. Pac-Man, Galaxian and Moon Cresta, and Konami's Scramble, Super Cobra, Frogger and Amidar,
-  plus their clones. Other arcade games stay in your library until it can play them.
-  <!-- ARCADE: Donkey Kong pending, the orchestrator fills this in -->
+  Ms. Pac-Man, Galaxian and Moon Cresta, Konami's Scramble, Super Cobra, Frogger and Amidar, and
+  Donkey Kong and Donkey Kong Jr., plus their clones. Other arcade games stay in your library until
+  it can play them.
 - GameCube, Wii and Switch aren't supported.
 - Everything runs without JIT, but the heavier systems can be slow. If your setup can turn JIT on
   (with StikDebug or a similar tool), Continuum should pick it up by itself. That part is new and
@@ -98,7 +98,8 @@ scratch in Rust:
 - **cBoy**: one emulator for Game Boy, Game Boy Color and Game Boy Advance. It's newer than mGBA,
   so mGBA is still the default, and you can switch to cBoy in Settings. Game Boy games have played
   on it on an iPhone. Advance games on cBoy are still early.
-- **cArcade**: the arcade emulator. It's brand new, so arcade games haven't had much testing yet.
+- **cArcade**: the arcade emulator, for Pac-Man, Galaxian, Konami's games and Donkey Kong. It's
+  brand new, so arcade games haven't had much testing yet.
 
 ## Adding games
 

@@ -5,15 +5,14 @@ job's checklist: items marked `"done": true` are finished and on master; the res
 work with full instructions. No deadline (owner): finish every item properly, leave nothing out.
 Every helper reads `HELPER_RULES.md` (this folder) before its checklist.
 
-**Last updated 16 October, 4 AM Eastern.** Every job is complete except cArcade, where the Donkey
-Kong board (I6) and the write-up (I7) are in progress. The only work saved part-way is the Donkey
-Kong board, as a patch in `../wip/` (its README says how to use it).
+**Last updated 16 October, 7 AM Eastern.** Every job is complete, cArcade included. No work is
+saved part-way (`../wip/` holds only the scratch tools).
 
 | File | Job | Done | Left |
 |---|---|---|---|
 | `mirror-restore.json` | The build's frozen emulator copies (deleted by mistake, 14 October) | **All done (16 October)**: the next build takes 11 from the buildbot and 5 (DOOM, Jaguar, Virtual Boy, C64, Amiga) from build 185's install, then refills the mirror itself | nothing |
 | `cboy.json` | cBoy | **All done (16 October)**: G1 colour for black-and-white games, G1b link text, G1c short descriptions, G2 write timing, G3 the Color half of Mealybug, G4 the rest (the exact drawer at 51 of 55, the most there are references for), G5 the write-up (`.kiro/notes/docs/CBOY_EVENING.md`) | nothing |
-| `arcade.json` | cArcade | I1 plan, I2 Z80, I3 Pac-Man board, I4 in the app (65 sets), the 8035 and AY-3-8910 chips, **I5 the Galaxian family in the app (119 sets, 16 October)** | **In progress:** I6 the Donkey Kong board (WIP patch), I7 the write-up |
+| `arcade.json` | cArcade | **All done (16 October)**: I1 plan, I2 Z80, I3 Pac-Man board, I4 in the app (65 sets), the 8035 and AY-3-8910 chips, I5 the Galaxian family (119 sets), I6 the Donkey Kong board (15 sets), I7 the write-up (`.kiro/notes/docs/ARCADE_CORE.md`: all 199 sets, the proofs, what's approximate, what's next) | nothing |
 | `link-and-leftovers.json` | Leftovers | **All done (16 October)**: H1 two-phone link, H2 Mega Drive save chips, H4 Sega CD discs, H5 32X with no BIOS, H3 Mesen 2 for SNES, H6 the write-up (`.kiro/notes/docs/reports/evening-2026-10-13.md`) | nothing |
 | `core-updates.json` | Emulator updates | **All done (16 October)**: CU1 Gearsystem, CU2 Azahar, CU3 PPSSPP, CU4 Flycast (and a second Azahar move), CU5 the write-up (`.kiro/notes/docs/reports/core-updates-2026-10-14.md`) | nothing |
 | `home-screen.json` | Home screen | **All done (16 October)**: U1 floating tabs, U2 strip gone, U3 card size, U3b light mode, U4 fresh review, U5 the write-up (`.kiro/notes/docs/reports/evening-2026-10-13-library.md`) | nothing |
@@ -62,9 +61,8 @@ Linux checks (nothing built, no release). No build until the batch is done or th
 1. When every job is done, fold their reports (`.kiro/notes/docs/reports/evening-2026-10-13*.md`,
    `.kiro/notes/docs/ARCADE_CORE.md`, `.kiro/notes/docs/CBOY_EVENING.md`, `.kiro/notes/docs/reports/cache-v2-summary.md`, and `.kiro/notes/docs/reports/core-updates-2026-10-14.md`) into STATUS.md, TESTING.md and
    HANDOFF.md, and reword the TESTING lines the Home screen and text reports list. **Done on 16
-   October for everything but arcade's Donkey Kong board and I7:** STATUS.md ("Next up") and
-   TESTING.md ("Next install (after 185)") have `<!-- ARCADE: ... -->` lines where those go, and so
-   does README.md. HANDOFF.md is still to do.
+   October, arcade's Donkey Kong board and I7 included:** STATUS.md ("Next up"), TESTING.md ("Next
+   install (after 185)", arcade checks 55 to 63) and README.md. HANDOFF.md is still to do.
 2. Start ONE build: `gh api -X POST repos/2c2bhdhw9z-cell/Continuum-/actions/workflows/ios.yml/dispatches -f ref=master`.
    Every emulator rebuilds once (new fingerprints), about an hour.
 3. Build 184's "Publish the .ipa as a Release" step got HTTP 403 from GitHub on every try. If it
@@ -77,4 +75,4 @@ Linux checks (nothing built, no release). No build until the batch is done or th
 5. Repo cleanup part 2 is done (14 October): the working notes are in `.kiro/notes/`. Left from
    its plan: the About box (section 1; this sandbox's GitHub token can't set it) the release
    notes (section 2, parked). The README's list of systems (section 9) was brought up to date on
-   16 October: SNES on bsnes or Mesen, 32X with no BIOS, arcade back on cArcade.
+   16 October: SNES on bsnes or Mesen, 32X with no BIOS, arcade back on cArcade (Donkey Kong too).
