@@ -10,7 +10,18 @@ System. Everything here is **Built, untested**: nothing has been on a phone yet.
 - U2, the "80 games" strip is gone: `c3e8bac`, below.
 - U3, Settings → Layout → Game card size: `d31c627`, below.
 - U3b, light mode and Settings → Appearance: `97e02ef`, below.
-- U4 (a fresh review) and U5 (the write-up): added here as each one lands.
+- U4, a fresh review of all of it (16 October): one fix for the Library, `ec644be`, below.
+- U5, this write-up: the phone checks for all of it are together at the end.
+
+### Where each change stands
+
+| Change | Commit | Status |
+| --- | --- | --- |
+| The four tabs float and the covers scroll under them | `a06aeec` | Built, untested |
+| The "● 80 games ^" strip is gone; its messages pop up above the tabs; the game count is in Settings → Storage | `c3e8bac` | Built, untested |
+| Settings → Layout → Game card size (Extra small, Small, Medium, Large) | `d31c627` | Built, untested |
+| Light mode, and Settings → Appearance (Dark, Light, System) | `97e02ef` | Built, untested |
+| A game that can't open says why in the pop-up line (U4's fix) | `ec644be` | Built, untested |
 
 ## U2: the "● 80 games ^" strip is gone (`c3e8bac`) — Built, untested
 
@@ -316,3 +327,67 @@ None. Its lines about black are about a game's picture, which stays black.
 - The window override and `preferredColorScheme` together at the root, and going back to System.
 - The two editors staying dark, and the technical block's dark box on light pages.
 - The Light opacities (text at 60% and 55% on white) and the deeper teal.
+
+## U4: the fresh review (16 October) — `ec644be`, Built, untested
+
+A reviewer who wrote none of U1 to U3b read every change to `native/ios` since build 185: compile
+errors a parse check can't catch, iOS 16 availability, every call into the engine (the bindings
+were regenerated and compared) and what each screen does. No compile or availability problem was
+found.
+
+- **Fixed, `ec644be`: a tap on a game that can't open now says why.** The pop-up only took status
+  lines that read as problems, and many refusals don't (a missing BIOS, a SNES chip file, "won't
+  start", arcade in a build without cArcade, a sync still running), so the tap changed nothing on
+  screen. Now any launch that ends with no game running hands its last line to the pop-up
+  (`EngineHost.launch`'s `defer`, through `noticeForLibrary`), and "won't start" turns the dot
+  red. Not for the one automatic retry, whose caller reports how it went, and not while a bundled
+  player is still opening.
+- Also from that review, in the text job's area: a restore's result shows in Settings → SYNC
+  FOLDER again (`49043c9`, in the text report).
+- Left as cosmetic: in Light, the yellow favourite star and the white edge of the selector's thumb
+  are faint.
+
+## U5: what to try on the phone
+
+All of it is **Built, untested**. In the owner's words, for TESTING.md:
+
+1. Open the app. The "● 80 games ^" line above the tabs is gone.
+2. Scroll down Home. The covers slide under the four tabs at the bottom and you can see them
+   through the tabs. Scroll right to the end: the last row comes up fully clear of the tabs. Same
+   in All Games, Favorites and Settings.
+3. Go to **Settings → Storage**. The first line says how many games you have, like "80 games in
+   your library". That's where the count lives now.
+4. Tap **+** and add a game. A little message pops up just above the tabs ("Added 1 game.") and
+   fades by itself after a few seconds. Add another and tap the message: it goes away at once.
+5. Tap a game that can't open yet, like a Sega CD, PC Engine CD or Disk System game before you've
+   put its BIOS back. A line pops up just above the tabs saying which file it needs, instead of
+   nothing happening.
+6. **Settings → Layout → Game card size**: pick **Extra small**, then look at Home and All Games.
+   About twice as many covers fit. Try **Small** and **Large** too; each shows right away. Back on
+   **Medium** it looks like it always did.
+7. **Settings → Appearance → Light**. Look at Home, All Games, Favorites and Settings, then press
+   and hold a game to open its card. Everything is light with dark writing that's easy to read.
+   Start a game: it's still black around the game.
+8. Pick **System**. Open Control Centre, hold the brightness slider and tap Dark Mode on and off.
+   The app switches with your iPhone. Pick **Dark** to go back to how it always looked.
+
+### TESTING.md lines to reword because of U2
+
+The same five as in U2 above, checked against TESTING.md on 16 October:
+
+- Line 63 ("Next install (after 181)" step 1): "A line at the bottom says files that aren't games
+  were moved to the Not games folder." Now: a message pops up just above the tabs when the app
+  opens, and fades after a few seconds.
+- Line 69 (same list, step 2): "a line says "Added … games. Skipped … files that aren't games."" Now
+  that line pops up just above the tabs.
+- Lines 762-763 ("The single most useful thing you can do"): "in the Library behind the thin line
+  above the tabs". Now: behind the little dot at the top right, next to **+**, and in Settings →
+  Technical details → Show technical stuff.
+- Line 785 (Test 1, step 3): "Tap the thin line of small text just above the tabs at the bottom".
+  Now: tap the little dot at the top right, next to **+**.
+- Line 792 (Test 1, "You should see"): "A thin line of small text above the tabs. Tapping it opens
+  the diagnostic block." Now: a little dot at the top right, next to **+**; tapping it opens the
+  diagnostic block.
+
+R5 (line 288, "The last row is fully above the tab bar") is still true with the floating tabs, and
+no other TESTING.md line is out of date because of U1, U3, U3b or U4.

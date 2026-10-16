@@ -1,5 +1,5 @@
 {
-  "complete": false,
+  "complete": true,
   "title": "Continuum Home screen, 13 October 2026: floating tabs, no game-count strip, and a card size setting",
   "repo": "/projects/sandbox/.scratch/ui-work",
   "branch": "master",
@@ -71,9 +71,10 @@
     },
     {
       "id": "U5",
-      "done": false,
+      "done": true,
       "title": "Write it up",
-      "detail": "Write .kiro/notes/docs/reports/evening-2026-10-13-library.md: what changed, each as 'Built, untested'; what the owner should try on the phone, as a short numbered list in their plain, casual voice (scroll Home and watch the covers pass under the tabs; the '80 games' strip is gone; where the game count lives now; an import shows its result as a pop-up line that fades; Settings, Game card size, try each size on Home and All Games; Settings, Appearance, try Light on every tab and in a game's card, then System and switch the iPhone between light and dark in Control Centre); and the TESTING.md lines that need rewording because of U2. Then set the top-level complete to true."
+      "detail": "Write .kiro/notes/docs/reports/evening-2026-10-13-library.md: what changed, each as 'Built, untested'; what the owner should try on the phone, as a short numbered list in their plain, casual voice (scroll Home and watch the covers pass under the tabs; the '80 games' strip is gone; where the game count lives now; an import shows its result as a pop-up line that fades; Settings, Game card size, try each size on Home and All Games; Settings, Appearance, try Light on every tab and in a game's card, then System and switch the iPhone between light and dark in Control Centre); and the TESTING.md lines that need rewording because of U2. Then set the top-level complete to true.",
+      "result": "16 October: .kiro/notes/docs/reports/evening-2026-10-13-library.md is finished: every change marked Built, untested in one table (a06aeec, c3e8bac, d31c627, 97e02ef and U4's ec644be), U4's review, the owner's eight numbered phone checks, and the five TESTING.md lines U2 made out of date (63, 69, 762-763, 785, 792), rechecked against TESTING.md; pushed with this tick."
     }
   ],
   "notes_14_october": [

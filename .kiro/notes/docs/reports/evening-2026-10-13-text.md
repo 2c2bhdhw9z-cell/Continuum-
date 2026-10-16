@@ -10,8 +10,30 @@ typewriter-style text under them) were moved into **Settings → TECHNICAL DETAI
 each under the name of the section it came from.
 
 - T1, the first half of Settings: `ec63823` (an earlier session).
-- T2, the second half of Settings: this list, below.
-- T3, the other screens: below, once it is done.
+- T2, the second half of Settings: 14 commits, `14f00b7` to `232ae5e`, below.
+- T3, the other screens: `5cf4a2d`, `b799c7b`, `4abac4b`, `0f38af7`, `ccbff28`, `f3c66ef`,
+  `a98e731`, `cbe37fe` and `86a800d` (14 October), then the sweep of everything else on
+  16 October: `3fc69ad`, `46a9159` (online play and Link cable, last) and `bffba3f`. Below.
+- T4, a fresh review: one lost fact put back, `49043c9`. Below.
+
+## In short
+
+- **Shortened:** every note in Settings, the game card, save slots, cheats and RAM search, import,
+  skins and the editors, feedback, the crash and backup questions, the empty library screens,
+  online play and Link cable, the lines that pop up when a game can't open (a missing BIOS, a save
+  state that won't load), and the iPhone's own network and camera permission prompts. Each is now
+  one or two short sentences, or gone where the control already says it.
+- **Removed:** the whole PSP section of Settings; the LAYOUT note about "confusingly similar"
+  names; the five controller paragraphs (now one line); file-format trivia (byte counts, `screens[]`,
+  "little endian", how long a missing cover is remembered); "Search runs over the filename on
+  disk"; the explanations of why things are stored where they are.
+- **Read-outs:** every small grey read-out (Stored, Last, State, Folder, Now, Motion and the
+  rest) moved word for word into **Settings → TECHNICAL DETAILS**, under the name of the section
+  it came from. Each section kept at most one plain line ("78 covers saved (27.0 MB)", "No cheats
+  yet", "Last backup: Today at 12:54 PM"). The (i) block in a game is unchanged.
+- **Nothing does anything different:** no switch, button, choice, stored setting or default
+  changed. Where a line's wording decides its colour (red, orange or teal, `StatusTint`), the new
+  wording keeps the same colour.
 
 ## T2: the second half of Settings
 
@@ -146,8 +168,9 @@ each under the name of the section it came from.
   restore finished: 1 skin, 12 save states. ...", or a failure) moved to TECHNICAL DETAILS → SYNC
   FOLDER, as **Folder** and **Last**. The section keeps one plain line: "Live folder: <its name>"
   when one is chosen, otherwise "Last backup: Today at 12:54 PM" (iPhone's own date wording), or
-  "No backup yet". Worth knowing: a backup or restore that fails now says so only under
-  TECHNICAL DETAILS (and in the activity log a feedback report sends), not in the section itself.
+  "No backup yet". Since T4 (`49043c9`), a restore's result, a backup that left files out, and
+  anything that failed, was refused or was cancelled take that line's place, so they show in the
+  section again (see T4 below).
 
 ### CONTROLLERS, MAPPING AND MOTION
 
@@ -368,25 +391,193 @@ each under the name of the section it came from.
   from a backup), and with games it takes more space."** The title and the three buttons (Back up
   with games, Back up without games, Not now) are unchanged, and it still asks at the same times.
 
+## T3, the sweep of everything else (16 October)
+
+How: every string over about 120 characters and every line of three sentences or more in
+`native/ios`, plus the iPhone permission prompts in `Info.plist` and `project.yml`, read where it
+shows, outside TECHNICAL DETAILS and (i). Each is **Built, untested**.
+
+### Shortened (`3fc69ad`)
+
+- **A game that needs a BIOS** (since `ec644be` this pops up just above the tabs when you tap the
+  game). "Sonic CD needs bios_CD_U.bin, a Mega-CD / Sega CD BIOS (U is USA, E is Europe, J is
+  Japan), which Sega CD cannot start without and which cannot ship with the app. Put it in the
+  Continuum folder in Files, then use Settings, Install a BIOS from the Continuum folder" became
+  **"Sonic CD cannot start without bios_CD_U.bin, a Sega CD BIOS (U is USA, E is Europe, J is
+  Japan). Put it in the Continuum folder in Files, then tap Install a BIOS from the Continuum
+  folder in Settings."** The same shape for the Disk System ("disksys.rom, the Disk System's
+  startup file"), PC Engine CD and DOOM ("prboom.wad, DOOM's data file, which the app normally
+  adds by itself"). Saturn on Beetle Saturn: three sentences became **"... cannot start on Beetle
+  Saturn without sega_101.bin or mpr-17933.bin, but Yabause can. Put one in the Continuum folder
+  in Files, then tap Install a BIOS from the Continuum folder in Settings."** The PlayStation line
+  can't show today (Beetle PSX HW starts on its own built-in BIOS), but it lost "Beetle has no
+  HLE" the same way. Gone from all of them: "cannot ship with the app" and "It was not found in
+  the system folder".
+- **A save state that won't load.** "The core has been rebuilt since this state was saved (mgba
+  0.10.2 wrote it, this build is 0.10.3), so its internal layout may have moved. Not loading it,
+  to avoid corrupting the game." became **"This state is from another version of mgba (0.10.2,
+  this one is 0.10.3). It isn't loaded, to keep your game safe."** Different settings: three
+  sentences became **"This state was saved with different emulator settings (Model), and loading
+  it now could crash the game. Set them back to load it."** The auto-save that crashed the app:
+  **"Started Tetris fresh: its auto-save crashed the app last time, so I skipped it once. It's
+  still there."** An auto-save from an emulator the app no longer has now ends **"It won't load,
+  because this version doesn't have its emulator any more, but your in-game saves are fine."**
+  The PSP resume that gives up: **"Could not pick up <game> where you left off. Your auto-save is
+  safe, and this session won't save over it."** Exporting a battery save a game doesn't have:
+  **"Tetris has no battery save yet. Save in the game's own menu first; not every game can."**
+- **The game card's SAVE STATES note:** "A state goes back into the emulator that made it, so
+  changing that emulator's settings can stop one loading. Most emulator updates keep old states
+  working, and when one can't load we say why instead of risking your game." became **"Changing
+  an emulator's settings can stop a state loading. If one can't load, it says why."**
+- **Choosing a cover** (on the card): "This app has no thumbnail directory for Flash, so there is
+  nothing to choose from. An image from Files still works." became **"There are no covers online
+  for Flash, but an image from Files still works."**; "Back to automatic artwork for this game.
+  It keeps its generated plate until cover lookups are turned back on in Settings." became **"Back
+  to the automatic cover. It shows a title card until you turn Look up cover art back on in
+  Settings."** (the switch's real name); when some cover lists don't download: **"Found 3 covers,
+  but some cover lists didn't download (<why>). Try again when you're online for more."**; a
+  download that isn't a picture: **"... wasn't a picture the app could read, so the cover didn't
+  change"**.
+- **Flash and J2ME games:** "save states are not available for Flash games: Ruffle cannot freeze
+  a running movie. The game's own saves are kept automatically" became **"Flash games cannot use
+  save states, but their own saves are kept automatically"**; "... they run in Ruffle, not a
+  libretro core. Keys and save files are under the player menu, Flash settings" became **"Flash
+  games have no core settings. Their keys and save file are in Flash settings, the sliders button
+  at the top"**; the player stopping is **"... the player stopped, usually from running low on
+  memory. Quit and open the game again; the last automatic save is kept"**; a build without the
+  player is **"... this build is missing the Flash player, so Flash games cannot open until the
+  next one"** (the build-machine detail went).
+- **Importing a PDF manual** under a name that's taken: **"manual Zelda.pdf saved in Manuals as
+  Zelda copy.pdf, since another Zelda.pdf was already there. Attach it on the game's card, or
+  rename it in Files."** (it was one 220-character sentence).
+- **Settings, CORES:** "Not sure? Keep the first one. Save states only load on the core that
+  made them." became **"If you're not sure, keep the first one. Save states only load on the
+  core that made them."** **Delete every game?** is two sentences now: **"All 80 games go with
+  their save states and cheats, and this can't be undone. In-game saves are kept."**
+- **The iPhone's own questions.** Local network: "Continuum uses the local network for two-player
+  online play with another phone, for Wi-Fi transfer of games and saves from a computer's
+  browser, and to browse a NAS or computer over WebDAV or SMB file sharing." became **"Continuum
+  uses your local network for online play with a second phone, Wi-Fi transfer from a computer,
+  and shared folders on a computer or NAS."** Camera: it names the Game Boy Camera now, **"Games
+  that use a camera, like the Game Boy Camera or 3DS camera games, can see it while you play.
+  Only used when Allow camera in games is on."**
+
+### Online play and Link cable, last, after a fresh rebase (`46a9159`)
+
+- Link cable: "Like two Game Boys with a cable between them. Each phone plays its own game and
+  keeps its own save, so you can trade, battle or play head to head, even Red with Blue. Both
+  phones need cBoy for Game Boy games (Settings, Cores). Rewind, fast forward, pause, reset and
+  loading a state are off while the cable is on." became **"Each phone plays its own game and
+  save, so you can trade or battle, even Red with Blue. Both need cBoy (Settings, Cores), and
+  rewind, fast forward, pause, reset and loading a state are off while it's plugged in."**
+- Online play: three sentences ("Both phones need the same ROM file and the same Continuum
+  build ...") became **"Both phones need the same game file and Continuum version, with cheats
+  off. Joining picks up the host's game as it is, and rewind, fast forward, reset and loading a
+  state are off while you play."**
+- Under the Host button: "The other phone joins with the address shown here, or finds this phone
+  under Nearby." (no address shows until you host) became **"Then the other phone types the
+  address that shows up, or picks this phone under Nearby."**, plus **"More delay hides lag; 2
+  suits home Wi-Fi."** for online play.
+- The status lines on these screens were already short. The two Settings notes were done in T2.
+
+### The crash question (`bffba3f`)
+
+- "... Sorry! Want to send a quick report? It really helps." became **"... Sorry! A quick report
+  really helps."** The buttons (Send a report, No thanks) ask the question.
+
+### Left as they are, on purpose
+
+- The lowercase status lines that start with what they're about (`artwork:`, `audio:`, `touch
+  layout:`, `controls:`, `library:`, `restore:`). They are the app's read-outs: TECHNICAL
+  DETAILS, (i) and the activity log a feedback report sends. The long ones are the cover sweep's
+  own notes, which show nowhere else.
+- Read-outs already under TECHNICAL DETAILS (Rewind holds, Attached), and the NOT WIRED YET note,
+  whose section never shows (its list is empty).
+- Two-sentence notes of 120 to 165 characters that already read like a person talking, for
+  example "Your controller and the on-screen pad both work, and up to four controllers can play at
+  once. Pair one in your iPhone's Bluetooth settings."
+- From T4's notes: **Retry failed lookups** and **Forget the downloaded cover lists** still answer
+  only under TECHNICAL DETAILS → COVER ART → Last. Nobody loses a choice by that: the covers
+  come back or download again by themselves. Also: which core needs a BIOS is no longer in CORES.
+  Left, because nobody loses it: BIOS lists each core that needs a file ("Beetle Saturn: needs
+  sega_101.bin or mpr-17933.bin"), and tapping a Saturn game on Beetle Saturn without one says
+  Yabause can start it.
+
+Checked: `swiftc -frontend -parse` on every changed Swift file before each push;
+`scripts/check-players.sh` (it compiles `WebPlayerCore.swift` and checks every Flash and J2ME line
+still names the game kind): 0 failed; `Info.plist` loads as a property list. Every reworded status
+line was run through the same words `StatusTint` uses, and each keeps its colour (red, orange or
+teal), so what pops up, how long it stays and the dot's colour are as before.
+
+## T4: the fresh review (16 October)
+
+A reviewer who wrote none of T1 to T3 found every changed file parses and every interpolation is
+intact. One fact a player needed had gone: after the read-outs moved, a restore's result (with its
+one step left, "close Continuum fully and reopen it") and a failed backup showed only under
+TECHNICAL DETAILS. `49043c9` puts them back as SYNC FOLDER's one plain line, for example
+**"Restore finished: 1 skin, 12 save states. Close Continuum fully and reopen it once to apply the
+rest of your settings."** Everyday lines (a backup that went fine) still leave "Last backup: ..."
+there.
+
+## Phone checks (for TESTING.md, in the owner's words)
+
+1. Scroll down **Settings**. Every note under a switch or button is one or two short sentences, and
+   there's no PSP section.
+2. Scroll to **Technical details** at the bottom. The small grey read-outs from the other sections
+   (Cover art, BIOS, Save states, Storage, Sync folder, Online play and the rest) are all there,
+   each under its section's name.
+3. Press and hold a game to open its card. The notes under Save states, Cheats and Cover art are
+   short and read like a person wrote them.
+4. Only if you have a Sega CD, PC Engine CD or Disk System game: tap it before you put its BIOS
+   back. A line pops up just above the tabs, two sentences, naming the file and telling you to tap
+   **Install a BIOS from the Continuum folder** in Settings.
+5. In a game, tap **⋯** → **Play online with a second phone** (or **Link cable to a second phone** in
+   a Game Boy game on cBoy) and read the note at the bottom. Two short sentences.
+6. The first time you open **Play online** or Wi-Fi transfer, your iPhone asks about the local
+   network. Its question is one short sentence.
+7. Only if you can spare a backup: **Settings → Sync folder → Restore from a backup**. When it's
+   done, the line under SYNC FOLDER says what came back and to close Continuum and open it again.
+
 ## TESTING.md steps whose quoted wording changed
 
-(For the orchestrator to reword. STATUS.md, TESTING.md and HANDOFF.md were not touched.)
+Every quoted line and every bold button or section name in TESTING.md was checked against the
+app's current text on 16 October. These are the ones that no longer match (for the orchestrator to
+reword; STATUS.md, TESTING.md and HANDOFF.md were not touched). The Home screen job's five (lines
+63, 69, 762-763, 785 and 792) are in `evening-2026-10-13-library.md`.
 
-- **R9** (Beetle PSX HW with no BIOS: "the BIOS line says so"): the Settings BIOS line is now in
-  **Settings → TECHNICAL DETAILS → BIOS → State**. The same line is still in the player's (i)
-  small text.
-- **Night batch step 19** ("read the note under CORES and the two notes around SYNC FOLDER ...
-  they point at buttons that really exist ("Open the game and pick it there", "Sync now") ... A
-  restore line says "1 skin", not "1 skin(s)""): both quotes are out of date. The CORES note (T1)
-  now says "For just one game, press and hold it and pick a core on its card."; the SYNC FOLDER
-  notes now name **Back up to Files** and **Restore from a backup**, not Sync now; and the restore
-  line is in **TECHNICAL DETAILS → SYNC FOLDER → Last**.
-- **M1 step 3** ("Tap Sync now and wait for the line above the buttons to say it finished"): that
-  line is in TECHNICAL DETAILS → SYNC FOLDER → Last now. In the section, **Sync now** reads
-  "Syncing..." while it works and goes back to "Sync now" when it's done.
-- **P-PSP4 (b)** ("the Folder row shows its name"): the section's first line now reads "Live
-  folder: <its name>"; the Folder row itself is in TECHNICAL DETAILS → SYNC FOLDER. (Its "Choose a
-  sync folder" button has been called **Live folder (advanced)** for a while.)
-- **P-SYNC2** ("the line says "backup saved as Continuum Sync in ..."") and **H3** ("The status
-  says files were sent"): that line is in TECHNICAL DETAILS → SYNC FOLDER → Last. The section
-  shows "Last backup: ..." after a backup.
+- **Night batch step 18** ("read the **SAVE STATES** paragraph ... two short sentences ... doesn't
+  claim a state needs the same build"): still passes as written; the paragraph now reads "Changing
+  an emulator's settings can stop a state loading. If one can't load, it says why."
+- **Night batch step 19**: old: they point at buttons that really exist ("Open the game and pick
+  it there", "Sync now") ... A restore line says "1 skin". New: the CORES notes read "Kicks in
+  from the next game you open. For just one game, press and hold it and pick a core on its card."
+  and "If you're not sure, keep the first one. Save states only load on the core that made them.";
+  the SYNC FOLDER notes name **Back up to Files** and **Restore from a backup** (**Sync now** is only
+  there once a live folder is chosen); a restore's line shows right under SYNC FOLDER and says
+  "Restore finished: 1 skin, ...".
+- **Night batch step 26** and **R10**: old: "The second tap says one is already running" / "The
+  second tap says a sync is already running". New: while a backup runs, **Back up to Files** reads
+  "Working..." and both buttons go dim, so there's no second tap to make; the "already running"
+  line is only under TECHNICAL DETAILS → SYNC FOLDER → Last.
+- **R9**: "the BIOS line says so". That line is in **Settings → TECHNICAL DETAILS → BIOS → State**,
+  and still in the (i) small text in the game. In the BIOS section, the row reads "Beetle PSX HW
+  (Vulkan): works without a BIOS (looks for scph5501.bin, ...)".
+- **M1 step 1**, **P-PSP4 (b)** and **H3**: old: **Choose a sync folder**. New: **Live folder
+  (advanced)** ("Choose a different live folder" once one is chosen). P-PSP4's "the Folder row
+  shows its name" is now the line "Live folder: <its name>"; the Folder row is under TECHNICAL
+  DETAILS → SYNC FOLDER.
+- **M1 step 3**: old: "wait for the line above the buttons to say it finished". New: **Sync now**
+  reads "Syncing..." while it works and goes back to "Sync now"; the finished line is under
+  TECHNICAL DETAILS → SYNC FOLDER → Last.
+- **P-SYNC2**: old: the line says "backup saved as Continuum Sync in ...". New: under SYNC FOLDER it
+  says "Last backup: Today at ..."; the saved line ("backup saved as Continuum Backup ... .zip in
+  ...") is under TECHNICAL DETAILS → SYNC FOLDER → Last. (A restore now picks that .zip, not a
+  "Continuum Sync" folder.)
+- **H3**: old: "The status says files were sent". New: that line is under TECHNICAL DETAILS → SYNC
+  FOLDER → Last.
+
+Nothing else in TESTING.md quotes text this job changed. Still right as written: C6 and C15 (the
+BIOS lines still name the exact file), K1 and "Next install" step 5 (the started-fresh line still
+says which slot the old auto-save is in), J3's "Makes PSP, 3DS, PlayStation, N64 and Dreamcast
+faster", O1's "Save a backup file now?" and **Back up without games**, Q1's **Reset every system's
+controls and skins**, H1's **Play online with a second phone**, and A5's **Cheats and RAM search...**.

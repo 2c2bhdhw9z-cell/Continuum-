@@ -1,5 +1,5 @@
 {
-  "complete": false,
+  "complete": true,
   "title": "Shorter text everywhere in the app: every explanation condensed (13 October 2026)",
   "repo": "/projects/sandbox/.scratch/text-work",
   "branch": "master",
@@ -58,9 +58,10 @@
     },
     {
       "id": "T5",
-      "done": false,
+      "done": true,
       "title": "Write it up",
-      "detail": "Write .kiro/notes/docs/reports/evening-2026-10-13-text.md: what was shortened (a few before-and-after examples), what was removed, where the read-outs went, and every TESTING.md step whose quoted wording changed. Then set the top-level complete to true."
+      "detail": "Write .kiro/notes/docs/reports/evening-2026-10-13-text.md: what was shortened (a few before-and-after examples), what was removed, where the read-outs went, and every TESTING.md step whose quoted wording changed. Then set the top-level complete to true.",
+      "result": "16 October: .kiro/notes/docs/reports/evening-2026-10-13-text.md is finished, with what was shortened (before and after), what was removed, where the read-outs went, T3's sweep and T4's fix, the owner's phone checks, and every TESTING.md step whose quoted wording no longer matches the app (steps 18, 19 and 26 of the night batch, R9, R10, M1, P-PSP4, P-SYNC2 and H3), checked line by line against the current Swift text; pushed with this tick."
     }
   ],
   "notes_14_october": [
