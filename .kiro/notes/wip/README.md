@@ -6,7 +6,6 @@ that lands the work.
 
 | File | Job, item | What it holds |
 |---|---|---|
-| `arcade-wip-base-1671e57.patch` | `arcade.json`, I5 | The Galaxian board: `src/galaxian.rs`, its `lib.rs` line, our own test programs, MAME comparison tests and their references (40 files). `tests/galdbg.rs` is a throwaway debug test: don't commit it. |
 | `cboy-wip-base-eafddae.patch` | `cboy.json`, G2 | The first IO-write-timing edits to `bus.rs`, `cpu.rs` and `fifo.rs`, and tests in `tests/roms.rs` (54 lines). |
 
 Apply with `git apply .kiro/notes/wip/<file>`. Both applied cleanly to master on 14 October at

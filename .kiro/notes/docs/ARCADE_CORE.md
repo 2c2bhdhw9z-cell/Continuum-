@@ -277,6 +277,49 @@ Known limits, none of which the tests hit:
 - Two bootlegs with their blue and green wires swapped (MAME's `woodpek_rbg` sets) aren't
   modelled; they'd need a palette variant.
 
+## The Galaxian board, as proven (item I5, picture and timing)
+
+`src/galaxian.rs`: Namco's Galaxian board and Nichibutsu's Moon Cresta (the same board with its
+memory moved, a graphics bank and, on Nichibutsu's own boards, a scrambled program). Not in the
+app yet: its sound and Konami's variant come first (below).
+
+What it does: the Z80 at 3.072 MHz; the 32 × 32 tile layer with each column's own scroll and
+colour; the eight sprites, with the line buffer's clipping and sprites 0-2 a line lower; the
+seven shells and the missile; the star field (the 17-bit generator, its 64 colours and its
+sideways drift); the colour PROM through the resistor network; both screen flips; drawing as
+the beam goes, so a change mid-frame splits the picture where the real board would; the NMI ON
+latch and the Z80's edge-triggered NMI; the watchdog's reset after 8 VBLANKs without a read;
+the inputs, DIP switches and the coin lockout (a locked-out coin is turned away, so it never
+reaches the coin switch). The picture is kept at three dots a pixel along the raster, as MAME
+draws it, because the stars change colour a third of the way into a pixel: 224 × 768 upright.
+
+How it's proved, the same way as Pac-Man:
+
+- **Ten test programs of our own** in `test-programs/galaxian/` (`tiles`, `sprites`, `shots`,
+  `stars`, `raster`, `nmi`, `watchdog`, `inputs`, and `mooncrst` run twice: on Nichibutsu's
+  scrambled set, with the scrambling done by the test from its own copy of the wiring, and on a
+  plain one), with our own graphics and colour PROM.
+- `tests/galaxian_mame.rs` runs each on MAME 0.289 and on cArcade and compares every frame pixel
+  for pixel: all 1,800 frames match. `tests/galaxian_board.rs` runs everywhere against MAME's
+  recorded hashes in `tests/references/galaxian/`, round-trips save states mid-run, and checks the
+  committed programs are what their sources assemble to.
+- The NMI program was also compared instruction by instruction with MAME's debugger trace: all
+  182,314 instructions agree, with the cycle each one started on.
+
+Where it follows MAME's timing rather than a measured board (found on 16 October; each is a
+real effect a test program could see, and the Pac-Man board's tests still pass with them):
+
+- The Z80 comes up with IX and IY at FFFFh (MAME's power-on value; a game that pushes them
+  before loading them shows it).
+- At VBLANK the NMI line rises before the watchdog counts. A watchdog reset then drops the NMI
+  the Z80 had latched but leaves the line high, so no NMI comes until the game drops the NMI ON
+  latch and VBLANK raises the line again.
+- The reset cuts into the instruction running at VBLANK where MAME's Z80 had stopped for VBLANK
+  (it can pause halfway through an opcode fetch, after any bus cycle, or after an internal
+  cycle), and the Z80's clock carries on from there.
+- Switching the NMI off cuts MAME's CPU timeslice right after the write, which moves where the
+  next VBLANK falls by a cycle in some frames (`vblank_cycle`).
+
 ## In the app (item I4)
 
 ### What it plays

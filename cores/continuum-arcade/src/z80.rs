@@ -179,8 +179,9 @@ impl Default for Z80 {
 }
 
 impl Z80 {
-    /// A Z80 just powered on: AF and SP read FFFFh on real chips, and the power-on reset clears PC,
-    /// I, R and the interrupt state. The other registers hold no defined value; they start at 0.
+    /// A Z80 just powered on: AF and SP read FFFFh on real chips, IX and IY FFFFh as MAME has
+    /// them, and the power-on reset clears PC, I, R and the interrupt state. The other registers
+    /// hold no defined value; they start at 0.
     pub fn new() -> Z80 {
         let mut z = Z80 {
             a: 0xFF,
@@ -195,8 +196,10 @@ impl Z80 {
             bc2: 0,
             de2: 0,
             hl2: 0,
-            ix: 0,
-            iy: 0,
+            // IX and IY come up as FFFF on the chip, as MAME's Z80 has them at power-on (a
+            // reset leaves them alone). A game that pushes them before loading them shows it.
+            ix: 0xFFFF,
+            iy: 0xFFFF,
             sp: 0xFFFF,
             pc: 0,
             i: 0,
