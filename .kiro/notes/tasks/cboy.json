@@ -73,7 +73,7 @@
       "done": false,
       "title": "Keep pushing the score honestly, all the way",
       "detail": "Carry on through every remaining Mealybug failure, one hardware behaviour at a time, committing with the score each time, until all 55 pass. A run of changes that fixes nothing is NOT a reason to stop: go back to how the hardware and SameBoy do it and look harder. The only failures that may be left are ones that genuinely cannot be explained from the hardware behaviour, each written down in .kiro/notes/docs/CBOY_EXACT_DRAWER.md with exactly what was checked. Never guess.",
-      "progress": "16 October: 27f9821 took Mealybug 45 -> 49 of 55 (the Color's whole tile-select glitch, from the Mealybug PPU documentation). Left: the 4 Color references no Color can produce (never to be chased), cgb:m3_lcdc_obj_size_change_scx (15 pixels on 4 lines, SameBoy misses the same 15) and dmg:m3_lcdc_bg_en_change (4 pixels at x=0); both being worked on next."
+      "progress": "16 October: 27f9821 (the Color's whole tile-select glitch) and 45aa6bd (an object's first byte takes its height a dot before its read) took Mealybug 45 -> 50 of 55: every Color picture a Color can produce now passes. Left: the 4 Color references no Color can produce (never to be chased) and dmg:m3_lcdc_bg_en_change (4 pixels at x=0), being worked on next."
     },
     {
       "id": "G5",
