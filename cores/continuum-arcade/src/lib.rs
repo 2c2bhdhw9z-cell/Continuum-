@@ -10,6 +10,8 @@
 
 pub mod ay8910;
 pub mod board;
+pub mod dkong;
+pub mod dkong_sound;
 pub mod galaxian;
 pub mod galaxian_sound;
 pub mod i8255;

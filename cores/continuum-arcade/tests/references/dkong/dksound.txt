@@ -1,0 +1,3851 @@
+# dksound: MAME 0.289 running set dkong with cArcade's test programs dksound (Z80) and dksnd (8035), 700 frames.
+# video: each frame's picture, FNV-1a 64 of 224 x 256 0x00RRGGBB little-endian u32s.
+# trace: MAME's 8035 trace (as tests/dkong writes ours), its first line and how many lines
+# fall in the run, then a hash of each 1024 lines.
+# level: each frame's sound (792 samples at 48 kHz), its RMS less the mean and its mean, as
+# fractions of full scale.
+# segment: the script's segment, its first and last frame, then over its frames but the first
+# two and the last: the RMS, the strongest frequency in Hz, the energy in twelfth-octave bands
+# from 40 Hz and in octave bands from 40 Hz (tests/measure).
+video 1 c9b1e505f9a82325
+video 2 c9b1e505f9a82325
+video 3 c9b1e505f9a82325
+video 4 b2a58f2f240c77a0
+video 5 79d83a6778d6f5c6
+video 6 af21b65ceb8c5906
+video 7 b0a73cfe33c46e46
+video 8 41795ce3bf57e556
+video 9 12f11aaa344b6891
+video 10 550385943e30f138
+video 11 edb9539afc0813b4
+video 12 75307bdca0e92a23
+video 13 ba6180a5ff87f5b0
+video 14 572eef894c540d65
+video 15 28203f167672f3a9
+video 16 ac32923fa853114d
+video 17 0ec52160ce0541ee
+video 18 603ffd27e5b3c13a
+video 19 9e7f98a2cce2fd8a
+video 20 b4765ae6f329836b
+video 21 936b949712b64799
+video 22 ffc6afe822ad9c59
+video 23 6ee67362f65c6d19
+video 24 c9357d3d979ab549
+video 25 5d9643d92775b125
+video 26 1f2d6c18ecc2e488
+video 27 4fc93a1211885b8c
+video 28 3a3e6987d275397b
+video 29 e6e575845aa84c90
+video 30 944d0ae28c5c62f1
+video 31 649cdf34686ac28d
+video 32 cbca0c27f05f1189
+video 33 fd716c0d2bdfe45a
+video 34 4f06e65ff42e559e
+video 35 5c2bb6f49319bbe1
+video 36 f6ad8ec3484ba684
+video 37 d536f0c1a936b9a2
+video 38 5dd73ea3c9cb74e2
+video 39 46016528d20eb122
+video 40 012b858da5127252
+video 41 8630e3782cc401b6
+video 42 9abd724228a6a777
+video 43 3f911527e0211548
+video 44 07ec4f14d8a894c3
+video 45 93bb83bb2a08672c
+video 46 83e4a8dbc49690f8
+video 47 a8246c679426b964
+video 48 35158c6242021a40
+video 49 d61a76f87d35837b
+video 50 2544a2b4d4bf1f0f
+video 51 2e70ff841a9c4bbb
+video 52 b3d2f2790f94864e
+video 53 6d7cdf424fca0948
+video 54 3fe2a3a8d3d26a88
+video 55 16348eb7c79c5ec8
+video 56 ba32ae2def9acb58
+video 57 5a229d39bfa86614
+video 58 6be6bdc185384edd
+video 59 612b163d8353ce21
+video 60 056031577b306c7e
+video 61 0fcf4f24dd118595
+video 62 f65caf41ab1cab70
+video 63 f8c9048a6bd3dfcc
+video 64 a70c36b10c251018
+video 65 24449e8c93cb13eb
+video 66 520f48e7b7ee8b6f
+video 67 044ff15048d72783
+video 68 705683264a9174fe
+video 69 1402fb0409bbd908
+video 70 ccc7c6b037bc8748
+video 71 afcaef8982bef888
+video 72 d9c44631cfb93318
+video 73 d955f9bc390d9424
+video 74 be6012e0b20e3485
+video 75 7cd9740444c53c09
+video 76 3671028f502e6a2e
+video 77 605b212035b6f549
+video 78 3c976775d7f026a1
+video 79 5f107eb13d38a65d
+video 80 759c6f969b9cfe29
+video 81 616196138530b93e
+video 82 adedf0d1b288e772
+video 83 6abad42e84e6905e
+video 84 fe1d4be51925429f
+video 85 735af270cfbaa879
+video 86 deaa0a66dbd6b539
+video 87 4cb5369fa4983ef9
+video 88 818241a89ca22289
+video 89 9e4f7d2e1265e5f5
+video 90 47d910cc7f1fa120
+video 91 fe9bebfe7e4512b4
+video 92 d2d61ff7959f80cf
+video 93 60322ccbe9d55798
+video 94 0e284a61f1c00f61
+video 95 b95fbe4c03ca0d8d
+video 96 95df2efdc1a43bc9
+video 97 bd1eb6cf6b5e450e
+video 98 8adfe42def0aff02
+video 99 3b1678b5845b6d7e
+video 100 c178aeb89fa480f7
+video 101 44f443c568773711
+video 102 425fdf13b8e09ed1
+video 103 c96572863548e191
+video 104 c107630e75305461
+video 105 83d3fa92669cb69d
+video 106 29b271ec3adc8190
+video 107 52fd94d3c19a2994
+video 108 4e429397c31ebfa7
+video 109 6d6eff1430d4c4e8
+video 110 da8a9e4116676219
+video 111 d426ec4e2824c7f1
+video 112 d40794cc20957bf4
+video 113 0e23642c14d28edf
+video 114 ae1ea34659760123
+video 115 1ee03d65bc517def
+video 116 1e96a8a856440626
+video 117 5a9bea463c72761c
+video 118 9348d3cae1c274dc
+video 119 7921243c079a149c
+video 120 d01b024ffde696ec
+video 121 d48bef6bff011690
+video 122 79cf6efd00e4504d
+video 123 c5baf9dfcb84a899
+video 124 6d59dd228accea16
+video 125 4c916e3879e53755
+video 126 ce4e86d203801474
+video 127 4d5124b1ec0bba18
+video 128 b0bca848d853702c
+video 129 d0837fb14dc9e35f
+video 130 24f324da57969ddb
+video 131 512cfa063e114652
+video 132 0c631c22bc2b6f5b
+video 133 24b2513fe2f69bfd
+video 134 db4f1e73194ece3d
+video 135 323bd06ebce0d37d
+video 136 ec874221b8b720ed
+video 137 6da33c06b685abc9
+video 138 c9a9b43dab7e2d44
+video 139 0a224dfd5264aec8
+video 140 b10c7e32bd28d36b
+video 141 d1f7ab102031514c
+video 142 b0e872411af00fd5
+video 143 8640c42acd270a31
+video 144 93e2190ccd6466ad
+video 145 87f9a06148f0a866
+video 146 fc7e3d816096746b
+video 147 ee1d0ada838b656c
+video 148 8b23372f94f50411
+video 149 38980aa22f8509d7
+video 150 49f89ebdd189fd97
+video 151 9d1308d029ae6b57
+video 152 b92ed6243dea0987
+video 153 0584033da61b3ba3
+video 154 8e6fb860872373ba
+video 155 089f5e135d67563e
+video 156 5de157e6d9811be1
+video 157 1b0d55229153f2b2
+video 158 1f1f611af77db3ff
+video 159 56b5af601a7adcfb
+video 160 d59bd962d423dbc7
+video 161 2f1d98808b00e23c
+video 162 c549e74e4a986130
+video 163 448eb249c076cee7
+video 164 199ec46c88c892d2
+video 165 35a0184b0a25c7d4
+video 166 3214ffacc93f5894
+video 167 74bd1427c52ef054
+video 168 fd9e003d06db8084
+video 169 8cfbbe9394ed8360
+video 170 892467bcf337ef39
+video 171 88c39ba9e07b2b7d
+video 172 343afd105cd9dfa2
+video 173 34596c7ffaeae481
+video 174 a0d05e3a7335fbec
+video 175 e2b1bc8ffc1333a8
+video 176 d8063af3f1d19bc4
+video 177 efed1a12583099b7
+video 178 76ea77fed1aaf27b
+video 179 70ca63972eeed8a2
+video 180 aea20ef277050df3
+video 181 20ebebb683141d4d
+video 182 3569a9007149580d
+video 183 4f613e70b803fbcd
+video 184 f1070fbd0ce9519d
+video 185 c75f4c8e09752679
+video 186 417d908b407e1a34
+video 187 272d3bef85e94818
+video 188 804953c6562f11a3
+video 189 ffc855536e5350cc
+video 190 5528835a59d7bfd5
+video 191 ceb1c187e54d8151
+video 192 d5808622e6c7efdd
+video 193 07d8a656490dc3d2
+video 194 8be4a0b9bcc6c736
+video 195 90e3bf91c82fae56
+video 196 5d5c34225ef94fa7
+video 197 fe584f0bdef705c9
+video 198 0fc9c7ce4275ce89
+video 199 9d0f1a78184af649
+video 200 63a26988912b0519
+video 201 adf3c7097ec756a5
+video 202 9286667f1ec63cc0
+video 203 8205ace5e8f71274
+video 204 9b468a454a0dc917
+video 205 76744f541ac6c298
+video 206 ddc4c69999d809f1
+video 207 73e4728687bb5a7d
+video 208 55c6966c636c6459
+video 209 43c85e8712769986
+video 210 e9d23f5a0171820a
+video 211 11bcd926a35a4f7e
+video 212 0aa4f5c78db800e7
+video 213 ba33af243e644a09
+video 214 6abe231f894d80c9
+video 215 514d23005e212c89
+video 216 050dfe3404980359
+video 217 71c5b2b09dc7d506
+video 218 d981a7e7f3d76adb
+video 219 3f1fb8967e67e9a7
+video 220 e1dc9dd6410e7484
+video 221 df13726b7d3f3483
+video 222 b48b673a02e67b6a
+video 223 77b6a4cc5a09636e
+video 224 1a0ba8eb4f3d6002
+video 225 10a93a83fdbb12f5
+video 226 16f7f120ad069d81
+video 227 a123a3c3078f9edf
+video 228 07bfa7f009eb11be
+video 229 8526c3c7a43ddad4
+video 230 71ce7249377aed14
+video 231 198baeb765cdfd54
+video 232 949905b837cef464
+video 233 e3d5bec66991e4a0
+video 234 f9a0f54685546b0d
+video 235 b7ac95ec7a23cad1
+video 236 4bd6d75b681663ee
+video 237 ffd028aacd9732e5
+video 238 60d63eed8f6e625c
+video 239 eafd7ea6f13a89b8
+video 240 be980f275950f424
+video 241 1ad735e5fa85c40f
+video 242 942e643490ba2a23
+video 243 75b22bacded6490f
+video 244 8fe2d9eaa76e1fde
+video 245 665e02dd3bd38d3c
+video 246 b2effb2bc462477c
+video 247 9182bb17c36691bc
+video 248 a3596202479bdccc
+video 249 8de730fd9627f2d8
+video 250 3e18f57122c58a25
+video 251 fd1c2e2958f04d59
+video 252 37554579a5bbad4e
+video 253 6087ea3ba7b6d97d
+video 254 ee8c6dbcbc08d944
+video 255 d010b634fe9b8230
+video 256 49288ba2074e5d8c
+video 257 369112f11b16e23f
+video 258 9343a5bbcb96ef43
+video 259 1e4637607d881ebf
+video 260 d2e8e515a2aa2672
+video 261 267ffc15e385dfe4
+video 262 ed68f9146df89ea4
+video 263 9dbd00b917cbc064
+video 264 ba2612099430b754
+video 265 9439d4e7be1b789d
+video 266 f3400a0d4eb72d78
+video 267 ec7764cbd9301984
+video 268 ebef59b7d3d93147
+video 269 3e1113b32b9a6ad0
+video 270 5f14b902821382d1
+video 271 6846d54ea04be975
+video 272 21d354d06c3ecbb9
+video 273 a1d4b4a00dc4b97e
+video 274 645fb0f793abcbaa
+video 275 c01767d004726dfa
+video 276 7ef28a5762a2ac2f
+video 277 9934de7cdac0ce55
+video 278 5c4f7d1b4007ad95
+video 279 9da8c84131810dd5
+video 280 124404e967ca5cc5
+video 281 876351f59d9ecea1
+video 282 5ed8cbd8e18ba4fc
+video 283 7561fa84628b3970
+video 284 351a97a74d46afef
+video 285 3a73d565c64157c4
+video 286 fc56de6bf05fc6ad
+video 287 5396aedca0856529
+video 288 171385f977e62485
+video 289 50f068de8fadd842
+video 290 4d8ec01498fc1edf
+video 291 567d104cab2347d8
+video 292 a263e5411bea5ee5
+video 293 1ffb9433498a2993
+video 294 ea4d31d148b66e53
+video 295 38875152a6e61913
+video 296 41a57eea51592d03
+video 297 91fe66bb2219a897
+video 298 334819db9b4bbf36
+video 299 0356c3ebbe03e6c2
+video 300 a31b1a0f867d4ff5
+video 301 1bf23d224ac2135c
+video 302 534cd26fcf21271d
+video 303 825ec4ab52bfca69
+video 304 80150a7aeb1166e5
+video 305 150f03aafd379f32
+video 306 3f0d6e3532715196
+video 307 71edb6f00fdce472
+video 308 b94c2cb08cbcf243
+video 309 c7420282f692a92d
+video 310 ffdb3ffd2b6ab86d
+video 311 210c0ea4908f25ad
+video 312 1e73d5566a1378fd
+video 313 4d7c78919ff754f5
+video 314 31e86143bc24b9a8
+video 315 01584eeae1fc4ebc
+video 316 fe82680801895b0f
+video 317 cd9f016776dffcc0
+video 318 14e8199b42cec621
+video 319 52023bbb4ec008ad
+video 320 f5030bd1d2fa69e9
+video 321 fa51f1730fab558e
+video 322 29ddb7aef0414f62
+video 323 81d94d35339d2406
+video 324 d763dad284229c8f
+video 325 a3690d700f8c4845
+video 326 45ee93c7a07f9aa0
+video 327 ce09c39054fd3760
+video 328 da6c400b57075f70
+video 329 8f66f363271bbffc
+video 330 56773b337c09227d
+video 331 3f2b9541a0797181
+video 332 261952aaa84ce546
+video 333 61c1299efbfb8f95
+video 334 7123371b920b5688
+video 335 3b6a066ae643f314
+video 336 380281abc2a973b0
+video 337 525ab06fb689dd2a
+video 338 0563d8ad7508850e
+video 339 f02d54f225ee838a
+video 340 06ab77b6636de197
+video 341 66b83bf98828bd71
+video 342 9edf73e768192431
+video 343 afd47c88e0b196f1
+video 344 67c0ee1b2fecd901
+video 345 3a13c641da43668d
+video 346 a005ab455e066d34
+video 347 5044c6adbea9d838
+video 348 573a0a8eec9a6207
+video 349 f6c8741305db4f90
+video 350 cb331e57bc3e28bc
+video 351 7e7e08db77e4a119
+video 352 a8311e2babb19325
+video 353 0ceb3833be133ffe
+video 354 4edd45a4db3478bf
+video 355 1ac170ed60b8423b
+video 356 35641ee23330dfb2
+video 357 0f41720074caa66c
+video 358 75a072ca207a244d
+video 359 433db97d3aacea0d
+video 360 89607221f02090dd
+video 361 d330bc56e84b08b8
+video 362 ba4b0934f7c039f5
+video 363 24564c31ac6b3fb9
+video 364 3b6f7cf9891ddf22
+video 365 5dc93853a04fc120
+video 366 a3e8f021c62fea75
+video 367 156f8d3db8cf6aa1
+video 368 3345607dce29fc7c
+video 369 afd1646f61256deb
+video 370 27b20613f4b9b05f
+video 371 c58bf13e78c10ffb
+video 372 04464609e6b03d4f
+video 373 1cbed7e65e87f2c5
+video 374 8e9bb1046cb03905
+video 375 da6b85f019647ac4
+video 376 3cf0a0887c061794
+video 377 1ccd6ab8ee77c0c8
+video 378 9ac9489f6431abe1
+video 379 c5b268b4c9a35a90
+video 380 26e00130b727d73f
+video 381 6a731feb900b630c
+video 382 aac2ed5f2cbfbbfc
+video 383 5f5312578a079290
+video 384 bc799af51c3697d4
+video 385 3d9199ba83dbbd24
+video 386 47536fca1aee702d
+video 387 faaae83ab9c8eb18
+video 388 1e2f30a3fe89a9ad
+video 389 81ef7de3cf1b4d13
+video 390 4c864cc8926943d3
+video 391 a1f2b9565e1b8893
+video 392 bbccbf63a4622683
+video 393 4c70f5676df7e777
+video 394 79e0ed1a4ae1750e
+video 395 c4ec2d3f124e6a4a
+video 396 308efec5d6950dbd
+video 397 1910279b344f7a56
+video 398 009496ca8606228b
+video 399 a0433e724a74f55f
+video 400 59181abd41dc9dc3
+video 401 b06d5462792375e8
+video 402 6f2451304ec0ea24
+video 403 88a54a1079bc354b
+video 404 56cf9844d6488006
+video 405 9714e3c4ec629e28
+video 406 06ecc4322f4472e8
+video 407 87bd02e12d2f1ea8
+video 408 b134011946209358
+video 409 64adb7e01bfbd8bc
+video 410 3d56cee758b8c145
+video 411 34f4e326029bc731
+video 412 f54d10a17c567e56
+video 413 d8ee073b0614e1bd
+video 414 3bca20287c8f9050
+video 415 90723a77d5dc7974
+video 416 7bbba3f23bc31798
+video 417 9314f31816bddc1b
+video 418 5f67a67203d43df7
+video 419 e618a75fe8206bb8
+video 420 b3940f9228210cdd
+video 421 290557884705da6c
+video 422 1529ef0bdfa89e2c
+video 423 1cf1d693d85725ec
+video 424 7401395a1ca51ebc
+video 425 2378c34d018e8c98
+video 426 93071d5741be1411
+video 427 7995751a36f07095
+video 428 b3dff598b64350aa
+video 429 f1c2018f82f26249
+video 430 08284328b4307254
+video 431 2db2eae29a2638d0
+video 432 c7de00bc9f6a4efc
+video 433 4b49eee1646382ff
+video 434 d3e1b40ebe4b69d3
+video 435 1fe0c432bbc1b796
+video 436 6bc799f6e36cf83f
+video 437 1a565da715afa229
+video 438 947363a08e350ce9
+video 439 d4be633ad82e7ba9
+video 440 225de48ac2e54959
+video 441 75c387052f15c655
+video 442 59a44be4f258c148
+video 443 64fc493758b482cc
+video 444 6952177f07a0548f
+video 445 43471676a7948807
+video 446 0e771b6bca3dc442
+video 447 a86d84fc8e256e36
+video 448 892403d0f46ff5ca
+video 449 4b9043f5acae0a29
+video 450 a5d288ee38df9965
+video 451 7befc6fb2fa11a05
+video 452 aa843eb5f4c6e298
+video 453 c4470b1900a3a3ce
+video 454 8248f0574352b50e
+video 455 c600c27ce300124e
+video 456 1ee1fe5c64080d9e
+video 457 972b02cedec20e12
+video 458 e9265094efa5a8c3
+video 459 970e9806917254cf
+video 460 f7d639840ccea848
+video 461 48e9878869cba53b
+video 462 cc1e90fa4bd6b9d6
+video 463 655e8e1ea189dcea
+video 464 03fe2db64e94ae5e
+video 465 575c1b7f38aed0f5
+video 466 433d43006efee981
+video 467 70ea6ab3943110cd
+video 468 7a47dc33c9c4dd58
+video 469 26ae9e7417c9208e
+video 470 30acdf2caafa1ece
+video 471 c3cc4b895efe130e
+video 472 b345957defc04d5e
+video 473 db2d1459f225ee32
+video 474 db0a26e73a69bbfb
+video 475 7d14c50bfcd9cbb7
+video 476 e28993b50b4c06c8
+video 477 0e79f2b2e3760233
+video 478 ff451515b9d51416
+video 479 e4d3948aedc27a8a
+video 480 9596873412d3ce1e
+video 481 57b202c36da74f7d
+video 482 6f09e999ccfcd269
+video 483 21cef471c7dbee9f
+video 484 2a15294a6e99f6ba
+video 485 30516f0b7b3ef0b8
+video 486 955092b57f6be878
+video 487 372090dfa8271f38
+video 488 67d95fc5e4bf7828
+video 489 bcec4fe672eef8d4
+video 490 534ac08ff2b5fee5
+video 491 2b462b144a82ced9
+video 492 91fea766ce48e30a
+video 493 6af2e2b641f3fc4d
+video 494 603db7a4dacbdf70
+video 495 9b3d7152192bb150
+video 496 9088390bb113651c
+video 497 1f13b5ec55490a03
+video 498 2bac58797011b557
+video 499 79eeabb339998f03
+video 500 f49df97b3ed34e9e
+video 501 01e3cb1bb32605c4
+video 502 34e4e4cb5e0d6084
+video 503 9bada7bba2167244
+video 504 26f073a04bc1d034
+video 505 049207643584eff0
+video 506 3bd231ca8ab61611
+video 507 1802769ff2979325
+video 508 357d51abf8c1f82e
+video 509 eaad8652b8ad62b9
+video 510 9635bc5c0308b4bc
+video 511 693a036635762fd8
+video 512 6f34ee3543ca7f74
+video 513 416dab954d6bec13
+video 514 b86a56c535e2ebf7
+video 515 62d83fa4b33d0bac
+video 516 55055836060d13a9
+video 517 e1025d734ef635a7
+video 518 a07c277965672fe7
+video 519 6c53ac967a3fde27
+video 520 bc35d64e1c2aa7b7
+video 521 16f7c4dfdbe44af3
+video 522 38cb7035d7e549ba
+video 523 202ca92a523d73be
+video 524 1315d69fc5325b59
+video 525 3ce90b89c638dc82
+video 526 dbe3a12f6512731f
+video 527 fefde2731559633b
+video 528 37f2abf793f5cf77
+video 529 9ff6e90273b4641c
+video 530 c3b04fb293b57160
+video 531 0f830fe3177c71d0
+video 532 51a145d8083ff611
+video 533 aac625646644e4cb
+video 534 920581d82dd1b08b
+video 535 10f154c12cefb44b
+video 536 96a6a914470f1ddb
+video 537 5a6557af0c9c02df
+video 538 dcce520f722ad22a
+video 539 6b8b7e2cc16c8e86
+video 540 2acd2be3bcd93301
+video 541 01b14a832fdebbe2
+video 542 08a7b4439af61953
+video 543 12ace51cfc8bc3b7
+video 544 77f27ed3beb8d01b
+video 545 56f9ef4634bada00
+video 546 cdc9b1b4008a9eac
+video 547 1933106fd9619963
+video 548 9c87bfeaa3792cae
+video 549 b24778349570ca98
+video 550 1bfc18916495b9d8
+video 551 6a8310d6f1f1ae18
+video 552 d95bea4b44fc3168
+video 553 575af764acf3be34
+video 554 337e0e0a5c9317c5
+video 555 bf529d9012b21b05
+video 556 49be16dd2563b472
+video 557 e935a01aa51ab1f9
+video 558 493b57f8f1c83824
+video 559 18836fef7981a9c0
+video 560 c69f4aaa819c166c
+video 561 49f927381bd5934f
+video 562 2201096fa26ab3b3
+video 563 17fb51d8bb248f8f
+video 564 b1594da576dab072
+video 565 7965d46400f22db4
+video 566 262af183a6d071f4
+video 567 c9b54f09dd0cd534
+video 568 5d752a393c180544
+video 569 83f73d3526af3770
+video 570 7dfa0b7fb2c3dd09
+video 571 57f19e06dd039f1d
+video 572 58fc067ba7413e22
+video 573 3d0f6394754290e1
+video 574 4bd6dee90686d61c
+video 575 c835c0e4c9a2e108
+video 576 07ef37b585db7804
+video 577 6dfbbcead8b4be7f
+video 578 893ae536b7b8c7d3
+video 579 8a034d1b395fbdd7
+video 580 752af68c5a8844a2
+video 581 e223f6d31d965074
+video 582 d8b0bbd1e8e4abb4
+video 583 96133d6455bcfff4
+video 584 3aa74736496f9b04
+video 585 427dcca7fd36b6f0
+video 586 7407d1d8a5f8ee31
+video 587 4ff83ee781b816d5
+video 588 c329da534682b832
+video 589 52915c7d82f90ee9
+video 590 c956cd1954dc19cc
+video 591 9249b900f8945368
+video 592 59f4e3ea591bf9f4
+video 593 b1484f21f9c51ff7
+video 594 1037c3934c03aa6b
+video 595 947b0cd3937b6e97
+video 596 299ff677dc454142
+video 597 e63478dc45ddae04
+video 598 d45f8899201a0e44
+video 599 2f00823b78dd2384
+video 600 e39007c31ac29054
+video 601 ceb05b74c4ae9a60
+video 602 54e2e4ffb3547791
+video 603 12771b5b929b4ae5
+video 604 a48fba1b60d21c72
+video 605 b0ab97eaed93f749
+video 606 7bfc0ffd0ead3e0c
+video 607 71d6f8d4d0033618
+video 608 7f4a448e40f6cb14
+video 609 ee9104b039690e07
+video 610 8c55b22b2546a7bb
+video 611 993ecc4ac750a2b7
+video 612 14ed7d77152d933a
+video 613 639abc148381d03c
+video 614 5438b4b0555e247c
+video 615 7654c047e7b123bc
+video 616 2edb28a9921d830c
+video 617 78cd5b0ce15fd328
+video 618 2a9bcf9a3fdbdb81
+video 619 8697f06069a2cec5
+video 620 ac6dc9050f42416a
+video 621 70b8c818cfdf9099
+video 622 571670d192510b24
+video 623 ef7fc52470f249c0
+video 624 f1aa2b3dae7eb5cc
+video 625 16ae7624c7a17d99
+video 626 4afbc4bb58026655
+video 627 52f9d2c363589b49
+video 628 58fdb95f581a6594
+video 629 6d3bcb8b32859a56
+video 630 b202071d58e3d496
+video 631 55afc81d4f01ddd6
+video 632 498728d3b05a73c6
+video 633 2e3c5a895ef9b2e2
+video 634 e378bc86898281d3
+video 635 4069d8c117592b57
+video 636 637fc23ef03276e4
+video 637 efe7bda55b33836b
+video 638 411e9a1a0de7a85e
+video 639 ff60a518df991d5a
+video 640 026dd56b86fc0086
+video 641 5ff279edd6437719
+video 642 ae5dc6ccb4186a3d
+video 643 9bc2da2256a042b8
+video 644 e34cc9ef0c1282bd
+video 645 669561b5f359f3e3
+video 646 be6001ee1b5af5a3
+video 647 79df412ab195fe63
+video 648 762adcf3d16f8073
+video 649 c49eb8bc0f924c67
+video 650 d48d26d8c297bf0e
+video 651 cce0bfc6f1074b6a
+video 652 57368ff0282dfeed
+video 653 3101ced0680036a6
+video 654 213fbf0876344aeb
+video 655 47895e4fe414ae5f
+video 656 eb294d4cdc065db3
+video 657 af540b653d18b7a8
+video 658 c99d4225070043b4
+video 659 1bc4e3a384d36eab
+video 660 67e241dee0220eb6
+video 661 b03bc3fa235a91e8
+video 662 05d37b34f339b4a8
+video 663 fecbdbfe7e24cb68
+video 664 bffd978c899171f8
+video 665 dc7bdb2a92b2fb7c
+video 666 58008f96cd075545
+video 667 41f22f9a34f88911
+video 668 0d3eb7d6b0073aa6
+video 669 ff95986557add2ed
+video 670 80dd16de73a1c060
+video 671 b9e9b5be6723e3e4
+video 672 100600d468882238
+video 673 fa9f0bf14b3ac95b
+video 674 f30350e62bb087e7
+video 675 8250d8897903a17d
+video 676 5447a544b61f8445
+video 677 2ef7194714d9c81b
+video 678 22a3972ef9d342db
+video 679 7754df4cda46069b
+video 680 2d4619890d2152eb
+video 681 1d8dcdd78520720f
+video 682 d16433d4a6b0ce96
+video 683 0f6ef24f6cd7e362
+video 684 b1e0b1196536cd75
+video 685 209199ba8ee6848e
+video 686 e56e88f3c01f84e3
+video 687 16ff22374fb31b07
+video 688 b6a7d98e04e6682b
+video 689 ad792bf250e6a5d0
+video 690 278443cf9af7e54c
+video 691 5e93e61522f8c919
+video 692 76f1ef9e37425010
+video 693 64e91aefbd0386ae
+video 694 9532319d3909686e
+video 695 52f041cce4c4fb2e
+video 696 087da5964ca3acde
+video 697 89f162273bdb5d22
+video 698 4902d1b54379bd3f
+video 699 a9b0e08793294bbb
+video 700 fda246b41bcd1b60
+trace 2473686 0:000 A=00 F=00 R=0000000000000000 T=00 P=00 P1=FF P2=FF C=0
+tracehash 6719bdffb802a482
+tracehash 7e1c5e4e726266f2
+tracehash 69f5c5b5d0c0bd47
+tracehash 23ddbbeba5e23c06
+tracehash f91521b8164e6452
+tracehash b17fc39b1a1c97de
+tracehash 70b57948de4e2c03
+tracehash 4daf4107c21180ce
+tracehash 50b701ffd978efca
+tracehash b9ab8e3ff1acbf9a
+tracehash 0fd974afe84fad0b
+tracehash fe1886af4babb23c
+tracehash 074f2673d3770864
+tracehash 0513b4313056221f
+tracehash a8b874ee39fc4871
+tracehash 6892108469be1532
+tracehash 6c2d61080a078efd
+tracehash c0dbe0528699c750
+tracehash b49739f35146edef
+tracehash 0140ee0a17ae43e9
+tracehash da174e5fc340e905
+tracehash 9b820c23b6385f5b
+tracehash 769c96c7289f6cf3
+tracehash db5b151a987c99f4
+tracehash 91bf64bffdfeabbe
+tracehash cb5ade57f231cf8d
+tracehash 58f6e2872ecce275
+tracehash c58cf21694a67e41
+tracehash 8c3665caeacc30c1
+tracehash 0a7cbf7b1dff1a4e
+tracehash 9bc5a9bb538c5d9d
+tracehash 2e92bb281e7a8c0d
+tracehash d7c7130d708fec80
+tracehash 8319e6ee2c97ad74
+tracehash d7cb29760a742a1e
+tracehash eac8ae4e04f71ca2
+tracehash 9136920423148681
+tracehash 89a9afe548c75911
+tracehash cff5e2bd87b411cd
+tracehash 9919f3aaddff6fae
+tracehash ee761ef2f34d205c
+tracehash 0b521c5b7fc27598
+tracehash f49b71d49c3a76c0
+tracehash 062330c0a45d10cd
+tracehash dc9d613242272ed8
+tracehash 266fa23dccc7e4a7
+tracehash 0c9566409f11bdb6
+tracehash 5920feb195066e74
+tracehash 06f00ba33eecd875
+tracehash b683879112783d54
+tracehash 2307d0e596e7e2dd
+tracehash 23484b708a38123e
+tracehash c77f69cc5a20c71a
+tracehash b330195ad10335ff
+tracehash 57fee5e21722c430
+tracehash 2a625a27fb938c6b
+tracehash da55e5941f826f32
+tracehash 04201c069f1745c2
+tracehash ff1fda0855be3473
+tracehash 141d1c7ac44dd0b7
+tracehash a8a6719d26f891e9
+tracehash bc19652c8b8598eb
+tracehash 43c00210009d0861
+tracehash 75c987b503deaa0c
+tracehash 9e7d08b69c797c07
+tracehash 37fa828b6fbf3f15
+tracehash 53d49893856a5430
+tracehash 84366a24cf60d722
+tracehash 07b4bc8611515cd9
+tracehash 21515d24c28bf3af
+tracehash 75f9d2dda90418ce
+tracehash a24bec78101ee903
+tracehash ad7b089f39f9a85f
+tracehash 8aa3746e23aa27d5
+tracehash 0875cd5b841d06f2
+tracehash 833ab18fe208aed0
+tracehash 4aec7a186b84bd39
+tracehash 8ce810e613434a5b
+tracehash 418ab4013dc7870f
+tracehash b9d99e63d9a8536d
+tracehash 8909806d85797fdf
+tracehash 107992e943f28bb0
+tracehash 8c0e453c796bf9c8
+tracehash d6361e690ef17069
+tracehash 6ae85058b31da9b6
+tracehash 3cb8e4ed913f57fa
+tracehash 2df1bed2ba548ee7
+tracehash d40e7c9d4e965ec2
+tracehash d2bf5e36c320093c
+tracehash 847d13e4a2627ab5
+tracehash 6bd0a4ab70dab9e0
+tracehash 68fd99ee66ba8931
+tracehash 401b0ab71fb89683
+tracehash 2bf9884562ad12b8
+tracehash 79e1a861ee333a6f
+tracehash 012492306b22d47f
+tracehash aec8161c8152e466
+tracehash 2026c642762a3ca1
+tracehash d79f306d34483cda
+tracehash 860b6687e98e8fb9
+tracehash 556d44c86e7fac14
+tracehash ed4a00114e3a8625
+tracehash 0684c595d98209e0
+tracehash ddd15f61edb726ed
+tracehash 031c44733b10c073
+tracehash acdedf88fa0e3df5
+tracehash a8dab88727cc4656
+tracehash 6b134f203a87c9cc
+tracehash 3eef26b38db6bf67
+tracehash 04648e605e520ef8
+tracehash f688a501a1d4dd25
+tracehash e7190a5be0d9daa5
+tracehash 7dc04e6c595a694c
+tracehash df27a20997f6e6f6
+tracehash 5065764e290b3770
+tracehash d30ee8d163913d12
+tracehash b87b37ff19827bac
+tracehash 52fc407a033cdb4d
+tracehash 3e3bd14395ba5d12
+tracehash bba3d3e9af6d7772
+tracehash d5a276a5a7fb8a37
+tracehash e567503c4e44b045
+tracehash ec933172f414d85a
+tracehash 782213984d4eac72
+tracehash 7e1470f781dddf5b
+tracehash e522c922c440d2a7
+tracehash 372cde13571f91c8
+tracehash 8cb06d15707f62f1
+tracehash 3f95154fe17e94c4
+tracehash 32213b2b50678af1
+tracehash cd891475fa1e4f5a
+tracehash 580b8b7481a8c808
+tracehash a5eddba3640e1059
+tracehash 772965fafd1c9a78
+tracehash c4d621f396f7f235
+tracehash 8e7167b342b4229b
+tracehash c50bb99b345543f2
+tracehash 38ecb673ef749b82
+tracehash 06b72eeb659113cf
+tracehash bdfebb5f354a0820
+tracehash b8f7bb06f93230eb
+tracehash aec129f19658c2ec
+tracehash 00edeb04b8d7c308
+tracehash 9b5f5ea66ef8a6b7
+tracehash ab3e1991dd7b5f15
+tracehash 4f404878eb8f1e75
+tracehash 182d53eacc41620c
+tracehash 563715b1783b4806
+tracehash 7665285777fecffd
+tracehash cb341f08766c933b
+tracehash d30e78c6ea223864
+tracehash ee9392706c6c22a7
+tracehash b4785da266ff9665
+tracehash a8d33136b83c76ac
+tracehash 95433046c34f5b8a
+tracehash 48dc72cf2643f7d8
+tracehash cf5cf221cff94e6d
+tracehash cd123ae63dc77744
+tracehash d00652f15828c4ce
+tracehash 949af74b55146c11
+tracehash b15cdb0299ebd373
+tracehash 05a272588c592af1
+tracehash 8b786636561bb218
+tracehash 3842246a37ed1224
+tracehash 03f4c2339a0d1774
+tracehash 298ac21ec78a6241
+tracehash 16538dd61d9f0ef5
+tracehash 3421595b20f719c6
+tracehash 7d7049a8b082725f
+tracehash 23b57a9126790957
+tracehash 939b0d47cfab3791
+tracehash 2f98d42475df38a6
+tracehash 247da3b6a3a25e8b
+tracehash 039be1bd2d73613c
+tracehash a266cf670c5f120a
+tracehash dd57385e48520d4f
+tracehash 9c95c34af2edce2b
+tracehash abeefe9588a14b5e
+tracehash f36f9d24a8d668c7
+tracehash 900fc4cac028cf11
+tracehash 9b89faf8b1b1ad31
+tracehash 0333c843fb241948
+tracehash bdd410e609f18dfc
+tracehash dd87c07d18aadce0
+tracehash 0d43ac00552a6fc4
+tracehash 3f325b4a737b0b3a
+tracehash 236d8ae26629b0b1
+tracehash 6ae3055c5bae2521
+tracehash 4f2a7a4da654c419
+tracehash 70656d6ca631da83
+tracehash 96a3cef0f460dfbb
+tracehash 88f4aa8ec0f5586c
+tracehash 33784c28b22f9860
+tracehash e66b7689c9161ccf
+tracehash 49a327221de32cf4
+tracehash 4058d0c6252faa70
+tracehash d81b6a643d3488e4
+tracehash 236ffbbf348e37db
+tracehash 75983d19504df9d0
+tracehash 415c21b9f4ee78c3
+tracehash 9464f11c75f8bb8c
+tracehash 9660c0d4869257a7
+tracehash 66f5e1d0eb70cfdb
+tracehash f3b79570ded5f77c
+tracehash 7f2cb832f7888a24
+tracehash 0f08e5dc520b7e00
+tracehash 0321581f2f873a5f
+tracehash 1a17d44061fbe201
+tracehash 0260b7101e9d6737
+tracehash e8b179783dec8d6e
+tracehash 708386fe79ed0501
+tracehash 28d9bcaa1011de7e
+tracehash 8ebfa5d8d174822a
+tracehash 054348fb9a7eec6f
+tracehash a733ff3204a384f4
+tracehash d5d4fea033b24c12
+tracehash d08d5313395a52af
+tracehash df506307b09c9442
+tracehash 5299fa162ce22e3a
+tracehash 38bb5efac16d4158
+tracehash 6f9351f833c195b0
+tracehash 9441adaa7c2b7975
+tracehash ce40b90000da9b16
+tracehash d571cd3db13f7187
+tracehash 7cc6dd61859339a1
+tracehash 3ec09aa641e922e9
+tracehash c5d59a10c9d49c93
+tracehash 27fa81fdad137a0c
+tracehash 6df197e7253a7240
+tracehash bf1bbb0ea2171aff
+tracehash 42e20f6d7706bf53
+tracehash 94fec8991fa13e0b
+tracehash 93fa27323344a04f
+tracehash 859638d1abee5722
+tracehash 1d5681eb1c4f548c
+tracehash a6c4abe45ba65c24
+tracehash b41dd48ce9e6ab85
+tracehash b74dfc0a63d43549
+tracehash d145b731b773aa28
+tracehash a47313a9feae8541
+tracehash c40c2fe3e624a841
+tracehash e6e65ea5c69a5c36
+tracehash 76583ec72fde7d79
+tracehash 441b0f34658eff0d
+tracehash eddcc83b64dc1b22
+tracehash 008d6d7ab67c0767
+tracehash 8a1fa696c36cff73
+tracehash 6951146ee311a3f9
+tracehash d16e8cf2ed6ab3c5
+tracehash 7b4666f560aa3e56
+tracehash ea7a7bf58a30a691
+tracehash 5329c76466f40b8e
+tracehash 779794af8c5b6d86
+tracehash 7c2717131da8fc12
+tracehash 79c8c7237ee48163
+tracehash b0a693d7e687049b
+tracehash 3a67e65af1ca3814
+tracehash 856698d75062bf8f
+tracehash 488f627d2501a863
+tracehash 0cb39c54931c7db3
+tracehash 58c405091905b1a0
+tracehash 98777924e2e2cf54
+tracehash f2a140fd35120ccf
+tracehash d49c980d99699b4f
+tracehash 68d6b764b6623742
+tracehash b9208d5019548125
+tracehash 4268337332494e52
+tracehash bee8beef45e9fb51
+tracehash 7d20a4ee9a67dee2
+tracehash 2b65820c63309d77
+tracehash a050465393d91941
+tracehash b48c444fa6948ed8
+tracehash 21a986159a4d87a6
+tracehash 40f21b1a9e1aa133
+tracehash e4c11c5414de3e89
+tracehash b2269002bfae4fd1
+tracehash 94caddf1f05b06ff
+tracehash d6762fd987892077
+tracehash 5b0eecb87034cab8
+tracehash 12f4fec8a7318b50
+tracehash b417090849e2423c
+tracehash cd925649f963d2e6
+tracehash a9ccdb8b0b86eef3
+tracehash 0955de2b9afa28af
+tracehash 4b320f5a650329a7
+tracehash fb33f2944c6e2edd
+tracehash d3b8891419474b20
+tracehash f59584c9300139ee
+tracehash 808ff2f2b688a4bf
+tracehash f828f1624cb392c2
+tracehash d550fb15dd0e99df
+tracehash b13a1b143977e390
+tracehash 7d6add7ccf0563d3
+tracehash 3291f8185f13fa75
+tracehash 6316d096d6b882e6
+tracehash ce785456687ef547
+tracehash 166c76d54fa75094
+tracehash 880c144a4a45dc61
+tracehash eae79ac099c73e7a
+tracehash 4b3af54f399e22d9
+tracehash 0335f0d1d3317a9d
+tracehash 3b585969474de8e7
+tracehash d2aa202e4653d48d
+tracehash b299b1264346c542
+tracehash 2010ea7dcb0009c0
+tracehash 39c9c3f4578809e8
+tracehash 29a15c0fde099171
+tracehash b381bb5a56a98e5c
+tracehash 2769d0eeff7d24e1
+tracehash 2ac8ca8b34884086
+tracehash 684e225a40369c8f
+tracehash 357d2c4f74d13226
+tracehash 70fbca1170297189
+tracehash 27f9701289d79e41
+tracehash a8cfc06816f8b18f
+tracehash 2d8fb47ec5c5b81e
+tracehash 8e66333417e6eda4
+tracehash 07fb0ca8d69ed909
+tracehash 3cca6ee14793fabd
+tracehash e63623b56ac27a43
+tracehash ffd674c3a1c0e641
+tracehash 045bd7d098824265
+tracehash 7785ff85ad20a33c
+tracehash 1c093614f981119b
+tracehash 96d8ecd6252992a8
+tracehash 0cbbea8a05c5f72d
+tracehash 0b9d1e5f9ee27bfd
+tracehash 3a8c4df9fbd92a06
+tracehash 270195017997b9a0
+tracehash 42b84c0f85253631
+tracehash 306efed9e5fcd2aa
+tracehash bbd86f561254608d
+tracehash 6ec79705168f55a0
+tracehash ddefa1b9bd62d619
+tracehash 9ebaad76cb6709c9
+tracehash 139bb8d771004ce6
+tracehash dfd053ac76e48425
+tracehash 7ec599a676375c50
+tracehash 11397f11bd87ff8f
+tracehash fe5eb1bb051791f1
+tracehash a1676914548bb216
+tracehash ec36187330da5f7a
+tracehash 7644126aa1ccf4ae
+tracehash 43f29b3f50a8d5d2
+tracehash 9f2c6d0ad4ba6096
+tracehash 79a0a814380a66e3
+tracehash 42c6699308eca1dd
+tracehash 6c0b8cb81d071adb
+tracehash 66ef3a21a8345982
+tracehash 7ff78fbcfdf48104
+tracehash 8be39d0cfaaccedc
+tracehash 6447a52ebad3d2a1
+tracehash a6cc580aefb7436e
+tracehash 5bbd3aea13b5fb6d
+tracehash 2740c62f1a0062f4
+tracehash baf2c3296659b468
+tracehash 360bcc2b43787da1
+tracehash 5373d78356f9a487
+tracehash 0d2ed354c5d67465
+tracehash 9808c1b84783a717
+tracehash bb22e780b1dd5e5c
+tracehash d45dc5fb6bf8ad6c
+tracehash cf68a00a30b78cbc
+tracehash 76b8b69fa4e463ac
+tracehash 5dc31bc3a9bb05fd
+tracehash e92d0d08cc72b481
+tracehash 189e8cae2c085f8f
+tracehash 9568e716f9bbdc51
+tracehash b8a2c27c9080c5f9
+tracehash 3e19c224be26a46f
+tracehash 7ea8ce3e635dd31e
+tracehash 1d499c61167fd39e
+tracehash a2eacf653eec4e97
+tracehash eb161c648fe26e83
+tracehash 8c6c7f438e72d776
+tracehash 6ec4c81c2e1259be
+tracehash cbe8468ce57e5164
+tracehash 1a610cfa5d50656f
+tracehash df9771afe5b12886
+tracehash d50fa46ed17c1513
+tracehash 9568432aa1392af2
+tracehash 482879669dfac10e
+tracehash 04fa17273febf60e
+tracehash c7bbccf3c7a42588
+tracehash 71d4aea626857d1d
+tracehash 1be0403b51dce582
+tracehash 42c55cc27ee31969
+tracehash 92a701ee0d83c0e5
+tracehash 3a0dd355e74b301f
+tracehash 2bc3183b00f73249
+tracehash d6ad4e9e76886030
+tracehash f1c6de95a66a88ae
+tracehash 55ca4027bfe5c9a2
+tracehash d2dbb26d8ee8c2b0
+tracehash 7435970aa895b105
+tracehash cbcc15a17186f422
+tracehash e62f4dbb1c7b807a
+tracehash 54e979fd4ccce519
+tracehash d85b2aaa0dd2d9b3
+tracehash e66c425f01182ddd
+tracehash decc48e1a21fa0a0
+tracehash fe5b29fb102fda75
+tracehash 6368ba59f4f2f97f
+tracehash fcc737a824206e84
+tracehash 7fe0bce7f43bf7c4
+tracehash 23c48b1c45f31da8
+tracehash 312b1a3cc791a3c3
+tracehash 3a924e63083b7de8
+tracehash f1b5f5b4037f7ded
+tracehash 7640c4216d053983
+tracehash 948e18abc3dd8430
+tracehash 4cdd37b4358c77c5
+tracehash 3cd1339802aa5b2a
+tracehash 8ac6eba039e83c32
+tracehash 7c03717ba345ea02
+tracehash 7aac95cd6eed0f75
+tracehash 16f014a53fdba232
+tracehash 8e25a90163ca7649
+tracehash bb03b16866185412
+tracehash 2373bfc4b1d07d5a
+tracehash 3c629c27f4790a02
+tracehash eee60fb06d578c62
+tracehash 694e4e59be7981b4
+tracehash 8219d7aab782d32a
+tracehash 558843cd924e9168
+tracehash eeb9e8a184134ca0
+tracehash fe41c8ea64cf72b6
+tracehash 8fb9ad59396eee2a
+tracehash af10470737bdfc20
+tracehash e5c35168fd51daa0
+tracehash 9b2a1c348c5a590e
+tracehash 4296cc6bc0927e14
+tracehash 7be9bd12650d32f7
+tracehash 44442bc26995d000
+tracehash 6bd13a4e02739752
+tracehash 38417e91808b2a43
+tracehash 0cfd5bbb742a9e92
+tracehash 3a98c5a26b6c97fb
+tracehash 11203a167a23e745
+tracehash cf92591dc39f878d
+tracehash 6a75b8dd70c0a74f
+tracehash 1a2e28d42c3e3d3b
+tracehash f9ae55299b4df120
+tracehash 191356673c7b30ad
+tracehash 586a57a31ddd782e
+tracehash 135c75ff0bc85322
+tracehash ab5e4cb7c23ee9ea
+tracehash ac9b82c50c12bf69
+tracehash dc8352dd76fe26a2
+tracehash e0a63260d5ccc6ea
+tracehash e4cbc99235604655
+tracehash ac2b7a019a8c61bc
+tracehash 8bba69e0dd20d43d
+tracehash f1249f190ba6f1b0
+tracehash dc2ed2e7108e4fa9
+tracehash e94d2e205abdeeff
+tracehash f13e419883dda2ea
+tracehash fa62833f9f9a34db
+tracehash 77350b2680164d33
+tracehash 7a0f7b3362510802
+tracehash bb38b85b6e801b18
+tracehash 3fe333f1199c6305
+tracehash 5e3485f7f06b2a48
+tracehash f93008d1abffbc43
+tracehash 74ecb0f570d37013
+tracehash 3bded3e08e92ccfb
+tracehash f6b6d990169eb6bb
+tracehash 62832eaf6cf798f8
+tracehash d630589c45912e97
+tracehash 388489a9de9b6208
+tracehash e21941a93128fa90
+tracehash ca06645a2703b5c2
+tracehash 2694f0795e94c152
+tracehash 79443830167e0edc
+tracehash b99a1b1405636667
+tracehash 3f0eeba5292cfc33
+tracehash 1ddd5a106368ef84
+tracehash b405e3a75b9a0fbd
+tracehash 7dca96352471dba9
+tracehash 2307585f1b149190
+tracehash 36bade058c9f91d2
+tracehash 8d8492b922aa56b6
+tracehash a9125a297a18f0c0
+tracehash 61c7e7f4c659c967
+tracehash 4ba85848543e5ae6
+tracehash 601f374b01669b19
+tracehash d0b379236ba82870
+tracehash 6417f046d0d91dac
+tracehash 6ba060eda90b013b
+tracehash 97c036dfcc358f41
+tracehash 1f029e82c609302f
+tracehash d94444c20fb7fabc
+tracehash 3e0787aad86da634
+tracehash 8d789c6d3853a9a8
+tracehash 89b5d6b7518bc445
+tracehash 4524d083f542e0a0
+tracehash c842872cb7a2c384
+tracehash f2f908863fab52c6
+tracehash 6a8085124348df64
+tracehash 9485be8a0f4f3216
+tracehash 4ba5ee9b1a68e6aa
+tracehash 841c1e55b813f93e
+tracehash 237c60c6609b7e51
+tracehash 9be2e3a3c39673e7
+tracehash b0f75db58d56cf2b
+tracehash 0ea5ae402db736a7
+tracehash 0d82e9fe733bc3b9
+tracehash 542961efc381ae02
+tracehash 7c863a9e02fca33f
+tracehash 8aac23b7833eeba0
+tracehash 9584b743acf22fab
+tracehash 9c2fca7737cfb00c
+tracehash f6c88bd81554f6ff
+tracehash 47ff007f9bf1c0b9
+tracehash 67761e94246de4e3
+tracehash 2e4d40c8fb2b0d77
+tracehash 1290df57b6d97dbc
+tracehash e330e1546107679b
+tracehash 1679aa9f3d53e072
+tracehash 9413c5fa527114d9
+tracehash 4bc46827c9c1ce5a
+tracehash 0a9c6b1a165c7be4
+tracehash 45303414b12e12ed
+tracehash 8bcb7251fc3bafb4
+tracehash 343fc259527c1491
+tracehash 3440a33b7d0ea225
+tracehash 3cfbbf61a921d6a3
+tracehash 99d00cb8700c80c0
+tracehash de651a87399d4a4d
+tracehash 7a1fc22c5872d40b
+tracehash ab2485b9a7048118
+tracehash bb9049a2e824ed2d
+tracehash 2d9c0f67974729a6
+tracehash 4669fe500db532ef
+tracehash 80581b892ac3ce90
+tracehash 6129f70f0dd42495
+tracehash 29ddf928b143e6ea
+tracehash 7ad9f60e4a1231ac
+tracehash b8fcabff4eb70637
+tracehash a17cd481cbcf3bcc
+tracehash 0e54e1b2fe007389
+tracehash 066e60d3578a97f4
+tracehash 74e6ba6da0e4d249
+tracehash c9fa09c16dadf420
+tracehash 28b7fa871c8da874
+tracehash 31adf50ef094ad38
+tracehash 73b641ea0340d4f8
+tracehash 54a803d7aa12539a
+tracehash 66d9c10f8d0f7e3b
+tracehash fa478e3671474a1a
+tracehash 2d627b7081558c58
+tracehash c0609785761e4748
+tracehash 35165266dc1570d8
+tracehash 25c0bddf0c6b38f3
+tracehash 8ee027af8c681b1b
+tracehash 84bdfb927033e7ca
+tracehash a269ff18e8514308
+tracehash 3bc53658d5d633de
+tracehash e19673e5110450b4
+tracehash 375dfcb0309aabe1
+tracehash a08e2c5e8a226804
+tracehash dec78cd88ce50853
+tracehash 568fbf0dc0381f13
+tracehash 88e78e79c2b39fc0
+tracehash 27f9e83152e0b34d
+tracehash 374b18e064c344a7
+tracehash 208f8d9a51510477
+tracehash 3a949ae330798a41
+tracehash f57568d95e6669ea
+tracehash 3da2954ecb6c0194
+tracehash 82201d8884083dd7
+tracehash c5bfe8bf93b32306
+tracehash 159319bb554a489c
+tracehash 3d5fbb12a38fdc71
+tracehash 2b66e06f291fe26a
+tracehash 432f181c415797d7
+tracehash 5380e42042686012
+tracehash 52ff637d3e7537d0
+tracehash c45cf20601a6de2d
+tracehash b2fe75d5cc4f084d
+tracehash 6625ee3854f43c43
+tracehash 25fe9ddd277dd55b
+tracehash 7a62b9fa3f1d916f
+tracehash 1a1665211702d9e4
+tracehash e5fa96e1179c16b5
+tracehash 1fd7a476b040a248
+tracehash 44738a1aa5d9a58b
+tracehash 3acd72b0fc0dec09
+tracehash 6c3671deb0a307b3
+tracehash 603e6fe16b469b31
+tracehash 20d485bc88523219
+tracehash 718c765649fa149c
+tracehash 20553de12158630c
+tracehash 962cb492252cdfcf
+tracehash f2f66fbc523793cb
+tracehash e6634ce4046743b3
+tracehash c94fdea7c396708b
+tracehash 495b77f7172eb1fa
+tracehash 3a87d1a7c734ffb0
+tracehash c8496ddbf73eab07
+tracehash ef9cf777150f575e
+tracehash 8bf38478475aa1b1
+tracehash e69fa19552177995
+tracehash a7d1d5cc0b83d6c9
+tracehash 76dbd62c11af5fb5
+tracehash f31a4a65bb8f45cd
+tracehash 1e223d49b9d3edb4
+tracehash 585fbf5aed285a40
+tracehash 98bc3b488df1af15
+tracehash 31f3dc6492dac750
+tracehash 9b41a5949dac6f12
+tracehash 7abd03d929ed162e
+tracehash 37a58652da821ccb
+tracehash 67ef18af30b5e713
+tracehash 1ccb753a8c2537a5
+tracehash 0d6d0d6195eefadd
+tracehash 13aea44739c4a2bb
+tracehash 9604d5730a9eb0a6
+tracehash c5fd66e552723d6d
+tracehash 310a6d66961fed30
+tracehash 8e070997da63f113
+tracehash d944c862c0063d01
+tracehash 52b32d9c656aa2ea
+tracehash e77fe00609cabbbc
+tracehash 966de19eaa6f18a0
+tracehash 3d6cc15e0b0a3d7d
+tracehash fe6081629744104f
+tracehash 54eaa4e2b23823be
+tracehash 6c7836ec5fe130d9
+tracehash bc2f18f3722bdf0d
+tracehash 4e8ddd1fe82ea3f4
+tracehash d5eaa71500b343f9
+tracehash 42b6014d549f96d7
+tracehash 5ff85998496ea6ba
+tracehash e60bfca63d8229c2
+tracehash 2ac15fa62246763e
+tracehash 8a4336294f811d3c
+tracehash dfeca8d84a9ca156
+tracehash 4a9c59fcda5ff12d
+tracehash 613c72c205f9d981
+tracehash 65cfc5dd6eb8367e
+tracehash 0e05862d437a79b1
+tracehash 6e4a9c88c2e44cdb
+tracehash e47fa04ecd76e345
+tracehash 6f88945dab024df9
+tracehash 127aa1d646eeb8c0
+tracehash ada6a8eb9cbbbfbb
+tracehash dc2c120099ad2628
+tracehash 966806835c29e7c2
+tracehash 43a4f93c3f11223d
+tracehash 212bacdc5ca4a434
+tracehash 84795f9551005928
+tracehash 405870e8d334e109
+tracehash 53dca0f54782bee0
+tracehash 15b4f142dac7770a
+tracehash 87aa27eef22ba8e5
+tracehash f83c8903ce8ff694
+tracehash d7d4f79540b6c3cd
+tracehash 884f6f41071cf5d3
+tracehash 4123f8f478db5c71
+tracehash ba1ed68fe27e88fa
+tracehash cb73d66d482ee501
+tracehash 7a75b8ece13df3a5
+tracehash 97aa79e9f1373bd2
+tracehash 1cdb79c98cb1530e
+tracehash 34d9532afe38b045
+tracehash 01c620c9c874d6f1
+tracehash ae0e0f0fb3c207a6
+tracehash 6b4734136b51e4ea
+tracehash f9b7f77e76d99034
+tracehash f14e5db056c1aad5
+tracehash a72cd7b0caf9f5ce
+tracehash beaee68f9f32fbda
+tracehash 939c9930d12cc675
+tracehash eeca25b5abad5deb
+tracehash df67c5b9c6e5796d
+tracehash ae22f984cf6e0759
+tracehash 287383f6d16d988f
+tracehash d6ba6c3300c0f5af
+tracehash 18bd6c9e05f0422c
+tracehash f97b6c6536c66408
+tracehash 33fd3fc9397f6906
+tracehash 6d03f6170f446f76
+tracehash bd8162c0ee6f6299
+tracehash bfdeaf904719d26f
+tracehash 107ba50cc27513f4
+tracehash 24659590bb38be4e
+tracehash eb315fb4dcbe221a
+tracehash 7ef4ea29b156768b
+tracehash b9b4abdce8c0ab9c
+tracehash ecb139ece989efca
+tracehash 5f1477f68f374c60
+tracehash 80f081feb25dbc90
+tracehash 7167c8c28883111d
+tracehash fa6d350bf335a34f
+tracehash 37d96c4ad75c95eb
+tracehash 281e31f3863222af
+tracehash a0a3fd3c1a76de93
+tracehash ec71998facc4f253
+tracehash 773d17066afd6e43
+tracehash 8e432ede6a8c1f75
+tracehash 905a8861fa43aa36
+tracehash 986841b71597b8f0
+tracehash d14b33b342812240
+tracehash 543abc96ec2d24cb
+tracehash 336430a88f3914c0
+tracehash 598c0fcbc7c449c7
+tracehash bc1cf5cd05022e3f
+tracehash 82cb9bd52105bded
+tracehash 134863f1b8d951aa
+tracehash 6d47daabf99491cb
+tracehash d39a505adeb5ba98
+tracehash 3d1d7fb74d0d2901
+tracehash af44dbad23cf9dfb
+tracehash 2e3d9b9eac9cdcc9
+tracehash fec6477b63fb6f61
+tracehash ad5009aeefec90ef
+tracehash 8bc7f5e13326ebed
+tracehash ec8b1d9fb27f1f47
+tracehash 538dc84a091b6363
+tracehash b020caa1d0b84e30
+tracehash 5242289a41c02240
+tracehash 764892fe6b147eb8
+tracehash a5e48613b4f4d6a4
+tracehash 871322c04e5478b4
+tracehash 085b54b4f20b4e5c
+tracehash ec831d8f7801e507
+tracehash 724be3a93783c3e7
+tracehash 30b767e813269ad4
+tracehash 68eb604b918cb9f7
+tracehash 5b1f8149a9505c22
+tracehash 2ff79a3068bf06f7
+tracehash 1c7edbcb2c4c1d2a
+tracehash 3c9d8b87944fc6ae
+tracehash 203659fd004cf3b8
+tracehash 336f951f67be0932
+tracehash d000c238c2bd12d3
+tracehash c963a29056551c11
+tracehash a09c691c8c14ee4c
+tracehash 08e1836d1078ef4c
+tracehash 7a5d2e41795b54ec
+tracehash ae07e6a9f1da821f
+tracehash f17d44f7ada420d0
+tracehash 3da79473219a809f
+tracehash 542e7c662347e601
+tracehash 3f735d2d3b2bd69c
+tracehash cf91cd04c4a144d2
+tracehash f327d5dfea590e9b
+tracehash 503f2bb55acf4d3a
+tracehash 35a79b53fb95d4f8
+tracehash b9b2c38ae1f9fcba
+tracehash 18726f773586b489
+tracehash 5d316228be6d87f1
+tracehash 0da1e042f8cc8c96
+tracehash ee86350cb1c1e9ea
+tracehash 0a2f6a3fedff1daf
+tracehash c24dabce6ea4c11f
+tracehash 98f60393c637fc64
+tracehash 681f2102316026dc
+tracehash 71ff82cbc3fe37f6
+tracehash 14a3028166403253
+tracehash b1d00f14bc8cade7
+tracehash 582fe71785a572a8
+tracehash bf6c9caaf553c8e3
+tracehash 6988c3348de883e0
+tracehash c128f0b0724c1a42
+tracehash 980adb6f44b9b2b8
+tracehash deffe9805b5cceb9
+tracehash bd546866a622ce26
+tracehash ab77ddb9a909227a
+tracehash c9908c21e9f80357
+tracehash b37022a2c56b4b78
+tracehash 3d0b15405d502478
+tracehash 6691b0fbcc7862cb
+tracehash 5ec61991f9d929be
+tracehash 9795f61e38a87d0f
+tracehash b48340965181c3ab
+tracehash 555461cefd5a6ce0
+tracehash df8d8a13c2dca6c3
+tracehash 94c62928101db41f
+tracehash f9550099631fdcac
+tracehash bf0e3f620f9dccc0
+tracehash 05aa581f4ab46a0e
+tracehash 6e05895011275a85
+tracehash 48f3141dece1c11e
+tracehash e2871e16fda7b3a7
+tracehash 24b0c5d2c607d5d5
+tracehash d8c0975efe2813b2
+tracehash 96e709daa2bcb4c9
+tracehash a42aa12c65b09204
+tracehash cd22ee7270bde1be
+tracehash f4d73ef64447b9ca
+tracehash f1fd19b275d19307
+tracehash 5c47d745dd6a0065
+tracehash ac66afbde60829c3
+tracehash d44993cfe4197398
+tracehash 13a72d514a02eb06
+tracehash 49a24b74876a4a90
+tracehash 074ed6256e3396e5
+tracehash 930f8c0e2aaef557
+tracehash 4e117b786e270e0d
+tracehash cdfc5b29f4a77a24
+tracehash f3c653d100200332
+tracehash cb657b82e34fc17c
+tracehash f907067184279310
+tracehash ab99bfa0a8081636
+tracehash bb51b3c25b916c82
+tracehash 4d82952ab3593486
+tracehash 0edee7641c556979
+tracehash 0006d4dd7d251f64
+tracehash 3f077938b81a29eb
+tracehash c1a610944c6dc66f
+tracehash a37eb04a76b848bb
+tracehash 3e09b8c340637069
+tracehash ee32d72ff42e4c31
+tracehash 639090ca87a88d44
+tracehash 3deb71256d4e85c0
+tracehash 771052db8a2c3589
+tracehash 4b7b70c73d128d0b
+tracehash 0500237011180847
+tracehash da6480bcde02fe15
+tracehash 6397d4263fad9136
+tracehash 379a95a23d0401de
+tracehash f539cabff588a75e
+tracehash 07d3c6467bc291ae
+tracehash 35a4c36e1fd53805
+tracehash bf97adbc95bce9d1
+tracehash 11c46f117e07c638
+tracehash 5e70c1d705184a1f
+tracehash 118785f30f72400e
+tracehash 0df96185f996cb59
+tracehash 5a84fc010c3cd1b4
+tracehash 22a7a8d63ea85acd
+tracehash a232192be0b9cee9
+tracehash 988e98d9d041a3c8
+tracehash 4b36c5d43a4fadd0
+tracehash e53f24fdd0c905d2
+tracehash 44b516c44681d0cb
+tracehash 162ae370cc52a991
+tracehash 2dba1d4228cc3e7e
+tracehash 732c58bec3597060
+tracehash bd6857abdb42cd41
+tracehash 4ff8fe73faac1554
+tracehash eb03e2337dc69463
+tracehash 8e06d566ee083c98
+tracehash 649b3525d72ca4d7
+tracehash 6b099d3c2e023139
+tracehash 67b74d2bf07cbe4a
+tracehash a8dc009b596658a4
+tracehash 627388b7e73cd7a1
+tracehash 835ddaad26e5fe5b
+tracehash 9ad468898dfaec64
+tracehash 109e0185b636dda8
+tracehash f982999a6496298d
+tracehash 183d31e758725e39
+tracehash bf1e016d470b2e96
+tracehash 340f5ef7c67b11a0
+tracehash c46f42f034b33728
+tracehash 402c37dcd6c34f03
+tracehash c9acdc9ec79e4d72
+tracehash 49c04e01e81f8e00
+tracehash ccdbc2b4616be97e
+tracehash 688a6d1ec8b14979
+tracehash 62285108b83413c3
+tracehash 6f963ce4dc6d06ab
+tracehash 21305d92d57f4a31
+tracehash 6de662b06d26ea41
+tracehash 834c5f0dd9f0f244
+tracehash a6d608fddc9d5a95
+tracehash 4dbba7324640b50b
+tracehash 75ebdb0b9716b67e
+tracehash 30d077ab2b17ff9a
+tracehash da3699796b3b1d0d
+tracehash 632337b7f81a0c2b
+tracehash 9044e892b2cf9043
+tracehash 819e627ae1acca7b
+tracehash 8fd6cfd46b9729e3
+tracehash 92f3f66ac5611b04
+tracehash bba478af7cbe93aa
+tracehash 0be78a3f46144318
+tracehash 8c91838012e4ecb8
+tracehash bf3f9fc712d7e898
+tracehash 029baf5923f1d7f8
+tracehash bf574fa32595c0f4
+tracehash c804793e137d1a74
+tracehash 8b0de41c0e294129
+tracehash 2b115f13ea8cfc67
+tracehash d1dc452b5d63a587
+tracehash 5894f6664794d34e
+tracehash 0b9625d7e4a0907d
+tracehash a533ed146b0d00b6
+tracehash 511da98006c2dd79
+tracehash d8e91294721362e5
+tracehash 2fc4f957d1f1dcb7
+tracehash 36cb6e2ccc205176
+tracehash 15f128c9658d9f36
+tracehash af2da35d1c757435
+tracehash 4a70b84d122f0175
+tracehash b66bb0bec1be88c2
+tracehash 3b8335cdce9cffa4
+tracehash a391489466d97e46
+tracehash cd0bb704676c4ee1
+tracehash 9298ce3d2f7460b6
+tracehash 75b0eb4a00fbec74
+tracehash e147b8415cd1077c
+tracehash da0b2cc24b1a0202
+tracehash 05fd15fa017ec786
+tracehash 93dc54edf6be3c49
+tracehash f0b9633be2db4e7b
+tracehash 63c6f474fee1e776
+tracehash f13d73a3191f2f9e
+tracehash 4551ba5ba6f0c945
+tracehash 38b32ba9b2702b21
+tracehash ed86e9e244420a88
+tracehash b559bc09d69b96ac
+tracehash 840fdc9ace613d76
+tracehash 41c33275b59c2853
+tracehash 95314a6723abb599
+tracehash 5e272ec5d3e50074
+tracehash 585f755e492d2f63
+tracehash 3e9cd6ae57f21cee
+tracehash f74c11c64f40fa81
+tracehash 7cbd6d6b29f5dc2c
+tracehash 51f0e71e0a604723
+tracehash e97444e0c303b021
+tracehash 06bf1baf7e1150ee
+tracehash 5d20b688ad737f5c
+tracehash 801af3b3d07e86ef
+tracehash 3951118e47086009
+tracehash 07faa0a7c37e8985
+tracehash 922b9c979bb84958
+tracehash 295c427a303177cb
+tracehash 749f1b9015ee4600
+tracehash a55bf9fdf560d1f3
+tracehash ea0037cd0b4c6bda
+tracehash 5dab70807ffdac43
+tracehash 529e0f3dccbdbefc
+tracehash 7fe5498ec37c2f2a
+tracehash 022955b627d4c4f7
+tracehash 740980fe4532500b
+tracehash bb583852c570f9ed
+tracehash c7ded0525d66d9e4
+tracehash 2f9bbc93e5fc587b
+tracehash 15badc02af3ce72e
+tracehash c7ad455d4de67c79
+tracehash a6a8cc501175a065
+tracehash 3d9081a60fb495e4
+tracehash cf1156985dc5a0dc
+tracehash 5b88d981f03ec2be
+tracehash c1fa4062ec0d7f14
+tracehash de2a94cbbb2ee340
+tracehash 3f0b97485de6e122
+tracehash e9df94fea3a071cb
+tracehash 682e728b22986628
+tracehash 216fb2a6d01a5156
+tracehash a7ce760f4d5d93b9
+tracehash 20240910530df641
+tracehash 7205b06b7f499502
+tracehash 79a2bf7f2b1aaa6d
+tracehash 601d8d6b19f23bf4
+tracehash 980ac09114b535a9
+tracehash 6fd5149c169c293c
+tracehash b2308e5fb6fac44e
+tracehash eb6433f63b76a68b
+tracehash c736907062e614ac
+tracehash eb3ac35fb4664b97
+tracehash 7abbd69062c4f571
+tracehash ee5b30e66adf302f
+tracehash e77c2cfbeda389f8
+tracehash 376ee40c0b697f22
+tracehash 6a1c82565ef64c73
+tracehash 3eb94372e84ed834
+tracehash 179baf7984858f43
+tracehash 49add3337c415427
+tracehash e29d363acf96b37f
+tracehash 6d7c21c88db2c8b2
+tracehash 79915c9106a55261
+tracehash 6369a9c311d4384c
+tracehash ce694598936df00c
+tracehash 8d778724d2dd4a8b
+tracehash 6b562fb4663a3f1f
+tracehash a9e68dc50919557c
+tracehash fd44c4daeaf1656e
+tracehash a1a1dea070776e70
+tracehash 5d0397e1b3cda094
+tracehash 746084fa3e31d740
+tracehash 70fc0187a5c57711
+tracehash e121e64fe28b886d
+tracehash 133513ec70601bd5
+tracehash da1d6975ae60e078
+tracehash 534472f465b9d88f
+tracehash a077b2ff58e1875c
+tracehash 681d6c6ab21f5b71
+tracehash 62fefbe6ec2c7dd8
+tracehash c79e7bf536a5236a
+tracehash 820af442638d9eee
+tracehash 28b99a9d03a99d9b
+tracehash dcc25c311c3bc84b
+tracehash 46980350fa848f5b
+tracehash 273613577348aea6
+tracehash e2b8f94c94f69ec3
+tracehash c82fda2e8ec165c7
+tracehash d72c181ef4e798ca
+tracehash b08cc0878ecee327
+tracehash a149040e9be6d40e
+tracehash 34b73484f609868d
+tracehash f36883fb430f70cf
+tracehash cd54a211fd8a5851
+tracehash 382d7a9af78d884e
+tracehash c148aff0fb8b211b
+tracehash 00af7e16fd1c971a
+tracehash 489a02ec548553cf
+tracehash ee30a7b772b8276e
+tracehash 9c7d518c5c95625e
+tracehash a1ef96aa3c4db5d9
+tracehash 4b6aac4c5126f6ab
+tracehash d51f6e231315f30e
+tracehash 7454dc4ca3ddcdea
+tracehash c7dfa1498a4b5f69
+tracehash 8daf536b82b687b4
+tracehash d55b9f648dfb36d1
+tracehash 64807982ce17e351
+tracehash 255800ae52df9de5
+tracehash f70617ceca75a1b9
+tracehash cc154b111d688298
+tracehash 9fa4fc207f5ac087
+tracehash fc951a7c68ab899f
+tracehash a2b3ddd38f661a45
+tracehash 12bfb2db4964f500
+tracehash 14bc7d09427eac1c
+tracehash 95bec3985dd76a42
+tracehash d029766503dc0130
+tracehash 6662fa9fb4a8fd72
+tracehash f47585d9fa341173
+tracehash 418689ab1dbdc87e
+tracehash 7ed474026ec2ea9b
+tracehash 3ed909289c1a78b3
+tracehash e044f06801041b2e
+tracehash 284152e8c7180838
+tracehash 016c8c9492eb7af0
+tracehash d412974a7a7cbb95
+tracehash 1f87111100cff8a7
+tracehash 1bbf99d30fa53d24
+tracehash 466470ccd1c9a05f
+tracehash 0d2e68b16ec94721
+tracehash fa3979b653d210f6
+tracehash 8427d82f54ff6bdc
+tracehash c2355099f8431c7b
+tracehash 792947d9a6366268
+tracehash 72069257e306f530
+tracehash 45364819fc3b9c45
+tracehash 2a1c0426a777c69a
+tracehash c4f770cd4d5d6e2d
+tracehash 0f17eb13a79863eb
+tracehash 96b0deb5c654fcd4
+tracehash 3c7b3d514445f6e5
+tracehash 18ade4749181524a
+tracehash 584424de3ff80247
+tracehash db4087d771aaeb6d
+tracehash fd73617c0469dbd6
+tracehash 1b35509b8a4a0dc9
+tracehash faab3575538d96e3
+tracehash 134f37f0414d0211
+tracehash d59e0fac6df29995
+tracehash c650ccb6ca114622
+tracehash c0c3fd65c5c9c6e0
+tracehash 0b4a8ab0b985ef20
+tracehash 879120fb797f24a0
+tracehash 1064520407b06cf2
+tracehash af14114fbd13ca69
+tracehash 452eaf17c5e1b604
+tracehash 5f1d3cd084e2dd0a
+tracehash 22bcdef24399835f
+tracehash 79ab14631da10a0d
+tracehash 05ec01dcf51529ea
+tracehash 25b6795b2c3d670b
+tracehash a9e3ff8fd935c36f
+tracehash 6ed5bf9ed6a4f162
+tracehash ad772ca3312bdaa1
+tracehash 6d53069ff226a576
+tracehash 52c647306792e55e
+tracehash 8c12af11b10932ad
+tracehash 387b8f25124a672d
+tracehash 133b75c9c0f8e90b
+tracehash 619602a8e497522b
+tracehash 77865908d4cf87c8
+tracehash 804f2370c077e71f
+tracehash 96ef6451ea9c8666
+tracehash da45bb33108d9f97
+tracehash 13032433073bac8c
+tracehash 4d4227b4dfd5defb
+tracehash 9a7dbd4cfcb380c6
+tracehash 2719963aeef03778
+tracehash 0c985d274d1c7360
+tracehash 5d1503b1a4e0ef29
+tracehash cadde811ec2ce646
+tracehash b06f745b81a2e6d2
+tracehash d56cb6be7e81da45
+tracehash b6c7f894dd64de27
+tracehash 96e7cb498e5ab2e0
+tracehash 8e78f66858388e4c
+tracehash 51f1f1f77c5e2d0d
+tracehash 8b271dbb0386abce
+tracehash a0751f5dbf7696b0
+tracehash 69a66997e0392ffd
+tracehash 76ba62a0c3dd8e4a
+tracehash 090bfd613b68fa65
+tracehash 2be6c72308ec4e04
+tracehash 860b90336a7ef78a
+tracehash b62da6017faf07d5
+tracehash 7c6d7292cfd9ac0a
+tracehash 253270d857e531a8
+tracehash 826a035e59b0b3df
+tracehash b2be01d2228820ae
+tracehash f66a0da84f8c1c95
+tracehash c01233a518ad39b0
+tracehash 3bfc8ccf75d2a58b
+tracehash d0f082b491824705
+tracehash 82b22f4f84d73fc2
+tracehash a91a680994ee6a8d
+tracehash 135408b9d613e931
+tracehash 3db51c99fa2a0a72
+tracehash d2119a76a341bb0a
+tracehash 15306c0818a54ae8
+tracehash ddbc975ccec9f872
+tracehash c2688333ddc177ec
+tracehash 0a77bc4f09efe48c
+tracehash 52d1518984002c6c
+tracehash e4464fc9fa67f324
+tracehash 8552324b7114d1cb
+tracehash 6196efcf21aac952
+tracehash 684d26bb8bd3bcaf
+tracehash 9ef70ea090432631
+tracehash 44082041059785aa
+tracehash 6e0e4a573045d003
+tracehash 5386a146eba3f30b
+tracehash 4317c847e89ebba7
+tracehash f5a2a4d11a4c2025
+tracehash 07572111ab3744ea
+tracehash 316d2372b3911bf9
+tracehash e6b7c27225cefb29
+tracehash 12080894567f1e75
+tracehash 67aba8bb9c1e2f00
+tracehash dc798873662c5c39
+tracehash 6dfb4f5402726c1e
+tracehash d47a453fb02ab604
+tracehash b2308934b29b673e
+tracehash a14019b07382305d
+tracehash b89eb12420477a81
+tracehash ef52dcc0f0f4ea6a
+tracehash 20cd9774b4db19f4
+tracehash cc12e67d20bdd598
+tracehash f9adbdc5a1b347fa
+tracehash 780d598299e0aed4
+tracehash 8f32e9f222368143
+tracehash 7648336ea4630bc5
+tracehash 4d573b01b4e62e50
+tracehash 4f1ba6f8ab41b64a
+tracehash 8157d55c3604401c
+tracehash 0891ebc834ce128b
+tracehash b77cb6ac68287e81
+tracehash c1ae247c4a712915
+tracehash c87663ef004c0fe4
+tracehash 5d556c0e7d447022
+tracehash e101012c072ec351
+tracehash 5b39ba7c05cf2c07
+tracehash 300ce8efa1b746d2
+tracehash 22ada0441e54d5c0
+tracehash 16be400207acbdea
+tracehash 968d628277258ef5
+tracehash de383c282cca5861
+tracehash f4d56f5fc32582f9
+tracehash 818e01b1cf6aa004
+tracehash 07189b757bddd1ed
+tracehash 090a55a334a26b6a
+tracehash b3a2276a8ead573f
+tracehash 1a6c8687ed21c131
+tracehash 583d0ee7beb0b35d
+tracehash dfbdf35350fce0b0
+tracehash 860368c13e83cc2e
+tracehash 3e888b71eef98d9b
+tracehash c22fa63593583b70
+tracehash fa8a2476b07a7191
+tracehash ba7ed3df934eb586
+tracehash 0f991d9d89a45624
+tracehash e6af5692516a2fb6
+tracehash 58e307eaf289eab4
+tracehash b2228383eac46307
+tracehash db59e1ad7f6a8eee
+tracehash a1971549af1bd995
+tracehash 9cb1960b7cc76800
+tracehash 9bebb27d5dce6a9d
+tracehash 22e38635b50478fc
+tracehash d689ffc915e21b26
+tracehash d6dd71bf8d8df2a2
+tracehash de5cde69606aa1fa
+tracehash 2074264fccccf0f9
+tracehash 9f68c79c8fa611e9
+tracehash 9522195c42a9229a
+tracehash 494b054a06cdd5d7
+tracehash 97b4e325e9e997d7
+tracehash cd2bcb8f1f95e5f6
+tracehash 026687beb7d4d8ab
+tracehash 83ca5459ff7a2305
+tracehash 0d8384c335ca7423
+tracehash 07dfc44016ad58ab
+tracehash f188802d0b0596f0
+tracehash 3ced8fec8a84b591
+tracehash f94411776ccdeedd
+tracehash e385dce09007beb3
+tracehash e68fde2a9bd09c84
+tracehash f7d03a6c40760866
+tracehash 1fa8f867f4576b4c
+tracehash 8a88d8b5cf2fdab0
+tracehash 4c2ade4fad6ca4b1
+tracehash 539dbf6df8526435
+tracehash ba97943e87ba004c
+tracehash 8d8d6f1efeba7fb3
+tracehash 22e94067a66f328f
+tracehash d8716833991cdaa2
+tracehash abc1173f3839e931
+tracehash 00baf439670161b9
+tracehash 3550c3049c3fca1c
+tracehash ef674e9b952862e1
+tracehash 473a3e3ff80d8ae7
+tracehash 3d09ca6d45ad032a
+tracehash f54f00d86a3e0e50
+tracehash 33c1975f70ecaa34
+tracehash 65d90337621c5b20
+tracehash 1bd5659e17dd2636
+tracehash b565c696d5e052cb
+tracehash 9be66575143f6593
+tracehash 22d9e44877fb86a5
+tracehash 0675f249fcf51b52
+tracehash d1a4b4759d6d69c0
+tracehash 7c6845e678864e55
+tracehash 91bc680662b4a938
+tracehash 577fc65392ec34aa
+tracehash c6f1c557ca49142a
+tracehash c072e74ed7de2896
+tracehash 084bfad6227dedd1
+tracehash 103df64e88b32238
+tracehash 1b507cf9964d677e
+tracehash f73963b5432dd292
+tracehash 6e3fd4fc3e0d270b
+tracehash e3b149da2b86afe6
+tracehash 174004cec9e27a86
+tracehash 3710e7b86bfe5063
+tracehash 8689e1c94b86cfd6
+tracehash 18acc32b7df63b2d
+tracehash e810a339a50f8cc3
+tracehash 732a987579986da2
+tracehash 7ad909cf9ccc4be4
+tracehash eccb56af85103cee
+tracehash 2931bd3dc5c5b41e
+tracehash 100d8453af33156d
+tracehash 0db77114e1ff1728
+tracehash 394fac29eefb2f77
+tracehash 883d211eb1935d33
+tracehash 6ebd7db02ec6c2fe
+tracehash 27da0e390e612955
+tracehash ff3379bfff99fb43
+tracehash e9cf76f797bb5e58
+tracehash c29bfe384f0ef09f
+tracehash 519f9854f10569c1
+tracehash 74000663bd273f97
+tracehash d8e59b6f4bcd58f7
+tracehash 6bf901185287cce9
+tracehash 60131454c5e8b015
+tracehash 9efe0cae408bd0e6
+tracehash 4b6ef255a99bda71
+tracehash 206cb2d6389287e9
+tracehash 4f2cd75bb17e1907
+tracehash 836a7b53546d3fc2
+tracehash c8f9f85aff726bdf
+tracehash 7cd03799863b1af7
+tracehash 5bf07f12de15a10a
+tracehash ad598418d58484ee
+tracehash 4878b419a3c46a84
+tracehash a6626bd977eb9215
+tracehash ecc13b0c696f65b3
+tracehash c80a007f35fae969
+tracehash 71586f2ec6866675
+tracehash 209ec6bba804c48a
+tracehash 19be5d3c65043afd
+tracehash 7f72fce08b8de1f0
+tracehash b48bc1ccff81ee15
+tracehash 90248b1c597a2947
+tracehash 06ca31d7b19ddb47
+tracehash 74c16b49913a28df
+tracehash 92a58f23aba4c2ec
+tracehash 51e5e2257af4dc41
+tracehash ec3412f005ff9c24
+tracehash c0c5bfd97aab3488
+tracehash f0497d5061e93ebd
+tracehash a44bd5558feea038
+tracehash 5ff06335bd36d554
+tracehash ac591ce53a017ece
+tracehash 7712f169f9d795e4
+tracehash df7d76800df0b76d
+tracehash d8a8ecde9b5c882d
+tracehash 449842b1599e4753
+tracehash 742f31f53c823894
+tracehash 4ea57e28412b7208
+tracehash 4660c16cd0b8a9f8
+tracehash 60d27ccdda5ed61a
+tracehash 610f856b206e6d39
+tracehash 7b73c769677dfbff
+tracehash 5220848f03ff5d0c
+tracehash 3209ee8609e28934
+tracehash a07c13db50a9dead
+tracehash b27ccd39c89b6b9f
+tracehash f32a08e2120fa54a
+tracehash 490b710c858bfc09
+tracehash d164afe9991a6ee2
+tracehash b27826196437e2ac
+tracehash a2a58561d34471ac
+tracehash 02525d20afd0242d
+tracehash 52da46a26e6ac302
+tracehash 852950a2df2661fb
+tracehash 987526a15a365269
+tracehash 076c0ef1ffaf3912
+tracehash e164450b21262245
+tracehash eab63b82510e05cc
+tracehash 6536e4690a1b80ab
+tracehash ea1970a1e13fcfc1
+tracehash db9be20f9709051b
+tracehash b2541c3d632f7703
+tracehash b367e4563f9aeac6
+tracehash f8d1647f5170f9e7
+tracehash 42c31a8f83a4b0a9
+tracehash e58c1e004366a5ec
+tracehash 17f77d4ce87b2e9b
+tracehash 3695ae465408a8a6
+tracehash e1b59885a01a8446
+tracehash 81bfc888526d501d
+tracehash 4e70cf7b9c7960a7
+tracehash 2628ddc9a22b183d
+tracehash 83a3aa3da027c211
+tracehash 83e6b14e74b8a191
+tracehash aab316723b982cdf
+tracehash 204a845a1c87be3b
+tracehash 226822fa2bb2c955
+tracehash 43de8a99c04c5eb1
+tracehash 183f4be85872e3a0
+tracehash 985c3d19d230c4a0
+tracehash e94f6f4bc359c140
+tracehash 034f873c622b40cb
+tracehash b3f955831b44c453
+tracehash 6439b4b15954b14e
+tracehash b96d237c0340d8ea
+tracehash 92dbfd9f730acac7
+tracehash 5b4ed35281824ff6
+tracehash 0e00111cc949d6ae
+tracehash 6bc0299055829591
+tracehash 9d5ef638afc19a62
+tracehash c912a25348c92b6b
+tracehash 8f6530d848b322a9
+tracehash 56e13f88e946c6d8
+tracehash 243667e5eb6479e4
+tracehash 4b20b4f9bac12629
+tracehash 1abf199ecda6e76a
+tracehash 771d6ef647cc74f8
+tracehash 0b0b59f872fc324d
+tracehash f7171f2c4e219d41
+tracehash 989666cef0f315e5
+tracehash 47804b11a7e23396
+tracehash 3bae10d79c81f577
+tracehash 530078496df1af95
+tracehash 4a5d7e11daceaa26
+tracehash 451e87df65408bda
+tracehash 1a04563158a3c674
+tracehash 12251acba746c66b
+tracehash 1fad61cece690cc6
+tracehash d550e55d8b6bfc8a
+tracehash d8247586f79527bd
+tracehash 453eedf5876da9a1
+tracehash bb1d76453e2d3f11
+tracehash 1d2a42bb9c6b4b5d
+tracehash 634661f1669015d7
+tracehash 2d15f18bb9988565
+tracehash 18d8064ae274c8e6
+tracehash 89c5f546c233641b
+tracehash f25c623f6f9c2861
+tracehash 4b2ed6143a55ca2d
+tracehash e71d50173d1adc4e
+tracehash 1b8040c2fbe700a8
+tracehash 3fe1c4ecb26b97aa
+tracehash 4ae5cb56afef607e
+tracehash 7add3bdd2f16ce98
+tracehash b5f077413d826254
+tracehash 7f6eae182c446236
+tracehash f897ecb79164e8be
+tracehash ed9e8f2af60b9906
+tracehash cfab6bdff3a7caef
+tracehash 3a5f0a4fab1098e3
+tracehash e68b350b4379b65a
+tracehash 5e5e38c027b61fa6
+tracehash 814ac2d737cef684
+tracehash a796ceb666b6a021
+tracehash f515d07d6539a274
+tracehash 608e2fe22d97a7e7
+tracehash b85f7dbd98d88097
+tracehash aae468472ba6bf88
+tracehash a0c869ee7e7033f5
+tracehash facf1545762ccecb
+tracehash 84706a83f9296c67
+tracehash 483d6bbb63e29470
+tracehash 892f90fb69a97b1e
+tracehash a4cf8a36364f5019
+tracehash 56fbfeb347014139
+tracehash cab0618595d394ee
+tracehash 4ffb2ff75aefa97e
+tracehash 43664943b982a000
+tracehash 29bb1154e9bc03ab
+tracehash d96762258a39899b
+tracehash f91fefe06abd8c33
+tracehash f029af78b3e58d7b
+tracehash f665b30a8db3665b
+tracehash 79c362e0b50f2efa
+tracehash 515c21d168340e32
+tracehash 9768c1682eb0199e
+tracehash ded97be564c9e114
+tracehash 4297fc5aedd532eb
+tracehash a14d958c231c4c7b
+tracehash 36e861c5d2d9f6f9
+tracehash e355ac9fbdf6f9c2
+tracehash ee12d64bff2c03ef
+tracehash 4aa8e0b89493a7e3
+tracehash 5cdd933e7992ed2e
+tracehash fe085dd37532a1b1
+tracehash 2debf1b22110d610
+tracehash 2256bae037e1e7c7
+tracehash 0901f4e0235d3260
+tracehash 3fb842be1f18f5c9
+tracehash 36d62bf4e3e7589a
+tracehash abdee9a154813e01
+tracehash df94a0bdcd5af85e
+tracehash 9735aca6c3914c5b
+tracehash e18fe2f3615b2109
+tracehash f38b9c920eafc52b
+tracehash 881713f1c000c11f
+tracehash eb9c6c676cff9b48
+tracehash b926244d1ee42320
+tracehash b39d17828a4e5e01
+tracehash 3a4b51f511f738ae
+tracehash ade212c3de6cdba9
+tracehash d38ba44321837c05
+tracehash 973090b9fc2d99d2
+tracehash 2c676b438d53ea82
+tracehash d0cc47baa566eed2
+tracehash 44f2b69376cc12eb
+tracehash 013b41ee41c886e1
+tracehash 62b10ed75dc43f26
+tracehash 3f8dca9d40f5a97b
+tracehash 12383632186391c1
+tracehash e7c31769a8ddb58a
+tracehash 9a02a5570db42daa
+tracehash 9796e5d197e6e3e2
+tracehash 1a6033156feb6e42
+tracehash ff92b2b87ba6dab3
+tracehash 5be4bca3d64ba997
+tracehash 3976538b0e22414e
+tracehash 48d8d3621cb3a271
+tracehash 2ee849738402f4ca
+tracehash 7a10d53135473075
+tracehash 4f54f8a89b49dcfa
+tracehash 55c97b5d8dddfd42
+tracehash e236591712ea89e2
+tracehash 2c9b418922d53438
+tracehash cb91de13b21d337d
+tracehash 2ef5b8984228de4d
+tracehash 2e6d656f66ffe9cb
+tracehash da271318cc8608a2
+tracehash fe84f1206f0271bd
+tracehash 963501162ae16e3b
+tracehash 393bd224d2e6dbad
+tracehash c5b60b3209973887
+tracehash ed9943e0f9ae122a
+tracehash 306741b5f46b83bd
+tracehash a97e9fbac2e02053
+tracehash 22cb7525a18cbcae
+tracehash 46d8549f0daf9709
+tracehash f6f5c05dafe37f1e
+tracehash abbb5ba7c4b1374e
+tracehash 8ca4143b19085b7c
+tracehash 821df76b3091bf95
+tracehash 13c298e49a57a60d
+tracehash db6683fc0169fb92
+tracehash 7ef8a8027610c625
+tracehash 14d87990ae1ae956
+tracehash 16f71c2b3c3752ab
+tracehash 9313cae51ccf102b
+tracehash efd89682cf1490da
+tracehash 15fa9203f388927e
+tracehash edc59083a2d09da9
+tracehash a091984160f22617
+tracehash cf151e662292ec45
+tracehash 0291e686caf48f45
+tracehash a29df5f0354a6225
+tracehash a0c5780ce6974821
+tracehash 3106cec64dca11ca
+tracehash d7db61b2d714e026
+tracehash cf53f15cf8b4a9af
+tracehash fc9ef2aed441a0e3
+tracehash a2492c71464cd90d
+tracehash acf75b1e011e6425
+tracehash 6d5e4271cbc4ecbe
+tracehash cd38001c7d841825
+tracehash df6169dd318d5ce4
+tracehash a6e2483ebf54843b
+tracehash fb314e3009a312e2
+tracehash 4dbb0a3cdd285c75
+tracehash 470b7cb02086e831
+tracehash 0697a1db1424b01b
+tracehash 95ea1fbee33b6357
+tracehash 4ff40bb9d68a24c1
+tracehash a506e1d04e7824df
+tracehash 79c132a378612fe4
+tracehash c0e09404f1b7af67
+tracehash 9457699f14f66066
+tracehash 02d1c0a432844e8e
+tracehash 66f65a65478f0ab9
+tracehash 4993110ad9486f0b
+tracehash dfa2c3c32727026e
+tracehash 5e1123332f57dd8d
+tracehash f78cb4d5c0f290e2
+tracehash afb4118e82b347df
+tracehash 9795198e5213bb12
+tracehash 6efca6ebcaabab6b
+tracehash 809ffb1cdf3428df
+tracehash ba193018c0920dcc
+tracehash b963952fbcfea038
+tracehash 1e6e3b4891f765b0
+tracehash a158b0a98e9edcc5
+tracehash 03b229b50bc062ad
+tracehash 67e32f6d515694bb
+tracehash 938fbbd4b5b5f58d
+tracehash 724b6d66940ebb61
+tracehash f067d472b8f2eebb
+tracehash a291a563d69e6c24
+tracehash 4b82b7e1019772bf
+tracehash bb2f3a398b5018dc
+tracehash ae3143632b85396b
+tracehash 784670b0c7595257
+tracehash deab4ea9d012a807
+tracehash d389859fbcc101a6
+tracehash 41ec43f4559051ab
+tracehash ab1ff80ed5474bc1
+tracehash b8ae94f4d5a9d2ab
+tracehash 584c4d7fde04c8ea
+tracehash d54a16edfcfb67f4
+tracehash 935c687fa8ac8eee
+tracehash 15499a2d575082fa
+tracehash 8aff1fccdcb0dd06
+tracehash a782f86227b6d33e
+tracehash d0d329bf70611ce3
+tracehash b4b6e02decf7b121
+tracehash 1f3e602d46dd011e
+tracehash e5325ed41af8774a
+tracehash 12cb47d6011c144b
+tracehash e69b7968fa9f949d
+tracehash a898651db19f323d
+tracehash 4c143d5be96a85ba
+tracehash eb4740d6dd0b9466
+tracehash 0dbc20d028e6e550
+tracehash aff05b1332edfbe7
+tracehash 404377baa6c52974
+tracehash e708e887ffd59eae
+tracehash 2251a6c11112e960
+tracehash 8918148c13cdb0c6
+tracehash c9dd9c9c0fce1635
+tracehash 6dee47f9a2460691
+tracehash 9b597d63768dc8c6
+tracehash 50d8453326ad61e3
+tracehash f4d7460fffde5a49
+tracehash e7fa048e04c1bff0
+tracehash 63bdbd6f474f6454
+tracehash cff0fd75577c1b42
+tracehash 13de3721f1cf8e74
+tracehash b5871d55b1ec9ecd
+tracehash 2d6b4fa5b6474373
+tracehash c913c2ed707aff89
+tracehash 9c039bf966bc597e
+tracehash 5740219815a361a7
+tracehash 814640dcf31dd6b6
+tracehash e3c49e9e94638ea7
+tracehash fd37a1a6cfb452f4
+tracehash f3c2fefb8b9bceb6
+tracehash 6f7d425cd5f74d06
+tracehash 3ac0f6fef59c4aa4
+tracehash a0f7b5dc8ce7a234
+tracehash 66494577cbe0265a
+tracehash f4d265601856b9a1
+tracehash ad2904866cb7536e
+tracehash 86a0ef369940eaaa
+tracehash bebdde30da4de287
+tracehash a6dd848347323f87
+tracehash d6d9bc6e95864921
+tracehash 356ec5ea5740d971
+tracehash 68649fc53f92d6a2
+tracehash 2106207e8d1f43cf
+tracehash a0c3af76cab4bd17
+tracehash 4b09ada21bda733b
+tracehash 17de81f8a2685ef6
+tracehash e5b34c7bc39f55f7
+tracehash 8ec2f07d658f6293
+tracehash cbc862e6c66c4880
+tracehash 9b560b2c342c3841
+tracehash 65e6b2cbb0a8ad63
+tracehash ed4776c65fade4c4
+tracehash 3ef31d5989fe3ff1
+tracehash 6ac86b1de1348ae7
+tracehash 88b777c6df5ca582
+tracehash da93ff07e3c5f6b7
+tracehash a3b052b14b4016e8
+tracehash 4cfe82191334a597
+tracehash 4ee6d5e54e718793
+tracehash 03eda404f6e0b5b6
+tracehash f446eb75f40fc63f
+tracehash 29e48d7e6c0eb298
+tracehash f90918c4ab847270
+tracehash e7ad623c292274c5
+tracehash f3eac800afc5aef3
+tracehash 93aab0a3f3832f5e
+tracehash d75faa6e43b67e7e
+tracehash b1c47f07e004618f
+tracehash c61438bc8e1c2a45
+tracehash ce551e8c50b37a5b
+tracehash ccfd1fba9e437449
+tracehash 8c80fd8386b23bc9
+tracehash d5e405d7f88903ef
+tracehash d6eddf45b9659997
+tracehash e8f100a38cf510af
+tracehash 19a2486d687cf033
+tracehash 7943450656bcbe63
+tracehash c426256191fa4cb6
+tracehash d3d52f4f2f86ba72
+tracehash ad5e654e27b04b19
+tracehash 79b5b3f1c88de12c
+tracehash 8ae95ad41439ac5d
+tracehash 415d07ba626bc6e5
+tracehash af919d59a307a3e2
+tracehash c90c0cdcdf7cc0e3
+tracehash 9d668d74a9a9eb0b
+tracehash 2ff68edf6647cf87
+tracehash b188a0c47fb37509
+tracehash 402acbedab3699e6
+tracehash 1f1f72914aa2713e
+tracehash 8723ffdab78355f2
+tracehash 18e3751d7161f345
+tracehash 0753831d993b44c8
+tracehash 28522fe7141a0e39
+tracehash c87667c84caadb66
+tracehash 5d80d7f7be489a23
+tracehash 12d4777e040eccb3
+tracehash 24b81edab3864c86
+tracehash 6786961bab6398ac
+tracehash 357d7e1ae15b38ae
+tracehash c17b27c8bf3c2077
+tracehash 726ca73595b93aa1
+tracehash 7f26fe5e5ceb4d85
+tracehash d711ab559ef5579c
+tracehash 5991230a8bb87c9a
+tracehash 33b73c48bfc38724
+tracehash f48a782fce332895
+tracehash 00c84840cc01840f
+tracehash 89b4a4fb6144c376
+tracehash 543846b32990d5da
+tracehash 2a6bc52de37a2437
+tracehash 5d628e5671c1aca9
+tracehash 97e9c73d9bfec4c7
+tracehash fa7dfedf3a9b532f
+tracehash 2cab17296a91d936
+tracehash 3dd2bf307efedaf3
+tracehash 9e7dbd106f77fcbe
+tracehash 66c44b2f93d83831
+tracehash 03b1ab4b30a2f9c2
+tracehash f40358652a5af8f0
+tracehash 312b69a61221ac58
+tracehash f4b23fc74f5c60e6
+tracehash 360b9ea1350d0e62
+tracehash a7a96c84c93ce0bd
+tracehash 1ffc42d80e158b0b
+tracehash ce733c321ecb5f2f
+tracehash 766686e5a4dfb620
+tracehash c9a11f8c68d3224a
+tracehash d72bed00703e60c4
+tracehash 56d3a2da64b62144
+tracehash 11bd78903d5d2895
+tracehash 2c2c7afc8e0c9335
+tracehash b5c381f099bed7f6
+tracehash 4abaa94204916607
+tracehash 765a1a4745703c32
+tracehash d7d46377d1749470
+tracehash 08aa2d164f823464
+tracehash 10c6f0cce15b6dab
+tracehash 6017e97c9c90ac6b
+tracehash a37b67b981879568
+tracehash 9eb59daf3ab428e7
+tracehash b7fede7653b98539
+tracehash a1f9f775db89cc19
+tracehash c1b47e3454ce9297
+tracehash ca3f5c43ef63bde5
+tracehash 8efb7cf1b8e7116d
+tracehash 1c80d183f310d1a7
+tracehash 4c9a89c09fb97410
+tracehash ad10bf2abebd4dc4
+tracehash 32cca43f924a8e77
+tracehash 1be8ca11c8ae27c4
+tracehash fe6f3f54461471f4
+tracehash ec7c26910bfefa92
+tracehash e9f73e4340ef5e8f
+tracehash ae3a8618d3f08a62
+tracehash b7868a0db22d3904
+tracehash 38b4c68d9057d42f
+tracehash ef206084b7d88a98
+tracehash 481ae699bd6cf90d
+tracehash a29dd871f0ef2f3d
+tracehash ce34678ecaabfb42
+tracehash 002ae0b84e4f7f6b
+tracehash f1b4ae2a3c4f882b
+tracehash d4cf7b2d6d2f4d60
+tracehash 93aba805735bb583
+tracehash 2452bd8eab1f3225
+tracehash f64dae42b85d5709
+tracehash 9c4cca677fa93a3d
+tracehash 51ce71512c89cd77
+tracehash 6d020c41edc48820
+tracehash 22a0137a81eb2a5f
+tracehash d8986186af9912d2
+tracehash bd3d284cda2a96cc
+tracehash 3d488aaba18eed82
+tracehash 323916021ad06a10
+tracehash 1c3d3e3455c07398
+tracehash 6fa3502b7174de22
+tracehash a585894ac14d77f9
+tracehash 5c45f4a0a2c67511
+tracehash 8e2e8fdb4872eea2
+tracehash 38488ea599cdcc2b
+tracehash 64fc77000d84d194
+tracehash a9b49fe7c9ea2a05
+tracehash ea3abc1b970fc001
+tracehash 756e2d8d3b96a4c6
+tracehash 26efff5f325cbd47
+tracehash 4e49f6580fa38333
+tracehash b6a94af3e8fa68c9
+tracehash 169e7d6eec8fcc9c
+tracehash 50b6ec51dd992680
+tracehash 8f9b4937349bdf56
+tracehash aa24910c29bdee2b
+tracehash a972a262e7be1270
+tracehash 85b383508904dc39
+tracehash 330acb47ab5d6349
+tracehash 0c43b9d254811ba8
+tracehash fda85298591d4ee9
+tracehash e535a7d70d7da9a2
+tracehash 9954cbde68dd64f7
+tracehash 81e628a7406c841b
+tracehash a3fa8165ef48e242
+tracehash b754fcd2e8d51f55
+tracehash f1c2b857627f079f
+tracehash cb1218625e029792
+tracehash 789cefdb502f7ba9
+tracehash 973714098158559e
+tracehash ac106ef790c5e825
+tracehash bca494fb089f8294
+tracehash 2ed5be59d8a2dea9
+tracehash efd767c8015a0e4e
+tracehash 728ef1d1de9a147a
+tracehash 28b2ff7d23e7b403
+tracehash d81714fd12ef18b5
+tracehash 30c0816f0e3f451f
+tracehash 787526295ad8b1cd
+tracehash 361d17128dbaf7f5
+tracehash 36265312883d96dd
+tracehash 70c80b9d1572810c
+tracehash 81a1e67311fb6d3d
+tracehash 54a50749e4ca2304
+tracehash 6b4d72dcca70542d
+tracehash e584299c3b005fab
+tracehash abc437c4bd6c49a4
+tracehash ac258f539c550800
+tracehash e1172c896d58806a
+tracehash 0678300163687e43
+tracehash a0bdce7500cf822f
+tracehash 8ce1b3b831796962
+tracehash b1c0e87b5d5be287
+tracehash a5337a28fea6537e
+tracehash f05eee8749087569
+tracehash 826c397117ee7f6a
+tracehash 256d1c5d12f988ab
+tracehash 332a0c80dd949678
+tracehash d055d1809227f07e
+tracehash 4a9371356d1a92b8
+tracehash 0834235d734a25d4
+tracehash c3869aaecb38fb47
+tracehash fa882854f1d1f425
+tracehash 1eea7daf8e950a1f
+tracehash 97ca497f6d3de4f1
+tracehash 32578e78bd1f9387
+tracehash 2a65347185edf0e5
+tracehash 0772e1166e089c50
+tracehash 8aeff4ffdf45a93f
+tracehash a0db85798c4f626c
+tracehash db04124966ab9cb3
+tracehash a80a0d3314181fe8
+tracehash 2bc34805d1bc867d
+tracehash 1296857b13218874
+tracehash f1d400adbcbfb984
+tracehash 10750ff39c69cc60
+tracehash 1a4a16da805e8b83
+tracehash 9491b2ca98e8d9d3
+tracehash 6c6f21f134161434
+tracehash 6a070258fdf4ec34
+tracehash 28420949caffa9bd
+tracehash 18913dfb46d73079
+tracehash ad1b8bbd2f6f72b2
+tracehash 51d91ca322c3382b
+tracehash 982fa7ef8a051cef
+tracehash 4a77b9752944c42c
+tracehash 470115e636dda5d7
+tracehash 13d49ebae953ea9f
+tracehash 3808a5d4d1aee380
+tracehash 62d0e491e1b4f0f8
+tracehash c56b847213606efb
+tracehash 44e77079c0b39e55
+tracehash c8b1b095a403a083
+tracehash cebf7a608c422390
+tracehash 32eaa8e1babcbf4c
+tracehash 1f349b097916c340
+tracehash fc65dddc1cff99c1
+tracehash 56ceff90d8d87b64
+tracehash 41673cf4a76cad98
+tracehash a6ac868531450ff1
+tracehash b5e9e16c9fe16dab
+tracehash b1db94964c7cd645
+tracehash dd5a3480a8614d5e
+tracehash 2acb80545eb07436
+tracehash bfdb7fdb6d340d37
+tracehash aeeeb1c73d4b9036
+tracehash 29b8cc9f4c158d9c
+tracehash dcb95b7aabb7988c
+tracehash 7fa7b560b35f798f
+tracehash d8c0649be2ddb6e1
+tracehash bfd170e9a291428b
+tracehash 3a25fea38a96b527
+tracehash d014a4966808be3d
+tracehash eb2670732391a19f
+tracehash 0efef0c9f672513a
+tracehash e054962bd7675198
+tracehash c852be2c1b16eec8
+tracehash 5ec048c3e7485a84
+tracehash 1f6f11d46ac1f555
+tracehash 35e5aa980fa72bfb
+tracehash 15aa7905046e071d
+tracehash 90098d6153385ae5
+tracehash cd1f349a5f52d6b9
+tracehash a14ea611a8c7928f
+tracehash f48562b8f4bf44a8
+tracehash 9ebc8a81d67a0c1e
+tracehash e48e3b80319e7e9f
+tracehash 71e4cbcdec6f2efe
+tracehash 7bb3b2f18a353184
+tracehash f65313daa00238c9
+tracehash bd26fa668ebd9218
+tracehash d10a58be0e38b809
+tracehash f7debc60db314ffc
+tracehash 9ce436d512603fa1
+tracehash 66e13408a33a15a8
+tracehash c90d6c98b3d65d06
+tracehash 6df3a66ffd9c4b05
+tracehash d58ab1a9e487793b
+tracehash 13b068dfc84fb994
+tracehash 9a52a3f31f20432b
+tracehash 987084303dc48f40
+tracehash 4685621ef6070dfc
+tracehash e8bf00c5c3bbaef0
+tracehash 62a6058d54aeb3ba
+tracehash 0de4c98f9fe41e30
+tracehash 7b6f56a6c4b74773
+tracehash 866b87cea6a3b3d5
+tracehash 7c919ce3d9825985
+tracehash 22220bf8a156874c
+tracehash f6fe6194912ebcf0
+tracehash 25c3d527be098499
+tracehash 0fd32272f0a9784c
+tracehash bcfb2cd6188acd44
+tracehash 27ec8aacbb64aabe
+tracehash 773f8cf9d87193b0
+tracehash 3454fa5356b8d3c5
+tracehash 3bfef50a74314773
+tracehash c4ef7d214cf03ef0
+tracehash 29a75728b9431b12
+tracehash d5e6aa304dda9ea4
+tracehash 8d0f87439a9d4460
+tracehash 9491d8f70d878690
+tracehash d8c0f69a586c7850
+tracehash 07aa8ad382578335
+tracehash 62814eacb2ce453c
+tracehash dd5f985af5a4e70c
+tracehash 45b63e6047dbd1a2
+tracehash 7f660d6227e3abc5
+tracehash 3dd759af8fa158e8
+tracehash d02cc0a7b73d23ad
+tracehash 30f2030c0171b4e9
+tracehash ac7210ff9a2ddb88
+tracehash c92ba1fe1a900d42
+tracehash 342e3f9d95d914f0
+tracehash 30f06e4fd4937a57
+tracehash 4b89890d9635e73f
+tracehash b6cdad711024056a
+tracehash 233babbfbc475dee
+tracehash 660967b920a897d3
+tracehash 24c974e06a59a81e
+tracehash 6948e5b3b5369f46
+tracehash 4eab1b77811cefba
+tracehash 61a64a4a8cd7374f
+tracehash 48001ed6780eafa5
+tracehash c60782404f787e85
+tracehash 5bb938492f5bd653
+tracehash 3b40281c62cf646b
+tracehash 775bbf3e1f72bc23
+tracehash e5ba37c88ab85a47
+tracehash 9746f16924b7e5dd
+tracehash 6a7338950d7c26f0
+tracehash 60cf56cb9ee0d383
+tracehash 09dea62eb068fc9b
+tracehash 04763b83ac03665f
+tracehash 4808023944883184
+tracehash b8ab8f52acadd710
+tracehash 104422e486db83fc
+tracehash 62817e687f6b4fc4
+tracehash 499933fe53eac69f
+tracehash ffbc3693de8abe39
+tracehash fd629d820e70a005
+tracehash a2cbb58c5bb66ef0
+tracehash ce2dfca7d1ec999f
+tracehash 78f28696bc6e2125
+tracehash bd50d9adf9bce56f
+tracehash 8123d766ed267f9a
+tracehash a5876e50b004a710
+tracehash a9f3137d99651006
+tracehash 48f0683616aceedf
+tracehash 69880762b125de11
+tracehash bfe731b92fe6b61e
+tracehash 5340053de7a79a87
+tracehash 81130fbb2b39ddd7
+tracehash d5a38950027f8ca4
+tracehash 4df0016c6d2a0cc4
+tracehash 0cadb655346fee5b
+tracehash 88d97305ff6d6ebf
+tracehash 26084e857a3be06a
+tracehash dac0a4c3a8ae6a13
+tracehash c68189c17766344e
+tracehash 5115ce551e483c1d
+tracehash eeae6f9521f55272
+tracehash f3d22283332554a7
+tracehash 267a884cce135bb9
+tracehash a8ddb63397cf5a19
+tracehash e7e0d10ca9d0f989
+tracehash cc3e40b1edf7368c
+tracehash f844a152265740de
+tracehash 6d02118eee44baf8
+tracehash bdd2258175b4ddb6
+tracehash 5f018cf9c576ee68
+tracehash 5d6afe81c14f5e4d
+tracehash fc6cacdcb5be4d10
+tracehash 3460f7029d4b0ec7
+tracehash 0e898ea65f3b1ca8
+tracehash fa0c2c63b159b45f
+tracehash 42401e71933f7ca1
+tracehash 3f840e8596d9ba1f
+tracehash 054dfc6061fe2dd3
+tracehash af7c20317faee76b
+tracehash 01d0698857a8010f
+tracehash cdb14db856071f02
+tracehash ec5c8d4e16ab2b6d
+tracehash 32462dc022122a72
+tracehash fafb8318ec346ee0
+tracehash 6cdc5e41c6c94d04
+tracehash 6fbcfa6e2ced3abf
+tracehash 95eaad49eb99783a
+tracehash 2c846a47e8f82552
+tracehash 755e7a782b55fe92
+tracehash c3875ed741ca2152
+tracehash aa97aeb43f68b3bb
+tracehash 4e578181d4179243
+tracehash 9fc678b127ba6ed0
+tracehash 6175366406d9c7d9
+tracehash 4ded6dd715e9c4f6
+tracehash 9da1cd98a499159b
+tracehash 08e58506626e0f28
+tracehash 4a7690f4c4a5772d
+tracehash 8bde57c0c283db2d
+tracehash 185d9f05d07618e5
+tracehash 9ab37897756bedd6
+tracehash 151a3b6035257b26
+tracehash c3df2dac4a4728b6
+tracehash d2e269f6d87a23e8
+tracehash 99455d8eaaf62d59
+tracehash cb5dddf815f1b95d
+tracehash 837fb5513ccef29f
+tracehash fba739cbb9225ef7
+tracehash 2aa0bd675cb13258
+tracehash 7b6696933692bbfc
+tracehash 22c7cbdf013f5939
+tracehash 1b1faa006f82dbd9
+tracehash 2f4fd2e813699b8c
+tracehash be8d0038f436e320
+tracehash 014627712dedf9fa
+tracehash e6bd9c65210776a0
+tracehash 3f85618413bbdaa0
+tracehash bf5c7f64f2d870ef
+tracehash 63f10eaf417bb4c0
+tracehash e588d5c107340986
+tracehash b3db73b7a788848a
+tracehash d552059451367803
+tracehash 4cd2cd539af97c99
+tracehash 8e55aae9cd663106
+tracehash 7c8906c198ef0c74
+tracehash 55bd75aa63441cb7
+tracehash f4d325ec58bbae49
+tracehash e5ffe6f83e974bc4
+tracehash 1441d45c022d1623
+tracehash dab47aa5bf18d5ae
+tracehash 05074d26eb8fc5c2
+tracehash b65d8d0e788cd477
+tracehash 143c433f0d3ebf16
+tracehash ba54b0ad13a7dc15
+tracehash 701e17e686391d57
+tracehash f09f0bc657299720
+tracehash ad86c0344910e9ce
+tracehash 426ba82981ed6bcc
+tracehash e606517969c2e551
+tracehash 214c90bafdef03e1
+tracehash e9534cd09dbb572a
+tracehash 12a02991b0a21d4a
+tracehash 802b59132631f9bc
+tracehash 68ba7f9c794dab97
+tracehash 4f3f36778b4ca993
+tracehash 5ee91bf09cd0a8fa
+tracehash 95165d8155faca37
+tracehash 2cfcb3e344b0d6ec
+tracehash 8e9b977ad0168202
+tracehash 2262deb942d67517
+tracehash 818296dc57624ed9
+tracehash 81f7404f82229486
+tracehash 50f9dacfee95f1b3
+tracehash d420fb57f03d834c
+tracehash 4e8170942a17a7f4
+tracehash 26acedc00748041f
+tracehash 90f8b85ccbe0712a
+tracehash 75dee66a07cf46d5
+tracehash 66b3244f68acf397
+tracehash fb97705bc097fd6a
+tracehash 2e9de36d1b90a7f8
+tracehash d9334e961e563130
+tracehash 0c6db8e27728299e
+tracehash 2cbedbc0cfc42f81
+tracehash a6fa46aef7fc013a
+tracehash ca07691ccaf7a6b9
+tracehash 074046ae7c6562fa
+tracehash 1351919f269de282
+tracehash 0ae9612f5a33116f
+tracehash 044482b1cc7944b7
+tracehash e43689b82e14feff
+tracehash 6a5b1a861065b7dc
+tracehash ce92fa2bdfe77a0a
+tracehash 99162e31b5453c25
+tracehash 3ffd83c1cf37747e
+tracehash ef4896c7d1d21b7d
+tracehash 6c6c29fd8c2c5539
+tracehash b9b716f92b8ab6b0
+tracehash f3bd33effee541de
+tracehash 96f639146689ca47
+tracehash c48873922f771917
+tracehash b48b30e341e7ffd1
+tracehash f750167e5b4b4fc2
+tracehash 8ebd52500e1ccad5
+tracehash 847c5195c74564ea
+tracehash 880483172fcedd06
+tracehash d243c4075078c89e
+tracehash dc22806582886f5a
+tracehash 905c7b60d9066b9d
+tracehash 6f13fa7f092f0eeb
+tracehash 3650a1786d02724b
+tracehash 7dd8a550418e8a1e
+tracehash a06012f90f68a319
+tracehash cc34d7473f9e48ea
+tracehash 4ee2208052fe66a8
+tracehash 6c09acbdbe0363a6
+tracehash 73db17f44d07cbee
+tracehash fd7ac78b96bbb78a
+tracehash bb8e66eccc5b8e70
+tracehash 1d0b7d43425877f9
+tracehash 984be7e0198eec92
+tracehash 207fe90a56f0ee4f
+tracehash cb68b1f6c910684e
+tracehash b2883fad46f049cd
+tracehash 5aae54dec74bb9fb
+tracehash ef11c65f716758b9
+tracehash ca9e1f4b81774786
+tracehash 6d1304f6fd6c2e62
+tracehash bd2ae424935d785d
+tracehash 84228255c6d503c7
+tracehash 48fdba6c9d4431fb
+tracehash 34fc92a762cb4b9b
+tracehash 69c31fddda4166b6
+tracehash 7a3270f949b5970e
+tracehash 93d390975cb738a4
+tracehash d6a14f64567f75fe
+tracehash ba3217ea4fcf2961
+tracehash 3363469b612c39d4
+tracehash 3f0fd7f34a82b691
+tracehash b24856292b89b4d6
+tracehash f3e669c7bb2826cb
+tracehash 2e4fa9c31faf801d
+tracehash 6b57a1e10a0572b8
+tracehash 8388b33738b8ded6
+tracehash cf28a49819fc3401
+tracehash 51bccea74de6fadf
+tracehash 587bcfc4f256deab
+tracehash a9041535d64083d9
+tracehash 46cafef0729890fd
+tracehash a27c46ea83a62c4d
+tracehash cf23bcd967aa32a2
+tracehash 018281801bdb108e
+tracehash 3497490f87e2bda1
+tracehash aa41341847e2988e
+tracehash 086dbb7c5ef85ed9
+tracehash ce882844ffd9eb71
+tracehash b19303ab57003a8e
+tracehash 3adc5721da9d5504
+tracehash acf6c21ba97c20b0
+tracehash b8cffbe48433a417
+tracehash c47b75c79bbf636a
+tracehash eca52d5fb06c52cd
+tracehash 66a6b13f1829e689
+tracehash 2f0942cae6958aec
+tracehash 52c705f58405cf63
+tracehash 8d7ee7993ed7b209
+tracehash e8efd0306eed32f3
+tracehash e916956a325c85a8
+tracehash d3e092c28965e54f
+tracehash a68e179e3b364957
+tracehash 18e57d44f32a0832
+tracehash 980382d18636396d
+tracehash a7605af58dd33363
+tracehash 53a82859b22a579a
+tracehash 1e21326ca740518a
+tracehash 3d7ee9ad7b91842a
+tracehash b8b91263d69038df
+tracehash 13be44004652621e
+tracehash f792e3bd5ae970af
+tracehash aa4f8d32d2247a8c
+tracehash 0221c8648837ff7e
+tracehash f989ee64e12af508
+tracehash 5acc4a5725b6e54c
+tracehash 5baaef1e74a6ff5b
+tracehash db9dee4214f327b5
+tracehash f8aeadb420a7b97d
+tracehash 3111d9f043e593b4
+tracehash 3219e26b72939e6d
+tracehash 8bfe49d3eb2160dc
+tracehash 25b2a95f60a3e018
+tracehash d1ddc3ac2f821659
+tracehash 6e695e8b7f7f4190
+tracehash b653318f62bd9677
+tracehash bb9e52314e1c80d2
+tracehash 55a29a33076e8e1e
+tracehash 137793281f3c387f
+tracehash 34578f3788a04daa
+tracehash 9648a9b5bba6282b
+tracehash 9d009c59c0aa0a9d
+tracehash e6cb449d1632f8ff
+tracehash 4b300838779fd00f
+tracehash ae7df44828bbbaee
+tracehash 3836d4ac9dd56a26
+tracehash 1d512988a4de9cf9
+tracehash 3ff180a6d626039c
+tracehash 58243a47e109020e
+tracehash f3347215519c4045
+tracehash 73aa49ae4afde23b
+tracehash 7bde7da2c80a3445
+tracehash 36eeceee09c16dfb
+tracehash 38cf387b14cb9bbf
+tracehash 9513a59891372325
+tracehash 0eb8aeb23886fec7
+tracehash 0e11d99df6294d52
+tracehash e1b34046fe1da533
+tracehash 8a52a089d4fd4716
+tracehash d1a2f0850cdedda8
+tracehash dc2923546291065b
+tracehash ac7cda7594760d88
+tracehash 69c09e93e02be411
+tracehash 2aa1fcd10f05b6c5
+tracehash c86414f62269e366
+tracehash 4069470c727c86c2
+tracehash 1ba217db44c7a731
+tracehash d780f6513154830c
+tracehash 6e0c9e9c91e1ed72
+tracehash 5a2bebe8de12488c
+tracehash bd0156a0f3cd3e4a
+tracehash cd0805b2fb8d2257
+tracehash 0277f8fac7616d77
+tracehash 0bf6eea5ff768601
+tracehash a4069d0e09ca8642
+tracehash 524d92a28af8768b
+tracehash caac0ab0594261b6
+tracehash 815ed286f2ec9e63
+tracehash e2666a36e62cd0a9
+tracehash b1b4aec29cf9a87f
+tracehash f4215993a99e48e7
+tracehash 9f53d398c9aeed85
+tracehash d00727410c800ccf
+tracehash 049f392b306e8b58
+tracehash 442e4f91dd020853
+tracehash 113d5cb74022ee3b
+tracehash 13cd89515bcc1ce9
+tracehash cc6f7bca85bd1040
+tracehash d5a9a6dc353c2cac
+tracehash ebe91a63c6e91f73
+tracehash 26b20e0e2ad5d499
+tracehash be0ed774c3f87a86
+tracehash fef1bd6472dcdddd
+tracehash a57b83e2c5c38b7e
+tracehash 5146a6c615c3b9dc
+tracehash 30169685edebd6f6
+tracehash 11e469b101b20e30
+tracehash 46c85b7e8cf3d57f
+tracehash d63f711b61f1d696
+tracehash fbfdd77cf62aaed6
+tracehash e5be323e464749ab
+tracehash cb5237c468ceefe2
+tracehash 1b26819b69de6dd7
+tracehash ed36239ff94f16c5
+tracehash 37254d0b003be2f7
+tracehash fa6036b5c14d4e6a
+tracehash fc65d0f64df53548
+tracehash 1454a38dd6ffc919
+tracehash 3e32791435271a0a
+tracehash 8e5886203f4ee3d8
+tracehash cc53b9f2dcdb5ccb
+tracehash 673817bc04c83e76
+tracehash ea5f472f94dc518a
+tracehash a9827ebe3f2c9887
+tracehash c8c9a0dc4b28fca6
+tracehash d5d4bb611980f9db
+tracehash fe1131a336dd17a9
+tracehash 693081e33ac2fafc
+tracehash e5c8107f0f9ca49f
+tracehash da2e3ccfed8c59a5
+tracehash ecea8a708f85b201
+tracehash cb05f802837e40bb
+tracehash d3ef68a206055e67
+tracehash 9563fbbff3cf583f
+tracehash c830c5e91475047d
+tracehash 57fe150a2482efe6
+tracehash 95c4f4f7e8bb5b2d
+tracehash 6554834f9624d877
+tracehash cb2966f469e9fe67
+tracehash 0419f9ccdcc10461
+tracehash 81cc52f3234d650e
+tracehash 9b4fef882ddccf1e
+tracehash ac1ab7e493d1bef7
+tracehash 066802b7b9e7e31c
+tracehash e5b5cb8091e1eee8
+tracehash e033f35cee1e453d
+tracehash f95545a6d73168fb
+tracehash 2c1bb951e622ab8b
+tracehash 926dc1b149c15278
+tracehash 310fed1b5cb1dadf
+tracehash 6cb5ea4867516805
+tracehash 14bdf3bb2d78c6ab
+tracehash 4d5f5d09c17f473a
+tracehash 77621fb8cf12f5f9
+tracehash 4c808ed69413b5c6
+tracehash cf7ce94364cc89c2
+tracehash 33a1b6995a430fa4
+tracehash 87ae75be9c3c9f9e
+tracehash 9fb4e605f809150e
+tracehash 7842b89f0cb062e8
+tracehash 93b5773b2631fd35
+tracehash 3d442f174b3089b2
+tracehash 4c3350c063703ae5
+tracehash 1572e9fd5de66afe
+tracehash 30113c6d3b2e9bf9
+tracehash 1cb71f67ae97dc83
+tracehash 5a2d46ae6cd42c9b
+tracehash a5965edae79226de
+tracehash 15e95e628baea2ea
+tracehash bc1c172be5a3e430
+tracehash acbecad809830d21
+tracehash ae3f87cc4ca26818
+tracehash 1c700d611f0c8381
+tracehash 84bd8d0c50b0a848
+tracehash 1e1a26321a103ebf
+tracehash 4c6ad8569395f913
+tracehash 3793f01ae7884328
+tracehash 36ea90be4eb0732c
+tracehash 2ad229f4c28e86d8
+tracehash 13f2af2b8cf8e454
+tracehash 6c63a222c1ad337f
+tracehash 26209bc791f50aff
+tracehash 95619660bdc37b81
+tracehash 28e8b721958011bf
+tracehash 3f5ad471a37f8613
+tracehash 420669a132174ecf
+tracehash 9e48dd66e62436ce
+tracehash 116ea338a6c7dca7
+tracehash cd3f8e8e8f7c95bd
+tracehash e7f35c1ca2d79bec
+tracehash 63032ddab282ea62
+tracehash 1a156287d85b1911
+tracehash 010435124dbcadf0
+tracehash b8f3792b18f448c4
+tracehash c0537e96248b1802
+tracehash 4de9483c92d7b5cf
+tracehash 4dbea1ca8640de26
+tracehash fa0db8dc1830643c
+tracehash 7633a6632e8922c5
+tracehash 614e8e1866eaa2b2
+tracehash d2c4c72c13447556
+tracehash b418b89ac4520c41
+tracehash 3db5c65b5f46e111
+tracehash e4a7f9a41bef63be
+tracehash 199c49fa2ad3cd4a
+tracehash 2880c86342774d9f
+tracehash 47cd3d19b52aa7b2
+tracehash b2623d592a571616
+tracehash 453da0ac88ba930e
+tracehash f5c033c8faa2e56b
+tracehash ab47240cd225a767
+tracehash 3491db07d0572720
+tracehash fbcfc93ef04400b2
+tracehash dba327ace5c0338b
+tracehash 5cb0ae2a9d8ed89b
+tracehash d1c8f74849fabd18
+tracehash 35664723e6e02354
+tracehash a41e7032b19a7746
+tracehash 864141a2128cb3ca
+tracehash a85fac8a303e68a3
+tracehash d6ae8066983c3fb6
+tracehash fcd987413686e549
+tracehash 73dc18ad3c5168a4
+tracehash f1293dd28122851d
+tracehash 349d3908dc830523
+tracehash d78dca3963498ddc
+tracehash 18965d6211936451
+tracehash 4cde67d4bac625d3
+tracehash d408d77a075c36ef
+tracehash bcdbfc93b66b72f8
+tracehash d5029bfcea0a3aee
+tracehash 1bd6e4369b6a625c
+tracehash 7691ad0d586c7b8a
+tracehash ba37125246fbb2ba
+tracehash a0c051e7666f4e0f
+tracehash ed776f03faa35a76
+tracehash 0bf69f11096c997d
+tracehash eb6e87b6a8f13867
+tracehash f941c3804989d711
+tracehash 4391ad40075cdc56
+tracehash 435fed460a4ba296
+tracehash 049019e1b924bf3c
+tracehash 04bfaea5fc989dcd
+tracehash caaa663c8aaf15d9
+tracehash 33dcba49d11a9401
+tracehash ea1db8012cfc95b6
+tracehash e9a319a0fd452c5a
+tracehash 84ee57841cd1f183
+tracehash e833efe57fb60615
+tracehash 0ca96c9e5de7b58d
+tracehash d06aa8ea19257fcc
+tracehash 42cfa1414444e1d8
+tracehash 55ece9e89dfba34d
+tracehash 027d8673bec2d90a
+tracehash 2525a4c45cb25e52
+tracehash b1bb56b561bba708
+tracehash 2f9c915a5daacdff
+tracehash 524e29cbd606e7e1
+tracehash bd81fda222187c05
+tracehash 9fc2c2461ff7bb18
+tracehash 0c30529d5cc4ed02
+tracehash 8f6b80bc0ed17da3
+tracehash eec49e492ee4a37e
+tracehash 0199fa839435d6e7
+tracehash 32306389d2f3d8c8
+tracehash cab1a7b2514e7e32
+tracehash 8e283a06136b04d2
+tracehash d3a685f3cba26b1c
+tracehash 6c233e36c0b66ade
+tracehash d58ee483465204d7
+tracehash 62a058eb51942a23
+tracehash a389e9c7fc40d8ab
+tracehash b4396c9468b7f51c
+tracehash 7e78f47e49ad94e7
+tracehash 909575e5ae0fe5e2
+tracehash 0319f19815ca830a
+tracehash d352fdb36d3d9435
+tracehash 4e901a6c9f8df391
+tracehash dc616b05c68c9c8a
+tracehash 01d2fa10701d3d23
+tracehash a5936c34a9e96124
+tracehash 4d0204569f18d92a
+tracehash 966f06461137d2d3
+tracehash a8c89f2cfba70b2d
+tracehash 8df8b709765e2df3
+tracehash 844529a77e0da240
+tracehash e25f59d74d2985e6
+tracehash c80a2df96f409fbd
+tracehash 75e5789918185ecb
+tracehash 9812af932fdf209d
+tracehash d686f9fea643975d
+tracehash e8750426ccaa0a1a
+tracehash 1e2078ced83b1f21
+level 1 0.002812 0.000152
+level 2 0.082867 0.018119
+level 3 0.132227 -0.006879
+level 4 0.178821 0.013165
+level 5 0.236906 0.126671
+level 6 0.300167 -0.066707
+level 7 0.279624 0.005194
+level 8 0.236100 0.007227
+level 9 0.463137 0.048548
+level 10 0.464995 0.074527
+level 11 0.484566 -0.056361
+level 12 0.467259 0.050203
+level 13 0.454335 -0.037047
+level 14 0.478116 0.007637
+level 15 0.467278 0.007046
+level 16 0.467224 0.006853
+level 17 0.480919 -0.028210
+level 18 0.467559 0.043577
+level 19 0.438348 0.032853
+level 20 0.460314 -0.034973
+level 21 0.452142 -0.016671
+level 22 0.464328 0.022910
+level 23 0.453024 -0.020116
+level 24 0.440731 0.023156
+level 25 0.463018 -0.017935
+level 26 0.426653 -0.008668
+level 27 0.448699 0.004959
+level 28 0.433828 0.002012
+level 29 0.426086 0.001500
+level 30 0.427751 -0.000960
+level 31 0.433882 -0.010297
+level 32 0.449561 -0.012012
+level 33 0.427810 0.015381
+level 34 0.430484 0.008484
+level 35 0.425894 -0.013223
+level 36 0.432119 -0.003593
+level 37 0.404475 0.003026
+level 38 0.418497 0.015223
+level 39 0.434012 -0.010779
+level 40 0.430854 -0.006320
+level 41 0.418777 -0.020148
+level 42 0.416502 0.005556
+level 43 0.250658 0.106584
+level 44 0.052725 -0.013674
+level 45 0.185375 -0.123132
+level 46 0.056491 0.006784
+level 47 0.055422 -0.000116
+level 48 0.052625 0.005111
+level 49 0.053012 -0.000311
+level 50 0.049074 0.002084
+level 51 0.043674 0.002291
+level 52 0.042971 0.000704
+level 53 0.041879 -0.002279
+level 54 0.040959 -0.001599
+level 55 0.040404 -0.000487
+level 56 0.040121 -0.001895
+level 57 0.040440 -0.001160
+level 58 0.040440 -0.001310
+level 59 0.040235 -0.001935
+level 60 0.040288 -0.000658
+level 61 0.040428 -0.001547
+level 62 0.040406 -0.001171
+level 63 0.039929 -0.000313
+level 64 0.040489 -0.001538
+level 65 0.040267 -0.000644
+level 66 0.040337 -0.000841
+level 67 0.040256 -0.001769
+level 68 0.040309 -0.000545
+level 69 0.040392 -0.001388
+level 70 0.040392 -0.001400
+level 71 0.040313 -0.000526
+level 72 0.040239 -0.001747
+level 73 0.040428 -0.000894
+level 74 0.040415 -0.000870
+level 75 0.040231 -0.001744
+level 76 0.040322 -0.000520
+level 77 0.654411 -0.003539
+level 78 0.679126 0.022158
+level 79 0.686992 -0.040551
+level 80 0.674232 0.010514
+level 81 0.681611 0.028061
+level 82 0.685382 -0.038690
+level 83 0.674707 0.004496
+level 84 0.684633 0.032831
+level 85 0.682178 -0.036446
+level 86 0.675906 -0.005834
+level 87 0.686220 0.039639
+level 88 0.680254 -0.030565
+level 89 0.677026 -0.015804
+level 90 0.688091 0.039478
+level 91 0.677731 -0.021512
+level 92 0.679476 -0.022309
+level 93 0.688442 0.038226
+level 94 0.675506 -0.015982
+level 95 0.682856 -0.028316
+level 96 0.686105 0.038458
+level 97 0.675742 -0.006925
+level 98 0.684562 -0.036769
+level 99 0.684302 0.034569
+level 100 0.676275 0.003883
+level 101 0.687359 -0.039693
+level 102 0.681146 0.027336
+level 103 0.677956 0.011558
+level 104 0.689518 -0.040749
+level 105 0.677835 0.022911
+level 106 0.680584 0.018963
+level 107 0.688707 -0.043108
+level 108 0.676695 0.015174
+level 109 0.682282 0.027980
+level 110 0.688127 -0.040679
+level 111 0.300854 0.153957
+level 112 0.244409 -0.156663
+level 113 0.016275 0.001806
+level 114 0.016238 0.001042
+level 115 0.016234 0.000741
+level 116 0.016232 0.000498
+level 117 0.016229 0.000294
+level 118 0.016227 0.000122
+level 119 0.016226 -0.000024
+level 120 0.016218 -0.000151
+level 121 0.016825 -0.004239
+level 122 0.016230 0.000349
+level 123 0.016228 0.000162
+level 124 0.016226 0.000017
+level 125 0.016224 -0.000106
+level 126 0.016224 -0.000209
+level 127 0.016222 -0.000295
+level 128 0.016223 -0.000367
+level 129 0.016222 -0.000427
+level 130 0.016220 -0.000477
+level 131 0.016221 -0.000519
+level 132 0.016220 -0.000553
+level 133 0.016219 -0.000581
+level 134 0.016219 -0.000604
+level 135 0.016219 -0.000622
+level 136 0.016218 -0.000636
+level 137 0.016218 -0.000648
+level 138 0.016219 -0.000657
+level 139 0.016218 -0.000663
+level 140 0.016218 -0.000667
+level 141 0.016217 -0.000670
+level 142 0.016217 -0.000672
+level 143 0.016217 -0.000673
+level 144 0.016217 -0.000672
+level 145 0.233571 -0.008582
+level 146 0.236942 0.001570
+level 147 0.240676 -0.002048
+level 148 0.238403 0.006436
+level 149 0.242401 -0.007783
+level 150 0.241273 0.011213
+level 151 0.244531 -0.012054
+level 152 0.244088 0.008624
+level 153 0.246294 -0.008734
+level 154 0.246406 0.006071
+level 155 0.246240 -0.000906
+level 156 0.249433 -0.001179
+level 157 0.247359 0.004584
+level 158 0.252689 -0.016837
+level 159 0.248061 0.011235
+level 160 0.249872 -0.011295
+level 161 0.248123 0.009808
+level 162 0.247229 -0.008304
+level 163 0.245669 0.007091
+level 164 0.243085 -0.000905
+level 165 0.244528 -0.002253
+level 166 0.240190 0.004339
+level 167 0.242840 -0.007952
+level 168 0.239327 0.009962
+level 169 0.240705 -0.013004
+level 170 0.238483 0.011251
+level 171 0.239744 -0.009882
+level 172 0.237996 0.005892
+level 173 0.237566 -0.002341
+level 174 0.240052 -0.000638
+level 175 0.237915 0.003455
+level 176 0.242414 -0.006954
+level 177 0.241309 0.007115
+level 178 0.245257 -0.011513
+level 179 0.098016 0.003166
+level 180 0.043158 0.000362
+level 181 0.042193 -0.002314
+level 182 0.041592 0.002360
+level 183 0.044131 -0.001305
+level 184 0.039647 -0.000481
+level 185 0.044424 0.000528
+level 186 0.041069 -0.003351
+level 187 0.042681 0.002682
+level 188 0.046094 -0.002044
+level 189 0.037193 0.000318
+level 190 0.045183 0.001014
+level 191 0.042590 -0.003060
+level 192 0.038487 0.001899
+level 193 0.042187 -0.001447
+level 194 0.038626 -0.000338
+level 195 0.043913 -0.000926
+level 196 0.039709 0.000047
+level 197 0.044685 0.002231
+level 198 0.044197 -0.003812
+level 199 0.040544 -0.000529
+level 200 0.043846 0.001294
+level 201 0.039703 -0.000376
+level 202 0.041508 0.000373
+level 203 0.046569 -0.005518
+level 204 0.035525 0.004417
+level 205 0.044280 0.001661
+level 206 0.041724 -0.002746
+level 207 0.038904 -0.002089
+level 208 0.047509 -0.000500
+level 209 0.040608 0.001440
+level 210 0.042047 0.001738
+level 211 0.040992 -0.002695
+level 212 0.040981 -0.002109
+level 213 0.045804 -0.000490
+level 214 0.037299 0.001058
+level 215 0.045307 0.002092
+level 216 0.042569 -0.003429
+level 217 0.237833 0.132847
+level 218 0.001404 -0.022441
+level 219 0.449694 -0.132242
+level 220 0.341411 0.026298
+level 221 0.289433 0.018385
+level 222 0.245077 0.013612
+level 223 0.427685 -0.049083
+level 224 0.338670 0.024656
+level 225 0.286190 0.016879
+level 226 0.242781 0.005233
+level 227 0.427580 -0.042818
+level 228 0.337416 0.020251
+level 229 0.286505 0.012810
+level 230 0.264902 -0.007978
+level 231 0.418588 -0.035642
+level 232 0.337818 0.020286
+level 233 0.286059 0.014768
+level 234 0.296811 -0.023378
+level 235 0.398198 -0.022773
+level 236 0.334350 0.024471
+level 237 0.283725 0.016745
+level 238 0.303584 -0.028428
+level 239 0.393428 -0.010503
+level 240 0.335038 0.024977
+level 241 0.283694 0.018423
+level 242 0.303769 -0.032192
+level 243 0.398685 -0.001890
+level 244 0.333249 0.024227
+level 245 0.281430 0.016931
+level 246 0.301430 -0.033993
+level 247 0.399952 -0.000492
+level 248 0.329959 0.021200
+level 249 0.280331 0.013220
+level 250 0.305613 -0.042553
+level 251 0.398223 0.002758
+level 252 0.331118 0.017987
+level 253 0.280631 0.013238
+level 254 0.319043 -0.051570
+level 255 0.389012 0.007441
+level 256 0.328233 0.021705
+level 257 0.277786 0.016722
+level 258 0.324382 -0.057377
+level 259 0.383145 0.018334
+level 260 0.327559 0.024192
+level 261 0.278305 0.017150
+level 262 0.325408 -0.053365
+level 263 0.386222 0.019220
+level 264 0.327135 0.024737
+level 265 0.383726 -0.044725
+level 266 0.386375 0.010692
+level 267 0.387482 0.011605
+level 268 0.383711 0.004252
+level 269 0.384003 -0.001046
+level 270 0.387577 -0.005304
+level 271 0.386180 -0.002412
+level 272 0.382683 0.001502
+level 273 0.384830 0.005613
+level 274 0.387389 0.008376
+level 275 0.383780 0.004421
+level 276 0.383677 -0.000880
+level 277 0.286849 -0.011123
+level 278 0.272014 -0.002610
+level 279 0.273432 0.005707
+level 280 0.274874 0.007081
+level 281 0.271277 -0.001027
+level 282 0.275753 -0.006052
+level 283 0.271995 -0.002983
+level 284 0.273025 0.006190
+level 285 0.275118 0.005573
+level 286 0.271343 -0.001318
+level 287 0.275346 -0.007706
+level 288 0.272312 -0.002020
+level 289 0.226769 0.004674
+level 290 0.218009 0.004501
+level 291 0.217823 -0.004099
+level 292 0.218686 -0.005121
+level 293 0.217007 0.003082
+level 294 0.219608 0.006259
+level 295 0.216514 -0.001503
+level 296 0.219823 -0.006524
+level 297 0.216284 0.000231
+level 298 0.219515 0.006169
+level 299 0.216471 0.000879
+level 300 0.219601 -0.006359
+level 301 0.245086 -0.002194
+level 302 0.245740 0.002014
+level 303 0.248399 0.005070
+level 304 0.245997 0.003306
+level 305 0.246147 -0.003273
+level 306 0.248876 -0.005819
+level 307 0.245953 -0.002694
+level 308 0.245698 0.002339
+level 309 0.248608 0.005951
+level 310 0.245967 0.001972
+level 311 0.246318 -0.003194
+level 312 0.248807 -0.005859
+level 313 0.354265 -0.002421
+level 314 0.357177 0.000384
+level 315 0.357976 0.002471
+level 316 0.360304 0.004677
+level 317 0.359862 0.004470
+level 318 0.357767 0.001952
+level 319 0.356730 -0.002520
+level 320 0.359526 -0.003914
+level 321 0.360502 -0.006874
+level 322 0.358959 -0.003503
+level 323 0.356518 0.000886
+level 324 0.358048 0.000757
+level 325 0.408898 0.004231
+level 326 0.416485 0.003964
+level 327 0.415892 0.003543
+level 328 0.414339 0.001941
+level 329 0.413546 -0.000092
+level 330 0.414009 -0.001999
+level 331 0.415278 -0.003573
+level 332 0.416638 -0.004674
+level 333 0.416613 -0.004637
+level 334 0.415048 -0.003272
+level 335 0.413752 -0.001290
+level 336 0.413648 0.000652
+level 337 0.389057 0.004062
+level 338 0.387179 0.007385
+level 339 0.384752 0.004688
+level 340 0.382656 -0.001658
+level 341 0.386295 -0.006947
+level 342 0.386738 -0.006944
+level 343 0.382678 -0.001654
+level 344 0.384340 0.003719
+level 345 0.386758 0.006923
+level 346 0.385345 0.005326
+level 347 0.382546 -0.000469
+level 348 0.385665 -0.004249
+level 349 0.784257 0.004978
+level 350 0.820934 0.026841
+level 351 0.811124 -0.016714
+level 352 0.826215 -0.036711
+level 353 0.823893 -0.034677
+level 354 0.813770 -0.018543
+level 355 0.820791 0.022589
+level 356 0.828317 0.030955
+level 357 0.823185 0.024215
+level 358 0.813743 -0.015728
+level 359 0.827861 -0.037274
+level 360 0.825273 -0.036769
+level 361 0.815380 -0.016810
+level 362 0.821660 0.022944
+level 363 0.829288 0.029866
+level 364 0.823960 0.024852
+level 365 0.814237 -0.016086
+level 366 0.828434 -0.039326
+level 367 0.825932 -0.034755
+level 368 0.814885 -0.017272
+level 369 0.822756 0.022781
+level 370 0.829645 0.030640
+level 371 0.823928 0.024608
+level 372 0.814536 -0.018182
+level 373 0.828779 -0.037237
+level 374 0.825637 -0.036827
+level 375 0.815324 -0.015828
+level 376 0.822955 0.023583
+level 377 0.829559 0.030513
+level 378 0.823661 0.023688
+level 379 0.815092 -0.017317
+level 380 0.828570 -0.039466
+level 381 0.825862 -0.035218
+level 382 0.815645 -0.014867
+level 383 0.822676 0.023306
+level 384 0.829741 0.030284
+level 385 0.615049 -0.036037
+level 386 0.485416 0.052941
+level 387 0.461830 -0.111771
+level 388 0.486967 0.092924
+level 389 0.506094 -0.001150
+level 390 0.474382 -0.082733
+level 391 0.457002 0.118529
+level 392 0.509754 -0.064909
+level 393 0.492571 -0.039598
+level 394 0.463207 0.104534
+level 395 0.478096 -0.101332
+level 396 0.510590 0.019106
+level 397 0.477683 0.071184
+level 398 0.458462 -0.118194
+level 399 0.501261 0.078542
+level 400 0.497693 0.023219
+level 401 0.468695 -0.095873
+level 402 0.465531 0.111003
+level 403 0.513298 -0.040306
+level 404 0.484587 -0.058936
+level 405 0.459080 0.114271
+level 406 0.492251 -0.088988
+level 407 0.504227 -0.006470
+level 408 0.471099 0.086299
+level 409 0.460610 -0.116144
+level 410 0.510770 0.058270
+level 411 0.489463 0.044023
+level 412 0.463910 -0.106864
+level 413 0.479498 0.099399
+level 414 0.509606 -0.014016
+level 415 0.477591 -0.075278
+level 416 0.456258 0.119374
+level 417 0.504699 -0.075102
+level 418 0.496739 -0.028845
+level 419 0.465598 0.099003
+level 420 0.471066 -0.107151
+level 421 0.275510 0.044534
+level 422 0.000166 0.000384
+level 423 0.000025 0.000255
+level 424 0.000015 0.000200
+level 425 0.000015 0.000164
+level 426 0.000014 0.000131
+level 427 0.000015 0.000104
+level 428 0.000014 0.000083
+level 429 0.000006 0.000062
+level 430 0.000015 0.000047
+level 431 0.000000 0.000031
+level 432 0.000014 0.000022
+level 433 0.000015 0.000011
+level 434 0.000000 0.000000
+level 435 0.000000 0.000000
+level 436 0.000000 0.000000
+level 437 0.000000 0.000000
+level 438 0.000000 0.000000
+level 439 0.000000 0.000000
+level 440 0.000000 0.000000
+level 441 0.000000 0.000000
+level 442 0.000000 0.000000
+level 443 0.000000 0.000000
+level 444 0.000000 0.000000
+level 445 0.129282 -0.003668
+level 446 0.068904 0.003324
+level 447 0.034526 0.002406
+level 448 0.033614 0.008097
+level 449 0.026012 -0.004362
+level 450 0.021836 -0.006606
+level 451 0.010790 -0.001363
+level 452 0.005013 -0.000059
+level 453 0.002133 0.000177
+level 454 0.001076 0.000279
+level 455 0.000630 0.000350
+level 456 0.000324 0.000324
+level 457 0.138916 -0.007049
+level 458 0.069588 0.007391
+level 459 0.035062 0.004486
+level 460 0.035764 0.006393
+level 461 0.031323 -0.003304
+level 462 0.020871 -0.005255
+level 463 0.008885 -0.002518
+level 464 0.004375 -0.000945
+level 465 0.002568 -0.000331
+level 466 0.001316 0.000250
+level 467 0.000616 0.000325
+level 468 0.000266 0.000265
+level 469 0.142126 -0.009389
+level 470 0.068566 0.016235
+level 471 0.036989 -0.000956
+level 472 0.034008 0.006362
+level 473 0.026607 -0.003637
+level 474 0.018098 -0.006627
+level 475 0.010235 -0.003319
+level 476 0.005688 -0.000450
+level 477 0.002743 0.000272
+level 478 0.001165 0.000448
+level 479 0.000536 0.000357
+level 480 0.000292 0.000292
+level 481 0.138640 -0.004553
+level 482 0.066317 0.007713
+level 483 0.035410 0.000049
+level 484 0.034162 0.008151
+level 485 0.026982 -0.006318
+level 486 0.021749 -0.004742
+level 487 0.010675 -0.001407
+level 488 0.004785 0.000067
+level 489 0.002083 0.000096
+level 490 0.001100 0.000234
+level 491 0.000646 0.000351
+level 492 0.000319 0.000326
+level 493 0.000149 0.000245
+level 494 0.000066 0.000162
+level 495 0.000037 0.000106
+level 496 0.000024 0.000067
+level 497 0.000015 0.000037
+level 498 0.000015 0.000013
+level 499 0.000000 0.000000
+level 500 0.000000 0.000000
+level 501 0.000000 0.000000
+level 502 0.000000 0.000000
+level 503 0.000000 0.000000
+level 504 0.000000 0.000000
+level 505 0.000000 0.000000
+level 506 0.000000 0.000000
+level 507 0.000000 0.000000
+level 508 0.000000 0.000000
+level 509 0.000000 0.000000
+level 510 0.000000 0.000000
+level 511 0.000000 0.000000
+level 512 0.000000 0.000000
+level 513 0.000000 0.000000
+level 514 0.000000 0.000000
+level 515 0.028437 0.044669
+level 516 0.059040 -0.004337
+level 517 0.060530 -0.007689
+level 518 0.062815 -0.006455
+level 519 0.062356 -0.002992
+level 520 0.059718 -0.005314
+level 521 0.057711 0.001258
+level 522 0.058631 -0.006100
+level 523 0.061626 -0.006345
+level 524 0.061707 0.001740
+level 525 0.062134 -0.002890
+level 526 0.064247 -0.001633
+level 527 0.061490 0.001909
+level 528 0.058378 -0.003627
+level 529 0.058765 -0.000497
+level 530 0.057718 -0.001310
+level 531 0.053386 -0.002168
+level 532 0.050143 -0.000269
+level 533 0.046830 -0.000326
+level 534 0.040825 0.002382
+level 535 0.038729 -0.004622
+level 536 0.036949 0.001880
+level 537 0.033178 -0.000492
+level 538 0.026836 -0.002963
+level 539 0.026481 0.002183
+level 540 0.022430 0.000702
+level 541 0.018487 -0.001274
+level 542 0.015532 -0.000405
+level 543 0.012716 0.000660
+level 544 0.008982 -0.000917
+level 545 0.005598 0.000044
+level 546 0.000051 -0.000623
+level 547 0.000042 -0.000507
+level 548 0.000034 -0.000380
+level 549 0.000029 -0.000274
+level 550 0.000025 -0.000186
+level 551 0.000021 -0.000113
+level 552 0.000019 -0.000051
+level 553 0.000012 -0.000006
+level 554 0.000014 0.000010
+level 555 0.000015 0.000042
+level 556 0.000013 0.000068
+level 557 0.000003 0.000091
+level 558 0.000015 0.000111
+level 559 0.000000 0.000122
+level 560 0.000014 0.000131
+level 561 0.000015 0.000140
+level 562 0.000000 0.000153
+level 563 0.000000 0.000153
+level 564 0.000000 0.000153
+level 565 0.000000 0.000153
+level 566 0.000000 0.000153
+level 567 0.000000 0.000153
+level 568 0.000000 0.000153
+level 569 0.000000 0.000153
+level 570 0.000000 0.000153
+level 571 0.000015 0.000141
+level 572 0.000015 0.000137
+level 573 0.000015 0.000137
+level 574 0.000014 0.000130
+level 575 0.000000 0.000122
+level 576 0.000000 0.000122
+level 577 0.000000 0.000122
+level 578 0.000000 0.000122
+level 579 0.000014 0.000113
+level 580 0.000015 0.000107
+level 581 0.000015 0.000107
+level 582 0.000013 0.000098
+level 583 0.000000 0.000092
+level 584 0.000000 0.000092
+level 585 0.069909 0.067989
+level 586 0.221899 0.021588
+level 587 0.240711 -0.072987
+level 588 0.216594 -0.010060
+level 589 0.217717 0.028098
+level 590 0.228626 -0.000649
+level 591 0.218493 -0.006571
+level 592 0.212559 -0.016646
+level 593 0.205503 -0.018995
+level 594 0.191808 -0.005837
+level 595 0.189191 0.008047
+level 596 0.177200 0.009856
+level 597 0.162087 0.010115
+level 598 0.148681 -0.019590
+level 599 0.150432 0.012429
+level 600 0.142700 -0.007855
+level 601 0.122129 -0.016726
+level 602 0.121408 -0.001831
+level 603 0.114755 0.021453
+level 604 0.107877 -0.009680
+level 605 0.176825 0.016693
+level 606 0.256645 -0.013639
+level 607 0.281080 0.002561
+level 608 0.226339 0.019147
+level 609 0.234680 -0.028555
+level 610 0.247225 0.031309
+level 611 0.245477 -0.011930
+level 612 0.236430 -0.025251
+level 613 0.226235 -0.005598
+level 614 0.234313 0.000175
+level 615 0.216920 0.025039
+level 616 0.187389 0.003751
+level 617 0.203729 -0.013837
+level 618 0.191784 -0.013373
+level 619 0.185158 -0.002465
+level 620 0.175835 0.031355
+level 621 0.163908 -0.032768
+level 622 0.153195 0.006486
+level 623 0.140444 0.023849
+level 624 0.126804 -0.028860
+level 625 0.429312 0.048898
+level 626 0.443692 0.017221
+level 627 0.424366 -0.009218
+level 628 0.445448 -0.026940
+level 629 0.418509 -0.014360
+level 630 0.449036 0.009419
+level 631 0.454209 0.012116
+level 632 0.434261 -0.003406
+level 633 0.414342 -0.017160
+level 634 0.419409 0.008132
+level 635 0.449268 0.014713
+level 636 0.428017 -0.007412
+level 637 0.426960 -0.010316
+level 638 0.431713 -0.012641
+level 639 0.415409 0.011960
+level 640 0.427134 0.011590
+level 641 0.411477 -0.000708
+level 642 0.425672 -0.011383
+level 643 0.378719 -0.028275
+level 644 0.420042 0.020010
+level 645 0.416586 0.022339
+level 646 0.428608 0.004549
+level 647 0.420543 -0.019811
+level 648 0.412151 -0.010087
+level 649 0.430484 0.062789
+level 650 0.467080 -0.010354
+level 651 0.507583 -0.003328
+level 652 0.502537 -0.059747
+level 653 0.464548 0.058747
+level 654 0.486940 -0.012877
+level 655 0.465086 -0.013412
+level 656 0.467373 -0.014818
+level 657 0.458211 -0.006233
+level 658 0.464952 0.019157
+level 659 0.464069 0.008372
+level 660 0.446155 0.017226
+level 661 0.455900 -0.009158
+level 662 0.446307 -0.037516
+level 663 0.438327 0.016979
+level 664 0.439352 0.012414
+level 665 0.440212 -0.004116
+level 666 0.442055 -0.029566
+level 667 0.434209 0.009614
+level 668 0.423453 0.001216
+level 669 0.434595 -0.002483
+level 670 0.422478 -0.013250
+level 671 0.434807 -0.005294
+level 672 0.424590 -0.002533
+level 673 0.424801 0.011745
+level 674 0.424912 0.015024
+level 675 0.190269 -0.015982
+level 676 0.067879 -0.000161
+level 677 0.061223 0.014184
+level 678 0.055764 -0.008985
+level 679 0.055242 0.001613
+level 680 0.049777 0.004644
+level 681 0.043977 -0.004420
+level 682 0.042137 0.007407
+level 683 0.034359 -0.003447
+level 684 0.036375 0.006715
+level 685 0.031788 -0.004039
+level 686 0.030346 0.003696
+level 687 0.026918 -0.001830
+level 688 0.021981 0.002368
+level 689 0.021096 0.000954
+level 690 0.016041 -0.001182
+level 691 0.009197 0.000678
+level 692 0.006611 0.001441
+level 693 0.004396 0.000110
+level 694 0.002475 -0.000271
+level 695 0.000897 0.000232
+level 696 0.000027 -0.000169
+level 697 0.000024 -0.000103
+level 698 0.000020 -0.000036
+level 699 0.000000 0.000000
+level 700 0.000017 0.000027
+segment 0 1 8 0.242321 91.475 4.6782e3,5.8995e3,4.1584e3,5.2327e3,5.3399e3,9.4792e3,1.4593e4,3.7625e4,7.3096e4,1.4838e5,2.0978e5,2.4854e5,2.7194e5,3.5288e5,3.7894e5,3.5951e5,1.8472e5,9.7907e4,1.3178e5,1.3185e5,4.0343e4,9.8058e3,1.2692e4,8.9966e3,1.5237e4,1.4287e4,1.8306e4,1.7946e4,4.5210e3,1.7411e4,3.9977e4,1.0079e4,2.5308e4,8.2036e3,1.1633e4,1.2119e4,3.0725e4,2.5321e3,5.1715e3,2.4040e3,9.3145e3,4.9710e3,2.4482e4,1.2263e4,8.6934e2,2.8181e3,1.4423e4,1.0990e3,1.0946e3,3.8822e2,3.3539e2,3.9919e2,3.2771e2,4.8088e2,3.8081e2,1.0638e3,6.7613e1,1.5329e2,2.2946e2,1.4193e2,8.2476e1,9.3513e1,1.1933e2,4.0526e1,2.1633e1,4.2317e1,2.7639e1,2.8608e1,1.6902e1,1.5794e1,1.2291e1,1.1586e1,5.9210e0,7.5887e0,5.4333e0,5.8898e0,4.3089e0,2.9883e0,3.4669e0,2.3969e0,1.8726e0,1.4495e0,1.4222e0,1.2547e0,9.4324e-1,8.1711e-1,6.5006e-1,5.9282e-1,5.1921e-1,3.8707e-1,3.2991e-1,3.1083e-1,2.2059e-1,1.9777e-1,1.8037e-1,1.4495e-1,1.1724e-1,9.5479e-2,8.2158e-2,7.0190e-2 0.0000e0,0.0000e0,0.0000e0,0.0000e0,0.0000e0,0.0000e0,0.0000e0,0.0000e0
+segment 1 9 42 0.446473 497.514 2.3323e3,3.4660e3,6.1078e3,1.6184e4,3.6817e4,4.5789e4,1.4927e4,1.5230e4,3.5374e4,4.4995e4,2.2264e4,3.2173e4,1.4060e5,2.2348e5,1.0981e5,5.1137e4,2.6056e5,4.0781e5,8.7643e5,2.4486e6,5.1021e5,4.1593e5,1.4596e5,1.2011e5,1.2995e5,8.3801e4,5.9786e4,3.3145e4,3.6413e4,3.0020e4,3.4220e4,2.3231e4,4.5948e4,2.4087e4,1.5254e4,1.3828e4,1.5262e5,1.6884e5,8.8499e4,7.7216e4,8.2705e4,9.7548e4,1.8621e5,5.1902e7,4.1395e3,2.0910e3,1.1747e3,1.9551e3,1.2932e4,9.4836e3,4.4981e3,4.4552e3,2.6183e3,2.4822e3,2.7506e3,7.3051e3,5.6028e2,2.7037e2,1.7367e2,5.1478e2,1.8399e2,2.3632e2,2.0562e5,7.3639e1,1.4223e2,1.9860e2,1.2569e2,2.6789e2,7.1889e1,7.4307e1,5.1783e1,3.9538e3,4.7748e1,5.8234e1,4.6122e1,4.0821e1,3.7415e1,1.7816e2,2.5467e1,2.8978e1,2.4019e1,2.6078e1,1.8207e1,1.6200e1,8.7973e0,9.2814e0,6.5840e0,3.8892e0,3.7789e0,2.6936e0,2.0235e0,1.5373e0,1.5346e0,1.3354e0,1.1603e0,1.0525e0,8.4722e-1,7.0090e-1,5.1356e-1,3.9832e-1 3.1895e3,7.1803e4,8.2754e3,5.4318e5,6.0066e2,2.1982e3,1.5649e1,1.3844e0
+segment 2 43 76 0.058099 1492.537 1.7869e0,4.2574e-1,1.6037e-1,1.9417e-1,1.0057e-1,1.1996e0,2.1297e2,4.9774e2,9.6168e0,1.5503e1,1.0070e1,3.3610e1,4.6135e1,2.9508e1,1.3194e2,6.9066e1,7.4431e1,9.1928e1,5.4717e2,9.5804e2,1.6951e2,4.5216e2,1.5036e2,1.3109e2,2.2000e1,4.4866e2,4.9787e2,8.8057e0,1.9778e1,1.0070e1,5.2719e3,3.2748e3,5.2472e0,5.8013e0,8.2081e2,4.8338e1,2.7347e2,7.8958e2,2.5040e2,2.0956e2,5.5841e2,5.1413e2,3.1029e3,7.9798e2,5.7022e1,6.5401e1,1.3874e2,3.7461e0,4.0156e1,5.7445e2,1.1643e2,2.5562e1,9.9371e1,4.1202e1,1.7734e2,1.2227e2,7.4964e1,1.8443e1,2.0366e1,7.3282e2,8.1840e0,2.0813e1,4.7459e5,3.4810e0,6.2985e0,1.7774e2,4.6987e0,1.1563e1,2.1434e0,5.3101e0,1.0999e0,4.2322e0,1.0689e0,1.8428e0,4.6575e1,1.4946e0,6.8988e-1,5.9193e-1,2.0478e-1,1.3462e-1,3.7748e-1,3.1712e1,1.3605e-1,1.3780e-2,1.2529e-2,1.2467e-2,1.9130e-1,2.4575e-2,2.4012e-3,6.0561e-3,1.3047e-1,1.7073e-3,1.1015e-3,6.6765e-3,1.8475e-3,9.9129e-4,2.8749e-3,8.7559e-4,1.3378e-3,8.5055e-4 1.5767e1,3.6081e2,1.3745e2,3.8146e2,3.8324e1,4.9575e3,9.0256e-1,4.2170e-3
+segment 3 77 110 0.682259 383.142 1.1396e-2,5.2429e0,4.7148e1,2.4817e1,1.3076e-2,3.1008e-2,1.6206e1,9.5132e2,1.3389e2,8.5988e-2,1.8204e0,1.9583e1,5.7289e-2,2.9055e-1,1.7176e2,4.5395e0,1.1780e3,1.0618e4,5.8461e-1,6.2543e0,6.0597e-2,2.3638e2,1.2114e0,2.6878e2,6.3340e2,4.5276e2,2.9429e2,1.2829e1,1.4020e2,2.4660e3,4.4298e2,1.0659e1,4.3097e2,3.1802e3,1.0158e2,1.8173e2,4.5226e2,2.1609e2,4.6483e4,1.3940e8,8.3224e1,4.3332e2,1.7467e2,1.4194e3,1.4485e2,1.0418e3,4.6013e2,1.1747e2,2.4707e3,2.9071e2,8.5832e1,5.3999e3,2.8725e2,1.4782e3,1.7239e2,2.2985e2,3.1661e2,4.2192e1,8.8140e5,1.3057e2,1.3208e2,3.2490e2,6.1324e1,8.5354e3,2.9233e2,9.7513e1,4.3434e4,5.4256e3,3.8137e1,4.6307e1,7.2703e3,1.8686e1,9.5948e3,2.1178e1,1.6954e1,3.2991e3,1.7476e1,2.3740e3,8.9712e2,1.4688e1,3.6709e2,1.7895e1,1.5388e2,7.0550e1,1.3443e2,4.1416e1,1.2368e2,1.7232e2,1.4475e2,1.0401e2,8.5857e1,1.5240e1,1.5030e1,1.8700e1,4.6075e1,2.6090e1,2.8023e1,7.9387e0,7.3300e0,1.0686e1 1.2518e1,1.2968e2,8.8550e1,1.4535e6,9.2893e3,6.9487e2,1.7643e2,9.8891e0
+segment 4 111 144 0.016270 484.848 9.2268e0,1.1885e1,8.5945e0,1.1037e1,1.0542e1,1.2477e1,9.4435e0,1.1171e1,1.0447e1,1.1664e1,1.0729e1,9.8517e0,9.0527e0,9.6001e0,8.6860e0,8.9041e0,7.8570e0,7.8787e0,3.1392e2,1.4489e4,5.8834e0,5.2938e0,4.9041e0,4.1295e0,3.7460e0,3.3233e0,2.7315e0,2.5421e0,2.0509e0,1.7433e0,1.5889e0,3.2979e2,1.0447e0,8.3699e-1,6.6886e-1,5.2911e-1,4.2972e-1,6.6151e-1,5.7521e3,2.0048e-1,1.5686e-1,1.1935e-1,9.8876e-1,3.1344e4,4.9712e-2,3.7169e-2,6.6633e0,2.9752e3,1.4961e-2,1.2391e-2,4.2448e2,5.4213e-3,3.9440e2,2.1103e-2,5.7770e-3,4.3780e3,1.2424e-3,2.8311e2,2.4585e-2,1.8528e2,1.0984e1,3.8710e-4,6.6278e2,2.8015e-1,5.5062e1,2.0357e-4,1.5697e0,8.3581e1,5.0301e1,1.0819e1,3.2485e0,1.8548e2,1.2111e0,1.7383e0,1.7285e4,1.3085e-2,6.5969e-1,1.8251e1,3.0713e-1,1.0388e0,3.2292e-1,1.0125e-1,3.3673e-1,3.6775e-1,1.2207e-2,4.5683e-1,2.0216e0,1.1636e-2,7.4112e-3,1.2193e-2,6.8461e-3,3.8216e-3,1.2172e-2,2.0258e-1,5.1821e-3,1.8515e-3,1.3562e-3,1.5928e-3,6.6373e-3,1.1603e-3 3.0611e0,1.5491e2,3.7955e0,4.1836e2,5.9071e1,1.0556e1,1.8103e2,2.8658e-2
+segment 5 145 178 0.243554 572.451 1.0497e2,1.0955e2,1.4350e2,1.1595e2,9.3317e1,6.0386e1,5.9742e1,8.1751e1,1.3890e2,1.8488e2,1.1800e2,4.7293e1,6.0135e1,1.4545e2,1.6664e2,7.9138e1,5.9236e1,1.4447e2,1.3317e2,6.4126e1,1.1486e2,1.3297e2,5.4064e1,1.3819e2,8.0894e1,1.1025e2,1.5466e3,1.3439e4,1.0305e2,1.2190e2,1.1989e2,2.9462e2,4.2214e2,7.8355e3,8.0372e3,5.1770e2,2.4575e2,1.5490e2,5.0558e2,7.3442e3,1.0338e2,1.1620e2,1.7128e2,3.3832e2,6.6976e2,4.3753e4,1.7475e7,5.5759e2,1.7908e2,1.0007e2,8.5254e1,1.8835e3,3.0172e2,1.7856e3,9.8416e2,3.3036e1,6.0157e1,9.0182e2,6.1967e5,4.6246e1,3.1556e2,2.9498e2,6.1976e1,1.6521e2,9.1195e1,4.8725e4,6.0146e1,3.8414e1,3.1452e1,1.6806e1,5.0806e3,1.1847e1,1.7722e1,6.8433e2,3.0171e0,5.2506e0,1.9305e0,1.1999e2,1.8044e0,2.6533e1,4.8569e-1,2.1059e-1,7.1169e0,1.5183e-1,2.1397e0,7.4208e-1,3.4087e-2,2.8281e-1,2.0990e-2,1.2951e-1,5.4018e-2,2.4285e-2,1.3599e-2,2.4813e-3,6.2217e-3,3.4628e-3,2.9314e-3,2.7779e-3,8.7364e-4,1.0397e-3 7.2348e0,6.7091e0,3.3628e2,1.8004e5,6.5284e3,5.7181e2,9.0425e0,3.6040e-2
+segment 6 179 216 0.042200 530.384 1.8710e1,1.3775e1,1.7795e2,4.2112e3,4.8169e2,2.1010e1,1.3102e1,1.2539e2,1.2155e2,6.9825e2,1.2703e4,3.0930e1,1.4990e1,4.6666e1,1.2438e2,1.8219e3,2.2747e2,1.2022e2,1.3141e3,1.6417e4,4.0059e1,5.0736e2,1.3777e4,2.4895e2,6.7506e3,3.3603e3,5.2946e2,1.8554e3,2.1307e3,4.0084e3,3.0118e3,4.1114e3,1.9479e4,5.8824e2,5.3567e3,1.0785e4,1.8672e4,8.7426e3,1.2009e4,3.9830e3,3.4564e3,1.0667e3,9.1692e3,3.1326e3,3.1983e5,8.5688e3,3.2192e3,1.8646e3,3.7363e3,5.4009e3,3.4031e4,1.4005e4,1.6553e3,2.9946e3,4.3410e3,2.2686e3,5.5771e3,1.0504e3,5.1085e3,7.2530e3,1.1525e3,5.6937e2,1.3961e3,5.8118e2,6.7703e2,1.1173e3,1.9937e2,2.1086e2,2.1784e2,1.1269e2,1.4123e2,8.7602e1,5.7708e1,5.9192e1,2.4250e1,3.1996e1,2.7192e1,7.6211e0,3.5162e0,2.2974e0,1.7130e0,1.3053e0,1.0443e0,7.5666e-1,4.4579e0,4.3682e-1,3.2146e-1,1.7490e-1,7.2951e-1,1.1212e1,3.3062e-1,1.0424e-1,3.7512e-2,1.5195e-2,2.6814e-2,5.2495e-3,5.0670e-3,2.8420e-3,2.6063e-3,3.9121e-3 1.6133e2,3.6728e2,4.6354e2,3.6062e3,8.3830e2,7.2513e1,2.1235e0,1.6601e-1
+segment 7 217 264 0.336545 487.729 5.7291e0,7.6045e3,2.2731e5,4.2761e4,1.7614e1,3.3408e0,3.4381e2,2.2917e5,2.4800e3,4.1395e0,1.2358e4,1.7754e5,4.1143e1,9.3391e1,1.5601e5,3.3875e3,1.6717e4,1.0583e5,8.8849e1,1.0039e5,1.0070e2,8.2633e4,3.0119e2,6.8567e4,5.3889e4,4.1952e3,5.3520e4,4.5241e4,1.3564e4,3.0339e4,3.3332e4,2.9858e4,2.7235e4,2.5296e4,2.3958e4,2.4972e4,4.4062e4,2.3902e4,2.7185e4,5.7981e4,6.0382e4,1.0886e5,6.9602e5,4.4805e7,1.3976e5,3.2421e4,1.2410e4,4.9219e3,3.1547e3,1.7740e3,7.5751e2,2.0810e3,9.2036e2,1.0829e3,6.7936e2,2.1170e3,6.3050e2,3.6974e2,7.6300e2,2.3914e2,1.7417e2,8.2977e2,1.9090e5,4.0718e2,5.5090e1,1.0902e2,1.0396e2,1.4309e2,1.3662e2,1.0522e2,3.6361e1,3.9245e3,7.2771e1,7.9146e1,7.1766e1,7.0469e1,1.7169e2,6.1245e1,4.5608e1,3.9628e1,2.9702e1,2.7607e1,1.6590e1,1.0988e1,6.8381e0,2.9094e0,1.2815e0,1.0270e0,8.8803e-1,1.7691e0,2.6790e0,3.0152e0,2.7464e0,2.2004e0,1.2403e0,5.3713e-1,2.5222e-1,3.9016e-1,6.4577e-1,7.1889e-1 5.2879e3,4.1609e3,2.4469e3,3.2881e5,9.8523e1,1.4087e3,4.6242e0,1.8861e-1
+segment 8 265 276 0.385330 614.440 1.5618e0,7.6090e0,1.1776e1,2.1485e1,2.0122e1,1.4484e1,3.8782e0,6.9070e-1,1.7919e1,1.3496e2,2.7660e2,2.0288e2,4.8542e1,2.2791e0,1.4606e1,4.5373e1,2.9216e1,2.9720e0,3.1448e1,1.1483e2,3.8435e1,6.6021e1,6.2745e2,2.0029e2,1.0080e1,2.9285e1,6.4575e0,1.2683e2,3.1819e1,5.7444e2,1.0807e2,5.8286e-1,2.8781e1,6.2661e1,4.2394e2,3.3980e1,1.9157e1,3.8076e1,2.5553e2,1.6600e2,1.1572e1,1.3270e2,5.5529e2,1.2029e0,5.0502e2,1.9396e3,8.9877e3,1.2942e7,1.5011e2,1.6366e3,9.5840e1,1.8722e2,5.5363e1,4.1926e1,5.6327e1,5.0691e1,1.1717e1,5.7204e1,7.3164e1,1.0434e4,1.1687e1,1.2800e1,1.1140e1,8.9270e0,1.1355e1,3.8038e1,2.7570e4,2.6238e1,2.9511e0,2.7927e0,4.8953e0,2.8043e2,5.1003e-1,3.6206e-1,1.2028e0,3.0926e2,2.3263e-1,3.6753e-1,1.4345e1,3.5796e-2,8.0848e0,1.8400e0,2.5973e-2,1.4372e0,3.7278e-3,5.8561e-1,1.0060e-2,2.1582e-1,5.7645e-2,2.9989e-3,4.1953e-2,6.6306e-3,1.1270e-2,7.1253e-4,6.2731e-4,3.1920e-3,3.2324e-4,8.0251e-4,2.7781e-4,5.8641e-4 1.8182e1,4.7284e1,5.0944e1,4.6518e5,6.2578e2,1.0051e3,1.2131e1,3.3778e-2
+segment 9 277 288 0.273631 618.238 2.8698e-1,1.5191e0,2.5031e0,4.8567e0,4.8102e0,3.4891e0,8.7204e-1,1.2053e-1,1.4538e0,1.2997e1,2.9732e1,2.4231e1,6.7175e0,4.3546e-1,4.7679e0,1.9681e1,1.4591e1,1.8701e0,1.9634e1,9.9400e1,3.9893e1,3.1051e0,3.4056e1,1.6539e1,7.6311e1,4.2725e2,3.5839e1,4.8180e1,1.4681e1,5.7568e2,1.9538e2,6.7529e1,5.9718e0,5.3081e0,8.9811e1,1.2654e1,3.8812e0,2.0177e2,7.0191e0,1.9809e3,9.4525e1,2.7382e2,3.5795e1,2.2565e1,4.4600e1,8.5191e1,1.4763e3,6.5245e6,2.9557e2,1.4070e1,2.2522e1,1.0995e2,4.2768e2,2.8252e1,9.1368e0,5.9583e1,6.1804e1,9.0530e0,4.5742e0,4.2324e3,5.3279e0,9.0710e0,6.1565e0,4.6209e0,3.3525e1,3.8622e0,1.3845e4,3.1861e0,1.1227e1,3.5863e0,1.3224e0,1.1298e2,2.7220e-1,8.0044e-1,3.0336e-1,1.5507e2,5.3897e-1,2.7048e-1,5.6984e0,1.5481e-2,5.0668e-2,5.1476e0,3.5817e-2,5.5769e-1,4.6683e-3,3.1406e-1,1.0202e-2,8.8206e-2,3.3999e-2,2.4703e-3,1.6660e-2,4.6464e-3,9.4379e-4,5.0948e-3,4.2995e-4,1.4007e-3,3.2275e-4,4.2266e-4,2.9337e-4,3.7594e-4 2.1060e0,8.3489e0,5.6852e1,2.3440e5,2.8262e2,5.0433e2,6.0632e0,1.7355e-2
+segment 10 289 300 0.218019 620.155 4.2533e-6,2.9240e-6,7.3814e-7,4.4538e-6,1.1234e-6,2.3187e-6,9.1071e-7,5.4493e-6,3.2715e-6,1.0292e-5,2.0866e-5,1.5546e-5,4.6482e-5,1.6845e-4,3.2637e-4,1.0013e-3,4.0904e-3,6.0939e-2,1.3460e1,8.1987e1,3.6954e1,5.5952e-1,6.8987e-3,6.9783e-4,2.3840e-4,7.8460e-5,8.5012e-5,2.5858e-4,1.7426e-3,1.9118e-2,8.7779e0,9.5017e2,1.0975e2,3.0800e-2,1.8526e-3,4.6936e-4,2.5484e-3,3.2252e-1,1.2388e3,2.8063e1,5.7135e-3,2.1903e-3,3.3411e-2,4.2662e2,4.1992e-1,1.0716e0,3.6831e2,4.1512e6,1.3848e2,6.4172e-1,1.8279e2,2.6337e-2,6.3004e-2,2.5307e2,6.9246e-4,9.4894e1,1.7772e-3,9.9837e0,5.1058e-3,2.2784e3,7.8543e-3,7.3263e-1,1.0192e1,6.4365e0,8.5151e0,6.7613e0,8.7990e3,4.0568e0,6.9693e0,2.8576e0,4.2305e-1,6.0387e1,9.5850e-4,4.6880e-1,1.8502e-1,9.8996e1,3.8999e-1,1.6913e-1,3.0215e0,3.8875e-3,2.2468e-2,3.3521e0,4.4193e-2,3.0223e-1,9.5324e-4,2.1211e-1,7.6285e-3,4.7329e-2,2.4660e-2,1.6411e-3,9.7527e-3,3.5406e-3,7.1161e-4,2.7013e-3,4.0229e-4,8.7780e-4,3.0078e-4,3.2205e-4,2.9898e-4,3.0205e-4 5.7506e-5,4.7782e0,3.8388e1,1.4916e5,1.1541e2,3.1988e2,3.8403e0,1.1206e-2
+segment 11 301 312 0.246920 616.333 3.7795e-1,2.2009e0,3.7936e0,7.3743e0,7.1126e0,4.8398e0,1.0537e0,1.1784e-1,2.4502e-1,1.7054e0,3.3625e0,2.6481e0,8.7795e-1,4.0112e-1,1.0684e1,4.3244e1,2.8984e1,2.3480e0,6.8235e0,3.3064e1,1.1246e1,9.5105e-1,8.2757e0,3.5196e0,2.1916e1,9.8586e1,6.1166e0,3.4971e1,7.3377e0,8.7151e0,6.6375e0,1.3802e2,1.3778e1,2.3358e1,8.1327e0,6.3078e1,1.1441e2,2.0664e1,7.1110e0,2.2871e2,1.8070e1,5.7499e0,3.8950e2,1.1051e1,1.1822e2,1.0765e3,1.3608e3,5.3189e6,1.0876e2,6.5946e2,2.7187e1,1.0977e2,4.7698e1,5.1686e0,2.3221e1,1.4226e1,7.9439e0,7.8834e0,9.0533e0,3.9575e3,4.0139e0,2.9763e0,2.4905e0,2.8351e0,1.0005e1,2.2816e1,1.1344e4,1.5098e1,1.7064e0,6.0039e-1,1.0223e0,1.0619e2,1.7102e-1,2.1085e-1,8.9364e-1,1.2635e2,1.6464e-1,6.0447e-2,5.3442e0,1.5515e-2,8.0978e-2,4.0975e0,9.0388e-3,5.3128e-1,2.9201e-3,2.4759e-1,2.8592e-3,8.2099e-2,2.6475e-2,1.0279e-3,1.5641e-2,3.5076e-3,5.6916e-4,4.3927e-3,3.0027e-4,1.4338e-3,2.7164e-4,3.4261e-4,2.4116e-4,4.2492e-4 1.2483e0,5.4874e0,1.3510e1,1.9106e5,2.7226e2,4.1358e2,4.9563e0,1.4004e-2
+segment 12 313 324 0.358706 612.557 1.9264e0,9.6866e0,1.5509e1,2.9003e1,2.7099e1,1.7093e1,2.9906e0,3.6977e-1,2.0382e0,1.6163e1,3.2764e1,2.2365e1,4.3886e0,1.4930e0,2.9565e1,1.0136e2,5.5994e1,3.7258e0,7.9483e0,2.8961e1,7.0079e0,1.5526e1,1.2742e2,3.3819e1,1.5039e1,4.2193e1,6.5432e0,1.0083e2,7.3099e1,2.6470e3,3.6046e2,4.7647e1,1.5692e2,2.4069e2,5.1542e0,8.4470e1,7.4641e1,3.1845e1,6.1012e1,2.2728e3,1.9803e1,8.6332e2,1.5483e0,1.2974e2,3.0734e1,1.9309e2,5.9659e4,1.1166e7,2.2735e2,2.9001e1,4.5129e1,2.4874e2,6.2675e2,2.1869e1,3.8260e1,2.5879e2,1.8307e1,1.4525e1,1.8374e1,1.0198e4,7.9943e0,4.7706e0,3.4501e1,5.7966e0,3.7177e1,6.2005e0,2.4011e4,6.9489e0,1.9162e1,9.1968e0,1.1963e0,2.7594e2,6.7058e-1,6.9240e-1,5.6634e-1,2.6581e2,1.1251e0,4.6943e-1,1.3965e1,3.2243e-2,8.2464e0,1.1255e-1,5.3328e-2,1.3618e0,4.5834e-3,4.7834e-1,9.4832e-3,2.0302e-1,4.2450e-2,4.3236e-3,3.9124e-2,4.8090e-3,1.1738e-2,4.8279e-4,5.2406e-4,2.8141e-3,2.5828e-4,7.2467e-4,2.1699e-4,6.8938e-4 4.7891e0,1.3343e1,1.2404e2,4.0329e5,4.7721e2,8.7742e2,1.0539e1,2.8866e-2
+segment 13 325 336 0.415023 610.687 1.1231e-5,8.4787e-5,3.9360e-5,1.0795e-5,3.8483e-5,8.1073e-6,2.4520e-5,7.7230e-6,2.4147e-5,2.4824e-5,6.5245e-5,1.5254e-4,1.1325e-4,4.3463e-4,2.0963e-3,7.5489e-3,4.7001e-2,1.6521e0,9.2270e1,2.7603e2,6.2260e1,2.2154e-1,1.0217e-2,2.3142e-3,5.8396e-4,2.4876e-4,6.4946e-4,1.7745e-3,7.4834e-3,1.0295e-1,3.3226e2,3.1026e3,3.2472e1,3.7517e-2,2.6429e-3,1.3271e-3,2.3592e-2,8.2218e1,4.2866e3,1.1401e0,1.6238e-2,1.2084e-2,4.7850e0,1.4476e3,5.1723e-1,1.2546e1,3.6444e5,1.4666e7,9.6587e1,1.1327e0,6.6893e2,1.3208e-2,3.2851e2,5.5632e2,1.5739e-2,3.9293e2,1.0734e-3,4.0769e1,3.7022e0,1.4437e4,1.4760e0,7.7716e-4,2.6528e1,5.3537e1,6.3307e0,1.6646e1,3.2226e4,1.5638e1,2.3384e1,1.3955e1,1.8875e0,3.9166e2,2.6753e-1,1.0769e0,1.7807e0,3.5729e2,1.1423e0,7.7823e-1,2.0006e1,3.2447e-2,1.0949e1,1.2800e-1,1.0551e-1,1.9599e0,3.0876e-3,6.0964e-1,1.8085e-2,2.9080e-1,5.1426e-2,6.6852e-3,5.3347e-2,4.7129e-3,1.5586e-2,5.6692e-4,6.7866e-4,3.7018e-3,3.0667e-4,1.0323e-3,3.1507e-4,6.9520e-4 2.6225e-4,1.5532e1,1.2453e2,5.4001e5,6.0162e2,1.1772e3,1.4205e1,3.7969e-2
+segment 14 337 348 0.384713 614.439 1.2882e0,6.8259e0,1.1493e1,2.2612e1,2.1994e1,1.3484e1,1.9021e0,7.0355e-1,1.6149e1,1.3276e2,2.7991e2,2.0318e2,4.5339e1,1.9818e0,1.1315e1,4.8887e1,2.8258e1,2.1823e0,2.8648e1,1.2019e2,3.2828e1,6.1192e1,6.3162e2,1.9650e2,7.6552e0,3.1182e1,5.1756e0,1.2969e2,2.6306e1,5.7374e2,1.0664e2,7.0688e-1,2.8081e1,6.2244e1,4.2149e2,3.5608e1,1.9346e1,3.7458e1,2.5565e2,1.6638e2,1.1776e1,1.3304e2,5.5555e2,1.1347e0,5.1191e2,1.9297e3,9.0568e3,1.2924e7,1.3889e2,1.6376e3,9.5760e1,1.8741e2,5.6003e1,4.1737e1,5.6244e1,5.0696e1,1.1439e1,5.6931e1,7.4023e1,1.0384e4,1.1611e1,1.2639e1,1.1049e1,8.9462e0,1.1397e1,3.8012e1,2.7548e4,2.6193e1,2.9635e0,2.7899e0,4.8796e0,2.7909e2,5.0309e-1,3.6109e-1,1.2081e0,3.0939e2,2.3164e-1,3.6838e-1,1.4287e1,3.4880e-2,8.0967e0,1.8405e0,2.6154e-2,1.4331e0,4.0203e-3,5.8274e-1,9.8642e-3,2.1684e-1,5.7009e-2,2.6487e-3,4.1578e-2,7.1262e-3,1.1076e-2,8.1006e-4,5.4855e-4,3.1601e-3,3.6084e-4,7.5359e-4,1.8219e-4,6.0582e-4 1.7806e1,4.4326e1,4.7710e1,4.6450e5,6.2803e2,1.0045e3,1.2144e1,3.3739e-2
+segment 15 349 384 0.822659 251.097 5.9675e2,1.0916e2,2.0176e-1,3.2552e1,1.0467e2,2.3583e0,2.1468e0,1.7172e1,1.8243e-1,6.8169e0,3.9736e0,2.3055e2,8.9591e2,2.0206e1,1.9900e2,1.0059e-1,9.9637e-2,7.4270e1,4.8216e1,5.6291e2,5.1103e1,3.9226e1,5.5094e1,7.1996e1,1.2259e2,2.0132e2,1.2687e2,5.7381e1,4.1462e3,2.9198e2,1.3006e2,2.0539e8,6.0119e6,1.6900e2,3.3066e3,6.3032e1,1.7603e2,2.2429e2,1.1893e2,5.1712e2,9.5010e2,6.4807e1,6.2931e2,2.3221e5,5.8029e1,8.0792e2,6.1604e2,2.7175e2,1.5401e2,1.0654e3,5.5870e6,8.6441e2,7.9767e1,1.0697e2,1.6885e2,5.0273e4,3.0478e2,1.3757e2,4.9526e1,2.2897e5,1.4488e2,7.8524e1,2.9301e4,1.1810e2,3.2834e1,6.8567e4,1.7997e1,3.2446e3,8.1883e1,7.9801e3,1.2240e1,6.0113e3,1.3038e1,4.9580e3,1.0325e3,1.7076e1,1.1316e3,2.1363e3,4.8904e2,5.3672e2,3.3610e2,5.6899e2,1.9631e2,2.3726e2,1.8662e2,6.9932e1,3.4046e2,6.1282e1,1.2094e2,1.1068e2,2.8276e1,1.0545e2,3.0982e1,5.1573e1,3.5839e1,2.3368e1,3.5335e1,2.0654e1,1.8476e1,1.0186e1 1.3067e1,2.0740e1,2.0693e6,2.3824e3,5.7502e4,1.1368e3,1.1437e2,1.1421e1
+segment 16 385 420 0.490723 99.353 1.1266e0,1.4721e0,2.2091e0,6.2600e0,1.3558e0,5.6076e-1,2.0117e0,6.4606e0,2.0639e1,2.0860e0,5.9615e0,1.8445e1,1.3680e1,1.4596e2,1.8924e3,5.0372e7,1.9751e7,9.6261e2,6.4290e1,3.1053e1,8.1882e0,4.3371e1,8.9231e0,2.3537e1,5.4586e0,6.7813e1,2.5257e2,7.7757e3,3.2583e2,5.8492e1,1.4721e1,2.4286e1,3.9873e1,3.1731e1,5.9611e6,1.4533e3,4.4118e1,2.1358e1,3.7030e1,3.6603e3,1.4846e2,1.4666e1,3.0845e1,9.8779e5,4.7872e1,1.2948e1,1.2262e3,7.0239e1,1.8961e1,2.3725e5,1.3984e1,4.3209e2,3.3855e1,7.1578e4,1.4705e1,1.8810e2,9.0555e0,2.5102e4,9.0073e1,5.4597e0,9.7210e3,4.7089e1,4.0122e3,2.5397e1,1.7260e3,1.3970e1,7.6554e2,7.8373e0,3.4885e2,4.4146e0,1.6587e2,7.9227e1,4.0885e1,8.9031e-1,2.0873e1,1.1182e1,6.1667e0,3.5026e0,2.0451e0,1.2303e0,1.1923e0,3.1283e-1,2.1383e-1,2.1180e-1,6.6372e-2,6.6527e-2,3.4429e-2,1.1546e-2,1.1786e-2,6.6695e-3,5.1564e-3,2.6493e-3,2.0863e-3,1.6710e-3,9.4815e-4,6.5883e-4,6.3413e-4,7.8556e-4,7.7676e-4,8.2743e-4 3.1667e2,6.8654e5,5.7747e4,1.0471e4,3.2794e3,1.6576e2,8.6835e-1,2.0550e-3
+segment 17 421 444 0.000075 48.793 8.8260e-5,8.7982e-5,1.0649e-4,2.0658e-4,1.7501e-4,7.4242e-5,1.1754e-5,6.8924e-6,6.2043e-5,9.6532e-5,5.4044e-5,9.1251e-5,7.2739e-5,5.3767e-5,1.0741e-4,2.3610e-5,6.6094e-5,7.2142e-6,8.1585e-6,5.5016e-5,6.9832e-5,3.1161e-5,3.2361e-5,2.3659e-5,2.8815e-5,1.1652e-5,3.6905e-5,2.7606e-5,8.3439e-6,3.7416e-5,2.3604e-5,1.1454e-5,1.1609e-5,1.5226e-5,3.1706e-5,6.5238e-6,1.5080e-5,7.6186e-6,2.4003e-5,4.5620e-6,1.6574e-5,4.5782e-6,1.3887e-5,1.0547e-5,6.0398e-6,8.5477e-6,9.6531e-6,6.7060e-6,6.9561e-6,8.0397e-6,5.6092e-6,6.4356e-6,5.3360e-6,5.3037e-6,4.8887e-6,5.0386e-6,5.4136e-6,3.3287e-6,4.5560e-6,3.1972e-6,4.4585e-6,2.6241e-6,3.2274e-6,2.9758e-6,3.0871e-6,2.6335e-6,2.5356e-6,2.4073e-6,2.5149e-6,2.0885e-6,2.0428e-6,2.0290e-6,1.8524e-6,1.6100e-6,1.6400e-6,1.7138e-6,1.4557e-6,1.3917e-6,1.3973e-6,1.3367e-6,1.2029e-6,1.2389e-6,1.1436e-6,1.0888e-6,1.0133e-6,9.8923e-7,9.9964e-7,9.3752e-7,9.1723e-7,8.8204e-7,8.6794e-7,8.8684e-7,8.3087e-7,8.4815e-7,8.5188e-7,8.6401e-7,8.7447e-7,9.0346e-7,9.6240e-7,1.0259e-6 1.4896e-5,1.2137e-5,5.0823e-6,2.8987e-6,1.3693e-6,7.0097e-7,3.7023e-7,2.3277e-7
+segment 18 445 494 0.043469 375.870 3.1123e3,1.6014e3,6.7791e3,1.6746e3,8.0454e3,3.9931e3,1.7650e3,3.8262e3,6.1413e3,6.2233e3,5.1961e3,3.8328e3,3.8987e3,6.4690e3,6.5603e3,3.9412e3,4.3946e3,7.7094e3,2.9227e3,5.2412e3,6.1985e3,3.6536e3,4.9458e3,4.9167e3,4.7119e3,3.9120e3,4.0763e3,3.3672e3,4.7750e3,2.1529e3,4.4682e3,7.3856e3,1.4483e4,3.0670e4,3.5895e4,3.3818e4,3.1872e4,4.2282e4,3.8931e4,5.3886e4,4.7636e4,6.7604e4,6.9464e4,6.8274e4,9.7166e4,7.9350e4,4.8004e4,3.3423e4,2.4738e4,1.7445e4,9.3170e3,9.5250e3,7.0874e3,7.3993e3,7.1302e3,7.1707e3,2.8602e3,4.3497e3,2.6882e3,1.1556e3,6.9551e2,4.4956e2,1.3103e2,5.0986e1,4.7021e0,9.3165e0,5.2887e1,7.8728e1,1.0629e2,9.6930e1,1.1448e2,1.2308e2,5.8597e1,5.3722e1,2.0633e1,7.5883e0,1.3814e0,1.6917e0,4.6237e0,9.1715e0,8.1876e0,5.6790e0,1.6350e0,3.9584e-1,5.1203e-1,1.5394e0,1.2723e0,9.0879e-1,1.2249e-1,2.0134e-1,4.8504e-1,2.8977e-1,6.5185e-2,1.1578e-1,1.8383e-1,4.9342e-2,5.6009e-2,7.8543e-2,2.2670e-2,4.7306e-2 2.6756e2,2.8485e2,7.0956e2,4.1708e3,6.4537e2,1.0760e1,1.0077e0,3.0984e-2
+segment 19 495 514 0.000010 36.570 1.0103e-7,9.0153e-8,4.6687e-8,4.8729e-8,3.9784e-8,4.3889e-8,3.1445e-8,3.3745e-8,2.5580e-8,1.9128e-8,8.6274e-9,2.2769e-9,1.6514e-10,1.2896e-9,4.0157e-9,7.5249e-9,9.5477e-9,1.1942e-8,1.2093e-8,1.1808e-8,8.8286e-9,6.9383e-9,6.4447e-9,5.9609e-9,4.6440e-9,2.2757e-9,7.0193e-10,7.3931e-10,1.7288e-9,3.2392e-9,5.2748e-9,4.9205e-9,2.0661e-9,1.6124e-10,8.0607e-11,1.6677e-9,5.3116e-9,2.5568e-9,4.1568e-10,8.8587e-10,4.0174e-9,1.5419e-8,2.0390e-7,3.7386e-7,4.6537e-7,8.6243e-7,8.9586e-7,9.6502e-7,7.9526e-7,3.6027e-7,8.8009e-8,1.8765e-8,1.0481e-8,1.3595e-8,4.0222e-8,7.2286e-8,5.5453e-8,1.1476e-7,3.5519e-7,7.3174e-8,3.5952e-7,1.2398e-7,7.3814e-8,9.3647e-8,8.1636e-8,1.0794e-7,5.5432e-8,1.1658e-7,6.7444e-8,8.2312e-8,8.9992e-8,4.5114e-8,8.2509e-8,6.2799e-8,9.4637e-8,1.8396e-8,5.1485e-8,1.0432e-7,3.0180e-8,4.2186e-8,1.3557e-8,2.4079e-8,4.2942e-8,6.3290e-9,3.2219e-8,2.9592e-8,3.4964e-8,2.5673e-8,4.0871e-8,2.8408e-8,4.7835e-8,3.1176e-8,1.9330e-8,2.0737e-8,2.9502e-8,1.9462e-8,2.2638e-8,2.1277e-8,4.6319e-8,4.3550e-8 1.3925e-6,6.2758e-8,2.3676e-8,3.2041e-6,1.4867e-6,9.9307e-7,4.4257e-7,2.7747e-7
+segment 20 515 554 0.042748 232.000 4.3188e-1,1.0457e1,2.8068e1,2.2282e1,3.3632e0,6.1406e0,1.0294e0,1.1869e1,2.7596e1,1.1429e1,7.5310e-1,1.5626e1,1.8803e1,6.0668e0,2.7604e1,2.2701e1,3.3086e0,1.4665e1,7.3176e0,7.5982e0,2.9433e1,2.6659e1,2.1655e1,3.0900e1,8.5659e1,1.3256e2,4.5116e2,1.4871e3,1.0276e4,7.0186e4,7.3313e4,3.3962e4,5.5297e4,5.4025e4,5.0143e4,3.1945e4,1.1198e5,4.8308e4,4.7221e3,7.1346e2,2.4945e3,1.6268e4,1.0211e4,7.9188e3,8.7151e3,5.0828e3,5.9692e3,4.9421e3,8.7787e3,4.7147e3,9.2106e2,7.9232e2,5.9145e2,9.8462e2,5.0356e2,5.9192e2,3.0662e2,1.1905e2,7.7746e1,5.8514e1,6.4464e1,5.8374e1,3.0671e1,2.8019e1,2.9405e1,2.1773e1,1.0012e1,8.3005e0,5.0804e0,2.1144e0,2.0192e0,1.4747e0,1.6450e0,1.1381e0,5.4572e-1,4.0517e-1,2.0191e-1,1.5510e-1,1.4655e-1,9.7879e-2,6.1506e-2,3.5028e-2,2.0902e-2,1.7027e-2,9.8791e-3,5.3371e-3,4.8369e-3,3.2056e-3,2.0127e-3,2.0369e-3,1.8524e-3,1.4623e-3,2.1057e-3,1.3398e-3,1.7403e-3,1.1464e-3,1.1901e-3,1.0788e-3,9.5057e-4,9.4841e-4 1.4462e0,3.1450e0,3.5074e3,2.1864e3,1.6584e2,2.2898e0,4.0407e-2,4.1546e-4
+segment 21 555 584 0.000022 40.180 6.7593e-5,2.8853e-5,5.7900e-6,1.4750e-5,4.0558e-5,7.6142e-5,3.3088e-5,3.8356e-5,1.8396e-6,2.1911e-5,5.1429e-5,2.9568e-5,8.4373e-6,1.9301e-5,3.2400e-5,2.1162e-5,4.6101e-6,2.7485e-5,1.5983e-5,1.1383e-5,2.2524e-5,6.6358e-6,1.9125e-5,6.5764e-6,1.5644e-5,8.8443e-6,1.4013e-5,5.8980e-6,1.0748e-5,1.0650e-5,6.2145e-6,6.7546e-6,8.6544e-6,7.5127e-6,7.3372e-6,5.4771e-6,6.3548e-6,4.8663e-6,4.7899e-6,4.5196e-6,5.5723e-6,4.0524e-6,3.8779e-6,4.2048e-6,3.7202e-6,2.9687e-6,3.4587e-6,3.1596e-6,2.9107e-6,2.7399e-6,2.9473e-6,2.1962e-6,2.5100e-6,2.0126e-6,2.1240e-6,1.9995e-6,1.9183e-6,1.6175e-6,1.7604e-6,1.5493e-6,1.4485e-6,1.3359e-6,1.3710e-6,1.2447e-6,1.1593e-6,1.1074e-6,1.0239e-6,1.0150e-6,9.3987e-7,9.0082e-7,8.2410e-7,8.0663e-7,7.5477e-7,7.2776e-7,6.7742e-7,6.4806e-7,6.2423e-7,5.8561e-7,5.5080e-7,5.4199e-7,5.0502e-7,4.8235e-7,4.6250e-7,4.5292e-7,4.2200e-7,4.1660e-7,3.9307e-7,3.8919e-7,3.7322e-7,3.6563e-7,3.5806e-7,3.5148e-7,3.4920e-7,3.4360e-7,3.5028e-7,3.5141e-7,3.5924e-7,3.7214e-7,3.8957e-7,4.1296e-7 1.2859e-5,3.9162e-6,1.6905e-6,8.9687e-7,4.2210e-7,2.1657e-7,1.1485e-7,7.2784e-8
+segment 22 585 624 0.199092 131.272 6.4441e2,9.4072e3,2.4666e4,4.3369e3,4.3452e4,5.5006e4,1.1516e5,1.0787e5,9.5540e4,1.0881e5,6.0760e4,2.1837e5,1.6741e5,8.0983e4,2.4720e5,6.7549e5,1.4675e5,2.0946e5,9.0610e5,3.8523e6,4.0234e6,3.7999e5,7.9666e5,3.1634e5,1.6354e5,2.1390e5,1.8517e5,1.2708e5,1.6309e5,1.0096e5,4.2789e4,3.5106e4,2.8932e4,6.5054e4,7.7958e3,2.2403e4,4.7181e4,2.6077e4,1.8547e4,2.0920e4,8.8709e3,1.3395e4,7.5549e3,5.8747e3,4.9894e3,4.9891e3,1.1905e3,9.8618e2,1.5414e3,1.0537e3,7.1710e2,5.8623e2,2.8457e2,3.0470e2,1.9293e2,1.0103e2,9.4872e1,7.7290e1,3.9321e1,3.5066e1,1.8982e1,1.6791e1,9.9951e0,7.8515e0,5.2992e0,3.9409e0,1.6151e0,1.9595e0,1.2094e0,7.6797e-1,5.1093e-1,3.5878e-1,2.4012e-1,1.5934e-1,1.1576e-1,7.8768e-2,4.7909e-2,3.6334e-2,1.9220e-2,1.7251e-2,1.2550e-2,8.0770e-3,4.9306e-3,3.7492e-3,2.9390e-3,2.2121e-3,1.6724e-3,1.2384e-3,9.5445e-4,1.0040e-3,7.7652e-4,6.9617e-4,7.5803e-4,7.5194e-4,6.9859e-4,7.8991e-4,7.0842e-4,8.5843e-4,9.2419e-4,9.9696e-4 5.2801e3,1.0795e5,1.0768e4,1.3801e3,3.7532e1,5.8931e-1,6.2683e-3,1.2103e-4
+segment 23 625 674 0.440249 497.514 1.4812e4,1.4341e5,8.0564e4,5.5612e4,5.8406e4,3.1649e4,2.3163e4,4.1379e4,8.9251e4,8.6665e4,4.4100e4,4.0436e4,1.5331e5,6.9715e5,1.1930e6,1.6384e6,5.6439e5,1.1410e5,7.6692e5,1.6643e6,8.5529e5,1.3394e6,1.9447e6,2.7574e5,1.0777e5,8.4482e4,8.2606e4,2.7504e5,7.9256e4,9.1027e4,8.3158e4,6.3391e4,1.4921e5,5.8602e4,1.1623e5,7.8664e4,8.0784e4,7.8449e4,3.0886e4,1.9646e4,3.6295e4,4.5975e4,2.5999e4,7.8080e7,7.2491e4,4.6946e4,1.7685e4,2.9927e4,1.7984e4,2.2335e4,7.0433e3,3.0954e3,3.5249e3,4.1440e3,3.1632e3,1.4587e4,2.5400e3,3.1171e3,1.7709e3,1.7821e3,5.6083e2,5.3268e2,3.1540e5,2.0058e2,1.0895e2,2.1929e2,5.8993e1,4.8252e2,1.2067e2,1.2498e2,1.4758e2,6.5655e3,5.8304e1,4.0428e1,3.7298e1,5.7662e0,4.4536e0,2.7025e2,5.2486e0,7.9450e0,1.3307e1,3.0280e1,5.0398e0,3.8093e0,2.8501e0,3.6885e0,1.6147e0,1.1516e0,1.1921e0,1.3990e0,1.3666e0,9.7202e-1,2.6553e-1,1.8380e-1,4.0304e-1,6.1985e-1,1.8508e-1,7.0569e-2,2.1748e-1,2.1209e-1 3.2145e3,5.3053e4,8.2347e3,5.4398e5,6.0803e2,2.2298e3,4.1289e0,1.2333e-1
+segment 24 675 700 0.031665 125.407 1.8964e1,2.3523e1,4.4024e1,6.2050e1,5.0604e1,4.4427e1,1.6957e2,1.7718e2,9.9274e2,8.0465e2,1.0405e3,1.9115e3,3.5589e2,9.3185e2,5.8638e3,1.4618e4,7.7966e3,6.6070e3,1.9887e4,3.1664e4,1.7730e4,3.8605e3,1.2549e4,4.4148e3,1.7378e3,2.9492e2,6.2700e2,5.4621e2,5.1367e2,4.8644e2,3.7557e2,1.0301e3,3.5672e2,1.0423e2,1.3137e2,1.6015e2,2.7152e2,1.1063e2,1.5088e2,1.7860e2,1.7315e2,3.1350e1,3.3780e1,2.8668e1,4.5903e1,2.8262e1,3.5910e1,1.1141e1,1.0764e1,6.7106e0,3.9177e0,5.1500e0,4.9491e0,2.5876e0,1.0096e0,1.1495e0,4.3700e-1,1.0843e0,2.5282e-1,2.9410e-1,1.8781e-1,1.3512e-1,9.3618e-2,7.0579e-2,4.0096e-2,3.2407e-2,2.0450e-2,1.6025e-2,1.0324e-2,6.4059e-3,4.5555e-3,3.6926e-3,2.3328e-3,1.2679e-3,1.6286e-3,9.3430e-4,5.2085e-4,4.7113e-4,3.6017e-4,3.8702e-4,3.7377e-4,3.4385e-4,2.7036e-4,2.3525e-4,2.3151e-4,2.8783e-4,2.9142e-4,2.8667e-4,3.3184e-4,3.1544e-4,3.5564e-4,4.1251e-4,3.2574e-4,3.7689e-4,3.8693e-4,3.8620e-4,4.6151e-4,4.7460e-4,4.4241e-4,5.7276e-4 7.6899e1,2.9253e3,1.5200e2,3.1009e1,9.4141e-1,1.7712e-2,1.9509e-4,5.6469e-5

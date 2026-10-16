@@ -1,0 +1,267 @@
+; Donkey Kong Jr. board sound test, the 8035's side (GPL-3.0-only, cArcade's own). Assembled with
+; The Macro Assembler AS (asl -cpu 8048) into jrsnd.bin, the board's 4 KB sound ROM.
+;
+; Jr.'s board has no tune ROM: MOVX (and INS A,BUS) read the sound command latch's low five bits
+; at any address. Port 2's bits 4, 5 and 6 read latch 6H bit 6, 6H bit 3 and 4H bit 1, inverted;
+; T0 and T1 read 6H bits 5 and 4. The program plays a waveform on the DAC chosen by the command,
+; looks for a new one once a period by MOVX and also takes one from the external interrupt, as
+; dksnd.a48 does, and keeps half its waveforms in program bank 1 (800h-FFFh), reached with
+; SEL MB1.
+;   0      quiet (80h)              5   a sawtooth (in bank 1)
+;   1-3    square waves             6   a square wave with the decay circuit on, off for a moment
+;   4      a square wave whose          every 32 periods (in bank 1)
+;          size follows T0, T1 and  7   a triangle (in bank 1)
+;          port 2 bits 4, 5, 6      8   a 100 Hz square wave
+;   9      the command and the BUS read back onto the DAC, as levels
+;   10-31  quiet
+
+	cpu	8048
+	org	0
+	jmp	start
+	org	3
+	jmp	xint
+	org	7
+	retr
+
+	org	10h
+start:	mov	a,#0FFh		; port 2 all high (inputs readable, decay off)
+	outl	p2,a
+	mov	a,#80h
+	outl	p1,a
+	clr	f1
+	mov	r6,#0FFh
+	en	i
+main:	call	check
+	jz	main
+	jmp	dispatch
+
+; A new command? Returns A = 0 if not; otherwise R6 is the new one.
+check:	jf1	ck_int
+	movx	a,@r0
+	anl	a,#1Fh
+	xch	a,r6
+	xrl	a,r6
+	ret
+ck_int:	clr	f1
+	sel	rb1
+	mov	a,r5
+	sel	rb0
+	mov	r6,a
+ck_w:	jni	ck_w
+	en	i
+	mov	a,#1
+	ret
+
+xint:	sel	rb1
+	mov	r7,a
+	movx	a,@r1
+	anl	a,#1Fh
+	mov	r5,a
+	clr	f1
+	cpl	f1
+	dis	i
+	mov	a,r7
+	retr
+
+square:	mov	a,r3
+	outl	p1,a
+	mov	a,r4
+	mov	r5,a
+sq_d1:	djnz	r5,sq_d1
+	mov	a,r2
+	outl	p1,a
+	mov	a,r4
+	mov	r5,a
+sq_d2:	djnz	r5,sq_d2
+	call	check
+	jz	square
+	jmp	dispatch
+
+quiet_r:
+	mov	a,#80h
+	outl	p1,a
+	call	check
+	jz	quiet_r
+	jmp	dispatch
+
+	org	200h
+inputs_r:
+	mov	r3,#30h
+	jnt0	in_1
+	mov	a,r3
+	add	a,#20h
+	mov	r3,a
+in_1:	jnt1	in_2
+	mov	a,r3
+	add	a,#10h
+	mov	r3,a
+in_2:	in	a,p2
+	jb4	in_3
+	mov	r1,a
+	mov	a,r3
+	add	a,#08h
+	mov	r3,a
+	mov	a,r1
+in_3:	jb5	in_4
+	mov	r1,a
+	mov	a,r3
+	add	a,#04h
+	mov	r3,a
+	mov	a,r1
+in_4:	jb6	in_5
+	mov	a,r3
+	add	a,#02h
+	mov	r3,a
+in_5:	mov	a,r3
+	add	a,#80h
+	outl	p1,a
+	mov	r5,#150
+in_d1:	djnz	r5,in_d1
+	mov	a,r3
+	cpl	a
+	add	a,#81h
+	outl	p1,a
+	mov	r5,#150
+in_d2:	djnz	r5,in_d2
+	call	check
+	jz	inputs_r
+	jmp	dispatch
+
+slow_r:	mov	a,#0C0h
+	outl	p1,a
+	mov	r4,#4
+sl_d1:	mov	r5,#248
+sl_d2:	djnz	r5,sl_d2
+	djnz	r4,sl_d1
+	mov	a,#40h
+	outl	p1,a
+	mov	r4,#4
+sl_d3:	mov	r5,#248
+sl_d4:	djnz	r5,sl_d4
+	djnz	r4,sl_d3
+	call	check
+	jz	slow_r
+	jmp	dispatch
+
+readback_r:
+	movx	a,@r0		; the command, as a level
+	rl	a
+	rl	a
+	add	a,#40h
+	outl	p1,a
+	mov	r5,#200
+rb_d1:	djnz	r5,rb_d1
+	ins	a,bus		; the BUS reads what the command latch drives on it
+	outl	p1,a
+	mov	r5,#200
+rb_d2:	djnz	r5,rb_d2
+	call	check
+	jz	readback_r
+	jmp	dispatch
+
+; The commands (JMPP stays in its page).
+	org	100h
+dispatch:
+	orl	p2,#80h		; decay off
+	mov	a,r6
+	add	a,#table & 0FFh
+	jmpp	@a
+table:	db	c0 & 0FFh, c1 & 0FFh, c2 & 0FFh, c3 & 0FFh, inputs_s & 0FFh, saw_s & 0FFh, decay_s & 0FFh, tri_s & 0FFh
+	db	slow_s & 0FFh, readback_s & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh
+	db	c0 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh
+	db	c0 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh
+c0:	jmp	quiet_r
+c1:	mov	r3,#0E0h
+	mov	r2,#20h
+	mov	r4,#195
+	jmp	square
+c2:	mov	r3,#0B0h
+	mov	r2,#50h
+	mov	r4,#61
+	jmp	square
+c3:	mov	r3,#0FFh
+	mov	r2,#00h
+	mov	r4,#255
+	jmp	square
+inputs_s:
+	jmp	inputs_r
+slow_s:	jmp	slow_r
+readback_s:
+	jmp	readback_r
+; Into bank 1: SEL MB1 makes the JMP land at 800h up.
+saw_s:	sel	mb1
+	jmp	saw_r
+decay_s:
+	sel	mb1
+	jmp	decay_r
+tri_s:	sel	mb1
+	jmp	tri_r
+
+; ---- Program bank 1 ---------------------------------------------------------------------------
+; (Assembled at 800h up; the routines come back to bank 0 with SEL MB0 before jumping out.)
+	org	800h
+saw_r:	mov	r7,#80h
+sw_o:	mov	r4,#85
+sw_lp:	mov	a,r7
+	add	a,#3
+	mov	r7,a
+	outl	p1,a
+	djnz	r4,sw_lp
+	call	check1
+	jz	sw_o
+	sel	mb0
+	jmp	dispatch
+
+decay_r:
+	mov	r1,#32
+dc_lp:	mov	a,#0E0h
+	outl	p1,a
+	mov	r5,#200
+dc_d1:	djnz	r5,dc_d1
+	mov	a,#20h
+	outl	p1,a
+	mov	r5,#195
+dc_d2:	djnz	r5,dc_d2
+	anl	p2,#7Fh
+	djnz	r1,dc_ck
+	orl	p2,#80h
+	mov	r1,#32
+dc_ck:	call	check1
+	jz	dc_lp
+	sel	mb0
+	jmp	dispatch
+
+tri_r:	mov	r7,#40h
+tr_up:	mov	a,r7
+	add	a,#2
+	mov	r7,a
+	outl	p1,a
+	xrl	a,#0C0h
+	jnz	tr_up
+tr_dn:	mov	a,r7
+	add	a,#0FEh
+	mov	r7,a
+	outl	p1,a
+	xrl	a,#40h
+	jnz	tr_dn
+	call	check1
+	jz	tr_up
+	sel	mb0
+	jmp	dispatch
+
+; The same check from bank 1 (a CALL keeps to its bank; RET comes back to it).
+check1:	jf1	c1_int
+	movx	a,@r0
+	anl	a,#1Fh
+	xch	a,r6
+	xrl	a,r6
+	ret
+c1_int:	clr	f1
+	sel	rb1
+	mov	a,r5
+	sel	rb0
+	mov	r6,a
+c1_w:	jni	c1_w
+	en	i
+	mov	a,#1
+	ret

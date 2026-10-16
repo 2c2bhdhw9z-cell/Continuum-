@@ -1,0 +1,257 @@
+; Donkey Kong board sound test, the 8035's side (GPL-3.0-only, cArcade's own). Assembled with
+; The Macro Assembler AS (asl -cpu 8048) into dksnd.bin, the board's 2 KB sound ROM.
+;
+; It plays a waveform on the DAC (port 1) chosen by the sound command the main CPU latches at
+; 7C00h, which it reads with MOVX while port 2 bit 6 is high (the low four bits, inverted by the
+; board). It looks for a new command once a period, by MOVX, and also takes one from the
+; external interrupt (7D80h): the interrupt routine reads the latch and switches interrupts off,
+; and the main loop switches them on again once JNI sees the main CPU has dropped /INT.
+;   0      quiet (80h)            6   the tune ROM: each 256-byte page in turn, a byte per 8 cycles
+;   1-4    square waves           7   a square wave with the DAC's decay circuit on (port 2 bit 7
+;   5      a sawtooth                 low), switched off for a moment every 32 periods
+;   8      a square wave whose size follows T0, T1 and port 2 bit 5 (latch 6H bits 5, 4 and 3);
+;          the status bit follows T1
+;   9      a square wave, the status bit (port 2 bit 4, which the main CPU reads in IN2 bit 6)
+;          high for its first half and low for its second
+;   10     a 100 Hz square wave    11-15  quiet
+; Elsewhere the status bit is the command's bit 0. It starts by running a few instructions in
+; program bank 1 (the board's ROM answers in both).
+
+	cpu	8048
+	org	0
+	jmp	start
+	org	3
+	jmp	xint
+	org	7
+	retr
+
+	org	10h
+start:	mov	a,#0F0h		; port 2: decay off, bit 6 high (MOVX reads the command), status high
+	outl	p2,a
+	mov	a,#80h
+	outl	p1,a
+	clr	f1
+	mov	r6,#0FFh	; no command yet
+	sel	mb1
+	jmp	inbank1
+back:	sel	mb0
+	en	i
+main:	call	check		; wait for the first command
+	jz	main
+	jmp	dispatch
+
+; A new command? Returns A = 0 if not; otherwise R6 is the new one.
+check:	jf1	ck_int
+	movx	a,@r0		; port 2 bit 6 is high: the command
+	anl	a,#0Fh
+	xch	a,r6
+	xrl	a,r6
+	ret
+ck_int:	clr	f1		; the interrupt routine took one
+	sel	rb1
+	mov	a,r5
+	sel	rb0
+	mov	r6,a
+ck_w:	jni	ck_w		; until the main CPU drops /INT
+	en	i
+	mov	a,#1
+	ret
+
+; The external interrupt: the command, and interrupts off until /INT is dropped.
+xint:	sel	rb1
+	mov	r7,a
+	orl	p2,#40h
+	movx	a,@r0
+	anl	a,#0Fh
+	mov	r5,a
+	clr	f1
+	cpl	f1
+	dis	i
+	mov	a,r7
+	retr
+
+; A square wave: R3 high, R2 low, R4 the delay (a period is 24 + 4 x R4 cycles).
+square:	mov	a,r3
+	outl	p1,a
+	mov	a,r4
+	mov	r5,a
+sq_d1:	djnz	r5,sq_d1
+	mov	a,r2
+	outl	p1,a
+	mov	a,r4
+	mov	r5,a
+sq_d2:	djnz	r5,sq_d2
+	call	check
+	jz	square
+	jmp	dispatch
+
+quiet_r:
+	mov	a,#80h
+	outl	p1,a
+	call	check
+	jz	quiet_r
+	jmp	dispatch
+
+; The longer waveforms, a page each (conditional jumps stay in their page).
+	org	200h
+saw_r:	mov	r7,#80h
+sw_o:	mov	r4,#85
+sw_lp:	mov	a,r7
+	add	a,#3
+	mov	r7,a
+	outl	p1,a
+	djnz	r4,sw_lp
+	call	check
+	jz	sw_o
+	jmp	dispatch
+
+tune_r:	mov	r7,#0
+tn_pg:	mov	a,r7
+	anl	a,#07h
+	orl	a,#0B0h		; decay off, bit 6 low (MOVX reads the tune ROM), the page in bits 0-2
+	outl	p2,a
+	mov	r0,#0
+tn_b:	movx	a,@r0
+	outl	p1,a
+	inc	r0
+	mov	a,r0
+	jnz	tn_b
+	orl	p2,#40h
+	inc	r7
+	call	check
+	jz	tn_pg
+	jmp	dispatch
+
+decay_r:
+	mov	r1,#32
+dc_lp:	mov	a,#0E0h
+	outl	p1,a
+	mov	r5,#200
+dc_d1:	djnz	r5,dc_d1
+	mov	a,#20h
+	outl	p1,a
+	mov	r5,#195
+dc_d2:	djnz	r5,dc_d2
+	anl	p2,#7Fh		; the decay circuit on
+	djnz	r1,dc_ck
+	orl	p2,#80h		; off for a moment: the envelope starts again
+	mov	r1,#32
+dc_ck:	call	check
+	jz	dc_lp
+	jmp	dispatch
+
+	org	300h
+inputs_r:
+	mov	r3,#40h
+	jnt0	in_1
+	mov	a,r3
+	add	a,#20h
+	mov	r3,a
+in_1:	jnt1	in_2
+	mov	a,r3
+	add	a,#10h
+	mov	r3,a
+in_2:	in	a,p2
+	jb5	in_3
+	mov	a,r3
+	add	a,#08h
+	mov	r3,a
+in_3:	mov	a,r3
+	add	a,#80h
+	outl	p1,a
+	mov	r5,#150
+in_d1:	djnz	r5,in_d1
+	mov	a,r3
+	cpl	a
+	add	a,#81h
+	outl	p1,a
+	mov	r5,#150
+in_d2:	djnz	r5,in_d2
+	jt1	in_s1
+	anl	p2,#0EFh
+	jmp	in_s2
+in_s1:	orl	p2,#10h
+in_s2:	call	check
+	jz	inputs_r
+	jmp	dispatch
+
+status_r:
+	mov	a,#0FFh
+	outl	p1,a
+	orl	p2,#10h
+	mov	r5,#255
+st_d1:	djnz	r5,st_d1
+	mov	r5,#140
+st_d2:	djnz	r5,st_d2
+	clr	a
+	outl	p1,a
+	anl	p2,#0EFh
+	mov	r5,#255
+st_d3:	djnz	r5,st_d3
+	mov	r5,#130
+st_d4:	djnz	r5,st_d4
+	call	check
+	jz	status_r
+	jmp	dispatch
+
+slow_r:	mov	a,#0C0h
+	outl	p1,a
+	mov	r4,#4
+sl_d1:	mov	r5,#248
+sl_d2:	djnz	r5,sl_d2
+	djnz	r4,sl_d1
+	mov	a,#40h
+	outl	p1,a
+	mov	r4,#4
+sl_d3:	mov	r5,#248
+sl_d4:	djnz	r5,sl_d4
+	djnz	r4,sl_d3
+	call	check
+	jz	slow_r
+	jmp	dispatch
+
+; The commands, from page 1 (JMPP stays in its page).
+	org	100h
+dispatch:
+	orl	p2,#80h		; decay off
+	mov	a,r6
+	jb0	ds_s1
+	anl	p2,#0EFh
+	jmp	ds_s2
+ds_s1:	orl	p2,#10h
+ds_s2:	mov	a,r6
+	add	a,#table & 0FFh
+	jmpp	@a
+table:	db	c0 & 0FFh, c1 & 0FFh, c2 & 0FFh, c3 & 0FFh, c4 & 0FFh, c5 & 0FFh, c6 & 0FFh, c7 & 0FFh
+	db	c8 & 0FFh, c9 & 0FFh, c10 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh, c0 & 0FFh
+c0:	jmp	quiet_r
+c1:	mov	r3,#0E0h
+	mov	r2,#20h
+	mov	r4,#195
+	jmp	square
+c2:	mov	r3,#0B0h
+	mov	r2,#50h
+	mov	r4,#61
+	jmp	square
+c3:	mov	r3,#0FFh
+	mov	r2,#00h
+	mov	r4,#255
+	jmp	square
+c4:	mov	r3,#0D0h
+	mov	r2,#30h
+	mov	r4,#27
+	jmp	square
+c5:	jmp	saw_r
+c6:	jmp	tune_r
+c7:	jmp	decay_r
+c8:	jmp	inputs_r
+c9:	jmp	status_r
+c10:	jmp	slow_r
+
+; A few instructions in program bank 1: the board's 2 KB ROM is there too.
+	org	400h
+inbank1:
+	mov	a,#5Ah
+	mov	r7,a
+	nop
+	jmp	back

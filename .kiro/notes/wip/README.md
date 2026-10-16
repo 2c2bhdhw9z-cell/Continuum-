@@ -6,7 +6,6 @@ that lands the work.
 
 | File | Job, item | What it holds |
 |---|---|---|
-| `arcade-dkong-wip-base-02fa615.patch` | `arcade.json`, I6 | The Donkey Kong board as the 16 October helper left it when it stopped: `src/dkong.rs`, `src/dkong_sound.rs`, its `lib.rs` lines, our own test programs (`test-programs/dkong/`), the MAME comparison test and its references. Never checked green. |
 
 Apply with `git apply .kiro/notes/wip/<file>`. Both applied cleanly to master on 14 October at
 1:40 PM; if master has moved on and one doesn't, use `git apply --3way`.
