@@ -1,5 +1,5 @@
 {
-  "complete": false,
+  "complete": true,
   "title": "Continuum, evening of 13 October 2026: the two-phone Game Boy link (app half) and the leftovers from 'Next up' item 5",
   "repo": "/projects/sandbox/.scratch/link-work",
   "branch": "master",
@@ -60,16 +60,17 @@
     },
     {
       "id": "H3",
-      "done": false,
+      "done": true,
       "title": "Mesen 2 as the second SNES choice",
       "detail": "Last night checked and did not offer it, for a good reason: everything the Continuum Mesen patch gives the NES (memory for RAM search and achievements, cheats, and letting the app own the battery save) is written NES-only, so SNES players would have lost all three. Extend the patch (scripts/patches/mesen2-nes-memory-cheats-saves.patch, or a new mesen2-snes-*.patch) so the SNES gets the same three: the console's work RAM and the cartridge's save RAM exposed to the app, typed SNES cheat codes (Game Genie and Pro Action Replay) reaching Mesen's own cheat code, and the battery save owned by the app like every other core. Build Mesen 2 for the host, boot open-licensed SNES homebrew through the engine, and prove a battery save round-trips, a save state round-trips and a cheat changes memory. Compare its speed with bsnes on the host and write the numbers down. Then offer it as the second core for SNES (bsnes stays the default). If one of the three cannot be made to hold tonight, do not offer it, and say exactly what is left.",
-      "progress": "Stopped at about 9:10 AM Eastern on 14 October, when the Kiro account ran out of credits. Started about 8:50 AM; it was building Mesen 2 for the host when it stopped. Nothing was finished, so nothing was saved: start it from the beginning."
+      "result": "Pushed as 239bab1 (and the button check in 0872a41): Mesen 2 is the second SNES choice, bsnes still the default; a second Mesen patch gives SNES games their work RAM and battery RAM (the same .srm bsnes keeps, and no file of Mesen's own), typed Game Genie and Pro Action Replay codes and bsnes's 224-line 4:3 picture, proven with host builds of Mesen 2 and bsnes in real engine sessions on three open-licence homebrew games and a test cartridge (saves round-trip and move between the two emulators both ways, states come back exactly, codes change what the game reads), with Mesen at about 60 to 70% of bsnes's speed (numbers in the evening report, section 5)."
     },
     {
       "id": "H6",
-      "done": false,
+      "done": true,
       "title": "Write it up",
-      "detail": "Write .kiro/notes/docs/reports/evening-2026-10-13.md: what landed, each as 'Built, untested'; what the tests prove; what is left and why; and a short numbered list of phone checks in the owner's plain, casual voice, one per thing a player can see. Do NOT edit STATUS.md, TESTING.md or HANDOFF.md: the orchestrator folds the three reports in. Then set the top-level complete to true."
+      "detail": "Write .kiro/notes/docs/reports/evening-2026-10-13.md: what landed, each as 'Built, untested'; what the tests prove; what is left and why; and a short numbered list of phone checks in the owner's plain, casual voice, one per thing a player can see. Do NOT edit STATUS.md, TESTING.md or HANDOFF.md: the orchestrator folds the three reports in. Then set the top-level complete to true.",
+      "result": "Pushed as 0872a41: .kiro/notes/docs/reports/evening-2026-10-13.md has all five items as Built, untested with what the tests prove, the Mesen 2 section with its speed table, what is left and why, the lines elsewhere now out of date, and phone checks 1 to 16."
     }
   ],
   "notes_14_october": [
