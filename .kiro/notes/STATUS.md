@@ -246,8 +246,8 @@ launch with an empty library.
 
 ## Next up
 
-**16 October 2026, 7 AM Eastern, read this first.** Nothing has been built since build 185
-(`393f12c`, 13 October), and no build starts until the batch is done or the owner says so. The
+**16 October 2026, 7 AM Eastern, read this first.** **Build 190** (`a8b206a`, 16 October, 8:45 AM Eastern) is the newest install and has all of it:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-190-a8b206a/Continuum-190.ipa The
 batch that began on 13 October is finished, the arcade emulator's Donkey Kong board and write-up
 included. Everything in the list below is on master and
 **Built, untested**: no phone has seen any of it. The owner's phone checks for all of it are

@@ -5,6 +5,17 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
+## Build 190 is out (16 October 2026, 8:45 AM Eastern) — newest install, checked
+
+- https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-190-a8b206a/Continuum-190.ipa
+  (`a8b206a`): 0.8.0 (190), 37 core files (the 36 plus cArcade); DOOM, Jaguar, Virtual Boy, C64
+  and Amiga are byte for byte build 185's; `core-mirror-1` holds all 17 files again and
+  `scripts/check-core-mirror.sh live` passes with every one from the mirror.
+- Build 189 stopped in its first minute: `build-engine.sh` required every core file to be named in
+  ios.yml, which can't list cArcade (workflow edits are parked). `a8b206a` exempts that one name.
+- The owner's tests are TESTING.md "Next install (after 185)", 63 checks. They haven't reported
+  on 182 to 185 either. Record what they send; fix nothing until they say they're done testing.
+
 ## Update, 16 October 2026, about 7 AM Eastern: the whole batch is done, ONE build started
 
 - Every checklist in `.kiro/notes/tasks/` is complete (owner, 1 AM: "I want everything done first

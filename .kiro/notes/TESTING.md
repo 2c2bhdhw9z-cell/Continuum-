@@ -7,7 +7,7 @@ its steps come first, right below. "This install only" is build 181 (the cleanup
 swap), with your results: steps 1 to 4 cover the cleanup, 5 to 11 the new emulators, and 12 save
 imports.
 
-## Next install (after 185)
+## Build 190 (16 October): the new install, after 185
 
 For the next install. Nothing here has been on a phone yet, and nothing here repeats a check you
 already passed. Delete the old app first, as always. The lists further down, "Next install (after
