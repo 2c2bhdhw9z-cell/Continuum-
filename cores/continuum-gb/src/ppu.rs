@@ -15,6 +15,10 @@ use serde::{Deserialize, Serialize};
 pub const W: usize = 160;
 pub const H: usize = 144;
 
+/// Switches on `Ppu::trace_land`'s output (cargo feature `trace` only).
+#[cfg(feature = "trace")]
+pub static TRACE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The DMG shades as XRGB8888, lightest first.
 pub const SHADES: [u32; 4] = [0x00FF_FFFF, 0x00AA_AAAA, 0x0055_5555, 0x0000_0000];
 
@@ -93,6 +97,10 @@ pub struct Ppu {
     /// Mode 3's pixel pipeline (never mid-line at a frame boundary, where states are taken).
     #[serde(skip)]
     fifo: fifo::Fifo,
+    /// A register write the picture hardware has seen and the register does not hold yet, or
+    /// the other way round (`land`).
+    #[serde(skip)]
+    landed: Landed,
 }
 
 fn all_layers() -> u8 {
@@ -110,6 +118,36 @@ fn blank() -> Vec<u32> {
 pub struct PpuIrq {
     pub vblank: bool,
     pub stat: bool,
+}
+
+/// What reaches the picture hardware at one step of a CPU write to a picture register. The bus
+/// decides on which dot each step lands (`Bus::landing`); `Ppu::land` says what each one does.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Land {
+    /// The new value.
+    Value(u8),
+    /// The old value OR the new one.
+    Or(u8),
+    /// The first of a Game Boy's two LCDC steps (see `Ppu::land`).
+    LcdcFirst(u8),
+    /// WX on a Game Boy: the new value, and for the next dot the window's one-pixel-late start
+    /// is not taken.
+    Wx(u8),
+    /// LCDC on a Color, clearing tile select: the new value, and for the next dot a bitplane read
+    /// glitches.
+    TileSelOff(u8),
+    /// The value from before the write, for one more dot.
+    Hold,
+}
+
+/// The picture registers as the picture hardware sees them while a CPU write to one of them is
+/// on its way (`None`: as the register holds it), and the one-dot effects a write leaves behind.
+/// It only ever lasts a dot past the M-cycle carrying the write, so it is never in a save state.
+#[derive(Clone, Default)]
+struct Landed {
+    reg: [Option<u8>; 12],
+    wx_fresh: bool,
+    tile_sel_glitch: bool,
 }
 
 #[path = "fifo.rs"]
@@ -150,6 +188,7 @@ impl Default for Ppu {
             no_sprite_limit: false,
             exact: false,
             fifo: Default::default(),
+            landed: Landed::default(),
             shade: blank_bytes(),
             source: blank_bytes(),
             obj_pal: vec![0xFF; 64],
@@ -339,6 +378,8 @@ impl Ppu {
     pub fn tick(&mut self) -> PpuIrq {
         let mut irq = PpuIrq { vblank: false, stat: false };
         if !self.on() {
+            self.landed.wx_fresh = false;
+            self.landed.tile_sel_glitch = false;
             return irq;
         }
         self.dot += 1;
@@ -386,6 +427,9 @@ impl Ppu {
         if self.fifo.active {
             self.fifo_dot();
         }
+        // A write's one-dot effects last for the dot after it lands, and no longer.
+        self.landed.wx_fresh = false;
+        self.landed.tile_sel_glitch = false;
         // While LY ticks over (the last 4 dots of a line) the comparison reads false.
         self.lyc_eq = !(self.dot >= 452 && self.ly < 153) && self.ly == self.lyc;
         let line = self.stat_condition();

@@ -16,6 +16,10 @@ serde = { version = "1", features = ["derive"] }
 bincode = "1.3"
 libc = "0.2"
 
+[features]
+# Prints the exact drawer's state on every picture-register write (scripts/sameboy). Test only.
+trace = []
+
 [dev-dependencies]
 png = "0.17"
 

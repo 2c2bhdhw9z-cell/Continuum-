@@ -18,17 +18,18 @@ owner should read is the last section.
 | cgb-acid2 | pass | pass |
 | Mooneye DMG acceptance | 87 / 87 | 87 / 87 |
 | Mooneye Color | 7 / 7 runs | 7 / 7 runs |
-| Mealybug Tearoom | not applicable | **27 / 55** |
+| Mealybug Tearoom | not applicable | **44 / 55** |
 
-**23 of the 24 DMG pictures**, and 4 of the 31 Color ones. The DMG picture that still fails is
+**23 of the 24 DMG pictures**, and 21 of the 31 Color ones. The DMG picture that still fails is
 `m3_lcdc_bg_en_change`, and it is **four pixels** away: one pixel on each of four lines, all of
 them x=0, all of them on the eight lines where that test places a sprite at X=2. The Color half
-went from 1 to 4 the moment a Color drew a black-and-white game in the colours its start-up code
-picks (`compat.rs`, evening of 13 October): exactly the three Group 1 step 1 names below, with no
-change to either drawer's timing. What is left of the Color half is Color timing, and 4 of those
-pictures can never reach zero at all; Group 1 below has each one by name.
+went from 1 to 4 when a Color drew a black-and-white game in the colours its start-up code picks
+(`compat.rs`, evening of 13 October), and from 4 to 21 when each picture-register write started
+landing on the dot the Color lands it (`bus.rs::landing`, 16 October; "How a register write
+reaches the drawer" below). Four of the Color pictures that are left can never reach zero at all
+(Group 1a); Group 1 below has the rest by name.
 
-`tests/roms.rs::MEALYBUG_PASSING` pins all 27 by name: a change that drops one of them is wrong,
+`tests/roms.rs::MEALYBUG_PASSING` pins all 44 by name: a change that drops one of them is wrong,
 whatever else it fixes.
 
 The Mooneye gate reads 87 rather than the 86 this file quotes further down. Nothing in this work
@@ -147,48 +148,71 @@ worked out in advance, and it agrees with `ppu.rs::mode3_length` without being t
 ### How a register write reaches the drawer
 
 This is the part that cost the most to get right, and the part a reader should not change without
-re-measuring.
+re-measuring. Since 16 October it lives where it belongs, in the bus, with no correction
+constants left in the drawer.
 
 A real SM83 does not finish a register write at the same point of its M-cycle for every register,
-and it does not write LCDC or a palette register in one go at all:
+and it writes LCDC and the Game Boy's palette registers in two steps. SameBoy models this as a
+table of "write conflicts" (`Core/sm83_cpu.c`, `cycle_write`, read and not copied):
+for each register, on how many dots of the M-cycle the write lands, and what the PPU sees on
+each step. `bus.rs::landing` is that table, in whole dots (4 is the end of the M-cycle, 5 one dot
+into the next), and `Bus::write` hands the steps to the PPU on their dots (`Ppu::land`), while
+the register itself still changes at the end of the M-cycle exactly as before. Only the exact
+drawer reads what landed (`Ppu::seen`); everything the CPU can see (STAT, LY, mode 3's length,
+the interrupts) and the whole of the Standard drawer stay timed on the register, so they cannot
+have moved: a fingerprint of every frame, the CPU's registers and the save state, over 200 frames
+of every test ROM and five Pokémon games on both consoles (336 runs), is identical before and
+after.
 
-- a **palette** register (`BGP`, `OBP0`, `OBP1`) reads as **the old value OR the new one for a
-  single dot**, and as the new value from the dot after;
-- **LCDC** lands in two halves a dot apart: the first carries only bit 0, the background enable
-  (and a clear of bit 1, objects, when the LCD is at the line's first pixel or an object is being
-  fetched), and the second carries the whole value;
-- **WX** finishes two dots after that group, at the very end of its M-cycle.
+| Register | Game Boy | Color (CPU CGB C, single speed) |
+|---|---|---|
+| `LCDC` | two steps, dots 2 and 3 (the first is below) | dot 4; clearing tile select glitches the next dot's bitplane read |
+| `SCY` | dot 2 | dot 4 |
+| `SCX` | dot 2 | dot 4 |
+| `BGP`, `OBP0`, `OBP1` | old OR new on dot 2, new on dot 3 | new on dot 3 |
+| `WX` | dot 4, and on the next dot the window's one-pixel-late start is not taken | dot 5 (the CPU's write wins the PPU's read of it, one dot into the next M-cycle) |
+| `WY`, `STAT`, `LYC` | dot 4 | dot 4 |
 
-**The two bits the pixel output stage reads lag the bits the fetcher samples by one dot.** Those
-two are bit 0 (background enable) and bit 1 (objects); the fetcher's are bits 3, 4 and 6 (the two
-map bits and tile select). `registers_dot` gives bits 0 and 1 the old value for the single dot a
-write lands on. This is the one change the measurement above pinned down exactly: before it, the
-suppressed-pixel windows in `m3_lcdc_bg_en_change` were one pixel early in **all** of the
-eighteen sprite positions the test sweeps and in both of each line's two windows - 376 pixels -
-and after it 374 of those 376 pixels are right. Note the asymmetry the hardware's first half-write
-implies, a set of bit 0 arriving a dot before a clear of it, is **not** what the reference
-pictures show: a 12-dot gap between a clear and a set suppresses 12 pixels, not 11, so both edges
-move together. The one-dot lag is the whole of it.
+In double speed SameBoy has a separate table in half dots, which a whole-dot drawer cannot place,
+so every write still lands at the end of the M-cycle there. No Mealybug test runs in double speed.
+The Super Game Boy and the Game Boy Pocket use the Game Boy's table; SameBoy gives the Super Game
+Boy a simpler one of its own and marks it unverified, and nothing here can measure either.
 
-cBoy's bus does none of this: `Bus::write` lets the M-cycle's four dots pass and then applies the
-write, so every write reaches the PPU at one fixed point, late. Two constants in `fifo.rs` carry
-the correction, and **both were measured, not guessed**:
+`fifo.rs::DELAY` is the one number left on the drawer's side: mode 3 shows in STAT, and the
+line's first fetch starts on the sixth dot after. It is SameBoy's, and **measured, not taken on
+trust**: `scripts/sameboy/compare-landings.py` runs every Mealybug ROM on SameBoy (through
+`scripts/sameboy/harness.c`) and on cBoy (cargo feature `trace`) and lines up the drawer's
+position, LCD x, fetcher step, object fetch, window and FIFO length on the dot each write lands.
+On the Game Boy set, 18,528 writes land in mode 3. All 6,696 `SCX`, `BGP`, `OBP0` and `WX`
+writes find the two drawers in the same state, and so do 8,620 of the 8,640 `LCDC` writes; the
+20 that do not are all in `m3_lcdc_win_en_change_multiple_wx`, a picture cBoy passes and SameBoy
+misses by 43 pixels. The 3,192 `SCY` writes land a dot apart on purpose (below).
 
-- `WRITE_BIAS = 3` runs the whole drawer three dots behind the dot counter. Of the candidate
-  offsets 0 to 5, the DMG pictures passing are 5, 7, 5, **20**, 2, 2 — one sharp optimum.
-- `WX_LAG = 2` gives the window its own, later view of WX. With `WRITE_BIAS` at 3 the lags 0 to 3
-  give 16, 18, **20**, 19 pictures and 30829, 19187, **735**, 14545 differing pixels — the same
-  two dots the hardware's write-conflict behaviour calls for.
+Two rows of the Game Boy's table are not SameBoy's, and both are measured against the Game Boy
+pictures, which SameBoy's own model misses on nine (it passes 15 of the 24):
 
-`registers_dot` then reproduces the staging itself: the palette OR for one dot, the background-
-and object-enable bits held back a dot, and the window-enable bit taken as the old AND the new so
-that switching the window **off** reaches the PPU a dot before switching it **on** does. The map
-and tile-select bits are deliberately left where cBoy's single-stage write puts them: holding
-them back a dot as well breaks `m3_lcdc_bg_map_change`, `m3_lcdc_tile_sel_change`,
-`m3_lcdc_tile_sel_win_change`, `m3_lcdc_win_map_change` and `m3_lcdc_obj_size_change` on exactly
-the lines where those tests place a sprite at X 2 to 5. That is now explained rather than
-suspicious: those bits are read by the fetcher, which is the half of the PPU that does **not**
-lag, so a lag there is simply wrong.
+- **`SCY` lands on dot 2, with `SCX`**, where SameBoy has it a dot later. The Mealybug PPU
+  documentation says the same thing from the other side: a Game Boy takes `SCY` at once, and a
+  Color two dots later, which is dot 4 - where SameBoy and this table both have the Color. Put
+  into a copy of SameBoy, this one change makes SameBoy pass `m3_scy_change` too (16 of 24).
+- **The first `LCDC` step carries the bits the fetcher samples (tile map, tile select, object
+  size, window map) already new**, while the two the pixel output stage reads - background enable
+  and objects - are still old, and the window enable is the old AND the new, so switching the
+  window off arrives a dot before switching it on. SameBoy's first step is the old value with only
+  the new background enable OR'd in. Put into the same copy of SameBoy (keeping the LCD switch
+  out of the first step, as cBoy's register does), this makes SameBoy pass six more Game Boy
+  pictures - `m3_lcdc_bg_map_change`, `m3_lcdc_obj_size_change`, `m3_lcdc_obj_size_change_scx`,
+  `m3_lcdc_tile_sel_change`, `m3_lcdc_tile_sel_win_change` and `m3_lcdc_win_map_change` - and
+  leaves it four pixels off `m3_lcdc_bg_en_change` at exactly the four pixels cBoy misses
+  (22 of 24). Both experiments were run in a scratch copy outside the repository.
+
+Both steps on the Game Boy also clear the object enable early when the write clears it while
+the LCD is at the line's first pixel or an object is being fetched, which is SameBoy's.
+
+This is what the score moved on. The Color half had been landing every write with the Game Boy's
+timing, because the drawer picked its staging by the cartridge's mode rather than by the console;
+with the Color's own row, and nothing else changed, **17 Color pictures passed at once** (Mealybug
+27 → 44 of 55), and every Game Boy picture that passed before still does.
 
 ### Clearing the object-enable bit aborts an object fetch
 
@@ -198,13 +222,14 @@ the fetch would have taken are not spent, so mode 3 ends earlier and every pixel
 line moves. The object stays queued and is dropped when the LCD passes its X, because with bit 1
 clear no new fetch can start.
 
-`registers_dot` does this on the dot the staged clear of bit 1 appears, which is the same dot the
-hardware's first half-write carries it on, and the fetch counts as "in progress" from the dot the
-object's X matched to the dot before its last read - not on that last read itself, where the
-object's row has already been read. That is what `m3_lcdc_obj_en_change_variant` probes: it
-disables objects mid-line with sprites at eighteen different X positions and then moves `BGP`
-black and white again later in the line, so the picture shows where mode 3 got to. With the abort
-in, it passes.
+`Ppu::land` does this on whichever step of the write clears bit 1 as the drawer sees it, as
+SameBoy's `GB_write_memory` does on whichever of its two writes clears it. The fetch counts as in
+progress from the dot the object's X matched until its last read has happened, which is
+SameBoy's `during_object_fetch` and is what lines the landings above up; the earlier version
+stopped a dot sooner, and no picture can tell the two apart. That is what
+`m3_lcdc_obj_en_change_variant` probes: it disables objects mid-line with sprites at eighteen
+different X positions and then moves `BGP` black and white again later in the line, so the
+picture shows where mode 3 got to. With the abort in, it passes.
 
 ### The window
 
@@ -388,6 +413,12 @@ in Group 1 step 2 reachable.
 Counts are differing pixels as the report prints them.
 
 ### Group 1 — the Color pictures: the harness was running the wrong console (30 pictures)
+
+**Status, 16 October:** written before the write landing went in. Since then 21 of the 31 Color
+pictures pass, including all six of step 2, the whole of step 3 but `m3_lcdc_tile_sel_change2`,
+`m3_lcdc_tile_sel_win_change2` and `m3_scx_high_5_bits_change2`, and step 4 but
+`m3_lcdc_obj_size_change_scx`, `m3_lcdc_tile_sel_change` and `m3_lcdc_tile_sel_win_change`.
+What follows is kept for the measurements in it.
 
 This group was misread until it was measured, so the finding comes first: **the Color references
 were being compared against a machine they were never captured on.**
@@ -627,9 +658,11 @@ right edge for edge and all five differences left are the Color's.
    palette is needed (their references are black and white only), the flag is live, and every
    one's gap is already measured to the pixel — two of them off by exactly one pixel per line,
    which is a window that starts a pixel later on a Color than on a Game Boy. Do this one first.
-3. **`Bus::write` applying an IO write at the hardware's point in the M-cycle** (not owned here;
-   see below). That would let `WRITE_BIAS` and `WX_LAG` go to zero and the staging be written
-   purely as the hardware's, with no correction constants at all. It would not move the score.
+3. ~~**`Bus::write` applying an IO write at the hardware's point in the M-cycle.**~~ **DONE, 16
+   October** (`bus.rs::landing`; "How a register write reaches the drawer" above). `WRITE_BIAS`
+   and `WX_LAG` are gone, and so is the drawer's own staging. It did move the score after all:
+   the Color had been landing writes on the Game Boy's dots, and with its own row 17 Color
+   pictures passed.
 4. **The five Color-only access-blocking edges** in "What the CPU can see while the picture is
    being drawn" above. They need the same `gb.rs` flag as item 1, and two of them need the PPU to
    know about double speed too. No test in either suite probes them, so whoever does this needs a
@@ -658,14 +691,9 @@ work's to change, and the first item below was done then.
 - **~~`gb.rs`: the Game Boy-compatibility colour palette~~ — DONE, evening of 13 October.** See
   Group 1, "Both halves of the palette are in". The three Mealybug pictures this said would pass
   the moment it landed did, and nothing else moved.
-- **`bus.rs`: where an IO write lands inside its M-cycle.** `Bus::write` calls `tick()` first and
-  applies the write after, so a register write reaches the PPU three dots later than on hardware,
-  and a register the hardware writes in two stages a dot apart arrives in one. `fifo.rs` corrects
-  for it with `WRITE_BIAS` and `WX_LAG` and reproduces the staging itself, which is enough for 23
-  of the 24 DMG pictures but cannot express a bit that arrives *before* the write cBoy is told
-  about. The proper fix is for a write to `$FF40`-`$FF4B` to be applied part-way through its
-  M-cycle rather than at the end of it. Nothing outside this drawer depends on the present
-  behaviour, and Mooneye's acceptance gate would have to stay where it is either way.
+- **~~`bus.rs`: where an IO write lands inside its M-cycle~~ — DONE, 16 October.** See "How a
+  register write reaches the drawer". The registers themselves still change at the end of the
+  M-cycle, so Mooneye's gate and the Standard drawer are exactly where they were.
 - **~~`gb.rs`: tell the PPU it is Color hardware~~ — DONE, by another agent, during this night.**
   `gb.rs` now sets `ppu.cgb_hardware` in all three places, Mooneye's Color set reads 7 of 7 runs,
   and `mts/misc/ppu/vblank_stat_intr-C.gb` is in the gate. **So the flag is live, and the two

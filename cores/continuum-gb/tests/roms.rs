@@ -759,6 +759,31 @@ fn mealy_baseline() {
     }
 }
 
+/// With the `trace` feature: runs one Mealybug ROM (CBOY_ROM=<name>, CBOY_CGB=1 for the Color)
+/// and prints the exact drawer's state on every picture-register write of one frame, the same
+/// frame scripts/sameboy's harness logs from SameBoy, so scripts/sameboy/compare-landings.py can
+/// put the two side by side.
+#[cfg(feature = "trace")]
+#[test]
+fn trace_landings() {
+    let Ok(name) = std::env::var("CBOY_ROM") else { return };
+    let cgb = std::env::var("CBOY_CGB").is_ok();
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/mealybug");
+    let data = std::fs::read(dir.join(format!("{name}.gb"))).unwrap();
+    let mut gb = if cgb { GameBoy::with_model(data, Model::Cgb, None).unwrap() } else { GameBoy::new_mode(data, false).unwrap() };
+    gb.bus.ppu.exact = true;
+    for _ in 0..600 {
+        gb.run_frame();
+        if gb.cpu.ld_b_b {
+            break;
+        }
+    }
+    gb.run_frame();
+    continuum_gb::ppu::TRACE.store(true, std::sync::atomic::Ordering::Relaxed);
+    gb.run_frame();
+    continuum_gb::ppu::TRACE.store(false, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Mid-scanline register changes (Mealybug Tearoom). Reports; the passing set is pinned below.
 #[test]
 fn mealybug_report() {
@@ -800,16 +825,31 @@ fn mealybug_report() {
 /// change that drops one of these is wrong, whatever else it fixes. All 24 DMG pictures are here
 /// bar `m3_lcdc_bg_en_change`, which is four pixels away (see .kiro/notes/docs/CBOY_EXACT_DRAWER.md).
 ///
-/// Four of the 31 Color pictures are here too. These ROMs are Game Boy cartridges, so a Color
-/// console runs them in Game Boy mode, in the colours its start-up code picks for a cartridge
-/// that is not Nintendo's (compat.rs). `m3_scx_low_3_bits` uses only black and white, so it passed
-/// before those colours were in; the other three are the Color drawing exactly what a Game Boy
-/// draws, and passed the moment the colours were. The rest also need the drawer to do what a
-/// Color does differently, set out in .kiro/notes/docs/CBOY_EXACT_DRAWER.md.
+/// So are 21 of the 31 Color pictures. These ROMs are Game Boy cartridges, so a Color console
+/// runs them in Game Boy mode, in the colours its start-up code picks for a cartridge that is not
+/// Nintendo's (compat.rs), and with the Color's own timing for when a write to a picture register
+/// lands (`Bus::landing`), which is what took the Color half from 4 to 21.
 const MEALYBUG_PASSING: &[&str] = &[
     "cgb:m2_win_en_toggle",
+    "cgb:m3_bgp_change",
+    "cgb:m3_bgp_change_sprites",
+    "cgb:m3_lcdc_bg_en_change",
+    "cgb:m3_lcdc_bg_en_change2",
+    "cgb:m3_lcdc_bg_map_change",
+    "cgb:m3_lcdc_bg_map_change2",
+    "cgb:m3_lcdc_obj_en_change",
+    "cgb:m3_lcdc_obj_en_change_variant",
+    "cgb:m3_lcdc_obj_size_change",
     "cgb:m3_lcdc_win_en_change_multiple",
+    "cgb:m3_lcdc_win_map_change",
+    "cgb:m3_lcdc_win_map_change2",
+    "cgb:m3_obp0_change",
+    "cgb:m3_scx_high_5_bits",
     "cgb:m3_scx_low_3_bits",
+    "cgb:m3_scy_change",
+    "cgb:m3_scy_change2",
+    "cgb:m3_window_timing",
+    "cgb:m3_window_timing_wx_0",
     "cgb:m3_wx_4_change_sprites",
     "dmg:m2_win_en_toggle",
     "dmg:m3_bgp_change",

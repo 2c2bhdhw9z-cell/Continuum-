@@ -6,7 +6,6 @@ that lands the work.
 
 | File | Job, item | What it holds |
 |---|---|---|
-| `cboy-wip-base-eafddae.patch` | `cboy.json`, G2 | The first IO-write-timing edits to `bus.rs`, `cpu.rs` and `fifo.rs`, and tests in `tests/roms.rs` (54 lines). |
 
 Apply with `git apply .kiro/notes/wip/<file>`. Both applied cleanly to master on 14 October at
 1:40 PM; if master has moved on and one doesn't, use `git apply --3way`.

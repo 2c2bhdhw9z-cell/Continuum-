@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::apu::Apu;
 use crate::cart::Cart;
-use crate::ppu::Ppu;
+use crate::ppu::{Land, Ppu};
 use crate::timer::Timer;
 
 pub const INT_VBLANK: u8 = 1;
@@ -150,6 +150,10 @@ pub struct Bus {
     /// still gets a line (the phone rewrites them every loop).
     #[serde(skip)]
     hdma_watch: [u8; 5],
+    /// A picture register write's step that lands one dot into the next M-cycle (see
+    /// `landing`). Never across a frame boundary, where states are taken, so not saved.
+    #[serde(skip)]
+    land_next: Option<(u8, Land)>,
 }
 
 impl Bus {
@@ -209,6 +213,7 @@ impl Bus {
             trace_pc: 0,
             trace_bank: 0,
             hdma_watch: [0, 0, 0, 0x80, 0xFF],
+            land_next: None,
         }
     }
 
@@ -381,8 +386,59 @@ impl Bus {
         }
     }
 
+    /// Where, inside the M-cycle carrying it, a CPU write to a picture register reaches the
+    /// picture hardware: up to two steps, each as (how many of the M-cycle's dots run before it
+    /// lands, what lands). 4 is the M-cycle's end, which is where cBoy's registers themselves
+    /// change and so where everything the CPU can see, and the Standard drawer, are timed; 5 is
+    /// one dot into the next M-cycle. Only the exact drawer looks at the steps (`Ppu::land`).
+    ///
+    /// This is SameBoy's model of the CPU's write conflicts (Core/sm83_cpu.c, `cycle_write`, read
+    /// and not copied; .kiro/notes/docs/CBOY_EXACT_DRAWER.md has the table). A register missing
+    /// here lands at the end of the M-cycle, which is SameBoy's default too. Double speed has its
+    /// own table there, in half dots, which a whole-dot drawer cannot place, so in double speed
+    /// every write lands at the end, as it always has here.
+    fn landing(&self, addr: u16, v: u8) -> [Option<(u8, Land)>; 2] {
+        if self.double_speed {
+            return [None, None];
+        }
+        if self.cgb_hardware {
+            return match addr {
+                // A Color takes LCDC whole at the end; clearing tile select glitches the next dot's
+                // bitplane read.
+                0xFF40 if self.ppu.lcdc & !v & 0x10 != 0 => [Some((4, Land::TileSelOff(v))), None],
+                // A Color (CPU CGB C and earlier) writes a palette register a dot before the end,
+                // whole: no old-OR-new dot as on a Game Boy.
+                0xFF47..=0xFF49 => [Some((3, Land::Value(v))), None],
+                // A Color's WX write wins over the PPU's read of it, which puts it one dot into
+                // the next M-cycle.
+                0xFF4B => [Some((4, Land::Hold)), Some((5, Land::Value(v)))],
+                // SCX, SCY and WY at the end: on a Color, SCY lands two dots after a Game Boy's
+                // (the Mealybug PPU documentation).
+                _ => [None, None],
+            };
+        }
+        match addr {
+            // A Game Boy writes LCDC in two steps a dot apart (see `Land::LcdcFirst`).
+            0xFF40 => [Some((2, Land::LcdcFirst(v))), Some((3, Land::Value(v)))],
+            // A Game Boy's SCY and SCX reach the fetcher two dots before the end.
+            0xFF42 | 0xFF43 => [Some((2, Land::Value(v))), None],
+            // A Game Boy palette register reads as the old value OR the new one for a dot, two
+            // dots before the end, then as the new one.
+            0xFF47..=0xFF49 => [Some((2, Land::Or(v))), Some((3, Land::Value(v)))],
+            // WX at the end, and the window's one-pixel-late start is not taken on the next dot.
+            0xFF4B => [Some((4, Land::Wx(v))), None],
+            _ => [None, None],
+        }
+    }
+
     /// One M-cycle of everything but the CPU.
     pub fn tick(&mut self) {
+        self.tick_landing(0, [None, None]);
+    }
+
+    /// One M-cycle, handing the picture hardware the steps of a write to register `reg` on their
+    /// dots (see `landing`).
+    fn tick_landing(&mut self, reg: u8, steps: [Option<(u8, Land)>; 2]) {
         self.cycles += 4;
         let serial_clock_was_high = self.serial_clock_high();
         if self.timer.tick_m() {
@@ -401,8 +457,20 @@ impl Bus {
         }
         self.apu_div_bit = bit;
         self.apu.tick(dots);
-        for _ in 0..dots {
+        for dot in 1..=dots {
             let irq = self.ppu.tick();
+            // The step of the last write that lands one dot into this M-cycle, then this one's.
+            if dot == 1 {
+                if let Some((r, step)) = self.land_next.take() {
+                    self.ppu.land(r, step);
+                    self.ppu.settle(r);
+                }
+            }
+            for (at, step) in steps.iter().flatten() {
+                if u32::from(*at) == dot {
+                    self.ppu.land(reg, *step);
+                }
+            }
             if irq.vblank {
                 self.iflag |= INT_VBLANK;
                 if self.sgb.as_mut().is_some_and(|s| s.wants_transfer()) {
@@ -493,6 +561,23 @@ impl Bus {
     }
 
     pub fn write(&mut self, addr: u16, v: u8) {
+        if (0xFF40..=0xFF4B).contains(&addr) {
+            // A picture register: the picture hardware sees the write on the dots `landing`
+            // gives, and the register itself changes at the end of the M-cycle as before.
+            let steps = self.landing(addr, v);
+            let reg = addr as u8;
+            self.tick_landing(reg, steps);
+            #[cfg(feature = "trace")]
+            if steps[0].is_none() {
+                self.ppu.trace_land(reg, v, self.raw_read(addr));
+            }
+            self.raw_write(addr, v);
+            match steps[1] {
+                Some((5, step)) => self.land_next = Some((reg, step)),
+                _ => self.ppu.settle(reg),
+            }
+            return;
+        }
         self.tick();
         if self.dma_active && (0xFE00..0xFEA0).contains(&addr) {
             return;
@@ -644,10 +729,7 @@ impl Bus {
             0xFF48 => self.ppu.obp0 = v,
             0xFF49 => self.ppu.obp1 = v,
             0xFF4A => self.ppu.wy = v,
-            0xFF4B => {
-                self.ppu.note_wx(v);
-                self.ppu.wx = v;
-            }
+            0xFF4B => self.ppu.wx = v,
             // KEY0: a Color's start-up code says here which mode the cartridge runs in - Game Boy
             // mode when bit 2 or 3 is set - and only it can: once it is unmapped this is locked.
             0xFF4C if self.colour_start_up() => {
@@ -753,4 +835,99 @@ impl Bus {
 
 fn yes() -> bool {
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bus(colour_console: bool) -> Bus {
+        let mut b = Bus::new(Cart::new(vec![0; 0x8000]).unwrap());
+        b.cgb_hardware = colour_console;
+        b.ppu.cgb_hardware = colour_console;
+        b
+    }
+
+    /// The table, as SameBoy's write-conflict model has it (and, for a Game Boy's LCDC first step
+    /// and SCY, as the Game Boy pictures measure it; .kiro/notes/docs/CBOY_EXACT_DRAWER.md).
+    #[test]
+    fn each_picture_register_lands_on_its_own_dot() {
+        let gb = bus(false);
+        assert_eq!(gb.landing(0xFF40, 0x91), [Some((2, Land::LcdcFirst(0x91))), Some((3, Land::Value(0x91)))]);
+        assert_eq!(gb.landing(0xFF42, 7), [Some((2, Land::Value(7))), None]);
+        assert_eq!(gb.landing(0xFF43, 7), [Some((2, Land::Value(7))), None]);
+        for reg in 0xFF47..=0xFF49 {
+            assert_eq!(gb.landing(reg, 0xE4), [Some((2, Land::Or(0xE4))), Some((3, Land::Value(0xE4)))]);
+        }
+        assert_eq!(gb.landing(0xFF4B, 7), [Some((4, Land::Wx(7))), None]);
+        for reg in [0xFF41, 0xFF44, 0xFF45, 0xFF46, 0xFF4A] {
+            assert_eq!(gb.landing(reg, 7), [None, None], "{reg:04X} lands at the end");
+        }
+        let mut cgb = bus(true);
+        cgb.ppu.lcdc = 0x91;
+        assert_eq!(cgb.landing(0xFF40, 0x81), [Some((4, Land::TileSelOff(0x81))), None], "clearing tile select");
+        assert_eq!(cgb.landing(0xFF40, 0x93), [None, None]);
+        for reg in 0xFF47..=0xFF49 {
+            assert_eq!(cgb.landing(reg, 0xE4), [Some((3, Land::Value(0xE4))), None]);
+        }
+        assert_eq!(cgb.landing(0xFF4B, 7), [Some((4, Land::Hold)), Some((5, Land::Value(7)))]);
+        for reg in [0xFF42, 0xFF43, 0xFF4A] {
+            assert_eq!(cgb.landing(reg, 7), [None, None], "{reg:04X} lands at the end on a Color");
+        }
+        cgb.double_speed = true;
+        assert_eq!(cgb.landing(0xFF47, 0xE4), [None, None], "double speed lands at the end");
+    }
+
+    /// The register itself still changes at the end of the M-cycle, which is what the CPU, STAT
+    /// and the Standard drawer see; and once a write has landed nothing is left over for the
+    /// drawer, so it reads the register again (one dot into the next M-cycle for a Color's WX).
+    #[test]
+    fn a_landed_write_leaves_the_drawer_reading_the_register() {
+        for colour in [false, true] {
+            let mut b = bus(colour);
+            for reg in 0xFF40..=0xFF4Bu16 {
+                // STAT, LY, LYC and the DMA register are not the drawer's.
+                if matches!(reg, 0xFF41 | 0xFF44 | 0xFF45 | 0xFF46) {
+                    continue;
+                }
+                // Keep the LCD on, so the PPU runs while the writes land.
+                let v = if reg == 0xFF40 { 0x93 } else { 0x5A };
+                b.write(reg, v);
+                assert_eq!(b.raw_read(reg), v, "{reg:04X} changed at the end of its M-cycle");
+                if colour && reg == 0xFF4B {
+                    assert_eq!(b.ppu.drawer_sees(0x4B), 0, "a Color's WX is still the old one for a dot");
+                    b.tick();
+                }
+                assert_eq!(b.ppu.drawer_sees(reg as u8), v, "{reg:04X}: nothing left over (colour {colour})");
+            }
+        }
+    }
+
+    /// What lands at each step: a Game Boy palette's old-OR-new dot, the first LCDC step's mix of
+    /// old and new bits, and a Color's WX held back.
+    #[test]
+    fn what_each_step_carries() {
+        let mut p = Ppu::default();
+        p.bgp = 0x0C;
+        p.land(0x47, Land::Or(0x30));
+        assert_eq!(p.drawer_sees(0x47), 0x3C, "old OR new");
+        p.land(0x47, Land::Value(0x30));
+        assert_eq!(p.drawer_sees(0x47), 0x30);
+        p.settle(0x47);
+        assert_eq!(p.drawer_sees(0x47), 0x0C, "settled: the register again");
+        // Tile map, tile select and object size new; background and objects old; the window on
+        // only if it was on and stays on.
+        p.lcdc = 0x80 | 0x20 | 0x03;
+        p.land(0x40, Land::LcdcFirst(0x80 | 0x18 | 0x04));
+        assert_eq!(p.drawer_sees(0x40), 0x80 | 0x18 | 0x04 | 0x03);
+        p.settle(0x40);
+        p.lcdc = 0x80 | 0x01;
+        p.land(0x40, Land::LcdcFirst(0x80 | 0x20 | 0x01));
+        assert_eq!(p.drawer_sees(0x40) & 0x20, 0, "switching the window on waits for the second step");
+        p.settle(0x40);
+        p.wx = 9;
+        p.land(0x4B, Land::Hold);
+        p.wx = 20;
+        assert_eq!(p.drawer_sees(0x4B), 9, "held");
+    }
 }

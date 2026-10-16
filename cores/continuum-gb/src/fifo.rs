@@ -16,7 +16,9 @@
 //!   - an **object fetch** that stalls the fetcher and the LCD, which is where mode 3's extra
 //!     length comes from;
 //!   - the **window**, with its own tile counter, its own row counter that advances every time it
-//!     starts, and a fetcher restart that costs a whole tile fetch.
+//!     starts, and a fetcher restart that costs a whole tile fetch;
+//!   - the **picture registers as the hardware sees them**: a CPU write lands on the dot of its
+//!     M-cycle the console lands it on, some in two steps (bus.rs `landing`, `Ppu::land`).
 //!
 //! Written from the hardware behaviour: the Mealybug Tearoom PPU documentation (which says which
 //! fetch step samples which register) and Pan Docs, following the same model SameBoy implements
@@ -34,22 +36,14 @@ const HI_A: u8 = 4;
 const HI_R: u8 = 5;
 const PUSH: u8 = 6;
 
-/// cBoy's bus performs a register write at the END of the M-cycle carrying it, where the hardware
-/// performs it part-way through: every write reaches the PPU three dots late. Measured, not
-/// guessed: of the offsets 0 to 5, three is the only one that makes the Mealybug pictures agree
-/// (5, 7, 5, 20, 2, 2 of the 24 DMG pictures). Until bus.rs writes at the hardware's point (see
-/// .kiro/notes/docs/CBOY_EXACT_DRAWER.md) the drawer runs those three dots behind the dot counter, so a
-/// mid-line write still lands on the pixel it belongs to. STAT and HBlank keep their own timing
-/// from `mode3_length`, so nothing the CPU can see moves.
-const WRITE_BIAS: u16 = 3;
-
-/// Dots at the start of mode 3, after it shows in STAT, before the fetcher's first step.
-const DELAY: u16 = 5 + WRITE_BIAS;
-
-/// A DMG does not write every register at the same point of the M-cycle carrying the write: WX
-/// lands at the end of it, where BGP, OBP0/1, LCDC and SCX land two dots earlier. The fetcher
-/// samples the early group, so the window sees WX two dots later than they do.
-const WX_LAG: usize = 2;
+/// Dots at the start of mode 3, from the dot it shows in STAT, before the fetcher's first step:
+/// the line's first fetch begins on the sixth dot after that one. SameBoy's, and measured rather
+/// than taken on trust: with it, every SCX, palette and WX write in the 24 Game Boy Mealybug tests
+/// lands with the drawer's position, LCD x, fetcher step, object fetch, window and FIFO exactly
+/// where SameBoy's are (scripts/sameboy/compare-landings.py; .kiro/notes/docs/CBOY_EXACT_DRAWER.md).
+/// The bus hands the drawer each write on the dot the hardware does (`Bus::landing`), so there is
+/// no correction on this side.
+const DELAY: u16 = 6;
 
 /// The position counter's value when mode 3 begins: 16 pixels before the LCD's first one.
 const START: u8 = 0xF0;
@@ -118,19 +112,8 @@ pub(super) struct Fifo {
     wx_glitch: bool,
     /// One colour-0 pixel is handed to the LCD instead of the FIFO's next.
     insert_blank: bool,
-    /// BGP, OBP0 and OBP1 as the output stage sees them on this dot, and as they were on the
-    /// dot before (see `registers_dot`).
-    pal: [u8; 3],
-    pal_was: [u8; 3],
-    /// LCDC as the drawer sees it on this dot, and as it was on the dot before.
-    lcdc: u8,
-    lcdc_was: u8,
-    /// WX as the window sees it, trailing the register by `WX_LAG` dots, and whether it changed
-    /// on this dot (the dot a write lands on, where the window's late start is ignored).
-    wx_pipe: [u8; WX_LAG + 1],
-    wx_fresh: bool,
-    /// LCDC bit 5 on the dot before, and whether its colour-0 pixel is suppressed for this line.
-    win_en_was: bool,
+    /// The window was switched off while its own first fetch ran, so its colour-0 pixel is
+    /// suppressed for the rest of the line.
     no_blank: bool,
     /// This line's objects, reverse sorted by X: the one the LCD reaches next is the last.
     objs: Vec<Obj>,
@@ -149,7 +132,6 @@ pub(super) struct Fifo {
 impl Ppu {
     /// Mode 3 begins: scan OAM for this line's objects and reset the fetcher.
     pub(super) fn fifo_start(&mut self) {
-        let (pal, wx, lcdc) = ([self.bgp, self.obp0, self.obp1], self.wx, self.lcdc);
         let f = &mut self.fifo;
         let carry = f.win_carry;
         let (mut objs, row, shade, source) =
@@ -162,12 +144,6 @@ impl Ppu {
         f.active = true;
         f.pos = START;
         f.state = B_A;
-        f.pal = pal;
-        f.pal_was = pal;
-        f.wx_pipe = [wx; WX_LAG + 1];
-        f.lcdc = lcdc;
-        f.lcdc_was = lcdc;
-        f.win_en_was = lcdc & 0x20 != 0;
         // WX 166 on a DMG left the window running as the line before ended, so this line starts
         // with it already active, and with its first tile counted as fetched back then.
         f.win = carry;
@@ -176,7 +152,7 @@ impl Ppu {
         // takes anything, and how many of the first real tile's pixels follow them out is what
         // the low three bits of SCX do.
         f.bg_len = 8;
-        let height: i16 = if self.lcdc & 0x04 != 0 { 16 } else { 8 };
+        let height: i16 = if self.lcdc_seen() & 0x04 != 0 { 16 } else { 8 };
         let line = i16::from(self.ly);
         let limit = if self.no_sprite_limit { 40 } else { 10 };
         for i in 0..40u8 {
@@ -203,7 +179,7 @@ impl Ppu {
         if self.fifo.win {
             self.window_line
         } else {
-            self.ly.wrapping_add(self.scy)
+            self.ly.wrapping_add(self.seen(0x42))
         }
     }
 
@@ -211,72 +187,114 @@ impl Ppu {
         self.vram[usize::from(addr) & 0x3FFF]
     }
 
-    /// What the drawer sees of the registers a DMG does not write all at once. Run on every dot
-    /// of mode 3, before anything reads them.
-    ///
-    ///   - a palette register (BGP, OBP0, OBP1) reads as the old value OR the new one for the
-    ///     single dot a write lands on, and as the new value from the dot after;
-    ///   - LCDC lands in two halves a dot apart: the first carries only bit 0 (background
-    ///     enable) of the new value, OR'd into the old register - plus a clear of bit 1
-    ///     (objects) if the LCD is at the line's first pixel or an object is being fetched - and
-    ///     the second the whole value. What that comes to here, measured against the reference
-    ///     pictures and not assumed, is that the two bits the pixel output stage reads - bit 0
-    ///     and bit 1 - land one dot after the bits the fetcher samples, both edges of a change
-    ///     together (.kiro/notes/docs/CBOY_EXACT_DRAWER.md);
-    ///   - WX is written at the end of its M-cycle, two dots after all of those.
-    fn registers_dot(&mut self) {
-        let now = [self.bgp, self.obp0, self.obp1];
-        let (cgb, wx, lcdc) = (self.cgb, self.wx, self.lcdc);
-        let f = &mut self.fifo;
-        for i in 0..3 {
-            f.pal[i] = if cgb { now[i] } else { now[i] | f.pal_was[i] };
+    /// One step of a CPU write to a picture register reaching the picture hardware, on the dot
+    /// the bus says it lands (`Bus::landing`). From here until the bus `settle`s it, the drawer
+    /// sees what landed instead of what the register holds.
+    pub fn land(&mut self, reg: u8, step: Land) {
+        let before = self.seen(reg);
+        let now = match step {
+            Land::Value(v) | Land::Wx(v) | Land::TileSelOff(v) => v,
+            Land::Or(v) => before | v,
+            Land::Hold => before,
+            // A Game Boy's first LCDC step, a dot before the whole value: the bits the fetcher
+            // samples (tile map, tile select, object size) are new already, while the two the
+            // pixel output stage reads - background enable and objects - are still old, and the
+            // window enable is the old AND the new, so switching the window off arrives a dot
+            // before switching it on. Measured on the Game Boy pictures: SameBoy's own first step
+            // (the old value with only the new background enable) misses six of them, and passes
+            // them with this one (.kiro/notes/docs/CBOY_EXACT_DRAWER.md).
+            Land::LcdcFirst(v) => {
+                let mut first = (v & !0x23) | (before & 0x03) | (before & v & 0x20);
+                // Clearing objects at the line's first pixel, or while an object is being
+                // fetched, takes effect at this first step already.
+                if v & 0x02 == 0 && self.fifo.active && (self.fifo.pos == 0 || self.during_object_fetch()) {
+                    first &= !0x02;
+                }
+                first
+            }
+        };
+        self.landed.reg[usize::from(reg & 0x0F)] = Some(now);
+        if step != Land::Hold {
+            self.trace_land(reg, now, before);
         }
-        f.pal_was = now;
-        // The bits the output stage reads - bit 0 (background enable) and bit 1 (objects) - take
-        // the old value for that one dot, so they reach the LCD a dot after the map and
-        // tile-select bits the fetcher samples. The window enable takes the old AND the new, so
-        // switching the window off reaches the PPU a dot before switching it on does. The
-        // fetcher's own bits are left where cBoy's single-stage bus write puts them: moving them
-        // exposes object-stall errors instead (.kiro/notes/docs/CBOY_EXACT_DRAWER.md).
-        let was = f.lcdc_was;
-        // The object-fetching state machine, which is what a clear of bit 1 interrupts, is
-        // running from the dot the object's X matched to the dot before its last read.
-        let during_obj = f.obj_fetch && f.obj_step < 6;
-        let mut half = (lcdc & !0x23) | (was & 0x03) | (was & lcdc & 0x20);
-        if lcdc & 0x02 == 0 && (f.pos == 0 || during_obj) {
-            half &= !0x02;
+        match step {
+            Land::Wx(_) => self.landed.wx_fresh = true,
+            Land::TileSelOff(_) => self.landed.tile_sel_glitch = true,
+            _ => {}
         }
-        f.lcdc = if cgb { lcdc } else { half };
-        f.lcdc_was = lcdc;
-        // On a DMG, clearing bit 1 while an object is being fetched aborts the fetch outright:
-        // the object is never mixed into the FIFO, and the dots the rest of the fetch would have
-        // taken are not spent, so mode 3 ends earlier. The object stays queued, and is dropped
-        // when the LCD passes its X, because bit 1 being clear stops a new fetch starting.
-        if !cgb && during_obj && was & 0x02 != 0 && lcdc & 0x02 == 0 {
-            f.obj_fetch = false;
-            f.obj_step = 0;
+        if !self.fifo.active {
+            return;
         }
-        let seen = f.wx_pipe[0];
-        f.wx_pipe.rotate_left(1);
-        f.wx_pipe[WX_LAG] = wx;
-        f.wx_fresh = f.wx_pipe[0] != seen;
-        // Switching the window off while its own first fetch is running suppresses the colour-0
-        // pixel `push_dot` would otherwise insert, for the rest of the line.
-        let win_en = f.lcdc & 0x20 != 0;
-        if f.win_en_was && !win_en && f.win_fetching {
-            f.no_blank = true;
+        if reg == 0x40 {
+            // On a Game Boy, clearing objects while an object is being fetched aborts the fetch
+            // outright: the object is never mixed into the FIFO, and the dots the rest of the
+            // fetch would have taken are not spent, so mode 3 ends earlier. The object stays
+            // queued, and is dropped when the LCD passes its X, because with objects off no new
+            // fetch can start.
+            if !self.colour_console() && self.during_object_fetch() && before & 0x02 != 0 && now & 0x02 == 0 {
+                self.fifo.obj_fetch = false;
+                self.fifo.obj_step = 0;
+            }
+            // Switching the window off while its own first fetch is running suppresses the
+            // colour-0 pixel `push_dot` would otherwise insert, for the rest of the line.
+            if before & 0x20 != 0 && now & 0x20 == 0 && self.fifo.win_fetching {
+                self.fifo.no_blank = true;
+            }
         }
-        f.win_en_was = win_en;
     }
 
-    /// WX as the window sees it (see `WX_LAG`).
+    /// The register holds what the picture hardware has seen: the write has fully landed.
+    pub fn settle(&mut self, reg: u8) {
+        self.landed.reg[usize::from(reg & 0x0F)] = None;
+    }
+
+    /// A picture register as the exact drawer sees it right now (for the tests).
+    pub fn drawer_sees(&self, reg: u8) -> u8 {
+        self.seen(reg)
+    }
+
+    /// A picture register ($FF40-$FF4B) as the picture hardware sees it on this dot.
+    fn seen(&self, reg: u8) -> u8 {
+        if let Some(v) = self.landed.reg[usize::from(reg & 0x0F)] {
+            return v;
+        }
+        match reg {
+            0x40 => self.lcdc,
+            0x42 => self.scy,
+            0x43 => self.scx,
+            0x47 => self.bgp,
+            0x48 => self.obp0,
+            0x49 => self.obp1,
+            0x4A => self.wy,
+            0x4B => self.wx,
+            _ => 0xFF,
+        }
+    }
+
+    /// The object-fetching state machine, which is what clearing objects interrupts, is running
+    /// from the dot the object's X matched until its last read has happened (SameBoy's
+    /// `during_object_fetch`).
+    fn during_object_fetch(&self) -> bool {
+        self.fifo.obj_fetch
+    }
+
+    /// The console is a Color (or an Advance), whichever mode the cartridge runs it in. What the
+    /// hardware does follows this; what the cartridge's mode changes (the palettes, the tile
+    /// attributes, object priority) follows `cgb`.
+    fn colour_console(&self) -> bool {
+        self.cgb_hardware || self.cgb
+    }
+
     fn wx_seen(&self) -> u8 {
-        self.fifo.wx_pipe[0]
+        self.seen(0x4B)
     }
 
-    /// LCDC as the drawer sees it (see `registers_dot`).
     fn lcdc_seen(&self) -> u8 {
-        self.fifo.lcdc
+        self.seen(0x40)
+    }
+
+    fn scx_seen(&self) -> u8 {
+        self.seen(0x43)
     }
 
     fn bg_pop(&mut self) -> Px {
@@ -322,11 +340,11 @@ impl Ppu {
                     self.fifo.win_tile_x
                 } else if self.fifo.pos.wrapping_add(16) < 8 {
                     // The line's first tile, fetched before the position counter has caught up.
-                    self.scx >> 3
+                    self.scx_seen() >> 3
                 } else {
                     // The Color reads the position one dot earlier, except during an object fetch.
                     let early = u16::from(self.cgb && !self.fifo.obj_fetch);
-                    ((u16::from(self.scx) + u16::from(self.fifo.pos) + 8 - early) / 8) as u8
+                    ((u16::from(self.scx_seen()) + u16::from(self.fifo.pos) + 8 - early) / 8) as u8
                 };
                 self.fifo.tile_addr = map + u16::from(x & 31) + u16::from(y / 8) * 32;
                 self.fifo.state += 1;
@@ -510,11 +528,11 @@ impl Ppu {
             if self.wx_seen() == 0 {
                 // WX 0 starts the window as the line's discard ends, a dot later when the low
                 // bits of SCX dropped a pixel.
-                start = pos == 0xF9 || (pos == START && self.scx & 7 != 0) || (0xF1..=FIRST).contains(&pos);
+                start = pos == 0xF9 || (pos == START && self.scx_seen() & 7 != 0) || (0xF1..=FIRST).contains(&pos);
             } else if u16::from(self.wx_seen()) < 166 + u16::from(self.cgb) {
                 if self.wx_seen() == pos.wrapping_add(7) {
                     start = true;
-                } else if !self.cgb && self.wx_seen() == pos.wrapping_add(6) && !self.fifo.wx_fresh {
+                } else if !self.cgb && self.wx_seen() == pos.wrapping_add(6) && !self.landed.wx_fresh {
                     // A DMG also starts the window a pixel late, which is how it starts at all
                     // when the fine-scroll jump skipped the pixel WX names, or when the window
                     // was switched off on that pixel. Not on the dot WX itself was written.
@@ -531,7 +549,7 @@ impl Ppu {
                 // The fetcher restarts and the FIFO is thrown away: a whole tile fetch of dots.
                 self.fifo.state = B_A;
                 self.fifo.bg_len = 0;
-                extra = self.wx_seen() == 0 && self.scx & 7 != 0 && !self.cgb;
+                extra = self.wx_seen() == 0 && self.scx_seen() & 7 != 0 && !self.cgb;
             } else if !self.cgb && self.wx_seen() == 166 && self.wx_seen() == pos.wrapping_add(7) {
                 // WX 166 is one past the last position a DMG's window can start at, but the row
                 // counter still advances on the dot the position reaches it.
@@ -574,9 +592,10 @@ impl Ppu {
         // its low three bits match SCX's, so the pixels after that point are the fine scroll.
         let pos = self.fifo.pos;
         if pos.wrapping_add(16) < 8 {
-            if pos & 7 == self.scx & 7 {
+            let scx = self.scx_seen();
+            if pos & 7 == scx & 7 {
                 self.fifo.pos = FIRST;
-            } else if self.fifo.win_fetching && pos & 7 == 6 && self.scx & 7 == 7 {
+            } else if self.fifo.win_fetching && pos & 7 == 6 && scx & 7 == 7 {
                 self.fifo.pos = FIRST;
             } else if pos == LAST_DISCARD {
                 // SCX moved under the comparison and it never matched: start the range again.
@@ -613,14 +632,14 @@ impl Ppu {
             if self.cgb {
                 (Self::cgb_colour(&self.obj_pal, usize::from(o.pal) * 4 + usize::from(o.c)), 0, 0)
             } else {
-                let pal = self.fifo.pal[1 + usize::from(o.pal)];
+                let pal = self.seen(0x48 + o.pal);
                 let s = (pal >> (o.c * 2)) & 3;
                 (self.mono_colour(true, o.pal, s), s, 1 + o.pal)
             }
         } else if self.cgb {
             (Self::cgb_colour(&self.bg_pal, usize::from(bg.pal) * 4 + usize::from(c)), 0, 0)
         } else {
-            let s = (self.fifo.pal[0] >> (c * 2)) & 3;
+            let s = (self.seen(0x47) >> (c * 2)) & 3;
             (self.mono_colour(false, 0, s), s, 0)
         };
         let x = usize::from(self.fifo.lcd_x);
@@ -639,7 +658,6 @@ impl Ppu {
             return;
         }
         self.fifo.dots += 1;
-        self.registers_dot();
         if self.fifo.dots <= DELAY {
             return;
         }
@@ -673,7 +691,7 @@ impl Ppu {
         let mut x = usize::from(self.fifo.lcd_x);
         while x < W {
             let (px, shade, source) = if x == 0 {
-                let s = self.fifo.pal[0] & 3;
+                let s = self.seen(0x47) & 3;
                 (if self.cgb { Self::cgb_colour(&self.bg_pal, 0) } else { self.mono_colour(false, 0, s) }, s, 0)
             } else {
                 (self.fifo.row[x - 1], self.fifo.shade[x - 1], self.fifo.source[x - 1])
@@ -692,7 +710,7 @@ impl Ppu {
         // WX 166 on a DMG starts the window during HBlank, where the position is briefly 160
         // again: the next line begins with the window already running, from its second tile
         // (the first counts as fetched here) and on a further row.
-        self.fifo.win_carry = !self.cgb && self.wy_hit && self.lcdc & 0x20 != 0 && self.wx == 166;
+        self.fifo.win_carry = !self.cgb && self.wy_hit && self.lcdc_seen() & 0x20 != 0 && self.wx_seen() == 166;
         if self.fifo.win_carry {
             self.window_line = self.window_line.wrapping_add(1);
         }
@@ -713,9 +731,22 @@ impl Ppu {
         }
     }
 
-    /// WX was written. The drawer watches the register itself (see `WX_LAG`), so nothing to do;
-    /// bus.rs calls this on every WX write.
-    pub fn note_wx(&mut self, _v: u8) {}
+    /// Prints the drawer's state on the dot a picture-register write lands, when the `trace`
+    /// cargo feature is on (never in a build players get). With
+    /// scripts/sameboy/compare-landings.py that is how this drawer is checked against SameBoy's,
+    /// dot for dot.
+    pub fn trace_land(&self, reg: u8, now: u8, before: u8) {
+        #[cfg(feature = "trace")]
+        if TRACE.load(std::sync::atomic::Ordering::Relaxed) && self.ly < 144 {
+            let f = &self.fifo;
+            eprintln!(
+                "L FF{reg:02X}={now:02X} line={:3} pos={:4} lcd_x={:3} fetch={} objs={} during_obj={} wx_trig={} bgfifo={} old={before:02X} active={}",
+                self.ly, f.pos as i8, f.lcd_x, f.state, f.objs.len(), u8::from(self.during_object_fetch()), u8::from(f.win), f.bg_len, f.active
+            );
+        }
+        #[cfg(not(feature = "trace"))]
+        let _ = (reg, now, before);
+    }
 
     pub fn write_bgp(&mut self, v: u8) {
         self.bgp = v;
