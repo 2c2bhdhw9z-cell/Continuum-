@@ -822,15 +822,15 @@ fn mealybug_report() {
 }
 
 /// The Mealybug pictures the exact drawer gets pixel for pixel. This list only ever grows: a
-/// change that drops one of these is wrong, whatever else it fixes. All 24 DMG pictures are here
-/// bar `m3_lcdc_bg_en_change`, which is four pixels away (see .kiro/notes/docs/CBOY_EXACT_DRAWER.md).
+/// change that drops one of these is wrong, whatever else it fixes. All 24 DMG pictures are here.
 ///
-/// So are 27 of the 31 Color pictures: every one a Color can produce. These ROMs are Game Boy cartridges, so a Color console
-/// runs them in Game Boy mode, in the colours its start-up code picks for a cartridge that is not
-/// Nintendo's (compat.rs), with the Color's own timing for when a write to a picture register
-/// lands (`Bus::landing`), which took the Color half from 4 to 21, and with the drawer doing
-/// what the Color's hardware does whichever mode it is in (`colour_console` in fifo.rs), and with
-/// the Color's tile-select glitch as the Mealybug PPU documentation describes it (`bitplane_read`).
+/// So are 27 of the 31 Color pictures: all but the four whose reference is Mealybug's own
+/// "Expected result not currently available" placeholder, which nothing can match
+/// (.kiro/notes/docs/CBOY_EXACT_DRAWER.md). These ROMs are Game Boy cartridges, so a Color runs
+/// them in Game Boy mode: in the colours its start-up code picks for a cartridge that is not
+/// Nintendo's (compat.rs), with the Color's own dots for when a write to a picture register lands
+/// (`Bus::landing`), with the drawer doing what the Color's hardware does in either mode
+/// (`colour_console` in fifo.rs), and with the Color's tile-select glitch (`bitplane_read`).
 const MEALYBUG_PASSING: &[&str] = &[
     "cgb:m2_win_en_toggle",
     "cgb:m3_bgp_change",
@@ -862,6 +862,7 @@ const MEALYBUG_PASSING: &[&str] = &[
     "dmg:m2_win_en_toggle",
     "dmg:m3_bgp_change",
     "dmg:m3_bgp_change_sprites",
+    "dmg:m3_lcdc_bg_en_change",
     "dmg:m3_lcdc_bg_map_change",
     "dmg:m3_lcdc_obj_en_change",
     "dmg:m3_lcdc_obj_en_change_variant",

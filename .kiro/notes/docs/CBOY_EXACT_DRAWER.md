@@ -18,23 +18,24 @@ owner should read is the last section.
 | cgb-acid2 | pass | pass |
 | Mooneye DMG acceptance | 87 / 87 | 87 / 87 |
 | Mooneye Color | 7 / 7 runs | 7 / 7 runs |
-| Mealybug Tearoom | not applicable | **50 / 55** |
+| Mealybug Tearoom | not applicable | **51 / 55** |
 
-**23 of the 24 DMG pictures**, and 27 of the 31 Color ones: every Color picture a Color can produce. The DMG picture that still fails is
-`m3_lcdc_bg_en_change`, and it is **four pixels** away: one pixel on each of four lines, all of
-them x=0, all of them on the eight lines where that test places a sprite at X=2. The Color half
-went from 1 to 4 when a Color drew a black-and-white game in the colours its start-up code picks
-(`compat.rs`, evening of 13 October), and from 4 to 21 when each picture-register write started
-landing on the dot the Color lands it (`bus.rs::landing`, 16 October; "How a register write
-reaches the drawer" below), and to 22 when the drawer did what a Color's hardware does in Game
-Boy mode too, to 26 with the Color's whole tile-select glitch, and to 27 when an object's first
-byte took its height a dot before its read ("The Color half, mapped" below, which has every Color
-picture by name). The four Color pictures left can never reach zero at all (Group 1a).
+**All 24 Game Boy pictures and 27 of the 31 Color ones: every picture that has a reference.** The
+other four Color files are Mealybug's own "Expected result not currently available" placeholder
+("The four Color pictures nothing can pass" below), so 51 is the ceiling.
 
-`tests/roms.rs::MEALYBUG_PASSING` pins all 50 by name: a change that drops one of them is wrong,
+How it got here, 16 October, from 27: each picture-register write landing on the dot the console
+lands it, as SameBoy models it, with the Color's own row (27 → 44); the drawer doing what a
+Color's hardware does in Game Boy mode too (45); the Color's whole tile-select glitch from the
+Mealybug documentation (49); an object's first byte taking its height a dot before its read (50);
+and a background-enable clear reaching the line's first pixel at the write's first step (51).
+"The Color half, mapped" has every Color picture by name, and "The last Game Boy picture" the
+four pixels that held the Game Boy half at 23 for three sessions.
+
+`tests/roms.rs::MEALYBUG_PASSING` pins all 51 by name: a change that drops one of them is wrong,
 whatever else it fixes.
 
-The Mooneye gate reads 87 rather than the 86 this file quotes further down. Nothing in this work
+The Mooneye gate reads 87 rather than the 86 some older paragraphs below quote. Nothing in this work
 moved it: another agent's link-cable work gave the serial port a real clock and added a ROM to the
 gate. Both drawers pass all 87, which is the thing that matters here — the two drawers must never
 differ in anything the CPU can see.
@@ -352,10 +353,9 @@ What is **not** the same is the Color, and every difference is in the same place
 five of these edges off `GB_is_cgb(gb)`, hardware rather than cartridge mode, which `ppu.rs` could
 not see when this was written (see "A Color's line 144" below; the flag is live now). They are
 written down rather than implemented because **nothing in either test suite probes any of them** —
-Mooneye's Color set is boot, register and STAT ROMs, and the Mealybug Color pictures are stopped by
-Group 1 long before these edges matter. That reason still stands with the flag wired: implementing
-five unprobed edges blind is how the score moved up and down before, so whoever takes them needs a
-way to measure first.
+Mooneye's Color set is boot, register and STAT ROMs, and every Mealybug Color picture that has a
+reference now passes without them. Implementing five unprobed edges blind is how the score moved
+up and down before, so whoever takes them needs a way to measure first.
 
 1. A Color keeps OAM **writes** blocked through the last 4 dots of mode 2 (cBoy dots 76-79), where
    a Game Boy lets them through. cBoy's `oam_write_blocked` ends mode 2's block at dot 76 for
@@ -407,8 +407,8 @@ dot 452 and the start of line 144.
 **The rule is in, and it is now switched on**: it was written against `ppu.cgb_hardware` while
 nothing set that flag, and another agent wired it up in `gb.rs` later the same night, which took
 Mooneye's Color set to 7 of 7 runs with `vblank_stat_intr-C` in the gate. Anything else in this
-file that says the flag is dead is out of date; the live flag is what makes the six Color pictures
-in Group 1 step 2 reachable.
+file that says the flag is dead is out of date; the live flag is what the Color's write landing
+and `colour_console` in the drawer run on.
 
 ## The Color half, mapped (16 October)
 
@@ -496,344 +496,102 @@ the other four (`m3_wx_4_change`, `m3_wx_5_change`, `m3_wx_6_change`, `m3_wx_4_c
 differed from SameBoy only by the photographed zero pixel above. The fifth then went past
 SameBoy on the four tile-select pictures.
 
-**4 do not pass, and all four are the references no Color can produce:**
+**4 do not pass, and none can:** `m3_wx_4_change`, `m3_wx_5_change`, `m3_wx_6_change`,
+`m3_lcdc_win_en_change_multiple_wx`. Their reference files are Mealybug's placeholder ("The four
+Color pictures nothing can pass" below). Not to be chased.
 
-- **Can never pass (4):** `m3_wx_4_change`, `m3_wx_5_change`, `m3_wx_6_change`,
-  `m3_lcdc_win_en_change_multiple_wx`. Their references hold colours no Color can show (Group 1a
-  below). Not to be chased.
-
-## The 31 failures, grouped
-
-Counts are differing pixels as the report prints them.
-
-### Group 1 — the Color pictures: the harness was running the wrong console (30 pictures)
-
-**Status, 16 October:** written before the write landing went in. Since then 21 of the 31 Color
-pictures pass, including all six of step 2, the whole of step 3 but `m3_lcdc_tile_sel_change2`,
-`m3_lcdc_tile_sel_win_change2` and `m3_scx_high_5_bits_change2`, and step 4 but
-`m3_lcdc_obj_size_change_scx`, `m3_lcdc_tile_sel_change` and `m3_lcdc_tile_sel_win_change`.
-What follows is kept for the measurements in it.
-
-This group was misread until it was measured, so the finding comes first: **the Color references
-were being compared against a machine they were never captured on.**
-
-Every one of the 31 Mealybug ROMs is a **Game Boy cartridge** — header byte `$143` is `00` in all
-of them, no test invokes the `cgb_mode` macro that would set it, and no test reads register `A` at
-boot to ask which console it is. Mealybug's README says the folder a reference sits in names the
-console it was photographed on, and that these tests deliberately give different results on a
-Game Boy and a Color. So the `CPU CGB C` pictures are **a Game Boy cartridge in a Color console**,
-which is that console's **Game Boy-compatibility mode**: the boot ROM picks a colour palette from
-a hash of the cartridge title, and the game goes on using `BGP`/`OBP0`/`OBP1`. Measured from the
-references, all of them use one palette set: background `FFFFFF` / `7BFF31` / `0063C6` / `000000`,
-objects `FFFFFF` / `FF8484` / `943939` / `000000`.
-
-The harness was instead building the machine with `GameBoy::new_mode(rom, true)`, which is full
-**colour** mode — the same thing the core's own "Game Boy cartridge in Color mode" option does by
-rewriting `$143`. In colour mode the drawer indexes `bg_pal` by the tile attribute and ignores
-`BGP`, and `gb.rs` starts every palette entry white, so a Game Boy cartridge drew a **white
-screen** and all 31 pictures failed enormously. (That is not a bug in colour mode: a real Color
-console given a cartridge whose header claims colour does not colourise it either, and its boot
-ROM leaves the palettes white. It is simply not this reference's machine.)
-
-`tests/roms.rs` now builds the Color runs with `GameBoy::with_model(rom, Model::Cgb, None)`, which
-for a Game Boy cartridge is exactly compatibility mode — `gb.rs` already implements it, and it is
-what a player gets today when they pick the Color console for an old game. **That alone took
-Mealybug from 23 to 24**, and it turned the other failures from "everything is white" into real,
-small, readable differences: `m3_window_timing` 21687 → **138**, `m3_window_timing_wx_0` 21942 →
-**144**, `m3_lcdc_obj_en_change` 206 → **60**, `m3_lcdc_win_map_change` 1102 → **182**,
-`m3_lcdc_bg_map_change` 1362 → **384**.
-
-The 30 that still fail now split four ways, each measured rather than guessed. The method was to
-map both references back to **shade indices** through the palettes above: where the Color
-reference and the DMG reference have the same shade index everywhere, the two consoles drew the
-same picture and only the colour differs; where they do not, the Color hardware really did draw
-something else.
-
-1. **Needs nothing but the compatibility palette (3 pictures) — DONE, all three pass.**
-   `cgb:m2_win_en_toggle`, `cgb:m3_lcdc_win_en_change_multiple` and `cgb:m3_wx_4_change_sprites`.
-   Their references are the DMG picture shade for shade, and this drawer already draws all three
-   of those DMG pictures pixel for pixel. Every differing pixel was a shade 1 or 2 that wants
-   `7BFF31` or `FF8484` and got the Game Boy's `AAAAAA`. With the palette in, these three passed
-   and nothing else moved either way: 24 to 27, exactly as predicted here.
-2. **Black and white already, so no palette needed — but the Color drew a different picture
-   (6 pictures).** `cgb:m3_lcdc_bg_map_change` 384, `cgb:m3_lcdc_obj_en_change_variant` 268,
-   `cgb:m3_lcdc_win_map_change` 182, `cgb:m3_window_timing_wx_0` 144,
-   `cgb:m3_window_timing` 138, `cgb:m3_lcdc_obj_en_change` 60. These references contain only
-   `FFFFFF` and `000000`, which are the same two colours in the compatibility palette as in the
-   Game Boy's greys, so colour cannot be what is wrong: what is left is Color **timing**. Note the
-   shape of it — `m3_window_timing` differs by 138 pixels on 138 lines and `m3_window_timing_wx_0`
-   by 144 on 144, i.e. **one pixel per line**, the window starting a pixel later on a Color than
-   on a Game Boy. SameBoy has exactly one DMG-only pixel in its window start (the `lcd_x--`
-   desync described above, which cBoy leaves out because the DMG references do not show it), and
-   this is very likely its other side. **It is not implemented here, because when this was written
-   it could not be measured:** the drawer only knows it is Color hardware through
-   `ppu.cgb_hardware`, and at the time nothing set it, so writing the rule would have meant
-   asserting an inference against a test written from the same inference — which is how the score
-   moved up and down before. **Another agent wired that flag up in `gb.rs` later the same night,
-   so this is now unblocked, and it is the best-value work left in this file:** these six have the
-   clearest evidence of anything remaining, each one's gap is already counted to the pixel, and a
-   drawer that knows which console it is can now be measured against the references directly.
-3. **The seven `*2` variants.** `m3_lcdc_bg_en_change2`, `m3_lcdc_bg_map_change2`,
-   `m3_lcdc_tile_sel_change2`, `m3_lcdc_tile_sel_win_change2`, `m3_lcdc_win_map_change2`,
-   `m3_scx_high_5_bits_change2` and `m3_scy_change2` have a Color reference and no DMG one. They
-   are also Game Boy cartridges, so they run in compatibility mode too, where the Color palette
-   registers cannot be written — which is why their references show the boot palette's `FF8484`
-   and not the colours the ROMs try to set. All seven need the palette, and most need Color timing
-   as well.
-4. **The remaining 10 need both the palette and Color timing.** `cgb:m3_bgp_change`,
-   `cgb:m3_bgp_change_sprites`, `cgb:m3_lcdc_bg_en_change`, `cgb:m3_lcdc_obj_size_change`,
-   `cgb:m3_lcdc_obj_size_change_scx`, `cgb:m3_lcdc_tile_sel_change`,
-   `cgb:m3_lcdc_tile_sel_win_change`, `cgb:m3_obp0_change`, `cgb:m3_scx_high_5_bits` and
-   `cgb:m3_scy_change`. (`m3_scy_change` is the known revision difference: `Y` is re-read at the
-   `0` and `1` address dots on a Game Boy and on Color revisions up to CPU CGB C, so this one also
-   needs the drawer to tell CGB-C from CGB-D.)
-
-Steps 3 and 4 were written before the palette went in. With it in, every colour those seventeen
-references use is one cBoy now draws, and their counts fell accordingly - `cgb:m3_bgp_change`
-10864 → 496 pixels, `cgb:m3_scx_high_5_bits` 6421 → 65, `cgb:m3_lcdc_bg_en_change2` 2971 → 106.
-What is left in them is where and when a Color draws those colours, which is the next thing to
-map. The six in step 2 did not move, as their black-and-white references said they would not.
-
-**Both halves of the palette are in (evening of 13 October).**
-
-1. **The colours, in `gb.rs` and `compat.rs`.** A Color given a cartridge whose header byte `$143`
-   does not have bit 7 set gets what its start-up code leaves: the palette set it picks from the
-   title sum (and, for the fourteen shared sums, the fourth letter) when the game is Nintendo's,
-   the default set otherwise — which is what every Mealybug ROM gets, their licensee being `00` —
-   written into background palette 0 and object palettes 0 and 1, OPRI set, and B holding the
-   title sum. The table is the documentation's (Pan Docs for the algorithm, The Cutting Room
-   Floor for the data). One row of that page has its two numbers swapped (Radar Mission), and the
-   start-up code's own byte settles it; `compat.rs` says so where the row is. Checked twice: once
-   by a throwaway script outside the repository against the tables in SameBoy's start-up code,
-   for all 256 sums and every printable fourth letter (no difference), and by running a real
-   start-up file - SameBoy's free one, built from its source - through cBoy, which leaves the
-   same palette memory, object order and registers as cBoy's own for every title the table knows,
-   every shared sum with a letter it does not know, a game that is not Nintendo's, and all twelve
-   button schemes, on a Color and on an Advance (284 starts,
-   `tests/roms.rs::a_colour_start_up_file_gives_the_same_colours`, which needs the file, so it
-   is run by hand).
-2. **The drawers, `ppu.rs::mono_colour`.** In compatibility mode both drawers look the colour up
-   in palette memory: the background in palette 0 and an object in palette 0 or 1 by its OBP bit,
-   with the `BGP`/`OBP0`/`OBP1` shade as the colour number, which is SameBoy's
-   `render_pixel_if_possible`. The shade and source buffers are filled as before, so the Game Boy
-   palette and cBoy's own looks still go over the shades whenever the player has not asked for a
-   Color's colours. dmg-acid2 on a Color now matches that test's own Color reference on both
-   drawers.
-
-The attribute byte stays 0 in compatibility mode in both drawers. SameBoy reads it from VRAM bank
-1 on any Color, but the start-up code clears that bank and a game in Game Boy mode cannot reach
-it, so the two agree; it is written here so nobody mistakes it for a difference.
-
-### Group 1a — four CGB references that can never reach zero
+## The four Color pictures nothing can pass
 
 `cgb:m3_wx_4_change`, `cgb:m3_wx_5_change`, `cgb:m3_wx_6_change` and
-`cgb:m3_lcdc_win_en_change_multiple_wx` each contain **1146 pixels in 169 colours that a CGB
-cannot output**: their channel values are not on the 5-bit ladder `(v << 3) | (v >> 2)` that every
-real CGB colour sits on. The reference pictures were evidently captured through some blending.
-**They must never be counted as achievable, and no change should ever be made to chase them.**
-Note the DMG references for the same four tests are clean four-grey pictures, and all four of
-those DMG pictures pass.
+`cgb:m3_lcdc_win_en_change_multiple_wx` have no Color reference at all. All four files (and the
+same four under `CPU CGB D`) are one and the same picture, byte for byte: Mealybug's placeholder,
+the words "Expected result not currently available. Pull requests welcome :)" in blue on white.
+That is where the "1146 pixels in 169 colours no Color can show" that earlier notes put down to
+blending came from: the anti-aliased letters. **They can never pass and must never be chased.**
+What can be checked was: their Game Boy references pass, Mealybug's photos of the four on a real
+CPU CGB C (`photos/CPU CGB C`) were looked at beside cBoy's picture of the first, which shows the
+same letter grid with the same window edges, and against SameBoy cBoy differs on them only by the
+photographed zero pixel above.
 
-Their counts moved with the console fix in Group 1 and are no longer near the floor — 18648,
-19811, 19701 and 23038 — because these four are now being drawn in the Game Boy's greys against
-blended Color colours rather than in white against them. That is expected and means nothing: the
-1146-pixel floor is a property of the reference pictures, not of the drawer.
+## The last Game Boy picture: the line's first pixel
 
-### Group 2 — the one DMG picture still failing, and exactly what it is
+`dmg:m3_lcdc_bg_en_change` was four pixels away for three sessions: x=0 on lines 19 to 22, the
+lines where the test's sprite sits at X=2, where both Game Boy references (`DMG-blob` and
+`DMG-CPU B`) blank the background and cBoy drew it. Everything else on those lines already
+matched, so it was never the window's position; the old notes measured that in full and ruled
+out moving it.
 
-`dmg:m3_lcdc_bg_en_change`, **4 pixels on 4 lines**, all of them x=0, on lines 19 to 22. Those are
-four of the eight lines where the test places its sprite at X=2; the other four have colour 0
-there anyway, so they carry no evidence either way.
+The trace (`compare-landings.py`'s `trace` feature) settled it. The test's first LCDC write
+clears background enable, and on every line its first step lands with the LCD at some position:
+-2 on the X=0 lines, -1 on X=1, **0 on X=2**, 1 on X=3, and later still for higher X, with an
+object fetch running across it from X=8 on. Only on the X=2 lines does the first step land
+exactly as the LCD is about to take its first pixel with nothing stalling it - and those are the
+only lines that differ. SameBoy already has the rule for the other of the output stage's two
+bits: clearing objects at the line's first pixel reaches it at the first step. With background
+enable treated the same way at that pixel, `m3_lcdc_bg_en_change` passes against `DMG-blob`, and
+against `DMG-CPU B` it is down to the 228 right-hand window pixels the two units are known to
+disagree on (`DMG-blob` blanks one more at the end of each window), with x=0 matching both. No
+other picture moved. So all 24 Game Boy pictures pass.
 
-Two things about it were settled by measurement afterwards. Neither makes the four pixels pass;
-both rule out a wrong answer that looks obvious, and together they say the shape of what is
-missing.
+## How the Game Boy half got there
 
-**It is not a difference between Game Boy revisions.** Mealybug ships a second Game Boy reference
-for this very test, `expected/DMG-CPU B/m3_lcdc_bg_en_change.png` — one of only two pictures in
-that folder, which is itself a hint that this test is where units disagree. The two Game Boy
-references differ in **228 pixels**, and every one of them is the *right-hand* end of a
-suppression window: `DMG-blob` suppresses one pixel more than `DMG-CPU B` at x=10 through x=15 and
-x=26 through x=31, moving one pixel right for each group of eight lines as the test moves its
-sprite. This drawer matches `DMG-blob` at all 228. At x=0 on lines 19 to 22, though, **both**
-references are colour 0, so the extra blank pixel at the left edge is what both units do.
+For the record, so a later session can tell a regression from a known gap. The restructure of
+12-13 October took the Game Boy half from 5 to 22 (the fetcher, FIFO, position counter, objects
+and window rebuilt from the hardware model); the output-stage lag of LCDC bits 0 and 1 and the
+object-fetch abort took it to 23 (`m3_lcdc_bg_en_change` 376 → 4 pixels,
+`m3_lcdc_obj_en_change_variant` 96 → 0); the line's first pixel above took it to 24. The two
+`DMG-CPU B` references differ from `DMG-blob` in exactly the way that section describes and are
+not part of the score.
 
-Read as windows, with the first suppression window of one of those lines written as first and last
-suppressed pixel: `DMG-CPU B` has **[0, 11]**, twelve pixels from the handler's twelve-dot gap;
-`DMG-blob` has **[0, 12]**, thirteen pixels from the same twelve dots; this drawer has
-**[1, 12]**, twelve pixels one place to the right. Both units start at the line's first pixel and
-this drawer starts at its second. **So the fix is not to move the window**: shifting it one dot
-earlier would land on `DMG-CPU B`'s window exactly and give up all 228 pixels where this drawer
-currently agrees with the reference the harness uses, trading four wrong pixels for 228. What is
-missing has to *add* a suppressed pixel at the line's first pixel while leaving the window's end
-where it is — thirteen pixels out of twelve dots — which is the one-pixel LCD/PPU desync SameBoy
-describes for some DMG units and not others, and which cBoy deliberately does not model because
-modelling it in the window breaks five passing pictures. `DMG-blob` looks like a unit that has it
-and `DMG-CPU B` like one that does not.
+## What is left
 
-**It is not an object's pixel either**, which was the other obvious suspect, since all four lines
-are ones where the test places a sprite at X=2 and an object's left-hand pixels are clipped there.
-`MEALY_DETAIL` now prints a `from` row saying which stage each pixel left the drawer through — 0
-for the background, 1 or 2 for an object through `OBP0` or `OBP1` — and on lines 16 to 22 that row
-is 0 across all 160 pixels: those lines draw no object pixel at all. (The row is not decoration:
-56 lines of this same test do draw object pixels, and `m3_lcdc_obj_en_change` shows them at x=0.)
-All four differing pixels are background the drawer failed to suppress.
+Every Mealybug picture that has a reference passes on Exact: **51 of 55**, the other 4 being the
+placeholders above. What is left is what no test here measures, each written down so nobody has
+to rediscover it:
 
-The measurement is worth writing down in full, because it rules out the obvious answers and the
-next session should not pay for it twice. The test's handler writes LCDC four times a line -
-clear bit 0, set, clear, set - 12, 8 and 8 dots apart, so each line has two windows of suppressed
-background. Measured against the neutralised baseline, for **every one of the eighteen sprite
-positions**:
-
-- the second window is 8 pixels wide and starts and ends on exactly the pixels this drawer picks;
-- the first window is 12 pixels wide and starts and ends on exactly the pixels this drawer picks,
-  including the positions where the sprite's own fetch stalls the LCD inside the window and the
-  window comes out 10 or 11 pixels wide instead;
-- for sprite X=2 **only**, the reference suppresses one further pixel, at x=0.
-
-So this is not a write-timing error: a 12-dot gap cannot suppress 13 pixels, and the pixel stream
-cannot produce 29 pixels in the 28 dots from the first clear to the last set. It is one extra
-blank pixel at the line's first pixel, in the one case where an object's fetch falls at position
--6, i.e. two pixels into the line's eight-pixel discard. It is not a general left-edge effect
-either: `m3_lcdc_tile_sel_change` and `m3_lcdc_bg_map_change` both place a sprite at X=2 on the
-same lines and both draw ink at x=0, pixel for pixel, in the reference and here.
-
-Neither this drawer's model nor the model `Core/display.c` describes produces that pixel: in both,
-an object matching at position -6 waits three dots for the fetcher to reach its last read, then
-takes six, and the pixel stream resumes unbroken. `fifo_overlay_object_row` lays all eight of an
-object's pixels into the object FIFO at its head and lets the left-edge clipping fall out of the
-discard, and SameBoy pops the object FIFO in lockstep with the background one through the whole
-discard, exactly as `render_pixel` does — so for an object at X=2 both put the object's seventh
-pixel at x=0 and both leave the background stream unbroken. Whatever the DMG does there is a
-left-edge detail that is not in the material to hand, so it is recorded and left: one pixel on four
-lines, chased no further. **Do not go looking for it by trying values**, and in particular do not
-move the window start: the paragraph above measures what that costs.
-
-Re-checked once more while the object model was being gone over against `Core/display.c` line by
-line (the wait before a fetch, the six dots, the X=0 hold, the row address, the 8x16 masking, the
-DMG's X-then-index order and the Color's index order): all of them agree, the left-edge pixel is
-still unexplained, and nothing else about objects differs. The one SameBoy behaviour cBoy leaves
-out on purpose is the window's LCD desync described above, which cannot reach this test because it
-uses no window.
-
-### Group 3 — what the register-write work fixed
-
-`dmg:m3_lcdc_obj_en_change_variant` went from 96 differing pixels to pixel-for-pixel with the
-object-fetch abort above, and `dmg:m3_lcdc_bg_en_change` from 376 to 4 with the output-stage lag.
-Nothing else moved in either direction.
-
-### Group 3a — what the restructure fixed
-
-For the record, so a later session can tell a regression from a known gap. These seventeen DMG
-pictures went from failing to pixel-for-pixel in this item: `m3_bgp_change_sprites`,
-`m3_lcdc_bg_map_change`, `m3_lcdc_obj_en_change`, `m3_lcdc_obj_size_change`,
-`m3_lcdc_obj_size_change_scx`, `m3_lcdc_tile_sel_change`, `m3_lcdc_tile_sel_win_change`,
-`m3_lcdc_win_en_change_multiple`, `m3_lcdc_win_map_change`, `m3_obp0_change`,
-`m3_scx_high_5_bits`, `m3_scy_change`, `m3_window_timing`, `m3_window_timing_wx_0`,
-`m3_wx_4_change`, `m3_wx_5_change`, `m3_wx_6_change`. The five that already passed still do.
-
-### Group 4 — not probed by any failing picture
-
-No DMG picture fails on VRAM/OAM access blocking (item C6): Mooneye covers those edges from the
-CPU side and passes 86/86 on both drawers. `m2_win_en_toggle`, the one `m2_*` picture, passes. The
-four blocking windows were read against SameBoy anyway rather than trusted — see "What the CPU can
-see while the picture is being drawn" above for the result, which is that the Game Boy side is
-right edge for edge and all five differences left are the Color's.
-
-## What is left, in order
-
-1. ~~**The compatibility palette.**~~ **DONE, evening of 13 October:** `compat.rs`, `gb.rs` and
-   both drawers (Group 1, "Both halves of the palette are in"). The three Color pictures it was
-   predicted to pass passed, and the player-facing half is the "Colour for black-and-white games"
-   setting.
-2. **The six black-and-white Color pictures in Group 1 step 2.** The `gb.rs` flag they were
-   waiting on was wired up by another agent during this same night, so these are the first real
-   drawer work available to the next session, and they are the best-value item in this file: no
-   palette is needed (their references are black and white only), the flag is live, and every
-   one's gap is already measured to the pixel — two of them off by exactly one pixel per line,
-   which is a window that starts a pixel later on a Color than on a Game Boy. Do this one first.
-3. ~~**`Bus::write` applying an IO write at the hardware's point in the M-cycle.**~~ **DONE, 16
-   October** (`bus.rs::landing`; "How a register write reaches the drawer" above). `WRITE_BIAS`
-   and `WX_LAG` are gone, and so is the drawer's own staging. It did move the score after all:
-   the Color had been landing writes on the Game Boy's dots, and with its own row 17 Color
-   pictures passed.
-4. **The five Color-only access-blocking edges** in "What the CPU can see while the picture is
-   being drawn" above. They need the same `gb.rs` flag as item 1, and two of them need the PPU to
-   know about double speed too. No test in either suite probes them, so whoever does this needs a
-   way to measure first; the edges themselves are written down there in full.
-5. **The last 4 pixels of `m3_lcdc_bg_en_change`**, which Group 2 above characterises exactly and
-   which nothing in the material to hand explains. Looked at twice now, from the register-write
-   side and from the object side, with the same answer both times. Worth one look by someone who
-   has a DMG and a logic analyser; not worth another session's guessing.
-6. **Mode 3's length on a Color in Game Boy mode with objects switched off.** The drawer now
-   fetches the line's objects anyway, as a Color does (SameBoy), but `ppu.rs::mode3_length` still
-   charges nothing for them unless the cartridge is in colour mode. That length is what STAT and
-   HBlank run on for both drawers, so changing it would change the Standard drawer's timing and
-   what a game can measure; no test measures it (Mooneye's Color set has no such ROM, and every
-   Mealybug picture that switches objects off passes), so it was left and is written down here.
-7. **Two window edges left alone on purpose**, both written down here so nobody has to rediscover
-   them:
+1. **The five Color-only access-blocking edges** in "What the CPU can see while the picture is
+   being drawn" above. Two of them need the PPU to know about double speed too. No test in either
+   suite probes them, so whoever does this needs a way to measure first.
+2. **Mode 3's length on a Color in Game Boy mode with objects switched off.** The drawer fetches
+   the line's objects anyway, as a Color does (SameBoy), but `ppu.rs::mode3_length` still charges
+   nothing for them unless the cartridge is in colour mode. That length is what STAT and HBlank
+   run on for both drawers, so changing it would change the Standard drawer's timing and what a
+   game can measure; no test measures it (Mooneye's Color set has no such ROM, and every
+   Mealybug picture that switches objects off passes).
+3. **Double speed** lands every picture-register write at the end of its M-cycle. SameBoy's
+   double-speed table is in half dots, which a whole-dot drawer cannot place; no Mealybug test
+   runs in double speed.
+4. **Color revisions.** The drawer is a CPU CGB C, which is what the references are. A CGB D or
+   later (and an Advance) take a palette write a dot earlier, read SCY only at the tile-number
+   step, and glitch tile select differently (the Mealybug documentation; SameBoy has the first
+   two). cBoy's "Which Game Boy Color" choice only covers the start-up timing, so none of this is
+   modelled; the `CPU CGB D` references would be the way to measure it.
+5. **The tile-select glitch's third source**, the read cut off at the end of the previous line
+   (the Mealybug documentation's "pixel 159/160"), which no picture needs.
+6. **The Super Game Boy and the Game Boy Pocket** use the Game Boy's write table; SameBoy gives
+   the Super Game Boy its own simpler one, marked unverified, and nothing here measures either.
+7. **Two window edges left alone on purpose:**
    - On the Color, a window started by `WX` = 166 also makes STAT report mode 0 for the rest of
      that dot, which can fire a spare HBlank interrupt. That is STAT timing rather than drawing,
      no Mealybug picture probes it, and Mooneye measures those same edges from the CPU side on
-     both drawers - so it was not worth risking 86/86 for an interrupt no test asks about.
+     both drawers.
    - The **Standard** drawer still treats `WX` = 166 as one window pixel at x=159 on the line
      itself and never carries the window into the next line. That is wrong on hardware, but
      Standard is the default the owner plays on, every game here has been played on it, and no
-     test covers it; changing the default drawer for a glitch edge case is not worth the risk.
-     If Exact ever becomes the default this goes away with it.
+     test covers it. If Exact ever becomes the default this goes away with it.
+8. **No real game has been played on Exact on a phone.** That is the owner's check, and Exact
+   stays the experimental choice, never the default, until the owner has seen it.
 
 ## Needed in files this work does not own
 
-Collected for whoever owns them. On the evening of 13 October `gb.rs` and `bus.rs` were this
-work's to change, and the first item below was done then.
+Nothing is outstanding. The three requests this file used to carry (the compatibility palette in
+`gb.rs`, telling the PPU it is Color hardware, and where an IO write lands in `bus.rs`) are all
+done. `.kiro/notes/wip/tools/sbharness/` is now also in `cores/continuum-gb/scripts/sameboy/`,
+with the comparison scripts, so the wip copy can go whenever its owner tidies that folder.
 
-- **~~`gb.rs`: the Game Boy-compatibility colour palette~~ — DONE, evening of 13 October.** See
-  Group 1, "Both halves of the palette are in". The three Mealybug pictures this said would pass
-  the moment it landed did, and nothing else moved.
-- **~~`bus.rs`: where an IO write lands inside its M-cycle~~ — DONE, 16 October.** See "How a
-  register write reaches the drawer". The registers themselves still change at the end of the
-  M-cycle, so Mooneye's gate and the Standard drawer are exactly where they were.
-- **~~`gb.rs`: tell the PPU it is Color hardware~~ — DONE, by another agent, during this night.**
-  `gb.rs` now sets `ppu.cgb_hardware` in all three places, Mooneye's Color set reads 7 of 7 runs,
-  and `mts/misc/ppu/vblank_stat_intr-C.gb` is in the gate. **So the flag is live, and the two
-  things in this file that were waiting on it are no longer blocked** — see Group 1 step 2 (six
-  black-and-white Color pictures, each already measured to the pixel) and Group 1 step 2's drawer
-  change for the palette. That is the next session's best-value work in this file. The original
-  request is kept below only because it records what was measured and why.
-
-  `Ppu` carries `pub cgb_hardware: bool` (`#[serde(skip)]`, so no save state changes size and
-  `tests/fuzz.rs::state_layout_is_pinned` still holds), and the line 144 STAT rule above is
-  written against it. `gb.rs` is the only file that knows which console this is. The lines, each
-  directly under the one above it that already does the same thing for the bus:
-
-  ```rust
-  gb.bus.cgb_hardware = true;                                  // in with_model, the (Cgb|Agb, false) arm
-  gb.bus.ppu.cgb_hardware = true;                              // <- add
-
-  bus.cgb_hardware = true;                                     // in build(), colour mode
-  bus.ppu.cgb_hardware = true;                                 // <- add
-
-  next.bus.cgb_hardware = self.bus.cgb_hardware;               // in load_state
-  next.bus.ppu.cgb_hardware = self.bus.ppu.cgb_hardware;       // <- add (it is the console, not the state)
-  ```
-
-  Since that was written the flag has become worth more than the one Mooneye ROM: it is also what
-  the six black-and-white Color pictures in Group 1 step 2 are waiting on, and what the drawer half
-  of the palette work above needs in order to be written at all.
-
-  **This was measured, not assumed.** With those three lines applied in a sandbox,
-  `mts/misc/ppu/vblank_stat_intr-C.gb` passes, Mooneye DMG stayed at its full count on *both*
-  drawers (86 of 86 when that was measured; the gate is 87 now, for reasons nothing to do with
-  this) and the gated Color set stays 6 of 6 runs. The lines were then taken back out, because this work owns
-  neither `gb.rs` nor `bus.rs` and another agent was editing them the same night. Whoever applies
-  them should also move that ROM out of the reported line at the bottom of `mooneye_cgb` in
-  `tests/roms.rs` and into the gated list above it, which takes Mooneye Color to 5 of 5 ROMs — the
-  comment there says so too. Nothing else in the core reads the flag, so there is nothing else to
-  check.
-- **`ppu.rs::mode3_length` is called from `tick` before the drawer runs**, so STAT and HBlank
-  timing do not depend on which drawer is chosen. That is deliberate and must stay: Mooneye checks
-  it from the CPU side on both drawers. The Exact drawer's own dot count now agrees with it.
+`ppu.rs::mode3_length` is called from `tick` before the drawer runs, so STAT and HBlank timing do
+not depend on which drawer is chosen. That is deliberate and must stay: Mooneye checks it from
+the CPU side on both drawers.
 
 ## For the owner
 

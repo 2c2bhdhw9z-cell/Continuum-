@@ -213,9 +213,18 @@ impl Ppu {
             // them with this one (.kiro/notes/docs/CBOY_EXACT_DRAWER.md).
             Land::LcdcFirst(v) => {
                 let mut first = (v & !0x23) | (before & 0x03) | (before & v & 0x20);
-                // Clearing objects at the line's first pixel, or while an object is being
-                // fetched, takes effect at this first step already.
-                if v & 0x02 == 0 && self.fifo.active && (self.fifo.pos == 0 || self.during_object_fetch()) {
+                // At the line's first pixel, clearing either of the output stage's two bits -
+                // background or objects - reaches it at this first step already. SameBoy has
+                // this for objects; for the background it is the one pixel at x=0 that
+                // m3_lcdc_bg_en_change blanks on the lines its sprite sits at X=2, where the
+                // write's first step lands exactly as the LCD takes its first pixel, and both
+                // Game Boy units Mealybug photographed show it (.kiro/notes/docs/CBOY_EXACT_DRAWER.md).
+                if self.fifo.active && self.fifo.pos == 0 {
+                    first &= v | !0x03;
+                }
+                // Clearing objects while an object is being fetched does too, because the
+                // object fetcher reads that bit as well (SameBoy).
+                if v & 0x02 == 0 && self.fifo.active && self.during_object_fetch() {
                     first &= !0x02;
                 }
                 first
