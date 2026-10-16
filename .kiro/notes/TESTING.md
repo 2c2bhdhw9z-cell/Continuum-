@@ -1,10 +1,176 @@
 # What to test, and what to tell me
 
-Last updated 13 October 2026. **Build 185 (13 October) is now the newest install: it has 182's changes and the night batch.** Its steps are under
-"Next install (after 181)" further down. The results below are for build 181: the cleanup plus the
-licence swap. Steps 1 to 4 cover the cleanup, 5 to 11 the new emulators, and 12 save imports.
-**The install after 182** carries the night batch of 13 October: its steps are under "Night batch
-(13 October)".
+Last updated 16 October 2026, 4 AM Eastern. **Build 185 (13 October) is the newest install so
+far:** it has 182's changes and the night batch, and its steps are under "Next install (after
+181)" and "Night batch (13 October)" further down. **The next install** adds a big batch on top:
+its steps come first, right below. "This install only" is build 181 (the cleanup plus the licence
+swap), with your results: steps 1 to 4 cover the cleanup, 5 to 11 the new emulators, and 12 save
+imports.
+
+## Next install (after 185)
+
+For the next install. Nothing here has been on a phone yet, and nothing here repeats a check you
+already passed. Delete the old app first, as always. The lists further down, "Next install (after
+181)" and "Night batch (13 October)", are still waiting too: they're in this install as well.
+Skip anything you don't have the game or the gear for. **If you only have ten minutes, do 1, 2
+and 3.**
+
+**Start here: the Home screen you asked for**
+
+1. Open the app and scroll down **Home**. ✅ The covers slide under the four tabs at the bottom and
+   show through them, and the "● 80 games ^" line that sat above the tabs is gone.
+2. **Settings → Layout → Game card size → Extra small**, then go to **All Games**. ✅ About twice as
+   many covers fit in a row (6 instead of 3), and the names under them are small but readable.
+3. **Settings → Appearance → Light**. ✅ The whole app turns light straight away, with dark writing
+   that's easy to read.
+
+**The rest of the Home screen**
+
+4. Scroll all the way to the end of Home, All Games, Favorites and Settings. ✅ The last row comes up
+   fully clear of the tabs.
+5. With Extra small still on, go to **Home**. ✅ The covers in every row are smaller too, so more
+   rows fit. The big cover at the top is the same as before.
+6. Star a game and look at it on **Extra small**. ✅ The little star and the system name on the
+   cover don't overlap.
+7. Try **Small**, then **Large**, then **Medium**. ✅ Each one shows right away (4 in a row, then
+   2), and Medium looks like it always did.
+8. **Settings → Storage**. ✅ The first line says how many games you have, like "80 games in your
+   library".
+9. Tap **+** and add a game. ✅ A little message pops up just above the tabs ("Added 1 game.") and
+   fades by itself after a few seconds. Add another and tap the message: it goes away at once.
+10. Tap the little dot at the top right, next to **+**. ✅ The block of small technical text opens
+    above the tabs. Tap the dot again to close it.
+11. Only if you have one: tap a Sega CD, PC Engine CD or Disk System game before you've put its
+    BIOS back. ✅ A short message pops up just above the tabs, naming the file it needs and telling
+    you to tap **Install a BIOS from the Continuum folder** in Settings, instead of nothing
+    happening.
+
+**Light mode**
+
+12. Still on Light, look at the big cover at the top of Home. ✅ It fades into white, and the
+    game's name and **Play** under it are easy to read.
+13. Press and hold a game to open its card, then open **Save slots, export and import** from it.
+    ✅ Both are light, with dark writing.
+14. Start a game. ✅ It's still black around the game, with the same buttons as always.
+15. In that game, tap **⋯**, then open **Cheats and RAM search...**, then **Skin...**. ✅ The menu
+    and both screens are light.
+16. **Settings → Move the on-screen controls**. ✅ The editor stays dark, like the game.
+17. Pick **System**, then switch your iPhone between light and dark (open Control Centre, hold the
+    brightness slider, tap Dark Mode). ✅ The app switches with it. Pick **Dark** when you're done.
+
+**Shorter text**
+
+18. Scroll down **Settings**. ✅ Every note under a switch or button is one or two short sentences,
+    and there's no PSP section.
+19. Scroll to **Technical details** at the bottom. ✅ The small grey read-outs from the other
+    sections (Cover art, BIOS, Save states, Storage, Sync folder, Online play and the rest) are all
+    there, each under its section's name.
+20. Press and hold a game to open its card. ✅ The notes under Save states, Cheats and Cover art are
+    short and read like a person wrote them.
+21. In a game, tap **⋯ → Play online with a second phone** (you don't need a second phone for
+    this). ✅ The first time, your iPhone asks about the local network, in one short sentence.
+22. On that screen, read the note at the bottom. ✅ Two short sentences.
+23. Only if you can spare a backup: **Settings → Sync folder → Restore from a backup**. ✅ When it's
+    done, the line under SYNC FOLDER says what came back and to close Continuum and open it again.
+
+**Home screen icons**
+
+24. **Settings → App Icon**. ✅ The **Default** tile shows the real icon, not a letter D.
+25. Same screen: look at Knockout, Clay, Glow, Badge, Cloud, Ivory, Mint, Graphite, Sand and
+    Spectrum. ✅ Each one fills its whole tile, with no smaller square, white border or shadow
+    inside it. (Cyan and Violet look the same as before, on purpose.)
+26. Pick **Clay**, then **Badge**, then **Spectrum** (tap OK each time your iPhone asks), and look at
+    your home screen after each. ✅ Each is one clean icon that reaches the rounded edge: no silver
+    frame on Badge, and the whole rainbow ring on Spectrum.
+
+**SNES on Mesen**
+
+27. **Settings → Cores → Core for SNES games**. ✅ There are two choices, bsnes and Mesen, with
+    bsnes picked.
+28. Pick **Mesen** and open any SNES game. ✅ It plays at full speed with sound, and the picture is
+    the same shape as on bsnes, with no black bars inside it. Say if it feels slower.
+29. Still on Mesen, save in the game's own menu (Super Mario World, Zelda), close it and open it
+    again. ✅ Your save is there.
+30. On Mesen, make a save state, play on a bit, then load it. ✅ You're right back where you saved.
+31. On Mesen, tap **⋯ → Cheats and RAM search...**. ✅ The line at the top lists Game Genie and Pro
+    Action Replay.
+32. Only if you know a code that works on bsnes for that game: add it on Mesen. ✅ It works on
+    Mesen too.
+33. Switch back to **bsnes** and open the same game. ✅ The save you made on Mesen is there.
+
+**cBoy**
+
+34. **Settings → Cores → Core for Game Boy games → cBoy**. Open Tetris, Pokémon Red or Blue, or
+    Super Mario Land, then **⋯ → Core settings… → Picture → Colour for black-and-white games →
+    Automatic (like a Game Boy Color)**, and close and reopen the game. ✅ It's in colour, like on a
+    real Game Boy Color (Tetris yellow and red, Pokémon Red red and green). Set it back to **Off
+    (like a Game Boy)**: grey again.
+35. Same setting: pick **Reversed (Right + B)**, then close and reopen the game. ✅ The colours
+    change to that scheme.
+36. In cBoy's settings (**⋯ → Core settings…**), read **Link cable**. ✅ It says to use Link cable
+    to a second phone in a game's ⋯ menu, and every cBoy setting has one short line at most.
+37. Same place: **Picture drawing → Exact (experimental)**, and play a few minutes of any Game Boy
+    or Color game. ✅ It looks and plays the same as on Standard. If anything looks broken, send a
+    screenshot. Then switch back to **Standard**.
+
+**Newer emulators**
+
+38. Open a PSP game. ✅ It plays at the speed it had (the PSP emulator is newer again).
+39. Open a 3DS game. ✅ It plays like before (the 3DS emulator is newer again).
+40. Only if you have one: open a Dreamcast game. ✅ It plays.
+
+**Sega**
+
+41. **Settings → BIOS**. ✅ The Sega 32X line says it works without a BIOS.
+42. Only if you have one: open a 32X game (a `.32x`) with no 32X BIOS files installed. ✅ It starts
+    straight away, with no message about missing files, and the picture, sound and buttons work.
+43. Only if you have the two 32X BIOS files: put them in the Continuum folder and tap **Install a
+    BIOS from the Continuum folder**. ✅ The Sega 32X line says it's using them, and a 32X game
+    still starts.
+44. Only if you have one: a Mega Drive game that saves to a chip (NBA Jam, Micro Machines 2, Wonder
+    Boy in Monster World, Mega Man: The Wily Wars, Brian Lara Cricket, NHLPA Hockey '93). Save in
+    the game, close it and open it again. ✅ Your save is still there.
+45. Only if you have four controllers: Micro Machines 2 or 96, or Pete Sampras Tennis. ✅ Players 3
+    and 4 can join.
+46. Only if you have one: a Sega CD game on two or more discs, as an `.m3u` with its discs beside it
+    (Night Trap, Slam City). ✅ The **⋯** menu shows **Next disc** and **Insert disc...**, and when the
+    game asks for the next disc, tapping **Next disc** carries it on.
+47. In that game, make a save state on disc 2, close it, open it again (it starts on disc 1) and
+    load that state. ✅ It comes back on disc 2.
+48. Only if you have one: any Sega CD game. On the Sega CD's own start screen, open the save memory
+    screen. ✅ Besides the console's own memory there's a save cartridge, empty.
+49. Copy a save onto that cartridge, close the game and open it again. ✅ The save is still on the
+    cartridge.
+
+**Two phones (only if you have a second phone)**
+
+Both phones need this same install.
+
+50. Put Game Boy games on cBoy on both phones (**Settings → Cores → Core for Game Boy games →
+    cBoy**) and open a Game Boy game on both. On the first phone tap **⋯ → Link cable to a second
+    phone → Wait for the other phone**. On the second, open the same menu and tap the first phone
+    under **Nearby**. ✅ Both say "Link cable plugged in".
+51. Trade a Pokémon between two copies (Red and Blue if you have them), save in the game on both,
+    then close both games and open them again. ✅ The traded Pokémon is still there on both phones.
+52. Two copies of Tetris: start a two-player game and play a round. ✅ It plays. Say if it feels
+    laggy.
+53. While linked, turn Wi-Fi off on one phone. ✅ Within about ten seconds the other phone says
+    "Link cable unplugged", and neither game freezes.
+54. Leave one phone on mGBA and try to link. ✅ Both say the link cable needs a Game Boy game
+    running on cBoy on both phones.
+
+**Arcade (only if you have arcade games, zips like `pacman.zip`)**
+
+55. Open Pac-Man or Ms. Pac-Man. ✅ It plays with sound, and **COIN**, **START** and the stick work.
+56. Open Galaxian, Moon Cresta, Scramble or Frogger from the arcade games you have. ✅ It plays with
+    sound.
+57. In that game, tap **COIN**, then **START**. ✅ The game starts, and the stick and the numbered
+    buttons work (button 1 fires in Galaxian and Scramble).
+58. In that game, tap **⋯ → Core settings…**. ✅ Its cabinet's own switches are there, like lives,
+    extra life, coins and cabinet, in plain words.
+59. Only if you have one: an arcade zip of a game it doesn't play yet. ✅ One short line says it
+    can't play this one yet and what it plays now. No crash, and no "Which system?".
+<!-- ARCADE: Donkey Kong checks pending -->
 
 ## This install only
 
@@ -34,10 +200,12 @@ the owner doesn't delete them by hand.
    they did before.
 9. Open a Master System or Game Gear game. ✅ It plays.
 10. Only if you have one: a Sega CD or 32X game. ✅ Sega CD plays with the BIOS you already had.
-    32X plays, or says it needs 32X_M_BIOS.bin and 32X_S_BIOS.bin.
+    32X plays, or says it needs 32X_M_BIOS.bin and 32X_S_BIOS.bin. (From the next install a 32X
+    game needs no BIOS files: "Next install (after 185)" step 42.)
 11. Open an arcade game you already had. ✅ It's still in your library and says "Arcade games
     aren't playable right now. We're building our own arcade emulator." No crash, and no
-    "Which system?".
+    "Which system?". (From the next install arcade games play on cArcade, Continuum's own:
+    "Next install (after 185)", Arcade.)
 12. Only if you have a save file from another app: open the card of a game that already has a
     save → **Save slots, export and import** → **Import a battery save (.srm)** → pick that file.
     ✅ It says your old save is in Files, Continuum, Older copies, and it's there in the Files app.
@@ -60,14 +228,21 @@ Do not retest Home, scrolling, re-import, or fast-forward. Those already passed.
 
 ## Next install (after 181)
 
-1. Install this one over 181 without deleting the app first, and open it. ✅ A line at the bottom
-   says files that aren't games were moved to the Not games folder. README, LICENSE and the other
-   notes are gone from **All Games**, and they're in the **Files** app → **Continuum** → **Not
-   games**. (If you already deleted them all by hand, skip this one.)
+In build 185, and in the next install too. You delete the app before every install, so the
+"Heads up" line about an updated emulator never shows for you (it only shows for someone who
+installs over an older copy): skip steps 3 and 4, and the heads-up part of 6 and 9. Skip any part
+that needs a save or a state from an older install if you don't have one. Steps 5, 6 and 11 are
+the same checks as 38, 39 and 40 of "Next install (after 185)": one answer covers both.
+
+1. Only if README, LICENSE or other notes are in **All Games** when you open the app (after
+   deleting the app they won't be, so you can skip this one). ✅ A message pops up just above the
+   tabs saying files that aren't games were moved to the Not games folder, and fades after a few
+   seconds. They're gone from **All Games**, and they're in the **Files** app → **Continuum** →
+   **Not games**.
 2. Import again the zip (or the files) you were adding when README and LICENSE got in. ✅ Only
    the games go in (ones you already have are replaced, not doubled), no README or LICENSE shows
-   up in **All Games**, and a line says "Added … games. Skipped … files that aren't games." (Not
-   sure which one it was? Skip this one.)
+   up in **All Games**, and a message pops up just above the tabs: "Added … games. Skipped …
+   files that aren't games." (Not sure which one it was? Skip this one.)
 3. Open a PSP game you played before. ✅ After a few seconds a line at the top says "Heads up:
    the PSP emulator (PPSSPP) just got an update from the people who make it. If anything seems
    off, send us feedback."
@@ -88,8 +263,8 @@ Do not retest Home, scrolling, re-import, or fast-forward. Those already passed.
 
 ## Night batch (13 October)
 
-For the install after 182. Nothing here has been on a phone, and nothing here repeats a check you
-have already passed. Skip anything you don't have the game or the gear for. If you only have ten
+In build 185, and in the next install too. Nothing here has been on a phone, and nothing here
+repeats a check you have already passed. Skip anything you don't have the game or the gear for. If you only have ten
 minutes, do 1, 2 and 3.
 
 **Start here — Game Boy Advance on cBoy**
@@ -168,10 +343,12 @@ minutes, do 1, 2 and 3.
 **Lines you read in the app**
 
 18. Open any game's card and read the **SAVE STATES** paragraph. ✅ It's two short sentences that
-    sound like a person wrote them, and it doesn't claim a state needs the same build.
-19. **Settings**, and read the note under **CORES** and the two notes around **SYNC FOLDER**. ✅ They
-    point at buttons that really exist ("Open the game and pick it there", "Sync now"), and they're
-    short. A restore line says "1 skin", not "1 skin(s)".
+    sound like a person wrote them ("Changing an emulator's settings can stop a state loading. If
+    one can't load, it says why."), and it doesn't claim a state needs the same build.
+19. **Settings**, and read the notes under **CORES** and **SYNC FOLDER**. ✅ They're short and point
+    at buttons that really exist: CORES says to press and hold a game and pick a core on its card,
+    and SYNC FOLDER names **Back up to Files** and **Restore from a backup**. After a restore, the
+    line under SYNC FOLDER says "Restore finished: 1 skin, ...", not "1 skin(s)".
 20. In a 3DS game: **⋯ → Core settings…**. ✅ The option is **Smoother loading**, On or Off, not
     "Shader Compile (Continuum)" or anything about shaders.
 21. Only if you have one: open a file that has never opened (a damaged or half-downloaded game).
@@ -193,8 +370,8 @@ minutes, do 1, 2 and 3.
 25. Delete a save state (the app keeps it in **Continuum Sync → Deleted** in case you change your
     mind), then **Restore from a backup**. ✅ That copy is still in the Deleted folder afterwards —
     a restore no longer wipes it.
-26. **Settings → SYNC FOLDER → Back up to Files**, and tap it again straight away while it's
-    working. ✅ The second tap says one is already running, and both buttons go dim while it works.
+26. **Settings → SYNC FOLDER → Back up to Files**. ✅ While it works, the button reads "Working..."
+    and both buttons go dim, so a second backup can't start on top of it.
 27. Take a backup, then open that zip anywhere outside Continuum (the **Files** app's own unzip, or
     send it to a computer). ✅ It unzips completely. A backup made by build 180 still restores in the
     app, too.
@@ -289,8 +466,8 @@ fast-forward lets go after Control Centre, and the (i) line names the phone. Do 
 | R6 | Use a landscape-only skin, turn the phone sideways | The skin fills the screen sideways |
 | R7 | Turn a cheat on, delete it while the game runs | The effect stops at once |
 | R8 | Join an online game as player 2, leave, play your own game | Your own in-game save is unchanged |
-| R9 | PS1 on Beetle PSX HW with no BIOS installed | The game starts (OpenBIOS); the BIOS line says so |
-| R10 | Tap Back up to Files twice quickly | The second tap says a sync is already running |
+| R9 | PS1 on Beetle PSX HW with no BIOS installed | The game starts (OpenBIOS). Settings → BIOS says "Beetle PSX HW (Vulkan): works without a BIOS"; the full BIOS line is under Technical details → BIOS, and in (i) in the game |
+| R10 | Tap Back up to Files | Now the same check as "Night batch" step 26: one answer covers both |
 
 ## K. Cleanup batch (12 October, not in a build yet)
 
@@ -310,9 +487,9 @@ fast-forward lets go after Control Centre, and the (i) line names the phone. Do 
 gray ghost picture, then froze on the PUBLIC SERVICE ANNOUNCEMENT screen with loud static, and
 Midnight Club LA Remix resumed from its auto-save to a black screen with normal sound.
 
-**P-SYNC2 (build 164).** Settings → **SYNC FOLDER** → **Back up to Files**. Expected: a sync runs, then a Files "save" sheet; pick On My iPhone (or iCloud Drive) and tap Save/Move; the line says "backup saved as Continuum Sync in ...". Then **Restore from a backup**, open that folder (Continuum Sync), tap Open: the picker closes and a sync runs. If anything stalls, send a report: every picker step is in the log.
+**P-SYNC2 (build 164).** Settings → **SYNC FOLDER** → **Back up to Files**. Expected: a sync runs, then a Files "save" sheet; pick On My iPhone (or iCloud Drive) and tap Save/Move; the line under SYNC FOLDER says "Last backup: Today at ..." (the full "backup saved as Continuum Backup ... .zip in ..." line is under Technical details → Sync folder). Then **Restore from a backup** and pick that .zip: the picker closes and the restore runs. If anything stalls, send a report: every picker step is in the log.
 
-**P-PSP4 (build 163).** Two fixes in one build. (a) PSP: NFS Most Wanted 5-1-0 and Midnight Club LA Remix from the start, hardware rendering, 1x. Expected: no solid gray screen with two bars/lines on loading screens, no black screen with a lone small triangle after the EA logo, and after Manage Profile → "Continue without saving" a full picture instead of three tiny thumbnails. (b) Settings → **SYNC FOLDER** → **Choose a sync folder**: pick a folder and tap Open. Expected: the picker closes, the Folder row shows its name and a sync starts. Also try from inside the folder.
+**P-PSP4 (build 163).** Two fixes in one build. (a) PSP: NFS Most Wanted 5-1-0 and Midnight Club LA Remix from the start, hardware rendering, 1x. Expected: no solid gray screen with two bars/lines on loading screens, no black screen with a lone small triangle after the EA logo, and after Manage Profile → "Continue without saving" a full picture instead of three tiny thumbnails. (b) Settings → **SYNC FOLDER** → **Live folder (advanced)**: pick a folder and tap Open. Expected: the picker closes, the line under SYNC FOLDER says "Live folder: <its name>" and a sync starts. Also try from inside the folder.
 
 **P-PSP3 (build 161).** NFS Most Wanted 5-1-0 from the start, hardware rendering (software rendering OFF). Expected: loading-screen movie plays with a real picture, no buzz, reaches the menu. If it crashes, send the crash report: its body now ends with the last 50 activity lines.
 
@@ -323,10 +500,9 @@ Expected: about a second of the game's own boot, then the auto-save loads and th
 3) If a game still looks wrong: **⋯ → Core settings…** and try PPSSPP's own software rendering
 option, restart the game, and say whether that one draws.
 
-**P-3DS.** Start a 3DS game, **⋯ → Core settings… → Shader Compile (Continuum)**. Switch to
-"Old (may stutter)", restart the game, run Mario Kart 7: it should hitch like before the fix and
-nothing should pop in. Switch back to "Async shaders (fix, may pop in)", restart: smooth, maybe late
-pop-in.
+**P-3DS.** Start a 3DS game, **⋯ → Core settings… → Smoother loading**. Switch it to "Off (may
+stutter)", restart the game, run Mario Kart 7: it should hitch like before the fix and nothing
+should pop in. Switch it back to "On (may pop in)", restart: smooth, maybe late pop-in.
 
 ## Q. Audit fixes (build after 154, new)
 
@@ -411,11 +587,11 @@ automatic after that.
    once more.) **Back up to Files** in Settings still works any time.
 
 **M1. Set it up once**
-1. **Settings** → **SYNC FOLDER** → **Choose a sync folder**. Pick anywhere in Files — iCloud Drive,
+1. **Settings** → **SYNC FOLDER** → **Live folder (advanced)**. Pick anywhere in Files — iCloud Drive,
    Google Drive, Dropbox. It makes a "Continuum Sync" folder inside whatever you pick.
 2. If you want your games backed up too, turn on **Back up the games too**. Leave it off if you are
    short on cloud space — it can be tens of gigabytes.
-3. Tap **Sync now** and wait for the line above the buttons to say it finished.
+3. Tap **Sync now** and wait until it stops saying "Syncing..." and reads **Sync now** again.
 
 **M2. The real test: delete it and put it back**
 1. Star a couple of games, import a skin, then **Sync now**.
@@ -558,7 +734,7 @@ For each one: ✅ cover shows, its own controls show, the game moves. ❌ Send t
 | C9 | Lynx | `.lnx` | Maybe `lynxboot.img` — the app names it if so |
 | C10 | Atari 7800 / 5200 | `.a78` / `.a52` | 5200 may name a BIOS file |
 | C11 | Virtual Boy | `.vb` | No |
-| C13 | 32X / SuperGrafx | `.32x` / `.sgx` | 32X needs `32X_M_BIOS.bin` and `32X_S_BIOS.bin`. SuperGrafx needs nothing |
+| C13 | 32X / SuperGrafx | `.32x` / `.sgx` | No. From the next install 32X needs no BIOS (it uses `32X_M_BIOS.bin` and `32X_S_BIOS.bin` only if you have both). SuperGrafx needs nothing |
 | C15 | Saturn, Sega CD, PC Engine CD | `.cue` + all `.bin` together | A BIOS. The app names the exact file |
 | C17 | C64, Amiga, DOS | DOS as a `.zip` | Amiga may need a Kickstart file. The **Keyboard** button opens a keyboard |
 | C18 | DOOM | `.wad` | No |
@@ -620,8 +796,9 @@ wrong part of memory). Worth one try with a GBA cheat file.
 
 ## H. Accounts and cloud
 
-**H3. Sync Folder** — **Settings** → **SYNC FOLDER** → **Choose a sync folder**, and pick a folder in
-iCloud Drive. Save in a game, go back to the library. ✅ The status says files were sent. New in
+**H3. Sync Folder** — **Settings** → **SYNC FOLDER** → **Live folder (advanced)**, and pick a folder in
+iCloud Drive. Save in a game, go back to the library. ✅ **Settings → Technical details → Sync
+folder → Last** says files were sent. New in
 122: Flash and J2ME saves, PDF manuals, Amiibo files, your "which system is this" answers and saved
 servers are synced too.
 
@@ -644,10 +821,12 @@ left and is waiting, keeps its game going, and lets the second phone back in.
 ## Known not working or not built (no need to test)
 
 - Typed cheat codes do nothing on the 3DS, Dreamcast, Atari 2600, Saturn (Yabause), Amiga, C64,
-  Lynx, Atari 5200, Virtual Boy, PC Engine CD, Pokemon Mini, Mega Drive, Sega CD and 32X: those
-  emulators ignore them. The RAM search can still make a cheat where the game's memory can be read.
-- Arcade is out for now, until Continuum has its own arcade emulator. Arcade games stay in the
-  library.
+  Lynx, Atari 5200, Virtual Boy, PC Engine CD, Pokemon Mini and arcade: those emulators ignore
+  them. The RAM search can still make a cheat where the game's memory can be read. (Mega Drive,
+  Sega CD and 32X take typed codes since build 185.)
+- Arcade: from the next install, cArcade plays the Pac-Man board and the Galaxian family
+  (Galaxian, Moon Cresta, Scramble, Frogger, Amidar and their clones). Any other arcade game stays
+  in the library and opens to one line saying it can't play it yet.
 
 - SMB (NAS shares) is in build 149. Not tried on a phone yet. WebDAV works.
 - GameCube and Wii: not possible without JIT.
@@ -759,8 +938,9 @@ Before you start, read [README.md](../../README.md) if you have not.
 
 ## The single most useful thing you can do
 
-The app has a block of small text: near the top of the player, and in the Library behind the thin
-line above the tabs. That text is the only diagnostic there is. An app installed outside the App
+The app has a block of small text: near the top of the player, and in the Library behind the
+little dot at the top right, next to **+** (and in Settings → Technical details → Show technical
+stuff). That text is the only diagnostic there is. An app installed outside the App
 Store has no debugger attached, so there is no log, no crash report I can read, and no way for me
 to watch what happened. That text block is it.
 
@@ -782,15 +962,15 @@ tried to do.
 
 1. Install the newest `Continuum-<number>.ipa`.
 2. Open it.
-3. Tap the thin line of small text just above the tabs at the bottom, so the diagnostic block
-   opens, and take a screenshot.
+3. Tap the little dot at the top right, next to **+**, so the diagnostic block opens, and take a
+   screenshot.
 
 **You should see**
 
 - The **Library** (Home, All Games, Favorites and Settings along the bottom), with a **+** button
   that opens Files.
-- A thin line of small text above the tabs. Tapping it opens the diagnostic block. Its first line
-  names the build. Under that there is a status line, a line starting `cores:`, usually a line
+- A little dot at the top right, next to **+**. Tapping it opens the diagnostic block. Its first
+  line names the build. Under that there is a status line, a line starting `cores:`, usually a line
   starting `BIOS`, a line about the graphics device, and a line counting frames and fps.
 - The status line should say something close to `surface ready - tap + to add a game`.
 - The `cores:` line should say **32 of 32 declared**.
