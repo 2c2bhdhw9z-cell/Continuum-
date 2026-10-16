@@ -732,23 +732,22 @@ struct NetplaySheet: View {
 
     private var hostFooter: String {
         if netplay.linkCable {
-            return "The other phone joins with the address shown here, or finds this phone under "
-                + "Nearby."
+            return "Then the other phone types the address that shows up, or picks this phone "
+                + "under Nearby."
         }
-        return "The other phone joins with the address shown here, or finds this phone "
-            + "under Nearby. More delay hides more network lag; 2 suits home Wi-Fi."
+        return "Then the other phone types the address that shows up, or picks this phone under "
+            + "Nearby. More delay hides lag; 2 suits home Wi-Fi."
     }
 
     private var aboutText: String {
         if netplay.linkCable {
-            return "Like two Game Boys with a cable between them. Each phone plays its own game "
-                + "and keeps its own save, so you can trade, battle or play head to head, even Red "
-                + "with Blue. Both phones need cBoy for Game Boy games (Settings, Cores). Rewind, "
-                + "fast forward, pause, reset and loading a state are off while the cable is on."
+            return "Each phone plays its own game and save, so you can trade or battle, even Red "
+                + "with Blue. Both need cBoy (Settings, Cores), and rewind, fast forward, pause, "
+                + "reset and loading a state are off while it's plugged in."
         }
-        return "Both phones need the same ROM file and the same Continuum build, with "
-            + "cheats off. The host's game is copied to the other phone when you connect. "
-            + "Rewind, fast forward, reset and loading a state are off while you play online."
+        return "Both phones need the same game file and Continuum version, with cheats off. "
+            + "Joining picks up the host's game as it is, and rewind, fast forward, reset and "
+            + "loading a state are off while you play."
     }
 
     var body: some View {
