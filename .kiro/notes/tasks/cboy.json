@@ -1,5 +1,5 @@
 {
-  "complete": false,
+  "complete": true,
   "title": "Continuum, evening of 13 October 2026: cBoy colour for black-and-white games, the exact drawer, the IO write timing",
   "repo": "/projects/sandbox/.scratch/cboy-work",
   "branch": "master",
@@ -77,9 +77,10 @@
     },
     {
       "id": "G5",
-      "done": false,
+      "done": true,
       "title": "Write it up for the owner",
-      "detail": "Write .kiro/notes/docs/CBOY_EVENING.md: what landed, each as 'Built, untested'; what the tests prove; the new Mealybug score; what is left and why; and a short numbered list of phone checks in the owner's plain, casual voice (one per thing a player can see or hear: for example picking the colour setting and opening Tetris or the original Pokemon Red, Blue or Super Mario Land). The orchestrator folds it into TESTING.md and STATUS.md. Update .kiro/notes/docs/CBOY_EXACT_DRAWER.md's top lines to the new score. Then set the top-level complete to true."
+      "detail": "Write .kiro/notes/docs/CBOY_EVENING.md: what landed, each as 'Built, untested'; what the tests prove; the new Mealybug score; what is left and why; and a short numbered list of phone checks in the owner's plain, casual voice (one per thing a player can see or hear: for example picking the colour setting and opening Tetris or the original Pokemon Red, Blue or Super Mario Land). The orchestrator folds it into TESTING.md and STATUS.md. Update .kiro/notes/docs/CBOY_EXACT_DRAWER.md's top lines to the new score. Then set the top-level complete to true.",
+      "result": "Pushed as 748542e (with f67de43 for the drawer notes): .kiro/notes/docs/CBOY_EVENING.md now has item 4, the exact drawer at 51 of 55, as Built, untested, with what the tests prove, what is left and why, and five phone checks in plain words; .kiro/notes/docs/CBOY_EXACT_DRAWER.md's top lines and owner section give the new score."
     }
   ],
   "notes_14_october": [
