@@ -1,4 +1,4 @@
-# Work cut off mid-item (14 October 2026, about 9:10 AM Eastern)
+# Work cut off mid-item
 
 Never checked green, so it is kept here, outside every build path, instead of in the source. Apply
 it in a fresh clone of master, run that job's checks, carry on, and delete the file in the commit
@@ -6,6 +6,7 @@ that lands the work.
 
 | File | Job, item | What it holds |
 |---|---|---|
+| `arcade-dkong-wip-base-02fa615.patch` | `arcade.json`, I6 | The Donkey Kong board as the 16 October helper left it when it stopped: `src/dkong.rs`, `src/dkong_sound.rs`, its `lib.rs` lines, our own test programs (`test-programs/dkong/`), the MAME comparison test and its references. Never checked green. |
 
 Apply with `git apply .kiro/notes/wip/<file>`. Both applied cleanly to master on 14 October at
 1:40 PM; if master has moved on and one doesn't, use `git apply --3way`.
