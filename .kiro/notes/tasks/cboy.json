@@ -63,9 +63,10 @@
     },
     {
       "id": "G3",
-      "done": false,
+      "done": true,
       "title": "The exact drawer on the Color half of Mealybug",
-      "detail": "Thirty-one of the 55 Mealybug pictures were photographed on a Game Boy Color playing black-and-white test cartridges, so they could never be run before G1. Run them now, map every failure by the hardware behaviour it probes (add the map to .kiro/notes/docs/CBOY_EXACT_DRAWER.md, the same way C1 did for the black-and-white half), then fix them group by group in the order that fixes the most pictures per change, committing after each group with the new score. Color-only behaviour (its different mode-3 timings, its palette RAM access during drawing, its object priority) must come from how SameBoy models the Color, never from the picture."
+      "detail": "Thirty-one of the 55 Mealybug pictures were photographed on a Game Boy Color playing black-and-white test cartridges, so they could never be run before G1. Run them now, map every failure by the hardware behaviour it probes (add the map to .kiro/notes/docs/CBOY_EXACT_DRAWER.md, the same way C1 did for the black-and-white half), then fix them group by group in the order that fixes the most pictures per change, committing after each group with the new score. Color-only behaviour (its different mode-3 timings, its palette RAM access during drawing, its object priority) must come from how SameBoy models the Color, never from the picture.",
+      "result": "Pushed as 68eae39 (with the Color's write timing from G2, 9cc5790): all 31 Color pictures were run, compared with the references and with SameBoy's own pictures, and mapped by behaviour in .kiro/notes/docs/CBOY_EXACT_DRAWER.md ('The Color half, mapped'); fixed in four groups (the compatibility palette 1 -> 4, the Color's write landing 4 -> 21, the Color's hardware rules in Game Boy mode 21 -> 22, the Color's tile-select glitch 1,141 pixels fewer wrong), all from SameBoy's model of the Color except one zero pixel the CGB C and D references and the real CGB C photo all show, so cBoy's Color picture is SameBoy's pixel for pixel on 27 of the 31 and Mealybug went 44 -> 45 of 55; the 9 left are the 4 references no Color can produce and 5 that SameBoy misses by the same pixels (G4)."
     },
     {
       "id": "G4",
