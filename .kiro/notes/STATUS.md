@@ -497,9 +497,9 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Feature | State | What is missing |
 | --- | --- | --- |
 | Import, including multi-file `.cue` plus `.bin` | **Done** | |
-| Library, cover art, the detail card | **Done** | From the next install (Built, untested): the tabs float over the covers, the "80 games" strip is gone (its messages pop up just above the tabs; the count is in Settings, Storage), and a game that can't open says why in that pop-up |
-| Game card size (Settings, Layout) | **Built, untested** | Next install. Extra small, Small, Medium (the default and the old size) or Large, on Home, All Games and Favorites |
-| Light mode (Settings, Appearance) | **Built, untested** | Next install. Dark (the default, as before), Light or System. The game screen and the two control editors stay dark |
+| Library, cover art, the detail card | **Done** | Build 190, owner-checked 16 October (TESTING 1-11): the tabs float over the covers, the "80 games" strip is gone (its messages pop up just above the tabs; the count is in Settings, Storage), and a game that can't open says why in that pop-up |
+| Game card size (Settings, Layout) | **Done** | Build 190, owner-checked 16 October. Extra small, Small, Medium (the default and the old size) or Large, on Home, All Games and Favorites |
+| Light mode (Settings, Appearance) | **Done** | Build 190, owner-checked 16 October (TESTING 12-17). Dark (the default, as before), Light or System. The game screen and the two control editors stay dark |
 | Cover art from the internet | **Done** | |
 | Cover art from your own file | **Done** | |
 | Cover art captured from the running game | **Done** | Confirmed on the phone with build 122. Build 123 makes it a sharp picture of the game alone (no skin layout around it); confirmed on build 125 |

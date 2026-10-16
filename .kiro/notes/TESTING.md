@@ -15,6 +15,10 @@ already passed. Delete the old app first, as always. The lists further down, "Ne
 Skip anything you don't have the game or the gear for. **If you only have ten minutes, do 1, 2
 and 3.**
 
+**Owner's results on build 190 (16 October, by 6:20 PM Eastern). Do not ask these again:**
+- **Passed: 1 to 23** (the Home screen, light mode and the shorter text). The owner's words:
+  "1-23 fine for now". 24 onwards not reported yet.
+
 **Start here: the Home screen you asked for**
 
 1. Open the app and scroll down **Home**. ✅ The covers slide under the four tabs at the bottom and
