@@ -1,17 +1,19 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-13 October 2026, 6:30 PM Eastern. **Build 184** (`8760638`) is the newest published install:
-[Continuum-184.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-184-8760638/Continuum-184.ipa).
-Master has more since then, not built yet, and eight jobs were stopped part-way when the Kiro
-account ran out of credits: HANDOFF.md says what landed, and `.kiro/notes/tasks/` holds the rest.
+16 October 2026, 4 AM Eastern. **Build 185** (`393f12c`, 13 October) is the newest published
+install:
+[Continuum-185.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-185-393f12c/Continuum-185.ipa).
+It has build 182's changes and the night batch; the owner hasn't reported on 182 to 185 yet.
+Master has a big batch on top of 185, not built yet and all **Built, untested**: "Next up" lists
+it, and the owner's phone checks are TESTING.md "Next install (after 185)".
 
-Build 181 (`b88308f`), the one before it, carried the cleanup and the licence swap. The owner's
-phone results are in TESTING.md.
+Build 181 (`b88308f`) carried the cleanup and the licence swap. The owner's phone results are in
+TESTING.md.
 
 **Build 181 = the cleanup + the licence swap.**
 - **The cleanup (12 October, done):** everything earlier sessions left broken or out of date was
-  fixed. It's all on master and tested here, but not built and not on a phone yet. Feedback goes
+  fixed. It shipped in build 181, and the owner's phone results are in TESTING.md. Feedback goes
   to the new address, ContinuumDev2c2b@gmail.com. cBoy's older per-line drawer ("Standard") is
   the default again, and the pixel-by-pixel one is the "Exact (experimental)" choice. No made-up
   startup picture anywhere, option text included. Backup, restore and auto-save got fixes. Also:
@@ -21,13 +23,15 @@ phone results are in TESTING.md.
   MAME 2003-Plus are out of the app, the build, the credits and the notes. SNES now runs on bsnes,
   Master System, Game Gear and SG-1000 on Gearsystem, and Mega Drive, Sega CD and 32X on BlastEm,
   each built here with a small Continuum patch. Mesen 2, the NES default, is built here too now,
-  so the app keeps its in-game saves and achievements and cheats reach it. 32X games need two BIOS
-  files, 32X_M_BIOS.bin and 32X_S_BIOS.bin. Arcade is out until Continuum has its own arcade core:
-  arcade games already in the Library stay, and say so when opened. Old in-game saves carry over;
+  so the app keeps its in-game saves and achievements and cheats reach it. 32X games needed two
+  BIOS files then, 32X_M_BIOS.bin and 32X_S_BIOS.bin (from the next install they need none:
+  Continuum has its own 32X start-up code). Arcade went out until Continuum had its own arcade
+  core: arcade games already in the Library stayed, and said so when opened (from the next
+  install they play on cArcade, Continuum's own; see "Next up"). Old in-game saves carry over;
   old save states from the removed emulators are kept in a slot but can't load. Every licence left
   only asks for the credits and public source.
 - Phone checks for both: TESTING.md "This install only" and section K.
-- **After 181 (on master, not in a build yet): text files are never games.** Build 181 listed
+- **After 181 (in builds 182 to 185): text files are never games.** Build 181 listed
   README, LICENSE and other notes ending in `.md` as Mega Drive games (`.md` is also a Mega Drive
   file type, and nothing looked inside; this goes back long before 181). Now the engine looks: a
   cartridge file that's plain text is skipped on import, in zips and folder downloads too ("Added
@@ -35,7 +39,7 @@ phone results are in TESTING.md.
   Continuum → Not games the next time the app opens, never deleted, and the sync and backups
   don't bring them back. A file with real binary content (any zero byte) always counts as a
   game. Phone check: TESTING.md "Next install (after 181)".
-- **After 181 (on master, not in a build yet): newer emulators.** Built here from newer code:
+- **After 181 (in builds 182 to 185): newer emulators.** Built here from newer code:
   NES and Disk System FCEUmm `7a542dab`→`ac0d00a7`; Master System, Game Gear and SG-1000
   Gearsystem `02b9d9e7`→`692494c8`; N64 ParaLLEl N64 `0bd516ee`→`a8280501` (JIT build too); 3DS
   Azahar `065c9222`→`bfa76872`; PSP PPSSPP `53fae900`→`dd6bd1a5`; Dreamcast Flycast
@@ -47,19 +51,19 @@ phone results are in TESTING.md.
   one) and FCEUmm will, so the app now switches to FCEUmm by itself and says so. Checked and
   kept as they are: Beetle PSX (3-7% slower), PrBoom (louder default sound that clips), Virtual
   Jaguar (about 13% slower) and Beetle VB (about 19% slower). All of it is **Built, untested**.
-  Phone checks: TESTING.md "Next install (after 181)".
-- **The night batch (13 October, on master, not in a build yet): the small leftovers are done.**
-  Three agents worked overnight — the app and engine leftovers ("Next up" item 5), cBoy, and
+  Phone checks: TESTING.md "Next install (after 181)". Gearsystem, Azahar, PPSSPP and Flycast
+  moved again after build 185 (on master, not built): see "Next up".
+- **The night batch (13 October, in build 185): the small leftovers are done.**
+  Three agents worked overnight — the app and engine leftovers (the old "Next up" item 5), cBoy, and
   cBoy's exact drawer. All of it is **Built, untested**. The short list of what landed is "Where we
   stopped: the night batch (13 October 2026)"; the owner's phone checks are TESTING.md "Night batch
-  (13 October)". Four things in item 5 were deliberately left, with reasons, and they are named
-  there. **This build rebuilds every core** (the build script changed), so expect 45-50 minutes
-  rather than 6-8.
+  (13 October)". Four things were deliberately left that night, with reasons; all four were done in
+  the evening batch after it (32X with no BIOS, Sega CD discs, Mesen 2 for the SNES, and the
+  Sampras Tennis 96 question), and they are in "Next up". Build 185 rebuilt every core.
 
-**After that install,** the owner's order is in "Next up": emulator updates every session, the
-voxel Pokémon look-only investigation, then what is left of cBoy (a Game Boy Color playing an old
-black-and-white game in colour, the two-phone link), the exact pixel-by-pixel drawer, then the
-phone test rounds.
+**After the next install,** the owner's order is in "Next up": the owner's phone checks, emulator
+updates every session, the voxel Pokémon look-only investigation, the phone test rounds, more
+arcade boards, then the Switch (raise JIT first) and Android.
 
 Anything further down that's named after an older build, or marked history, is only a record.
 Where it disagrees with this top part, "Next up" or "Where we stopped", those three win.
@@ -69,19 +73,19 @@ Where it disagrees with this top part, "Next up" or "Where we stopped", those th
 - New hardware behind them: Super Game Boy (palettes, attribute maps, borders, multiplayer, masks, SNES-clock timing NTSC/PAL), model choice (DMG, Pocket, SGB, SGB2, CGB, AGB), boot ROM and GBA BIOS files (`<system>/cboy/`), MBC7 tilt + EEPROM, MBC5 rumble, GBA GPIO clock/solar/gyro/rumble and the tilt sensor, phone sensors and rumble through libretro.
 - Performance: frame skip (fixed or auto by frame time), in-core run-ahead (1-2 frames), Advance idle-loop skipping, cheaper/faster sound. Fast-forward speed and rewind stay in the app (Settings > Speed and rewind).
 - Tests: unit tests for every option's parsing and effect, plus `tests/options_e2e.rs`, which drives every option through the real libretro entry points and checks the picture, sound, frame size, AV timing and save size. pret Red/Blue/Yellow/Gold/Crystal still reach the overworld.
-- The rule now in docs/CORE_OPTIONS_STANDARD.md §0: a Continuum core offers the union of every notable emulator's settings. cBoy's inventory: docs/CBOY_OPTIONS_INVENTORY.md. Gaps still open there include CGB revisions and the two-phone link. Game Boy Player rumble has landed since (`cboy_gbp`), and so have four more settings and the MP2K high-quality music (13 October: 67 options now). A made-up boot animation is out: the owner ruled out any made-up startup picture.
+- The rule now in docs/CORE_OPTIONS_STANDARD.md §0: a Continuum core offers the union of every notable emulator's settings. cBoy's inventory: docs/CBOY_OPTIONS_INVENTORY.md. Gaps still open there include CGB revisions; the two-phone link landed on 13 October (Built, untested). Game Boy Player rumble has landed since (`cboy_gbp`), and so have four more settings and the MP2K high-quality music (13 October: 67 options now). A made-up boot animation is out: the owner ruled out any made-up startup picture.
 - **.gb vs .gbc on cBoy, app path compared (Oct 11):** the core ignores the file extension (it decides from the header), so a .gb and a .gbc game reach the core identically. The app differs in only four things for `gb`: the default screen effect (Dot matrix vs LCD grid; same grid code, plus the pale backing), Game Boy-specific skins (a skin whose `inputFrame` crops the frame), the achievements console id, and the palette option keys (mGBA-only, unused for cBoy). The 10:9 aspect, geometry, pitch and format are the same for both. Most likely causes, neither proven on the phone: (1) a skin crop outside cBoy's 160x144 frame (fitted since bde63ac, never shipped until now); (2) an auto-save state from an earlier cBoy build loaded with a different layout: cBoy's version string never changed, so the app's version gate let it through and the core could misread it. Fixed: version string now carries the state format ("0.3.0 (state format 2)") and the core's tag refuses older states. New: every launch logs `picture (first frame or new size: pitch, format ...)` with frame size, effect and skin crops.
 - Explained since: the Pokemon Yellow (.gb) freeze on Brett's phone was a cut-off file (997 KB instead of 1 MB), not a cBoy bug. The full file plays. See "Where we stopped".
 
 **cBoy: our own Game Boy, Game Boy Color and Game Boy Advance core (started 11 Oct 2026; in every install since build 177):**
 - What it is: one emulator for all three, written from scratch in Rust in `cores/continuum-gb` (the crate and dylib keep the internal name `continuum_gb`), built as a libretro core (`continuum_gb_libretro_ios.dylib`). It looks at the ROM and runs a Game Boy, a Game Boy Color or a Game Boy Advance, the way mGBA does. Not a wrapper of mGBA or Gambatte. The name shown in the app is cBoy.
 - Game Boy (DMG): SM83 CPU (every opcode and CB opcode, timed per memory access), interrupts, HALT and the HALT bug, EI delay; timer with its quirks; OAM DMA; PPU (modes, LY/LYC/STAT, background, window, sprites, mode 3 length from SCX and sprites); 4 sound channels; joypad; serial; MBC1 (and multicarts), MBC2, MBC3 with its clock, MBC30, MBC5 (and its rumble), MBC7 (tilt), HuC1, HuC3 and the Game Boy Camera (the phone's camera isn't connected to it yet); battery saves and the clock through libretro; save states; no boot ROM needed.
-- Game Boy Color: VRAM and WRAM banks, colour palettes, background attributes, CGB sprite priority, double speed, general and HBlank DMA, CGB start registers. DMG-only cartridges run as a DMG (the CGB's colourised compatibility mode is not done).
+- Game Boy Color: VRAM and WRAM banks, colour palettes, background attributes, CGB sprite priority, double speed, general and HBlank DMA, CGB start registers. DMG-only cartridges run as a DMG. Since 13 October a Color can colour them the way the real one does (Picture, "Colour for black-and-white games", Off by default; Built, untested).
 - Game Boy Advance: ARM7TDMI CPU (all ARM and Thumb instructions, the banked registers of every mode, IRQ entry), memory map with wait states and a simple prefetch model, PPU (modes 0 to 5, text and rotated backgrounds, sprites incl. rotated ones, windows, blending, mosaic), 4 DMA channels, 4 timers with cascade, interrupts, keypad, sound (the Game Boy channels plus the two DirectSound FIFOs), saves (SRAM, Flash 64K/128K, EEPROM, detected from the ROM), save states. No BIOS file needed: the BIOS calls games use (division, square root, arctan, copy and fill, affine setup, LZ77, Huffman, RLE, diff unpack, waiting for interrupts) are done in Rust.
 - Tests (`cd cores/continuum-gb && scripts/fetch-test-roms.sh && cargo test --release`): Game Boy: Blargg cpu_instrs, instr_timing, mem_timing PASS; dmg-acid2 PASS; cgb-acid2 PASS (pixel for pixel); Mooneye DMG acceptance 86 of 86 (since 11 October; it was 77 at first). Game Boy Advance (jsmolka gba-tests): arm, thumb, memory, bios PASS; save sram, flash64, flash128, none PASS; unsafe PASS; the three PPU pictures (hello, shades, stripes) draw correctly (checked by eye, then pinned). Plus save-state round trips and the libretro API for a GB and a GBA ROM. ROMs are downloaded, never committed.
 - First phone test (Pokemon Yellow, CGB mode, 11 Oct): boots, the Game Freak logo plays in colour, then at the Pikachu intro the screen turns to stripes and the game freezes. Cause found later: that file was cut off (see "Where we stopped"). Fixed meanwhile (all found by SameSuite, built locally with rgbds): EI followed by HALT with an interrupt waiting was treated as the HALT bug; HBlank DMA started with the LCD off or inside an HBlank did not copy its first block; FF55 after a cancel read $FF instead of $80 plus the length. SameSuite DMA, interrupt and PPU tests now pass (its APU tests mostly fail). The core now logs, into the app's activity log, the cartridge it loaded, every speed switch and STOP, every general or HBlank DMA, illegal opcodes, and "stuck" (no VBlank interrupt for 2 s, with PC, IE, IF, LCDC, STAT, LY and bank), so the next report from Yellow shows where it stops.
-- Not done yet: timing is approximate (no cycle-exact prefetch or PPU), and the GBA's serial/link port. Since 13 October six real open-licence Advance games run in the test suite and are gated (pictures, sound and save states checked); real Advance games on a phone are still to come, and mosaic is in.
-- Mooneye DMG: all 86 pass now. The nine that failed at first (hblank_ly_scx_timing, intr_2_mode0_timing_sprites, intr_2_oam_ok_timing, lcdon_timing, lcdon_write_timing, stat_lyc_onoff, vblank_stat_intr, oam_dma_start, timer rapid_toggle) were fixed on 11 October (see "cBoy work" below). Mooneye CGB is 4 of 5 since 13 October, and a gate rather than a report.
+- Not done yet: timing is approximate on the default drawer (no cycle-exact prefetch; the exact drawer gets 51 of the 55 Mealybug pictures since 16 October, the most there are references for), and the GBA's serial/link port (the Game Boy and Color link cable to a second phone is in since 13 October, Built, untested). Since 13 October six real open-licence Advance games run in the test suite and are gated (pictures, sound and save states checked); real Advance games on a phone are still to come, and mosaic is in.
+- Mooneye DMG: all 86 pass now. The nine that failed at first (hblank_ly_scx_timing, intr_2_mode0_timing_sprites, intr_2_oam_ok_timing, lcdon_timing, lcdon_write_timing, stat_lyc_onoff, vblank_stat_intr, oam_dma_start, timer rapid_toggle) were fixed on 11 October (see "cBoy work" below). The Mooneye Color tests all pass since the evening batch (7 of 7 runs, both drawers), and are a gate rather than a report.
 - In the app since build 177: optional in `scripts/build-core.sh`, embedded via `project.yml`, offered in Settings as the second core for Game Boy, Game Boy Color and Game Boy Advance. mGBA stays the default. The full Pokemon Yellow played on it on the phone (build 177). CI runs its tests in the Linux job. Since 12 October a change in `cores/continuum-gb` starts the iOS workflow by itself, and cBoy is compiled fresh on every build (about a minute) without throwing away the other cores' cache.
 
 **Build 164 (history; built, untested on a phone):**
@@ -242,140 +246,156 @@ launch with an empty library.
 
 ## Next up
 
-**14 October 2026, read this first.** The batch that began on 13 October is being finished from
-`.kiro/notes/tasks/` (the README there has the table of what's done and what's left). Nothing has
-been built since build 185. Out of date below: item 5's 32X start-up code, Sega CD discs and Mega
-Drive EEPROM carts are done; item 6's colour for black-and-white games, fifth Color test and link
-are done; item 7 (the exact drawer) has the owner's go-ahead and is at G2; item 9 (our own arcade
-core) is in the app with the Pac-Man board. All of it is Built, untested. Fold `docs/reports/` into
-this page before the next build.
+**16 October 2026, 4 AM Eastern, read this first.** Nothing has been built since build 185
+(`393f12c`, 13 October), and no build starts until the batch is done or the owner says so. The
+batch that began on 13 October is finished apart from the arcade emulator's Donkey Kong board and
+its write-up, which a helper is still doing. Everything in the list below is on master and
+**Built, untested**: no phone has seen any of it. The owner's phone checks for all of it are
+TESTING.md "Next install (after 185)". The checklists are in `.kiro/notes/tasks/` (its README
+has the table).
 
-For whoever works on this next. The owner's order (12 October 2026), which replaces any older
-order on this page:
+### On master since build 185, not built yet (all Built, untested)
 
-1. **Done:** the cleanup and the licence swap (build 181, owner-tested: TESTING.md results), the
-   emulator updates, the heads-up line, the all-core weekly checker, the not-games fix and the
-   Mesen → FCEUmm retry (all in build 182, `6e41cd5`). **The owner will test 182 later.** When
-   they ask what to test, give them the 8 steps from the 11:30 PM handover, written out in the
-   reply: PSP heads-up; no heads-up the second time; PSP speed; 3DS plays plus its save-state
-   heads-up; N64 looks right; Kart Fighter falls back to FCEUmm; Dreamcast, Amiga, DOS or Saturn
-   if they have one; a zip with a README imports only the games. They have no saves, so skip
-   every step that needs one. Record results; fix nothing until they say they're done testing.
-   Build 183 is the first test of the per-core cache: check its log.
+**Game Boy and cBoy** (`docs/reports/evening-2026-10-13.md` section 1, `docs/CBOY_EVENING.md`):
+
+- **The two-phone Game Boy link cable** (`1dee835`): a Game Boy or Color game on cBoy gets "Link
+  cable to a second phone" in the ⋯ menu. Each phone plays its own game and keeps its own save.
+  A phone on the next install can't play online with a phone on an older build (the online
+  version went from 1 to 2), so both need the same build.
+- **cBoy colours black-and-white games like a Game Boy Color** (`381d5d7`): Picture, "Colour for
+  black-and-white games", Off by default; Automatic, or one of the Color's twelve button schemes.
+- **cBoy's settings text** (`1b0ba90`, `e08d69d`): the Link cable setting says how to link two
+  phones, and every setting has one short line at most.
+- **cBoy's exact drawer gets 51 of the 55 Mealybug pictures** (27 → 51; the other 4 have no
+  reference picture yet, so 51 is the most there is) (`9cc5790`, `68eae39`, `27f9821`, `45aa6bd`,
+  `f67de43`). Still "Exact (experimental)", and **not the default** until the owner has seen it
+  on a phone.
+
+**Sega and SNES** (`docs/reports/evening-2026-10-13.md` sections 2 to 5):
+
+- **Mega Drive save chips** (`6c5ab60`): every EEPROM and J-Cart cartridge in MAME's list is found
+  by its checksum, and four games save for the first time. Sampras Tennis 96 has no save chip
+  (MAME), so it got its J-Cart only.
+- **Sega CD discs** (`a4ed549`): a game on several discs plays from its `.m3u`, Next disc and
+  Insert disc work, a save state remembers its disc, and the save cartridge is kept as
+  `<game>.bcr`.
+- **32X with no BIOS files** (`69a385f`): Continuum's own start-up code for the 32X's two
+  processors, plus a fix inside BlastEm it needed. A player's own pair of files is still used. A
+  32X CD still needs them.
+- **Mesen 2 as the second SNES choice** (`239bab1`, `0872a41`): Settings, Cores, "Core for SNES
+  games": bsnes (the default) or Mesen. On Mesen an SNES game keeps its in-game save (the same file
+  bsnes uses), and RAM search, achievements and typed Game Genie and Pro Action Replay codes work.
+
+**Newer emulators** (`docs/reports/core-updates-2026-10-14.md`):
+
+- PSP: PPSSPP `dd6bd1a5` → `a838053e`. Dreamcast: Flycast `f03faffd` → `80471d57` (its JIT build
+  too). Old save states load on both.
+- 3DS: Azahar `bfa76872` → `6daa07ab`. Azahar refuses older save states itself; in-game saves are
+  fine, and the heads-up says so.
+- Master System, Game Gear, SG-1000: Gearsystem `692494c8` → `4a801d22`; old states load. Its
+  later changes (`426d4eb6`) are desktop-only, so they were skipped.
+
+**Arcade** (`docs/ARCADE_CORE.md`):
+
+- **cArcade, Continuum's own arcade emulator.** It plays the Pac-Man board's 65 sets (Puck Man,
+  Pac-Man, Pac-Man Plus, Ms. Pac-Man and 61 clones and bootlegs; `5848928`) plus 119 sets on the
+  Galaxian family's boards (Galaxian, Moon Cresta, Scramble, The End, Super Cobra, Frogger, Amidar,
+  Turtles and their clones; `8704759`, `58f4ef7`, `02fa615`), recognised by their chips whatever
+  the zip is called. Each game has its own controls, and its cabinet's switches are settings.
+  Galaxian's and Moon Cresta's sound is our own approximation of their analogue circuit. Our test
+  programs match MAME on every frame. A zip it can't play opens to one plain line, never a crash.
+<!-- ARCADE: Donkey Kong pending, the orchestrator fills this in -->
+
+**The Library and the words in the app** (`docs/reports/evening-2026-10-13-library.md`,
+`docs/reports/evening-2026-10-13-text.md`, `docs/reports/evening-2026-10-13-icons.md`):
+
+- **Floating tabs** (`a06aeec`): the covers scroll under see-through tabs.
+- **The "80 games" strip is gone** (`c3e8bac`): its messages pop up just above the tabs and fade,
+  the game count is in Settings, Storage, and the dot at the top right opens the technical text.
+- **Game card size** (`d31c627`): Settings, Layout: Extra small, Small, Medium (the default and
+  the old size) or Large.
+- **Light mode** (`97e02ef`): Settings, Appearance: Dark (the default, as before), Light or
+  System. The game screen and the two control editors stay dark.
+- **A game that can't open says why** in that pop-up (`ec644be`): a missing BIOS or chip file,
+  "won't start", arcade in a build without cArcade, a sync still running.
+- **Shorter text everywhere** (`ec63823` to `bffba3f`): every note is one or two short sentences,
+  the read-outs moved to Settings, Technical details, and the PSP section is gone. A restore's
+  result shows in Settings, Sync folder again (`49043c9`).
+- **Icons:** 10 of the 12 circled home screen icons fixed (`495733a`, `d095912`); the Default tile
+  shows the real icon (`47063ae`); Next resolution has its icon on iOS 16 (`5b10c45`).
+
+**Behind the scenes:**
+
+- **The build cache's second pass** (`3651403`, `1de468f`, `d8d8654`, `3d411b3`;
+  `docs/reports/cache-v2-summary.md`): comments, the cache's own code and the lists of emulators
+  rebuild nothing, and a change to one emulator's part rebuilds only that one.
+- **The frozen emulator copies are back** (`9c53424`; `docs/reports/mirror-restore-2026-10-16.md`):
+  the next build takes 11 downloaded emulators from the buildbot and DOOM, Jaguar, Virtual Boy,
+  C64 and Amiga from build 185's install, then refills `core-mirror-1` itself.
+- **The repo cleanup:** a friendlier README, a tidier docs folder, and the working notes moved
+  into `.kiro/notes`.
+
+**The next build** rebuilds every emulator once (the cache's stored numbers changed shape), about
+an hour. Its .ipa should have 37 core files: the 36 plus cArcade. The steps are in
+`.kiro/notes/tasks/README.md`, "Then the build".
+
+### Left from this batch
+
+- **Arcade:** the Donkey Kong board (`arcade.json` I6; the unfinished work is
+  `.kiro/notes/wip/arcade-dkong-wip-base-02fa615.patch`) and the write-up with its phone checks
+  (I7). A helper is on both.
+- **Needs two phones:** a real link cable over Wi-Fi, a real Pokémon trade and a Tetris match. If
+  fast games feel loose, the cable would have to hand bytes over during a frame (not done: it
+  can't be judged without two phones).
+- **Needs real games or discs:** no commercial Mega Drive cartridge, Sega CD disc or 32X game was
+  run here, and a Sega CD needs a start-up file nobody here has, so a real disc swap and a game
+  using the save cartridge need the phone. An old Genesis Plus GX save-cartridge file isn't picked
+  up (the cartridge starts empty).
+- **32X save states** keep only the Mega Drive half of a game. That is BlastEm's own state format;
+  fixing it is work inside BlastEm, not started.
+- **Mesen on the SNES:** its speed on a phone, and the SuperFX, SA-1 and ST010/ST011 save paths (no
+  open game here uses them). It picks `dsp1.rom` or `dsp1b.rom` by game, so a player with only one
+  of them should keep those games on bsnes. Two pads only. Found in bsnes, not changed: switching
+  off a code joined with "+" leaves its first parts in until the game is opened again.
+- **cBoy's exact drawer** stays experimental. What no test can measure is in
+  `docs/CBOY_EXACT_DRAWER.md` ("What is left"). When it is picked up again: follow how SameBoy
+  draws, and never guess its test pictures one pixel at a time. Notes cBoy couldn't edit are in
+  `docs/CBOY_EVENING.md`, "Needed in files cBoy's work does not own" (the option-sources rows and
+  an inventory rerun).
+- **Small and cosmetic:** in Light, the yellow favourite star and the selector's white edge are
+  faint. Some problem lines in the pop-up are the app's status lines word for word. Retry failed
+  lookups and Forget the downloaded cover lists answer only under Technical details.
+- **Icons:** Cyan and Violet would need new artwork (the owner's call).
+- **Parked:** the GitHub About box, the shorter release notes, and the two ios.yml lines for
+  cArcade (CI doesn't run cArcade's own tests, so run them before every cArcade push). See
+  `.kiro/notes/tasks/README.md`, "Parked".
+- **After the build:** `bash scripts/check-core-mirror.sh live` should say all 16 come "from the
+  mirror".
+
+### After this batch, in the owner's order
+
+1. **The next build, and the owner's phone checks** (TESTING.md "Next install (after 185)"). They
+   haven't reported on 182 to 185 either. When they do, record it, and fix nothing until they say
+   they're done testing.
 2. **Emulator updates every session** (owner-rules "Emulator updates"): check every core, and take
    the safe ones in the next batch.
-3. **The voxel Pokémon (gen1recomp / G1R) tab: the look-only investigation, next.** It changes
-   nothing in the app. The owner said go (12 October); the plan and the licence findings are in
-   `docs/ideas/voxel-pokemon.md`. It answers whether LÖVE can run as a tab inside Continuum,
-   saves and backup, size, controls, and whether the voxel mods run and how fast. The build step
-   comes after, if the answers are good.
-4. (Merged into 1 and 2.)
-5. **Small leftovers from the cleanup** (the LOW and SUSPECTED findings) **and the licence swap.**
-   **Done in the night batch, 13 October — all built, untested.** What landed is listed in "Where
-   we stopped: the night batch (13 October 2026)", and the full detail is in
-   `docs/reports/night-2026-10-13-batch-a.md`. The original lists (IDs like IOS-11, RUST-05,
-   CBOY-05) are in `docs/reports/cleanup-2026-10-12/` (`FINDINGS.md` every finding, `SUMMARY.md`
-   what was fixed and what was left, `FINAL_REVIEW.md` the last check).
-   **Still open out of this item**, each with the reason written down in the night-batch report:
-   - Continuum's own 32X start-up code, so the 32X needs no BIOS files (Option B). Not attempted
-     honestly: there is no SH-2 assembler here and no way to run a 32X game, so working code could
-     not be told from code that hangs. A 32X game still asks for the two BIOS files, as before.
-     The report says where our code hooks in and what it has to do;
-   - Sega CD disc swap and RAM-cart saves. BlastEm registers no disc interface and has no hook for
-     changing a disc, and libretro has one save region, which the internal backup RAM already uses.
-     Both need core surgery, and neither can be proved here (a Sega CD game needs a BIOS nobody
-     here has). Multi-disc games behave exactly as before;
-   - Mesen 2 as a second SNES choice. Checked and deliberately not offered: everything its
-     Continuum patch gives the NES (memory for RAM search and achievements, cheats, and letting the
-     app own the battery save) is written NES-only, so SNES players would get no RAM search, no
-     achievements, dead cheats and saves that leave Continuum's save system. The report says
-     exactly what the patch needs;
-   - the EEPROM in *Sampras Tennis 96*. The item named Pete Sampras Tennis and Super Skidmarks:
-     neither has an EEPROM (the first is a J-Cart with no save, already known to BlastEm; the
-     second was missing from its cartridge list altogether and was added, which is what made its
-     third and fourth pads work). The 1996 sequel is the one with the EEPROM, and its entry needs a
-     dump's checksum — guessing it would give a save that silently does the wrong thing;
-   - ~~Mega Drive multitap (BlastEm reads two controllers).~~ **Done, 13 October (built, untested):**
-     Team Player and EA 4-Way Play, off by default, with four pads read every frame;
-   - ~~typed cheats on BlastEm (Mega Drive, Sega CD, 32X).~~ **Done, 13 October (built, untested):**
-     Game Genie, Pro Action Replay and plain address:value codes;
-   - ~~a launch line naming the SNES chip files a game needs.~~ **Done, 13 October (built,
-     untested):** the engine reads the cartridge's own header and names the file ("Super Mario Kart
-     needs an extra file called dsp1b.rom...");
-   - ~~the Gearsystem online-play state hash (16 bytes differ between phones).~~
-     **Found and fixed, 13 October (built, untested).** The 16 bytes were the Sports Pad's timing:
-     Gearsystem put the phone's own running cycle count into every Master System, Game Gear and
-     SG-1000 save state, twice (one per controller port), and that number is simply how long this
-     phone has had the game open. Two phones at the same moment in the same game therefore never
-     wrote the same state, and online play, which compares a short hash of the whole state to spot
-     the two games drifting apart, said they had drifted apart when they had not. The Continuum
-     patch writes that field as "cycles since now" instead of the running total (the same thing
-     Gearsystem already does for its link-cable timing), and stops counting time for a pad nobody
-     plugged in, which nothing in the app ever does and which is reset the moment one is plugged
-     in, so no game behaves differently. Ten more bytes were leftovers from memory in the spare
-     bytes of four structures the core writes whole (the light phaser, the paddle, the two sports
-     pads, the EEPROM cartridges); they are zeroed now. Proved off the phone: two host builds, one
-     playing straight through and one joining and loading the other's state, used to differ in
-     exactly 16 bytes and now match byte for byte, over a Master System, a Game Gear and a
-     bank-switched cartridge; the state is the same size as before and states from the shipped
-     build still load (`scripts/patches/gearsystem-sg1000-memory-map.patch`,
-     `docs/reports/night-2026-10-13-batch-a.md`).
-   Left over from the emulator updates, same item:
-   - the game card's SAVE STATES paragraph (`native/ios/GameDetailSheet.swift` ~l.246, "A state
-     can only be loaded back into the same build of the same core…") reads like documentation.
-     Testers need it short and casual, and it now overstates "same build": some updates keep
-     old states loading.
-   - ~~an NES game on Mesen showed 49.8 FPS in the owner's Apple overlay (12 October).~~
-     **Answered, 13 October: that game is a European copy, and European NES games run at 50 frames
-     a second instead of 60, so 49.8 was right.** Nothing was broken. Neither NES core is told the
-     region by the app: Mesen recognises the cartridge itself, from the database built into it
-     (keyed by the ROM's own checksum) or from an NES 2.0 header, and FCEUmm reads an NES 2.0
-     header or else the region tag in the file name — `(E)`, `(Europe)`, `(PAL)`, `(F)`, `(G)` and
-     the rest — so a European file renamed without its tag runs at 60 on FCEUmm and still at 50 on
-     Mesen. Each core then reports its own speed and the app paces to it. What changed: the (i)
-     read-out and the activity log now say which region a game is running as, in plain words
-     ("It's running at 50 frames a second instead of 60, which is right for a European copy.
-     Nothing is wrong."), and a core that changes its own speed mid-game — which FCEUmm does the
-     moment the NES region setting is changed — is now followed instead of ignored. Built,
-     untested. See `crates/emulator-bridge/src/game_region.rs`.
-6. **cBoy.** Most of this list landed in the night batch of 13 October, all built, untested
-   (`docs/CBOY_NIGHT.md`): ~~MP2K high-quality Advance music~~ (in, off by default, and the one
-   thing nobody has heard on a real game — it needs the owner's ears), ~~real Advance games tried~~
-   (six open-licence Advance games are in the suite and gated, and they found the big one: most
-   Advance games could not run at all), ~~Advance mosaic~~, ~~the phone's camera into the Game Boy
-   Camera~~, ~~the four extra settings~~ (console for games that run on both, Advance console,
-   Advance cartridge clock, old fan-made game fixes; cBoy has 67 settings of its own now and
-   `docs/CBOY_OPTIONS_INVENTORY.md` is regenerated) and ~~the Mooneye Game Boy Color tests~~
-   (0 of 5 → **4 of 5**, and a gate rather than a report). What is left:
-   - **a Color playing an old black-and-white game in colour** (the CGB's DMG-compatibility
-     palettes). cBoy shows a white screen for that today, and it is what holds 31 of the 55
-     Mealybug pictures. It is worth doing for players, not only for the tests;
-   - the fifth Mooneye Color test. Measured, not guessed: three lines in `gb.rs` make it pass with
-     everything else unchanged, written out in `docs/CBOY_EXACT_DRAWER.md` ("Needed in files this
-     work does not own");
-   - the two-phone link;
-   - where an IO write lands inside its M-cycle (`bus.rs`), the last DMG picture's four pixels.
-7. **cBoy's exact pixel-by-pixel drawer** ("Exact (experimental)" in Picture drawing). The owner
-   set Kiro's thinking to max on 13 October and it was taken up that night: rebuilt as the
-   hardware's own state machine, **5 of the 55 test pictures → 23**, which is all but one of the 24
-   that are possible today (`docs/CBOY_EXACT_DRAWER.md` is the working map and says what each
-   remaining picture needs). **Still not the default**, and no real game has been played on it on a
-   phone. The other 31 pictures are blocked by item 6's first bullet, not by this drawer. When it
-   is picked up again: follow how SameBoy draws and compare against it, and never guess its test
-   pictures one pixel at a time.
-8. **Phone test rounds, in small batches:** PSP picture fixes (TESTING P-PSP2 to P-PSP4); the 3DS
-   stutter (A7); Symbian / N-Gage (S1); the new Backup and Restore (K2, K3, O1); Dreamcast and PSP
-   speed (C19, C20); NAS (SMB) sharing (B7); the 3DS camera and Amiibo; cheat files and RAM search
-   (F7).
-9. **Continuum's own arcade core** (owner, 12 October 2026).
-10. **The Switch** (road steps 10 to 12). Raise JIT with the owner first.
-11. **Android.**
-12. **Remaining phone tests:** online play with a second phone (H1); JIT (needs a tester who can
-    switch it on).
+3. **The voxel Pokémon (gen1recomp / G1R) tab: the look-only investigation.** Not started. It
+   changes nothing in the app; the plan and the licence findings are in
+   `docs/ideas/voxel-pokemon.md`.
+4. **Phone test rounds, in small batches:** PSP picture fixes (TESTING P-PSP2 to P-PSP4); the 3DS
+   stutter (A7); Symbian / N-Gage (S1); Backup and Restore (K2, K3, O1); Dreamcast and PSP speed
+   (C19, C20); NAS (SMB) sharing (B7); the 3DS camera and Amiibo; cheat files and RAM search (F7).
+5. **More arcade boards** (Continuum's own arcade core, owner, 12 October 2026). The first version
+   is in this batch; what comes next will be in `docs/ARCADE_CORE.md` once its write-up is done.
+   Capcom's CPS-1 and the Neo Geo need a 68000 processor first.
+6. **The Switch** (road steps 10 to 12). Raise JIT with the owner first.
+7. **Android.**
+8. **Remaining phone tests:** online play and the Game Boy link cable with a second phone (H1);
+   JIT (needs a tester who can switch it on).
 
 Owner-only, any time: direct Google Drive, Dropbox and OneDrive logins (they need the owner's
-developer app ids; they already work through Files), and a new app icon. Not possible: GameCube
-and Wii (no JIT).
+developer app ids; they already work through Files), a new app icon, and new art for the Cyan and
+Violet icons if they want those two changed. Not possible: GameCube and Wii (no JIT).
 
 Notes:
 
@@ -392,7 +412,8 @@ Notes:
   speaker (not through the app's volume, rewind or recording), save states do not work, there is
   no core-settings page, and you need your own firmware (TESTING.md S1; since 12 October it is
   copied from the Continuum folder before a launch). The only other cores this project wrote are
-  cBoy and the Switch one, `native/switch-wrapper`, which does not run games. A core somebody else
+  cBoy, cArcade (`cores/continuum-arcade`, from the next install) and the Switch one,
+  `native/switch-wrapper`, which does not run games. A core somebody else
   wrote keeps their name (mGBA, Azahar). See [docs/HARD_SYSTEMS.md](docs/HARD_SYSTEMS.md).
 - Older installs (history; their sections are further down): 150 (`ef3ce42`), 149 (`d2a92a9`,
   SMB, the 3DS camera and an Amiibo tap, none tried on a phone; 147 and 148 died in `smb_min.c`),
@@ -410,11 +431,12 @@ Notes:
 
 ## Systems
 
-Build 180 has **35 cores** (38 core files with the 3 JIT builds), cBoy and Continuum Symbian
-among them. The next install has **33 cores** (36 core files with the 3 JIT builds): 17 built here
-(14 required, plus Dreamcast, Symbian and cBoy) and 16 downloaded from the libretro buildbot.
-**38 playable systems**: every system the app knows except Arcade, which is out until Continuum
-has its own arcade core. The table below names the next install's cores. The count below is from
+Build 180 had **35 cores** (38 core files with the 3 JIT builds), cBoy and Continuum Symbian
+among them. Builds 181 to 185 have **33 cores** (36 core files with the 3 JIT builds): 17 built
+here (14 required, plus Dreamcast, Symbian and cBoy) and 16 downloaded from the libretro buildbot,
+and **38 playable systems**: every system the app knows except Arcade. The next install adds
+**cArcade**, Continuum's own arcade emulator: 34 cores (37 core files), 18 of them built here, and
+arcade plays again. The table below names the next install's cores. The count below is from
 build 124.
 
 **32 cores** are in the IPA in builds 119 to 124 (checked in the build 124 file itself: version
@@ -426,25 +448,26 @@ is still ahead, hardest last (road steps 10 to 12).
 | System | Core | State | What is missing |
 | --- | --- | --- | --- |
 | NES | mesen2 (default), fceumm (fallback) | **Partial** | Mesen 2 confirmed on the owner's phone, build 153 (9 October 2026): AccuracyCoin.nes **142 of 146 passed, 0 skipped** (FCEUmm baseline on the phone: 86 of 146, 7 skipped). Save state slot 1 saved and loaded on Super Mario Bros 2 (Lost Levels). FCEUmm stays selectable in Settings, NES core. Save states from one core do not load on the other. From the next install Mesen 2 is built here with Continuum's patch: the app keeps its in-game saves (the `.sav` files Mesen wrote are picked up), and achievements, typed cheats and RAM search reach its memory. Checked here, not on a phone yet. Newer FCEUmm in the next install, not on a phone yet. Kart Fighter: Mesen won’t open the owner’s copy (shorter than its header says), so from the next install the app runs it on FCEUmm by itself and says so |
-| SNES | bsnes | **Built, untested** | New emulator in the next install (bsnes, with Continuum's patch). Checked here: in-game saves match byte for byte, achievements and RAM search read work RAM, and the speed estimate is full speed on an iPhone 8 or newer. Old save states can't load (kept in a slot); in-game saves carry over. Two Japan-only games (SD Gundam GX, Morita Shougi) now need their chip file |
+| SNES | bsnes (default), mesen2 (choice) | **Partial** | bsnes confirmed on the owner's phone, build 181 (12 October 2026): an SNES game played with sound and buttons, and Yoshi's Island ran smoothly. Built here with Continuum's patch: in-game saves match byte for byte, achievements and RAM search read work RAM. Old save states from before the licence swap can't load (kept in a slot); in-game saves carried over. Two Japan-only games (SD Gundam GX, Morita Shougi) need their chip file. **Mesen is the second choice from the next install** (Settings, Cores, Core for SNES games; Built, untested): the same in-game save file as bsnes, RAM search, achievements and typed Game Genie and Pro Action Replay codes, the same 4:3 picture; about 1.5 times the processor bsnes needs, two pads only, and it wants `dsp1.rom` or `dsp1b.rom` by game (`docs/reports/evening-2026-10-13.md` section 5) |
 | Game Boy | mgba | **Done** | Build 125: a game ran, saved and loaded |
 | Game Boy Color | mgba | **Done** | |
 | Game Boy Advance | mgba | **Done** | |
-| Master System | gearsystem | **Built, untested** | New emulator in the next install (Gearsystem). No `.sms` file has ever been imported. Newer Gearsystem in the next install, not on a phone yet |
-| Game Gear | gearsystem | **Built, untested** | New emulator in the next install. Old save states can't load (kept in a slot); in-game saves carry over. Newer Gearsystem in the next install, not on a phone yet |
-| Mega Drive / Genesis | blastem | **Built, untested** | New emulator in the next install (BlastEm, interpreter only). Old in-game saves are converted as they load, and the file keeps its old layout. Buttons do what they did before. Uses 3 to 6 times the CPU of the old one, so it needs a speed check on a phone. Typed cheats don't work; RAM search does. Only two controller ports |
+| Master System | gearsystem | **Built, untested** | New emulator since build 181 (Gearsystem). No `.sms` file has ever been imported. Newer Gearsystem again in the next install (`4a801d22`: warning fixes and desktop-only changes, old states load), not on a phone yet |
+| Game Gear | gearsystem | **Done** | Played on the owner's phone, build 181 (12 October 2026). Old save states from before the licence swap can't load (kept in a slot); in-game saves carried over. Newer Gearsystem in builds 182 to 185, and again in the next install (`4a801d22`: warning fixes and desktop-only changes, old states load), not on a phone yet |
+| Mega Drive / Genesis | blastem | **Partial** | BlastEm (interpreter only) played smoothly on the owner's phone, build 181 (12 October 2026), with A, B and C doing what they did before. Old in-game saves are converted as they load, and the file keeps its old layout. Built, untested: typed cheats (Game Genie, Pro Action Replay, address:value) and the Team Player / EA 4-Way Play multitap, in build 185; and from the next install, every save-chip (EEPROM) and J-Cart cartridge in MAME's list found by its checksum (`docs/reports/evening-2026-10-13.md` section 2). RAM search works |
 | PlayStation | pcsx_rearmed | **Done** | Interpreter, not the recompiler. Fast enough; see Recompiler below. Runs without a BIOS. **Beetle PSX HW** is a second PlayStation option (Settings → PlayStation core) and needs a real BIOS file. Beetle booted Crash at ~60 fps on build 98 (with `scph1001.bin`) on its software renderer; the engine now keeps Beetle on software by default. The hardware (Vulkan) renderer is a choice in Core settings and has not been seen on a phone. Since build 124 the BIOS line reads `BIOS (mednafen_psx_hw)` with Beetle selected and finds BIOS names in capitals (TESTING A7). A save state from one PlayStation option does not load on the other. See road step 4 |
 | **Famicom Disk System** | fceumm (default), mesen2 (choice) | **Built, untested** | Mesen 2 is a Settings choice here, not the default, because the app's disk-side button drives FCEUmm only; Mesen inserts disks on its own. Needs `disksys.rom`, which is Nintendo's own code and cannot ship with the app. The launch path checks for it by name and says so rather than letting the core fail. Newer FCEUmm in the next install, not on a phone yet |
-| **Sega SG-1000** | gearsystem | **Built, untested** | Needs nothing extra. `.mv` files open as SG-1000 too. Newer Gearsystem in the next install, not on a phone yet |
+| **Sega SG-1000** | gearsystem | **Built, untested** | Needs nothing extra. `.mv` files open as SG-1000 too. Newer Gearsystem in builds 182 to 185 and again in the next install (`4a801d22`), not on a phone yet |
 | **Nintendo 64** | parallel_n64 | **Built, untested** | Newer ParaLLEl N64 in the next install, not on a phone yet; build 97 proved the older one. Device-proven on build 97 (`258a828`): past `N64 first tick…`, frames climbing, ~60 fps into Smash character select. Soft/interp only (no JIT on this signed IPA). `.n64`, `.z64`, `.v64` |
 | **TurboGrafx-16** | mednafen_pce_fast | **Done** | HuCard games (`.pce`): a game ran, saved and loaded on build 125. PC Engine CD is its own system (Beetle PCE) and needs a system card BIOS you supply (TESTING C15) |
 | **Atari 2600** | stella2023 | **Done** | A game ran, saved and loaded on build 125. `.a26`, or a lone `.bin` (the app asks **Which system?** once; renaming to `.a26` skips the question). A `.bin` imported beside a `.cue` is always a disc track |
-| **Nintendo 3DS** | azahar | **Partial** | A game runs (Mario Kart 7, again on build 122). Confirmed 5 October (build 122): skin holes sideways (Mario Kart 7), and changing a "restart required" setting no longer crashes. Upright skin holes and swapping them confirmed 9 October (build 150 screenshots). A stutter after transitions was seen on builds 100 and 101; a fix has been in every build since 2 October and Mario Kart 7 ran on 122, and on 9 October (build 150) Brett confirmed the stutter is **still there**. Open bug. A second fix is built (9 October, after build 150) and **not tried on a phone**: the first fix stopped one wait, but Azahar still asked the graphics driver for each new pipeline on the game's own thread first, and on iPhone that request does the slow Metal compile right there. The new patch sends every new pipeline to the background worker, and the software-vertex path now skips the draw instead of waiting. No JIT. Decrypted `.3ds`, `.3dsx`, `.cci`, `.cxi` only. A retail game can still need 3DS system archives this app does not ship. Newer Azahar in the next install, not on a phone yet: its older save states can't load on it, in-game saves are fine |
+| **Nintendo 3DS** | azahar | **Partial** | A game runs (Mario Kart 7, again on build 122). Confirmed 5 October (build 122): skin holes sideways (Mario Kart 7), and changing a "restart required" setting no longer crashes. Upright skin holes and swapping them confirmed 9 October (build 150 screenshots). A stutter after transitions was seen on builds 100 and 101; a fix has been in every build since 2 October and Mario Kart 7 ran on 122, and on 9 October (build 150) Brett confirmed the stutter is **still there**. Open bug. A second fix is built (9 October, after build 150) and **not tried on a phone**: the first fix stopped one wait, but Azahar still asked the graphics driver for each new pipeline on the game's own thread first, and on iPhone that request does the slow Metal compile right there. The new patch sends every new pipeline to the background worker, and the software-vertex path now skips the draw instead of waiting. No JIT. Decrypted `.3ds`, `.3dsx`, `.cci`, `.cxi` only. A retail game can still need 3DS system archives this app does not ship. Newer Azahar in builds 182 to 185, and again in the next install (`6daa07ab`), not on a phone yet: Azahar refuses save states from an older version itself, in-game saves are fine |
 | **Nintendo DS** | melonDS | **Done** | Confirmed on device (build 80): Mario Kart DS and Pokémon SoulSilver, dual screens live, ~60 fps, 0 dropped |
-| **Sega CD** | blastem | **Built, untested** | Needs `bios_CD_U.bin`, `bios_CD_E.bin` or `bios_CD_J.bin`. Its backup RAM saves carry over. No disc swap (a playlist opens its first disc), RAM-cart saves are not carried, and real discs can only be checked on a phone |
-| **Sega 32X** | blastem | **Built, untested** | Needs two files from a real 32X, `32X_M_BIOS.bin` and `32X_S_BIOS.bin`; without them the game says so |
-| **Arcade** | none | **Out on purpose** | Removed by the owner's choice (12 October 2026); Continuum's own arcade core is planned. Arcade games already imported stay in the Library and open to one line saying so |
-| **PlayStation Portable** | ppsspp | **Partial** | In the IPA as `ppsspp_libretro_ios.dylib`. CPU is the IR interpreter: the core's option value "IR JIT" is `CPUCore::IR_INTERPRETER` with compile-to-native off. No dynarec, no executable memory. Picture is Vulkan `set_image`, the same hook as the 3DS. No BIOS is shipped; PPSSPP does not need one. A PSP game can be `.cso`, `.iso`, `.chd`, a PSP `EBOOT.PBP`, or `.prx`. `.cso` and `.prx` are always PSP. An `.iso`, `.chd` or `.pbp` is looked inside: a PSP disc or EBOOT opens on the PSP, a PlayStation one as PlayStation, and if the app cannot tell it asks **Which system?** once and remembers. `.elf` is not accepted. **Not tried on a phone.** Do not claim a game runs or quote a frame rate. Newer PPSSPP in the next install, not on a phone yet |
+| **Sega CD** | blastem | **Built, untested** | Needs `bios_CD_U.bin`, `bios_CD_E.bin` or `bios_CD_J.bin`. Its backup RAM saves carry over. From the next install: a game on several discs plays from its `.m3u`, with Next disc and Insert disc in the ⋯ menu (the tray opens, the disc goes in, the drive reads it); a save state remembers its disc; the save cartridge is there, formatted, and kept as `<game>.bcr`. An old Genesis Plus GX save-cartridge file isn't picked up. Real discs can only be checked on a phone (`docs/reports/evening-2026-10-13.md` section 3) |
+| **Sega 32X** | blastem | **Built, untested** | From the next install a 32X cartridge needs no BIOS files: Continuum's own start-up code for its two processors (two open-licence 32X games reach their menus on a test build with no files). A player's own `32X_M_BIOS.bin` and `32X_S_BIOS.bin` are used when both are installed. A 32X CD still needs them. Save states keep only the Mega Drive half of a 32X game (BlastEm's own format). No commercial 32X game was run (`docs/reports/evening-2026-10-13.md` section 4) |
+| **Arcade** | continuum_arcade (cArcade, Continuum's own) | **Built, untested** | Out from build 181 to 185 (the owner removed the outside arcade emulators on 12 October 2026). Back in the next install on cArcade: the Pac-Man board's 65 sets and 119 Galaxian-family sets (Galaxian, Moon Cresta, Scramble, The End, Super Cobra, Frogger, Amidar, Turtles and their clones), zips recognised by their chips, the cabinet's switches as settings, Select is the coin. Galaxian's and Moon Cresta's sound is an approximation. A zip it can't play opens to one plain line; a build without cArcade keeps the old "aren't playable right now" line (`docs/ARCADE_CORE.md`) |
+| **PlayStation Portable** | ppsspp | **Partial** | In the IPA as `ppsspp_libretro_ios.dylib`. CPU is the IR interpreter: the core's option value "IR JIT" is `CPUCore::IR_INTERPRETER` with compile-to-native off. No dynarec, no executable memory. Picture is Vulkan `set_image`, the same hook as the 3DS. No BIOS is shipped; PPSSPP does not need one. A PSP game can be `.cso`, `.iso`, `.chd`, a PSP `EBOOT.PBP`, or `.prx`. `.cso` and `.prx` are always PSP. An `.iso`, `.chd` or `.pbp` is looked inside: a PSP disc or EBOOT opens on the PSP, a PlayStation one as PlayStation, and if the app cannot tell it asks **Which system?** once and remembers. `.elf` is not accepted. **Not tried on a phone.** Do not claim a game runs or quote a frame rate. Newer PPSSPP in builds 182 to 185, and again in the next install (`a838053e`: upstream's newer interpreter work and save-state fixes; old states load), not on a phone yet |
+| **Dreamcast** | flycast (and flycast_jit) | **Built, untested** | Optional core, built here. Maybe BIOS files. Speed not known on a phone (TESTING C19). Newer Flycast in builds 182 to 185, and again in the next install (`80471d57`: four small fixes; old states load), not on a phone yet |
 
 ### Nintendo DS, in detail
 
@@ -471,7 +494,9 @@ Broken out rather than left as one row. Device-proven on build 80:
 | Feature | State | What is missing |
 | --- | --- | --- |
 | Import, including multi-file `.cue` plus `.bin` | **Done** | |
-| Library, cover art, the detail card | **Done** | |
+| Library, cover art, the detail card | **Done** | From the next install (Built, untested): the tabs float over the covers, the "80 games" strip is gone (its messages pop up just above the tabs; the count is in Settings, Storage), and a game that can't open says why in that pop-up |
+| Game card size (Settings, Layout) | **Built, untested** | Next install. Extra small, Small, Medium (the default and the old size) or Large, on Home, All Games and Favorites |
+| Light mode (Settings, Appearance) | **Built, untested** | Next install. Dark (the default, as before), Light or System. The game screen and the two control editors stay dark |
 | Cover art from the internet | **Done** | |
 | Cover art from your own file | **Done** | |
 | Cover art captured from the running game | **Done** | Confirmed on the phone with build 122. Build 123 makes it a sharp picture of the game alone (no skin layout around it); confirmed on build 125 |
@@ -529,8 +554,8 @@ Every row below is in the current install (newest on the Releases page). A skin 
 | Fast forward | **Done** | About 4x, not 5x |
 | Save slots, including export | **Partial** | 50 slots plus the auto-save, export and import of states and battery saves. Save to the next free slot confirmed (122); slot pictures, save and load on 14 systems, export and import, rename, save over and delete confirmed (125). 3DS states loading and imported slots showing their picture confirmed (126) |
 | Cheats: search, and importing a file | **Partial** | Typed codes confirmed; `.cht` import and RAM search not on a phone |
-| Online play | **Built, untested** | Two phones, same game. Host or join on the same Wi-Fi (nearby list) or by address. Over the internet the host must open TCP port 55435. No rollback, so lag shows as short stalls. Rewind, fast forward and loading states are off while online. Build 122: if player 2 drops out, the host keeps playing and lets them rejoin on the same address |
-| Achievements | **Partial** | RetroAchievements login, unlock banners and a list on the game card. Game Boy Advance achievements read mGBA's full memory map. From the next install the patched cores expose their memory too: bsnes (SNES work RAM), Mesen 2 (NES), Gearsystem (SG-1000's extra RAM) and BlastEm (Sega CD and 32X). Confirmed (build 125): logging in (the button says Logging in... and cannot be pressed twice) and the unlock banner popping up in a game. The list on the game card is not confirmed yet |
+| Online play | **Built, untested** | Two phones, same game. Host or join on the same Wi-Fi (nearby list) or by address. Over the internet the host must open TCP port 55435. No rollback, so lag shows as short stalls. Rewind, fast forward and loading states are off while online. Build 122: if player 2 drops out, the host keeps playing and lets them rejoin on the same address. From the next install (Built, untested): Game Boy and Color games on cBoy get a link cable instead, each phone playing its own game with its own save; and a phone on the next install can't play online with one on an older build |
+| Achievements | **Partial** | RetroAchievements login, unlock banners and a list on the game card. Game Boy Advance achievements read mGBA's full memory map. Since build 181 the patched cores expose their memory too: bsnes (SNES work RAM), Mesen 2 (NES, and SNES from the next install), Gearsystem (SG-1000's extra RAM) and BlastEm (Sega CD and 32X). Confirmed (build 125): logging in (the button says Logging in... and cannot be pressed twice) and the unlock banner popping up in a game. The list on the game card is not confirmed yet |
 | Sync Folder (was "Cloud sync") | **Built, untested** | Pick any folder in Files (iCloud Drive, Google Drive, Dropbox) once. Save states, battery saves, cheats, settings and covers sync both ways; since build 122 also Flash and J2ME saves, PDF manuals, Amiibo files, the remembered "which system is this" answers and saved servers (their passwords stay on each phone). Kept per phone on purpose: skins, the RetroAchievements login, favourites, the last online-play address, mic and camera permission. Conflicts keep both copies. Nothing is ever only deleted |
 
 
@@ -1432,8 +1457,8 @@ The cause turned out to be a cut-off file, not cBoy. See "Where we stopped".
 ## Where we stopped: the night batch (13 October 2026)
 
 Three agents worked overnight: the app and engine leftovers, cBoy, and cBoy's exact drawer.
-**Every line below is Built, untested.** It is all on master, and no phone has seen any of it. It
-goes into the build after 182. The owner's phone checks are TESTING.md "Night batch (13 October)".
+**Every line below is Built, untested.** It is in build 185, and no phone has seen any of it
+yet. The owner's phone checks are TESTING.md "Night batch (13 October)".
 Full detail: `docs/reports/night-2026-10-13-batch-a.md` (app and engine), `docs/CBOY_NIGHT.md`
 (cBoy) and `docs/CBOY_EXACT_DRAWER.md` (the exact drawer).
 
@@ -1454,7 +1479,7 @@ than from a note. Mealybug on the exact drawer: 23 of 55 (it was 5).
   file it needs and where to put it, instead of just not starting.
 - An **NES game** says which region it is running as, so 49.8 frames a second on a European copy
   reads as right instead of broken. That was the owner's 12 October question: **nothing was
-  broken** (see "Next up" item 5).
+  broken** (`docs/reports/night-2026-10-13-batch-a.md`).
 - The **cores** note points at the control that really exists, the **sync folder** notes are short
   and sit under the button they describe, a restore says "1 skin" not "1 skin(s)", and the 3DS
   option is **Smoother loading** (On/Off) instead of "Shader Compile (Continuum)".
@@ -1492,7 +1517,7 @@ than from a note. Mealybug on the exact drawer: 23 of 55 (it was 5).
   Replay and plain address:value codes. The cheat screen says so instead of calling them ignored.
 - **Online play on a Master System or Game Gear game:** two phones now write the same save state,
   so it stops saying the games drifted apart when they hadn't. The 16 bytes were the Sports Pad's
-  timing, which held how long *this* phone had had the game open (see "Next up" item 5).
+  timing, which held how long *this* phone had had the game open (`docs/reports/night-2026-10-13-batch-a.md`).
 - **Symbian / N-Gage:** pause really pauses it now (no frames, no sound), and a game is installed
   once instead of on every launch, off the main thread.
 - **PSP, 3DS, imported saves:** a PSP game's frame markers stay out of the activity log, so the
@@ -1558,6 +1583,14 @@ not be told from code that hangs — a 32X game still asks for the two BIOS file
 *Sampras Tennis 96* (the entry needs a dump's checksum, and guessing it would give a save that
 silently does the wrong thing).
 
+**All four were done after this, in the evening batch** (on master since build 185, Built,
+untested; `docs/reports/evening-2026-10-13.md`): Sega CD discs and the save cartridge (a BlastEm
+patch gave it a disc interface, and the cartridge is kept as its own file); Mesen 2 as the second
+SNES choice (a second Mesen patch gives SNES games their memory, cheats and saves); Continuum's own
+32X start-up code (binutils for the SH-2 were built from source, and two open-licence 32X games
+start with no files); and Sampras Tennis 96 (MAME's list says it has no save chip, only a J-Cart,
+which it got).
+
 ## Where we stopped (12 October 2026)
 
 Build 180 (`dd89824`) is the newest published install. On 12 October everything earlier sessions
@@ -1602,7 +1635,7 @@ What comes after that install: "Next up".
   old in-game save carries over (Mega Drive saves are converted as they load), and an auto-save
   from a removed emulator is kept in a slot. The phone steps are TESTING.md "This install only",
   5 to 11. This build rebuilds every core: expect about an hour and a half.
-- **Not done yet:** small things left for later are item 5 of "Next up". The old address is still in four old commits of git history. Removing
+- **Not done yet:** small things left for later went into the night batch and the evening batch after it (see "Where we stopped: the night batch" and "Next up"). The old address is still in four old commits of git history. Removing
   it needs a force push, which only the owner can approve.
 
 ### Yellow, the short file (11 October, history)
@@ -1615,6 +1648,6 @@ What comes after that install: "Next up".
 - **Pixel FIFO (the pixel-by-pixel drawer): unfinished.** It shipped in build 180, on for everyone. Since 12 October it is the "Exact (experimental)" choice and Standard is the default. dmg-acid2 and cgb-acid2 still pass. The fine-scroll read still lands so the scroll test's shift starts on line 72 (`scx_low_bits_take_effect_on_line_72`). The fetcher starts 5 dots later than that read. A background-palette write mixes the old and new values only for a pixel on the next dot. Mealybug is 5 passed, 50 failed: `m2_win_en_toggle`, `m3_bgp_change`, `m3_lcdc_win_en_change_multiple_wx`, `m3_scx_low_3_bits` and `m3_wx_4_change_sprites`. A WX write after the window has already started puts color 0 at the new position when that pixel is the first of a tile, unless WX is written again first. The boot expands the cartridge logo into the first tiles and leaves the ® mark in sprite tile 25. Five picture checks pass: window on and off, background palette, window enable, the low bits of the sideways scroll, and a window with sprites. Window timing is 25 wrong pixels.
 - **HuC3 (type $FE) and Game Boy Camera (type $FC)** are in the source and covered by unit tests. The camera can take a supplied 128 by 112 picture; nothing on the phone fills that picture yet. The HuC3 clock is saved with the other clock data.
 - **Startup:** no made-up startup picture (owner's rule). If the boot-ROM option is on and the file is missing, the game simply starts. The leftover code for cBoy's own startup picture was removed on 12 October.
-- **Link:** two machines can exchange one serial byte through `link_in` / `link_out`. Nothing connects two phones yet.
+- **Link:** two machines can exchange one serial byte through `link_in` / `link_out`. Nothing connects two phones yet. (Since 13 October the app links two phones: "Next up".)
 - **Game Boy Player rumble** answers the handshake when `cboy_gbp` is on. The on bit (`0x26`) sets the motor; `0x04` clears it. Checked in a unit test. The high-quality Advance path now ramps sampled sound between samples instead of averaging one pair.
 - **Remaining picture tests are parked.** Five Mealybug pictures pass and stay pinned. The other fifty are cycle-exact timing pictures. Guessing them one pixel at a time moved the counts and then broke a picture that already passed. A full ROM of Pokémon Yellow gets past the Game Freak logo; that was the real bug (a cut-off file). The next install is no longer held for the rest of those pictures.
