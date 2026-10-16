@@ -180,8 +180,10 @@ enum StatusTint {
 
     private static func level(for status: String) -> Level {
         let text = status.lowercased()
+        // "won't start" is the engine's line for a game that did not start (launch_failure.rs).
         let broken = ["failed", "cannot", "could not", "refused", "is missing", "not loaded",
-                      "unavailable", "no core", "did not take", "error"]
+                      "unavailable", "no core", "did not take", "error", "won't start",
+                      "won\u{2019}t start"]
         if broken.contains(where: { text.contains($0) }) { return .broken }
         let wary = ["skipped", "missing", "unreadable", "without a pick", "cancelled", "ignored",
                     "no output path", "not scanned", "empty"]

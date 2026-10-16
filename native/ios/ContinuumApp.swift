@@ -4740,6 +4740,17 @@ final class EngineHost: ObservableObject {
         // the fault to the Library row rather than to anything in here.
         let opening = "opening \(entry.name)..."
         status = opening
+        // A TAP THAT OPENS NO GAME SAYS WHY, OVER THE LIBRARY. Every way out of here that leaves
+        // no game running hands its last line to the Library's pop-up (`libraryNotice`), whatever
+        // its wording: the pop-up only takes status lines that read as problems, and many refusals
+        // below do not (a missing BIOS, a chip file, "won't start", arcade without cArcade), so
+        // the tap used to change nothing on screen. Not for the one retry, whose caller says how
+        // it went, nor while a bundled player is still opening (its "opening ..." line).
+        defer {
+            if forcedCoreId == nil, activeEntry == nil, !status.hasPrefix("opening ") {
+                noticeForLibrary(status)
+            }
+        }
 
         // A sync that is still copying battery saves and save-state lists must finish before a
         // core starts writing the same files. A sync that is only moving games touches neither,
