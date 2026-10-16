@@ -49,6 +49,8 @@ the `checks` job next to cBoy's; `cores/continuum-arcade/**` in the push paths).
 doesn't run cArcade's own tests, so run `cargo test --release` in `cores/continuum-arcade` before
 every push, and a cArcade-only push doesn't start a build by itself.
 
+
+Also parked, found by build 189 (16 October): ios.yml has no `optional continuum_arcade_libretro_ios.dylib "Arcade on cArcade"` line in its .ipa check, and `native/ios/build-engine.sh` requires every core file to be named in ios.yml, so every build since cArcade went in stopped at that check. `build-engine.sh` now exempts that one name (`NOT_IN_IOS_YML`); take it out in the same push that adds the line to ios.yml.
 ## Build 188 (cancelled)
 
 Started at 9:01 AM on 14 October at e82432a without the owner's yes, and cancelled at 9:04 in the

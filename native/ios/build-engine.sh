@@ -232,11 +232,22 @@ MALFORMED="$(printf '%s\n' "$OPTIONAL_CORE_NAMES" | grep -v '_libretro_ios\.dyli
 }
 
 echo "==> checking the core filenames agree across project.yml, ios.yml and ContinuumApp.swift"
+# Optional cores ios.yml can't name yet. A change under .github/workflows/ can only go in through
+# a pull request, and this project takes none, so ios.yml's lines for cArcade are parked
+# (.kiro/notes/tasks/README.md, "Parked"). For these only, ios.yml isn't required to mention the
+# file: the .ipa check then doesn't warn when one is missing, and the app still names it as not in
+# the bundle on its cores line. project.yml and ContinuumApp.swift are still checked. Take a name
+# out of this list in the same push that adds its `optional` line to ios.yml.
+NOT_IN_IOS_YML="continuum_arcade_libretro_ios.dylib"
 DIVERGED=""
 for core_dylib in $CORE_NAMES $OPTIONAL_CORE_NAMES; do
   for consumer in "$HERE/project.yml" \
                   "$ROOT/.github/workflows/ios.yml" \
                   "$HERE/ContinuumApp.swift"; do
+    if [ "$consumer" = "$ROOT/.github/workflows/ios.yml" ] \
+        && printf ' %s ' $NOT_IN_IOS_YML | grep -q " $core_dylib "; then
+      continue
+    fi
     grep -q "$core_dylib" "$consumer" || {
       echo "error: $(basename "$consumer") does not mention $core_dylib" >&2
       DIVERGED="$DIVERGED $(basename "$consumer"):$core_dylib"
