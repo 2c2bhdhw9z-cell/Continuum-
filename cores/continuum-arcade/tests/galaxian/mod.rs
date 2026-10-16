@@ -300,6 +300,8 @@ pub fn roms(case: &Case) -> Roms {
         program,
         gfx,
         palette,
+        sound: Vec::new(),
+        protection_bits: 0,
     }
 }
 
