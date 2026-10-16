@@ -1,19 +1,254 @@
 # cArcade: Continuum's own arcade emulator
 
-**Where it stands (14 October 2026): the Z80 is proven (item I2: all 1,604,000 SingleStepTests
-cases pass, and ZEXDOC and ZEXALL report no errors); Donkey Kong's 8035 and Konami's AY-3-8910
-match MAME (their sections below); the Pac-Man board is proven (item I3: nine test programs
-of our own match MAME on every one of 1,400 frames, pixel for pixel and sound sample for sample;
-see "The Pac-Man board, as proven"); and cArcade is in the app (item I4): arcade games open on it,
-and it plays 65 sets on the Pac-Man board (see "In the app").**
-The write-up at the end of the job finishes this file: the games it plays, what the tests prove,
-what is approximate, and what comes next.
+**Where it stands (16 October 2026): the first version is finished and in the app.** cArcade plays
+199 sets on three kinds of board: 65 on the Pac-Man board, 119 on the Galaxian family's
+(Galaxian and Moon Cresta, and Konami's Scramble, The End, Super Cobra, Frogger and Amidar), and
+15 on Donkey Kong's (Donkey Kong and Donkey Kong Jr.), every one listed in "What it plays". The
+Z80 passes the public test suites, and each board, with its sound chips, matches MAME 0.289 on
+every frame of test programs we wrote ourselves ("What the tests prove"). Three parts of the
+sound are our own approximations of analogue circuits, and say so ("What is approximate"). A zip
+it can't play opens to one short line, never a crash. All seven items of the job (I1 to I7) are
+done; what comes after is in "What's next, in order".
 
 Why it exists: on 12 October the owner took the two arcade emulators with non-commercial licences
 out of the app (FinalBurn Neo and MAME 2003-Plus) and ruled out any outside arcade core for good.
 Arcade comes back only on an emulator of Continuum's own, the way cBoy is its own Game Boy
-emulator. Until then an imported arcade game stays in the Library and opens to one line:
-"Arcade games aren't playable right now. We're building our own arcade emulator."
+emulator. A build without cArcade still keeps imported arcade games in the Library and opens them
+to one line: "Arcade games aren't playable right now. We're building our own arcade emulator."
+
+## What it plays
+
+All 199 sets, generated from `cores/continuum-arcade/src/set_list.rs` (its `name` and `title`
+fields), grouped by board, the parents and best-known games first and each clone after its
+parent. A split clone's zip needs its parent's zip next to it ("How a game is recognised").
+
+### The Pac-Man board (65 sets)
+
+- On the plain board (35): `puckman` Puck Man (Japan, set 1); `puckmanb` Puck Man (bootleg, set 1);
+  `puckmanf` Puck Man (speedup hack); `puckmanh` Puck Man (bootleg, set 2); `puckmanb3` Puck Man
+  (bootleg, set 3); `pacman` Pac-Man (Midway); `pacmanso` Pac-Man (SegaSA / Sonic); `pacmanvg`
+  Pac-Man (Video Game SA bootleg); `pacmanf` Pac-Man (Midway, speedup hack); `puckmod` Puck Man
+  (Japan, set 2); `pacmod` Pac-Man (Midway, harder); `pacmanjpm` Pac-Man (JPM bootleg); `pacmanmr`
+  Pac-Man (Model Racing bootleg); `pacmanpe` Come Come (Petaco SA bootleg of Puck Man); `newpuc2`
+  Newpuc2 (set 1); `newpuc2b` Newpuc2 (set 2); `newpuckx` New Puck-X; `pacheart` Pac-Man (Hearts);
+  `bucaner` Buccaneer (set 1); `bucanera` Buccaneer (set 2); `hangly` Hangly-Man (set 1); `hangly2`
+  Hangly-Man (set 2); `hangly3` Hangly-Man (set 3); `baracuda` Barracuda; `popeyeman` Popeye-Man;
+  `pacuman` Pacu-Man (Spanish bootleg of Puck Man); `crockman` Crock-Man; `crockmnf` Crock-Man
+  (Marti Colls bootleg of Rene Pierre Crock-Man); `puckmana` Puck Man (Alca bootleg); `joyman`
+  Joyman; `ctrpllrp` Caterpillar Pacman Hack; `piranhah` Piranha (hack); `pacmanfm` Pac Man (FAMARE
+  S.A. bootleg of Puck Man); `pacmanug` Pac Man (U.Games bootleg of Puck Man); `pacmansp` Puck Man
+  (Spanish, 'Made in Greece' bootleg).
+- On Pac-Man Plus's decoder (1): `pacplus` Pac-Man Plus.
+- On Ms. Pac-Man's daughterboard (6): `mspacman` Ms. Pac-Man; `mspacmnf` Ms. Pac-Man (speedup hack);
+  `mspacmat` Ms. Pac Attack; `msheartb` Ms. Pac-Man Heart Burn; `pacgal2` Pac-Gal (set 2);
+  `mspacmancr` Ms. Pac-Man (bootleg on Crush Roller Hardware).
+- On bootlegs with a second program bank (23): `mspacmab` Ms. Pac-Man (bootleg, set 1); `mspacmab2`
+  Ms. Pac-Man (bootleg, set 2); `mspacmab4` Ms. Pac-Man (bootleg, set 4); `mspacmab6` Ms. Pac-Man
+  (bootleg, set 6); `mspacmbmc` Ms. Pac-Man (Marti Colls bootleg); `mspacmanlai` Ms. Pac-Man
+  (Leisure and Allied bootleg); `mspacmane` Ms. Pac-Man (Elmac bootleg, earlier); `mspacmane2` Ms.
+  Pac-Man (Elmac bootleg, later); `pacgal` Pac-Gal (set 1); `mspacpls` Ms. Pac-Man Plus;
+  `mspacmanhnc` Super Ms. Pac-Man (turbo hack, NVC284/NVC285 hardware); `mspacmanbg` Ms. Pac-Man
+  ('Made in Greece' bootleg, set 1); `mspacmanbg2` Ms. Pac-Man ('Made in Greece' bootleg, set 2);
+  `mspacmanbgd` Miss Pukman ('Made in Greece' Datamat bootleg); `mspacmanblt` Come-Cocos (Ms.
+  Pac-Man) ('Made in Greece' Triunvi bootleg, set 1); `mspacmanblt2` Come-Cocos (Ms. Pac-Man) ('Made
+  in Greece' Triunvi bootleg, set 2); `mspacmanblt3` Come-Cocos (Ms. Pac-Man) ('Made in Greece'
+  Triunvi bootleg, set 3); `mspacmanblt4` Ms. Pac-Man ('Made in Greece' Triunvi bootleg);
+  `mspacmanbcc` Come-Cocos (Ms. Pac-Man) ('Made in Greece' Tecnausa bootleg); `mspacmanbhe`
+  Come-Cocos (Ms. Pac-Man) ('Made in Greece' Herle SA bootleg); `mspacmanbi` Ms. Pac-Man (Impeuropex
+  bootleg); `mspacmanbgc` Ms. Pac-Man ('Made in Greece' Enavi bootleg); `mspacmanbpl` Ms. Pac-Man
+  (Playmark bootleg).
+
+### Galaxian and Moon Cresta (77 sets)
+
+- On Galaxian's board (45): `galaxian` Galaxian (Namco set 1); `galaxiana` Galaxian (Namco set 2);
+  `galaxianm` Galaxian (Midway set 1); `galaxianmo` Galaxian (Midway set 2); `galaxiant` Galaxian
+  (Taito); `galaxiani` Galaxian (Irem); `superg` Super Galaxians (hack of 'Galaxian (Namco set 2)');
+  `supergs` Super Galaxians (Silver Systems); `galturbo` Galaxian Turbo (hack of 'Super Galaxians');
+  `galap1` Space Invaders Galactica (hack of 'Galaxian (Namco set 2)'); `galap2` GX Part 2 (hack of
+  Galaxian); `galap4` Galaxian Part 4 (hack); `zerotime` Zero Time (Petaco S.A.); `galaktron`
+  Galaktron (Petaco S.A.); `galaktrons3` Galaktron (Sede 3); `zerotimed` Zero Time (Datamat);
+  `zerotimemc` Zero Time (Marti Colls); `zerotimea` Zero Time (Spanish bootleg, set 1); `zerotimeb`
+  Zero Time (Spanish bootleg, set 2); `galaxcirsa` Galaxian (Cirsa Spanish bootleg); `starfght` Star
+  Fighter; `galaxbsf` Galaxian (bootleg, set 1); `galaxianbl` Galaxian (bootleg, set 2); `galaxiamv`
+  Diviertate Galaxia (Multivideo, Spanish bootleg of Galaxian); `galaxianbl2` Galaxian (bootleg, set
+  4); `galaxianoly` Galaxian (Olympia bootleg); `galaxianem` Galaxian (Electromar Spanish bootleg);
+  `galaxrf` Galaxian (Recreativos Franco S.A. Spanish bootleg); `galaxrfgg` Galaxian Growing Galaxip
+  / Galaxian Nave Creciente (Recreativos Franco S.A. Spanish bootleg); `galaxrcgg` Galaxian Growing
+  Galaxip / Galaxian Nave Creciente (Recreativos Covadonga Spanish bootleg); `galaxianrp` Galaxian
+  (Rene Pierre bootleg); `galaxyx` Galaxy X (bootleg of Galaxian); `mcwars` Macro-Cosm Wars (bootleg
+  of Galaxian); `galaxianiii` Galaxian III (bootleg of Galaxian); `sgalwars` Super Galactic Wars
+  (bootleg of Galaxian); `moonaln` Moon Alien; `galapx` Galaxian Part X (hack of 'Moon Alien');
+  `kamikazp` Kamikaze (Potomac Games, bootleg of Galaxian); `swarm` Swarm (bootleg?); `astrians`
+  Astrians (clone of Swarm); `tst_galx` Galaxian Test ROM; `blkhole` Black Hole; `orbitron`
+  Orbitron; `chewing` Chewing Gum; `omegab` Omega (bootleg?).
+- On Moon Cresta's board (32): `mooncrst` Moon Cresta (Nichibutsu); `mooncrstuk` Moon Cresta
+  (Nichibutsu UK); `mooncrstuku` Moon Cresta (Nichibutsu UK, unencrypted); `mooncrstu` Moon Cresta
+  (Nichibutsu USA, encrypted); `mooncrstuu` Moon Cresta (Nichibutsu USA, unencrypted); `mooncrsto`
+  Moon Cresta (Nichibutsu, old rev); `mooncrstg` Moon Cresta (Gremlin); `mooncrsts` Moon Cresta
+  (SNK); `mooncrsb` Moon Cresta (bootleg set 1); `mooncrs2` Moon Cresta (bootleg set 2); `mooncrs3`
+  Moon Cresta (bootleg set 3); `mooncrs4` Moon Crest (bootleg of Moon Cresta); `fantazia` Fantazia
+  (bootleg?); `spctbird` Space Thunderbird; `smooncrs` Super Moon Cresta (Gremlin, bootleg);
+  `meteora` Meteor (Alca bootleg of Moon Cresta); `mooncrstso` Moon Cresta (SegaSA / Sonic);
+  `mooncptc` Moon Cresta (Petaco S.A. Spanish bootleg); `mouncrst` Moune Creste (Jeutel French
+  bootleg of Moon Cresta); `sirio2` Sirio II (Calfesa S.L. Spanish bootleg of Moon Cresta);
+  `ataqandr` Ataque Androide - Moon Cresta (FAR S.A. Spanish bootleg); `sstarcrs` Super Star Crest;
+  `mooncmw` Moon War (bootleg of Moon Cresta); `starfgmc` Starfighter (bootleg of Moon Cresta);
+  `spcdrag` Space Dragon (bootleg of Moon Cresta); `floritas` Floritas (bootleg of Moon Cresta);
+  `floritasm` Floritas (Multivideo Spanish bootleg of Moon Cresta); `mooncreg` Moon Cresta
+  (Electrogame S.A. Spanish bootleg, set 1); `mooncreg2` Moon Cresta (Electrogame S.A. Spanish
+  bootleg, set 2); `mooncrsl` Cresta Mundo (Spanish bootleg of Moon Cresta); `mooncrecm` Moon Cresta
+  (Centromatic Spanish bootleg); `stera` Steraranger (bootleg of Moon Cresta).
+
+### Konami's Scramble family (42 sets)
+
+- On Scramble (16): `scramble` Scramble; `scrambles` Scramble (Stern Electronics, set 1);
+  `scrambles2` Scramble (Stern Electronics, set 2); `strfbomb` Strafe Bomb (bootleg of Scramble);
+  `scramblebf` Scramble (Karateco, French bootleg); `scrambp` Impacto (Billport S.A., Spanish
+  bootleg of Scramble); `spctrek` Space Trek (Video Game S.A., Spanish bootleg of Scramble);
+  `scramce` Scramble (Centromatic S.A., Spanish bootleg); `scrampt` Scramble (Petaco S.A., Spanish
+  bootleg); `scramrf` Scramble (Recreativos Franco, Spanish bootleg); `offensiv` Offensive (Spanish
+  bootleg of Scramble); `scramblebb` Scramble (bootleg?); `kamikazesp` Kamikaze (Euromatic S.A.,
+  Spanish bootleg of Scramble); `bomber` Bomber (bootleg of Scramble); `spcmission` Space Mission
+  (SegaSA / Sonic, Spanish bootleg of Scramble); `amidars` Amidar (Scramble hardware).
+- On The End (3): `theend` The End; `theends` The End (Stern Electronics); `theendss` The End
+  (SegaSA / Sonic).
+- On Super Cobra (9): `scobra` Super Cobra; `scobrase` Super Cobra (Sega); `scobras` Super Cobra
+  (Stern Electronics); `scobrab` Super Cobra (bootleg, set 1); `suprheli` Super Heli (bootleg of
+  Super Cobra); `armorcar` Armored Car (set 1); `armorcar2` Armored Car (set 2); `tazmania`
+  Tazz-Mania (set 1); `spdcoin` Speed Coin (prototype).
+- On Frogger (5): `frogger` Frogger; `froggers1` Frogger (Sega, set 1); `froggers2` Frogger (Sega,
+  set 2); `froggers3` Frogger (Sega, set 3); `froggereb` Frogger - New Serie 92 (bootleg).
+- On Amidar and Turtles (9): `amidar` Amidar; `amidar1` Amidar (older); `amidaru` Amidar (Stern
+  Electronics); `amidaro` Amidar (Olympia); `amidarb` Amidar (bootleg, set 1); `amigo` Amigo
+  (bootleg of Amidar, set 1); `turtles` Turtles; `turpin` Turpin; `600` 600.
+
+### Donkey Kong and Donkey Kong Jr. (15 sets)
+
+- On Donkey Kong's board (8): `dkong` Donkey Kong (US set 1); `dkonghrd` Donkey Kong (hard kit);
+  `dkongo` Donkey Kong (US set 2); `dkongj` Donkey Kong (Japan set 1); `dkongjo` Donkey Kong (Japan
+  set 2); `dkongjo1` Donkey Kong (Japan set 3); `dkongf` Donkey Kong Foundry (hack); `dkongpe`
+  Donkey Kong: Pauline Edition Rev 5 (2013-04-22).
+- On Donkey Kong Jr.'s board (7): `dkongjr` Donkey Kong Junior (US set F-2); `dkongjr2` Donkey Kong
+  Junior (US, bootleg?); `dkongjrj` Donkey Kong Jr. (Japan); `dkongjnrj` Donkey Kong Junior (Japan
+  set F-1); `dkongjrb` Donkey Kong Jr. (bootleg); `dkongjre` Donkey Kong Junior (E kit); `dkongjrpb`
+  Donkey Kong Junior (P kit, bootleg).
+
+## What the tests prove
+
+Every board is held to MAME 0.289 running test programs we wrote ourselves; no commercial game is
+ever downloaded, not even for a test. MAME's results are kept in the crate's `tests/references/`,
+so the tests run on any machine, with or without MAME. All the boards run on our own Z80, which
+passes all 1,604,000 SingleStepTests cases and ZEXDOC and ZEXALL ("How each piece is proved").
+Then `tests/libretro.rs` plays each board's programs, zipped under real set names, through the
+same entry points the app uses, with the pads, the switches, save states and Restart, and
+`crates/emulator-bridge/tests/arcade_frontend.rs` opens one the way the app does ("How I4 is
+proved", and each board's "in the app" section).
+
+**The Pac-Man board.** Nine programs (the picture, sprites, sound, interrupts, watchdog, inputs, and
+the Ms. Pac-Man, Pac-Man Plus and second-bank program layouts, scrambled by the test's own copy of
+the wiring) match MAME on all 1,400 frames, pixel for pixel, and the sound sample for sample, with
+no tolerance at all. Save states round-trip byte for byte. See "The Pac-Man board, as proven".
+
+**Galaxian and Moon Cresta.** Ten programs (tiles, sprites, shots, stars, raster, NMI, watchdog,
+inputs, and Moon Cresta's on both its scrambled and its plain board) match MAME on all 1,800
+frames, pixel for pixel, and the NMI program matches MAME's trace on all 182,314 instructions,
+cycle for cycle. The sound is an approximation, so it's held to measures: the tone's pitch within
+0.2% and its level within 1%, the background within 3%, the explosion and the shot within 10%,
+their spectra 0.996 or more alike. See "The Galaxian board, as proven" and "Galaxian's sound,
+approximated".
+
+**Konami's Scramble family.** On MAME's `scramble`, `theend`, `scobra`, `frogger` and `amidar`, all
+260 frames of each match pixel for pixel, and every instruction of the sound board's Z80 (904,936,
+or 904,864 on Frogger) matches MAME's trace line for line, through a watchdog reset. The AY-3-8910
+sound chip matches MAME sample for sample on its own (48,715 samples through every setting); after
+the board's filters, which are approximated, each tone's pitch is within 0.2% of MAME's and its
+level within 8%. See "The AY-3-8910" and "Konami's Scramble boards, as proven".
+
+**Donkey Kong and Donkey Kong Jr.** Nine programs (tiles, sprites, raster, inputs, NMI, watchdog,
+Jr.'s board, and both sound boards) match MAME on all 3,060 frames, pixel for pixel, and all 5.2
+million instructions of the 8035 sound processor match MAME's trace. The 8035 is also checked on
+its own against Intel's 1980 manual (all 256 opcodes, 768,000 cases) and MAME (104,360
+instructions). The music and sounds through the DAC follow MAME's within two steps a sample; the
+analogue effects, approximated, are within 5% in level, their spectra at least 0.98 alike. Save
+states round-trip mid-run. See "The 8035" and "The Donkey Kong boards in the app".
+
+## What is approximate
+
+- **Galaxian's and Moon Cresta's sound** (`galaxian_sound.rs`). These boards have no sound chip:
+  the sound is analogue circuitry (timers, a noise generator, filters) that the game switches on
+  and off. cArcade models the circuit from its component values. Only the tone's counters are
+  exact; the background hum, the explosion and the shot are close to MAME's model of the board,
+  not a recording of a real one.
+- **Donkey Kong's and Donkey Kong Jr.'s sound effects** (`dkong_sound.rs`). The music and most
+  sounds come from the 8035 through a DAC, and that path is close to exact. Donkey Kong's walk,
+  jump and stomp, and Jr.'s walk, jump, climb and fall, are analogue circuits, modelled the same
+  way from the schematics' values.
+- **Konami's sound filters and amplifier** (`konami_sound.rs`). The two AY-3-8910s are exact; the
+  twelve switchable filters and the amplifier after them are a circuit model, 1-7% from MAME's in
+  level.
+- **Where MAME decides.** The tests hold cArcade to MAME, not to a real board, so where MAME's
+  model is a guess, cArcade makes the same one: Scramble's and The End's protection chip (its logic
+  isn't documented), the 8035's timer (MAME's own notes say a real chip's runs a cycle later), and
+  a few timing details of the Pac-Man board (none can be seen or heard) and the Galaxian board
+  (listed in their sections). Pac-Man's timing PROM isn't modelled, and its lamps, coin counter
+  and coin lockout do nothing.
+- **Galaxian's picture in the app.** The board draws three dots a pixel along each line, because
+  its stars change colour a third of the way into a pixel; the app gets each three averaged into
+  one, so a star on that edge is a blend.
+- **The four-way stick.** A diagonal on the touch pad or a controller turns into the newer of its
+  two directions, the way a real four-way stick's gate behaves.
+
+## What's next, in order
+
+1. **More games on the boards we have.** Small jobs on chips that are already proven: the sets
+   left out for now (the Pac-Man driver's encrypted games like Eyes and Mr. TNT, Crush Roller and
+   Ponpoko; the Galaxian driver's Jump Bug, King & Balloon and Pisces; Donkey Kong's Radar Scope
+   and Braze's kits; each board's section lists them), and 7z files as well as zips.
+2. **Namco's Galaga, Dig Dug and Xevious.** The most-wanted Z80 games left. Three Z80s and
+   Pac-Man's own sound chip, plus Namco's helper chips, which are tiny Fujitsu 4-bit processors
+   (they read the controls and coins, and on Galaga and Xevious make the explosions). A small new
+   processor, nothing like the Z80's size.
+3. **More Z80 boards with the AY-3-8910 we already have:** Capcom's 1942, Konami's Time Pilot and
+   Pooyan (nearly the same sound board as Scramble's), and Tehkan's Bomb Jack. Mostly new picture
+   hardware; the processors and sound chips are done.
+4. **The Motorola 68000, then Capcom's CPS-1 and the Neo Geo.** This is the next big step, not a
+   small one. Street Fighter II, Final Fight and Metal Slug all run on a 68000, a different
+   processor from the Z80, and writing it and proving it is a job the same size as the Z80 was
+   (SingleStepTests has a 68000 suite too, so it's proved the same way). On top of that, each of
+   those boards is far bigger than anything cArcade plays now:
+   - **CPS-1** (Street Fighter II, Final Fight, Strider, Ghouls 'n Ghosts): the 68000, a Z80 for
+     sound, two new sound chips (Yamaha's YM2151 FM synthesiser and OKI's MSM6295 sample player),
+     and Capcom's graphics chips, with three scrolling layers, hundreds of sprites and settings
+     that differ from game to game.
+   - **Neo Geo** (Metal Slug, The King of Fighters, Samurai Shodown): the 68000, a Z80 for sound,
+     Yamaha's YM2610 (FM, sample playback, and an AY-style part our AY-3-8910 covers), a big
+     sprite system, the player's own BIOS file (`neogeo.zip`), and encrypted graphics on the
+     later games.
+
+   The same 68000 then unlocks Sega's System 16 (Altered Beast, Golden Axe, Shinobi; it shares
+   CPS-1's YM2151), Capcom's CPS-2 (Super Street Fighter II Turbo, Marvel vs. Capcom; it also needs
+   its decryption and Capcom's QSound chip), Konami's Teenage Mutant Ninja Turtles board, and many
+   more. It's also the Sega Genesis's processor, so it would be the start of a Genesis emulator of
+   our own.
+5. **After that, boards on the 6502 and on Motorola's 6809 and 6800**, each a smaller processor than
+   the Z80: Atari's Centipede, Millipede and Missile Command (with Atari's POKEY sound chip),
+   Nintendo's Donkey Kong 3, and Williams' Defender, Robotron and Joust.
+
+## Phone checks
+
+1. Open Pac-Man or Ms. Pac-Man. ✅ It plays with sound, and the stick steers.
+2. Open Galaxian or Moon Cresta. ✅ It plays with its sound: the hum, the shots and the bangs.
+3. Open Scramble, Frogger or Amidar. ✅ It plays with music and sound.
+4. Open Donkey Kong. ✅ It plays with music and sound, the stick only goes four ways (no
+   diagonals), and button **1** jumps (B on a controller).
+5. Open Donkey Kong Jr. ✅ It plays with music and sound.
+6. In any of them, tap **COIN**, then **START**. ✅ A credit goes in and the game starts.
+7. Tap **⋯ → Core settings…**. ✅ That cabinet's own switches are there in plain words, like
+   lives, extra life, coins and cabinet.
+8. In the middle of a game, make a save state, play on a bit, then load it. ✅ You're right back
+   where you saved.
+9. Only if you have one: a zip of an arcade game it doesn't play yet. ✅ One short line says it
+   can't play this one yet and what it plays now. No crash.
 
 ## Name and shape
 
@@ -90,9 +325,9 @@ so its games get the "can't play this one yet" sentence instead of a broken game
 4. **Galaxian and its family** (I5): Galaxian, Moon Cresta and their clones, and Konami's variant
    for Scramble, Super Cobra, Frogger and Amidar. That variant adds a second Z80 with two
    AY-3-8910s. Covers the tilemap, sprites, bullets, starfield and colour PROM. Galaxian's own
-   analogue sound is approximated from the circuit, and this file will say so.
+   analogue sound is approximated from the circuit, and this file says so.
 5. **Donkey Kong** (I6): Donkey Kong and Donkey Kong Jr. A Z80 for the game and an 8035 playing
-   the music into a DAC. The analogue effects are approximated, and this file will say so.
+   the music into a DAC. The analogue effects are approximated, and this file says so.
 6. **The write-up** (I7).
 
 All three boards run at **60.606 Hz**: a 6.144 MHz pixel clock over 384 × 264 clocks per frame.
@@ -281,7 +516,7 @@ Known limits, none of which the tests hit:
 
 `src/galaxian.rs`: Namco's Galaxian board and Nichibutsu's Moon Cresta (the same board with its
 memory moved, a graphics bank and, on Nichibutsu's own boards, a scrambled program). Its sound is
-in the next section. Not in the app yet: Konami's variant comes first.
+in "Galaxian's sound, approximated", and its sets in "The Galaxian family in the app".
 
 What it does: the Z80 at 3.072 MHz; the 32 × 32 tile layer with each column's own scroll and
 colour; the eight sprites, with the line buffer's clipping and sprites 0-2 a line lower; the
@@ -430,7 +665,7 @@ How it's proved, as far as an approximation can be:
 
 ## In the app (item I4)
 
-### What it plays
+### The Pac-Man board in the app
 
 65 sets on the Pac-Man board, 119 on the Galaxian family's boards and 15 on Donkey Kong's, every
 one MAME runs on exactly the hardware cArcade models: Puck Man, Pac-Man, Pac-Man Plus, Ms. Pac-Man
@@ -514,8 +749,8 @@ and the driver's other machines (Crush Roller, Ms. Pac-Man Champion Edition, Pon
   ours (galaxian/init_galaxian, mooncrst with init_mooncrst or init_mooncrsu, scramble, theend,
   scobra, frogger, turtles with their own inits), not flagged by MAME as not working, wrong or
   imperfect in colours, sound or graphics, unemulated protection or no cocktail, and whose ROM
-  regions are the board's (two sets with extra regions are left out). That gives 119: 47 on
-  Galaxian's board, 32 on Moon Cresta's, and 40 on Konami's (16 Scramble, 3 The End, 9 Super
+  regions are the board's (two sets with extra regions are left out). That gives 119: 45 on
+  Galaxian's board, 32 on Moon Cresta's, and 42 on Konami's (16 Scramble, 3 The End, 9 Super
   Cobra, 5 Frogger, 9 Turtles/Amidar). Left out for now: everything else in the driver (Jump Bug,
   Pisces, King & Balloon, the bootlegs with other hardware, ...).
 - **Their controls and switches come from MAME**: the script starts MAME on each set with
