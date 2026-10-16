@@ -103,11 +103,9 @@ enum WebPlayerKind: String, CaseIterable, Sendable {
     var saveStatesUnavailable: String {
         switch self {
         case .flash:
-            return "save states are not available for Flash games: Ruffle cannot freeze a running "
-                + "movie. The game's own saves are kept automatically"
+            return "Flash games cannot use save states, but their own saves are kept automatically"
         case .j2me:
-            return "save states are not available for J2ME games: the J2ME engine cannot freeze a "
-                + "running phone. The game's own saves are kept automatically"
+            return "J2ME games cannot use save states, but their own saves are kept automatically"
         }
     }
 
@@ -128,9 +126,8 @@ enum WebPlayerKind: String, CaseIterable, Sendable {
         case .quickSave, .quickLoad, .saveStates:
             return saveStatesUnavailable
         case .coreSettings, .dosSettings:
-            return "\(gameKind) games have no core settings: they run in \(playerName), not a "
-                + "libretro core. Keys and save files are under the player menu, "
-                + "\(gameKind) settings"
+            return "\(gameKind) games have no core settings. Their keys and save file are in "
+                + "\(gameKind) settings, the sliders button at the top"
         case .fastForward, .toggleFastForward, .fastForward2x, .fastForward3x, .fastForward4x,
              .rewind, .slowMotion:
             return "\(function.title) is not available for \(gameKind) games: \(playerName) runs "

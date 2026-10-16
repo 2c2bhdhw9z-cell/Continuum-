@@ -1462,15 +1462,15 @@ enum CoreCatalog {
     /// then system).
     static let requiredFirmware: [GameSystem: [FirmwareNeed]] = [
         .fds: [FirmwareNeed(names: ["disksys.rom"], subfolder: nil,
-                            what: "Nintendo's own Disk System startup file")],
+                            what: "the Disk System's startup file")],
         .segacd: [FirmwareNeed(names: ["bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin"],
                                subfolder: nil,
-                               what: "a Mega-CD / Sega CD BIOS (U is USA, E is Europe, J is Japan)")],
+                               what: "a Sega CD BIOS (U is USA, E is Europe, J is Japan)")],
         .pcecd: [FirmwareNeed(names: ["syscard3.pce", "syscard2.pce", "syscard1.pce",
                                       "gexpress.pce"],
                               subfolder: nil, what: "the PC Engine CD System Card 3")],
         .doom: [FirmwareNeed(names: ["prboom.wad"], subfolder: "prboom",
-                             what: "PrBoom's own data file, which the app normally installs itself")],
+                             what: "DOOM's data file, which the app normally adds by itself")],
     ]
 
     /// Firmware a SYSTEM uses when it is there and starts without: not a launch gate, but Settings
@@ -4828,30 +4828,29 @@ final class EngineHost: ObservableObject {
             // folder the core reads: dropping the file in is necessary but not sufficient, and
             // Settings has the one button that crosses the gap. See `installBiosFromDocuments`.
             let launchSystem = CoreCatalog.system(for: entry)
+            //
+            // Each line keeps the word that colours it (`StatusTint`): "cannot" for the refusals,
+            // and none for DOOM and the PlayStation, which always read as everyday lines.
             if launchSystem == .ps1 {
-                status = "\(entry.name) on Beetle PSX HW needs \(missing.name), a real PlayStation "
-                    + "BIOS (Beetle has no HLE). Put it in the Continuum folder in Files, then "
-                    + "Settings, Install a BIOS from the Continuum folder. Or switch PlayStation "
-                    + "core back to PCSX ReARMed, which can boot without one."
+                status = "\(entry.name) needs \(missing.name), a PlayStation BIOS, on Beetle PSX HW "
+                    + "(PCSX ReARMed doesn't). Put it in the Continuum folder in Files, then tap "
+                    + "Install a BIOS from the Continuum folder in Settings."
             } else if launchSystem == .fds {
-                status = "\(entry.name) needs \(missing.name), which is Nintendo's own startup "
-                    + "file and cannot ship with the app. Put it in the Continuum folder in Files, "
-                    + "then use Settings, Install a BIOS from the Continuum folder"
+                status = "\(entry.name) cannot start without \(missing.name), \(missing.what). Put "
+                    + "it in the Continuum folder in Files, then tap Install a BIOS from the "
+                    + "Continuum folder in Settings."
             } else if launchSystem == .doom {
-                status = "\(entry.name) needs \(missing.name), \(missing.what). It was not found "
-                    + "in the system folder. Put prboom.wad in the Continuum folder in Files, then "
-                    + "use Settings, Install a BIOS from the Continuum folder"
+                status = "\(entry.name) needs \(missing.name), \(missing.what). Put it in the "
+                    + "Continuum folder in Files, then tap Install a BIOS from the Continuum folder "
+                    + "in Settings."
             } else if launchSystem == .saturn {
-                status = "\(entry.name) on Beetle Saturn needs \(missing.name) or mpr-17933.bin, "
-                    + "\(missing.what), and cannot ship with the app. Put it in the Continuum "
-                    + "folder in Files, then use Settings, Install a BIOS from the Continuum "
-                    + "folder. Or switch the Saturn core back to Yabause, which can boot without one."
+                status = "\(entry.name) cannot start on Beetle Saturn without \(missing.name) or "
+                    + "mpr-17933.bin, but Yabause can. Put one in the Continuum folder in Files, "
+                    + "then tap Install a BIOS from the Continuum folder in Settings."
             } else {
-                let systemName = launchSystem?.displayName ?? "this system"
-                status = "\(entry.name) needs \(missing.name), \(missing.what), which \(systemName) "
-                    + "cannot start without and which cannot ship with the app. Put it in the "
-                    + "Continuum folder in Files, then use Settings, Install a BIOS from the "
-                    + "Continuum folder"
+                status = "\(entry.name) cannot start without \(missing.name), \(missing.what). Put "
+                    + "it in the Continuum folder in Files, then tap Install a BIOS from the "
+                    + "Continuum folder in Settings."
             }
             return
         }
@@ -5057,8 +5056,8 @@ final class EngineHost: ObservableObject {
                         }
                         // Gave up: the auto-save stays held for this session, so it survives.
                         if let self, self.running, self.activeEntry?.path == path {
-                            self.status = "could not resume \(entry.name) yet (the game had not started "
-                                + "drawing); your auto-save is kept and will not be overwritten this time"
+                            self.status = "Could not pick up \(entry.name) where you left off. Your "
+                                + "auto-save is safe, and this session won't save over it."
                         }
                     }
                 } else {

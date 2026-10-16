@@ -241,9 +241,8 @@ struct GameDetailSheet: View {
             }
 
             SettingsNote(
-                "A state goes back into the emulator that made it, so changing that emulator's "
-                + "settings can stop one loading. Most emulator updates keep old states working, "
-                + "and when one can't load we say why instead of risking your game."
+                "Changing an emulator's settings can stop a state loading. If one can't load, it "
+                + "says why."
             )
         }
         .padding(14)

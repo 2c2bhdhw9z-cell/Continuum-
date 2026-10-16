@@ -175,8 +175,8 @@ enum GameplayManuals {
         if fm.fileExists(atPath: target.path) {
             return file == name
                 ? "manual \(name) is already in Manuals; it opens for the game with the same name"
-                : "manual \(name) is already in Manuals as \(file); attach it from the game's card, "
-                    + "or rename it in the Files app, to have a game open it"
+                : "manual \(name) is already in Manuals as \(file). Attach it on the game's card, "
+                    + "or rename it in Files."
         }
         do {
             try fm.copyItem(at: url, to: target)
@@ -186,9 +186,8 @@ enum GameplayManuals {
         if file == name {
             return "manual \(name) saved in Manuals; it opens for the game with the same name"
         }
-        return "manual \(name) saved in Manuals as \(file), because a different \(name) is already "
-            + "there and was kept; a manual opens for the game whose name it matches, so attach this "
-            + "one from the game's card, or rename it in the Files app"
+        return "manual \(name) saved in Manuals as \(file), since another \(name) was already "
+            + "there. Attach it on the game's card, or rename it in Files."
     }
 
     /// Forgets a deleted game's manual. Called by the host when the user deletes the game.

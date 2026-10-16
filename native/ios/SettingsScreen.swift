@@ -628,7 +628,8 @@ struct SettingsScreen: View {
                 + "pick a core on its card."
             )
             SettingsNote(
-                "Not sure? Keep the first one. Save states only load on the core that made them."
+                "If you're not sure, keep the first one. Save states only load on the core that "
+                + "made them."
             )
         }
     }
@@ -757,11 +758,11 @@ struct SettingsScreen: View {
         case 0:
             return "There are no games in the library right now."
         case 1:
-            return "Your one game goes, with its save states and cheats. In-game saves are kept. "
-                + "This cannot be undone."
+            return "Your one game goes with its save states and cheats, and this can't be undone. "
+                + "In-game saves are kept."
         default:
-            return "All \(host.library.count) games go, with their save states and cheats. "
-                + "In-game saves are kept. This cannot be undone."
+            return "All \(host.library.count) games go with their save states and cheats, and this "
+                + "can't be undone. In-game saves are kept."
         }
     }
 

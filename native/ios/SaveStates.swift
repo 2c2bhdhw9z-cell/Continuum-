@@ -290,14 +290,12 @@ enum SaveStateRefusal {
             return "A state can only be loaded by the core that wrote it: this one was saved by "
                 + "\(saved), and \(running) is running now."
         case .versionMismatch(let core, let saved, let running):
-            return "The core has been rebuilt since this state was saved (\(core) \(saved) wrote "
-                + "it, this build is \(running)), so its internal layout may have moved. Not "
-                + "loading it, to avoid corrupting the game."
+            return "This state is from another version of \(core) (\(saved), this one is "
+                + "\(running)). It isn't loaded, to keep your game safe."
         case .settingsChanged(let changed):
             let list = changed.isEmpty ? "the core settings" : changed.joined(separator: ", ")
-            return "This state was saved with different core settings (\(list)). Loading it under "
-                + "the new settings can crash the core, so it was not loaded. Set them back to "
-                + "load it; the state is kept."
+            return "This state was saved with different emulator settings (\(list)), and loading "
+                + "it now could crash the game. Set them back to load it."
         }
     }
 
@@ -1318,8 +1316,8 @@ final class SaveStates: ObservableObject {
             if record.isAuto {
                 // The message promises the auto-save is still there; keep that true.
                 autoSaveHeldFor = record.gameId
-                report("Started \(record.gameId) fresh: last time, picking up from its auto-save "
-                       + "crashed the app, so I skipped it this once. The auto-save is still there.")
+                report("Started \(record.gameId) fresh: its auto-save crashed the app last time, "
+                       + "so I skipped it once. It's still there.")
             } else {
                 report("Didn't load \(record.slotLabel.lowercased()): it crashed the app last "
                        + "time. Tap Load again if you want to try anyway.")
@@ -1492,8 +1490,8 @@ final class SaveStates: ObservableObject {
         switch refusal {
         case .coreMismatch:
             if CoreCatalog.core(id: record.coreId ?? "") == nil {
-                how = "It was made by an emulator this version doesn\u{2019}t have any more, so it "
-                    + "won\u{2019}t load, but it\u{2019}s kept. Your in-game saves are fine."
+                how = "It won\u{2019}t load, because this version doesn\u{2019}t have its emulator "
+                    + "any more, but your in-game saves are fine."
             } else {
                 how = "It loads on \(coreName)."
             }
@@ -1822,8 +1820,8 @@ final class SaveStates: ObservableObject {
             data = try? Data(contentsOf: url)
         }
         guard let data, !data.isEmpty else {
-            report("\(gameId) has no battery save yet. Not every game has one: it is the game's "
-                   + "own save, the one made from its menu, and many cartridges had no battery.")
+            report("\(gameId) has no battery save yet. Save in the game's own menu first; not "
+                   + "every game can.")
             return nil
         }
         guard let directory = SaveStateDisk.exportDirectory() else {

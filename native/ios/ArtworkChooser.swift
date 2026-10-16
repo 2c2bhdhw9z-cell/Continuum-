@@ -173,14 +173,13 @@ enum ArtworkOptions {
     static func incompleteSummary(for options: [ArtworkOption], reason: String) -> String {
         switch options.count {
         case 0:
-            return "The cover lists could not be downloaded (\(reason)), so there is nothing to "
-                + "choose from yet. Try again when online."
+            return "The cover lists didn't download (\(reason)). Try again when you're online."
         case 1:
-            return "One cover was found, but some of the cover lists could not be downloaded "
-                + "(\(reason)), so there may be more. Try again when online."
+            return "Found one cover, but some cover lists didn't download (\(reason)). Try "
+                + "again when you're online for more."
         default:
-            return "\(options.count) covers were found, but some of the cover lists could not be "
-                + "downloaded (\(reason)), so there may be more. Try again when online."
+            return "Found \(options.count) covers, but some cover lists didn't download "
+                + "(\(reason)). Try again when you're online for more."
         }
     }
 }
@@ -408,8 +407,8 @@ final class ArtworkChooserModel: ObservableObject {
     func load(entry: LibraryEntry, system: GameSystem?, store: ArtworkStore) {
         guard let system, SystemArtwork.hasThumbnails(for: system) else {
             loaded = true
-            line = "This app has no thumbnail directory for \(system?.displayName ?? "this format"), "
-                + "so there is nothing to choose from. An image from Files still works."
+            line = "There are no covers online for \(system?.displayName ?? "this format"), but an "
+                + "image from Files still works."
             return
         }
 
@@ -508,11 +507,10 @@ final class ArtworkChooserModel: ObservableObject {
         // in a task of its own and its line is still the previous sentence at this instant. Two
         // sentences, because "it will be looked up again" is false while lookups are off.
         if store.fetchEnabled {
-            line = "Back to automatic artwork for this game. It will be looked up again, and a cover "
-                + "can be chosen here at any time."
+            line = "Back to the automatic cover. You can pick one here any time."
         } else {
-            line = "Back to automatic artwork for this game. It keeps its generated plate until "
-                + "cover lookups are turned back on in Settings."
+            line = "Back to the automatic cover. It shows a title card until you turn Look up "
+                + "cover art back on in Settings."
         }
     }
 

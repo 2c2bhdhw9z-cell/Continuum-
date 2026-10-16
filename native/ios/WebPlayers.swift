@@ -460,8 +460,8 @@ final class WebPlayerSession: NSObject, ObservableObject, WKNavigationDelegate, 
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         isReady = false
-        report("\(entry.name): the player stopped (WebKit's process ended, usually for memory); "
-               + "quit and open the game again. The last automatic save is kept")
+        report("\(entry.name): the player stopped, usually from running low on memory. Quit and "
+               + "open the game again; the last automatic save is kept")
     }
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
@@ -673,9 +673,8 @@ extension EngineHost {
     func launchWebPlayer(entry: LibraryEntry, kind: WebPlayerKind) {
         status = "opening \(entry.name) in \(kind.playerName)..."
         guard let root = Self.webPlayerRoot(kind) else {
-            status = "\(entry.name): the \(kind.gameKind) player (\(kind.playerName)) is not in this "
-                + "build; the download on the build machine failed, so \(kind.gameKind) games "
-                + "cannot open until the next build has it"
+            status = "\(entry.name): this build is missing the \(kind.gameKind) player, so "
+                + "\(kind.gameKind) games cannot open until the next one"
             return
         }
         guard FileManager.default.fileExists(atPath: entry.path) else {

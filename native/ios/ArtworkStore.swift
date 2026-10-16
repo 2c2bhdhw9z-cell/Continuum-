@@ -1822,11 +1822,11 @@ final class ArtworkStore: ObservableObject {
             return
         }
         // Decoded FIRST, and nothing is written unless it decodes, which is what makes "the cover
-        // was not changed" below true: the stored cover may be an image picked from Files or a frame
+        // didn't change" below true: the stored cover may be an image picked from Files or a frame
         // captured from the game, and the stored copy of those is the only one.
         guard let decoded = await ArtworkDisk.decode(data: data) else {
-            report("artwork: \(option.label) for \(title) came back as bytes that would not decode "
-                   + "as an image, so the cover was not changed")
+            report("artwork: \(option.label) for \(title) wasn't a picture the app could read, so "
+                   + "the cover didn't change")
             return
         }
         // Overtaken while it downloaded: something the user did after this tap has already decided

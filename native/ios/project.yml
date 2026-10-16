@@ -89,7 +89,7 @@ targets:
         # only when a running game opens the microphone or starts the camera, and only when the
         # matching switch in Settings is on.
         NSMicrophoneUsageDescription: "Games that listen, such as 3DS games you blow into, can hear the microphone while you play. Only used when Allow microphone in games is on."
-        NSCameraUsageDescription: "Games that use a camera, such as 3DS camera games, can see the camera while you play. Only used when Allow camera in games is on."
+        NSCameraUsageDescription: "Games that use a camera, like the Game Boy Camera or 3DS camera games, can see it while you play. Only used when Allow camera in games is on."
         UIStatusBarHidden: true
         UIViewControllerBasedStatusBarAppearance: false
         # Online play (Netplay.swift): the host listens on the local network and advertises over
@@ -97,7 +97,7 @@ targets:
         # permission prompt, and refuses to browse a service type not listed below.
         # Also covers Wi-Fi transfer (WiFiTransfer.swift) and browsing a NAS or computer over
         # WebDAV or SMB (RemoteSources.swift, SmbClient.swift; SMB is libsmb2, linked in above).
-        NSLocalNetworkUsageDescription: "Continuum uses the local network for two-player online play with another phone, for Wi-Fi transfer of games and saves from a computer's browser, and to browse a NAS or computer over WebDAV or SMB file sharing."
+        NSLocalNetworkUsageDescription: "Continuum uses your local network for online play with a second phone, Wi-Fi transfer from a computer, and shared folders on a computer or NAS."
         NSBonjourServices:
           - _continuum._tcp
         # Open in / Share to Continuum (ImportCenter.open): every game, disc, skin, cheat and save

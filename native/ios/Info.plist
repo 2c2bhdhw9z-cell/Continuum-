@@ -53,7 +53,7 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Games that listen, such as 3DS games you blow into, can hear the microphone while you play. Only used when Allow microphone in games is on.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Games that use a camera, such as 3DS camera games, can see the camera while you play. Only used when Allow camera in games is on.</string>
+	<string>Games that use a camera, like the Game Boy Camera or 3DS camera games, can see it while you play. Only used when Allow camera in games is on.</string>
 	<key>UIStatusBarHidden</key>
 	<true/>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
@@ -62,7 +62,7 @@
 	<!-- Online play: Local Network permission text, and the Bonjour type the host advertises and
 	     the guest browses. Mirrors project.yml info.properties. -->
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Continuum uses the local network for two-player online play with another phone, for Wi-Fi transfer of games and saves from a computer's browser, and to browse a NAS or computer over WebDAV or SMB file sharing.</string>
+	<string>Continuum uses your local network for online play with a second phone, Wi-Fi transfer from a computer, and shared folders on a computer or NAS.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_continuum._tcp</string>
