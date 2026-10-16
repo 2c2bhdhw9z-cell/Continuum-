@@ -18,20 +18,20 @@ owner should read is the last section.
 | cgb-acid2 | pass | pass |
 | Mooneye DMG acceptance | 87 / 87 | 87 / 87 |
 | Mooneye Color | 7 / 7 runs | 7 / 7 runs |
-| Mealybug Tearoom | not applicable | **49 / 55** |
+| Mealybug Tearoom | not applicable | **50 / 55** |
 
-**23 of the 24 DMG pictures**, and 26 of the 31 Color ones. The DMG picture that still fails is
+**23 of the 24 DMG pictures**, and 27 of the 31 Color ones: every Color picture a Color can produce. The DMG picture that still fails is
 `m3_lcdc_bg_en_change`, and it is **four pixels** away: one pixel on each of four lines, all of
 them x=0, all of them on the eight lines where that test places a sprite at X=2. The Color half
 went from 1 to 4 when a Color drew a black-and-white game in the colours its start-up code picks
 (`compat.rs`, evening of 13 October), and from 4 to 21 when each picture-register write started
 landing on the dot the Color lands it (`bus.rs::landing`, 16 October; "How a register write
 reaches the drawer" below), and to 22 when the drawer did what a Color's hardware does in Game
-Boy mode too, and to 26 with the Color's whole tile-select glitch ("The Color half, mapped"
-below, which has every Color picture by name). Four of the five Color pictures left can never
-reach zero at all (Group 1a).
+Boy mode too, to 26 with the Color's whole tile-select glitch, and to 27 when an object's first
+byte took its height a dot before its read ("The Color half, mapped" below, which has every Color
+picture by name). The four Color pictures left can never reach zero at all (Group 1a).
 
-`tests/roms.rs::MEALYBUG_PASSING` pins all 49 by name: a change that drops one of them is wrong,
+`tests/roms.rs::MEALYBUG_PASSING` pins all 50 by name: a change that drops one of them is wrong,
 whatever else it fixes.
 
 The Mooneye gate reads 87 rather than the 86 this file quotes further down. Nothing in this work
@@ -418,10 +418,10 @@ run, compared with the reference **and with SameBoy's own picture of the same RO
 (`scripts/sameboy/compare-pictures.py`; SameBoy itself gets 21 of the 31), and grouped by the
 hardware behaviour it probes.
 
-**26 pass.** `m2_win_en_toggle`, `m3_bgp_change`, `m3_bgp_change_sprites`,
+**27 pass.** `m2_win_en_toggle`, `m3_bgp_change`, `m3_bgp_change_sprites`,
 `m3_lcdc_bg_en_change`, `m3_lcdc_bg_en_change2`, `m3_lcdc_bg_map_change`,
 `m3_lcdc_bg_map_change2`, `m3_lcdc_obj_en_change`, `m3_lcdc_obj_en_change_variant`,
-`m3_lcdc_obj_size_change`, `m3_lcdc_tile_sel_change`, `m3_lcdc_tile_sel_change2`,
+`m3_lcdc_obj_size_change`, `m3_lcdc_obj_size_change_scx`, `m3_lcdc_tile_sel_change`, `m3_lcdc_tile_sel_change2`,
 `m3_lcdc_tile_sel_win_change`, `m3_lcdc_tile_sel_win_change2`, `m3_lcdc_win_en_change_multiple`,
 `m3_lcdc_win_map_change`,
 `m3_lcdc_win_map_change2`, `m3_obp0_change`, `m3_scx_high_5_bits`, `m3_scx_high_5_bits_change2`,
@@ -477,19 +477,30 @@ How they got there, group by group, each group one commit:
    rather than an object's row. Keeping every read instead, or no object reads, or only bitplane
    1 of a glitched read, leaves 0 to 3 of the four passing. The documentation's third source, the
    read cut off at the end of the previous line, no picture needs and is not modelled.
+6. **When an object's height is read for each of its two bytes** (16 October, G4): 26 → 27.
+   `m3_lcdc_obj_size_change_scx` switches 8x16 objects to 8x8 and back mid-line, and on a Color
+   four lines of its flipped object came out wrong in SameBoy and here alike. Reading the tile
+   memory settled what the reference shows: on those lines the object's first byte comes from
+   the 8x16 row and its second from the 8x8 row, so the switch to 8x8 lands after the first
+   byte's height was taken and before the second's. In cBoy the switch landed on the dot before
+   the first byte's read, so the first byte's address has to be worked out a dot before its read,
+   which is how a background bitplane's is (address on one dot, read on the next); the second
+   byte's is worked out on its own read dot. All four ways of placing the two were run: only this
+   one passes all four object-size pictures. Both on the read dot (SameBoy's) misses this one by
+   SameBoy's 15 pixels; both a dot early misses `dmg:m3_lcdc_obj_size_change` and
+   `dmg:m3_lcdc_obj_size_change_scx` by 15 and 30, which are exactly SameBoy's own Game Boy
+   misses on them (SameBoy's later first LCDC step comes to the same thing there).
 
 After the first four, cBoy's picture was **SameBoy's, pixel for pixel, on 27 of the 31**, and on
 the other four (`m3_wx_4_change`, `m3_wx_5_change`, `m3_wx_6_change`, `m3_wx_4_change_sprites`) it
 differed from SameBoy only by the photographed zero pixel above. The fifth then went past
 SameBoy on the four tile-select pictures.
 
-**5 do not pass, by behaviour:**
+**4 do not pass, and all four are the references no Color can produce:**
 
 - **Can never pass (4):** `m3_wx_4_change`, `m3_wx_5_change`, `m3_wx_6_change`,
   `m3_lcdc_win_en_change_multiple_wx`. Their references hold colours no Color can show (Group 1a
   below). Not to be chased.
-- **An object's height changing mid-fetch with a fine scroll (1):** `m3_lcdc_obj_size_change_scx`,
-  15 pixels on 4 lines, again exactly SameBoy's. See G4 below.
 
 ## The 31 failures, grouped
 

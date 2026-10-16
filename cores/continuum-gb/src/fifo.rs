@@ -509,14 +509,19 @@ impl Ppu {
                 self.fifo.obj_tile = self.oam[usize::from(o.idx) * 4 + 2];
                 self.fifo.obj_flags = self.oam[usize::from(o.idx) * 4 + 3];
             }
+            // The first byte's row address, and LCDC bit 2 with it, is worked out the dot before
+            // the byte is read, as a background bitplane's is; the second byte's is worked out
+            // again on its own read dot. So a height change can land between the two and mix two
+            // rows into one. Measured on the four pictures that change the height mid-fetch: only
+            // this pair passes all four. Both on the read dot (SameBoy's) misses
+            // cgb:m3_lcdc_obj_size_change_scx by SameBoy's 15 pixels, and both a dot early misses
+            // the two Game Boy ones (.kiro/notes/docs/CBOY_EXACT_DRAWER.md).
+            3 => self.fifo.obj_addr = self.obj_row_addr(),
             4 => {
-                self.fifo.obj_addr = self.obj_row_addr();
                 self.fifo.obj_data[0] = self.vram_at(self.fifo.obj_addr);
                 self.fifo.sel_glitch_data = self.fifo.obj_data[0];
             }
             6 => {
-                // The row address is worked out again for the second byte, so LCDC bit 2 can
-                // change the object's height between the two and mix two rows.
                 self.fifo.obj_addr = self.obj_row_addr();
                 self.fifo.obj_data[1] = self.vram_at(self.fifo.obj_addr + 1);
                 self.fifo.sel_glitch_data = self.fifo.obj_data[1];
@@ -787,8 +792,8 @@ impl Ppu {
         if TRACE.load(std::sync::atomic::Ordering::Relaxed) && self.ly < 144 {
             let f = &self.fifo;
             eprintln!(
-                "L FF{reg:02X}={now:02X} line={:3} pos={:4} lcd_x={:3} fetch={} objs={} during_obj={} wx_trig={} bgfifo={} old={before:02X} active={}",
-                self.ly, f.pos as i8, f.lcd_x, f.state, f.objs.len(), u8::from(self.during_object_fetch()), u8::from(f.win), f.bg_len, f.active
+                "L FF{reg:02X}={now:02X} line={:3} pos={:4} lcd_x={:3} fetch={} objs={} during_obj={} wx_trig={} bgfifo={} old={before:02X} active={} obj_step={}",
+                self.ly, f.pos as i8, f.lcd_x, f.state, f.objs.len(), u8::from(self.during_object_fetch()), u8::from(f.win), f.bg_len, f.active, f.obj_step
             );
         }
         #[cfg(not(feature = "trace"))]
