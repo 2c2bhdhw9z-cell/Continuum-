@@ -56,10 +56,10 @@
     },
     {
       "id": "G2",
-      "done": false,
+      "done": true,
       "title": "Where an IO write lands inside its M-cycle (the last black-and-white Mealybug picture)",
       "detail": ".kiro/notes/docs/CBOY_EXACT_DRAWER.md says the last DMG picture's four wrong pixels come from the dot on which a CPU write to an IO register reaches the picture hardware, which lives in bus.rs (yours tonight). Implement the hardware's timing for that, following SameBoy's model of when each register write takes effect relative to the dot, with a one-line comment per rule naming the behaviour. Mealybug must go up or stay the same, never down, and the Standard drawer must not change.",
-      "progress": "Stopped at about 9:10 AM Eastern on 14 October, when the Kiro account ran out of credits. G2 had started: small uncommitted edits to src/bus.rs (+9), src/cpu.rs (+4), src/fifo.rs (+6) and tests/roms.rs (+35), saved as .kiro/notes/wip/cboy-wip-base-eafddae.patch (applies cleanly to master). Never checked green: apply it, run the cBoy gate, and judge it against SameBoy before keeping any of it. The SameBoy reference harness it used (our own harness.c driving SameBoy's core, plus mb.py and show.py for the Mealybug pictures) is in .kiro/notes/wip/tools/sbharness/; it was built against SameBoy v0.15.8, v0.16.7, v1.0.2 and master, cloned with GIT_CONFIG_GLOBAL=/dev/null."
+      "result": "Pushed as 9d08136: every write to a picture register now reaches cBoy's exact drawer on the dot of its M-cycle the console lands it on, as SameBoy's write-conflict table has it (bus.rs landing, with the Color's own row on a Color), the drawer's WRITE_BIAS and WX_LAG are gone and its start is SameBoy's to the dot on every SCX, palette and WX write of the 24 Game Boy tests, the registers themselves still change where they did so the Standard drawer and everything a game can measure are unchanged (same frames, CPU state and save states on 336 runs), the half-finished patch was judged (it held only tracing, kept as the trace feature) and deleted, and Mealybug went 27 -> 44 of 55; the Game Boy picture's four pixels are not write timing (SameBoy given the same write model misses the same four) and are carried into G4."
     },
     {
       "id": "G3",
