@@ -27,6 +27,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::galaxian_sound::{self, GalaxianSound, Mixer};
 use crate::z80::{Bus, Z80};
 
 /// The picture as the player sees it, upright: three rows for each of the raster's dots.
@@ -44,10 +45,12 @@ pub const CYCLES_PER_FRAME: u32 = 384 * 264 / 2;
 const CYCLES_PER_LINE: u64 = 192;
 /// 6.144 MHz / (384 × 264): 60.606 frames a second.
 pub const FPS: f64 = 6_144_000.0 / (384.0 * 264.0);
-/// The sound handed out: 48 kHz, 792 samples a frame.
-pub const SAMPLE_RATE: u32 = 48_000;
-pub const SAMPLES_PER_FRAME: usize =
-    (CYCLES_PER_FRAME as u64 * SAMPLE_RATE as u64 / CPU_HZ as u64) as usize;
+/// The sound circuit runs at 192 kHz (`galaxian_sound`), 16 CPU cycles a sample: 3168 a frame.
+const CYCLES_PER_SAMPLE: u64 = (CPU_HZ / galaxian_sound::RATE) as u64;
+pub const RAW_SAMPLES_PER_FRAME: usize = (CYCLES_PER_FRAME as u64 / CYCLES_PER_SAMPLE) as usize;
+/// The sound handed out: 48 kHz, 792 samples a frame, each the mean of four.
+pub const SAMPLE_RATE: u32 = galaxian_sound::RATE / 4;
+pub const SAMPLES_PER_FRAME: usize = RAW_SAMPLES_PER_FRAME / 4;
 
 /// The star generator's shift register repeats after 2^17 - 1 steps.
 const STAR_PERIOD: u32 = (1 << 17) - 1;
@@ -115,7 +118,7 @@ pub struct SoundLatches {
 }
 
 /// The board's state: what a save state holds besides the Z80.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct Hw {
     variant: Variant,
     ram: Vec<u8>,
@@ -144,6 +147,12 @@ struct Hw {
     coins_locked_now: bool,
     coin_counter: [bool; 2],
     sound: SoundLatches,
+    /// The sound circuit the latches drive.
+    snd: GalaxianSound,
+    /// The latches as they changed this frame, with the cycle of each change: the sound is
+    /// worked out at the end of the frame, each change from the sample after it on.
+    #[serde(skip)]
+    sound_events: Vec<(u64, SoundLatches)>,
     /// VBLANKs left before the watchdog resets the board.
     watchdog: u8,
     ports: Ports,
@@ -212,6 +221,8 @@ pub struct Galaxian {
     raster: Vec<u32>,
     /// The last frame, upright.
     video: Vec<u32>,
+    /// The last frame's sound at 192 kHz, and at 48 kHz.
+    raw: Vec<i16>,
     audio: Vec<i16>,
 }
 
@@ -432,6 +443,11 @@ impl Hw {
             coins_locked_now: false,
             coin_counter: [false; 2],
             sound: SoundLatches::default(),
+            snd: GalaxianSound::new(match variant {
+                Variant::Galaxian => Mixer::Galaxian,
+                Variant::MoonCresta { .. } => Mixer::MoonCresta,
+            }),
+            sound_events: Vec::new(),
             watchdog: 8,
             ports: Ports::default(),
             now: 0,
@@ -608,6 +624,7 @@ impl Galaxian {
             rotation,
             raster: vec![0; RASTER_W * RASTER_H],
             video: vec![0; WIDTH * HEIGHT],
+            raw: Vec::with_capacity(RAW_SAMPLES_PER_FRAME),
             audio: Vec::with_capacity(SAMPLES_PER_FRAME),
         })
     }
@@ -632,6 +649,11 @@ impl Galaxian {
     /// The last frame's sound, mono, 48 kHz (792 samples).
     pub fn audio(&self) -> &[i16] {
         &self.audio
+    }
+
+    /// The last frame's sound as the circuit makes it, 192 kHz (3168 samples).
+    pub fn raw_audio(&self) -> &[i16] {
+        &self.raw
     }
 
     /// The sound latches as they are now.
@@ -685,10 +707,33 @@ impl Galaxian {
         }
         // VBLANK: the beam has drawn the rest of the frame.
         self.draw_until(LAST_LINE);
+        self.make_sound();
         self.hw.frame_start = end;
         self.hw.frames += 1;
         self.turn_upright();
-        self.audio.resize(SAMPLES_PER_FRAME, 0);
+    }
+
+    /// The frame's sound: each latch change applies to the samples that start at or after it.
+    fn make_sound(&mut self) {
+        let events = std::mem::take(&mut self.hw.sound_events);
+        let mut next = events.iter().peekable();
+        self.raw.clear();
+        for n in 0..RAW_SAMPLES_PER_FRAME as u64 {
+            let at = self.hw.frame_start + n * CYCLES_PER_SAMPLE;
+            while let Some(&&(_, l)) = next.peek().filter(|e| e.0 <= at) {
+                self.hw.snd.set_latches(l);
+                next.next();
+            }
+            self.raw.push(galaxian_sound::to_sample(self.hw.snd.step()));
+        }
+        for &(_, l) in next {
+            self.hw.snd.set_latches(l);
+        }
+        self.audio.clear();
+        for four in self.raw.chunks_exact(4) {
+            let sum: i32 = four.iter().map(|&s| i32::from(s)).sum();
+            self.audio.push((sum / 4) as i16);
+        }
     }
 
     /// Runs one instruction (and any interrupt before it), placing its writes in time.
@@ -866,12 +911,17 @@ impl Galaxian {
             Effect::CoinLock => self.hw.coins_locked = !bit,
             Effect::CoinCounter(n) => self.hw.coin_counter[n] = bit,
             Effect::Lfo(n) => {
-                self.hw.sound.lfo = (self.hw.sound.lfo & !(1 << n)) | u8::from(bit) << n
+                self.hw.sound.lfo = (self.hw.sound.lfo & !(1 << n)) | u8::from(bit) << n;
+                self.hw.sound_events.push((at, self.hw.sound));
             }
             Effect::Sound(n) => {
-                self.hw.sound.sound = (self.hw.sound.sound & !(1 << n)) | u8::from(bit) << n
+                self.hw.sound.sound = (self.hw.sound.sound & !(1 << n)) | u8::from(bit) << n;
+                self.hw.sound_events.push((at, self.hw.sound));
             }
-            Effect::Pitch => self.hw.sound.pitch = val,
+            Effect::Pitch => {
+                self.hw.sound.pitch = val;
+                self.hw.sound_events.push((at, self.hw.sound));
+            }
         }
     }
 

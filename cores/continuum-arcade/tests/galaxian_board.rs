@@ -9,6 +9,11 @@
 //! lockout (inputs), and Moon Cresta's board with its graphics bank, plain and with its
 //! scrambled program (mooncrst, mooncrst-encrypted).
 //!
+//! The sound (Galaxian's and Moon Cresta's analogue circuit, approximated) is held to MAME's
+//! recorded measures of the same test program, segment by segment (galaxian/sound.rs): the tone's
+//! frequency and level with each VOL setting closely, the background, HIT and FIRE by level and
+//! spectrum.
+//!
 //! Also: save states round-trip mid-run, and the committed programs are what their sources
 //! assemble to (when the assembler is here; scripts/build-test-programs.sh builds it).
 
@@ -47,6 +52,23 @@ fn every_frame_matches_mames_recorded_run() {
                 bad.len(),
                 case.frames
             )),
+        }
+    }
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+#[test]
+fn the_sound_matches_mames_recorded_measures() {
+    let mut failures = Vec::new();
+    for case in sound::cases() {
+        let want = sound::read_reference(&case);
+        let segs = sound::segments();
+        assert_eq!(want.len(), segs.len(), "{}: the reference has the wrong length", case.name);
+        let ours = sound::run_ours(&case);
+        for (seg, w) in segs.iter().zip(&want) {
+            if let Err(e) = sound::compare(seg, &sound::measure(&ours, seg), w) {
+                failures.push(format!("{}: {e}", case.name));
+            }
         }
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
@@ -169,5 +191,5 @@ fn the_committed_programs_are_what_their_sources_assemble_to() {
             checked += 1;
         }
     }
-    assert!(checked >= 11, "only {checked} programs assembled");
+    assert!(checked >= 13, "only {checked} programs assembled");
 }

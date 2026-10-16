@@ -40,7 +40,7 @@ emulator. Until then an imported arcade game stays in the Library and opens to o
 | `namco_wsg.rs` | Pac-Man's sound chip: three voices playing 32-step waves from the sound PROM (written and proven with the board) |
 | `galaxian.rs` | Namco's Galaxian board and Konami's Scramble variant |
 | `ay8910.rs` | The AY-3-8910, two of them on Konami's sound board (written and proven, see below) |
-| `galaxian_sound.rs` | Galaxian's analogue sound, approximated |
+| `galaxian_sound.rs` | Galaxian's and Moon Cresta's analogue sound, approximated (written, see below) |
 | `dkong.rs` | Nintendo's Donkey Kong board |
 | `mcs48.rs` | The Intel 8035 that plays Donkey Kong's music into a DAC (written and proven, see below) |
 | `dkong_sound.rs` | Donkey Kong's analogue sound effects, approximated |
@@ -280,8 +280,8 @@ Known limits, none of which the tests hit:
 ## The Galaxian board, as proven (item I5, picture and timing)
 
 `src/galaxian.rs`: Namco's Galaxian board and Nichibutsu's Moon Cresta (the same board with its
-memory moved, a graphics bank and, on Nichibutsu's own boards, a scrambled program). Not in the
-app yet: its sound and Konami's variant come first (below).
+memory moved, a graphics bank and, on Nichibutsu's own boards, a scrambled program). Its sound is
+in the next section. Not in the app yet: Konami's variant comes first.
 
 What it does: the Z80 at 3.072 MHz; the 32 × 32 tile layer with each column's own scroll and
 colour; the eight sprites, with the line buffer's clipping and sprites 0-2 a line lower; the
@@ -319,6 +319,55 @@ real effect a test program could see, and the Pac-Man board's tests still pass w
   cycle), and the Z80's clock carries on from there.
 - Switching the NMI off cuts MAME's CPU timeslice right after the write, which moves where the
   next VBLANK falls by a cycle in some frames (`vblank_cycle`).
+
+## Galaxian's sound, approximated (item I5)
+
+`src/galaxian_sound.rs`. **This is an approximation.** Galaxian and Moon Cresta have no sound
+chip: their sound is analogue circuitry on the main board (555 timers, a resistor DAC, a noise
+shift register, op-amp filters), switched by latches the game writes. cArcade simulates how that
+circuit behaves, from the component values on the schematics (as MAME's model of the board lists
+them in `galaxian_a.cpp`), in its own code. It isn't a recording of a real board, and only the
+tone's counters are exact.
+
+- **The tone** (exact): the pitch latch loads counters on the 1.536 MHz sound clock that step a
+  74393 every 256 - pitch clocks (FFh stops them); QA, QC and QD are mixed, QC again through
+  VOL1's 10 kΩ and QD only through VOL2's 15 kΩ.
+- **The background**: the LFO latches drive a four-bit resistor DAC, which sets the current that
+  ramps a 555's 1 µF capacitor (a sawtooth every 1.8 to 13 seconds); an op-amp makes that the
+  control voltage of three 555s (FS1-FS3, held in reset while their latch is 0).
+- **The noise**: a 17-bit shift register (stage 4 XOR the inverse of stage 16) on 12.288 MHz,
+  sampled every two raster lines. MAME runs its generator 100 times slower to save time; cArcade
+  steps it at the board's clock (1,536 steps between samples), which costs nothing with a table.
+- **HIT** (the explosion): the noise switches a capacitor that HIT charges and that decays through
+  172 kΩ, into a band-pass filter around 168 Hz. **FIRE** (the shot): a 47 µF capacitor and the
+  noise sweep a fourth 555, which switches a capacitor FIRE charges.
+- **The mix**: Galaxian's network (5.1 kΩ twice, 10 kΩ load) or Moon Cresta's (one network, 15 kΩ
+  for the background, no load), then the amplifier's coupling capacitor. It runs at 192 kHz and
+  the core hands out the mean of each four samples (48 kHz).
+
+How it's proved, as far as an approximation can be:
+
+- `test-programs/galaxian/sound.inc` (in `sound.asm` on Galaxian's map and `mcsound.asm` on Moon
+  Cresta's) plays the latches in 28 segments: the tone at four pitches with each VOL1/VOL2
+  setting, each background oscillator alone and with LFO bits set, HIT and FIRE and their tails,
+  with quiet between. `tests/galaxian_mame.rs` records MAME 0.289's sound at 192 kHz and compares
+  each segment (`tests/galaxian/sound.rs`):
+  - the tone's strongest frequency within 0.2% of MAME's and of the counters' own arithmetic, and
+    its level within 1% (they agree to 0.2%), which checks VOL1, VOL2 and the mixing resistors;
+  - the background's level within 3% and its spectrum (twelfth-octave bands) at least 0.95 like
+    MAME's (they come out 0.998 or more: the sweep runs in step with MAME's for the whole run);
+  - HIT and FIRE and their tails: level within 10% (they're 1-9% apart) and octave-band spectrum,
+    averaged over short windows, at least 0.98 like MAME's (0.996 or more). Noise can't be compared
+    sample for sample: the two generators are different models of it.
+  - Quiet is under a millivolt in both.
+- MAME's measures are kept in `tests/references/galaxian/sound.txt` and `mcsound.txt`, and
+  `tests/galaxian_board.rs` holds cArcade to them everywhere, without MAME. Planted mistakes (VOL1's
+  resistor 11 kΩ, the counters one clock long, FIRE's 2.2 kΩ as 4.7 kΩ) all fail it.
+- Unit tests: the noise register against a second, stage-by-stage version of the schematic's,
+  its 131,071-clock period and balance, its sampling every 1,536 clocks; the counters' rate at six
+  pitches and FFh holding them; the background ramp's period against its current; that every
+  latch bit (FS1-3, HIT, FIRE, VOL1, VOL2, the pitch and each LFO bit) changes what comes out; that
+  HIT and FIRE die away; and a state round trip.
 
 ## In the app (item I4)
 
