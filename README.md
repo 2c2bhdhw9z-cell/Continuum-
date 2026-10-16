@@ -23,7 +23,7 @@ Games and BIOS files aren't included. You'll need your own.
 | System | Emulator |
 | --- | --- |
 | NES | Mesen, or FCEUmm |
-| SNES | bsnes |
+| SNES | bsnes, or Mesen |
 | Game Boy, Game Boy Color, Game Boy Advance | mGBA, or cBoy |
 | Game Gear | Gearsystem |
 | Mega Drive / Genesis | BlastEm |
@@ -44,6 +44,7 @@ Games and BIOS files aren't included. You'll need your own.
 | Dreamcast | Flycast |
 | Saturn | Yabause, or Beetle Saturn |
 | Sega CD, 32X | BlastEm |
+| Arcade | cArcade (Continuum's own) |
 | Master System, SG-1000 | Gearsystem |
 | Famicom Disk System | FCEUmm, or Mesen |
 | PC Engine CD | Beetle PCE |
@@ -64,9 +65,11 @@ Games and BIOS files aren't included. You'll need your own.
 A few things to know:
 
 - 3DS games have to be decrypted, and there can be a short stutter after a scene change.
-- 32X games need two BIOS files, 32X_M_BIOS.bin and 32X_S_BIOS.bin.
-- Arcade games aren't playable right now. Continuum is getting an arcade emulator of its own, and
-  arcade games you already added stay in your library until then.
+- 32X games don't need a BIOS.
+- Arcade games are zip sets, like pacman.zip. Continuum's own arcade emulator plays Pac-Man and
+  Ms. Pac-Man, Galaxian and Moon Cresta, and Konami's Scramble, Super Cobra, Frogger and Amidar,
+  plus their clones. Other arcade games stay in your library until it can play them.
+  <!-- ARCADE: Donkey Kong pending, the orchestrator fills this in -->
 - GameCube, Wii and Switch aren't supported.
 - Everything runs without JIT, but the heavier systems can be slow. If your setup can turn JIT on
   (with StikDebug or a similar tool), Continuum should pick it up by itself. That part is new and
@@ -87,12 +90,15 @@ A few things to know:
 - Cover art for your library
 - Online play with a second phone (new, so it hasn't had much testing)
 
-## cBoy, Continuum's own emulator
+## Continuum's own emulators
 
-Most systems run on well-known open-source emulators. cBoy is Continuum's own: one emulator for
-Game Boy, Game Boy Color and Game Boy Advance, written from scratch in Rust. It's newer than
-mGBA, so mGBA is still the default, and you can switch to cBoy in Settings. Game Boy games have
-played on it on an iPhone. Advance games on cBoy are still early.
+Most systems run on well-known open-source emulators. Two are Continuum's own, written from
+scratch in Rust:
+
+- **cBoy**: one emulator for Game Boy, Game Boy Color and Game Boy Advance. It's newer than mGBA,
+  so mGBA is still the default, and you can switch to cBoy in Settings. Game Boy games have played
+  on it on an iPhone. Advance games on cBoy are still early.
+- **cArcade**: the arcade emulator. It's brand new, so arcade games haven't had much testing yet.
 
 ## Adding games
 
@@ -133,6 +139,7 @@ the source code to stay public.
 - [crates/emulator-bridge](crates/emulator-bridge): the engine, in Rust. It runs the emulators
   as libretro cores
 - [cores/continuum-gb](cores/continuum-gb): cBoy
+- [cores/continuum-arcade](cores/continuum-arcade): cArcade
 
 The app is built by GitHub Actions, and every new build is published on the
 [Releases](https://github.com/2c2bhdhw9z-cell/Continuum-/releases) page.
