@@ -325,6 +325,19 @@ fn mesen_starts_snes_homebrew_and_hands_over_work_ram() {
         let regions = bridge.search_regions();
         assert_eq!(regions.len(), 1);
         assert_eq!((regions[0].key.as_str(), regions[0].size), ("system", 0x2_0000));
+
+        // The buttons reach the game: the 240p suite's menu sits still until Down moves its
+        // highlight to the next line.
+        if name == "240pSuite.sfc" {
+            let picture = |bridge: &EmulatorBridge| core(bridge).video().unwrap().data.to_vec();
+            let before = picture(&bridge);
+            bridge.step_headless_for_test(30).unwrap();
+            assert_eq!(picture(&bridge), before, "the menu sits still with no button pressed");
+            tap(&mut bridge, Button::Down, 4);
+            bridge.step_headless_for_test(10).unwrap();
+            assert_ne!(picture(&bridge), before, "Down moved the menu's highlight");
+            keep_frame(&bridge, "mesen2-240pSuite-after-down");
+        }
     }
 }
 
