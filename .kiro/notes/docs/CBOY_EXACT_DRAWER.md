@@ -18,18 +18,19 @@ owner should read is the last section.
 | cgb-acid2 | pass | pass |
 | Mooneye DMG acceptance | 87 / 87 | 87 / 87 |
 | Mooneye Color | 7 / 7 runs | 7 / 7 runs |
-| Mealybug Tearoom | not applicable | **44 / 55** |
+| Mealybug Tearoom | not applicable | **45 / 55** |
 
-**23 of the 24 DMG pictures**, and 21 of the 31 Color ones. The DMG picture that still fails is
+**23 of the 24 DMG pictures**, and 22 of the 31 Color ones. The DMG picture that still fails is
 `m3_lcdc_bg_en_change`, and it is **four pixels** away: one pixel on each of four lines, all of
 them x=0, all of them on the eight lines where that test places a sprite at X=2. The Color half
 went from 1 to 4 when a Color drew a black-and-white game in the colours its start-up code picks
 (`compat.rs`, evening of 13 October), and from 4 to 21 when each picture-register write started
 landing on the dot the Color lands it (`bus.rs::landing`, 16 October; "How a register write
-reaches the drawer" below). Four of the Color pictures that are left can never reach zero at all
-(Group 1a); Group 1 below has the rest by name.
+reaches the drawer" below), and to 22 when the drawer did what a Color's hardware does in Game
+Boy mode too ("The Color half, mapped" below, which has every Color picture by name). Four of the
+Color pictures that are left can never reach zero at all (Group 1a).
 
-`tests/roms.rs::MEALYBUG_PASSING` pins all 44 by name: a change that drops one of them is wrong,
+`tests/roms.rs::MEALYBUG_PASSING` pins all 45 by name: a change that drops one of them is wrong,
 whatever else it fixes.
 
 The Mooneye gate reads 87 rather than the 86 this file quotes further down. Nothing in this work
@@ -408,6 +409,72 @@ Mooneye's Color set to 7 of 7 runs with `vblank_stat_intr-C` in the gate. Anythi
 file that says the flag is dead is out of date; the live flag is what makes the six Color pictures
 in Group 1 step 2 reachable.
 
+## The Color half, mapped (16 October)
+
+Thirty-one of the 55 pictures were photographed on a Color (CPU CGB C) playing these
+black-and-white cartridges. With the Color's write landing in (above), every one of the 31 was
+run, compared with the reference **and with SameBoy's own picture of the same ROM**
+(`scripts/sameboy/compare-pictures.py`; SameBoy itself gets 21 of the 31), and grouped by the
+hardware behaviour it probes.
+
+**22 pass.** `m2_win_en_toggle`, `m3_bgp_change`, `m3_bgp_change_sprites`,
+`m3_lcdc_bg_en_change`, `m3_lcdc_bg_en_change2`, `m3_lcdc_bg_map_change`,
+`m3_lcdc_bg_map_change2`, `m3_lcdc_obj_en_change`, `m3_lcdc_obj_en_change_variant`,
+`m3_lcdc_obj_size_change`, `m3_lcdc_win_en_change_multiple`, `m3_lcdc_win_map_change`,
+`m3_lcdc_win_map_change2`, `m3_obp0_change`, `m3_scx_high_5_bits`, `m3_scx_high_5_bits_change2`,
+`m3_scx_low_3_bits`, `m3_scy_change`, `m3_scy_change2`, `m3_window_timing`,
+`m3_window_timing_wx_0`, `m3_wx_4_change_sprites`.
+
+How they got there, group by group, each group one commit:
+
+1. **The compatibility palette** (13 October, `compat.rs`): 1 → 4.
+2. **When each write lands, on a Color** (16 October, `bus.rs::landing`, G2): 4 → 21. The
+   Color takes a palette write whole a dot before the end of the M-cycle with no old-OR-new dot,
+   LCDC, SCX and SCY at the end, and WX a dot into the next M-cycle. Before this the drawer chose
+   its staging by the cartridge's mode, so a Color running a Game Boy cartridge landed every
+   write like a Game Boy. This group alone fixed the palette pictures, the LCDC bit pictures, the
+   window-timing pair (the "one pixel per line" the old map below describes was this) and SCY.
+3. **What the Color's hardware does whichever mode it is in** (16 October, `fifo.rs`, G3): 21 →
+   22. SameBoy keys each of these off the console (`GB_is_cgb`), and the drawer had been keying
+   them off the cartridge's mode, so a Color in Game Boy mode behaved like a Game Boy. They are
+   now `colour_console()`: the background fetch reading the position a dot early except during
+   an object fetch (the one that fixed `m3_scx_high_5_bits_change2`), the tile attribute read
+   with the tile number, the WX fetch glitch, objects fetched even with objects switched off
+   (and the X 0 hold that goes with it), the window's start rules (WX 166 is an ordinary start,
+   no one-pixel-late start, no extra dot for WX 0 with a fine scroll, no WX 166 carry into the
+   next line), no colour-0 pixel for a window switched off at WX, and no object-fetch abort when
+   objects are switched off. What stays on the mode, as in SameBoy: the palettes (`BGP` and the
+   compatibility colours), background enable as a priority switch rather than a blank, the
+   object palette number, VRAM bank 1 for objects, and object priority by OAM index.
+   **One deliberate exception:** the colour-0 pixel the window hands the LCD when WX lands on it
+   again while it is running. SameBoy leaves it out on every Color but for WX 0, and doing the
+   same costs `m3_wx_4_change_sprites` exactly SameBoy's 10 pixels; the reference for CPU CGB C,
+   the one for CPU CGB D, and the photo of the real CPU CGB C screen (`photos/CPU CGB C`, looked
+   at) all show those pixels. So a Color in Game Boy mode keeps it; a Color in colour mode, which
+   nothing photographs, keeps SameBoy's rule.
+4. **The tile-select glitch on a Color** (16 October, `fifo.rs::bitplane_read`, G3): no picture
+   yet, but 1,141 pixels fewer wrong. Clearing LCDC bit 4 on the very dot of a bitplane read
+   makes a Color (CPU CGB C and earlier) read the tile number instead, for a tile in the half of
+   tile memory only the set position reaches (the Mealybug PPU documentation; SameBoy's
+   `data_for_tile_sel_glitch`). `m3_lcdc_tile_sel_change` went 520 → 8 pixels,
+   `m3_lcdc_tile_sel_win_change` 260 → 8, `m3_lcdc_tile_sel_change2` 408 → 186 and
+   `m3_lcdc_tile_sel_win_change2` 401 → 179: exactly SameBoy's counts, pixel for pixel.
+
+After all four, cBoy's picture is **SameBoy's, pixel for pixel, on 27 of the 31**; on the other
+four (`m3_wx_4_change`, `m3_wx_5_change`, `m3_wx_6_change`, `m3_wx_4_change_sprites`) it differs
+from SameBoy only by the photographed zero pixel above.
+
+**9 do not pass, by behaviour:**
+
+- **Can never pass (4):** `m3_wx_4_change`, `m3_wx_5_change`, `m3_wx_6_change`,
+  `m3_lcdc_win_en_change_multiple_wx`. Their references hold colours no Color can show (Group 1a
+  below). Not to be chased.
+- **The tile-select glitch's other two sources (4):** `m3_lcdc_tile_sel_change` (8 pixels, one
+  line), `m3_lcdc_tile_sel_win_change` (8, one line), `m3_lcdc_tile_sel_change2` (186 on 14),
+  `m3_lcdc_tile_sel_win_change2` (179 on 14). SameBoy misses each by the same pixels. See G4 below.
+- **An object's height changing mid-fetch with a fine scroll (1):** `m3_lcdc_obj_size_change_scx`,
+  15 pixels on 4 lines, again exactly SameBoy's. See G4 below.
+
 ## The 31 failures, grouped
 
 Counts are differing pixels as the report prints them.
@@ -671,7 +738,13 @@ right edge for edge and all five differences left are the Color's.
    which nothing in the material to hand explains. Looked at twice now, from the register-write
    side and from the object side, with the same answer both times. Worth one look by someone who
    has a DMG and a logic analyser; not worth another session's guessing.
-6. **Two window edges left alone on purpose**, both written down here so nobody has to rediscover
+6. **Mode 3's length on a Color in Game Boy mode with objects switched off.** The drawer now
+   fetches the line's objects anyway, as a Color does (SameBoy), but `ppu.rs::mode3_length` still
+   charges nothing for them unless the cartridge is in colour mode. That length is what STAT and
+   HBlank run on for both drawers, so changing it would change the Standard drawer's timing and
+   what a game can measure; no test measures it (Mooneye's Color set has no such ROM, and every
+   Mealybug picture that switches objects off passes), so it was left and is written down here.
+7. **Two window edges left alone on purpose**, both written down here so nobody has to rediscover
    them:
    - On the Color, a window started by `WX` = 166 also makes STAT report mode 0 for the rest of
      that dot, which can fire a spare HBlank interrupt. That is STAT timing rather than drawing,

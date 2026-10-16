@@ -110,6 +110,11 @@ pub(super) struct Fifo {
     win_carry: bool,
     /// The Color: WX matched the position mid-fetch, so a read is skipped and a byte repeats.
     wx_glitch: bool,
+    /// The tile set the last bitplane address was worked out in (LCDC bit 4 then), and the last
+    /// byte a Color's bitplane read glitches to when tile select is cleared on a read dot
+    /// (`tile_sel_glitch_data`). The byte outlives the line, so it is carried over.
+    last_tileset: bool,
+    sel_glitch_data: u8,
     /// One colour-0 pixel is handed to the LCD instead of the FIFO's next.
     insert_blank: bool,
     /// The window was switched off while its own first fetch ran, so its colour-0 pixel is
@@ -134,6 +139,7 @@ impl Ppu {
     pub(super) fn fifo_start(&mut self) {
         let f = &mut self.fifo;
         let carry = f.win_carry;
+        let sel_glitch_data = f.sel_glitch_data;
         let (mut objs, row, shade, source) =
             (std::mem::take(&mut f.objs), std::mem::take(&mut f.row), std::mem::take(&mut f.shade), std::mem::take(&mut f.source));
         objs.clear();
@@ -144,6 +150,7 @@ impl Ppu {
         f.active = true;
         f.pos = START;
         f.state = B_A;
+        f.sel_glitch_data = sel_glitch_data;
         // WX 166 on a DMG left the window running as the line before ended, so this line starts
         // with it already active, and with its first tile counted as fetched back then.
         f.win = carry;
@@ -308,7 +315,7 @@ impl Ppu {
     /// The Color: WX reached the PPU's position part-way through a fetch, which makes the fetch
     /// skip a read and repeat the byte it already has.
     fn update_wx_glitch(&mut self) {
-        if !self.cgb {
+        if !self.colour_console() {
             return;
         }
         if self.lcdc_seen() & 0x20 == 0 || !self.wy_hit {
@@ -343,7 +350,7 @@ impl Ppu {
                     self.scx_seen() >> 3
                 } else {
                     // The Color reads the position one dot earlier, except during an object fetch.
-                    let early = u16::from(self.cgb && !self.fifo.obj_fetch);
+                    let early = u16::from(self.colour_console() && !self.fifo.obj_fetch);
                     ((u16::from(self.scx_seen()) + u16::from(self.fifo.pos) + 8 - early) / 8) as u8
                 };
                 self.fifo.tile_addr = map + u16::from(x & 31) + u16::from(y / 8) * 32;
@@ -353,7 +360,7 @@ impl Ppu {
                 if !self.fifo.wx_glitch {
                     self.fifo.tile = self.vram_at(self.fifo.tile_addr);
                     // The Color reads the tile number and its attribute byte on the same dot.
-                    if self.cgb {
+                    if self.colour_console() {
                         self.fifo.attr = self.vram_at(0x2000 + self.fifo.tile_addr);
                     }
                 }
@@ -365,7 +372,8 @@ impl Ppu {
                 let y = self.fetcher_y();
                 // LCDC bit 4 (tile data select) is sampled on both bitplane address dots, so a
                 // write between them takes one bitplane from each of two tile sets.
-                let mut addr = if self.lcdc_seen() & 0x10 != 0 {
+                self.fifo.last_tileset = self.lcdc_seen() & 0x10 != 0;
+                let mut addr = if self.fifo.last_tileset {
                     u16::from(self.fifo.tile) * 16
                 } else {
                     (0x1000i32 + i32::from(self.fifo.tile as i8) * 16) as u16
@@ -381,7 +389,7 @@ impl Ppu {
                 if self.fifo.wx_glitch {
                     self.fifo.data[0] = self.fifo.data[1];
                 } else {
-                    self.fifo.data[0] = self.vram_at(self.fifo.data_addr);
+                    self.fifo.data[0] = self.bitplane_read();
                 }
                 self.fifo.state += 1;
             }
@@ -390,7 +398,7 @@ impl Ppu {
                 if glitch {
                     self.fifo.data[1] = self.fifo.data[0];
                 } else {
-                    self.fifo.data[1] = self.vram_at(self.fifo.data_addr);
+                    self.fifo.data[1] = self.bitplane_read();
                 }
                 // The window's tile counter advances on the last read of the fetch.
                 if self.fifo.win {
@@ -406,6 +414,32 @@ impl Ppu {
         }
     }
 
+    /// A bitplane read. On a Color (CPU CGB C and earlier), clearing tile select on the very dot
+    /// of the read hands the fetcher the tile number instead of the bitplane, unless the tile
+    /// lies in the half of tile memory both settings share (Mealybug's PPU documentation;
+    /// SameBoy's `data_for_tile_sel_glitch`). Clearing it again from cleared, which a write
+    /// cannot do, would read the last bitplane byte fetched (`sel_glitch_data`).
+    fn bitplane_read(&mut self) -> u8 {
+        let read = self.vram_at(self.fifo.data_addr);
+        let high = self.fifo.state == HI_R;
+        if !self.landed.tile_sel_glitch {
+            if high {
+                self.fifo.sel_glitch_data = read;
+            }
+            return read;
+        }
+        let glitched = if self.fifo.last_tileset {
+            (self.fifo.tile & 0x80 == 0).then_some(self.fifo.tile)
+        } else {
+            Some(self.fifo.sel_glitch_data)
+        };
+        if self.fifo.last_tileset || (high && glitched.is_none()) {
+            // The read still happens, and it is what the next glitch would see.
+            self.fifo.sel_glitch_data = read;
+        }
+        glitched.unwrap_or(read)
+    }
+
     /// The fetcher's push: eight pixels enter the background FIFO, but only once it is empty.
     fn push_dot(&mut self) {
         if self.fifo.bg_len > 0 {
@@ -413,7 +447,7 @@ impl Ppu {
         }
         // A DMG with the WY match made but the window switched off puts a single colour-0 pixel
         // into the FIFO when WX lands on the position: the window's start without its tiles.
-        if !self.cgb && self.wy_hit && self.lcdc_seen() & 0x20 == 0 && !self.fifo.no_blank {
+        if !self.colour_console() && self.wy_hit && self.lcdc_seen() & 0x20 == 0 && !self.fifo.no_blank {
             let logical = self.fifo.pos.wrapping_add(7);
             let logical = if logical > 167 { 0 } else { logical };
             if self.wx_seen() == logical {
@@ -476,6 +510,7 @@ impl Ppu {
                 // change the object's height between the two and mix two rows.
                 self.fifo.obj_addr = self.obj_row_addr();
                 self.fifo.obj_data[1] = self.vram_at(self.fifo.obj_addr + 1);
+                self.fifo.sel_glitch_data = self.fifo.obj_data[1];
                 self.obj_overlay();
                 self.fifo.obj_fetch = false;
                 self.fifo.obj_step = 0;
@@ -529,10 +564,10 @@ impl Ppu {
                 // WX 0 starts the window as the line's discard ends, a dot later when the low
                 // bits of SCX dropped a pixel.
                 start = pos == 0xF9 || (pos == START && self.scx_seen() & 7 != 0) || (0xF1..=FIRST).contains(&pos);
-            } else if u16::from(self.wx_seen()) < 166 + u16::from(self.cgb) {
+            } else if u16::from(self.wx_seen()) < 166 + u16::from(self.colour_console()) {
                 if self.wx_seen() == pos.wrapping_add(7) {
                     start = true;
-                } else if !self.cgb && self.wx_seen() == pos.wrapping_add(6) && !self.landed.wx_fresh {
+                } else if !self.colour_console() && self.wx_seen() == pos.wrapping_add(6) && !self.landed.wx_fresh {
                     // A DMG also starts the window a pixel late, which is how it starts at all
                     // when the fine-scroll jump skipped the pixel WX names, or when the window
                     // was switched off on that pixel. Not on the dot WX itself was written.
@@ -549,15 +584,18 @@ impl Ppu {
                 // The fetcher restarts and the FIFO is thrown away: a whole tile fetch of dots.
                 self.fifo.state = B_A;
                 self.fifo.bg_len = 0;
-                extra = self.wx_seen() == 0 && self.scx_seen() & 7 != 0 && !self.cgb;
-            } else if !self.cgb && self.wx_seen() == 166 && self.wx_seen() == pos.wrapping_add(7) {
+                extra = self.wx_seen() == 0 && self.scx_seen() & 7 != 0 && !self.colour_console();
+            } else if !self.colour_console() && self.wx_seen() == 166 && self.wx_seen() == pos.wrapping_add(7) {
                 // WX 166 is one past the last position a DMG's window can start at, but the row
                 // counter still advances on the dot the position reaches it.
                 self.window_line = self.window_line.wrapping_add(1);
             }
         }
         // While the window runs, WX landing on the position again hands the LCD one colour-0
-        // pixel and holds the FIFO back a dot.
+        // pixel and holds the FIFO back a dot. A Color does it too in Game Boy mode: the photos
+        // of m3_wx_4_change_sprites on CPU CGB C and D show the pixel, where SameBoy leaves it out
+        // on every Color but for WX 0. Nothing photographs a Color in colour mode doing this, so
+        // that keeps SameBoy's rule.
         if self.wx_seen() == self.fifo.pos.wrapping_add(7)
             && (!self.cgb || self.wx_seen() == 0)
             && self.fifo.win
@@ -573,7 +611,7 @@ impl Ppu {
     /// Hands one pixel to the LCD, if there is one to hand over.
     fn render_pixel(&mut self) {
         // An object still waiting at X 0 holds everything, the line's discard included.
-        if (self.lcdc_seen() & 0x02 != 0 || self.cgb) && self.fifo.objs.last().is_some_and(|o| o.x == 0) {
+        if (self.lcdc_seen() & 0x02 != 0 || self.colour_console()) && self.fifo.objs.last().is_some_and(|o| o.x == 0) {
             return;
         }
         if self.fifo.bg_len == 0 {
@@ -672,7 +710,7 @@ impl Ppu {
         while self.fifo.objs.last().is_some_and(|o| o.x < self.obj_match_x()) {
             self.fifo.objs.pop();
         }
-        if (self.lcdc_seen() & 0x02 != 0 || self.cgb) && self.fifo.objs.last().is_some_and(|o| o.x == self.obj_match_x()) {
+        if (self.lcdc_seen() & 0x02 != 0 || self.colour_console()) && self.fifo.objs.last().is_some_and(|o| o.x == self.obj_match_x()) {
             self.fifo.obj_fetch = true;
             self.fifo.obj_step = 0;
             self.obj_fetch_dot();
@@ -710,7 +748,7 @@ impl Ppu {
         // WX 166 on a DMG starts the window during HBlank, where the position is briefly 160
         // again: the next line begins with the window already running, from its second tile
         // (the first counts as fetched here) and on a further row.
-        self.fifo.win_carry = !self.cgb && self.wy_hit && self.lcdc_seen() & 0x20 != 0 && self.wx_seen() == 166;
+        self.fifo.win_carry = !self.colour_console() && self.wy_hit && self.lcdc_seen() & 0x20 != 0 && self.wx_seen() == 166;
         if self.fifo.win_carry {
             self.window_line = self.window_line.wrapping_add(1);
         }
@@ -750,5 +788,42 @@ impl Ppu {
 
     pub fn write_bgp(&mut self, v: u8) {
         self.bgp = v;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Runs the exact drawer on line 0 of a Color in Game Boy mode until the fetcher is about to
+    /// read the line's first bitplane 0 (the address worked out with tile select set), lands
+    /// a write clearing tile select there, and returns the byte the read gave.
+    fn read_with_tile_select_cleared(tile: u8, glitch: bool) -> u8 {
+        let mut p = Ppu { exact: true, cgb_hardware: true, lcdc: 0x80 | 0x10 | 0x01, ..Ppu::default() };
+        p.vram[0x1800..0x1C00].fill(tile);
+        // Every bitplane byte in tile memory is $AA, so the tile number stands out.
+        p.vram[..0x1800].fill(0xAA);
+        for _ in 0..456 {
+            if p.fifo.active && p.fifo.state == LO_R {
+                break;
+            }
+            p.tick();
+        }
+        assert_eq!(p.fifo.state, LO_R, "the line's first bitplane read is next");
+        if glitch {
+            p.land(0x40, Land::TileSelOff(0x80 | 0x01));
+        }
+        p.tick();
+        p.fifo.data[0]
+    }
+
+    /// On a Color, clearing tile select on the very dot of a bitplane read hands the fetcher the
+    /// tile number instead, for a tile in the half of tile memory only tile select's set position
+    /// reaches; otherwise the read is the read.
+    #[test]
+    fn a_colour_reads_the_tile_number_when_tile_select_is_cleared_on_the_read() {
+        assert_eq!(read_with_tile_select_cleared(0x15, false), 0xAA);
+        assert_eq!(read_with_tile_select_cleared(0x15, true), 0x15, "the tile number");
+        assert_eq!(read_with_tile_select_cleared(0x95, true), 0xAA, "a tile both settings share");
     }
 }

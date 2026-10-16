@@ -825,10 +825,11 @@ fn mealybug_report() {
 /// change that drops one of these is wrong, whatever else it fixes. All 24 DMG pictures are here
 /// bar `m3_lcdc_bg_en_change`, which is four pixels away (see .kiro/notes/docs/CBOY_EXACT_DRAWER.md).
 ///
-/// So are 21 of the 31 Color pictures. These ROMs are Game Boy cartridges, so a Color console
+/// So are 22 of the 31 Color pictures. These ROMs are Game Boy cartridges, so a Color console
 /// runs them in Game Boy mode, in the colours its start-up code picks for a cartridge that is not
-/// Nintendo's (compat.rs), and with the Color's own timing for when a write to a picture register
-/// lands (`Bus::landing`), which is what took the Color half from 4 to 21.
+/// Nintendo's (compat.rs), with the Color's own timing for when a write to a picture register
+/// lands (`Bus::landing`), which took the Color half from 4 to 21, and with the drawer doing
+/// what the Color's hardware does whichever mode it is in (`colour_console` in fifo.rs).
 const MEALYBUG_PASSING: &[&str] = &[
     "cgb:m2_win_en_toggle",
     "cgb:m3_bgp_change",
@@ -845,6 +846,7 @@ const MEALYBUG_PASSING: &[&str] = &[
     "cgb:m3_lcdc_win_map_change2",
     "cgb:m3_obp0_change",
     "cgb:m3_scx_high_5_bits",
+    "cgb:m3_scx_high_5_bits_change2",
     "cgb:m3_scx_low_3_bits",
     "cgb:m3_scy_change",
     "cgb:m3_scy_change2",
