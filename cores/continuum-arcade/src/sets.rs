@@ -10,6 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::dkong;
 use crate::galaxian;
 use crate::pacman::{self, Variant};
 use crate::zip::Zip;
@@ -21,6 +22,8 @@ pub enum Board {
     /// The Galaxian family: the board variant, which way its monitor is turned, and the bits of
     /// IN2 that read the protection chip (Scramble's and The End's), as MAME's port lists say.
     Galaxian(galaxian::Variant, galaxian::Rotation, u8),
+    /// Donkey Kong's board or Donkey Kong Jr.'s.
+    Dkong(dkong::Variant),
 }
 
 /// What an input bit is, on a set whose inputs are generated from MAME's port lists.
@@ -156,11 +159,14 @@ fn headline(board: Board) -> &'static str {
         Board::Galaxian(G::Konami(Konami::Frogger), ..) => "Frogger",
         Board::Galaxian(G::Konami(Konami::Turtles), ..) => "Amidar",
         Board::Galaxian(G::Konami(_), ..) => "Scramble",
+        Board::Dkong(dkong::Variant::DonkeyKong) => "Donkey Kong",
+        Board::Dkong(dkong::Variant::DonkeyKongJr) => "Donkey Kong Jr.",
     }
 }
 
 /// The order the boards are named in.
-const HEADLINES: &[&str] = &["Pac-Man, Ms. Pac-Man", "Galaxian", "Scramble", "Frogger", "Amidar", "Donkey Kong"];
+const HEADLINES: &[&str] =
+    &["Pac-Man, Ms. Pac-Man", "Galaxian", "Scramble", "Frogger", "Amidar", "Donkey Kong", "Donkey Kong Jr."];
 
 /// What a player reads when cArcade doesn't know a game, built from the boards it plays.
 pub fn plays_now() -> String {
@@ -488,6 +494,13 @@ impl Found {
         }
     }
 
+    /// The Donkey Kong board's ROMs: maincpu, soundcpu (Donkey Kong's program twice and its tune
+    /// ROM, or Jr.'s program), gfx1 (the tiles), gfx2 (the sprites) and proms, as MAME lays them out.
+    pub fn dkong_roms(&self, regions: &[Vec<u8>]) -> dkong::Roms {
+        let get = |tag: &str| self.region(regions, tag).to_vec();
+        dkong::Roms { program: get("maincpu"), sound: get("soundcpu"), tiles: get("gfx1"), sprites: get("gfx2"), proms: get("proms") }
+    }
+
     /// The Pac-Man board's ROMs, from the regions as MAME's sets lay them out: maincpu, gfx1
     /// (tiles then sprites), proms (the palette, then the colour lookup at 20h) and namco (the
     /// sound PROM).
@@ -550,6 +563,7 @@ mod tests {
                 Board::Pacman(_) => &["maincpu", "gfx1", "proms", "namco"],
                 Board::Galaxian(galaxian::Variant::Konami(_), ..) => &["maincpu", "gfx1", "proms", "audiocpu"],
                 Board::Galaxian(..) => &["maincpu", "gfx1", "proms"],
+                Board::Dkong(_) => &["maincpu", "soundcpu", "gfx1", "gfx2", "proms"],
             };
             for t in needs {
                 assert!(tags.contains(t), "{} has no {t}", s.name);
@@ -569,7 +583,7 @@ mod tests {
     fn the_known_boards_are_named_to_the_player() {
         assert_eq!(
             Refusal::Unknown.line(),
-            "Our arcade emulator can\u{2019}t play this one yet. Right now it plays Pac-Man, Ms. Pac-Man, Galaxian, Scramble, Frogger, Amidar and games on the same boards."
+            "Our arcade emulator can\u{2019}t play this one yet. Right now it plays Pac-Man, Ms. Pac-Man, Galaxian, Scramble, Frogger, Amidar, Donkey Kong, Donkey Kong Jr. and games on the same boards."
         );
         assert_eq!(
             Refusal::NeedsParent { parent: "mspacman".into() }.line(),

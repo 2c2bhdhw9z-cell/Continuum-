@@ -2,6 +2,7 @@
 //! switches, hand over the picture (upright, 0x00RRGGBB) and the sound (mono, 48 kHz), and save
 //! and restore its state. One implementation per board; `Image` builds one from a recognised set.
 
+use crate::dkong::{self, Dkong};
 use crate::galaxian::{self, Galaxian};
 use crate::pacman::{self, Pacman, Ports, Variant};
 use crate::sets::{Board, Control, Found, SetSpec};
@@ -94,6 +95,7 @@ impl FourWay {
 pub enum Image {
     Pacman(Variant, pacman::Roms),
     Galaxian(galaxian::Variant, galaxian::Rotation, galaxian::Roms, &'static SetSpec),
+    Dkong(dkong::Variant, dkong::Roms, &'static SetSpec),
 }
 
 /// The Galaxian family's picture as the core hands it out: the board's 224 x 768 (three dots a
@@ -108,6 +110,7 @@ impl Image {
             Board::Galaxian(v, r, protection) => {
                 Image::Galaxian(v, r, found.galaxian_roms(&regions, protection), found.spec)
             }
+            Board::Dkong(v) => Image::Dkong(v, found.dkong_roms(&regions), found.spec),
         })
     }
 
@@ -120,6 +123,7 @@ impl Image {
                 set,
                 picture: vec![0; galaxian::WIDTH * GALAXIAN_HEIGHT],
             })),
+            Image::Dkong(v, roms, set) => Ok(Box::new(DkongBoard { board: Dkong::new(*v, roms)?, set })),
         }
     }
 
@@ -128,6 +132,7 @@ impl Image {
         match self {
             Image::Pacman(..) => (pacman::WIDTH, pacman::HEIGHT),
             Image::Galaxian(..) => (galaxian::WIDTH, GALAXIAN_HEIGHT),
+            Image::Dkong(..) => (dkong::WIDTH, dkong::HEIGHT),
         }
     }
 }
@@ -140,30 +145,37 @@ pub struct GalaxianBoard {
     picture: Vec<u32>,
 }
 
+/// A generated set's four ports for these controls and switches: each control sets or clears the
+/// bit MAME's port list gives it.
+pub fn generated_ports(set: &SetSpec, controls: &Controls, switches: &Switches) -> [u8; 4] {
+    let mut p = switches.ports;
+    for bit in set.inputs {
+        let pl = |n: u8| &controls.players[usize::from(n).min(1)];
+        let pressed = match bit.control {
+            Control::Up(n) => pl(n).up,
+            Control::Down(n) => pl(n).down,
+            Control::Left(n) => pl(n).left,
+            Control::Right(n) => pl(n).right,
+            Control::Button(n, b) => pl(n).buttons.get(usize::from(b)).copied().unwrap_or(false),
+            Control::Coin(n) => pl(n).coin,
+            Control::Start(n) => pl(n).start,
+        };
+        if pressed {
+            let r = &mut p[usize::from(bit.port)];
+            if bit.active_high {
+                *r |= bit.mask;
+            } else {
+                *r &= !bit.mask;
+            }
+        }
+    }
+    p
+}
+
 impl GalaxianBoard {
     /// The ports for these controls and switches.
     pub fn ports(set: &SetSpec, controls: &Controls, switches: &Switches) -> galaxian::Ports {
-        let mut p = switches.ports;
-        for bit in set.inputs {
-            let pl = |n: u8| &controls.players[usize::from(n).min(1)];
-            let pressed = match bit.control {
-                Control::Up(n) => pl(n).up,
-                Control::Down(n) => pl(n).down,
-                Control::Left(n) => pl(n).left,
-                Control::Right(n) => pl(n).right,
-                Control::Button(n, b) => pl(n).buttons.get(usize::from(b)).copied().unwrap_or(false),
-                Control::Coin(n) => pl(n).coin,
-                Control::Start(n) => pl(n).start,
-            };
-            if pressed {
-                let r = &mut p[usize::from(bit.port)];
-                if bit.active_high {
-                    *r |= bit.mask;
-                } else {
-                    *r &= !bit.mask;
-                }
-            }
-        }
+        let p = generated_ports(set, controls, switches);
         galaxian::Ports { in0: p[0], in1: p[1], in2: p[2], in3: p[3] }
     }
 }
@@ -216,6 +228,52 @@ impl Machine for GalaxianBoard {
         self.board.load_state(data)?;
         galaxian_picture(self.board.video(), &mut self.picture);
         Ok(())
+    }
+}
+
+/// The Donkey Kong board in its cabinet: the controls go to IN0, IN1 and IN2 as MAME's port list
+/// wires them (all active high), the switches to DSW0. The picture is already upright, 224 x 256.
+pub struct DkongBoard {
+    pub board: Dkong,
+    set: &'static SetSpec,
+}
+
+impl DkongBoard {
+    /// The ports for these controls and switches.
+    pub fn ports(set: &SetSpec, controls: &Controls, switches: &Switches) -> dkong::Ports {
+        let p = generated_ports(set, controls, switches);
+        dkong::Ports { in0: p[0], in1: p[1], in2: p[2], dsw0: p[3] }
+    }
+}
+
+impl Machine for DkongBoard {
+    fn run_frame(&mut self, controls: &Controls, switches: &Switches) {
+        self.board.set_ports(Self::ports(self.set, controls, switches));
+        self.board.run_frame();
+    }
+
+    fn picture(&self) -> (&[u32], usize, usize) {
+        (self.board.video(), dkong::WIDTH, dkong::HEIGHT)
+    }
+
+    fn sound(&self) -> &[i16] {
+        self.board.audio()
+    }
+
+    fn frames_per_second(&self) -> f64 {
+        dkong::FPS
+    }
+
+    fn four_way(&self) -> bool {
+        self.set.four_way
+    }
+
+    fn save_state(&self) -> Vec<u8> {
+        self.board.save_state()
+    }
+
+    fn load_state(&mut self, data: &[u8]) -> Result<(), String> {
+        self.board.load_state(data)
     }
 }
 
@@ -294,6 +352,24 @@ mod tests {
         c.players[0].up = true;
         let p = GalaxianBoard::ports(scramble, &c, &rest(scramble));
         assert_eq!((p.in0, p.in1, p.in2), (0xF7, 0xBC, 0xE1));
+        // Donkey Kong: the stick and jump in IN0 (IN1 for the cocktail side), start and coin in
+        // IN2, the switches in DSW0, all active high.
+        for name in ["dkong", "dkongjr"] {
+            let dk = crate::sets::find(name).unwrap();
+            let mut c = Controls::default();
+            c.players[0].right = true;
+            c.players[0].buttons[0] = true;
+            c.players[0].coin = true;
+            c.players[1].up = true;
+            c.players[1].start = true;
+            let p = DkongBoard::ports(dk, &c, &rest(dk));
+            assert_eq!((p.in0, p.in1, p.in2, p.dsw0), (0x11, 0x04, 0xC8, 0x80), "{name}");
+            c.players[0] = Player { left: true, down: true, start: true, ..Player::default() };
+            c.players[1] = Player { down: true, buttons: [true; 6], ..Player::default() };
+            let p = DkongBoard::ports(dk, &c, &rest(dk));
+            assert_eq!((p.in0, p.in1, p.in2, p.dsw0), (0x0A, 0x18, 0x44, 0x80), "{name}");
+            assert!(dk.four_way, "{name}");
+        }
     }
 
     #[test]

@@ -417,7 +417,7 @@ mod tests {
                     ("IN0", _) => 0,
                     ("IN1", _) => 1,
                     ("DSW1", false) | ("IN2", true) => 2,
-                    ("IN3", true) => 3,
+                    ("IN3", true) | ("DSW0", true) => 3,
                     (other, _) => panic!("{}: a switch in {other}", set.name),
                 };
                 assert_eq!(s.ports[i] & mask, value, "{}: {port}", set.name);

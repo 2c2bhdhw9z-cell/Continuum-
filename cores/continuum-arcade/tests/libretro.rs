@@ -397,7 +397,7 @@ fn a_game_it_cant_play_is_one_plain_sentence() {
         assert!(!load(&p), "{name} loaded");
         last_log_line()
     };
-    let plays = "Our arcade emulator can\u{2019}t play this one yet. Right now it plays Pac-Man, Ms. Pac-Man, Galaxian, Scramble, Frogger, Amidar and games on the same boards.";
+    let plays = "Our arcade emulator can\u{2019}t play this one yet. Right now it plays Pac-Man, Ms. Pac-Man, Galaxian, Scramble, Frogger, Amidar, Donkey Kong, Donkey Kong Jr. and games on the same boards.";
     assert_eq!(refuse("sf2.zip", &[("sf2_30a.bin".into(), vec![1; 4096])]), plays);
     assert_eq!(refuse("my game.zip", &[]), plays);
     let mut short = files(&case("video"));

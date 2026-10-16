@@ -1040,7 +1040,9 @@ const CARCADE_SETS: &[&str] = &[
     "theendss", "scramble", "scrambles", "scrambles2", "strfbomb", "scramblebf", "scrambp",
     "spctrek", "scramce", "scrampt", "scramrf", "offensiv", "scramblebb", "kamikazesp", "bomber",
     "spcmission", "scobra", "scobrase", "scobras", "scobrab", "suprheli", "armorcar", "armorcar2",
-    "tazmania", "spdcoin",
+    "tazmania", "spdcoin", "dkong", "dkonghrd", "dkongo", "dkongj", "dkongjo", "dkongjo1",
+    "dkongf", "dkongpe", "dkongjr", "dkongjr2", "dkongjrj", "dkongjnrj", "dkongjrb", "dkongjre",
+    "dkongjrpb",
 ];
 
 /// Extensions that only ever name a playable ROM or disc entry inside an archive.
