@@ -41,6 +41,10 @@ mod input_glue;
 #[cfg(all(test, feature = "native-core"))]
 #[path = "cores/blastem_host_tests.rs"]
 mod blastem_host_tests;
+/// Opt-in tests of host builds of Mesen 2 and bsnes playing SNES games (`MESEN2_SO`, `BSNES_SO`).
+#[cfg(all(test, feature = "native-core"))]
+#[path = "cores/snes_host_tests.rs"]
+mod snes_host_tests;
 
 /// Video frames of audio to buffer. Three is the usual compromise between
 /// robustness against a slow tick and audible input-to-sound latency.
@@ -1930,8 +1934,9 @@ impl EmulatorBridge {
             self.write_memory(crate::memory::MEMORY_SAVE_RAM, 0, &live)?;
             return Ok(size);
         }
-        // Padding another emulator added past the end of the save RAM (0xFF, or 0x00 for bsnes).
-        let data = battery_layout::fit_padded(data, size, &core_id);
+        // Padding another emulator added past the end of the save RAM (0xFF, or 0x00 for an SNES
+        // game).
+        let data = battery_layout::fit_padded(data, size, &core_id, &ext);
         // A Game Boy save written by mGBA or VBA for a cart with a clock (MBC3, e.g. Pokemon
         // Gold) carries the clock after the RAM. A core that keeps the clock elsewhere (cBoy) has
         // save RAM of exactly the cart's size, so the RAM part is taken and the clock footer left

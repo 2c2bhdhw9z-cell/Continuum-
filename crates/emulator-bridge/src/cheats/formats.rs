@@ -36,6 +36,10 @@ const fn reads(kinds: &'static str) -> CodeSupport {
     }
 }
 
+/// The SNES codes bsnes reads, and Mesen 2 on an SNES game (the Continuum patch,
+/// scripts/patches/mesen2-snes-memory-cheats-saves.patch, takes the same spellings).
+const SNES_CODES: CodeSupport = reads("Game Genie, Pro Action Replay, or a raw address:value like 7E0019:02");
+
 /// The answer for one core id. Unknown cores read codes, kinds not checked: the safe default, since
 /// saying "this emulator ignores codes" about one that does not would be the worse mistake.
 pub fn code_support(core_id: &str) -> CodeSupport {
@@ -43,7 +47,7 @@ pub fn code_support(core_id: &str) -> CodeSupport {
         "fceumm" | "mesen2" => {
             reads("Game Genie, Pro Action Rocky, or a raw address:value like 0075:09")
         }
-        "bsnes" => reads("Game Genie, Pro Action Replay, or a raw address:value like 7E0019:02"),
+        "bsnes" => SNES_CODES,
         "mgba" => reads(
             "GameShark, Action Replay or CodeBreaker on the GBA; GameShark or Game Genie on the \
              Game Boy",
@@ -66,6 +70,16 @@ pub fn code_support(core_id: &str) -> CodeSupport {
         "azahar" | "flycast" | "stella2023" | "mednafen_pce" | "mednafen_vb" | "puae"
         | "vice_x64sc" | "handy" | "a5200" | "pokemini" | "yabause" => IGNORES,
         _ => reads(""),
+    }
+}
+
+/// The answer for one core playing one system (the engine's system id, "snes"). Mesen 2 plays the
+/// NES and the SNES and reads each one's own codes; every other core reads the same kinds
+/// whatever it plays, so this is [`code_support`] for them.
+pub fn code_support_on(core_id: &str, system: &str) -> CodeSupport {
+    match (core_id, system) {
+        ("mesen2", "snes") => SNES_CODES,
+        _ => code_support(core_id),
     }
 }
 
@@ -286,6 +300,17 @@ mod tests {
         assert!(code_support("pcsx_rearmed").kinds.contains("GameShark"));
         assert!(code_support("melonds").kinds.contains("Action Replay"));
         assert!(code_support("ppsspp").kinds.contains("CWCheat"));
+    }
+
+    #[test]
+    fn mesen_names_the_snes_codes_on_an_snes_game_and_the_nes_ones_on_an_nes_game() {
+        assert_eq!(code_support_on("mesen2", "snes"), code_support("bsnes"));
+        assert!(code_support_on("mesen2", "snes").kinds.contains("7E0019:02"));
+        assert_eq!(code_support_on("mesen2", "nes"), code_support("mesen2"));
+        assert_eq!(code_support_on("mesen2", "fds"), code_support("mesen2"));
+        assert_eq!(code_support_on("mesen2", ""), code_support("mesen2"));
+        assert_eq!(code_support_on("bsnes", "snes"), code_support("bsnes"));
+        assert_eq!(code_support_on("mgba", "gb"), code_support("mgba"));
     }
 
     #[test]

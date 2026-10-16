@@ -1448,7 +1448,7 @@ struct OpenSourceCreditsList: View {
 
     static let credits: [Credit] = [
         .init(name: "bsnes", systems: "SNES", license: "GPL v3", source: "https://github.com/libretro/bsnes-libretro"),
-        .init(name: "Mesen 2", systems: "NES", license: "GPL v3", source: "https://github.com/libretro/MesenCE"),
+        .init(name: "Mesen 2", systems: "NES, SNES", license: "GPL v3", source: "https://github.com/libretro/MesenCE"),
         .init(name: "FCEUmm", systems: "NES, Famicom Disk System", license: "GPL v2", source: "https://github.com/libretro/libretro-fceumm"),
         .init(name: "Gearsystem", systems: "Master System, Game Gear, SG-1000", license: "GPL v3", source: "https://github.com/drhelius/Gearsystem"),
         .init(name: "BlastEm", systems: "Mega Drive, Sega CD, 32X", license: "GPL v3", source: "https://github.com/libretro/blastem"),

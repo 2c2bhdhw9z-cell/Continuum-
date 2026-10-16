@@ -4,8 +4,9 @@
 //! the way out (`battery_save`), so the file on disk keeps one layout whichever core plays it.
 //!
 //! - **Padding.** A file longer than the save RAM whose extra bytes are all `0xFF` (a 64 KB
-//!   `.srm` written before a game's first frame, a RetroArch file) is cut to size. For
-//!   bsnes an all-`0x00` tail is cut as well, the padding other SNES emulators write.
+//!   `.srm` written before a game's first frame, a RetroArch file) is cut to size. For an
+//!   SNES game (on bsnes or Mesen 2) an all-`0x00` tail is cut as well, the padding other SNES
+//!   emulators write.
 //! - **Mega Drive cartridge SRAM on BlastEm.** Every Mega Drive save made before the licence swap
 //!   is in the GPGX layout: a 64 KB window indexed by the 68K address, `a & 0xFFFF`.
 //!   BlastEm keeps only the bytes the cartridge really has: odd bytes, even bytes, or 16-bit
@@ -244,13 +245,17 @@ pub fn live_to_gpgx(live: &[u8], sram: &MdSram) -> Vec<u8> {
 }
 
 /// `data` cut to `size` when everything past `size` is padding: `0xFF` for any core, or `0x00`
-/// for bsnes. Anything else comes back unchanged, so the caller's size rules still apply.
-pub fn fit_padded<'a>(data: &'a [u8], size: usize, core_id: &str) -> &'a [u8] {
+/// for an SNES game (bsnes, or Mesen 2 playing a file with an SNES extension `ext`, which shares
+/// that game's `.srm` with bsnes). Anything else comes back unchanged, so the caller's size rules
+/// still apply.
+pub fn fit_padded<'a>(data: &'a [u8], size: usize, core_id: &str, ext: &str) -> &'a [u8] {
     if data.len() <= size || size == 0 {
         return data;
     }
+    let snes = core_id == "bsnes"
+        || (core_id == "mesen2" && matches!(ext.to_ascii_lowercase().as_str(), "sfc" | "smc" | "swc" | "fig"));
     let tail = &data[size..];
-    if tail.iter().all(|b| *b == 0xFF) || (core_id == "bsnes" && tail.iter().all(|b| *b == 0x00)) {
+    if tail.iter().all(|b| *b == 0xFF) || (snes && tail.iter().all(|b| *b == 0x00)) {
         &data[..size]
     } else {
         data
@@ -560,16 +565,20 @@ mod tests {
         // C1: a 64 KB file with an all-FF tail into 32 KB.
         let mut file = vec![0x11u8; 0x8000];
         file.extend_from_slice(&[0xFF; 0x8000]);
-        assert_eq!(fit_padded(&file, 0x8000, "gearsystem").len(), 0x8000);
+        assert_eq!(fit_padded(&file, 0x8000, "gearsystem", "sms").len(), 0x8000);
         file[0x9000] = 0x00;
-        assert_eq!(fit_padded(&file, 0x8000, "gearsystem").len(), 0x10000);
-        // C2: a zero tail is padding for bsnes only.
+        assert_eq!(fit_padded(&file, 0x8000, "gearsystem", "sms").len(), 0x10000);
+        // C2: a zero tail is padding for an SNES game only: bsnes, or Mesen 2 on an SNES file.
         let mut zeros = vec![0x11u8; 0x2000];
         zeros.extend_from_slice(&[0x00; 0x2000]);
-        assert_eq!(fit_padded(&zeros, 0x2000, "bsnes").len(), 0x2000);
-        assert_eq!(fit_padded(&zeros, 0x2000, "mesen2").len(), 0x4000);
+        assert_eq!(fit_padded(&zeros, 0x2000, "bsnes", "sfc").len(), 0x2000);
+        assert_eq!(fit_padded(&zeros, 0x2000, "mesen2", "nes").len(), 0x4000);
+        for ext in ["sfc", "SMC", "swc", "fig"] {
+            assert_eq!(fit_padded(&zeros, 0x2000, "mesen2", ext).len(), 0x2000, "{ext}");
+        }
+        assert_eq!(fit_padded(&zeros, 0x2000, "fceumm", "sfc").len(), 0x4000);
         // Shorter or equal: untouched.
-        assert_eq!(fit_padded(&[1, 2], 8, "bsnes"), &[1, 2]);
+        assert_eq!(fit_padded(&[1, 2], 8, "bsnes", "sfc"), &[1, 2]);
     }
 
     #[test]
@@ -607,5 +616,8 @@ mod tests {
         );
         assert!(migration_candidates("blastem", "md", "Sonic.md", dir).is_empty());
         assert!(migration_candidates("bsnes", "sfc", "a.sfc", dir).is_empty());
+        // Mesen 2 never kept an SNES save of its own in the app: it plays SNES games only since
+        // the Continuum patch that hands their battery RAM to the app.
+        assert!(migration_candidates("mesen2", "sfc", "a.sfc", dir).is_empty());
     }
 }

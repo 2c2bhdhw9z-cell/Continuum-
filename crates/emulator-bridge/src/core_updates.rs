@@ -48,7 +48,7 @@ const fn core(core_id: &'static str, build: &'static str, console: &'static str,
 pub const CORE_BUILDS: &[CoreBuild] = &[
     // Built from source (scripts/build-core.sh ios-pins).
     core("fceumm", "ac0d00a7fc01166f84c7bac01d1084ebfd2b865e", "NES", "FCEUmm"),
-    core("mesen2", "4c4e069f16a8ad6ed79e046046c56d51558c7daf", "NES", "Mesen"),
+    core("mesen2", "4c4e069f16a8ad6ed79e046046c56d51558c7daf", "NES and SNES", "Mesen"),
     core("mgba", "7a12d6d4b9acb14c0ae62c9166b6a2f3d08007f6", "Game Boy", "mGBA"),
     core("bsnes", "05439f96121d2b9d7ad7a5fc1f29d7eebdcc8c43", "SNES", "bsnes"),
     core("gearsystem", "4a801d223ce687e68165d750a0fdda4bd8bc0a7e", "Master System and Game Gear", "Gearsystem"),

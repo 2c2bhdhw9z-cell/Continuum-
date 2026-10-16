@@ -175,19 +175,25 @@ enum CoreCatalog {
     )
 
     /// NES and Famicom Disk System on Mesen 2 (libretro/MesenCE, built here by scripts/build-core.sh
-    /// with Continuum's patch: the app keeps the in-game save, and achievements, cheats and RAM
+    /// with Continuum's patches: the app keeps the in-game save, and achievements, cheats and RAM
     /// search reach its memory). The DEFAULT NES core since build 153 because it is far more
     /// accurate: AccuracyCoin.nes, run headless on the Linux build of the same core,
-    /// passes 142 of 146 tests, against 86 of 146 for FCEUmm on the owner's phone. No JIT. The
-    /// same dylib also carries other systems; only NES and FDS are routed to it. Its save states
-    /// are its own: the app already refuses a state written by another core (FCEUmm).
+    /// passes 142 of 146 tests, against 86 of 146 for FCEUmm on the owner's phone. No JIT.
+    /// Also the SECOND SNES core (bsnes stays the default): the SNES patch gives SNES games the
+    /// same three things (the app keeps the `.srm`, the same file bsnes keeps; work RAM for RAM
+    /// search and achievements; typed Game Genie and Pro Action Replay codes). On the Linux build
+    /// it ran SNES homebrew at about 60-70% of bsnes's speed with the fast paths the app gives
+    /// bsnes, and about twice as fast as bsnes's accurate ones. The same dylib carries other
+    /// systems too; only NES, FDS and SNES are routed to it. Its save states are its own: the app
+    /// already refuses a state written by another core (FCEUmm, bsnes). The max geometry is the
+    /// SNES's hi-res picture, which the core itself reports as 512x480.
     static let mesen2 = CoreSpec(
         coreId: "mesen2",
-        displayName: "Mesen (NES)",
-        systems: ["nes", "fds"],
+        displayName: "Mesen (NES, SNES)",
+        systems: ["nes", "fds", "snes"],
         library: "mesen2_libretro_ios.dylib",
         width: 256, height: 240,
-        maxWidth: 256, maxHeight: 240,
+        maxWidth: 512, maxHeight: 480,
         aspectRatio: 1.2195,
         fps: 60.0988,
         sampleRate: 48000,
@@ -1065,6 +1071,7 @@ enum CoreCatalog {
         .ps1: [pcsxReARMed.coreId, mednafenPsxHw.coreId],
         .nes: [mesen2.coreId, fceumm.coreId],
         .fds: [fceumm.coreId, mesen2.coreId],
+        .snes: [bsnes.coreId, mesen2.coreId],
         .saturn: [yabause.coreId, mednafenSaturn.coreId],
         .gb: [mgba.coreId, continuumGb.coreId],
         .gbc: [mgba.coreId, continuumGb.coreId],
@@ -1994,7 +2001,8 @@ final class EngineHost: ObservableObject {
         UserDefaults.standard.set(coreId, forKey: CoreCatalog.coreChoiceKey(for: system))
         coreChoiceVersion &+= 1
         FeedbackCenter.step("core choice: \(system.rawValue) -> \(coreId)")
-        let name = CoreCatalog.core(id: coreId)?.displayName ?? coreId
+        // "Mesen", not "Mesen (NES, SNES)": the line already names the system.
+        let name = SaveStates.shortCoreName(coreId)
         status = "\(system.displayName) games now launch on \(name), from the next launch"
     }
 
@@ -2018,7 +2026,7 @@ final class EngineHost: ObservableObject {
             UserDefaults.standard.set(coreId, forKey: key)
         }
         coreChoiceVersion &+= 1
-        let name = coreId.isEmpty ? "the Settings choice" : (CoreCatalog.core(id: coreId)?.displayName ?? coreId)
+        let name = coreId.isEmpty ? "the Settings choice" : SaveStates.shortCoreName(coreId)
         status = "\(entry.name) now launches on \(name), from the next launch"
         FeedbackCenter.step("core choice: \(entry.name) -> \(coreId.isEmpty ? "system default" : coreId)")
     }
@@ -5252,6 +5260,11 @@ final class EngineHost: ObservableObject {
             } else {
                 aspect = 10.0 / 9.0
             }
+        }
+        // Mesen is one core for the NES and the SNES too: its spec carries the NES's shape, and an
+        // SNES game on it gets the 4:3 bsnes gives every SNES game (the Mesen patch reports 4:3).
+        if spec.coreId == CoreCatalog.mesen2.coreId, activeSystem == .snes {
+            aspect = CoreCatalog.bsnes.aspectRatio
         }
         // A quarter turn (SET_ROTATION or the rotate action) stands the picture on its side.
         if engine.screenRotation() % 2 == 1 {

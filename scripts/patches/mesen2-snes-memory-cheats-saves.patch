@@ -1,0 +1,310 @@
+diff --git a/Core/SNES/BaseCartridge.cpp b/Core/SNES/BaseCartridge.cpp
+index 9362bbc4..5b3a8964 100644
+--- a/Core/SNES/BaseCartridge.cpp
++++ b/Core/SNES/BaseCartridge.cpp
+@@ -381,9 +381,37 @@ CartFlags::CartFlags BaseCartridge::GetCartFlags()
+ 	return _flags;
+ }
+ 
+-void BaseCartridge::LoadBattery()
++//Continuum: the RAM Mesen keeps as this game's .srm, which the frontend saves instead when it owns
++//the battery save. The same choice LoadBattery and SaveBattery make: a chip that keeps the game's
++//save in RAM of its own writes the .srm after the cartridge RAM, so its RAM is what the file holds.
++ConsoleMemoryInfo BaseCartridge::ContinuumBatteryRam()
+ {
++	if(_coprocessor && _hasBattery) {
++		switch(_coprocessorType) {
++			case CoprocessorType::GSU: return _emu->GetMemory(MemoryType::GsuWorkRam);
++			case CoprocessorType::ST010:
++			case CoprocessorType::ST011: return _emu->GetMemory(MemoryType::DspDataRam);
++			case CoprocessorType::SA1:
++				if(_saveRamSize == 0) {
++					return _emu->GetMemory(MemoryType::Sa1InternalRam);
++				}
++				break;
++			default: break;
++		}
++	}
++	ConsoleMemoryInfo ram = {};
+ 	if(_saveRamSize > 0) {
++		ram.Memory = _saveRam;
++		ram.Size = _saveRamSize;
++	}
++	return ram;
++}
++
++void BaseCartridge::LoadBattery()
++{
++	//Continuum: the frontend restores the .srm itself when it owns the battery save (the cartridge
++	//RAM here, and the chips' own .srm below); clocks and memory packs keep their files.
++	if(_saveRamSize > 0 && !BatteryManager::FrontendOwnsSaveRam()) {
+ 		_emu->GetBatteryManager()->LoadBattery(".srm", _saveRam, _saveRamSize);
+ 	}
+ 
+@@ -398,7 +426,7 @@ void BaseCartridge::LoadBattery()
+ 
+ void BaseCartridge::SaveBattery()
+ {
+-	if(_saveRamSize > 0) {
++	if(_saveRamSize > 0 && !BatteryManager::FrontendOwnsSaveRam()) {
+ 		_emu->GetBatteryManager()->SaveBattery(".srm", _saveRam, _saveRamSize);
+ 	}
+ 
+diff --git a/Core/SNES/BaseCartridge.h b/Core/SNES/BaseCartridge.h
+index ee9ebadd..fc566201 100644
+--- a/Core/SNES/BaseCartridge.h
++++ b/Core/SNES/BaseCartridge.h
+@@ -22,6 +22,7 @@ class SnesConsole;
+ class Emulator;
+ class SpcFileData;
+ class SufamiTurbo;
++struct ConsoleMemoryInfo;
+ enum class ConsoleRegion;
+ enum class RamState;
+ 
+@@ -110,6 +111,9 @@ public:
+ 
+ 	void SaveBattery();
+ 
++	//Continuum: the battery RAM the frontend keeps as this game's save when it owns it.
++	ConsoleMemoryInfo ContinuumBatteryRam();
++
+ 	void Init(MemoryMappings& mm);
+ 
+ 	SnesCartInformation GetHeader();
+diff --git a/Core/SNES/Coprocessors/DSP/NecDsp.cpp b/Core/SNES/Coprocessors/DSP/NecDsp.cpp
+index 2000f232..ac43eb64 100644
+--- a/Core/SNES/Coprocessors/DSP/NecDsp.cpp
++++ b/Core/SNES/Coprocessors/DSP/NecDsp.cpp
+@@ -123,14 +123,15 @@ void NecDsp::Reset()
+ 
+ void NecDsp::LoadBattery()
+ {
+-	if(_type == CoprocessorType::ST010 || _type == CoprocessorType::ST011) {
++	//Continuum: the frontend keeps this RAM as the game's save when it owns the battery save.
++	if((_type == CoprocessorType::ST010 || _type == CoprocessorType::ST011) && !BatteryManager::FrontendOwnsSaveRam()) {
+ 		_emu->GetBatteryManager()->LoadBattery(".srm", (uint8_t*)_ram, _ramSize * sizeof(uint16_t));
+ 	}
+ }
+ 
+ void NecDsp::SaveBattery()
+ {
+-	if(_type == CoprocessorType::ST010 || _type == CoprocessorType::ST011) {
++	if((_type == CoprocessorType::ST010 || _type == CoprocessorType::ST011) && !BatteryManager::FrontendOwnsSaveRam()) {
+ 		_emu->GetBatteryManager()->SaveBattery(".srm", (uint8_t*)_ram, _ramSize * sizeof(uint16_t));
+ 	}
+ }
+diff --git a/Core/SNES/Coprocessors/GSU/Gsu.cpp b/Core/SNES/Coprocessors/GSU/Gsu.cpp
+index 39049660..1526b177 100644
+--- a/Core/SNES/Coprocessors/GSU/Gsu.cpp
++++ b/Core/SNES/Coprocessors/GSU/Gsu.cpp
+@@ -691,11 +691,14 @@ void Gsu::Serialize(Serializer& s)
+ 
+ void Gsu::LoadBattery()
+ {
++	//Continuum: the frontend keeps this RAM as the game's save when it owns the battery save.
++	if(BatteryManager::FrontendOwnsSaveRam()) return;
+ 	_emu->GetBatteryManager()->LoadBattery(".srm", (uint8_t*)_gsuRam, _gsuRamSize);
+ }
+ 
+ void Gsu::SaveBattery()
+ {
++	if(BatteryManager::FrontendOwnsSaveRam()) return;
+ 	_emu->GetBatteryManager()->SaveBattery(".srm", (uint8_t*)_gsuRam, _gsuRamSize);
+ }
+ 
+diff --git a/Core/SNES/Coprocessors/SA1/Sa1.cpp b/Core/SNES/Coprocessors/SA1/Sa1.cpp
+index e22f5822..ed2026c7 100644
+--- a/Core/SNES/Coprocessors/SA1/Sa1.cpp
++++ b/Core/SNES/Coprocessors/SA1/Sa1.cpp
+@@ -911,7 +911,8 @@ MemoryMappings* Sa1::GetMemoryMappings()
+ 
+ void Sa1::LoadBattery()
+ {
+-	if(_cpuBwRamHandlers.empty()) {
++	//Continuum: the frontend keeps this RAM as the game's save when it owns the battery save.
++	if(_cpuBwRamHandlers.empty() && !BatteryManager::FrontendOwnsSaveRam()) {
+ 		//When there is no actual save RAM and the battery flag is set, IRAM is backed up instead
+ 		//Used by Pachi-Slot Monogatari - PAL Kougyou Special
+ 		_emu->GetBatteryManager()->LoadBattery(".srm", _iRam, Sa1::InternalRamSize);
+@@ -920,7 +921,7 @@ void Sa1::LoadBattery()
+ 
+ void Sa1::SaveBattery()
+ {
+-	if(_cpuBwRamHandlers.empty()) {
++	if(_cpuBwRamHandlers.empty() && !BatteryManager::FrontendOwnsSaveRam()) {
+ 		_emu->GetBatteryManager()->SaveBattery(".srm", _iRam, Sa1::InternalRamSize);
+ 	}
+ }
+diff --git a/Core/Shared/BatteryManager.h b/Core/Shared/BatteryManager.h
+index d3d5a743..ec4a8da6 100644
+--- a/Core/Shared/BatteryManager.h
++++ b/Core/Shared/BatteryManager.h
+@@ -26,7 +26,8 @@ private:
+ 
+ public:
+ 	// Continuum: set by the libretro glue when the frontend keeps the cartridge's battery RAM
+-	// itself (through RETRO_MEMORY_SAVE_RAM), so the NES mapper skips its own .sav for it.
++	// itself (through RETRO_MEMORY_SAVE_RAM), so the NES mapper skips its own .sav for it, and
++	// the SNES cartridge and its chips their own .srm.
+ 	static bool& FrontendOwnsSaveRamFlag() { static bool owns = false; return owns; }
+ 	static void SetFrontendOwnsSaveRam(bool owns) { FrontendOwnsSaveRamFlag() = owns; }
+ 	static bool FrontendOwnsSaveRam() { return FrontendOwnsSaveRamFlag(); }
+diff --git a/Libretro/libretro.cpp b/Libretro/libretro.cpp
+index c1f30811..14ef6fad 100644
+--- a/Libretro/libretro.cpp
++++ b/Libretro/libretro.cpp
+@@ -27,6 +27,7 @@
+ 
+ #include "../Core/NES/NesConsole.h"
+ #include "../Core/SNES/SnesConsole.h"
++#include "../Core/SNES/BaseCartridge.h"
+ #include "../Core/Gameboy/Gameboy.h"
+ #include "../Core/GBA/GbaConsole.h"
+ #include "../Core/PCE/PceConsole.h"
+@@ -1632,7 +1633,9 @@ void libretro_probe_inputs(const char* tag)
+ 				std::unique_ptr<BaseVideoFilter> filter(_emu->GetVideoFilter());
+ 				FrameInfo baseSize = { frame.Width, frame.Height };
+ 				filter->SetBaseFrameInfo(baseSize);
+-				FrameInfo outInfo = filter->SendFrame((uint16_t*)frame.FrameBuffer, _emu->GetFrameCount(), _emu->GetFrameCount() & 0x01, nullptr, false);
++				// Continuum: an SNES frame goes out without its overscan (retro_load_game sets it).
++				bool continuumOverscan = consoleIf->GetConsoleType() == ConsoleType::Snes;
++				FrameInfo outInfo = filter->SendFrame((uint16_t*)frame.FrameBuffer, _emu->GetFrameCount(), _emu->GetFrameCount() & 0x01, nullptr, continuumOverscan);
+ 
+ 				uint32_t* src = filter->GetOutputBuffer();
+ 				// Ensure we have valid output before displaying
+@@ -1773,6 +1776,35 @@ void libretro_probe_inputs(const char* tag)
+ 		return true;
+ 	}
+ 
++	// Continuum: SNES memory, cheats and battery for the frontend.
++	// An SNES part is a Game Genie code (XXXX-XXXX) or a Pro Action Replay code, the address and
++	// then the value, written AAAAAAVV or AAAAAA:VV (or AAAAAA=VV), the spellings bsnes takes.
++	static bool continuum_parse_snes_cheat_part(string part, CheatCode& out)
++	{
++		static const string hex = "0123456789ABCDEF";
++		auto all_in = [](const string& s, const string& set) {
++			return !s.empty() && s.find_first_not_of(set) == string::npos;
++		};
++		std::transform(part.begin(), part.end(), part.begin(), ::toupper);
++		string text;
++		memset(&out, 0, sizeof(out));
++		if(part.size() == 9 && part[4] == '-' && all_in(part.substr(0, 4), hex) && all_in(part.substr(5, 4), hex)) {
++			out.Type = CheatType::SnesGameGenie;
++			text = part;
++		} else if(part.size() == 8 && all_in(part, hex)) {
++			out.Type = CheatType::SnesProActionReplay;
++			text = part;
++		} else if(part.size() == 9 && (part[6] == ':' || part[6] == '=') && all_in(part.substr(0, 6), hex) &&
++		          all_in(part.substr(7, 2), hex)) {
++			out.Type = CheatType::SnesProActionReplay;
++			text = part.substr(0, 6) + part.substr(7, 2);
++		} else {
++			return false;
++		}
++		strncpy(out.Code, text.c_str(), sizeof(out.Code) - 1);
++		return true;
++	}
++
+ 	static void continuum_apply_cheats()
+ 	{
+ 		if(!_emu || !_emu->GetCheatManager()) return;
+@@ -1795,9 +1827,14 @@ void libretro_probe_inputs(const char* tag)
+ 
+ 	RETRO_API void retro_cheat_set(unsigned index, bool enabled, const char *codeStr)
+ 	{
+-		if(!_emu || !_emu->GetConsole() || _emu->GetConsole()->GetConsoleType() != ConsoleType::Nes || !codeStr) {
++		if(!_emu || !_emu->GetConsole() || !codeStr) {
++			return;
++		}
++		ConsoleType console = _emu->GetConsole()->GetConsoleType();
++		if(console != ConsoleType::Nes && console != ConsoleType::Snes) {
+ 			return;
+ 		}
++		auto parse = console == ConsoleType::Snes ? continuum_parse_snes_cheat_part : continuum_parse_nes_cheat_part;
+ 		if(index >= 4096) return;
+ 		if(_continuumCheats.size() <= index) {
+ 			_continuumCheats.resize(index + 1);
+@@ -1810,7 +1847,7 @@ void libretro_probe_inputs(const char* tag)
+ 				part.erase(std::remove_if(part.begin(), part.end(), ::isspace), part.end());
+ 				if(part.empty()) continue;
+ 				CheatCode code;
+-				if(!continuum_parse_nes_cheat_part(part, code)) {
++				if(!parse(part, code)) {
+ 					//One bad part makes the whole code do nothing, as on FCEUmm.
+ 					codes.clear();
+ 					break;
+@@ -2429,6 +2466,11 @@ void libretro_probe_inputs(const char* tag)
+ 				case ConsoleType::Snes: {
+ 					SnesConfig cfg = _emu->GetSettings()->GetSnesConfig();
+ 					cfg.HighResBlendMode = SnesHighResBlendMode::None;
++					// Continuum: the 224 lines a game draws, as bsnes shows them, rather than
++					// Mesen's 239-line frame with 7 blank lines above them and 8 below
++					// (retro_run sends SNES frames with this taken off).
++					cfg.Overscan.Top = 7;
++					cfg.Overscan.Bottom = 8;
+ 					_emu->GetSettings()->SetSnesConfig(cfg);
+ 					break;
+ 				}
+@@ -2907,6 +2949,14 @@ void libretro_probe_inputs(const char* tag)
+ 		// Apply HD scale to final dimensions
+ 		width *= hscale;
+ 		height *= vscale;
++
++		// Continuum: an SNES game's picture is the frame retro_run sends, Mesen's 256x239 with
++		// its overscan taken off: 256x224. A hi-res frame is twice that and arrives at its size.
++		if(_console && _console->GetConsoleType() == ConsoleType::Snes) {
++			OverscanDimensions overscan = _emu->GetSettings()->GetOverscan();
++			width = 256 - overscan.Left - overscan.Right;
++			height = 239 - overscan.Top - overscan.Bottom;
++		}
+ 		
+ 		info->geometry.base_width = width;
+ 		info->geometry.base_height = height;
+@@ -2918,7 +2968,8 @@ void libretro_probe_inputs(const char* tag)
+ 			ConsoleType type = _console->GetConsoleType();
+ 			switch(type) {
+ 				case ConsoleType::Nes: system_ar = 1.306; break;
+-				case ConsoleType::Snes: system_ar = 64.0f / 49.0f; break;
++				// Continuum: 4:3, the shape the app gives every SNES game (bsnes too).
++				case ConsoleType::Snes: system_ar = 4.0f / 3.0f; break;
+ 				case ConsoleType::Gameboy: system_ar = 10.0f / 9.0f; break;
+ 				case ConsoleType::Gba: system_ar = 3.0f / 2.0f; break;
+ 				case ConsoleType::PcEngine: system_ar = 4.0f / 3.0f; break;
+@@ -2953,15 +3004,34 @@ void libretro_probe_inputs(const char* tag)
+ 		return none;
+ 	}
+ 
++	// Continuum: the SNES's 128 KB work RAM ($7E0000-$7FFFFF) and the battery RAM Mesen would keep
++	// as the game's .srm (BaseCartridge::ContinuumBatteryRam), the same two bsnes hands over. No
++	// memory map: RetroAchievements reads SNES cartridge RAM from SAVE_RAM, which a map would hide.
++	static ConsoleMemoryInfo continuum_memory(unsigned id)
++	{
++		ConsoleMemoryInfo none = {};
++		if(!_emu || !_emu->GetConsole() || _emu->GetConsole()->GetConsoleType() != ConsoleType::Snes) {
++			return continuum_nes_memory(id);
++		}
++		switch(id) {
++			case RETRO_MEMORY_SAVE_RAM: {
++				auto snes = std::dynamic_pointer_cast<SnesConsole>(_emu->GetConsole());
++				return snes && snes->GetCartridge() ? snes->GetCartridge()->ContinuumBatteryRam() : none;
++			}
++			case RETRO_MEMORY_SYSTEM_RAM: return _emu->GetMemory(MemoryType::SnesWorkRam);
++		}
++		return none;
++	}
++
+ 	RETRO_API void *retro_get_memory_data(unsigned id)
+ 	{
+-		ConsoleMemoryInfo m = continuum_nes_memory(id);
++		ConsoleMemoryInfo m = continuum_memory(id);
+ 		return m.Size ? m.Memory : nullptr;
+ 	}
+ 
+ 	RETRO_API size_t retro_get_memory_size(unsigned id)
+ 	{
+-		ConsoleMemoryInfo m = continuum_nes_memory(id);
++		ConsoleMemoryInfo m = continuum_memory(id);
+ 		return m.Memory ? m.Size : 0;
+ 	}
+ }

@@ -309,6 +309,18 @@ pub fn cheat_code_support(core_id: String) -> CheatCodeSupport {
     }
 }
 
+/// Which typed codes the core `core_id` reads on a game of `system` (the engine's system id, as
+/// the app's `GameSystem` raw value: "snes"). Mesen 2 reads NES codes on the NES and SNES codes on
+/// the SNES; for every other core this is `cheat_code_support`.
+#[uniffi::export]
+pub fn cheat_code_support_on(core_id: String, system: String) -> CheatCodeSupport {
+    let support = crate::cheats::formats::code_support_on(&core_id, &system);
+    CheatCodeSupport {
+        reads_typed_codes: support.reads_typed_codes,
+        kinds: support.kinds.to_string(),
+    }
+}
+
 /// Manual save slots per game.
 #[uniffi::export]
 pub fn save_slot_count() -> u32 {

@@ -216,17 +216,23 @@ ios_core_config() {
     # recipe-start: mesen2
     mesen2)
       # NES, the default NES core. Makefile.libretro's ios-arm64 block emits
-      # mesen2_libretro_ios.dylib at the repo root. Continuum patch
+      # mesen2_libretro_ios.dylib at the repo root. Also the second SNES core (bsnes stays the
+      # default). Two Continuum patches. The NES one
       # (scripts/patches/mesen2-nes-memory-cheats-saves.patch): the NES battery RAM and internal
       # RAM through retro_get_memory_data with FCEUmm's memory map, so the app keeps the in-game
       # save and achievements and RAM search work; typed cheats reach Mesen's cheat engine; and
-      # Mesen stops writing a .sav of its own for the battery RAM.
+      # Mesen stops writing a .sav of its own for the battery RAM. The SNES one
+      # (scripts/patches/mesen2-snes-memory-cheats-saves.patch, written against the file as the NES
+      # one leaves it): the same for SNES games (128 KB work RAM, and the battery RAM Mesen kept as
+      # its own .srm, the same one bsnes hands over; Game Genie and Pro Action Replay codes; no
+      # .srm of Mesen's own from the cartridge, the GSU, the SA-1 or the ST010/ST011), and the
+      # picture as bsnes gives it: the 224 lines a game draws, at 4:3.
       IOS_REPO="https://github.com/libretro/MesenCE"
       IOS_PIN="4c4e069f16a8ad6ed79e046046c56d51558c7daf"
       IOS_DYLIB_NAME="mesen2_libretro_ios.dylib"
       IOS_KIND="make"
       IOS_MAKEFILE="Makefile.libretro"
-      IOS_DISPLAY="NES, Mesen 2 with a Continuum patch"
+      IOS_DISPLAY="NES and SNES, Mesen 2 with Continuum patches"
       ;;
     # recipe-end: mesen2
     # recipe-start: mgba
@@ -1643,6 +1649,9 @@ ios_apply_core_patches() {
     mesen2)
       ios_apply_simple_patch mesen2 mesen2-nes-memory-cheats-saves.patch \
         Libretro/libretro.cpp "Continuum: NES memory, cheats and battery for the frontend"
+      # ORDER MATTERS: this one's context is libretro.cpp as the patch above leaves it.
+      ios_apply_simple_patch mesen2 mesen2-snes-memory-cheats-saves.patch \
+        Libretro/libretro.cpp "Continuum: SNES memory, cheats and battery for the frontend"
       ;;
     # recipe-end: mesen2
     # recipe-start: bsnes

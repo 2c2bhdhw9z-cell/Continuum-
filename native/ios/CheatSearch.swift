@@ -111,7 +111,8 @@ struct CheatCodeEntry: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let coreId {
-                SettingsNote(Self.supportLine(coreId: coreId))
+                SettingsNote(Self.supportLine(coreId: coreId,
+                                              system: romPath.flatMap { CoreCatalog.system(forPath: $0) }))
             }
 
             TextField("Code, for example SXIOPO", text: $draftCode)
@@ -170,8 +171,9 @@ struct CheatCodeEntry: View {
     }
 
     /// One sentence from the engine's table (`cheats::formats` in Rust), so Android says the same.
-    static func supportLine(coreId: String) -> String {
-        let support = cheatCodeSupport(coreId: coreId)
+    /// The system matters for Mesen, which reads NES codes on the NES and SNES codes on the SNES.
+    static func supportLine(coreId: String, system: GameSystem?) -> String {
+        let support = cheatCodeSupportOn(coreId: coreId, system: system?.rawValue ?? "")
         if !support.readsTypedCodes {
             return "Heads up: this system's emulator ignores typed codes, but the RAM search can "
                 + "still make cheats for most games."
