@@ -111,8 +111,9 @@ pub(super) struct Fifo {
     /// The Color: WX matched the position mid-fetch, so a read is skipped and a byte repeats.
     wx_glitch: bool,
     /// The tile set the last bitplane address was worked out in (LCDC bit 4 then), and the last
-    /// byte a Color's bitplane read glitches to when tile select is cleared on a read dot
-    /// (`tile_sel_glitch_data`). The byte outlives the line, so it is carried over.
+    /// byte read from the object tile area, which a Color's bitplane read glitches to when tile
+    /// select is set on its dot (`bitplane_read`). The byte outlives the line, so it is carried
+    /// over.
     last_tileset: bool,
     sel_glitch_data: u8,
     /// One colour-0 pixel is handed to the LCD instead of the FIFO's next.
@@ -200,7 +201,7 @@ impl Ppu {
     pub fn land(&mut self, reg: u8, step: Land) {
         let before = self.seen(reg);
         let now = match step {
-            Land::Value(v) | Land::Wx(v) | Land::TileSelOff(v) => v,
+            Land::Value(v) | Land::Wx(v) | Land::TileSel(v) => v,
             Land::Or(v) => before | v,
             Land::Hold => before,
             // A Game Boy's first LCDC step, a dot before the whole value: the bits the fetcher
@@ -226,7 +227,7 @@ impl Ppu {
         }
         match step {
             Land::Wx(_) => self.landed.wx_fresh = true,
-            Land::TileSelOff(_) => self.landed.tile_sel_glitch = true,
+            Land::TileSel(_) => self.landed.tile_sel_glitch = true,
             _ => {}
         }
         if !self.fifo.active {
@@ -414,30 +415,37 @@ impl Ppu {
         }
     }
 
-    /// A bitplane read. On a Color (CPU CGB C and earlier), clearing tile select on the very dot
-    /// of the read hands the fetcher the tile number instead of the bitplane, unless the tile
-    /// lies in the half of tile memory both settings share (Mealybug's PPU documentation;
-    /// SameBoy's `data_for_tile_sel_glitch`). Clearing it again from cleared, which a write
-    /// cannot do, would read the last bitplane byte fetched (`sel_glitch_data`).
+    /// A bitplane read. On a Color (CPU CGB C and earlier), changing tile select on the very dot
+    /// of the read glitches it (the Mealybug PPU documentation, "TILE_SEL (bit 4)"):
+    ///   - cleared on the read (its address was worked out with tile select set): the fetcher gets
+    ///     the tile number instead, unless the tile is in the half of tile memory both settings
+    ///     share (SameBoy's `data_for_tile_sel_glitch` has this half);
+    ///   - set on the read: the fetcher gets the last byte the PPU read from the object tile area -
+    ///     an object's row, or a background tile's fetched with tile select set - which is what
+    ///     the documentation calls the bitplane data of the most recently drawn sprite, or of the
+    ///     most recently drawn tile as when tile select was last reset. SameBoy glitches on a
+    ///     set only in double speed, and keeps every background read; with both that way,
+    ///     `m3_lcdc_tile_sel_change`, `_change2`, `m3_lcdc_tile_sel_win_change` and `_win_change2`
+    ///     miss by 8, 186, 8 and 179 pixels, and with the documentation's rule all four pass.
+    /// The documentation's third source, the read in progress when the previous line's fetch was
+    /// cut off at its end, no picture here needs, so it is not modelled.
     fn bitplane_read(&mut self) -> u8 {
         let read = self.vram_at(self.fifo.data_addr);
-        let high = self.fifo.state == HI_R;
-        if !self.landed.tile_sel_glitch {
-            if high {
-                self.fifo.sel_glitch_data = read;
-            }
-            return read;
-        }
-        let glitched = if self.fifo.last_tileset {
-            (self.fifo.tile & 0x80 == 0).then_some(self.fifo.tile)
-        } else {
-            Some(self.fifo.sel_glitch_data)
-        };
-        if self.fifo.last_tileset || (high && glitched.is_none()) {
-            // The read still happens, and it is what the next glitch would see.
+        let kept = self.fifo.sel_glitch_data;
+        if self.fifo.last_tileset {
             self.fifo.sel_glitch_data = read;
         }
-        glitched.unwrap_or(read)
+        if !self.landed.tile_sel_glitch {
+            return read;
+        }
+        if !self.fifo.last_tileset {
+            return kept;
+        }
+        if self.fifo.tile & 0x80 == 0 {
+            self.fifo.tile
+        } else {
+            read
+        }
     }
 
     /// The fetcher's push: eight pixels enter the background FIFO, but only once it is empty.
@@ -504,6 +512,7 @@ impl Ppu {
             4 => {
                 self.fifo.obj_addr = self.obj_row_addr();
                 self.fifo.obj_data[0] = self.vram_at(self.fifo.obj_addr);
+                self.fifo.sel_glitch_data = self.fifo.obj_data[0];
             }
             6 => {
                 // The row address is worked out again for the second byte, so LCDC bit 2 can
@@ -811,7 +820,7 @@ mod tests {
         }
         assert_eq!(p.fifo.state, LO_R, "the line's first bitplane read is next");
         if glitch {
-            p.land(0x40, Land::TileSelOff(0x80 | 0x01));
+            p.land(0x40, Land::TileSel(0x80 | 0x01));
         }
         p.tick();
         p.fifo.data[0]
@@ -825,5 +834,26 @@ mod tests {
         assert_eq!(read_with_tile_select_cleared(0x15, false), 0xAA);
         assert_eq!(read_with_tile_select_cleared(0x15, true), 0x15, "the tile number");
         assert_eq!(read_with_tile_select_cleared(0x95, true), 0xAA, "a tile both settings share");
+    }
+
+    /// Setting tile select on the dot of a read made from the other tile set hands the fetcher
+    /// the last byte read from the object tile area, and a read from the other set does not
+    /// replace that byte.
+    #[test]
+    fn a_colour_reads_the_kept_byte_when_tile_select_is_set_on_the_read() {
+        let mut p = Ppu { exact: true, cgb_hardware: true, lcdc: 0x80 | 0x01, ..Ppu::default() };
+        p.vram[..0x1800].fill(0xAA);
+        p.fifo.sel_glitch_data = 0x5C;
+        for _ in 0..456 {
+            if p.fifo.active && p.fifo.state == LO_R {
+                break;
+            }
+            p.tick();
+        }
+        assert_eq!(p.fifo.state, LO_R);
+        p.land(0x40, Land::TileSel(0x80 | 0x10 | 0x01));
+        p.tick();
+        assert_eq!(p.fifo.data[0], 0x5C, "the kept byte");
+        assert_eq!(p.fifo.sel_glitch_data, 0x5C, "a read from $8800-$97FF is not kept");
     }
 }

@@ -133,9 +133,9 @@ pub enum Land {
     /// WX on a Game Boy: the new value, and for the next dot the window's one-pixel-late start
     /// is not taken.
     Wx(u8),
-    /// LCDC on a Color, clearing tile select: the new value, and for the next dot a bitplane read
+    /// LCDC on a Color, changing tile select: the new value, and for the next dot a bitplane read
     /// glitches.
-    TileSelOff(u8),
+    TileSel(u8),
     /// The value from before the write, for one more dot.
     Hold,
 }

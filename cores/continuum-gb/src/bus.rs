@@ -403,9 +403,9 @@ impl Bus {
         }
         if self.cgb_hardware {
             return match addr {
-                // A Color takes LCDC whole at the end; clearing tile select glitches the next dot's
-                // bitplane read.
-                0xFF40 if self.ppu.lcdc & !v & 0x10 != 0 => [Some((4, Land::TileSelOff(v))), None],
+                // A Color takes LCDC whole at the end; changing tile select, either way, glitches
+                // a bitplane read on the next dot (`Ppu::bitplane_read`).
+                0xFF40 if (self.ppu.lcdc ^ v) & 0x10 != 0 => [Some((4, Land::TileSel(v))), None],
                 // A Color (CPU CGB C and earlier) writes a palette register a dot before the end,
                 // whole: no old-OR-new dot as on a Game Boy.
                 0xFF47..=0xFF49 => [Some((3, Land::Value(v))), None],
@@ -865,8 +865,10 @@ mod tests {
         }
         let mut cgb = bus(true);
         cgb.ppu.lcdc = 0x91;
-        assert_eq!(cgb.landing(0xFF40, 0x81), [Some((4, Land::TileSelOff(0x81))), None], "clearing tile select");
-        assert_eq!(cgb.landing(0xFF40, 0x93), [None, None]);
+        assert_eq!(cgb.landing(0xFF40, 0x81), [Some((4, Land::TileSel(0x81))), None], "clearing tile select");
+        cgb.ppu.lcdc = 0x81;
+        assert_eq!(cgb.landing(0xFF40, 0x91), [Some((4, Land::TileSel(0x91))), None], "setting it");
+        assert_eq!(cgb.landing(0xFF40, 0x83), [None, None]);
         for reg in 0xFF47..=0xFF49 {
             assert_eq!(cgb.landing(reg, 0xE4), [Some((3, Land::Value(0xE4))), None]);
         }
