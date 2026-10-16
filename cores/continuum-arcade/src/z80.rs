@@ -179,13 +179,15 @@ impl Default for Z80 {
 }
 
 impl Z80 {
-    /// A Z80 just powered on: AF and SP read FFFFh on real chips, IX and IY FFFFh as MAME has
-    /// them, and the power-on reset clears PC, I, R and the interrupt state. The other registers
-    /// hold no defined value; they start at 0.
+    /// A Z80 just powered on, as MAME's Z80 comes up (the reference the boards are compared
+    /// with; on a real chip most of these hold no defined value): every register 0 but F, which
+    /// has only the zero flag set, and IX and IY, which are FFFFh; the power-on reset clears PC,
+    /// I, R and the interrupt state. (Real chips are said to come up with AF and SP at FFFFh; a
+    /// program that relies on either before setting it shows the difference.)
     pub fn new() -> Z80 {
         let mut z = Z80 {
-            a: 0xFF,
-            f: 0xFF,
+            a: 0x00,
+            f: 0x40,
             b: 0,
             c: 0,
             d: 0,
@@ -200,7 +202,7 @@ impl Z80 {
             // reset leaves them alone). A game that pushes them before loading them shows it.
             ix: 0xFFFF,
             iy: 0xFFFF,
-            sp: 0xFFFF,
+            sp: 0x0000,
             pc: 0,
             i: 0,
             r: 0,
@@ -291,6 +293,20 @@ impl Z80 {
             return t + self.run_one(bus);
         }
         self.run_one(bus)
+    }
+
+    /// Takes a waiting interrupt, if there is one, without running the instruction after it, and
+    /// returns its T-states (0 if none was waiting). A `step` right after it runs the handler's
+    /// first instruction, so the two together are one `step`; a board that traces instructions,
+    /// as MAME's debugger does after an interrupt is taken, uses them apart.
+    pub fn take_interrupt<B: Bus>(&mut self, bus: &mut B) -> u32 {
+        if self.nmi_pending {
+            return self.take_nmi(bus);
+        }
+        if self.irq && self.iff1 && !self.ei {
+            return self.take_int(bus);
+        }
+        0
     }
 
     /// One instruction, with no interrupt check before it.
@@ -1537,7 +1553,7 @@ mod tests {
         let z = Z80::new();
         assert_eq!(
             (z.pc, z.sp, z.af(), z.i, z.r, z.im),
-            (0, 0xFFFF, 0xFFFF, 0, 0, 0)
+            (0, 0x0000, 0x0040, 0, 0, 0)
         );
         assert!(!z.iff1 && !z.iff2 && !z.halted);
     }

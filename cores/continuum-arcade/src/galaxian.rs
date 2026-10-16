@@ -28,6 +28,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::galaxian_sound::{self, GalaxianSound, Mixer};
+use crate::i8255::{I8255, Outputs};
+use crate::konami_sound::{self, KonamiSound};
 use crate::z80::{Bus, Z80};
 
 /// The picture as the player sees it, upright: three rows for each of the raster's dots.
@@ -63,6 +65,9 @@ const AS_PER_CYCLE: i128 = 1_000_000_000_000_000_000 / CPU_HZ as i128;
 const AS_PER_DOT: i128 = 1_000_000_000_000_000_000 / 18_432_000;
 const AS_PER_FRAME: i128 = AS_PER_DOT * 1152 * 264;
 const AS_PER_LINE: i128 = AS_PER_FRAME / 264;
+/// The period of the 555 that steps Scramble's stars' blinking: 693 × (100 kΩ + 2 × 10 kΩ) ×
+/// 10 µF, in attoseconds (0.8316 s).
+const BLINK_PERIOD: i128 = 831_600_000 * 1_000_000_000;
 /// Cycles into a frame at which the end of VBLANK counts MAME's frame number.
 const VBLANK_END_CYCLE: u64 = 40 * CYCLES_PER_LINE - 1;
 
@@ -74,6 +79,37 @@ pub enum Variant {
     /// Moon Cresta: ROM, RAM and video moved up, a graphics bank, and on Nichibutsu's own boards
     /// a program whose every byte is scrambled.
     MoonCresta { encrypted: bool },
+    /// Konami's boards: two 8255 PPIs for the controls and the sound board, the sound board of
+    /// their own (`konami_sound`), and each its memory map and picture.
+    Konami(Konami),
+}
+
+/// Konami's boards, by their memory map and picture (MAME's scramble, theend, scobra, frogger and
+/// turtles machines).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Konami {
+    /// Scramble: The End's map, two-dot yellow shells, a blue background that can be switched on,
+    /// still stars that blink, and the protection chip on the second PPI's port C.
+    Scramble,
+    /// The End: Galaxian's shots and stars (the shells' blue and green swapped), the protection
+    /// chip, and the coin counter on the first PPI's port C.
+    TheEnd,
+    /// Super Cobra and the games on its board: 32 KB of program, Scramble's picture.
+    SuperCobra,
+    /// Frogger: its own map, the river's blue half, colour and scroll bits wired differently, a
+    /// graphics ROM with two data lines swapped, and a sound board with one AY.
+    Frogger,
+    /// Turtles and Amidar: 32 KB of program, a background in any of eight colours, no stars.
+    Turtles,
+}
+
+impl Variant {
+    fn konami(self) -> Option<Konami> {
+        match self {
+            Variant::Konami(k) => Some(k),
+            _ => None,
+        }
+    }
 }
 
 /// Which way the monitor is turned in the cabinet.
@@ -94,6 +130,11 @@ pub struct Roms {
     pub gfx: Vec<u8>,
     /// The 32-byte colour PROM.
     pub palette: Vec<u8>,
+    /// Konami's boards: the sound board's program (8 KB). Empty on the others.
+    pub sound: Vec<u8>,
+    /// Konami's boards: the bits of IN2 that read the protection chip instead of a control (on
+    /// Scramble 20h and 80h, as MAME's set has them wired), 0 elsewhere.
+    pub protection_bits: u8,
 }
 
 /// The board's inputs as its ports read them (active high, as wired): IN0, IN1 and IN2, the last
@@ -149,6 +190,25 @@ struct Hw {
     sound: SoundLatches,
     /// The sound circuit the latches drive.
     snd: GalaxianSound,
+    /// Konami's boards: the PPIs, the background controls (Scramble's blue switch, Turtles' red,
+    /// green and blue), the protection chip, the sound board and what was sent to it this frame
+    /// (each with the moment it happened, in attoseconds).
+    ppi: [I8255; 2],
+    background: bool,
+    background_rgb: [bool; 3],
+    protection_state: u16,
+    protection_result: u8,
+    konami: Option<KonamiSound>,
+    konami_events: Vec<(i128, konami_sound::Event)>,
+    /// The 48 kHz samples the sound board has made and the frame hasn't handed out yet.
+    konami_out: Vec<i16>,
+    /// The stars' blink counter on Scramble's boards (a 555 that steps it every 0.8316 s, from
+    /// each reset on), as it stood at the last reset, and when that was.
+    blinks_at_reset: u32,
+    reset_at: u64,
+    protection_bits: u8,
+    /// The moment the lines being drawn are drawn at (MAME draws them when something changes).
+    draw_at: u64,
     /// The latches as they changed this frame, with the cycle of each change: the sound is
     /// worked out at the end of the frame, each change from the sample after it on.
     #[serde(skip)]
@@ -171,6 +231,8 @@ struct Hw {
     /// through its scheduler, which cuts the CPU's timeslice there, so the slice that runs into
     /// VBLANK can start at that write rather than at the last timer (see `vblank_cycle`).
     sync_at: u64,
+    /// The second PPI's port B as last driven (the sound board's control).
+    konami_control: u8,
     /// Writes the last instruction of a frame made after VBLANK: they land in the next frame.
     late: Vec<(u16, u8, u64)>,
     /// Where this frame's CPU timeslice into VBLANK ended (`vblank_cycle`), and the last
@@ -224,6 +286,10 @@ pub struct Galaxian {
     /// The last frame's sound at 192 kHz, and at 48 kHz.
     raw: Vec<i16>,
     audio: Vec<i16>,
+    /// For debugging against MAME's trace: when set, each main CPU instruction's first cycle and
+    /// PC (an interrupt shows as the instruction it ran first).
+    #[doc(hidden)]
+    pub main_trace: Option<Vec<(u64, u16)>>,
 }
 
 /// The weights of the resistors on each colour gun, as MAME's resistor network model works them
@@ -376,10 +442,17 @@ impl Rom {
             }
         }
 
+        // Frogger's second graphics ROM has its D0 and D1 swapped.
+        let mut gfx = roms.gfx.clone();
+        if variant == Variant::Konami(Konami::Frogger) {
+            for b in gfx[0x800..0x1000].iter_mut() {
+                *b = (*b & 0xFC) | (*b >> 1 & 1) | (*b << 1 & 2);
+            }
+        }
         // Two bitplanes, the first half of the ROMs the high bit. A tile is 8 bytes a plane, a row
         // a byte, its leftmost pixel bit 7; a sprite is four tiles: left half bytes 0-7 and 16-23,
         // right half 8-15 and 24-31.
-        let g = &roms.gfx;
+        let g = &gfx;
         let half = g.len() / 2;
         let pen = |offset: usize, bit: usize| {
             ((g[offset] >> (7 - bit)) & 1) << 1 | ((g[half + offset] >> (7 - bit)) & 1)
@@ -444,10 +517,22 @@ impl Hw {
             coin_counter: [false; 2],
             sound: SoundLatches::default(),
             snd: GalaxianSound::new(match variant {
-                Variant::Galaxian => Mixer::Galaxian,
                 Variant::MoonCresta { .. } => Mixer::MoonCresta,
+                _ => Mixer::Galaxian,
             }),
             sound_events: Vec::new(),
+            ppi: [I8255::new(), I8255::new()],
+            background: false,
+            background_rgb: [false; 3],
+            protection_state: 0,
+            protection_result: 0,
+            konami: None,
+            konami_events: Vec::new(),
+            konami_out: Vec::new(),
+            blinks_at_reset: 0,
+            reset_at: 0,
+            protection_bits: 0,
+            draw_at: 0,
             watchdog: 8,
             ports: Ports::default(),
             now: 0,
@@ -456,6 +541,7 @@ impl Hw {
             vblank_due: false,
             next_line: FIRST_LINE,
             sync_at: 0,
+            konami_control: 0,
             slice_end: 0,
             last_start: 0,
             last_len: 0,
@@ -503,6 +589,159 @@ fn read_board(hw: &Hw, rom: &Rom, addr: u16) -> u8 {
             0xB000..=0xB7FF => hw.ports.in2,
             _ => 0xFF,
         },
+        Variant::Konami(k) => match konami_decode(k, addr) {
+            Decoded::Rom => rom.program[a],
+            Decoded::Ram(o) => hw.ram[o],
+            Decoded::Video(o) => hw.vram[o],
+            Decoded::Object(o) => hw.objram[o],
+            Decoded::Ppi(sel, reg) => {
+                // A read that selects both PPIs gets both on the bus at once.
+                let mut v = 0xFF;
+                for n in 0..2 {
+                    if sel & (1 << n) != 0 {
+                        v &= hw.ppi[n].read(reg, ppi_pins(hw, k, n));
+                    }
+                }
+                v
+            }
+            _ => 0xFF,
+        },
+    }
+}
+
+/// What a PPI's input pins read: the first PPI the controls and switches (IN0-IN2, with
+/// Scramble's protection bits), the second IN3 on port C, or on Scramble's and The End's boards
+/// the protection chip's answer.
+fn ppi_pins(hw: &Hw, k: Konami, n: usize) -> [u8; 3] {
+    if n == 0 {
+        // The protection bits read the chip's top bit inverted (MAME has them active low).
+        let bits = hw.protection_bits;
+        let prot = if hw.protection_result & 0x80 != 0 { 0 } else { bits };
+        [hw.ports.in0, hw.ports.in1, (hw.ports.in2 & !bits) | prot]
+    } else {
+        let c = match k {
+            Konami::Scramble | Konami::TheEnd => hw.protection_result,
+            _ => hw.ports.in3,
+        };
+        [0xFF, 0xFF, c]
+    }
+}
+
+/// Where an address lands on Konami's boards.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Decoded {
+    None,
+    Rom,
+    Ram(usize),
+    Video(usize),
+    Object(usize),
+    /// Which PPIs (bit 0 the first, bit 1 the second) and which register.
+    Ppi(u8, u8),
+    /// One of the board's latches, by what it does.
+    Latch(KonamiLatch),
+    Watchdog,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum KonamiLatch {
+    Nmi,
+    CoinCounter(usize),
+    Background,
+    Stars,
+    FlipX,
+    FlipY,
+    Red,
+    Green,
+    Blue,
+}
+
+/// The address decoding of each of Konami's boards (from MAME's memory maps, which follow the
+/// schematics): mirrors, the PPIs' select lines and the latches.
+fn konami_decode(k: Konami, addr: u16) -> Decoded {
+    let a = usize::from(addr);
+    use KonamiLatch as L;
+    match k {
+        Konami::Scramble | Konami::TheEnd => match a {
+            0x0000..=0x3FFF => Decoded::Rom,
+            0x4000..=0x47FF => Decoded::Ram(a & 0x7FF),
+            0x4800..=0x4FFF => Decoded::Video(a & 0x3FF),
+            0x5000..=0x57FF => Decoded::Object(a & 0xFF),
+            0x6800..=0x6FFF => match a & 7 {
+                1 => Decoded::Latch(L::Nmi),
+                2 if k == Konami::Scramble => Decoded::Latch(L::CoinCounter(0)),
+                3 => Decoded::Latch(L::Background),
+                4 => Decoded::Latch(L::Stars),
+                6 => Decoded::Latch(L::FlipX),
+                7 => Decoded::Latch(L::FlipY),
+                _ => Decoded::None,
+            },
+            0x7000..=0x77FF => Decoded::Watchdog,
+            // A8 selects the first PPI and A9 the second (both at once if both are set).
+            0x8000..=0xFFFF => Decoded::Ppi((a >> 8 & 3) as u8, (a & 3) as u8),
+            _ => Decoded::None,
+        },
+        // 32 KB of ROM, and everything above it mirrored with A14 ignored.
+        Konami::SuperCobra if a < 0x8000 => Decoded::Rom,
+        Konami::SuperCobra => match a & 0xBFFF {
+            0x8000..=0x87FF => Decoded::Ram(a & 0x7FF),
+            0x8800..=0x8FFF => Decoded::Video(a & 0x3FF),
+            0x9000..=0x97FF => Decoded::Object(a & 0xFF),
+            0x9800..=0x9FFF => Decoded::Ppi(1, (a & 3) as u8),
+            0xA000..=0xA7FF => Decoded::Ppi(2, (a & 3) as u8),
+            0xA800..=0xAFFF => match a & 7 {
+                1 => Decoded::Latch(L::Nmi),
+                2 => Decoded::Latch(L::CoinCounter(0)),
+                3 => Decoded::Latch(L::Background),
+                4 => Decoded::Latch(L::Stars),
+                6 => Decoded::Latch(L::FlipX),
+                7 => Decoded::Latch(L::FlipY),
+                _ => Decoded::None,
+            },
+            0xB000..=0xB7FF => Decoded::Watchdog,
+            _ => Decoded::None,
+        },
+        Konami::Frogger => match a {
+            0x0000..=0x3FFF => Decoded::Rom,
+            0x8000..=0x87FF => Decoded::Ram(a & 0x7FF),
+            0x8800..=0x8FFF => Decoded::Watchdog,
+            0xA800..=0xAFFF => Decoded::Video(a & 0x3FF),
+            0xB000..=0xB7FF => Decoded::Object(a & 0xFF),
+            0xB800..=0xBFFF => match a & 0x1C {
+                0x08 => Decoded::Latch(L::Nmi),
+                0x0C => Decoded::Latch(L::FlipY),
+                0x10 => Decoded::Latch(L::FlipX),
+                0x18 => Decoded::Latch(L::CoinCounter(0)),
+                0x1C => Decoded::Latch(L::CoinCounter(1)),
+                _ => Decoded::None,
+            },
+            // A13 selects the first PPI and A12 the second; A1-A2 the register.
+            0xC000..=0xFFFF => {
+                let sel = u8::from(a & 0x2000 != 0) | u8::from(a & 0x1000 != 0) << 1;
+                Decoded::Ppi(sel, (a >> 1 & 3) as u8)
+            }
+            _ => Decoded::None,
+        },
+        Konami::Turtles if a < 0x8000 => Decoded::Rom,
+        Konami::Turtles => match a & 0xBFFF {
+            0x8000..=0x87FF => Decoded::Ram(a & 0x7FF),
+            0x9000..=0x97FF => Decoded::Video(a & 0x3FF),
+            0x9800..=0x9FFF => Decoded::Object(a & 0xFF),
+            0xA000..=0xA7FF => match a & 0x38 {
+                0x00 => Decoded::Latch(L::Red),
+                0x08 => Decoded::Latch(L::Nmi),
+                0x10 => Decoded::Latch(L::FlipY),
+                0x18 => Decoded::Latch(L::FlipX),
+                0x20 => Decoded::Latch(L::Green),
+                0x28 => Decoded::Latch(L::Blue),
+                0x30 => Decoded::Latch(L::CoinCounter(0)),
+                _ => Decoded::Latch(L::CoinCounter(1)),
+            },
+            0xA800..=0xAFFF => Decoded::Watchdog,
+            // A4-A5 pick the register.
+            0xB000..=0xB7FF => Decoded::Ppi(1, (a >> 4 & 3) as u8),
+            0xB800..=0xBFFF => Decoded::Ppi(2, (a >> 4 & 3) as u8),
+            _ => Decoded::None,
+        },
     }
 }
 
@@ -511,6 +750,7 @@ impl Bus for View<'_> {
         let watchdog = match self.hw.variant {
             Variant::Galaxian => (0x7800..=0x7FFF).contains(&addr),
             Variant::MoonCresta { .. } => (0xB800..=0xBFFF).contains(&addr),
+            Variant::Konami(k) => konami_decode(k, addr) == Decoded::Watchdog,
         };
         if watchdog {
             self.hw.watchdog = 8;
@@ -565,6 +805,10 @@ enum Effect {
     Lfo(usize),
     Sound(usize),
     Pitch,
+    /// Konami's boards.
+    Background,
+    BackgroundRgb(usize),
+    Ppi(u8, u8),
 }
 
 fn decode_write(variant: Variant, addr: u16) -> Effect {
@@ -611,22 +855,74 @@ fn decode_write(variant: Variant, addr: u16) -> Effect {
             0xB800..=0xBFFF => Effect::Pitch,
             _ => Effect::None,
         },
+        Variant::Konami(k) => match konami_decode(k, addr) {
+            Decoded::Ram(o) => Effect::Ram(o),
+            Decoded::Video(o) => Effect::Video(o),
+            Decoded::Object(o) => Effect::Object(o),
+            Decoded::Ppi(sel, reg) => Effect::Ppi(sel, reg),
+            Decoded::Latch(l) => match l {
+                KonamiLatch::Nmi => Effect::NmiEnable,
+                KonamiLatch::CoinCounter(n) => Effect::CoinCounter(n),
+                KonamiLatch::Background => Effect::Background,
+                KonamiLatch::Stars => Effect::Stars,
+                KonamiLatch::FlipX => Effect::FlipX,
+                KonamiLatch::FlipY => Effect::FlipY,
+                KonamiLatch::Red => Effect::BackgroundRgb(0),
+                KonamiLatch::Green => Effect::BackgroundRgb(1),
+                KonamiLatch::Blue => Effect::BackgroundRgb(2),
+            },
+            _ => Effect::None,
+        },
     }
 }
 
 impl Galaxian {
     pub fn new(variant: Variant, rotation: Rotation, roms: &Roms) -> Result<Galaxian, String> {
         let rom = Rom::new(variant, roms)?;
-        Ok(Galaxian {
+        let mut hw = Hw::new(variant);
+        if let Some(k) = variant.konami() {
+            if roms.sound.len() < 0x800 {
+                return Err("the sound board's program is missing".into());
+            }
+            let kind = if k == Konami::Frogger {
+                konami_sound::Kind::Frogger
+            } else {
+                konami_sound::Kind::TwoAy
+            };
+            hw.konami = Some(KonamiSound::new(kind, &roms.sound));
+            hw.protection_bits = roms.protection_bits;
+        }
+        let mut board = Galaxian {
             cpu: Z80::new(),
-            hw: Hw::new(variant),
+            hw,
             rom,
             rotation,
             raster: vec![0; RASTER_W * RASTER_H],
             video: vec![0; WIDTH * HEIGHT],
             raw: Vec::with_capacity(RAW_SAMPLES_PER_FRAME),
             audio: Vec::with_capacity(SAMPLES_PER_FRAME),
-        })
+            main_trace: None,
+        };
+        if variant.konami().is_some() {
+            // The PPIs' reset at power-on: every port an input, so the sound board's latch and
+            // control read FFh (which silences it until the game sets the PPI up).
+            board.reset_ppis(0);
+        }
+        Ok(board)
+    }
+
+    /// The PPIs come out of reset: their ports float high, and the second one's drive the sound
+    /// board.
+    fn reset_ppis(&mut self, at: u64) {
+        for n in 0..2 {
+            let out = self.hw.ppi[n].reset();
+            self.ppi_outputs(n, out, None, i128::from(at) * AS_PER_CYCLE);
+        }
+    }
+
+    /// The sound board, on Konami's boards.
+    pub fn konami_sound(&self) -> Option<&KonamiSound> {
+        self.hw.konami.as_ref()
     }
 
     pub fn variant(&self) -> Variant {
@@ -680,10 +976,36 @@ impl Galaxian {
     fn reset(&mut self) {
         self.cpu.reset();
         self.hw.watchdog = 8;
+        if self.hw.variant.konami().is_some() {
+            // MAME's soft reset resets every device: the sound board (its Z80 and AYs) and the
+            // PPIs, and restarts the stars' blink timer, which steps the counter at once.
+            let at = self.hw.now;
+            self.hw.blinks_at_reset = self.blinks(at);
+            self.hw.reset_at = at;
+            let when = i128::from(at) * AS_PER_CYCLE;
+            self.hw.konami_events.push((when, konami_sound::Event::Reset));
+            self.reset_ppis(at);
+        }
+    }
+
+    /// The stars' blink counter at a moment, on Scramble's boards: its 555 (100 kΩ, 10 kΩ and
+    /// 10 µF: 0.8316 s) steps it when the board is reset and every period after.
+    fn blinks(&self, at: u64) -> u32 {
+        let since = (i128::from(at) - i128::from(self.hw.reset_at)) * AS_PER_CYCLE;
+        self.hw.blinks_at_reset.wrapping_add(1 + (since / BLINK_PERIOD) as u32)
     }
 
     /// Runs one frame, VBLANK to VBLANK.
     pub fn run_frame(&mut self) {
+        self.frame(None);
+    }
+
+    /// The same, calling `trace` before each of the sound board's instructions (Konami's boards).
+    pub fn run_frame_traced(&mut self, trace: &mut dyn FnMut(&Z80, u64)) {
+        self.frame(Some(trace));
+    }
+
+    fn frame(&mut self, trace: Option<konami_sound::Trace>) {
         self.audio.clear();
         if self.hw.vblank_due {
             self.vblank();
@@ -706,11 +1028,36 @@ impl Galaxian {
             self.step(vblank);
         }
         // VBLANK: the beam has drawn the rest of the frame.
+        self.hw.draw_at = end - 1;
         self.draw_until(LAST_LINE);
-        self.make_sound();
+        if self.hw.konami.is_some() {
+            self.run_sound_board(trace);
+        } else {
+            self.make_sound();
+        }
         self.hw.frame_start = end;
         self.hw.frames += 1;
         self.turn_upright();
+    }
+
+    /// Konami's sound board runs up to this frame's VBLANK, taking in what the main board sent.
+    fn run_sound_board(&mut self, trace: Option<konami_sound::Trace>) {
+        let vblank = i128::from(self.hw.frames + 1) * AS_PER_FRAME;
+        let mut events = std::mem::take(&mut self.hw.konami_events);
+        // The ones from after VBLANK (the last instruction's late writes) wait for the next frame.
+        let later: Vec<_> = events.iter().copied().filter(|e| e.0 > vblank).collect();
+        events.retain(|e| e.0 <= vblank);
+        events.sort_by_key(|e| e.0);
+        if let Some(snd) = self.hw.konami.as_mut() {
+            snd.run(vblank, &events, &mut self.hw.konami_out, trace);
+        }
+        self.hw.konami_events = later;
+        let n = SAMPLES_PER_FRAME.min(self.hw.konami_out.len());
+        self.audio.clear();
+        self.audio.extend(self.hw.konami_out.drain(..n));
+        let last = self.audio.last().copied().unwrap_or(0);
+        self.audio.resize(SAMPLES_PER_FRAME, last);
+        self.raw.clear();
     }
 
     /// The frame's sound: each latch change applies to the samples that start at or after it.
@@ -739,6 +1086,15 @@ impl Galaxian {
     /// Runs one instruction (and any interrupt before it), placing its writes in time.
     fn step(&mut self, vblank: u64) {
         let start = self.hw.now;
+        if let Some(t) = self.main_trace.as_mut() {
+            // MAME's trace leaves out the cycles a HALT waits; an NMI shows as its handler's
+            // first instruction, 11 T-states on.
+            if self.cpu.nmi_pending {
+                t.push((start + 11, 0x66));
+            } else if !self.cpu.halted {
+                t.push((start, self.cpu.pc));
+            }
+        }
         self.hw.fetches = 0;
         self.hw.cycles.clear();
         let t = self.cpu.step(&mut View {
@@ -845,6 +1201,7 @@ impl Galaxian {
     /// Draws the lines the beam has passed by `at`, before a write that would show changes them
     /// (MAME's update_partial: up to and including the beam's line; during VBLANK nothing).
     fn catch_up(&mut self, at: u64) {
+        self.hw.draw_at = at;
         let (vpos, _) = self.beam(at);
         if (FIRST_LINE as i32..=LAST_LINE as i32).contains(&vpos) {
             self.draw_until(vpos as usize);
@@ -922,6 +1279,84 @@ impl Galaxian {
                 self.hw.sound.pitch = val;
                 self.hw.sound_events.push((at, self.hw.sound));
             }
+            Effect::Background => {
+                if self.hw.background != bit {
+                    self.catch_up(at);
+                    self.hw.background = bit;
+                }
+            }
+            Effect::BackgroundRgb(n) => {
+                if self.hw.background_rgb[n] != bit {
+                    self.catch_up(at);
+                    self.hw.background_rgb[n] = bit;
+                }
+            }
+            Effect::Ppi(sel, reg) => {
+                for n in 0..2 {
+                    if sel & (1 << n) != 0 {
+                        let out = self.hw.ppi[n].write(reg, val);
+                        // The write stops the main CPU at the end of its bus cycle.
+                        self.ppi_outputs(n, out, Some(at), i128::from(at + 3) * AS_PER_CYCLE);
+                    }
+                }
+            }
+        }
+    }
+
+    /// What a PPI's outputs drive. The second PPI's port A is the sound board's command latch and
+    /// its port B the sound board's control; both reach the sound board through MAME's scheduler,
+    /// which cuts the main CPU's timeslice at the end of the write (as switching the NMI off does).
+    /// Port C is the protection chip on Scramble's and The End's boards, and The End's coin counter
+    /// on the first PPI.
+    /// `at` is the write's cycle (None for a reset), `when` the moment the sound board sees it.
+    fn ppi_outputs(&mut self, n: usize, out: Outputs, at: Option<u64>, when: i128) {
+        let Some(k) = self.hw.variant.konami() else { return };
+        if n == 1 {
+            if let Some(v) = out.a {
+                self.hw.konami_events.push((when, konami_sound::Event::Latch(v)));
+                if let Some(at) = at {
+                    self.hw.sync_at = at + 3;
+                }
+            }
+            if let Some(v) = out.b {
+                self.hw.konami_events.push((when, konami_sound::Event::Control(v)));
+                if self.hw.konami_control & 0x08 != 0 && v & 0x08 == 0 {
+                    // The interrupt goes to the other CPU through the scheduler.
+                    if let Some(at) = at {
+                        self.hw.sync_at = at + 3;
+                    }
+                }
+                self.hw.konami_control = v;
+            }
+            if let Some(v) = out.c {
+                if matches!(k, Konami::Scramble | Konami::TheEnd) {
+                    self.protection(v);
+                }
+            }
+        } else if let Some(v) = out.c {
+            if k == Konami::TheEnd {
+                self.hw.coin_counter[0] = v & 0x80 != 0;
+            }
+        }
+    }
+
+    /// The protection chip (a PAL at 6J on Scramble's and The End's boards): it takes the low
+    /// nibble of each write to port C into a three-nibble history and answers on the high
+    /// nibble. Its logic isn't documented; this is what the games are known to expect of it (as
+    /// MAME has it).
+    fn protection(&mut self, data: u8) {
+        let st = (self.hw.protection_state << 4) | u16::from(data & 0x0F);
+        self.hw.protection_state = st;
+        let num1 = (st >> 8 & 0x0F) as i32;
+        let num2 = (st >> 4 & 0x0F) as i32;
+        let r = &mut self.hw.protection_result;
+        match st & 0x0F {
+            0x6 => *r ^= 0x80,
+            0x9 => *r = ((num1 + 1).min(0xF) << 4) as u8,
+            0xB => *r = ((num2 - num1).max(0) << 4) as u8,
+            0xA => *r = 0x00,
+            0xF => *r = ((num1 - num2).max(0) << 4) as u8,
+            _ => {}
         }
     }
 
@@ -990,16 +1425,49 @@ impl Galaxian {
 
     /// One raster line: the background and stars, the tiles, the sprites, then the shots.
     fn draw_line(&mut self, y: usize) {
+        let blink = (self.blinks(self.hw.draw_at) & 3) as usize;
         let hw = &self.hw;
         let rom = &self.rom;
         let row = (y - FIRST_LINE) * RASTER_W;
         let out = &mut self.raster[row..row + RASTER_W];
+        let frogger = hw.variant == Variant::Konami(Konami::Frogger);
 
-        // The background: black, and the stars when they're on.
-        out.fill(0);
-        if hw.stars_enabled {
-            let offs = hw.star_origin.wrapping_add(y as u32 * 512);
-            stars_row(out, &rom.stars, &rom.star_rgb, y, offs, 0xFF);
+        match hw.variant {
+            // Scramble's boards: blue through 390 Ω when switched on, and stars that stay put
+            // (the generator restarts each line) and blink: the 555's count picks which colours
+            // show, or on every other pair of lines none.
+            Variant::Konami(Konami::Scramble | Konami::SuperCobra) => {
+                out.fill(if hw.background { 0x00_00_56 } else { 0 });
+                if hw.stars_enabled && (blink != 2 || y & 2 != 0) {
+                    let mask = [0x20, 0x08, 0xFF, 0xFF][blink];
+                    stars_row(out, &rom.stars, &rom.star_rgb, y, y as u32 * 512, mask);
+                }
+            }
+            // Frogger: the river's half of the screen is blue (through 470 Ω), split at the
+            // 128th dot (the other half when the screen is flipped).
+            Variant::Konami(Konami::Frogger) => {
+                let (river, road) = out.split_at_mut(128 * 3);
+                if hw.flip_x {
+                    river.fill(0);
+                    road.fill(0x00_00_47);
+                } else {
+                    river.fill(0x00_00_47);
+                    road.fill(0);
+                }
+            }
+            // Turtles and Amidar: red, green and blue switched on by latches (390, 470 and 390 Ω).
+            Variant::Konami(Konami::Turtles) => {
+                let [r, g, b] = hw.background_rgb.map(u32::from);
+                out.fill((r * 0x55) << 16 | (g * 0x47) << 8 | (b * 0x55));
+            }
+            // The others: black, and the stars when they're on.
+            _ => {
+                out.fill(0);
+                if hw.stars_enabled {
+                    let offs = hw.star_origin.wrapping_add(y as u32 * 512);
+                    stars_row(out, &rom.stars, &rom.star_rgb, y, offs, 0xFF);
+                }
+            }
         }
 
         // The tiles. Each column scrolls by its own byte of object RAM and takes its colour from
@@ -1011,7 +1479,11 @@ impl Galaxian {
             } else {
                 col_on_screen
             };
-            let scroll = hw.objram[col * 2];
+            let mut scroll = hw.objram[col * 2];
+            if frogger {
+                // Frogger: the scroll's top and bottom four bits swapped on the way to the adder.
+                scroll = scroll.rotate_left(4);
+            }
             let ty = (my + usize::from(scroll)) & 0xFF;
             let mut code = u16::from(hw.vram[(ty >> 3) * 32 + col]);
             let mut colour = hw.objram[col * 2 + 1] & 7;
@@ -1038,7 +1510,8 @@ impl Galaxian {
         };
         for n in (0..8).rev() {
             let b = &hw.objram[0x40 + n * 4..0x40 + n * 4 + 4];
-            let mut sy = 240u8.wrapping_sub(b[0].wrapping_sub(u8::from(n < 3)));
+            let y0 = if frogger { b[0].rotate_left(4) } else { b[0] };
+            let mut sy = 240u8.wrapping_sub(y0.wrapping_sub(u8::from(n < 3)));
             let mut code = u16::from(b[1] & 0x3F);
             let mut fx = b[1] & 0x40 != 0;
             let mut fy = b[1] & 0x80 != 0;
@@ -1097,9 +1570,18 @@ impl Galaxian {
         }
         for (w, colour) in [(shell, SHELL), (missile, MISSILE)] {
             if let Some(w) = w {
-                // A shot shows from its counter's FCh to 00h: four dots ending at its position.
-                let x = 255 - i32::from(shots[w * 4 + 3]) - 4;
-                for dot in x..x + 4 {
+                let x = 255 - i32::from(shots[w * 4 + 3]);
+                let (dots, colour) = match hw.variant {
+                    // Scramble's boards: only "shells", yellow, two dots from FAh.
+                    Variant::Konami(Konami::Scramble | Konami::SuperCobra) => (x - 6..x - 4, MISSILE),
+                    // The End: Galaxian's, with blue and green swapped.
+                    Variant::Konami(Konami::TheEnd) => {
+                        (x - 4..x, colour & 0xFF0000 | (colour & 0xFF) << 8 | (colour >> 8 & 0xFF))
+                    }
+                    // A shot shows from its counter's FCh to 00h: four dots ending at its position.
+                    _ => (x - 4..x, colour),
+                };
+                for dot in dots {
                     for sub in 0..3 {
                         let px = dot * 3 + sub;
                         if (0..RASTER_W as i32).contains(&px) {
@@ -1138,6 +1620,11 @@ impl Galaxian {
         if hw.variant != self.hw.variant {
             return Err("that state is from a different board".into());
         }
+        let mut hw = hw;
+        if let (Some(new), Some(old)) = (hw.konami.as_mut(), self.hw.konami.as_ref()) {
+            // The sound board's program isn't in the state.
+            new.restore_rom(old);
+        }
         self.cpu = cpu;
         self.hw = hw;
         Ok(())
@@ -1150,7 +1637,7 @@ impl Galaxian {
 /// or I/O cycle, and after each internal cycle on its own. The internal cycles (the length left
 /// over by the bus cycles) sit after the last fetch or read and before the first write, which is
 /// where the Z80 spends them in nearly every instruction (counting, adding, a relative jump).
-fn pause_point(start: u64, len: u32, cycles: &[u8], budget: u64) -> u64 {
+pub(crate) fn pause_point(start: u64, len: u32, cycles: &[u8], budget: u64) -> u64 {
     let bus: u32 = cycles
         .iter()
         .map(|&k| if k == b'R' || k == b'W' { 3 } else { 4 })
@@ -1192,7 +1679,10 @@ fn pause_point(start: u64, len: u32, cycles: &[u8], budget: u64) -> u64 {
 
 /// Moon Cresta's graphics bank: with bank latch 2 set, tiles 80h-BFh and sprites 20h-2Fh come
 /// from the second half of the ROMs, at the block bank latches 0 and 1 pick.
-fn extend_tile(hw: &Hw, code: &mut u16, _colour: &mut u8) {
+fn extend_tile(hw: &Hw, code: &mut u16, colour: &mut u8) {
+    if hw.variant == Variant::Konami(Konami::Frogger) {
+        *colour = frogger_colour(*colour);
+    }
     if let Variant::MoonCresta { .. } = hw.variant {
         let g = &hw.gfxbank;
         if g[2] != 0 && *code & 0xC0 == 0x80 {
@@ -1201,7 +1691,15 @@ fn extend_tile(hw: &Hw, code: &mut u16, _colour: &mut u8) {
     }
 }
 
-fn extend_sprite(hw: &Hw, code: &mut u16, _colour: &mut u8) {
+/// Frogger's colour bits are wired one place round: bit 0 is the top one.
+fn frogger_colour(c: u8) -> u8 {
+    ((c >> 1) & 0x03) | ((c << 2) & 0x04)
+}
+
+fn extend_sprite(hw: &Hw, code: &mut u16, colour: &mut u8) {
+    if hw.variant == Variant::Konami(Konami::Frogger) {
+        *colour = frogger_colour(*colour);
+    }
     if let Variant::MoonCresta { .. } = hw.variant {
         let g = &hw.gfxbank;
         if g[2] != 0 && *code & 0x30 == 0x20 {
@@ -1244,6 +1742,8 @@ mod tests {
             program: p,
             gfx: vec![0; 0x1000],
             palette: vec![0; 32],
+            sound: Vec::new(),
+            protection_bits: 0,
         }
     }
 

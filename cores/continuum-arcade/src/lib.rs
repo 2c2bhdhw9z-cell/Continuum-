@@ -12,6 +12,8 @@ pub mod ay8910;
 pub mod board;
 pub mod galaxian;
 pub mod galaxian_sound;
+pub mod i8255;
+pub mod konami_sound;
 pub mod libretro;
 pub mod mcs48;
 pub mod namco_wsg;

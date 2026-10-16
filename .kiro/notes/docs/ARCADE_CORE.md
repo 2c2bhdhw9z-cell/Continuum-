@@ -320,6 +320,65 @@ real effect a test program could see, and the Pac-Man board's tests still pass w
 - Switching the NMI off cuts MAME's CPU timeslice right after the write, which moves where the
   next VBLANK falls by a cycle in some frames (`vblank_cycle`).
 
+## Konami's Scramble boards, as proven (item I5)
+
+`src/galaxian.rs` (`Variant::Konami`), `src/i8255.rs` and `src/konami_sound.rs`: the Galaxian board
+as Konami built it for Scramble, The End, Super Cobra, Frogger, Amidar and Turtles, each with its
+own memory map (MAME's scramble, theend, scobra, frogger and turtles machines).
+
+- **Main board**: two 8255 PPIs (`i8255.rs`, mode 0: the first reads the controls and DIP switches,
+  the second sends the sound board its command on port A and its control on port B, and reads IN3
+  or the protection chip on port C); 2 KB of RAM; 16 or 32 KB of program. The pictures: Scramble's
+  and Super Cobra's two-dot yellow shells, blue background switch and still stars that blink
+  through four states on a 555 (0.8316 s); The End's Galaxian-style shots with blue and green
+  swapped; Frogger's river (blue on one half), its colour bits wired one place round, its scroll and
+  sprite rows with their nibbles swapped and its second graphics ROM's D0/D1 swapped; Turtles' and
+  Amidar's background in any of eight colours. The protection PAL on Scramble's and The End's port C
+  is modelled as MAME has it (its logic isn't documented; this is what the games expect).
+- **Sound board** (`konami_sound.rs`): its own Z80 at 1.79 MHz, 1 KB of RAM, two AY-3-8910s (one on
+  Frogger, whose first sound ROM has D0/D1 swapped), the command latch and the interrupt (bit 3 of
+  the main board's port B falling; held until taken), the timer chain through the first AY's port B
+  (Frogger's with two bits swapped), bit 4 silencing the sound, and the filter latch (twelve switches
+  from the address of a write to 9000h-9FFFh). A watchdog reset resets the whole board, the sound
+  Z80 and the PPIs too, as MAME's soft reset does.
+- **The filters and amplifier are an approximation**: each channel's AY output (its output
+  transistor as a resistor per volume level, from the transconductances MAME's AY model fits to a
+  real chip), 1 kΩ, a node with 0.22 µF and 0.047 µF each behind a 270 Ω switch, 5 kΩ into an
+  op-amp summing all six (2.2 kΩ feedback, ±3.5 V swing), divided down and coupled into the
+  amplifier. It's stepped on every AY tick and averaged to 48 kHz. MAME runs the same circuit
+  through its netlist simulator; the two agree within 7% in level.
+- **Timing, as MAME has it**: the sound Z80 sees a command or an interrupt from the first
+  instruction it starts at or after the moment the main CPU's write ended (MAME's scheduler stops
+  the main CPU there and runs the sound CPU up to it before the latch changes). A watchdog reset
+  that lands mid-instruction cuts the sound Z80's instruction where MAME's had paused. Bus accesses
+  happen at the start of their bus cycle, as in MAME's Z80, which is when the timer is read and
+  when an AY write lands. The Z80 now powers on with MAME's register values (AF 0040h, SP 0000h).
+
+How it's proved, the same way as the Galaxian board:
+
+- `test-programs/konami/`: `kmain.inc` on each map (`kscramble` for Scramble's and The End's,
+  `kscobra`, `kfrogger`, `kturtles`) moves tiles, sprites and shots, flips the screen, switches the
+  stars and backgrounds, changes things mid-frame, shows every input and the protection's answers
+  as tiles, sends a command every 8 frames, silences the sound for 20 frames and lets the watchdog
+  reset the board at frame 150; `ksound.inc` (`ksound` on the two-AY board, `kfsound` on Frogger's)
+  plays tones on every channel of both AYs with each filter switch, two at once, all six and the
+  noise, timing itself on the timer, and reads each command in its interrupt.
+- `tests/konami_mame.rs` runs them on MAME 0.289's `scramble`, `theend`, `scobra`, `frogger` and
+  `amidar` sets: **all 260 frames of each match pixel for pixel, and all of the sound Z80's
+  instructions (904,936, or 904,864 on Frogger) match MAME's debugger trace line for line**:
+  cycle count, AF, BC, DE, HL, SP, IX and PC, through the watchdog's reset. Since the AY itself
+  matches MAME sample for sample (above), the AYs here get the same writes at the same cycles; their
+  output can't be compared sample for sample on this board because MAME feeds it into its circuit
+  model. The sound after the filters is compared segment by segment: every tone's strongest
+  frequency within 0.2% (they agree exactly), its level within 8% (1-7% apart) and its spectrum at
+  least 0.99 alike. MAME 0.289's recording doesn't apply the board's silencing bit (its system mute
+  only reaches the speakers), so those frames aren't compared; cArcade silences the sound there, as
+  the board does.
+- `tests/konami_board.rs` holds cArcade to MAME's recorded hashes and measures in
+  `tests/references/konami/` everywhere, round-trips save states after the reset, and checks the
+  committed programs assemble from their sources. Planted mistakes (the 0.047 µF filter as 0.1 µF,
+  the timer's B4 from the wrong counter bit, Frogger's colour wiring left out) all fail it.
+
 ## Galaxian's sound, approximated (item I5)
 
 `src/galaxian_sound.rs`. **This is an approximation.** Galaxian and Moon Cresta have no sound
