@@ -499,7 +499,7 @@ ios_core_config() {
       # picture hook this host accepts. CPU JIT is compiled out by -DIOS (no
       # dynarec, no executable memory). The fast interpreter stays on.
       IOS_REPO="https://github.com/azahar-emu/azahar"
-      IOS_PIN="68202bc4ff7edf9d7280ec0dcd6572b7cd1ae26e"
+      IOS_PIN="6daa07ab2a58870edfe15472003061a354bac73b"
       IOS_DYLIB_NAME="azahar_libretro_ios.dylib"
       IOS_KIND="cmake-shared"
       IOS_CMAKE_TARGET="citra_libretro"
@@ -539,7 +539,7 @@ ios_core_config() {
       # selected submodule list is what the libretro target's CMake actually
       # add_subdirectory's.
       IOS_REPO="https://github.com/hrydgard/ppsspp"
-      IOS_PIN="dd6bd1a53d38773c1d07985fcb7d2f56fcaa872c"
+      IOS_PIN="a838053e4cf419b40bd4efbcf5cc12a05fb88098"
       IOS_DYLIB_NAME="ppsspp_libretro_ios.dylib"
       IOS_KIND="cmake-ppsspp"
       IOS_CMAKE_TARGET="ppsspp_libretro"
@@ -628,7 +628,7 @@ ios_core_config() {
       # Submodules: only the ones the libretro target add_subdirectory's or includes. SDL, oboe,
       # googletest, freetype, breakpad and the Windows-only ones are not fetched.
       IOS_REPO="https://github.com/flyinghead/flycast"
-      IOS_PIN="f03faffd2f89cb2c7c73ff08dce51a774a61ee27"
+      IOS_PIN="80471d57b02606f53828daa916de6ecc94ca1877"
       IOS_DYLIB_NAME="flycast_libretro_ios.dylib"
       IOS_KIND="cmake-flycast"
       IOS_CMAKE_TARGET="flycast_libretro"
@@ -655,7 +655,7 @@ ios_core_config() {
       # runnable (TARGET_IPHONE in rec_arm64.cpp and posix_vmem.cpp), which is how its own iOS app
       # runs with JIT, so this needs no patch.
       IOS_REPO="https://github.com/flyinghead/flycast"
-      IOS_PIN="f03faffd2f89cb2c7c73ff08dce51a774a61ee27"
+      IOS_PIN="80471d57b02606f53828daa916de6ecc94ca1877"
       IOS_DYLIB_NAME="flycast_jit_libretro_ios.dylib"
       IOS_KIND="cmake-flycast"
       IOS_CMAKE_TARGET="flycast_libretro"

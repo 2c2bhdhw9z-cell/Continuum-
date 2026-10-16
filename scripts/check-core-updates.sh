@@ -46,6 +46,8 @@ BUILDBOT="https://buildbot.libretro.com/nightly/apple/ios-arm64/latest"
 # again, with this note beside it.
 checked_skip() {
   case "$1" in
+    gearsystem)
+      echo "426d4eb61d6e2b3cc5d9431ed9cc3cb9efa1829b|only the desktop app and the file-based save code changed; the emulator Continuum builds is the same|16 October 2026" ;;
     mednafen_psx_hw)
       echo "e57860d82faa953dc0fc10f201fd583739bc2f7d|3-7% slower on the software renderer the app uses|12 October 2026" ;;
     prboom)

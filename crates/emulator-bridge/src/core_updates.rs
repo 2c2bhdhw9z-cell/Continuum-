@@ -59,9 +59,9 @@ pub const CORE_BUILDS: &[CoreBuild] = &[
     core("mednafen_pce_fast", "3f946f277aef3aa99a95551618bbcd1dd2bda0d9", "TurboGrafx-16", "Beetle PCE Fast"),
     core("stella2023", "ba52c43b9eda950eb0c0eec69cda9b17dee8c39b", "Atari 2600", "Stella"),
     core("parallel_n64", "a8280501a71c1bcd4c85c5b8bfe75cfa62cd6127", "N64", "ParaLLEl N64"),
-    core("azahar", "68202bc4ff7edf9d7280ec0dcd6572b7cd1ae26e", "3DS", "Azahar"),
-    core("ppsspp", "dd6bd1a53d38773c1d07985fcb7d2f56fcaa872c", "PSP", "PPSSPP"),
-    core("flycast", "f03faffd2f89cb2c7c73ff08dce51a774a61ee27", "Dreamcast", "Flycast"),
+    core("azahar", "6daa07ab2a58870edfe15472003061a354bac73b", "3DS", "Azahar"),
+    core("ppsspp", "a838053e4cf419b40bd4efbcf5cc12a05fb88098", "PSP", "PPSSPP"),
+    core("flycast", "80471d57b02606f53828daa916de6ecc94ca1877", "Dreamcast", "Flycast"),
     core("continuum_symbian", "661031f9d8ccd37612797e32a52b2d4c6aadfcdc", "Symbian", "EKA2L1"),
     // Downloaded (scripts/fetch-buildbot-cores.sh pins, the zip sha256).
     core("mednafen_wswan", "9aa05d0207e283731e6d0bde7aa6830de4269b0465b53f47ceb2e99d0ff6e5a5", "WonderSwan", "Beetle WonderSwan"),
@@ -203,7 +203,7 @@ const fn exact(
 /// that core's entries are checked again and pointed at the new pin, and one is added from the pin
 /// it moved off. Build 181's pins ([`BUILD_181`]) always stay a "from": an install without
 /// `core-builds.txt` is compared against them, and a heads-up still waiting since then keeps them.
-/// 12 October 2026: the first moves from build 181. 14 October 2026
+/// 12 October 2026: the first moves from build 181. 14 and 16 October 2026
 /// (`.kiro/notes/docs/reports/core-updates-2026-10-14.md`): the cores that moved again, from the pins builds
 /// 182 to 185 shipped.
 pub const CORE_UPDATES: &[CoreUpdate] = &[
@@ -220,19 +220,23 @@ pub const CORE_UPDATES: &[CoreUpdate] = &[
     CoreUpdate {
         core_id: "azahar",
         from_build: "065c9222ae7e8ce5535aa2672c8565e82c0a6d54",
-        to_build: "68202bc4ff7edf9d7280ec0dcd6572b7cd1ae26e",
+        to_build: "6daa07ab2a58870edfe15472003061a354bac73b",
         old_states: OldStates::Refused,
     },
     CoreUpdate {
         core_id: "azahar",
         from_build: "bfa768727c60ad5bcb9397ad1471f8586605adf8",
-        to_build: "68202bc4ff7edf9d7280ec0dcd6572b7cd1ae26e",
+        to_build: "6daa07ab2a58870edfe15472003061a354bac73b",
         old_states: OldStates::Refused,
     },
-    // Versioned sections, no minimum raised.
-    commits("ppsspp", "53fae900997fd12ac0ef8f8d82d6f25390acbc29", "dd6bd1a53d38773c1d07985fcb7d2f56fcaa872c"),
-    // Covers flycast_jit too.
-    commits("flycast", "59ed35a7ea7c1940d4c8ac221a662d0e6d6dc9ea", "f03faffd2f89cb2c7c73ff08dce51a774a61ee27"),
+    // Versioned sections, no minimum raised. 16 October: the legacy JITs' own "Jit" section went,
+    // and the IR frontend writes the same one (same name, versions 1-2, same fields), so states
+    // from builds 181 and 182-185 still load.
+    commits("ppsspp", "53fae900997fd12ac0ef8f8d82d6f25390acbc29", "a838053e4cf419b40bd4efbcf5cc12a05fb88098"),
+    commits("ppsspp", "dd6bd1a53d38773c1d07985fcb7d2f56fcaa872c", "a838053e4cf419b40bd4efbcf5cc12a05fb88098"),
+    // Covers flycast_jit too. 16 October: core/serialize.cpp unchanged.
+    commits("flycast", "59ed35a7ea7c1940d4c8ac221a662d0e6d6dc9ea", "80471d57b02606f53828daa916de6ecc94ca1877"),
+    commits("flycast", "f03faffd2f89cb2c7c73ff08dce51a774a61ee27", "80471d57b02606f53828daa916de6ecc94ca1877"),
     // Downloaded: the version strings were read from the shipped dylibs with `strings`.
     exact(
         "mednafen_supergrafx",
@@ -526,7 +530,7 @@ mod tests {
                 assert_eq!(to_version, VersionMatch::Commit(u.to_build), "{}", u.core_id);
             }
         }
-        assert_eq!(CORE_UPDATES.len(), 12);
+        assert_eq!(CORE_UPDATES.len(), 14);
     }
 
     fn loads(core: &str, saved: &str, running: &str) -> bool {
@@ -545,8 +549,10 @@ mod tests {
         assert!(loads("gearsystem", "3.9.22-4-g02b9d9e-dirty", "3.9.22-10-g4a801d2-dirty"));
         assert!(loads("gearsystem", "3.9.22-5-g692494c-dirty", "3.9.22-10-g4a801d2-dirty"));
         assert!(loads("parallel_n64", "1.0 0bd516e", "1.0 a828050"));
-        assert!(loads("ppsspp", "53fae90", "v1.19.3-1501-gdd6bd1a5"));
-        assert!(loads("flycast", "59ed35a7", "f03faffd"));
+        assert!(loads("ppsspp", "53fae90", "v1.19.3-1801-ga838053e"));
+        assert!(loads("ppsspp", "v1.19.3-1501-gdd6bd1a5", "a838053"));
+        assert!(loads("flycast", "59ed35a7", "80471d57"));
+        assert!(loads("flycast", "f03faffd", "80471d57"));
         assert!(loads("mednafen_supergrafx", "v1.29.0 3c6fcd3", "v1.29.0 9c11dcd"));
         assert!(loads("puae", "5.3.1 6536174", "5.3.1 7387937"));
         assert!(loads("dosbox_pure", "1.0-preview6", "1.0-preview7"));
@@ -557,8 +563,11 @@ mod tests {
     #[test]
     fn everything_else_stays_refused() {
         assert!(!loads("azahar", "065c922", "bfa7687"));
-        assert!(!loads("azahar", "065c922", "68202bc"));
-        assert!(!loads("azahar", "bfa7687", "68202bc"));
+        assert!(!loads("azahar", "065c922", "6daa07a"));
+        assert!(!loads("azahar", "bfa7687", "6daa07a"));
+        // A state made on the new PSP and Dreamcast builds never loads on the old ones.
+        assert!(!loads("ppsspp", "a838053", "dd6bd1a"));
+        assert!(!loads("flycast", "80471d57", "f03faffd"));
         assert!(!loads("azahar", "a", "b"));
         assert!(!loads("fceumm", "(SVN) ac0d00a", "(SVN) 7a542da"));
         assert!(!loads("gearsystem", "4a801d2-dirty", "692494c-dirty"));

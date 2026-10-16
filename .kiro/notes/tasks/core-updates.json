@@ -40,16 +40,18 @@
     },
     {
       "id": "CU3",
-      "done": false,
+      "done": true,
       "title": "PPSSPP (PSP)",
       "detail": "Sixty-nine upstream changes. Skim them all for the risky areas (the ARM emitter and disassembler work only matters for the JIT; the GE call-depth change affects emulation accuracy; look for save-state version bumps in Core/SaveState.cpp and the per-module DoState version numbers, libretro front-end changes in libretro/, removed options, iOS changes). Dry-run scripts/patches/ppsspp-*.patch. No host build. If PPSSPP raised a state's version in a way it still reads the old one (it usually does), old states load. Move the pin, update core_updates.rs, run the checks, push.",
-      "progress": "Stopped at about 9:10 AM Eastern on 14 October, when the Kiro account ran out of credits. Started about 8:55 AM; nothing was finished or saved. Start it from the beginning."
+      "progress": "Stopped at about 9:10 AM Eastern on 14 October, when the Kiro account ran out of credits. Started about 8:55 AM; nothing was finished or saved. Start it from the beginning.",
+      "result": "Taken 16 October: PPSSPP moved to a838053 (300 upstream changes, including faster, more exact IR-interpreter work; the old ARM64 JIT is gone upstream and the JIT now uses PPSSPP's IR-based JIT); our patches fit and old PSP save states still load (same 'Jit' section)."
     },
     {
       "id": "CU4",
-      "done": false,
+      "done": true,
       "title": "Flycast (Dreamcast, and its JIT build)",
-      "detail": "Four upstream changes (a dx11/gl clear and scissor fix, 'sh4: set Sh4Cntx address on Reset', NAOMI BIOS through the front end's VFS, a texture dumping option). Read them, dry-run scripts/patches/flycast-*.patch, check the serialization version (core/serialize.cpp) for old states. The plain build and the flycast_jit build share the source: move both together. Move the pin, update core_updates.rs, run the checks, push."
+      "detail": "Four upstream changes (a dx11/gl clear and scissor fix, 'sh4: set Sh4Cntx address on Reset', NAOMI BIOS through the front end's VFS, a texture dumping option). Read them, dry-run scripts/patches/flycast-*.patch, check the serialization version (core/serialize.cpp) for old states. The plain build and the flycast_jit build share the source: move both together. Move the pin, update core_updates.rs, run the checks, push.",
+      "result": "Taken 16 October: Flycast (and its JIT build) moved to 80471d5; four small upstream fixes, our patches fit, core/serialize.cpp unchanged so old Dreamcast states load."
     },
     {
       "id": "CU5",
