@@ -706,7 +706,7 @@ final class FeedbackCenter: ObservableObject {
     var crashPromptText: String {
         guard let unexpectedClose else { return "" }
         return Self.crashSentence(unexpectedClose)
-            + " Sorry! Want to send a quick report? It really helps."
+            + " Sorry! A quick report really helps."
     }
 
     static func directory() -> URL? {
