@@ -5,6 +5,23 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
+## Update, 16 October 2026, 12:50 AM Eastern (third Kiro account)
+
+- The 11 memories are saved on this account. Workflows (loops) are turned off on this account by
+  the owner, so one session works the jobs in turn.
+- **Done this session:** `mirror-restore.json` complete (9c53424; the next build takes 11
+  emulators from the buildbot and DOOM, Jaguar, Virtual Boy, C64 and Amiga from build 185's
+  install, then refills `core-mirror-1` itself; the sandbox can't upload release files).
+  cArcade's Galaxian/Moon Cresta board matches MAME on all 10 test programs (7e6402e; not in the
+  app yet: sound, Konami's board and the wiring are next, see `arcade.json` I5). Emulator updates
+  (14375a5): PSP, Dreamcast and 3DS moved to their newest code; Gearsystem skipped (desktop-only
+  changes). CU5's write-up is still to do.
+- **Reference MAME:** `bash .kiro/notes/wip/tools/build-mame-deps.sh` in the foreground rebuilds
+  it in a new sandbox. Rust here: `CARGO_HOME` must be writable and
+  `RUSTUP_TOOLCHAIN=1.92.0-x86_64-unknown-linux-gnu` (rustup can't sync).
+- Still left, in order: CU5, arcade I5 (Galaxian sound, Konami board, wiring), I6, I7, cBoy G2-G5,
+  H3, H6, U4, U5, T3-T5, then fold the reports and ONE build.
+
 ## Where this left off (14 October 2026, 1:40 PM Eastern)
 
 - **New Kiro account again.** The second account ran out of credits at about 9:10 AM with six jobs
