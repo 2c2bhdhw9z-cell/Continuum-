@@ -246,8 +246,8 @@ launch with an empty library.
 
 ## Next up
 
-**17 October 2026, midnight Eastern, read this first.** **Build 191** (started 11:46 PM on 16
-October, `6a0045e`) adds the covers and library batch (L1 to L9, Built, untested;
+**17 October 2026, midnight Eastern, read this first.** **Build 191** (`6a0045e`, out 11:58 PM on 16 October, checked: 0.8.0 (191), 37 core files;
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-191-6a0045e/Continuum-191.ipa) adds the covers and library batch (L1 to L9, Built, untested;
 `docs/reports/library-and-manic-2026-10-16.md`; phone checks TESTING.md "Build 191"). Next, in
 order: the GameCube and Wii job (`tasks/gamecube.json`, GC1 to GC5), then the emulator updates
 held from this session's check (Gearsystem, Azahar, PPSSPP, Flycast upstream; PUAE and VICE on

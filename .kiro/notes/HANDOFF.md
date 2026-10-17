@@ -10,10 +10,10 @@ Paste this to start a new chat:
 - **Done this session (owner had about 30% usage left):** the whole covers and library job, L1 to
   L10 (`tasks/library-and-manic.json` complete; write-up `docs/reports/library-and-manic-2026-10-16.md`;
   phone checks TESTING.md "Build 191", 18 steps). Commits `605093a` and `6a0045e`.
-- **Build 191** was started by the push of `6a0045e` at 11:46 PM Eastern on 16 October (the cores
-  are cached from 190, so it should take minutes, not an hour). If it failed, read the log, fix,
-  push again. Check the .ipa (0.8.0 (191), 37 `_libretro_ios.dylib` files) and give the owner the
-  link plus the Build 191 steps written out. The owner went to sleep expecting it in the morning.
+- **Build 191 is out and checked** (11:58 PM Eastern, 16 October, 12 minutes from push):
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-191-6a0045e/Continuum-191.ipa
+  0.8.0 (191), 37 `_libretro_ios.dylib` files, the continuum:// link type in its Info.plist, and
+  the new screens' text in the app. The owner was given the link and the Build 191 steps.
 - **Emulator updates found this session, held for the next batch:** Gearsystem, Azahar, PPSSPP and
   Flycast have newer code upstream; PUAE (Amiga) and VICE (C64) newer buildbot builds. Do the
   usual quick check and take the safe ones with the GameCube batch.
