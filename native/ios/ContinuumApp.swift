@@ -1736,11 +1736,15 @@ struct LibraryEntry: Identifiable, Hashable, Sendable {
     /// always UTF-8 and a single stray high byte would otherwise make the whole sheet
     /// unreadable. Latin-1 cannot fail on any byte sequence, so nil here means the read itself
     /// failed, not that the text was merely odd.
+    ///
+    /// Without a byte-order mark at the front (Notepad writes one): left on, it became part of
+    /// the first line's FILE keyword, so a sheet's first track was never counted.
     private static func cueText(at url: URL) -> String? {
         if let utf8 = try? String(contentsOf: url, encoding: .utf8) {
-            return utf8
+            return GameShare.droppingByteOrderMark(utf8)
         }
-        return try? String(contentsOf: url, encoding: .isoLatin1)
+        return (try? String(contentsOf: url, encoding: .isoLatin1))
+            .map(GameShare.droppingByteOrderMark)
     }
 
     /// Every unique track file a cue sheet names, resolved against the sheet's own directory.
@@ -3407,6 +3411,25 @@ final class EngineHost: ObservableObject {
         UserDefaults.standard.set(Array(favourites), forKey: Self.favouritesKey)
     }
 
+    /// Stars (or unstars) several games as ONE change: one write of the set, persisted at once
+    /// like a single star, and one status line. `toggleFavourite` for each game made a write, a
+    /// status line and a Library redraw per game (the select bar's star; joining discs).
+    func setFavourite(_ starred: Bool, for entries: [LibraryEntry]) {
+        let names = Set(entries.map(\.name))
+        var updated = favourites
+        if starred {
+            updated.formUnion(names)
+        } else {
+            updated.subtract(names)
+        }
+        guard updated != favourites else { return }
+        let changed = starred ? updated.subtracting(favourites) : favourites.subtracting(updated)
+        favourites = updated
+        UserDefaults.standard.set(Array(favourites), forKey: Self.favouritesKey)
+        let what = changed.count == 1 ? (changed.first ?? "1 game") : "\(changed.count) games"
+        status = starred ? "added \(what) to favorites" : "removed \(what) from favorites"
+    }
+
     /// The indices in `library` of the entries with these ids.
     ///
     /// The bridge between a filtered view and `deleteEntries(at:)`, which indexes the real array. A
@@ -4293,11 +4316,15 @@ final class EngineHost: ObservableObject {
         // the core still opens them; they are simply not things to tap. A text file with a ROM
         // extension (README.md) is never listed: it goes to Not games.
         //
-        // A game on several discs shows ONCE, as its playlist: the discs an .m3u names are left
-        // out (owner, 16 October 2026; the game card's "Join it with its other discs").
+        // A game on several discs shows ONCE, as its playlist: the discs an .m3u names beside it
+        // are left out (owner, 16 October 2026; the game card's "Join it with its other discs").
+        // Only by a playlist that can start: one whose system nothing can tell isn't listed, and
+        // hiding its discs as well made the game vanish. See `MultiDisc.namedByPlaylists`.
+        MultiDisc.placePlaylistsByTheirFirstDisc(files)
         let inPlaylists = MultiDisc.namedByPlaylists(files)
         let launchable = files.filter {
-            CoreCatalog.isLaunchable(path: $0.path) && !inPlaylists.contains($0.lastPathComponent)
+            CoreCatalog.isLaunchable(path: $0.path)
+                && !inPlaylists.contains($0.lastPathComponent.lowercased())
         }
         let entries = moveNotGames(launchable, documents: documents)
             .map { LibraryEntry(url: $0) }
@@ -4398,6 +4425,13 @@ final class EngineHost: ObservableObject {
     /// Guessing which .bin files belonged to a deleted .cue would mean parsing the cue sheet,
     /// and a wrong guess deletes a track another game needs. A cartridge ROM is one file, so
     /// that note is only written when a .cue was actually among the deletions.
+    ///
+    /// A JOINED GAME (an .m3u) TAKES ITS DISCS WITH IT. They are hidden behind it in the Library,
+    /// so deleting the playlist alone brought every disc back as a game of its own. They go
+    /// through exactly the same steps as the rows asked for, their save states and cheats with
+    /// them, and a .cue disc's .bin tracks stay as they do for any .cue. A disc another playlist
+    /// still names stays, and so does anything outside the Continuum folder itself
+    /// (`MultiDisc.discsGoingWith`).
     func deleteEntries(at offsets: IndexSet) {
         var removed: [String] = []
         var failures: [String] = []
@@ -4407,8 +4441,12 @@ final class EngineHost: ObservableObject {
         // The games actually deleted, so the artwork store can forget them in one pass.
         var deleted: [LibraryEntry] = []
 
-        for index in offsets where index >= 0 && index < library.count {
-            let entry = library[index]
+        let asked: [LibraryEntry] = offsets.compactMap { index in
+            library.indices.contains(index) ? library[index] : nil
+        }
+        let targets = asked + MultiDisc.discsGoingWith(asked, library: library)
+
+        for entry in targets {
             do {
                 try FileManager.default.removeItem(atPath: entry.path)
                 removed.append(entry.name)

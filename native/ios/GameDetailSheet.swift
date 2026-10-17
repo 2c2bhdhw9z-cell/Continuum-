@@ -633,12 +633,20 @@ struct GameDetailSheet: View {
                 host.detailEntry = nil
                 host.deleteEntries(at: indices)
             }
-            SettingsNote(
-                "Deletes the game with its save states and cheats. In-game saves are kept, and a "
-                + "disc game's .bin files stay in the Continuum folder."
-            )
+            SettingsNote(deleteNote)
         }
         .padding(14)
         .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// What Delete takes. A joined game (an .m3u) takes its discs with it
+    /// (`EngineHost.deleteEntries`).
+    private var deleteNote: String {
+        if entry.ext == "m3u" {
+            return "Deletes all its discs too, with their save states and cheats, but keeps "
+                + "in-game saves and .bin files."
+        }
+        return "Deletes the game with its save states and cheats. In-game saves are kept, and a "
+            + "disc game's .bin files stay in the Continuum folder."
     }
 }

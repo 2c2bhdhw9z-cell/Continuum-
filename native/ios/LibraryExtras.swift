@@ -239,36 +239,64 @@ enum CleanStart {
 
 enum GameShare {
     /// Every file the game is made of: the file itself, a cue sheet's tracks, a GD-ROM sheet's
-    /// tracks, and a playlist's discs with their tracks. Only files that are really there.
+    /// tracks, a CloneCD sheet's .img and .sub, an Alcohol .mds's .mdf, a .toc's track files, and
+    /// a playlist's discs with theirs. Only files that are really there, and only inside the
+    /// game's own folder (a sheet that names "../something" shares nothing outside it).
     static func files(for entry: LibraryEntry) -> [URL] {
         let url = URL(fileURLWithPath: entry.path)
         var out = [url]
-        switch entry.ext {
-        case "cue":
-            out += cueTracks(url)
-        case "gdi":
-            out += gdiTracks(url)
-        case "m3u":
+        if entry.ext == "m3u" {
             for disc in MultiDisc.discs(inPlaylist: url) {
                 out.append(disc)
-                switch disc.pathExtension.lowercased() {
-                case "cue": out += cueTracks(disc)
-                case "gdi": out += gdiTracks(disc)
-                default: break
-                }
+                out += parts(of: disc)
             }
-        default:
-            break
+        } else {
+            out += parts(of: url)
         }
+        let root = url.deletingLastPathComponent().standardizedFileURL.path + "/"
         var seen = Set<String>()
         return out.filter {
-            FileManager.default.fileExists(atPath: $0.path) && seen.insert($0.path).inserted
+            let path = $0.standardizedFileURL.path
+            return path.hasPrefix(root) && FileManager.default.fileExists(atPath: $0.path)
+                && seen.insert(path).inserted
         }
     }
 
+    /// The other files one disc needs, by the kind of sheet it is. Empty for a disc that is one
+    /// file (a .chd, an .iso, a .pbp).
+    static func parts(of disc: URL) -> [URL] {
+        switch disc.pathExtension.lowercased() {
+        case "cue": return cueTracks(disc)
+        case "gdi": return gdiTracks(disc)
+        case "ccd": return companions(of: disc, extensions: ["img", "sub"])
+        case "mds": return companions(of: disc, extensions: ["mdf"])
+        case "toc": return tocTracks(disc)
+        default: return []
+        }
+    }
+
+    /// A sheet's text, UTF-8 or else Latin-1, without a byte-order mark at the front (Notepad
+    /// writes one, and it would otherwise become part of the first name in the file).
     static func text(of url: URL) -> String? {
-        (try? String(contentsOf: url, encoding: .utf8))
-            ?? (try? String(contentsOf: url, encoding: .isoLatin1))
+        guard let text = (try? String(contentsOf: url, encoding: .utf8))
+            ?? (try? String(contentsOf: url, encoding: .isoLatin1)) else { return nil }
+        return droppingByteOrderMark(text)
+    }
+
+    /// The text with a byte-order mark taken off the front: U+FEFF as UTF-8 reads it, or its
+    /// three bytes as Latin-1 reads them ("ï»¿").
+    static func droppingByteOrderMark(_ text: String) -> String {
+        let scalars = text.unicodeScalars
+        var drop = 0
+        if scalars.first?.value == 0xFEFF {
+            drop = 1
+        } else if scalars.prefix(3).map(\.value) == [0xEF, 0xBB, 0xBF] {
+            drop = 3
+        }
+        guard drop > 0 else { return text }
+        var rest = String.UnicodeScalarView()
+        rest.append(contentsOf: scalars.dropFirst(drop))
+        return String(rest)
     }
 
     static func cueTracks(_ cue: URL) -> [URL] {
@@ -276,17 +304,86 @@ enum GameShare {
         return LibraryEntry.trackURLs(inCueSheet: sheet, relativeTo: cue.deletingLastPathComponent())
     }
 
-    /// A .gdi names one track per line: number, sector, type, size, FILE, offset.
+    /// A .gdi names one track per line after its first: number, sector, type, size, FILE, offset.
+    /// The file name can be in quotes, with spaces in it ("Track 01.bin").
     static func gdiTracks(_ gdi: URL) -> [URL] {
         guard let sheet = text(of: gdi) else { return [] }
         let folder = gdi.deletingLastPathComponent()
         return sheet.split(whereSeparator: \.isNewline).compactMap { line -> URL? in
-            let fields = line.split(separator: " ", omittingEmptySubsequences: true)
+            let fields = quotedFields(String(line))
             guard fields.count >= 5 else { return nil }
-            let name = String(fields[4]).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-            guard !name.isEmpty, !name.contains("/") else { return nil }
-            return folder.appendingPathComponent(name)
+            return relativeFile(fields[4], in: folder)
         }
+    }
+
+    /// A .toc (cdrdao's sheet) names its tracks' files on FILE, DATAFILE and AUDIOFILE lines. One
+    /// that names none is the PlayStation kind beside a .bin of the same name.
+    static func tocTracks(_ toc: URL) -> [URL] {
+        let folder = toc.deletingLastPathComponent()
+        var found: [URL] = []
+        if let sheet = text(of: toc) {
+            for line in sheet.split(whereSeparator: \.isNewline) {
+                let fields = quotedFields(String(line))
+                guard fields.count >= 2,
+                      ["FILE", "DATAFILE", "AUDIOFILE"].contains(fields[0].uppercased()),
+                      let file = relativeFile(fields[1], in: folder) else { continue }
+                found.append(file)
+            }
+        }
+        return found.isEmpty ? companions(of: toc, extensions: ["bin"]) : found
+    }
+
+    /// The files beside a sheet with its name and these extensions (a .ccd's .img and .sub),
+    /// in lower or upper case, whichever is there.
+    static func companions(of sheet: URL, extensions: [String]) -> [URL] {
+        let folder = sheet.deletingLastPathComponent()
+        let stem = sheet.deletingPathExtension().lastPathComponent
+        return extensions.compactMap { ext -> URL? in
+            for spelling in [ext, ext.uppercased()] {
+                let file = folder.appendingPathComponent("\(stem).\(spelling)")
+                if FileManager.default.fileExists(atPath: file.path) { return file }
+            }
+            return nil
+        }
+    }
+
+    /// A line's fields, split on spaces and tabs, with a "quoted field" kept whole and its quotes
+    /// taken off: `3 45000 4 2352 "Track 03.bin" 0` gives six fields, the fifth "Track 03.bin".
+    static func quotedFields(_ line: String) -> [String] {
+        var fields: [String] = []
+        var current = ""
+        var inQuotes = false
+        var started = false
+        for character in line {
+            if character == "\"" {
+                inQuotes.toggle()
+                started = true
+            } else if !inQuotes && (character == " " || character == "\t") {
+                if started {
+                    fields.append(current)
+                    current = ""
+                    started = false
+                }
+            } else {
+                current.append(character)
+                started = true
+            }
+        }
+        if started {
+            fields.append(current)
+        }
+        return fields
+    }
+
+    /// A file a sheet or a playlist names, inside `folder`: a plain name, or a path into a folder
+    /// inside it ("CD1/Game.cue"). Never an absolute path, and never one that climbs out with
+    /// "..", so a list can't point anywhere else on the phone.
+    static func relativeFile(_ name: String, in folder: URL) -> URL? {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("/") else { return nil }
+        let parts = trimmed.split(separator: "/").map(String.init).filter { $0 != "." }
+        guard !parts.isEmpty, !parts.contains("..") else { return nil }
+        return parts.reduce(folder) { $0.appendingPathComponent($1) }
     }
 
     /// The share sheet, over whatever is on screen (the game card).
@@ -371,8 +468,9 @@ enum MultiDisc {
         return systems.contains(system)
     }
 
-    /// The discs a playlist names, in order, as files next to it. Blank lines, comments and
-    /// anything in another folder are skipped.
+    /// The discs a playlist names, in order: files beside it, or in a folder inside its own
+    /// ("CD1/Game.cue"). Blank lines, comments, a byte-order mark at the front, and anything
+    /// outside the playlist's folder (an absolute path, "..") are skipped.
     static func discs(inPlaylist url: URL) -> [URL] {
         guard let text = GameShare.text(of: url) else { return [] }
         let folder = url.deletingLastPathComponent()
@@ -382,21 +480,73 @@ enum MultiDisc {
             // RetroArch lets a line carry a label after "|".
             let name = (line.split(separator: "|", maxSplits: 1).first.map(String.init) ?? line)
                 .trimmingCharacters(in: .whitespaces)
-            guard !name.isEmpty, !name.contains("/") else { return nil }
-            return folder.appendingPathComponent(name)
+            return GameShare.relativeFile(name, in: folder)
         }
     }
 
-    /// The file names the playlists among `files` name. The Library leaves those out, so a
-    /// game on several discs shows once, as its playlist.
+    /// Whether a disc a playlist names is beside it, where a Library row can be (the Library
+    /// lists the Continuum folder itself, never a folder inside it).
+    static func isBeside(_ disc: URL, playlist: URL) -> Bool {
+        disc.deletingLastPathComponent().standardizedFileURL.path
+            == playlist.deletingLastPathComponent().standardizedFileURL.path
+    }
+
+    /// The file names, in lower case, of the discs that the playlists among `files` name beside
+    /// themselves. The Library leaves those out, so a game on several discs shows once, as its
+    /// playlist. ONLY A PLAYLIST THAT CAN START hides its discs: one whose system nothing can
+    /// tell (its first disc needed "Which system?", and it's not on record for the playlist)
+    /// isn't listed itself, and hiding its discs too made the whole game vanish.
     static func namedByPlaylists(_ files: [URL]) -> Set<String> {
         var names = Set<String>()
-        for file in files where file.pathExtension.lowercased() == "m3u" {
-            for disc in discs(inPlaylist: file) {
-                names.insert(disc.lastPathComponent)
+        for file in files where file.pathExtension.lowercased() == "m3u"
+            && CoreCatalog.isLaunchable(path: file.path) {
+            for disc in discs(inPlaylist: file) where isBeside(disc, playlist: file) {
+                names.insert(disc.lastPathComponent.lowercased())
             }
         }
         return names
+    }
+
+    /// A playlist nothing can place, whose first disc the player placed themselves ("Which
+    /// system?"), is placed the same way, so it can start. Joining discs in build 191 wrote such
+    /// playlists without recording their system (`writePlaylist` records it now), and they could
+    /// never start. Only for the multi-disc systems, and never over an answer already on record.
+    static func placePlaylistsByTheirFirstDisc(_ files: [URL]) {
+        for file in files where file.pathExtension.lowercased() == "m3u"
+            && SystemChoices.choice(forFileName: file.lastPathComponent) == nil
+            && !CoreCatalog.isLaunchable(path: file.path) {
+            guard let first = discs(inPlaylist: file).first, isBeside(first, playlist: file),
+                  let answer = SystemChoices.choice(forFileName: first.lastPathComponent),
+                  let system = GameSystem(rawValue: answer),
+                  systems.contains(system) else { continue }
+            SystemChoices.remember(answer, forFileName: file.lastPathComponent)
+        }
+    }
+
+    /// The discs that go with these games when they're deleted: each playlist's discs beside it
+    /// that are games the Library would list, unless a playlist that stays names them too. Never
+    /// a file in another folder, and never a .bin track (a .cue's tracks stay, as they do when a
+    /// .cue is deleted on its own).
+    static func discsGoingWith(_ games: [LibraryEntry], library: [LibraryEntry]) -> [LibraryEntry] {
+        let playlists = games.filter { $0.ext == "m3u" }
+        guard !playlists.isEmpty else { return [] }
+        let leaving = Set(games.map(\.path))
+        let staying = library.filter { $0.ext == "m3u" && !leaving.contains($0.path) }
+        let stillNamed = namedByPlaylists(staying.map { URL(fileURLWithPath: $0.path) })
+        var seen = leaving
+        var out: [LibraryEntry] = []
+        for playlist in playlists {
+            let url = URL(fileURLWithPath: playlist.path)
+            for disc in discs(inPlaylist: url) where isBeside(disc, playlist: url) {
+                guard discExtensions.contains(disc.pathExtension.lowercased()),
+                      !stillNamed.contains(disc.lastPathComponent.lowercased()),
+                      FileManager.default.fileExists(atPath: disc.path),
+                      CoreCatalog.isLaunchable(path: disc.path),
+                      seen.insert(disc.path).inserted else { continue }
+                out.append(LibraryEntry(url: disc))
+            }
+        }
+        return out
     }
 
     /// A disc's game title without its disc number: "Final Fantasy VII (USA) (Disc 1).cue"
@@ -417,14 +567,25 @@ enum MultiDisc {
 
     /// Writes "<title>.m3u" naming `discs` in order, next to them, and returns it. Never writes
     /// over a file: a name already taken gets " (2)" and so on.
+    ///
+    /// THE PLAYLIST IS RECORDED AS ITS DISCS' SYSTEM (`SystemChoices`, by its file name). A new
+    /// playlist is otherwise placed by reading its first disc, and a disc the player had to
+    /// answer "Which system?" for can't be placed that way: the playlist couldn't start, and the
+    /// Library would have hidden its discs behind it.
     static func writePlaylist(title: String, discs: [LibraryEntry]) -> (url: URL?, problem: String) {
         guard let first = discs.first else { return (nil, "Pick at least two discs.") }
         let folder = URL(fileURLWithPath: first.path).deletingLastPathComponent()
-        let safe = title
+        var stem = title
             .replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ":", with: "-")
             .trimmingCharacters(in: .whitespaces)
-        let stem = safe.isEmpty ? "Game" : safe
+        // A name starting with a dot is a hidden file, which the Library never lists
+        // (".hack//Infection").
+        while stem.hasPrefix(".") {
+            stem.removeFirst()
+        }
+        stem = stem.trimmingCharacters(in: .whitespaces)
+        if stem.isEmpty { stem = "Game" }
         var target = folder.appendingPathComponent("\(stem).m3u")
         var copy = 2
         while FileManager.default.fileExists(atPath: target.path) {
@@ -434,10 +595,207 @@ enum MultiDisc {
         let text = discs.map(\.name).joined(separator: "\n") + "\n"
         do {
             try text.write(to: target, atomically: true, encoding: .utf8)
-            return (target, "")
         } catch {
             return (nil, "The list of discs couldn't be saved: \(error.localizedDescription)")
         }
+        if let system = CoreCatalog.system(for: first) {
+            SystemChoices.remember(system.rawValue, forFileName: target.lastPathComponent)
+        }
+        return (target, "")
+    }
+
+    // MARK: What the joined game takes from the first disc
+
+    /// Copies what the player has for the first disc to the joined game, which goes by the
+    /// playlist's file name like every game: its in-game save (a PlayStation memory card), its
+    /// save states, its cheats, its star and its own settings (the core it runs on, its skin, and
+    /// each emulator's settings for it). Without this the joined game started with nothing.
+    ///
+    /// Copies only: the first disc keeps everything it had, and nothing the joined game already
+    /// has is ever written over. Returns what couldn't come along, in the player's words.
+    @MainActor
+    static func carryOver(from disc: LibraryEntry, to game: LibraryEntry,
+                          host: EngineHost) -> [String] {
+        var left: [String] = []
+        let from = SaveStates.gameId(for: disc)
+        let to = SaveStates.gameId(for: game)
+        if !copyFile(SaveStateDisk.batteryURL(gameId: from), to: SaveStateDisk.batteryURL(gameId: to)) {
+            left.append("in-game save")
+        }
+        if !copySaveStates(from: from, to: to, store: host.saveStates) {
+            left.append("save states")
+        }
+        if !copyCheats(from: from, to: to, store: host.cheats) {
+            left.append("cheats")
+        }
+        if host.favourites.contains(disc.name) {
+            host.setFavourite(true, for: [game])
+        }
+        if !copySettings(from: disc, to: game, host: host) {
+            left.append("settings")
+        }
+        return left
+    }
+
+    /// Copies one file. True when it's copied, or when there was nothing to copy, or when the
+    /// joined game already has exactly the same file; false when it couldn't be, or when the
+    /// joined game has a different one, which is kept.
+    private static func copyFile(_ source: URL?, to target: URL?) -> Bool {
+        let files = FileManager.default
+        guard let source, files.fileExists(atPath: source.path) else { return true }
+        guard let target else { return false }
+        if files.fileExists(atPath: target.path) {
+            return files.contentsEqual(atPath: source.path, andPath: target.path)
+        }
+        do {
+            try files.createDirectory(at: target.deletingLastPathComponent(),
+                                      withIntermediateDirectories: true)
+            try files.copyItem(at: source, to: target)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Every save state, in the same slot with the same name, picture and the facts the loading
+    /// check needs (the emulator, its version and its settings), the auto-save included.
+    ///
+    /// Through the store's own files: each state's file and picture are copied to the joined
+    /// game's names (`SaveStateDisk`), the list gets the copies, and the store reads the list
+    /// again (`reloadFromDisk`, which is what it does after a folder sync changes it). A state
+    /// whose slot the joined game already has, or whose file is gone, stays behind. If the list
+    /// can't be written, the copies are taken away again, so nothing is half there.
+    @MainActor
+    private static func copySaveStates(from source: String, to target: String,
+                                       store: SaveStates) -> Bool {
+        let states = store.states(forGameId: source)
+        guard !states.isEmpty else { return true }
+        let taken = store.states(forGameId: target)
+        let files = FileManager.default
+        var copies: [SaveStateRecord] = []
+        var allCopied = true
+        for record in states {
+            if taken.contains(where: { $0.isAuto == record.isAuto && $0.slot == record.slot }) {
+                allCopied = false
+                continue
+            }
+            guard let from = SaveStateDisk.payloadURL(gameId: source, slot: record.slot,
+                                                      isAuto: record.isAuto),
+                  let to = SaveStateDisk.payloadURL(gameId: target, slot: record.slot,
+                                                    isAuto: record.isAuto) else {
+                allCopied = false
+                continue
+            }
+            // A state whose file is already gone has nothing to carry (its row says so).
+            guard files.fileExists(atPath: from.path) else { continue }
+            guard !files.fileExists(atPath: to.path) else {
+                allCopied = false
+                continue
+            }
+            do {
+                try files.copyItem(at: from, to: to)
+            } catch {
+                allCopied = false
+                continue
+            }
+            if let fromPicture = SaveStateDisk.thumbnailURL(gameId: source, slot: record.slot,
+                                                            isAuto: record.isAuto),
+               let toPicture = SaveStateDisk.thumbnailURL(gameId: target, slot: record.slot,
+                                                          isAuto: record.isAuto),
+               files.fileExists(atPath: fromPicture.path),
+               !files.fileExists(atPath: toPicture.path) {
+                try? files.copyItem(at: fromPicture, to: toPicture)
+            }
+            copies.append(SaveStateRecord(
+                gameId: target, slot: record.slot, isAuto: record.isAuto,
+                createdAt: record.createdAt, frame: record.frame, byteCount: record.byteCount,
+                coreId: record.coreId, coreVersion: record.coreVersion, label: record.label,
+                coreOptions: record.coreOptions))
+        }
+        guard !copies.isEmpty else { return allCopied }
+        if SaveStateDisk.writeIndex(store.records + copies) != nil {
+            for copy in copies {
+                SaveStateDisk.remove(gameId: target, slot: copy.slot, isAuto: copy.isAuto)
+                SaveStateDisk.removeThumbnail(gameId: target, slot: copy.slot, isAuto: copy.isAuto)
+            }
+            return false
+        }
+        store.reloadFromDisk()
+        return allCopied
+    }
+
+    /// Every cheat, in order, on or off as it was. A code the joined game already has is left
+    /// as it is.
+    @MainActor
+    private static func copyCheats(from source: String, to target: String,
+                                   store: CheatStore) -> Bool {
+        var allCopied = true
+        for cheat in store.cheats(forGameId: source) {
+            let code = cheat.code.lowercased()
+            guard !store.cheats(forGameId: target).contains(where: { $0.code.lowercased() == code })
+            else { continue }
+            if store.add(code: cheat.code, label: cheat.label, forGameId: target) != nil {
+                allCopied = false
+                continue
+            }
+            // `add` switches a new cheat on.
+            if !cheat.enabled,
+               let copy = store.cheats(forGameId: target).last(where: { $0.code.lowercased() == code }) {
+                store.setEnabled(false, for: copy)
+            }
+        }
+        return allCopied
+    }
+
+    /// The game's own core (its card's core choice), its skin, and each emulator's settings for
+    /// it, kept by the engine as CoreOptions/<emulator>/games/<the game's file name>.opt.
+    @MainActor
+    private static func copySettings(from disc: LibraryEntry, to game: LibraryEntry,
+                                     host: EngineHost) -> Bool {
+        let core = host.gameCoreChoice(for: disc)
+        if !core.isEmpty, host.gameCoreChoice(for: game).isEmpty {
+            host.setGameCoreChoice(core, for: game)
+        }
+        let skin = host.gameSkinChoice(for: disc)
+        if skin != .automatic, host.gameSkinChoice(for: game) == .automatic {
+            host.setGameSkin(skin, for: game)
+        }
+        guard let support = FileManager.default.urls(for: .applicationSupportDirectory,
+                                                     in: .userDomainMask).first,
+              let emulators = try? FileManager.default.contentsOfDirectory(
+                  at: support.appendingPathComponent("CoreOptions", isDirectory: true),
+                  includingPropertiesForKeys: nil) else { return true }
+        var allCopied = true
+        for emulator in emulators {
+            let games = emulator.appendingPathComponent("games", isDirectory: true)
+            let from = games.appendingPathComponent("\(engineFileStem(disc.name)).opt")
+            let to = games.appendingPathComponent("\(engineFileStem(game.name)).opt")
+            if !copyFile(from, to: to) { allCopied = false }
+        }
+        return allCopied
+    }
+
+    /// The engine's name for a game's settings file (`game_file_stem` in options.rs): slashes,
+    /// colons and control characters become "_", the ends are trimmed, and leading dots go.
+    static func engineFileStem(_ name: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        for scalar in name.unicodeScalars {
+            let swapped = scalar == "/" || scalar == "\\" || scalar == ":"
+                || scalar.properties.generalCategory == .control
+            scalars.append(swapped ? "_" : scalar)
+        }
+        var stem = String(scalars).trimmingCharacters(in: .whitespacesAndNewlines)
+        while stem.hasPrefix(".") {
+            stem.removeFirst()
+        }
+        return stem.isEmpty ? "game" : stem
+    }
+
+    /// "save states", "in-game save and cheats", "in-game save, cheats and settings".
+    static func listed(_ things: [String]) -> String {
+        guard let last = things.last else { return "" }
+        guard things.count > 1 else { return last }
+        return things.dropLast().joined(separator: ", ") + " and " + last
     }
 }
 
@@ -448,27 +806,33 @@ struct MultiDiscSheet: View {
     @ObservedObject var host: EngineHost
     let onDone: () -> Void
 
+    /// The other discs of the same system, the ones that look like this game first. Worked out
+    /// once, when the sheet opens: it routes every game in the Library, which is too much to do
+    /// on every redraw and every tap.
+    @State private var candidates: [LibraryEntry] = []
+    @State private var loaded = false
     @State private var picked: Set<String> = []
     @State private var title = ""
     @State private var problem = ""
+    /// The game was made, but something stayed with the first disc: the sheet stays up to say so.
+    @State private var made = false
 
-    /// The other discs of the same system, the ones that look like this game first.
-    private var candidates: [LibraryEntry] {
+    private var chosen: [LibraryEntry] {
+        candidates
+            .filter { picked.contains($0.id) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    static func candidates(for entry: LibraryEntry, in library: [LibraryEntry]) -> [LibraryEntry] {
         let system = CoreCatalog.system(for: entry)
         let base = MultiDisc.baseTitle(entry.name).lowercased()
-        let discs = host.library.filter {
+        let discs = library.filter {
             $0.ext != "m3u" && MultiDisc.discExtensions.contains($0.ext)
                 && CoreCatalog.system(for: $0) == system
         }
         let alike = discs.filter { MultiDisc.baseTitle($0.name).lowercased() == base }
         let others = discs.filter { MultiDisc.baseTitle($0.name).lowercased() != base }
         return alike + others
-    }
-
-    private var chosen: [LibraryEntry] {
-        candidates
-            .filter { picked.contains($0.id) }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     var body: some View {
@@ -486,6 +850,7 @@ struct MultiDiscSheet: View {
                     .foregroundStyle(ShellPalette.text)
                     .padding(10)
                     .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 10))
+                    .disabled(made)
 
                 SettingsLabel("Discs, in order")
                 VStack(alignment: .leading, spacing: 0) {
@@ -514,21 +879,32 @@ struct MultiDiscSheet: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .disabled(made)
                     }
                 }
                 .padding(.horizontal, 12)
                 .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+
+                SettingsNote("The first disc's saves, states, cheats, star and settings come along.")
 
                 if !problem.isEmpty {
                     SettingsNote(problem)
                 }
 
                 HStack(spacing: 10) {
-                    PillButton(title: "Make it one game", systemImage: "square.stack", filled: true) {
-                        make()
-                    }
-                    PillButton(title: "Cancel", systemImage: nil, filled: false) {
-                        onDone()
+                    if made {
+                        PillButton(title: "Done", systemImage: nil, filled: true) {
+                            host.detailEntry = nil
+                            onDone()
+                        }
+                    } else {
+                        PillButton(title: "Make it one game", systemImage: "square.stack",
+                                   filled: true) {
+                            make()
+                        }
+                        PillButton(title: "Cancel", systemImage: nil, filled: false) {
+                            onDone()
+                        }
                     }
                 }
             }
@@ -537,6 +913,9 @@ struct MultiDiscSheet: View {
         .background(ShellPalette.background.ignoresSafeArea())
         .presentationDragIndicator(.visible)
         .onAppear {
+            guard !loaded else { return }
+            loaded = true
+            candidates = Self.candidates(for: entry, in: host.library)
             title = MultiDisc.baseTitle(entry.name)
             let base = title.lowercased()
             picked = Set(candidates
@@ -556,9 +935,16 @@ struct MultiDiscSheet: View {
             problem = written.problem
             return
         }
+        let left = MultiDisc.carryOver(from: discs[0], to: LibraryEntry(url: playlist), host: host)
         host.refreshLibrary()
-        host.libraryNotice = "\(playlist.deletingPathExtension().lastPathComponent) is one game "
-            + "now, with \(discs.count) discs."
+        let name = playlist.deletingPathExtension().lastPathComponent
+        guard left.isEmpty else {
+            made = true
+            problem = "\(name) is one game now. Its \(MultiDisc.listed(left)) stayed with the "
+                + "first disc."
+            return
+        }
+        host.libraryNotice = "\(name) is one game now, with \(discs.count) discs."
         host.detailEntry = nil
         onDone()
     }
