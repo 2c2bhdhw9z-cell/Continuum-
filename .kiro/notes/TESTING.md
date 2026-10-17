@@ -9,6 +9,16 @@ imports.
 
 ## Build 191 (17 October): covers and the library
 
+**Owner's results on build 191 (17 October, morning). Do not ask these again:**
+- **Failed: the top of Home** (screenshot, Pokemon Stadium as the featured game): "top isn't like
+  it was before now". The big cover sits pushed to the right and cut off, and the game's name and
+  the lines under it run off the right edge. Cause (found, not fixed yet, the owner is testing):
+  the blurred backdrop behind the hero is never held to the screen's width, so a wide box (N64,
+  SNES, and now with the taller hero even square Game Boy boxes) makes the whole top wider than
+  the phone. Fix when the owner is done testing: put Home's top back exactly as it was before
+  build 191 (the cover filling the top behind the name, the old height), and hold it to the
+  screen's width so no cover can push it off the edge.
+
 Nothing here has been on a phone yet. Delete the old app first, as always. Build 190's checks 24
 to 63 (further down) are in this install too and still waiting. **If you only have ten minutes,
 do 1, 2, 3 and 4.**

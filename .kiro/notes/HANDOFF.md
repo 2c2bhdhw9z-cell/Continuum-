@@ -14,6 +14,12 @@ Paste this to start a new chat:
   https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-191-6a0045e/Continuum-191.ipa
   0.8.0 (191), 37 `_libretro_ios.dylib` files, the continuum:// link type in its Info.plist, and
   the new screens' text in the app. The owner was given the link and the Build 191 steps.
+- **Owner's first report on 191 (17 October, morning):** the top of Home is broken and "isn't
+  like it was before" (TESTING.md "Build 191", results). They're testing: fix nothing until they
+  say they're done. Then: restore the pre-191 hero (`HeroCard` and `heroHeight` as in `a4f7c3c^`
+  before `605093a`, i.e. the cropped full-bleed cover, 300 to 430 points) AND hold its width to
+  the screen (`.frame(height:).frame(maxWidth: .infinity)` doesn't cap a `.fill` image's width;
+  give the backdrop a fixed width or put it in `.background` of a flexible frame).
 - **Emulator updates found this session, held for the next batch:** Gearsystem, Azahar, PPSSPP and
   Flycast have newer code upstream; PUAE (Amiga) and VICE (C64) newer buildbot builds. Do the
   usual quick check and take the safe ones with the GameCube batch.
