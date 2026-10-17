@@ -120,17 +120,20 @@ static CORE: Mutex<Option<Core>> = Mutex::new(None);
 static CB: Mutex<Callbacks> =
     Mutex::new(Callbacks { env: None, video: None, audio_batch: None, poll: None, input: None });
 static LOG: Mutex<Option<LogFn>> = Mutex::new(None);
-/// The last line logged, kept for the tests: a frontend's log callback is a C variadic function,
-/// which a Rust test can't be.
+/// The last line logged, kept for the tests (a frontend's log callback is a C variadic function,
+/// which a Rust test can't be). Not in the player's build.
+#[cfg(any(test, feature = "test-hooks"))]
 static LAST_LINE: Mutex<String> = Mutex::new(String::new());
 
-#[doc(hidden)]
+/// The last line logged (the tests' stand-in for the frontend's log).
+#[cfg(any(test, feature = "test-hooks"))]
 pub fn last_log_line() -> String {
     LAST_LINE.lock().map(|l| l.clone()).unwrap_or_default()
 }
 
 /// Sends one line to the frontend's log, prefixed "cArcade: ".
 fn log_line(line: &str) {
+    #[cfg(any(test, feature = "test-hooks"))]
     if let Ok(mut last) = LAST_LINE.lock() {
         *last = line.to_string();
     }

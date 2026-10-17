@@ -34,6 +34,7 @@ name = "continuum_arcade"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "continuum_arcade",
  "flate2",
  "png",
  "serde",

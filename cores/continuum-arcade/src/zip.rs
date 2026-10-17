@@ -187,8 +187,8 @@ impl Zip {
 }
 
 /// Writes a plain zip of stored (unpacked) files. Used by the tests to build sets from cArcade's
-/// own test programs.
-#[doc(hidden)]
+/// own test programs; not in the player's build.
+#[cfg(any(test, feature = "test-hooks"))]
 pub fn write_stored(files: &[(&str, &[u8])]) -> Vec<u8> {
     let mut out = Vec::new();
     let mut dir = Vec::new();
