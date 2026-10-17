@@ -17,6 +17,14 @@ imports.
   asked for a fix. Possible fix if asked: keep each console's shape on the TV and a sharp-pixel
   look for big screens (the DS and GBA draw a small fixed picture, so there is no resolution to
   raise).
+  Then (same day): TV scaling Fit "Don't look any better"; the owner wants the whole TV used
+  (Fill), and 4K: "I have a 4k tv". Owner: don't go "crazy" on emulators that aren't theirs
+  (they'll be replaced). **Done on master (`fec5b61`), not built:** the TV scene picks the biggest
+  mode in `availableModes` instead of `preferredMode` (Apple's iPhone 17 Pro Max specs: up to
+  4K HDR over AirPlay mirroring and over USB-C), and logs the modes offered. No core touched.
+  Connecting from inside the app: Apple gives apps no way to start screen mirroring; Manic's own
+  AirPlay guide uses Control Centre too. A USB-C to HDMI cable needs no mirroring step.
+  Phone check next install: play on the TV, send feedback, and the log says "TV mode in use".
 - **App icons (17 October, two screenshots of Settings, App Icon):** the owner circled
   Dotmatrix, Mark, Chrome, Violet, Spectrum and Cyan and said "Fix." Nothing was said about
   any other icon. **Fixed on master (`5acc8ec`), not built:** each picture is whole and centred
