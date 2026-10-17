@@ -15,9 +15,11 @@ imports.
   the lines under it run off the right edge. Cause (found, not fixed yet, the owner is testing):
   the blurred backdrop behind the hero is never held to the screen's width, so a wide box (N64,
   SNES, and now with the taller hero even square Game Boy boxes) makes the whole top wider than
-  the phone. Fix when the owner is done testing: put Home's top back exactly as it was before
-  build 191 (the cover filling the top behind the name, the old height), and hold it to the
-  screen's width so no cover can push it off the edge.
+  the phone. **Fixed on master (`c347ae5`, owner: "fix it ... but don't make a new build"):**
+  Home's top is back exactly as it was before build 191 (the cover filling the top behind the
+  name, the old height), held to the screen's width so no cover can push it off the edge. Not
+  built yet; it goes in the next build. Its phone check then: open Home with a wide box (an N64
+  or SNES game) as the featured game; the cover fills the top and the name and Play fit on screen.
 
 Nothing here has been on a phone yet. Delete the old app first, as always. Build 190's checks 24
 to 63 (further down) are in this install too and still waiting. **If you only have ten minutes,
