@@ -797,7 +797,15 @@ pub struct State {
     /// Safe Mode: the next game starts with only the core-wide choices. See
     /// `set_skip_game_choices_next_start`.
     skip_game_once: bool,
+    /// The running core's game was started that way (Clean start on the game card): it runs as
+    /// no game, so a change for that game alone is refused with [`CLEAN_START_LINE`].
+    clean_start: bool,
 }
+
+/// What a change for the running game alone says during a Clean start, when that game runs as no
+/// game at all. Plain, because the player reads it.
+const CLEAN_START_LINE: &str =
+    "This is a clean start, so changes here apply to every game. Start the game normally to change its own settings.";
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
 
@@ -849,11 +857,13 @@ pub fn install(core_id: &str, game: Option<&str>, fresh_core: bool) {
     with_state(|s| {
         s.active_core = core_id.to_owned();
         s.active_game = game.map(str::to_owned);
+        s.clean_start = false;
         // Safe Mode: this game starts on the core-wide choices only, and as no game at all, so a
         // setting changed during it is core-wide and the game's own file is never written over.
         if game.is_some() && s.skip_game_once {
             s.skip_game_once = false;
             s.active_game = None;
+            s.clean_start = true;
         }
         let game = s.active_game.clone();
         let game = game.as_deref();
@@ -1150,11 +1160,10 @@ pub fn set(core_id: &str, key: &str, value: &str, for_game: bool) -> Result<Stri
         let root = s.root.clone();
         let label = def.as_ref().map(|d| d.label.clone()).unwrap_or_else(|| key.to_owned());
         if for_game {
-            let game = s
-                .active_game
-                .clone()
-                .filter(|_| live)
-                .ok_or_else(|| "a per-game setting needs that game running".to_owned())?;
+            let clean = live && s.clean_start;
+            let game = s.active_game.clone().filter(|_| live).ok_or_else(|| {
+                if clean { CLEAN_START_LINE } else { "a per-game setting needs that game running" }.to_owned()
+            })?;
             // Written before it is kept, so a failed write leaves memory matching the disk.
             let mut game_values = s.game_values.clone();
             game_values.insert(key.to_owned(), value.to_owned());
@@ -1215,11 +1224,11 @@ pub fn reset_core(core_id: &str) -> Result<String, String> {
 /// Clears the running game's own choices.
 pub fn reset_game(core_id: &str) -> Result<String, String> {
     with_state(|s| {
-        let game = s
-            .active_game
-            .clone()
-            .filter(|_| s.active_core == core_id)
-            .ok_or_else(|| "no game of that core is running".to_owned())?;
+        let live = s.active_core == core_id;
+        let clean = live && s.clean_start;
+        let game = s.active_game.clone().filter(|_| live).ok_or_else(|| {
+            if clean { CLEAN_START_LINE } else { "no game of that core is running" }.to_owned()
+        })?;
         if let Some(root) = &s.root {
             write_map(&game_opt_path(root, core_id, &game), &BTreeMap::new())?;
         }
@@ -1885,12 +1894,27 @@ mod tests {
         install("fakecore", Some("Game One.gb"), false);
         assert_eq!(ask("fake_lowpass").as_deref(), Some("enabled"), "Safe Mode ignores the game's own choice");
         assert_eq!(active_game("fakecore"), None, "so nothing can write over its file");
-        assert!(set("fakecore", "fake_lowpass", "disabled", true).is_err());
+        // A change for this game alone is refused with a sentence that says why, not with "needs
+        // that game running" while it is plainly running.
+        let refused = set("fakecore", "fake_lowpass", "disabled", true).unwrap_err();
+        assert_eq!(refused, CLEAN_START_LINE);
+        assert!(!refused.contains("needs that game running"));
+        assert_eq!(reset_game("fakecore").unwrap_err(), CLEAN_START_LINE);
         assert!(game_opt_path(&root, "fakecore", "Game One.gb").exists());
+        // Another core's game really isn't running, and says so.
+        assert_eq!(
+            set("othercore", "other_key", "on", true).unwrap_err(),
+            "a per-game setting needs that game running"
+        );
+        assert_eq!(reset_game("othercore").unwrap_err(), "no game of that core is running");
+        // A change for every game still works during it.
+        assert!(set("fakecore", "fake_lowpass", "enabled", false).unwrap().contains("for every game"));
 
-        // Only once: the next start is normal again.
+        // Only once: the next start is normal again, with the game's own choice and its own
+        // settings open to change.
         install("fakecore", Some("Game One.gb"), false);
         assert_eq!(ask("fake_lowpass").as_deref(), Some("disabled"));
+        assert!(set("fakecore", "fake_lowpass", "disabled", true).unwrap().contains("for this game"));
         reset_for_tests();
     }
 
