@@ -50,7 +50,8 @@ extension GameSystem {
 /// Settings, SOUND: when on, the iPhone's silent switch (or Action button) mutes games, the way
 /// it mutes most games from the App Store. Off by default, so games play out loud as they always
 /// did. Read by `AudioSessionPolicy`, which picks the audio category: `.ambient` follows the
-/// switch, `.playback` ignores it.
+/// switch, `.playback` ignores it. `.ambient` also mixes with other apps' sound, so music playing
+/// in another app keeps going under the game, and the note under the switch says so.
 enum SilentMode {
     static let key = "continuum.audio.respectSilentSwitch.v1"
 
@@ -68,7 +69,7 @@ struct SilentModeToggle: View {
                 Text("Mute games with the silent switch")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(ShellPalette.text)
-                Text("When your iPhone is on silent, games are quiet too.")
+                Text("On silent, games are quiet too, and your music can keep playing.")
                     .font(.system(size: 12))
                     .foregroundStyle(ShellPalette.secondaryText)
             }

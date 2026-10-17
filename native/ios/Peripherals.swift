@@ -55,8 +55,19 @@ enum AudioSessionPolicy {
         try session.setCategory(category, mode: .default, options: options)
     }
 
+    /// The category the shared session is really in, for the read-outs, asked of the session
+    /// rather than worked out from the switches, so a set that didn't take (or one iOS changed)
+    /// shows. When that isn't the category wanted right now, the wanted one comes first:
+    /// "ambient (now playback)", which is also what the line about a refused set needs to name.
     static var categoryName: String {
-        recording ? "playAndRecord" : (SilentMode.respected ? "ambient" : "playback")
+        let wanted = recording ? "playAndRecord" : (SilentMode.respected ? "ambient" : "playback")
+        let category = AVAudioSession.sharedInstance().category
+        let names: [(AVAudioSession.Category, String)] = [
+            (.playAndRecord, "playAndRecord"), (.ambient, "ambient"), (.playback, "playback"),
+            (.soloAmbient, "soloAmbient"), (.record, "record"), (.multiRoute, "multiRoute"),
+        ]
+        let real = names.first(where: { $0.0 == category })?.1 ?? category.rawValue
+        return real == wanted ? real : "\(wanted) (now \(real))"
     }
 }
 
