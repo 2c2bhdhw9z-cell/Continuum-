@@ -1,5 +1,5 @@
 {
-  "complete": false,
+  "complete": true,
   "title": "Cover art like Manic's, the library by console, and the other Manic features in the owner's screenshots (16 October 2026)",
   "repo": "/projects/sandbox/.scratch/lib-work",
   "why": "The owner compared Continuum with Manic EMU on their phone (17 screenshots, 16 October) and said the cover art in Continuum looks bad next to Manic's. Manic shows each cover whole, at its real box shape, sharp, grouped by console. Continuum crops every cover to one 3:4 shape (CoverCard in native/ios/LibraryCards.swift: height = width * 4/3, CoverArtView in ArtworkStore.swift draws with .aspectRatio(contentMode: .fill)) and lays the system badge over the art. Pokemon LeafGreen had no cover in Continuum and one in Manic. Everything else on this list is a Manic feature Continuum lacks (owner-rules: anything Manic has is required work); see MANIC_PARITY.md 'Seen in Manic on the owner's phone'.",
@@ -13,63 +13,73 @@
   "items": [
     {
       "id": "L1",
-      "done": false,
+      "done": true,
       "title": "Covers whole, at their real shape, sharp",
-      "detail": "Show the entire cover, never cropped: each system's real box shape (GameCube, PS1, Mega Drive, NES portrait; SNES and N64 North American boxes landscape; DS, Game Boy family nearly square) or the image's own shape, in grids, shelves and the hero, keeping rows tidy (Manic keeps one shape per console section). The system label must not cover the art (move it under the cover or make it small and out of the way, Manic shows none on the cover). Decode at the screen's real pixel size so covers are as sharp as Manic's. A cover that isn't found: try harder (name variants, the region-free name, the full No-Intro listing) and check Pokemon LeafGreen (USA) now finds its art."
+      "detail": "Show the entire cover, never cropped: each system's real box shape (GameCube, PS1, Mega Drive, NES portrait; SNES and N64 North American boxes landscape; DS, Game Boy family nearly square) or the image's own shape, in grids, shelves and the hero, keeping rows tidy (Manic keeps one shape per console section). The system label must not cover the art (move it under the cover or make it small and out of the way, Manic shows none on the cover). Decode at the screen's real pixel size so covers are as sharp as Manic's. A cover that isn't found: try harder (name variants, the region-free name, the full No-Intro listing) and check Pokemon LeafGreen (USA) now finds its art.",
+      "result": "Whole covers at their own shape in shelves, grids, the hero, list rows and the game card; the label off the art; Leaf Green / LeafGreen and numbered-set names matched (605093a)."
     },
     {
       "id": "L2",
-      "done": false,
+      "done": true,
       "title": "The library by console",
-      "detail": "A section per console with its name, game count and a fold arrow (like Manic's), a letter or console index down the right edge to jump, Random Game, Console Ordering (Settings: drag the consoles into the order you want), and Select All / select several games to delete or favourite at once. Keep All Games' plain grid as a choice if it's simpler, but the by-console list is what Manic shows."
+      "detail": "A section per console with its name, game count and a fold arrow (like Manic's), a letter or console index down the right edge to jump, Random Game, Console Ordering (Settings: drag the consoles into the order you want), and Select All / select several games to delete or favourite at once. Keep All Games' plain grid as a choice if it's simpler, but the by-console list is what Manic shows.",
+      "result": "All Games By console (default): folding sections, pinned headers, a console index, Random Game, select several (star, delete), Settings Console order, which Home follows too (605093a, 6a0045e)."
     },
     {
       "id": "L3",
-      "done": false,
+      "done": true,
       "title": "ROM patcher",
-      "detail": "Apply an .ips, .bps or .ups patch to a game (fan translations, hacks): as a new copy, never changing the original, checked by the patch's own checksums (BPS/UPS carry CRC32s). Patch code in the Rust engine with tests (our own implementation of the three formats)."
+      "detail": "Apply an .ips, .bps or .ups patch to a game (fan translations, hacks): as a new copy, never changing the original, checked by the patch's own checksums (BPS/UPS carry CRC32s). Patch code in the Rust engine with tests (our own implementation of the three formats).",
+      "result": "Patch this game...: our own IPS, BPS and UPS with checksum checks, always a new copy (605093a)."
     },
     {
       "id": "L4",
-      "done": false,
+      "done": true,
       "title": "MultiDisc Helper",
-      "detail": "Pick the discs of one game (PS1, Saturn, Sega CD, PC Engine CD, Dreamcast) and Continuum writes its .m3u and shows it as one game."
+      "detail": "Pick the discs of one game (PS1, Saturn, Sega CD, PC Engine CD, Dreamcast) and Continuum writes its .m3u and shows it as one game.",
+      "result": "Join it with its other discs...: writes the .m3u, and the Library hides the discs a playlist names (605093a)."
     },
     {
       "id": "L5",
-      "done": false,
+      "done": true,
       "title": "Copy Launch Link",
-      "detail": "A continuum:// link that opens straight into that game (Shortcuts, home screen). Register the URL scheme in project.yml and route it in the existing onOpenURL."
+      "detail": "A continuum:// link that opens straight into that game (Shortcuts, home screen). Register the URL scheme in project.yml and route it in the existing onOpenURL.",
+      "result": "Copy its link: continuum://play?game=... opens the game (605093a)."
     },
     {
       "id": "L6",
-      "done": false,
+      "done": true,
       "title": "Share ROM",
-      "detail": "Share a game's file from its card (the share sheet)."
+      "detail": "Share a game's file from its card (the share sheet).",
+      "result": "Share the game: the file plus its tracks or discs (605093a)."
     },
     {
       "id": "L7",
-      "done": false,
+      "done": true,
       "title": "Safe Mode",
-      "detail": "Start a game once with its cheats, auto-load of the last state and its per-game custom settings off (a line under Play on the game card, like Manic's)."
+      "detail": "Start a game once with its cheats, auto-load of the last state and its per-game custom settings off (a line under Play on the game card, like Manic's).",
+      "result": "Clean start: no cheats, no auto-load, none of the game's own settings, auto-save held (605093a)."
     },
     {
       "id": "L8",
-      "done": false,
+      "done": true,
       "title": "Language per game",
-      "detail": "The console language for that game where the core has a language option (GameCube/Wii once Dolphin is in, PSP, DS, 3DS, Saturn, Dreamcast...), as a per-game setting on the game card."
+      "detail": "The console language for that game where the core has a language option (GameCube/Wii once Dolphin is in, PSP, DS, 3DS, Saturn, Dreamcast...), as a per-game setting on the game card.",
+      "result": "Console language for this game, from the emulator's own language setting, written without the game running (605093a)."
     },
     {
       "id": "L9",
-      "done": false,
+      "done": true,
       "title": "Respect Silent Mode",
-      "detail": "A Settings switch: when on, the silent switch mutes games (audio session category ambient vs playback, in Peripherals.swift's session setup)."
+      "detail": "A Settings switch: when on, the silent switch mutes games (audio session category ambient vs playback, in Peripherals.swift's session setup).",
+      "result": "Settings, Sound, Mute games with the silent switch (605093a)."
     },
     {
       "id": "L10",
-      "done": false,
+      "done": true,
       "title": "Write it up",
-      "detail": ".kiro/notes/docs/reports/library-and-manic-2026-10-16.md: what changed (Built, untested), numbered phone checks in the owner's plain voice, TESTING.md lines needing new wording. Tick MANIC_PARITY.md's lines. Set complete."
+      "detail": ".kiro/notes/docs/reports/library-and-manic-2026-10-16.md: what changed (Built, untested), numbered phone checks in the owner's plain voice, TESTING.md lines needing new wording. Tick MANIC_PARITY.md's lines. Set complete.",
+      "result": "Write-up: .kiro/notes/docs/reports/library-and-manic-2026-10-16.md; TESTING.md Build 191; MANIC_PARITY ticked."
     }
   ]
 }

@@ -1,11 +1,70 @@
 # What to test, and what to tell me
 
-Last updated 16 October 2026, 7 AM Eastern. **Build 185 (13 October) is the newest install so
+Last updated 17 October 2026, midnight Eastern. **Build 191** is the newest install: its steps are right below. Before that: **Build 185 (13 October) is the newest install so
 far:** it has 182's changes and the night batch, and its steps are under "Next install (after
 181)" and "Night batch (13 October)" further down. **The next install** adds a big batch on top:
 its steps come first, right below. "This install only" is build 181 (the cleanup plus the licence
 swap), with your results: steps 1 to 4 cover the cleanup, 5 to 11 the new emulators, and 12 save
 imports.
+
+## Build 191 (17 October): covers and the library
+
+Nothing here has been on a phone yet. Delete the old app first, as always. Build 190's checks 24
+to 63 (further down) are in this install too and still waiting. **If you only have ten minutes,
+do 1, 2, 3 and 4.**
+
+**Covers**
+
+1. Open the app and look at the big cover at the top of **Home**. ✅ The whole box shows, sharp,
+   above the game's name, on a soft blurred copy of itself. Nothing is cut off.
+2. Scroll **Home**'s shelves. ✅ Every cover is whole, all the same height, each as wide as its own
+   box (SNES and N64 boxes wide, Game Boy ones square, NES and Mega Drive tall), and there's no
+   system label on the art.
+3. Go to **All Games**. ✅ Your games are in a section per console, each with its name and how
+   many games it has, and the covers are whole.
+4. If you have Pokémon LeafGreen (or FireRed): make sure **Settings → Cover art** lookups are on,
+   then look at it in All Games. ✅ It has its cover now.
+
+**All Games by console**
+
+5. Tap a console's name. ✅ The section folds shut. Tap again: it opens.
+6. With three or more consoles, look down the right edge of All Games. ✅ There's a strip of short
+   console names. Tap one, or slide your finger down it: the list jumps to that console.
+7. Tap the button with two crossed arrows at the top of All Games. ✅ A random game starts.
+8. Tap the tick-circle button next to it. ✅ Small circles show on the covers and a bar comes up
+   above the tabs. Tick two games, tap the **star** on the bar: both are favourites. Tap **Done**.
+9. Pick several again, tap the **bin** on the bar, then **Delete**. ✅ Those games are gone. (Use
+   games you don't mind losing, or skip this one.)
+10. **Settings → Layout → Console order...** Drag a console to the top with its handle and tap
+    **Done**. ✅ That console comes first in All Games and on Home's shelves.
+11. Tap the layout button at the top right of All Games (or **Settings → Layout → All Games**).
+    ✅ It goes By console, then Grid, then List, and Grid and List look like they did, with whole
+    covers.
+
+**The game card** (press and hold a game)
+
+12. Tap **Clean start**. ✅ The game starts from the beginning: no cheats, and it doesn't pick up
+    where you left off. Close it, open it the normal way: ✅ it carries on from your last auto-save
+    as usual.
+13. Tap **Share the game**. ✅ The share sheet opens with the game's file (a disc game brings its
+    .bin files too). Cancel it.
+14. Tap **Copy its link**, then open **Shortcuts**: new shortcut, add **Open URLs**, paste, and
+    run it. ✅ Continuum opens straight into that game.
+15. Only if you have a patch (a fan translation or hack, a .ips, .bps or .ups file in Files): tap
+    **Patch this game...** and pick it. ✅ A line says it's done, and a new copy with the patch's
+    name in [brackets] is in your library. The original is still there, unchanged.
+16. Only if you have a game on several discs (PS1, Saturn, Sega CD...): on disc 1's card tap **Join
+    it with its other discs...**. ✅ Its discs are ticked; tap **Make it one game**: the discs
+    become one game in the library. Play it and use **⋯ → Next disc**.
+17. Open a PSP, DS, 3DS or Dreamcast game once, close it, then press and hold it. ✅ There's a
+    **Console language for this game** menu. Pick another language and open the game: ✅ the
+    game's own menus are in that language. If one of those systems shows no menu, say which.
+
+**Sound**
+
+18. **Settings → Sound → Mute games with the silent switch** on. Put your iPhone on silent and
+    play a game. ✅ No sound. Take it off silent: ✅ sound is back. Turn the setting off again:
+    ✅ games play out loud even on silent, as before.
 
 ## Build 190 (16 October): the new install, after 185
 

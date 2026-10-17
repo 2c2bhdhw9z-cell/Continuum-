@@ -5,7 +5,22 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (16 October 2026, evening Eastern): two new jobs, nothing built since 190
+## START HERE (17 October 2026, just after midnight Eastern): build 191, then GameCube
+
+- **Done this session (owner had about 30% usage left):** the whole covers and library job, L1 to
+  L10 (`tasks/library-and-manic.json` complete; write-up `docs/reports/library-and-manic-2026-10-16.md`;
+  phone checks TESTING.md "Build 191", 18 steps). Commits `605093a` and `6a0045e`.
+- **Build 191** was started by the push of `6a0045e` at 11:46 PM Eastern on 16 October (the cores
+  are cached from 190, so it should take minutes, not an hour). If it failed, read the log, fix,
+  push again. Check the .ipa (0.8.0 (191), 37 `_libretro_ios.dylib` files) and give the owner the
+  link plus the Build 191 steps written out. The owner went to sleep expecting it in the morning.
+- **Emulator updates found this session, held for the next batch:** Gearsystem, Azahar, PPSSPP and
+  Flycast have newer code upstream; PUAE (Amiga) and VICE (C64) newer buildbot builds. Do the
+  usual quick check and take the safe ones with the GameCube batch.
+- **Next job:** `tasks/gamecube.json` (GC1 to GC5), then ONE build.
+- The credits question (move the list into Technical details?) is still unanswered; leave it.
+
+## Earlier (16 October 2026, evening Eastern): two new jobs, nothing built since 190
 
 - **Owner's results on build 190:** checks 1 to 23 passed (Home screen, light mode, shorter text;
   recorded in TESTING.md). 24 onwards not reported yet. Don't ask 1-23 again.

@@ -145,22 +145,22 @@ screen saying which code types each system reads (build 126).
 
 Seen in Manic on the owner's phone (16 October, 17 screenshots), not in Continuum yet:
 
-- [ ] **Cover art like Manic's**: the whole cover at its real shape, sharp, never cropped (ours cuts
+- [x] **Cover art like Manic's** (Built, untested, build 191: whole covers at each box's shape, the label off the art, Leaf Green / LeafGreen matched): the whole cover at its real shape, sharp, never cropped (ours cuts
       every cover to one 3:4 shape and puts the system label over it), and more covers found
       (Pokemon LeafGreen had none). Manic's Theme screen has "Boxart Settings".
-- [ ] **Library grouped by console**: a section per console with its name, game count and a fold
+- [x] **Library grouped by console** (Built, untested, build 191: All Games By console, folding, an index, Console order, pick several, Random Game): a section per console with its name, game count and a fold
       arrow, a letter index down the right edge to jump, **Random Game**, and **Console Ordering**
       (pick the order of the sections), plus Select All for many games at once.
-- [ ] **ROM patcher**: apply an .ips, .bps or .ups patch (fan translations, hacks) to a game.
-- [ ] **MultiDisc Helper**: pick the discs of one game and make its .m3u for you.
-- [ ] **Copy Launch Link**: a link that opens Continuum straight into that game (for Shortcuts and
+- [x] **ROM patcher** (Built, untested, build 191: Patch this game..., our own IPS/BPS/UPS): apply an .ips, .bps or .ups patch (fan translations, hacks) to a game.
+- [x] **MultiDisc Helper** (Built, untested, build 191: Join it with its other discs...): pick the discs of one game and make its .m3u for you.
+- [x] **Copy Launch Link** (Built, untested, build 191: Copy its link, continuum://play): a link that opens Continuum straight into that game (for Shortcuts and
       the home screen).
-- [ ] **Share ROM**: send a game's file from its card.
-- [ ] **Safe Mode**: start a game with its cheats, auto-load and custom settings off, for one go.
-- [ ] **Language per game**: the console's language for that game (Manic's Rogue Leader is set to
+- [x] **Share ROM** (Built, untested, build 191: Share the game): send a game's file from its card.
+- [x] **Safe Mode** (Built, untested, build 191: Clean start): start a game with its cheats, auto-load and custom settings off, for one go.
+- [x] **Language per game** (Built, untested, build 191: shows once the game's emulator has run once): the console's language for that game (Manic's Rogue Leader is set to
       Japanese), where the core has one.
 - [ ] **CPU emulation method per game** (GameCube: Manic Interpreter or Cached Interpreter).
-- [ ] **Respect Silent Mode**: a switch so the ring/silent switch mutes games.
+- [x] **Respect Silent Mode** (Built, untested, build 191: Settings, Sound, Mute games with the silent switch): a switch so the ring/silent switch mutes games.
 - [ ] **Quick Start** (skip the game page) and **Reset Tips** (bring back dismissed hints): check
       whether these mean anything for Continuum, which already starts a game on a tap.
 

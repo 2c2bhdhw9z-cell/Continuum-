@@ -246,6 +246,14 @@ launch with an empty library.
 
 ## Next up
 
+**17 October 2026, midnight Eastern, read this first.** **Build 191** (started 11:46 PM on 16
+October, `6a0045e`) adds the covers and library batch (L1 to L9, Built, untested;
+`docs/reports/library-and-manic-2026-10-16.md`; phone checks TESTING.md "Build 191"). Next, in
+order: the GameCube and Wii job (`tasks/gamecube.json`, GC1 to GC5), then the emulator updates
+held from this session's check (Gearsystem, Azahar, PPSSPP, Flycast upstream; PUAE and VICE on
+the buildbot), then one build. Build 190's checks 24 to 63 are still unreported.
+
+
 **16 October 2026, 7 AM Eastern, read this first.** **Build 190** (`a8b206a`, 16 October, 8:45 AM Eastern) is the newest install and has all of it:
 https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-190-a8b206a/Continuum-190.ipa The
 batch that began on 13 October is finished, the arcade emulator's Donkey Kong board and write-up
