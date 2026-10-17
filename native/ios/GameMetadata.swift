@@ -29,8 +29,21 @@ enum GameMetadata {
     ///
     /// Shares its two transforms with the thumbnail ladder rather than restating them, so the title
     /// on screen and the name asked of the server cannot drift apart.
+    ///
+    /// A COPY PATCHED ON THE GAME CARD SAYS SO: "Super Mario World (USA) (Kaizo)". Its file is
+    /// "<the original's name> [<the patch's name>].<ext>", and the square brackets come off above,
+    /// so without this it showed the same title (and the same cover, which is the point of that
+    /// name) as the original, and the Library had two identical cards. The patch's name comes
+    /// from `PatchedGames`, not from the brackets, because "[!]" and "[T+Eng]" are dump tags.
     static func displayTitle(for entry: LibraryEntry) -> String {
-        displayTitle(fromFilename: entry.name)
+        displayTitle(forFileName: entry.name)
+    }
+
+    /// The same for a file name: the title, and a patched copy's patch in brackets after it.
+    static func displayTitle(forFileName name: String) -> String {
+        let title = displayTitle(fromFilename: name)
+        guard let patch = PatchedGames.patchName(forFileName: name) else { return title }
+        return "\(title) (\(patch))"
     }
 
     static func displayTitle(fromFilename filename: String) -> String {
@@ -175,5 +188,91 @@ enum GameMetadata {
         if let region = region(fromFilename: entry.name) { parts.append(region) }
         parts.append(entry.sizeText)
         return parts.joined(separator: " \u{00B7} ")
+    }
+}
+
+// MARK: - Copies patched on the game card
+
+/// The games the game card's Patch made, by file name, with the name of the patch each one has
+/// ("Super Mario World (USA) [Kaizo].sfc" -> "Kaizo"). `GameMetadata.displayTitle` adds it to the
+/// title, so a patched copy and its original are told apart on their cards.
+///
+/// A `continuum.` key, so it travels with the other settings in the folder sync and the backup,
+/// like the favourites, which are keyed by file name for the same reason. Read through a copy in
+/// memory, because the title is asked for on every card that draws and by the search on every
+/// game; the copy is dropped whenever the app's settings change (a sync writes them behind this
+/// type's back), and read again on the next ask.
+final class PatchedGames: @unchecked Sendable {
+    static let key = "continuum.library.patchedGames.v1"
+
+    private static let shared = PatchedGames()
+    /// Guards `names` and `generation`. NEVER held while UserDefaults is read or written: a write
+    /// posts the settings-changed notification, whose handler takes this lock.
+    private let lock = NSLock()
+    private var names: [String: String]?
+    /// Bumped by every drop, so a read that raced a change doesn't keep what it read.
+    private var generation = 0
+    private var observer: NSObjectProtocol?
+
+    private init() {
+        // Any thread, no queue: the handler only drops the copy in memory.
+        observer = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: nil
+        ) { [weak self] _ in
+            self?.drop()
+        }
+    }
+
+    /// The patch a copy was made with, or nil for any other game.
+    static func patchName(forFileName name: String) -> String? {
+        // A patched copy's name always has its patch in square brackets, so a name without one
+        // is answered without a lookup: that is nearly every game, on every redraw.
+        guard name.contains("[") else { return nil }
+        return shared.lookUp(name)
+    }
+
+    /// Records a copy the card has just made.
+    static func remember(_ patch: String, forFileName name: String) {
+        var all = (UserDefaults.standard.dictionary(forKey: key) as? [String: String]) ?? [:]
+        all[name] = patch
+        UserDefaults.standard.set(all, forKey: key)
+        shared.drop()
+    }
+
+    /// Forgets deleted games. Writes only when one of them was a patched copy.
+    static func forget(_ fileNames: [String]) {
+        var all = (UserDefaults.standard.dictionary(forKey: key) as? [String: String]) ?? [:]
+        var changed = false
+        for name in fileNames where all.removeValue(forKey: name) != nil {
+            changed = true
+        }
+        guard changed else { return }
+        UserDefaults.standard.set(all, forKey: key)
+        shared.drop()
+    }
+
+    private func lookUp(_ name: String) -> String? {
+        lock.lock()
+        if let names {
+            let found = names[name]
+            lock.unlock()
+            return found
+        }
+        let started = generation
+        lock.unlock()
+        let loaded = (UserDefaults.standard.dictionary(forKey: Self.key) as? [String: String]) ?? [:]
+        lock.lock()
+        if generation == started {
+            names = loaded
+        }
+        lock.unlock()
+        return loaded[name]
+    }
+
+    private func drop() {
+        lock.lock()
+        names = nil
+        generation &+= 1
+        lock.unlock()
     }
 }

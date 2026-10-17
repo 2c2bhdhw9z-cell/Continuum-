@@ -4435,6 +4435,8 @@ final class EngineHost: ObservableObject {
 
         // A deleted game's arrival stamp goes with it. See `forgetArrivals`.
         forgetArrivals(removed)
+        // And a patched copy's patch name, so a later file of that name isn't called patched.
+        PatchedGames.forget(removed)
         var trackNote = leftTracksBehind
             ? "; any .bin tracks it named are still in Documents"
             : ""

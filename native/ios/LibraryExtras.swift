@@ -573,23 +573,71 @@ struct GameCardExtras: View {
 
     @State private var line = ""
     @State private var showingDiscs = false
-    /// Bumped after a language change, so the menu's label reads the new choice.
-    @State private var languageVersion = 0
+    /// The console's language for this game, read when the card opens and again after a change,
+    /// never in the drawing: both reads open files under the engine's settings lock, and the card
+    /// redraws whenever anything on the host changes.
+    @State private var language: GameLanguage?
+    /// A patch is being applied, away from the main thread, which a big ROM can take a moment.
+    @State private var patching = false
 
-    /// Patches go on one game file. A disc's sheet, a playlist or an archive isn't one.
+    /// What the language menu shows: the emulator, its language setting, and this game's choice
+    /// ("" when it follows the emulator).
+    private struct GameLanguage {
+        let coreId: String
+        let option: CoreLanguageOption
+        let current: String
+    }
+
+    /// Patches (.ips, .bps, .ups) are made for cartridge games: one ROM file, small enough to
+    /// rebuild in memory. Never a disc or its sheet, a playlist, an archive, a big console image
+    /// (a disc or 3DS image is gigabytes, and the patcher holds the whole file in memory), or a
+    /// game for the Flash, J2ME or Symbian players. The formats here are refused whatever system
+    /// they route to; everything else has to be a cartridge system's game as well.
     private static let unpatchable: Set<String> = [
-        "zip", "7z", "m3u", "cue", "gdi", "chd", "ccd", "cso", "pbp", "mds", "toc", "cdi",
+        // Sheets, playlists and archives.
+        "m3u", "cue", "gdi", "ccd", "mds", "toc", "zip", "7z", "gz", "lha", "rp9", "dosz",
+        // Disc images and big console images, including the formats this app doesn't open yet.
+        "chd", "cso", "pbp", "cdi", "iso", "img", "mdf", "nrg", "rvz", "wbfs", "wia", "gcm",
+        "ciso", "3ds", "3dsx", "cci", "cxi", "cia", "app", "nsp", "xci", "elf", "prx",
+        // The bundled players' games and Symbian's installers.
+        "swf", "jar", "jad", "sis", "sisx", "n-gage",
     ]
+
+    /// The systems whose games are cartridge ROMs (or the Disk System's small disk images), the
+    /// files these patches are written for.
+    private static let patchableSystems: Set<GameSystem> = [
+        .nes, .fds, .snes, .gb, .gbc, .gba, .sms, .gg, .sg1000, .genesis, .sega32x, .tg16, .sgx,
+        .atari2600, .atari5200, .atari7800, .lynx, .jaguar, .n64, .ds, .wswan, .ngp, .pokemini,
+        .vb,
+    ]
+
+    static func canPatch(_ entry: LibraryEntry) -> Bool {
+        guard !unpatchable.contains(entry.ext),
+              let system = CoreCatalog.system(for: entry) else { return false }
+        return patchableSystems.contains(system)
+    }
+
+    /// Clean start leaves out the cheats, the auto-save and the game's own emulator settings,
+    /// which only a game on an emulator has. A Flash or J2ME game opens in its own player before
+    /// any of that is looked at, and a game this version can't play opens nothing, so neither is
+    /// offered it.
+    static func offersCleanStart(_ entry: LibraryEntry) -> Bool {
+        guard CoreCatalog.player(forPath: entry.path) == nil else { return false }
+        return CoreCatalog.system(for: entry).flatMap { CoreCatalog.unplayableSystems[$0] } == nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SettingsButton(title: "Clean start", role: .normal) {
-                let target = entry
-                host.detailEntry = nil
-                host.launchCleanStart(entry: target)
+            if Self.offersCleanStart(entry) {
+                SettingsButton(title: "Clean start", role: .normal) {
+                    let target = entry
+                    host.detailEntry = nil
+                    host.launchCleanStart(entry: target)
+                }
+                SettingsNote("No cheats, no auto-save and none of this game's own settings, just "
+                             + "this once. Handy when a game won't start. Your saves stay as they "
+                             + "are.")
             }
-            SettingsNote("No cheats, no auto-save and none of this game's own settings, just this "
-                         + "once. Handy when a game won't start. Your saves stay as they are.")
 
             HStack(spacing: 10) {
                 SettingsButton(title: "Share the game", role: .normal) {
@@ -600,10 +648,12 @@ struct GameCardExtras: View {
                 }
             }
 
-            if !Self.unpatchable.contains(entry.ext) {
+            if Self.canPatch(entry) {
                 SettingsButton(title: "Patch this game...", role: .normal) {
+                    guard !patching else { return }
                     patch()
                 }
+                .disabled(patching)
             }
             if MultiDisc.isDisc(entry) {
                 SettingsButton(title: "Join it with its other discs...", role: .normal) {
@@ -622,6 +672,11 @@ struct GameCardExtras: View {
         .sheet(isPresented: $showingDiscs) {
             MultiDiscSheet(entry: entry, host: host) { showingDiscs = false }
         }
+        // Once per card, and again when this game's core changes (its card's core choice, or the
+        // PlayStation's in Settings), because the language belongs to the emulator.
+        .task(id: "\(entry.id)#\(host.ps1CoreChoice.coreId)#\(host.coreChoiceVersion)") {
+            loadLanguage()
+        }
     }
 
     private var title: String { GameMetadata.displayTitle(for: entry) }
@@ -635,6 +690,11 @@ struct GameCardExtras: View {
 
     /// Pick a patch in Files; the patched game is a new copy next to the original, which is
     /// never changed: "<name> [<patch name>].<ext>", so its cover is found under the same title.
+    /// Its card says which patch it has (`PatchedGames`), and a system the player picked for the
+    /// original ("Which system?") is picked for the copy too, so it opens the same way.
+    ///
+    /// The patch runs away from the main thread: the patcher reads the whole game, and a big
+    /// cartridge (a DS game is up to 512 MB) would freeze the screen while it works.
     private func patch() {
         let game = entry
         OneFilePicker.pick { picked in
@@ -649,18 +709,42 @@ struct GameCardExtras: View {
                 out = folder.appendingPathComponent("\(base) [\(patchName)] (\(copy)).\(game.ext)")
                 copy += 1
             }
-            do {
-                let format = try importApplyPatch(romPath: rom.path, patchPath: picked.path,
-                                                  outPath: out.path)
-                FeedbackCenter.step("patched \(game.name) with \(picked.lastPathComponent) "
-                                    + "(\(format)) into \(out.lastPathComponent)")
-                host.refreshLibrary()
-                line = "Done. \(out.deletingPathExtension().lastPathComponent) is in your library. "
-                    + "The original is unchanged."
-            } catch {
-                line = "\(error)"
+            let target = out
+            // A copy of a copy names both patches.
+            let label = PatchedGames.patchName(forFileName: game.name)
+                .map { "\($0) + \(patchName)" } ?? patchName
+            patching = true
+            line = "Patching..."
+            Task { @MainActor in
+                let romPath = rom.path
+                let patchPath = picked.path
+                let outPath = target.path
+                let outcome = await Task.detached(priority: .userInitiated) { () -> Result<String, Error> in
+                    do {
+                        return .success(try importApplyPatch(romPath: romPath,
+                                                             patchPath: patchPath,
+                                                             outPath: outPath))
+                    } catch {
+                        return .failure(error)
+                    }
+                }.value
+                patching = false
+                try? FileManager.default.removeItem(at: picked)
+                switch outcome {
+                case .success(let format):
+                    FeedbackCenter.step("patched \(game.name) with \(picked.lastPathComponent) "
+                                        + "(\(format)) into \(target.lastPathComponent)")
+                    PatchedGames.remember(label, forFileName: target.lastPathComponent)
+                    if let chosen = SystemChoices.choice(forFileName: game.name) {
+                        SystemChoices.remember(chosen, forFileName: target.lastPathComponent)
+                    }
+                    host.refreshLibrary()
+                    line = "Done. \(GameMetadata.displayTitle(forFileName: target.lastPathComponent)) "
+                        + "is in your library. The original is unchanged."
+                case .failure(let error):
+                    line = "\(error)"
+                }
             }
-            try? FileManager.default.removeItem(at: picked)
         }
     }
 
@@ -671,26 +755,20 @@ struct GameCardExtras: View {
     /// learns the emulator's settings.
     @ViewBuilder
     private var languagePicker: some View {
-        if let core = CoreCatalog.core(forPath: entry.path, ps1CoreId: host.ps1CoreChoice.coreId),
-           let option = host.engine.coreLanguageOption(coreId: core.coreId) {
-            let _ = languageVersion
-            let current = host.engine.gameOptionValue(coreId: core.coreId, game: entry.name,
-                                                      key: option.key) ?? ""
+        if let language {
             SettingsLabel("Console language for this game")
             Menu {
                 Button("Same as the emulator") {
-                    setLanguage(nil, core: core.coreId, key: option.key)
+                    setLanguage(nil, in: language)
                 }
-                ForEach(option.values, id: \.value) { choice in
+                ForEach(language.option.values, id: \.value) { choice in
                     Button(choice.label) {
-                        setLanguage(choice.value, core: core.coreId, key: option.key)
+                        setLanguage(choice.value, in: language)
                     }
                 }
             } label: {
                 HStack {
-                    Text(current.isEmpty
-                         ? "Same as the emulator"
-                         : (option.values.first(where: { $0.value == current })?.label ?? current))
+                    Text(choiceTitle(language))
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(ShellPalette.text)
                     Spacer(minLength: 0)
@@ -705,17 +783,38 @@ struct GameCardExtras: View {
         }
     }
 
-    private func setLanguage(_ value: String?, core: String, key: String) {
+    /// What the menu's label reads: the choice's own name, or the emulator's when there is none.
+    private func choiceTitle(_ language: GameLanguage) -> String {
+        guard !language.current.isEmpty else { return "Same as the emulator" }
+        return language.option.values.first(where: { $0.value == language.current })?.label
+            ?? language.current
+    }
+
+    /// Reads the language setting and this game's choice from the engine, once.
+    private func loadLanguage() {
+        guard let core = CoreCatalog.core(forPath: entry.path,
+                                          ps1CoreId: host.ps1CoreChoice.coreId),
+              let option = host.engine.coreLanguageOption(coreId: core.coreId) else {
+            language = nil
+            return
+        }
+        let current = host.engine.gameOptionValue(coreId: core.coreId, game: entry.name,
+                                                  key: option.key) ?? ""
+        language = GameLanguage(coreId: core.coreId, option: option, current: current)
+    }
+
+    private func setLanguage(_ value: String?, in language: GameLanguage) {
         do {
-            try host.engine.setGameOptionValue(coreId: core, game: entry.name, key: key,
-                                               value: value)
+            try host.engine.setGameOptionValue(coreId: language.coreId, game: entry.name,
+                                               key: language.option.key, value: value)
             line = value == nil
                 ? "Back to the emulator's own language."
                 : "Set. It applies the next time this game starts."
         } catch {
             line = "\(error)"
         }
-        languageVersion += 1
+        // Read back, so the menu shows what the engine kept.
+        loadLanguage()
     }
 }
 
