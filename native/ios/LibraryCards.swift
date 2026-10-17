@@ -284,17 +284,22 @@ struct HeroCard: View {
     let isFavourite: Bool
     let height: CGFloat
     let host: EngineHost
-    /// How much of the top the bar covers (the logo and search), so the whole cover sits below it.
-    var topClearance: CGFloat = 100
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // The cover, cropped and blurred, as a backdrop; the whole cover sits on it, sharp
-            // (owner, 16 October 2026). A game with no cover keeps its plate here, as before.
-            CoverArtView(entry: entry, system: system, store: store,
-                         generation: generation, showsCaption: false, style: .backdrop)
-                .frame(height: height)
+            // HELD TO THE SCREEN'S WIDTH (owner's phone, build 191: a wide N64 box pushed the
+            // whole top off the right edge). A cropped cover is as wide as its shape makes it at
+            // this height, and `.frame(maxWidth: .infinity)` never makes a wider child narrower,
+            // so a landscape box made the hero wider than the phone. Drawn as an overlay of a box
+            // that takes the screen's width, the art is cropped to that width instead.
+            Color.clear
                 .frame(maxWidth: .infinity)
+                .frame(height: height)
+                .overlay {
+                    CoverArtView(entry: entry, system: system, store: store,
+                                 generation: generation, showsCaption: false)
+                }
+                .clipped()
                 // A LONG PRESS OPENS THE DETAIL SHEET HERE TOO, which is the one surface that used to
                 // lack it: a shelf card, a grid card and a list row all have it, so a hero that did
                 // not was the odd one out, and there is no way to discover that except by trying.
@@ -329,23 +334,9 @@ struct HeroCard: View {
             .frame(height: height)
             .allowsHitTesting(false)
 
-            VStack(alignment: .leading, spacing: 14) {
-                // The whole cover, at its own shape, in the room between the top bar and the
-                // title: never cropped, never blown up past what fits.
-                CoverArtView(entry: entry, system: system, store: store,
-                             generation: generation, showsCaption: true,
-                             style: .whole(WholeCover(cornerRadius: 10, alignment: .center)))
-                    .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 6)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.top, topClearance)
-                    .contentShape(Rectangle())
-                    .onLongPressGesture(minimumDuration: 0.4) {
-                        host.detailEntry = entry
-                    }
-                content
-            }
-            .padding(.horizontal, 18)
-            .padding(.bottom, 14)
+            content
+                .padding(.horizontal, 18)
+                .padding(.bottom, 14)
         }
         .frame(height: height)
         .clipped()

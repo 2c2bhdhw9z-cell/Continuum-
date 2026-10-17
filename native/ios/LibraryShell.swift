@@ -411,11 +411,9 @@ struct LibraryShell: View {
     /// leave no room for a shelf underneath it, so there would be nothing to suggest the library
     /// scrolls.
     private var heroHeight: CGFloat {
-        // Taller than it was (430 at most) because the whole cover now sits in it, above the
-        // title, instead of being cropped behind it (owner, 16 October 2026).
         let available = metrics.size.height
-        guard available > 0 else { return 500 }
-        return min(520, max(340, available * 0.58))
+        guard available > 0 else { return 430 }
+        return min(430, max(300, available * 0.52))
     }
 
     var body: some View {
@@ -831,8 +829,7 @@ struct LibraryShell: View {
                         generation: artworkGeneration.value,
                         isFavourite: host.favourites.contains(hero.name),
                         height: heroHeight,
-                        host: host,
-                        topClearance: topBarHeight + max(metrics.insets.top, 8) + 6
+                        host: host
                     )
                 } else {
                     EmptyLibraryNotice(
