@@ -8,12 +8,12 @@
 //!   SNES game (on bsnes or Mesen 2) an all-`0x00` tail is cut as well, the padding other SNES
 //!   emulators write.
 //! - **Mega Drive cartridge SRAM on BlastEm.** Every Mega Drive save made before the licence swap
-//!   is in the GPGX layout: a 64 KB window indexed by the 68K address, `a & 0xFFFF`.
-//!   BlastEm keeps only the bytes the cartridge really has: odd bytes, even bytes, or 16-bit
-//!   words in host order. The file stays in the GPGX layout, so it still syncs with a
+//!   is in the layout older Continuum builds wrote: a 64 KB window indexed by the 68K address,
+//!   `a & 0xFFFF`. BlastEm keeps only the bytes the cartridge really has: odd bytes, even bytes,
+//!   or 16-bit words in host order. The file stays in the old layout, so it still syncs with a
 //!   phone on an older build and still loads in RetroArch; the engine converts at the boundary.
-//!   The header at `$1B0` says where the SRAM is; a few carts have none there, and both cores
-//!   know them by other means (see [`HEADERLESS_SRAM`] and Sonic 3 & Knuckles).
+//!   The header at `$1B0` says where the SRAM is; a few carts have none there, and both the old
+//!   layout and BlastEm know them by other means (see [`HEADERLESS_SRAM`] and Sonic 3 & Knuckles).
 //! - **Files other cores wrote.** Mesen 2 kept NES saves as `<game>.sav` in the system folder,
 //!   and the Sega CD's backup RAM was kept as `scd_U/E/J.brm` there. Those are the
 //!   candidates a first load can pick up.
@@ -29,8 +29,8 @@ pub enum SramLane {
     Even,
     /// Both: 16-bit SRAM (`$00`).
     Word,
-    /// No `RA` header and no SRAM either core knows of: an EEPROM cartridge BlastEm knows from its
-    /// own list, linear from 0.
+    /// No `RA` header and no SRAM that the old layout or BlastEm knows of: an EEPROM cartridge
+    /// BlastEm knows from its own list, linear from 0.
     Linear,
 }
 
@@ -50,21 +50,23 @@ pub enum BatteryLayout {
     /// Byte for byte, with only the padding rule.
     #[default]
     Raw,
-    /// BlastEm on a Mega Drive cartridge: the GPGX layout on disk.
-    MegaDriveGpgx(MdSram),
+    /// BlastEm on a Mega Drive cartridge: on disk, the layout older Continuum builds wrote.
+    MegaDriveOldLayout(MdSram),
 }
 
-/// The GPGX window: `a & 0xFFFF`.
-const GPGX_WINDOW: usize = 0x10000;
-/// With no header, a save this size or smaller is an EEPROM laid out from 0 in both cores.
+/// The old layout's window: `a & 0xFFFF`.
+const OLD_SAVE_WINDOW: usize = 0x10000;
+/// With no header, a save this size or smaller is an EEPROM laid out from 0, in the old layout
+/// and in BlastEm alike.
 const LINEAR_MAX: usize = 0x2000;
 
-/// Cartridges with SRAM but no `RA` header that both cores give SRAM, by the product code at
-/// `$180`: Genesis Plus GX lists them in `core/cart_hw/sram.c` ("missing header infos") and
-/// BlastEm in its `rom.db`, which it looks up by the same code. The rest of GPGX's list has no
-/// SRAM in BlastEm, so BlastEm shows no save RAM for those and nothing is loaded.
+/// Cartridges with SRAM but no `RA` header, by the product code at `$180`, that are on the save
+/// list older builds used and also in BlastEm's `rom.db`, which BlastEm looks up by the same code.
+/// The rest of the old list has no SRAM in BlastEm, so BlastEm shows no save RAM for those and
+/// nothing is loaded.
 const HEADERLESS_SRAM: [(&[u8], MdSram); 1] = [
-    // Buck Rogers: Countdown to Doomsday. GPGX: $200001-$203FFF. BlastEm: 8 KB, odd bytes.
+    // Buck Rogers: Countdown to Doomsday. Older builds: $200001-$203FFF. BlastEm's rom.db: 8 KB,
+    // odd bytes.
     (b"T-50286", MdSram { lane: SramLane::Odd, start: 0x20_0000, end: 0x20_3FFF }),
 ];
 
@@ -124,10 +126,10 @@ pub fn needs_whole_rom(head: &[u8]) -> bool {
     !has_ra(head) && says_sonic_and_knuckles(head)
 }
 
-/// The SRAM of a cartridge with no `RA` header that both cores still give SRAM: one in
-/// [`HEADERLESS_SRAM`], or Sonic 3 & Knuckles in one 4 MB file. For that one GPGX keys on the
-/// name and the size (odd bytes at $200001-$203FFF), and BlastEm takes the save from the header of
-/// the locked-on half, Sonic 3's ($200001-$2003FF, odd bytes).
+/// The SRAM of a cartridge with no `RA` header that both the old layout and BlastEm give SRAM:
+/// one in [`HEADERLESS_SRAM`], or Sonic 3 & Knuckles in one 4 MB file. For that one, older builds
+/// keyed on the name and the size (odd bytes at $200001-$203FFF), and BlastEm takes the save from
+/// the header of the locked-on half, Sonic 3's ($200001-$2003FF, odd bytes).
 fn headerless_sram(rom: &[u8]) -> Option<MdSram> {
     let product = rom.get(0x180..0x18E)?;
     if let Some((_, sram)) = HEADERLESS_SRAM.iter().find(|(code, _)| product.windows(code.len()).any(|w| w == *code)) {
@@ -159,11 +161,11 @@ pub fn layout_for(core_id: &str, ext: &str, head: &[u8]) -> BatteryLayout {
     match sram {
         // BlastEm has no SRAM there at all (a mapper register range), so nothing to convert.
         Some(s) if s.start >= 0x80_0000 => BatteryLayout::Raw,
-        // Wider than the GPGX window: the old core aliased it, so keep BlastEm's bytes.
-        Some(s) if (s.end - s.start + 1) as usize > GPGX_WINDOW => BatteryLayout::Raw,
-        Some(s) => BatteryLayout::MegaDriveGpgx(s),
+        // Wider than the old layout's window: older builds aliased it, so keep BlastEm's bytes.
+        Some(s) if (s.end - s.start + 1) as usize > OLD_SAVE_WINDOW => BatteryLayout::Raw,
+        Some(s) => BatteryLayout::MegaDriveOldLayout(s),
         None if has_ra(head) => BatteryLayout::Raw,
-        None => BatteryLayout::MegaDriveGpgx(MdSram { lane: SramLane::Linear, start: 0, end: 0 }),
+        None => BatteryLayout::MegaDriveOldLayout(MdSram { lane: SramLane::Linear, start: 0, end: 0 }),
     }
 }
 
@@ -171,7 +173,8 @@ fn has_ra(head: &[u8]) -> bool {
     head.len() >= 0x1B2 && &head[0x1B0..0x1B2] == b"RA"
 }
 
-/// `0xFF` at every even offset and something else at an odd one: how GPGX kept odd-byte SRAM.
+/// `0xFF` at every even offset and something else at an odd one: how older builds kept odd-byte
+/// SRAM.
 fn looks_like_odd_lane(file: &[u8]) -> bool {
     file.iter().step_by(2).all(|b| *b == 0xFF) && file.iter().skip(1).step_by(2).any(|b| *b != 0xFF)
 }
@@ -188,9 +191,10 @@ fn live_addresses(sram: &MdSram) -> Option<Vec<u32>> {
     })
 }
 
-/// A GPGX-layout battery file as BlastEm's live save RAM of `live_size` bytes. Refused when
-/// the result would not be exactly that size, so the file is never half-loaded.
-pub fn gpgx_to_live(file: &[u8], sram: &MdSram, live_size: usize) -> Result<Vec<u8>, String> {
+/// A battery file in the layout older builds wrote, as BlastEm's live save RAM of `live_size`
+/// bytes. Refused when the result would not be exactly that size, so the file is never
+/// half-loaded.
+pub fn old_layout_to_live(file: &[u8], sram: &MdSram, live_size: usize) -> Result<Vec<u8>, String> {
     let out = match live_addresses(sram) {
         Some(addrs) => {
             let g = |a: u32| file.get(a as usize & 0xFFFF).copied().unwrap_or(0xFF);
@@ -202,8 +206,8 @@ pub fn gpgx_to_live(file: &[u8], sram: &MdSram, live_size: usize) -> Result<Vec<
                     "this cartridge's save is {live_size} bytes with no size in its header, so it can't be matched up"
                 ));
             }
-            // GPGX's picture of odd-byte SRAM on a cartridge neither list above knows: loaded
-            // from 0 it would come out scrambled, so it is refused and the file left alone.
+            // The old layout's picture of odd-byte SRAM on a cartridge neither list above knows:
+            // loaded from 0 it would come out scrambled, so it is refused and the file left alone.
             if looks_like_odd_lane(file) {
                 return Err(
                     "that save is laid out for cartridge RAM on odd bytes, and this game's save isn't, so it can't be matched up"
@@ -230,9 +234,9 @@ pub fn gpgx_to_live(file: &[u8], sram: &MdSram, live_size: usize) -> Result<Vec<
     Ok(out)
 }
 
-/// BlastEm's live save RAM back as a GPGX-layout file: `(end & 0xFFFF) + 1` bytes, `0xFF`
-/// where the cartridge has no byte. The exact inverse of [`gpgx_to_live`].
-pub fn live_to_gpgx(live: &[u8], sram: &MdSram) -> Vec<u8> {
+/// BlastEm's live save RAM back as a file in the layout older builds wrote: `(end & 0xFFFF) + 1`
+/// bytes, `0xFF` where the cartridge has no byte. The exact inverse of [`old_layout_to_live`].
+pub fn live_to_old_layout(live: &[u8], sram: &MdSram) -> Vec<u8> {
     let Some(addrs) = live_addresses(sram) else {
         return live.to_vec();
     };
@@ -336,16 +340,16 @@ mod tests {
         h
     }
 
-    /// What the old core wrote for the evaluation's sramtest carts (make_sramtest.py): 0x22+i
+    /// What older builds wrote for the evaluation's sramtest carts (make_sramtest.py): 0x22+i
     /// at the i-th cartridge byte in 68K address order (stride 2 for odd and even, 1 for 16-bit),
     /// 0xFF everywhere else in the window, trimmed after the last written byte.
-    fn gpgx_file(sram: &MdSram, count: usize) -> Vec<u8> {
+    fn old_layout_file(sram: &MdSram, count: usize) -> Vec<u8> {
         let (first, stride) = match sram.lane {
             SramLane::Odd => (sram.start + 1, 2),
             SramLane::Even => (sram.start, 2),
             _ => (sram.start, 1),
         };
-        let mut file = vec![0xFF; GPGX_WINDOW];
+        let mut file = vec![0xFF; OLD_SAVE_WINDOW];
         for i in 0..count as u32 {
             file[(first + i * stride) as usize & 0xFFFF] = 0x22 + i as u8;
         }
@@ -368,7 +372,7 @@ mod tests {
     #[test]
     fn only_blastem_on_a_mega_drive_cartridge_converts() {
         let h = header(0x18, 0x200001, 0x203FFF);
-        assert!(matches!(layout_for("blastem", "md", &h), BatteryLayout::MegaDriveGpgx(_)));
+        assert!(matches!(layout_for("blastem", "md", &h), BatteryLayout::MegaDriveOldLayout(_)));
         assert_eq!(layout_for("gearsystem", "md", &h), BatteryLayout::Raw);
         assert_eq!(layout_for("blastem", "cue", &h), BatteryLayout::Raw);
         let mut x32 = h.clone();
@@ -379,27 +383,28 @@ mod tests {
         eeprom[0x1B0..0x1BC].fill(0x20);
         assert_eq!(
             layout_for("blastem", "gen", &eeprom),
-            BatteryLayout::MegaDriveGpgx(MdSram { lane: SramLane::Linear, start: 0, end: 0 })
+            BatteryLayout::MegaDriveOldLayout(MdSram { lane: SramLane::Linear, start: 0, end: 0 })
         );
-        // A header with SRAM past the cartridge space, or wider than GPGX's window: left alone.
+        // A header with SRAM past the cartridge space, or wider than the old layout's window: left
+        // alone.
         assert_eq!(layout_for("blastem", "md", &header(0x00, 0xA13000, 0xA13001)), BatteryLayout::Raw);
         assert_eq!(layout_for("blastem", "md", &header(0x00, 0x200000, 0x21FFFF)), BatteryLayout::Raw);
     }
 
     #[test]
-    fn odd_even_and_word_carts_read_as_gpgx_wrote_them() {
+    fn odd_even_and_word_carts_read_as_older_builds_wrote_them() {
         for (flags, end) in [(0x18u8, 0x203FFFu32), (0x10, 0x203FFE), (0x00, 0x203FFF)] {
             let sram = md_sram_from_header(&header(flags, 0x200000 | (flags == 0x18) as u32, end)).unwrap();
             let live_size = match sram.lane { SramLane::Word => 0x4000, _ => 0x2000 };
-            let file = gpgx_file(&sram, 16);
-            let live = gpgx_to_live(&file, &sram, live_size).unwrap();
+            let file = old_layout_file(&sram, 16);
+            let live = old_layout_to_live(&file, &sram, live_size).unwrap();
             assert_eq!(live.len(), live_size);
             match sram.lane {
                 // Words in host order: each pair swapped against the 68K order 22 23, 24 25...
                 SramLane::Word => assert_eq!(&live[..6], &[0x23, 0x22, 0x25, 0x24, 0x27, 0x26]),
                 _ => assert_eq!(&live[..4], &[0x22, 0x23, 0x24, 0x25]),
             }
-            // Past what GPGX wrote, the bytes are the fresh 0xFF it would have had.
+            // Past what older builds wrote, the bytes are the fresh 0xFF they would have had.
             assert_eq!(live[live_size - 1], 0xFF);
         }
     }
@@ -408,9 +413,9 @@ mod tests {
     fn word_lane_byte_order_is_host_little_endian() {
         let sram = MdSram { lane: SramLane::Word, start: 0x200000, end: 0x200003 };
         // 68K bytes: $200000=AA $200001=BB $200002=CC $200003=DD
-        let live = gpgx_to_live(&[0xAA, 0xBB, 0xCC, 0xDD], &sram, 4).unwrap();
+        let live = old_layout_to_live(&[0xAA, 0xBB, 0xCC, 0xDD], &sram, 4).unwrap();
         assert_eq!(live, vec![0xBB, 0xAA, 0xDD, 0xCC]);
-        assert_eq!(live_to_gpgx(&live, &sram), vec![0xAA, 0xBB, 0xCC, 0xDD]);
+        assert_eq!(live_to_old_layout(&live, &sram), vec![0xAA, 0xBB, 0xCC, 0xDD]);
     }
 
     #[test]
@@ -422,39 +427,39 @@ mod tests {
         ] {
             let sram = MdSram { lane, start, end };
             let live: Vec<u8> = (0..live_size).map(|i| (i * 31 + 7) as u8).collect();
-            let file = live_to_gpgx(&live, &sram);
+            let file = live_to_old_layout(&live, &sram);
             assert_eq!(file.len(), (end as usize & 0xFFFF) + 1);
-            assert_eq!(gpgx_to_live(&file, &sram, live_size).unwrap(), live);
-            // And a full GPGX window (0xFF where the cart has no byte) survives the other way.
-            assert_eq!(live_to_gpgx(&gpgx_to_live(&file, &sram, live_size).unwrap(), &sram), file);
+            assert_eq!(old_layout_to_live(&file, &sram, live_size).unwrap(), live);
+            // And a full old-layout window (0xFF where the cart has no byte) survives the other way.
+            assert_eq!(live_to_old_layout(&old_layout_to_live(&file, &sram, live_size).unwrap(), &sram), file);
         }
         // Odd lane: the even bytes of the file are filler.
         let sram = MdSram { lane: SramLane::Odd, start: 0x200000, end: 0x200007 };
-        assert_eq!(live_to_gpgx(&[1, 2, 3, 4], &sram), vec![0xFF, 1, 0xFF, 2, 0xFF, 3, 0xFF, 4]);
+        assert_eq!(live_to_old_layout(&[1, 2, 3, 4], &sram), vec![0xFF, 1, 0xFF, 2, 0xFF, 3, 0xFF, 4]);
     }
 
     #[test]
-    fn a_trimmed_gpgx_file_and_a_wrong_size_are_handled() {
+    fn a_trimmed_old_layout_file_and_a_wrong_size_are_handled() {
         let sram = MdSram { lane: SramLane::Odd, start: 0x200000, end: 0x203FFF };
-        // GPGX trimmed after its last non-FF byte: only 3 bytes on disk.
-        let live = gpgx_to_live(&[0xFF, 0x41, 0xFF, 0x42], &sram, 0x2000).unwrap();
+        // Older builds trimmed after the last non-FF byte: only 3 bytes on disk.
+        let live = old_layout_to_live(&[0xFF, 0x41, 0xFF, 0x42], &sram, 0x2000).unwrap();
         assert_eq!(&live[..3], &[0x41, 0x42, 0xFF]);
         assert!(live[2..].iter().all(|b| *b == 0xFF));
         // BlastEm says the RAM is another size than the header gives: refused, nothing loaded.
-        assert!(gpgx_to_live(&[0x41], &sram, 0x4000).is_err());
+        assert!(old_layout_to_live(&[0x41], &sram, 0x4000).is_err());
     }
 
     #[test]
     fn linear_eeprom_pads_and_refuses_what_it_cannot_place() {
         let linear = MdSram { lane: SramLane::Linear, start: 0, end: 0 };
-        assert_eq!(gpgx_to_live(&[1, 2, 3], &linear, 8).unwrap(), vec![1, 2, 3, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(old_layout_to_live(&[1, 2, 3], &linear, 8).unwrap(), vec![1, 2, 3, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
         let mut long = vec![9u8; 128];
         long.extend_from_slice(&[0xFF; 128]);
-        assert_eq!(gpgx_to_live(&long, &linear, 128).unwrap(), vec![9u8; 128]);
+        assert_eq!(old_layout_to_live(&long, &linear, 128).unwrap(), vec![9u8; 128]);
         long[200] = 0;
-        assert!(gpgx_to_live(&long, &linear, 128).is_err());
-        assert!(gpgx_to_live(&[1, 2], &linear, 0x2001).is_err());
-        assert_eq!(live_to_gpgx(&[5, 6], &linear), vec![5, 6]);
+        assert!(old_layout_to_live(&long, &linear, 128).is_err());
+        assert!(old_layout_to_live(&[1, 2], &linear, 0x2001).is_err());
+        assert_eq!(live_to_old_layout(&[5, 6], &linear), vec![5, 6]);
     }
 
     /// A Mega Drive header with no `RA` block and `product` at `$180`.
@@ -468,18 +473,18 @@ mod tests {
 
     #[test]
     fn buck_rogers_has_odd_sram_with_no_header() {
-        // T-50286: GPGX's $200001-$203FFF, BlastEm's 8 KB on odd bytes.
+        // T-50286: the old layout's $200001-$203FFF, BlastEm's 8 KB on odd bytes.
         let rom = headerless(b"GM T-50286 -00", b"BUCK ROGERS");
         let odd = MdSram { lane: SramLane::Odd, start: 0x200000, end: 0x203FFF };
-        assert_eq!(layout_for("blastem", "md", &rom), BatteryLayout::MegaDriveGpgx(odd));
-        assert_eq!(layout_for("blastem", "bin", &rom), BatteryLayout::MegaDriveGpgx(odd));
+        assert_eq!(layout_for("blastem", "md", &rom), BatteryLayout::MegaDriveOldLayout(odd));
+        assert_eq!(layout_for("blastem", "bin", &rom), BatteryLayout::MegaDriveOldLayout(odd));
         // Another product code with no header is still an EEPROM.
         let other = headerless(b"GM T-50287 -00", b"SOMETHING ELSE");
         assert_eq!(
             layout_for("blastem", "md", &other),
-            BatteryLayout::MegaDriveGpgx(MdSram { lane: SramLane::Linear, start: 0, end: 0 })
+            BatteryLayout::MegaDriveOldLayout(MdSram { lane: SramLane::Linear, start: 0, end: 0 })
         );
-        // What GPGX wrote: 41 42 43 at the first three cartridge bytes and 7A 7B at bytes
+        // What older builds wrote: 41 42 43 at the first three cartridge bytes and 7A 7B at bytes
         // 0x1800-0x1801 (68K $203001, $203003), past the first 4 KB, 0xFF between, trimmed.
         let mut file = vec![0xFF; 0x3004];
         file[1] = 0x41;
@@ -487,13 +492,13 @@ mod tests {
         file[5] = 0x43;
         file[0x3001] = 0x7A;
         file[0x3003] = 0x7B;
-        let live = gpgx_to_live(&file, &odd, 0x2000).unwrap();
+        let live = old_layout_to_live(&file, &odd, 0x2000).unwrap();
         assert_eq!(live.len(), 0x2000);
         assert_eq!(&live[..4], &[0x41, 0x42, 0x43, 0xFF]);
         assert_eq!(&live[0x17FF..0x1803], &[0xFF, 0x7A, 0x7B, 0xFF]);
         assert_eq!(live.iter().filter(|b| **b != 0xFF).count(), 5);
-        // Back out: the whole $0000-$3FFF window, the same bytes where GPGX had them.
-        let back = live_to_gpgx(&live, &odd);
+        // Back out: the whole $0000-$3FFF window, the same bytes where older builds had them.
+        let back = live_to_old_layout(&live, &odd);
         assert_eq!(back.len(), 0x4000);
         assert_eq!(&back[..file.len()], &file[..]);
         assert!(back[file.len()..].iter().all(|b| *b == 0xFF));
@@ -509,9 +514,9 @@ mod tests {
         rom[LOCK_ON_ROM / 2..LOCK_ON_ROM / 2 + 0x200].copy_from_slice(&s3);
         let s3_sram = MdSram { lane: SramLane::Odd, start: 0x200000, end: 0x2003FF };
         assert!(needs_whole_rom(&rom[..0x4200]));
-        assert_eq!(layout_for("blastem", "md", &rom), BatteryLayout::MegaDriveGpgx(s3_sram));
+        assert_eq!(layout_for("blastem", "md", &rom), BatteryLayout::MegaDriveOldLayout(s3_sram));
         // Only the first bytes, or a file of another size: no lock-on to read, so linear.
-        let linear = BatteryLayout::MegaDriveGpgx(MdSram { lane: SramLane::Linear, start: 0, end: 0 });
+        let linear = BatteryLayout::MegaDriveOldLayout(MdSram { lane: SramLane::Linear, start: 0, end: 0 });
         assert_eq!(layout_for("blastem", "md", &rom[..0x4200]), linear);
         assert_eq!(layout_for("blastem", "md", &rom[..0x34_0000]), linear);
         // Not S&K, or S&K with its own header: the whole ROM is never needed.
@@ -519,27 +524,29 @@ mod tests {
         let mut with_ra = rom[..0x200].to_vec();
         with_ra[0x1B0..0x1B2].copy_from_slice(b"RA");
         assert!(!needs_whole_rom(&with_ra));
-        // GPGX's file: the save's 512 bytes on odd offsets 1..0x3FF. BlastEm's live save: those.
+        // The old layout's file: the save's 512 bytes on odd offsets 1..0x3FF. BlastEm's live
+        // save: those.
         let mut file = vec![0xFF; 0x400];
         for k in 0..0x200 {
             file[1 + 2 * k] = (k * 7) as u8;
         }
-        let live = gpgx_to_live(&file, &s3_sram, 0x200).unwrap();
+        let live = old_layout_to_live(&file, &s3_sram, 0x200).unwrap();
         assert_eq!(live, (0..0x200).map(|k| (k * 7) as u8).collect::<Vec<u8>>());
-        assert_eq!(live_to_gpgx(&live, &s3_sram), file);
+        assert_eq!(live_to_old_layout(&live, &s3_sram), file);
         // Read as the linear EEPROM it used to be taken for, the same file was refused.
-        assert!(gpgx_to_live(&file, &MdSram { lane: SramLane::Linear, start: 0, end: 0 }, 0x200).is_err());
+        assert!(old_layout_to_live(&file, &MdSram { lane: SramLane::Linear, start: 0, end: 0 }, 0x200).is_err());
     }
 
     #[test]
     fn a_linear_save_laid_out_on_odd_bytes_is_refused() {
         let linear = MdSram { lane: SramLane::Linear, start: 0, end: 0 };
-        // A headerless SRAM cart neither list knows: GPGX's odd-byte picture, refused, not scrambled.
-        assert!(gpgx_to_live(&[0xFF, 0x41], &linear, 0x2000).is_err());
-        assert!(gpgx_to_live(&[0xFF, 0x41, 0xFF, 0x42, 0xFF], &linear, 0x2000).is_err());
+        // A headerless SRAM cart neither list knows: the old layout's odd-byte picture, refused,
+        // not scrambled.
+        assert!(old_layout_to_live(&[0xFF, 0x41], &linear, 0x2000).is_err());
+        assert!(old_layout_to_live(&[0xFF, 0x41, 0xFF, 0x42, 0xFF], &linear, 0x2000).is_err());
         // An EEPROM image with data at even offsets, or nothing written yet, still loads.
-        assert_eq!(gpgx_to_live(&[0x41, 0xFF, 0xFF, 0x42], &linear, 4).unwrap(), vec![0x41, 0xFF, 0xFF, 0x42]);
-        assert_eq!(gpgx_to_live(&[0xFF, 0xFF], &linear, 4).unwrap(), vec![0xFF; 4]);
+        assert_eq!(old_layout_to_live(&[0x41, 0xFF, 0xFF, 0x42], &linear, 4).unwrap(), vec![0x41, 0xFF, 0xFF, 0x42]);
+        assert_eq!(old_layout_to_live(&[0xFF, 0xFF], &linear, 4).unwrap(), vec![0xFF; 4]);
     }
 
     #[test]

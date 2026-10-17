@@ -1853,9 +1853,9 @@ impl EmulatorBridge {
     /// The running game's battery save (`SAVE_RAM`), byte for byte. This is the `.srm` file
     /// every libretro frontend writes, so it is also what an export hands to another emulator.
     ///
-    /// For BlastEm on a Mega Drive cartridge this is the GPGX layout every older Mega Drive save
-    /// is in (see
-    /// `battery_layout`), so the file is the same whichever core wrote it.
+    /// For BlastEm on a Mega Drive cartridge this is the layout older Continuum builds wrote every
+    /// Mega Drive save in (see `battery_layout`), so the file is the same whether an older build
+    /// or this one wrote it.
     pub fn battery_save(&self) -> Result<Vec<u8>, BridgeError> {
         let size = self.memory_size(crate::memory::MEMORY_SAVE_RAM);
         if size == 0 {
@@ -1864,7 +1864,7 @@ impl EmulatorBridge {
         }
         let live = self.read_memory(crate::memory::MEMORY_SAVE_RAM, 0, size as u64)?;
         match self.session.as_ref().map(|s| s.battery_layout) {
-            Some(BatteryLayout::MegaDriveGpgx(sram)) => Ok(battery_layout::live_to_gpgx(&live, &sram)),
+            Some(BatteryLayout::MegaDriveOldLayout(sram)) => Ok(battery_layout::live_to_old_layout(&live, &sram)),
             _ => Ok(live),
         }
     }
@@ -1928,9 +1928,9 @@ impl EmulatorBridge {
             ),
             None => return Err(BridgeError::NoSession),
         };
-        // BlastEm on a Mega Drive cartridge: the file is in the GPGX layout.
-        if let BatteryLayout::MegaDriveGpgx(sram) = layout {
-            let live = battery_layout::gpgx_to_live(data, &sram, size).map_err(BridgeError::Memory)?;
+        // BlastEm on a Mega Drive cartridge: the file is in the layout older builds wrote.
+        if let BatteryLayout::MegaDriveOldLayout(sram) = layout {
+            let live = battery_layout::old_layout_to_live(data, &sram, size).map_err(BridgeError::Memory)?;
             self.write_memory(crate::memory::MEMORY_SAVE_RAM, 0, &live)?;
             return Ok(size);
         }
@@ -2172,7 +2172,7 @@ impl EmulatorBridge {
                 log::info!("battery save for this game taken from {}", other_path.display());
                 loaded = Some(data.len());
             } else if let Some(data) = own {
-                if matches!(layout, BatteryLayout::MegaDriveGpgx(_)) {
+                if matches!(layout, BatteryLayout::MegaDriveOldLayout(_)) {
                     Self::keep_copy(path, &data, "before-blastem", false)?;
                 }
                 self.restore_battery_save(&data)?;
@@ -2820,20 +2820,20 @@ mod tests {
     }
 
     #[test]
-    fn a_mega_drive_save_stays_in_gpgx_layout_on_blastem() {
+    fn a_mega_drive_save_stays_in_the_old_layout_on_blastem() {
         // An odd-byte SRAM cart, $200001-$203FFF: 8192 bytes live, the diagnostic SAVE_RAM size.
         let mut rom = vec![0u8; 0x200];
         rom[0x100..0x10F].copy_from_slice(b"SEGA MEGA DRIVE");
         rom[0x1B0..0x1BC].copy_from_slice(&[b'R', b'A', 0xF8, 0x20, 0x00, 0x20, 0x00, 0x01, 0x00, 0x20, 0x3F, 0xFF]);
-        let dir = scratch_dir("md-gpgx");
+        let dir = scratch_dir("md-old-layout");
         let path = dir.join("Sonic.srm");
         let path_str = path.to_str().unwrap().to_string();
-        // What GPGX wrote: 0x22+i at the odd addresses, trimmed.
-        let mut gpgx = vec![0xFF; 0x20];
+        // What older builds wrote: 0x22+i at the odd addresses, trimmed.
+        let mut old = vec![0xFF; 0x20];
         for i in 0..16 {
-            gpgx[1 + 2 * i] = 0x22 + i as u8;
+            old[1 + 2 * i] = 0x22 + i as u8;
         }
-        std::fs::write(&path, &gpgx).unwrap();
+        std::fs::write(&path, &old).unwrap();
 
         let mut bridge = running_as("blastem", "genesis", &rom, "Sonic.md");
         assert_eq!(bridge.load_battery_save_file_migrating(&path_str, None).unwrap(), Some(0x20));
@@ -2842,12 +2842,12 @@ mod tests {
         assert_eq!(live[16], 0xFF);
         // A copy of the pre-swap file, once.
         let before = dir.join("Sonic.srm.before-blastem");
-        assert_eq!(std::fs::read(&before).unwrap(), gpgx);
-        // Out again in GPGX's layout: the whole $0000-$3FFF window, filler at the even bytes.
+        assert_eq!(std::fs::read(&before).unwrap(), old);
+        // Out again in the old layout: the whole $0000-$3FFF window, filler at the even bytes.
         assert_eq!(bridge.persist_battery_save(&path_str).unwrap(), 0x4000);
         let on_disk = std::fs::read(&path).unwrap();
         assert_eq!(on_disk.len(), 0x4000);
-        assert_eq!(&on_disk[..0x20], &gpgx[..]);
+        assert_eq!(&on_disk[..0x20], &old[..]);
         assert!(on_disk[0x20..].iter().all(|b| *b == 0xFF));
         // Reloading gives the same live bytes, and the first copy is never replaced.
         std::fs::write(&before, b"first").unwrap();
@@ -2870,21 +2870,22 @@ mod tests {
         let dir = scratch_dir("md-headerless");
         let path = dir.join("Buck Rogers.srm");
         let path_str = path.to_str().unwrap().to_string();
-        // GPGX's file, reaching past the first 4 KB of SRAM (the case that used to be refused).
-        let mut gpgx = vec![0xFF; 0x3002];
-        gpgx[1] = 0x41;
-        gpgx[0x3001] = 0x7A;
-        std::fs::write(&path, &gpgx).unwrap();
+        // The old layout's file, reaching past the first 4 KB of SRAM (the case that used to be
+        // refused).
+        let mut old = vec![0xFF; 0x3002];
+        old[1] = 0x41;
+        old[0x3001] = 0x7A;
+        std::fs::write(&path, &old).unwrap();
         let mut bridge = running_as("blastem", "genesis", &rom, "Buck Rogers.md");
         assert_eq!(bridge.load_battery_save_file_migrating(&path_str, None).unwrap(), Some(0x3002));
         let live = bridge.read_memory(crate::memory::MEMORY_SAVE_RAM, 0, 8192).unwrap();
         assert_eq!((live[0], live[1], live[0x1800]), (0x41, 0xFF, 0x7A));
-        assert_eq!(std::fs::read(dir.join("Buck Rogers.srm.before-blastem")).unwrap(), gpgx);
-        // Written back in GPGX's layout, the same bytes where they were.
+        assert_eq!(std::fs::read(dir.join("Buck Rogers.srm.before-blastem")).unwrap(), old);
+        // Written back in the old layout, the same bytes where they were.
         assert_eq!(bridge.persist_battery_save(&path_str).unwrap(), 0x4000);
         let on_disk = std::fs::read(&path).unwrap();
-        assert_eq!(&on_disk[..gpgx.len()], &gpgx[..]);
-        assert!(on_disk[gpgx.len()..].iter().all(|b| *b == 0xFF));
+        assert_eq!(&on_disk[..old.len()], &old[..]);
+        assert!(on_disk[old.len()..].iter().all(|b| *b == 0xFF));
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -2902,15 +2903,15 @@ mod tests {
         hint.full_path = Some(file.to_str().unwrap().to_string());
         let s3 = battery_layout::MdSram { lane: battery_layout::SramLane::Odd, start: 0x200000, end: 0x2003FF };
         // BlastEm is handed the path, not the bytes.
-        assert_eq!(EmulatorBridge::battery_layout_for("blastem", &[], &hint), BatteryLayout::MegaDriveGpgx(s3));
-        assert_eq!(EmulatorBridge::battery_layout_for("blastem", &rom, &hint), BatteryLayout::MegaDriveGpgx(s3));
+        assert_eq!(EmulatorBridge::battery_layout_for("blastem", &[], &hint), BatteryLayout::MegaDriveOldLayout(s3));
+        assert_eq!(EmulatorBridge::battery_layout_for("blastem", &rom, &hint), BatteryLayout::MegaDriveOldLayout(s3));
         // Another core keeps its bytes; a bigger file is not the lock-on ROM and is not read whole.
         assert_eq!(EmulatorBridge::battery_layout_for("gearsystem", &[], &hint), BatteryLayout::Raw);
         rom.resize(0x40_0400, 0);
         std::fs::write(&file, &rom).unwrap();
         assert!(matches!(
             EmulatorBridge::battery_layout_for("blastem", &[], &hint),
-            BatteryLayout::MegaDriveGpgx(battery_layout::MdSram { lane: battery_layout::SramLane::Linear, .. })
+            BatteryLayout::MegaDriveOldLayout(battery_layout::MdSram { lane: battery_layout::SramLane::Linear, .. })
         ));
         let _ = std::fs::remove_dir_all(dir);
     }
