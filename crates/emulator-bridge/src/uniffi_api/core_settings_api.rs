@@ -17,6 +17,15 @@ pub struct CoreOptionChoice {
     pub label: String,
 }
 
+/// A core's console-language setting, for the game card.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct CoreLanguageOption {
+    pub key: String,
+    pub label: String,
+    pub values: Vec<CoreOptionChoice>,
+    pub default_value: String,
+}
+
 /// One group of options, from a v2 table. Options with an empty category belong to none.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct CoreOptionCategoryRecord {
@@ -230,6 +239,43 @@ impl ContinuumEngine {
     /// The game whose own choices are live for this core, if one is running.
     pub fn core_options_game(&self, core_id: String) -> Option<String> {
         options::active_game(&core_id)
+    }
+
+    /// The core's console-language setting, for Language on the game card, if its table (from a
+    /// run of the core) has one.
+    pub fn core_language_option(&self, core_id: String) -> Option<CoreLanguageOption> {
+        options::language_definition(&core_id).map(|d| CoreLanguageOption {
+            key: d.key,
+            label: d.label,
+            values: d
+                .values
+                .into_iter()
+                .map(|c| CoreOptionChoice { value: c.value, label: c.label })
+                .collect(),
+            default_value: d.default,
+        })
+    }
+
+    /// One game's own value for a core setting, running or not. `game` is the file name.
+    pub fn game_option_value(&self, core_id: String, game: String, key: String) -> Option<String> {
+        options::game_value(&core_id, &game, &key)
+    }
+
+    /// Stores (or with `None` clears) one game's own value for a core setting from its card.
+    pub fn set_game_option_value(
+        &self,
+        core_id: String,
+        game: String,
+        key: String,
+        value: Option<String>,
+    ) -> Result<(), EngineError> {
+        options::set_game_value(&core_id, &game, &key, value.as_deref()).map_err(option_error)
+    }
+
+    /// Safe Mode: the next game starts with only the core-wide settings, not its own. `false`
+    /// takes it back.
+    pub fn skip_game_settings_next_start(&self, skip: bool) {
+        options::set_skip_game_choices_next_start(skip);
     }
 
     // ---------------------------------------------------------------- speeds

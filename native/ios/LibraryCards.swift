@@ -284,11 +284,15 @@ struct HeroCard: View {
     let isFavourite: Bool
     let height: CGFloat
     let host: EngineHost
+    /// How much of the top the bar covers (the logo and search), so the whole cover sits below it.
+    var topClearance: CGFloat = 100
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
+            // The cover, cropped and blurred, as a backdrop; the whole cover sits on it, sharp
+            // (owner, 16 October 2026). A game with no cover keeps its plate here, as before.
             CoverArtView(entry: entry, system: system, store: store,
-                         generation: generation, showsCaption: false)
+                         generation: generation, showsCaption: false, style: .backdrop)
                 .frame(height: height)
                 .frame(maxWidth: .infinity)
                 // A LONG PRESS OPENS THE DETAIL SHEET HERE TOO, which is the one surface that used to
@@ -325,9 +329,23 @@ struct HeroCard: View {
             .frame(height: height)
             .allowsHitTesting(false)
 
-            content
-                .padding(.horizontal, 18)
-                .padding(.bottom, 14)
+            VStack(alignment: .leading, spacing: 14) {
+                // The whole cover, at its own shape, in the room between the top bar and the
+                // title: never cropped, never blown up past what fits.
+                CoverArtView(entry: entry, system: system, store: store,
+                             generation: generation, showsCaption: true,
+                             style: .whole(WholeCover(cornerRadius: 10, alignment: .center)))
+                    .shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 6)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.top, topClearance)
+                    .contentShape(Rectangle())
+                    .onLongPressGesture(minimumDuration: 0.4) {
+                        host.detailEntry = entry
+                    }
+                content
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 14)
         }
         .frame(height: height)
         .clipped()
@@ -402,43 +420,39 @@ struct CoverCard: View {
     /// (`LibraryCardSize`). Medium is the card as it always was.
     var cardSize: LibraryCardSize = .medium
 
-    /// Roughly a box-art aspect. Cards are a fixed shape so a shelf stays a straight line whatever
-    /// shape the covers turn out to be.
-    private var height: CGFloat { (width * 4.0 / 3.0).rounded() }
+    /// Width over height of the space a grid card's cover sits in. Nil is the 3:4 space a grid of
+    /// mixed consoles has always had; a console's own section passes that console's box shape,
+    /// so its covers fill their space.
+    var frameAspect: CGFloat?
+    /// Ticked in the Library's select mode (`LibrarySelection`). Nil when not selecting.
+    var selected: Bool?
+
+    /// The space a grid card's cover sits in. The cover inside is whole, at its own shape.
+    private var height: CGFloat { (width / (frameAspect ?? 0.75)).rounded() }
+
+    /// A shelf's covers are all this tall, each as wide as its own shape: the height the shelf
+    /// cards always had.
+    private var shelfHeight: CGFloat { (width * 4.0 / 3.0).rounded() }
 
     var body: some View {
         VStack(alignment: .leading, spacing: cardSize.labelSpacing) {
+            // THE WHOLE COVER, never cropped, and nothing laid over the art but the favourite star
+            // (owner, 16 October 2026). The system's name is in the line under a grid card.
+            //
             // The plate's own caption, on a game with no cover. On a shelf it is the only title
             // such a game has, so it shows at every size, scaled to the card. Under a grid card's
             // label it shows where it always did, on a card 92 points or wider; a smaller grid
             // card has the title right under it.
-            CoverArtView(entry: entry, system: system, store: store,
-                         generation: generation, showsCaption: !showsLabel || width >= 92,
-                         captionScale: cardSize.plateCaptionScale)
-                .frame(width: width, height: height)
-                .clipShape(RoundedRectangle(cornerRadius: cardSize.cornerRadius))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cardSize.cornerRadius)
-                        .strokeBorder(ShellPalette.text.opacity(0.10), lineWidth: 0.5)
-                )
-                .overlay(alignment: .topLeading) {
-                    SystemBadge(text: system?.badge ?? entry.ext.uppercased(), cardSize: cardSize)
-                        .padding(cardSize.badgeInset)
-                        // Room for the star on a favourite, so the two never overlap.
-                        .padding(.trailing, isFavourite ? cardSize.starReserve : 0)
-                }
-                .overlay(alignment: .topTrailing) {
-                    if isFavourite {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: cardSize.starFont, weight: .bold))
-                            .foregroundStyle(Color.yellow)
-                            .padding(cardSize.starPadding)
-                            .background(.black.opacity(0.55), in: Circle())
-                            .padding(cardSize.badgeInset)
-                    }
-                }
-
             if showsLabel {
+                CoverArtView(entry: entry, system: system, store: store,
+                             generation: generation, showsCaption: width >= 92,
+                             captionScale: cardSize.plateCaptionScale,
+                             style: .whole(WholeCover(cornerRadius: cardSize.cornerRadius,
+                                                      alignment: .bottom,
+                                                      favouriteStar: isFavourite ? cardSize : nil)))
+                    .frame(width: width, height: height)
+                    .overlay(alignment: .bottomLeading) { selectionMark }
+
                 Text(GameMetadata.displayTitle(for: entry))
                     .font(.system(size: cardSize.titleFont, weight: .semibold))
                     .foregroundStyle(ShellPalette.text)
@@ -451,15 +465,34 @@ struct CoverCard: View {
                         .foregroundStyle(ShellPalette.secondaryText)
                         .lineLimit(1)
                         .minimumScaleFactor(cardSize.cardLineMinimumScale)
+                } else {
+                    // Extra small has no room for the whole line, but the system's short name
+                    // fits, and it is no longer on the cover.
+                    Text(system?.badge ?? entry.ext.uppercased())
+                        .font(.system(size: cardSize.cardLineFont, weight: .semibold))
+                        .foregroundStyle(ShellPalette.secondaryText)
+                        .lineLimit(1)
                 }
+            } else {
+                CoverArtView(entry: entry, system: system, store: store,
+                             generation: generation, showsCaption: true,
+                             captionScale: cardSize.plateCaptionScale,
+                             style: .whole(WholeCover(cornerRadius: cardSize.cornerRadius,
+                                                      fixedHeight: shelfHeight,
+                                                      favouriteStar: isFavourite ? cardSize : nil)))
             }
         }
-        .frame(width: width)
+        .frame(width: showsLabel ? width : nil)
         // A tap plays, a long press opens the detail sheet. Both are wired here rather than in the
         // parent so every card in the app behaves the same way.
         .contentShape(Rectangle())
         .onTapGesture {
-            host.launch(entry: entry)
+            // In select mode a tap ticks the game instead of starting it.
+            if selected != nil {
+                LibrarySelection.shared.toggle(entry)
+            } else {
+                host.launch(entry: entry)
+            }
         }
         .onLongPressGesture(minimumDuration: 0.4) {
             host.detailEntry = entry
@@ -467,6 +500,20 @@ struct CoverCard: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(GameMetadata.displayTitle(for: entry)), "
                             + "\(GameMetadata.cardLine(for: entry, system: system))")
+        .accessibilityAddTraits(selected == true ? .isSelected : [])
+    }
+
+    /// The tick in the corner of a card in select mode.
+    @ViewBuilder
+    private var selectionMark: some View {
+        if let selected {
+            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: max(14, cardSize.starFont + 8), weight: .semibold))
+                .foregroundStyle(selected ? ShellPalette.accent : Color.white)
+                .background(Circle().fill(Color.black.opacity(selected ? 0.0 : 0.35)))
+                .background(Circle().fill(Color.white).padding(2).opacity(selected ? 1 : 0))
+                .padding(cardSize.badgeInset)
+        }
     }
 }
 
@@ -545,9 +592,10 @@ struct GameListRow: View {
     var body: some View {
         HStack(spacing: 12) {
             CoverArtView(entry: entry, system: system, store: store,
-                         generation: generation, showsCaption: false)
+                         generation: generation, showsCaption: false,
+                         style: .whole(WholeCover(cornerRadius: 6, alignment: .center,
+                                                  outline: false)))
                 .frame(width: 44, height: 59)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(GameMetadata.displayTitle(for: entry))

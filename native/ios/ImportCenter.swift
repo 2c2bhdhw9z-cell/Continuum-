@@ -701,6 +701,8 @@ final class ImportCenter: ObservableObject {
     /// Open in / Share to Continuum. The URL may be a security-scoped original (opened in place)
     /// or a copy in Documents/Inbox; either way it is copied to scratch and imported.
     func open(url: URL) {
+        // continuum://play?game=... opens that game (the game card's "Copy its link").
+        if host?.openLaunchLink(url) == true { return }
         guard url.isFileURL else {
             report("Continuum was opened with \(url.absoluteString), which is not a file")
             return

@@ -794,6 +794,9 @@ pub struct State {
     /// Frames run since the last change. A key still unread a few frames after the core was told
     /// is a key it only reads at start.
     frames_since_change: u32,
+    /// Safe Mode: the next game starts with only the core-wide choices. See
+    /// `set_skip_game_choices_next_start`.
+    skip_game_once: bool,
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
@@ -846,6 +849,14 @@ pub fn install(core_id: &str, game: Option<&str>, fresh_core: bool) {
     with_state(|s| {
         s.active_core = core_id.to_owned();
         s.active_game = game.map(str::to_owned);
+        // Safe Mode: this game starts on the core-wide choices only, and as no game at all, so a
+        // setting changed during it is core-wide and the game's own file is never written over.
+        if game.is_some() && s.skip_game_once {
+            s.skip_game_once = false;
+            s.active_game = None;
+        }
+        let game = s.active_game.clone();
+        let game = game.as_deref();
         if fresh_core {
             s.cores.insert(core_id.to_owned(), CoreEntry::default());
         }
@@ -1264,6 +1275,82 @@ pub fn cycle(core_id: &str, key: &str, forward: bool) -> Result<(String, String)
     let value = def.values[next].clone();
     set(core_id, key, &value.value, false)?;
     Ok((value.value, value.label))
+}
+
+// ------------------------------------------------------------------ Safe Mode and the game card
+
+/// Safe Mode (owner, 16 October 2026): with `true`, the next game to start gets only the
+/// core-wide choices, not its own. Used once, by the next start that names a game; `false` takes
+/// it back (a start that failed before the core read its options).
+pub fn set_skip_game_choices_next_start(skip: bool) {
+    with_state(|s| s.skip_game_once = skip);
+}
+
+/// Whether an option is a console language setting: "Language", "System Language", "BIOS
+/// language" and the like, with at least two choices. Read from the core's own table, so no
+/// core needs a hand-written key here.
+fn is_language(def: &OptionDef) -> bool {
+    let key = def.key.to_ascii_lowercase();
+    let label = def.label.to_ascii_lowercase();
+    def.values.len() >= 2
+        && (key.ends_with("language") || key.ends_with("_lang") || label.contains("language"))
+}
+
+/// The core's language setting, from its table (live, or cached from its last run), if it has
+/// one. Language per game on the game card (owner, 16 October 2026).
+pub fn language_definition(core_id: &str) -> Option<OptionDef> {
+    with_state(|s| {
+        let table = table_for(s, core_id)?;
+        table.defs.iter().find(|d| is_language(d) && !is_locked(core_id, &d.key)).cloned()
+    })
+}
+
+/// One game's own value for a key, whether or not the game is running.
+pub fn game_value(core_id: &str, game: &str, key: &str) -> Option<String> {
+    with_state(|s| {
+        if s.active_core == core_id && s.active_game.as_deref() == Some(game) {
+            return s.game_values.get(key).cloned();
+        }
+        let root = s.root.as_ref()?;
+        read_map(&game_opt_path(root, core_id, game)).get(key).cloned()
+    })
+}
+
+/// Stores one game's own value for a key, or with `None` clears it, from the game card: the
+/// game need not be running. Written to the same file a choice made in the game would be, so
+/// the two never disagree; a running copy of that game is told at once.
+pub fn set_game_value(core_id: &str, game: &str, key: &str, value: Option<&str>) -> Result<(), String> {
+    with_state(|s| {
+        if is_locked(core_id, key) {
+            return Err(format!("{key} is fixed by Continuum for this core and cannot be changed"));
+        }
+        if let Some(value) = value {
+            if let Some(def) = table_for(s, core_id).and_then(|t| t.get(key).cloned()) {
+                if !def.accepts(value) {
+                    return Err(format!("{core_id} does not offer \"{value}\" for {}", def.label));
+                }
+            }
+        }
+        let root = s.root.clone().ok_or_else(|| "no settings folder yet".to_owned())?;
+        let live = s.active_core == core_id && s.active_game.as_deref() == Some(game);
+        let path = game_opt_path(&root, core_id, game);
+        let mut values = if live { s.game_values.clone() } else { read_map(&path) };
+        match value {
+            Some(value) => {
+                values.insert(key.to_owned(), value.to_owned());
+            }
+            None => {
+                values.remove(key);
+            }
+        }
+        write_map(&path, &values)?;
+        if live {
+            s.game_values = values;
+            s.forced.remove(key);
+            mark_changed(s, vec![key.to_owned()]);
+        }
+        Ok(())
+    })
 }
 
 /// Test-only reset of the whole global.
@@ -1778,6 +1865,74 @@ mod tests {
         let table = model_table();
         assert!(table.defs[0].says_restart(), "Azahar says it only in the description");
         assert!(!table.defs[1].says_restart(), "\"no restart needed\" is not a restart");
+    }
+
+    #[test]
+    fn safe_mode_starts_a_game_on_core_wide_choices_and_keeps_its_own_file() {
+        let _g = test_guard();
+        reset_for_tests();
+        let root = temp_root("safe-mode");
+        set_root(Some(root.clone()));
+        install("fakecore", None, true);
+        declare(sample_table());
+        install("fakecore", Some("Game One.gb"), false);
+        set("fakecore", "fake_lowpass", "disabled", true).unwrap();
+        let ask = |key: &str| answer(key).map(|p| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned());
+        assert_eq!(ask("fake_lowpass").as_deref(), Some("disabled"));
+
+        set_skip_game_choices_next_start(true);
+        install("fakecore", None, false);
+        install("fakecore", Some("Game One.gb"), false);
+        assert_eq!(ask("fake_lowpass").as_deref(), Some("enabled"), "Safe Mode ignores the game's own choice");
+        assert_eq!(active_game("fakecore"), None, "so nothing can write over its file");
+        assert!(set("fakecore", "fake_lowpass", "disabled", true).is_err());
+        assert!(game_opt_path(&root, "fakecore", "Game One.gb").exists());
+
+        // Only once: the next start is normal again.
+        install("fakecore", Some("Game One.gb"), false);
+        assert_eq!(ask("fake_lowpass").as_deref(), Some("disabled"));
+        reset_for_tests();
+    }
+
+    #[test]
+    fn a_game_card_choice_is_written_without_the_game_running() {
+        let _g = test_guard();
+        reset_for_tests();
+        let root = temp_root("card-choice");
+        set_root(Some(root.clone()));
+        install("fakecore", None, true);
+        declare(sample_table());
+
+        set_game_value("fakecore", "Game Two.gb", "fake_lowpass", Some("disabled")).unwrap();
+        assert_eq!(game_value("fakecore", "Game Two.gb", "fake_lowpass").as_deref(), Some("disabled"));
+        assert!(set_game_value("fakecore", "Game Two.gb", "fake_lowpass", Some("purple")).is_err());
+
+        // The game then starts with it, and a running copy hears a change at once.
+        install("fakecore", Some("Game Two.gb"), false);
+        let ask = |key: &str| answer(key).map(|p| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned());
+        assert_eq!(ask("fake_lowpass").as_deref(), Some("disabled"));
+        set_game_value("fakecore", "Game Two.gb", "fake_lowpass", None).unwrap();
+        assert!(take_update());
+        assert_eq!(ask("fake_lowpass").as_deref(), Some("enabled"));
+        assert_eq!(game_value("fakecore", "Game Two.gb", "fake_lowpass"), None);
+        reset_for_tests();
+    }
+
+    #[test]
+    fn a_language_setting_is_found_by_its_name() {
+        let def = |key: &str, label: &str, n: usize| OptionDef {
+            key: key.into(),
+            label: label.into(),
+            info: String::new(),
+            category: String::new(),
+            values: (0..n).map(|i| OptionValue { value: format!("v{i}"), label: format!("V{i}") }).collect(),
+            default: "v0".into(),
+        };
+        assert!(is_language(&def("ppsspp_language", "Game Language", 12)));
+        assert!(is_language(&def("melonds_firmware_language", "Language", 7)));
+        assert!(is_language(&def("yabasanshiro_lang", "System Language", 6)));
+        assert!(!is_language(&def("fake_colors", "Colours", 3)));
+        assert!(!is_language(&def("x_language", "Language", 1)), "one choice is no choice");
     }
 
     #[test]

@@ -20,6 +20,7 @@ pub mod archive;
 pub mod detect;
 pub mod http;
 pub mod not_games;
+pub mod patch;
 pub mod saves;
 pub mod webdav;
 

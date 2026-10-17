@@ -69,6 +69,8 @@ enum LibraryTab: String, CaseIterable, Identifiable {
 /// part of that which is real today: it needs no engine change, it persists, and it does something
 /// visible. (The touch-control layout editor is separate; see TouchLayoutEditor.swift.)
 enum LibraryLayout: String, CaseIterable, Identifiable {
+    /// A section per console (owner, 16 October 2026). The default.
+    case consoles
     case grid
     case list
 
@@ -76,8 +78,26 @@ enum LibraryLayout: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .consoles: return "By console"
         case .grid: return "Grid"
         case .list: return "List"
+        }
+    }
+
+    /// The next one, for the button beside All Games' title.
+    var next: LibraryLayout {
+        switch self {
+        case .consoles: return .grid
+        case .grid: return .list
+        case .list: return .consoles
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .consoles: return "square.stack.3d.up.fill"
+        case .grid: return "square.grid.2x2.fill"
+        case .list: return "list.bullet"
         }
     }
 }
@@ -336,6 +356,11 @@ struct LibraryShell: View {
     /// long note on `ArtworkStore.generationOnly`.
     let artwork: ArtworkStore
     @ObservedObject var artworkGeneration: ArtworkGeneration
+    /// The console order (Settings, LAYOUT) and the games ticked in select mode.
+    @ObservedObject private var prefs = LibraryPrefs.shared
+    @ObservedObject private var selection = LibrarySelection.shared
+    /// Asking before several games are deleted at once.
+    @State private var confirmingDelete = false
 
     /// The real safe-area insets and window size, measured from UIKit. See `SafeAreaProbe` for why
     /// they are not read from a GeometryProxy.
@@ -386,9 +411,11 @@ struct LibraryShell: View {
     /// leave no room for a shelf underneath it, so there would be nothing to suggest the library
     /// scrolls.
     private var heroHeight: CGFloat {
+        // Taller than it was (430 at most) because the whole cover now sits in it, above the
+        // title, instead of being cropped behind it (owner, 16 October 2026).
         let available = metrics.size.height
-        guard available > 0 else { return 430 }
-        return min(430, max(300, available * 0.52))
+        guard available > 0 else { return 500 }
+        return min(520, max(340, available * 0.58))
     }
 
     var body: some View {
@@ -428,6 +455,8 @@ struct LibraryShell: View {
             }
         }
         .onChange(of: host.libraryNotice) { _ in takeLibraryNotice() }
+        // Select mode belongs to All Games: another tab ends it.
+        .onChange(of: host.libraryTab) { _ in selection.active = false }
         .onChange(of: host.status) { line in popUpIfProblem(line) }
         // A sheet rather than a pushed view, so nothing in the view tree under it is replaced.
         .sheet(item: $host.detailEntry) { entry in
@@ -802,7 +831,8 @@ struct LibraryShell: View {
                         generation: artworkGeneration.value,
                         isFavourite: host.favourites.contains(hero.name),
                         height: heroHeight,
-                        host: host
+                        host: host,
+                        topClearance: topBarHeight + max(metrics.insets.top, 8) + 6
                     )
                 } else {
                     EmptyLibraryNotice(
@@ -858,6 +888,7 @@ struct LibraryShell: View {
         .onChange(of: host.library) { _ in rebuildShelves() }
         .onChange(of: host.showsSystemShelves) { _ in rebuildShelves() }
         .onChange(of: host.gameArrivals) { _ in rebuildShelves() }
+        .onChange(of: prefs.consoleOrder) { _ in rebuildShelves() }
     }
 
     /// Recompute the cached shelves. Cheap to call; the point is that it is called rarely.
@@ -865,7 +896,8 @@ struct LibraryShell: View {
         cachedShelves = Self.buildShelves(
             library: host.library,
             arrivals: host.gameArrivals,
-            systemShelves: host.showsSystemShelves
+            systemShelves: host.showsSystemShelves,
+            order: prefs.ordered(GameSystem.allCases)
         )
     }
 
@@ -893,6 +925,10 @@ struct LibraryShell: View {
                     guidance: "Nothing in the library matches \"\(host.librarySearch)\"."
                 )
                 Spacer(minLength: 0)
+            } else if host.libraryLayout == .consoles {
+                ConsoleSections(entries: shown, host: host, artwork: artwork,
+                                generation: artworkGeneration.value,
+                                bottomClearance: scrollEndClearance + (selection.active ? 60 : 0))
             } else if host.libraryLayout == .grid {
                 gameGrid(shown)
             } else {
@@ -900,6 +936,94 @@ struct LibraryShell: View {
             }
         }
         .padding(.top, topBarHeight + max(metrics.insets.top, 8) + 6)
+        .overlay(alignment: .bottom) {
+            if selection.active {
+                selectionBar(shown)
+                    .padding(.bottom, bottomBarHeight + 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .confirmationDialog(
+            selection.picked.count == 1 ? "Delete 1 game?" : "Delete \(selection.picked.count) games?",
+            isPresented: $confirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                let ids = selection.picked
+                selection.active = false
+                host.deleteEntries(at: host.indices(matching: ids))
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Their save states and cheats go too. In-game saves are kept.")
+        }
+    }
+
+    /// The bar over the tabs in select mode: all or none, favourite, delete.
+    private func selectionBar(_ shown: [LibraryEntry]) -> some View {
+        let count = selection.picked.count
+        let allPicked = count == shown.count && count > 0
+        return HStack(spacing: 10) {
+            Button(allPicked ? "None" : "All") {
+                if allPicked {
+                    selection.clear()
+                } else {
+                    selection.pickAll(shown)
+                }
+            }
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(ShellPalette.text)
+
+            Text(count == 1 ? "1 picked" : "\(count) picked")
+                .font(.system(size: 13))
+                .foregroundStyle(ShellPalette.secondaryText)
+                .frame(maxWidth: .infinity)
+
+            Button {
+                favouritePicked()
+            } label: {
+                Image(systemName: "star")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(count == 0 ? ShellPalette.secondaryText : Color.yellow)
+                    .frame(width: 40, height: 36)
+            }
+            .disabled(count == 0)
+            .accessibilityLabel("Star or unstar the picked games")
+
+            Button {
+                confirmingDelete = true
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(count == 0 ? ShellPalette.secondaryText : ShellPalette.accent)
+                    .frame(width: 40, height: 36)
+            }
+            .disabled(count == 0)
+            .accessibilityLabel("Delete the picked games")
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(ShellPalette.background.opacity(0.6), in: Capsule())
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(ShellPalette.hairline, lineWidth: 0.5))
+        .padding(.horizontal, 14)
+    }
+
+    /// Stars every picked game, or, when they are all starred already, unstars them.
+    private func favouritePicked() {
+        let picked = host.library.filter { selection.picked.contains($0.id) }
+        let allStarred = picked.allSatisfy { host.favourites.contains($0.name) }
+        for entry in picked where host.favourites.contains(entry.name) == allStarred {
+            host.toggleFavourite(entry)
+        }
+        selection.active = false
+    }
+
+    /// A game from what All Games is showing, picked at random, and started.
+    private func playRandom(_ shown: [LibraryEntry]) {
+        guard let entry = shown.randomElement() else { return }
+        host.launch(entry: entry)
     }
 
     /// Favorites: the same cards, and an empty state that says how to favourite something.
@@ -959,29 +1083,57 @@ struct LibraryShell: View {
                 .font(.system(size: 12))
                 .foregroundStyle(ShellPalette.secondaryText)
             Spacer(minLength: 0)
-            if host.libraryTab == .allGames {
-                layoutToggle
+            if host.libraryTab == .allGames && !host.library.isEmpty {
+                if selection.active {
+                    Button("Done") {
+                        selection.active = false
+                    }
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(ShellPalette.accent)
+                    .buttonStyle(.plain)
+                } else {
+                    headerIcon("shuffle", label: "Play a random game") {
+                        playRandom(filtered(host.library))
+                    }
+                    if host.libraryLayout != .list {
+                        headerIcon("checkmark.circle", label: "Pick several games") {
+                            selection.active = true
+                        }
+                    }
+                    layoutToggle
+                }
             }
         }
         .padding(.horizontal, 16)
     }
 
-    /// The layout switch, in reach rather than buried: it is also in Settings, and both write the
-    /// same persisted value.
-    private var layoutToggle: some View {
-        Button {
-            host.libraryLayout = host.libraryLayout == .grid ? .list : .grid
-        } label: {
-            Image(systemName: host.libraryLayout == .grid
-                  ? "square.grid.2x2.fill"
-                  : "list.bullet")
+    private func headerIcon(_ symbol: String, label: String,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(ShellPalette.text)
                 .frame(width: 34, height: 34)
                 .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 9))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(host.libraryLayout == .grid ? "Switch to a list" : "Switch to a grid")
+        .accessibilityLabel(label)
+    }
+
+    /// The layout switch, in reach rather than buried: it is also in Settings, and both write the
+    /// same persisted value.
+    private var layoutToggle: some View {
+        Button {
+            host.libraryLayout = host.libraryLayout.next
+        } label: {
+            Image(systemName: host.libraryLayout.symbol)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(ShellPalette.text)
+                .frame(width: 34, height: 34)
+                .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show All Games \(host.libraryLayout.next.title.lowercased())")
     }
 
     private func gameGrid(_ entries: [LibraryEntry]) -> some View {
@@ -1007,7 +1159,8 @@ struct LibraryShell: View {
                         width: size.gridCardWidth,
                         host: host,
                         showsLabel: true,
-                        cardSize: size
+                        cardSize: size,
+                        selected: selection.mark(for: entry)
                     )
                 }
             }
@@ -1151,7 +1304,8 @@ struct LibraryShell: View {
     private static func buildShelves(
         library: [LibraryEntry],
         arrivals: [String: Date],
-        systemShelves: Bool
+        systemShelves: Bool,
+        order: [GameSystem]
     ) -> [Shelf] {
         guard !library.isEmpty else { return [] }
         var out: [Shelf] = []
@@ -1184,8 +1338,9 @@ struct LibraryShell: View {
         guard systemShelves else { return out }
 
         // Grouped through the ONE routing table, so a shelf cannot claim a system the launch path
-        // would disagree with. Ordered by the system's own case order, so the shelves do not
-        // reshuffle when a game is added.
+        // would disagree with. In the player's console order (Settings, LAYOUT), which is the
+        // system's own case order until they change it, so the shelves never reshuffle when a
+        // game is added.
         var bySystem: [GameSystem: [LibraryEntry]] = [:]
         var unrouted: [LibraryEntry] = []
         for entry in library {
@@ -1195,7 +1350,7 @@ struct LibraryShell: View {
                 unrouted.append(entry)
             }
         }
-        for system in GameSystem.allCases {
+        for system in order {
             guard let entries = bySystem[system], !entries.isEmpty else { continue }
             out.append(Shelf(id: system.rawValue, title: system.displayName, entries: entries))
         }

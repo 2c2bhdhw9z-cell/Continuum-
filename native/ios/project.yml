@@ -100,6 +100,12 @@ targets:
         NSLocalNetworkUsageDescription: "Continuum uses your local network for online play with a second phone, Wi-Fi transfer from a computer, and shared folders on a computer or NAS."
         NSBonjourServices:
           - _continuum._tcp
+        # The game link (LibraryExtras.swift, `LaunchLink`): continuum://play?game=<file name>
+        # opens Continuum straight into that game, from Shortcuts or a home screen bookmark.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.continuum.play
+            CFBundleURLSchemes:
+              - continuum
         # Open in / Share to Continuum (ImportCenter.open): every game, disc, skin, cheat and save
         # extension, plus zip, 7z, iso and PDF manuals through the system's own types. Alternate rank,
         # so Continuum is offered without taking over any file type. `.md`, `.bin`, `.img`, `.exe` and
@@ -478,6 +484,11 @@ targets:
       - path: PlayerScreen.swift
       # Stage 2, the library shell. The tab shell, the top bar, the hero and the shelves.
       - path: LibraryShell.swift
+      # The Library's extras: covers at their box shape, All Games by console, select several,
+      # the console order, and the game card's Clean start, Share, link, patch, discs and
+      # language, plus the silent-switch setting. WITHOUT THIS LINE LibraryShell, LibraryCards,
+      # ArtworkStore and GameDetailSheet fail to compile.
+      - path: LibraryExtras.swift
       # The pieces the shell is built from: hero, cards, list rows, palette, status tint.
       - path: LibraryCards.swift
       # Settings: the artwork controls and their disclosure, the layout controls, the permanent home

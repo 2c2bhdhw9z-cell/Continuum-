@@ -2835,6 +2835,11 @@ struct CoverArtView: View {
     /// Handed to the plate (`ArtPlate.captionScale`) for the library's card sizes. 1 is the
     /// caption as it always was.
     var captionScale: CGFloat = 1
+    /// How the cover is drawn. The library draws every cover WHOLE, at its own shape (owner, 16
+    /// October 2026: covers used to be cut to one 3:4 shape, which cropped a landscape SNES box
+    /// to its middle and blew it up until it was soft). `.fill` is the old crop, kept for the
+    /// hero's blurred backdrop, which is the one place a crop is the point.
+    var style: CoverStyle = .fill
 
     @State private var cover: CoverImage?
 
@@ -2857,26 +2862,16 @@ struct CoverArtView: View {
     }
 
     var body: some View {
-        ZStack {
-            ArtPlate(entry: entry, system: system, showsCaption: showsCaption && shown == nil,
-                     captionScale: captionScale)
-            if let cover = shown {
-                // HIGH INTERPOLATION, and it is not cosmetic fiddling. Every cover here is
-                // scaled: libretro's box art is around 600 by 850, a shelf card draws it
-                // smaller than that and the hero draws it considerably LARGER. SwiftUI's
-                // default resampling is medium, which is visibly soft both ways — mushy
-                // downscales and blurry upscales. `.high` is a better resampling filter at
-                // the same source resolution, so it costs a little GPU time per frame and
-                // nothing in quality. Nothing here reduces a cover's resolution: the stored
-                // bytes and the decode are untouched, at full size.
-                Image(uiImage: cover.image)
-                    .interpolation(.high)
-                    .antialiased(true)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+        Group {
+            switch style {
+            case .fill:
+                filled(blurred: false)
+            case .backdrop:
+                filled(blurred: true)
+            case .whole(let whole):
+                wholeCover(whole)
             }
         }
-        .clipped()
         // Keyed on `shown`, not on `cover`: a cover that was already in memory is there on the
         // first frame, so there is no nil-to-cover transition for this to animate and the card
         // simply appears. The fade is then only what it was meant for — a cover that genuinely
@@ -2888,4 +2883,119 @@ struct CoverArtView: View {
             cover = await store.cover(for: entry, system: system)
         }
     }
+
+    /// The cover cropped to fill the frame, over its plate: the old drawing. Blurred, it is the
+    /// hero's backdrop.
+    private func filled(blurred: Bool) -> some View {
+        ZStack {
+            ArtPlate(entry: entry, system: system,
+                     showsCaption: showsCaption && shown == nil && !blurred,
+                     captionScale: captionScale)
+            if let cover = shown {
+                if blurred {
+                    // Opaque, so the blur does not fade to see-through at the edges, and a little
+                    // larger than the frame so no sharp edge shows at all.
+                    Image(uiImage: cover.image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .blur(radius: 28, opaque: true)
+                        .scaleEffect(1.15)
+                } else {
+                    // HIGH INTERPOLATION, and it is not cosmetic fiddling: SwiftUI's default
+                    // resampling is visibly soft both ways. Nothing here reduces a cover's
+                    // resolution: the stored bytes and the decode are untouched, at full size.
+                    Image(uiImage: cover.image)
+                        .interpolation(.high)
+                        .antialiased(true)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                }
+            }
+        }
+        .clipped()
+    }
+
+    /// The shape the cover is drawn at: the picture's own, once there is one, or the system's
+    /// usual box shape for the plate before it arrives (and for a game with no cover at all).
+    /// Clamped, so a strange image (a banner, a sliver) cannot make a card absurdly wide or thin.
+    private var coverAspect: CGFloat {
+        if let image = shown?.image, image.size.width > 0, image.size.height > 0 {
+            return min(max(image.size.width / image.size.height, 0.45), 2.2)
+        }
+        return system?.coverAspect ?? 0.75
+    }
+
+    /// The whole cover, never cropped, at its own shape: as big as fits in the frame the caller
+    /// gives it, placed where `whole.alignment` says. A shelf passes a fixed height instead, and
+    /// the cover is then as wide as its own shape makes it, so a shelf stays one straight line of
+    /// whole covers.
+    @ViewBuilder
+    private func wholeCover(_ whole: WholeCover) -> some View {
+        let aspect = coverAspect
+        if let height = whole.fixedHeight {
+            coverFace(whole)
+                .frame(width: (height * aspect).rounded(), height: height)
+        } else {
+            coverFace(whole)
+                .aspectRatio(aspect, contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: whole.alignment)
+        }
+    }
+
+    /// The cover (or the plate) at exactly the size it is given, with its rounded corners, its
+    /// hairline and, on a favourite, the star in its corner. `Color.clear` takes the size, so the
+    /// picture can never push the card bigger than its frame.
+    private func coverFace(_ whole: WholeCover) -> some View {
+        let shape = RoundedRectangle(cornerRadius: whole.cornerRadius, style: .continuous)
+        return Color.clear
+            .overlay {
+                if let cover = shown {
+                    Image(uiImage: cover.image)
+                        .interpolation(.high)
+                        .antialiased(true)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    ArtPlate(entry: entry, system: system, showsCaption: showsCaption,
+                             captionScale: captionScale)
+                }
+            }
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(ShellPalette.text.opacity(whole.outline ? 0.10 : 0),
+                                        lineWidth: 0.5))
+            .overlay(alignment: .topTrailing) {
+                if let size = whole.favouriteStar {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: size.starFont, weight: .bold))
+                        .foregroundStyle(Color.yellow)
+                        .padding(size.starPadding)
+                        .background(.black.opacity(0.55), in: Circle())
+                        .padding(size.badgeInset)
+                }
+            }
+    }
+}
+
+/// How `CoverArtView` draws a cover.
+enum CoverStyle {
+    /// Cropped to fill the frame.
+    case fill
+    /// The whole cover at its own shape (see `WholeCover`).
+    case whole(WholeCover)
+    /// The fill, blurred: the hero's backdrop.
+    case backdrop
+}
+
+/// The options for a whole cover.
+struct WholeCover {
+    var cornerRadius: CGFloat = 10
+    /// Where the cover sits in a frame that is not its shape. Bottom in a grid, so the titles
+    /// under a row of covers of different shapes still line up.
+    var alignment: Alignment = .bottom
+    /// A shelf's fixed cover height. Nil fits the cover in the caller's frame instead.
+    var fixedHeight: CGFloat?
+    /// The star on a favourite, sized for this card size. Nil draws none.
+    var favouriteStar: LibraryCardSize?
+    /// The faint hairline round the cover.
+    var outline = true
 }

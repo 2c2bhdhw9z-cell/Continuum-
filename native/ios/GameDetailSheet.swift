@@ -60,6 +60,7 @@ struct GameDetailSheet: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 actions
+                GameCardExtras(entry: entry, host: host)
                 facts
                 saveStatesBlock
                 cheatsBlock
@@ -84,14 +85,11 @@ struct GameDetailSheet: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 14) {
+            // The whole cover at its own shape, at the top of its space.
             CoverArtView(entry: entry, system: system, store: artwork,
-                         generation: artwork.generation, showsCaption: true)
+                         generation: artwork.generation, showsCaption: true,
+                         style: .whole(WholeCover(cornerRadius: 10, alignment: .top)))
                 .frame(width: 118, height: 157)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(ShellPalette.text.opacity(0.12), lineWidth: 0.5)
-                )
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .top, spacing: 6) {

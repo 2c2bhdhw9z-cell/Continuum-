@@ -417,6 +417,8 @@ struct SettingsScreen: View {
                                 selection: $host.libraryCardSize)
             }
 
+            ConsoleOrderRow(host: host)
+
             Toggle(isOn: $host.showsSystemShelves) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("A shelf per system on Home")
@@ -861,6 +863,7 @@ struct SettingsScreen: View {
 
     private var soundSection: some View {
         SettingsSection(title: "SOUND") {
+            SilentModeToggle()
             Toggle(isOn: $emulation.muted) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Mute")

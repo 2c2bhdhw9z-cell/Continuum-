@@ -3299,7 +3299,7 @@ final class EngineHost: ObservableObject {
     /// Both persist, and both are about the LIBRARY. Moving the on-screen game controls is a
     /// different setting with a confusingly similar name: game controls live in the
     /// per-system touch layout store above.
-    @Published var libraryLayout: LibraryLayout = .grid {
+    @Published var libraryLayout: LibraryLayout = .consoles {
         didSet {
             guard oldValue != libraryLayout else { return }
             UserDefaults.standard.set(libraryLayout.rawValue, forKey: Self.layoutKey)
@@ -4292,7 +4292,13 @@ final class EngineHost: ObservableObject {
         // Only launch targets are listed. The .bin tracks are still right there on disk and
         // the core still opens them; they are simply not things to tap. A text file with a ROM
         // extension (README.md) is never listed: it goes to Not games.
-        let launchable = files.filter { CoreCatalog.isLaunchable(path: $0.path) }
+        //
+        // A game on several discs shows ONCE, as its playlist: the discs an .m3u names are left
+        // out (owner, 16 October 2026; the game card's "Join it with its other discs").
+        let inPlaylists = MultiDisc.namedByPlaylists(files)
+        let launchable = files.filter {
+            CoreCatalog.isLaunchable(path: $0.path) && !inPlaylists.contains($0.lastPathComponent)
+        }
         let entries = moveNotGames(launchable, documents: documents)
             .map { LibraryEntry(url: $0) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -4934,6 +4940,11 @@ final class EngineHost: ObservableObject {
         // system and core as the last lines of the log the next crash report sends. The engine
         // adds each step (core load, retro_init, retro_load_game, HW context, first frame).
         feedbackLaunchStep(line: "game \(entry.path) · system \(launchingSystem.map { "\($0)" } ?? "unknown") · core \(spec.coreId)")
+        // Clean start (the game card): this start skips the game's own core settings.
+        let cleanStart = CleanStart.pendingPath == entry.path
+        if cleanStart {
+            engine.skipGameSettingsNextStart(skip: true)
+        }
         // Every core gets the file the player tapped. A Sega CD .m3u goes to BlastEm as it is: its
         // Continuum patch reads the playlist and offers the discs to "Next disc", like PlayStation.
         do {
@@ -5022,7 +5033,17 @@ final class EngineHost: ObservableObject {
             // The battery save first: libretro leaves persisting SAVE_RAM to the frontend, and it
             // has to be back in the cartridge before the first frame, when the game reads it.
             saveStates.restoreBatterySave(for: entry)
-            cheats.push(for: entry)
+            if cleanStart {
+                // No cheats this time, and the auto-save is held so leaving can't write over it.
+                let gameId = SaveStates.gameId(for: entry)
+                if saveStates.autoState(forGameId: gameId) != nil {
+                    saveStates.autoSaveHeldFor = gameId
+                }
+                FeedbackCenter.step("clean start: \(entry.name) with no cheats, no auto-save and "
+                                    + "no settings of its own")
+            } else {
+                cheats.push(for: entry)
+            }
             // Identify the game for RetroAchievements when someone is logged in. Asynchronous: the
             // answer arrives as a notice and is shown on the status line and in the player.
             achievements.gameStarted(entry: entry, system: CoreCatalog.system(for: entry))

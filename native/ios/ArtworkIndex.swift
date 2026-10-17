@@ -257,6 +257,11 @@ enum ArtworkIndexNames {
             return false
         }
 
+        return residueAllowed(residue, leading: residueIsLeading)
+    }
+
+    /// Guards 3 and 4 above, on the words left over from an alignment.
+    static func residueAllowed(_ residue: [String], leading: Bool) -> Bool {
         guard let first = residue.first, let last = residue.last else { return false }
 
         // A leading residue of nothing but DIGITS is a catalogue index, so it aligns. Digits only,
@@ -264,13 +269,85 @@ enum ArtworkIndexNames {
         // widening this to cover one would start matching sequels from the wrong end. The guards on
         // the shorter side still apply, so the matched title is still at least two words and eight
         // characters, and a match still has to be unique before anything is auto-picked.
-        if residueIsLeading, residue.allSatisfy({ $0.allSatisfy(\.isNumber) }) {
+        if leading, residue.allSatisfy({ $0.allSatisfy(\.isNumber) }) {
             return true
         }
 
         guard residue.contains(where: { !isSequenceMarker($0) }) else { return false }
         guard !isSequenceMarker(first), !isSequenceMarker(last) else { return false }
         return true
+    }
+
+    // ------------------------------------------------------------------ the spaces between words
+
+    /// A title with the spaces between its words taken out.
+    ///
+    /// WHY (16 October 2026). Dumpers disagree about where words break: GoodTools writes
+    /// "Pokemon - Leaf Green Version", No-Intro "Pokemon - LeafGreen Version", and the same goes
+    /// for FireRed, SoulSilver, Mega Man and MegaMan. Those are one title, and with the spaces in
+    /// they are two keys, so a cover the server had was reported as missing (the owner's
+    /// LeafGreen, which Manic found). Compared with the spaces out, they agree.
+    static func squashed(_ title: String) -> String {
+        title.replacingOccurrences(of: " ", with: "")
+    }
+
+    /// The listing titles that equal this one once the spaces are out, the title itself excluded.
+    static func squashEqualTitles(for query: String, in map: [String: String]) -> [String] {
+        let target = squashed(query)
+        guard target.count >= 4 else { return [] }
+        return map.keys.filter { $0 != query && squashed($0) == target }.sorted()
+    }
+
+    /// `aligns` with the spaces between words ignored: one title, spaces out, is a prefix or a
+    /// suffix of the other's that starts or ends at one of ITS word breaks. "pokemon leaf green"
+    /// lines up with "pokemon leafgreen version" (the residue is "version"). Every guard of
+    /// `aligns` still holds: the shorter side is at least two words and eight letters, and the
+    /// residue passes `residueAllowed`.
+    static func squashAligns(_ lhs: [String], _ rhs: [String]) -> Bool {
+        let left = lhs.joined()
+        let right = rhs.joined()
+        guard !left.isEmpty, !right.isEmpty, left.count != right.count else { return false }
+        let shorter = left.count < right.count ? lhs : rhs
+        let longer = left.count < right.count ? rhs : lhs
+        let target = shorter.joined()
+        guard shorter.count >= 2, target.count >= 8 else { return false }
+
+        var joined = ""
+        for index in longer.indices {
+            joined += longer[index]
+            if joined.count > target.count { break }
+            if joined == target {
+                let residue = Array(longer[(index + 1)...])
+                return !residue.isEmpty && residueAllowed(residue, leading: false)
+            }
+        }
+        joined = ""
+        for index in longer.indices.reversed() {
+            joined = longer[index] + joined
+            if joined.count > target.count { break }
+            if joined == target {
+                let residue = Array(longer[..<index])
+                return !residue.isEmpty && residueAllowed(residue, leading: true)
+            }
+        }
+        return false
+    }
+
+    /// Every listing title that squash-aligns with this one, sorted.
+    static func squashAlignedTitles(for query: String, in map: [String: String]) -> [String] {
+        let tokens = titleTokens(query)
+        guard tokens.count >= 1 else { return [] }
+        return map.keys.filter { $0 != query && squashAligns(tokens, titleTokens($0)) }.sorted()
+    }
+
+    /// The title without a numbered set's catalogue number in front ("1617 pokemon leaf green"
+    /// becomes "pokemon leaf green"), or nil when it has none. Only when at least two words are
+    /// left, so a game called "1942" keeps its name.
+    static func withoutCatalogueNumber(_ title: String) -> String? {
+        let tokens = titleTokens(title)
+        guard tokens.count >= 3, let first = tokens.first, first.count >= 3,
+              first.allSatisfy(\.isNumber) else { return nil }
+        return tokens.dropFirst().joined(separator: " ")
     }
 
     /// Every listing title that aligns with this one, sorted so the answer never depends on the
@@ -587,13 +664,31 @@ enum ArtworkCoverLists {
                        in list: ArtworkCoverList) async -> (exact: String?,
                                                             uniqueAligned: String?,
                                                             aligned: [String]) {
-        let exact = ArtworkIndexNames.match(title: title, in: list.titles)
-        if let exact {
-            return (exact: exact, uniqueAligned: nil, aligned: [])
+        // The title as it is, then (only if that finds nothing at all) without a numbered set's
+        // catalogue number in front.
+        var queries = [title]
+        if let bare = ArtworkIndexNames.withoutCatalogueNumber(title) {
+            queries.append(bare)
         }
-        let aligned = ArtworkIndexNames.alignedTitles(for: title, in: list.titles)
-        let unique = aligned.count == 1 ? aligned.first.flatMap { list.titles[$0] } : nil
-        return (exact: nil, uniqueAligned: unique, aligned: aligned)
+        for query in queries {
+            if let exact = ArtworkIndexNames.match(title: query, in: list.titles) {
+                return (exact: exact, uniqueAligned: nil, aligned: [])
+            }
+            // The same title with the words broken differently ("Leaf Green", "LeafGreen") is as
+            // good as equal, when there is exactly one.
+            let squashEqual = ArtworkIndexNames.squashEqualTitles(for: query, in: list.titles)
+            if squashEqual.count == 1, let only = squashEqual.first, let file = list.titles[only] {
+                return (exact: file, uniqueAligned: nil, aligned: [])
+            }
+            var aligned = Set(ArtworkIndexNames.alignedTitles(for: query, in: list.titles))
+            aligned.formUnion(ArtworkIndexNames.squashAlignedTitles(for: query, in: list.titles))
+            aligned.formUnion(squashEqual)
+            guard !aligned.isEmpty else { continue }
+            let sorted = aligned.sorted()
+            let unique = sorted.count == 1 ? sorted.first.flatMap { list.titles[$0] } : nil
+            return (exact: nil, uniqueAligned: unique, aligned: sorted)
+        }
+        return (exact: nil, uniqueAligned: nil, aligned: [])
     }
 
     /// One session, for listings only.

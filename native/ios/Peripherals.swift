@@ -37,7 +37,11 @@ enum AudioSessionPolicy {
     static var recording = false
 
     static func apply(to session: AVAudioSession) throws {
-        let category: AVAudioSession.Category = recording ? .playAndRecord : .playback
+        // `.ambient` follows the silent switch (Settings, SOUND, "Mute games with the silent
+        // switch"); `.playback` plays whatever the switch says, as it always did.
+        let category: AVAudioSession.Category = recording
+            ? .playAndRecord
+            : (SilentMode.respected ? .ambient : .playback)
         let options: AVAudioSession.CategoryOptions = recording
             ? [.defaultToSpeaker, .allowBluetoothHFP]
             : []
@@ -52,7 +56,7 @@ enum AudioSessionPolicy {
     }
 
     static var categoryName: String {
-        recording ? "playAndRecord" : "playback"
+        recording ? "playAndRecord" : (SilentMode.respected ? "ambient" : "playback")
     }
 }
 

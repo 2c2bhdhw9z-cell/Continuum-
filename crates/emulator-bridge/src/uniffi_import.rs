@@ -362,3 +362,20 @@ pub fn wifi_safe_file_name(name: String) -> Option<String> {
 pub fn wifi_json_escape(text: String) -> String {
     http::json_escape(&text)
 }
+
+/// Applies a game patch (.ips, .bps or .ups) to a NEW copy at `out_path`; the game itself is
+/// never changed, and an existing file is never written over. Returns the patch's format ("IPS",
+/// "BPS", "UPS"), with " header" added when a SNES copier header had to come off. A refusal is
+/// one plain sentence for the player.
+#[uniffi::export]
+pub fn import_apply_patch(rom_path: String, patch_path: String, out_path: String) -> Result<String, EngineError> {
+    crate::import::patch::apply_files(Path::new(&rom_path), Path::new(&patch_path), Path::new(&out_path))
+        .map(|done| {
+            if done.header_removed {
+                format!("{} header", done.format)
+            } else {
+                done.format.to_owned()
+            }
+        })
+        .map_err(|err| other(err.to_string()))
+}
