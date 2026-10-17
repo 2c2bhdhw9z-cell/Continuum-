@@ -717,6 +717,13 @@ and the driver's other machines (Crush Roller, Ms. Pac-Man Champion Edition, Pon
   On a four-way stick a diagonal becomes the newer of its two directions, as the stick's gate
   would (straight into a diagonal, it goes sideways).
 - Log lines start with `cArcade: `.
+- **No panic gets out** (`libretro::guarded`): one unwinding out of an `extern "C"` entry point
+  would end the whole app, so every entry point (and the options display callback) catches it,
+  logs it once and switches the core off until the app is opened again, as a poisoned lock leaves
+  it. Every frame after is the last picture again with silence (a black picture for a frontend
+  that can't repeat one), save states and Restart do nothing, and a game won't open, with the line
+  "Our arcade emulator ran into a problem. Closing the app and opening it again fixes it."
+  `tests/libretro_panic.rs` plants a panic in each entry point (test builds only) and checks it.
 
 ### How I4 is proved
 

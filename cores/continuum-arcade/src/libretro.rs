@@ -4,12 +4,20 @@
 //! bytes and its path (`need_fullpath` is false); the path is how a split clone's parent zip is
 //! found next to it. A zip cArcade can't play is refused with one plain sentence, logged as the
 //! last line before `retro_load_game` returns false, which is the line the app shows.
+//!
+//! No panic ever leaves an entry point: one unwinding out of an `extern "C"` function stops the
+//! whole process, which is the app. Each entry point's body runs in `guarded`, which catches a
+//! panic, logs it once and switches the core off for good (until the app is opened again), the
+//! way a poisoned lock leaves it.
 
 #![allow(clippy::missing_safety_doc)]
 
+use std::any::Any;
 use std::ffi::{c_char, c_void, CStr};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use crate::board::{Controls, FourWay, Image, Machine, Switches};
 use crate::options;
@@ -67,6 +75,7 @@ struct RetroLogCallback {
     log: Option<LogFn>,
 }
 
+const ENV_GET_CAN_DUPE: u32 = 3;
 const ENV_SET_PIXEL_FORMAT: u32 = 10;
 const ENV_GET_LOG_INTERFACE: u32 = 27;
 const PIXEL_FORMAT_XRGB8888: u32 = 1;
@@ -120,35 +129,199 @@ static CORE: Mutex<Option<Core>> = Mutex::new(None);
 static CB: Mutex<Callbacks> =
     Mutex::new(Callbacks { env: None, video: None, audio_batch: None, poll: None, input: None });
 static LOG: Mutex<Option<LogFn>> = Mutex::new(None);
-/// The last line logged, kept for the tests (a frontend's log callback is a C variadic function,
-/// which a Rust test can't be). Not in the player's build.
+/// The last line logged, and how many there have been, kept for the tests (a frontend's log
+/// callback is a C variadic function, which a Rust test can't be). Not in the player's build.
 #[cfg(any(test, feature = "test-hooks"))]
-static LAST_LINE: Mutex<String> = Mutex::new(String::new());
+static LAST_LINE: Mutex<(String, usize)> = Mutex::new((String::new(), 0));
 
 /// The last line logged (the tests' stand-in for the frontend's log).
 #[cfg(any(test, feature = "test-hooks"))]
 pub fn last_log_line() -> String {
-    LAST_LINE.lock().map(|l| l.clone()).unwrap_or_default()
+    lock(&LAST_LINE).0.clone()
+}
+
+/// How many lines have been logged since the process started (for the tests).
+#[cfg(any(test, feature = "test-hooks"))]
+pub fn lines_logged() -> usize {
+    lock(&LAST_LINE).1
+}
+
+/// A lock whose data a panic can't have left half-changed (callbacks, the log, the tests' last
+/// line): a poisoned one is taken anyway.
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Sends one line to the frontend's log, prefixed "cArcade: ".
 fn log_line(line: &str) {
     #[cfg(any(test, feature = "test-hooks"))]
-    if let Ok(mut last) = LAST_LINE.lock() {
-        *last = line.to_string();
+    {
+        let mut last = lock(&LAST_LINE);
+        last.0 = line.to_string();
+        last.1 += 1;
     }
-    let Some(log) = LOG.lock().ok().and_then(|l| *l) else { return };
+    let Some(log) = *lock(&LOG) else { return };
     let Ok(text) = std::ffi::CString::new(format!("cArcade: {line}\n").replace('\0', " ")) else { return };
     unsafe { log(1, c"%s".as_ptr(), text.as_ptr()) };
 }
 
-#[no_mangle]
-pub extern "C" fn retro_api_version() -> u32 {
-    1
+/// Set once a panic has been caught. A panic means something went wrong that cArcade can't vouch
+/// for, so from then on, until the app is opened again, the core stays switched off, as a
+/// poisoned lock leaves it: a game won't load, Restart and save states do nothing, and every
+/// frame is the last picture again with silence.
+static BROKEN: AtomicBool = AtomicBool::new(false);
+
+/// What a player reads when a game won't open because the core has switched itself off (the app
+/// shows the last line logged before `retro_load_game` says no).
+pub const BROKEN_LINE: &str =
+    "Our arcade emulator ran into a problem. Closing the app and opening it again fixes it.";
+
+/// Runs the body of the entry point `entry`. A panic inside it is caught (it must never unwind
+/// into the frontend), logged once and switches the core off; the entry point then answers
+/// `failed()`, its own "that didn't work". While the core is off, an entry point that works on
+/// the game (`game`) answers `failed()` straight away; the others (the system info, the
+/// callbacks, unloading) still do their job.
+pub(crate) fn guarded<T>(
+    entry: &'static str,
+    game: bool,
+    failed: impl FnOnce() -> T,
+    body: impl FnOnce() -> T,
+) -> T {
+    if game && BROKEN.load(Ordering::Acquire) {
+        return failed();
+    }
+    let ran = catch_unwind(AssertUnwindSafe(|| {
+        planted(entry);
+        body()
+    }));
+    match ran {
+        Ok(v) => v,
+        Err(why) => {
+            switch_off(entry, why.as_ref());
+            failed()
+        }
+    }
 }
 
+/// A caught panic: logged, the first time only (what it said and where), and the core switched
+/// off.
+fn switch_off(entry: &str, why: &(dyn Any + Send)) {
+    if BROKEN.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let what = why
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| why.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "no message".to_string());
+    log_line(&format!("switched off after an internal error in {entry}: {what}"));
+}
+
+/// Whether this `retro_run` has handed over its picture and its sound yet, so that a frame cut
+/// short hands over only what's missing; the frontend's answer to GET_CAN_DUPE; and the size of
+/// the last picture.
+static SENT_PICTURE: AtomicBool = AtomicBool::new(false);
+static SENT_SOUND: AtomicBool = AtomicBool::new(false);
+static CAN_DUPE: AtomicBool = AtomicBool::new(false);
+static LAST_W: AtomicU32 = AtomicU32::new(MAX_W);
+static LAST_H: AtomicU32 = AtomicU32::new(MAX_H);
+/// A frame's sound on every board: 792 samples at 48 kHz.
+const FRAME_SAMPLES: usize = 792;
+static SILENCE: [i16; 2 * FRAME_SAMPLES] = [0; 2 * FRAME_SAMPLES];
+
+/// The frame of a core that has switched off, or of one cut short: the last picture again (or,
+/// for a frontend that can't repeat one, a black one the same size) and a frame of silence, as
+/// much of it as this frame hasn't handed over.
+unsafe fn still_frame() {
+    let (video, audio) = {
+        let c = lock(&CB);
+        (c.video, c.audio_batch)
+    };
+    if let Some(video) = video {
+        if !SENT_PICTURE.swap(true, Ordering::AcqRel) {
+            let (w, h) = (LAST_W.load(Ordering::Relaxed), LAST_H.load(Ordering::Relaxed));
+            if CAN_DUPE.load(Ordering::Relaxed) {
+                video(std::ptr::null(), w, h, w as usize * 4);
+            } else {
+                let black = vec![0u32; w as usize * h as usize];
+                video(black.as_ptr() as *const c_void, w, h, w as usize * 4);
+            }
+        }
+    }
+    if let Some(audio) = audio {
+        if !SENT_SOUND.swap(true, Ordering::AcqRel) {
+            send_sound(audio, &SILENCE);
+        }
+    }
+}
+
+/// Hands stereo samples to the frontend, as many calls as it takes.
+unsafe fn send_sound(audio: AudioBatchFn, stereo: &[i16]) {
+    let frames = stereo.len() / 2;
+    let mut sent = 0;
+    while sent < frames {
+        let n = audio(stereo[sent * 2..].as_ptr(), frames - sent);
+        if n == 0 {
+            break;
+        }
+        sent += n;
+    }
+}
+
+/// Passes through a point where a test can plant a panic (none in the player's build).
+#[inline]
+fn planted(_point: &str) {
+    #[cfg(any(test, feature = "test-hooks"))]
+    test_hooks::fire(_point);
+}
+
+/// For the tests: a panic planted where cArcade could panic for real, to show it never gets out,
+/// and switching a core that one switched off back on.
+#[cfg(any(test, feature = "test-hooks"))]
+pub mod test_hooks {
+    use std::sync::atomic::Ordering;
+    use std::sync::Mutex;
+
+    static PLANTED: Mutex<Option<&'static str>> = Mutex::new(None);
+
+    /// The next time `point` is reached, it panics: an entry point's name panics as it starts,
+    /// "retro_run: board" while the frame runs (with the game's lock held, as a real one would).
+    pub fn panic_in(point: &'static str) {
+        *super::lock(&PLANTED) = Some(point);
+    }
+
+    pub(crate) fn fire(point: &str) {
+        let mut p = super::lock(&PLANTED);
+        if *p == Some(point) {
+            *p = None;
+            drop(p);
+            panic!("a panic planted by a test in {point}");
+        }
+    }
+
+    /// Whether a caught panic has switched the core off.
+    pub fn switched_off() -> bool {
+        super::BROKEN.load(Ordering::Acquire)
+    }
+
+    /// Switches it back on, with no game loaded, for the next test.
+    pub fn revive() {
+        *super::lock(&PLANTED) = None;
+        super::CORE.clear_poison();
+        *super::lock(&super::CORE) = None;
+        super::BROKEN.store(false, Ordering::Release);
+    }
+}
+
+// Every entry point's body is `guarded` (see the module's notes): a test reads this file to check
+// that none is left out.
+
 #[no_mangle]
-pub unsafe extern "C" fn retro_get_system_info(info: *mut RetroSystemInfo) {
+pub extern "C" fn retro_api_version() -> u32 {
+    guarded("retro_api_version", false, || 1, || 1)
+}
+
+unsafe fn write_system_info(info: *mut RetroSystemInfo) {
     if info.is_null() {
         return;
     }
@@ -163,20 +336,32 @@ pub unsafe extern "C" fn retro_get_system_info(info: *mut RetroSystemInfo) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) {
+pub unsafe extern "C" fn retro_get_system_info(info: *mut RetroSystemInfo) {
+    guarded(
+        "retro_get_system_info",
+        false,
+        || unsafe { write_system_info(info) },
+        || unsafe { write_system_info(info) },
+    )
+}
+
+/// The picture's size and the board's pace: the loaded game's, or with none (or the core switched
+/// off) the largest picture at the Pac-Man board's pace.
+unsafe fn write_av_info(info: *mut RetroSystemAvInfo, loaded: bool) {
     if info.is_null() {
         return;
     }
-    let (w, h, fps) = CORE
-        .lock()
-        .ok()
-        .and_then(|c| {
+    let game = if loaded && !BROKEN.load(Ordering::Acquire) {
+        CORE.lock().ok().and_then(|c| {
             c.as_ref().map(|c| {
                 let (w, h) = c.image.size();
                 (w as u32, h as u32, c.machine.frames_per_second())
             })
         })
-        .unwrap_or((MAX_W, MAX_H, crate::pacman::FPS));
+    } else {
+        None
+    };
+    let (w, h, fps) = game.unwrap_or((MAX_W, MAX_H, crate::pacman::FPS));
     *info = RetroSystemAvInfo {
         geometry: RetroGameGeometry {
             base_width: w,
@@ -190,56 +375,67 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) {
+    guarded(
+        "retro_get_system_av_info",
+        false,
+        || unsafe { write_av_info(info, false) },
+        || unsafe { write_av_info(info, true) },
+    )
+}
+
+#[no_mangle]
 pub extern "C" fn retro_set_environment(cb: EnvFn) {
-    if let Ok(mut c) = CB.lock() {
-        c.env = Some(cb);
-    }
-    unsafe { options::declare(cb) };
+    guarded("retro_set_environment", false, || (), || {
+        lock(&CB).env = Some(cb);
+        unsafe { options::declare(cb) };
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn retro_set_video_refresh(cb: VideoFn) {
-    if let Ok(mut c) = CB.lock() {
-        c.video = Some(cb);
-    }
+    guarded("retro_set_video_refresh", false, || (), || lock(&CB).video = Some(cb))
 }
 
 #[no_mangle]
-pub extern "C" fn retro_set_audio_sample(_cb: AudioFn) {}
+pub extern "C" fn retro_set_audio_sample(_cb: AudioFn) {
+    guarded("retro_set_audio_sample", false, || (), || ())
+}
 
 #[no_mangle]
 pub extern "C" fn retro_set_audio_sample_batch(cb: AudioBatchFn) {
-    if let Ok(mut c) = CB.lock() {
-        c.audio_batch = Some(cb);
-    }
+    guarded("retro_set_audio_sample_batch", false, || (), || lock(&CB).audio_batch = Some(cb))
 }
 
 #[no_mangle]
 pub extern "C" fn retro_set_input_poll(cb: PollFn) {
-    if let Ok(mut c) = CB.lock() {
-        c.poll = Some(cb);
-    }
+    guarded("retro_set_input_poll", false, || (), || lock(&CB).poll = Some(cb))
 }
 
 #[no_mangle]
 pub extern "C" fn retro_set_input_state(cb: InputFn) {
-    if let Ok(mut c) = CB.lock() {
-        c.input = Some(cb);
-    }
+    guarded("retro_set_input_state", false, || (), || lock(&CB).input = Some(cb))
 }
 
 #[no_mangle]
-pub extern "C" fn retro_init() {}
+pub extern "C" fn retro_init() {
+    guarded("retro_init", false, || (), || ())
+}
+
+/// Lets go of the game, even on a core that has switched off (its memory goes either way).
+fn drop_game() {
+    *lock(&CORE) = None;
+}
 
 #[no_mangle]
 pub extern "C" fn retro_deinit() {
-    if let Ok(mut core) = CORE.lock() {
-        *core = None;
-    }
+    guarded("retro_deinit", false, || (), drop_game)
 }
 
 #[no_mangle]
-pub extern "C" fn retro_set_controller_port_device(_port: u32, _device: u32) {}
+pub extern "C" fn retro_set_controller_port_device(_port: u32, _device: u32) {
+    guarded("retro_set_controller_port_device", false, || (), || ())
+}
 
 /// Reads the zip of a set next to the game, if it's there.
 fn sibling_archive(game: &Path, name: &str) -> Option<Archive> {
@@ -297,8 +493,30 @@ fn open(bytes: Vec<u8>, path: &str) -> Result<(&'static SetSpec, Image, Box<dyn 
     Ok((spec, image, machine))
 }
 
+/// Asks the frontend for its log, so the lines that follow reach it.
+unsafe fn ask_for_log(env: EnvFn) {
+    let mut cb = RetroLogCallback { log: None };
+    if env(ENV_GET_LOG_INTERFACE, &mut cb as *mut RetroLogCallback as *mut c_void) {
+        *lock(&LOG) = cb.log;
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
+    guarded("retro_load_game", true, || unsafe { refuse_switched_off() }, || unsafe { load_game(game) })
+}
+
+/// No game loads on a core that has switched off; the player reads why.
+unsafe fn refuse_switched_off() -> bool {
+    let env = lock(&CB).env;
+    if let Some(env) = env {
+        ask_for_log(env);
+    }
+    log_line(BROKEN_LINE);
+    false
+}
+
+unsafe fn load_game(game: *const RetroGameInfo) -> bool {
     // Whatever was loaded before goes, so a game that won't play leaves nothing behind it.
     if let Ok(mut slot) = CORE.lock() {
         *slot = None;
@@ -311,18 +529,16 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     } else {
         CStr::from_ptr((*game).path).to_string_lossy().into_owned()
     };
-    let env = CB.lock().ok().and_then(|c| c.env);
+    let env = lock(&CB).env;
     if let Some(env) = env {
-        let mut cb = RetroLogCallback { log: None };
-        if env(ENV_GET_LOG_INTERFACE, &mut cb as *mut RetroLogCallback as *mut c_void) {
-            if let Ok(mut l) = LOG.lock() {
-                *l = cb.log;
-            }
-        }
+        ask_for_log(env);
         let mut fmt = PIXEL_FORMAT_XRGB8888;
         if !env(ENV_SET_PIXEL_FORMAT, &mut fmt as *mut u32 as *mut c_void) {
             return false;
         }
+        let mut dupe = false;
+        let can = env(ENV_GET_CAN_DUPE, &mut dupe as *mut bool as *mut c_void) && dupe;
+        CAN_DUPE.store(can, Ordering::Relaxed);
     }
     let bytes = if (*game).data.is_null() {
         // The frontend should have handed the bytes over; read the file if it didn't.
@@ -345,6 +561,9 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
         }
         None => options::switches(set, |_| None),
     };
+    let (w, h) = image.size();
+    LAST_W.store(w as u32, Ordering::Relaxed);
+    LAST_H.store(h as u32, Ordering::Relaxed);
     let core = Core {
         set,
         image,
@@ -364,35 +583,38 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
 
 #[no_mangle]
 pub extern "C" fn retro_load_game_special(_t: u32, _info: *const RetroGameInfo, _n: usize) -> bool {
-    false
+    guarded("retro_load_game_special", true, || false, || false)
 }
 
 #[no_mangle]
 pub extern "C" fn retro_unload_game() {
-    if let Ok(mut core) = CORE.lock() {
-        *core = None;
-    }
-    if let Some(env) = CB.lock().ok().and_then(|c| c.env) {
-        unsafe { options::game_loaded(env, None) };
-    }
+    guarded("retro_unload_game", false, || (), || {
+        drop_game();
+        let env = lock(&CB).env;
+        if let Some(env) = env {
+            unsafe { options::game_loaded(env, None) };
+        }
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn retro_get_region() -> u32 {
-    0
+    guarded("retro_get_region", false, || 0, || 0)
 }
 
 /// The app's Restart: the cabinet switched off and on again.
 #[no_mangle]
 pub extern "C" fn retro_reset() {
-    if let Ok(mut slot) = CORE.lock() {
-        if let Some(core) = slot.as_mut() {
-            if let Ok(m) = core.image.power_on() {
-                core.machine = m;
-                core.sticks = [FourWay::default(); 2];
+    guarded("retro_reset", true, || (), || {
+        if let Ok(mut slot) = CORE.lock() {
+            if let Some(core) = slot.as_mut() {
+                if let Ok(m) = core.image.power_on() {
+                    core.machine = m;
+                    core.sticks = [FourWay::default(); 2];
+                }
             }
         }
-    }
+    })
 }
 
 /// The controls, from the frontend's two pads: on each, the stick or D-pad, Select for the coin
@@ -417,16 +639,28 @@ unsafe fn read_controls(input: InputFn, sticks: &mut [FourWay; 2], four_way: boo
     c
 }
 
+/// One frame; a core that has switched off (or one whose frame is cut short by a panic) hands over
+/// the last picture again and silence instead.
 #[no_mangle]
 pub unsafe extern "C" fn retro_run() {
-    let (video, audio, poll, input, env) = match CB.lock() {
-        Ok(c) => (c.video, c.audio_batch, c.poll, c.input, c.env),
-        Err(_) => return,
+    SENT_PICTURE.store(false, Ordering::Release);
+    SENT_SOUND.store(false, Ordering::Release);
+    guarded("retro_run", true, || unsafe { still_frame() }, || unsafe { run_frame() })
+}
+
+unsafe fn run_frame() {
+    let (video, audio, poll, input, env) = {
+        let c = lock(&CB);
+        (c.video, c.audio_batch, c.poll, c.input, c.env)
     };
     if let Some(poll) = poll {
         poll();
     }
-    let Ok(mut slot) = CORE.lock() else { return };
+    let Ok(mut slot) = CORE.lock() else {
+        // Poisoned by a panic elsewhere: switched off, as after a panic caught here.
+        BROKEN.store(true, Ordering::Release);
+        return still_frame();
+    };
     let Some(core) = slot.as_mut() else { return };
     if let Some(env) = env {
         if options::changed(env) {
@@ -438,9 +672,13 @@ pub unsafe extern "C" fn retro_run() {
         Some(input) => read_controls(input, &mut core.sticks, four_way),
         None => Controls::default(),
     };
+    planted("retro_run: board");
     core.machine.run_frame(&controls, &core.switches);
     if let Some(video) = video {
         let (pixels, w, h) = core.machine.picture();
+        LAST_W.store(w as u32, Ordering::Relaxed);
+        LAST_H.store(h as u32, Ordering::Relaxed);
+        SENT_PICTURE.store(true, Ordering::Release);
         video(pixels.as_ptr() as *const c_void, w as u32, h as u32, w * 4);
     }
     core.stereo.clear();
@@ -448,15 +686,8 @@ pub unsafe extern "C" fn retro_run() {
         core.stereo.extend([s, s]);
     }
     if let Some(audio) = audio {
-        let frames = core.stereo.len() / 2;
-        let mut sent = 0;
-        while sent < frames {
-            let n = audio(core.stereo[sent * 2..].as_ptr(), frames - sent);
-            if n == 0 {
-                break;
-            }
-            sent += n;
-        }
+        SENT_SOUND.store(true, Ordering::Release);
+        send_sound(audio, &core.stereo);
     }
 }
 
@@ -486,60 +717,71 @@ fn restore(core: &mut Core, data: &[u8]) -> Result<(), String> {
     }
     let rest = &rest[usize::from(n)..];
     let len = u32::from_le_bytes(rest.get(..4).ok_or("a cut-off save state")?.try_into().unwrap_or([0; 4]));
-    let board = rest.get(4..4 + len as usize).ok_or("a cut-off save state")?;
+    let end = usize::try_from(len).ok().and_then(|n| n.checked_add(4)).ok_or("a cut-off save state")?;
+    let board = rest.get(4..end).ok_or("a cut-off save state")?;
     core.machine.load_state(board)
 }
 
 #[no_mangle]
 pub extern "C" fn retro_serialize_size() -> usize {
-    // Room to spare: a board's state can grow by a few bytes from frame to frame (sound already
-    // made for the next frame), and the frontend asks for the size once.
-    CORE.lock().ok().and_then(|s| s.as_ref().map(|c| snapshot(c).len() + 1024)).unwrap_or(0)
+    guarded("retro_serialize_size", true, || 0, || {
+        // Room to spare: a board's state can grow by a few bytes from frame to frame (sound
+        // already made for the next frame), and the frontend asks for the size once.
+        CORE.lock().ok().and_then(|s| s.as_ref().map(|c| snapshot(c).len() + 1024)).unwrap_or(0)
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_serialize(data: *mut c_void, size: usize) -> bool {
-    let Ok(slot) = CORE.lock() else { return false };
-    let Some(core) = slot.as_ref() else { return false };
-    let state = snapshot(core);
-    if data.is_null() || state.len() > size {
-        return false;
-    }
-    let out = std::slice::from_raw_parts_mut(data as *mut u8, size);
-    out[..state.len()].copy_from_slice(&state);
-    out[state.len()..].fill(0);
-    true
+    guarded("retro_serialize", true, || false, || unsafe {
+        let Ok(slot) = CORE.lock() else { return false };
+        let Some(core) = slot.as_ref() else { return false };
+        let state = snapshot(core);
+        if data.is_null() || state.len() > size {
+            return false;
+        }
+        let out = std::slice::from_raw_parts_mut(data as *mut u8, size);
+        out[..state.len()].copy_from_slice(&state);
+        out[state.len()..].fill(0);
+        true
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> bool {
-    if data.is_null() {
-        return false;
-    }
-    let bytes = std::slice::from_raw_parts(data as *const u8, size);
-    let Ok(mut slot) = CORE.lock() else { return false };
-    let Some(core) = slot.as_mut() else { return false };
-    match restore(core, bytes) {
-        Ok(()) => true,
-        Err(why) => {
-            log_line(&format!("save state not loaded: {why}"));
-            false
+    guarded("retro_unserialize", true, || false, || unsafe {
+        if data.is_null() {
+            return false;
         }
-    }
+        let bytes = std::slice::from_raw_parts(data as *const u8, size);
+        let Ok(mut slot) = CORE.lock() else { return false };
+        let Some(core) = slot.as_mut() else { return false };
+        match restore(core, bytes) {
+            Ok(()) => true,
+            Err(why) => {
+                log_line(&format!("save state not loaded: {why}"));
+                false
+            }
+        }
+    })
 }
 
 #[no_mangle]
-pub extern "C" fn retro_cheat_reset() {}
+pub extern "C" fn retro_cheat_reset() {
+    guarded("retro_cheat_reset", false, || (), || ())
+}
 
 #[no_mangle]
-pub extern "C" fn retro_cheat_set(_index: u32, _enabled: bool, _code: *const c_char) {}
+pub extern "C" fn retro_cheat_set(_index: u32, _enabled: bool, _code: *const c_char) {
+    guarded("retro_cheat_set", false, || (), || ())
+}
 
 #[no_mangle]
 pub extern "C" fn retro_get_memory_data(_id: u32) -> *mut c_void {
-    std::ptr::null_mut()
+    guarded("retro_get_memory_data", false, std::ptr::null_mut, std::ptr::null_mut)
 }
 
 #[no_mangle]
 pub extern "C" fn retro_get_memory_size(_id: u32) -> usize {
-    0
+    guarded("retro_get_memory_size", false, || 0, || 0)
 }

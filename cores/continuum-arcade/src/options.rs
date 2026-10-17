@@ -367,11 +367,14 @@ pub unsafe fn game_loaded(env: EnvFn, dips: Option<Dips>) {
 }
 
 /// Asked by the frontend, before it lists the settings, which ones to show right now.
+/// The frontend calls it like an entry point, so it is guarded like one (`libretro::guarded`).
 unsafe extern "C" fn refresh_display() -> bool {
-    let Some(env) = ENV.lock().ok().and_then(|e| *e) else { return false };
-    let dips = LOADED.lock().ok().and_then(|d| *d);
-    show_for(env, dips);
-    true
+    crate::libretro::guarded("refresh_display", false, || false, || unsafe {
+        let Some(env) = ENV.lock().ok().and_then(|e| *e) else { return false };
+        let dips = LOADED.lock().ok().and_then(|d| *d);
+        show_for(env, dips);
+        true
+    })
 }
 
 unsafe fn get(env: EnvFn, key: &CStr) -> Option<String> {
