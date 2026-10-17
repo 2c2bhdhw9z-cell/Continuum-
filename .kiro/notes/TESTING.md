@@ -10,6 +10,7 @@ imports.
 ## Build 191 (17 October): covers and the library
 
 **Owner's results on build 191 (17 October, morning). Do not ask these again:**
+- **Passed: 4.** Pokémon LeafGreen has its cover. Never bring LeafGreen's cover up again.
 - **Failed: the top of Home** (screenshot, Pokemon Stadium as the featured game): "top isn't like
   it was before now". The big cover sits pushed to the right and cut off, and the game's name and
   the lines under it run off the right edge. Cause (found, not fixed yet, the owner is testing):
