@@ -666,11 +666,13 @@ impl Renderer {
         }
     }
 
-    /// The two-screen choices a target in this role uses.
+    /// The two-screen choices a target in this role uses. The TV's come from
+    /// [`screen_layout::tv_config`]: a layout picked for the TV is drawn there whole. The phone,
+    /// and so touch, always uses the phone's own choices, so the touch screen stays on it.
     fn dual_config_for(&self, role: TargetRole) -> DualScreenConfig {
-        match (role, self.tv_layout) {
-            (TargetRole::External, Some(layout)) => DualScreenConfig { layout, ..self.dual_config },
-            _ => self.dual_config,
+        match role {
+            TargetRole::External => screen_layout::tv_config(&self.dual_config, self.tv_layout),
+            TargetRole::Phone | TargetRole::PhoneCompanion => self.dual_config,
         }
     }
 

@@ -174,7 +174,8 @@ pub struct DualScreenConfig {
     /// in portrait. The host says which it is, because only the host knows the window.
     pub landscape: bool,
     /// With an external display connected: the touch screen stays on the phone and the TV shows
-    /// the other screen. Off: the TV shows the whole layout and the phone shows only controls.
+    /// the other screen, or the whole of a layout picked for the TV (see [`tv_config`]). Off: the
+    /// TV shows the whole layout and the phone shows only controls.
     pub touch_on_phone: bool,
 }
 
@@ -367,16 +368,39 @@ pub fn dual_placements(
     let fb_h = fb_h.max(1.0);
     let target_w = target_w.max(1.0);
     let target_h = target_h.max(1.0);
-    let effective = match role {
-        TargetRole::Phone => *config,
-        TargetRole::External if config.touch_on_phone => single_screen_config(config, config.external_screen()),
-        TargetRole::External => *config,
-        TargetRole::PhoneCompanion if config.touch_on_phone => {
-            single_screen_config(config, config.external_screen().other())
-        }
-        TargetRole::PhoneCompanion => return Vec::new(),
+    let Some(effective) = shown_on(config, role) else {
+        return Vec::new();
     };
     fitted(geometry, arrange(geometry, &effective, fb_w, fb_h), target_w, target_h, mode)
+}
+
+/// What a target in `role` arranges, or `None` when it shows no screen at all. One answer for
+/// both [`dual_placements`] and [`arrangement_aspect`], so the size the host gives a picture and
+/// the picture drawn in it cannot disagree.
+fn shown_on(config: &DualScreenConfig, role: TargetRole) -> Option<DualScreenConfig> {
+    match role {
+        TargetRole::Phone => Some(*config),
+        TargetRole::External if config.touch_on_phone => Some(single_screen_config(config, config.external_screen())),
+        TargetRole::External => Some(*config),
+        TargetRole::PhoneCompanion if config.touch_on_phone => {
+            Some(single_screen_config(config, config.external_screen().other()))
+        }
+        TargetRole::PhoneCompanion => None,
+    }
+}
+
+/// The choices the TV draws with, from the phone's and the layout picked for the TV, if any.
+///
+/// A layout picked for the TV is drawn on the TV whole, both screens and all, so the TV's copy has
+/// `touch_on_phone` off. Only the TV's copy: the phone keeps its own choices, so with "Keep the
+/// touch screen on the phone" on, the phone still shows the touch screen and touch still lands on
+/// it. With no layout picked the TV follows the phone exactly: one screen while the touch screen
+/// stays on the phone, or the phone's whole layout when it doesn't.
+pub fn tv_config(phone: &DualScreenConfig, tv_layout: Option<DualLayout>) -> DualScreenConfig {
+    match tv_layout {
+        Some(layout) => DualScreenConfig { layout, touch_on_phone: false, ..*phone },
+        None => *phone,
+    }
 }
 
 /// A config that shows exactly one named screen.
@@ -388,8 +412,9 @@ fn single_screen_config(config: &DualScreenConfig, screen: GuestScreen) -> DualS
     }
 }
 
-/// The width over height of the arrangement the phone shows, so the host can size the picture
-/// area to it the way it sizes it to a one-screen core's aspect.
+/// The width over height of the arrangement a target shows, so the host can size the picture
+/// area to it the way it sizes it to a one-screen core's aspect. `None` when the target shows no
+/// screen (the phone while a TV has the whole picture).
 pub fn arrangement_aspect(
     geometry: &DualScreenGeometry,
     config: &DualScreenConfig,
@@ -397,15 +422,7 @@ pub fn arrangement_aspect(
     fb_w: f32,
     fb_h: f32,
 ) -> Option<f32> {
-    let effective = match role {
-        TargetRole::Phone => *config,
-        TargetRole::External if config.touch_on_phone => single_screen_config(config, config.external_screen()),
-        TargetRole::External => *config,
-        TargetRole::PhoneCompanion if config.touch_on_phone => {
-            single_screen_config(config, config.external_screen().other())
-        }
-        TargetRole::PhoneCompanion => return None,
-    };
+    let effective = shown_on(config, role)?;
     let arrangement = arrange(geometry, &effective, fb_w.max(1.0), fb_h.max(1.0));
     (arrangement.height > 0.0).then(|| arrangement.width / arrangement.height)
 }
@@ -940,6 +957,62 @@ mod tests {
         assert_eq!(tv.len(), 2);
         let phone = dual_placements(&g, &c, TargetRole::PhoneCompanion, 256.0, 384.0, 390.0, 292.0, ScaleMode::AspectFit);
         assert!(phone.is_empty());
+    }
+
+    #[test]
+    fn a_layout_picked_for_the_tv_is_drawn_on_the_tv_while_touch_stays_on_the_phone() {
+        // The bug: with "Keep the touch screen on the phone" on (the default), the TV showed the
+        // top screen alone whatever TV layout was picked.
+        let g = DualScreenGeometry::NINTENDO_DS;
+        let phone = cfg(DualLayout::Stacked, false);
+        assert!(phone.touch_on_phone);
+        let tv = tv_config(&phone, Some(DualLayout::SideBySide));
+        let drawn = dual_placements(&g, &tv, TargetRole::External, 256.0, 384.0, 1920.0, 1080.0, ScaleMode::AspectFit);
+        assert_eq!(drawn.len(), 2, "both screens, side by side");
+        assert_eq!((drawn[0].src, drawn[1].src), (g.top, g.bottom));
+        assert!(drawn[0].dest.x < drawn[1].dest.x && close(drawn[0].dest.y, drawn[1].dest.y));
+        // The size the TV's picture is given agrees with what is drawn in it: 512 x 192.
+        let aspect = arrangement_aspect(&g, &tv, TargetRole::External, 256.0, 384.0).unwrap();
+        assert!(close(aspect, 512.0 / 192.0));
+        let width = drawn[1].dest.x + drawn[1].dest.w - drawn[0].dest.x;
+        assert!(close(width * 1920.0 / (drawn[0].dest.h * 1080.0), aspect));
+        // The phone keeps its own choices: the touch screen, and touch landing on it.
+        let companion = dual_placements(&g, &phone, TargetRole::PhoneCompanion, 256.0, 384.0, 390.0, 292.0, ScaleMode::AspectFit);
+        assert_eq!(companion.len(), 1);
+        assert_eq!(companion[0].src, g.bottom);
+        let (x, y) = touch(&companion, &g, 0.5, 0.5).unwrap();
+        assert!(close(x, 0.5) && close(y, 0.75));
+        // Every layout picked for the TV is drawn there as picked, on both systems.
+        for layout in DualLayout::ALL {
+            for geometry in [DualScreenGeometry::NINTENDO_DS, DualScreenGeometry::NINTENDO_3DS] {
+                let tv = tv_config(&phone, Some(layout));
+                let on_tv = dual_placements(&geometry, &tv, TargetRole::External, 400.0, 480.0, 1920.0, 1080.0, ScaleMode::AspectFit);
+                let as_picked = dual_placements(&geometry, &cfg(layout, false), TargetRole::Phone, 400.0, 480.0, 1920.0, 1080.0, ScaleMode::AspectFit);
+                assert_eq!(on_tv, as_picked, "{layout:?}");
+            }
+        }
+        // With the touch screen kept off the phone, a picked layout is drawn the same way.
+        let off = DualScreenConfig { touch_on_phone: false, ..phone };
+        assert_eq!(tv_config(&off, Some(DualLayout::SideBySide)), tv);
+    }
+
+    #[test]
+    fn with_no_tv_layout_picked_the_tv_still_shows_one_screen() {
+        let g = DualScreenGeometry::NINTENDO_DS;
+        let phone = cfg(DualLayout::SideBySide, false);
+        let tv = tv_config(&phone, None);
+        assert_eq!(tv, phone, "the TV follows the phone");
+        let drawn = dual_placements(&g, &tv, TargetRole::External, 256.0, 384.0, 1920.0, 1080.0, ScaleMode::AspectFit);
+        assert_eq!(drawn.len(), 1);
+        assert_eq!(drawn[0].src, g.top);
+        assert!(close(arrangement_aspect(&g, &tv, TargetRole::External, 256.0, 384.0).unwrap(), 256.0 / 192.0));
+        // The phone keeps the touch screen.
+        let companion = dual_placements(&g, &phone, TargetRole::PhoneCompanion, 256.0, 384.0, 390.0, 292.0, ScaleMode::AspectFit);
+        assert_eq!(companion[0].src, g.bottom);
+        // Swapped, the TV shows the touch screen and the phone the top one, as before.
+        let swapped = cfg(DualLayout::SideBySide, true);
+        let drawn = dual_placements(&g, &tv_config(&swapped, None), TargetRole::External, 256.0, 384.0, 1920.0, 1080.0, ScaleMode::AspectFit);
+        assert_eq!(drawn[0].src, g.bottom);
     }
 
     #[test]
