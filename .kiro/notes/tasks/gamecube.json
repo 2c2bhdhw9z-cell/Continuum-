@@ -14,6 +14,7 @@
   ],
   "hard_rules": [
     "Read .kiro/steering/owner-rules.md and .kiro/notes/tasks/HELPER_RULES.md first; they bind.",
+    "Nothing of Manic's goes in: not its code, not its interpreter's name, not its option wording. Our CPU core gets its own name and is designed from our own profiling of where Dolphin's Cached Interpreter spends its time on the host. Credits name Dolphin and its authors only (owner-rules, 'Do what Manic does, never the way Manic looks').",
     "Dolphin is an OPTIONAL core (IOS_OPTIONAL_CORES, its own recipe region in scripts/build-core.sh): if it fails to compile, the .ipa ships without it and GameCube games say so in one plain line. Only its own fingerprint may change (prove with ios-fingerprint on two other cores), and run scripts/check-core-cache.sh.",
     "Never let Dolphin pick the JIT unless jit::core_may_use_jit says yes; the default CPU core is the fastest interpreter.",
     "Our interpreter is our own code (comments naming the PowerPC behaviour), in scripts/patches/dolphin-*.patch, never Manic's code. Prove it gives exactly the Cached Interpreter's results (CPU state compared block by block on the same programs) before it is offered, and measure its speed against the Cached Interpreter.",
@@ -21,15 +22,35 @@
     "Every commit ends with [skip ci]. No branches, no PRs, never edit .github/workflows/, STATUS.md, TESTING.md or HANDOFF.md. Anything a player reads is short, casual and plain."
   ],
   "items": [
-    {"id": "GC1", "done": false, "title": "Dolphin in the app, GameCube and Wii playable on the Cached Interpreter",
-     "detail": "Pin libretro/dolphin, add its recipe region (CMake iOS build as a libretro dylib, Vulkan backend on, JIT code compiled but off, no Qt), the Sys folder bundled, core options rules (CPU core forced to an interpreter unless JIT is allowed; sensible phone defaults like 1x internal resolution and shader compilation that doesn't stutter), the GameCube and Wii systems and extensions routed to it (remove them from the can't-run lists), a CoreSpec, the GameCube touch pad (A, B, X, Y, Z, L, R, Start, stick, C-stick) and a basic Wii layout, memory cards and save states, the credits row, core_updates.rs (a new pinned core: the tests may need a rule for cores new in this install). Prove on the host: build the core for Linux, boot open-licence GameCube homebrew through the engine with the Null or Software backend, save state round-trip, measure Cached Interpreter speed."},
-    {"id": "GC2", "done": false, "title": "Our own faster interpreter (Continuum's CPU core for GameCube and Wii)",
-     "detail": "A new CPU core in Dolphin, written by us: chained blocks through guaranteed tail calls ([[clang::musttail]]), linked blocks, fast paths for hot instructions, fused instruction pairs, inline RAM access, per-page host pointers. Proof: identical CPU state to the Cached Interpreter after every block over long runs of several programs, plus Dolphin's own CPU tests where available; speed measured against the Cached Interpreter on the host. Then make it the default, keep the Cached Interpreter as a per-game choice ('CPU' in the game's core settings), as Manic does."},
-    {"id": "GC3", "done": false, "title": "JIT when the phone allows it",
-     "detail": "Dolphin's ARM64 JIT for players who can switch JIT on, through the engine's existing gate and the jit26 region on TXM phones, the way the PPSSPP and Azahar patches do it. Never required; untestable on the owner's phone."},
-    {"id": "GC4", "done": false, "title": "Wii controls",
-     "detail": "Wii Remote (pointer from touch, shake from the motion sensor), Nunchuk and Classic Controller choices per game, the sensor-bar pointer, Wii saves; touch layouts for each."},
-    {"id": "GC5", "done": false, "title": "Write it up",
-     "detail": ".kiro/notes/docs/GAMECUBE.md: what's in, what the tests prove, the speed numbers, what's left, and numbered phone checks in the owner's plain voice. Tick MANIC_PARITY.md's GameCube and Wii rows. Set complete."}
+    {
+      "id": "GC1",
+      "done": false,
+      "title": "Dolphin in the app, GameCube and Wii playable on the Cached Interpreter",
+      "detail": "Pin libretro/dolphin, add its recipe region (CMake iOS build as a libretro dylib, Vulkan backend on, JIT code compiled but off, no Qt), the Sys folder bundled, core options rules (CPU core forced to an interpreter unless JIT is allowed; sensible phone defaults like 1x internal resolution and shader compilation that doesn't stutter), the GameCube and Wii systems and extensions routed to it (remove them from the can't-run lists), a CoreSpec, the GameCube touch pad (A, B, X, Y, Z, L, R, Start, stick, C-stick) and a basic Wii layout, memory cards and save states, the credits row, core_updates.rs (a new pinned core: the tests may need a rule for cores new in this install). Prove on the host: build the core for Linux, boot open-licence GameCube homebrew through the engine with the Null or Software backend, save state round-trip, measure Cached Interpreter speed."
+    },
+    {
+      "id": "GC2",
+      "done": false,
+      "title": "Our own faster interpreter (Continuum's CPU core for GameCube and Wii)",
+      "detail": "A new CPU core in Dolphin, written by us: chained blocks through guaranteed tail calls ([[clang::musttail]]), linked blocks, fast paths for hot instructions, fused instruction pairs, inline RAM access, per-page host pointers. Proof: identical CPU state to the Cached Interpreter after every block over long runs of several programs, plus Dolphin's own CPU tests where available; speed measured against the Cached Interpreter on the host. Then make it the default, keep the Cached Interpreter as a per-game choice ('CPU' in the game's core settings), as Manic does."
+    },
+    {
+      "id": "GC3",
+      "done": false,
+      "title": "JIT when the phone allows it",
+      "detail": "Dolphin's ARM64 JIT for players who can switch JIT on, through the engine's existing gate and the jit26 region on TXM phones, the way the PPSSPP and Azahar patches do it. Never required; untestable on the owner's phone."
+    },
+    {
+      "id": "GC4",
+      "done": false,
+      "title": "Wii controls",
+      "detail": "Wii Remote (pointer from touch, shake from the motion sensor), Nunchuk and Classic Controller choices per game, the sensor-bar pointer, Wii saves; touch layouts for each."
+    },
+    {
+      "id": "GC5",
+      "done": false,
+      "title": "Write it up",
+      "detail": ".kiro/notes/docs/GAMECUBE.md: what's in, what the tests prove, the speed numbers, what's left, and numbered phone checks in the owner's plain voice. Tick MANIC_PARITY.md's GameCube and Wii rows. Set complete."
+    }
   ]
 }

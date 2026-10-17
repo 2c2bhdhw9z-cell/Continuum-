@@ -60,6 +60,11 @@ These come straight from the owner. They are not suggestions.
 - Continuum must become "the one" iPhone emulator everyone uses. It must do everything Manic EMU
   does, and more. Anything Manic has and Continuum lacks is required work.
 - The checklist is #[[file:.kiro/notes/docs/MANIC_PARITY.md]]. Tick items off in it as they land.
+- **Do what Manic does, never the way Manic looks** (owner, 16 October 2026: "it'll just obviously
+  look like I'm trying to rip them off"). Never copy Manic's code, screens, layouts, wording, names
+  or art. Every feature gets Continuum's own design and name. The emulators both apps use (Dolphin,
+  PPSSPP, Azahar, Flycast and the rest) belong to their own authors, not to Manic, and are credited
+  to those authors only. Speed-ups to them are written by us.
 - Product rules (iPhone .ipa only, no web build of the app, Android later, behaviour in the Rust
   engine, native look per platform, installer-neutral, JIT when available but never required) are in
   #[[file:.kiro/notes/docs/PRODUCT_SCOPE.md]].
