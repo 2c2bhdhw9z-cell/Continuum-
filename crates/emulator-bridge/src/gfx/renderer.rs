@@ -170,16 +170,17 @@ impl PostSettings {
 
 /// How a core's single framebuffer is divided into screens.
 ///
-/// Every system shipping today is [`ScreenSplit::Single`], and the reason this enum exists
-/// before anything needs the other variant is the DS and the 3DS: both hand over ONE
-/// framebuffer with TWO screens stacked inside it, and presenting that means drawing two
-/// regions of one texture to two places. That is the same draw with different numbers, not a
-/// second pass, so the generalisation belongs in the compositor rather than in whichever core
-/// integration happens to arrive first.
+/// Every system draws through [`ScreenSplit::Single`]. `VerticalPair` was added for the DS and
+/// the 3DS, which both hand over ONE framebuffer with TWO screens stacked inside it: presenting
+/// that means drawing two regions of one texture to two places, the same draw with different
+/// numbers rather than a second pass, so the generalisation went into the compositor. Both are
+/// integrated now, and their layouts come from `screen_layout` as placements for that same
+/// instanced draw, so nothing selects `VerticalPair`. It stays as the compositor's own proof:
+/// the tests below pin the DS's stacked layout to the same two quads.
 ///
-/// Proving it now is deliberate and comes from the hardware-render plan: the composite pass is
-/// generalised BEFORE any hardware core exists, because a mistake here is a rectangle in the
-/// wrong place rather than a game that misbehaves for reasons that could be anywhere.
+/// The composite pass was generalised before any hardware-rendered core existed, on purpose: a
+/// mistake here is a rectangle in the wrong place rather than a game that misbehaves for reasons
+/// that could be anywhere.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ScreenSplit {
     /// One screen filling the whole framebuffer.
@@ -690,8 +691,11 @@ impl Renderer {
     /// A 192-byte buffer write (on the next present) and a change to one instance count, so this is free to call at any
     /// time and takes effect on the next presented frame. No pipeline or bind group is touched.
     ///
-    /// Nothing selects anything but [`ScreenSplit::Single`] yet, because no dual-screen core is
-    /// integrated. It is reachable now so that the compositor is proven before one is.
+    /// Nothing calls this with anything but [`ScreenSplit::Single`]. The DS and the 3DS are
+    /// integrated, but their two screens are placed by `screen_layout` (see
+    /// [`Self::set_dual_geometry`] and [`Self::set_dual_config`]), and on their default Stacked
+    /// layout the single quad draws the whole stacked frame. `VerticalPair` stays as the
+    /// compositor's proof that one texture can be drawn as two screens.
     pub fn set_screen_split(&mut self, split: ScreenSplit) {
         if self.screen_split == split {
             return;
@@ -992,9 +996,9 @@ impl Renderer {
 
     /// Installs an already-created texture as the compositor's frame source.
     ///
-    /// Used by the MoltenVK triangle proof (and later by hardware cores): the texture was
-    /// produced elsewhere — exported from a `VkImage` via `VK_EXT_metal_objects`, or created
-    /// by wgpu and imported into Vulkan — and this path samples it with no CPU upload.
+    /// Used by the Vulkan hardware cores (`moltenvk_device`) and the MoltenVK triangle proof: the
+    /// texture was produced elsewhere — exported from a `VkImage` via `VK_EXT_metal_objects`, or
+    /// created by wgpu and imported into Vulkan — and this path samples it with no CPU upload.
     /// Replaces any previous frame target.
     pub fn adopt_frame_texture(&mut self, texture: wgpu::Texture, width: u32, height: u32) {
         let bind_group = self.build_bind_group(&texture, &self.uniform_buffer);
@@ -2033,7 +2037,7 @@ mod screen_layout_tests {
 
     #[test]
     fn a_single_screen_is_exactly_what_the_one_quad_version_drew() {
-        // THE REGRESSION GUARD FOR NINE WORKING SYSTEMS. Before this step the shader applied one
+        // THE REGRESSION GUARD FOR EVERY ONE-SCREEN SYSTEM. Before this step the shader applied one
         // scale and a zero offset to a fullscreen quad and sampled the whole texture. If the
         // single-screen case is not still precisely that, every system already shipping changes
         // how it is framed, and a slightly wrong letterbox is the kind of thing that is noticed
