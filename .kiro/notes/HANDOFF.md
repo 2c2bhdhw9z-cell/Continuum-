@@ -19,6 +19,9 @@ Paste this to start a new chat:
   owner's word, with NO build** (they said not to make one): the pre-191 hero is back, its art
   drawn as an overlay of a screen-wide box so a wide cover can't widen it. It ships in the next
   build; nothing else has changed since 191.
+- **App icons (17 October):** the owner circled Dotmatrix, Mark, Chrome, Violet, Spectrum and
+  Cyan and said "Fix." Done on master in `5acc8ec` with no build (TESTING.md "Build 191",
+  results). Don't touch any other icon unless the owner asks.
 - **Emulator updates found this session, held for the next batch:** Gearsystem, Azahar, PPSSPP and
   Flycast have newer code upstream; PUAE (Amiga) and VICE (C64) newer buildbot builds. Do the
   usual quick check and take the safe ones with the GameCube batch.

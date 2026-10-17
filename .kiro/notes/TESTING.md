@@ -10,6 +10,16 @@ imports.
 ## Build 191 (17 October): covers and the library
 
 **Owner's results on build 191 (17 October, morning). Do not ask these again:**
+- **App icons (17 October, two screenshots of Settings, App Icon):** the owner circled
+  Dotmatrix, Mark, Chrome, Violet, Spectrum and Cyan and said "Fix." Nothing was said about
+  any other icon. **Fixed on master (`5acc8ec`), not built:** each picture is whole and centred
+  with room round it: Cyan's C and controller redrawn from their own measured shapes; Mark's
+  glowing C carried round from its own colours with rounded ends, controller grip mirrored;
+  Chrome's cut-off top mirrored from the chrome beside it; Violet's nebula fades into space in a
+  soft circle, controller kept whole; Spectrum's rainbow is a round pixel C in its own colours
+  round the same controller; Dotmatrix's controller centred, the cut-off dot frame dropped.
+  Tools: `.kiro/notes/wip/tools/icon-fixes/`. Phone check for the next install: Settings, App
+  Icon, those six: nothing cut off at any edge, no frame or square inside the tile.
 - **LeafGreen's cover (check 4): the owner says not to worry about it.** It is not a result.
   Drop it: don't ask about it, don't test it, don't change anything for it.
 - **Failed: the top of Home** (screenshot, Pokemon Stadium as the featured game): "top isn't like
