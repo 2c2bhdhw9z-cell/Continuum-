@@ -760,9 +760,11 @@ struct ConsoleSections: View {
                                     .padding(.bottom, 8)
                             }
                         } header: {
+                            // The index jumps to the header. On the header, not the Section, so
+                            // the Section stays a plain section and its header still pins.
                             header(group)
+                                .id(group.id)
                         }
-                        .id(group.id)
                     }
                 }
                 .padding(.trailing, showsIndex ? 30 : 0)
