@@ -10,6 +10,13 @@ imports.
 ## Build 191 (17 October): covers and the library
 
 **Owner's results on build 191 (17 October, morning). Do not ask these again:**
+- **On a TV through AirPlay (17 October, two photos of the TV):** Pokémon Platinum (DS) and
+  Pokémon Sapphire (GBA) look low-resolution and soft, and the picture fills the TV's whole
+  width, so it looks stretched sideways. The owner looked for a resolution setting to make it
+  look better: these two have none ("Doesn't have resolution"). Recorded only; the owner has not
+  asked for a fix. Possible fix if asked: keep each console's shape on the TV and a sharp-pixel
+  look for big screens (the DS and GBA draw a small fixed picture, so there is no resolution to
+  raise).
 - **App icons (17 October, two screenshots of Settings, App Icon):** the owner circled
   Dotmatrix, Mark, Chrome, Violet, Spectrum and Cyan and said "Fix." Nothing was said about
   any other icon. **Fixed on master (`5acc8ec`), not built:** each picture is whole and centred
