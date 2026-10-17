@@ -5,6 +5,39 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
+## START HERE (16 October 2026, evening Eastern): two new jobs, nothing built since 190
+
+- **Owner's results on build 190:** checks 1 to 23 passed (Home screen, light mode, shorter text;
+  recorded in TESTING.md). 24 onwards not reported yet. Don't ask 1-23 again.
+- **GameCube is NOT impossible.** The owner played Rogue Leader on Manic EMU with no JIT on their
+  iPhone 17 Pro Max (Dolphin's Cached Interpreter). Every note that said otherwise is corrected
+  (docs/HARD_SYSTEMS.md has the facts, including what Manic's Dolphin fork is).
+- **Owner's decisions (16 October):** GameCube and Wii go in on Dolphin (open licence), made fast
+  without JIT by a CPU interpreter WE write ("do what Manic did to Dolphin"). Never copy Manic's
+  code, screens, wording, names or art (new owner-rule: "Do what Manic does, never the way Manic
+  looks"). The owner worried it would look like a rip-off; it won't, because Dolphin is everyone's
+  and credited to its own authors.
+- **Credits:** the owner asked why Continuum has to show credits when Manic doesn't openly. Answer
+  given: ours are already a folded button at the bottom of Settings, About; the licences need a
+  list somewhere and public source, not prominence. Offered to move it into Technical details;
+  no reply yet. Never delete it (owner-rules).
+- **The two jobs, in this order** (full checklists, rules and facts in `.kiro/notes/tasks/`):
+  1. `library-and-manic.json`: covers whole at their real shape and sharp (ours crop every cover
+     to 3:4 with the system label on top), the library by console (sections, index, Random Game,
+     console order, select several), ROM patcher, MultiDisc Helper, launch link, share the game
+     file, Safe Mode, language per game, Respect Silent Mode. Continuum's own design throughout.
+  2. `gamecube.json`: Dolphin as an optional core on the Cached Interpreter (GC1), our own faster
+     interpreter proved identical to it (GC2), JIT when allowed (GC3), Wii controls (GC4).
+  Then ONE build (the owner wants everything done first), check the .ipa, give the link and the
+  phone steps written out.
+- **How to work here:** the owner's Workflows (loops) are off, so use `invoke_sub_agent`
+  (general-task-execution) with ONE narrow job each, telling it to push after every green step
+  (two helpers with big scopes stopped silently on 16 October). Rust in this sandbox:
+  `CARGO_HOME` must be writable (e.g. /projects/sandbox/.scratch/cargo-home) and
+  `RUSTUP_TOOLCHAIN=1.92.0-x86_64-unknown-linux-gnu`. Background processes die when a command ends:
+  run long builds in the foreground. Reference MAME: `bash .kiro/notes/wip/tools/build-mame-deps.sh`.
+  This sandbox has no GPU or Vulkan; host-test Dolphin with its Null or Software video backend.
+
 ## Build 190 is out (16 October 2026, 8:45 AM Eastern) — newest install, checked
 
 - https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-190-a8b206a/Continuum-190.ipa
