@@ -46,6 +46,10 @@ These come straight from the owner. They are not suggestions.
   finished, green piece to master as soon as it is done. Never leave work only in scratch folders.
 
 ## How to work
+- **Never tell the owner a system or feature is impossible without checking what shipping iOS
+  emulators actually do on this phone, and measuring** (16 October 2026: GameCube had been called
+  impossible without JIT for weeks, from old blog posts; Manic plays Rogue Leader with no JIT on the
+  owner's iPhone 17 Pro Max).
 - Never do one small feature at a time. Do the biggest batch of remaining work possible in one go.
 - Do not stop to ask what is next. The plan is written down: read it and keep going.
 - Start every session by reading .kiro/notes/HANDOFF.md, then .kiro/notes/STATUS.md (its "Next up" section

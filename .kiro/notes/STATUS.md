@@ -398,7 +398,8 @@ an hour. Its .ipa should have 37 core files: the 36 plus cArcade. The steps are 
 
 Owner-only, any time: direct Google Drive, Dropbox and OneDrive logins (they need the owner's
 developer app ids; they already work through Files), a new app icon, and new art for the Cyan and
-Violet icons if they want those two changed. Not possible: GameCube and Wii (no JIT).
+Violet icons if they want those two changed. GameCube and Wii are NOT impossible (owner, 16 October:
+Rogue Leader plays on Manic with no JIT on this phone); required work, path is the owner's call.
 
 Notes:
 
@@ -1304,7 +1305,7 @@ Open in and zip imports; cover lookups off. TESTING.md has an easy numbered list
 - SMB (NAS shares) is back in build 149: libsmb2 is linked into the app, not shipped as a
   framework. Build 117 closed on launch because AMSMB2.framework was linked and not packed. Not
   tried on a phone yet. WebDAV still works.
-- GameCube and Wii: they cannot be playable without JIT (see docs/HARD_SYSTEMS.md).
+- GameCube and Wii: wrongly called impossible without JIT; corrected 16 October (docs/HARD_SYSTEMS.md).
 - Symbian / N-Gage: Built, untested from the build after 150 (Continuum Symbian, see above).
 - Direct Google Drive, Dropbox and OneDrive logins: they need developer app ids only the owner can
   register. They do work through the Files picker.

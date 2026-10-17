@@ -23,7 +23,8 @@ Keep this file current. A new session should be able to read this and carry on.
   user changed it, and Settings shows each core's options.
 - **JIT when available, never required** (from build 131): PSP, 3DS, PlayStation, N64 and
   Dreamcast use their recompilers on a phone where JIT is on; every phone without it runs as
-  before. GameCube and Wii are not built: they are not playable without JIT. Symbian
+  before. GameCube and Wii are not built yet. They were wrongly called impossible without JIT: on
+  16 October the owner played Rogue Leader on Manic's no-JIT Dolphin on this phone (HARD_SYSTEMS.md). Symbian
   runs on Continuum Symbian, this project's own core around EKA2L1. It's in the app (checked in
   the build 180 file) and no phone has run a game on it yet (TESTING.md S1). See [HARD_SYSTEMS.md](HARD_SYSTEMS.md).
 - **Flash and J2ME run in a bundled player view inside the app** (Ruffle for Flash, a JavaScript
@@ -65,8 +66,8 @@ systems in all.
 | Sega Dreamcast | flycast, from source (the buildbot's copy needs JIT) | .cdi .gdi .chd .cue .bin .m3u | [x] code, in the IPA since build 119 |
 | Adobe Flash | Ruffle in a bundled player view | .swf | [x] code |
 | J2ME | JavaScript J2ME engine in a bundled player view | .jar | [x] code |
-| GameCube | Dolphin interpreter | .gcm .gcz .rvz .iso .dol .elf | [ ] not built: not playable without JIT (HARD_SYSTEMS.md) |
-| Wii | Dolphin interpreter | .rvz .wbfs .ciso .wia .iso .wad .dol .elf | [ ] not built: not playable without JIT (HARD_SYSTEMS.md) |
+| GameCube | Dolphin interpreter | .gcm .gcz .rvz .iso .dol .elf | [ ] not built. Required: Manic plays it with no JIT on this phone (owner, 16 October). Our own emulator or Dolphin first: the owner's call (HARD_SYSTEMS.md) |
+| Wii | Dolphin interpreter | .rvz .wbfs .ciso .wia .iso .wad .dol .elf | [ ] not built. Comes with GameCube (same emulator) |
 | Symbian / N-Gage | EKA2L1, inside Continuum Symbian | .sis .sisx .n-gage | [x] code, in the IPA (checked in build 180). No phone has run a game: TESTING.md S1 |
 
 **Shared extensions** (.cue .chd .iso .bin .m3u .zip are used by several systems): the import
@@ -142,9 +143,30 @@ screen saying which code types each system reads (build 126).
 
 ## Still to do
 
+Seen in Manic on the owner's phone (16 October, 17 screenshots), not in Continuum yet:
+
+- [ ] **Cover art like Manic's**: the whole cover at its real shape, sharp, never cropped (ours cuts
+      every cover to one 3:4 shape and puts the system label over it), and more covers found
+      (Pokemon LeafGreen had none). Manic's Theme screen has "Boxart Settings".
+- [ ] **Library grouped by console**: a section per console with its name, game count and a fold
+      arrow, a letter index down the right edge to jump, **Random Game**, and **Console Ordering**
+      (pick the order of the sections), plus Select All for many games at once.
+- [ ] **ROM patcher**: apply an .ips, .bps or .ups patch (fan translations, hacks) to a game.
+- [ ] **MultiDisc Helper**: pick the discs of one game and make its .m3u for you.
+- [ ] **Copy Launch Link**: a link that opens Continuum straight into that game (for Shortcuts and
+      the home screen).
+- [ ] **Share ROM**: send a game's file from its card.
+- [ ] **Safe Mode**: start a game with its cheats, auto-load and custom settings off, for one go.
+- [ ] **Language per game**: the console's language for that game (Manic's Rogue Leader is set to
+      Japanese), where the core has one.
+- [ ] **CPU emulation method per game** (GameCube: Manic Interpreter or Cached Interpreter).
+- [ ] **Respect Silent Mode**: a switch so the ring/silent switch mutes games.
+- [ ] **Quick Start** (skip the game page) and **Reset Tips** (bring back dismissed hints): check
+      whether these mean anything for Continuum, which already starts a game on a tap.
+
 - [x] Flash (.swf) through Ruffle in a bundled player view.
 - [x] J2ME (.jar) through a bundled JavaScript J2ME engine.
-- [x] GameCube and Wii research: done, docs/HARD_SYSTEMS.md. Not playable without JIT; not built.
+- [ ] GameCube and Wii. The 3 October research said not playable without JIT; that was wrong (owner, 16 October, Rogue Leader on Manic with no JIT). Required work.
 - [x] Symbian / N-Gage research: done, docs/HARD_SYSTEMS.md. Continuum Symbian is in the app (checked in build 180). [ ] Runs a game on a phone: TESTING.md S1.
 - [x] Dreamcast builds on CI (in the IPA since build 119). [ ] Runs on a phone: TESTING.md C19.
 - [x] SMB file shares, linked into the app as libsmb2 (see Ways to get games in). **Root cause of the

@@ -32,6 +32,33 @@ The libretro iOS buildbot has `dolphin_libretro`, `flycast_libretro`, `ppsspp_li
 
 ## GameCube and Wii (Dolphin)
 
+> **CORRECTED 16 October 2026: the conclusion below was wrong.** It was an estimate from 2024
+> blog posts, never a measurement. The owner installed Manic EMU on this same iPhone 17 Pro Max
+> with **no JIT** and played *Star Wars Rogue Squadron II: Rogue Leader*, one of the hardest
+> GameCube games to emulate, "damn near flawlessly" on **Dolphin's own Cached Interpreter**
+> (Manic's "Cached Interpreter (slower)" setting), with a few small graphics glitches and a slight
+> slowdown at 2x. What changed since 2024: Dolphin release 2603 sped up its memory (MMU) emulation
+> a lot, the A19 Pro is far faster than the phones those posts tested, and Manic added a faster
+> interpreter of its own. **GameCube without JIT is possible here.** Wii comes with the same
+> emulator.
+>
+> What Manic runs, read from its source (16 October): its GameCube/Wii core is
+> `dolphin.libretro.framework`, built from `github.com/Daiuno/dolphin`, a fork of
+> `libretro/dolphin` (itself Dolphin with a libretro front end), GPL-2.0-or-later. The fork's
+> `manicInterpreter` branch adds "Manic Interpreter" (CPU core 6): Dolphin's cached interpreter
+> reorganised so blocks chain into each other through tail calls, hot instructions get their own
+> fast paths, common pairs of instructions are fused into one step, and RAM accesses take an
+> inline fast path. Same results as the cached interpreter, less overhead per instruction.
+> Manic's app itself is AGPL-3.0 (`github.com/Manic-EMU/ManicEMU`).
+>
+> The owner's direction (16 October): "I'm trying to build away from using other people's"
+> emulators. Which path GameCube takes (our own emulator, proved against Dolphin the way cArcade
+> is proved against MAME, or Dolphin first and ours later) is the owner's call: see STATUS.md
+> "Next up".
+>
+> Never again call a system impossible without checking what shipping iOS emulators actually do
+> on this phone, and measuring.
+
 - **Core or iOS port:** yes, both. libretro Dolphin is active and the buildbot ships an iOS arm64
   build. DolphiniOS and Provenance's iCube are standalone iOS ports.
 - **Builds for iOS arm64:** yes. I downloaded the buildbot dylib. It contains the ARM64 JIT, the

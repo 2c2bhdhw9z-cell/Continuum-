@@ -144,7 +144,8 @@ N64, PSP and 3DS have since arrived (N64 on its software renderer, PSP and 3DS t
 all without JIT). Still ahead: Symbian/N-Gage (Continuum Symbian is started and not in the app;
 a .sis does not boot), and, hardest last, the **Switch**
 (wrapper skeleton only: `native/switch-wrapper/` is a working inversion-of-control frame gate with
-no engine behind it yet). GameCube and Wii are not built (no JIT).
+no engine behind it yet). GameCube and Wii are not built yet; they are possible without JIT
+(corrected 16 October, docs/HARD_SYSTEMS.md).
 
 **The Switch is an EMULATED SYSTEM, the last and hardest one, not a platform Continuum runs on.**
 Spelled out because the name invites the other reading and an agent has already made that mistake
