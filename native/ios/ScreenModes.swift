@@ -400,9 +400,26 @@ final class ExternalDisplaySceneDelegate: UIResponder, UIWindowSceneDelegate {
         // mode iOS starts an external screen in is not guaranteed to be it.
         let screen = windowScene.screen
         screen.overscanCompensation = .none
-        if let preferred = screen.preferredMode, screen.currentMode != preferred {
-            screen.currentMode = preferred
+        // THE BIGGEST MODE THE TV OFFERS, not the one iOS prefers (owner, 17 October 2026: a 4K
+        // TV, and the picture was 1080p). The iPhone 17 Pro Max sends up to 4K over AirPlay and
+        // over USB-C (Apple's tech specs), but an external screen's preferred mode can be 1080p
+        // while a 4K one is in `availableModes`. Every mode offered goes in the activity log, so
+        // a feedback report says what the TV gave.
+        let modes = screen.availableModes
+        let offered = modes.map { "\(Int($0.size.width))x\(Int($0.size.height))" }
+        FeedbackCenter.step("TV modes offered: \(offered.joined(separator: ", ")); preferred "
+            + (screen.preferredMode.map { "\(Int($0.size.width))x\(Int($0.size.height))" } ?? "none"))
+        let pixels: (UIScreenMode) -> CGFloat = { $0.size.width * $0.size.height }
+        var chosen = screen.preferredMode
+        if let biggest = modes.max(by: { pixels($0) < pixels($1) }),
+           chosen.map({ pixels($0) < pixels(biggest) }) ?? true {
+            chosen = biggest
         }
+        if let chosen, screen.currentMode != chosen {
+            screen.currentMode = chosen
+        }
+        FeedbackCenter.step("TV mode in use: "
+            + (screen.currentMode.map { "\(Int($0.size.width))x\(Int($0.size.height))" } ?? "unknown"))
         let window = UIWindow(windowScene: windowScene)
         let controller = UIViewController()
         let view = ExternalMetalView(frame: windowScene.coordinateSpace.bounds)
