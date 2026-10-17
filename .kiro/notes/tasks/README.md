@@ -10,6 +10,8 @@ saved part-way (`../wip/` holds only the scratch tools).
 
 | File | Job | Done | Left |
 |---|---|---|---|
+| `gamecube.json` | GameCube and Wii on Dolphin with our own faster interpreter (owner, 16 October) | nothing yet | GC1 to GC5 |
+| `library-and-manic.json` | Covers like Manic's, the library by console, Manic's other features from the owner's screenshots | nothing yet | L1 to L10 |
 | `mirror-restore.json` | The build's frozen emulator copies (deleted by mistake, 14 October) | **All done (16 October)**: the next build takes 11 from the buildbot and 5 (DOOM, Jaguar, Virtual Boy, C64, Amiga) from build 185's install, then refills the mirror itself | nothing |
 | `cboy.json` | cBoy | **All done (16 October)**: G1 colour for black-and-white games, G1b link text, G1c short descriptions, G2 write timing, G3 the Color half of Mealybug, G4 the rest (the exact drawer at 51 of 55, the most there are references for), G5 the write-up (`.kiro/notes/docs/CBOY_EVENING.md`) | nothing |
 | `arcade.json` | cArcade | **All done (16 October)**: I1 plan, I2 Z80, I3 Pac-Man board, I4 in the app (65 sets), the 8035 and AY-3-8910 chips, I5 the Galaxian family (119 sets), I6 the Donkey Kong board (15 sets), I7 the write-up (`.kiro/notes/docs/ARCADE_CORE.md`: all 199 sets, the proofs, what's approximate, what's next) | nothing |

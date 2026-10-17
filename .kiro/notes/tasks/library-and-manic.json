@@ -1,0 +1,33 @@
+{
+  "complete": false,
+  "title": "Cover art like Manic's, the library by console, and the other Manic features in the owner's screenshots (16 October 2026)",
+  "repo": "/projects/sandbox/.scratch/lib-work",
+  "why": "The owner compared Continuum with Manic EMU on their phone (17 screenshots, 16 October) and said the cover art in Continuum looks bad next to Manic's. Manic shows each cover whole, at its real box shape, sharp, grouped by console. Continuum crops every cover to one 3:4 shape (CoverCard in native/ios/LibraryCards.swift: height = width * 4/3, CoverArtView in ArtworkStore.swift draws with .aspectRatio(contentMode: .fill)) and lays the system badge over the art. Pokemon LeafGreen had no cover in Continuum and one in Manic. Everything else on this list is a Manic feature Continuum lacks (owner-rules: anything Manic has is required work); see MANIC_PARITY.md 'Seen in Manic on the owner's phone'.",
+  "hard_rules": [
+    "Read .kiro/steering/owner-rules.md and .kiro/notes/tasks/HELPER_RULES.md first; they bind.",
+    "No iOS SDK here: iOS 16 APIs only (or if #available with a fallback), swiftc -frontend -parse every changed file, typecheck engine calls against freshly generated UniFFI bindings, new Swift files listed in native/ios/project.yml. A Swift type error costs the owner a build.",
+    "Things the owner already passed on build 190 must keep working: the floating tabs, the card sizes (Settings, Layout), light mode, the pop-up line, Home/All Games/Favorites scrolling.",
+    "Every commit ends with [skip ci]. No branches, no PRs, never edit .github/workflows/, STATUS.md, TESTING.md or HANDOFF.md. Text a player reads is short, casual and plain."
+  ],
+  "items": [
+    {"id": "L1", "done": false, "title": "Covers whole, at their real shape, sharp",
+     "detail": "Show the entire cover, never cropped: each system's real box shape (GameCube, PS1, Mega Drive, NES portrait; SNES and N64 North American boxes landscape; DS, Game Boy family nearly square) or the image's own shape, in grids, shelves and the hero, keeping rows tidy (Manic keeps one shape per console section). The system label must not cover the art (move it under the cover or make it small and out of the way, Manic shows none on the cover). Decode at the screen's real pixel size so covers are as sharp as Manic's. A cover that isn't found: try harder (name variants, the region-free name, the full No-Intro listing) and check Pokemon LeafGreen (USA) now finds its art."},
+    {"id": "L2", "done": false, "title": "The library by console",
+     "detail": "A section per console with its name, game count and a fold arrow (like Manic's), a letter or console index down the right edge to jump, Random Game, Console Ordering (Settings: drag the consoles into the order you want), and Select All / select several games to delete or favourite at once. Keep All Games' plain grid as a choice if it's simpler, but the by-console list is what Manic shows."},
+    {"id": "L3", "done": false, "title": "ROM patcher",
+     "detail": "Apply an .ips, .bps or .ups patch to a game (fan translations, hacks): as a new copy, never changing the original, checked by the patch's own checksums (BPS/UPS carry CRC32s). Patch code in the Rust engine with tests (our own implementation of the three formats)."},
+    {"id": "L4", "done": false, "title": "MultiDisc Helper",
+     "detail": "Pick the discs of one game (PS1, Saturn, Sega CD, PC Engine CD, Dreamcast) and Continuum writes its .m3u and shows it as one game."},
+    {"id": "L5", "done": false, "title": "Copy Launch Link",
+     "detail": "A continuum:// link that opens straight into that game (Shortcuts, home screen). Register the URL scheme in project.yml and route it in the existing onOpenURL."},
+    {"id": "L6", "done": false, "title": "Share ROM", "detail": "Share a game's file from its card (the share sheet)."},
+    {"id": "L7", "done": false, "title": "Safe Mode",
+     "detail": "Start a game once with its cheats, auto-load of the last state and its per-game custom settings off (a line under Play on the game card, like Manic's)."},
+    {"id": "L8", "done": false, "title": "Language per game",
+     "detail": "The console language for that game where the core has a language option (GameCube/Wii once Dolphin is in, PSP, DS, 3DS, Saturn, Dreamcast...), as a per-game setting on the game card."},
+    {"id": "L9", "done": false, "title": "Respect Silent Mode",
+     "detail": "A Settings switch: when on, the silent switch mutes games (audio session category ambient vs playback, in Peripherals.swift's session setup)."},
+    {"id": "L10", "done": false, "title": "Write it up",
+     "detail": ".kiro/notes/docs/reports/library-and-manic-2026-10-16.md: what changed (Built, untested), numbered phone checks in the owner's plain voice, TESTING.md lines needing new wording. Tick MANIC_PARITY.md's lines. Set complete."}
+  ]
+}
