@@ -37,16 +37,25 @@ pub struct Zip {
     entries: Vec<Entry>,
 }
 
+// Every offset and size below comes from the file itself, so a damaged or hostile zip can hold
+// any value there (ZIP64's are 64 bits): every sum of them is checked, and one that overflows is
+// a zip refused, never a panic, in every build.
+
 fn u16_at(d: &[u8], at: usize) -> Option<u16> {
-    Some(u16::from_le_bytes(d.get(at..at + 2)?.try_into().ok()?))
+    Some(u16::from_le_bytes(d.get(at..at.checked_add(2)?)?.try_into().ok()?))
 }
 
 fn u32_at(d: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(d.get(at..at + 4)?.try_into().ok()?))
+    Some(u32::from_le_bytes(d.get(at..at.checked_add(4)?)?.try_into().ok()?))
 }
 
 fn u64_at(d: &[u8], at: usize) -> Option<u64> {
-    Some(u64::from_le_bytes(d.get(at..at + 8)?.try_into().ok()?))
+    Some(u64::from_le_bytes(d.get(at..at.checked_add(8)?)?.try_into().ok()?))
+}
+
+/// An offset or size from the file as an index into it, if it can be one.
+fn index(v: u64) -> Option<usize> {
+    usize::try_from(v).ok()
 }
 
 const END_OF_DIRECTORY: u32 = 0x0605_4B50;
@@ -72,17 +81,20 @@ impl Zip {
         // locator just before the end record points to.
         let zip64 = count == 0xFFFF || dir_len == 0xFFFF_FFFF || dir_at == 0xFFFF_FFFF;
         if zip64 && end >= 20 && u32_at(d, end - 20) == Some(ZIP64_LOCATOR) {
-            let rec = u64_at(d, end - 20 + 8).ok_or("cut off")? as usize;
+            let rec = u64_at(d, end - 20 + 8).and_then(index).ok_or("cut off")?;
             if u32_at(d, rec) != Some(ZIP64_END) {
                 return Err("a ZIP64 locator that points at nothing".into());
             }
+            // The record is in the file (its signature was), so these offsets are too.
             count = u64_at(d, rec + 32).ok_or("cut off")?;
             dir_len = u64_at(d, rec + 40).ok_or("cut off")?;
             dir_at = u64_at(d, rec + 48).ok_or("cut off")?;
         }
-        let (mut at, stop) = (dir_at as usize, (dir_at + dir_len) as usize);
+        let past_the_end = || "the directory runs past the end of the file".to_string();
+        let mut at = index(dir_at).ok_or_else(past_the_end)?;
+        let stop = dir_at.checked_add(dir_len).and_then(index).ok_or_else(past_the_end)?;
         if stop > d.len() {
-            return Err("the directory runs past the end of the file".into());
+            return Err(past_the_end());
         }
         let mut entries = Vec::new();
         for _ in 0..count {
@@ -146,19 +158,22 @@ impl Zip {
             return Err(format!("{} is encrypted", e.name));
         }
         let d = &self.data;
-        let h = e.header as usize;
-        if u32_at(d, h) != Some(LOCAL_HEADER) {
+        let h = index(e.header).filter(|&h| u32_at(d, h) == Some(LOCAL_HEADER));
+        let Some(h) = h else {
             return Err(format!("{}: a damaged file header", e.name));
-        }
+        };
+        // The header's signature is in the file, so its fixed fields' offsets can't overflow.
         let name_len = usize::from(u16_at(d, h + 26).ok_or("cut off")?);
         let extra_len = usize::from(u16_at(d, h + 28).ok_or("cut off")?);
         let start = h + 30 + name_len + extra_len;
-        let packed = d
-            .get(start..start + e.packed as usize)
+        let packed = index(e.packed)
+            .and_then(|n| start.checked_add(n))
+            .and_then(|stop| d.get(start..stop))
             .ok_or_else(|| format!("{} is cut off", e.name))?;
+        let size = index(e.size).ok_or_else(|| format!("{} is too big to unpack", e.name))?;
         let out = match e.method {
             0 => packed.to_vec(),
-            8 => inflate(packed, e.size as usize).map_err(|why| format!("{}: {why}", e.name))?,
+            8 => inflate(packed, size).map_err(|why| format!("{}: {why}", e.name))?,
             m => return Err(format!("{} is packed a way this core can't unpack (method {m})", e.name)),
         };
         if out.len() as u64 != e.size {
@@ -361,7 +376,10 @@ pub fn inflate(data: &[u8], size: usize) -> Result<Vec<u8>, String> {
         buf: 0,
         have: 0,
     };
-    let mut out = Vec::with_capacity(size);
+    // Room for what the stream can unpack to at most (a byte of deflate makes at most 1,032, four
+    // 258-byte copies of two bits each), not for whatever size a damaged directory claims: an
+    // allocation that big would fail, and a failed allocation ends the app rather than the load.
+    let mut out = Vec::with_capacity(size.min(data.len().saturating_mul(1032).saturating_add(258)));
     loop {
         let last = bits.take(1)? == 1;
         match bits.take(2)? {
@@ -536,6 +554,133 @@ mod tests {
         zip[at] ^= 1;
         assert!(Zip::parse(zip).unwrap().read(0).unwrap_err().contains("damaged"));
         assert!(Zip::parse(b"not a zip at all".to_vec()).is_err());
+    }
+
+    /// What a ZIP64 writer records for a zip of one file: the file's sizes and where its header
+    /// is (in the directory entry's ZIP64 extra field, the entry's own fields all ones), and the
+    /// directory's entry count, size and place (in the ZIP64 end record, which the locator before
+    /// the end record points at).
+    struct Zip64 {
+        size: u64,
+        packed: u64,
+        header: u64,
+        count: u64,
+        dir_len: u64,
+        dir_at: u64,
+        record: u64,
+    }
+
+    /// One file (`deflated` or stored) in a ZIP64 zip, with `tweak` changing what the records say.
+    fn zip64(data: &[u8], deflated: bool, tweak: impl FnOnce(&mut Zip64)) -> Vec<u8> {
+        let body = if deflated { deflate(data, 9) } else { data.to_vec() };
+        let method: u16 = if deflated { 8 } else { 0 };
+        let mut out = Vec::new();
+        out.extend(LOCAL_HEADER.to_le_bytes());
+        out.extend(45u16.to_le_bytes()); // needed
+        out.extend(0u16.to_le_bytes()); // flags
+        out.extend(method.to_le_bytes());
+        out.extend(0u32.to_le_bytes()); // time and date
+        out.extend(crc32(data).to_le_bytes());
+        out.extend((body.len() as u32).to_le_bytes());
+        out.extend((data.len() as u32).to_le_bytes());
+        out.extend(4u16.to_le_bytes()); // name
+        out.extend(0u16.to_le_bytes()); // extra
+        out.extend(b"a.6e");
+        out.extend(&body);
+        let dir_at = out.len() as u64;
+        let mut z = Zip64 {
+            size: data.len() as u64,
+            packed: body.len() as u64,
+            header: 0,
+            count: 1,
+            dir_len: 46 + 4 + 28,
+            dir_at,
+            record: dir_at + 46 + 4 + 28,
+        };
+        tweak(&mut z);
+        out.extend(DIRECTORY_ENTRY.to_le_bytes());
+        out.extend(45u16.to_le_bytes()); // made by
+        out.extend(45u16.to_le_bytes()); // needed
+        out.extend(0u16.to_le_bytes()); // flags
+        out.extend(method.to_le_bytes());
+        out.extend(0u32.to_le_bytes()); // time and date
+        out.extend(crc32(data).to_le_bytes());
+        out.extend(0xFFFF_FFFFu32.to_le_bytes()); // packed: in the extra field
+        out.extend(0xFFFF_FFFFu32.to_le_bytes()); // size: in the extra field
+        out.extend(4u16.to_le_bytes()); // name
+        out.extend(28u16.to_le_bytes()); // extra
+        out.extend(0u16.to_le_bytes()); // comment
+        out.extend([0u8; 8]); // disk, internal and external attributes
+        out.extend(0xFFFF_FFFFu32.to_le_bytes()); // the header's place: in the extra field
+        out.extend(b"a.6e");
+        out.extend(1u16.to_le_bytes()); // ZIP64 extended information
+        out.extend(24u16.to_le_bytes());
+        for v in [z.size, z.packed, z.header] {
+            out.extend(v.to_le_bytes());
+        }
+        // The ZIP64 end record (right after the directory), its locator and the end record.
+        assert_eq!(out.len() as u64, dir_at + 46 + 4 + 28);
+        out.extend(ZIP64_END.to_le_bytes());
+        out.extend(44u64.to_le_bytes());
+        out.extend(45u16.to_le_bytes());
+        out.extend(45u16.to_le_bytes());
+        out.extend([0u8; 8]); // this disk, the directory's disk
+        out.extend(z.count.to_le_bytes());
+        out.extend(z.count.to_le_bytes());
+        out.extend(z.dir_len.to_le_bytes());
+        out.extend(z.dir_at.to_le_bytes());
+        out.extend(ZIP64_LOCATOR.to_le_bytes());
+        out.extend(0u32.to_le_bytes());
+        out.extend(z.record.to_le_bytes());
+        out.extend(1u32.to_le_bytes());
+        out.extend(END_OF_DIRECTORY.to_le_bytes());
+        out.extend([0u8; 4]);
+        out.extend(0xFFFFu16.to_le_bytes());
+        out.extend(0xFFFFu16.to_le_bytes());
+        out.extend(0xFFFF_FFFFu32.to_le_bytes());
+        out.extend(0xFFFF_FFFFu32.to_le_bytes());
+        out.extend(0u16.to_le_bytes());
+        out
+    }
+
+    /// A ZIP64 zip reads back, and one whose records hold offsets or sizes that overflow when
+    /// added up is refused with a reason, in every build (a debug build's overflow checks used to
+    /// turn these into a panic, and so a crash of the whole app).
+    #[test]
+    fn a_hostile_zip64_zip_is_refused_not_a_panic() {
+        let data = (0..3000u32).map(|i| (i * 13 % 256) as u8).collect::<Vec<u8>>();
+        for deflated in [false, true] {
+            let z = Zip::parse(zip64(&data, deflated, |_| {})).unwrap();
+            assert_eq!(z.entries().len(), 1);
+            assert_eq!(z.read(0).unwrap(), data, "a ZIP64 zip reads back");
+        }
+        // The directory: its place and size, which add up past the largest number there is.
+        let refused = |what: &str, tweak: &dyn Fn(&mut Zip64)| {
+            let zip = zip64(&data, false, tweak);
+            assert!(Zip::parse(zip).is_err(), "{what}");
+        };
+        refused("place + size overflows", &|z| (z.dir_at, z.dir_len) = (u64::MAX - 1, 100));
+        refused("size is all ones", &|z| z.dir_len = u64::MAX);
+        refused("place is all ones", &|z| z.dir_at = u64::MAX);
+        refused("the record's place is all ones", &|z| z.record = u64::MAX);
+        refused("the record's place is near the end of the numbers", &|z| z.record = u64::MAX - 2);
+        refused("a count with nothing there", &|z| z.count = u64::MAX);
+        // The file: its packed size, unpacked size and header place, each read only when the file is
+        // unpacked. Each is refused with a reason.
+        let unreadable = |what: &str, deflated: bool, tweak: &dyn Fn(&mut Zip64)| {
+            let z = Zip::parse(zip64(&data, deflated, tweak)).unwrap();
+            assert!(z.read(0).is_err(), "{what}");
+        };
+        let start = 30 + 4;
+        unreadable("packed size all ones", false, &|z| z.packed = u64::MAX);
+        unreadable("packed size that wraps round to a small end", false, &|z| z.packed = u64::MAX - start + 10);
+        unreadable("header place all ones", false, &|z| z.header = u64::MAX);
+        unreadable("header place near the end of the numbers", false, &|z| z.header = u64::MAX - 3);
+        unreadable("stored, with a size all ones", false, &|z| z.size = u64::MAX);
+        // A deflated file claiming the largest size there is: no allocation of that size is tried
+        // (it would fail, and that ends the app).
+        unreadable("deflated, with a size all ones", true, &|z| z.size = u64::MAX);
+        unreadable("deflated, with a size of 4 GB", true, &|z| z.size = 0xFFFF_FFFE);
     }
 
     #[test]
