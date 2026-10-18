@@ -5,10 +5,16 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (17 October 2026, 9:35 PM Eastern): build 192 is on the phone
+## START HERE (18 October 2026, 9:20 AM Eastern): build 192 is on the phone
 
 - **Build 192 is the newest install** (`006c199`):
   https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-192-006c199/Continuum-192.ipa
+- **Owner, 18 October, 9:20 AM:** cBoy colouring old black-and-white games like a Game Boy Color,
+  and cBoy's experimental picture, both work on build 192. Their word: "Works." That is Build
+  190 checks 34, 35 and 37. Do not ask those again. The usual picture mode stays the one games
+  use. The link cable still needs a second phone, so it stays untested. cBoy is not finished
+  (camera for a Game Boy Camera game, two Game Boys on one phone, and a few rare picture cases
+  are still open), but those two phone checks are done.
 - **Owner's results on 192, one phone, no discs, no second phone, no online (17 October, 9:35 PM).**
   Their words: "1-20 good." Do not ask any of it again. Passed: Home's top back like before 191
   (cover fills the top behind the name; name and Play stay on screen); the six icons (Dotmatrix,
@@ -18,11 +24,11 @@ Paste this to start a new chat:
   language on a DS or 3DS game; mute with the silent switch. Also Build 190's icon checks 24, 25
   and 26 (Clay and Badge set on the home screen). LeafGreen stays dropped. Join discs was not
   tried: they said no discs and no swapping discs. PSP and Dreamcast language were not in this
-  pass. Full record: TESTING.md, top of "Build 191".
-- **Still open when they next test, this phone only:** Build 190 from check 27 (SNES on Mesen,
-  cBoy colours, 32X, a Mega Drive save chip, arcade) and a 3DS game playing like before. Skip
-  two phones, online, and discs until they say otherwise. The TV 4K check is still open; they
-  left the TV for later.
+  pass. Full record: TESTING.md, top of "Build 191" and the Build 190 results.
+- **Still open when they next test, this phone only:** Build 190 checks 27 to 33 (SNES on Mesen),
+  36 (the one-line cBoy link-cable note), 38 onward that is not a disc and not a second phone
+  (32X, a Mega Drive save chip, a 3DS game, arcade). Skip two phones, online, and discs until
+  they say otherwise. The TV 4K check is still open; they left the TV for later.
 - **Next job:** `tasks/gamecube.json` (GC1 to GC5), then ONE build. Don't start a build until
   they ask or the batch is done.
 

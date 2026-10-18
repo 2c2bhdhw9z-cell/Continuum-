@@ -1,13 +1,13 @@
 # What to test, and what to tell me
 
-Last updated 17 October 2026, 9:35 PM Eastern. **Build 192** is the newest install. The owner
-tested it that evening on one phone: the list under "Build 191" that they were given (steps 1 to
-20 of that evening's list) all passed. Recorded below. Do not ask any of it again. Still open,
-and only on this one phone: Build 190's checks 27 onward (SNES on Mesen, cBoy's colours, 32X, a
-Mega Drive game that saves to a chip, arcade), and a 3DS game playing like before. No discs, no
-swapping discs, no second phone, no online, until they say otherwise. The TV check is still open
-too; they left the TV for later. **Build 191**'s own morning report is kept under that heading
-as history.
+Last updated 18 October 2026, 9:20 AM Eastern. **Build 192** is the newest install. The owner
+tested it on one phone. Passed, and do not ask again: the evening list of 17 October (steps 1 to
+20), and on the morning of 18 October the cBoy colour for old black-and-white games and the
+experimental picture (Build 190 checks 34, 35 and 37). Still open, and only on this one phone:
+Build 190's checks 27 to 33, 36, and 38 onward that are not a second phone and not a disc (SNES
+on Mesen, the one-line cBoy link-cable note, 32X, a Mega Drive game that saves to a chip,
+arcade), and a 3DS game playing like before. No discs, no swapping discs, no second phone, no
+online, until they say otherwise. The TV check is still open too; they left the TV for later.
 
 ## Build 191 (17 October): covers and the library
 
@@ -74,9 +74,9 @@ under this heading. Mapped:
 
 The checks named in the build 192 results above have been on a phone and passed. Don't ask them
 again. Still open from this list: check 16 only, and only when they have discs. Build 190's
-checks 27 to 49 and 55 to 63 are in this install too and still waiting. Skip 50 to 54 (that
-needs a second phone) and skip anything about discs. **If you only have ten minutes, do Build
-190's 27, 28 and 34.**
+checks 27 to 33, 36, 38 to 49 and 55 to 63 are in this install too and still waiting. Skip 50 to
+54 (that needs a second phone), skip 34, 35 and 37 (passed 18 October), and skip anything about
+discs. **If you only have ten minutes, do Build 190's 27 and 28.**
 
 **Covers**
 
@@ -139,10 +139,13 @@ already passed. Delete the old app first, as always. The lists further down, "Ne
 Skip anything you don't have the game or the gear for. **If you only have ten minutes, do 1, 2
 and 3.**
 
-**Owner's results on build 190 (16 October, by 6:20 PM Eastern), plus build 192 (17 October, evening). Do not ask these again:**
-- **Passed: 1 to 26.** 1 to 23 on build 190 (the Home screen, light mode and the shorter text).
-  The owner's words: "1-23 fine for now". 24, 25 and 26 on build 192 (the app icons, including
-  Clay and Badge set on the home screen). 27 onwards not reported yet.
+**Owner's results on build 190 (16 October, by 6:20 PM Eastern), plus build 192 (17 and 18 October). Do not ask these again:**
+- **Passed: 1 to 26, and 34, 35 and 37.** 1 to 23 on build 190 (the Home screen, light mode and
+  the shorter text). The owner's words: "1-23 fine for now". 24, 25 and 26 on build 192 (the app
+  icons, including Clay and Badge set on the home screen). On 18 October at 9:20 AM, about the
+  cBoy lines "colouring old black-and-white games" and "the experimental picture mode", the
+  owner said "Works." That is checks 34 and 35 (colour like a Game Boy Color) and 37 (Exact
+  picture). Don't ask those again. 27 to 33, 36, and 38 onward are not reported yet.
 
 **Start here: the Home screen you asked for**
 

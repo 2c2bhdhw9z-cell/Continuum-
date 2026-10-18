@@ -1,7 +1,7 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-17 October 2026, 9:35 PM Eastern. **Build 192** (`006c199`) is the newest published install.
+18 October 2026, 9:20 AM Eastern. **Build 192** (`006c199`) is the newest published install.
 What the phone has passed since 185 is in "Next up" at the top and in TESTING.md. The paragraphs
 under this one that still name build 185 are the history of that install.
 
@@ -243,14 +243,15 @@ launch with an empty library.
 
 ## Next up
 
-**17 October 2026, 9:35 PM Eastern, read this first.** **Build 192** (`006c199`) is the newest
+**18 October 2026, 9:20 AM Eastern, read this first.** **Build 192** (`006c199`) is the newest
 install:
 https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-192-006c199/Continuum-192.ipa
-The owner passed the one-phone library and icon checks that evening (TESTING.md, top of "Build
-191"): Home's top, the six icons, the library by console, Clean start, share, the launch link,
-a patch, DS or 3DS language, the silent switch, and Build 190's checks 24 to 26. Those are
-**Done** on a phone. Still untested: Build 190 from check 27, discs (they said no discs), a
-second phone, online, and the TV. Next, in order: the GameCube and Wii job
+On the phone and **Done**: the 17 October library and icon checks (TESTING.md), and on 18 October
+cBoy colouring old black-and-white games and cBoy's experimental picture (Build 190 checks 34,
+35 and 37; the owner said "Works."). The usual picture mode stays the default. Still untested:
+Build 190 checks 27 to 33, 36, and 38 onward that are not a disc and not a second phone, plus
+the TV. cBoy itself is not finished: no phone camera for a Game Boy Camera game, no two Game
+Boys on one phone, and a few rare picture cases. Next, in order: the GameCube and Wii job
 (`tasks/gamecube.json`, GC1 to GC5), then the emulator updates held from the midnight check
 (Gearsystem, Azahar, PPSSPP, Flycast upstream; PUAE and VICE on the buildbot), then one build
 when they ask or the batch is done.
@@ -258,7 +259,7 @@ when they ask or the batch is done.
 **17 October 2026, midnight Eastern.** **Build 191** (`6a0045e`, out 11:58 PM on 16 October, checked: 0.8.0 (191), 37 core files;
 https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-191-6a0045e/Continuum-191.ipa) adds the covers and library batch (L1 to L9;
 `docs/reports/library-and-manic-2026-10-16.md`). The phone results are the paragraph above, not
-"untested". Build 190's checks 27 to 63 are still unreported, except 24 to 26, which passed on 192.
+"untested".
 
 
 **16 October 2026, 7 AM Eastern, read this first.** **Build 190** (`a8b206a`, 16 October, 8:45 AM Eastern) is the newest install and has all of it:
