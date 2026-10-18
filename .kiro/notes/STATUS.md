@@ -1,12 +1,9 @@
 # What is finished, and what is not
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-16 October 2026, 4 AM Eastern. **Build 185** (`393f12c`, 13 October) is the newest published
-install:
-[Continuum-185.ipa](https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-185-393f12c/Continuum-185.ipa).
-It has build 182's changes and the night batch; the owner hasn't reported on 182 to 185 yet.
-Master has a big batch on top of 185, not built yet and all **Built, untested**: "Next up" lists
-it, and the owner's phone checks are TESTING.md "Next install (after 185)".
+17 October 2026, 9:35 PM Eastern. **Build 192** (`006c199`) is the newest published install.
+What the phone has passed since 185 is in "Next up" at the top and in TESTING.md. The paragraphs
+under this one that still name build 185 are the history of that install.
 
 Build 181 (`b88308f`) carried the cleanup and the licence swap. The owner's phone results are in
 TESTING.md.
@@ -246,12 +243,22 @@ launch with an empty library.
 
 ## Next up
 
-**17 October 2026, midnight Eastern, read this first.** **Build 191** (`6a0045e`, out 11:58 PM on 16 October, checked: 0.8.0 (191), 37 core files;
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-191-6a0045e/Continuum-191.ipa) adds the covers and library batch (L1 to L9, Built, untested;
-`docs/reports/library-and-manic-2026-10-16.md`; phone checks TESTING.md "Build 191"). Next, in
-order: the GameCube and Wii job (`tasks/gamecube.json`, GC1 to GC5), then the emulator updates
-held from this session's check (Gearsystem, Azahar, PPSSPP, Flycast upstream; PUAE and VICE on
-the buildbot), then one build. Build 190's checks 24 to 63 are still unreported.
+**17 October 2026, 9:35 PM Eastern, read this first.** **Build 192** (`006c199`) is the newest
+install:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-192-006c199/Continuum-192.ipa
+The owner passed the one-phone library and icon checks that evening (TESTING.md, top of "Build
+191"): Home's top, the six icons, the library by console, Clean start, share, the launch link,
+a patch, DS or 3DS language, the silent switch, and Build 190's checks 24 to 26. Those are
+**Done** on a phone. Still untested: Build 190 from check 27, discs (they said no discs), a
+second phone, online, and the TV. Next, in order: the GameCube and Wii job
+(`tasks/gamecube.json`, GC1 to GC5), then the emulator updates held from the midnight check
+(Gearsystem, Azahar, PPSSPP, Flycast upstream; PUAE and VICE on the buildbot), then one build
+when they ask or the batch is done.
+
+**17 October 2026, midnight Eastern.** **Build 191** (`6a0045e`, out 11:58 PM on 16 October, checked: 0.8.0 (191), 37 core files;
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-191-6a0045e/Continuum-191.ipa) adds the covers and library batch (L1 to L9;
+`docs/reports/library-and-manic-2026-10-16.md`). The phone results are the paragraph above, not
+"untested". Build 190's checks 27 to 63 are still unreported, except 24 to 26, which passed on 192.
 
 
 **16 October 2026, 7 AM Eastern, read this first.** **Build 190** (`a8b206a`, 16 October, 8:45 AM Eastern) is the newest install and has all of it:

@@ -1,13 +1,36 @@
 # What to test, and what to tell me
 
-Last updated 17 October 2026, midnight Eastern. **Build 191** is the newest install: its steps are right below. Before that: **Build 185 (13 October) is the newest install so
-far:** it has 182's changes and the night batch, and its steps are under "Next install (after
-181)" and "Night batch (13 October)" further down. **The next install** adds a big batch on top:
-its steps come first, right below. "This install only" is build 181 (the cleanup plus the licence
-swap), with your results: steps 1 to 4 cover the cleanup, 5 to 11 the new emulators, and 12 save
-imports.
+Last updated 17 October 2026, 9:35 PM Eastern. **Build 192** is the newest install. The owner
+tested it that evening on one phone: the list under "Build 191" that they were given (steps 1 to
+20 of that evening's list) all passed. Recorded below. Do not ask any of it again. Still open,
+and only on this one phone: Build 190's checks 27 onward (SNES on Mesen, cBoy's colours, 32X, a
+Mega Drive game that saves to a chip, arcade), and a 3DS game playing like before. No discs, no
+swapping discs, no second phone, no online, until they say otherwise. The TV check is still open
+too; they left the TV for later. **Build 191**'s own morning report is kept under that heading
+as history.
 
 ## Build 191 (17 October): covers and the library
+
+**Owner's results on build 192 (17 October, 9:35 PM Eastern). Do not ask these again.**
+One phone only. Their words: "1-20 good", meaning the evening list, not the numbers printed
+under this heading. Mapped:
+
+- **Passed:** Home's top is back like it was before 191. The cover fills the top behind the
+  name, and the name and Play stay on the screen (this was the failure from the morning; the
+  fix shipped in 192). The six icons they had circled — Dotmatrix, Mark, Chrome, Violet,
+  Spectrum and Cyan — are whole, centred, nothing cut off, no frame or square inside the tile.
+- **Passed (this heading's checks):** 1 (the restored top, not the tall cover-above-the-name
+  look 191 shipped), 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13 for a cartridge game, 14, 15, 17 on a
+  DS or 3DS game, and 18 (mute with the silent switch, including the line that music from other
+  apps can keep playing).
+- **Passed (Build 190's checks):** 24, 25 and 26. Default shows the real icon. Knockout, Clay,
+  Glow, Badge, Cloud, Ivory, Mint, Graphite and Sand fill their tiles. Clay and Badge were set
+  on the home screen and looked right. Spectrum was checked in the icon list with the six, not
+  set as the home icon; don't ask that again either.
+- **Not tried, on purpose:** check 4 stays dropped (LeafGreen). Check 16 (join discs, next disc)
+  was not tried: they have no discs and don't want disc swapping. Check 13's extra disc files
+  were not part of it. Check 17 was a DS or 3DS game, not PSP or Dreamcast. Two phones, online,
+  and the TV were left for later.
 
 **Owner's results on build 191 (17 October, morning). Do not ask these again:**
 - **On a TV through AirPlay (17 October, two photos of the TV):** Pokémon Platinum (DS) and
@@ -19,15 +42,16 @@ imports.
   raise).
   Then (same day): TV scaling Fit "Don't look any better"; the owner wants the whole TV used
   (Fill), and 4K: "I have a 4k tv". Owner: don't go "crazy" on emulators that aren't theirs
-  (they'll be replaced). **Done on master (`fec5b61`), not built:** the TV scene picks the biggest
+  (they'll be replaced). **In build 192 (`fec5b61`):** the TV scene picks the biggest
   mode in `availableModes` instead of `preferredMode` (Apple's iPhone 17 Pro Max specs: up to
   4K HDR over AirPlay mirroring and over USB-C), and logs the modes offered. No core touched.
   Connecting from inside the app: Apple gives apps no way to start screen mirroring; Manic's own
   AirPlay guide uses Control Centre too. A USB-C to HDMI cable needs no mirroring step.
   Phone check next install: play on the TV, send feedback, and the log says "TV mode in use".
+  Still open on 17 October evening: they tested 192 on the phone only and left the TV for later.
 - **App icons (17 October, two screenshots of Settings, App Icon):** the owner circled
   Dotmatrix, Mark, Chrome, Violet, Spectrum and Cyan and said "Fix." Nothing was said about
-  any other icon. **Fixed on master (`5acc8ec`), not built:** each picture is whole and centred
+  any other icon. **Fixed in build 192 (`5acc8ec`), and passed that evening:** each picture is whole and centred
   with room round it: Cyan's C and controller redrawn from their own measured shapes; Mark's
   glowing C carried round from its own colours with rounded ends, controller grip mirrored;
   Chrome's cut-off top mirrored from the chrome beside it; Violet's nebula fades into space in a
@@ -35,6 +59,7 @@ imports.
   round the same controller; Dotmatrix's controller centred, the cut-off dot frame dropped.
   Tools: `.kiro/notes/wip/tools/icon-fixes/`. Phone check for the next install: Settings, App
   Icon, those six: nothing cut off at any edge, no frame or square inside the tile.
+  **Passed on build 192 (17 October, evening).** Don't ask again.
 - **LeafGreen's cover (check 4): the owner says not to worry about it.** It is not a result.
   Drop it: don't ask about it, don't test it, don't change anything for it.
 - **Failed: the top of Home** (screenshot, Pokemon Stadium as the featured game): "top isn't like
@@ -44,13 +69,14 @@ imports.
   SNES, and now with the taller hero even square Game Boy boxes) makes the whole top wider than
   the phone. **Fixed on master (`c347ae5`, owner: "fix it ... but don't make a new build"):**
   Home's top is back exactly as it was before build 191 (the cover filling the top behind the
-  name, the old height), held to the screen's width so no cover can push it off the edge. Not
-  built yet; it goes in the next build. Its phone check then: open Home with a wide box (an N64
-  or SNES game) as the featured game; the cover fills the top and the name and Play fit on screen.
+  name, the old height), held to the screen's width so no cover can push it off the edge.
+  **Passed on build 192 (17 October, evening).** Don't ask again.
 
-Nothing here has been on a phone yet. Delete the old app first, as always. Build 190's checks 24
-to 63 (further down) are in this install too and still waiting. **If you only have ten minutes,
-do 1, 2, 3 and 4.**
+The checks named in the build 192 results above have been on a phone and passed. Don't ask them
+again. Still open from this list: check 16 only, and only when they have discs. Build 190's
+checks 27 to 49 and 55 to 63 are in this install too and still waiting. Skip 50 to 54 (that
+needs a second phone) and skip anything about discs. **If you only have ten minutes, do Build
+190's 27, 28 and 34.**
 
 **Covers**
 
@@ -113,9 +139,10 @@ already passed. Delete the old app first, as always. The lists further down, "Ne
 Skip anything you don't have the game or the gear for. **If you only have ten minutes, do 1, 2
 and 3.**
 
-**Owner's results on build 190 (16 October, by 6:20 PM Eastern). Do not ask these again:**
-- **Passed: 1 to 23** (the Home screen, light mode and the shorter text). The owner's words:
-  "1-23 fine for now". 24 onwards not reported yet.
+**Owner's results on build 190 (16 October, by 6:20 PM Eastern), plus build 192 (17 October, evening). Do not ask these again:**
+- **Passed: 1 to 26.** 1 to 23 on build 190 (the Home screen, light mode and the shorter text).
+  The owner's words: "1-23 fine for now". 24, 25 and 26 on build 192 (the app icons, including
+  Clay and Badge set on the home screen). 27 onwards not reported yet.
 
 **Start here: the Home screen you asked for**
 

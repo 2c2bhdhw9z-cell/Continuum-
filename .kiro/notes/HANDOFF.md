@@ -5,7 +5,28 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (17 October 2026, just after midnight Eastern): build 191, then GameCube
+## START HERE (17 October 2026, 9:35 PM Eastern): build 192 is on the phone
+
+- **Build 192 is the newest install** (`006c199`):
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-192-006c199/Continuum-192.ipa
+- **Owner's results on 192, one phone, no discs, no second phone, no online (17 October, 9:35 PM).**
+  Their words: "1-20 good." Do not ask any of it again. Passed: Home's top back like before 191
+  (cover fills the top behind the name; name and Play stay on screen); the six icons (Dotmatrix,
+  Mark, Chrome, Violet, Spectrum, Cyan); Home's shelves; All Games by console (fold, the side
+  strip, random game, star several, delete several, console order, By console / Grid / List);
+  Clean start; Share a cartridge game; Copy its link through Shortcuts; Patch this game; console
+  language on a DS or 3DS game; mute with the silent switch. Also Build 190's icon checks 24, 25
+  and 26 (Clay and Badge set on the home screen). LeafGreen stays dropped. Join discs was not
+  tried: they said no discs and no swapping discs. PSP and Dreamcast language were not in this
+  pass. Full record: TESTING.md, top of "Build 191".
+- **Still open when they next test, this phone only:** Build 190 from check 27 (SNES on Mesen,
+  cBoy colours, 32X, a Mega Drive save chip, arcade) and a 3DS game playing like before. Skip
+  two phones, online, and discs until they say otherwise. The TV 4K check is still open; they
+  left the TV for later.
+- **Next job:** `tasks/gamecube.json` (GC1 to GC5), then ONE build. Don't start a build until
+  they ask or the batch is done.
+
+## Earlier tonight (17 October 2026, just after midnight Eastern): build 191, then GameCube
 
 - **Done this session (owner had about 30% usage left):** the whole covers and library job, L1 to
   L10 (`tasks/library-and-manic.json` complete; write-up `docs/reports/library-and-manic-2026-10-16.md`;
@@ -30,8 +51,8 @@ Paste this to start a new chat:
 
 ## Earlier (16 October 2026, evening Eastern): two new jobs, nothing built since 190
 
-- **Owner's results on build 190:** checks 1 to 23 passed (Home screen, light mode, shorter text;
-  recorded in TESTING.md). 24 onwards not reported yet. Don't ask 1-23 again.
+- **Owner's results on build 190:** checks 1 to 23 passed on 190, and 24 to 26 passed on build
+  192 (recorded in TESTING.md). 27 onwards not reported yet. Don't ask 1-26 again.
 - **GameCube is NOT impossible.** The owner played Rogue Leader on Manic EMU with no JIT on their
   iPhone 17 Pro Max (Dolphin's Cached Interpreter). Every note that said otherwise is corrected
   (docs/HARD_SYSTEMS.md has the facts, including what Manic's Dolphin fork is).
