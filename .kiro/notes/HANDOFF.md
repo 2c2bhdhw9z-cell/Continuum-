@@ -5,7 +5,18 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (18 October 2026, 9:20 AM Eastern): build 192 is on the phone
+## START HERE (18 October 2026, 2:40 PM Eastern): two ideas kept, the widget parked
+
+- **Owner kept two ideas. Do not build them until they ask.** Written up in
+  `.kiro/notes/docs/ideas/kept-2026-10-18.md`.
+  - Undo a delete: deleted games sit in a bin until the next day, then they can be put back.
+  - Next game, same console: from inside a game, jump to the next game on that console.
+- **Continue widget: looked into, do not build.** A home-screen widget with the picture of
+  where you stopped. The tap half already works (`continuum://play`, passed 17 October). The
+  widget half needs a second piece inside the app, and Feather and ESign sign only the main
+  app, so the widget would not show up on this phone. Parked unless their signer changes.
+
+## Earlier (18 October 2026, 9:20 AM Eastern): build 192 is on the phone
 
 - **Build 192 is the newest install** (`006c199`):
   https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-192-006c199/Continuum-192.ipa
