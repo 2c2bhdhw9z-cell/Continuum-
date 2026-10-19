@@ -8,6 +8,7 @@
 // app does not know them. A time on this screen is when the game was last opened.
 
 import SwiftUI
+import UIKit
 
 // MARK: - The choice
 
@@ -54,9 +55,9 @@ struct LobbyMark: View {
                     colors: [.red, .orange, .yellow, .green, .cyan, .blue, .purple, .red],
                     center: .center
                 ),
-                lineWidth: 2.4
+                lineWidth: 3.2
             )
-            .frame(width: 22, height: 22)
+            .frame(width: 26, height: 26)
             .accessibilityHidden(true)
     }
 }
@@ -115,23 +116,23 @@ struct LobbyHome: View {
 
     private func heroBlock(_ entry: LibraryEntry) -> some View {
         let system = CoreCatalog.system(for: entry)
-        return HStack(alignment: .center, spacing: 12) {
+        return HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(opened(entry) == nil ? "LAST ADDED" : "LAST PLAYED")
-                    .font(.system(size: 12, weight: .bold))
-                    .tracking(1.6)
+                Text("LAST PLAYED")
+                    .font(.system(size: 12, weight: .heavy))
+                    .tracking(1.8)
                     .foregroundStyle(LobbyPalette.gold)
 
                 Text(GameMetadata.displayTitle(for: entry))
-                    .font(.system(size: 30, weight: .bold))
+                    .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(3)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.65)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(subtitle(for: entry, system: system))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(LobbyPalette.dim)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.55))
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -140,11 +141,12 @@ struct LobbyHome: View {
                         host.launch(entry: entry)
                     } label: {
                         Label("Resume", systemImage: "play.fill")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 16, weight: .bold))
                             .foregroundStyle(.black)
                             .padding(.horizontal, 18)
-                            .padding(.vertical, 11)
+                            .padding(.vertical, 12)
                             .background(LobbyPalette.gold, in: Capsule())
+                            .shadow(color: LobbyPalette.gold.opacity(0.45), radius: 10, y: 2)
                     }
                     .buttonStyle(.plain)
 
@@ -155,20 +157,16 @@ struct LobbyHome: View {
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 14)
-                            .padding(.vertical, 11)
-                            .background(Color.white.opacity(0.14), in: Capsule())
+                            .padding(.vertical, 12)
+                            .background(Color.white.opacity(0.16), in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.top, 4)
+                .padding(.top, 6)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            CoverArtView(entry: entry, system: system, store: artwork,
-                         generation: generation, showsCaption: false,
-                         style: .whole(WholeCover(cornerRadius: 8, alignment: .center)))
-                .frame(width: 132, height: 176)
-                .shadow(color: LobbyPalette.gold.opacity(0.35), radius: 18, y: 6)
+            LobbyBox(entry: entry, system: system, store: artwork, generation: generation)
         }
         .padding(.horizontal, 18)
     }
@@ -180,26 +178,30 @@ struct LobbyHome: View {
             HStack {
                 Text("SYSTEMS")
                     .font(.system(size: 13, weight: .semibold))
-                    .tracking(1.4)
-                    .foregroundStyle(LobbyPalette.dim)
+                    .tracking(1.6)
+                    .foregroundStyle(Color.white.opacity(0.45))
                 Spacer()
                 Button("View all") {
                     systemFilter = nil
                     host.libraryTab = .allGames
                 }
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(LobbyPalette.dim)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Color.white.opacity(0.45))
             }
-            .padding(.horizontal, 18)
+            .padding(.horizontal, 20)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 8) {
+                HStack(alignment: .top, spacing: 6) {
                     ForEach(systems, id: \.system) { item in
                         systemChip(item.system, count: item.count)
                     }
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
             }
+            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .padding(.horizontal, 16)
         }
     }
 
@@ -208,41 +210,55 @@ struct LobbyHome: View {
         return Button {
             systemFilter = on ? nil : system
         } label: {
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 ZStack(alignment: .topTrailing) {
-                    ConsoleGlyph(system: system)
-                        .frame(width: 78, height: 78)
-                        .padding(8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(Color.white.opacity(on ? 0.08 : 0.04))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(on ? LobbyPalette.gold : Color.clear, lineWidth: 1.5)
-                        )
-                        .shadow(color: on ? LobbyPalette.gold.opacity(0.55) : .clear, radius: 10)
-
+                    LobbyConsolePhoto(system: system)
+                        .frame(width: 74, height: 74)
                     Text(count > 99 ? "99+" : "\(count)")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(Color.black.opacity(0.72), in: Capsule())
-                        .overlay(Capsule().stroke(Color.white.opacity(0.2), lineWidth: 0.5))
-                        .offset(x: 4, y: -4)
+                        .frame(minWidth: 18, minHeight: 18)
+                        .padding(.horizontal, 4)
+                        .background(Color(white: 0.28), in: Circle())
+                        .offset(x: 6, y: -4)
                 }
-
-                Text(system.displayName.uppercased())
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(on ? LobbyPalette.gold : .white.opacity(0.82))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .frame(width: 94)
+                lobbyName(system, on: on)
+                    .frame(width: 86)
             }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(on ? LobbyPalette.gold : Color.clear, lineWidth: 1.6)
+                    .shadow(color: on ? LobbyPalette.gold.opacity(0.85) : .clear, radius: 8)
+            )
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(system.displayName), \(count) games")
+    }
+
+    @ViewBuilder
+    private func lobbyName(_ system: GameSystem, on: Bool) -> some View {
+        let lines = system.lobbyLines
+        VStack(spacing: 0) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                if system == .gbc && line == "COLOR" {
+                    HStack(spacing: 0) {
+                        ForEach(Array(line.enumerated()), id: \.offset) { index, character in
+                            Text(String(character))
+                                .foregroundStyle(Color(hue: Double(index) / Double(line.count), saturation: 0.85, brightness: 1))
+                        }
+                    }
+                    .font(.system(size: 9, weight: .heavy))
+                } else {
+                    Text(line)
+                        .font(.system(size: 9, weight: .heavy))
+                        .foregroundStyle(on ? .white : Color.white.opacity(0.82))
+                }
+            }
+        }
+        .multilineTextAlignment(.center)
+        .lineLimit(2)
     }
 
     // MARK: Came back to
@@ -250,9 +266,9 @@ struct LobbyHome: View {
     private var cameBackBlock: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(systemFilter?.displayName ?? "Jump Back In")
-                .font(.system(size: 22, weight: .bold))
+                .font(.system(size: 26, weight: .bold))
                 .foregroundStyle(.white)
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 20)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 14) {
@@ -273,28 +289,29 @@ struct LobbyHome: View {
             VStack(alignment: .leading, spacing: 8) {
                 CoverArtView(entry: entry, system: system, store: artwork,
                              generation: generation, showsCaption: false,
-                             style: .whole(WholeCover(cornerRadius: 8, alignment: .bottom)))
-                    .frame(width: 132, height: 168)
+                             style: .whole(WholeCover(cornerRadius: 6, alignment: .center, outline: true)))
+                    .frame(width: 148, height: 148)
+                    .shadow(color: .black.opacity(0.45), radius: 8, y: 4)
 
                 Text(GameMetadata.displayTitle(for: entry))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .frame(width: 132, alignment: .leading)
+                    .frame(width: 148, alignment: .leading)
 
                 if let opened = opened(entry) {
-                    Text("Last played \(Self.when.localizedString(for: opened, relativeTo: Date()))")
+                    Text("Last played: \(Self.when.localizedString(for: opened, relativeTo: Date()))")
                         .font(.system(size: 12))
-                        .foregroundStyle(LobbyPalette.dim)
+                        .foregroundStyle(Color.white.opacity(0.5))
                         .lineLimit(1)
-                        .frame(width: 132, alignment: .leading)
+                        .frame(width: 148, alignment: .leading)
                 } else if let system {
                     Text(system.displayName)
                         .font(.system(size: 12))
-                        .foregroundStyle(LobbyPalette.dim)
+                        .foregroundStyle(Color.white.opacity(0.5))
                         .lineLimit(1)
-                        .frame(width: 132, alignment: .leading)
+                        .frame(width: 148, alignment: .leading)
                 }
             }
         }
@@ -398,119 +415,95 @@ struct LobbyHome: View {
     }
 }
 
-// MARK: - A console, drawn, not a photo of one
 
-/// A small picture of the console, drawn here. Not a photograph and not a logo.
-struct ConsoleGlyph: View {
+// MARK: - The standing box
+
+/// The cover stood up, the way a box sits on a shelf. The spine is the left edge.
+struct LobbyBox: View {
+    let entry: LibraryEntry
+    let system: GameSystem?
+    let store: ArtworkStore
+    let generation: Int
+
+    var body: some View {
+        HStack(spacing: 0) {
+            LinearGradient(
+                colors: [Color(white: 0.10), Color(white: 0.32), Color(white: 0.16)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: 14, height: 150)
+            .overlay(
+                Text((system?.badge ?? "").uppercased())
+                    .font(.system(size: 7, weight: .heavy))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .fixedSize()
+                    .rotationEffect(.degrees(-90))
+            )
+            CoverArtView(entry: entry, system: system, store: store,
+                         generation: generation, showsCaption: false,
+                         style: .whole(WholeCover(cornerRadius: 2, alignment: .center, outline: false)))
+                .frame(width: 112, height: 150)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .rotation3DEffect(.degrees(16), axis: (x: 0, y: 1, z: 0), anchor: .center, perspective: 0.55)
+        .shadow(color: LobbyPalette.gold.opacity(0.55), radius: 22, y: 6)
+        .shadow(color: .black.opacity(0.55), radius: 10, y: 8)
+        .padding(.trailing, 4)
+    }
+}
+
+// MARK: - The machines
+
+extension GameSystem {
+    /// A photo in the asset catalog, when this console has one.
+    var lobbyAsset: String? {
+        switch self {
+        case .gb, .gbc, .gba, .snes, .nes, .n64, .ds, .genesis:
+            return "lobby-\(rawValue)"
+        default:
+            return nil
+        }
+    }
+
+    /// Short lines that fit under the photo. The long system name does not.
+    var lobbyLines: [String] {
+        switch self {
+        case .gb: return ["GAME BOY"]
+        case .gbc: return ["GAME BOY", "COLOR"]
+        case .gba: return ["GAME BOY", "ADVANCE"]
+        case .nes: return ["NES"]
+        case .snes: return ["SUPER", "NINTENDO"]
+        case .n64: return ["NINTENDO", "64"]
+        case .ds: return ["NINTENDO", "DS"]
+        case .n3ds: return ["NINTENDO", "3DS"]
+        case .genesis: return ["MEGA", "DRIVE"]
+        case .sms: return ["MASTER", "SYSTEM"]
+        case .gg: return ["GAME", "GEAR"]
+        case .ps1: return ["PLAYSTATION"]
+        case .psp: return ["PSP"]
+        case .dreamcast: return ["DREAMCAST"]
+        case .saturn: return ["SATURN"]
+        case .arcade: return ["ARCADE"]
+        default: return [badge]
+        }
+    }
+}
+
+struct LobbyConsolePhoto: View {
     let system: GameSystem
 
     var body: some View {
-        switch system {
-        case .gb:
-            handheld(body: Color(white: 0.78), screen: Color(red: 0.55, green: 0.62, blue: 0.38), wide: false)
-        case .gbc:
-            handheld(body: Color(red: 0.62, green: 0.40, blue: 0.78), screen: Color(red: 0.45, green: 0.55, blue: 0.28), wide: false)
-        case .gba:
-            handheld(body: Color(red: 0.42, green: 0.36, blue: 0.72), screen: Color(white: 0.15), wide: true)
-        case .gg:
-            handheld(body: Color(white: 0.22), screen: Color(red: 0.35, green: 0.55, blue: 0.32), wide: false)
-        case .lynx, .ngp, .wswan, .pokemini:
-            handheld(body: Color(white: 0.35), screen: Color(white: 0.12), wide: true)
-        case .snes:
-            deck(body: Color(white: 0.72), accent: Color(red: 0.55, green: 0.25, blue: 0.45))
-        case .nes:
-            deck(body: Color(white: 0.82), accent: Color(red: 0.7, green: 0.15, blue: 0.15))
-        case .genesis, .sms, .sg1000, .sega32x:
-            deck(body: Color(white: 0.18), accent: Color(white: 0.45))
-        case .n64:
-            n64
-        case .ds, .n3ds:
-            clamshell
-        case .psp:
-            handheld(body: Color(white: 0.16), screen: Color(white: 0.08), wide: true)
-        case .ps1:
-            deck(body: Color(white: 0.9), accent: Color(white: 0.35))
-        default:
-            monogram
+        if let name = system.lobbyAsset, UIImage(named: name) != nil {
+            Image(name)
+                .resizable()
+                .scaledToFit()
+        } else {
+            Text(system.badge)
+                .font(.system(size: 13, weight: .heavy))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
-    }
-
-    private func handheld(body: Color, screen: Color, wide: Bool) -> some View {
-        RoundedRectangle(cornerRadius: wide ? 10 : 8, style: .continuous)
-            .fill(body)
-            .overlay(
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(screen)
-                    .padding(.horizontal, wide ? 16 : 14)
-                    .padding(.top, wide ? 14 : 12)
-                    .padding(.bottom, wide ? 28 : 34)
-            )
-            .overlay(alignment: .bottom) {
-                HStack(spacing: wide ? 18 : 10) {
-                    Circle().fill(Color.black.opacity(0.35)).frame(width: 8, height: 8)
-                    Circle().fill(Color.black.opacity(0.45)).frame(width: wide ? 10 : 14, height: wide ? 10 : 14)
-                }
-                .padding(.bottom, 8)
-            }
-            .padding(6)
-    }
-
-    private func deck(body: Color, accent: Color) -> some View {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(body)
-            .overlay(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(accent)
-                    .frame(width: 10)
-                    .padding(.vertical, 10)
-                    .padding(.leading, 8)
-            }
-            .overlay(alignment: .trailing) {
-                Circle()
-                    .fill(Color.black.opacity(0.25))
-                    .frame(width: 16, height: 16)
-                    .padding(.trailing, 10)
-            }
-            .padding(.horizontal, 4)
-            .padding(.vertical, 18)
-    }
-
-    private var n64: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(white: 0.55))
-                .frame(height: 36)
-            Capsule()
-                .fill(Color(white: 0.28))
-                .frame(width: 28, height: 10)
-                .offset(y: -16)
-        }
-        .padding(10)
-    }
-
-    private var clamshell: some View {
-        VStack(spacing: 2) {
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(Color(white: 0.25))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 2).fill(Color(white: 0.08))
-                        .padding(6)
-                )
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(Color(white: 0.55))
-        }
-        .padding(10)
-    }
-
-    private var monogram: some View {
-        Text(system.badge)
-            .font(.system(size: 13, weight: .heavy))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white.opacity(0.12))
-            )
-            .padding(12)
     }
 }

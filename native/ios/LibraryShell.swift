@@ -500,11 +500,11 @@ struct LibraryShell: View {
     private var topBar: some View {
         HStack(spacing: 10) {
             if host.homeLook == .lastPlayed {
-                LobbyMark()
                 Text("CONTINUUM")
-                    .font(.system(size: 15, weight: .medium))
-                    .tracking(2.4)
+                    .font(.system(size: 17, weight: .regular))
+                    .tracking(3.2)
                     .foregroundStyle(LobbyPalette.cream)
+                LobbyMark()
                 Spacer(minLength: 8)
                 if lobbySearch || !host.librarySearch.isEmpty {
                     searchField
