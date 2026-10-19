@@ -452,3 +452,42 @@ struct NewLookTabPill: View {
         .modifier(NewLookBreathe(color: colors.accent, radius: 7, low: 0.10, high: 0.28, period: 3.6))
     }
 }
+
+// MARK: - One even frame for a cover
+
+/// A game card's cover frame: one size for every card in a row (from Settings, Card size, and
+/// Square covers and Corner roundness in LOOK), whatever shape each cover is. `cover` is drawn
+/// whole and centred, scaled to fit; `backdrop` fills the frame behind it and is dimmed, so the
+/// space a tall or wide cover leaves is a soft copy of the same art. The glow and outline follow
+/// the frame, not the cover, and the soft glow breathes (`NewLookBreathe`).
+struct NewLookCoverFrame<Backdrop: View, Cover: View>: View {
+    let width: CGFloat
+    let height: CGFloat
+    let radius: CGFloat
+    /// Nil: no glow, just a faint hairline.
+    let glow: Color?
+    var breathDelay: Double = 0
+    @ViewBuilder var backdrop: () -> Backdrop
+    @ViewBuilder var cover: () -> Cover
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        ZStack {
+            backdrop()
+                .frame(width: width, height: height)
+                .clipped()
+                .overlay(Color.black.opacity(0.42))
+            cover()
+                .frame(width: width, height: height)
+        }
+        .frame(width: width, height: height)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(glow.map { $0.opacity(0.75) } ?? Color.white.opacity(0.14),
+                                    lineWidth: glow == nil ? 0.5 : 1))
+        // A tight shadow of the glow colour that reads as a thin bright edge, then the soft
+        // breathing one that is the glow.
+        .shadow(color: glow ?? .clear, radius: 1.2)
+        .modifier(NewLookBreathe(color: glow ?? .clear, radius: 9, low: 0.45, high: 0.9,
+                                 period: 3.4, delay: breathDelay))
+    }
+}

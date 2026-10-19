@@ -45,6 +45,28 @@ struct PreviewPage: View {
                     Toggle("", isOn: $toggle).labelsHidden().toggleStyle(NewLookToggleStyle())
                 }
                 .padding(.horizontal, 20)
+                // 8. A row of covers of five different shapes in one even frame each
+                // (NewLookCoverFrame): tall PSP, square 3DS, wide SNES, a 16:9 screenshot, Game
+                // Boy. Same frame, titles on one line.
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(Array(PreviewPage.mixed.enumerated()), id: \.offset) { _, item in
+                        VStack(alignment: .leading, spacing: 5) {
+                            NewLookCoverFrame(width: 62, height: 78, radius: 9, glow: item.glow) {
+                                fakeArt(item.colors)
+                            } cover: {
+                                fakeArt(item.colors)
+                                    .aspectRatio(item.aspect, contentMode: .fit)
+                                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(.white, lineWidth: 1.5))
+                            }
+                            Text(item.title)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                        }
+                        .frame(width: 62)
+                    }
+                }
+                .padding(.horizontal, 20)
                 Spacer(minLength: 0)
                 // 7. The tab bar's pill.
                 HStack(spacing: 4) {
@@ -66,6 +88,19 @@ struct PreviewPage: View {
             .modifier(NewLookAppear())
         }
         .preferredColorScheme(.dark)
+    }
+
+    struct Mixed { let title: String; let aspect: CGFloat; let colors: [Color]; let glow: Color? }
+    static let mixed: [Mixed] = [
+        Mixed(title: "PSP box", aspect: 0.58, colors: [.purple, .indigo], glow: .blue),
+        Mixed(title: "3DS box", aspect: 1.0, colors: [.red, .orange], glow: .red),
+        Mixed(title: "SNES box", aspect: 1.4, colors: [.gray, .white], glow: .purple),
+        Mixed(title: "Screenshot", aspect: 1.78, colors: [.cyan, .blue], glow: nil),
+        Mixed(title: "Game Boy", aspect: 0.9, colors: [.green, .yellow], glow: .green),
+    ]
+
+    private func fakeArt(_ colors: [Color]) -> some View {
+        LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
     private var hero: some View {

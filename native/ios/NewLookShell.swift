@@ -395,14 +395,15 @@ struct NewLookGlowCard: View {
     let host: EngineHost
     var line: String?
     var secondLine: String?
-    /// Width over height of the cover's space. The cover sits whole inside it, at the bottom.
+    /// Width over height of the card's frame, the same for every card in a row. The cover sits
+    /// whole inside it, centred.
     var frameAspect: CGFloat = 0.8
     /// Ticked in select mode. Nil when not selecting.
     var selected: Bool?
     @State private var pressed = false
 
-    /// Settings, LOOK, "Square covers": the cover's space is square, and the cover sits whole in
-    /// the middle of it.
+    /// Settings, LOOK, "Square covers": the frame is square, and the cover sits whole in the
+    /// middle of it.
     private var square: Bool { NewLookColors.shared.forceSquare }
     private var coverHeight: CGFloat { (width / (square ? 1 : frameAspect)).rounded() }
 
@@ -458,27 +459,33 @@ struct NewLookGlowCard: View {
         .accessibilityAddTraits(selected == true ? .isSelected : [])
     }
 
-    private func cover(radius: CGFloat, outline: Bool) -> some View {
+    /// The whole cover, scaled to fit the card's frame and centred in it (never cropped).
+    private func cover(radius: CGFloat) -> some View {
         CoverArtView(entry: entry, system: system, store: store,
                      generation: generation, showsCaption: width >= 92,
                      captionScale: cardSize.plateCaptionScale,
                      style: .whole(WholeCover(cornerRadius: radius,
-                                              alignment: square ? .center : .bottom,
+                                              alignment: .center,
                                               favouriteStar: isFavourite ? cardSize : nil,
-                                              outline: outline)))
+                                              outline: false)))
     }
 
-    /// The glow round the whole cover, its corners from Settings, LOOK, "Corner roundness".
+    /// One frame for every card in a row, sized by Settings, Card size (and Square covers and
+    /// Corner roundness in LOOK), so a row of covers of different shapes (a tall PSP box, a
+    /// square 3DS one, a wide SNES one, a screenshot) lines up as one even row with its titles
+    /// on one line. The whole cover is scaled to fit inside it and centred; the space it leaves
+    /// is a blurred, dimmed copy of the same art. The glow and outline follow the frame
+    /// (NewLookCoverFrame, NewLookMotion.swift).
     private func styledCover(glow: Color?) -> some View {
         let radius = NewLookCoverStyle.radius(width: width)
-        // Two shadows of the glow colour: a tight one that reads as a thin bright edge, and a
-        // soft one that is the glow. They follow the cover's own shape.
-        // The soft one breathes, each card a little out of step with its neighbours, so the
-        // glows along a shelf seem to flow (NewLookMotion.swift).
-        return cover(radius: radius, outline: glow == nil)
-            .shadow(color: glow ?? .clear, radius: 1.2)
-            .modifier(NewLookBreathe(color: glow ?? .clear, radius: 9, low: 0.45, high: 0.9,
-                                     period: 3.4, delay: breathOffset))
+        return NewLookCoverFrame(width: width, height: coverHeight, radius: radius, glow: glow,
+                                 breathDelay: breathOffset) {
+            CoverArtView(entry: entry, system: system, store: store, generation: generation,
+                         showsCaption: false, captionScale: cardSize.plateCaptionScale,
+                         style: .backdrop)
+        } cover: {
+            cover(radius: radius)
+        }
     }
 
     /// Where in its breath this card starts: fixed per game, different from game to game.
