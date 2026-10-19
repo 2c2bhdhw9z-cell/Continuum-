@@ -903,18 +903,24 @@ struct LibraryShell: View {
 
     @ViewBuilder
     private var content: some View {
+        // In the New look each tab's content rises a little and fades in on a spring when it
+        // appears (NewLookMotion.swift); nothing changes in the Current look.
         switch host.libraryTab {
         case .home:
             homeTab
+                .modifier(NewLookAppear(enabled: isNew))
                 .id(newLookColors.version)
         case .allGames:
             allGamesTab
+                .modifier(NewLookAppear(enabled: isNew))
                 .id(newLookColors.version)
         case .favorites:
             favoritesTab
+                .modifier(NewLookAppear(enabled: isNew))
                 .id(newLookColors.version)
         case .settings:
             settingsTab
+                .modifier(NewLookAppear(enabled: isNew))
         }
     }
 
@@ -1218,6 +1224,9 @@ struct LibraryShell: View {
                        // Inside Settings' own scroll view, not padding around it, so the page
                        // runs under the floating bar like the other tabs and still ends clear of it.
                        bottomClearance: bottomBarHeight)
+            // The New look's springy accent switches for every switch in Settings
+            // (NewLookMotion.swift); the system switch in the Current look.
+            .modifier(NewLookToggles(enabled: isNew))
             .padding(.top, topBarHeight + max(metrics.insets.top, 8) + 6)
     }
 
@@ -1265,6 +1274,7 @@ struct LibraryShell: View {
                 Text(title)
                     .font(.system(size: 32, weight: .bold))
                     .foregroundStyle(.white)
+                    .modifier(NewLookSweep())
                 Text(subtitle)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color.white.opacity(0.55))
@@ -1280,7 +1290,7 @@ struct LibraryShell: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 9)
                     .background(ShellPalette.accentFill, in: Capsule())
-                    .buttonStyle(.plain)
+                    .buttonStyle(NewLookPressStyle())
                 } else {
                     newHeaderIcon("shuffle", label: "Play a random game") {
                         playRandom(shown)
@@ -1324,7 +1334,7 @@ struct LibraryShell: View {
         Button(action: action) {
             newIconLabel(symbol)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NewLookPressStyle())
         .accessibilityLabel(label)
     }
 

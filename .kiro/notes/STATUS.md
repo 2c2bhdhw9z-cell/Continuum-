@@ -4,6 +4,14 @@
 at only for WHAT a player can do (capability), never for how a screen is laid out or worded.
 Build 200's Theme sheet broke this and was removed.
 
+**19 October 2026, night: the New look moves (build 202). Built, not tried on a phone.** Fluid
+background field, swirling hero / Game Hub / pause cards with floating covers and rising sparks,
+light sweeps on titles, flowing borders on main buttons and picked chips, springy tab pill with
+breathing glow, breathing console and cover glows, rotating blend swatches, accent switches,
+press feedback, sparkle mark on the empty Home, springy pickers, content rising in. All in
+`NewLookMotion.swift`, all from the player's colours, all still with Reduce Motion. Header,
+wordmark, Current look and app icons untouched. Phone checks: TESTING.md "Next install (after 201)".
+
 **19 October 2026, evening: New-look colours back inline in Settings, our own design. Built, not
 tried on a phone.** Under LOOK: a live preview card, then Accent (gradient tiles, Apple's colour
 picker for any colour, optional two-colour blend, my colours with add and remove), Covers (glow,

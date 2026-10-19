@@ -5,6 +5,18 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
+## START HERE (19 October 2026, late night Eastern): New-look motion after 201
+
+- `NewLookMotion.swift`: `NewLookClock` (TimelineView, frozen with Reduce Motion), `NewLookFluid`
+  (Canvas, 6 to 11 stretched, rotating radial masses on irrational speeds, colour drifting
+  through `NewLookColors.motionRGB`, drawn at 1/2 or 1/3 resolution and scaled up),
+  `NewLookSparks`, `NewLookFloat`, `NewLookBreathe`, `NewLookSweep`, `NewLookFlowRim`,
+  `NewLookPressStyle` / `NewLookButtons`, `NewLookToggleStyle` / `NewLookToggles`,
+  `NewLookAppear`, `NewLookSparkleShape` / `NewLookSparkleMark`, `NewLookTabPill`.
+- iOS 16 target: no Metal shaders, nothing needs #available. The old `NewLookMovingBackdrop`
+  is gone; `NewLookBackdrop` and `NewLookGlow` use `NewLookFluid`.
+- Not touched: the header, the CONTINUUM wordmark and ring, the Current look, app icons.
+
 ## START HERE (19 October 2026, night Eastern): colours inline again after 200
 
 - RULE: never copy another app's UI layout; reference apps only for capability (STATUS.md).

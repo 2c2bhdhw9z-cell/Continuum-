@@ -19,14 +19,20 @@ import UIKit
 // MARK: - The page behind everything
 
 /// Charcoal with a faint warm glow at the top, as the mockup has behind its hero.
-/// With Settings, LOOK, Background, "Moving gradient" on, the moving glows instead
-/// (NewLookTheme.swift).
+/// With Settings, LOOK, Background, "Moving gradient" on, the fluid field instead
+/// (NewLookMotion.swift).
 struct NewLookBackdrop: View {
     @ObservedObject private var colors = NewLookColors.shared
 
     var body: some View {
         if colors.backgroundMoves {
-            NewLookMovingBackdrop(base: ShellPalette.charcoal, blobs: colors.blobColors)
+            // The fluid field (NewLookMotion.swift), behind the content and fixed while it
+            // scrolls, with a light dark wash so white text over it always reads.
+            ZStack {
+                NewLookFluid(palette: colors.motionRGB, base: ShellPalette.charcoal,
+                             period: 26, masses: 11, intensity: 0.55)
+                ShellPalette.charcoal.opacity(0.18)
+            }
         } else {
             ZStack {
                 ShellPalette.charcoal
@@ -132,6 +138,8 @@ struct NewLookTabBar: View {
     let selected: LibraryTab
     let bottomInset: CGFloat
     let onSelect: (LibraryTab) -> Void
+    /// The selected pill slides from tab to tab on a spring.
+    @Namespace private var pillSpace
 
     var body: some View {
         HStack(spacing: 4) {
@@ -150,17 +158,20 @@ struct NewLookTabBar: View {
                                           : AnyShapeStyle(Color.white.opacity(0.62)))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 9)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(isOn ? ShellPalette.gold.opacity(0.13) : Color.clear)
-                    )
+                    .background {
+                        if isOn {
+                            NewLookTabPill()
+                                .matchedGeometryEffect(id: "pill", in: pillSpace)
+                        }
+                    }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(NewLookPressStyle(scale: 0.92))
                 .accessibilityLabel(NewLook.tabTitle(item))
                 .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
             }
         }
+        .animation(.spring(response: 0.42, dampingFraction: 0.72), value: selected)
         .padding(6)
         .background(ShellPalette.charcoal.opacity(0.45),
                     in: RoundedRectangle(cornerRadius: 26, style: .continuous))
@@ -300,17 +311,19 @@ struct NewLookSectionTitle: View {
                     .font(.system(size: 18, weight: .semibold))
                     .tracking(1.0)
                     .foregroundStyle(Color.white.opacity(0.72))
+                    .modifier(NewLookSweep(phase: 0.3))
             } else {
                 Text(title)
                     .font(.system(size: 23, weight: .bold))
                     .foregroundStyle(.white)
+                    .modifier(NewLookSweep(phase: 0.6))
             }
             Spacer(minLength: 8)
             if let trailing, let onTrailing {
                 Button(trailing, action: onTrailing)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Color.white.opacity(0.55))
-                    .buttonStyle(.plain)
+                    .buttonStyle(NewLookPressStyle())
             }
         }
         .padding(.horizontal, 20)
@@ -386,6 +399,7 @@ struct NewLookGlowCard: View {
     var frameAspect: CGFloat = 0.8
     /// Ticked in select mode. Nil when not selecting.
     var selected: Bool?
+    @State private var pressed = false
 
     /// Settings, LOOK, "Square covers": the cover's space is square, and the cover sits whole in
     /// the middle of it.
@@ -430,9 +444,14 @@ struct NewLookGlowCard: View {
                 host.launch(entry: entry)
             }
         }
-        .onLongPressGesture(minimumDuration: 0.4) {
+        // Press feedback: scales down a little while the finger is on it, springs back.
+        .scaleEffect(pressed ? 0.96 : 1)
+        .animation(.spring(response: 0.28, dampingFraction: 0.6), value: pressed)
+        .onLongPressGesture(minimumDuration: 0.4, perform: {
             host.detailEntry = entry
-        }
+        }, onPressingChanged: { pressing in
+            pressed = pressing
+        })
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(GameMetadata.displayTitle(for: entry)), "
                             + "\(GameMetadata.cardLine(for: entry, system: system))")
@@ -454,9 +473,18 @@ struct NewLookGlowCard: View {
         let radius = NewLookCoverStyle.radius(width: width)
         // Two shadows of the glow colour: a tight one that reads as a thin bright edge, and a
         // soft one that is the glow. They follow the cover's own shape.
+        // The soft one breathes, each card a little out of step with its neighbours, so the
+        // glows along a shelf seem to flow (NewLookMotion.swift).
         return cover(radius: radius, outline: glow == nil)
             .shadow(color: glow ?? .clear, radius: 1.2)
-            .shadow(color: (glow ?? .clear).opacity(0.65), radius: 9)
+            .modifier(NewLookBreathe(color: glow ?? .clear, radius: 9, low: 0.45, high: 0.9,
+                                     period: 3.4, delay: breathOffset))
+    }
+
+    /// Where in its breath this card starts: fixed per game, different from game to game.
+    private var breathOffset: Double {
+        let sum = entry.name.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
+        return Double(sum % 100) / 100 * 3.4
     }
 
     @ViewBuilder
@@ -737,12 +765,18 @@ struct NewLookWordmark: View {
 /// glowing from behind the box art and fading out smoothly. Drawn INSIDE its card and clipped
 /// to it, so it never spreads under the header.
 struct NewLookGlow: View {
+    @ObservedObject private var colors = NewLookColors.shared
+
     var body: some View {
         ZStack {
             Color.white.opacity(0.03)
-            RadialGradient(colors: [ShellPalette.gold.opacity(0.55), ShellPalette.gold.opacity(0.16),
+            // The warm glow behind the box, as before, now with the theme's colours slowly
+            // swirling through the whole card (about a 9 second cycle).
+            RadialGradient(colors: [ShellPalette.gold.opacity(0.40), ShellPalette.gold.opacity(0.10),
                                     .clear],
                            center: UnitPoint(x: 0.80, y: 0.38), startRadius: 0, endRadius: 250)
+            NewLookFluid(palette: colors.motionRGB, base: .clear, period: 9, masses: 6,
+                         intensity: 0.40, downscale: 2)
             LinearGradient(colors: [.clear, ShellPalette.charcoal.opacity(0.35)],
                            startPoint: .top, endPoint: .bottom)
         }
@@ -778,6 +812,7 @@ struct NewLookHero: View {
                         .lineLimit(3)
                         .minimumScaleFactor(0.6)
                         .fixedSize(horizontal: false, vertical: true)
+                        .modifier(NewLookSweep())
                     Text(metaLine)
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Color.white.opacity(0.62))
@@ -789,6 +824,9 @@ struct NewLookHero: View {
                 NewLookBoxArt(entry: entry, system: system, store: store,
                               generation: generation, width: 140)
                     .frame(width: 150, height: 176)
+                    // Floats, with sparks in the glow colour rising behind it.
+                    .modifier(NewLookFloat(sparkColor: NewLookColors.shared.glow(for: system)
+                                           ?? NewLookColors.shared.sparkColor))
                     .contentShape(Rectangle())
                     .onTapGesture { host.detailEntry = entry }
             }
@@ -859,9 +897,11 @@ struct NewLookPrimaryButton: View {
             .frame(minWidth: 128)
             // The accent gradient (Settings, LOOK, Colours).
             .background(ShellPalette.accentFill, in: Capsule())
+            // A highlight running round its edge (NewLookMotion.swift).
+            .newLookFlowingBorder(Capsule(), lineWidth: 1.2)
             .shadow(color: ShellPalette.gold.opacity(0.35), radius: 10, y: 3)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NewLookPressStyle())
     }
 }
 
@@ -886,7 +926,7 @@ struct NewLookGlassButton: View {
             .background(.ultraThinMaterial, in: Capsule())
             .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.5))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NewLookPressStyle())
     }
 }
 
@@ -906,7 +946,7 @@ struct NewLookRoundButton: View {
                 .background(.ultraThinMaterial, in: Circle())
                 .overlay(Circle().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.5))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NewLookPressStyle())
         .accessibilityLabel(label)
     }
 }
@@ -956,9 +996,15 @@ struct NewLookSystemTile: View {
             .padding(.bottom, 6)
             .frame(width: 66)
             .background(shape.fill(Color.white.opacity(selected ? 0.07 : 0.0)))
-            .overlay(shape.strokeBorder(selected ? ShellPalette.accentFill : AnyShapeStyle(Color.clear),
-                                        lineWidth: 1.5))
-            .shadow(color: selected ? ShellPalette.gold.opacity(0.7) : .clear, radius: 8)
+            // The picked console: a rim with a highlight running round it, and a glow that
+            // breathes (NewLookMotion.swift).
+            .overlay {
+                if selected {
+                    NewLookFlowRim(shape: shape, lineWidth: 1.6, period: 3.0)
+                }
+            }
+            .modifier(NewLookBreathe(color: selected ? ShellPalette.gold : .clear,
+                                     radius: 8, low: 0.45, high: 0.9, period: 2.8))
             .overlay(alignment: .topTrailing) {
                 Text("\(count)")
                     .font(.system(size: 10, weight: .bold))
@@ -970,7 +1016,7 @@ struct NewLookSystemTile: View {
             }
             .contentShape(shape)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NewLookPressStyle())
         .accessibilityLabel(system.map { "\($0.displayName), \(count) \(count == 1 ? "game" : "games")" }
                             ?? "All games, \(count)")
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
@@ -1011,7 +1057,7 @@ struct NewLookHubHeader: View {
                         .frame(width: 34, height: 34)
                         .background(.ultraThinMaterial, in: Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(NewLookPressStyle())
                 .accessibilityLabel("Close")
             }
 
@@ -1019,6 +1065,8 @@ struct NewLookHubHeader: View {
                 NewLookBoxArt(entry: entry, system: system, store: store,
                               generation: generation, width: 116)
                     .frame(width: 126, height: 150)
+                    .modifier(NewLookFloat(sparkColor: NewLookColors.shared.glow(for: system)
+                                           ?? NewLookColors.shared.sparkColor))
                 VStack(alignment: .leading, spacing: 6) {
                     Text(GameMetadata.displayTitle(for: entry))
                         .font(.system(size: 23, weight: .bold))
@@ -1026,6 +1074,7 @@ struct NewLookHubHeader: View {
                         .lineLimit(3)
                         .minimumScaleFactor(0.7)
                         .fixedSize(horizontal: false, vertical: true)
+                        .modifier(NewLookSweep())
                     Text((system?.displayName ?? entry.ext).uppercased())
                         .font(.system(size: 12, weight: .semibold))
                         .tracking(0.6)
@@ -1080,5 +1129,7 @@ struct NewLookHubHeader: View {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
         )
+        // Rises and fades in on a spring as the Game Hub opens (NewLookMotion.swift).
+        .modifier(NewLookAppear())
     }
 }

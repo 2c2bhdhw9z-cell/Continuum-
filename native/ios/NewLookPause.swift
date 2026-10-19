@@ -118,9 +118,11 @@ struct NewLookPauseSheet: View {
                             .strokeBorder(ShellPalette.danger.opacity(0.45), lineWidth: 1)
                     )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(NewLookPressStyle())
             }
             .padding(18)
+            // Rises and fades in on a spring as the menu opens (NewLookMotion.swift).
+            .modifier(NewLookAppear())
         }
         .background(
             ZStack {
@@ -145,6 +147,8 @@ struct NewLookPauseSheet: View {
                              style: .whole(WholeCover(cornerRadius: 8, alignment: .center)))
                     .frame(width: 60, height: 80)
                     .shadow(color: ShellPalette.gold.opacity(0.45), radius: 12)
+                    .modifier(NewLookFloat(sparkColor: NewLookColors.shared.glow(for: system)
+                                           ?? NewLookColors.shared.sparkColor, amplitude: 3))
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("PAUSED")
@@ -155,6 +159,7 @@ struct NewLookPauseSheet: View {
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(2)
+                    .modifier(NewLookSweep())
                 if let entry {
                     Text(NewLook.metaLine(entry: entry, system: system,
                                           record: PlayHistory.shared.record(for: entry.name),
@@ -209,7 +214,7 @@ struct NewLookPauseSheet: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NewLookPressStyle())
         .accessibilityLabel(tile.detail.map { "\(tile.title), \($0)" } ?? tile.title)
     }
 }

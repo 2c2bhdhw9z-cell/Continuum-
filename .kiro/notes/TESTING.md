@@ -7,6 +7,36 @@ Settings has no Home switch. Do not ask the 192 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Next install (after 201): the New look moves. Built, not tried on a phone
+
+Settings → LOOK → New. Current must look and behave exactly as before. Then turn iOS Reduce Motion
+on and check that everything below holds still.
+
+1. Background (Settings → LOOK → Background → Moving gradient on): many soft colour masses that
+   change shape, swirl and blend, in your accent colours, never visibly repeating; it stays put
+   while pages scroll. Home, Library, Favorites, Settings.
+2. Home's Last Played card: colours slowly swirl inside it (about 9 s); the box floats up and
+   down with small sparks rising behind it. Same in the Game Hub top and the pause menu top.
+3. A soft light sweeps left to right across the hero title and the titles (Systems, Jump Back In,
+   shelves, Library / Favorites, console headers, Settings headings). Not the CONTINUUM header.
+4. Resume / Play buttons and the picked chips have a highlight running round their edge (~2 s).
+5. Tab bar: the picked tab's pill springs to the new tab; inside it a faint slow gradient, and a
+   soft glow that breathes.
+6. Systems tray: the picked console has a running highlight round it and a breathing glow.
+7. Game cards: their glow breathes, each card slightly out of step.
+8. The ring next to CONTINUUM still spins (unchanged).
+9. Settings → LOOK colours: blend tiles turn their colours slowly; single colours stay still.
+   Tiles shrink when pressed; the white ring springs to the tapped tile; a big soft glow behind
+   the Accent card fades to the new colour.
+10. Switches in Settings: accent-filled track (gradient for a blend), springy knob.
+11. Buttons, cards and rows scale down a little when pressed and spring back.
+12. Empty Home ("Nothing to play yet"): a sparkle whose shape stays still while its colours turn;
+    it floats with sparks rising.
+13. Glow / ring chips: the picked pill springs between them. Card size and other segmented pickers:
+    accent-tinted pill that springs with a little overshoot.
+14. Switching tabs: the page rises a little and fades in. Game Hub top and pause menu too.
+15. With Reduce Motion on, all of it is still. Smoothness and battery: watch for stutter or heat.
+
 ## Next install (after 200): colours back in Settings, our own design. Built, not tried on a phone
 
 The Theme sheet from 200 is gone (it followed another app's layout too closely). Settings → LOOK →

@@ -1330,6 +1330,7 @@ struct ConsoleSections: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
+                    .modifier(NewLookSweep(phase: Double(group.title.count % 10) / 10))
                 Text("\(group.entries.count)")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.white)
@@ -1355,7 +1356,7 @@ struct ConsoleSections: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NewLookPressStyle(scale: 0.98))
         .accessibilityLabel("\(group.title), \(group.entries.count == 1 ? "1 game" : "\(group.entries.count) games")")
         .accessibilityHint(folded ? "Shows this console's games" : "Hides this console's games")
     }

@@ -680,16 +680,24 @@ struct EmptyLibraryNotice: View {
     private var newBody: some View {
         let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
         return VStack(spacing: 14) {
-            Image(systemName: title.localizedCaseInsensitiveContains("favorite")
-                  ? "heart.fill" : "square.stack.3d.up.fill")
-                .font(.system(size: 30, weight: .semibold))
-                .foregroundStyle(ShellPalette.gold)
-                .frame(width: 64, height: 64)
-                .background(ShellPalette.gold.opacity(0.14), in: Circle())
-                .shadow(color: ShellPalette.gold.opacity(0.5), radius: 14)
+            if title.localizedCaseInsensitiveContains("favorite") {
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(ShellPalette.gold)
+                    .frame(width: 64, height: 64)
+                    .background(ShellPalette.gold.opacity(0.14), in: Circle())
+                    .shadow(color: ShellPalette.gold.opacity(0.5), radius: 14)
+                    .modifier(NewLookFloat(sparkColor: NewLookColors.shared.sparkColor))
+            } else {
+                // Continuum's sparkle: still shape, colours turning inside it, floating with
+                // sparks rising behind (NewLookMotion.swift).
+                NewLookSparkleMark(size: 68)
+                    .padding(.vertical, 4)
+            }
             Text(title)
                 .font(.system(size: 21, weight: .bold))
                 .foregroundStyle(.white)
+                .modifier(NewLookSweep())
                 .multilineTextAlignment(.center)
             Text(guidance)
                 .font(.system(size: 14))

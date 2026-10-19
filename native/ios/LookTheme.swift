@@ -301,6 +301,7 @@ struct LookPickerCard: View {
                     Text("Look")
                         .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(.white)
+                        .modifier(NewLookSweep())
                 }
             } else {
                 Text("LOOK")
@@ -374,7 +375,7 @@ struct LookPickerCard: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .modifier(NewLookButtons(enabled: looks.look == .newLook))
         .accessibilityLabel("\(option.title) look")
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
@@ -549,6 +550,33 @@ final class NewLookColors: ObservableObject {
     /// Dark or white, whichever reads on the accent: text on a filled button, a picked chip.
     var onAccent: Color { Self.isLight(hex: Self.middle(accentHex ?? Self.defaultAccent)) ? .black : .white }
 
+    /// The colours everything that moves in the New look is drawn from (NewLookMotion.swift):
+    /// the accent's colours, two neighbours of them so the masses differ, and a custom ring or
+    /// glow colour when one is set. Red, green and blue, 0 to 1.
+    var motionRGB: [SIMD3<Double>] {
+        let stops = Self.stops(accentHex ?? Self.defaultAccent)
+        var hexes = [stops[0], Self.shiftedHue(stops[0], by: 0.11)]
+        if stops.count > 1 { hexes.append(stops[1]) }
+        hexes.append(Self.shiftedHue(stops[0], by: -0.13))
+        if ringMode == .custom, let ringHex { hexes.append(Self.middle(ringHex)) }
+        if glowMode == .custom, let glowHex { hexes.append(Self.middle(glowHex)) }
+        return hexes.map { hex in
+            let (r, g, b) = Self.components(hex: hex)
+            return SIMD3<Double>(r, g, b)
+        }
+    }
+
+    var motionColors: [Color] { motionRGB.map { Color(red: $0.x, green: $0.y, blue: $0.z) } }
+
+    /// The colour of the rising sparks: the cover glow when there is one, else the accent.
+    var sparkColor: Color {
+        switch glowMode {
+        case .off, .console: return accent
+        case .accent: return accent
+        case .custom: return Self.color(hex: Self.middle(glowHex ?? Self.defaultSingle))
+        }
+    }
+
     /// The glow round a cover, or nil for none.
     func glow(for system: GameSystem?) -> Color? {
         switch glowMode {
@@ -627,16 +655,6 @@ final class NewLookColors: ObservableObject {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         guard UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
         return hex(r: Double(r), g: Double(g), b: Double(b))
-    }
-
-    /// The moving background's glows: the accent's colours and two neighbours of them, bright
-    /// enough to be seen moving, dark enough that white text over them reads.
-    var blobColors: [Color] {
-        let stops = Self.stops(accentHex ?? Self.defaultAccent)
-        let first = stops[0]
-        let second = stops.count > 1 ? stops[1] : Self.shiftedHue(first, by: 0.10)
-        return [first, second, Self.shiftedHue(first, by: -0.16), Self.shiftedHue(second, by: 0.22)]
-            .map { Self.color(hex: Self.darkened(hex: $0, to: 0.34)) }
     }
 
     static func hsb(hex: String) -> (Double, Double, Double) {

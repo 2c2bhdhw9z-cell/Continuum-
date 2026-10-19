@@ -15,12 +15,15 @@ import UIKit
 struct NewLookColorPanels: View {
     @ObservedObject private var colors = NewLookColors.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The selection ring and the chips' pill spring from one choice to the next.
+    @Namespace private var picks
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             preview
             panel("Accent", icon: "paintpalette.fill",
-                  blurb: "Buttons, the selected tab, switches, sliders and glows.") { accent }
+                  blurb: "Buttons, the selected tab, switches, sliders and glows.",
+                  accentGlow: true) { accent }
             panel("Covers", icon: "rectangle.portrait.on.rectangle.portrait.fill",
                   blurb: "How game covers look on Home, in the Library and in Favorites.") { covers }
             panel("Ring", icon: "circle.dashed",
@@ -39,10 +42,12 @@ struct NewLookColorPanels: View {
                         .background(Color.white.opacity(0.07), in: Capsule())
                         .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(NewLookPressStyle())
                 .padding(.horizontal, 16)
             }
         }
+        // The selection ring and the chips' pill move with a spring that overshoots a touch.
+        .animation(.spring(response: 0.38, dampingFraction: 0.58), value: colors.version)
     }
 
     // MARK: Live preview
@@ -105,7 +110,7 @@ struct NewLookColorPanels: View {
         VStack(alignment: .leading, spacing: 14) {
             swatchRow {
                 ForEach(NewLookColors.accentPresets, id: \.self) { value in
-                    swatch(value, picked: isCurrentAccent(value)) {
+                    swatch(value, picked: isCurrentAccent(value), ring: "accentRing") {
                         colors.accentHex = value == NewLookColors.defaultAccent ? nil : value
                     }
                 }
@@ -115,7 +120,7 @@ struct NewLookColorPanels: View {
                 subhead("My colours")
                 swatchRow {
                     ForEach(colors.savedSwatches, id: \.self) { value in
-                        swatch(value, picked: isCurrentAccent(value)) {
+                        swatch(value, picked: isCurrentAccent(value), ring: "savedRing") {
                             colors.accentHex = value
                         }
                         .contextMenu {
@@ -150,7 +155,7 @@ struct NewLookColorPanels: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(isSaved ? Color.white.opacity(0.6) : ShellPalette.gold)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(NewLookPressStyle())
             .disabled(isSaved)
         }
     }
@@ -203,7 +208,7 @@ struct NewLookColorPanels: View {
     private var covers: some View {
         VStack(alignment: .leading, spacing: 14) {
             subhead("Glow round each cover")
-            chips(NewLookColors.GlowMode.allCases, current: colors.glowMode, title: { $0.title }) {
+            chips(NewLookColors.GlowMode.allCases, current: colors.glowMode, pill: "glowPill", title: { $0.title }) {
                 colors.glowMode = $0
             }
             if colors.glowMode == .custom {
@@ -236,7 +241,7 @@ struct NewLookColorPanels: View {
 
     private var ring: some View {
         VStack(alignment: .leading, spacing: 14) {
-            chips(NewLookColors.RingMode.allCases, current: colors.ringMode, title: { $0.title }) {
+            chips(NewLookColors.RingMode.allCases, current: colors.ringMode, pill: "ringPill", title: { $0.title }) {
                 colors.ringMode = $0
             }
             if colors.ringMode == .custom {
@@ -257,7 +262,8 @@ struct NewLookColorPanels: View {
             swatchRow {
                 ForEach(NewLookColors.backgroundPresets, id: \.self) { value in
                     swatch(value, picked: value.caseInsensitiveCompare(
-                        colors.backgroundHex ?? NewLookColors.defaultBackground) == .orderedSame) {
+                        colors.backgroundHex ?? NewLookColors.defaultBackground) == .orderedSame,
+                           ring: "backgroundRing") {
                         colors.backgroundHex = value == NewLookColors.defaultBackground ? nil : value
                     }
                 }
@@ -309,6 +315,7 @@ struct NewLookColorPanels: View {
     /// A glass card in the Home mockup's style: the accent icon tile, a bold title, a line
     /// saying what it changes, then its controls.
     private func panel<Content: View>(_ title: String, icon: String, blurb: String,
+                                      accentGlow: Bool = false,
                                       @ViewBuilder content: () -> Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
         return VStack(alignment: .leading, spacing: 14) {
@@ -323,6 +330,7 @@ struct NewLookColorPanels: View {
                     Text(title)
                         .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(.white)
+                        .modifier(NewLookSweep(phase: Double(title.count % 10) / 10))
                     Text(blurb)
                         .font(.system(size: 12))
                         .foregroundStyle(Color.white.opacity(0.55))
@@ -335,6 +343,20 @@ struct NewLookColorPanels: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .background(shape.fill(Color.white.opacity(0.055)))
+        // The Accent card: a large soft glow of the picked colour behind it, crossfading over
+        // about a second when another colour is picked.
+        .background {
+            if accentGlow {
+                ZStack {
+                    RadialGradient(colors: [colors.accent.opacity(0.30), colors.accent.opacity(0)],
+                                   center: .top, startRadius: 0, endRadius: 320)
+                        .id(colors.accentHex ?? "default")
+                        .transition(.opacity)
+                }
+                .animation(.easeInOut(duration: 1.0), value: colors.accentHex)
+                .clipShape(shape)
+            }
+        }
         .overlay(shape.strokeBorder(Color.white.opacity(0.09), lineWidth: 0.5))
         .padding(.horizontal, 16)
     }
@@ -379,13 +401,21 @@ struct NewLookColorPanels: View {
 
     /// A rounded-square tile of the colour (or its gradient). The picked one glows in its own
     /// colour and carries a tick.
-    private func swatch(_ value: String, picked: Bool, pick: @escaping () -> Void) -> some View {
+    private func swatch(_ value: String, picked: Bool, ring: String,
+                        pick: @escaping () -> Void) -> some View {
         let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         return Button(action: pick) {
             ThemeSwatch(value: value, shape: shape)
                 .frame(width: 44, height: 44)
-                .overlay(shape.strokeBorder(picked ? Color.white.opacity(0.9) : Color.clear,
-                                            lineWidth: 2))
+                // The ring is one view that springs from tile to tile.
+                .overlay {
+                    if picked {
+                        RoundedRectangle(cornerRadius: 15, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.9), lineWidth: 2)
+                            .padding(-3)
+                            .matchedGeometryEffect(id: ring, in: picks)
+                    }
+                }
                 .overlay {
                     if picked {
                         Image(systemName: "checkmark")
@@ -397,13 +427,13 @@ struct NewLookColorPanels: View {
                 .shadow(color: picked ? NewLookColors.color(hex: value).opacity(0.7) : .clear,
                         radius: 8)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NewLookPressStyle(scale: 0.88))
         .accessibilityLabel("Colour \(value)")
         .accessibilityAddTraits(picked ? [.isButton, .isSelected] : .isButton)
     }
 
     private func chips<Mode: Identifiable & Equatable>(
-        _ modes: [Mode], current: Mode, title: @escaping (Mode) -> String,
+        _ modes: [Mode], current: Mode, pill: String, title: @escaping (Mode) -> String,
         pick: @escaping (Mode) -> Void
     ) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -418,11 +448,19 @@ struct NewLookColorPanels: View {
                             .foregroundStyle(selected ? ShellPalette.onAccent : Color.white)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
-                            .background(selected ? AnyShapeStyle(colors.accentFill)
-                                                 : AnyShapeStyle(Color.white.opacity(0.08)),
-                                        in: Capsule())
+                            .background(Capsule().fill(Color.white.opacity(0.08)))
+                            // The picked one's pill is one view that springs between chips, with
+                            // a highlight running round its edge.
+                            .background {
+                                if selected {
+                                    Capsule()
+                                        .fill(colors.accentFill)
+                                        .newLookFlowingBorder(Capsule(), lineWidth: 1.2)
+                                        .matchedGeometryEffect(id: pill, in: picks)
+                                }
+                            }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(NewLookPressStyle())
                     .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
                 }
             }
@@ -438,10 +476,22 @@ struct ThemeSwatch<S: InsettableShape>: View {
 
     var body: some View {
         let stops = NewLookColors.stops(value).map(NewLookColors.color(hex:))
-        shape
-            .fill(LinearGradient(colors: stops.count == 1 ? [stops[0], stops[0]] : stops,
-                                 startPoint: .topLeading, endPoint: .bottomTrailing))
-            .overlay(shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
+        Group {
+            if stops.count == 2 {
+                // A blend: its two colours slowly turn round inside the tile.
+                NewLookClock(fps: 20, stillAt: 0) { t in
+                    let a = t * 2 * Double.pi / 6 + Double.pi / 4
+                    shape.fill(LinearGradient(
+                        colors: stops,
+                        startPoint: UnitPoint(x: 0.5 - 0.5 * cos(a), y: 0.5 - 0.5 * sin(a)),
+                        endPoint: UnitPoint(x: 0.5 + 0.5 * cos(a), y: 0.5 + 0.5 * sin(a))))
+                }
+            } else {
+                // A single colour stays still.
+                shape.fill(stops.first ?? .white)
+            }
+        }
+        .overlay(shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
     }
 }
 
@@ -452,66 +502,5 @@ enum NewLookCoverStyle {
     /// 100% very round; the default is about what the cards always had.
     static func radius(width: CGFloat) -> CGFloat {
         CGFloat(NewLookColors.shared.coverCorner) * 0.18 * max(width, 40)
-    }
-}
-
-// MARK: - The moving background
-
-/// Settings, LOOK, Background, "Moving gradient": large soft glows in the accent's colours that
-/// drift, grow and shrink across the page all the time, each on its own slow path, so the
-/// colours keep flowing into one another. Still only when iOS Reduce Motion is on. The library
-/// (and so this) is not on screen while a game runs, so it costs nothing during play.
-struct NewLookMovingBackdrop: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let base: Color
-    let blobs: [Color]
-
-    /// One glow's drift: seconds per lap across and down, and where on the path it starts.
-    private struct Drift { let across: Double; let down: Double; let pulse: Double; let phase: Double }
-    private static let drifts: [Drift] = [
-        Drift(across: 11, down: 14, pulse: 9, phase: 0.0),
-        Drift(across: 15, down: 10, pulse: 12, phase: 2.2),
-        Drift(across: 13, down: 17, pulse: 10, phase: 4.1),
-        Drift(across: 18, down: 12, pulse: 14, phase: 1.3),
-    ]
-
-    var body: some View {
-        if reduceMotion {
-            scene(t: 20)
-        } else {
-            TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
-                scene(t: context.date.timeIntervalSinceReferenceDate)
-            }
-        }
-    }
-
-    private func scene(t: Double) -> some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            let size = max(w, h) * 0.95
-            ZStack {
-                base
-                ForEach(Array(blobs.prefix(Self.drifts.count).enumerated()), id: \.offset) { item in
-                    let p: Drift = Self.drifts[item.offset]
-                    let x: Double = 0.5 + 0.45 * sin(2 * Double.pi * t / p.across + p.phase)
-                    let y: Double = 0.5 + 0.42 * cos(2 * Double.pi * t / p.down + p.phase * 1.7)
-                    let scale: Double = 0.8 + 0.3 * sin(2 * Double.pi * t / p.pulse + p.phase)
-                    Circle()
-                        .fill(RadialGradient(colors: [item.element, item.element.opacity(0.55),
-                                                      item.element.opacity(0)],
-                                             center: .center, startRadius: 0, endRadius: size / 2))
-                        .frame(width: size, height: size)
-                        .scaleEffect(scale)
-                        .position(x: w * CGFloat(x), y: h * CGFloat(y))
-                        .blendMode(.screen)
-                }
-                // A light dark wash, so white text always reads over the brightest spot.
-                base.opacity(0.22)
-            }
-            .frame(width: w, height: h)
-            .clipped()
-            .drawingGroup()
-        }
     }
 }

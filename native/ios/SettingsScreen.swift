@@ -79,6 +79,7 @@ struct SettingsScreen: View {
                         .font(LookStore.isNewLook ? .system(size: 34, weight: .bold)
                                                   : .system(size: 26, weight: .heavy))
                         .foregroundStyle(ShellPalette.text)
+                        .modifier(NewLookSweep(enabled: LookStore.isNewLook))
                     Spacer(minLength: 8)
                     Button("Open all") { SettingsFolds.shared.openAll() }
                         .buttonStyle(SettingsFoldButtonStyle())
@@ -1112,6 +1113,8 @@ struct SettingsSection<Content: View>: View {
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
+                    // A light sweep now and then (NewLookMotion.swift), out of step from card to card.
+                    .modifier(NewLookSweep(phase: Double(title.count % 10) / 10))
             }
         } else {
             Text(title)
@@ -1126,7 +1129,8 @@ struct SettingsSection<Content: View>: View {
         VStack(alignment: .leading, spacing: open ? 12 : 0) {
             if foldable {
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(isNew ? .spring(response: 0.42, dampingFraction: 0.82)
+                                        : .easeInOut(duration: 0.2)) {
                         folds.toggle(title)
                     }
                 } label: {
@@ -1140,7 +1144,7 @@ struct SettingsSection<Content: View>: View {
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .modifier(NewLookButtons(enabled: isNew, scale: 0.98))
                 .accessibilityLabel(title)
                 .accessibilityValue(open ? "open" : "closed")
             } else {
@@ -1339,7 +1343,7 @@ struct SettingsButton: View {
                 )
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .modifier(NewLookButtons(enabled: LookStore.isNewLook))
     }
 }
 
@@ -1458,6 +1462,13 @@ struct SegmentedChoice<Option: Hashable>: View {
                     // Nothing in Dark. In Light, white under the glass, so the thumb rises out of
                     // the light groove the way iOS's own light selector does (`thumbFill`).
                     .background(Capsule(style: .continuous).fill(ShellPalette.thumbFill))
+                    // The New look: the pill is tinted with the accent (its gradient for a blend).
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .fill(LookStore.isNewLook ? ShellPalette.accentFill
+                                                      : AnyShapeStyle(Color.clear))
+                            .opacity(0.30)
+                    )
                     .overlay(
                         // The specular edge. A single hairline of white at low opacity is what
                         // reads as a lit top edge on a physical control, and it is the difference
@@ -1476,7 +1487,10 @@ struct SegmentedChoice<Option: Hashable>: View {
                     .offset(x: segment * CGFloat(index))
                     // A spring rather than a fixed curve, so the thumb settles the way the
                     // system's own does instead of arriving on a timer.
-                    .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.86),
+                    // In the New look a livelier spring that overshoots a touch.
+                    .animation(LookStore.isNewLook
+                                   ? .spring(response: 0.34, dampingFraction: 0.66)
+                                   : .interactiveSpring(response: 0.24, dampingFraction: 0.86),
                                value: index)
 
                 HStack(spacing: 0) {
