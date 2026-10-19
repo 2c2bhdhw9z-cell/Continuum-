@@ -7,6 +7,35 @@ Settings has no Home switch. Do not ask the 192 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Next install (after 196): the second look. Built, not tried on a phone
+
+Settings → LOOK (the first card, right under the Settings title) → **Current** or **New**.
+Current is how the app has always looked and stays the default. New is the dark charcoal and
+gold look from your mockup.
+
+1. **Switch.** Settings → LOOK → tap **New**. The whole app turns charcoal and gold at once,
+   still on Settings. Tap **Current**: back to the old look. Close and reopen the app: the look
+   you picked is still on.
+2. **Home (New).** CONTINUUM with the ring at the top, search / + / person on the right, the big
+   LAST PLAYED card (it says RECENTLY ADDED until you have played something), the SYSTEMS row
+   with counts, Jump Back In, Recently Added, and the floating tab bar at the bottom. Play a game
+   for a few minutes and quit: Home shows it as LAST PLAYED with "Xm played", and in Jump Back In.
+   Play time only starts counting from this install.
+3. **Systems and Library.** Tap a console on Home: Library opens with only that console, its chip
+   gold. Tap All. Select mode, shuffle, the layouts and card sizes work like in Current.
+4. **Search, +, person.** The magnifier opens a search field in the header (Cancel closes it).
+   + opens Files; press and hold + for the other ways in. The person button has Sync now (if a
+   sync folder is set), technical details, and Settings.
+5. **Game Hub.** Press and hold a game, or tap Game Hub on Home: tilted cover, console,
+   "Runs on ...", play time, Resume or Play, heart. Below it: the same game card as always.
+6. **Pause menu.** In a game (New look) tap the gold pause button: the game pauses and a dark
+   glass menu comes up. Try Save state, Load last, Save slots, Cheats, Skin, Reset, Quit to
+   library. Swipe it down: the game carries on by itself.
+7. **Nothing broke in Current.** Switch back to Current and check Home, All Games, Favorites,
+   Settings, a game card and the buttons in a game. All should look and work like build 196.
+8. **Light mode.** New is always dark. With New on, Settings → APPEARANCE → Light does nothing
+   until you switch back to Current.
+
 ## Build 191 (17 October): covers and the library
 
 **Owner's results on build 192 (17 October, 9:35 PM Eastern). Do not ask these again.**

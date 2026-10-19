@@ -30,13 +30,32 @@ import UIKit
 /// `background.opacity(x)` of `Color.black.opacity(x)` used as a wash behind the page's own
 /// content. Colours drawn OVER COVER ART (a card's badge and star) or over a running game stay
 /// fixed white and black, because the art and the game look the same in both modes.
+///
+/// TWO LOOKS (Settings, LOOK: Current or New; LookTheme.swift). `accent`, `onAccent`,
+/// `background`, `card` and `cardStroke` follow it: red on black for Current, gold on charcoal
+/// for New. `danger` stays red in both, so a delete never turns gold. New is always dark
+/// (`RootView`), so every adaptive colour below takes its Dark value there.
 enum ShellPalette {
-    static let accent = Color(red: 0.93, green: 0.16, blue: 0.29)
+    static let red = Color(red: 0.93, green: 0.16, blue: 0.29)
+    /// The New look's accent: the gold of the mockup's Resume button and active tab.
+    static let gold = Color(red: 0.98, green: 0.77, blue: 0.26)
+    /// The New look's page: near-black with a little warmth.
+    static let charcoal = Color(red: 0.075, green: 0.075, blue: 0.085)
+
+    static var accent: Color { LookStore.isNewLook ? gold : red }
+    /// Text and glyphs drawn ON the accent: dark on gold, white on red.
+    static var onAccent: Color { LookStore.isNewLook ? Color.black : Color.white }
+    /// Deletes and failures, red in both looks.
+    static let danger = red
+    /// A settings or detail card's fill, and its edge (none in Current).
+    static var card: Color { LookStore.isNewLook ? Color.white.opacity(0.055) : surface }
+    static var cardStroke: Color { LookStore.isNewLook ? Color.white.opacity(0.09) : Color.clear }
     /// The light teal on black; a deeper teal on white, so it reads there too.
     static let metadata = adaptive(dark: Dark.metadata,
                                    light: UIColor(red: 0.0, green: 0.47, blue: 0.42, alpha: 1))
     /// The page: black in Dark, white in Light. A game's own screen stays black in both.
-    static let background = adaptive(dark: .black, light: .white)
+    static var background: Color { LookStore.isNewLook ? charcoal : pageBackground }
+    private static let pageBackground = adaptive(dark: .black, light: .white)
     /// Text and icons on the page: white in Dark, black in Light.
     static let text = adaptive(dark: .white, light: .black)
     static let surface = adaptive(dark: UIColor(white: 1, alpha: 0.08),
@@ -158,7 +177,7 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 enum StatusTint {
     static func tint(for status: String) -> Color {
         switch level(for: status) {
-        case .broken: return ShellPalette.accent
+        case .broken: return ShellPalette.danger
         case .wary: return Color.orange
         case .everyday: return ShellPalette.metadata
         }
@@ -238,7 +257,7 @@ struct PillButton: View {
                     .font(.system(size: 15, weight: .semibold))
             }
             // White on the red pill in both modes; the grey pill's text follows the page.
-            .foregroundStyle(filled ? Color.white : ShellPalette.text)
+            .foregroundStyle(filled ? ShellPalette.onAccent : ShellPalette.text)
             .padding(.horizontal, 18)
             .padding(.vertical, 11)
             .frame(minWidth: 108)

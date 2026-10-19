@@ -361,6 +361,15 @@ struct LibraryShell: View {
     @ObservedObject private var selection = LibrarySelection.shared
     /// Asking before several games are deleted at once.
     @State private var confirmingDelete = false
+    /// Settings, LOOK: Current or New (LookTheme.swift). This one view draws both; see the note
+    /// at the top of NewLookShell.swift.
+    @ObservedObject private var looks = LookStore.shared
+    @ObservedObject private var history = PlayHistory.shared
+    /// The New look's header shows the search field only once its search button is tapped.
+    @State private var searchOpen = false
+    @FocusState private var searchFocused: Bool
+
+    private var isNew: Bool { looks.look == .newLook }
 
     /// The real safe-area insets and window size, measured from UIKit. See `SafeAreaProbe` for why
     /// they are not read from a GeometryProxy.
@@ -421,8 +430,8 @@ struct LibraryShell: View {
             // Opaque, and that is the point: the canvas stays mounted underneath so a game can
             // open without building a new surface, and a library you can see a game through is
             // the debug overlay this screen replaces. The frame loop itself is not running here.
-            // The page colour: black in Dark, white in Light.
-            ShellPalette.background
+            // The page colour: black in Dark, white in Light; charcoal in the New look.
+            pageBackground
                 .ignoresSafeArea()
 
             content
@@ -475,9 +484,72 @@ struct LibraryShell: View {
         }
     }
 
+    @ViewBuilder
+    private var pageBackground: some View {
+        if isNew {
+            NewLookBackdrop()
+        } else {
+            ShellPalette.background
+        }
+    }
+
     // MARK: Top bar
 
+    @ViewBuilder
     private var topBar: some View {
+        if isNew {
+            newTopBar
+        } else {
+            currentTopBar
+        }
+    }
+
+    /// The New look's header: the wordmark and its ring, then search, plus and the person button
+    /// in one glass capsule. The search field takes the header's place while it is open.
+    private var newTopBar: some View {
+        HStack(spacing: 10) {
+            if searchOpen || !host.librarySearch.isEmpty {
+                searchField
+                Button("Cancel") {
+                    host.librarySearch = ""
+                    searchOpen = false
+                    searchFocused = false
+                }
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(ShellPalette.gold)
+                .buttonStyle(.plain)
+            } else {
+                NewLookWordmark()
+                Spacer(minLength: 8)
+                NewLookHeaderTools(host: host,
+                                   status: host.status,
+                                   cloudConfigured: host.cloudSync.isConfigured,
+                                   showsDiagnostics: host.showDiagnostics) {
+                    searchOpen = true
+                    // Search looks through games, so it opens the Library.
+                    if host.libraryTab == .home || host.libraryTab == .settings {
+                        host.libraryTab = .allGames
+                    }
+                    // A beat later, so the field is on screen before it takes focus.
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 150_000_000)
+                        searchFocused = true
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .frame(height: topBarHeight)
+        .padding(.top, max(metrics.insets.top, 8))
+        .background(
+            LinearGradient(colors: [ShellPalette.charcoal, ShellPalette.charcoal.opacity(0.94),
+                                    ShellPalette.charcoal.opacity(0)],
+                           startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea(edges: .top)
+        )
+    }
+
+    private var currentTopBar: some View {
         HStack(spacing: 10) {
             logoTile
             searchField
@@ -534,6 +606,7 @@ struct LibraryShell: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
                 .submitLabel(.search)
+                .focused($searchFocused)
             if !host.librarySearch.isEmpty {
                 Button {
                     host.librarySearch = ""
@@ -745,8 +818,20 @@ struct LibraryShell: View {
                         .padding(.bottom, 6)
                 }
                 .frame(maxHeight: 260)
+                .background {
+                    if isNew {
+                        RoundedRectangle(cornerRadius: 18).fill(.ultraThinMaterial)
+                    }
+                }
+                .padding(.horizontal, isNew ? 14 : 0)
+                .padding(.bottom, isNew ? 8 : 0)
             }
-            tabBar
+            if isNew {
+                NewLookTabBar(selected: host.libraryTab,
+                              bottomInset: metrics.insets.bottom) { host.libraryTab = $0 }
+            } else {
+                tabBar
+            }
         }
         // THE FLOATING BAR'S GLASS: the content runs underneath, and this is what you see it
         // through. The material is the same `ultraThinMaterial` the segmented selectors use as
@@ -765,10 +850,14 @@ struct LibraryShell: View {
         // The wash also covers exactly the frame the old opaque black did, so a tap on the bar
         // (the home-indicator strip under the tabs included) still stops at the bar and never
         // reaches a cover passing underneath it.
+        //
+        // THE NEW LOOK has no full-width glass: its tab bar is a floating capsule with its own.
         .background {
-            ZStack {
-                ShellPalette.background.opacity(0.6)
-                Rectangle().fill(.ultraThinMaterial)
+            if !isNew {
+                ZStack {
+                    ShellPalette.background.opacity(0.6)
+                    Rectangle().fill(.ultraThinMaterial)
+                }
             }
         }
         .background(GeometryReader { proxy in
@@ -821,9 +910,17 @@ struct LibraryShell: View {
         }
     }
 
-    /// Home: the hero, then the shelves.
+    /// Home: the hero, then the shelves; or the New look's Home (NewLookShell.swift).
+    @ViewBuilder
     private var homeTab: some View {
-        shelvesHome
+        if isNew {
+            NewLookHome(host: host, artwork: artwork, generation: artworkGeneration.value,
+                        history: history, looks: looks,
+                        topPadding: topBarHeight + max(metrics.insets.top, 8) + 6,
+                        bottomSpace: scrollEndClearance)
+        } else {
+            shelvesHome
+        }
     }
 
     /// Home: the hero, then the shelves.
@@ -911,12 +1008,18 @@ struct LibraryShell: View {
     /// game can be deleted by swiping.
     @ViewBuilder
     private var allGamesTab: some View {
-        let shown = filtered(host.library)
+        // The New look's system chips narrow it first; the Current look has none.
+        let shown = filtered(isNew ? NewLookSystemChips.narrowed(host.library,
+                                                                 to: looks.librarySystem)
+                                   : host.library)
         VStack(alignment: .leading, spacing: 10) {
             tabHeader(
-                title: "All Games",
+                title: isNew ? "Library" : "All Games",
                 subtitle: subtitle(for: shown, of: host.library.count)
             )
+            if isNew && !host.library.isEmpty {
+                NewLookSystemChips(library: host.library, looks: looks)
+            }
 
             if host.library.isEmpty {
                 EmptyLibraryNotice(title: "Nothing imported yet",
@@ -928,7 +1031,9 @@ struct LibraryShell: View {
             } else if shown.isEmpty {
                 EmptyLibraryNotice(
                     title: "No match",
-                    guidance: "Nothing in the library matches \"\(host.librarySearch)\"."
+                    guidance: host.librarySearch.isEmpty
+                        ? "No games for this system yet."
+                        : "Nothing in the library matches \"\(host.librarySearch)\"."
                 )
                 Spacer(minLength: 0)
             } else if host.libraryLayout == .consoles {
@@ -1001,7 +1106,7 @@ struct LibraryShell: View {
             } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(count == 0 ? ShellPalette.secondaryText : ShellPalette.accent)
+                    .foregroundStyle(count == 0 ? ShellPalette.secondaryText : ShellPalette.danger)
                     .frame(width: 40, height: 36)
             }
             .disabled(count == 0)

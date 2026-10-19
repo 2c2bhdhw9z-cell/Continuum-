@@ -58,8 +58,24 @@ struct GameDetailSheet: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                header
-                actions
+                // The New look (Settings, LOOK) has its own top, the Game Hub, matching its Home
+                // hero. Everything below is the same card in both looks.
+                if LookStore.isNewLook {
+                    NewLookHubHeader(
+                        entry: entry,
+                        system: system,
+                        store: artwork,
+                        generation: artwork.generation,
+                        isFavourite: host.favourites.contains(entry.name),
+                        record: PlayHistory.shared.record(for: entry.name),
+                        hasAutoSave: saveStates.states(for: entry).contains(where: { $0.isAuto }),
+                        coreName: NewLook.coreName(for: entry, ps1CoreId: host.ps1CoreChoice.coreId),
+                        host: host
+                    )
+                } else {
+                    header
+                    actions
+                }
                 GameCardExtras(entry: entry, host: host)
                 facts
                 saveStatesBlock
@@ -283,7 +299,7 @@ struct GameDetailSheet: View {
                 if !stored {
                     Text("its file is no longer stored")
                         .font(.system(size: 11))
-                        .foregroundStyle(ShellPalette.accent)
+                        .foregroundStyle(ShellPalette.danger)
                 }
             }
             Spacer(minLength: 6)
@@ -317,7 +333,7 @@ struct GameDetailSheet: View {
             } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(ShellPalette.accent)
+                    .foregroundStyle(ShellPalette.danger)
                     .frame(width: 44, height: 44)
                     .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 9))
                     .contentShape(Rectangle())
@@ -423,7 +439,7 @@ struct GameDetailSheet: View {
             } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(ShellPalette.accent)
+                    .foregroundStyle(ShellPalette.danger)
                     .frame(width: 44, height: 44)
                     .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 9))
                     .contentShape(Rectangle())

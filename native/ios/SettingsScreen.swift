@@ -83,6 +83,10 @@ struct SettingsScreen: View {
                 }
                 .padding(.horizontal, 16)
 
+                // Settings, LOOK: Current or New (LookTheme.swift). Right under the title and never
+                // folded away, so whichever look is on, the way back is the first thing here.
+                LookPickerCard()
+
                 // First, so a tester finds it without scrolling. The second way in is a game's
                 // ⋯ menu. See Feedback.swift.
                 FeedbackSettingsSection(host: host)
@@ -1124,7 +1128,11 @@ struct SettingsSection<Content: View>: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 14))
+        .background(ShellPalette.card, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(ShellPalette.cardStroke, lineWidth: 0.5)
+        )
         .padding(.horizontal, 16)
     }
 }
@@ -1228,7 +1236,7 @@ struct SettingsButton: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(role == .destructive ? ShellPalette.accent : ShellPalette.text)
+                .foregroundStyle(role == .destructive ? ShellPalette.danger : ShellPalette.text)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .frame(maxWidth: .infinity)
@@ -1238,7 +1246,7 @@ struct SettingsButton: View {
                         .overlay(
                             RoundedRectangle(cornerRadius: 10)
                                 .strokeBorder(role == .destructive
-                                              ? ShellPalette.accent.opacity(0.55)
+                                              ? ShellPalette.danger.opacity(0.55)
                                               : Color.clear,
                                               lineWidth: 1)
                         )

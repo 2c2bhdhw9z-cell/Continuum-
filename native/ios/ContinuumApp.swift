@@ -1942,7 +1942,16 @@ final class EngineHost: ObservableObject {
     /// purpose: the player screen needs the filename for its title bar and the extension to decide
     /// which pad to draw, and holding the entry means neither has to be looked up a second time or
     /// stored twice. Set only on `launch`'s success path, cleared only in `stopSession`.
-    @Published var activeEntry: LibraryEntry?
+    ///
+    /// Also the one place play time is recorded (`PlayHistory`, LookTheme.swift): every way a game
+    /// opens or closes passes through this property, the bundled players included.
+    @Published var activeEntry: LibraryEntry? {
+        didSet {
+            guard oldValue?.id != activeEntry?.id else { return }
+            if oldValue != nil { PlayHistory.shared.ended() }
+            if let entry = activeEntry { PlayHistory.shared.began(entry.name) }
+        }
+    }
     /// The bundled player (Flash, J2ME) running the active game, or nil. See WebPlayers.swift.
     @Published var webPlayer: WebPlayerSession?
     /// That player's picture aspect (movie stage or phone screen), 0 when none.
@@ -6239,6 +6248,14 @@ struct RootView: View {
     /// Owns the engine host for the app's lifetime, which is also what keeps the picker's
     /// delegate alive long enough to be called back. See `EngineHost.importPickerDelegate`.
     @StateObject private var host = EngineHost()
+    /// Settings, LOOK: Current or New (LookTheme.swift). Observed here so a change redraws the
+    /// whole app at once. The New look is always dark, so it overrides APPEARANCE while it is on.
+    @ObservedObject private var looks = LookStore.shared
+
+    /// The colour scheme the app is drawn in: the New look's dark, or the Appearance setting.
+    private var effectiveAppearance: AppAppearance {
+        looks.look == .newLook ? .dark : host.appearance
+    }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -6253,6 +6270,10 @@ struct RootView: View {
                 // covers the canvas rather than replacing it.
                 LibraryShell(host: host, artwork: host.artwork,
                              artworkGeneration: host.artwork.generationOnly)
+                    // A new identity when the look changes, so every card, row and Settings
+                    // section is drawn again with the other look's colours at once. The shell's
+                    // state that matters (tab, search, layout) lives on the host and survives.
+                    .id(looks.look)
             } else {
                 PlayerScreen(host: host,
                              emulation: host.emulation,
@@ -6273,9 +6294,10 @@ struct RootView: View {
         // and the same choice on the app's windows for everything UIKit presents by itself. See
         // `AppAppearance.applyToWindows`. The black above stays black in both: it is the
         // letterbox around a game.
-        .preferredColorScheme(host.appearance.colorScheme)
-        .onAppear { host.appearance.applyToWindows() }
-        .onChange(of: host.appearance) { choice in choice.applyToWindows() }
+        .preferredColorScheme(effectiveAppearance.colorScheme)
+        .onAppear { effectiveAppearance.applyToWindows() }
+        .onChange(of: host.appearance) { _ in effectiveAppearance.applyToWindows() }
+        .onChange(of: looks.look) { _ in effectiveAppearance.applyToWindows() }
         // The "which system is this?" picker, over the library or the player.
         .background(ImportCenterPresenter(center: host.importCenter))
         // Open in / Share to Continuum, from Files, Mail, Safari and AirDrop.

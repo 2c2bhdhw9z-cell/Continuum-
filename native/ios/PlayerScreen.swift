@@ -118,6 +118,14 @@ struct PlayerScreen: View {
     /// player who wants a clean screen wants it every time.
     @AppStorage("continuum.player.topBarHidden.v1") private var topBarHidden = false
 
+    /// Which look is on (Settings, LOOK). The New look puts the session actions in a pause menu.
+    @ObservedObject private var looks = LookStore.shared
+    /// The New look's pause menu, whether opening it paused the game (so closing it resumes),
+    /// and what was chosen in it, which runs once the menu has gone.
+    @State private var showPauseMenu = false
+    @State private var pausedForMenu = false
+    @State private var pendingPause: PauseChoice?
+
     var body: some View {
         ZStack(alignment: .top) {
             // Controls first, so the chrome's buttons sit above them in the z-order. They only
@@ -240,6 +248,134 @@ struct PlayerScreen: View {
                 showFeedback = false
             }
         }
+        .sheet(isPresented: $showPauseMenu, onDismiss: finishPauseMenu) {
+            NewLookPauseSheet(host: host,
+                              saveStates: saveStates,
+                              entry: host.activeEntry,
+                              system: host.activeEntry.flatMap { CoreCatalog.system(for: $0) },
+                              netplayLive: host.netplayLive,
+                              isWebPlayer: host.webPlayer != nil,
+                              twoScreens: host.activeSystemHasTwoScreens,
+                              showsDetails: host.showDiagnostics,
+                              onChoose: { choice in
+                                  pendingPause = choice
+                                  showPauseMenu = false
+                              })
+        }
+    }
+
+    // MARK: The new look's top bar and pause menu
+
+    /// Back and the eye stay where they are. Then the title, the two held controls (rewind and
+    /// fast forward have to be held, so they cannot live in a menu), the gold pause button that
+    /// opens the pause menu, and the same ⋯ menu the current look has, for everything else.
+    @ViewBuilder
+    private var newLookTopBarItems: some View {
+        Text(host.activeEntry.map { GameMetadata.displayTitle(for: $0) } ?? "no game")
+            .font(.system(size: 14, weight: .semibold))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .foregroundStyle(Color.white.opacity(0.92))
+
+        Spacer(minLength: 4)
+
+        if emulation.rewindEnabled && !host.netplayLive && host.webPlayer == nil {
+            holdButton("backward.fill",
+                       label: "Rewind",
+                       active: emulation.isRewinding,
+                       onPress: { emulation.beginRewind() },
+                       onRelease: { emulation.endRewind() })
+        }
+        if !host.netplayLive && host.webPlayer == nil {
+            holdButton("forward.fill",
+                       label: "Fast forward",
+                       active: emulation.isFastForwarding,
+                       onPress: { emulation.beginFastForward() },
+                       onRelease: { emulation.endFastForward() })
+        }
+
+        Button {
+            openPauseMenu()
+        } label: {
+            Image(systemName: "pause.fill")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(Color.black)
+                .frame(width: 42, height: 42)
+                .background(ShellPalette.gold, in: Circle())
+                .shadow(color: ShellPalette.gold.opacity(0.45), radius: 8)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Pause menu")
+
+        if host.webPlayer != nil {
+            sessionButton("slider.horizontal.3", label: "Player settings") {
+                host.showWebPlayerSettings()
+            }
+        } else {
+            saveStateControl
+        }
+    }
+
+    /// Pauses (unless online play is on, where pausing one phone stalls the other) and opens
+    /// the menu.
+    private func openPauseMenu() {
+        pendingPause = nil
+        if !host.netplayLive && !host.paused {
+            host.togglePause()
+            pausedForMenu = host.paused
+        } else {
+            pausedForMenu = false
+        }
+        showPauseMenu = true
+    }
+
+    /// Runs after the pause menu has gone, by any route (a choice, a swipe down, a tap outside).
+    /// Actions on the game itself run while it is still paused; then the game resumes if the
+    /// menu paused it; then anything that opens another sheet opens, a beat later, so two sheets
+    /// never try to be on screen at once.
+    private func finishPauseMenu() {
+        let choice = pendingPause
+        pendingPause = nil
+
+        if choice == .quit {
+            pausedForMenu = false
+            host.leavePlayer()
+            return
+        }
+
+        switch choice {
+        case .saveState: host.saveStateToSlot()
+        case .loadLast:
+            if let entry = host.activeEntry, let newest = saveStates.states(for: entry).first {
+                saveStates.load(newest)
+            }
+        case .reset: host.resetGame()
+        case .swapScreens: host.swapScreens()
+        case .cover:
+            if let entry = host.activeEntry { host.artwork.captureCover(for: entry) }
+        case .details: host.showDiagnostics.toggle()
+        default: break
+        }
+
+        if pausedForMenu && host.paused {
+            host.togglePause()
+        }
+        pausedForMenu = false
+
+        guard let choice else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            switch choice {
+            case .slots: showingSlots = true
+            case .cheats: showingCheats = true
+            case .skin: SkinRuntime.shared.sheet = .skins
+            case .functions: SkinRuntime.shared.sheet = .functions
+            case .controllers: _ = host.showControllers()
+            case .netplay: showNetplay = true
+            case .feedback: showFeedback = true
+            default: break
+            }
+        }
     }
 
     // MARK: Top bar
@@ -266,6 +402,8 @@ struct PlayerScreen: View {
 
             if topBarHidden {
                 Spacer(minLength: 0)
+            } else if looks.look == .newLook {
+                newLookTopBarItems
             } else {
                 topBarItems
             }

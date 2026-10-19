@@ -1,5 +1,12 @@
 # What is finished, and what is not
 
+**19 October 2026: the second look is built and not tried on a phone yet.** Settings → LOOK
+→ Current or New. Current is the look the app always had and stays the default. New is the dark
+charcoal and gold look from the owner's one mockup (Home), carried to Library, Favorites,
+Settings, the game card (Game Hub top) and a new pause menu in a game. It also records play time
+and when each game was last played, from this install on. Phone checks: TESTING.md "Next
+install (after 196)". The design notes are in `.kiro/notes/docs/NEW_LOOK.md`.
+
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
 18 October 2026, 9:20 AM Eastern. **Build 192** (`006c199`) is the newest published install.
 What the phone has passed since 185 is in "Next up" at the top and in TESTING.md. The paragraphs

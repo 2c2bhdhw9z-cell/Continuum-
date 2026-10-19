@@ -5,7 +5,20 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (19 October 2026, afternoon Eastern): build 196 is the newest install
+## START HERE (19 October 2026, evening Eastern): the second look
+
+- **The owner asked for a second look users can pick** (not the removed Last played Home). It is
+  in: Settings → LOOK → Current | New. No branded names: the owner rejected Classic, Studio,
+  Browse and Default. Current stays the default and is untouched.
+- How it is built: `LookTheme.swift` (the choice, play history, the Settings card),
+  `NewLookShell.swift` (the New look's header tools, Home, system chips, tab bar, Game Hub top),
+  `NewLookPause.swift` (the pause menu). `LibraryShell` draws both looks and branches only where
+  they differ, so select mode, pop-ups, layouts and card sizes are shared. `ShellPalette.accent`,
+  `background` and `card` follow the look; `danger` is red in both. New forces dark in `RootView`.
+- Built in the next install after 196 and **not tried on a phone**. Test steps: TESTING.md
+  "Next install (after 196)".
+
+## Earlier: build 196 is the newest install
 
 - **Build 196** (`b50fb81`) is the newest install:
   https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-196-b50fb81/Continuum-196.ipa
