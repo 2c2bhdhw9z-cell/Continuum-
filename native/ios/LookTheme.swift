@@ -278,6 +278,17 @@ struct LookPickerCard: View {
     @ObservedObject private var looks = LookStore.shared
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            lookCard
+            // The New look's colours, right here under the switch, in Settings' own scroll view
+            // (NewLookTheme.swift).
+            if looks.look == .newLook {
+                NewLookColorPanels()
+            }
+        }
+    }
+
+    private var lookCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             if looks.look == .newLook {
                 HStack(spacing: 12) {
@@ -303,9 +314,7 @@ struct LookPickerCard: View {
                 }
             }
             SettingsNote("Your games and saves stay the same. New is always dark.")
-            if looks.look == .newLook {
-                ThemeRow()
-            }
+
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
@@ -371,17 +380,18 @@ struct LookPickerCard: View {
     }
 }
 
-// MARK: - The New look's colours and box art (Settings, LOOK, Theme)
+// MARK: - The New look's colours and covers (Settings, LOOK)
 
-/// Everything the New look's Theme sheet sets (NewLookTheme.swift): the accent (one colour or a
+/// Everything the New look's colour panels under Settings, LOOK set (NewLookTheme.swift): the accent (one colour or a
 /// gradient of two), saved colours, the glow round the covers, the ring next to CONTINUUM (and
-/// whether it spins), the page's background (and whether it moves), and the box art style.
+/// whether it spins), the page's background (and whether it moves), and the covers' corners,
+/// square covers and hidden titles.
 ///
 /// Stored in UserDefaults, nil meaning the default, so Reset just forgets them. A colour is a
 /// hex string, "FAC442", or two joined by a dash for a gradient, "FFD66B-F2B233". Deliberately
 /// NOT main-actor isolated, for the reason `LookStore` is not: `ShellPalette` reads it from static
-/// colour properties. `version` changes with every pick; `RootView` uses it to redraw the
-/// library at once (the same way a change of look does).
+/// colour properties. `version` changes with every pick; `LibraryShell` uses it to redraw
+/// Home, Library, Favorites and the tab bar, while Settings redraws in place and keeps its scroll.
 final class NewLookColors: ObservableObject {
     static let shared = NewLookColors()
 
@@ -435,8 +445,6 @@ final class NewLookColors: ObservableObject {
     private static let keyPrefix = "continuum.ui.newLook."
 
     @Published private(set) var version = 0
-    /// The Theme sheet, presented by `RootView` so the library redrawing behind it never closes it.
-    @Published var showingTheme = false
 
     @Published var accentHex: String? { didSet { save("accent", accentHex) } }
     @Published var savedSwatches: [String] {
@@ -451,9 +459,7 @@ final class NewLookColors: ObservableObject {
     /// "Moving gradient": the background slowly drifts. Off by default.
     @Published var backgroundMoves: Bool { didSet { save("backgroundMoves", backgroundMoves ? "on" : nil) } }
 
-    // Box art, for the New look's cover cards.
-    /// 1 glow, 2 on a glass plate, 3 plain with a shadow.
-    @Published var coverStyle: Int { didSet { save("coverStyle", coverStyle == 1 ? nil : String(coverStyle)) } }
+    // The New look's cover cards.
     /// Corner rounding, 0 square to 1 very round.
     @Published var coverCorner: Double {
         didSet { save("coverCorner", coverCorner == Self.defaultCorner ? nil : String(coverCorner)) }
@@ -476,7 +482,6 @@ final class NewLookColors: ObservableObject {
         ringSpins = d.string(forKey: p + "ringSpins") != "off"
         backgroundHex = d.string(forKey: p + "background").flatMap(Self.validated)
         backgroundMoves = d.string(forKey: p + "backgroundMoves") == "on"
-        coverStyle = d.string(forKey: p + "coverStyle").flatMap { Int($0) }.map { min(max($0, 1), 3) } ?? 1
         coverCorner = d.string(forKey: p + "coverCorner").flatMap { Double($0) }
             .map { min(max($0, 0), 1) } ?? Self.defaultCorner
         forceSquare = d.string(forKey: p + "forceSquare") == "on"
@@ -494,7 +499,7 @@ final class NewLookColors: ObservableObject {
     }
 
     /// Back to gold on charcoal, console glows, the spinning rainbow ring, the first box art
-    /// style. Saved colours are kept: they are the player's own, deleted one by one.
+    /// covers. Saved colours are kept: they are the player's own, deleted one by one.
     func resetToDefaults() {
         accentHex = nil
         glowMode = .console
@@ -504,7 +509,6 @@ final class NewLookColors: ObservableObject {
         ringSpins = true
         backgroundHex = nil
         backgroundMoves = false
-        coverStyle = 1
         coverCorner = Self.defaultCorner
         forceSquare = false
         hideTitles = false
@@ -513,7 +517,7 @@ final class NewLookColors: ObservableObject {
     var isDefault: Bool {
         accentHex == nil && glowMode == .console && glowHex == nil && ringMode == .rainbow
             && ringHex == nil && ringSpins && backgroundHex == nil && !backgroundMoves
-            && coverStyle == 1 && coverCorner == Self.defaultCorner && !forceSquare && !hideTitles
+            && coverCorner == Self.defaultCorner && !forceSquare && !hideTitles
     }
 
     /// Adds a colour to the saved row (newest first), once.
@@ -568,18 +572,6 @@ final class NewLookColors: ObservableObject {
         }
     }
 
-    /// The moving background's colours: the page colour and the accent's colours dimmed far
-    /// enough that white text over them always reads.
-    var movingColors: [Color] {
-        let base = backgroundHex ?? Self.defaultBackground
-        let stops = Self.stops(accentHex ?? Self.defaultAccent)
-        let first = stops[0]
-        let second = stops.count > 1 ? stops[1] : Self.shiftedHue(first, by: 0.12)
-        let third = Self.shiftedHue(first, by: -0.18)
-        return [base, Self.darkened(hex: first, to: 0.20), Self.darkened(hex: second, to: 0.20),
-                Self.darkened(hex: third, to: 0.16)].map(Self.color(hex:))
-    }
-
     // MARK: Hex
 
     /// "FAC442" or "FFD66B-F2B233", upper case, or nil if it is not one of those.
@@ -630,6 +622,23 @@ final class NewLookColors: ObservableObject {
     static func isLight(hex: String) -> Bool { luminance(hex: hex) > 0.6 }
 
     /// Hue, saturation, brightness, each 0 to 1.
+    /// A colour from the system colour picker as hex, or nil if it has no RGB form.
+    static func hex(from color: Color) -> String? {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
+        return hex(r: Double(r), g: Double(g), b: Double(b))
+    }
+
+    /// The moving background's glows: the accent's colours and two neighbours of them, bright
+    /// enough to be seen moving, dark enough that white text over them reads.
+    var blobColors: [Color] {
+        let stops = Self.stops(accentHex ?? Self.defaultAccent)
+        let first = stops[0]
+        let second = stops.count > 1 ? stops[1] : Self.shiftedHue(first, by: 0.10)
+        return [first, second, Self.shiftedHue(first, by: -0.16), Self.shiftedHue(second, by: 0.22)]
+            .map { Self.color(hex: Self.darkened(hex: $0, to: 0.34)) }
+    }
+
     static func hsb(hex: String) -> (Double, Double, Double) {
         let (r, g, b) = components(hex: hex)
         var h: CGFloat = 0, s: CGFloat = 0, v: CGFloat = 0, a: CGFloat = 0

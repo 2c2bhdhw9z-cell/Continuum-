@@ -5,6 +5,18 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
+## START HERE (19 October 2026, night Eastern): colours inline again after 200
+
+- RULE: never copy another app's UI layout; reference apps only for capability (STATUS.md).
+- Build 200's Theme sheet (modelled on another app) was removed. `NewLookTheme.swift` now has
+  `NewLookColorPanels` (shown by `LookPickerCard` under LOOK while New is on), using Apple's
+  `ColorPicker` for any colour; `ThemeSwatch`; `NewLookCoverStyle`; `NewLookMovingBackdrop`
+  (four large soft glows on 11 to 18 second paths, screen-blended, still under Reduce Motion).
+- No more whole-library rebuild on a colour pick: RootView's `.id` is the look only;
+  `LibraryShell` puts `.id(version)` on Home, Library, Favorites and the tab bar, and Settings
+  redraws in place (it observes `NewLookColors`), so it keeps its scroll and the picker.
+- The "after 199" section below describes the removed sheet; history only.
+
 ## START HERE (19 October 2026, evening Eastern): Theme sheet after 199
 
 - Owner asked for colour customisation "more like" another emulator's Theme screen. Built our

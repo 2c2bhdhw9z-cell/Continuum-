@@ -19,14 +19,14 @@ import UIKit
 // MARK: - The page behind everything
 
 /// Charcoal with a faint warm glow at the top, as the mockup has behind its hero.
-/// With Theme, Background, "Moving gradient" on, the slow moving gradient instead
+/// With Settings, LOOK, Background, "Moving gradient" on, the moving glows instead
 /// (NewLookTheme.swift).
 struct NewLookBackdrop: View {
     @ObservedObject private var colors = NewLookColors.shared
 
     var body: some View {
         if colors.backgroundMoves {
-            NewLookMovingBackdrop(colors: colors.movingColors)
+            NewLookMovingBackdrop(base: ShellPalette.charcoal, blobs: colors.blobColors)
         } else {
             ZStack {
                 ShellPalette.charcoal
@@ -368,7 +368,7 @@ struct NewLookShelf: View {
 // MARK: - A glowing cover card
 
 /// A cover card in the New look: the WHOLE cover at its own shape (never cropped), with a thin
-/// glowing outline in its console's colour (Settings, LOOK, Theme, "Cover glow"), the title and
+/// glowing outline in its console's colour (Settings, LOOK, "Cover glow"), the title and
 /// one or two lines under it. A tap plays, a press and hold opens the Game Hub, and in the
 /// Library's select mode a tap ticks it, exactly like the Current look's card.
 struct NewLookGlowCard: View {
@@ -387,7 +387,7 @@ struct NewLookGlowCard: View {
     /// Ticked in select mode. Nil when not selecting.
     var selected: Bool?
 
-    /// Theme, Box art, "Square covers": the cover's space is square, and the cover sits whole in
+    /// Settings, LOOK, "Square covers": the cover's space is square, and the cover sits whole in
     /// the middle of it.
     private var square: Bool { NewLookColors.shared.forceSquare }
     private var coverHeight: CGFloat { (width / (square ? 1 : frameAspect)).rounded() }
@@ -396,11 +396,11 @@ struct NewLookGlowCard: View {
         let theme = NewLookColors.shared
         let glow = theme.glow(for: system)
         VStack(alignment: .leading, spacing: cardSize.labelSpacing + 2) {
-            styledCover(glow: glow, style: theme.coverStyle)
+            styledCover(glow: glow)
                 .frame(width: width, height: coverHeight)
                 .overlay(alignment: .bottomLeading) { selectionMark }
 
-            // Theme, Box art, "Hide game titles".
+            // Settings, LOOK, "Hide titles".
             if !theme.hideTitles {
                 Text(GameMetadata.displayTitle(for: entry))
                     .font(.system(size: cardSize.titleFont + 1, weight: .semibold))
@@ -449,30 +449,14 @@ struct NewLookGlowCard: View {
                                               outline: outline)))
     }
 
-    /// Theme, Box art, Style: 1 the glow round the cover, 2 the cover on a glass plate edged in
-    /// the glow colour, 3 the cover plain with a soft shadow. Corners follow Theme, Box art,
-    /// Corners. The cover is always whole.
-    @ViewBuilder
-    private func styledCover(glow: Color?, style: Int) -> some View {
+    /// The glow round the whole cover, its corners from Settings, LOOK, "Corner roundness".
+    private func styledCover(glow: Color?) -> some View {
         let radius = NewLookCoverStyle.radius(width: width)
-        switch style {
-        case 2:
-            let plate = RoundedRectangle(cornerRadius: radius + 4, style: .continuous)
-            cover(radius: radius, outline: false)
-                .padding(5)
-                .background(plate.fill(Color.white.opacity(0.07)))
-                .overlay(plate.strokeBorder(glow ?? Color.white.opacity(0.14), lineWidth: 1))
-                .shadow(color: (glow ?? .clear).opacity(0.35), radius: 6)
-        case 3:
-            cover(radius: radius, outline: true)
-                .shadow(color: .black.opacity(0.55), radius: 6, y: 4)
-        default:
-            // Two shadows of the glow colour: a tight one that reads as a thin bright edge, and
-            // a soft one that is the glow. They follow the cover's own shape.
-            cover(radius: radius, outline: glow == nil)
-                .shadow(color: glow ?? .clear, radius: 1.2)
-                .shadow(color: (glow ?? .clear).opacity(0.65), radius: 9)
-        }
+        // Two shadows of the glow colour: a tight one that reads as a thin bright edge, and a
+        // soft one that is the glow. They follow the cover's own shape.
+        return cover(radius: radius, outline: glow == nil)
+            .shadow(color: glow ?? .clear, radius: 1.2)
+            .shadow(color: (glow ?? .clear).opacity(0.65), radius: 9)
     }
 
     @ViewBuilder
@@ -662,7 +646,7 @@ enum NewLook {
         }
     }
 
-    /// Each console's own colour, for the glow round its covers (Settings, LOOK, Theme,
+    /// Each console's own colour, for the glow round its covers (Settings, LOOK,
     /// "Cover glow", Console colours): the colour its hardware or its boxes are known by.
     static func consoleColor(_ system: GameSystem?) -> Color {
         func c(_ r: Double, _ g: Double, _ b: Double) -> Color { Color(red: r, green: g, blue: b) }
@@ -713,8 +697,8 @@ struct NewLookWordmark: View {
     /// iOS Settings, Accessibility, Reduce Motion: the ring stays still.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var spinning = false
-    /// Settings, LOOK, Theme: the ring's colour, and whether it spins.
-    private var colors: NewLookColors { NewLookColors.shared }
+    /// Settings, LOOK: the ring's colour, and whether it spins.
+    @ObservedObject private var colors = NewLookColors.shared
     private var shouldSpin: Bool { colors.ringSpins && !reduceMotion }
 
     var body: some View {
@@ -740,6 +724,7 @@ struct NewLookWordmark: View {
         }
         .onAppear { spinning = shouldSpin }
         .onChange(of: reduceMotion) { _ in spinning = shouldSpin }
+        .onChange(of: colors.ringSpins) { _ in spinning = shouldSpin }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Continuum")
         .accessibilityAddTraits(.isHeader)
@@ -872,7 +857,7 @@ struct NewLookPrimaryButton: View {
             .padding(.horizontal, 22)
             .padding(.vertical, 12)
             .frame(minWidth: 128)
-            // The accent gradient (Settings, LOOK, Theme, Colours).
+            // The accent gradient (Settings, LOOK, Colours).
             .background(ShellPalette.accentFill, in: Capsule())
             .shadow(color: ShellPalette.gold.opacity(0.35), radius: 10, y: 3)
         }

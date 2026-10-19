@@ -7,6 +7,31 @@ Settings has no Home switch. Do not ask the 192 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Next install (after 200): colours back in Settings, our own design. Built, not tried on a phone
+
+The Theme sheet from 200 is gone (it followed another app's layout too closely). Settings → LOOK →
+New now shows the colour cards right under the LOOK card. "After 199" below is replaced by this.
+Current must look exactly as before; APP ICON is as it was.
+
+1. Under LOOK: a Preview card (Resume button, a switch and two blank covers in your colours), then
+   rounded glass cards Accent, Covers, Ring, Background, each with an icon and a line saying what
+   it changes.
+2. Accent: tap a tile (gold first); the picked one glows and has a tick. "Any colour" opens
+   Apple's colour picker; drag anywhere in it and the app follows as you drag. "Blend two colours"
+   makes a gradient; "Second colour" picks its other end. "Add to my colours" keeps it; your
+   colours show under "My colours"; press and hold one to remove it.
+3. THE MAIN CHECK: while changing any colour, Settings must NOT jump back to the top, and the
+   colour picker must stay open.
+4. Covers: glow (Console colours / Accent / Off / Custom with its own colour), Corner roundness
+   (shows %), Square covers, Hide titles. Home, Library and Favorites follow.
+5. Ring: Rainbow / Accent / Custom, Spin.
+6. Background: dark tiles, Any colour (bright ones dimmed). Moving gradient: big soft glows of
+   your accent colours must clearly drift and blend across Home, Library, Favorites and Settings,
+   all the time, slowly. Text stays readable. With iOS Reduce Motion on it holds still and a gold
+   note under the switch says so. During a game it is not running.
+7. "Back to gold on charcoal" resets everything except your saved colours.
+8. Close and reopen the app: every choice is kept.
+
 ## Next install (after 199): the Theme sheet. Built, not tried on a phone
 
 Settings → LOOK → New, then the "Theme" row under it (the inline COLOURS block from 199 is gone;

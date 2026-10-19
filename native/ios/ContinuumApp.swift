@@ -6251,8 +6251,6 @@ struct RootView: View {
     /// Settings, LOOK: Current or New (LookTheme.swift). Observed here so a change redraws the
     /// whole app at once. The New look is always dark, so it overrides APPEARANCE while it is on.
     @ObservedObject private var looks = LookStore.shared
-    /// The New look's theme (Settings, LOOK, Theme). A pick redraws the library at once.
-    @ObservedObject private var newLookColors = NewLookColors.shared
 
     /// The colour scheme the app is drawn in: the New look's dark, or the Appearance setting.
     private var effectiveAppearance: AppAppearance {
@@ -6275,7 +6273,9 @@ struct RootView: View {
                     // A new identity when the look changes, so every card, row and Settings
                     // section is drawn again with the other look's colours at once. The shell's
                     // state that matters (tab, search, layout) lives on the host and survives.
-                    .id("\(looks.look.rawValue)-\(newLookColors.version)")
+                    // Colour picks do NOT change it: the library redraws its tabs itself (see
+                    // `LibraryShell`), so Settings keeps its place while a colour is being picked.
+                    .id(looks.look.rawValue)
             } else {
                 PlayerScreen(host: host,
                              emulation: host.emulation,
@@ -6300,11 +6300,6 @@ struct RootView: View {
         .onAppear { effectiveAppearance.applyToWindows() }
         .onChange(of: host.appearance) { _ in effectiveAppearance.applyToWindows() }
         .onChange(of: looks.look) { _ in effectiveAppearance.applyToWindows() }
-        // Settings, LOOK, Theme (New look), presented here rather than inside the library, so
-        // it stays open, where it was, while the library redraws in the new colours behind it.
-        .sheet(isPresented: $newLookColors.showingTheme) {
-            ThemeSheet(host: host)
-        }
         // The "which system is this?" picker, over the library or the player.
         .background(ImportCenterPresenter(center: host.importCenter))
         // Open in / Share to Continuum, from Files, Mail, Safari and AirDrop.

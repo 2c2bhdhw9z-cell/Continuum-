@@ -364,6 +364,10 @@ struct LibraryShell: View {
     /// Settings, LOOK: Current or New (LookTheme.swift). This one view draws both; see the note
     /// at the top of NewLookShell.swift.
     @ObservedObject private var looks = LookStore.shared
+    /// The New look's colours (Settings, LOOK). A pick redraws Home, Library, Favorites and the
+    /// tab bar from scratch (their `.id`), but NOT Settings, which only redraws in place, so it
+    /// keeps its scroll position and the open colour picker while a colour is picked.
+    @ObservedObject private var newLookColors = NewLookColors.shared
     @ObservedObject private var history = PlayHistory.shared
     /// The New look's header shows the search field only once its search button is tapped.
     @State private var searchOpen = false
@@ -829,6 +833,7 @@ struct LibraryShell: View {
             if isNew {
                 NewLookTabBar(selected: host.libraryTab,
                               bottomInset: metrics.insets.bottom) { host.libraryTab = $0 }
+                    .id(newLookColors.version)
             } else {
                 tabBar
             }
@@ -901,10 +906,13 @@ struct LibraryShell: View {
         switch host.libraryTab {
         case .home:
             homeTab
+                .id(newLookColors.version)
         case .allGames:
             allGamesTab
+                .id(newLookColors.version)
         case .favorites:
             favoritesTab
+                .id(newLookColors.version)
         case .settings:
             settingsTab
         }

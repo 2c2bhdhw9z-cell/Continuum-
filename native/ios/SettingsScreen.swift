@@ -27,6 +27,9 @@ import SwiftUI
 import UIKit
 
 struct SettingsScreen: View {
+    /// The New look's colours (Settings, LOOK): observed so this page redraws IN PLACE with a
+    /// new colour, keeping its scroll position.
+    @ObservedObject private var newLookColors = NewLookColors.shared
     @ObservedObject var host: EngineHost
     @ObservedObject var artwork: ArtworkStore
     @ObservedObject var emulation: EmulationSettings

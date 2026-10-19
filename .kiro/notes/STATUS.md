@@ -1,5 +1,17 @@
 # What is finished, and what is not
 
+**RULE (owner, 19 October 2026): never copy another app's UI layout.** Other apps may be looked
+at only for WHAT a player can do (capability), never for how a screen is laid out or worded.
+Build 200's Theme sheet broke this and was removed.
+
+**19 October 2026, evening: New-look colours back inline in Settings, our own design. Built, not
+tried on a phone.** Under LOOK: a live preview card, then Accent (gradient tiles, Apple's colour
+picker for any colour, optional two-colour blend, my colours with add and remove), Covers (glow,
+corner roundness, square covers, hide titles), Ring, Background (dark tiles, any colour, moving
+gradient that now visibly moves; a note when Reduce Motion keeps it still). Settings no longer
+jumps to the top on a colour change. App icons untouched. Phone checks: TESTING.md "Next install
+(after 200)".
+
 **19 October 2026, evening: the New look's Theme sheet, built, not tried on a phone.**
 Settings → LOOK → Theme (New only) replaces 199's inline colour block: gradient accent swatches,
 our own colour wheel (brightness, hex, saved colours, Save), cover glow, ring, background with an
