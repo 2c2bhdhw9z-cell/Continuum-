@@ -13,6 +13,8 @@ Paste this to start a new chat:
   - Next game, same console: from inside a game, jump to the next game on that console.
   - The game at the top of Home: you pick which game sits in the big spot. Added 18 October,
     3:25 PM. Right now that spot is just the last game added.
+  - Look at a backup before restoring it. Added 18 October, 9:50 PM. Show which games and
+    saves are in the backup. Nothing is restored until they say so.
 - **Continue widget: looked into, do not build.** A home-screen widget with the picture of
   where you stopped. The tap half already works (`continuum://play`, passed 17 October). The
   widget half needs a second piece inside the app, and Feather and ESign sign only the main
