@@ -1,18 +1,14 @@
 # What to test, and what to tell me
 
-Last updated 19 October 2026, morning Eastern. **Build 193** (`8149473`) is the newest install:
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-193-8149473/Continuum-193.ipa
-It is build 192 plus a second Home. The owner has not tried 193 yet. Passed on 192, and do not ask
-again: the evening list of 17 October (steps 1 to 20), and on the morning of 18 October the cBoy
-colour for old black-and-white games and the experimental picture (Build 190 checks 34, 35 and 37).
-The new Home is Settings, LAYOUT, Home, Last played. Shelves is the one they already have, and it
-stays the default. On Last played: the game they opened last is at the top (Resume opens it, Game
-Hub is the card), the consoles are a row (a tap filters the games under it, View all is All Games),
-and Jump Back In is the other games they opened. Nothing there is a made-up play time or a percent
-finished. The consoles are drawn, not photographs. Still open, and only on this one phone: Build
-190's checks 27 to 33, 36, and 38 onward that are not a second phone and not a disc, and a 3DS
-game playing like before. No discs, no swapping discs, no second phone, no online, until they say
-otherwise. The TV check is still open too; they left the TV for later.
+Last updated 19 October 2026, morning Eastern. **Build 194** (`96a9778`) is the newest install:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-194-96a9778/Continuum-194.ipa
+The owner rejected the Last played Home in 193. 194 is the same Home rebuilt to the picture they
+sent. Shelves stays the default. Settings, LAYOUT, Home, Last played. On that Home: LAST PLAYED
+at the top, Resume and Game Hub, the cover stood up as a box, the consoles in one tray (a tap
+picks one, View all is the library), Jump Back In under that. No made-up play time and no percent
+finished. A game with no cover still shows the plain plate. Do not ask the 192 passes again.
+No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
+is still open.
 
 ## Build 191 (17 October): covers and the library
 
