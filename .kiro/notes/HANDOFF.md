@@ -5,7 +5,17 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (18 October 2026, 2:40 PM Eastern): two ideas kept, the widget parked
+## START HERE (19 October 2026, morning Eastern): a second Home, and a build
+
+- **A build is running** for the second Home. Nothing but notes had landed since build 192, so this
+  build is 192 plus that Home. Shelves stays the default. Settings, LAYOUT, Home, **Last played**
+  is the other one: the game last opened, the consoles in a row, and the games they came back to.
+  It does not invent a play time or a percent finished. The picture the owner sent is the look.
+- **Still not built, and do not start them until they ask:** undo a delete, next game on the same
+  console, picking which game sits at the top of the Shelves home, looking at a backup before
+  restoring it. The Continue widget stays parked.
+
+## Earlier (18 October 2026, 2:40 PM Eastern): ideas kept, the widget parked
 
 - **Owner kept two ideas. Do not build them until they ask.** Written up in
   `.kiro/notes/docs/ideas/kept-2026-10-18.md`.

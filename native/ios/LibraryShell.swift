@@ -63,6 +63,23 @@ enum LibraryTab: String, CaseIterable, Identifiable {
         case .settings: return "Settings"
         }
     }
+
+    /// The Last played Home's tab bar. Library is the same tab as All Games.
+    var lobbyTitle: String {
+        switch self {
+        case .allGames: return "Library"
+        default: return title
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .home: return "house.fill"
+        case .allGames: return "books.vertical.fill"
+        case .favorites: return "heart.fill"
+        case .settings: return "gearshape.fill"
+        }
+    }
 }
 
 /// How All Games arranges itself. The user asked to be able to change the layout, and this is the
@@ -371,6 +388,8 @@ struct LibraryShell: View {
     /// True once Home has scrolled past the big cover. The bar then stays solid, so shelf titles
     /// do not show through the logo and the search field.
     @State private var homeBarSolid = false
+    /// The search icon on the Last played Home opens the field. The Shelves home always shows it.
+    @State private var lobbySearch = false
     /// The lines waiting to pop up just above the tabs, oldest first. The first is the one on
     /// screen. See `popUpLine`.
     @State private var popUps: [String] = []
@@ -441,6 +460,7 @@ struct LibraryShell: View {
             }
         }
         .background(SafeAreaProbe { metrics = $0 })
+        .modifier(LobbyDarkScheme(on: host.homeLook == .lastPlayed))
         // WHAT POPS UP: the Library's own line for the player (an import's result, the Not games
         // move; see `EngineHost.libraryNotice`), and every status line that reads as a problem,
         // which is what the old strip showed in orange or red. On appear too, for what was written
@@ -479,15 +499,54 @@ struct LibraryShell: View {
 
     private var topBar: some View {
         HStack(spacing: 10) {
-            logoTile
-            searchField
-            importButton
-            statusDot
+            if host.homeLook == .lastPlayed {
+                LobbyMark()
+                Text("CONTINUUM")
+                    .font(.system(size: 15, weight: .medium))
+                    .tracking(2.4)
+                    .foregroundStyle(LobbyPalette.cream)
+                Spacer(minLength: 8)
+                if lobbySearch || !host.librarySearch.isEmpty {
+                    searchField
+                } else {
+                    lobbyTools
+                }
+            } else {
+                logoTile
+                searchField
+                importButton
+                statusDot
+            }
         }
         .padding(.horizontal, 14)
         .frame(height: topBarHeight)
         .padding(.top, max(metrics.insets.top, 8))
         .background(topBarBackground)
+    }
+
+    /// Search, import, and Settings, in one pill. The Last played Home's top right.
+    private var lobbyTools: some View {
+        HStack(spacing: 2) {
+            lobbyTool("magnifyingglass", "Search") { lobbySearch = true }
+            lobbyTool("plus", "Import games") { host.presentImportPicker() }
+            lobbyTool("person", "Settings") { host.libraryTab = .settings }
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 4)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 0.5))
+    }
+
+    private func lobbyTool(_ symbol: String, _ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     /// At the top of Home the hero shows through a fade. Anywhere else, and once Home has
@@ -537,6 +596,7 @@ struct LibraryShell: View {
             if !host.librarySearch.isEmpty {
                 Button {
                     host.librarySearch = ""
+                    if host.homeLook == .lastPlayed { lobbySearch = false }
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 13))
@@ -746,7 +806,11 @@ struct LibraryShell: View {
                 }
                 .frame(maxHeight: 260)
             }
-            tabBar
+            if host.homeLook == .lastPlayed {
+                lobbyTabBar
+            } else {
+                tabBar
+            }
         }
         // THE FLOATING BAR'S GLASS: the content runs underneath, and this is what you see it
         // through. The material is the same `ultraThinMaterial` the segmented selectors use as
@@ -765,8 +829,14 @@ struct LibraryShell: View {
         // The wash also covers exactly the frame the old opaque black did, so a tap on the bar
         // (the home-indicator strip under the tabs included) still stops at the bar and never
         // reaches a cover passing underneath it.
-        .background(ShellPalette.background.opacity(0.6))
-        .background(.ultraThinMaterial)
+        .background {
+            if host.homeLook != .lastPlayed {
+                ZStack {
+                    ShellPalette.background.opacity(0.6)
+                    Rectangle().fill(.ultraThinMaterial)
+                }
+            }
+        }
         .background(GeometryReader { proxy in
             Color.clear
                 .onAppear { measuredBottomChrome = proxy.size.height }
@@ -801,6 +871,37 @@ struct LibraryShell: View {
         }
     }
 
+    /// The Last played Home's bar: a floating pill, icons and words, gold on the one you're on.
+    private var lobbyTabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(LibraryTab.allCases) { item in
+                let selected = host.libraryTab == item
+                Button {
+                    host.libraryTab = item
+                } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: item.symbol)
+                            .font(.system(size: 18, weight: .semibold))
+                        Text(item.lobbyTitle)
+                            .font(.system(size: 10, weight: selected ? .semibold : .regular))
+                    }
+                    .foregroundStyle(selected ? LobbyPalette.gold : Color.white.opacity(0.55))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            }
+        }
+        .padding(.horizontal, 6)
+        .background(.ultraThinMaterial, in: Capsule())
+        .background(Color.black.opacity(0.35), in: Capsule())
+        .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 0.5))
+        .padding(.horizontal, 22)
+        .padding(.bottom, max(metrics.insets.bottom, 8))
+    }
+
     // MARK: The tabs
 
     @ViewBuilder
@@ -817,8 +918,24 @@ struct LibraryShell: View {
         }
     }
 
-    /// Home: the hero, then the shelves.
+    /// Home: the hero and the shelves, or the Last played look.
+    @ViewBuilder
     private var homeTab: some View {
+        if host.homeLook == .lastPlayed {
+            LobbyHome(
+                host: host,
+                artwork: artwork,
+                generation: artworkGeneration.value,
+                topClearance: topBarHeight + max(metrics.insets.top, 8),
+                bottomClearance: bottomBarHeight
+            )
+        } else {
+            shelvesHome
+        }
+    }
+
+    /// Home: the hero, then the shelves.
+    private var shelvesHome: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 22) {
                 if let hero = heroEntry {

@@ -1,13 +1,18 @@
 # What to test, and what to tell me
 
-Last updated 18 October 2026, 9:20 AM Eastern. **Build 192** is the newest install. The owner
-tested it on one phone. Passed, and do not ask again: the evening list of 17 October (steps 1 to
-20), and on the morning of 18 October the cBoy colour for old black-and-white games and the
-experimental picture (Build 190 checks 34, 35 and 37). Still open, and only on this one phone:
-Build 190's checks 27 to 33, 36, and 38 onward that are not a second phone and not a disc (SNES
-on Mesen, the one-line cBoy link-cable note, 32X, a Mega Drive game that saves to a chip,
-arcade), and a 3DS game playing like before. No discs, no swapping discs, no second phone, no
-online, until they say otherwise. The TV check is still open too; they left the TV for later.
+Last updated 19 October 2026, morning Eastern. A build is going out with a second Home. Build 192
+is still the newest install until that build finishes. The owner tested 192 on one phone. Passed,
+and do not ask again: the evening list of 17 October (steps 1 to 20), and on the morning of 18
+October the cBoy colour for old black-and-white games and the experimental picture (Build 190
+checks 34, 35 and 37). The new Home is Settings, LAYOUT, Home, Last played. Shelves is the one
+they already have, and it stays the default. On Last played: the game they opened last is at the
+top (Resume opens it, Game Hub is the card), the consoles are a row (a tap filters the games
+under it, View all is All Games), and Jump Back In is the other games they opened. Nothing there
+is a made-up play time or a percent finished. Still open, and only on this one phone: Build 190's
+checks 27 to 33, 36, and 38 onward that are not a second phone and not a disc (SNES on Mesen, the
+one-line cBoy link-cable note, 32X, a Mega Drive game that saves to a chip, arcade), and a 3DS
+game playing like before. No discs, no swapping discs, no second phone, no online, until they say
+otherwise. The TV check is still open too; they left the TV for later.
 
 ## Build 191 (17 October): covers and the library
 

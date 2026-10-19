@@ -3292,10 +3292,24 @@ final class EngineHost: ObservableObject {
     private func forgetArrivals(_ names: [String]) {
         var updated = gameArrivals
         for name in names { updated.removeValue(forKey: name) }
-        guard updated.count != gameArrivals.count else { return }
-        gameArrivals = updated
-        let plain = updated.mapValues { $0.timeIntervalSince1970 }
-        UserDefaults.standard.set(plain, forKey: Self.gameArrivalsKey)
+        if updated.count != gameArrivals.count {
+            gameArrivals = updated
+            UserDefaults.standard.set(updated.mapValues { $0.timeIntervalSince1970 }, forKey: Self.gameArrivalsKey)
+        }
+        var played = lastPlayed
+        for name in names { played.removeValue(forKey: name) }
+        if played.count != lastPlayed.count {
+            lastPlayed = played
+            UserDefaults.standard.set(played.mapValues { $0.timeIntervalSince1970 }, forKey: Self.lastPlayedKey)
+        }
+    }
+
+    /// The Last played Home reads this. A file name, same as the arrival stamps.
+    private func noteLastPlayed(_ name: String) {
+        var updated = lastPlayed
+        updated[name] = Date()
+        lastPlayed = updated
+        UserDefaults.standard.set(updated.mapValues { $0.timeIntervalSince1970 }, forKey: Self.lastPlayedKey)
     }
 
     /// How All Games arranges itself, and whether Home carries a shelf per system.
@@ -3326,6 +3340,19 @@ final class EngineHost: ObservableObject {
             UserDefaults.standard.set(libraryCardSize.rawValue, forKey: Self.cardSizeKey)
         }
     }
+
+    /// Settings, LAYOUT, "Home". Shelves is the Home the app has always had, and the default.
+    /// Last played is the other one (LobbyHome.swift).
+    @Published var homeLook: HomeLook = .shelves {
+        didSet {
+            guard oldValue != homeLook else { return }
+            UserDefaults.standard.set(homeLook.rawValue, forKey: Self.homeLookKey)
+        }
+    }
+
+    /// When each game was last opened, by file name. Written from `launch`. A game that has
+    /// never been opened is absent, and the Last played Home falls back to when it was added.
+    @Published var lastPlayed: [String: Date] = [:]
 
     /// Settings, APPEARANCE: Dark, Light or System (`AppAppearance`). Dark, the default, is how
     /// the app always looked. `RootView` applies it to the whole app as it changes. A plain
@@ -3373,6 +3400,8 @@ final class EngineHost: ObservableObject {
     private static let layoutKey = "continuum.library.layout.v1"
     private static let systemShelvesKey = "continuum.library.systemShelves.v1"
     private static let cardSizeKey = "continuum.library.cardSize.v1"
+    private static let homeLookKey = "continuum.library.homeLook.v1"
+    private static let lastPlayedKey = "continuum.library.lastPlayed.v1"
     private static let appearanceKey = "continuum.appearance.v1"
     private static let ps1CoreKey = "continuum.cores.ps1.v1"
     /// Named for the GAME controls, not for the library layout `layoutKey` holds. The two are
@@ -3773,6 +3802,13 @@ final class EngineHost: ObservableObject {
         if let stored = defaults.string(forKey: Self.cardSizeKey),
            let size = LibraryCardSize(rawValue: stored) {
             libraryCardSize = size
+        }
+        if let stored = defaults.string(forKey: Self.homeLookKey),
+           let look = HomeLook(rawValue: stored) {
+            homeLook = look
+        }
+        if let stored = defaults.dictionary(forKey: Self.lastPlayedKey) as? [String: Double] {
+            lastPlayed = stored.mapValues { Date(timeIntervalSince1970: $0) }
         }
         if let stored = defaults.string(forKey: Self.appearanceKey),
            let choice = AppAppearance(rawValue: stored) {
@@ -4794,6 +4830,7 @@ final class EngineHost: ObservableObject {
         // the fault to the Library row rather than to anything in here.
         let opening = "opening \(entry.name)..."
         status = opening
+        noteLastPlayed(entry.name)
         // A TAP THAT OPENS NO GAME SAYS WHY, OVER THE LIBRARY. Every way out of here that leaves
         // no game running hands its last line to the Library's pop-up (`libraryNotice`), whatever
         // its wording: the pop-up only takes status lines that read as problems, and many refusals

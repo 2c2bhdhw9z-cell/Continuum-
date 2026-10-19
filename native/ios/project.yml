@@ -484,6 +484,9 @@ targets:
       - path: PlayerScreen.swift
       # Stage 2, the library shell. The tab shell, the top bar, the hero and the shelves.
       - path: LibraryShell.swift
+      # The other Home (Settings, LAYOUT, Home, Last played). Without this line that
+      # choice does not exist in the app.
+      - path: LobbyHome.swift
       # The Library's extras: covers at their box shape, All Games by console, select several,
       # the console order, and the game card's Clean start, Share, link, patch, discs and
       # language, plus the silent-switch setting. WITHOUT THIS LINE LibraryShell, LibraryCards,
