@@ -13,15 +13,22 @@ struct NewLookPreviewApp: App {
 }
 
 struct PreviewPage: View {
+    /// Launched with -plain: no fluid fields, flat colours behind everything, so each moving
+    /// piece can be measured on its own without the background's motion showing through it.
+    private let plain = ProcessInfo.processInfo.arguments.contains("-plain")
     @State private var toggle = true
     @State private var tab = 0
 
     var body: some View {
         ZStack(alignment: .top) {
             // 1. The page background: the fluid field, full screen.
-            NewLookFluid(palette: NewLookColors.shared.motionRGB, base: ShellPalette.charcoal,
-                         period: 26, masses: 11, intensity: 0.55)
-                .ignoresSafeArea()
+            if plain {
+                ShellPalette.charcoal.ignoresSafeArea()
+            } else {
+                NewLookFluid(palette: NewLookColors.shared.motionRGB, base: ShellPalette.charcoal,
+                             period: 26, masses: 11, intensity: 0.55)
+                    .ignoresSafeArea()
+            }
             ShellPalette.charcoal.opacity(0.18).ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 22) {
@@ -132,11 +139,15 @@ struct PreviewPage: View {
                 .frame(width: 140, height: 180)
         }
         .padding(20)
-        .background(
-            NewLookFluid(palette: NewLookColors.shared.motionRGB, base: .clear, period: 9, masses: 6,
-                         intensity: 0.40, downscale: 2)
-                .clipShape(shape)
-        )
+        .background {
+            if plain {
+                shape.fill(Color(white: 0.16))
+            } else {
+                NewLookFluid(palette: NewLookColors.shared.motionRGB, base: .clear, period: 9,
+                             masses: 6, intensity: 0.40, downscale: 2)
+                    .clipShape(shape)
+            }
+        }
         .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
         .padding(.horizontal, 12)
     }

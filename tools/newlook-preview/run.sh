@@ -38,18 +38,32 @@ echo "    $UDID"
 xcrun simctl boot "$UDID" || true
 xcrun simctl bootstatus "$UDID" -b
 xcrun simctl install "$UDID" "$APP"
-xcrun simctl launch "$UDID" app.continuum.newlookpreview
-sleep 6
-
-echo "==> screenshots"
-for i in 0 1 2 3 4 5 6 7; do
-  xcrun simctl io "$UDID" screenshot --type=png "$OUT/frame-$i.png"
-  sleep 0.6
+# Two passes: the full page, then -plain (flat backgrounds) so each piece can be measured alone.
+# Each screenshot's time is logged, since a CI simulator can take seconds to take one.
+for pass in full plain; do
+  mkdir -p "$OUT/$pass"
+  xcrun simctl terminate "$UDID" app.continuum.newlookpreview 2>/dev/null || true
+  if [ "$pass" = plain ]; then
+    xcrun simctl launch "$UDID" app.continuum.newlookpreview -plain
+  else
+    xcrun simctl launch "$UDID" app.continuum.newlookpreview
+  fi
+  sleep 6
+  echo "==> $pass screenshots"
+  for i in 0 1 2 3 4 5 6 7; do
+    xcrun simctl io "$UDID" screenshot --type=png "$OUT/$pass/frame-$i.png"
+    echo "$i $(python3 -c 'import time; print(f"{time.time():.2f}")')" >> "$OUT/$pass/times.txt"
+    sleep 0.5
+  done
 done
-echo "==> video"
+echo "==> video (full page)"
+xcrun simctl terminate "$UDID" app.continuum.newlookpreview 2>/dev/null || true
+xcrun simctl launch "$UDID" app.continuum.newlookpreview
+sleep 5
 xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$OUT/motion.mp4" &
 REC=$!
-sleep 8
+sleep 10
 kill -INT "$REC" || true
 wait "$REC" || true
-ls -la "$OUT"
+rm -rf "$APP"
+ls -laR "$OUT"

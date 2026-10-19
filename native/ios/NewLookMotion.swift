@@ -227,7 +227,12 @@ struct NewLookSweep: ViewModifier {
                     let p = newLookFrac(t / period + phase)
                     // Crosses in the first 40% of the cycle, then rests.
                     let travel = CGFloat(min(p / 0.4, 1))
-                    LinearGradient(colors: [.white.opacity(0), .white.opacity(0.6), .white.opacity(0)],
+                    // White titles cannot get any whiter, so the band is a metallic glint: the
+                    // accent's light colour at its edges and pure white at its core, which reads
+                    // as a bright sheen passing over the letters.
+                    let tint = NewLookColors.shared.accentStops.first ?? .white
+                    LinearGradient(colors: [tint.opacity(0), tint.opacity(0.85), .white,
+                                            tint.opacity(0.85), tint.opacity(0)],
                                    startPoint: .leading, endPoint: .trailing)
                         .frame(width: band, height: geo.size.height)
                         .offset(x: -band + (width + band) * travel)
