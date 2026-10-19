@@ -5,14 +5,13 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (19 October 2026, morning Eastern): build 195 is the newest install
+## START HERE (19 October 2026, afternoon Eastern): build 196 is the newest install
 
-- **Build 195** (`c228968`) is the newest install:
-  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-195-c228968/Continuum-195.ipa
-  The owner rejected 193 and 194. 195 is the Last played look across the app, not only Home.
-  Every console in the row has a photo. The box spine is attached to the cover. Library,
-  Favorites and Settings use this look's gold while it is on. Shelves stays the default.
-  Settings, LAYOUT, Home, Last played. Not tried on a phone yet.
+- **Build 196** (`b50fb81`) is the newest install:
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-196-b50fb81/Continuum-196.ipa
+  The owner told me to take the Last played Home out. It is gone. There is one Home again, the
+  shelves one. Settings has no Home switch. Builds 193, 194 and 195 had that look. Not tried
+  on a phone yet.
 - **Still not built, and do not start them until they ask:** undo a delete, next game on the same
   console, picking which game sits at the top of the Shelves home, looking at a backup before
   restoring it. The Continue widget stays parked.

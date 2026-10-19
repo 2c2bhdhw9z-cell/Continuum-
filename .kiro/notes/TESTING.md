@@ -1,11 +1,9 @@
 # What to test, and what to tell me
 
-Last updated 19 October 2026, morning Eastern. **Build 195** (`c228968`) is the newest install:
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-195-c228968/Continuum-195.ipa
-The owner rejected the Last played Home in 193 and 194. 195 puts that look on the whole app
-while it is on: Home, Library, Favorites and Settings. Every console in the row has a photo.
-The box spine is attached to the cover. Shelves stays the default. Settings, LAYOUT, Home,
-Last played. No made-up play time and no percent finished. Do not ask the 192 passes again.
+Last updated 19 October 2026, afternoon Eastern. **Build 196** (`b50fb81`) is the newest install:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-196-b50fb81/Continuum-196.ipa
+The owner told me to take the Last played Home out. It is gone. One Home, the shelves one.
+Settings has no Home switch. Do not ask the 192 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
