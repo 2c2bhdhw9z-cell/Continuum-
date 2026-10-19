@@ -1,0 +1,36 @@
+name: New-look motion preview
+
+# Films the New look's motion pieces (native/ios/NewLookMotion.swift) in the iOS Simulator and
+# uploads the frames, so they can be compared to prove each piece moves. Separate from the iOS
+# workflow on purpose: it never blocks or delays the .ipa, and a flaky simulator fails only this.
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - "native/ios/NewLookMotion.swift"
+      - "tools/newlook-preview/**"
+      - ".github/workflows/newlook-preview.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode and simulators
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes
+      - name: Build, run and film the preview
+        run: ./tools/newlook-preview/run.sh
+      - name: Upload the frames
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: newlook-preview-${{ github.sha }}
+          path: build/newlook-preview/
+          if-no-files-found: warn
