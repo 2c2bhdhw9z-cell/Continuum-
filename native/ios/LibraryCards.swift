@@ -31,14 +31,7 @@ import UIKit
 /// content. Colours drawn OVER COVER ART (a card's badge and star) or over a running game stay
 /// fixed white and black, because the art and the game look the same in both modes.
 enum ShellPalette {
-    /// Set while the Last played look is on, so the rest of the app uses its gold
-    /// instead of the usual red. The Shelves look leaves this off.
-    static var useLobbyGold = false
-    static var accent: Color {
-        useLobbyGold
-            ? Color(red: 0.96, green: 0.75, blue: 0.28)
-            : Color(red: 0.93, green: 0.16, blue: 0.29)
-    }
+    static let accent = Color(red: 0.93, green: 0.16, blue: 0.29)
     /// The light teal on black; a deeper teal on white, so it reads there too.
     static let metadata = adaptive(dark: Dark.metadata,
                                    light: UIColor(red: 0.0, green: 0.47, blue: 0.42, alpha: 1))

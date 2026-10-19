@@ -396,16 +396,6 @@ struct SettingsScreen: View {
     private var layoutSection: some View {
         SettingsSection(title: "LAYOUT") {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Home")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(ShellPalette.text)
-                SegmentedChoice(options: HomeLook.allCases,
-                                title: { $0.title },
-                                selection: $host.homeLook)
-                SettingsNote("Shelves is the Home you have now. Last played puts the game you opened last at the top, then your consoles.")
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
                 Text("All Games")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(ShellPalette.text)
