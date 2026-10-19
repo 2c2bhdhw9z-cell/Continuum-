@@ -5,6 +5,16 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
+## START HERE (19 October 2026, afternoon Eastern): New-look fixes after 197
+
+- Owner's build-197 screenshots: SYSTEMS looked half done, covers cropped, card size did nothing,
+  the hero card looked bad. All fixed in the next install, not tried on a phone. Do NOT touch the
+  New-look header (the owner rejected a header change). New-look Settings contrast is fine.
+- Console photos: `Assets.xcassets/console-<system>.imageset`, sources in `CONSOLE_PHOTOS.md`.
+  The old `lobby-*` pictures (unknown source, several duplicates) were NOT reused.
+- New Home rows use the Current look's `CoverCard` and `LibraryShell.buildShelves`, so card size
+  and the LAYOUT settings work the same in both looks.
+
 ## START HERE (19 October 2026, evening Eastern): the second look
 
 - **The owner asked for a second look users can pick** (not the removed Last played Home). It is

@@ -1,5 +1,14 @@
 # What is finished, and what is not
 
+**19 October 2026, afternoon: New-look fixes after build 197, built, not tried on a phone.**
+Real console photos in SYSTEMS (Wikimedia Commons, all 39 systems, none shared; sources and
+licences in `native/ios/CONSOLE_PHOTOS.md` and in the app's credits), short names, gold glow on
+the picked or last played console, a redone LAST PLAYED card, whole covers everywhere in New,
+Game card size / All Games layout / Console order / shelf per system wired into New, and the
+ring next to CONTINUUM spins (still with Reduce Motion). The header is unchanged. New-look
+Settings was checked on the phone on build 197 and reads fine. Phone checks: TESTING.md "Next
+install (after 197)".
+
 **19 October 2026: the second look is built and not tried on a phone yet.** Settings → LOOK
 → Current or New. Current is the look the app always had and stays the default. New is the dark
 charcoal and gold look from the owner's one mockup (Home), carried to Library, Favorites,

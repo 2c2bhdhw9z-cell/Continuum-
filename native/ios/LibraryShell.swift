@@ -915,7 +915,7 @@ struct LibraryShell: View {
     private var homeTab: some View {
         if isNew {
             NewLookHome(host: host, artwork: artwork, generation: artworkGeneration.value,
-                        history: history, looks: looks,
+                        history: history, looks: looks, prefs: prefs,
                         topPadding: topBarHeight + max(metrics.insets.top, 8) + 6,
                         bottomSpace: scrollEndClearance)
         } else {
@@ -1018,7 +1018,7 @@ struct LibraryShell: View {
                 subtitle: subtitle(for: shown, of: host.library.count)
             )
             if isNew && !host.library.isEmpty {
-                NewLookSystemChips(library: host.library, looks: looks)
+                NewLookSystemChips(library: host.library, looks: looks, prefs: prefs)
             }
 
             if host.library.isEmpty {
@@ -1391,7 +1391,8 @@ struct LibraryShell: View {
     }
 
     /// One shelf, ready to render.
-    private struct Shelf: Identifiable {
+    /// Internal rather than private: the New look's Home shows the same shelves.
+    struct Shelf: Identifiable {
         let id: String
         let title: String
         let entries: [LibraryEntry]
@@ -1412,7 +1413,7 @@ struct LibraryShell: View {
     /// redraw happens whenever anything on the host publishes, including each cover that finishes
     /// loading while you scroll. With eighty games that is an n-log-n sort plus a dictionary build
     /// per frame, for an answer that had not changed. It is the first thing to fix for scrolling.
-    private static func buildShelves(
+    static func buildShelves(
         library: [LibraryEntry],
         arrivals: [String: Date],
         systemShelves: Bool,

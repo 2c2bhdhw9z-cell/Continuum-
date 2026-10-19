@@ -179,14 +179,19 @@ struct NewLookHome: View {
     let generation: Int
     @ObservedObject var history: PlayHistory
     @ObservedObject var looks: LookStore
+    /// Settings, LAYOUT, Console order: the SYSTEMS row and the per-system shelves follow it.
+    @ObservedObject var prefs: LibraryPrefs
     let topPadding: CGFloat
     let bottomSpace: CGFloat
 
     @State private var model = HomeModel()
 
     var body: some View {
+        // Settings, LAYOUT, "Game card size", read here (the host is observed) and handed to every
+        // card, so a new size redraws Home at once, exactly as it does in the Current look.
+        let size = host.libraryCardSize
         ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 28) {
                 if let hero = model.hero {
                     let system = CoreCatalog.system(for: hero)
                     let record = history.record(for: hero.name)
@@ -217,32 +222,50 @@ struct NewLookHome: View {
                 }
 
                 if !model.jumpBackIn.isEmpty {
-                    coverRow(title: "Jump Back In", entries: model.jumpBackIn, playedLines: true)
+                    NewLookShelf(title: "Jump Back In", entries: model.jumpBackIn,
+                                 store: artwork, generation: generation,
+                                 favourites: host.favourites, host: host, cardSize: size,
+                                 history: history, showsPlayLines: true)
                 }
 
-                if !model.recentlyAdded.isEmpty {
-                    coverRow(title: "Recently Added", entries: model.recentlyAdded,
-                             playedLines: false)
+                // Recently added, then (Settings, LAYOUT, "A shelf per system on Home") one shelf
+                // per console in the player's console order: the Current look's own shelves,
+                // from the same function.
+                ForEach(model.shelves) { shelf in
+                    NewLookShelf(title: shelf.title, entries: shelf.entries,
+                                 store: artwork, generation: generation,
+                                 favourites: host.favourites, host: host, cardSize: size,
+                                 history: history, showsPlayLines: false)
                 }
 
                 Spacer(minLength: bottomSpace)
             }
-            .padding(.top, topPadding)
+            // A little air between the header and the hero card.
+            .padding(.top, topPadding + 8)
         }
         .ignoresSafeArea(edges: .top)
         .onAppear { rebuild() }
         .onChange(of: host.library) { _ in rebuild() }
         .onChange(of: host.gameArrivals) { _ in rebuild() }
+        .onChange(of: host.showsSystemShelves) { _ in rebuild() }
+        .onChange(of: prefs.consoleOrder) { _ in rebuild() }
         .onChange(of: history.records) { _ in rebuild() }
     }
 
     private func rebuild() {
         model = HomeModel.build(library: host.library, arrivals: host.gameArrivals,
-                                history: history)
+                                history: history,
+                                order: prefs.ordered(GameSystem.allCases),
+                                systemShelves: host.showsSystemShelves)
+    }
+
+    /// The gold tile: the console picked in the Library, or else the last played game's console.
+    private var highlightedSystem: String? {
+        looks.librarySystem ?? model.hero.flatMap { CoreCatalog.system(for: $0)?.rawValue }
     }
 
     private var systemsBlock: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text("SYSTEMS")
                     .font(.system(size: 17, weight: .semibold))
@@ -263,53 +286,90 @@ struct NewLookHome: View {
                 HStack(spacing: 12) {
                     ForEach(model.systems, id: \.system) { item in
                         NewLookSystemTile(system: item.system, count: item.count,
-                                          selected: looks.librarySystem == item.system.rawValue) {
+                                          selected: highlightedSystem == item.system.rawValue) {
                             looks.librarySystem = item.system.rawValue
                             host.libraryTab = .allGames
                         }
                     }
                 }
-                .padding(12)
+                // Room for the gold glow, so the scroll view does not clip it.
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
             }
-            .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 20))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.5)
+            // The row fades out at both edges rather than chopping a tile off.
+            .mask(
+                LinearGradient(stops: [.init(color: .clear, location: 0),
+                                       .init(color: .black, location: 0.05),
+                                       .init(color: .black, location: 0.95),
+                                       .init(color: .clear, location: 1)],
+                               startPoint: .leading, endPoint: .trailing)
             )
-            .padding(.horizontal, 12)
         }
     }
+}
 
-    private func coverRow(title: String, entries: [LibraryEntry], playedLines: Bool) -> some View {
+/// A titled row of covers on the New look's Home. The cards are the Current look's `CoverCard`,
+/// so they show the WHOLE cover at its own shape and follow Settings, LAYOUT, "Game card size"
+/// exactly the same way. Jump Back In adds "Last played" and the play time under each card.
+struct NewLookShelf: View {
+    let title: String
+    let entries: [LibraryEntry]
+    let store: ArtworkStore
+    let generation: Int
+    let favourites: Set<String>
+    let host: EngineHost
+    let cardSize: LibraryCardSize
+    let history: PlayHistory
+    let showsPlayLines: Bool
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 20)
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 14) {
+                LazyHStack(alignment: .top, spacing: cardSize.shelfSpacing) {
                     ForEach(entries) { entry in
-                        let system = CoreCatalog.system(for: entry)
-                        let record = history.record(for: entry.name)
-                        NewLookCoverCard(
-                            entry: entry,
-                            system: system,
-                            store: artwork,
-                            generation: generation,
-                            isFavourite: host.favourites.contains(entry.name),
-                            width: 140,
-                            line: playedLines
-                                ? (PlayHistory.lastPlayedText(record)
-                                    ?? GameMetadata.cardLine(for: entry, system: system))
-                                : GameMetadata.cardLine(for: entry, system: system),
-                            secondLine: playedLines ? PlayHistory.playedText(record) : nil,
-                            host: host
-                        )
+                        VStack(alignment: .leading, spacing: 4) {
+                            CoverCard(
+                                entry: entry,
+                                system: CoreCatalog.system(for: entry),
+                                store: store,
+                                generation: generation,
+                                isFavourite: favourites.contains(entry.name),
+                                width: cardSize.shelfCardWidth,
+                                host: host,
+                                cardSize: cardSize
+                            )
+                            if showsPlayLines && cardSize.showsCardLine {
+                                playLines(for: entry)
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 4)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func playLines(for entry: LibraryEntry) -> some View {
+        let record = history.record(for: entry.name)
+        if let last = PlayHistory.lastPlayedText(record) {
+            Text(last)
+                .font(.system(size: cardSize.cardLineFont))
+                .foregroundStyle(ShellPalette.secondaryText)
+                .lineLimit(1)
+                .frame(width: cardSize.shelfCardWidth, alignment: .leading)
+        }
+        if let played = PlayHistory.playedText(record) {
+            Text(played)
+                .font(.system(size: cardSize.cardLineFont, weight: .medium))
+                .foregroundStyle(ShellPalette.gold.opacity(0.85))
+                .lineLimit(1)
+                .frame(width: cardSize.shelfCardWidth, alignment: .leading)
         }
     }
 }
@@ -321,16 +381,18 @@ struct NewLookHome: View {
 struct NewLookSystemChips: View {
     let library: [LibraryEntry]
     @ObservedObject var looks: LookStore
+    /// Settings, LAYOUT, Console order: the chips follow it.
+    @ObservedObject var prefs: LibraryPrefs
 
     var body: some View {
-        let systems = Self.counts(library)
+        let systems = Self.counts(library, order: prefs.ordered(GameSystem.allCases))
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 chip(title: "All", count: library.count, selected: looks.librarySystem == nil) {
                     looks.librarySystem = nil
                 }
                 ForEach(systems, id: \.system) { item in
-                    chip(title: item.system.displayName, count: item.count,
+                    chip(title: NewLook.shortName(item.system), count: item.count,
                          selected: looks.librarySystem == item.system.rawValue) {
                         looks.librarySystem = item.system.rawValue
                     }
@@ -340,14 +402,15 @@ struct NewLookSystemChips: View {
         }
     }
 
-    static func counts(_ library: [LibraryEntry]) -> [HomeModel.SystemCount] {
+    /// Each console that has games, with its count, in `order` (the player's console order).
+    static func counts(_ library: [LibraryEntry], order: [GameSystem]) -> [HomeModel.SystemCount] {
         var counts: [GameSystem: Int] = [:]
         for entry in library {
             if let system = CoreCatalog.system(for: entry) {
                 counts[system, default: 0] += 1
             }
         }
-        return GameSystem.allCases.compactMap { system -> HomeModel.SystemCount? in
+        return order.compactMap { system -> HomeModel.SystemCount? in
             guard let count = counts[system], count > 0 else { return nil }
             return HomeModel.SystemCount(system: system, count: count)
         }
@@ -395,48 +458,22 @@ struct HomeModel {
     var hero: LibraryEntry?
     var systems: [SystemCount] = []
     var jumpBackIn: [LibraryEntry] = []
-    var recentlyAdded: [LibraryEntry] = []
+    /// Recently added, then a shelf per console when that setting is on (`LibraryShell.buildShelves`).
+    var shelves: [LibraryShell.Shelf] = []
 
     @MainActor
     static func build(library: [LibraryEntry], arrivals: [String: Date],
-                      history: PlayHistory) -> HomeModel {
+                      history: PlayHistory, order: [GameSystem],
+                      systemShelves: Bool) -> HomeModel {
         var out = HomeModel()
         guard !library.isEmpty else { return out }
 
         let played = history.recentlyPlayed(in: library)
         out.jumpBackIn = Array(played.prefix(20))
-
-        out.recentlyAdded = library.sorted { left, right in
-            let leftAt = arrivals[left.name] ?? left.addedAt
-            let rightAt = arrivals[right.name] ?? right.addedAt
-            switch (leftAt, rightAt) {
-            case let (leftDate?, rightDate?):
-                if leftDate == rightDate {
-                    return left.name.localizedStandardCompare(right.name) == .orderedAscending
-                }
-                return leftDate > rightDate
-            case (_?, nil):
-                return true
-            case (nil, _?):
-                return false
-            case (nil, nil):
-                return left.name.localizedStandardCompare(right.name) == .orderedAscending
-            }
-        }
-        out.hero = played.first ?? out.recentlyAdded.first
-
-        // Counted through the one routing table, in the system's own case order so the carousel
-        // does not reshuffle when a game is added.
-        var counts: [GameSystem: Int] = [:]
-        for entry in library {
-            if let system = CoreCatalog.system(for: entry) {
-                counts[system, default: 0] += 1
-            }
-        }
-        out.systems = GameSystem.allCases.compactMap { system -> SystemCount? in
-            guard let count = counts[system], count > 0 else { return nil }
-            return SystemCount(system: system, count: count)
-        }
+        out.shelves = LibraryShell.buildShelves(library: library, arrivals: arrivals,
+                                                systemShelves: systemShelves, order: order)
+        out.hero = played.first ?? out.shelves.first?.entries.first
+        out.systems = NewLookSystemChips.counts(library, order: order)
         return out
     }
 }
@@ -462,6 +499,52 @@ enum NewLook {
         }
     }
 
+    /// The console's short name for a SYSTEMS tile and a Library chip, so nothing is cut off.
+    /// The full name is still on the game card and in the Current look.
+    static func shortName(_ system: GameSystem) -> String {
+        switch system {
+        case .nes: return "NES"
+        case .snes: return "SNES"
+        case .gb: return "Game Boy"
+        case .gbc: return "GBC"
+        case .gba: return "GBA"
+        case .sms: return "Master System"
+        case .gg: return "Game Gear"
+        case .genesis: return "Mega Drive"
+        case .ps1: return "PlayStation"
+        case .ds: return "DS"
+        case .fds: return "Famicom Disk"
+        case .sg1000: return "SG-1000"
+        case .tg16: return "TG-16"
+        case .atari2600: return "Atari 2600"
+        case .n64: return "N64"
+        case .n3ds: return "3DS"
+        case .psp: return "PSP"
+        case .wswan: return "WonderSwan"
+        case .ngp: return "Neo Geo Pocket"
+        case .pcecd: return "PC Engine CD"
+        case .sgx: return "SuperGrafx"
+        case .amiga: return "Amiga"
+        case .c64: return "C64"
+        case .dos: return "DOS"
+        case .doom: return "DOOM"
+        case .jaguar: return "Jaguar"
+        case .lynx: return "Lynx"
+        case .atari7800: return "Atari 7800"
+        case .atari5200: return "Atari 5200"
+        case .arcade: return "Arcade"
+        case .pokemini: return "Pokémon mini"
+        case .vb: return "Virtual Boy"
+        case .saturn: return "Saturn"
+        case .segacd: return "Sega CD"
+        case .sega32x: return "32X"
+        case .dreamcast: return "Dreamcast"
+        case .flash: return "Flash"
+        case .j2me: return "J2ME"
+        case .symbian: return "N-Gage"
+        }
+    }
+
     /// The core a game will launch on, short ("mGBA", not "mGBA (Game Boy Advance)").
     static func coreName(for entry: LibraryEntry, ps1CoreId: String) -> String? {
         guard let name = CoreCatalog.core(forPath: entry.path, ps1CoreId: ps1CoreId)?.displayName
@@ -482,6 +565,10 @@ enum NewLook {
 
 /// CONTINUUM in light capitals, with the ring from the mockup.
 struct NewLookWordmark: View {
+    /// iOS Settings, Accessibility, Reduce Motion: the ring stays still.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var spinning = false
+
     var body: some View {
         HStack(spacing: 8) {
             Text("CONTINUUM")
@@ -499,7 +586,15 @@ struct NewLookWordmark: View {
                     lineWidth: 4
                 )
                 .frame(width: 24, height: 24)
+                // One slow, even turn every 3.5 seconds, for ever. The animation is tied to this
+                // one value, so nothing else in the header moves with it.
+                .rotationEffect(.degrees(spinning ? 360 : 0))
+                .animation(spinning ? .linear(duration: 3.5).repeatForever(autoreverses: false)
+                                    : .default,
+                           value: spinning)
         }
+        .onAppear { spinning = !reduceMotion }
+        .onChange(of: reduceMotion) { still in spinning = !still }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Continuum")
         .accessibilityAddTraits(.isHeader)
@@ -508,6 +603,10 @@ struct NewLookWordmark: View {
 
 // MARK: - The hero
 
+/// The LAST PLAYED card at the top of the New look's Home, as in the mockup: a rounded card
+/// inset from the screen's edges, over a soft, darkened blur of the game's own cover, with the
+/// title, console, core and play time on the left, the tilted cover (whole, never cropped) on the
+/// right with room around it, and Play or Resume and Game Hub underneath.
 struct NewLookHero: View {
     let entry: LibraryEntry
     let system: GameSystem?
@@ -518,59 +617,71 @@ struct NewLookHero: View {
     let primaryTitle: String
     let host: EngineHost
 
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 24, style: .continuous) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(eyebrow)
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 13, weight: .bold))
                         .tracking(1.2)
                         .foregroundStyle(ShellPalette.gold)
                     Text(GameMetadata.displayTitle(for: entry))
-                        .font(.system(size: 30, weight: .bold))
+                        .font(.system(size: 26, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(3)
                         .minimumScaleFactor(0.6)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(metaLine)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color.white.opacity(0.62))
+                        .foregroundStyle(Color.white.opacity(0.68))
                         .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+                // The cover sits well inside the card: a fixed space a little bigger than the
+                // cover, so the tilt and the glow never reach the card's edge.
                 NewLookAngledCover(entry: entry, system: system, store: store,
-                                   generation: generation, width: 140)
+                                   generation: generation, width: 112)
+                    .frame(width: 128, height: 150)
+                    .contentShape(Rectangle())
                     .onTapGesture { host.detailEntry = entry }
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 NewLookPrimaryButton(title: primaryTitle, systemImage: "play.fill") {
                     host.launch(entry: entry)
                 }
                 NewLookGlassButton(title: "Game Hub", systemImage: "info.circle.fill") {
                     host.detailEntry = entry
                 }
+                Spacer(minLength: 0)
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 6)
-        .padding(.bottom, 4)
-        .background(alignment: .topTrailing) {
-            // The cover, blurred, as a warm glow behind the hero.
-            CoverArtView(entry: entry, system: system, store: store,
-                         generation: generation, showsCaption: false)
-                .frame(width: 260, height: 260)
-                .blur(radius: 60)
-                .opacity(0.35)
-                .allowsHitTesting(false)
-        }
-        .clipped()
-        .contentShape(Rectangle())
+        .padding(18)
+        .background(
+            ZStack {
+                Color(white: 0.10)
+                // The game's own cover, blurred and darkened, so the card takes its colour.
+                CoverArtView(entry: entry, system: system, store: store,
+                             generation: generation, showsCaption: false, style: .backdrop)
+                    .scaleEffect(1.3)
+                    .opacity(0.55)
+                LinearGradient(colors: [Color.black.opacity(0.15), Color.black.opacity(0.55)],
+                               startPoint: .topTrailing, endPoint: .bottomLeading)
+            }
+            .allowsHitTesting(false)
+            .clipShape(shape)
+        )
+        .overlay(shape.strokeBorder(Color.white.opacity(0.09), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
+        .contentShape(shape)
         .onLongPressGesture(minimumDuration: 0.4) {
             host.detailEntry = entry
         }
+        .padding(.horizontal, 16)
     }
 }
 
@@ -583,14 +694,12 @@ struct NewLookAngledCover: View {
     let width: CGFloat
 
     var body: some View {
+        // THE WHOLE COVER at its own shape (a wide GBA box, a tall NES box), never cropped,
+        // centred in its space. The glow and the shadow follow the cover itself.
         CoverArtView(entry: entry, system: system, store: store,
-                     generation: generation, showsCaption: false)
+                     generation: generation, showsCaption: true,
+                     style: .whole(WholeCover(cornerRadius: 8, alignment: .center)))
             .frame(width: width, height: (width * 1.15).rounded())
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5)
-            )
             .shadow(color: ShellPalette.gold.opacity(0.35), radius: 18)
             .shadow(color: .black.opacity(0.6), radius: 10, x: -4, y: 8)
             .rotation3DEffect(.degrees(-16), axis: (x: 0, y: 1, z: 0),
@@ -677,83 +786,11 @@ struct NewLookRoundButton: View {
     }
 }
 
-// MARK: - A cover card
-
-struct NewLookCoverCard: View {
-    let entry: LibraryEntry
-    let system: GameSystem?
-    let store: ArtworkStore
-    let generation: Int
-    let isFavourite: Bool
-    let width: CGFloat
-    let line: String?
-    let secondLine: String?
-    let host: EngineHost
-
-    private var height: CGFloat { (width * 4.0 / 3.0).rounded() }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            CoverArtView(entry: entry, system: system, store: store,
-                         generation: generation, showsCaption: width >= 92)
-                .frame(width: width, height: height)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(ShellPalette.gold.opacity(0.28), lineWidth: 1)
-                )
-                .overlay(alignment: .topLeading) {
-                    SystemBadge(text: system?.badge ?? entry.ext.uppercased())
-                        .padding(6)
-                }
-                .overlay(alignment: .topTrailing) {
-                    if isFavourite {
-                        Image(systemName: "heart.fill")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(ShellPalette.gold)
-                            .padding(5)
-                            .background(.black.opacity(0.6), in: Circle())
-                            .padding(6)
-                    }
-                }
-                .shadow(color: .black.opacity(0.5), radius: 8, y: 4)
-
-            Text(GameMetadata.displayTitle(for: entry))
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .padding(.top, 3)
-            if let line {
-                Text(line)
-                    .font(.system(size: 11))
-                    .foregroundStyle(ShellPalette.secondaryText)
-                    .lineLimit(1)
-            }
-            if let secondLine {
-                Text(secondLine)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(ShellPalette.gold.opacity(0.85))
-                    .lineLimit(1)
-            }
-        }
-        .frame(width: width, alignment: .leading)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            host.launch(entry: entry)
-        }
-        .onLongPressGesture(minimumDuration: 0.4) {
-            host.detailEntry = entry
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(GameMetadata.displayTitle(for: entry))
-        .accessibilityHint("Tap to play, press and hold for the Game Hub")
-    }
-}
-
 // MARK: - A system tile
 
-/// One console in the SYSTEMS carousel: a drawn console shape (no console photos or logos ship
-/// with the app, and those belong to their makers), the name, and how many games it has.
+/// One console in the SYSTEMS row, as in the mockup: a photo of the console (Wikimedia Commons;
+/// every source and licence is in CONSOLE_PHOTOS.md, and no two systems share one), its short
+/// name, and how many games it has. The picked one (or the last played game's console) glows gold.
 struct NewLookSystemTile: View {
     let system: GameSystem
     let count: Int
@@ -762,158 +799,47 @@ struct NewLookSystemTile: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
-                NewLookConsoleGlyph(system: system)
-                    .frame(width: 64, height: 58)
-                Text(system.displayName.uppercased())
-                    .font(.system(size: 10, weight: .heavy))
-                    .foregroundStyle(Color.white.opacity(0.9))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.75)
-                    .frame(height: 26)
+            VStack(spacing: 6) {
+                Image("console-\(system.rawValue)")
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: 104, height: 84)
+                    .shadow(color: .black.opacity(0.55), radius: 6, y: 4)
+                Text(NewLook.shortName(system))
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color.white.opacity(selected ? 1 : 0.85))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            .frame(width: 86, height: 112)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
+            .padding(.horizontal, 8)
+            .frame(width: 124, height: 136)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(selected ? 0.09 : 0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(selected ? ShellPalette.gold : Color.white.opacity(0.08),
+                                  lineWidth: selected ? 2 : 0.5)
+            )
             .overlay(alignment: .topTrailing) {
                 Text("\(count)")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .frame(minWidth: 22, minHeight: 22)
-                    .background(Color(white: 0.28), in: Capsule())
-                    .padding(4)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(selected ? Color.black : Color.white)
+                    .padding(.horizontal, 7)
+                    .frame(minWidth: 24, minHeight: 24)
+                    .background(selected ? ShellPalette.gold : Color(white: 0.26), in: Capsule())
+                    .padding(7)
             }
-            .background(Color.white.opacity(selected ? 0.08 : 0.0),
-                        in: RoundedRectangle(cornerRadius: 14))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .strokeBorder(selected ? ShellPalette.gold : Color.clear, lineWidth: 2)
-            )
-            .shadow(color: selected ? ShellPalette.gold.opacity(0.55) : .clear, radius: 10)
-            .contentShape(Rectangle())
+            .shadow(color: selected ? ShellPalette.gold.opacity(0.6) : .clear, radius: 12)
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(system.displayName), \(count) \(count == 1 ? "game" : "games")")
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-    }
-}
-
-/// A simple drawn console: a tall handheld, a wide handheld, a two-screen handheld, a home
-/// console, a disc console, a computer, or a phone. Coloured per system.
-struct NewLookConsoleGlyph: View {
-    let system: GameSystem
-
-    private enum Shape_ { case tall, wide, twoScreen, console, disc, computer, phone }
-
-    private var shape: Shape_ {
-        switch system {
-        case .gb, .gbc, .pokemini: return .tall
-        case .gba, .gg, .lynx, .wswan, .ngp, .psp, .vb: return .wide
-        case .ds, .n3ds: return .twoScreen
-        case .ps1, .saturn, .segacd, .pcecd, .dreamcast: return .disc
-        case .amiga, .c64, .dos, .doom: return .computer
-        case .flash, .j2me, .symbian: return .phone
-        case .nes, .snes, .sms, .genesis, .fds, .sg1000, .tg16, .atari2600, .n64, .sgx,
-             .jaguar, .atari7800, .atari5200, .arcade, .sega32x:
-            return .console
-        }
-    }
-
-    private var body_: Color {
-        switch system {
-        case .gb: return Color(red: 0.80, green: 0.79, blue: 0.74)
-        case .gbc: return Color(red: 0.50, green: 0.36, blue: 0.72)
-        case .gba: return Color(red: 0.36, green: 0.34, blue: 0.78)
-        case .snes, .nes, .fds: return Color(red: 0.78, green: 0.78, blue: 0.80)
-        case .n64: return Color(red: 0.30, green: 0.30, blue: 0.33)
-        case .ds, .n3ds: return Color(red: 0.62, green: 0.64, blue: 0.68)
-        case .ps1: return Color(red: 0.72, green: 0.72, blue: 0.70)
-        case .psp: return Color(red: 0.20, green: 0.20, blue: 0.22)
-        case .genesis, .sms, .gg, .segacd, .sega32x, .saturn, .sg1000: return Color(red: 0.22, green: 0.22, blue: 0.25)
-        case .dreamcast: return Color(red: 0.88, green: 0.88, blue: 0.86)
-        default: return Color(red: 0.45, green: 0.45, blue: 0.48)
-        }
-    }
-
-    private static let screen = Color(red: 0.55, green: 0.68, blue: 0.45)
-    private var screen: Color { Self.screen }
-
-    var body: some View {
-        ZStack {
-            switch shape {
-            case .tall:
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(body_)
-                    .frame(width: 34, height: 52)
-                    .overlay(alignment: .top) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(screen)
-                            .frame(width: 24, height: 20)
-                            .padding(.top, 5)
-                    }
-                    .overlay(alignment: .bottom) {
-                        HStack(spacing: 7) {
-                            Image(systemName: "plus").font(.system(size: 8, weight: .black))
-                            HStack(spacing: 2) {
-                                Circle().frame(width: 5, height: 5)
-                                Circle().frame(width: 5, height: 5)
-                            }
-                        }
-                        .foregroundStyle(Color.black.opacity(0.55))
-                        .padding(.bottom, 8)
-                    }
-            case .wide:
-                Capsule()
-                    .fill(body_)
-                    .frame(width: 60, height: 30)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(screen.opacity(0.9))
-                            .frame(width: 26, height: 18)
-                    )
-            case .twoScreen:
-                VStack(spacing: 2) {
-                    RoundedRectangle(cornerRadius: 4).fill(body_).frame(width: 46, height: 26)
-                        .overlay(RoundedRectangle(cornerRadius: 1).fill(screen).frame(width: 30, height: 18))
-                    RoundedRectangle(cornerRadius: 4).fill(body_).frame(width: 46, height: 26)
-                        .overlay(RoundedRectangle(cornerRadius: 1).fill(screen.opacity(0.8)).frame(width: 24, height: 18))
-                }
-            case .console:
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(body_)
-                    .frame(width: 58, height: 30)
-                    .overlay(alignment: .top) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(Color.black.opacity(0.35))
-                            .frame(width: 30, height: 6)
-                            .padding(.top, 6)
-                    }
-            case .disc:
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(body_)
-                    .frame(width: 56, height: 34)
-                    .overlay(
-                        Circle()
-                            .strokeBorder(Color.black.opacity(0.3), lineWidth: 2)
-                            .frame(width: 22, height: 22)
-                    )
-            case .computer:
-                VStack(spacing: 3) {
-                    RoundedRectangle(cornerRadius: 3).fill(body_).frame(width: 44, height: 30)
-                        .overlay(RoundedRectangle(cornerRadius: 1).fill(Color.black.opacity(0.6)).frame(width: 36, height: 22))
-                    RoundedRectangle(cornerRadius: 2).fill(body_).frame(width: 54, height: 8)
-                }
-            case .phone:
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(body_)
-                    .frame(width: 28, height: 50)
-                    .overlay(alignment: .top) {
-                        RoundedRectangle(cornerRadius: 2).fill(screen).frame(width: 20, height: 20).padding(.top, 5)
-                    }
-            }
-        }
-        .shadow(color: .black.opacity(0.5), radius: 4, y: 3)
-        .accessibilityHidden(true)
     }
 }
 

@@ -1493,6 +1493,7 @@ struct OpenSourceCreditsList: View {
         .init(name: "rcheevos", systems: "Achievements", license: "MIT", source: "https://github.com/RetroAchievements/rcheevos"),
         .init(name: "libsmb2", systems: "SMB file sharing", license: "LGPL v2.1", source: "https://github.com/sahlberg/libsmb2"),
         .init(name: "MoltenVK", systems: "Vulkan graphics", license: "Apache 2.0", source: "https://github.com/KhronosGroup/MoltenVK"),
+        .init(name: "Console photos (Wikimedia Commons: Evan-Amos and others)", systems: "The New look's SYSTEMS row", license: "Public domain, CC0, CC BY and CC BY-SA; each one named in the list", source: "https://github.com/2c2bhdhw9z-cell/Continuum-/blob/master/native/ios/CONSOLE_PHOTOS.md"),
         .init(name: "Continuum", systems: "This app", license: "GPL v3", source: "https://github.com/2c2bhdhw9z-cell/Continuum-")
     ]
 

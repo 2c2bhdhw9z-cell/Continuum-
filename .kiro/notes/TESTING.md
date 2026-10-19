@@ -7,6 +7,29 @@ Settings has no Home switch. Do not ask the 192 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Next install (after 197): New look fixes. Built, not tried on a phone
+
+Settings → LOOK → New for all of these. Build 197's New-look Settings was checked on the phone
+and reads fine (no change there).
+
+1. **Systems row.** Home → SYSTEMS: every console is a real photo of that console, each one
+   different, with a short name that fits (NES, SNES, GBA, DS, Mega Drive...). The console of
+   the game you last played glows gold. The row fades at both edges. Tap a console: Library
+   opens with only that console.
+2. **Last played card.** A rounded card with space on every side, a soft blur of the game's own
+   cover behind it, the whole tilted box on the right (nothing cut off), Play or Resume and
+   Game Hub underneath, and a clear gap before SYSTEMS.
+3. **Whole covers.** Jump Back In, Recently added, Library, Favorites, the Game Hub top and the
+   pause menu all show the whole box, never cropped (wide GBA boxes, tall NES boxes).
+4. **Card size.** Settings → LAYOUT → Game card size → Extra small, then Large. Home's rows,
+   Library and Favorites all change size each time.
+5. **Other LAYOUT settings in New.** All Games → By console / Grid / List changes Library. Console
+   order changes the SYSTEMS row, the Library buttons and the per-console rows on Home. "A shelf
+   per system on Home" on adds a row per console under Recently added; off takes them away.
+6. **Spinning ring.** The rainbow ring next to CONTINUUM turns slowly all the time. With iPhone
+   Settings → Accessibility → Motion → Reduce Motion on, it stays still.
+7. **Credits.** Settings → ABOUT → Open-source credits lists the console photos with a link.
+
 ## Next install (after 196): the second look. Built, not tried on a phone
 
 Settings → LOOK (the first card, right under the Settings title) → **Current** or **New**.

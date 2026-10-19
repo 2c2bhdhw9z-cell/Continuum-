@@ -139,14 +139,11 @@ struct NewLookPauseSheet: View {
     private var header: some View {
         HStack(spacing: 14) {
             if let entry {
+                // The whole cover, never cropped.
                 CoverArtView(entry: entry, system: system, store: host.artwork,
-                             generation: host.artwork.generation, showsCaption: false)
+                             generation: host.artwork.generation, showsCaption: false,
+                             style: .whole(WholeCover(cornerRadius: 8, alignment: .center)))
                     .frame(width: 54, height: 72)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(ShellPalette.gold.opacity(0.35), lineWidth: 1)
-                    )
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("PAUSED")
