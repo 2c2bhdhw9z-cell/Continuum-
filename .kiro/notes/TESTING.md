@@ -7,6 +7,31 @@ Settings has no Home switch. Do not ask the 192 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Next install (after 198): New look redone to the mockup, and its colours. Built, not tried on a phone
+
+Settings → LOOK → New. Current must look exactly as before.
+
+1. Home: the LAST PLAYED card has a warm glow (the accent colour) inside the rounded card, and
+   nothing glows or smears behind the header. The box art is big, upright, turned a little, whole
+   (no crop). Title, system, core and play time on the left; Resume (or Play) and Game Hub under.
+2. Home, SYSTEMS: one dark rounded tray, about five tiles on screen. Each tile: console photo,
+   bold italic name, count in the top corner. The picked one has a glowing accent border.
+3. Home, Jump Back In: covers with a thin glow in the console's colour, the title, "Last played
+   ..." and the play time. Recently added and per-console shelves look the same.
+4. Library: big "Library" title with round buttons (shuffle, pick several, sort, layout), the
+   same console tray with an All tile first, glow-card grid. Sort: Name / Recently added / Last
+   played, remembered. Pick several, shuffle, the three layouts and card sizes still work.
+5. Favorites: grouped by console under rounded tray headers (photo, name, count, fold arrow).
+   With none, a rounded card with a heart.
+6. Settings: big title; every section is a rounded card with an icon and a title-case name.
+   Every setting still there and still works. LOOK is on top.
+7. Game Hub and pause menu: the same warm glow card at the top.
+8. Settings → LOOK → COLOURS (only with New on): Accent swatches and "+" for any colour; Cover
+   glow Console colours / Accent / Off / Custom; Ring Rainbow / Accent / Custom and "Spin the
+   ring"; Background swatches and "+". Each changes the app at once, stays after closing the app,
+   and "Reset colours" brings back gold on charcoal. Text on a light accent turns dark.
+   Note: picking a colour redraws the app, so the Settings page may jump back to its top.
+
 ## Next install (after 197): New look fixes. Built, not tried on a phone
 
 Settings → LOOK → New for all of these. Build 197's New-look Settings was checked on the phone

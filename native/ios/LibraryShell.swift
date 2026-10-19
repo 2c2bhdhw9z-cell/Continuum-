@@ -1008,17 +1008,31 @@ struct LibraryShell: View {
     /// game can be deleted by swiping.
     @ViewBuilder
     private var allGamesTab: some View {
-        // The New look's system chips narrow it first; the Current look has none.
-        let shown = filtered(isNew ? NewLookSystemChips.narrowed(host.library,
-                                                                 to: looks.librarySystem)
-                                   : host.library)
-        VStack(alignment: .leading, spacing: 10) {
-            tabHeader(
-                title: isNew ? "Library" : "All Games",
-                subtitle: subtitle(for: shown, of: host.library.count)
-            )
+        // The New look's console tray narrows it first, and its sort button orders it; the
+        // Current look has neither.
+        let shown = isNew
+            ? looks.librarySort.sorted(
+                filtered(NewLookSystemTray.narrowed(host.library, to: looks.librarySystem)),
+                arrivals: host.gameArrivals)
+            : filtered(host.library)
+        VStack(alignment: .leading, spacing: isNew ? 14 : 10) {
+            if isNew {
+                newTabHeader(title: "Library",
+                             subtitle: subtitle(for: shown, of: host.library.count),
+                             showsActions: !host.library.isEmpty, shown: shown)
+            } else {
+                tabHeader(
+                    title: "All Games",
+                    subtitle: subtitle(for: shown, of: host.library.count)
+                )
+            }
             if isNew && !host.library.isEmpty {
-                NewLookSystemChips(library: host.library, looks: looks, prefs: prefs)
+                NewLookSystemTray(
+                    systems: NewLookSystemTray.counts(host.library,
+                                                      order: prefs.ordered(GameSystem.allCases)),
+                    selected: looks.librarySystem,
+                    allCount: host.library.count
+                ) { looks.librarySystem = $0 }
             }
 
             if host.library.isEmpty {
@@ -1141,19 +1155,29 @@ struct LibraryShell: View {
     @ViewBuilder
     private var favoritesTab: some View {
         let shown = filtered(host.favouriteEntries)
-        VStack(alignment: .leading, spacing: 10) {
-            tabHeader(
-                title: "Favorites",
-                subtitle: host.favouriteEntries.isEmpty
-                    ? "nothing starred yet"
-                    : subtitle(for: shown, of: host.favouriteEntries.count)
-            )
+        VStack(alignment: .leading, spacing: isNew ? 14 : 10) {
+            if isNew {
+                newTabHeader(title: "Favorites",
+                             subtitle: host.favouriteEntries.isEmpty
+                                ? "nothing here yet"
+                                : subtitle(for: shown, of: host.favouriteEntries.count),
+                             showsActions: false, shown: shown)
+            } else {
+                tabHeader(
+                    title: "Favorites",
+                    subtitle: host.favouriteEntries.isEmpty
+                        ? "nothing starred yet"
+                        : subtitle(for: shown, of: host.favouriteEntries.count)
+                )
+            }
 
             if host.favouriteEntries.isEmpty {
                 EmptyLibraryNotice(
                     title: "No favorites yet",
-                    guidance: "Press and hold a game and tap its star, or swipe a game right in "
-                        + "the All Games list."
+                    guidance: isNew
+                        ? "Press and hold a game to open its Game Hub, then tap the heart."
+                        : "Press and hold a game and tap its star, or swipe a game right in "
+                            + "the All Games list."
                 )
                 Spacer(minLength: 0)
             } else if shown.isEmpty {
@@ -1162,6 +1186,12 @@ struct LibraryShell: View {
                     guidance: "No favorite matches \"\(host.librarySearch)\"."
                 )
                 Spacer(minLength: 0)
+            } else if isNew {
+                // The New look groups favourites by console, under the same tray headers as
+                // the Library's By console layout.
+                ConsoleSections(entries: shown, host: host, artwork: artwork,
+                                generation: artworkGeneration.value,
+                                bottomClearance: scrollEndClearance)
             } else {
                 gameGrid(shown)
             }
@@ -1218,6 +1248,78 @@ struct LibraryShell: View {
         .padding(.horizontal, 16)
     }
 
+    /// The New look's tab title: big and bold, the count under it, and the Library's buttons
+    /// (shuffle, pick several, sort, layout) as round glass buttons on the right.
+    private func newTabHeader(title: String, subtitle: String, showsActions: Bool,
+                              shown: [LibraryEntry]) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundStyle(.white)
+                Text(subtitle)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.55))
+            }
+            Spacer(minLength: 0)
+            if showsActions {
+                if selection.active {
+                    Button("Done") {
+                        selection.active = false
+                    }
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(ShellPalette.onAccent)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 9)
+                    .background(ShellPalette.gold, in: Capsule())
+                    .buttonStyle(.plain)
+                } else {
+                    newHeaderIcon("shuffle", label: "Play a random game") {
+                        playRandom(shown)
+                    }
+                    if host.libraryLayout != .list {
+                        newHeaderIcon("checkmark.circle", label: "Pick several games") {
+                            selection.active = true
+                        }
+                    }
+                    Menu {
+                        Picker("Sort", selection: $looks.librarySort) {
+                            ForEach(LibrarySort.allCases) { sort in
+                                Text(sort.title).tag(sort)
+                            }
+                        }
+                    } label: {
+                        newIconLabel("arrow.up.arrow.down")
+                    }
+                    .accessibilityLabel("Sort, now \(looks.librarySort.title)")
+                    newHeaderIcon(host.libraryLayout.symbol,
+                                  label: "Show All Games \(host.libraryLayout.next.title.lowercased())") {
+                        host.libraryLayout = host.libraryLayout.next
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+
+    private func newIconLabel(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 38, height: 38)
+            .background(.ultraThinMaterial, in: Circle())
+            .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+    }
+
+    private func newHeaderIcon(_ symbol: String, label: String,
+                               action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            newIconLabel(symbol)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
     private func headerIcon(_ symbol: String, label: String,
                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -1261,18 +1363,34 @@ struct LibraryShell: View {
                 spacing: size.gridRowSpacing
             ) {
                 ForEach(entries) { entry in
-                    CoverCard(
-                        entry: entry,
-                        system: CoreCatalog.system(for: entry),
-                        store: artwork,
-                        generation: artworkGeneration.value,
-                        isFavourite: host.favourites.contains(entry.name),
-                        width: size.gridCardWidth,
-                        host: host,
-                        showsLabel: true,
-                        cardSize: size,
-                        selected: selection.mark(for: entry)
-                    )
+                    if isNew {
+                        let system = CoreCatalog.system(for: entry)
+                        NewLookGlowCard(
+                            entry: entry,
+                            system: system,
+                            store: artwork,
+                            generation: artworkGeneration.value,
+                            isFavourite: host.favourites.contains(entry.name),
+                            width: size.gridCardWidth,
+                            cardSize: size,
+                            host: host,
+                            line: GameMetadata.cardLine(for: entry, system: system),
+                            selected: selection.mark(for: entry)
+                        )
+                    } else {
+                        CoverCard(
+                            entry: entry,
+                            system: CoreCatalog.system(for: entry),
+                            store: artwork,
+                            generation: artworkGeneration.value,
+                            isFavourite: host.favourites.contains(entry.name),
+                            width: size.gridCardWidth,
+                            host: host,
+                            showsLabel: true,
+                            cardSize: size,
+                            selected: selection.mark(for: entry)
+                        )
+                    }
                 }
             }
             .padding(.horizontal, 16)

@@ -299,7 +299,7 @@ struct PlayerScreen: View {
         } label: {
             Image(systemName: "pause.fill")
                 .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(Color.black)
+                .foregroundStyle(ShellPalette.onAccent)
                 .frame(width: 42, height: 42)
                 .background(ShellPalette.gold, in: Circle())
                 .shadow(color: ShellPalette.gold.opacity(0.45), radius: 8)

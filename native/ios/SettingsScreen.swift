@@ -73,7 +73,8 @@ struct SettingsScreen: View {
             VStack(alignment: .leading, spacing: 22) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Settings")
-                        .font(.system(size: 26, weight: .heavy))
+                        .font(LookStore.isNewLook ? .system(size: 34, weight: .bold)
+                                                  : .system(size: 26, weight: .heavy))
                         .foregroundStyle(ShellPalette.text)
                     Spacer(minLength: 8)
                     Button("Open all") { SettingsFolds.shared.openAll() }
@@ -1088,11 +1089,33 @@ struct SettingsSection<Content: View>: View {
         self.content = content()
     }
 
+    private var isNew: Bool { LookStore.isNewLook }
+    private var radius: CGFloat { isNew ? 20 : 14 }
+
+    @ViewBuilder
     private var heading: some View {
-        Text(title)
-            .font(.system(size: 11, weight: .bold))
-            .tracking(1.6)
-            .foregroundStyle(ShellPalette.secondaryText)
+        if isNew {
+            // The New look: the section's icon in an accent-tinted rounded square, and its name
+            // as a bold title.
+            HStack(spacing: 12) {
+                Image(systemName: SettingsSectionStyle.icon(for: title))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(ShellPalette.gold)
+                    .frame(width: 34, height: 34)
+                    .background(ShellPalette.gold.opacity(0.16),
+                                in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                Text(SettingsSectionStyle.title(for: title))
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
+        } else {
+            Text(title)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.6)
+                .foregroundStyle(ShellPalette.secondaryText)
+        }
     }
 
     var body: some View {
@@ -1108,8 +1131,8 @@ struct SettingsSection<Content: View>: View {
                         heading
                         Spacer(minLength: 8)
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(ShellPalette.secondaryText)
+                            .font(.system(size: isNew ? 13 : 11, weight: .bold))
+                            .foregroundStyle(isNew ? ShellPalette.gold : ShellPalette.secondaryText)
                             .rotationEffect(.degrees(open ? 0 : -90))
                     }
                     .contentShape(Rectangle())
@@ -1127,13 +1150,73 @@ struct SettingsSection<Content: View>: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(ShellPalette.card, in: RoundedRectangle(cornerRadius: 14))
+        .padding(isNew ? 14 : 16)
+        .background(ShellPalette.card,
+                    in: RoundedRectangle(cornerRadius: radius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .strokeBorder(ShellPalette.cardStroke, lineWidth: 0.5)
         )
         .padding(.horizontal, 16)
+    }
+}
+
+/// The New look's Settings section headings: an icon each, and the name written as a title.
+/// The Current look keeps the capitals. Folding still goes by the original name, so a card
+/// stays open or closed across both looks.
+enum SettingsSectionStyle {
+    static func icon(for title: String) -> String {
+        switch title {
+        case "LOOK": return "paintpalette.fill"
+        case "COVER ART": return "photo.on.rectangle"
+        case "GAME CONTROLLERS": return "gamecontroller.fill"
+        case "ON-SCREEN CONTROLS": return "hand.tap.fill"
+        case "HAPTICS AND TURBO": return "waveform"
+        case "LAYOUT": return "square.grid.2x2.fill"
+        case "ABOUT": return "info.circle.fill"
+        case "TECHNICAL DETAILS": return "wrench.and.screwdriver.fill"
+        case "APPEARANCE": return "circle.lefthalf.filled"
+        case "CORES": return "cpu"
+        case "BIOS": return "memorychip"
+        case "SAVE STATES": return "square.and.arrow.down.fill"
+        case "CHEATS": return "wand.and.stars"
+        case "STORAGE": return "internaldrive.fill"
+        case "PICTURE": return "tv.fill"
+        case "SOUND": return "speaker.wave.2.fill"
+        case "SPEED AND REWIND": return "speedometer"
+        case "NOT WIRED YET": return "exclamationmark.triangle.fill"
+        case "SKINS": return "paintbrush.fill"
+        case "RETROACHIEVEMENTS": return "trophy.fill"
+        case "APP ICON": return "app.badge"
+        case "SYNC FOLDER": return "arrow.triangle.2.circlepath"
+        case "CORE SETTINGS": return "slider.horizontal.3"
+        case "FEEDBACK": return "envelope.fill"
+        case "CONTROLLERS, MAPPING AND MOTION": return "gamecontroller"
+        case "ONLINE PLAY": return "person.2.fill"
+        case "MICROPHONE, CAMERA AND AMIIBO": return "mic.fill"
+        case "TWO SCREENS, TV AND MOUSE": return "rectangle.on.rectangle"
+        case "WHAT'S THIS ABOUT?", "WHAT HAPPENED", "YOUR MESSAGE": return "text.bubble.fill"
+        case "HOW'S IT RUNNING?": return "gauge.medium"
+        case "ANYTHING WRONG? (TAP ALL THAT APPLY)": return "checklist"
+        case "SENT WITH IT": return "paperclip"
+        default: return "gearshape.fill"
+        }
+    }
+
+    /// "HAPTICS AND TURBO" reads "Haptics and turbo"; names that are their own spelling stay so.
+    static func title(for title: String) -> String {
+        switch title {
+        case "BIOS": return "BIOS"
+        case "RETROACHIEVEMENTS": return "RetroAchievements"
+        case "TWO SCREENS, TV AND MOUSE": return "Two screens, TV and mouse"
+        case "MICROPHONE, CAMERA AND AMIIBO": return "Microphone, camera and amiibo"
+        case "ANYTHING WRONG? (TAP ALL THAT APPLY)": return "Anything wrong? (tap all that apply)"
+        case "HOW'S IT RUNNING?": return "How's it running?"
+        case "WHAT'S THIS ABOUT?": return "What's this about?"
+        default:
+            let lower = title.lowercased()
+            return lower.prefix(1).uppercased() + lower.dropFirst()
+        }
     }
 }
 

@@ -143,7 +143,8 @@ struct NewLookPauseSheet: View {
                 CoverArtView(entry: entry, system: system, store: host.artwork,
                              generation: host.artwork.generation, showsCaption: false,
                              style: .whole(WholeCover(cornerRadius: 8, alignment: .center)))
-                    .frame(width: 54, height: 72)
+                    .frame(width: 60, height: 80)
+                    .shadow(color: ShellPalette.gold.opacity(0.45), radius: 12)
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("PAUSED")
@@ -170,6 +171,11 @@ struct NewLookPauseSheet: View {
             }
             Spacer(minLength: 0)
         }
+        // The same card as Home's hero: the accent glowing inside a rounded glass card.
+        .padding(14)
+        .background(NewLookGlow().clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous)))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
     }
 
     private func tileView(_ tile: Tile) -> some View {

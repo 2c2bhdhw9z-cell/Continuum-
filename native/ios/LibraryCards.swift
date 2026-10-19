@@ -38,13 +38,15 @@ import UIKit
 enum ShellPalette {
     static let red = Color(red: 0.93, green: 0.16, blue: 0.29)
     /// The New look's accent: the gold of the mockup's Resume button and active tab.
-    static let gold = Color(red: 0.98, green: 0.77, blue: 0.26)
+    /// Gold by default; the player can pick any colour (Settings, LOOK, COLOURS).
+    static var gold: Color { NewLookColors.shared.accent }
     /// The New look's page: near-black with a little warmth.
-    static let charcoal = Color(red: 0.075, green: 0.075, blue: 0.085)
+    /// Charcoal by default; pickable too, always kept dark.
+    static var charcoal: Color { NewLookColors.shared.background }
 
     static var accent: Color { LookStore.isNewLook ? gold : red }
     /// Text and glyphs drawn ON the accent: dark on gold, white on red.
-    static var onAccent: Color { LookStore.isNewLook ? Color.black : Color.white }
+    static var onAccent: Color { LookStore.isNewLook ? NewLookColors.shared.onAccent : Color.white }
     /// Deletes and failures, red in both looks.
     static let danger = red
     /// A settings or detail card's fill, and its edge (none in Current).
@@ -664,6 +666,51 @@ struct EmptyLibraryNotice: View {
     var action: (() -> Void)?
 
     var body: some View {
+        if LookStore.isNewLook { newBody } else { currentBody }
+    }
+
+    /// The New look: a rounded glass card with the accent glowing behind a heart or a box icon,
+    /// the same card language as Home's hero.
+    private var newBody: some View {
+        let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+        return VStack(spacing: 14) {
+            Image(systemName: title.localizedCaseInsensitiveContains("favorite")
+                  ? "heart.fill" : "square.stack.3d.up.fill")
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(ShellPalette.gold)
+                .frame(width: 64, height: 64)
+                .background(ShellPalette.gold.opacity(0.14), in: Circle())
+                .shadow(color: ShellPalette.gold.opacity(0.5), radius: 14)
+            Text(title)
+                .font(.system(size: 21, weight: .bold))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+            Text(guidance)
+                .font(.system(size: 14))
+                .foregroundStyle(Color.white.opacity(0.62))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if let actionTitle, let action {
+                NewLookPrimaryButton(title: actionTitle, systemImage: "plus", action: action)
+                    .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+        .padding(.horizontal, 20)
+        .background(
+            ZStack {
+                Color.white.opacity(0.04)
+                RadialGradient(colors: [ShellPalette.gold.opacity(0.22), .clear],
+                               center: .top, startRadius: 0, endRadius: 220)
+            }
+            .clipShape(shape)
+        )
+        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
+        .padding(.horizontal, 16)
+    }
+
+    private var currentBody: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.system(size: 19, weight: .bold))

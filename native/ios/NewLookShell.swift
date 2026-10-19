@@ -169,17 +169,18 @@ struct NewLookTabBar: View {
 
 // MARK: - Home
 
-/// Home in the new look: the hero, SYSTEMS, Jump Back In, Recently Added.
+/// Home in the New look, laid out like the mockup: the LAST PLAYED card, SYSTEMS in one tray,
+/// Jump Back In, then Recently added and (Settings, LAYOUT) a shelf per console.
 ///
-/// Its rows are built by `HomeModel.build` only when the library or the play history changes,
-/// for the same reason `LibraryShell.rebuildShelves` caches the Current look's shelves.
+/// Its rows are built by `HomeModel.build` only when the library, the play history or a LAYOUT
+/// setting changes, for the same reason `LibraryShell.rebuildShelves` caches the Current shelves.
 struct NewLookHome: View {
     @ObservedObject var host: EngineHost
     let artwork: ArtworkStore
     let generation: Int
     @ObservedObject var history: PlayHistory
     @ObservedObject var looks: LookStore
-    /// Settings, LAYOUT, Console order: the SYSTEMS row and the per-system shelves follow it.
+    /// Settings, LAYOUT, Console order: the SYSTEMS tray and the per-console shelves follow it.
     @ObservedObject var prefs: LibraryPrefs
     let topPadding: CGFloat
     let bottomSpace: CGFloat
@@ -188,10 +189,10 @@ struct NewLookHome: View {
 
     var body: some View {
         // Settings, LAYOUT, "Game card size", read here (the host is observed) and handed to every
-        // card, so a new size redraws Home at once, exactly as it does in the Current look.
+        // card, so a new size redraws Home at once.
         let size = host.libraryCardSize
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: 30) {
                 if let hero = model.hero {
                     let system = CoreCatalog.system(for: hero)
                     let record = history.record(for: hero.name)
@@ -218,7 +219,17 @@ struct NewLookHome: View {
                 }
 
                 if !model.systems.isEmpty {
-                    systemsBlock
+                    VStack(alignment: .leading, spacing: 12) {
+                        NewLookSectionTitle(title: "SYSTEMS", caps: true, trailing: "View all") {
+                            looks.librarySystem = nil
+                            host.libraryTab = .allGames
+                        }
+                        NewLookSystemTray(systems: model.systems,
+                                          selected: highlightedSystem) { raw in
+                            looks.librarySystem = raw
+                            host.libraryTab = .allGames
+                        }
+                    }
                 }
 
                 if !model.jumpBackIn.isEmpty {
@@ -263,54 +274,43 @@ struct NewLookHome: View {
     private var highlightedSystem: String? {
         looks.librarySystem ?? model.hero.flatMap { CoreCatalog.system(for: $0)?.rawValue }
     }
+}
 
-    private var systemsBlock: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("SYSTEMS")
-                    .font(.system(size: 17, weight: .semibold))
-                    .tracking(1.2)
-                    .foregroundStyle(Color.white.opacity(0.75))
-                Spacer(minLength: 8)
-                Button("View all") {
-                    looks.librarySystem = nil
-                    host.libraryTab = .allGames
-                }
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color.white.opacity(0.6))
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 20)
+/// A section's title, as in the mockup: "SYSTEMS" in grey capitals with "View all" on the right,
+/// or "Jump Back In" in bold white.
+struct NewLookSectionTitle: View {
+    let title: String
+    var caps = false
+    var trailing: String?
+    var onTrailing: (() -> Void)?
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(model.systems, id: \.system) { item in
-                        NewLookSystemTile(system: item.system, count: item.count,
-                                          selected: highlightedSystem == item.system.rawValue) {
-                            looks.librarySystem = item.system.rawValue
-                            host.libraryTab = .allGames
-                        }
-                    }
-                }
-                // Room for the gold glow, so the scroll view does not clip it.
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            if caps {
+                Text(title)
+                    .font(.system(size: 18, weight: .semibold))
+                    .tracking(1.0)
+                    .foregroundStyle(Color.white.opacity(0.72))
+            } else {
+                Text(title)
+                    .font(.system(size: 23, weight: .bold))
+                    .foregroundStyle(.white)
             }
-            // The row fades out at both edges rather than chopping a tile off.
-            .mask(
-                LinearGradient(stops: [.init(color: .clear, location: 0),
-                                       .init(color: .black, location: 0.05),
-                                       .init(color: .black, location: 0.95),
-                                       .init(color: .clear, location: 1)],
-                               startPoint: .leading, endPoint: .trailing)
-            )
+            Spacer(minLength: 8)
+            if let trailing, let onTrailing {
+                Button(trailing, action: onTrailing)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.55))
+                    .buttonStyle(.plain)
+            }
         }
+        .padding(.horizontal, 20)
     }
 }
 
-/// A titled row of covers on the New look's Home. The cards are the Current look's `CoverCard`,
-/// so they show the WHOLE cover at its own shape and follow Settings, LAYOUT, "Game card size"
-/// exactly the same way. Jump Back In adds "Last played" and the play time under each card.
+/// A titled row of glowing cover cards on the New look's Home. The card width follows Settings,
+/// LAYOUT, "Game card size". Jump Back In shows "Last played" and the play time under each card:
+/// real data only, the app does not track progress.
 struct NewLookShelf: View {
     let title: String
     let entries: [LibraryEntry]
@@ -323,83 +323,170 @@ struct NewLookShelf: View {
     let showsPlayLines: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 20)
+        VStack(alignment: .leading, spacing: 4) {
+            NewLookSectionTitle(title: title)
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: cardSize.shelfSpacing) {
+                LazyHStack(alignment: .top, spacing: cardSize.shelfSpacing + 4) {
                     ForEach(entries) { entry in
-                        VStack(alignment: .leading, spacing: 4) {
-                            CoverCard(
-                                entry: entry,
-                                system: CoreCatalog.system(for: entry),
-                                store: store,
-                                generation: generation,
-                                isFavourite: favourites.contains(entry.name),
-                                width: cardSize.shelfCardWidth,
-                                host: host,
-                                cardSize: cardSize
-                            )
-                            if showsPlayLines && cardSize.showsCardLine {
-                                playLines(for: entry)
-                            }
-                        }
+                        let system = CoreCatalog.system(for: entry)
+                        let record = history.record(for: entry.name)
+                        NewLookGlowCard(
+                            entry: entry,
+                            system: system,
+                            store: store,
+                            generation: generation,
+                            isFavourite: favourites.contains(entry.name),
+                            width: NewLook.shelfCardWidth(cardSize),
+                            cardSize: cardSize,
+                            host: host,
+                            line: showsPlayLines
+                                ? (PlayHistory.lastPlayedText(record)
+                                    ?? GameMetadata.cardLine(for: entry, system: system))
+                                : GameMetadata.cardLine(for: entry, system: system),
+                            secondLine: showsPlayLines ? PlayHistory.playedText(record) : nil,
+                            frameAspect: 0.92
+                        )
                     }
                 }
+                // Room for the glow, so the scroll view does not clip it.
                 .padding(.horizontal, 20)
-                .padding(.bottom, 4)
+                .padding(.vertical, 12)
             }
-        }
-    }
-
-    @ViewBuilder
-    private func playLines(for entry: LibraryEntry) -> some View {
-        let record = history.record(for: entry.name)
-        if let last = PlayHistory.lastPlayedText(record) {
-            Text(last)
-                .font(.system(size: cardSize.cardLineFont))
-                .foregroundStyle(ShellPalette.secondaryText)
-                .lineLimit(1)
-                .frame(width: cardSize.shelfCardWidth, alignment: .leading)
-        }
-        if let played = PlayHistory.playedText(record) {
-            Text(played)
-                .font(.system(size: cardSize.cardLineFont, weight: .medium))
-                .foregroundStyle(ShellPalette.gold.opacity(0.85))
-                .lineLimit(1)
-                .frame(width: cardSize.shelfCardWidth, alignment: .leading)
         }
     }
 }
 
-// MARK: - The Library's system chips
+// MARK: - A glowing cover card
 
-/// "All" and one chip per system that has games, with counts. Picking one filters the Library
-/// (`LookStore.librarySystem`); the SYSTEMS carousel on Home picks the same way.
-struct NewLookSystemChips: View {
-    let library: [LibraryEntry]
-    @ObservedObject var looks: LookStore
-    /// Settings, LAYOUT, Console order: the chips follow it.
-    @ObservedObject var prefs: LibraryPrefs
+/// A cover card in the New look: the WHOLE cover at its own shape (never cropped), with a thin
+/// glowing outline in its console's colour (Settings, LOOK, COLOURS, "Cover glow"), the title and
+/// one or two lines under it. A tap plays, a press and hold opens the Game Hub, and in the
+/// Library's select mode a tap ticks it, exactly like the Current look's card.
+struct NewLookGlowCard: View {
+    let entry: LibraryEntry
+    let system: GameSystem?
+    let store: ArtworkStore
+    let generation: Int
+    let isFavourite: Bool
+    let width: CGFloat
+    let cardSize: LibraryCardSize
+    let host: EngineHost
+    var line: String?
+    var secondLine: String?
+    /// Width over height of the cover's space. The cover sits whole inside it, at the bottom.
+    var frameAspect: CGFloat = 0.8
+    /// Ticked in select mode. Nil when not selecting.
+    var selected: Bool?
+
+    private var coverHeight: CGFloat { (width / frameAspect).rounded() }
 
     var body: some View {
-        let systems = Self.counts(library, order: prefs.ordered(GameSystem.allCases))
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                chip(title: "All", count: library.count, selected: looks.librarySystem == nil) {
-                    looks.librarySystem = nil
-                }
-                ForEach(systems, id: \.system) { item in
-                    chip(title: NewLook.shortName(item.system), count: item.count,
-                         selected: looks.librarySystem == item.system.rawValue) {
-                        looks.librarySystem = item.system.rawValue
+        let glow = NewLookColors.shared.glow(for: system)
+        VStack(alignment: .leading, spacing: cardSize.labelSpacing + 2) {
+            CoverArtView(entry: entry, system: system, store: store,
+                         generation: generation, showsCaption: width >= 92,
+                         captionScale: cardSize.plateCaptionScale,
+                         style: .whole(WholeCover(cornerRadius: max(cardSize.cornerRadius, 8),
+                                                  alignment: .bottom,
+                                                  favouriteStar: isFavourite ? cardSize : nil,
+                                                  outline: glow == nil)))
+                // Two shadows of the console's colour: a tight one that reads as a thin bright
+                // edge, and a soft one that is the glow. They follow the cover's own shape.
+                .shadow(color: glow ?? .clear, radius: 1.2)
+                .shadow(color: (glow ?? .clear).opacity(0.65), radius: 9)
+                .frame(width: width, height: coverHeight)
+                .overlay(alignment: .bottomLeading) { selectionMark }
+
+            Text(GameMetadata.displayTitle(for: entry))
+                .font(.system(size: cardSize.titleFont + 1, weight: .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+            if cardSize.showsCardLine, let line {
+                Text(line)
+                    .font(.system(size: cardSize.cardLineFont))
+                    .foregroundStyle(Color.white.opacity(0.55))
+                    .lineLimit(1)
+                    .minimumScaleFactor(cardSize.cardLineMinimumScale)
+            }
+            if cardSize.showsCardLine, let secondLine {
+                Text(secondLine)
+                    .font(.system(size: cardSize.cardLineFont, weight: .medium))
+                    .foregroundStyle(ShellPalette.gold)
+                    .lineLimit(1)
+            }
+        }
+        .frame(width: width, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if selected != nil {
+                LibrarySelection.shared.toggle(entry)
+            } else {
+                host.launch(entry: entry)
+            }
+        }
+        .onLongPressGesture(minimumDuration: 0.4) {
+            host.detailEntry = entry
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(GameMetadata.displayTitle(for: entry)), "
+                            + "\(GameMetadata.cardLine(for: entry, system: system))")
+        .accessibilityAddTraits(selected == true ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private var selectionMark: some View {
+        if let selected {
+            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: max(14, cardSize.starFont + 8), weight: .semibold))
+                .foregroundStyle(selected ? ShellPalette.accent : Color.white)
+                .background(Circle().fill(Color.black.opacity(selected ? 0.0 : 0.35)))
+                .background(Circle().fill(ShellPalette.onAccent).padding(2).opacity(selected ? 1 : 0))
+                .padding(cardSize.badgeInset)
+        }
+    }
+}
+
+// MARK: - The SYSTEMS tray
+
+/// One dark rounded tray holding the console tiles, about five on screen at once, as in the
+/// mockup. Home uses it for SYSTEMS; the Library uses it, with an All tile first, to filter.
+struct NewLookSystemTray: View {
+    let systems: [HomeModel.SystemCount]
+    let selected: String?
+    /// When set, an All tile comes first, with this many games; picking it passes nil.
+    var allCount: Int?
+    let onPick: (String?) -> Void
+
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 22, style: .continuous) }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    if let allCount {
+                        NewLookSystemTile(system: nil, count: allCount,
+                                          selected: selected == nil) { onPick(nil) }
+                            .id("all")
+                    }
+                    ForEach(systems, id: \.system) { item in
+                        NewLookSystemTile(system: item.system, count: item.count,
+                                          selected: selected == item.system.rawValue) {
+                            onPick(item.system.rawValue)
+                        }
+                        .id(item.system.rawValue)
                     }
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 10)
             }
-            .padding(.horizontal, 16)
+            .onAppear {
+                if let selected { proxy.scrollTo(selected, anchor: .center) }
+            }
         }
+        .background(shape.fill(Color.white.opacity(0.06)))
+        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
+        .clipShape(shape)
+        .padding(.horizontal, 12)
     }
 
     /// Each console that has games, with its count, in `order` (the player's console order).
@@ -420,29 +507,6 @@ struct NewLookSystemChips: View {
     static func narrowed(_ library: [LibraryEntry], to raw: String?) -> [LibraryEntry] {
         guard let raw, let system = GameSystem(rawValue: raw) else { return library }
         return library.filter { CoreCatalog.system(for: $0) == system }
-    }
-
-    private func chip(title: String, count: Int, selected: Bool,
-                      action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                Text("\(count)")
-                    .font(.system(size: 11, weight: .bold))
-                    .opacity(0.7)
-            }
-            .foregroundStyle(selected ? Color.black : Color.white)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(selected ? AnyShapeStyle(ShellPalette.gold)
-                                 : AnyShapeStyle(Color.white.opacity(0.08)),
-                        in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.white.opacity(selected ? 0 : 0.08),
-                                            lineWidth: 0.5))
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 }
 
@@ -473,7 +537,7 @@ struct HomeModel {
         out.shelves = LibraryShell.buildShelves(library: library, arrivals: arrivals,
                                                 systemShelves: systemShelves, order: order)
         out.hero = played.first ?? out.shelves.first?.entries.first
-        out.systems = NewLookSystemChips.counts(library, order: order)
+        out.systems = NewLookSystemTray.counts(library, order: order)
         return out
     }
 }
@@ -545,6 +609,45 @@ enum NewLook {
         }
     }
 
+    /// A Home shelf card's width at each Settings, LAYOUT, "Game card size". Medium is the
+    /// mockup's card.
+    static func shelfCardWidth(_ size: LibraryCardSize) -> CGFloat {
+        switch size {
+        case .extraSmall: return 72
+        case .small: return 104
+        case .medium: return 136
+        case .large: return 176
+        }
+    }
+
+    /// Each console's own colour, for the glow round its covers (Settings, LOOK, COLOURS,
+    /// "Cover glow", Console colours): the colour its hardware or its boxes are known by.
+    static func consoleColor(_ system: GameSystem?) -> Color {
+        func c(_ r: Double, _ g: Double, _ b: Double) -> Color { Color(red: r, green: g, blue: b) }
+        switch system {
+        case .gba: return c(0.36, 0.45, 1.0)
+        case .gbc: return c(1.0, 0.70, 0.20)
+        case .gb, .pokemini: return c(0.62, 0.80, 0.35)
+        case .nes, .fds: return c(0.95, 0.25, 0.25)
+        case .snes: return c(0.62, 0.48, 0.95)
+        case .n64: return c(0.20, 0.75, 0.40)
+        case .ds, .n3ds: return c(0.30, 0.80, 0.95)
+        case .vb: return c(0.95, 0.15, 0.20)
+        case .ps1, .psp: return c(0.40, 0.55, 0.95)
+        case .genesis, .segacd, .sega32x, .sms, .sg1000, .gg: return c(0.20, 0.55, 1.0)
+        case .saturn: return c(0.55, 0.60, 0.70)
+        case .dreamcast: return c(1.0, 0.50, 0.15)
+        case .tg16, .pcecd, .sgx: return c(0.95, 0.55, 0.20)
+        case .ngp, .wswan: return c(0.35, 0.65, 1.0)
+        case .atari2600, .atari5200, .atari7800, .lynx, .jaguar: return c(0.95, 0.35, 0.25)
+        case .arcade: return c(1.0, 0.30, 0.60)
+        case .amiga, .c64, .dos, .doom: return c(0.70, 0.70, 0.75)
+        case .flash: return c(0.95, 0.30, 0.30)
+        case .j2me, .symbian: return c(0.45, 0.85, 0.65)
+        case nil: return c(0.98, 0.77, 0.26)
+        }
+    }
+
     /// The core a game will launch on, short ("mGBA", not "mGBA (Game Boy Advance)").
     static func coreName(for entry: LibraryEntry, ps1CoreId: String) -> String? {
         guard let name = CoreCatalog.core(forPath: entry.path, ps1CoreId: ps1CoreId)?.displayName
@@ -568,6 +671,9 @@ struct NewLookWordmark: View {
     /// iOS Settings, Accessibility, Reduce Motion: the ring stays still.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var spinning = false
+    /// Settings, LOOK, COLOURS: the ring's colour, and whether it spins.
+    private var colors: NewLookColors { NewLookColors.shared }
+    private var shouldSpin: Bool { colors.ringSpins && !reduceMotion }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -579,10 +685,7 @@ struct NewLookWordmark: View {
                 .minimumScaleFactor(0.7)
             Circle()
                 .strokeBorder(
-                    AngularGradient(
-                        colors: [.red, .orange, .yellow, .green, .cyan, .blue, .purple, .pink, .red],
-                        center: .center
-                    ),
+                    AngularGradient(colors: colors.ringColors, center: .center),
                     lineWidth: 4
                 )
                 .frame(width: 24, height: 24)
@@ -593,8 +696,8 @@ struct NewLookWordmark: View {
                                     : .default,
                            value: spinning)
         }
-        .onAppear { spinning = !reduceMotion }
-        .onChange(of: reduceMotion) { still in spinning = !still }
+        .onAppear { spinning = shouldSpin }
+        .onChange(of: reduceMotion) { _ in spinning = shouldSpin }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Continuum")
         .accessibilityAddTraits(.isHeader)
@@ -603,10 +706,25 @@ struct NewLookWordmark: View {
 
 // MARK: - The hero
 
-/// The LAST PLAYED card at the top of the New look's Home, as in the mockup: a rounded card
-/// inset from the screen's edges, over a soft, darkened blur of the game's own cover, with the
-/// title, console, core and play time on the left, the tilted cover (whole, never cropped) on the
-/// right with room around it, and Play or Resume and Game Hub underneath.
+/// The warm glow behind the hero and the Game Hub top, as in the mockup: the accent colour
+/// glowing from behind the box art and fading out smoothly. Drawn INSIDE its card and clipped
+/// to it, so it never spreads under the header.
+struct NewLookGlow: View {
+    var body: some View {
+        ZStack {
+            Color.white.opacity(0.03)
+            RadialGradient(colors: [ShellPalette.gold.opacity(0.55), ShellPalette.gold.opacity(0.16),
+                                    .clear],
+                           center: UnitPoint(x: 0.80, y: 0.38), startRadius: 0, endRadius: 250)
+            LinearGradient(colors: [.clear, ShellPalette.charcoal.opacity(0.35)],
+                           startPoint: .top, endPoint: .bottom)
+        }
+    }
+}
+
+/// The LAST PLAYED card at the top of the New look's Home: the eyebrow, the title, the console,
+/// core and play time on the left, the big upright box on the right (whole, never cropped), and
+/// Resume or Play and Game Hub underneath, over the warm glow.
 struct NewLookHero: View {
     let entry: LibraryEntry
     let system: GameSystem?
@@ -617,40 +735,38 @@ struct NewLookHero: View {
     let primaryTitle: String
     let host: EngineHost
 
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 24, style: .continuous) }
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 26, style: .continuous) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
                     Text(eyebrow)
-                        .font(.system(size: 13, weight: .bold))
-                        .tracking(1.2)
+                        .font(.system(size: 15, weight: .bold))
+                        .tracking(0.8)
                         .foregroundStyle(ShellPalette.gold)
                     Text(GameMetadata.displayTitle(for: entry))
-                        .font(.system(size: 26, weight: .bold))
+                        .font(.system(size: 28, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(3)
                         .minimumScaleFactor(0.6)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(metaLine)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color.white.opacity(0.68))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.62))
                         .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                // The cover sits well inside the card: a fixed space a little bigger than the
-                // cover, so the tilt and the glow never reach the card's edge.
-                NewLookAngledCover(entry: entry, system: system, store: store,
-                                   generation: generation, width: 112)
-                    .frame(width: 128, height: 150)
+                NewLookBoxArt(entry: entry, system: system, store: store,
+                              generation: generation, width: 140)
+                    .frame(width: 150, height: 176)
                     .contentShape(Rectangle())
                     .onTapGesture { host.detailEntry = entry }
             }
 
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 NewLookPrimaryButton(title: primaryTitle, systemImage: "play.fill") {
                     host.launch(entry: entry)
                 }
@@ -660,33 +776,20 @@ struct NewLookHero: View {
                 Spacer(minLength: 0)
             }
         }
-        .padding(18)
-        .background(
-            ZStack {
-                Color(white: 0.10)
-                // The game's own cover, blurred and darkened, so the card takes its colour.
-                CoverArtView(entry: entry, system: system, store: store,
-                             generation: generation, showsCaption: false, style: .backdrop)
-                    .scaleEffect(1.3)
-                    .opacity(0.55)
-                LinearGradient(colors: [Color.black.opacity(0.15), Color.black.opacity(0.55)],
-                               startPoint: .topTrailing, endPoint: .bottomLeading)
-            }
-            .allowsHitTesting(false)
-            .clipShape(shape)
-        )
-        .overlay(shape.strokeBorder(Color.white.opacity(0.09), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
+        .padding(20)
+        .background(NewLookGlow().clipShape(shape))
+        .overlay(shape.strokeBorder(Color.white.opacity(0.07), lineWidth: 0.5))
         .contentShape(shape)
         .onLongPressGesture(minimumDuration: 0.4) {
             host.detailEntry = entry
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 12)
     }
 }
 
-/// Box art turned a little toward the title, with a gold glow, as in the mockup.
-struct NewLookAngledCover: View {
+/// The box art standing up and turned a little toward the title, so it reads as a box, with
+/// the accent glowing behind it. The WHOLE cover at its own shape, never cropped.
+struct NewLookBoxArt: View {
     let entry: LibraryEntry
     let system: GameSystem?
     let store: ArtworkStore
@@ -694,16 +797,14 @@ struct NewLookAngledCover: View {
     let width: CGFloat
 
     var body: some View {
-        // THE WHOLE COVER at its own shape (a wide GBA box, a tall NES box), never cropped,
-        // centred in its space. The glow and the shadow follow the cover itself.
         CoverArtView(entry: entry, system: system, store: store,
                      generation: generation, showsCaption: true,
-                     style: .whole(WholeCover(cornerRadius: 8, alignment: .center)))
-            .frame(width: width, height: (width * 1.15).rounded())
-            .shadow(color: ShellPalette.gold.opacity(0.35), radius: 18)
-            .shadow(color: .black.opacity(0.6), radius: 10, x: -4, y: 8)
-            .rotation3DEffect(.degrees(-16), axis: (x: 0, y: 1, z: 0),
-                              anchor: .center, perspective: 0.7)
+                     style: .whole(WholeCover(cornerRadius: 6, alignment: .center)))
+            .frame(width: width, height: (width * 1.2).rounded())
+            .shadow(color: ShellPalette.gold.opacity(0.45), radius: 22)
+            .shadow(color: .black.opacity(0.65), radius: 10, x: -6, y: 10)
+            .rotation3DEffect(.degrees(-14), axis: (x: 0, y: 1, z: 0),
+                              anchor: .center, perspective: 0.6)
             .accessibilityHidden(true)
     }
 }
@@ -725,7 +826,7 @@ struct NewLookPrimaryButton: View {
                 Text(title)
                     .font(.system(size: 17, weight: .semibold))
             }
-            .foregroundStyle(Color.black)
+            .foregroundStyle(ShellPalette.onAccent)
             .padding(.horizontal, 22)
             .padding(.vertical, 12)
             .frame(minWidth: 128)
@@ -788,65 +889,73 @@ struct NewLookRoundButton: View {
 
 // MARK: - A system tile
 
-/// One console in the SYSTEMS row, as in the mockup: a photo of the console (Wikimedia Commons;
-/// every source and licence is in CONSOLE_PHOTOS.md, and no two systems share one), its short
-/// name, and how many games it has. The picked one (or the last played game's console) glows gold.
+/// One console in the tray: its photo filling the tile (Wikimedia Commons; every source and
+/// licence is in CONSOLE_PHOTOS.md, and no two systems share one), its name in bold italic
+/// capitals under it like a console logo, and the count in the top corner. The picked one has a
+/// glowing accent border. A nil system is the Library's All tile.
 struct NewLookSystemTile: View {
-    let system: GameSystem
+    let system: GameSystem?
     let count: Int
     let selected: Bool
     let action: () -> Void
 
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 16, style: .continuous) }
+
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 6) {
-                Image("console-\(system.rawValue)")
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(width: 104, height: 84)
-                    .shadow(color: .black.opacity(0.55), radius: 6, y: 4)
-                Text(NewLook.shortName(system))
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color.white.opacity(selected ? 1 : 0.85))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+            VStack(spacing: 4) {
+                Group {
+                    if let system {
+                        Image("console-\(system.rawValue)")
+                            .resizable()
+                            .interpolation(.high)
+                            .scaledToFit()
+                    } else {
+                        Image(systemName: "square.grid.2x2.fill")
+                            .font(.system(size: 30, weight: .semibold))
+                            .foregroundStyle(ShellPalette.gold)
+                    }
+                }
+                .frame(width: 58, height: 58)
+                .shadow(color: .black.opacity(0.5), radius: 4, y: 3)
+
+                Text((system.map(NewLook.shortName) ?? "All").uppercased())
+                    .font(.system(size: 10, weight: .black).italic())
+                    .tracking(-0.2)
+                    .foregroundStyle(Color.white.opacity(selected ? 1 : 0.88))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .frame(height: 26, alignment: .top)
             }
             .padding(.top, 14)
-            .padding(.bottom, 10)
-            .padding(.horizontal, 8)
-            .frame(width: 124, height: 136)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(selected ? 0.09 : 0.05))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(selected ? ShellPalette.gold : Color.white.opacity(0.08),
-                                  lineWidth: selected ? 2 : 0.5)
-            )
+            .padding(.bottom, 6)
+            .frame(width: 66)
+            .background(shape.fill(Color.white.opacity(selected ? 0.07 : 0.0)))
+            .overlay(shape.strokeBorder(selected ? ShellPalette.gold : Color.clear, lineWidth: 1.5))
+            .shadow(color: selected ? ShellPalette.gold.opacity(0.7) : .clear, radius: 8)
             .overlay(alignment: .topTrailing) {
                 Text("\(count)")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(selected ? Color.black : Color.white)
-                    .padding(.horizontal, 7)
-                    .frame(minWidth: 24, minHeight: 24)
-                    .background(selected ? ShellPalette.gold : Color(white: 0.26), in: Capsule())
-                    .padding(7)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .frame(minWidth: 20, minHeight: 20)
+                    .background(Color(white: 0.30), in: Capsule())
+                    .offset(x: -2, y: 2)
             }
-            .shadow(color: selected ? ShellPalette.gold.opacity(0.6) : .clear, radius: 12)
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(system.displayName), \(count) \(count == 1 ? "game" : "games")")
+        .accessibilityLabel(system.map { "\($0.displayName), \(count) \(count == 1 ? "game" : "games")" }
+                            ?? "All games, \(count)")
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 }
 
 // MARK: - The Game Hub header (the game card, new look)
 
-/// The top of a game's card in the new look, matching the Home hero: the angled cover over a
-/// blurred copy of it, the title, the system, the core it runs on, the real play time, and
+/// The top of a game's card in the new look, matching the Home hero: the standing box over
+/// the warm glow, the title, the system, the core it runs on, the real play time, and
 /// Play or Resume, the heart and Close. Everything under it (core picker, save states, cheats,
 /// manual, achievements, skin, cover art, delete) is the same card the current look has.
 struct NewLookHubHeader: View {
@@ -882,8 +991,9 @@ struct NewLookHubHeader: View {
             }
 
             HStack(alignment: .center, spacing: 18) {
-                NewLookAngledCover(entry: entry, system: system, store: store,
-                                   generation: generation, width: 124)
+                NewLookBoxArt(entry: entry, system: system, store: store,
+                              generation: generation, width: 116)
+                    .frame(width: 126, height: 150)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(GameMetadata.displayTitle(for: entry))
                         .font(.system(size: 23, weight: .bold))
@@ -932,22 +1042,18 @@ struct NewLookHubHeader: View {
             }
         }
         .padding(18)
+        // The same warm glow as the Home hero, inside the card.
         .background(
             ZStack {
                 ShellPalette.charcoal
-                CoverArtView(entry: entry, system: system, store: store,
-                             generation: generation, showsCaption: false)
-                    .blur(radius: 50)
-                    .opacity(0.40)
-                LinearGradient(colors: [.clear, ShellPalette.charcoal.opacity(0.85)],
-                               startPoint: .top, endPoint: .bottom)
+                NewLookGlow()
             }
             .allowsHitTesting(false)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .strokeBorder(ShellPalette.gold.opacity(0.25), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
         )
     }
 }

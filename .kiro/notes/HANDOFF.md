@@ -5,6 +5,17 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
+## START HERE (19 October 2026, late afternoon Eastern): New look redone after 198
+
+- The owner was unhappy with 198 (hero smear behind the header, SYSTEMS not like the mockup).
+  Redone: `NewLookHero` + `NewLookGlow` (glow clipped inside the card), `NewLookSystemTray` +
+  `NewLookSystemTile`, `NewLookGlowCard` for every New cover, New branches in ConsoleSections,
+  EmptyLibraryNotice, SettingsSection (`SettingsSectionStyle` icons and titles), LookPickerCard.
+- Colours: `NewLookColors` (LookTheme.swift), read through `ShellPalette.gold/charcoal/onAccent`.
+  RootView redraws LibraryShell by `.id(look + version)`; the colour editor sheet is presented
+  from RootView so the redraw does not close it. Per-console glow colours: `NewLook.consoleColor`.
+- Still: do NOT touch the New-look header. Labels only Look / Current / New.
+
 ## START HERE (19 October 2026, afternoon Eastern): New-look fixes after 197
 
 - Owner's build-197 screenshots: SYSTEMS looked half done, covers cropped, card size did nothing,

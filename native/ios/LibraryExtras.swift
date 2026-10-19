@@ -1230,6 +1230,7 @@ struct ConsoleSections: View {
     @ObservedObject private var selection = LibrarySelection.shared
     /// Built when the games or the order change, not on every redraw (the Home shelves' rule).
     @State private var groups: [ConsoleGroup] = []
+    private var isNew: Bool { LookStore.isNewLook }
 
     private static let indexRow: CGFloat = 17
 
@@ -1295,7 +1296,71 @@ struct ConsoleSections: View {
         return out
     }
 
+    @ViewBuilder
     private func header(_ group: ConsoleGroup) -> some View {
+        if isNew { newHeader(group) } else { currentHeader(group) }
+    }
+
+    /// The New look's console header: a dark rounded tray bar with the console's photo, its
+    /// name, the count and the fold chevron, as in the mockup's SYSTEMS tray.
+    private func newHeader(_ group: ConsoleGroup) -> some View {
+        let folded = prefs.folded.contains(group.id)
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        return Button {
+            withAnimation(.easeOut(duration: 0.2)) {
+                prefs.toggleFold(group.id)
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Group {
+                    if let system = group.system {
+                        Image("console-\(system.rawValue)")
+                            .resizable()
+                            .interpolation(.high)
+                            .scaledToFit()
+                    } else {
+                        Image(systemName: "questionmark.square.dashed")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(ShellPalette.gold)
+                    }
+                }
+                .frame(width: 34, height: 30)
+                Text(group.title)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Text("\(group.entries.count)")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7)
+                    .frame(minHeight: 20)
+                    .background(Color(white: 0.30), in: Capsule())
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(ShellPalette.gold)
+                    .rotationEffect(.degrees(folded ? -90 : 0))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                ZStack {
+                    shape.fill(ShellPalette.charcoal.opacity(0.96))
+                    shape.fill(Color.white.opacity(0.06))
+                }
+            )
+            .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
+            .contentShape(shape)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(group.title), \(group.entries.count == 1 ? "1 game" : "\(group.entries.count) games")")
+        .accessibilityHint(folded ? "Shows this console's games" : "Hides this console's games")
+    }
+
+    private func currentHeader(_ group: ConsoleGroup) -> some View {
         let folded = prefs.folded.contains(group.id)
         return Button {
             withAnimation(.easeOut(duration: 0.2)) {
@@ -1334,6 +1399,21 @@ struct ConsoleSections: View {
             spacing: size.gridRowSpacing
         ) {
             ForEach(group.entries) { entry in
+                if isNew {
+                    NewLookGlowCard(
+                        entry: entry,
+                        system: group.system,
+                        store: artwork,
+                        generation: generation,
+                        isFavourite: host.favourites.contains(entry.name),
+                        width: size.gridCardWidth,
+                        cardSize: size,
+                        host: host,
+                        line: GameMetadata.cardLine(for: entry, system: group.system),
+                        frameAspect: group.system?.coverAspect ?? 0.8,
+                        selected: selection.mark(for: entry)
+                    )
+                } else {
                 CoverCard(
                     entry: entry,
                     system: group.system,
@@ -1347,9 +1427,11 @@ struct ConsoleSections: View {
                     frameAspect: group.system?.coverAspect,
                     selected: selection.mark(for: entry)
                 )
+                }
             }
         }
         .padding(.horizontal, 16)
+        .padding(.top, isNew ? 6 : 0)
     }
 
     /// The consoles' short names down the right edge. A tap, or a finger sliding down it, jumps

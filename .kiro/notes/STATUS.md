@@ -1,5 +1,12 @@
 # What is finished, and what is not
 
+**19 October 2026, late afternoon: New look redone to the mockup, built, not tried on a phone.**
+Home hero with the accent glow inside the card and a big whole box, SYSTEMS as one tray of compact
+tiles, glowing covers in console colours; Library, Favorites, Settings, Game Hub and the pause
+menu in the same style (Library sort added); every New-look colour pickable in Settings → LOOK →
+COLOURS (accent, cover glow, ring and spin, background, reset). Header unchanged. Current
+unchanged. Phone checks: TESTING.md "Next install (after 198)".
+
 **19 October 2026, afternoon: New-look fixes after build 197, built, not tried on a phone.**
 Real console photos in SYSTEMS (Wikimedia Commons, all 39 systems, none shared; sources and
 licences in `native/ios/CONSOLE_PHOTOS.md` and in the app's credits), short names, gold glow on
