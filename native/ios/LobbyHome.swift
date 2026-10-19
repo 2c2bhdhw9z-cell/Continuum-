@@ -426,30 +426,30 @@ struct LobbyBox: View {
     let generation: Int
 
     var body: some View {
-        HStack(spacing: 0) {
+        ZStack(alignment: .leading) {
+            CoverArtView(entry: entry, system: system, store: store,
+                         generation: generation, showsCaption: false,
+                         style: .whole(WholeCover(cornerRadius: 3, alignment: .center, outline: false)))
+                .frame(width: 118, height: 156)
+                .padding(.leading, 11)
             LinearGradient(
-                colors: [Color(white: 0.10), Color(white: 0.32), Color(white: 0.16)],
+                colors: [Color(white: 0.16), Color(white: 0.42), Color(white: 0.22)],
                 startPoint: .leading,
                 endPoint: .trailing
             )
-            .frame(width: 14, height: 150)
+            .frame(width: 12, height: 156)
             .overlay(
                 Text((system?.badge ?? "").uppercased())
                     .font(.system(size: 7, weight: .heavy))
-                    .foregroundStyle(.white.opacity(0.75))
+                    .foregroundStyle(.white.opacity(0.8))
                     .fixedSize()
                     .rotationEffect(.degrees(-90))
             )
-            CoverArtView(entry: entry, system: system, store: store,
-                         generation: generation, showsCaption: false,
-                         style: .whole(WholeCover(cornerRadius: 2, alignment: .center, outline: false)))
-                .frame(width: 112, height: 150)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-        .rotation3DEffect(.degrees(16), axis: (x: 0, y: 1, z: 0), anchor: .center, perspective: 0.55)
-        .shadow(color: LobbyPalette.gold.opacity(0.55), radius: 22, y: 6)
-        .shadow(color: .black.opacity(0.55), radius: 10, y: 8)
-        .padding(.trailing, 4)
+        .frame(width: 129, height: 156)
+        .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+        .shadow(color: LobbyPalette.gold.opacity(0.45), radius: 18, y: 4)
+        .shadow(color: .black.opacity(0.5), radius: 8, y: 6)
     }
 }
 
@@ -457,14 +457,7 @@ struct LobbyBox: View {
 
 extension GameSystem {
     /// A photo in the asset catalog, when this console has one.
-    var lobbyAsset: String? {
-        switch self {
-        case .gb, .gbc, .gba, .snes, .nes, .n64, .ds, .genesis:
-            return "lobby-\(rawValue)"
-        default:
-            return nil
-        }
-    }
+    var lobbyAsset: String { "lobby-\(rawValue)" }
 
     /// Short lines that fit under the photo. The long system name does not.
     var lobbyLines: [String] {
@@ -494,8 +487,8 @@ struct LobbyConsolePhoto: View {
     let system: GameSystem
 
     var body: some View {
-        if let name = system.lobbyAsset, UIImage(named: name) != nil {
-            Image(name)
+        if UIImage(named: system.lobbyAsset) != nil {
+            Image(system.lobbyAsset)
                 .resizable()
                 .scaledToFit()
         } else {

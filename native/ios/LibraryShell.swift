@@ -466,6 +466,7 @@ struct LibraryShell: View {
         // which is what the old strip showed in orange or red. On appear too, for what was written
         // before the Library was on screen: the moved line at launch, a game that failed to start.
         .onAppear {
+            ShellPalette.useLobbyGold = host.homeLook == .lastPlayed
             takeLibraryNotice()
             if !checkedStatusOnAppear {
                 checkedStatusOnAppear = true
@@ -474,6 +475,9 @@ struct LibraryShell: View {
         }
         .onChange(of: host.libraryNotice) { _ in takeLibraryNotice() }
         // Select mode belongs to All Games: another tab ends it.
+        .onChange(of: host.homeLook) { look in
+            ShellPalette.useLobbyGold = look == .lastPlayed
+        }
         .onChange(of: host.libraryTab) { _ in selection.active = false }
         .onChange(of: host.status) { line in popUpIfProblem(line) }
         // A sheet rather than a pushed view, so nothing in the view tree under it is replaced.
@@ -1022,7 +1026,7 @@ struct LibraryShell: View {
         let shown = filtered(host.library)
         VStack(alignment: .leading, spacing: 10) {
             tabHeader(
-                title: "All Games",
+                title: host.homeLook == .lastPlayed ? "Library" : "All Games",
                 subtitle: subtitle(for: shown, of: host.library.count)
             )
 
