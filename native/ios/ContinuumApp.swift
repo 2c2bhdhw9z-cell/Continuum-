@@ -6251,7 +6251,7 @@ struct RootView: View {
     /// Settings, LOOK: Current or New (LookTheme.swift). Observed here so a change redraws the
     /// whole app at once. The New look is always dark, so it overrides APPEARANCE while it is on.
     @ObservedObject private var looks = LookStore.shared
-    /// The New look's colours (Settings, LOOK, COLOURS). A pick redraws the library at once.
+    /// The New look's theme (Settings, LOOK, Theme). A pick redraws the library at once.
     @ObservedObject private var newLookColors = NewLookColors.shared
 
     /// The colour scheme the app is drawn in: the New look's dark, or the Appearance setting.
@@ -6300,10 +6300,10 @@ struct RootView: View {
         .onAppear { effectiveAppearance.applyToWindows() }
         .onChange(of: host.appearance) { _ in effectiveAppearance.applyToWindows() }
         .onChange(of: looks.look) { _ in effectiveAppearance.applyToWindows() }
-        // "Pick any colour", presented here rather than inside the library, so it stays open
-        // while the library redraws in the new colour behind it.
-        .sheet(item: $newLookColors.editing) { which in
-            NewLookColorEditor(which: which) { newLookColors.editing = nil }
+        // Settings, LOOK, Theme (New look), presented here rather than inside the library, so
+        // it stays open, where it was, while the library redraws in the new colours behind it.
+        .sheet(isPresented: $newLookColors.showingTheme) {
+            ThemeSheet(host: host)
         }
         // The "which system is this?" picker, over the library or the player.
         .background(ImportCenterPresenter(center: host.importCenter))

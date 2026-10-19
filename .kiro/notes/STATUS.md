@@ -1,5 +1,12 @@
 # What is finished, and what is not
 
+**19 October 2026, evening: the New look's Theme sheet, built, not tried on a phone.**
+Settings → LOOK → Theme (New only) replaces 199's inline colour block: gradient accent swatches,
+our own colour wheel (brightness, hex, saved colours, Save), cover glow, ring, background with an
+optional moving gradient, box art style / corners / square / hide titles, and console order. No
+app icon changes (owner cut them). Current unchanged. Phone checks: TESTING.md "Next install
+(after 199)".
+
 **19 October 2026, late afternoon: New look redone to the mockup, built, not tried on a phone.**
 Home hero with the accent glow inside the card and a big whole box, SYSTEMS as one tray of compact
 tiles, glowing covers in console colours; Library, Favorites, Settings, Game Hub and the pause

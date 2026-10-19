@@ -1271,7 +1271,7 @@ struct LibraryShell: View {
                     .foregroundStyle(ShellPalette.onAccent)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 9)
-                    .background(ShellPalette.gold, in: Capsule())
+                    .background(ShellPalette.accentFill, in: Capsule())
                     .buttonStyle(.plain)
                 } else {
                     newHeaderIcon("shuffle", label: "Play a random game") {

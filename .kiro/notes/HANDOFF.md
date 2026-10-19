@@ -5,6 +5,20 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
+## START HERE (19 October 2026, evening Eastern): Theme sheet after 199
+
+- Owner asked for colour customisation "more like" another emulator's Theme screen. Built our
+  own (clean-room) in `NewLookTheme.swift`: `ThemeRow`, `ThemeSheet` (presented from RootView via
+  `NewLookColors.showingTheme`, so library redraws never close it), `ThemeColorPicker` +
+  `ThemeWheel` + `ThemeBrightnessSlider`, `NewLookMovingBackdrop` (MeshGradient on iOS 18, moving
+  radial glows before; still with Reduce Motion; the library is not on screen during play).
+- Settings live in `NewLookColors` (LookTheme.swift). Accent may be "HEX" or "HEX-HEX" (gradient);
+  `ShellPalette.accentFill` is the gradient, `ShellPalette.gold/accent` its middle colour.
+- Box art: `NewLookGlowCard.styledCover` (Style 1/2/3, `NewLookCoverStyle.radius`, square, hide
+  titles). New look only.
+- Owner CUT app icons from this job: no new icons, no Info.plist changes. The existing Settings
+  APP ICON section (older feature) was left as it was.
+
 ## START HERE (19 October 2026, late afternoon Eastern): New look redone after 198
 
 - The owner was unhappy with 198 (hero smear behind the header, SYSTEMS not like the mockup).

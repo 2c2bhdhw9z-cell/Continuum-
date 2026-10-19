@@ -7,6 +7,34 @@ Settings has no Home switch. Do not ask the 192 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Next install (after 199): the Theme sheet. Built, not tried on a phone
+
+Settings → LOOK → New, then the "Theme" row under it (the inline COLOURS block from 199 is gone;
+step 8 of "after 198" is replaced by this list). Current must look exactly as before.
+
+1. The Theme sheet opens with an X. Tapping things in it never closes it or jumps it to the top,
+   and the app behind it changes at once.
+2. Colours: gold (default) and seven gradient swatches; the picked one has a white ring. Buttons,
+   the selected tab, the picked chip, toggles, sliders and glows follow. Text on a light colour
+   turns dark.
+3. +: the colour wheel. Drag the handle round the wheel; the brightness slider (triangle under it)
+   dims it; the preview and the hex box follow. Typing a hex (e.g. 93255F) moves the handle; a bad
+   one is refused with a red note. The house mark goes back to gold. "One colour / Gradient" adds a
+   second colour (pick First or Second to edit). + keeps it in your saved colours; Save uses it;
+   X leaves without saving.
+4. Saved colours show in the Colours row after the swatches. Press and hold one: Delete removes it.
+5. Cover glow (Console colours / Accent / Off / Custom, Custom opens the wheel), Ring (Rainbow /
+   Accent / Custom, Spin the ring) and Background (swatches and +) still work as in 199.
+6. Background → Moving gradient: a slow, soft, dark gradient from your colours moves behind
+   everything. Text stays readable. With iOS Reduce Motion on it holds still. Start a game: it is
+   not running behind the game.
+7. Box art: Style 1 (glow), Style 2 (cover on a glass plate), Style 3 (plain, shadow); the preview
+   is one of your games. Corners slider (shows %), Square covers (cover whole inside a square),
+   Hide game titles. Home, Library and Favorites cards follow; nothing is cut off.
+8. Console order → the same order sheet as Settings, LAYOUT; Home and Library follow it.
+9. Reset theme puts everything back (gold, charcoal, still background, Style 1). Saved colours stay.
+10. Close and reopen the app: every choice is kept.
+
 ## Next install (after 198): New look redone to the mockup, and its colours. Built, not tried on a phone
 
 Settings → LOOK → New. Current must look exactly as before.

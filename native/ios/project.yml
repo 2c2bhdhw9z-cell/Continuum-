@@ -494,6 +494,7 @@ targets:
       # Settings, LOOK: the second look (Current or New), its Home pieces and its pause menu.
       - path: LookTheme.swift
       - path: NewLookShell.swift
+      - path: NewLookTheme.swift
       - path: NewLookPause.swift
       # Settings: the artwork controls and their disclosure, the layout controls, the permanent home
       # of the diagnostics, the BIOS row and the core options.

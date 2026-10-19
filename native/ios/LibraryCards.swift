@@ -38,13 +38,19 @@ import UIKit
 enum ShellPalette {
     static let red = Color(red: 0.93, green: 0.16, blue: 0.29)
     /// The New look's accent: the gold of the mockup's Resume button and active tab.
-    /// Gold by default; the player can pick any colour (Settings, LOOK, COLOURS).
+    /// Gold by default; the player can pick any colour (Settings, LOOK, Theme). For a gradient
+    /// accent this is its middle colour; `accentFill` is the gradient itself.
     static var gold: Color { NewLookColors.shared.accent }
     /// The New look's page: near-black with a little warmth.
     /// Charcoal by default; pickable too, always kept dark.
     static var charcoal: Color { NewLookColors.shared.background }
 
     static var accent: Color { LookStore.isNewLook ? gold : red }
+    /// Buttons, the picked chip and the selected tab: the New look's accent gradient, or the
+    /// Current look's plain red.
+    static var accentFill: AnyShapeStyle {
+        LookStore.isNewLook ? AnyShapeStyle(NewLookColors.shared.accentFill) : AnyShapeStyle(red)
+    }
     /// Text and glyphs drawn ON the accent: dark on gold, white on red.
     static var onAccent: Color { LookStore.isNewLook ? NewLookColors.shared.onAccent : Color.white }
     /// Deletes and failures, red in both looks.

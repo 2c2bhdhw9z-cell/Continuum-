@@ -304,7 +304,7 @@ struct LookPickerCard: View {
             }
             SettingsNote("Your games and saves stay the same. New is always dark.")
             if looks.look == .newLook {
-                NewLookColorControls()
+                ThemeRow()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -371,13 +371,15 @@ struct LookPickerCard: View {
     }
 }
 
-// MARK: - The New look's colours (Settings, LOOK, with New on)
+// MARK: - The New look's colours and box art (Settings, LOOK, Theme)
 
-/// Every colour of the New look, picked by the player: the accent, the glow round the covers,
-/// the ring next to CONTINUUM (and whether it spins), and the page's background tint.
+/// Everything the New look's Theme sheet sets (NewLookTheme.swift): the accent (one colour or a
+/// gradient of two), saved colours, the glow round the covers, the ring next to CONTINUUM (and
+/// whether it spins), the page's background (and whether it moves), and the box art style.
 ///
-/// Stored as hex strings, nil meaning the default, so Reset just forgets them. Deliberately NOT
-/// main-actor isolated, for the reason `LookStore` is not: `ShellPalette` reads it from static
+/// Stored in UserDefaults, nil meaning the default, so Reset just forgets them. A colour is a
+/// hex string, "FAC442", or two joined by a dash for a gradient, "FFD66B-F2B233". Deliberately
+/// NOT main-actor isolated, for the reason `LookStore` is not: `ShellPalette` reads it from static
 /// colour properties. `version` changes with every pick; `RootView` uses it to redraw the
 /// library at once (the same way a change of look does).
 final class NewLookColors: ObservableObject {
@@ -408,51 +410,77 @@ final class NewLookColors: ObservableObject {
         }
     }
 
-    /// Which colour the editor sheet (`NewLookColorEditor`) is open for, or nil.
-    enum Editing: String, Identifiable {
-        case accent, glow, ring, background
-        var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .accent: return "Accent colour"
-            case .glow: return "Cover glow colour"
-            case .ring: return "Ring colour"
-            case .background: return "Background colour"
-            }
-        }
-    }
-
-    static let defaultAccent = "FAC442"
+    /// The default accent: gold, as a soft gradient from light to deep gold.
+    static let defaultAccent = "FFD66B-F2B233"
     static let defaultBackground = "131316"
+    /// The custom glow and ring start from gold.
+    static let defaultSingle = "FAC442"
 
-    /// Swatches offered for the accent. Gold first, the default.
-    static let accentPresets = ["FAC442", "FF8A3D", "FF4D6D", "C77DFF", "4D9DFF", "2ED3B7", "7CDB4A", "F2F2F2"]
+    /// The accent swatches. Gold first, the default. The rest are gradients of two colours.
+    static let accentPresets = [
+        "FFD66B-F2B233",
+        "5AA9FF-2F5BFF",
+        "FF5E9C-FF9F43",
+        "A66BFF-FF5FB0",
+        "6B6B73-D9D9DE",
+        "3EE6C1-1E8BE0",
+        "FF6A3D-D7263D",
+        "9BE15D-00A86B",
+    ]
     /// Dark backgrounds only, so white text always reads.
     static let backgroundPresets = ["131316", "000000", "0E1424", "1A1022", "0F1A14", "1C1C1E"]
+    /// At most this many saved colours.
+    static let savedLimit = 12
 
     private static let keyPrefix = "continuum.ui.newLook."
 
     @Published private(set) var version = 0
-    @Published var editing: Editing?
+    /// The Theme sheet, presented by `RootView` so the library redrawing behind it never closes it.
+    @Published var showingTheme = false
 
     @Published var accentHex: String? { didSet { save("accent", accentHex) } }
+    @Published var savedSwatches: [String] {
+        didSet { save("savedSwatches", savedSwatches.isEmpty ? nil : savedSwatches.joined(separator: ",")) }
+    }
     @Published var glowMode: GlowMode { didSet { save("glowMode", glowMode.rawValue) } }
     @Published var glowHex: String? { didSet { save("glow", glowHex) } }
     @Published var ringMode: RingMode { didSet { save("ringMode", ringMode.rawValue) } }
     @Published var ringHex: String? { didSet { save("ring", ringHex) } }
     @Published var ringSpins: Bool { didSet { save("ringSpins", ringSpins ? "on" : "off") } }
     @Published var backgroundHex: String? { didSet { save("background", backgroundHex) } }
+    /// "Moving gradient": the background slowly drifts. Off by default.
+    @Published var backgroundMoves: Bool { didSet { save("backgroundMoves", backgroundMoves ? "on" : nil) } }
+
+    // Box art, for the New look's cover cards.
+    /// 1 glow, 2 on a glass plate, 3 plain with a shadow.
+    @Published var coverStyle: Int { didSet { save("coverStyle", coverStyle == 1 ? nil : String(coverStyle)) } }
+    /// Corner rounding, 0 square to 1 very round.
+    @Published var coverCorner: Double {
+        didSet { save("coverCorner", coverCorner == Self.defaultCorner ? nil : String(coverCorner)) }
+    }
+    @Published var forceSquare: Bool { didSet { save("forceSquare", forceSquare ? "on" : nil) } }
+    @Published var hideTitles: Bool { didSet { save("hideTitles", hideTitles ? "on" : nil) } }
+
+    static let defaultCorner = 0.35
 
     private init() {
         let d = UserDefaults.standard
         let p = Self.keyPrefix
-        accentHex = d.string(forKey: p + "accent")
+        accentHex = d.string(forKey: p + "accent").flatMap(Self.validated)
+        savedSwatches = (d.string(forKey: p + "savedSwatches") ?? "")
+            .split(separator: ",").map(String.init).compactMap(Self.validated)
         glowMode = d.string(forKey: p + "glowMode").flatMap(GlowMode.init(rawValue:)) ?? .console
-        glowHex = d.string(forKey: p + "glow")
+        glowHex = d.string(forKey: p + "glow").flatMap(Self.validated)
         ringMode = d.string(forKey: p + "ringMode").flatMap(RingMode.init(rawValue:)) ?? .rainbow
-        ringHex = d.string(forKey: p + "ring")
+        ringHex = d.string(forKey: p + "ring").flatMap(Self.validated)
         ringSpins = d.string(forKey: p + "ringSpins") != "off"
-        backgroundHex = d.string(forKey: p + "background")
+        backgroundHex = d.string(forKey: p + "background").flatMap(Self.validated)
+        backgroundMoves = d.string(forKey: p + "backgroundMoves") == "on"
+        coverStyle = d.string(forKey: p + "coverStyle").flatMap { Int($0) }.map { min(max($0, 1), 3) } ?? 1
+        coverCorner = d.string(forKey: p + "coverCorner").flatMap { Double($0) }
+            .map { min(max($0, 0), 1) } ?? Self.defaultCorner
+        forceSquare = d.string(forKey: p + "forceSquare") == "on"
+        hideTitles = d.string(forKey: p + "hideTitles") == "on"
     }
 
     private func save(_ name: String, _ value: String?) {
@@ -465,7 +493,8 @@ final class NewLookColors: ObservableObject {
         version &+= 1
     }
 
-    /// Back to gold on charcoal, console glows, the spinning rainbow ring.
+    /// Back to gold on charcoal, console glows, the spinning rainbow ring, the first box art
+    /// style. Saved colours are kept: they are the player's own, deleted one by one.
     func resetToDefaults() {
         accentHex = nil
         glowMode = .console
@@ -474,20 +503,47 @@ final class NewLookColors: ObservableObject {
         ringHex = nil
         ringSpins = true
         backgroundHex = nil
+        backgroundMoves = false
+        coverStyle = 1
+        coverCorner = Self.defaultCorner
+        forceSquare = false
+        hideTitles = false
     }
 
     var isDefault: Bool {
         accentHex == nil && glowMode == .console && glowHex == nil && ringMode == .rainbow
-            && ringHex == nil && ringSpins && backgroundHex == nil
+            && ringHex == nil && ringSpins && backgroundHex == nil && !backgroundMoves
+            && coverStyle == 1 && coverCorner == Self.defaultCorner && !forceSquare && !hideTitles
+    }
+
+    /// Adds a colour to the saved row (newest first), once.
+    func saveSwatch(_ value: String) {
+        guard let value = Self.validated(value) else { return }
+        var list = savedSwatches.filter { $0.caseInsensitiveCompare(value) != .orderedSame }
+        list.insert(value, at: 0)
+        savedSwatches = Array(list.prefix(Self.savedLimit))
+    }
+
+    func deleteSwatch(_ value: String) {
+        savedSwatches.removeAll { $0.caseInsensitiveCompare(value) == .orderedSame }
     }
 
     // MARK: The colours themselves
 
-    var accent: Color { Self.color(hex: accentHex ?? Self.defaultAccent) }
+    /// The accent's colours: one, or the two ends of its gradient.
+    var accentStops: [Color] { Self.stops(accentHex ?? Self.defaultAccent).map(Self.color(hex:)) }
+    /// The accent as one colour (the middle of a gradient): text, toggles, sliders, glows.
+    var accent: Color { Self.color(hex: Self.middle(accentHex ?? Self.defaultAccent)) }
+    /// The accent as a fill: the gradient, top left to bottom right.
+    var accentFill: LinearGradient {
+        let stops = accentStops
+        return LinearGradient(colors: stops.count == 1 ? [stops[0], stops[0]] : stops,
+                              startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
     var background: Color { Self.color(hex: backgroundHex ?? Self.defaultBackground) }
 
     /// Dark or white, whichever reads on the accent: text on a filled button, a picked chip.
-    var onAccent: Color { Self.isLight(hex: accentHex ?? Self.defaultAccent) ? .black : .white }
+    var onAccent: Color { Self.isLight(hex: Self.middle(accentHex ?? Self.defaultAccent)) ? .black : .white }
 
     /// The glow round a cover, or nil for none.
     func glow(for system: GameSystem?) -> Color? {
@@ -495,258 +551,112 @@ final class NewLookColors: ObservableObject {
         case .console: return NewLook.consoleColor(system)
         case .accent: return accent
         case .off: return nil
-        case .custom: return Self.color(hex: glowHex ?? Self.defaultAccent)
+        case .custom: return Self.color(hex: Self.middle(glowHex ?? Self.defaultSingle))
         }
     }
 
-    /// The ring's colours: the rainbow, or one colour all the way round.
+    /// The ring's colours: the rainbow, or the accent or one colour all the way round.
     var ringColors: [Color] {
         switch ringMode {
         case .rainbow: return [.red, .orange, .yellow, .green, .cyan, .blue, .purple, .pink, .red]
-        case .accent: return [accent, accent.opacity(0.55), accent]
+        case .accent:
+            let s = accentStops
+            return s.count == 1 ? [s[0], s[0].opacity(0.55), s[0]] : [s[0], s[1], s[0]]
         case .custom:
-            let c = Self.color(hex: ringHex ?? Self.defaultAccent)
+            let c = Self.color(hex: Self.middle(ringHex ?? Self.defaultSingle))
             return [c, c.opacity(0.55), c]
         }
     }
 
+    /// The moving background's colours: the page colour and the accent's colours dimmed far
+    /// enough that white text over them always reads.
+    var movingColors: [Color] {
+        let base = backgroundHex ?? Self.defaultBackground
+        let stops = Self.stops(accentHex ?? Self.defaultAccent)
+        let first = stops[0]
+        let second = stops.count > 1 ? stops[1] : Self.shiftedHue(first, by: 0.12)
+        let third = Self.shiftedHue(first, by: -0.18)
+        return [base, Self.darkened(hex: first, to: 0.20), Self.darkened(hex: second, to: 0.20),
+                Self.darkened(hex: third, to: 0.16)].map(Self.color(hex:))
+    }
+
     // MARK: Hex
+
+    /// "FAC442" or "FFD66B-F2B233", upper case, or nil if it is not one of those.
+    static func validated(_ raw: String) -> String? {
+        let parts = raw.uppercased().replacingOccurrences(of: "#", with: "")
+            .trimmingCharacters(in: .whitespaces).split(separator: "-").map(String.init)
+        guard (1...2).contains(parts.count),
+              parts.allSatisfy({ $0.count == 6 && UInt32($0, radix: 16) != nil }) else { return nil }
+        return parts.joined(separator: "-")
+    }
+
+    static func stops(_ value: String) -> [String] {
+        let parts = value.split(separator: "-").map(String.init)
+        return parts.isEmpty ? [defaultSingle] : parts
+    }
+
+    /// One colour standing for a value: itself, or halfway along its gradient.
+    static func middle(_ value: String) -> String {
+        let s = stops(value)
+        guard s.count > 1 else { return s[0] }
+        let (r1, g1, b1) = components(hex: s[0])
+        let (r2, g2, b2) = components(hex: s[1])
+        return hex(r: (r1 + r2) / 2, g: (g1 + g2) / 2, b: (b1 + b2) / 2)
+    }
 
     static func components(hex: String) -> (Double, Double, Double) {
         let clean = hex.trimmingCharacters(in: CharacterSet(charactersIn: "# "))
-        let value = UInt32(clean, radix: 16) ?? 0
+        let value = UInt32(clean.prefix(6), radix: 16) ?? 0
         return (Double((value >> 16) & 0xFF) / 255, Double((value >> 8) & 0xFF) / 255,
                 Double(value & 0xFF) / 255)
     }
 
+    static func hex(r: Double, g: Double, b: Double) -> String {
+        func byte(_ v: Double) -> Int { Int((min(max(v, 0), 1) * 255).rounded()) }
+        return String(format: "%02X%02X%02X", byte(r), byte(g), byte(b))
+    }
+
     static func color(hex: String) -> Color {
-        let (r, g, b) = components(hex: hex)
+        let (r, g, b) = components(hex: middle(hex))
         return Color(red: r, green: g, blue: b)
     }
 
-    static func isLight(hex: String) -> Bool {
+    static func luminance(hex: String) -> Double {
         let (r, g, b) = components(hex: hex)
-        return 0.299 * r + 0.587 * g + 0.114 * b > 0.6
+        return 0.299 * r + 0.587 * g + 0.114 * b
     }
 
-    static func hex(from color: Color) -> String? {
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        guard UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
-        func byte(_ v: CGFloat) -> Int { Int((min(max(v, 0), 1) * 255).rounded()) }
-        return String(format: "%02X%02X%02X", byte(r), byte(g), byte(b))
-    }
+    static func isLight(hex: String) -> Bool { luminance(hex: hex) > 0.6 }
 
-    /// A custom background is kept dark, so the white text on it always reads: anything brighter
-    /// is dimmed to the same colour at a safe brightness.
-    static func darkened(hex: String) -> String {
+    /// Hue, saturation, brightness, each 0 to 1.
+    static func hsb(hex: String) -> (Double, Double, Double) {
         let (r, g, b) = components(hex: hex)
-        let light = 0.299 * r + 0.587 * g + 0.114 * b
-        guard light > 0.18 else { return hex }
-        let k = 0.18 / light
-        func byte(_ v: Double) -> Int { Int((v * k * 255).rounded()) }
-        return String(format: "%02X%02X%02X", byte(r), byte(g), byte(b))
-    }
-}
-
-/// The colour controls under the Look switch, shown while New is on.
-struct NewLookColorControls: View {
-    @ObservedObject private var colors = NewLookColors.shared
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("COLOURS")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.6)
-                .foregroundStyle(ShellPalette.secondaryText)
-
-            row("Accent") {
-                swatches(NewLookColors.accentPresets,
-                         current: colors.accentHex ?? NewLookColors.defaultAccent) {
-                    colors.accentHex = $0 == NewLookColors.defaultAccent ? nil : $0
-                }
-                customButton(.accent)
-            }
-
-            row("Cover glow") {
-                modeChips(NewLookColors.GlowMode.allCases, current: colors.glowMode,
-                          title: { $0.title }) { mode in
-                    if mode == .custom { colors.editing = .glow } else { colors.glowMode = mode }
-                }
-            }
-
-            row("Ring") {
-                modeChips(NewLookColors.RingMode.allCases, current: colors.ringMode,
-                          title: { $0.title }) { mode in
-                    if mode == .custom { colors.editing = .ring } else { colors.ringMode = mode }
-                }
-            }
-            Toggle(isOn: $colors.ringSpins) {
-                Text("Spin the ring")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(ShellPalette.text)
-            }
-            .tint(ShellPalette.accent)
-
-            row("Background") {
-                swatches(NewLookColors.backgroundPresets,
-                         current: colors.backgroundHex ?? NewLookColors.defaultBackground) {
-                    colors.backgroundHex = $0 == NewLookColors.defaultBackground ? nil : $0
-                }
-                customButton(.background)
-            }
-
-            if !colors.isDefault {
-                SettingsButton(title: "Reset colours", role: .normal) {
-                    colors.resetToDefaults()
-                }
-            }
-        }
+        var h: CGFloat = 0, s: CGFloat = 0, v: CGFloat = 0, a: CGFloat = 0
+        UIColor(red: r, green: g, blue: b, alpha: 1).getHue(&h, saturation: &s, brightness: &v, alpha: &a)
+        return (Double(h), Double(s), Double(v))
     }
 
-    private func row<Content: View>(_ title: String,
-                                    @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(ShellPalette.text)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) { content() }
-                    .padding(.vertical, 3)
-                    .padding(.horizontal, 2)
-            }
-        }
+    static func hex(h: Double, s: Double, b: Double) -> String {
+        var r: CGFloat = 0, g: CGFloat = 0, bl: CGFloat = 0, a: CGFloat = 0
+        UIColor(hue: h, saturation: s, brightness: b, alpha: 1).getRed(&r, green: &g, blue: &bl, alpha: &a)
+        return hex(r: Double(r), g: Double(g), b: Double(bl))
     }
 
-    private func swatches(_ presets: [String], current: String,
-                          pick: @escaping (String) -> Void) -> some View {
-        ForEach(presets, id: \.self) { hex in
-            let selected = hex.caseInsensitiveCompare(current) == .orderedSame
-            Button {
-                pick(hex)
-            } label: {
-                Circle()
-                    .fill(NewLookColors.color(hex: hex))
-                    .frame(width: 32, height: 32)
-                    .overlay(Circle().strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
-                    .overlay(
-                        Circle()
-                            .strokeBorder(selected ? Color.white : Color.clear, lineWidth: 2.5)
-                            .padding(-4)
-                    )
-                    .padding(4)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Colour \(hex)")
-            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        }
+    static func shiftedHue(_ value: String, by amount: Double) -> String {
+        let (h, s, b) = hsb(hex: value)
+        var nh = (h + amount).truncatingRemainder(dividingBy: 1)
+        if nh < 0 { nh += 1 }
+        return hex(h: nh, s: max(s, 0.35), b: b)
     }
 
-    private func customButton(_ which: NewLookColors.Editing) -> some View {
-        Button {
-            colors.editing = which
-        } label: {
-            Circle()
-                .fill(AngularGradient(colors: [.red, .yellow, .green, .cyan, .blue, .purple, .red],
-                                      center: .center))
-                .frame(width: 32, height: 32)
-                .overlay(Image(systemName: "plus").font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white))
-                .padding(4)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Pick any colour")
-    }
-
-    private func modeChips<Mode: Identifiable & Equatable>(
-        _ modes: [Mode], current: Mode, title: @escaping (Mode) -> String,
-        pick: @escaping (Mode) -> Void
-    ) -> some View {
-        ForEach(modes) { mode in
-            let selected = mode == current
-            Button {
-                pick(mode)
-            } label: {
-                Text(title(mode))
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(selected ? ShellPalette.onAccent : ShellPalette.text)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(selected ? AnyShapeStyle(ShellPalette.accent)
-                                         : AnyShapeStyle(Color.white.opacity(0.08)),
-                                in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        }
-    }
-}
-
-/// The "pick any colour" sheet. Presented from `RootView`, outside the library, so it stays open
-/// while the library redraws in the new colour behind it.
-struct NewLookColorEditor: View {
-    let which: NewLookColors.Editing
-    @ObservedObject private var colors = NewLookColors.shared
-    @State private var draft: Color = .white
-    let onDone: () -> Void
-
-    var body: some View {
-        NavigationView {
-            VStack(alignment: .leading, spacing: 20) {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(draft)
-                    .frame(height: 120)
-                    .overlay(
-                        Text("Aa")
-                            .font(.system(size: 34, weight: .bold))
-                            .foregroundStyle(which == .background ? Color.white : onDraft)
-                    )
-                ColorPicker("Colour", selection: $draft, supportsOpacity: false)
-                    .font(.system(size: 17, weight: .semibold))
-                if which == .background {
-                    SettingsNote("A bright colour is dimmed so the words stay readable.")
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(20)
-            .navigationTitle(which.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { onDone() }
-                }
-            }
-        }
-        .preferredColorScheme(.dark)
-        .presentationDetents([.medium])
-        .onAppear { draft = NewLookColors.color(hex: currentHex) }
-        .onChange(of: draft) { color in commit(color) }
-    }
-
-    private var onDraft: Color {
-        (NewLookColors.hex(from: draft).map(NewLookColors.isLight(hex:)) ?? true) ? .black : .white
-    }
-
-    private var currentHex: String {
-        switch which {
-        case .accent: return colors.accentHex ?? NewLookColors.defaultAccent
-        case .glow: return colors.glowHex ?? NewLookColors.defaultAccent
-        case .ring: return colors.ringHex ?? NewLookColors.defaultAccent
-        case .background: return colors.backgroundHex ?? NewLookColors.defaultBackground
-        }
-    }
-
-    private func commit(_ color: Color) {
-        guard let hex = NewLookColors.hex(from: color),
-              hex.caseInsensitiveCompare(currentHex) != .orderedSame else { return }
-        switch which {
-        case .accent: colors.accentHex = hex
-        case .glow:
-            colors.glowHex = hex
-            colors.glowMode = .custom
-        case .ring:
-            colors.ringHex = hex
-            colors.ringMode = .custom
-        case .background: colors.backgroundHex = NewLookColors.darkened(hex: hex)
-        }
+    /// The same colour, dimmed so its brightness is at most `limit`: a custom background stays
+    /// dark, so the white text on it always reads.
+    static func darkened(hex: String, to limit: Double = 0.18) -> String {
+        let light = luminance(hex: hex)
+        guard light > limit else { return String(hex.prefix(6)) }
+        let k = limit / light
+        let (r, g, b) = components(hex: hex)
+        return self.hex(r: r * k, g: g * k, b: b * k)
     }
 }
