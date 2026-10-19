@@ -5,12 +5,14 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (19 October 2026, morning Eastern): build 194 is the newest install
+## START HERE (19 October 2026, morning Eastern): build 195 is the newest install
 
-- **Build 194** (`96a9778`) is the newest install:
-  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-194-96a9778/Continuum-194.ipa
-  The owner hated build 193's Last played Home. 194 follows the picture they sent: the word, then the ring; the cover stood up as a box; the consoles are photos in one tray, with a short name and a gold edge on the one you tap. Shelves is still the default. Settings, LAYOUT, Home, Last played.
-  It still does not invent a play time or a percent finished. A game with no cover still shows the plain plate. Not tried on a phone yet.
+- **Build 195** (`c228968`) is the newest install:
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-195-c228968/Continuum-195.ipa
+  The owner rejected 193 and 194. 195 is the Last played look across the app, not only Home.
+  Every console in the row has a photo. The box spine is attached to the cover. Library,
+  Favorites and Settings use this look's gold while it is on. Shelves stays the default.
+  Settings, LAYOUT, Home, Last played. Not tried on a phone yet.
 - **Still not built, and do not start them until they ask:** undo a delete, next game on the same
   console, picking which game sits at the top of the Shelves home, looking at a backup before
   restoring it. The Continue widget stays parked.

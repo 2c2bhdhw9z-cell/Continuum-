@@ -1,12 +1,11 @@
 # What to test, and what to tell me
 
-Last updated 19 October 2026, morning Eastern. **Build 194** (`96a9778`) is the newest install:
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-194-96a9778/Continuum-194.ipa
-The owner rejected the Last played Home in 193. 194 is the same Home rebuilt to the picture they
-sent. Shelves stays the default. Settings, LAYOUT, Home, Last played. On that Home: LAST PLAYED
-at the top, Resume and Game Hub, the cover stood up as a box, the consoles in one tray (a tap
-picks one, View all is the library), Jump Back In under that. No made-up play time and no percent
-finished. A game with no cover still shows the plain plate. Do not ask the 192 passes again.
+Last updated 19 October 2026, morning Eastern. **Build 195** (`c228968`) is the newest install:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-195-c228968/Continuum-195.ipa
+The owner rejected the Last played Home in 193 and 194. 195 puts that look on the whole app
+while it is on: Home, Library, Favorites and Settings. Every console in the row has a photo.
+The box spine is attached to the cover. Shelves stays the default. Settings, LAYOUT, Home,
+Last played. No made-up play time and no percent finished. Do not ask the 192 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
