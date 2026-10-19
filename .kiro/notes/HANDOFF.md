@@ -5,15 +5,21 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (19 October 2026, morning Eastern): a second Home, and a build
+## START HERE (19 October 2026, morning Eastern): build 193 is the newest install
 
-- **A build is running** for the second Home. Nothing but notes had landed since build 192, so this
-  build is 192 plus that Home. Shelves stays the default. Settings, LAYOUT, Home, **Last played**
-  is the other one: the game last opened, the consoles in a row, and the games they came back to.
-  It does not invent a play time or a percent finished. The picture the owner sent is the look.
+- **Build 193** (`8149473`) is the newest install:
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-193-8149473/Continuum-193.ipa
+  Nothing but notes had landed since build 192, so 193 is 192 plus a second Home.
+- **Second Home.** Shelves stays the default. Settings, LAYOUT, Home, **Last played** is the other
+  one, from the owner's picture on 19 October: the game last opened (Resume opens it, Game Hub is
+  the card), the consoles in a row (a tap filters the row under them, View all is All Games), and
+  Jump Back In. The consoles are drawn, not photographs. It does not invent a play time or a
+  percent finished. Not tried on a phone yet.
 - **Still not built, and do not start them until they ask:** undo a delete, next game on the same
   console, picking which game sits at the top of the Shelves home, looking at a backup before
   restoring it. The Continue widget stays parked.
+
+## Earlier (18 October 2026, 2:40 PM Eastern): ideas kept, the widget parked
 
 ## Earlier (18 October 2026, 2:40 PM Eastern): ideas kept, the widget parked
 
