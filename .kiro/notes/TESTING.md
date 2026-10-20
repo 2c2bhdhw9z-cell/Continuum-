@@ -7,7 +7,8 @@ Settings has no Home switch. Do not ask the 192 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
-## Next install (after 201): the New look moves. Built, not tried on a phone
+## Next install (build 204, f8c5195): the New look moves, even cover cards. Built, not tried on a phone
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-204-f8c5195/Continuum-204.ipa
 
 Settings → LOOK → New. Current must look and behave exactly as before. Then turn iOS Reduce Motion
 on and check that everything below holds still.
