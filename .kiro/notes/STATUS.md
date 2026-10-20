@@ -4,6 +4,15 @@
 at only for WHAT a player can do (capability), never for how a screen is laid out or worded.
 Build 200's Theme sheet broke this and was removed.
 
+**19 October 2026, late night: even cover cards and a simulator motion check. Built, not tried
+on a phone.** Every New-look card in a row has one frame from Card size (Square covers, Corner
+roundness), the whole box fitted and centred over a blurred copy of its art, glow on the frame
+(`NewLookCoverFrame`). Title sweep now visible on white titles. New CI workflow
+`newlook-preview.yml` builds a test page from the real `NewLookMotion.swift` for the iOS
+Simulator, screenshots it (with and without the moving background) and uploads the frames;
+separate from the .ipa, never blocks it. Not the real app screens: the app itself has no
+simulator build.
+
 **19 October 2026, night: the New look moves (build 202). Built, not tried on a phone.** Fluid
 background field, swirling hero / Game Hub / pause cards with floating covers and rising sparks,
 light sweeps on titles, flowing borders on main buttons and picked chips, springy tab pill with

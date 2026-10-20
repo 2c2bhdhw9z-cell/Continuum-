@@ -36,6 +36,16 @@ on and check that everything below holds still.
     accent-tinted pill that springs with a little overshoot.
 14. Switching tabs: the page rises a little and fades in. Game Hub top and pause menu too.
 15. With Reduce Motion on, all of it is still. Smoothness and battery: watch for stutter or heat.
+16. Even covers: in every New-look row (Home Jump Back In and shelves, Library, Favorites) each
+    card is the same size whatever the box shape (PSP tall, 3DS square, SNES wide, a screenshot);
+    the whole box sits centred in it, never cropped, with a soft blurred copy of the art around it;
+    the glow follows the card's edge; titles sit on one line. Change Settings → Card size: all of
+    them resize, in New and in Current. Square covers / Corner roundness change the frame.
+17. The title light sweep now shows as a gold-white glint passing over white titles.
+
+The simulator check in CI (.github/workflows/newlook-preview.yml) films the motion pieces on a
+test page; it is not the real app (the app cannot be built for the simulator) and is not a
+phone check.
 
 ## Next install (after 200): colours back in Settings, our own design. Built, not tried on a phone
 

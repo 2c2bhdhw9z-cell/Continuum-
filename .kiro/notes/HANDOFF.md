@@ -509,3 +509,14 @@ for one exact game version; the cheat screen names the version for GBA and Game 
   `Payload/Continuum.app/Info.plist`.
 - A wait-and-check command can time out while a build is still running; that is not the build
   failing. Check the run itself.
+
+## Simulator motion preview (19 October 2026)
+
+`tools/newlook-preview/` + `.github/workflows/newlook-preview.yml`: compiles the real
+`native/ios/NewLookMotion.swift` with two small stand-ins (`PreviewStubs.swift`: NewLookColors,
+ShellPalette at their defaults) and a Home-like test page (`PreviewApp.swift`) with swiftc for the
+simulator, runs it on an iPhone simulator, and uploads `full/` and `plain/` (launched with
+`-plain`: flat backgrounds) screenshots plus `motion.mp4`. Runs only when those files change, or
+by hand; never blocks the .ipa. CI simulator screenshots are slow (3 to 30 s apart; see
+`times.txt`). The real app cannot be built for the simulator (engine, core wrapper, libsmb2 are
+iPhone-only builds), so Home/Library/Favorites/Settings themselves are not filmed.
