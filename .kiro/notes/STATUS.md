@@ -4,6 +4,10 @@
 at only for WHAT a player can do (capability), never for how a screen is laid out or worded.
 Build 200's Theme sheet broke this and was removed.
 
+**RULE (owner, 19 October 2026): never add decorative marks he did not ask for.** He rejected the
+sparkle mark from build 202's empty New-look Home; it and its sparks are gone (the empty state is
+back to its plain heart / box icon). The hero cover's float and sparks stay.
+
 **19 October 2026, late night: even cover cards and a simulator motion check. Built, not tried
 on a phone.** Every New-look card in a row has one frame from Card size (Square covers, Corner
 roundness), the whole box fitted and centred over a blurred copy of its art, glow on the frame

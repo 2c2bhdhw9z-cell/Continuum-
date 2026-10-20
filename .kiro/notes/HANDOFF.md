@@ -520,3 +520,12 @@ simulator, runs it on an iPhone simulator, and uploads `full/` and `plain/` (lau
 by hand; never blocks the .ipa. CI simulator screenshots are slow (3 to 30 s apart; see
 `times.txt`). The real app cannot be built for the simulator (engine, core wrapper, libsmb2 are
 iPhone-only builds), so Home/Library/Favorites/Settings themselves are not filmed.
+
+## Sparkle mark rejected (19 October 2026)
+
+Brett rejected the sparkle mark (plan item 12 of the motion batch). `NewLookSparkleShape` and
+`NewLookSparkleMark` are deleted from `NewLookMotion.swift`, the empty New-look Home and
+Favorites notice (`EmptyLibraryNotice`, LibraryCards.swift) is back to its pre-202 plain heart /
+box icon with no float or sparks, and the preview test page no longer shows it. Never add
+decorative marks he did not ask for. The hero / Game Hub / pause cover float and sparks are a
+separate item and stay.

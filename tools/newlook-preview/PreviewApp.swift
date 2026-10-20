@@ -46,8 +46,6 @@ struct PreviewPage: View {
                         .fill(Color(white: 0.2))
                         .frame(width: 90, height: 110)
                         .modifier(NewLookBreathe(color: .blue, radius: 9, low: 0.2, high: 0.95, period: 2.0))
-                    // 5. The sparkle mark (still shape, turning colours, floating, sparks).
-                    NewLookSparkleMark(size: 68)
                     // 6. A switch in the New look's style.
                     Toggle("", isOn: $toggle).labelsHidden().toggleStyle(NewLookToggleStyle())
                 }

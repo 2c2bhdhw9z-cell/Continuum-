@@ -31,8 +31,7 @@ on and check that everything below holds still.
    the Accent card fades to the new colour.
 10. Switches in Settings: accent-filled track (gradient for a blend), springy knob.
 11. Buttons, cards and rows scale down a little when pressed and spring back.
-12. Empty Home ("Nothing to play yet"): a sparkle whose shape stays still while its colours turn;
-    it floats with sparks rising.
+12. (Removed: the owner rejected the sparkle mark. Empty Home shows its plain box icon again.)
 13. Glow / ring chips: the picked pill springs between them. Card size and other segmented pickers:
     accent-tinted pill that springs with a little overshoot.
 14. Switching tabs: the page rises a little and fades in. Game Hub top and pause menu too.

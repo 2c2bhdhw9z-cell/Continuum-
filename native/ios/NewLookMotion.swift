@@ -385,56 +385,6 @@ struct NewLookAppear: ViewModifier {
     }
 }
 
-// MARK: - The sparkle mark
-
-/// Continuum's own sparkle: a four-pointed star with curved sides and a small one beside it.
-struct NewLookSparkleShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let unit = min(rect.width, rect.height)
-        star(&path, center: CGPoint(x: rect.minX + rect.width * 0.42, y: rect.minY + rect.height * 0.58),
-             radius: unit * 0.42)
-        star(&path, center: CGPoint(x: rect.minX + rect.width * 0.82, y: rect.minY + rect.height * 0.2),
-             radius: unit * 0.16)
-        return path
-    }
-
-    private func star(_ path: inout Path, center c: CGPoint, radius r: CGFloat) {
-        let tips = [CGPoint(x: c.x, y: c.y - r), CGPoint(x: c.x + r, y: c.y),
-                    CGPoint(x: c.x, y: c.y + r), CGPoint(x: c.x - r, y: c.y)]
-        path.move(to: tips[0])
-        for i in 0..<4 {
-            let next = tips[(i + 1) % 4]
-            let mid = CGPoint(x: (tips[i].x + next.x) / 2, y: (tips[i].y + next.y) / 2)
-            // Pulled toward the centre, so the sides curve in.
-            let control = CGPoint(x: c.x + (mid.x - c.x) * 0.22, y: c.y + (mid.y - c.y) * 0.22)
-            path.addQuadCurve(to: next, control: control)
-        }
-        path.closeSubpath()
-    }
-}
-
-/// The sparkle in the theme's colours: the shape holds still, the colours inside it turn. It
-/// floats, with sparks rising behind it.
-struct NewLookSparkleMark: View {
-    var size: CGFloat = 64
-    @ObservedObject private var colors = NewLookColors.shared
-
-    var body: some View {
-        let ring = colors.motionColors
-        NewLookClock(fps: 30, stillAt: 0) { t in
-            AngularGradient(colors: ring + [ring.first ?? .white],
-                            center: UnitPoint(x: 0.42, y: 0.58),
-                            angle: .degrees(newLookFrac(t / 2.5) * 360))
-        }
-        .mask(NewLookSparkleShape())
-        .frame(width: size, height: size)
-        .shadow(color: colors.accent.opacity(0.55), radius: 14)
-        .modifier(NewLookFloat(sparkColor: colors.sparkColor))
-        .accessibilityHidden(true)
-    }
-}
-
 // MARK: - The tab bar's pill
 
 /// The selected tab's pill: a faint gradient of the accent that slowly turns inside it, and a
