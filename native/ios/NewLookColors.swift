@@ -279,13 +279,14 @@ final class NewLookColors: ObservableObject {
         if let swirlHex {
             // The player's own two or three, and a deep one of the first for depth.
             let own = Self.stops(swirlHex)
-            hexes = own + [Self.shiftedHue(own[0], by: 0.06), Self.dimmed(own[0], by: 0.45)]
+            hexes = own + [Self.shiftedHue(own[0], by: 0.035), Self.dimmed(own[0], by: 0.45)]
         } else {
             let stops = Self.stops(accentHex ?? Self.defaultAccent)
             let first = stops[0]
             let second = stops.count > 1 ? stops[1] : Self.shiftedHue(first, by: -0.05)
-            hexes = [first, Self.shiftedHue(first, by: 0.07), second,
-                     Self.shiftedHue(second, by: -0.08), Self.dimmed(first, by: 0.45)]
+            // Small steps round the wheel, so gold stays warm (ambers, not greens).
+            hexes = [first, Self.shiftedHue(first, by: 0.035), second,
+                     Self.shiftedHue(second, by: -0.05), Self.dimmed(first, by: 0.45)]
         }
         return hexes.map { hex in
             let (r, g, b) = Self.components(hex: hex)
