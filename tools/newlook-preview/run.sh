@@ -92,15 +92,24 @@ film() {
     limit 60 xcrun simctl launch "$UDID" "$BUNDLE_ID" -page bg -accent "$accent" -swirl "$swirl"
   fi
   sleep 4
-  echo "==> film $name"
-  xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$OUT/$name.mp4" &
-  local rec=$!
-  sleep 10
-  kill -INT "$rec" 2>/dev/null || true
-  ( sleep 30; kill -9 "$rec" 2>/dev/null ) &
-  wait "$rec" 2>/dev/null || true
+  # The recorder sometimes saves nothing (the purple film once came out empty): try twice.
+  local try
+  for try in 1 2; do
+    echo "==> film $name (try $try)"
+    xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$OUT/$name.mp4" &
+    local rec=$!
+    sleep 10
+    kill -INT "$rec" 2>/dev/null || true
+    ( sleep 30; kill -9 "$rec" 2>/dev/null ) &
+    wait "$rec" 2>/dev/null || true
+    if [ -s "$OUT/$name.mp4" ] && [ "$(wc -c < "$OUT/$name.mp4")" -gt 20000 ]; then
+      return 0
+    fi
+    sleep 2
+  done
 }
 film bg-purple A66BFF-FF5FB0 accent
+film bg-rainbow A66BFF-FF5FB0 rainbow
 film bg-own3 A66BFF-FF5FB0 own A66BFF-FF5FB0-3CD278
 film bg-gold FFD66B-F2B233 accent
 shoot home-purple home A66BFF-FF5FB0

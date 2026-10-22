@@ -57,15 +57,15 @@ struct NewLookClock<Content: View>: View {
 /// turning muddy where they overlap.
 ///
 /// HOW:
-/// - Each colour is its own ribbon (two of each when there are only two or three colours), a soft
-///   wavy band across the whole page with a faint glow round it and the dark page between bands.
+/// - Each colour is two ribbons, half a page apart: soft wavy bands across the whole page with a
+///   faint glow round them and the dark page between bands.
 /// - The ribbons are spaced evenly across the page and all drift the same way, wrapping round, so
 ///   every colour is always on screen (measured in a prototype: each of three colours covers 9 to
 ///   21% of the screen in every frame; on the simulator the ribbons were then narrowed until the
 ///   dark between them stays well in view).
 /// - Each ribbon leans its own way and swings slowly, so ribbons cross and weave; each waves on
-///   its own rhythm. Where two cross they are drawn one over the other, softly, never averaged
-///   into grey.
+///   its own rhythm. Where two cross, one passes over the other with a thin line of dark between
+///   (the lower one is cut away round the upper), so two colours are never averaged into grey.
 /// - Builds 206 and 207 were a single colour field (MeshGradient): it folded (206), then washed
 ///   one colour over the whole screen at a time and went grey where colours met (207).
 /// Drawn at a third of the screen's resolution and scaled up: the ribbons are soft.
@@ -101,22 +101,28 @@ struct NewLookSwirl: View {
         let n = palette.count
         guard n > 0, size.width > 0, size.height > 0 else { return }
         let w = Double(size.width), h = Double(size.height)
-        let bands = n <= 3 ? n * 2 : n
+        // Two ribbons of every colour, half a page apart, so while one wraps round off the edge
+        // the other is on screen: no colour ever leaves. (Rainbow had one of each, and in the
+        // prototype each of its four colours vanished for seconds at a time.)
+        let bands = n * 2
         let unit = min(w, h)
         let baseAngle = -0.6 + 0.5 * sin(t * 2 * Double.pi / 50)
         let cx = w / 2, cy = h / 2
-        // Narrower and less blurred than the prototype: on the phone the blur spreads further, and
-        // at 0.17 / 0.075 the dark between ribbons fell to about 5% of the screen.
-        let half0 = unit * 0.12
+        // Narrower and less blurred than the first prototype: on the phone the blur spreads
+        // further, and at 0.17 / 0.075 the dark between ribbons fell to about 5% of the screen.
+        // More ribbons (Rainbow's eight) are narrower still, so the dark stays about the same.
+        let half0 = unit * 0.12 * min(1, 6 / Double(bands))
         let blur = unit * 0.045
         let margin = half0 * 1.15 + unit * 0.24 + 2.5 * blur
         let opacity = 0.35 + 0.6 * k
         let flow = t / 30
         let samples = 48
 
+        // Each ribbon's outline, and a slightly wider one round it for the dark seam.
+        var ribbons: [(path: Path, seam: Path, color: Color)] = []
+        ribbons.reserveCapacity(bands)
         for j in 0..<bands {
             let fj = Double(j)
-            let c = palette[j % n]
             // Its own lean, swinging slowly, so the ribbons weave across each other.
             let angle = baseAngle + 0.42 * sin(t * 0.07 + fj * 2.4)
             let dx = cos(angle), dy = sin(angle)
@@ -127,9 +133,8 @@ struct NewLookSwirl: View {
             // Evenly spaced across the page, drifting, wrapping round.
             let offset = (newLookFrac(fj / Double(bands) + flow) - 0.5) * span
 
-            var path = Path()
-            var rightSide: [CGPoint] = []
-            rightSide.reserveCapacity(samples + 1)
+            var left: [CGPoint] = [], right: [CGPoint] = []
+            var seamLeft: [CGPoint] = [], seamRight: [CGPoint] = []
             for i in 0...samples {
                 let s = Double(i) / Double(samples)
                 let u = (s - 0.5) * (along + 2 * margin)
@@ -140,21 +145,48 @@ struct NewLookSwirl: View {
                 let half = half0 * (0.7 + 0.45 * (0.5 + 0.5 * sin(ph * 1.9 + t * 0.35 + fj * 2.3)))
                 let px = cx + dx * u + nx * (offset + wave + bow)
                 let py = cy + dy * u + ny * (offset + wave + bow)
-                let left = CGPoint(x: px + nx * half, y: py + ny * half)
-                rightSide.append(CGPoint(x: px - nx * half, y: py - ny * half))
-                if i == 0 { path.move(to: left) } else { path.addLine(to: left) }
+                left.append(CGPoint(x: px + nx * half, y: py + ny * half))
+                right.append(CGPoint(x: px - nx * half, y: py - ny * half))
+                let wide = half + blur
+                seamLeft.append(CGPoint(x: px + nx * wide, y: py + ny * wide))
+                seamRight.append(CGPoint(x: px - nx * wide, y: py - ny * wide))
             }
-            for point in rightSide.reversed() { path.addLine(to: point) }
-            path.closeSubpath()
+            ribbons.append((Self.outline(left, right), Self.outline(seamLeft, seamRight),
+                            palette[j % n]))
+        }
 
-            // A wide faint glow, then the ribbon, each softened.
+        // The faint glows go on the page itself, under every ribbon.
+        for r in ribbons {
             var halo = context
             halo.addFilter(.blur(radius: CGFloat(blur * 2.0)))
-            halo.fill(path, with: .color(c.opacity(opacity * 0.22)))
-            var ribbon = context
-            ribbon.addFilter(.blur(radius: CGFloat(blur)))
-            ribbon.fill(path, with: .color(c.opacity(opacity)))
+            halo.fill(r.path, with: .color(r.color.opacity(opacity * 0.22)))
         }
+        // The ribbons go on their own layer above. Before each is drawn, the ribbons already there
+        // are softly cut away just round it, so where two cross, one passes cleanly over the other
+        // with a thin line of dark page between: the two colours are never averaged (pink over
+        // green went grey-mauve on the simulator). The cut only touches ribbons, never the page.
+        context.drawLayer { layer in
+            for r in ribbons {
+                var seam = layer
+                seam.blendMode = .destinationOut
+                seam.addFilter(.blur(radius: CGFloat(blur * 0.6)))
+                seam.fill(r.seam, with: .color(.black))
+                var ribbon = layer
+                ribbon.addFilter(.blur(radius: CGFloat(blur)))
+                ribbon.fill(r.path, with: .color(r.color.opacity(opacity)))
+            }
+        }
+    }
+
+    /// A closed shape: along one edge, back along the other.
+    private static func outline(_ left: [CGPoint], _ right: [CGPoint]) -> Path {
+        var path = Path()
+        guard let first = left.first else { return path }
+        path.move(to: first)
+        for point in left.dropFirst() { path.addLine(to: point) }
+        for point in right.reversed() { path.addLine(to: point) }
+        path.closeSubpath()
+        return path
     }
 
     static func color(_ v: SIMD3<Double>) -> Color {
