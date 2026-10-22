@@ -19,6 +19,10 @@ Paste this to start a new chat:
   "Light and motion" (NewLookTheme.swift). `newLookButtonLight` puts NewLookFlowRim on the
   primary buttons, the picked console and the picked chips. Box side: `NewLookBoxFace.edgeColor`.
   Console count inside the tile. `NewLookHeaderGlass` behind the New header.
+- **Build 206 is the newest install** (`6ddb46c`, 4:46 PM Eastern, 22 October), checked: 0.8.0
+  (206), 37 emulator files, the new settings' text inside. Simulator preview of this code: the
+  swirl moves (62% of pixels change in 4 seconds), the header blurs what scrolls under it.
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-206-6ddb46c/Continuum-206.ipa
 - Phone checks: TESTING.md "Next install (after 205)".
 
 ## Earlier (22 October 2026, evening Eastern): the New look redone to the mockup
