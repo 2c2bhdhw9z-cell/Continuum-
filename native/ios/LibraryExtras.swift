@@ -849,7 +849,7 @@ struct MultiDiscSheet: View {
                     .font(.system(size: 15))
                     .foregroundStyle(ShellPalette.text)
                     .padding(10)
-                    .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 10))
+                    .modifier(LookBlockCard(radius: 10))
                     .disabled(made)
 
                 SettingsLabel("Discs, in order")
@@ -883,7 +883,7 @@ struct MultiDiscSheet: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+                .modifier(LookBlockCard(radius: 12))
 
                 SettingsNote("The first disc's saves, states, cheats, star and settings come along.")
 
@@ -1054,7 +1054,7 @@ struct GameCardExtras: View {
             }
         }
         .padding(14)
-        .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .modifier(LookBlockCard(radius: 12))
         .sheet(isPresented: $showingDiscs) {
             MultiDiscSheet(entry: entry, host: host) { showingDiscs = false }
         }
@@ -1496,6 +1496,7 @@ struct ConsoleOrderSheet: View {
                     .foregroundStyle(ShellPalette.accent)
                 }
             }
+            .newLookList()
             .environment(\.editMode, .constant(.active))
             .navigationTitle("Console order")
             .navigationBarTitleDisplayMode(.inline)

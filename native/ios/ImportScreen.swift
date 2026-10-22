@@ -103,6 +103,7 @@ struct ImportScreen: View {
                     Text("Also")
                 }
             }
+            .newLookList()
             .navigationTitle("Import")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

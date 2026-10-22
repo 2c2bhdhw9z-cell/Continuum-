@@ -1060,7 +1060,10 @@ struct LibraryShell: View {
 
             if host.library.isEmpty {
                 EmptyLibraryNotice(title: "Nothing imported yet",
-                                   guidance: Self.emptyGuidance,
+                                   guidance: isNew
+                                       ? "Tap Import games and pick your games or zips. For a "
+                                           + "disc game, pick the .cue and its .bin files."
+                                       : Self.emptyGuidance,
                                    actionTitle: "Import games") {
                     host.presentImportPicker()
                 }

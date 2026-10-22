@@ -233,7 +233,7 @@ struct SaveSlotsSheet: View {
                 }
                 .foregroundStyle(ShellPalette.text)
                 .padding(12)
-                .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 10))
+                .modifier(LookBlockCard(radius: 10))
             }
             .buttonStyle(.plain)
         }
@@ -291,7 +291,7 @@ struct SaveSlotsSheet: View {
             }
             .padding(8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 10))
+            .modifier(LookBlockCard(radius: 10))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -333,10 +333,7 @@ struct SaveSlotsSheet: View {
         let overflow = saveStates.overflowStates(forGameId: gameId)
         if !overflow.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text("MORE STATES")
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(1.6)
-                    .foregroundStyle(ShellPalette.secondaryText)
+                LookBlockHeading("MORE STATES")
                 SettingsNote(
                     "These are from before there were \(SaveStates.slotCount) slots. They load, "
                     + "export and delete like any other."
@@ -362,10 +359,7 @@ struct SaveSlotsSheet: View {
 
     private var transferBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("FILES")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.6)
-                .foregroundStyle(ShellPalette.secondaryText)
+            LookBlockHeading("FILES")
             SettingsButton(title: "Import a state file", role: .normal) {
                 FilePicker.shared.present(onPick: { data, name in
                     _ = saveStates.importState(data, named: name, intoGameId: gameId)
@@ -392,6 +386,6 @@ struct SaveSlotsSheet: View {
             )
         }
         .padding(14)
-        .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .modifier(LookBlockCard(radius: 12))
     }
 }

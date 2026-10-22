@@ -835,6 +835,7 @@ struct NetplaySheet: View {
                     }
                 }
             }
+            .newLookList()
             .navigationTitle(netplay.linkCable ? "Link cable" : "Online play")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -779,6 +779,7 @@ struct SystemQuestionSheet: View {
                     }
                 }
             }
+            .newLookList()
             .navigationTitle("Which system?")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -49,10 +49,7 @@ struct PlayerCheatsSheet: View {
 
     private var listBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("THIS GAME'S CHEATS")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.6)
-                .foregroundStyle(ShellPalette.secondaryText)
+            LookBlockHeading("THIS GAME'S CHEATS")
             let list = cheats.cheats(forGameId: gameId)
             if list.isEmpty {
                 SettingsNote("No cheats yet. Type a code below, import a RetroArch .cht file, or "
@@ -70,7 +67,7 @@ struct PlayerCheatsSheet: View {
             ChtImportButton(gameId: gameId, cheats: cheats, line: $importLine)
         }
         .padding(14)
-        .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .modifier(LookBlockCard(radius: 12))
     }
 }
 
@@ -290,10 +287,7 @@ struct CheatSearchView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("RAM SEARCH")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.6)
-                .foregroundStyle(ShellPalette.secondaryText)
+            LookBlockHeading("RAM SEARCH")
 
             if !isRunningThisGame {
                 SettingsNote("The search reads the running game's memory, so start the game first.")
@@ -317,7 +311,7 @@ struct CheatSearchView: View {
             }
         }
         .padding(14)
-        .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .modifier(LookBlockCard(radius: 12))
         .onAppear(perform: refresh)
         .alert("Make a cheat from this address", isPresented: Binding(
             get: { making != nil }, set: { if !$0 { making = nil } }

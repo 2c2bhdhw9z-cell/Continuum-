@@ -325,10 +325,7 @@ struct GameplayManualBlock: View {
     var body: some View {
         let manual = { _ = epoch; return GameplayManuals.manual(for: entry) }()
         VStack(alignment: .leading, spacing: 10) {
-            Text("MANUAL")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.6)
-                .foregroundStyle(ShellPalette.secondaryText)
+            LookBlockHeading("MANUAL")
             if let manual {
                 SettingsButton(title: "Read the manual (\(manual.lastPathComponent))", role: .normal) {
                     line = host.presentManual(manual, for: entry)

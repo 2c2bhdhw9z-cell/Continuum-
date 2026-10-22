@@ -680,14 +680,11 @@ struct AchievementsCardBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("ACHIEVEMENTS")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.6)
-                .foregroundStyle(ShellPalette.secondaryText)
+            LookBlockHeading("ACHIEVEMENTS")
             content
         }
         .padding(14)
-        .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .modifier(LookBlockCard(radius: 12))
         // The saved list is read here, once per game, and not in `content`: SwiftUI runs that on
         // every change the store or the host publishes, and it used to take the engine's lock or
         // read and decode a file each time.

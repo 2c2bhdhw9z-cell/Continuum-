@@ -688,45 +688,12 @@ struct EmptyLibraryNotice: View {
         if LookStore.isNewLook { newBody } else { currentBody }
     }
 
-    /// The New look: a rounded glass card with the accent glowing behind a heart or a box icon,
-    /// the same card language as Home's hero.
+    /// The New look: plain, in the hero's type (NewLookEmptyHero), no card, no decoration.
     private var newBody: some View {
-        let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
-        return VStack(spacing: 14) {
-            Image(systemName: title.localizedCaseInsensitiveContains("favorite")
-                  ? "heart.fill" : "square.stack.3d.up.fill")
-                .font(.system(size: 30, weight: .semibold))
-                .foregroundStyle(ShellPalette.gold)
-                .frame(width: 64, height: 64)
-                .background(ShellPalette.gold.opacity(0.14), in: Circle())
-                .shadow(color: ShellPalette.gold.opacity(0.5), radius: 14)
-            Text(title)
-                .font(.system(size: 21, weight: .bold))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-            Text(guidance)
-                .font(.system(size: 14))
-                .foregroundStyle(Color.white.opacity(0.62))
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            if let actionTitle, let action {
-                NewLookPrimaryButton(title: actionTitle, systemImage: "plus", action: action)
-                    .padding(.top, 4)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 28)
-        .padding(.horizontal, 20)
-        .background(
-            ZStack {
-                Color.white.opacity(0.04)
-                RadialGradient(colors: [ShellPalette.gold.opacity(0.22), .clear],
-                               center: .top, startRadius: 0, endRadius: 220)
-            }
-            .clipShape(shape)
-        )
-        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
-        .padding(.horizontal, 16)
+        NewLookEmptyHero(eyebrow: nil, title: title, line: guidance,
+                         actionTitle: action == nil ? nil : actionTitle,
+                         action: action ?? {})
+            .padding(.top, -8)
     }
 
     private var currentBody: some View {

@@ -385,6 +385,7 @@ struct CoreSettingsScreen: View {
                     }
                 }
             }
+            .newLookList()
             .navigationTitle(coreName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -477,7 +478,7 @@ struct CoreSettingsScreen: View {
             }
             HStack(spacing: 8) {
                 if option.gameOverride {
-                    Text("this game").font(.caption2.weight(.semibold)).foregroundStyle(.blue)
+                    Text("this game").font(.caption2.weight(.semibold)).foregroundStyle(LookStore.isNewLook ? ShellPalette.accent : Color.blue)
                 }
                 if option.needsRestart {
                     Text("restart needed").font(.caption2.weight(.semibold)).foregroundStyle(.orange)
@@ -560,6 +561,7 @@ struct FiltersScreen: View {
                     }
                 }
             }
+            .newLookList()
             .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -639,6 +641,7 @@ struct DiscPickerScreen: View {
                     Text("This game's core lists no discs.").foregroundStyle(.secondary)
                 }
             }
+            .newLookList()
             .navigationTitle("Discs")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

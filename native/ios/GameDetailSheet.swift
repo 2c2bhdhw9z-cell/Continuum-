@@ -91,7 +91,9 @@ struct GameDetailSheet: View {
             .padding(18)
         }
         // The page colour, so the card follows Settings, APPEARANCE: black in Dark, white in Light.
-        .background(ShellPalette.background.ignoresSafeArea())
+        .background((LookStore.isNewLook ? Color.clear : ShellPalette.background).ignoresSafeArea())
+        // The New look's page: its charcoal with the still glow (nothing in the Current look).
+        .newLookSheetPage()
         .presentationDragIndicator(.visible)
         .sheet(isPresented: $showingSlots) {
             SaveSlotsSheet(entry: entry, host: host, saveStates: saveStates,
@@ -204,7 +206,7 @@ struct GameDetailSheet: View {
             }
         }
         .padding(14)
-        .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .modifier(LookBlockCard(radius: 12))
     }
 
     // MARK: Save states
@@ -222,10 +224,7 @@ struct GameDetailSheet: View {
     /// reads and tens of megabytes to open this card. See the header of SaveStates.swift.
     private var saveStatesBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("SAVE STATES")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.6)
-                .foregroundStyle(ShellPalette.secondaryText)
+            LookBlockHeading("SAVE STATES")
 
             SettingsButton(title: "Save slots, export and import", role: .normal) {
                 showingSlots = true
@@ -262,7 +261,7 @@ struct GameDetailSheet: View {
             )
         }
         .padding(14)
-        .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .modifier(LookBlockCard(radius: 12))
         .alert(
             "Delete this state?",
             isPresented: Binding(
@@ -363,10 +362,7 @@ struct GameDetailSheet: View {
     /// what `CheatStore.push` is for and why there is no per-cheat apply button here.
     private var cheatsBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("CHEATS")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.6)
-                .foregroundStyle(ShellPalette.secondaryText)
+            LookBlockHeading("CHEATS")
 
             let list = cheats.cheats(for: entry)
             if !list.isEmpty {
@@ -396,7 +392,7 @@ struct GameDetailSheet: View {
             )
         }
         .padding(14)
-        .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .modifier(LookBlockCard(radius: 12))
         .alert(
             "Delete this cheat?",
             isPresented: Binding(
@@ -462,10 +458,7 @@ struct GameDetailSheet: View {
     /// the whole set here, and the enumeration happens then, on that tap, and never during browsing.
     private var artworkBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("COVER ART")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.6)
-                .foregroundStyle(ShellPalette.secondaryText)
+            LookBlockHeading("COVER ART")
 
             SettingsReadout(
                 label: "Source",
@@ -503,7 +496,7 @@ struct GameDetailSheet: View {
             )
         }
         .padding(14)
-        .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .modifier(LookBlockCard(radius: 12))
         // ONCE, and only on open. `task(id:)` keyed on the entry so a sheet reused for another game
         // loads that game, and `load` itself refuses to run twice. The lookups switch is in the key
         // as well, so the card follows it: `load` says lookups are off without starting anything,
@@ -654,7 +647,7 @@ struct GameDetailSheet: View {
             SettingsNote(deleteNote)
         }
         .padding(14)
-        .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .modifier(LookBlockCard(radius: 12))
     }
 
     /// What Delete takes. A joined game (an .m3u) takes its discs with it

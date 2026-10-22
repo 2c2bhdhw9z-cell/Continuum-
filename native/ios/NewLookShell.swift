@@ -807,3 +807,107 @@ struct NewLookHubHeader: View {
         .modifier(NewLookAppear())
     }
 }
+
+// MARK: - Sheets in the New look
+
+/// A sheet's list or form in the New look: the charcoal page with its glow (held still, so
+/// nothing moves behind a sheet over a game) instead of the system's grey lists. The gold tint
+/// comes from `RootView`. Nothing at all changes in the Current look.
+///
+/// Put it on the `List` or `Form` itself, inside its NavigationView / NavigationStack: a
+/// navigation container draws its own background over anything put behind it from outside.
+struct NewLookListStyle: ViewModifier {
+    @ObservedObject private var looks = LookStore.shared
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if looks.look == .newLook {
+            content
+                .scrollContentBackground(.hidden)
+                .background(NewLookAura(moving: false, strength: 0.7).ignoresSafeArea())
+        } else {
+            content
+        }
+    }
+}
+
+/// A sheet's own scrolling page (not a List) in the New look: the same still charcoal and glow.
+struct NewLookSheetPage: ViewModifier {
+    @ObservedObject private var looks = LookStore.shared
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if looks.look == .newLook {
+            content.background(NewLookAura(moving: false, strength: 0.7).ignoresSafeArea())
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    /// See `NewLookListStyle`.
+    func newLookList() -> some View { modifier(NewLookListStyle()) }
+    /// See `NewLookSheetPage`.
+    func newLookSheetPage() -> some View { modifier(NewLookSheetPage()) }
+}
+
+// MARK: - The game card's blocks and other small cards
+
+/// A block's heading: in the Current look the small grey capitals it always had; in the New look
+/// the gold icon on its soft gold tile and the title in plain words (NewLookCardHeading).
+struct LookBlockHeading: View {
+    let title: String
+
+    init(_ title: String) { self.title = title }
+
+    @ViewBuilder
+    var body: some View {
+        if LookStore.isNewLook {
+            NewLookCardHeading(icon: Self.icon(for: title), title: Self.words(title))
+        } else {
+            Text(title)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.6)
+                .foregroundStyle(ShellPalette.secondaryText)
+        }
+    }
+
+    static func icon(for title: String) -> String {
+        switch title {
+        case "SAVE STATES", "MORE STATES": return "square.stack.3d.down.right.fill"
+        case "CHEATS", "THIS GAME'S CHEATS": return "wand.and.stars"
+        case "RAM SEARCH": return "magnifyingglass"
+        case "COVER ART": return "photo.fill"
+        case "ACHIEVEMENTS": return "trophy.fill"
+        case "FILES": return "folder.fill"
+        case "SKIN": return "paintpalette.fill"
+        case "MANUAL": return "book.fill"
+        default: return SettingsSectionStyle.icon(for: title)
+        }
+    }
+
+    /// "SAVE STATES" as "Save states", "THIS GAME'S CHEATS" as "This game's cheats".
+    static func words(_ title: String) -> String {
+        let lower = title.lowercased()
+        return lower.prefix(1).uppercased() + lower.dropFirst()
+    }
+}
+
+/// A block's card: in the Current look the flat grey card it always had; in the New look the
+/// rounded glass card with its hairline (NewLookCardBackground's look).
+struct LookBlockCard: ViewModifier {
+    var radius: CGFloat = 12
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if LookStore.isNewLook {
+            let shape = RoundedRectangle(cornerRadius: radius + 6, style: .continuous)
+            content
+                .background(Color.white.opacity(0.055), in: shape)
+                .overlay(shape.strokeBorder(Color.white.opacity(0.09), lineWidth: 0.5))
+        } else {
+            content.background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: radius))
+        }
+    }
+}

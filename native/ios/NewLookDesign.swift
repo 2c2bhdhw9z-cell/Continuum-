@@ -345,7 +345,7 @@ struct NewLookHeroLayout<Art: View>: View {
 
 /// Home with nothing in it yet: the hero's place, in the hero's type, and the gold button.
 struct NewLookEmptyHero: View {
-    var eyebrow = "WELCOME"
+    var eyebrow: String? = "WELCOME"
     let title: String
     let line: String
     var actionTitle: String?
@@ -354,15 +354,17 @@ struct NewLookEmptyHero: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(eyebrow)
-                .font(.system(size: 15, weight: .semibold))
-                .tracking(0.6)
-                .foregroundStyle(colors.accent)
+            if let eyebrow {
+                Text(eyebrow)
+                    .font(.system(size: 15, weight: .semibold))
+                    .tracking(0.6)
+                    .foregroundStyle(colors.accent)
+                    .padding(.bottom, 12)
+            }
             Text(title)
-                .font(.system(size: 30, weight: .bold))
+                .font(.system(size: eyebrow == nil ? 24 : 30, weight: .bold))
                 .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 12)
             Text(line)
                 .font(.system(size: 15))
                 .foregroundStyle(Color.white.opacity(0.55))

@@ -329,6 +329,7 @@ struct AddRemoteServerView: View {
                          : problem)
                 }
             }
+            .newLookList()
             .navigationTitle(kind == .smb ? "Add an SMB share" : "Add a WebDAV server")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -383,6 +384,7 @@ struct RemoteFolderView: View {
                 }
             }
         }
+        .newLookList()
         .navigationTitle(path == "/" ? server.name : (path as NSString).lastPathComponent)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {

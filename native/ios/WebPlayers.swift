@@ -1141,6 +1141,7 @@ struct WebPlayerSettingsSheet: View {
                     Section { Text(line).font(.footnote) }
                 }
             }
+            .newLookList()
             .navigationTitle("\(session.kind.gameKind) settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

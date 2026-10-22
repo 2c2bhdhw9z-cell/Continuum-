@@ -1176,6 +1176,7 @@ struct ControllersScreen: View {
                     Section { Text(line).font(.footnote) }
                 }
             }
+            .newLookList()
             .navigationTitle("Controllers")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done", action: onDone) }
@@ -1288,6 +1289,7 @@ struct RemapEditor: View {
                     }
                 }
             }
+            .newLookList()
             .navigationTitle("Button mapping")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

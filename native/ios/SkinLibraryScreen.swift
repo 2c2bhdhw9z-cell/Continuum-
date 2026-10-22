@@ -142,6 +142,7 @@ struct SkinLibrarySheet: View {
                     }
                 }
             }
+            .newLookList()
             .navigationTitle("Skins")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -238,7 +239,7 @@ struct SkinLibrarySheet: View {
                 newName = record.name
                 renaming = record
             }
-            .tint(.blue)
+            .tint(LookStore.isNewLook ? ShellPalette.accent : Color.blue)
         }
         .onTapGesture {
             host.setDefaultSkin(.skin(record.id), for: systemID)
@@ -333,10 +334,7 @@ struct SkinCardBlock: View {
         if let system = CoreCatalog.system(for: entry) {
             let _ = host.touchSkinsVersion
             VStack(alignment: .leading, spacing: 8) {
-                Text("SKIN")
-                    .font(.system(size: 11, weight: .bold))
-                    .tracking(1.6)
-                    .foregroundStyle(ShellPalette.secondaryText)
+                LookBlockHeading("SKIN")
                 Menu {
                     GameSkinChoices(host: host, entry: entry, system: system)
                 } label: {
@@ -349,7 +347,7 @@ struct SkinCardBlock: View {
                             .foregroundStyle(ShellPalette.secondaryText)
                     }
                     .padding(12)
-                    .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 10))
+                    .modifier(LookBlockCard(radius: 10))
                 }
                 Text("Pick a skin just for this game, or leave it on the system default.")
                     .font(.system(size: 11))
@@ -435,6 +433,7 @@ struct SimpleSheet<Content: View>: View {
                     .padding(18)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .newLookSheetPage()
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -467,6 +466,7 @@ struct PlayerSkinSheet: View {
                     Button("Open the skin library") { showLibrary = true }
                 }
             }
+            .newLookList()
             .navigationTitle("Skin")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -505,6 +505,7 @@ struct SkinFunctionMenu: View {
                     }
                 }
             }
+            .newLookList()
             .navigationTitle("Functions")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -544,6 +545,7 @@ struct HapticsQuickSheet: View {
                     }
                 }
             }
+            .newLookList()
             .navigationTitle("Haptics")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
