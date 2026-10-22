@@ -63,6 +63,12 @@ Settings, the game card (Game Hub top) and a new pause menu in a game. It also r
 and when each game was last played, from this install on. Phone checks: TESTING.md "Next
 install (after 196)". The design notes are in `.kiro/notes/docs/NEW_LOOK.md`.
 
+**22 October 2026, evening: the New look redone to the owner's mockup, on every screen.**
+Home matches `docs/new-look/mockup-home.jpg` in the simulator preview (not yet on a phone). Calm
+moving glow instead of colour blobs; no sparks, shine or swirls; every sheet dark and gold; the
+review's bugs fixed. Built in the next install. Phone checks: TESTING.md "Next install (after 204)".
+The RULE paragraphs below still stand.
+
 **22 October 2026: check-up after builds 197 to 204 (made with another AI tool while Kiro was out
 of credits).** Build 204 (`f8c5195`) is the newest install and checks out: 0.8.0 (204), 37
 emulator files. `97ee938` (sparkle mark removed) is on master and in no build yet. The review of

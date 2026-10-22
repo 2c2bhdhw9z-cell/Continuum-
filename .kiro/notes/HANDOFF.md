@@ -5,7 +5,40 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (22 October 2026): check-up after the other AI's builds 197 to 204
+## START HERE (22 October 2026, evening Eastern): the New look redone to the mockup
+
+- The owner said the New look (197 to 204) "ain't how I want it" and sent the mockup again; it is
+  now in the repo: `.kiro/notes/docs/new-look/mockup-home.jpg` (and build 204's empty Home,
+  `build-204-empty-home.png`). The picture is the reference. His brief: it must look like the
+  mockup, move like Google's Gemini app (calm dark page, a soft glow that drifts and breathes),
+  and cover EVERY screen. He also said: ask when it truly is unclear, but put two and two
+  together on common sense and don't stop for dumb questions. Progress bars: the app could track
+  how far into a game, but he does NOT want that yet.
+- Done (commits bbbb3ea, e880b21, 6f469a3, then the build):
+  - `NewLookDesign.swift` (new): every New-look piece drawn from plain values; `NewLookMetrics`
+    holds the mockup's sizes. `NewLookColors.swift` (new): the colour store, split out of
+    LookTheme.swift so it compiles alone. `NewLookShell.swift` hands them real games and actions.
+  - Home to the mockup: hero with no card, standing box (`CoverStyle.box`, `NewLookBoxFace`) with
+    the gold glow (`NewLookHeroGlow`), SYSTEMS tray with full names, Jump Back In cards with one
+    grey line, glass tab bar with no pill, the controller mark. Empty Home: `NewLookEmptyHero`.
+  - Motion (NewLookMotion.swift): `NewLookAura`, a calm glow from the top plus one travelling
+    along the bottom, replaces the blobs; "Moving glow" (on by default). Gone: sparks, title
+    shine, swirls in cards, the tab pill, per-card breathing (that made phones warm).
+  - Every sheet: `.newLookList()` / `.newLookSheetPage()` (NewLookShell.swift) on 17 sheets; the
+    gold tint on every system control (RootView `.tint`, `AppAppearance.applyTint`); the game
+    card's blocks via `LookBlockHeading` / `LookBlockCard`. Current look unchanged throughout.
+  - Bugs from the review fixed: pause menu Resume, sheets from the pause menu keep the game
+    paused, Resume label follows "Pick up where you left off", tab bar tap-through, Cloud Sync
+    merges play time, colour picks saved once the finger rests, Library sorted only on change.
+- How to see it without a phone: `.github/workflows/newlook-preview.yml` (start it by hand; the
+  pushes are `[skip ci]`) draws the real pieces with the mockup's games in the iPhone 17 Pro Max
+  simulator and uploads `home.png`, `empty.png` beside `mockup-home.jpg`. Compare them yourself
+  before telling the owner anything looks right. It does not cover sheets (they need the engine).
+- Phone checks: TESTING.md "Next install (after 204)".
+- Still waiting: emulator updates (10 of 32 newer on 19 October, not checked), then
+  `tasks/gamecube.json`.
+
+## Earlier (22 October 2026): check-up after the other AI's builds 197 to 204
 
 - The owner ran out of Kiro credits on 19 October and used another AI tool for builds 197 to 204
   (commits by "Continuum Dev"). Kiro is back on a new account; the 11 memories are saved.

@@ -7,175 +7,40 @@ removed Theme sheet and no longer applies. Do not ask the 192 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
-## Next install (build 204, f8c5195): the New look moves, even cover cards. Built, not tried on a phone
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-204-f8c5195/Continuum-204.ipa
+## Next install (after 204): the New look redone to the mockup, on every screen
 
-Settings → LOOK → New. Current must look and behave exactly as before. Then turn iOS Reduce Motion
-on and check that everything below holds still.
+The owner said builds 197 to 204 were not how he wanted the New look (22 October) and sent his
+mockup again (`docs/new-look/mockup-home.jpg`). The lists for 196 to 204 are gone: that look was
+replaced. Settings → LOOK → New for 1 to 11.
 
-1. Background (Settings → LOOK → Background → Moving gradient on): many soft colour masses that
-   change shape, swirl and blend, in your accent colours, never visibly repeating; it stays put
-   while pages scroll. Home, Library, Favorites, Settings.
-2. Home's Last Played card: colours slowly swirl inside it (about 9 s); the box floats up and
-   down with small sparks rising behind it. Same in the Game Hub top and the pause menu top.
-3. A soft light sweeps left to right across the hero title and the titles (Systems, Jump Back In,
-   shelves, Library / Favorites, console headers, Settings headings). Not the CONTINUUM header.
-4. Resume / Play buttons and the picked chips have a highlight running round their edge (~2 s).
-5. Tab bar: the picked tab's pill springs to the new tab; inside it a faint slow gradient, and a
-   soft glow that breathes.
-6. Systems tray: the picked console has a running highlight round it and a breathing glow.
-7. Game cards: their glow breathes, each card slightly out of step.
-8. The ring next to CONTINUUM still spins (unchanged).
-9. Settings → LOOK colours: blend tiles turn their colours slowly; single colours stay still.
-   Tiles shrink when pressed; the white ring springs to the tapped tile; a big soft glow behind
-   the Accent card fades to the new colour.
-10. Switches in Settings: accent-filled track (gradient for a blend), springy knob.
-11. Buttons, cards and rows scale down a little when pressed and spring back.
-12. (Removed: the owner rejected the sparkle mark. Empty Home shows its plain box icon again.)
-13. Glow / ring chips: the picked pill springs between them. Card size and other segmented pickers:
-    accent-tinted pill that springs with a little overshoot.
-14. Switching tabs: the page rises a little and fades in. Game Hub top and pause menu too.
-15. With Reduce Motion on, all of it is still. Smoothness and battery: watch for stutter or heat.
-16. Even covers: in every New-look row (Home Jump Back In and shelves, Library, Favorites) each
-    card is the same size whatever the box shape (PSP tall, 3DS square, SNES wide, a screenshot);
-    the whole box sits centred in it, never cropped, with a soft blurred copy of the art around it;
-    the glow follows the card's edge; titles sit on one line. Change Settings → Card size: all of
-    them resize, in New and in Current. Square covers / Corner roundness change the frame.
-17. The title light sweep now shows as a gold-white glint passing over white titles.
-
-The simulator check in CI (.github/workflows/newlook-preview.yml) films the motion pieces on a
-test page; it is not the real app (the app cannot be built for the simulator) and is not a
-phone check.
-
-## Next install (after 200): colours back in Settings, our own design. Built, not tried on a phone
-
-The Theme sheet from 200 is gone (it followed another app's layout too closely). Settings → LOOK →
-New now shows the colour cards right under the LOOK card. "After 199" below is replaced by this.
-Current must look exactly as before; APP ICON is as it was.
-
-1. Under LOOK: a Preview card (Resume button, a switch and two blank covers in your colours), then
-   rounded glass cards Accent, Covers, Ring, Background, each with an icon and a line saying what
-   it changes.
-2. Accent: tap a tile (gold first); the picked one glows and has a tick. "Any colour" opens
-   Apple's colour picker; drag anywhere in it and the app follows as you drag. "Blend two colours"
-   makes a gradient; "Second colour" picks its other end. "Add to my colours" keeps it; your
-   colours show under "My colours"; press and hold one to remove it.
-3. THE MAIN CHECK: while changing any colour, Settings must NOT jump back to the top, and the
-   colour picker must stay open.
-4. Covers: glow (Console colours / Accent / Off / Custom with its own colour), Corner roundness
-   (shows %), Square covers, Hide titles. Home, Library and Favorites follow.
-5. Ring: Rainbow / Accent / Custom, Spin.
-6. Background: dark tiles, Any colour (bright ones dimmed). Moving gradient: big soft glows of
-   your accent colours must clearly drift and blend across Home, Library, Favorites and Settings,
-   all the time, slowly. Text stays readable. With iOS Reduce Motion on it holds still and a gold
-   note under the switch says so. During a game it is not running.
-7. "Back to gold on charcoal" resets everything except your saved colours.
-8. Close and reopen the app: every choice is kept.
-
-## Next install (after 199): the Theme sheet. Built, not tried on a phone
-
-Settings → LOOK → New, then the "Theme" row under it (the inline COLOURS block from 199 is gone;
-step 8 of "after 198" is replaced by this list). Current must look exactly as before.
-
-1. The Theme sheet opens with an X. Tapping things in it never closes it or jumps it to the top,
-   and the app behind it changes at once.
-2. Colours: gold (default) and seven gradient swatches; the picked one has a white ring. Buttons,
-   the selected tab, the picked chip, toggles, sliders and glows follow. Text on a light colour
-   turns dark.
-3. +: the colour wheel. Drag the handle round the wheel; the brightness slider (triangle under it)
-   dims it; the preview and the hex box follow. Typing a hex (e.g. 93255F) moves the handle; a bad
-   one is refused with a red note. The house mark goes back to gold. "One colour / Gradient" adds a
-   second colour (pick First or Second to edit). + keeps it in your saved colours; Save uses it;
-   X leaves without saving.
-4. Saved colours show in the Colours row after the swatches. Press and hold one: Delete removes it.
-5. Cover glow (Console colours / Accent / Off / Custom, Custom opens the wheel), Ring (Rainbow /
-   Accent / Custom, Spin the ring) and Background (swatches and +) still work as in 199.
-6. Background → Moving gradient: a slow, soft, dark gradient from your colours moves behind
-   everything. Text stays readable. With iOS Reduce Motion on it holds still. Start a game: it is
-   not running behind the game.
-7. Box art: Style 1 (glow), Style 2 (cover on a glass plate), Style 3 (plain, shadow); the preview
-   is one of your games. Corners slider (shows %), Square covers (cover whole inside a square),
-   Hide game titles. Home, Library and Favorites cards follow; nothing is cut off.
-8. Console order → the same order sheet as Settings, LAYOUT; Home and Library follow it.
-9. Reset theme puts everything back (gold, charcoal, still background, Style 1). Saved colours stay.
-10. Close and reopen the app: every choice is kept.
-
-## Next install (after 198): New look redone to the mockup, and its colours. Built, not tried on a phone
-
-Settings → LOOK → New. Current must look exactly as before.
-
-1. Home: the LAST PLAYED card has a warm glow (the accent colour) inside the rounded card, and
-   nothing glows or smears behind the header. The box art is big, upright, turned a little, whole
-   (no crop). Title, system, core and play time on the left; Resume (or Play) and Game Hub under.
-2. Home, SYSTEMS: one dark rounded tray, about five tiles on screen. Each tile: console photo,
-   bold italic name, count in the top corner. The picked one has a glowing accent border.
-3. Home, Jump Back In: covers with a thin glow in the console's colour, the title, "Last played
-   ..." and the play time. Recently added and per-console shelves look the same.
-4. Library: big "Library" title with round buttons (shuffle, pick several, sort, layout), the
-   same console tray with an All tile first, glow-card grid. Sort: Name / Recently added / Last
-   played, remembered. Pick several, shuffle, the three layouts and card sizes still work.
-5. Favorites: grouped by console under rounded tray headers (photo, name, count, fold arrow).
-   With none, a rounded card with a heart.
-6. Settings: big title; every section is a rounded card with an icon and a title-case name.
-   Every setting still there and still works. LOOK is on top.
-7. Game Hub and pause menu: the same warm glow card at the top.
-8. Settings → LOOK → COLOURS (only with New on): Accent swatches and "+" for any colour; Cover
-   glow Console colours / Accent / Off / Custom; Ring Rainbow / Accent / Custom and "Spin the
-   ring"; Background swatches and "+". Each changes the app at once, stays after closing the app,
-   and "Reset colours" brings back gold on charcoal. Text on a light accent turns dark.
-   Note: picking a colour redraws the app, so the Settings page may jump back to its top.
-
-## Next install (after 197): New look fixes. Built, not tried on a phone
-
-Settings → LOOK → New for all of these. Build 197's New-look Settings was checked on the phone
-and reads fine (no change there).
-
-1. **Systems row.** Home → SYSTEMS: every console is a real photo of that console, each one
-   different, with a short name that fits (NES, SNES, GBA, DS, Mega Drive...). The console of
-   the game you last played glows gold. The row fades at both edges. Tap a console: Library
-   opens with only that console.
-2. **Last played card.** A rounded card with space on every side, a soft blur of the game's own
-   cover behind it, the whole tilted box on the right (nothing cut off), Play or Resume and
-   Game Hub underneath, and a clear gap before SYSTEMS.
-3. **Whole covers.** Jump Back In, Recently added, Library, Favorites, the Game Hub top and the
-   pause menu all show the whole box, never cropped (wide GBA boxes, tall NES boxes).
-4. **Card size.** Settings → LAYOUT → Game card size → Extra small, then Large. Home's rows,
-   Library and Favorites all change size each time.
-5. **Other LAYOUT settings in New.** All Games → By console / Grid / List changes Library. Console
-   order changes the SYSTEMS row, the Library buttons and the per-console rows on Home. "A shelf
-   per system on Home" on adds a row per console under Recently added; off takes them away.
-6. **Spinning ring.** The rainbow ring next to CONTINUUM turns slowly all the time. With iPhone
-   Settings → Accessibility → Motion → Reduce Motion on, it stays still.
-7. **Credits.** Settings → ABOUT → Open-source credits lists the console photos with a link.
-
-## Next install (after 196): the second look. Built, not tried on a phone
-
-Settings → LOOK (the first card, right under the Settings title) → **Current** or **New**.
-Current is how the app has always looked and stays the default. New is the dark charcoal and
-gold look from your mockup.
-
-1. **Switch.** Settings → LOOK → tap **New**. The whole app turns charcoal and gold at once,
-   still on Settings. Tap **Current**: back to the old look. Close and reopen the app: the look
-   you picked is still on.
-2. **Home (New).** CONTINUUM with the ring at the top, search / + / person on the right, the big
-   LAST PLAYED card (it says RECENTLY ADDED until you have played something), the SYSTEMS row
-   with counts, Jump Back In, Recently Added, and the floating tab bar at the bottom. Play a game
-   for a few minutes and quit: Home shows it as LAST PLAYED with "Xm played", and in Jump Back In.
-   Play time only starts counting from this install.
-3. **Systems and Library.** Tap a console on Home: Library opens with only that console, its chip
-   gold. Tap All. Select mode, shuffle, the layouts and card sizes work like in Current.
-4. **Search, +, person.** The magnifier opens a search field in the header (Cancel closes it).
-   + opens Files; press and hold + for the other ways in. The person button has Sync now (if a
-   sync folder is set), technical details, and Settings.
-5. **Game Hub.** Press and hold a game, or tap Game Hub on Home: tilted cover, console,
-   "Runs on ...", play time, Resume or Play, heart. Below it: the same game card as always.
-6. **Pause menu.** In a game (New look) tap the gold pause button: the game pauses and a dark
-   glass menu comes up. Try Save state, Load last, Save slots, Cheats, Skin, Reset, Quit to
-   library. Swipe it down: the game carries on by itself.
-7. **Nothing broke in Current.** Switch back to Current and check Home, All Games, Favorites,
-   Settings, a game card and the buttons in a game. All should look and work like build 196.
-8. **Light mode.** New is always dark. With New on, Settings → APPEARANCE → Light does nothing
-   until you switch back to Current.
+1. Home looks like the mockup: CONTINUUM and its ring top left; search, + and person as round
+   glass buttons top right. With a controller connected, a small controller mark sits under them.
+2. The top of Home: LAST PLAYED (RECENTLY ADDED until something is played), the big title, the
+   console, emulator and play time, and the box standing on the right with gold light behind it,
+   floating gently. Resume (or Play) and Game Hub under it. No box or card round it.
+3. SYSTEMS: one dark tray of console photos, each with its count and its name in capitals
+   (GAME BOY COLOR, SUPER NINTENDO). The last played console has a gold frame that glows softly.
+   Tap one: the Library opens on it. View all opens the whole Library.
+4. Jump Back In: covers with a bright edge in the console's colour, the name and "Last played:
+   2d ago" under each.
+5. Tab bar: floating glass; the picked tab's icon and word are gold, with no shape behind it. A
+   tap just beside or under the bar does not start a game.
+6. The background: dark, with a soft gold light at the top that slowly drifts and breathes, and a
+   faint one moving along the bottom. No coloured blobs. Settings → LOOK → Background → Moving
+   glow off holds it still.
+7. Empty Home (no games): WELCOME, "Nothing to play yet", one short line, a gold Import games
+   button. No sparkle and no glass box.
+8. Every screen is dark and gold, not grey lists with blue buttons: + held → Other sources; a
+   game's Game Hub (its blocks are glass cards with gold icons); Settings → Controllers; the
+   skins list; in a game, the pause menu's Save slots, Cheats, Skin, All functions, Controllers
+   and Online play; Done buttons and pop-up questions are gold too.
+9. In a game: the gold pause button, then Resume: the game always carries on. Pause again and pick
+   Save slots (or Cheats, Skin): the game stays paused behind it and carries on when it closes.
+10. Settings → Save states → "Pick up where you left off" off: Home and the Game Hub say Play, not
+    Resume.
+11. Settings → LOOK colours still work (accent, cover glow, ring, background, reset) and nothing
+    jumps while you drag in the colour picker.
+12. Settings → LOOK → Current: everything looks and works exactly as before.
 
 ## Build 191 (17 October): covers and the library
 

@@ -24,6 +24,24 @@ what is wrong, is `new-look/build-204-empty-home.png`. The picture is the refere
   "45% complete" bars; the app has no progress data, so those are not shown).
 - A floating translucent tab bar: Home, Library, Favorites, Settings, gold when active.
 
+## How it is built (22 October 2026)
+
+- `NewLookDesign.swift`: how every piece looks, from plain values (no engine types), with the
+  mockup's sizes in `NewLookMetrics`. `NewLookMotion.swift`: what moves. `NewLookColors.swift`:
+  the player's colours. These three compile on their own into the simulator preview
+  (`tools/newlook-preview`, workflow `newlook-preview.yml`, started by hand), which draws Home with
+  the mockup's own games so it can be compared to the picture. Keep engine types out of them.
+- `NewLookShell.swift`: the app's side (real games, covers, counts, actions), plus
+  `.newLookList()` / `.newLookSheetPage()` for sheets and `LookBlockHeading` / `LookBlockCard`
+  for the game card's blocks. All of them do nothing in the Current look.
+- Motion, the owner's brief: like Google's Gemini app. A calm dark page with a soft glow of the
+  accent that drifts and breathes (`NewLookAura`; Settings, LOOK, "Moving glow", on by default),
+  the hero box floating and its light breathing, presses and the tab bar springing, pages rising
+  in. Nothing decorative that the mockup does not have: no sparks, no shine over titles, no
+  sparkle (he rejected it), no swirling colour inside cards. Nothing animated per card in a row.
+- Not shown yet, by choice: progress through a game (the mockup's "45% complete"). The owner
+  says the app could track it, but he does not want it yet.
+
 ## What each screen does in the new look
 
 `LibraryShell` draws both looks. It branches only where they differ (page background, header,
@@ -33,7 +51,7 @@ follow the look; `danger` is red in both. `RootView` forces dark while New is on
 
 | Screen | File | Notes |
 |---|---|---|
-| Home | `NewLookShell.swift` | Hero = last played game (from `PlayHistory`), or the newest import labelled RECENTLY ADDED when nothing was played yet. Resume when the game has an auto-save, otherwise Play. Systems carousel (drawn console shapes, no console photos or logos), Jump Back In (only played games), Recently Added. |
+| Home | `NewLookShell.swift` | Hero = last played game (from `PlayHistory`), or the newest import labelled RECENTLY ADDED when nothing was played yet. Resume when "Pick up where you left off" is on and the game has an auto-save, otherwise Play. SYSTEMS tray (console photos, CONSOLE_PHOTOS.md), Jump Back In (only played games), Recently Added. |
 | Library | `LibraryShell.swift` + `NewLookSystemChips` | The All Games tab, titled Library, with system chips (All + each system with a count) above the same layouts, card sizes, select mode and shuffle as Current. Tapping a console on Home opens Library filtered to it. |
 | Favorites | `LibraryShell.swift` | The same tab as Current, in the New colours. |
 | Settings | `SettingsScreen.swift` | The same screen; cards, toggles and buttons take the gold accent and charcoal. Delete buttons stay red. |
