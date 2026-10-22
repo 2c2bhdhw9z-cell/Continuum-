@@ -77,7 +77,7 @@ look unchanged, five bugs and several speed risks to fix (listed in HANDOFF.md "
 October"). GameCube (`tasks/gamecube.json`) has not been started.
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-22 October 2026. **Build 204** (`f8c5195`) is the newest published install.
+22 October 2026. **Build 205** (`2eb4943`) is the newest published install.
 What the phone has passed since 185 is in "Next up" at the top and in TESTING.md. The paragraphs
 under this one that still name build 185 are the history of that install.
 

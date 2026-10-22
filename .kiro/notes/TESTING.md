@@ -1,9 +1,8 @@
 # What to test, and what to tell me
 
-Last updated 22 October 2026. **Build 204** (`f8c5195`) is the newest install:
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-204-f8c5195/Continuum-204.ipa
-The lists "after 196" to "build 204" below are all New-look checks; "after 199" is for the
-removed Theme sheet and no longer applies. Do not ask the 192 passes again.
+Last updated 22 October 2026, 3:10 PM Eastern. **Build 205** (`2eb4943`) is the newest install:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-205-2eb4943/Continuum-205.ipa
+Its checks are "Next install (after 204)" just below. Do not ask the 192 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 

@@ -14,6 +14,9 @@ Paste this to start a new chat:
   and cover EVERY screen. He also said: ask when it truly is unclear, but put two and two
   together on common sense and don't stop for dumb questions. Progress bars: the app could track
   how far into a game, but he does NOT want that yet.
+- **Build 205 is the newest install** (`2eb4943`, 3:09 PM Eastern, 22 October), checked: 0.8.0
+  (205), 37 emulator files, the new screens' text inside. Not tried on a phone yet:
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-205-2eb4943/Continuum-205.ipa
 - Done (commits bbbb3ea, e880b21, 6f469a3, then the build):
   - `NewLookDesign.swift` (new): every New-look piece drawn from plain values; `NewLookMetrics`
     holds the mockup's sizes. `NewLookColors.swift` (new): the colour store, split out of
