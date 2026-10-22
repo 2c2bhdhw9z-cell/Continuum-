@@ -7,6 +7,19 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Next install (after 206): how the colours mix
+
+Owner on build 206: "No." with 8 screenshots of the swirl folding into hard-edged sheets, then a
+screen recording of Gemini and Manic (frames: `docs/new-look/reference-video-gemini-manic-frames.png`;
+the video is the release named with the 🖕 tag) and: "I want the whole background", "only thing
+you need to concern yourself with is how colors mix". Simulator film of the fix:
+`docs/new-look/simulator-swirl-197fc83.png`.
+
+1. Every page's background: the colours flow and blend into each other smoothly over the whole
+   screen, like Gemini's glow. No hard edges, no folded shapes, ever.
+2. Settings → LOOK → Background → Swirl colours: Accent (your colours), Rainbow (every colour in
+   turn, like Gemini), My own (two or three you pick). Strength and Speed still work.
+
 ## Next install (after 205): swirling colours back, everything switchable
 
 Owner on build 205 (22 October, screenshots in `docs/new-look/build-205-*.jpg`): the background

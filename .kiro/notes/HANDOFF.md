@@ -5,7 +5,17 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (22 October 2026, about 4 PM Eastern): swirl back, everything customisable
+## START HERE (22 October 2026, about 6:45 PM Eastern): how the colours mix
+
+- Build 206's MeshGradient folded (its inner points turned round the middle and crossed). The
+  owner sent a screen recording of Gemini and Manic (release tag 🖕, harmless: the install link
+  still resolves to the newest build) and said only colour mixing matters, over the whole page.
+- `NewLookSwirl` (197fc83): points stay inside their cells (tested: never cross), colours sweep
+  across the page in bands, mixed round the colour wheel (`NewLookHSV`), perceptual MeshGradient.
+  `NewLookColors.swirlSource`: Accent / Rainbow / My own. Simulator film looked smooth.
+- Phone checks: TESTING.md "Next install (after 206)".
+
+## Earlier (22 October 2026, about 4 PM Eastern): swirl back, everything customisable
 
 - Owner on build 205: furious that the swirling background colours were gone ("I SAID LIKE
   GOOGLE GEMINI AND MANIC"); "if you're not gonna do something right, don't do it at all";
