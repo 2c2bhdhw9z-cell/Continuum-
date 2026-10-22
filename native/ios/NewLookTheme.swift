@@ -273,19 +273,16 @@ struct NewLookColorPanels: View {
             }
             if colors.backgroundStyle == .swirl {
                 subhead("Swirl colours")
-                chips(SwirlSource.allCases, current: colors.swirlHex == nil ? .accent : .custom,
+                chips(NewLookColors.SwirlSource.allCases, current: colors.swirlSource,
                       pill: "swirlPill", title: { $0.title }) { source in
-                    switch source {
-                    case .accent: colors.swirlHex = nil
-                    case .custom:
-                        if colors.swirlHex == nil {
-                            colors.swirlHex = colors.swirlStops.prefix(2).joined(separator: "-")
-                                + (colors.swirlStops.count < 2
-                                   ? "-" + NewLookColors.shiftedHue(colors.swirlStops[0], by: 0.12) : "")
-                        }
+                    if source == .own, colors.swirlHex == nil {
+                        colors.swirlHex = colors.swirlStops.prefix(2).joined(separator: "-")
+                            + (colors.swirlStops.count < 2
+                               ? "-" + NewLookColors.shiftedHue(colors.swirlStops[0], by: 0.12) : "")
                     }
+                    colors.swirlSource = source
                 }
-                if let own = colors.swirlHex {
+                if colors.swirlSource == .own, let own = colors.swirlHex {
                     let stops = NewLookColors.stops(own)
                     ForEach(stops.indices, id: \.self) { index in
                         ColorPicker(selection: swirlBinding(index), supportsOpacity: false) {
@@ -345,13 +342,6 @@ struct NewLookColorPanels: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-    }
-
-    /// Where the swirl's colours come from.
-    private enum SwirlSource: String, CaseIterable, Identifiable {
-        case accent, custom
-        var id: String { rawValue }
-        var title: String { self == .accent ? "Accent" : "My own" }
     }
 
     /// One of the swirl's own colours, for the system colour picker.

@@ -22,6 +22,8 @@ struct NewLookPreviewApp: App {
 
 private enum Page: String {
     case home, empty, scrolled
+    /// The page background alone, full screen, to film how its colours mix.
+    case bg
 }
 
 private func argument(_ name: String) -> String? {
@@ -67,11 +69,18 @@ private enum Art {
 struct PreviewRoot: View {
     init() {
         NewLookColors.shared.accentHex = argument("-accent").flatMap { NewLookColors.validated($0) }
+        if let source = argument("-swirl").flatMap(NewLookColors.SwirlSource.init(rawValue:)) {
+            NewLookColors.shared.swirlSource = source
+        }
     }
 
     var body: some View {
         GeometryReader { geo in
-            PreviewHome(insets: geo.safeAreaInsets, empty: page == .empty)
+            if page == .bg {
+                NewLookPage().ignoresSafeArea()
+            } else {
+                PreviewHome(insets: geo.safeAreaInsets, empty: page == .empty)
+            }
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(false)

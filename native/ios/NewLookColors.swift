@@ -64,6 +64,24 @@ final class NewLookColors: ObservableObject {
         }
     }
 
+    /// Where the swirl's colours come from.
+    enum SwirlSource: String, CaseIterable, Identifiable {
+        /// The accent's colours and their neighbours (a gold accent swirls golds and ambers).
+        case accent
+        /// Every colour in turn, like Google's Gemini.
+        case rainbow
+        /// The player's own two or three (`swirlHex`).
+        case own
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .accent: return "Accent"
+            case .rainbow: return "Rainbow"
+            case .own: return "My own"
+            }
+        }
+    }
+
     /// The default accent: gold, as a soft gradient from light to deep gold.
     static let defaultAccent = "FFD66B-F2B233"
     static let defaultBackground = "131316"
@@ -114,8 +132,12 @@ final class NewLookColors: ObservableObject {
     @Published var swirlStrength: Double {
         didSet { save("swirlStrength", swirlStrength == Self.defaultSwirlStrength ? nil : String(swirlStrength)) }
     }
-    /// The swirl's own colours, two or three joined by dashes; nil follows the accent.
+    /// The swirl's own colours, two or three joined by dashes (used when the source is My own).
     @Published var swirlHex: String? { didSet { save("swirl", swirlHex) } }
+    @Published var swirlSource: SwirlSource {
+        didSet { save("swirlSource", swirlSource == .accent ? nil : swirlSource.rawValue) }
+    }
+
     /// The light running round the main buttons, the picked chips and the picked console.
     @Published var buttonLight: Bool { didSet { save("buttonLight", buttonLight ? nil : "off") } }
     /// How fast that light runs round, 0.3 to 3 times the usual.
@@ -159,6 +181,9 @@ final class NewLookColors: ObservableObject {
         swirlStrength = d.string(forKey: p + "swirlStrength").flatMap { Double($0) }
             .map { min(max($0, 0.2), 1) } ?? Self.defaultSwirlStrength
         swirlHex = d.string(forKey: p + "swirl").flatMap { Self.validated($0, maxParts: 3) }
+        // Build 206 kept "My own" as just having swirl colours; read that the same way.
+        swirlSource = d.string(forKey: p + "swirlSource").flatMap(SwirlSource.init(rawValue:))
+            ?? (d.string(forKey: p + "swirl") != nil ? .own : .accent)
         buttonLight = d.string(forKey: p + "buttonLight") != "off"
         lightSpeed = d.string(forKey: p + "lightSpeed").flatMap { Double($0) }
             .map { min(max($0, 0.3), 3) } ?? 1
@@ -223,6 +248,7 @@ final class NewLookColors: ObservableObject {
         swirlSpeed = 1
         swirlStrength = Self.defaultSwirlStrength
         swirlHex = nil
+        swirlSource = .accent
         buttonLight = true
         lightSpeed = 1
         heroGlow = true
@@ -236,7 +262,7 @@ final class NewLookColors: ObservableObject {
         accentHex == nil && glowMode == .console && glowHex == nil && ringMode == .rainbow
             && ringHex == nil && ringSpins && backgroundHex == nil && backgroundMoves
             && backgroundStyle == .swirl && swirlSpeed == 1 && swirlStrength == Self.defaultSwirlStrength
-            && swirlHex == nil && buttonLight && lightSpeed == 1 && heroGlow && boxFloats
+            && swirlHex == nil && swirlSource == .accent && buttonLight && lightSpeed == 1 && heroGlow && boxFloats
             && coverCorner == Self.defaultCorner && !forceSquare && !hideTitles
     }
 
@@ -276,7 +302,11 @@ final class NewLookColors: ObservableObject {
     /// pinks and magentas.
     var swirlRGB: [SIMD3<Double>] {
         let hexes: [String]
-        if let swirlHex {
+        if swirlSource == .rainbow {
+            // Six colours round the whole wheel, starting from the accent's own.
+            let start = Self.hsb(hex: Self.stops(accentHex ?? Self.defaultAccent)[0]).0
+            hexes = (0..<6).map { Self.hex(h: newLookWrap(start + Double($0) / 6), s: 0.78, b: 0.95) }
+        } else if swirlSource == .own, let swirlHex {
             // The player's own two or three, and a deep one of the first for depth.
             let own = Self.stops(swirlHex)
             hexes = own + [Self.shiftedHue(own[0], by: 0.035), Self.dimmed(own[0], by: 0.45)]
@@ -284,9 +314,10 @@ final class NewLookColors: ObservableObject {
             let stops = Self.stops(accentHex ?? Self.defaultAccent)
             let first = stops[0]
             let second = stops.count > 1 ? stops[1] : Self.shiftedHue(first, by: -0.05)
-            // Small steps round the wheel, so gold stays warm (ambers, not greens).
-            hexes = [first, Self.shiftedHue(first, by: 0.035), second,
-                     Self.shiftedHue(second, by: -0.05), Self.dimmed(first, by: 0.45)]
+            // Neighbours a little round the wheel either way, so the colours visibly mix but
+            // stay the accent's family (gold stays warm: ambers and oranges, not greens).
+            hexes = [first, second, Self.shiftedHue(second, by: -0.06),
+                     Self.shiftedHue(first, by: 0.05), Self.dimmed(first, by: 0.55)]
         }
         return hexes.map { hex in
             let (r, g, b) = Self.components(hex: hex)
@@ -294,7 +325,7 @@ final class NewLookColors: ObservableObject {
         }
     }
 
-    /// The swirl's colours as the player sees them in Settings (the custom ones, or the accent's).
+    /// The swirl's own colours as Settings shows them (My own), or the accent's to start from.
     var swirlStops: [String] { Self.stops(swirlHex ?? accentHex ?? Self.defaultAccent) }
 
     /// The background colour, red, green and blue from 0 to 1.
@@ -411,4 +442,10 @@ final class NewLookColors: ObservableObject {
         let (r, g, b) = components(hex: hex)
         return self.hex(r: r * k, g: g * k, b: b * k)
     }
+}
+
+/// A hue (or any fraction) wrapped into 0 up to 1.
+func newLookWrap(_ value: Double) -> Double {
+    let r = value.truncatingRemainder(dividingBy: 1)
+    return r < 0 ? r + 1 : r
 }

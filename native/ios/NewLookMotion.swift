@@ -48,37 +48,61 @@ struct NewLookClock<Content: View>: View {
 
 // MARK: - The swirl
 
-/// Colours that swirl and mix behind the page, like Gemini's: a mesh of the swirl colours whose
-/// inner points turn slowly round the middle and wander, so the colours flow into one another and
-/// never visibly repeat, over the background colour. On iOS 18 and later it is Apple's own
-/// MeshGradient (smooth, drawn by the GPU); before that, soft shapes of the same colours blurred
-/// into each other.
+/// The whole page in colours that flow and mix into one another, like Google's Gemini app and
+/// Manic EMU (the owner's screen recording of both, 22 October 2026, frames in
+/// .kiro/notes/docs/new-look/reference-video-gemini-manic-frames.png).
+///
+/// HOW THE COLOURS MIX, which is the whole point:
+/// - One smooth field over the WHOLE page: a 4 by 4 MeshGradient (iOS 18 and later), blended in
+///   the perceptual colour space, so two colours meet in a clean in-between colour, never a muddy
+///   grey and never an edge.
+/// - The colours travel: every point of the field walks through the swirl colours in turn, and
+///   each point is a little further along than its neighbour up and to the left, so the colours
+///   sweep across the page in broad soft bands, like the colour moving through Gemini's glow and
+///   across Manic's banner.
+/// - Two colours are mixed by going round the colour wheel between them (blue to yellow passes
+///   through green, as in Gemini), not by averaging their red, green and blue.
+/// - Darker pockets drift through it, so it has depth and white text always reads.
+/// - THE POINTS BARELY MOVE, on purpose: build 206 turned them round the middle, they crossed
+///   each other and the field folded into hard-edged sheets (the owner's screenshots,
+///   build-206-swirl-creases-*.png). Every point here stays inside its own cell.
+/// Before iOS 18: the same colours as soft overlapping glows, blurred together.
 struct NewLookSwirl: View {
     var moving = true
     /// 1 on the library pages; a sheet uses a little less.
     var strength: Double = 1
     @ObservedObject private var colors = NewLookColors.shared
 
+    /// Seconds for the field to move one colour along, at Speed "Normal". With six colours the
+    /// whole wheel comes round in about ten seconds, close to Gemini's.
+    static let stepSeconds = 1.7
+
     var body: some View {
+        let palette = colors.swirlRGB.map(NewLookHSV.init(rgb:))
+        let base = colors.backgroundRGB
+        let k = min(colors.swirlStrength * strength, 1)
         let speed = colors.swirlSpeed
         NewLookClock(fps: 30, stillAt: 37, running: moving) { t in
             let time = t * speed
             if #available(iOS 18.0, *) {
-                MeshGradient(width: 4, height: 4, points: Self.points(time), colors: meshColors(time),
-                             background: Self.color(colors.backgroundRGB), smoothsColors: true)
+                MeshGradient(width: 4, height: 4, points: Self.points(time),
+                             colors: Self.meshColors(time, palette: palette, base: base, k: k),
+                             background: Self.color(base), smoothsColors: true,
+                             colorSpace: .perceptual)
             } else {
-                blobs(time)
+                Self.soft(time, palette: palette, base: base, k: k)
             }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 
-    /// The mesh's 16 points. The corners stay put, the edge points slide along their edges, and the
-    /// four inner points turn together round the middle (the swirl) while each wanders on its own.
+    /// The 16 points: a grid, the corners fixed, the edge points sliding a little along their
+    /// edge, the inner ones drifting a little. Never more than a third of a cell, so no two
+    /// points can meet and the field cannot fold.
     static func points(_ t: Double) -> [SIMD2<Float>] {
-        let turn = t * 2 * Double.pi / 26
         var out: [SIMD2<Float>] = []
+        out.reserveCapacity(16)
         for row in 0..<4 {
             for col in 0..<4 {
                 var x = Double(col) / 3
@@ -87,81 +111,148 @@ struct NewLookSwirl: View {
                 let edgeX = col == 0 || col == 3
                 let edgeY = row == 0 || row == 3
                 if edgeX && edgeY {
-                    // A corner.
+                    // A corner stays put.
                 } else if edgeY {
-                    x += 0.10 * sin(t * 0.21 + i * 1.7)
+                    x += 0.06 * sin(t * 0.23 + i * 1.7)
                 } else if edgeX {
-                    y += 0.10 * sin(t * 0.19 + i * 1.3)
+                    y += 0.06 * sin(t * 0.19 + i * 1.3)
                 } else {
-                    let dx = x - 0.5, dy = y - 0.5
-                    let wobble = 1 + 0.35 * sin(t * 0.17 + i)
-                    x = 0.5 + (dx * cos(turn) - dy * sin(turn)) * wobble + 0.06 * sin(t * 0.31 + i * 2.1)
-                    y = 0.5 + (dx * sin(turn) + dy * cos(turn)) * wobble + 0.06 * cos(t * 0.27 + i * 1.6)
+                    x += 0.09 * sin(t * 0.21 + i * 2.1)
+                    y += 0.09 * cos(t * 0.17 + i * 1.6)
                 }
-                out.append(SIMD2<Float>(Float(min(max(x, 0), 1)), Float(min(max(y, 0), 1))))
+                out.append(SIMD2<Float>(Float(x), Float(y)))
             }
         }
         return out
     }
 
-    /// The mesh's 16 colours: the swirl colours drifting from point to point over time, strongest
-    /// in the middle and softer at the edges, each mixed into the background by the strength.
-    private func meshColors(_ t: Double) -> [Color] {
-        let palette = colors.swirlRGB
-        let base = colors.backgroundRGB
-        let k = colors.swirlStrength * strength
+    /// The colour at each point: the swirl colours travelling across the page (see the note
+    /// above), with drifting darker pockets, mixed into the background by the strength.
+    static func meshColors(_ t: Double, palette: [NewLookHSV], base: SIMD3<Double>,
+                           k: Double) -> [Color] {
         var out: [Color] = []
+        out.reserveCapacity(16)
         for row in 0..<4 {
             for col in 0..<4 {
-                let i = row * 4 + col
-                let edgeX = col == 0 || col == 3
-                let edgeY = row == 0 || row == 3
-                let weight = edgeX && edgeY ? 0.45 : (edgeX || edgeY ? 0.75 : 1.0)
-                // Where along the palette this point is: each point drifts at its own pace.
-                let phase = t * (0.045 + 0.012 * Double(i % 5)) + Double(i) * 0.61
-                let a = palette[Int(phase.rounded(.down)) % palette.count]
-                let b = palette[(Int(phase.rounded(.down)) + 1) % palette.count]
-                let f = newLookFrac(phase)
-                let smooth = f * f * (3 - 2 * f)
-                let c = a + (b - a) * smooth
-                out.append(Self.color(base + (c - base) * min(k * weight, 1)))
+                let i = Double(row * 4 + col)
+                let x = Double(col) / 3, y = Double(row) / 3
+                out.append(color(fieldColor(t, x: x, y: y, seed: i, palette: palette,
+                                            base: base, k: k)))
             }
         }
         return out
     }
 
-    /// Before iOS 18: soft shapes of the swirl colours turning round the middle, blurred together.
-    private func blobs(_ t: Double) -> some View {
-        let palette = colors.swirlRGB
-        let k = colors.swirlStrength * strength
-        return GeometryReader { geo in
+    /// One place on the page at time `t` (x and y from 0 to 1).
+    static func fieldColor(_ t: Double, x: Double, y: Double, seed i: Double,
+                           palette: [NewLookHSV], base: SIMD3<Double>, k: Double) -> SIMD3<Double> {
+        guard !palette.isEmpty else { return base }
+        // How far along the colours this place is: the same for the whole page, moving with
+        // time, plus a little more down and to the right (the bands), plus a slow wobble.
+        let along = t / stepSeconds + 0.75 * x + 0.55 * y + 0.22 * sin(t * 0.11 + i * 1.9)
+        let n = palette.count
+        let whole = Int(along.rounded(.down))
+        let a = palette[((whole % n) + n) % n]
+        let b = palette[(((whole + 1) % n) + n) % n]
+        let f = along - Double(whole)
+        let c = NewLookHSV.mix(a, b, f * f * (3 - 2 * f)).rgb
+        // Darker pockets drifting through, and the corners a touch quieter.
+        let shade = 0.74 + 0.26 * (0.5 + 0.5 * sin(t * 0.27 + i * 2.3))
+        let edge = (x == 0 || x == 1) && (y == 0 || y == 1) ? 0.85 : 1
+        let amount = k * edge
+        return base + (c * shade - base) * amount
+    }
+
+    /// Before iOS 18: the same field as soft glows of each point's colour, blurred together.
+    static func soft(_ t: Double, palette: [NewLookHSV], base: SIMD3<Double>, k: Double) -> some View {
+        GeometryReader { geo in
             let size = geo.size
             Canvas(rendersAsynchronously: true) { context, canvas in
                 let w = Double(canvas.width), h = Double(canvas.height)
-                context.addFilter(.blur(radius: CGFloat(max(w, h) * 0.16)))
-                let turn = t * 2 * Double.pi / 26
-                for i in 0..<6 {
-                    let fi = Double(i)
-                    let angle = turn + fi * 1.047
-                    let r = 0.28 + 0.08 * sin(t * 0.2 + fi)
-                    let x = w * (0.5 + r * cos(angle) + 0.08 * sin(t * 0.3 + fi * 2))
-                    let y = h * (0.5 + r * 1.2 * sin(angle) + 0.06 * cos(t * 0.25 + fi))
-                    let radius = max(w, h) * (0.26 + 0.05 * sin(t * 0.23 + fi * 1.3))
-                    let c = palette[i % palette.count]
-                    context.fill(Path(ellipseIn: CGRect(x: x - radius, y: y - radius,
-                                                        width: 2 * radius, height: 2 * radius)),
-                                 with: .color(Self.color(c).opacity(min(k, 1))))
+                context.addFilter(.blur(radius: CGFloat(max(w, h) * 0.12)))
+                let pts = points(t)
+                for (index, p) in pts.enumerated() {
+                    let x = Double(index % 4) / 3, y = Double(index / 4) / 3
+                    let c = fieldColor(t, x: x, y: y, seed: Double(index), palette: palette,
+                                       base: base, k: k)
+                    let r = max(w, h) * 0.34
+                    let cx = Double(p.x) * w, cy = Double(p.y) * h
+                    context.fill(Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r)),
+                                 with: .radialGradient(Gradient(colors: [color(c), color(c).opacity(0)]),
+                                                       center: CGPoint(x: cx, y: cy),
+                                                       startRadius: 0, endRadius: CGFloat(r)))
                 }
             }
             .frame(width: max(size.width / 4, 1), height: max(size.height / 4, 1))
             .scaleEffect(4, anchor: .topLeading)
             .frame(width: size.width, height: size.height, alignment: .topLeading)
         }
-        .background(Self.color(colors.backgroundRGB))
+        .background(color(base))
         .clipped()
     }
 
-    static func color(_ v: SIMD3<Double>) -> Color { Color(red: v.x, green: v.y, blue: v.z) }
+    static func color(_ v: SIMD3<Double>) -> Color {
+        Color(red: min(max(v.x, 0), 1), green: min(max(v.y, 0), 1), blue: min(max(v.z, 0), 1))
+    }
+}
+
+/// A colour as hue, saturation and brightness (each 0 to 1), for mixing two colours round the
+/// colour wheel the way the eye expects, instead of averaging red, green and blue (which turns
+/// blue and yellow into grey).
+struct NewLookHSV {
+    var h: Double
+    var s: Double
+    var v: Double
+
+    init(h: Double, s: Double, v: Double) {
+        self.h = h
+        self.s = s
+        self.v = v
+    }
+
+    init(rgb c: SIMD3<Double>) {
+        let mx = max(c.x, c.y, c.z), mn = min(c.x, c.y, c.z)
+        let d = mx - mn
+        v = mx
+        s = mx > 0 ? d / mx : 0
+        if d == 0 {
+            h = 0
+        } else if mx == c.x {
+            h = newLookFrac(((c.y - c.z) / d) / 6 + 1)
+        } else if mx == c.y {
+            h = ((c.z - c.x) / d + 2) / 6
+        } else {
+            h = ((c.x - c.y) / d + 4) / 6
+        }
+    }
+
+    var rgb: SIMD3<Double> {
+        let hh = newLookFrac(h) * 6
+        let sector = Int(hh.rounded(.down)) % 6
+        let f = hh - hh.rounded(.down)
+        let p = v * (1 - s), q = v * (1 - s * f), u = v * (1 - s * (1 - f))
+        switch sector {
+        case 0: return SIMD3(v, u, p)
+        case 1: return SIMD3(q, v, p)
+        case 2: return SIMD3(p, v, u)
+        case 3: return SIMD3(p, q, v)
+        case 4: return SIMD3(u, p, v)
+        default: return SIMD3(v, p, q)
+        }
+    }
+
+    /// `a` to `b` by `f` (0 to 1), the short way round the wheel. A grey (no saturation) takes
+    /// the other colour's hue, so a colour fades into grey without passing through red.
+    static func mix(_ a: NewLookHSV, _ b: NewLookHSV, _ f: Double) -> NewLookHSV {
+        var ha = a.h, hb = b.h
+        if a.s < 0.05 { ha = hb }
+        if b.s < 0.05 { hb = ha }
+        var d = hb - ha
+        if d > 0.5 { d -= 1 }
+        if d < -0.5 { d += 1 }
+        return NewLookHSV(h: newLookFrac(ha + d * f + 1), s: a.s + (b.s - a.s) * f,
+                          v: a.v + (b.v - a.v) * f)
+    }
 }
 
 // MARK: - The page glow
