@@ -496,6 +496,8 @@ targets:
       - path: NewLookShell.swift
       - path: NewLookTheme.swift
       - path: NewLookMotion.swift
+      - path: NewLookDesign.swift
+      - path: NewLookColors.swift
       - path: NewLookPause.swift
       # Settings: the artwork controls and their disclosure, the layout controls, the permanent home
       # of the diagnostics, the BIOS row and the core options.

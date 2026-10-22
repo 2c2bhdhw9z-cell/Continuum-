@@ -146,9 +146,8 @@ struct NewLookPauseSheet: View {
                              generation: host.artwork.generation, showsCaption: false,
                              style: .whole(WholeCover(cornerRadius: 8, alignment: .center)))
                     .frame(width: 60, height: 80)
-                    .shadow(color: ShellPalette.gold.opacity(0.45), radius: 12)
-                    .modifier(NewLookFloat(sparkColor: NewLookColors.shared.glow(for: system)
-                                           ?? NewLookColors.shared.sparkColor, amplitude: 3))
+                    .background(NewLookHeroGlow(size: 200))
+                    .shadow(color: .black.opacity(0.5), radius: 8, y: 5)
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("PAUSED")
@@ -159,7 +158,6 @@ struct NewLookPauseSheet: View {
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(2)
-                    .modifier(NewLookSweep())
                 if let entry {
                     Text(NewLook.metaLine(entry: entry, system: system,
                                           record: PlayHistory.shared.record(for: entry.name),
@@ -176,11 +174,9 @@ struct NewLookPauseSheet: View {
             }
             Spacer(minLength: 0)
         }
-        // The same card as Home's hero: the accent glowing inside a rounded glass card.
-        .padding(14)
-        .background(NewLookGlow().clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous)))
-        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
+        // In the hero's style (NewLookDesign.swift): no card, the cover standing in its glow.
+        .padding(.horizontal, 4)
+        .padding(.vertical, 6)
     }
 
     private func tileView(_ tile: Tile) -> some View {

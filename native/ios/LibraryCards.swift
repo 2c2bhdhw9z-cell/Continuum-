@@ -690,7 +690,6 @@ struct EmptyLibraryNotice: View {
             Text(title)
                 .font(.system(size: 21, weight: .bold))
                 .foregroundStyle(.white)
-                .modifier(NewLookSweep())
                 .multilineTextAlignment(.center)
             Text(guidance)
                 .font(.system(size: 14))

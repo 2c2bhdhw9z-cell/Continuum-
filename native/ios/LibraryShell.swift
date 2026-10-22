@@ -1274,7 +1274,6 @@ struct LibraryShell: View {
                 Text(title)
                     .font(.system(size: 32, weight: .bold))
                     .foregroundStyle(.white)
-                    .modifier(NewLookSweep())
                 Text(subtitle)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color.white.opacity(0.55))

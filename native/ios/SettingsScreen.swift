@@ -79,7 +79,6 @@ struct SettingsScreen: View {
                         .font(LookStore.isNewLook ? .system(size: 34, weight: .bold)
                                                   : .system(size: 26, weight: .heavy))
                         .foregroundStyle(ShellPalette.text)
-                        .modifier(NewLookSweep(enabled: LookStore.isNewLook))
                     Spacer(minLength: 8)
                     Button("Open all") { SettingsFolds.shared.openAll() }
                         .buttonStyle(SettingsFoldButtonStyle())
@@ -1114,7 +1113,6 @@ struct SettingsSection<Content: View>: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     // A light sweep now and then (NewLookMotion.swift), out of step from card to card.
-                    .modifier(NewLookSweep(phase: Double(title.count % 10) / 10))
             }
         } else {
             Text(title)

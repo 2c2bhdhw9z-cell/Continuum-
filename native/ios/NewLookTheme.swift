@@ -97,7 +97,13 @@ struct NewLookColorPanels: View {
                 .shadow(color: (colors.glow(for: .snes) ?? .clear).opacity(0.65), radius: 9)
         }
         .padding(18)
-        .background(NewLookGlow().clipShape(shape))
+        .background(
+            ZStack {
+                NewLookAura(moving: colors.backgroundMoves, strength: 1.6)
+                Color.white.opacity(0.03)
+            }
+            .clipShape(shape)
+        )
         .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
         .padding(.horizontal, 16)
         .accessibilityElement(children: .ignore)
@@ -273,10 +279,10 @@ struct NewLookColorPanels: View {
             }
             divider
             Toggle(isOn: $colors.backgroundMoves) {
-                rowLabel("Moving gradient", detail: "Soft glows in your accent colours drift slowly behind everything")
+                rowLabel("Moving glow", detail: "The glow behind the pages drifts slowly")
             }
             if colors.backgroundMoves && reduceMotion {
-                Label("Reduce Motion is on in iOS Settings, so the gradient is keeping still.",
+                Label("Reduce Motion is on in iOS Settings, so the glow keeps still.",
                       systemImage: "pause.circle.fill")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(ShellPalette.gold)
@@ -330,7 +336,6 @@ struct NewLookColorPanels: View {
                     Text(title)
                         .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(.white)
-                        .modifier(NewLookSweep(phase: Double(title.count % 10) / 10))
                     Text(blurb)
                         .font(.system(size: 12))
                         .foregroundStyle(Color.white.opacity(0.55))
@@ -449,13 +454,11 @@ struct NewLookColorPanels: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
                             .background(Capsule().fill(Color.white.opacity(0.08)))
-                            // The picked one's pill is one view that springs between chips, with
-                            // a highlight running round its edge.
+                            // The picked one's pill is one view that springs between chips.
                             .background {
                                 if selected {
                                     Capsule()
                                         .fill(colors.accentFill)
-                                        .newLookFlowingBorder(Capsule(), lineWidth: 1.2)
                                         .matchedGeometryEffect(id: pill, in: picks)
                                 }
                             }
@@ -478,29 +481,15 @@ struct ThemeSwatch<S: InsettableShape>: View {
         let stops = NewLookColors.stops(value).map(NewLookColors.color(hex:))
         Group {
             if stops.count == 2 {
-                // A blend: its two colours slowly turn round inside the tile.
-                NewLookClock(fps: 20, stillAt: 0) { t in
-                    let a = t * 2 * Double.pi / 6 + Double.pi / 4
-                    shape.fill(LinearGradient(
-                        colors: stops,
-                        startPoint: UnitPoint(x: 0.5 - 0.5 * cos(a), y: 0.5 - 0.5 * sin(a)),
-                        endPoint: UnitPoint(x: 0.5 + 0.5 * cos(a), y: 0.5 + 0.5 * sin(a))))
-                }
+                // A blend: its two colours corner to corner. Still: a dozen tiles each running
+                // their own clock kept Settings redrawing all the time.
+                shape.fill(LinearGradient(colors: stops, startPoint: .topLeading,
+                                          endPoint: .bottomTrailing))
             } else {
                 // A single colour stays still.
                 shape.fill(stops.first ?? .white)
             }
         }
         .overlay(shape.strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
-    }
-}
-
-// MARK: - Cover corners
-
-enum NewLookCoverStyle {
-    /// The corner radius for a cover this wide: Settings, LOOK, "Corner roundness". 0% is square,
-    /// 100% very round; the default is about what the cards always had.
-    static func radius(width: CGFloat) -> CGFloat {
-        CGFloat(NewLookColors.shared.coverCorner) * 0.18 * max(width, 40)
     }
 }

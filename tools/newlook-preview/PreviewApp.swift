@@ -1,152 +1,225 @@
-// A page laid out like the New look's Home, built from the real motion pieces in
-// native/ios/NewLookMotion.swift, so CI can screenshot it a few times and the frames can be
-// compared to prove each piece moves. Each piece sits in a fixed place (see the frame notes) so
-// the comparison can look at each one separately.
+// The New look's Home, drawn by the REAL New-look pieces (native/ios/NewLookDesign.swift,
+// NewLookMotion.swift and NewLookColors.swift) and filled with the games in the owner's mockup,
+// so CI can screenshot it in the iOS Simulator and put it beside the mockup
+// (.kiro/notes/docs/new-look/mockup-home.jpg). The app itself cannot be built for the simulator.
+//
+// The page below is laid out exactly as NewLookHome and LibraryShell lay it out (same pieces,
+// same NewLookMetrics, same paddings). If you change the spacing there, change it here too.
+//
+// Launch arguments: -page home | empty. The covers are cut out of the mockup itself, so the
+// screenshot compares like with like.
 
 import SwiftUI
+import UIKit
 
 @main
 struct NewLookPreviewApp: App {
     var body: some Scene {
-        WindowGroup { PreviewPage() }
+        WindowGroup { PreviewRoot() }
     }
 }
 
-struct PreviewPage: View {
-    /// Launched with -plain: no fluid fields, flat colours behind everything, so each moving
-    /// piece can be measured on its own without the background's motion showing through it.
-    private let plain = ProcessInfo.processInfo.arguments.contains("-plain")
-    @State private var toggle = true
-    @State private var tab = 0
+private enum Page: String {
+    case home, empty
+}
+
+private let page: Page = {
+    let args = ProcessInfo.processInfo.arguments
+    if let i = args.firstIndex(of: "-page"), i + 1 < args.count, let p = Page(rawValue: args[i + 1]) {
+        return p
+    }
+    return .home
+}()
+
+/// Pictures from the app bundle (run.sh copies them in).
+private enum Art {
+    static func file(_ name: String) -> UIImage? {
+        guard let path = Bundle.main.path(forResource: name, ofType: nil) else { return nil }
+        return UIImage(contentsOfFile: path)
+    }
+
+    static let mockup = file("mockup-home.jpg")
+
+    /// A piece of the mockup, in its own pixels.
+    static func cut(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> UIImage? {
+        guard let cg = mockup?.cgImage?.cropping(to: CGRect(x: x, y: y, width: w, height: h))
+        else { return nil }
+        return UIImage(cgImage: cg)
+    }
+
+    static let yellow = cut(266, 152, 166, 176)
+    static let sapphire = cut(40, 695, 130, 134)
+    static let dragonBall = cut(190, 695, 130, 134)
+    static let kirby = cut(340, 695, 115, 134)
+
+    static func console(_ name: String) -> Image? {
+        file("console-\(name).png").map { Image(uiImage: $0) }
+    }
+}
+
+struct PreviewRoot: View {
+    var body: some View {
+        GeometryReader { geo in
+            PreviewHome(insets: geo.safeAreaInsets, empty: page == .empty)
+        }
+        .preferredColorScheme(.dark)
+        .statusBarHidden(false)
+    }
+}
+
+private struct Card: Identifiable {
+    let id: Int
+    let image: UIImage?
+    let title: String
+    let line: String
+    let glow: Color
+}
+
+/// Console colours from NewLook.consoleColor (NewLookShell.swift).
+private let gbaGlow = Color(red: 0.36, green: 0.45, blue: 1.0)
+private let gbcGlow = Color(red: 1.0, green: 0.70, blue: 0.20)
+
+private struct PreviewHome: View {
+    let insets: EdgeInsets
+    let empty: Bool
+
+    /// LibraryShell: topBarHeight 52, plus the top inset, plus 6.
+    private var topPadding: CGFloat { 52 + max(insets.top, 8) + 6 }
+
+    private let cards = [
+        Card(id: 0, image: Art.sapphire, title: "Pokémon Sapphire", line: "Last played: 2d ago", glow: gbaGlow),
+        Card(id: 1, image: Art.dragonBall, title: "Dragon Ball Z: Legendary Super Warriors",
+             line: "Last played: 3d ago", glow: gbcGlow),
+        Card(id: 2, image: Art.kirby, title: "Kirby Tilt 'n' Tumble", line: "Last played: 5d ago", glow: gbcGlow),
+    ]
 
     var body: some View {
         ZStack(alignment: .top) {
-            // 1. The page background: the fluid field, full screen.
-            if plain {
-                ShellPalette.charcoal.ignoresSafeArea()
-            } else {
-                NewLookFluid(palette: NewLookColors.shared.motionRGB, base: ShellPalette.charcoal,
-                             period: 26, masses: 11, intensity: 0.55)
-                    .ignoresSafeArea()
-            }
-            ShellPalette.charcoal.opacity(0.18).ignoresSafeArea()
+            NewLookBackdropPreview()
+                .ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 22) {
-                // 2. The hero card, y about 70 to 330 points.
-                hero
-                // 3. A section title with the light sweep.
-                Text("Jump Back In")
-                    .font(.system(size: 23, weight: .bold))
-                    .foregroundStyle(.white)
-                    .modifier(NewLookSweep())
-                    .padding(.horizontal, 20)
-                HStack(spacing: 18) {
-                    // 4. A breathing glow card.
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color(white: 0.2))
-                        .frame(width: 90, height: 110)
-                        .modifier(NewLookBreathe(color: .blue, radius: 9, low: 0.2, high: 0.95, period: 2.0))
-                    // 6. A switch in the New look's style.
-                    Toggle("", isOn: $toggle).labelsHidden().toggleStyle(NewLookToggleStyle())
-                }
-                .padding(.horizontal, 20)
-                // 8. A row of covers of five different shapes in one even frame each
-                // (NewLookCoverFrame): tall PSP, square 3DS, wide SNES, a 16:9 screenshot, Game
-                // Boy. Same frame, titles on one line.
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(Array(PreviewPage.mixed.enumerated()), id: \.offset) { _, item in
-                        VStack(alignment: .leading, spacing: 5) {
-                            NewLookCoverFrame(width: 62, height: 78, radius: 9, glow: item.glow) {
-                                fakeArt(item.colors)
-                            } cover: {
-                                fakeArt(item.colors)
-                                    .aspectRatio(item.aspect, contentMode: .fit)
-                                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(.white, lineWidth: 1.5))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if empty {
+                        NewLookEmptyHero(title: "Nothing to play yet",
+                                         line: "Add your games and they'll show up here. Zips work too.",
+                                         actionTitle: "Import games")
+                    } else {
+                        NewLookHeroLayout(
+                            eyebrow: "LAST PLAYED",
+                            title: "Pokémon - Yellow Version",
+                            meta: "GAME BOY COLOR \u{2022} mGBA \u{2022} 1h 45m played",
+                            primaryTitle: "Resume",
+                            onPrimary: {}
+                        ) {
+                            NewLookBoxFace(image: Art.yellow, maxWidth: NewLookMetrics.heroArt.width,
+                                           maxHeight: NewLookMetrics.heroArt.height) {
+                                Color.gray
                             }
-                            Text(item.title)
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
+                            .modifier(NewLookFloat())
                         }
-                        .frame(width: 62)
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            NewLookSectionTitle(title: "Systems", caps: true, trailing: "View all",
+                                                onTrailing: {})
+                            NewLookTray {
+                                tile("gb", "GAME BOY", selected: false)
+                                tile("gbc", "GAME BOY COLOR", selected: true)
+                                tile("gba", "GAME BOY ADVANCE", selected: false)
+                                tile("snes", "SUPER NINTENDO", selected: false)
+                                tile("n64", "NINTENDO 64", selected: false)
+                            }
+                        }
+                        .padding(.top, NewLookMetrics.sectionGap + 4)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            NewLookSectionTitle(title: "Jump Back In")
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(alignment: .top, spacing: 12) {
+                                    ForEach(cards) { card in cardView(card) }
+                                }
+                                .padding(.horizontal, NewLookMetrics.side - 2)
+                                .padding(.vertical, 10)
+                            }
+                        }
+                        .padding(.top, NewLookMetrics.sectionGap - 6)
                     }
+                    Spacer(minLength: 140)
                 }
-                .padding(.horizontal, 20)
+                .padding(.top, topPadding + 12)
+            }
+            .ignoresSafeArea(edges: .top)
+
+            header
+            VStack(spacing: 0) {
                 Spacer(minLength: 0)
-                // 7. The tab bar's pill.
-                HStack(spacing: 4) {
-                    ForEach(0..<4) { i in
-                        Text(["Home", "Library", "Favorites", "Settings"][i])
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background { if i == tab { NewLookTabPill() } }
-                    }
-                }
-                .padding(6)
-                .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 26))
-                .padding(.horizontal, 16)
-                .padding(.bottom, 20)
+                NewLookTabBarFace(
+                    items: [
+                        .init(id: 0, icon: "house.fill", title: "Home"),
+                        .init(id: 1, icon: "books.vertical.fill", title: "Library"),
+                        .init(id: 2, icon: "heart.fill", title: "Favorites"),
+                        .init(id: 3, icon: "gearshape.fill", title: "Settings"),
+                    ],
+                    selected: 0,
+                    bottomPadding: max(insets.bottom - 12, 10)
+                ) { _ in }
             }
-            .padding(.top, 70)
-            .modifier(NewLookAppear())
+            .ignoresSafeArea(edges: .bottom)
         }
-        .preferredColorScheme(.dark)
     }
 
-    struct Mixed { let title: String; let aspect: CGFloat; let colors: [Color]; let glow: Color? }
-    static let mixed: [Mixed] = [
-        Mixed(title: "PSP box", aspect: 0.58, colors: [.purple, .indigo], glow: .blue),
-        Mixed(title: "3DS box", aspect: 1.0, colors: [.red, .orange], glow: .red),
-        Mixed(title: "SNES box", aspect: 1.4, colors: [.gray, .white], glow: .purple),
-        Mixed(title: "Screenshot", aspect: 1.78, colors: [.cyan, .blue], glow: nil),
-        Mixed(title: "Game Boy", aspect: 0.9, colors: [.green, .yellow], glow: .green),
-    ]
-
-    private func fakeArt(_ colors: [Color]) -> some View {
-        LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    private var hero: some View {
-        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
-        return HStack(alignment: .center, spacing: 8) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("LAST PLAYED")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(ShellPalette.gold)
-                Text("Pokemon Emerald Version")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(.white)
-                    .modifier(NewLookSweep())
-                // The primary button with its flowing border.
-                Text("Resume")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 12)
-                    .background(ShellPalette.accentFill, in: Capsule())
-                    .newLookFlowingBorder(Capsule(), lineWidth: 1.2)
+    /// LibraryShell.newTopBar, without the search field.
+    private var header: some View {
+        HStack(spacing: 10) {
+            NewLookWordmark()
+            Spacer(minLength: 8)
+            NewLookHeaderCapsule {
+                NewLookHeaderBead(systemImage: "magnifyingglass")
+                NewLookHeaderBead(systemImage: "plus")
+                NewLookHeaderBead(systemImage: "person.fill")
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // The floating box with sparks behind it.
-            RoundedRectangle(cornerRadius: 6)
-                .fill(LinearGradient(colors: [.green, .teal], startPoint: .top, endPoint: .bottom))
-                .frame(width: 120, height: 150)
-                .modifier(NewLookFloat(sparkColor: ShellPalette.gold))
-                .frame(width: 140, height: 180)
-        }
-        .padding(20)
-        .background {
-            if plain {
-                shape.fill(Color(white: 0.16))
-            } else {
-                NewLookFluid(palette: NewLookColors.shared.motionRGB, base: .clear, period: 9,
-                             masses: 6, intensity: 0.40, downscale: 2)
-                    .clipShape(shape)
+            .overlay(alignment: .bottomTrailing) {
+                NewLookControllerMark(battery: 0.8)
+                    .offset(x: -10, y: 20)
             }
         }
-        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 18)
+        .frame(height: 52)
+        .padding(.top, max(insets.top, 8))
+        .background(
+            LinearGradient(colors: [NewLookColors.shared.background,
+                                    NewLookColors.shared.background.opacity(0.94),
+                                    NewLookColors.shared.background.opacity(0)],
+                           startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea(edges: .top)
+        )
+        .ignoresSafeArea(edges: .top)
     }
+
+    private func tile(_ id: String, _ name: String, selected: Bool) -> some View {
+        NewLookSystemTileFace(image: Art.console(id), name: name, count: 13, selected: selected)
+    }
+
+    private func cardView(_ card: Card) -> some View {
+        let width = NewLookMetrics.cardWidth
+        let height = (width / NewLookMetrics.cardAspect).rounded()
+        let radius = NewLookCoverStyle.radius(width: width)
+        return NewLookCardFace(width: width, height: height, radius: radius, glow: card.glow,
+                               title: card.title, line: card.line) {
+            if let image = card.image {
+                Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
+                    .blur(radius: 28, opaque: true).scaleEffect(1.15)
+            }
+        } cover: {
+            if let image = card.image {
+                Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            }
+        }
+    }
+}
+
+/// NewLookBackdrop (NewLookShell.swift) is just NewLookPage.
+private struct NewLookBackdropPreview: View {
+    var body: some View { NewLookPage() }
 }

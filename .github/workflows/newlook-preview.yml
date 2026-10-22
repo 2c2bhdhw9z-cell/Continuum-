@@ -1,36 +1,44 @@
-name: New-look motion preview
+name: New-look preview
 
-# Films the New look's motion pieces (native/ios/NewLookMotion.swift) in the iOS Simulator and
-# uploads the frames, so they can be compared to prove each piece moves. Separate from the iOS
-# workflow on purpose: it never blocks or delays the .ipa, and a flaky simulator fails only this.
+# Draws the New look's Home with the REAL New-look pieces (native/ios/NewLookDesign.swift,
+# NewLookMotion.swift, NewLookColors.swift) in the iOS Simulator, with the games from the owner's
+# mockup, and uploads the screenshots beside the mockup. Separate from the iOS workflow on purpose:
+# it never makes an .ipa, never blocks or delays one, and a flaky simulator fails only this.
+# Started by hand (a push marked [skip ci] does not run it).
 on:
   workflow_dispatch:
   push:
     branches: [master]
     paths:
+      - "native/ios/NewLookDesign.swift"
       - "native/ios/NewLookMotion.swift"
+      - "native/ios/NewLookColors.swift"
       - "tools/newlook-preview/**"
       - ".github/workflows/newlook-preview.yml"
 
 permissions:
   contents: read
 
+# One at a time: a newer push replaces a preview still running.
+concurrency:
+  group: newlook-preview
+  cancel-in-progress: true
+
 jobs:
   preview:
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Xcode and simulators
-        run: |
-          xcodebuild -version
-          xcrun simctl list runtimes
-      - name: Build, run and film the preview
+      - name: Xcode
+        run: xcodebuild -version
+      - name: Build, run and screenshot the preview
         run: ./tools/newlook-preview/run.sh
-      - name: Upload the frames
+      - name: Upload the screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: newlook-preview-${{ github.sha }}
           path: build/newlook-preview/
+          retention-days: 7
           if-no-files-found: warn

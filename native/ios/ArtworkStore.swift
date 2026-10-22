@@ -2870,6 +2870,14 @@ struct CoverArtView: View {
                 filled(blurred: true)
             case .whole(let whole):
                 wholeCover(whole)
+            case .box(let size):
+                // The New look's standing box (NewLookDesign.swift): the whole cover with a
+                // side, a slight turn and a shadow, fitted inside `size`.
+                NewLookBoxFace(image: shown?.image, fallbackAspect: system?.coverAspect ?? 0.75,
+                               maxWidth: size.width, maxHeight: size.height) {
+                    ArtPlate(entry: entry, system: system, showsCaption: showsCaption,
+                             captionScale: captionScale)
+                }
             }
         }
         // Keyed on `shown`, not on `cover`: a cover that was already in memory is there on the
@@ -2984,6 +2992,8 @@ enum CoverStyle {
     case whole(WholeCover)
     /// The fill, blurred: the hero's backdrop.
     case backdrop
+    /// The New look's standing box, fitted inside this size (`NewLookBoxFace`).
+    case box(CGSize)
 }
 
 /// The options for a whole cover.
