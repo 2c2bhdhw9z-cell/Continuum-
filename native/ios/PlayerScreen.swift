@@ -125,6 +125,18 @@ struct PlayerScreen: View {
     @State private var showPauseMenu = false
     @State private var pausedForMenu = false
     @State private var pendingPause: PauseChoice?
+    /// Set when a choice in the pause menu opened another sheet (save slots, cheats, a skin...)
+    /// while the menu had paused the game: the game stays paused under that sheet and carries on
+    /// when it closes, instead of running behind it.
+    @State private var resumeAfterFollowOn = false
+    @State private var followOnSkinSheet = false
+    @State private var followOnControllers = false
+
+    /// Whether one of the sheets the pause menu can open is on screen.
+    private var followOnOpen: Bool {
+        showingSlots || showingCheats || showNetplay || showFeedback
+            || followOnSkinSheet || followOnControllers
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -248,6 +260,11 @@ struct PlayerScreen: View {
                 showFeedback = false
             }
         }
+        .onReceive(SkinRuntime.shared.$sheet) { followOnSkinSheet = $0 != nil }
+        .onReceive(host.inputExtras.$showingControllers) { followOnControllers = $0 }
+        .onChange(of: followOnOpen) { open in
+            if !open { resumeFromFollowOn() }
+        }
         .sheet(isPresented: $showPauseMenu, onDismiss: finishPauseMenu) {
             NewLookPauseSheet(host: host,
                               saveStates: saveStates,
@@ -357,7 +374,16 @@ struct PlayerScreen: View {
         default: break
         }
 
-        if pausedForMenu && host.paused {
+        // Online play is left out of "stays paused": a paused phone stalls the other one.
+        let staysPausedUnder: Set<PauseChoice> = [.slots, .cheats, .skin, .functions,
+                                                  .controllers, .feedback]
+        if choice == .resume {
+            // Resume means resume, whoever paused the game: a floating button set to the menu
+            // can pause it before the menu opens, and the New look's top bar has no play button.
+            if host.paused && !host.netplayLive { host.togglePause() }
+        } else if let choice, staysPausedUnder.contains(choice), pausedForMenu, host.paused {
+            resumeAfterFollowOn = true
+        } else if pausedForMenu && host.paused {
             host.togglePause()
         }
         pausedForMenu = false
@@ -375,7 +401,19 @@ struct PlayerScreen: View {
             case .feedback: showFeedback = true
             default: break
             }
+            // If that sheet could not open, the game must not stay paused for nothing.
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if resumeAfterFollowOn && !followOnOpen {
+                resumeFromFollowOn()
+            }
         }
+    }
+
+    /// The sheet a pause-menu choice opened has closed: carry on with the game.
+    private func resumeFromFollowOn() {
+        guard resumeAfterFollowOn else { return }
+        resumeAfterFollowOn = false
+        if host.paused && !host.netplayLive { host.togglePause() }
     }
 
     // MARK: Top bar

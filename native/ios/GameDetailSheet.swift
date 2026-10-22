@@ -68,7 +68,9 @@ struct GameDetailSheet: View {
                         generation: artwork.generation,
                         isFavourite: host.favourites.contains(entry.name),
                         record: PlayHistory.shared.record(for: entry.name),
-                        hasAutoSave: saveStates.states(for: entry).contains(where: { $0.isAuto }),
+                        // Resume only when opening it really picks up there (Settings, resume on).
+                    hasAutoSave: saveStates.resumesAutomatically
+                        && saveStates.states(for: entry).contains(where: { $0.isAuto }),
                         coreName: NewLook.coreName(for: entry, ps1CoreId: host.ps1CoreChoice.coreId),
                         host: host
                     )

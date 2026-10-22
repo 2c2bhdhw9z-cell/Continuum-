@@ -6251,6 +6251,9 @@ struct RootView: View {
     /// Settings, LOOK: Current or New (LookTheme.swift). Observed here so a change redraws the
     /// whole app at once. The New look is always dark, so it overrides APPEARANCE while it is on.
     @ObservedObject private var looks = LookStore.shared
+    /// The New look's colours: its accent is the tint of every system control (Done buttons,
+    /// menus, alerts, list buttons) while New is on, instead of iOS blue.
+    @ObservedObject private var newLookColors = NewLookColors.shared
 
     /// The colour scheme the app is drawn in: the New look's dark, or the Appearance setting.
     private var effectiveAppearance: AppAppearance {
@@ -6297,9 +6300,14 @@ struct RootView: View {
         // `AppAppearance.applyToWindows`. The black above stays black in both: it is the
         // letterbox around a game.
         .preferredColorScheme(effectiveAppearance.colorScheme)
-        .onAppear { effectiveAppearance.applyToWindows() }
-        .onChange(of: host.appearance) { _ in effectiveAppearance.applyToWindows() }
-        .onChange(of: looks.look) { _ in effectiveAppearance.applyToWindows() }
+        // The New look's accent on every system control, in every sheet (they inherit it), and on
+        // the windows for what UIKit presents (alerts, menus, pickers). Nil in the Current look:
+        // it keeps the system's own colours, exactly as before.
+        .tint(looks.look == .newLook ? newLookColors.accent : nil)
+        .onAppear { applyWindowLook() }
+        .onChange(of: host.appearance) { _ in applyWindowLook() }
+        .onChange(of: looks.look) { _ in applyWindowLook() }
+        .onChange(of: newLookColors.version) { _ in applyWindowLook() }
         // The "which system is this?" picker, over the library or the player.
         .background(ImportCenterPresenter(center: host.importCenter))
         // Open in / Share to Continuum, from Files, Mail, Safari and AirDrop.
@@ -6308,6 +6316,12 @@ struct RootView: View {
         .modifier(CrashReportPrompt(host: host))
         // Offers a backup folder, ONCE, the first time there are games to lose. See CloudSync.swift.
         .modifier(BackupFolderPrompt(host: host, sync: host.cloudSync))
+    }
+
+    /// The appearance on the app's windows, and in the New look its accent as their tint.
+    private func applyWindowLook() {
+        effectiveAppearance.applyToWindows()
+        AppAppearance.applyTint(looks.look == .newLook ? UIColor(newLookColors.accent) : nil)
     }
 
     /// The one canvas, sized to the area the controls left free.

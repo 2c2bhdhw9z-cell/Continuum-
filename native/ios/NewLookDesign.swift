@@ -21,9 +21,9 @@ enum NewLookMetrics {
     /// The hero's box art frame.
     static let heroArt = CGSize(width: 196, height: 196)
     /// Space between the hero's buttons and SYSTEMS, SYSTEMS's tray and Jump Back In, and so on.
-    static let sectionGap: CGFloat = 40
+    static let sectionGap: CGFloat = 34
     /// A SYSTEMS tile.
-    static let tileWidth: CGFloat = 80
+    static let tileWidth: CGFloat = 84
     /// Home's cover cards at the Medium card size, and their frame's shape (width over height).
     static let cardWidth: CGFloat = 138
     static let cardAspect: CGFloat = 0.97
@@ -483,8 +483,8 @@ struct NewLookTray<Content: View>: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8, content: content)
-                .padding(.horizontal, 6)
+            HStack(spacing: 4, content: content)
+                .padding(.horizontal, 4)
                 .padding(.vertical, 12)
                 .padding(.trailing, 24)
         }
@@ -523,8 +523,10 @@ struct NewLookSystemTileFace: View {
                         .foregroundStyle(colors.accent)
                 }
             }
-            .frame(width: 72, height: 80)
-            .shadow(color: .black.opacity(0.55), radius: 5, y: 4)
+            .frame(width: 82, height: 80)
+            // A soft light round each console, as in the mockup, over a little shadow.
+            .shadow(color: .white.opacity(0.32), radius: 5)
+            .shadow(color: .black.opacity(0.45), radius: 4, y: 3)
             .overlay(alignment: .topTrailing) {
                 Text("\(count)")
                     .font(.system(size: 11, weight: .bold))
@@ -537,7 +539,7 @@ struct NewLookSystemTileFace: View {
             }
 
             Text(name)
-                .font(.system(size: 12, weight: .heavy).italic())
+                .font(.system(size: 13, weight: .heavy).italic())
                 .tracking(-0.3)
                 .foregroundStyle(Color.white.opacity(selected ? 0.98 : 0.82))
                 .multilineTextAlignment(.center)
@@ -669,7 +671,7 @@ struct NewLookTabBarFace: View {
                             .shadow(color: isOn ? colors.accent.opacity(0.6) : .clear, radius: 8)
                             .scaleEffect(isOn ? 1 : 0.94)
                         Text(item.title)
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: 15, weight: .medium))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
@@ -687,7 +689,7 @@ struct NewLookTabBarFace: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.6), value: selected)
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
-        .background(colors.background.opacity(0.35), in: shape)
+        .background(colors.background.opacity(0.2), in: shape)
         .background(.ultraThinMaterial, in: shape)
         .overlay(shape.strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5))
         .shadow(color: .black.opacity(0.45), radius: 18, y: 8)

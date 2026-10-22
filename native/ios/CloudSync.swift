@@ -1837,8 +1837,37 @@ final class CloudSync: ObservableObject {
                 }
                 continue
             }
+            if playHistoryKeys.contains(key) {
+                // Play time and "last played": the larger of the two for every game, so neither
+                // a reinstall's first session nor a second phone's totals are wiped.
+                if let merged = mergedPlayHistory(local: defaults.dictionary(forKey: key),
+                                                  incoming: value) {
+                    defaults.set(merged, forKey: key)
+                }
+                continue
+            }
             defaults.set(value, forKey: key)
         }
+    }
+
+    /// `PlayHistory`'s keys (LookTheme.swift): file name to seconds since 1970, and to seconds
+    /// played.
+    private static let playHistoryKeys: Set<String> = ["continuum.library.lastPlayed.v1",
+                                                       "continuum.library.playSeconds.v1"]
+
+    /// Each game's larger value from either side. Nil when the downloaded value is not a
+    /// dictionary of numbers, so this phone's own is left as it is.
+    private static func mergedPlayHistory(local: [String: Any]?, incoming: Any) -> [String: Double]? {
+        guard let incoming = incoming as? [String: Any] else { return nil }
+        var out: [String: Double] = [:]
+        for (name, value) in local ?? [:] {
+            if let number = (value as? NSNumber)?.doubleValue { out[name] = number }
+        }
+        for (name, value) in incoming {
+            guard let number = (value as? NSNumber)?.doubleValue else { continue }
+            out[name] = max(out[name] ?? 0, number)
+        }
+        return out
     }
 
     // The skin keys, as `EngineHost` stores them: JSON `Data` from `JSONEncoder`.

@@ -173,6 +173,19 @@ enum AppAppearance: String, CaseIterable, Identifiable {
             }
         }
     }
+
+    /// The tint of the app's windows, for what UIKit presents by itself: alerts, menus, pickers,
+    /// share sheets. The New look's accent, or nil (the system's own) in the Current look.
+    @MainActor
+    static func applyTint(_ color: UIColor?) {
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene,
+                  windowScene.session.role == .windowApplication else { continue }
+            for window in windowScene.windows where window.windowLevel == .normal {
+                window.tintColor = color
+            }
+        }
+    }
 }
 
 /// What colour the little status dot is, read from the last status line.

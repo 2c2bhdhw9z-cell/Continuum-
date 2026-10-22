@@ -374,6 +374,10 @@ struct LibraryShell: View {
     @FocusState private var searchFocused: Bool
 
     private var isNew: Bool { looks.look == .newLook }
+    /// The New-look Library's narrowed, searched and sorted list, and its console counts, kept
+    /// until something they are built from changes. Sorting by title on every redraw is what
+    /// made scrolling stutter before the Current shelves were cached, for the same reason.
+    @State private var newLibraryCache = NewLibraryCache()
 
     /// The real safe-area insets and window size, measured from UIKit. See `SafeAreaProbe` for why
     /// they are not read from a GeometryProxy.
@@ -1025,9 +1029,14 @@ struct LibraryShell: View {
         // The New look's console tray narrows it first, and its sort button orders it; the
         // Current look has neither.
         let shown = isNew
-            ? looks.librarySort.sorted(
-                filtered(NewLookSystemTray.narrowed(host.library, to: looks.librarySystem)),
-                arrivals: host.gameArrivals)
+            ? newLibraryCache.shown(library: host.library, system: looks.librarySystem,
+                                    sort: looks.librarySort, search: host.librarySearch,
+                                    arrivals: host.gameArrivals,
+                                    played: looks.librarySort == .played ? history.records : nil) {
+                looks.librarySort.sorted(
+                    filtered(NewLookSystemTray.narrowed(host.library, to: looks.librarySystem)),
+                    arrivals: host.gameArrivals)
+            }
             : filtered(host.library)
         VStack(alignment: .leading, spacing: isNew ? 14 : 10) {
             if isNew {
@@ -1042,8 +1051,8 @@ struct LibraryShell: View {
             }
             if isNew && !host.library.isEmpty {
                 NewLookSystemTray(
-                    systems: NewLookSystemTray.counts(host.library,
-                                                      order: prefs.ordered(GameSystem.allCases)),
+                    systems: newLibraryCache.counts(library: host.library,
+                                                    order: prefs.ordered(GameSystem.allCases)),
                     selected: looks.librarySystem,
                     allCount: host.library.count
                 ) { looks.librarySystem = $0 }
@@ -1685,5 +1694,49 @@ private struct HomeScrollOffset: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
+    }
+}
+
+/// The New-look Library's list and console counts, rebuilt only when what they come from
+/// changes (see `LibraryShell.newLibraryCache`). A class, held in `@State`, so reading it from
+/// the body never starts a redraw of its own.
+final class NewLibraryCache {
+    private var library: [LibraryEntry]?
+    private var system: String?
+    private var sort: LibrarySort?
+    private var search = ""
+    private var arrivals: [String: Date] = [:]
+    private var played: [String: PlayHistory.Record]?
+    private var list: [LibraryEntry] = []
+
+    private var countsLibrary: [LibraryEntry]?
+    private var countsOrder: [GameSystem] = []
+    private var countsValue: [HomeModel.SystemCount] = []
+
+    @MainActor
+    func shown(library: [LibraryEntry], system: String?, sort: LibrarySort, search: String,
+               arrivals: [String: Date], played: [String: PlayHistory.Record]?,
+               build: () -> [LibraryEntry]) -> [LibraryEntry] {
+        if self.library != library || self.system != system || self.sort != sort
+            || self.search != search || self.arrivals != arrivals || self.played != played {
+            self.library = library
+            self.system = system
+            self.sort = sort
+            self.search = search
+            self.arrivals = arrivals
+            self.played = played
+            list = build()
+        }
+        return list
+    }
+
+    @MainActor
+    func counts(library: [LibraryEntry], order: [GameSystem]) -> [HomeModel.SystemCount] {
+        if countsLibrary != library || countsOrder != order {
+            countsLibrary = library
+            countsOrder = order
+            countsValue = NewLookSystemTray.counts(library, order: order)
+        }
+        return countsValue
     }
 }

@@ -215,7 +215,7 @@ struct NewLookHome: View {
                             host.libraryTab = .allGames
                         }
                     }
-                    .padding(.top, NewLookMetrics.sectionGap + 4)
+                    .padding(.top, NewLookMetrics.sectionGap + 3)
                 }
 
                 if !model.jumpBackIn.isEmpty {
@@ -223,7 +223,7 @@ struct NewLookHome: View {
                                  store: artwork, generation: generation,
                                  favourites: host.favourites, host: host, cardSize: size,
                                  history: history, showsPlayLines: true)
-                        .padding(.top, NewLookMetrics.sectionGap - 6)
+                        .padding(.top, NewLookMetrics.sectionGap - 5)
                 }
 
                 // Recently added, then (Settings, LAYOUT, "A shelf per system on Home") one shelf
@@ -234,12 +234,12 @@ struct NewLookHome: View {
                                  store: artwork, generation: generation,
                                  favourites: host.favourites, host: host, cardSize: size,
                                  history: history, showsPlayLines: false)
-                        .padding(.top, NewLookMetrics.sectionGap - 12)
+                        .padding(.top, NewLookMetrics.sectionGap - 10)
                 }
 
                 Spacer(minLength: bottomSpace)
             }
-            .padding(.top, topPadding + 12)
+            .padding(.top, topPadding + 4)
         }
         .ignoresSafeArea(edges: .top)
         .onAppear { rebuild() }

@@ -130,7 +130,7 @@ private struct PreviewHome: View {
                                 tile("n64", "NINTENDO 64", selected: false)
                             }
                         }
-                        .padding(.top, NewLookMetrics.sectionGap + 4)
+                        .padding(.top, NewLookMetrics.sectionGap + 3)
 
                         VStack(alignment: .leading, spacing: 2) {
                             NewLookSectionTitle(title: "Jump Back In")
@@ -142,11 +142,11 @@ private struct PreviewHome: View {
                                 .padding(.vertical, 10)
                             }
                         }
-                        .padding(.top, NewLookMetrics.sectionGap - 6)
+                        .padding(.top, NewLookMetrics.sectionGap - 5)
                     }
                     Spacer(minLength: 140)
                 }
-                .padding(.top, topPadding + 12)
+                .padding(.top, topPadding + 4)
             }
             .ignoresSafeArea(edges: .top)
 

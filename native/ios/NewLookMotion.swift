@@ -106,16 +106,16 @@ struct NewLookAura: View {
             )
         }
 
-        // The top glow, behind where the hero's box art stands: breathes over about 7 seconds
-        // and drifts a little sideways over about 19.
+        // The top glow, round where the hero's box art stands (the mockup's warm light):
+        // breathes over about 7 seconds and drifts a little sideways over about 19.
         let breath = 0.5 + 0.5 * sin(t * tau / 7)
-        glow(x: w * (0.70 + 0.05 * sin(t * tau / 19)),
-             y: h * (0.17 + 0.015 * sin(t * tau / 23)),
-             radius: w * (0.78 + 0.05 * breath), squash: 0.72,
-             color: first, alpha: 0.20 + 0.06 * breath)
-        // A wider, fainter one from the other side, in the accent's second colour.
-        glow(x: w * (0.22 - 0.06 * sin(t * tau / 29)), y: h * 0.02,
-             radius: w * 0.70, squash: 0.6, color: second, alpha: 0.10 + 0.03 * (1 - breath))
+        glow(x: w * (0.72 + 0.05 * sin(t * tau / 19)),
+             y: h * (0.22 + 0.015 * sin(t * tau / 23)),
+             radius: w * (0.66 + 0.04 * breath), squash: 0.8,
+             color: second, alpha: 0.15 + 0.05 * breath)
+        // A faint one from the other side, so the light is never a single spot.
+        glow(x: w * (0.25 - 0.06 * sin(t * tau / 29)), y: h * 0.06,
+             radius: w * 0.55, squash: 0.6, color: first, alpha: 0.04 + 0.02 * (1 - breath))
 
         // Along the bottom, only while it moves: a glow that travels left to right every 14
         // seconds, fading in at the left and out at the right, over a faint steady one.
@@ -133,18 +133,20 @@ struct NewLookAura: View {
 /// mockup: strongest right behind the box, fading out smoothly. It breathes slowly; with Reduce
 /// Motion it holds still. Only its opacity and size animate, so it costs next to nothing.
 struct NewLookHeroGlow: View {
-    var size: CGFloat = 460
+    var size: CGFloat = 540
     @ObservedObject private var colors = NewLookColors.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var lit = false
 
     var body: some View {
-        let c = colors.accent
+        // The accent's deeper colour: the mockup's light is a saturated gold, not a pale one.
+        let c = colors.accentStops.last ?? colors.accent
         RadialGradient(
             gradient: Gradient(stops: [
-                .init(color: c.opacity(0.62), location: 0),
-                .init(color: c.opacity(0.30), location: 0.22),
-                .init(color: c.opacity(0.10), location: 0.52),
+                .init(color: c.opacity(0.85), location: 0),
+                .init(color: c.opacity(0.45), location: 0.3),
+                .init(color: c.opacity(0.16), location: 0.6),
+                .init(color: c.opacity(0.06), location: 0.8),
                 .init(color: c.opacity(0), location: 1),
             ]),
             center: .center, startRadius: 0, endRadius: size / 2
