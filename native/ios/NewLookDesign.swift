@@ -476,14 +476,18 @@ struct NewLookBoxFace<Placeholder: View>: View {
     /// narrowing as it goes back. (Build 205 drew a squeezed copy of the picture there, which read
     /// as a duplicated strip of the cover; the owner circled it.)
     private var side: some View {
-        let edge = image.map(NewLookBoxFace.edgeColor(of:)) ?? UIColor(white: 0.3, alpha: 1)
+        let edge = image.map(NewLookBoxEdge.edgeColor(of:)) ?? UIColor(white: 0.3, alpha: 1)
         return LinearGradient(colors: [Color(uiColor: edge).opacity(0.95), Color(uiColor: edge)],
                               startPoint: .leading, endPoint: .trailing)
             .overlay(LinearGradient(colors: [.black.opacity(0.35), .black.opacity(0.6)],
                                     startPoint: .leading, endPoint: .trailing))
             .clipShape(NewLookBoxSide(inset: depth * 0.55))
     }
+}
 
+/// The average colour of a cover's right-hand edge, for the box's side (NewLookBoxFace).
+/// Its own type because a generic view cannot hold the cache.
+enum NewLookBoxEdge {
     private static let edgeColors = NSCache<UIImage, UIColor>()
 
     /// The average colour of the picture's right-hand edge, worked out once per picture.
