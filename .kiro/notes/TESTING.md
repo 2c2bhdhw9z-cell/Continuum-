@@ -1,9 +1,9 @@
 # What to test, and what to tell me
 
-Last updated 19 October 2026, afternoon Eastern. **Build 196** (`b50fb81`) is the newest install:
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-196-b50fb81/Continuum-196.ipa
-The owner told me to take the Last played Home out. It is gone. One Home, the shelves one.
-Settings has no Home switch. Do not ask the 192 passes again.
+Last updated 22 October 2026. **Build 204** (`f8c5195`) is the newest install:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-204-f8c5195/Continuum-204.ipa
+The lists "after 196" to "build 204" below are all New-look checks; "after 199" is for the
+removed Theme sheet and no longer applies. Do not ask the 192 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 

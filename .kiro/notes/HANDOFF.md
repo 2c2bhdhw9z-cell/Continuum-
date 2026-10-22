@@ -5,6 +5,29 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
+## START HERE (22 October 2026): check-up after the other AI's builds 197 to 204
+
+- The owner ran out of Kiro credits on 19 October and used another AI tool for builds 197 to 204
+  (commits by "Continuum Dev"). Kiro is back on a new account; the 11 memories are saved.
+- Checked: every build 193 to 204 passed; build 204 is 0.8.0 (204) with 37 emulator files; all 60
+  Swift files parse and are in project.yml; no other AI tool's files are in the repo. `97ee938`
+  (sparkle mark removed, `[skip ci]`) is in no build yet.
+- Full review: `docs/reports/new-look-review-2026-10-22.md`. To fix in the next batch:
+  1. Pause menu Resume does nothing when the game was already paused before the menu opened
+     (`PlayerScreen.swift` `finishPauseMenu`, gate on `pausedForMenu`).
+  2. Pause menu choices that open another sheet (Save slots, Cheats, Skin, Functions,
+     Controllers, Feedback) un-pause the game first.
+  3. Home hero and Game Hub say "Resume" even when auto-resume is off in Settings.
+  4. New-look floating tab bar lets taps through beside / under it to covers (can start a game).
+  5. Cloud Sync overwrites play time and last played (merge them like the skin keys).
+  Speed: always-on breathing shadows on every card and tile (even with glow Off), ~40 clocks in
+  Settings, colour-picker drags save and redraw on every tick, Library re-sorts every redraw.
+  Workflow: `newlook-preview.yml` has no concurrency or simctl timeouts; one run hung 30 minutes.
+- Emulator updates: `docs/CORE_UPDATES.md` (19 October) lists 10 of 32 with newer code (PSP 189
+  changes, N64, 3DS, Dreamcast, Gearsystem, Beetle PSX HW; Amiga, C64, DOOM, Jaguar builds). Not
+  checked yet.
+- Then the plan carries on: `tasks/gamecube.json` (GC1 to GC5, none started).
+
 ## START HERE (19 October 2026, late night Eastern): New-look motion after 201
 
 - `NewLookMotion.swift`: `NewLookClock` (TimelineView, frozen with Reduce Motion), `NewLookFluid`

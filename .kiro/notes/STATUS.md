@@ -63,8 +63,15 @@ Settings, the game card (Game Hub top) and a new pause menu in a game. It also r
 and when each game was last played, from this install on. Phone checks: TESTING.md "Next
 install (after 196)". The design notes are in `.kiro/notes/docs/NEW_LOOK.md`.
 
+**22 October 2026: check-up after builds 197 to 204 (made with another AI tool while Kiro was out
+of credits).** Build 204 (`f8c5195`) is the newest install and checks out: 0.8.0 (204), 37
+emulator files. `97ee938` (sparkle mark removed) is on master and in no build yet. The review of
+all New-look code is `docs/reports/new-look-review-2026-10-22.md`: no build risk, the Current
+look unchanged, five bugs and several speed risks to fix (listed in HANDOFF.md "START HERE, 22
+October"). GameCube (`tasks/gamecube.json`) has not been started.
+
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-18 October 2026, 9:20 AM Eastern. **Build 192** (`006c199`) is the newest published install.
+22 October 2026. **Build 204** (`f8c5195`) is the newest published install.
 What the phone has passed since 185 is in "Next up" at the top and in TESTING.md. The paragraphs
 under this one that still name build 185 are the history of that install.
 
