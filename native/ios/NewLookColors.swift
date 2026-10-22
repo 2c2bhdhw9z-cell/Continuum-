@@ -46,6 +46,24 @@ final class NewLookColors: ObservableObject {
         }
     }
 
+    /// What is behind the pages (Settings, LOOK, Background).
+    enum BackgroundStyle: String, CaseIterable, Identifiable {
+        /// Colours that swirl and mix, like Google's Gemini app. The default.
+        case swirl
+        /// One soft glow from the top, as in the mockup.
+        case glow
+        /// The background colour alone.
+        case plain
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .swirl: return "Swirl"
+            case .glow: return "Glow"
+            case .plain: return "Plain"
+            }
+        }
+    }
+
     /// The default accent: gold, as a soft gradient from light to deep gold.
     static let defaultAccent = "FFD66B-F2B233"
     static let defaultBackground = "131316"
@@ -82,9 +100,34 @@ final class NewLookColors: ObservableObject {
     @Published var ringHex: String? { didSet { save("ring", ringHex) } }
     @Published var ringSpins: Bool { didSet { save("ringSpins", ringSpins ? "on" : "off") } }
     @Published var backgroundHex: String? { didSet { save("background", backgroundHex) } }
-    /// "Moving glow": the glow behind the pages slowly drifts and breathes (NewLookAura,
-    /// NewLookMotion.swift). On by default; off holds the same picture still.
+    /// "Moving": the swirl (or the glow) behind the pages moves. On by default; off holds the
+    /// same picture still.
     @Published var backgroundMoves: Bool { didSet { save("backgroundMoves", backgroundMoves ? nil : "off") } }
+    @Published var backgroundStyle: BackgroundStyle {
+        didSet { save("backgroundStyle", backgroundStyle == .swirl ? nil : backgroundStyle.rawValue) }
+    }
+    /// How fast the swirl turns, 0.25 to 3 times the usual.
+    @Published var swirlSpeed: Double {
+        didSet { save("swirlSpeed", swirlSpeed == 1 ? nil : String(swirlSpeed)) }
+    }
+    /// How strong the swirl's colours are, 0.2 (faint) to 1 (full).
+    @Published var swirlStrength: Double {
+        didSet { save("swirlStrength", swirlStrength == Self.defaultSwirlStrength ? nil : String(swirlStrength)) }
+    }
+    /// The swirl's own colours, two or three joined by dashes; nil follows the accent.
+    @Published var swirlHex: String? { didSet { save("swirl", swirlHex) } }
+    /// The light running round the main buttons, the picked chips and the picked console.
+    @Published var buttonLight: Bool { didSet { save("buttonLight", buttonLight ? nil : "off") } }
+    /// How fast that light runs round, 0.3 to 3 times the usual.
+    @Published var lightSpeed: Double {
+        didSet { save("lightSpeed", lightSpeed == 1 ? nil : String(lightSpeed)) }
+    }
+    /// The glow standing behind a hero's box art (Home, the Game Hub, the pause menu).
+    @Published var heroGlow: Bool { didSet { save("heroGlow", heroGlow ? nil : "off") } }
+    /// The hero's box art floating gently up and down.
+    @Published var boxFloats: Bool { didSet { save("boxFloats", boxFloats ? nil : "off") } }
+
+    static let defaultSwirlStrength = 0.7
 
     // The New look's cover cards.
     /// Corner rounding, 0 square to 1 very round.
@@ -110,6 +153,17 @@ final class NewLookColors: ObservableObject {
         ringSpins = d.string(forKey: p + "ringSpins") != "off"
         backgroundHex = d.string(forKey: p + "background").flatMap(Self.validated)
         backgroundMoves = d.string(forKey: p + "backgroundMoves") != "off"
+        backgroundStyle = d.string(forKey: p + "backgroundStyle").flatMap(BackgroundStyle.init(rawValue:)) ?? .swirl
+        swirlSpeed = d.string(forKey: p + "swirlSpeed").flatMap { Double($0) }
+            .map { min(max($0, 0.25), 3) } ?? 1
+        swirlStrength = d.string(forKey: p + "swirlStrength").flatMap { Double($0) }
+            .map { min(max($0, 0.2), 1) } ?? Self.defaultSwirlStrength
+        swirlHex = d.string(forKey: p + "swirl").flatMap { Self.validated($0, maxParts: 3) }
+        buttonLight = d.string(forKey: p + "buttonLight") != "off"
+        lightSpeed = d.string(forKey: p + "lightSpeed").flatMap { Double($0) }
+            .map { min(max($0, 0.3), 3) } ?? 1
+        heroGlow = d.string(forKey: p + "heroGlow") != "off"
+        boxFloats = d.string(forKey: p + "boxFloats") != "off"
         coverCorner = d.string(forKey: p + "coverCorner").flatMap { Double($0) }
             .map { min(max($0, 0), 1) } ?? Self.defaultCorner
         forceSquare = d.string(forKey: p + "forceSquare") == "on"
@@ -154,8 +208,8 @@ final class NewLookColors: ObservableObject {
         version &+= 1
     }
 
-    /// Back to gold on charcoal, console glows, the spinning rainbow ring, the moving glow, the
-    /// first box art covers. Saved colours are kept: they are the player's own, deleted one by one.
+    /// Back to gold on charcoal, console glows, the spinning rainbow ring, the moving swirl, the
+    /// light round buttons, the glowing floating box, the first box art covers. Saved colours are kept: they are the player's own, deleted one by one.
     func resetToDefaults() {
         accentHex = nil
         glowMode = .console
@@ -165,6 +219,14 @@ final class NewLookColors: ObservableObject {
         ringSpins = true
         backgroundHex = nil
         backgroundMoves = true
+        backgroundStyle = .swirl
+        swirlSpeed = 1
+        swirlStrength = Self.defaultSwirlStrength
+        swirlHex = nil
+        buttonLight = true
+        lightSpeed = 1
+        heroGlow = true
+        boxFloats = true
         coverCorner = Self.defaultCorner
         forceSquare = false
         hideTitles = false
@@ -173,6 +235,8 @@ final class NewLookColors: ObservableObject {
     var isDefault: Bool {
         accentHex == nil && glowMode == .console && glowHex == nil && ringMode == .rainbow
             && ringHex == nil && ringSpins && backgroundHex == nil && backgroundMoves
+            && backgroundStyle == .swirl && swirlSpeed == 1 && swirlStrength == Self.defaultSwirlStrength
+            && swirlHex == nil && buttonLight && lightSpeed == 1 && heroGlow && boxFloats
             && coverCorner == Self.defaultCorner && !forceSquare && !hideTitles
     }
 
@@ -205,6 +269,45 @@ final class NewLookColors: ObservableObject {
     /// Dark or white, whichever reads on the accent: text on a filled button, a picked chip.
     var onAccent: Color { Self.isLight(hex: Self.middle(accentHex ?? Self.defaultAccent)) ? .black : .white }
 
+    /// The colours that swirl and mix behind the pages (NewLookAura, NewLookMotion.swift), red,
+    /// green and blue from 0 to 1: the accent's own colours, two neighbours of them a little
+    /// round the colour wheel either way, so the swirl is never one flat colour, and a deep one
+    /// for depth. A gold accent swirls golds and ambers; a purple and pink blend swirls purples,
+    /// pinks and magentas.
+    var swirlRGB: [SIMD3<Double>] {
+        let hexes: [String]
+        if let swirlHex {
+            // The player's own two or three, and a deep one of the first for depth.
+            let own = Self.stops(swirlHex)
+            hexes = own + [Self.shiftedHue(own[0], by: 0.06), Self.dimmed(own[0], by: 0.45)]
+        } else {
+            let stops = Self.stops(accentHex ?? Self.defaultAccent)
+            let first = stops[0]
+            let second = stops.count > 1 ? stops[1] : Self.shiftedHue(first, by: -0.05)
+            hexes = [first, Self.shiftedHue(first, by: 0.07), second,
+                     Self.shiftedHue(second, by: -0.08), Self.dimmed(first, by: 0.45)]
+        }
+        return hexes.map { hex in
+            let (r, g, b) = Self.components(hex: hex)
+            return SIMD3<Double>(r, g, b)
+        }
+    }
+
+    /// The swirl's colours as the player sees them in Settings (the custom ones, or the accent's).
+    var swirlStops: [String] { Self.stops(swirlHex ?? accentHex ?? Self.defaultAccent) }
+
+    /// The background colour, red, green and blue from 0 to 1.
+    var backgroundRGB: SIMD3<Double> {
+        let (r, g, b) = Self.components(hex: backgroundHex ?? Self.defaultBackground)
+        return SIMD3<Double>(r, g, b)
+    }
+
+    /// The same colour at `factor` of its brightness.
+    static func dimmed(_ value: String, by factor: Double) -> String {
+        let (r, g, b) = components(hex: value)
+        return hex(r: r * factor, g: g * factor, b: b * factor)
+    }
+
     /// The ring's colours: the rainbow, or the accent or one colour all the way round.
     var ringColors: [Color] {
         switch ringMode {
@@ -221,10 +324,10 @@ final class NewLookColors: ObservableObject {
     // MARK: Hex
 
     /// "FAC442" or "FFD66B-F2B233", upper case, or nil if it is not one of those.
-    static func validated(_ raw: String) -> String? {
+    static func validated(_ raw: String, maxParts: Int = 2) -> String? {
         let parts = raw.uppercased().replacingOccurrences(of: "#", with: "")
             .trimmingCharacters(in: .whitespaces).split(separator: "-").map(String.init)
-        guard (1...2).contains(parts.count),
+        guard (1...maxParts).contains(parts.count),
               parts.allSatisfy({ $0.count == 6 && UInt32($0, radix: 16) != nil }) else { return nil }
         return parts.joined(separator: "-")
     }

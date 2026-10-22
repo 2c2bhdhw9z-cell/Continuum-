@@ -66,19 +66,26 @@ limit 30 xcrun simctl status_bar "$UDID" override --time "9:41" --batteryLevel 1
   --cellularBars 4 --wifiBars 3 || true
 limit 120 xcrun simctl install "$UDID" "$APP"
 
+# shoot NAME PAGE [ACCENT]
 shoot() {
-  local page=$1
+  local name=$1 page=$2 accent=${3:-}
   limit 30 xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
-  limit 60 xcrun simctl launch "$UDID" "$BUNDLE_ID" -page "$page"
+  if [ -n "$accent" ]; then
+    limit 60 xcrun simctl launch "$UDID" "$BUNDLE_ID" -page "$page" -accent "$accent"
+  else
+    limit 60 xcrun simctl launch "$UDID" "$BUNDLE_ID" -page "$page"
+  fi
   sleep 5
-  echo "==> $page"
-  limit 60 xcrun simctl io "$UDID" screenshot --type=png "$OUT/$page.png"
-  # A second one a moment later, to show what moves.
-  sleep 2
-  limit 60 xcrun simctl io "$UDID" screenshot --type=png "$OUT/$page-later.png"
+  echo "==> $name"
+  limit 60 xcrun simctl io "$UDID" screenshot --type=png "$OUT/$name.png"
+  # A second one a few seconds later, to show what moves.
+  sleep 4
+  limit 60 xcrun simctl io "$UDID" screenshot --type=png "$OUT/$name-later.png"
 }
-shoot home
-shoot empty
+shoot home home
+shoot home-purple home A66BFF-FF5FB0
+shoot scrolled-purple scrolled A66BFF-FF5FB0
+shoot empty empty
 
 cp "$ROOT/.kiro/notes/docs/new-look/mockup-home.jpg" "$OUT/mockup-home.jpg"
 rm -rf "$APP"

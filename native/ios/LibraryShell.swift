@@ -549,12 +549,9 @@ struct LibraryShell: View {
         .padding(.horizontal, 18)
         .frame(height: topBarHeight)
         .padding(.top, max(metrics.insets.top, 8))
-        .background(
-            LinearGradient(colors: [ShellPalette.charcoal, ShellPalette.charcoal.opacity(0.94),
-                                    ShellPalette.charcoal.opacity(0)],
-                           startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea(edges: .top)
-        )
+        // Glass, so a title scrolling under the header is blurred away instead of showing
+        // through CONTINUUM (owner's build 205 screenshot), while the swirl still shows.
+        .background(NewLookHeaderGlass().padding(.bottom, -14).ignoresSafeArea(edges: .top))
     }
 
     private var currentTopBar: some View {

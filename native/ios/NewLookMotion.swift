@@ -1,16 +1,16 @@
 // Everything that moves in the New look, in one place.
 //
 // The owner's brief (22 October 2026): the New look is the Home mockup
-// (.kiro/notes/docs/new-look/mockup-home.jpg), and its motion should feel like Google's Gemini app:
-// calm, dark pages with a soft glow of the accent colour that drifts and breathes at the edges,
-// never blobs of colour washing over the content. Things move because they are alive, or because
-// the player touched them: the glow, the box art floating, a press springing back, the tab bar,
-// a page rising in. Nothing is added that the mockup does not have (no sparks, no shine sweeping
-// over titles; the owner also rejected a sparkle mark on 19 October).
+// (.kiro/notes/docs/new-look/mockup-home.jpg), and its background is COLOURS THAT SWIRL AND MIX
+// TOGETHER, like Google's Gemini app and Manic EMU (NewLookSwirl): smooth, rich, slow, never
+// blotchy. The light running round the main buttons stays. Nothing decorative the mockup does not
+// have (no sparks, no shine sweeping over titles, no sparkle mark: the owner rejected those).
 //
-// Every colour comes from the player's own New-look colours (`NewLookColors`), so a custom theme
-// drives all of it. iOS Settings, Accessibility, Reduce Motion holds ALL of it still, and so does
-// Settings, LOOK, "Moving glow" off for the page glow.
+// EVERYTHING HERE IS THE PLAYER'S CHOICE (owner: "always customisable"), in Settings, LOOK: the
+// background's style (swirl, glow or plain), its colours, speed and strength, whether it moves;
+// the light round buttons and its speed; the glow behind the box art; the box floating. Every
+// colour comes from `NewLookColors`. iOS Settings, Accessibility, Reduce Motion holds ALL of it
+// still.
 //
 // Built only from TimelineView, Canvas and ordinary SwiftUI animation, which all run on iOS 16,
 // the app's deployment target. Nothing here runs during a game: the library (and with it every
@@ -44,6 +44,124 @@ struct NewLookClock<Content: View>: View {
             }
         }
     }
+}
+
+// MARK: - The swirl
+
+/// Colours that swirl and mix behind the page, like Gemini's: a mesh of the swirl colours whose
+/// inner points turn slowly round the middle and wander, so the colours flow into one another and
+/// never visibly repeat, over the background colour. On iOS 18 and later it is Apple's own
+/// MeshGradient (smooth, drawn by the GPU); before that, soft shapes of the same colours blurred
+/// into each other.
+struct NewLookSwirl: View {
+    var moving = true
+    /// 1 on the library pages; a sheet uses a little less.
+    var strength: Double = 1
+    @ObservedObject private var colors = NewLookColors.shared
+
+    var body: some View {
+        let speed = colors.swirlSpeed
+        NewLookClock(fps: 30, stillAt: 37, running: moving) { t in
+            let time = t * speed
+            if #available(iOS 18.0, *) {
+                MeshGradient(width: 4, height: 4, points: Self.points(time), colors: meshColors(time),
+                             background: Self.color(colors.backgroundRGB), smoothsColors: true)
+            } else {
+                blobs(time)
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// The mesh's 16 points. The corners stay put, the edge points slide along their edges, and the
+    /// four inner points turn together round the middle (the swirl) while each wanders on its own.
+    static func points(_ t: Double) -> [SIMD2<Float>] {
+        let turn = t * 2 * Double.pi / 26
+        var out: [SIMD2<Float>] = []
+        for row in 0..<4 {
+            for col in 0..<4 {
+                var x = Double(col) / 3
+                var y = Double(row) / 3
+                let i = Double(row * 4 + col)
+                let edgeX = col == 0 || col == 3
+                let edgeY = row == 0 || row == 3
+                if edgeX && edgeY {
+                    // A corner.
+                } else if edgeY {
+                    x += 0.10 * sin(t * 0.21 + i * 1.7)
+                } else if edgeX {
+                    y += 0.10 * sin(t * 0.19 + i * 1.3)
+                } else {
+                    let dx = x - 0.5, dy = y - 0.5
+                    let wobble = 1 + 0.35 * sin(t * 0.17 + i)
+                    x = 0.5 + (dx * cos(turn) - dy * sin(turn)) * wobble + 0.06 * sin(t * 0.31 + i * 2.1)
+                    y = 0.5 + (dx * sin(turn) + dy * cos(turn)) * wobble + 0.06 * cos(t * 0.27 + i * 1.6)
+                }
+                out.append(SIMD2<Float>(Float(min(max(x, 0), 1)), Float(min(max(y, 0), 1))))
+            }
+        }
+        return out
+    }
+
+    /// The mesh's 16 colours: the swirl colours drifting from point to point over time, strongest
+    /// in the middle and softer at the edges, each mixed into the background by the strength.
+    private func meshColors(_ t: Double) -> [Color] {
+        let palette = colors.swirlRGB
+        let base = colors.backgroundRGB
+        let k = colors.swirlStrength * strength
+        var out: [Color] = []
+        for row in 0..<4 {
+            for col in 0..<4 {
+                let i = row * 4 + col
+                let edgeX = col == 0 || col == 3
+                let edgeY = row == 0 || row == 3
+                let weight = edgeX && edgeY ? 0.45 : (edgeX || edgeY ? 0.75 : 1.0)
+                // Where along the palette this point is: each point drifts at its own pace.
+                let phase = t * (0.045 + 0.012 * Double(i % 5)) + Double(i) * 0.61
+                let a = palette[Int(phase.rounded(.down)) % palette.count]
+                let b = palette[(Int(phase.rounded(.down)) + 1) % palette.count]
+                let f = newLookFrac(phase)
+                let smooth = f * f * (3 - 2 * f)
+                let c = a + (b - a) * smooth
+                out.append(Self.color(base + (c - base) * min(k * weight, 1)))
+            }
+        }
+        return out
+    }
+
+    /// Before iOS 18: soft shapes of the swirl colours turning round the middle, blurred together.
+    private func blobs(_ t: Double) -> some View {
+        let palette = colors.swirlRGB
+        let k = colors.swirlStrength * strength
+        return GeometryReader { geo in
+            let size = geo.size
+            Canvas(rendersAsynchronously: true) { context, canvas in
+                let w = Double(canvas.width), h = Double(canvas.height)
+                context.addFilter(.blur(radius: CGFloat(max(w, h) * 0.16)))
+                let turn = t * 2 * Double.pi / 26
+                for i in 0..<6 {
+                    let fi = Double(i)
+                    let angle = turn + fi * 1.047
+                    let r = 0.28 + 0.08 * sin(t * 0.2 + fi)
+                    let x = w * (0.5 + r * cos(angle) + 0.08 * sin(t * 0.3 + fi * 2))
+                    let y = h * (0.5 + r * 1.2 * sin(angle) + 0.06 * cos(t * 0.25 + fi))
+                    let radius = max(w, h) * (0.26 + 0.05 * sin(t * 0.23 + fi * 1.3))
+                    let c = palette[i % palette.count]
+                    context.fill(Path(ellipseIn: CGRect(x: x - radius, y: y - radius,
+                                                        width: 2 * radius, height: 2 * radius)),
+                                 with: .color(Self.color(c).opacity(min(k, 1))))
+                }
+            }
+            .frame(width: max(size.width / 4, 1), height: max(size.height / 4, 1))
+            .scaleEffect(4, anchor: .topLeading)
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+        }
+        .background(Self.color(colors.backgroundRGB))
+        .clipped()
+    }
+
+    static func color(_ v: SIMD3<Double>) -> Color { Color(red: v.x, green: v.y, blue: v.z) }
 }
 
 // MARK: - The page glow
@@ -132,6 +250,7 @@ struct NewLookAura: View {
 /// The warm glow standing behind a hero's box art (Home, the Game Hub, the pause menu), as in the
 /// mockup: strongest right behind the box, fading out smoothly. It breathes slowly; with Reduce
 /// Motion it holds still. Only its opacity and size animate, so it costs next to nothing.
+/// Settings, LOOK, "Glow behind the box" turns it off.
 struct NewLookHeroGlow: View {
     var size: CGFloat = 540
     @ObservedObject private var colors = NewLookColors.shared
@@ -152,7 +271,7 @@ struct NewLookHeroGlow: View {
             center: .center, startRadius: 0, endRadius: size / 2
         )
         .frame(width: size, height: size)
-        .opacity(lit ? 1 : 0.82)
+        .opacity(colors.heroGlow ? (lit ? 1 : 0.82) : 0)
         .scaleEffect(lit ? 1.04 : 0.97)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -167,18 +286,19 @@ struct NewLookHeroGlow: View {
 
 // MARK: - Float
 
-/// A gentle, slow bob up and down: the hero's box art.
+/// A gentle, slow bob up and down: the hero's box art (Settings, LOOK, "Box art floats").
 struct NewLookFloat: ViewModifier {
     var amplitude: CGFloat = 4
     var period: Double = 4.6
     @State private var up = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject private var colors = NewLookColors.shared
 
     func body(content: Content) -> some View {
         content
-            .offset(y: up ? -amplitude : amplitude)
+            .offset(y: colors.boxFloats ? (up ? -amplitude : amplitude) : 0)
             .onAppear {
-                guard !reduceMotion else { return }
+                guard !reduceMotion, colors.boxFloats else { return }
                 withAnimation(.easeInOut(duration: period / 2).repeatForever(autoreverses: true)) {
                     up = true
                 }
@@ -213,17 +333,19 @@ struct NewLookBreathe: ViewModifier {
 
 // MARK: - Flowing border
 
-/// A thin border in the accent's colours with a bright highlight running slowly round it.
+/// A thin border in the accent's colours with a bright highlight running round it (Settings,
+/// LOOK, "Light round buttons", and its speed).
 struct NewLookFlowRim<S: InsettableShape>: View {
     let shape: S
     var lineWidth: CGFloat = 1.5
-    var period: Double = 3.0
+    var period: Double = 2.4
     @ObservedObject private var colors = NewLookColors.shared
 
     var body: some View {
         let stops = colors.accentStops
         let first = stops.first ?? colors.accent
         let second = stops.count > 1 ? stops[1] : first
+        let period = self.period / max(colors.lightSpeed, 0.1)
         NewLookClock(fps: 30, stillAt: 0) { t in
             shape.strokeBorder(
                 AngularGradient(
@@ -242,6 +364,27 @@ struct NewLookFlowRim<S: InsettableShape>: View {
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    /// The light running round a button, when Settings, LOOK, "Light round buttons" is on.
+    func newLookButtonLight<S: InsettableShape>(_ shape: S, lineWidth: CGFloat = 1.4) -> some View {
+        modifier(NewLookButtonLight(shape: shape, lineWidth: lineWidth))
+    }
+}
+
+struct NewLookButtonLight<S: InsettableShape>: ViewModifier {
+    let shape: S
+    var lineWidth: CGFloat = 1.4
+    @ObservedObject private var colors = NewLookColors.shared
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if colors.buttonLight {
+                NewLookFlowRim(shape: shape, lineWidth: lineWidth)
+            }
+        }
     }
 }
 

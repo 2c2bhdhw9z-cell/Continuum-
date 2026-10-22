@@ -15,6 +15,15 @@ These come straight from the owner. They are not suggestions.
   questions with the choices written out, so they can answer quickly.
 - Any picture the owner sends as a design (a mockup, a screenshot of what is wrong) is saved into
   the repo (`.kiro/notes/docs/`) in the same session, so no later chat loses it.
+- **EVERYTHING IS CUSTOMISABLE, ALWAYS** (owner, 22 October 2026: "always always always").
+  Every look and motion feature gets its own setting (on/off, and its colour, speed or strength
+  where that makes sense), with a sensible default. Never ship a visual effect the player can't
+  change or turn off.
+- **Never remove something the owner asked for because it came out badly. Fix it properly**
+  (22 October 2026: "If you're not gonna do something right, don't do it at all"). Build 205 took
+  the swirling background colours out instead of making them good, and the owner was furious.
+  The New look's background must be swirling, mixing colours like Google Gemini and Manic EMU,
+  and the light running round buttons stays (with a switch).
 - The owner is on US Eastern time (UTC-4 in summer, UTC-5 in winter). Give every time in Eastern.
   Never assume Pacific.
 - Never ask the owner to re-test or re-answer anything they already covered, in a screenshot or an

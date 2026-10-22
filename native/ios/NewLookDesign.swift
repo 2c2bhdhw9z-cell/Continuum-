@@ -31,14 +31,45 @@ enum NewLookMetrics {
 
 // MARK: - The page
 
-/// Behind every New-look page: charcoal with the glow from the top (NewLookAura), moving unless
-/// Settings, LOOK, "Moving glow" is off.
+/// Behind every New-look page, as Settings, LOOK, Background says: colours that swirl and mix
+/// (the default, NewLookSwirl), one soft glow from the top (NewLookAura), or the plain colour.
+/// It moves unless "Moving" is off; `allowsMotion` false holds it still whatever the setting
+/// (a sheet, which can be over a game).
 struct NewLookPage: View {
     var strength: Double = 1
+    var allowsMotion = true
     @ObservedObject private var colors = NewLookColors.shared
 
     var body: some View {
-        NewLookAura(moving: colors.backgroundMoves, strength: strength)
+        let moving = allowsMotion && colors.backgroundMoves
+        switch colors.backgroundStyle {
+        case .swirl:
+            NewLookSwirl(moving: moving, strength: strength)
+        case .glow:
+            NewLookAura(moving: moving, strength: strength)
+        case .plain:
+            colors.background
+        }
+    }
+}
+
+/// The glass behind the header: what scrolls under CONTINUUM and its buttons is blurred and
+/// dimmed, fading out below the header, so a title never shows through the wordmark.
+struct NewLookHeaderGlass: View {
+    @ObservedObject private var colors = NewLookColors.shared
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.ultraThinMaterial)
+            colors.background.opacity(0.35)
+        }
+        .mask(
+            LinearGradient(stops: [.init(color: .black, location: 0),
+                                   .init(color: .black, location: 0.72),
+                                   .init(color: .clear, location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+        )
+        .allowsHitTesting(false)
     }
 }
 
@@ -161,6 +192,8 @@ struct NewLookPrimaryButton: View {
             .padding(.vertical, 11)
             .frame(minWidth: 130)
             .background(colors.accentFill, in: Capsule())
+            // The light running round it (Settings, LOOK, "Light round buttons").
+            .newLookButtonLight(Capsule())
             // A soft top light, so the gold reads as a lit button, as in the mockup.
             .overlay(
                 Capsule().fill(LinearGradient(colors: [.white.opacity(0.22), .clear],
@@ -439,24 +472,43 @@ struct NewLookBoxFace<Placeholder: View>: View {
         }
     }
 
-    /// The box's right side: the cover's own right edge squeezed thin and shaded, narrowing as
-    /// it goes back.
-    @ViewBuilder
+    /// The box's right side: one solid colour, the cover's own right edge averaged and shaded,
+    /// narrowing as it goes back. (Build 205 drew a squeezed copy of the picture there, which read
+    /// as a duplicated strip of the cover; the owner circled it.)
     private var side: some View {
-        let shape = NewLookBoxSide(inset: depth * 0.55)
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .frame(width: depth * 8)
-                    .frame(width: depth, alignment: .trailing)
-                    .clipped()
-            } else {
-                Color(white: 0.3)
+        let edge = image.map(NewLookBoxFace.edgeColor(of:)) ?? UIColor(white: 0.3, alpha: 1)
+        return LinearGradient(colors: [Color(uiColor: edge).opacity(0.95), Color(uiColor: edge)],
+                              startPoint: .leading, endPoint: .trailing)
+            .overlay(LinearGradient(colors: [.black.opacity(0.35), .black.opacity(0.6)],
+                                    startPoint: .leading, endPoint: .trailing))
+            .clipShape(NewLookBoxSide(inset: depth * 0.55))
+    }
+
+    private static let edgeColors = NSCache<UIImage, UIColor>()
+
+    /// The average colour of the picture's right-hand edge, worked out once per picture.
+    static func edgeColor(of image: UIImage) -> UIColor {
+        if let known = edgeColors.object(forKey: image) { return known }
+        var result = UIColor(white: 0.3, alpha: 1)
+        if let cg = image.cgImage, cg.width > 0, cg.height > 0 {
+            let x = Int(Double(cg.width) * 0.94)
+            if let strip = cg.cropping(to: CGRect(x: x, y: 0, width: max(cg.width - x, 1),
+                                                  height: cg.height)) {
+                var pixel = [UInt8](repeating: 0, count: 4)
+                pixel.withUnsafeMutableBytes { buffer in
+                    guard let context = CGContext(
+                        data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8,
+                        bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+                    context.interpolationQuality = .medium
+                    context.draw(strip, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+                }
+                result = UIColor(red: CGFloat(pixel[0]) / 255, green: CGFloat(pixel[1]) / 255,
+                                 blue: CGFloat(pixel[2]) / 255, alpha: 1)
             }
         }
-        .overlay(Color.black.opacity(0.5))
-        .clipShape(shape)
+        edgeColors.setObject(result, forKey: image)
+        return result
     }
 }
 
@@ -525,20 +577,10 @@ struct NewLookSystemTileFace: View {
                         .foregroundStyle(colors.accent)
                 }
             }
-            .frame(width: 82, height: 80)
+            .frame(width: 72, height: 78)
             // A soft light round each console, as in the mockup, over a little shadow.
             .shadow(color: .white.opacity(0.32), radius: 5)
             .shadow(color: .black.opacity(0.45), radius: 4, y: 3)
-            .overlay(alignment: .topTrailing) {
-                Text("\(count)")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 5)
-                    .frame(minWidth: 22, minHeight: 22)
-                    .background(Color(white: 0.33), in: Capsule())
-                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
-                    .offset(x: 7, y: -3)
-            }
 
             Text(name)
                 .font(.system(size: 13, weight: .heavy).italic())
@@ -549,9 +591,21 @@ struct NewLookSystemTileFace: View {
                 .minimumScaleFactor(0.7)
                 .frame(width: NewLookMetrics.tileWidth - 4, height: 32, alignment: .top)
         }
-        .padding(.top, 10)
+        .padding(.top, 14)
         .padding(.bottom, 8)
         .frame(width: NewLookMetrics.tileWidth)
+        // The count, in the tile's top corner and inside its frame, as in the mockup.
+        .overlay(alignment: .topTrailing) {
+            Text("\(count)")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 5)
+                .frame(minWidth: 22, minHeight: 22)
+                .background(Color(white: 0.33), in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+                .padding(.top, 5)
+                .padding(.trailing, 5)
+        }
         .background {
             if selected {
                 ZStack {
@@ -566,6 +620,7 @@ struct NewLookSystemTileFace: View {
         .overlay {
             if selected {
                 shape.strokeBorder(colors.accent, lineWidth: 2)
+                    .newLookButtonLight(shape, lineWidth: 2)
             }
         }
         .contentShape(shape)

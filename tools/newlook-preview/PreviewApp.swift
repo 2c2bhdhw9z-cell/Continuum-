@@ -6,7 +6,8 @@
 // The page below is laid out exactly as NewLookHome and LibraryShell lay it out (same pieces,
 // same NewLookMetrics, same paddings). If you change the spacing there, change it here too.
 //
-// Launch arguments: -page home | empty. The covers are cut out of the mockup itself, so the
+// Launch arguments: -page home | empty | scrolled, and -accent HEX-HEX for a colour (the owner
+// uses A66BFF-FF5FB0, purple to pink). The covers are cut out of the mockup itself, so the
 // screenshot compares like with like.
 
 import SwiftUI
@@ -20,7 +21,13 @@ struct NewLookPreviewApp: App {
 }
 
 private enum Page: String {
-    case home, empty
+    case home, empty, scrolled
+}
+
+private func argument(_ name: String) -> String? {
+    let args = ProcessInfo.processInfo.arguments
+    guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
+    return args[i + 1]
 }
 
 private let page: Page = {
@@ -58,6 +65,10 @@ private enum Art {
 }
 
 struct PreviewRoot: View {
+    init() {
+        NewLookColors.shared.accentHex = argument("-accent").flatMap { NewLookColors.validated($0) }
+    }
+
     var body: some View {
         GeometryReader { geo in
             PreviewHome(insets: geo.safeAreaInsets, empty: page == .empty)
@@ -98,6 +109,7 @@ private struct PreviewHome: View {
             NewLookBackdropPreview()
                 .ignoresSafeArea()
 
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if empty {
@@ -131,6 +143,7 @@ private struct PreviewHome: View {
                             }
                         }
                         .padding(.top, NewLookMetrics.sectionGap + 3)
+                        .id("systems")
 
                         VStack(alignment: .leading, spacing: 2) {
                             NewLookSectionTitle(title: "Jump Back In")
@@ -144,11 +157,18 @@ private struct PreviewHome: View {
                         }
                         .padding(.top, NewLookMetrics.sectionGap - 5)
                     }
-                    Spacer(minLength: 140)
+                    Spacer(minLength: 700)
                 }
                 .padding(.top, topPadding + 4)
             }
             .ignoresSafeArea(edges: .top)
+            .onAppear {
+                guard page == .scrolled else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    proxy.scrollTo("systems", anchor: .top)
+                }
+            }
+            }
 
             header
             VStack(spacing: 0) {
@@ -186,13 +206,7 @@ private struct PreviewHome: View {
         .padding(.horizontal, 18)
         .frame(height: 52)
         .padding(.top, max(insets.top, 8))
-        .background(
-            LinearGradient(colors: [NewLookColors.shared.background,
-                                    NewLookColors.shared.background.opacity(0.94),
-                                    NewLookColors.shared.background.opacity(0)],
-                           startPoint: .top, endPoint: .bottom)
-                .ignoresSafeArea(edges: .top)
-        )
+        .background(NewLookHeaderGlass().padding(.bottom, -14).ignoresSafeArea(edges: .top))
         .ignoresSafeArea(edges: .top)
     }
 

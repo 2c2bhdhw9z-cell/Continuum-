@@ -29,7 +29,9 @@ struct NewLookColorPanels: View {
             panel("Ring", icon: "circle.dashed",
                   blurb: "The ring next to CONTINUUM at the top.") { ring }
             panel("Background", icon: "square.fill.on.square.fill",
-                  blurb: "Behind Home, Library, Favorites and Settings.") { background }
+                  blurb: "Behind every page.") { background }
+            panel("Light and motion", icon: "wand.and.rays",
+                  blurb: "What glows and moves.") { motion }
             if !colors.isDefault {
                 Button {
                     colors.resetToDefaults()
@@ -99,7 +101,7 @@ struct NewLookColorPanels: View {
         .padding(18)
         .background(
             ZStack {
-                NewLookAura(moving: colors.backgroundMoves, strength: 1.6)
+                NewLookPage(strength: 1.2)
                 Color.white.opacity(0.03)
             }
             .clipShape(shape)
@@ -265,6 +267,64 @@ struct NewLookColorPanels: View {
 
     private var background: some View {
         VStack(alignment: .leading, spacing: 14) {
+            chips(NewLookColors.BackgroundStyle.allCases, current: colors.backgroundStyle,
+                  pill: "stylePill", title: { $0.title }) {
+                colors.backgroundStyle = $0
+            }
+            if colors.backgroundStyle == .swirl {
+                subhead("Swirl colours")
+                chips(SwirlSource.allCases, current: colors.swirlHex == nil ? .accent : .custom,
+                      pill: "swirlPill", title: { $0.title }) { source in
+                    switch source {
+                    case .accent: colors.swirlHex = nil
+                    case .custom:
+                        if colors.swirlHex == nil {
+                            colors.swirlHex = colors.swirlStops.prefix(2).joined(separator: "-")
+                                + (colors.swirlStops.count < 2
+                                   ? "-" + NewLookColors.shiftedHue(colors.swirlStops[0], by: 0.12) : "")
+                        }
+                    }
+                }
+                if let own = colors.swirlHex {
+                    let stops = NewLookColors.stops(own)
+                    ForEach(stops.indices, id: \.self) { index in
+                        ColorPicker(selection: swirlBinding(index), supportsOpacity: false) {
+                            rowLabel("Colour \(index + 1)", detail: nil)
+                        }
+                    }
+                    if stops.count < 3 {
+                        Button {
+                            colors.swirlHex = own + "-" + NewLookColors.shiftedHue(stops[0], by: -0.12)
+                        } label: {
+                            Label("Add a third colour", systemImage: "plus.circle.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(ShellPalette.gold)
+                        }
+                        .buttonStyle(NewLookPressStyle())
+                    } else {
+                        Button {
+                            colors.swirlHex = stops.prefix(2).joined(separator: "-")
+                        } label: {
+                            Label("Use two colours", systemImage: "minus.circle.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color.white.opacity(0.7))
+                        }
+                        .buttonStyle(NewLookPressStyle())
+                    }
+                }
+                slider("Strength", value: $colors.swirlStrength, range: 0.2...1, step: 0.05,
+                       shown: "\(Int((colors.swirlStrength * 100).rounded()))%")
+                slider("Speed", value: $colors.swirlSpeed, range: 0.25...3, step: 0.25,
+                       shown: speedText(colors.swirlSpeed))
+            }
+            if colors.backgroundStyle != .plain {
+                Toggle(isOn: $colors.backgroundMoves) {
+                    rowLabel("Moving", detail: colors.backgroundStyle == .swirl
+                             ? "The colours swirl and mix" : "The glow drifts slowly")
+                }
+            }
+            divider
+            subhead("Background colour")
             swatchRow {
                 ForEach(NewLookColors.backgroundPresets, id: \.self) { value in
                     swatch(value, picked: value.caseInsensitiveCompare(
@@ -277,17 +337,84 @@ struct NewLookColorPanels: View {
             ColorPicker(selection: backgroundBinding, supportsOpacity: false) {
                 rowLabel("Any colour", detail: "Bright colours are dimmed so words stay readable")
             }
-            divider
-            Toggle(isOn: $colors.backgroundMoves) {
-                rowLabel("Moving glow", detail: "The glow behind the pages drifts slowly")
-            }
-            if colors.backgroundMoves && reduceMotion {
-                Label("Reduce Motion is on in iOS Settings, so the glow keeps still.",
+            if colors.backgroundMoves && reduceMotion && colors.backgroundStyle != .plain {
+                Label("Reduce Motion is on in iOS Settings, so it keeps still.",
                       systemImage: "pause.circle.fill")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(ShellPalette.gold)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// Where the swirl's colours come from.
+    private enum SwirlSource: String, CaseIterable, Identifiable {
+        case accent, custom
+        var id: String { rawValue }
+        var title: String { self == .accent ? "Accent" : "My own" }
+    }
+
+    /// One of the swirl's own colours, for the system colour picker.
+    private func swirlBinding(_ index: Int) -> Binding<Color> {
+        Binding(
+            get: {
+                let stops = colors.swirlStops
+                return NewLookColors.color(hex: stops.indices.contains(index) ? stops[index] : stops[0])
+            },
+            set: { color in
+                guard let hex = NewLookColors.hex(from: color) else { return }
+                var stops = colors.swirlStops
+                guard stops.indices.contains(index), stops[index] != hex else { return }
+                stops[index] = hex
+                colors.swirlHex = stops.joined(separator: "-")
+            }
+        )
+    }
+
+    // MARK: Light and motion
+
+    private var motion: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Toggle(isOn: $colors.buttonLight) {
+                rowLabel("Light round buttons", detail: "A light runs round Play, Resume and what's picked")
+            }
+            if colors.buttonLight {
+                slider("Light speed", value: $colors.lightSpeed, range: 0.3...3, step: 0.1,
+                       shown: speedText(colors.lightSpeed))
+            }
+            divider
+            Toggle(isOn: $colors.heroGlow) {
+                rowLabel("Glow behind the box", detail: "Light behind the big box art")
+            }
+            Toggle(isOn: $colors.boxFloats) {
+                rowLabel("Box art floats", detail: "The big box art drifts up and down")
+            }
+            if reduceMotion {
+                Label("Reduce Motion is on in iOS Settings, so nothing moves.",
+                      systemImage: "pause.circle.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(ShellPalette.gold)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func speedText(_ value: Double) -> String {
+        value == 1 ? "Normal" : String(format: "%.2gx", value)
+    }
+
+    private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>,
+                        step: Double, shown: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                rowLabel(title, detail: nil)
+                Spacer(minLength: 0)
+                Text(shown)
+                    .font(.system(size: 14, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(Color.white.opacity(0.65))
+            }
+            Slider(value: value, in: range, step: step)
+                .tint(colors.accent)
         }
     }
 
@@ -459,6 +586,7 @@ struct NewLookColorPanels: View {
                                 if selected {
                                     Capsule()
                                         .fill(colors.accentFill)
+                                        .newLookButtonLight(Capsule(), lineWidth: 1.2)
                                         .matchedGeometryEffect(id: pill, in: picks)
                                 }
                             }

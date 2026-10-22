@@ -810,8 +810,8 @@ struct NewLookHubHeader: View {
 
 // MARK: - Sheets in the New look
 
-/// A sheet's list or form in the New look: the charcoal page with its glow (held still, so
-/// nothing moves behind a sheet over a game) instead of the system's grey lists. The gold tint
+/// A sheet's list or form in the New look: the New look's page (held still, so nothing moves
+/// behind a sheet over a game) instead of the system's grey lists. The gold tint
 /// comes from `RootView`. Nothing at all changes in the Current look.
 ///
 /// Put it on the `List` or `Form` itself, inside its NavigationView / NavigationStack: a
@@ -824,7 +824,7 @@ struct NewLookListStyle: ViewModifier {
         if looks.look == .newLook {
             content
                 .scrollContentBackground(.hidden)
-                .background(NewLookAura(moving: false, strength: 0.7).ignoresSafeArea())
+                .background(NewLookPage(strength: 0.7, allowsMotion: false).ignoresSafeArea())
         } else {
             content
         }
@@ -838,7 +838,7 @@ struct NewLookSheetPage: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         if looks.look == .newLook {
-            content.background(NewLookAura(moving: false, strength: 0.7).ignoresSafeArea())
+            content.background(NewLookPage(strength: 0.7, allowsMotion: false).ignoresSafeArea())
         } else {
             content
         }
