@@ -5,7 +5,23 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (22 October 2026, evening Eastern): the New look redone to the mockup
+## START HERE (22 October 2026, about 4 PM Eastern): swirl back, everything customisable
+
+- Owner on build 205: furious that the swirling background colours were gone ("I SAID LIKE
+  GOOGLE GEMINI AND MANIC"); "if you're not gonna do something right, don't do it at all";
+  bring back the light round buttons with a switch; everything customisable, always. Two new
+  rules in owner-rules.md. His screenshots: `docs/new-look/build-205-*.jpg`.
+- Done (4c79532): `NewLookSwirl` (NewLookMotion.swift): a 4x4 MeshGradient on iOS 18+ (blurred
+  Canvas shapes before) whose inner points turn round the middle, colours from
+  `NewLookColors.swirlRGB`. `NewLookPage` picks Swirl / Glow (NewLookAura) / Plain. New
+  settings in NewLookColors: backgroundStyle, swirlHex (own 2 or 3 colours), swirlStrength,
+  swirlSpeed, buttonLight, lightSpeed, heroGlow, boxFloats; Settings → LOOK → Background and
+  "Light and motion" (NewLookTheme.swift). `newLookButtonLight` puts NewLookFlowRim on the
+  primary buttons, the picked console and the picked chips. Box side: `NewLookBoxFace.edgeColor`.
+  Console count inside the tile. `NewLookHeaderGlass` behind the New header.
+- Phone checks: TESTING.md "Next install (after 205)".
+
+## Earlier (22 October 2026, evening Eastern): the New look redone to the mockup
 
 - The owner said the New look (197 to 204) "ain't how I want it" and sent the mockup again; it is
   now in the repo: `.kiro/notes/docs/new-look/mockup-home.jpg` (and build 204's empty Home,

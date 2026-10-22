@@ -6,6 +6,24 @@ Its checks are "Next install (after 204)" just below. Do not ask the 192 passes 
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Next install (after 205): swirling colours back, everything switchable
+
+Owner on build 205 (22 October, screenshots in `docs/new-look/build-205-*.jpg`): the background
+must be colours that swirl and mix like Gemini and Manic; bring back the light round buttons with
+a switch; everything customisable. He circled the box's side (a copied strip of the cover), the
+picked console's frame (its count sat on the frame) and CONTINUUM over a scrolled title.
+
+1. Settings → LOOK → New. Behind every page: your accent colours swirling and mixing slowly,
+   smooth, no blotches. Settings → LOOK → Background: Swirl / Glow / Plain; Swirl colours Accent
+   or My own (two or three colours); Strength; Speed; Moving off holds it still.
+2. Play / Resume and the picked console and chips have a light running round them. Settings →
+   LOOK → Light and motion: Light round buttons off removes it; Light speed changes it.
+3. Light and motion: Glow behind the box off, and Box art floats off, each do just that.
+4. The big box art's right side is one plain darker colour, no copy of the cover.
+5. The picked console in SYSTEMS (and in the Library) has its number inside its frame.
+6. Scroll Home: the game name slides under CONTINUUM blurred away, never showing through it.
+7. Then everything in the list below.
+
 ## Next install (after 204): the New look redone to the mockup, on every screen
 
 The owner said builds 197 to 204 were not how he wanted the New look (22 October) and sent his

@@ -324,7 +324,10 @@ final class NewLookColors: ObservableObject {
     // MARK: Hex
 
     /// "FAC442" or "FFD66B-F2B233", upper case, or nil if it is not one of those.
-    static func validated(_ raw: String, maxParts: Int = 2) -> String? {
+    static func validated(_ raw: String) -> String? { validated(raw, maxParts: 2) }
+
+    /// The same, allowing up to `maxParts` colours (the swirl takes three).
+    static func validated(_ raw: String, maxParts: Int) -> String? {
         let parts = raw.uppercased().replacingOccurrences(of: "#", with: "")
             .trimmingCharacters(in: .whitespaces).split(separator: "-").map(String.init)
         guard (1...maxParts).contains(parts.count),
