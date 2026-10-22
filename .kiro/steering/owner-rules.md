@@ -10,6 +10,11 @@ These come straight from the owner. They are not suggestions.
 - The owner does not code, does not read code, and does not want to. Every reply is plain,
   everyday English. No jargon unless it is explained in normal words.
 - Never ask the owner to go look at a file, a log or a page. Read it yourself and say what it says.
+- **Never assume what the owner wants. If anything is unclear, ask first, before building it**
+  (owner, 22 October 2026: "Don't assume shit if you have a question ask it"). Short numbered
+  questions with the choices written out, so they can answer quickly.
+- Any picture the owner sends as a design (a mockup, a screenshot of what is wrong) is saved into
+  the repo (`.kiro/notes/docs/`) in the same session, so no later chat loses it.
 - The owner is on US Eastern time (UTC-4 in summer, UTC-5 in winter). Give every time in Eastern.
   Never assume Pacific.
 - Never ask the owner to re-test or re-answer anything they already covered, in a screenshot or an
@@ -219,3 +224,4 @@ on a new account, save each line below as a global learning (user_preferences), 
 9. The owner (Continuum, GitHub 2c2bhdhw9z-cell) lives in US Eastern time (UTC-4 in summer, UTC-5 in winter). Convert every time to Eastern; never assume Pacific time.
 10. Automatic, scheduled or deadline builds are only for a night the owner explicitly asks for one, and come out first thing the next morning without being asked. Otherwise a build starts only from a push or a manual start. Daytime work is built the same day as soon as it is finished; always check the current Eastern time before giving any time.
 11. Screenshots the owner sends while a reply is in progress arrive as text only. If they mention pictures you cannot see, say so at once instead of guessing.
+12. Never assume what the owner wants. When anything is unclear, ask short numbered questions with the choices written out before building it.

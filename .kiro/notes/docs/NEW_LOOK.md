@@ -10,8 +10,9 @@ No branded theme names, on purpose (Brett's call): the setting is "Look", the ch
 
 ## The mockup
 
-Brett had one mockup, of Home only (sent in chat 19 Oct 2026; the image file was not reachable from
-the build box, so it is described here instead of committed):
+Brett had one mockup, of Home only (sent in chat 19 Oct 2026, sent again 22 Oct 2026). **The
+picture itself is `new-look/mockup-home.jpg`**; build 204's empty Home, which he sent beside it as
+what is wrong, is `new-look/build-204-empty-home.png`. The picture is the reference, not this list:
 
 - Dark charcoal background, gold/yellow accent.
 - Header: CONTINUUM wordmark with a rainbow ring logo; a glass capsule with search, +, profile.
