@@ -72,6 +72,10 @@ struct PreviewRoot: View {
         if let source = argument("-swirl").flatMap(NewLookColors.SwirlSource.init(rawValue:)) {
             NewLookColors.shared.swirlSource = source
         }
+        if let own = argument("-own").flatMap({ NewLookColors.validated($0, maxParts: 3) }) {
+            NewLookColors.shared.swirlHex = own
+            NewLookColors.shared.swirlSource = .own
+        }
     }
 
     var body: some View {

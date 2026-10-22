@@ -48,147 +48,110 @@ struct NewLookClock<Content: View>: View {
 
 // MARK: - The swirl
 
-/// The whole page in colours that flow and mix into one another, like Google's Gemini app and
-/// Manic EMU (the owner's screen recording of both, 22 October 2026, frames in
-/// .kiro/notes/docs/new-look/reference-video-gemini-manic-frames.png).
+/// The page's colours as ribbons that swirl round each other, like Google's Gemini and Manic
+/// EMU (the owner's recording: .kiro/notes/docs/new-look/reference-video-gemini-manic-frames.png).
 ///
-/// HOW THE COLOURS MIX, which is the whole point:
-/// - One smooth field over the WHOLE page: a 4 by 4 MeshGradient (iOS 18 and later), blended in
-///   the perceptual colour space, so two colours meet in a clean in-between colour, never a muddy
-///   grey and never an edge.
-/// - The colours travel: every point of the field walks through the swirl colours in turn, and
-///   each point is a little further along than its neighbour up and to the left, so the colours
-///   sweep across the page in broad soft bands, like the colour moving through Gemini's glow and
-///   across Manic's banner.
-/// - Two colours are mixed by going round the colour wheel between them (blue to yellow passes
-///   through green, as in Gemini), not by averaging their red, green and blue.
-/// - Darker pockets drift through it, so it has depth and white text always reads.
-/// - THE POINTS BARELY MOVE, on purpose: build 206 turned them round the middle, they crossed
-///   each other and the field folded into hard-edged sheets (the owner's screenshots,
-///   build-206-swirl-creases-*.png). Every point here stays inside its own cell.
-/// Before iOS 18: the same colours as soft overlapping glows, blurred together.
+/// THE OWNER'S BRIEF, after build 207 (22 October 2026): every colour stays visible on screen at
+/// the same time, in tighter ribbon-like waves, with the dark background showing between them,
+/// swirling round each other continuously, never one colour swallowing the whole screen and never
+/// turning muddy where they overlap.
+///
+/// HOW:
+/// - Each colour is its own ribbon (two of each when there are only two or three colours), a soft
+///   wavy band across the whole page with a faint glow round it and the dark page between bands.
+/// - The ribbons are spaced evenly across the page and all drift the same way, wrapping round, so
+///   every colour is always on screen (measured in a prototype: each of three colours covers 9 to
+///   21% of the screen in every frame, the dark about 40 to 55%).
+/// - Each ribbon leans its own way and swings slowly, so ribbons cross and weave; each waves on
+///   its own rhythm. Where two cross they are drawn one over the other, softly, never averaged
+///   into grey.
+/// - Builds 206 and 207 were a single colour field (MeshGradient): it folded (206), then washed
+///   one colour over the whole screen at a time and went grey where colours met (207).
+/// Drawn at a third of the screen's resolution and scaled up: the ribbons are soft.
 struct NewLookSwirl: View {
     var moving = true
     /// 1 on the library pages; a sheet uses a little less.
     var strength: Double = 1
     @ObservedObject private var colors = NewLookColors.shared
 
-    /// Seconds for the field to move one colour along, at Speed "Normal". With six colours the
-    /// whole wheel comes round in about ten seconds, close to Gemini's.
-    static let stepSeconds = 1.7
-
     var body: some View {
-        let palette = colors.swirlRGB.map(NewLookHSV.init(rgb:))
-        let base = colors.backgroundRGB
+        let palette = colors.swirlRGB.map { Self.color($0) }
         let k = min(colors.swirlStrength * strength, 1)
         let speed = colors.swirlSpeed
-        NewLookClock(fps: 30, stillAt: 37, running: moving) { t in
-            let time = t * speed
-            if #available(iOS 18.0, *) {
-                MeshGradient(width: 4, height: 4, points: Self.points(time),
-                             colors: Self.meshColors(time, palette: palette, base: base, k: k),
-                             background: Self.color(base), smoothsColors: true,
-                             colorSpace: .perceptual)
-            } else {
-                Self.soft(time, palette: palette, base: base, k: k)
+        GeometryReader { geo in
+            let size = geo.size
+            NewLookClock(fps: 30, stillAt: 37, running: moving) { t in
+                Canvas(rendersAsynchronously: true) { context, canvas in
+                    Self.draw(&context, size: canvas, t: t * speed, palette: palette, k: k)
+                }
+                .frame(width: max(size.width / 3, 1), height: max(size.height / 3, 1))
+                .scaleEffect(3, anchor: .topLeading)
             }
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
         }
+        .background(colors.background)
+        .clipped()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 
-    /// The 16 points: a grid, the corners fixed, the edge points sliding a little along their
-    /// edge, the inner ones drifting a little. Never more than a third of a cell, so no two
-    /// points can meet and the field cannot fold.
-    static func points(_ t: Double) -> [SIMD2<Float>] {
-        var out: [SIMD2<Float>] = []
-        out.reserveCapacity(16)
-        for row in 0..<4 {
-            for col in 0..<4 {
-                var x = Double(col) / 3
-                var y = Double(row) / 3
-                let i = Double(row * 4 + col)
-                let edgeX = col == 0 || col == 3
-                let edgeY = row == 0 || row == 3
-                if edgeX && edgeY {
-                    // A corner stays put.
-                } else if edgeY {
-                    x += 0.06 * sin(t * 0.23 + i * 1.7)
-                } else if edgeX {
-                    y += 0.06 * sin(t * 0.19 + i * 1.3)
-                } else {
-                    x += 0.09 * sin(t * 0.21 + i * 2.1)
-                    y += 0.09 * cos(t * 0.17 + i * 1.6)
-                }
-                out.append(SIMD2<Float>(Float(x), Float(y)))
-            }
-        }
-        return out
-    }
-
-    /// The colour at each point: the swirl colours travelling across the page (see the note
-    /// above), with drifting darker pockets, mixed into the background by the strength.
-    static func meshColors(_ t: Double, palette: [NewLookHSV], base: SIMD3<Double>,
-                           k: Double) -> [Color] {
-        var out: [Color] = []
-        out.reserveCapacity(16)
-        for row in 0..<4 {
-            for col in 0..<4 {
-                let i = Double(row * 4 + col)
-                let x = Double(col) / 3, y = Double(row) / 3
-                out.append(color(fieldColor(t, x: x, y: y, seed: i, palette: palette,
-                                            base: base, k: k)))
-            }
-        }
-        return out
-    }
-
-    /// One place on the page at time `t` (x and y from 0 to 1).
-    static func fieldColor(_ t: Double, x: Double, y: Double, seed i: Double,
-                           palette: [NewLookHSV], base: SIMD3<Double>, k: Double) -> SIMD3<Double> {
-        guard !palette.isEmpty else { return base }
-        // How far along the colours this place is: the same for the whole page, moving with
-        // time, plus a little more down and to the right (the bands), plus a slow wobble.
-        let along = t / stepSeconds + 0.75 * x + 0.55 * y + 0.22 * sin(t * 0.11 + i * 1.9)
+    static func draw(_ context: inout GraphicsContext, size: CGSize, t: Double,
+                     palette: [Color], k: Double) {
         let n = palette.count
-        let whole = Int(along.rounded(.down))
-        let a = palette[((whole % n) + n) % n]
-        let b = palette[(((whole + 1) % n) + n) % n]
-        let f = along - Double(whole)
-        let c = NewLookHSV.mix(a, b, f * f * (3 - 2 * f)).rgb
-        // Darker pockets drifting through, and the corners a touch quieter.
-        let shade = 0.74 + 0.26 * (0.5 + 0.5 * sin(t * 0.27 + i * 2.3))
-        let edge = (x == 0 || x == 1) && (y == 0 || y == 1) ? 0.85 : 1
-        let amount = k * edge
-        return base + (c * shade - base) * amount
-    }
+        guard n > 0, size.width > 0, size.height > 0 else { return }
+        let w = Double(size.width), h = Double(size.height)
+        let bands = n <= 3 ? n * 2 : n
+        let unit = min(w, h)
+        let baseAngle = -0.6 + 0.5 * sin(t * 2 * Double.pi / 50)
+        let cx = w / 2, cy = h / 2
+        let half0 = unit * 0.17
+        let blur = unit * 0.075
+        let margin = half0 * 1.15 + unit * 0.24 + 2.5 * blur
+        let opacity = 0.35 + 0.6 * k
+        let flow = t / 30
+        let samples = 48
 
-    /// Before iOS 18: the same field as soft glows of each point's colour, blurred together.
-    static func soft(_ t: Double, palette: [NewLookHSV], base: SIMD3<Double>, k: Double) -> some View {
-        GeometryReader { geo in
-            let size = geo.size
-            Canvas(rendersAsynchronously: true) { context, canvas in
-                let w = Double(canvas.width), h = Double(canvas.height)
-                context.addFilter(.blur(radius: CGFloat(max(w, h) * 0.12)))
-                let pts = points(t)
-                for (index, p) in pts.enumerated() {
-                    let x = Double(index % 4) / 3, y = Double(index / 4) / 3
-                    let c = fieldColor(t, x: x, y: y, seed: Double(index), palette: palette,
-                                       base: base, k: k)
-                    let r = max(w, h) * 0.34
-                    let cx = Double(p.x) * w, cy = Double(p.y) * h
-                    context.fill(Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r)),
-                                 with: .radialGradient(Gradient(colors: [color(c), color(c).opacity(0)]),
-                                                       center: CGPoint(x: cx, y: cy),
-                                                       startRadius: 0, endRadius: CGFloat(r)))
-                }
+        for j in 0..<bands {
+            let fj = Double(j)
+            let c = palette[j % n]
+            // Its own lean, swinging slowly, so the ribbons weave across each other.
+            let angle = baseAngle + 0.42 * sin(t * 0.07 + fj * 2.4)
+            let dx = cos(angle), dy = sin(angle)
+            let nx = -dy, ny = dx
+            let across = abs(w * nx) + abs(h * ny)
+            let along = abs(w * dx) + abs(h * dy)
+            let span = across + 2 * margin
+            // Evenly spaced across the page, drifting, wrapping round.
+            let offset = (newLookFrac(fj / Double(bands) + flow) - 0.5) * span
+
+            var path = Path()
+            var rightSide: [CGPoint] = []
+            rightSide.reserveCapacity(samples + 1)
+            for i in 0...samples {
+                let s = Double(i) / Double(samples)
+                let u = (s - 0.5) * (along + 2 * margin)
+                let ph = 2 * Double.pi * s
+                let wave = unit * (0.17 * sin(ph * 1.15 + t * (0.45 + 0.09 * fj) + fj * 1.7)
+                                   + 0.07 * sin(ph * 2.4 - t * (0.33 + 0.06 * fj) + fj * 0.9))
+                let bow = unit * 0.25 * sin(Double.pi * s) * sin(t * 0.09 + 0.5)
+                let half = half0 * (0.7 + 0.45 * (0.5 + 0.5 * sin(ph * 1.9 + t * 0.35 + fj * 2.3)))
+                let px = cx + dx * u + nx * (offset + wave + bow)
+                let py = cy + dy * u + ny * (offset + wave + bow)
+                let left = CGPoint(x: px + nx * half, y: py + ny * half)
+                rightSide.append(CGPoint(x: px - nx * half, y: py - ny * half))
+                if i == 0 { path.move(to: left) } else { path.addLine(to: left) }
             }
-            .frame(width: max(size.width / 4, 1), height: max(size.height / 4, 1))
-            .scaleEffect(4, anchor: .topLeading)
-            .frame(width: size.width, height: size.height, alignment: .topLeading)
+            for point in rightSide.reversed() { path.addLine(to: point) }
+            path.closeSubpath()
+
+            // A wide faint glow, then the ribbon, each softened.
+            var halo = context
+            halo.addFilter(.blur(radius: CGFloat(blur * 2.6)))
+            halo.fill(path, with: .color(c.opacity(opacity * 0.35)))
+            var ribbon = context
+            ribbon.addFilter(.blur(radius: CGFloat(blur)))
+            ribbon.fill(path, with: .color(c.opacity(opacity)))
         }
-        .background(color(base))
-        .clipped()
     }
 
     static func color(_ v: SIMD3<Double>) -> Color {

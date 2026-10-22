@@ -302,22 +302,22 @@ final class NewLookColors: ObservableObject {
     /// pinks and magentas.
     var swirlRGB: [SIMD3<Double>] {
         let hexes: [String]
+        // One colour per ribbon (NewLookSwirl), each clearly its own.
         if swirlSource == .rainbow {
-            // Six colours round the whole wheel, starting from the accent's own.
+            // Four colours round the whole wheel, starting from the accent's own.
             let start = Self.hsb(hex: Self.stops(accentHex ?? Self.defaultAccent)[0]).0
-            hexes = (0..<6).map { Self.hex(h: newLookWrap(start + Double($0) / 6), s: 0.78, b: 0.95) }
+            hexes = (0..<4).map { Self.hex(h: newLookWrap(start + Double($0) / 4), s: 0.72, b: 0.95) }
         } else if swirlSource == .own, let swirlHex {
-            // The player's own two or three, and a deep one of the first for depth.
-            let own = Self.stops(swirlHex)
-            hexes = own + [Self.shiftedHue(own[0], by: 0.035), Self.dimmed(own[0], by: 0.45)]
+            // Exactly the player's own two or three.
+            hexes = Self.stops(swirlHex)
         } else {
+            // The accent's colours, and a third a little further round the wheel, so there are
+            // three ribbons that differ (gold: light gold, deep gold, orange).
             let stops = Self.stops(accentHex ?? Self.defaultAccent)
             let first = stops[0]
-            let second = stops.count > 1 ? stops[1] : Self.shiftedHue(first, by: -0.05)
-            // Neighbours a little round the wheel either way, so the colours visibly mix but
-            // stay the accent's family (gold stays warm: ambers and oranges, not greens).
-            hexes = [first, second, Self.shiftedHue(second, by: -0.06),
-                     Self.shiftedHue(first, by: 0.05), Self.dimmed(first, by: 0.55)]
+            let second = stops.count > 1 ? stops[1] : Self.shiftedHue(first, by: -0.07)
+            let third = Self.shiftedHue(second, by: stops.count > 1 ? 0.09 : -0.07)
+            hexes = [first, second, third]
         }
         return hexes.map { hex in
             let (r, g, b) = Self.components(hex: hex)

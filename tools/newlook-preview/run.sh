@@ -82,11 +82,15 @@ shoot() {
   sleep 4
   limit 60 xcrun simctl io "$UDID" screenshot --type=png "$OUT/$name-later.png"
 }
-# film NAME ACCENT SWIRL: ten seconds of the background alone, as a video.
+# film NAME ACCENT SWIRL [OWN]: ten seconds of the background alone, as a video.
 film() {
-  local name=$1 accent=$2 swirl=$3
+  local name=$1 accent=$2 swirl=$3 own=${4:-}
   limit 30 xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
-  limit 60 xcrun simctl launch "$UDID" "$BUNDLE_ID" -page bg -accent "$accent" -swirl "$swirl"
+  if [ -n "$own" ]; then
+    limit 60 xcrun simctl launch "$UDID" "$BUNDLE_ID" -page bg -accent "$accent" -own "$own"
+  else
+    limit 60 xcrun simctl launch "$UDID" "$BUNDLE_ID" -page bg -accent "$accent" -swirl "$swirl"
+  fi
   sleep 4
   echo "==> film $name"
   xcrun simctl io "$UDID" recordVideo --codec=h264 --force "$OUT/$name.mp4" &
@@ -97,7 +101,7 @@ film() {
   wait "$rec" 2>/dev/null || true
 }
 film bg-purple A66BFF-FF5FB0 accent
-film bg-rainbow A66BFF-FF5FB0 rainbow
+film bg-own3 A66BFF-FF5FB0 own A66BFF-FF5FB0-3CD278
 film bg-gold FFD66B-F2B233 accent
 shoot home-purple home A66BFF-FF5FB0
 shoot home home
