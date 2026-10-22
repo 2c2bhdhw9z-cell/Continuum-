@@ -311,12 +311,13 @@ final class NewLookColors: ObservableObject {
             // Exactly the player's own two or three.
             hexes = Self.stops(swirlHex)
         } else {
-            // The accent's colours, and a third a little further round the wheel, so there are
-            // three ribbons that differ (gold: light gold, deep gold, orange).
+            // The accent's colours, and a third a little further round the wheel the warm way,
+            // so there are three ribbons that differ and stay one family (gold: light gold, deep
+            // gold, orange; purple and pink: purple, pink, violet blue).
             let stops = Self.stops(accentHex ?? Self.defaultAccent)
             let first = stops[0]
-            let second = stops.count > 1 ? stops[1] : Self.shiftedHue(first, by: -0.07)
-            let third = Self.shiftedHue(second, by: stops.count > 1 ? 0.09 : -0.07)
+            let second = stops.count > 1 ? stops[1] : Self.shiftedHue(first, by: -0.06)
+            let third = Self.shiftedHue(first, by: stops.count > 1 ? -0.08 : -0.12)
             hexes = [first, second, third]
         }
         return hexes.map { hex in

@@ -61,7 +61,8 @@ struct NewLookClock<Content: View>: View {
 ///   wavy band across the whole page with a faint glow round it and the dark page between bands.
 /// - The ribbons are spaced evenly across the page and all drift the same way, wrapping round, so
 ///   every colour is always on screen (measured in a prototype: each of three colours covers 9 to
-///   21% of the screen in every frame, the dark about 40 to 55%).
+///   21% of the screen in every frame; on the simulator the ribbons were then narrowed until the
+///   dark between them stays well in view).
 /// - Each ribbon leans its own way and swings slowly, so ribbons cross and weave; each waves on
 ///   its own rhythm. Where two cross they are drawn one over the other, softly, never averaged
 ///   into grey.
@@ -104,8 +105,10 @@ struct NewLookSwirl: View {
         let unit = min(w, h)
         let baseAngle = -0.6 + 0.5 * sin(t * 2 * Double.pi / 50)
         let cx = w / 2, cy = h / 2
-        let half0 = unit * 0.17
-        let blur = unit * 0.075
+        // Narrower and less blurred than the prototype: on the phone the blur spreads further, and
+        // at 0.17 / 0.075 the dark between ribbons fell to about 5% of the screen.
+        let half0 = unit * 0.12
+        let blur = unit * 0.045
         let margin = half0 * 1.15 + unit * 0.24 + 2.5 * blur
         let opacity = 0.35 + 0.6 * k
         let flow = t / 30
@@ -146,8 +149,8 @@ struct NewLookSwirl: View {
 
             // A wide faint glow, then the ribbon, each softened.
             var halo = context
-            halo.addFilter(.blur(radius: CGFloat(blur * 2.6)))
-            halo.fill(path, with: .color(c.opacity(opacity * 0.35)))
+            halo.addFilter(.blur(radius: CGFloat(blur * 2.0)))
+            halo.fill(path, with: .color(c.opacity(opacity * 0.22)))
             var ribbon = context
             ribbon.addFilter(.blur(radius: CGFloat(blur)))
             ribbon.fill(path, with: .color(c.opacity(opacity)))
