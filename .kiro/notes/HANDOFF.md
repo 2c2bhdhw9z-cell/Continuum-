@@ -13,6 +13,8 @@ Paste this to start a new chat:
 - `NewLookSwirl` (197fc83): points stay inside their cells (tested: never cross), colours sweep
   across the page in bands, mixed round the colour wheel (`NewLookHSV`), perceptual MeshGradient.
   `NewLookColors.swirlSource`: Accent / Rainbow / My own. Simulator film looked smooth.
+- **Build 207 is the newest install** (`a23d4d9`, 7:08 PM Eastern), checked: 0.8.0 (207), 37
+  emulator files. https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-207-a23d4d9/Continuum-207.ipa
 - Phone checks: TESTING.md "Next install (after 206)".
 
 ## Earlier (22 October 2026, about 4 PM Eastern): swirl back, everything customisable
