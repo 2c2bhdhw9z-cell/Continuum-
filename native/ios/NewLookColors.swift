@@ -302,7 +302,7 @@ final class NewLookColors: ObservableObject {
     /// pinks and magentas.
     var swirlRGB: [SIMD3<Double>] {
         let hexes: [String]
-        // One colour per ribbon (NewLookSwirl), each clearly its own.
+        // One colour per pair of swirling clouds (NewLookSwirl), each clearly its own.
         if swirlSource == .rainbow {
             // Four colours round the whole wheel, starting from the accent's own.
             let start = Self.hsb(hex: Self.stops(accentHex ?? Self.defaultAccent)[0]).0
@@ -312,7 +312,7 @@ final class NewLookColors: ObservableObject {
             hexes = Self.stops(swirlHex)
         } else {
             // The accent's colours, and a third a little further round the wheel the warm way,
-            // so there are three ribbons that differ and stay one family (gold: light gold, deep
+            // so there are three colours that differ and stay one family (gold: light gold, deep
             // gold, orange; purple and pink: purple, pink, violet blue).
             let stops = Self.stops(accentHex ?? Self.defaultAccent)
             let first = stops[0]

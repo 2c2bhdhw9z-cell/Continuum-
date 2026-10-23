@@ -48,27 +48,29 @@ struct NewLookClock<Content: View>: View {
 
 // MARK: - The swirl
 
-/// The page's colours as ribbons that swirl round each other, like Google's Gemini and Manic
-/// EMU (the owner's recording: .kiro/notes/docs/new-look/reference-video-gemini-manic-frames.png).
+/// The page's background: the WHOLE screen in colour, the colours swirling round each other like
+/// stirred paint, like Google's Gemini and Manic EMU (the owner's recording:
+/// .kiro/notes/docs/new-look/reference-video-gemini-manic-frames.png).
 ///
-/// THE OWNER'S BRIEF, after build 207 (22 October 2026): every colour stays visible on screen at
-/// the same time, in tighter ribbon-like waves, with the dark background showing between them,
-/// swirling round each other continuously, never one colour swallowing the whole screen and never
-/// turning muddy where they overlap.
+/// THE OWNER, 22 October 2026: every colour on screen at the same time, swirling round each other
+/// continuously, never one colour over the whole screen, never muddy or grey where they meet, and
+/// NO GAPS: no dark showing between colours, no strips (build 208's ribbons: "all it is is
+/// strips"). Before that: 206's MeshGradient folded into sharp sheets; 207 washed one colour over
+/// the whole screen at a time and went grey where colours met.
 ///
-/// HOW:
-/// - Each colour is two ribbons, half a page apart: soft wavy bands across the whole page with a
-///   faint glow round them and the dark page between bands.
-/// - The ribbons are spaced evenly across the page and all drift the same way, wrapping round, so
-///   every colour is always on screen (measured in a prototype: each of three colours covers 9 to
-///   21% of the screen in every frame; on the simulator the ribbons were then narrowed until the
-///   dark between them stays well in view).
-/// - Each ribbon leans its own way and swings slowly, so ribbons cross and weave; each waves on
-///   its own rhythm. Where two cross, one passes over the other with a thin line of dark between
-///   (the lower one is cut away round the upper), so two colours are never averaged into grey.
-/// - Builds 206 and 207 were a single colour field (MeshGradient): it folded (206), then washed
-///   one colour over the whole screen at a time and went grey where colours met (207).
-/// Drawn at a third of the screen's resolution and scaled up: the ribbons are soft.
+/// HOW (tested in a prototype first, .scratch/rib/field4.py, and in the simulator preview):
+/// - Each colour owns two soft clouds. All the clouds sit evenly round a slowly turning oval, so
+///   the colours swirl round each other and each always has its own share of the screen
+///   (measured: each of three colours is the strongest on 21 to 51% of it). Each cloud also
+///   drifts in and out on its own rhythm, so they pass through the middle at different times.
+/// - Two slow whirlpools wander over the page, turning opposite ways, and twist it; a gentle
+///   wobble on top. The edges between colours curl like stirred paint, in different places.
+/// - Colours mix the way the eye sees colour (Oklab), by brightness, richness and hue, so a mix
+///   is always as rich as the colours that made it: never grey. The hue goes the way round the
+///   colour wheel that stays among the player's colours, and round the oval the clouds follow the
+///   colour wheel there and back, so only neighbours meet (purple into pink, purple into green).
+/// - Worked out on a coarse grid every frame (about 3,600 points), drawn smoothly scaled up and
+///   softened, at a third of the screen's resolution.
 struct NewLookSwirl: View {
     var moving = true
     /// 1 on the library pages; a sheet uses a little less.
@@ -76,14 +78,15 @@ struct NewLookSwirl: View {
     @ObservedObject private var colors = NewLookColors.shared
 
     var body: some View {
-        let palette = colors.swirlRGB.map { Self.color($0) }
+        let palette = NewLookSwirlPalette(colors.swirlRGB)
         let k = min(colors.swirlStrength * strength, 1)
         let speed = colors.swirlSpeed
+        let base = colors.backgroundRGB
         GeometryReader { geo in
             let size = geo.size
             NewLookClock(fps: 30, stillAt: 37, running: moving) { t in
                 Canvas(rendersAsynchronously: true) { context, canvas in
-                    Self.draw(&context, size: canvas, t: t * speed, palette: palette, k: k)
+                    Self.draw(&context, size: canvas, t: t * speed, palette: palette, k: k, base: base)
                 }
                 .frame(width: max(size.width / 3, 1), height: max(size.height / 3, 1))
                 .scaleEffect(3, anchor: .topLeading)
@@ -96,101 +99,184 @@ struct NewLookSwirl: View {
         .accessibilityHidden(true)
     }
 
+    private static let sRGB = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+
     static func draw(_ context: inout GraphicsContext, size: CGSize, t: Double,
-                     palette: [Color], k: Double) {
-        let n = palette.count
-        guard n > 0, size.width > 0, size.height > 0 else { return }
+                     palette: NewLookSwirlPalette, k: Double, base: SIMD3<Double>) {
+        guard size.width > 0, size.height > 0 else { return }
+        let over = NewLookSwirlField.over
+        let (pixels, width, height) = NewLookSwirlField.pixels(
+            t: t, tall: Double(size.height / size.width), palette: palette, k: k, base: base)
+        guard width > 0 else { return }
+        guard let provider = CGDataProvider(data: Data(pixels) as CFData),
+              let image = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+                                  bytesPerRow: width * 4, space: sRGB,
+                                  bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                                  provider: provider, decode: nil, shouldInterpolate: true,
+                                  intent: .defaultIntent)
+        else { return }
+        var soft = context
+        soft.addFilter(.blur(radius: max(size.width / 44, 1)))
         let w = Double(size.width), h = Double(size.height)
-        // Two ribbons of every colour, half a page apart, so while one wraps round off the edge
-        // the other is on screen: no colour ever leaves. (Rainbow had one of each, and in the
-        // prototype each of its four colours vanished for seconds at a time.)
-        let bands = n * 2
-        let unit = min(w, h)
-        let baseAngle = -0.6 + 0.5 * sin(t * 2 * Double.pi / 50)
-        let cx = w / 2, cy = h / 2
-        // Narrower and less blurred than the first prototype: on the phone the blur spreads
-        // further, and at 0.17 / 0.075 the dark between ribbons fell to about 5% of the screen.
-        // More ribbons (Rainbow's eight) are narrower still, so the dark stays about the same.
-        let half0 = unit * 0.12 * min(1, 6 / Double(bands))
-        let blur = unit * 0.045
-        let margin = half0 * 1.15 + unit * 0.24 + 2.5 * blur
-        let opacity = 0.35 + 0.6 * k
-        let flow = t / 30
-        let samples = 48
-
-        // Each ribbon's outline, and a slightly wider one round it for the dark seam.
-        var ribbons: [(path: Path, seam: Path, color: Color)] = []
-        ribbons.reserveCapacity(bands)
-        for j in 0..<bands {
-            let fj = Double(j)
-            // Its own lean, swinging slowly, so the ribbons weave across each other.
-            let angle = baseAngle + 0.42 * sin(t * 0.07 + fj * 2.4)
-            let dx = cos(angle), dy = sin(angle)
-            let nx = -dy, ny = dx
-            let across = abs(w * nx) + abs(h * ny)
-            let along = abs(w * dx) + abs(h * dy)
-            let span = across + 2 * margin
-            // Evenly spaced across the page, drifting, wrapping round.
-            let offset = (newLookFrac(fj / Double(bands) + flow) - 0.5) * span
-
-            var left: [CGPoint] = [], right: [CGPoint] = []
-            var seamLeft: [CGPoint] = [], seamRight: [CGPoint] = []
-            for i in 0...samples {
-                let s = Double(i) / Double(samples)
-                let u = (s - 0.5) * (along + 2 * margin)
-                let ph = 2 * Double.pi * s
-                let wave = unit * (0.17 * sin(ph * 1.15 + t * (0.45 + 0.09 * fj) + fj * 1.7)
-                                   + 0.07 * sin(ph * 2.4 - t * (0.33 + 0.06 * fj) + fj * 0.9))
-                let bow = unit * 0.25 * sin(Double.pi * s) * sin(t * 0.09 + 0.5)
-                let half = half0 * (0.7 + 0.45 * (0.5 + 0.5 * sin(ph * 1.9 + t * 0.35 + fj * 2.3)))
-                let px = cx + dx * u + nx * (offset + wave + bow)
-                let py = cy + dy * u + ny * (offset + wave + bow)
-                left.append(CGPoint(x: px + nx * half, y: py + ny * half))
-                right.append(CGPoint(x: px - nx * half, y: py - ny * half))
-                let wide = half + blur
-                seamLeft.append(CGPoint(x: px + nx * wide, y: py + ny * wide))
-                seamRight.append(CGPoint(x: px - nx * wide, y: py - ny * wide))
-            }
-            ribbons.append((Self.outline(left, right), Self.outline(seamLeft, seamRight),
-                            palette[j % n]))
-        }
-
-        // The faint glows go on the page itself, under every ribbon.
-        for r in ribbons {
-            var halo = context
-            halo.addFilter(.blur(radius: CGFloat(blur * 2.0)))
-            halo.fill(r.path, with: .color(r.color.opacity(opacity * 0.22)))
-        }
-        // The ribbons go on their own layer above. Before each is drawn, the ribbons already there
-        // are softly cut away just round it, so where two cross, one passes cleanly over the other
-        // with a thin line of dark page between: the two colours are never averaged (pink over
-        // green went grey-mauve on the simulator). The cut only touches ribbons, never the page.
-        context.drawLayer { layer in
-            for r in ribbons {
-                var seam = layer
-                seam.blendMode = .destinationOut
-                seam.addFilter(.blur(radius: CGFloat(blur * 0.6)))
-                seam.fill(r.seam, with: .color(.black))
-                var ribbon = layer
-                ribbon.addFilter(.blur(radius: CGFloat(blur)))
-                ribbon.fill(r.path, with: .color(r.color.opacity(opacity)))
-            }
-        }
-    }
-
-    /// A closed shape: along one edge, back along the other.
-    private static func outline(_ left: [CGPoint], _ right: [CGPoint]) -> Path {
-        var path = Path()
-        guard let first = left.first else { return path }
-        path.move(to: first)
-        for point in left.dropFirst() { path.addLine(to: point) }
-        for point in right.reversed() { path.addLine(to: point) }
-        path.closeSubpath()
-        return path
+        soft.draw(Image(decorative: image, scale: 1).interpolation(.high),
+                  in: CGRect(x: -over * w, y: -over * h, width: (1 + 2 * over) * w,
+                             height: (1 + 2 * over) * h))
     }
 
     static func color(_ v: SIMD3<Double>) -> Color {
         Color(red: min(max(v.x, 0), 1), green: min(max(v.y, 0), 1), blue: min(max(v.z, 0), 1))
+    }
+}
+
+/// The swirl's colour maths, apart from the drawing so it can be checked on its own (plain
+/// Foundation, no SwiftUI).
+enum NewLookSwirlField {
+    /// The grid runs this far past every edge (a fraction of the screen), so the softening
+    /// never pulls in an edge.
+    static let over = 0.08
+
+    /// One frame of colour: a small picture (`width` by `height`, red, green, blue and one spare
+    /// byte per point) covering the screen and `over` past each edge. `tall` is the screen's
+    /// height over its width; positions below are in screen widths (x 0 to 1, y 0 to `tall`).
+    static func pixels(t: Double, tall: Double, palette: NewLookSwirlPalette, k: Double,
+                       base: SIMD3<Double>) -> (pixels: [UInt8], width: Int, height: Int) {
+        let n = palette.lightness.count
+        guard n > 0, tall > 0 else { return ([], 0, 0) }
+        let cols = 40
+        let rows = max(Int((Double(cols) * tall).rounded()), 1)
+        let sigma = 0.22, sharp = 1.8
+        let spin = 0.08, wobble = 0.13
+        let mix = 0.35 + 0.6 * k
+
+        // Two whirlpools, turning opposite ways, wandering slowly.
+        let whirls: [(x: Double, y: Double, turn: Double)] = (0..<2).map { v in
+            let fv = Double(v)
+            return (0.5 + 0.28 * sin(t * 0.051 + fv * 2.6),
+                    tall * (0.5 + 0.28 * sin(t * 0.039 + fv * 1.9 + 0.8)),
+                    (v == 0 ? 3.0 : -3.0) * (0.75 + 0.25 * sin(t * 0.11 + fv)))
+        }
+        // The clouds, evenly round a slowly turning oval, each drifting in and out.
+        let cx = 0.5 + 0.05 * sin(t * 0.07), cy = tall * (0.5 + 0.04 * sin(t * 0.053 + 1))
+        let m = palette.ring.count
+        let clouds: [(x: Double, y: Double, colour: Int)] = palette.ring.enumerated().map { item in
+            let fs = Double(item.offset), colour = item.element
+            let angle = t * spin + 2 * Double.pi * fs / Double(m)
+            let reach = 1 + wobble / 0.3 * sin(t * (0.13 + 0.02 * fs) + fs * 2.1)
+            return (cx + 0.30 * reach * cos(angle), cy + 0.31 * tall * reach * sin(angle), colour)
+        }
+        let falloff = 1 / (2 * sigma * sigma)
+
+        let width = cols + 1, height = rows + 1
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        var weight = [Double](repeating: 0, count: n)
+        for j in 0..<height {
+            let y0 = (-over + (1 + 2 * over) * Double(j) / Double(rows)) * tall
+            for i in 0..<width {
+                var qx = -over + (1 + 2 * over) * Double(i) / Double(cols)
+                var qy = y0
+                for whirl in whirls {
+                    let dx = qx - whirl.x, dy = qy - whirl.y
+                    let a = whirl.turn * exp(-(dx * dx + dy * dy) / 0.12)
+                    let ca = cos(a), sa = sin(a)
+                    qx = whirl.x + dx * ca - dy * sa
+                    qy = whirl.y + dx * sa + dy * ca
+                }
+                let px = qx + 0.05 * sin(qy * 3.1 + t * 0.37) + 0.025 * sin(qy * 5.3 - t * 0.29 + 1.3)
+                let py = qy + 0.05 * sin(qx * 2.7 - t * 0.31 + 2.1) + 0.025 * sin(qx * 4.9 + t * 0.23)
+                for c in 0..<n { weight[c] = 0 }
+                for cloud in clouds {
+                    let dx = px - cloud.x, dy = py - cloud.y
+                    weight[cloud.colour] += exp(-(dx * dx + dy * dy) * falloff)
+                }
+                var total = 0.0, l = 0.0, chroma = 0.0, hue = 0.0
+                for c in 0..<n {
+                    let v = pow(weight[c] + 1e-4, sharp)
+                    total += v
+                    l += v * palette.lightness[c]
+                    chroma += v * palette.chroma[c]
+                    hue += v * palette.hue[c]
+                }
+                l /= total; chroma /= total; hue /= total
+                let rgb = NewLookOklab.rgb(SIMD3(l, chroma * cos(hue), chroma * sin(hue)))
+                let out = base * (1 - mix) + rgb * mix
+                let p = (j * width + i) * 4
+                pixels[p] = UInt8(min(max(out.x, 0), 1) * 255 + 0.5)
+                pixels[p + 1] = UInt8(min(max(out.y, 0), 1) * 255 + 0.5)
+                pixels[p + 2] = UInt8(min(max(out.z, 0), 1) * 255 + 0.5)
+            }
+        }
+        return (pixels, width, height)
+    }
+}
+
+/// The swirl's colours, ready to mix: each one's lightness, richness (chroma) and hue in Oklab,
+/// and the order of the clouds round the oval.
+struct NewLookSwirlPalette {
+    var lightness: [Double] = []
+    var chroma: [Double] = []
+    /// In radians, laid out so that mixing two never crosses the widest empty stretch of the
+    /// colour wheel: a mix stays among the player's colours (pink and green meet through purple
+    /// when purple is one of them, not through yellow).
+    var hue: [Double] = []
+    /// The colour of each cloud, in order round the oval: round the colour wheel and back
+    /// (green, purple, pink, pink, purple, green), so colours far apart are never neighbours.
+    var ring: [Int] = []
+
+    init(_ colours: [SIMD3<Double>]) {
+        guard !colours.isEmpty else { return }
+        let labs = colours.map(NewLookOklab.lab)
+        lightness = labs.map(\.x)
+        chroma = labs.map { ($0.y * $0.y + $0.z * $0.z).squareRoot() }
+        let raw = labs.map { atan2($0.z, $0.y) }
+        let order = raw.indices.sorted { raw[$0] < raw[$1] }
+        var cut = 0, widest = -1.0
+        for k in order.indices {
+            var gap = raw[order[(k + 1) % order.count]] - raw[order[k]]
+            if k == order.count - 1 { gap += 2 * Double.pi }
+            if gap > widest { widest = gap; cut = k }
+        }
+        let start = raw[order[(cut + 1) % order.count]]
+        hue = raw.map { value in
+            let d = (value - start).truncatingRemainder(dividingBy: 2 * Double.pi)
+            return start + (d < 0 ? d + 2 * Double.pi : d)
+        }
+        let wheel = hue.indices.sorted { hue[$0] < hue[$1] }
+        ring = wheel + wheel.reversed()
+    }
+}
+
+/// Oklab: colour as the eye sees it (lightness, then two colour axes). Mixing here keeps colours
+/// rich where plain red, green and blue mixing goes grey. (Björn Ottosson's published matrices.)
+enum NewLookOklab {
+    private static func linear(_ c: Double) -> Double {
+        c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+    }
+
+    private static func gamma(_ c: Double) -> Double {
+        let c = min(max(c, 0), 1)
+        return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1 / 2.4) - 0.055
+    }
+
+    /// sRGB (0 to 1 each) to Oklab.
+    static func lab(_ rgb: SIMD3<Double>) -> SIMD3<Double> {
+        let r = linear(rgb.x), g = linear(rgb.y), b = linear(rgb.z)
+        let l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+        let m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+        let s = cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+        return SIMD3(0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+                     1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+                     0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s)
+    }
+
+    /// Oklab to sRGB (0 to 1 each, colours outside the screen's range clipped).
+    static func rgb(_ lab: SIMD3<Double>) -> SIMD3<Double> {
+        let l0 = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z
+        let m0 = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z
+        let s0 = lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z
+        let l = l0 * l0 * l0, m = m0 * m0 * m0, s = s0 * s0 * s0
+        return SIMD3(gamma(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+                     gamma(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+                     gamma(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s))
     }
 }
 
