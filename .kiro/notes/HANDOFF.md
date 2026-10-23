@@ -5,7 +5,23 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (23 October 2026, about 8:30 AM Eastern): console list and cover frames after 211
+## START HERE (23 October 2026, about 7 PM Eastern): box side fixed (not built), bugs to verify
+
+- Owner circled the standing box's side (Doki Doki Panic, Pokemon Silver): a flat strip of another
+  colour stuck on the cover. `NewLookBoxFace` is now a real turned box: front `rotation3DEffect`
+  -18 deg on its trailing edge, side folds back +72 deg from the same edge, perspective 0.2, side in
+  the cover's edge colour (16-34% shade), `NewLookBoxFrontShape` (square corners at the join).
+  Simulator: `docs/new-look/simulator-box-51130ec.jpg` (preview `-page box`, covers fetched by
+  run.sh). NOT BUILT: owner said no new build; goes in the next batch.
+- Bug hunt (owner asked: report, he verifies on the phone, fix nothing yet): Game Hub "Delete
+  this game" has no confirm; auto-save off still resumes the old auto-save (`resumeIfPossible`
+  ignores `autoSavesEnabled`); swirl Accent comes back as My own after relaunch (leftover
+  `swirlHex` + init fallback); filter sliders other than brightness reset every launch
+  (`applyCoreActionPreferences`); select All + Delete takes games in folded console sections;
+  swirl Speed label `%.2g` shows 1.2x for 1.25x; restart after a core setting loses progress when
+  "Pick up where you left off" is off. Waiting on his results.
+
+## Earlier (23 October 2026, about 8:30 AM Eastern): console list and cover frames after 211
 
 - The console bug: `ConsoleSections` rebuilt its groups in `.onChange(of: entries) { _ in rebuild() }`
   reading `entries` from self, which on iOS 16 can be the view from BEFORE the change, so the
