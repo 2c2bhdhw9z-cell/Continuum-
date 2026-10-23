@@ -229,9 +229,12 @@ private struct PreviewHome: View {
     }
 
     private func cardView(_ card: Card) -> some View {
-        let width = NewLookMetrics.cardWidth
-        let height = (width / NewLookMetrics.cardAspect).rounded()
-        let radius = NewLookCoverStyle.radius(width: width)
+        // NewLookGlowCard on a shelf: the row's height, as wide as the art.
+        let base = NewLookMetrics.cardWidth
+        let height = (base / NewLookMetrics.cardAspect).rounded()
+        let aspect = card.image.map { $0.size.width / max($0.size.height, 1) } ?? 0.75
+        let width = min(max(height * aspect, base * 0.6), base * 1.6).rounded()
+        let radius = NewLookCoverStyle.radius(width: min(width, height))
         return NewLookCardFace(width: width, height: height, radius: radius, glow: card.glow,
                                title: card.title, line: card.line) {
             if let image = card.image {

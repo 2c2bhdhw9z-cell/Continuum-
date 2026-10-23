@@ -1094,7 +1094,8 @@ struct LibraryShell: View {
             } else if host.libraryLayout == .consoles {
                 ConsoleSections(entries: shown, host: host, artwork: artwork,
                                 generation: artworkGeneration.value,
-                                bottomClearance: scrollEndClearance + (selection.active ? 60 : 0))
+                                bottomClearance: scrollEndClearance + (selection.active ? 60 : 0),
+                                showsHeaders: !(isNew && looks.librarySystem != nil))
             } else if host.libraryLayout == .grid {
                 gameGrid(shown)
             } else {

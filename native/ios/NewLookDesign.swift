@@ -687,8 +687,15 @@ enum NewLookCoverStyle {
 /// A card in a row, as in the mockup's Jump Back In: the framed cover with its glow, the title,
 /// and one grey line ("Last played: 2d ago").
 struct NewLookCardFace<Backdrop: View, Cover: View>: View {
+    /// The card's width: the titles are this wide.
     let width: CGFloat
+    /// The frame's height.
     let height: CGFloat
+    /// The frame's width when it is narrower than the card (it fits the art). Nil: the card's.
+    var frameWidth: CGFloat?
+    /// The tallest frame in the row. A shorter frame sits at the bottom of it, so the titles of
+    /// a row still line up. Nil: the frame's own height.
+    var slotHeight: CGFloat?
     let radius: CGFloat
     let glow: Color?
     let title: String?
@@ -700,8 +707,9 @@ struct NewLookCardFace<Backdrop: View, Cover: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            NewLookCoverFrame(width: width, height: height, radius: radius, glow: glow,
+            NewLookCoverFrame(width: frameWidth ?? width, height: height, radius: radius, glow: glow,
                               backdrop: backdrop, cover: cover)
+                .frame(width: width, height: slotHeight ?? height, alignment: .bottomLeading)
             if let title {
                 Text(title)
                     .font(.system(size: titleFont, weight: .medium))

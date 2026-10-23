@@ -2890,6 +2890,14 @@ struct CoverArtView: View {
         .task(id: "\(entry.id)#\(generation)") {
             cover = await store.cover(for: entry, system: system)
         }
+        // The shape of the art it is showing, for a frame that fits it (NewLookGlowCard).
+        .preference(key: CoverArtAspectKey.self, value: shownAspect)
+    }
+
+    /// The shown picture's own shape, clamped like `coverAspect`; nil while there is none.
+    private var shownAspect: CGFloat? {
+        guard let image = shown?.image, image.size.width > 0, image.size.height > 0 else { return nil }
+        return min(max(image.size.width / image.size.height, 0.45), 2.2)
     }
 
     /// The cover cropped to fill the frame, over its plate: the old drawing. Blurred, it is the
@@ -2981,6 +2989,16 @@ struct CoverArtView: View {
                         .padding(size.badgeInset)
                 }
             }
+    }
+}
+
+/// The shape (width over height) of the cover art a `CoverArtView` is showing, nil while it shows
+/// its plate. The New look's cards read it so each frame hugs its own art.
+struct CoverArtAspectKey: PreferenceKey {
+    static let defaultValue: CGFloat? = nil
+
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        value = value ?? nextValue()
     }
 }
 

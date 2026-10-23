@@ -1231,6 +1231,9 @@ struct ConsoleSections: View {
     let artwork: ArtworkStore
     let generation: Int
     let bottomClearance: CGFloat
+    /// False when the Library's console tray has one console picked: its games show straight
+    /// away, with no header to fold them away under (build 211 showed only a folded bar there).
+    var showsHeaders = true
 
     @ObservedObject private var prefs = LibraryPrefs.shared
     @ObservedObject private var selection = LibrarySelection.shared
@@ -1242,10 +1245,16 @@ struct ConsoleSections: View {
 
     var body: some View {
         let size = host.libraryCardSize
-        let showsIndex = groups.count >= 3
+        let showsIndex = showsHeaders && groups.count >= 3
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10, pinnedViews: [.sectionHeaders]) {
+                    if !showsHeaders {
+                        ForEach(groups) { group in
+                            grid(group, size: size)
+                                .padding(.bottom, 8)
+                        }
+                    } else {
                     ForEach(groups) { group in
                         Section {
                             if !prefs.folded.contains(group.id) {
@@ -1259,6 +1268,7 @@ struct ConsoleSections: View {
                                 .id(group.id)
                         }
                     }
+                    }
                 }
                 .padding(.trailing, showsIndex ? 30 : 0)
                 .padding(.bottom, bottomClearance)
@@ -1271,13 +1281,16 @@ struct ConsoleSections: View {
                 }
             }
         }
-        .onAppear { rebuild() }
-        .onChange(of: entries) { _ in rebuild() }
-        .onChange(of: prefs.consoleOrder) { _ in rebuild() }
+        .onAppear { rebuild(entries) }
+        // From the value handed in, NOT from `entries`: on iOS 16 this closure can still hold
+        // the view from before the change, so it grouped the previous games, and the Library
+        // showed the console picked before the one just picked (build 211).
+        .onChange(of: entries) { latest in rebuild(latest) }
+        .onChange(of: prefs.consoleOrder) { _ in rebuild(entries) }
     }
 
-    private func rebuild() {
-        groups = Self.group(entries, order: prefs)
+    private func rebuild(_ latest: [LibraryEntry]) {
+        groups = Self.group(latest, order: prefs)
     }
 
     @MainActor

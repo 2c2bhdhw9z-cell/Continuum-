@@ -299,7 +299,8 @@ struct NewLookShelf: View {
                                 ? (PlayHistory.lastPlayedText(history.record(for: entry.name))
                                     ?? GameMetadata.cardLine(for: entry, system: system))
                                 : GameMetadata.cardLine(for: entry, system: system),
-                            frameAspect: NewLookMetrics.cardAspect
+                            frameAspect: NewLookMetrics.cardAspect,
+                            widthFollowsArt: true
                         )
                     }
                 }
@@ -327,23 +328,56 @@ struct NewLookGlowCard: View {
     let cardSize: LibraryCardSize
     let host: EngineHost
     var line: String?
-    /// Width over height of the card's frame, the same for every card in a row. The cover sits
-    /// whole inside it, centred.
+    /// Width over height of the space a card's frame has, the same for every card in a row.
     var frameAspect: CGFloat = 0.8
     /// Ticked in select mode. Nil when not selecting.
     var selected: Bool?
+    /// A shelf: every frame in the row the same height, each as wide as its own art. Otherwise
+    /// (a grid) each frame fits its art inside the card's space.
+    var widthFollowsArt = false
     @State private var pressed = false
+    /// The shape of the art the cover shows, once it is there (`CoverArtAspectKey`).
+    @State private var artAspect: CGFloat?
 
     /// Settings, LOOK, "Square covers": the frame is square, and the cover sits whole in the
     /// middle of it.
     private var square: Bool { NewLookColors.shared.forceSquare }
+    /// The tallest the frame can be.
     private var coverHeight: CGFloat { (width / (square ? 1 : frameAspect)).rounded() }
+
+    /// THE FRAME FITS THE ART (owner, build 211: "boxes don't fit the art"). It was one even
+    /// frame per row with the cover shrunk inside it, so a tall NES box or a wide SNES box had
+    /// bands of dimmed art round it inside the rim. Now the rim and glow go round the art itself:
+    /// on a shelf every frame is the row's height and as wide as its art; in a grid the frame is
+    /// the art's shape, as big as fits the card's space, at the bottom so a row's titles line up.
+    /// Before a cover has loaded, the console's usual box shape. Square covers keeps the square.
+    private var frameSize: CGSize {
+        let tallest = coverHeight
+        if square { return CGSize(width: width, height: tallest) }
+        let cached = store.cachedCover(for: entry).flatMap { cover -> CGFloat? in
+            let size = cover.image.size
+            guard size.width > 0, size.height > 0 else { return nil }
+            return min(max(size.width / size.height, 0.45), 2.2)
+        }
+        let aspect = artAspect ?? cached ?? system?.coverAspect ?? frameAspect
+        if widthFollowsArt {
+            let wide = min(max(tallest * aspect, width * 0.6), width * 1.6)
+            return CGSize(width: wide.rounded(), height: tallest)
+        }
+        if aspect >= width / tallest {
+            return CGSize(width: width, height: (width / aspect).rounded())
+        }
+        return CGSize(width: (tallest * aspect).rounded(), height: tallest)
+    }
 
     var body: some View {
         let theme = NewLookColors.shared
-        let radius = NewLookCoverStyle.radius(width: width)
+        let frame = frameSize
+        let cardWidth = widthFollowsArt && !square ? frame.width : width
+        let radius = NewLookCoverStyle.radius(width: min(frame.width, frame.height))
         NewLookCardFace(
-            width: width, height: coverHeight, radius: radius,
+            width: cardWidth, height: frame.height,
+            frameWidth: frame.width, slotHeight: coverHeight, radius: radius,
             glow: theme.glow(for: system),
             // Settings, LOOK, "Hide titles".
             title: theme.hideTitles ? nil : GameMetadata.displayTitle(for: entry),
@@ -363,9 +397,14 @@ struct NewLookGlowCard: View {
                                                   favouriteStar: isFavourite ? cardSize : nil,
                                                   outline: false)))
         }
+        // The art's shape, as soon as the cover shows it; not passed further up.
+        .onPreferenceChange(CoverArtAspectKey.self) { value in
+            if let value, value != artAspect { artAspect = value }
+        }
+        .transformPreference(CoverArtAspectKey.self) { $0 = nil }
         .overlay(alignment: .topLeading) {
             selectionMark
-                .frame(width: width, height: coverHeight, alignment: .bottomLeading)
+                .frame(width: frame.width, height: coverHeight, alignment: .bottomLeading)
         }
         .contentShape(Rectangle())
         .onTapGesture {
