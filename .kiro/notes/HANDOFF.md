@@ -5,7 +5,22 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (22 October 2026, about 11:15 PM Eastern): header, console picker, Settings after 209
+## START HERE (23 October 2026, about 8:30 AM Eastern): console list and cover frames after 211
+
+- The console bug: `ConsoleSections` rebuilt its groups in `.onChange(of: entries) { _ in rebuild() }`
+  reading `entries` from self, which on iOS 16 can be the view from BEFORE the change, so the
+  Library showed the previously picked console (and folded). Now `rebuild(latest)` from the
+  closure's value. RULE: in onChange, use the new value passed in, never a `let` of the view.
+  With a console picked (New look), `ConsoleSections(showsHeaders: false)`: just the grid.
+- Frames fit the art: `CoverArtView` publishes `CoverArtAspectKey`; `NewLookGlowCard` sizes the
+  frame from it (or the cached cover, or the console's box shape). Shelves (`widthFollowsArt`):
+  row height fixed, width = art (0.6x to 1.6x the base). Grids: art's shape fitted in the cell,
+  bottom-leading (`NewLookCardFace` frameWidth / slotHeight). Square covers unchanged.
+- **Build 212 is the newest install** (`fd0d355`), checked: 0.8.0 (212), 37 emulator files.
+  https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-212-fd0d355/Continuum-212.ipa
+  Phone checks: TESTING.md "after 211".
+
+## Earlier (22 October 2026, about 11:15 PM Eastern): header, console picker, Settings after 209
 
 - Owner on 209: swirl "good enough for now". Deleted his video release (🖕) and its tag.
 - Header: `NewLookHeaderGlass` is gone. `NewLookHeaderFade` (NewLookDesign.swift) masks only

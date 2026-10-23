@@ -1,13 +1,27 @@
 # What to test, and what to tell me
 
-Last updated 22 October 2026, 11:15 PM Eastern. **Build 211** (`dc53d06`) is the newest install:
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-211-dc53d06/Continuum-211.ipa
-Its checks are "Next install (after 209)" just below, then "after 208"; the older sections are history. Do not ask the 192
+Last updated 23 October 2026, 8:30 AM Eastern. **Build 212** (`fd0d355`) is the newest install:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-212-fd0d355/Continuum-212.ipa
+Its checks are "Next install (after 211)" just below; the older sections are history. Do not ask the 192
 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
-## Next install (after 209): header, console picker, Settings
+## Next install (after 211): the picked console's games, frames that fit the art
+
+Owner on 211 ("You didn't fix it"): picking a console in the Library showed the console picked
+BEFORE it, as a folded bar with no games (the console bug he meant). And "boxes don't fit the
+art": every card was one near-square frame with the cover shrunk inside, bands round tall NES and
+wide SNES boxes.
+
+1. Library: pick Nintendo 3DS, then Game Boy Advance, then Game Gear: each time the games of the
+   console just picked show straight away, no folded bar, no other console.
+2. Home shelves: each cover's glowing rim goes right round its own art, no dark bands. Tall boxes
+   (NES, Mega Drive) are narrower cards, wide boxes (SNES) wider cards, all the same height.
+3. Library grid and Favorites: same, each frame the art's own shape; titles in a row line up.
+4. Settings, LOOK, Covers, Square covers on: square frames as before.
+
+## Next install (after 209): header, console picker, Settings (owner: console bug not fixed)
 
 Owner on 209: swirl "good enough for now"; delete his video release (done: release and tag gone);
 "get rid of that weird crap at the top" (he circled the frosted band behind CONTINUUM); every
