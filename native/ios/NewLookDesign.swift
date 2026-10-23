@@ -65,16 +65,22 @@ struct NewLookHeaderFade: View {
     let headerBottom: CGFloat
 
     var body: some View {
+        // Long and eased, not a short step: the glow behind the hero's box art reaches up under
+        // the header at rest, and a short fade cut it off in a straight line.
         VStack(spacing: 0) {
-            Color.clear.frame(height: max(headerBottom - 10, 0))
-            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                .frame(height: 14)
+            Color.clear.frame(height: max(headerBottom - 30, 0))
+            LinearGradient(stops: [.init(color: .clear, location: 0),
+                                   .init(color: .black.opacity(0.25), location: 0.55),
+                                   .init(color: .black, location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 40)
             Color.black
         }
         .ignoresSafeArea()
     }
 
-    /// The fade as a mask, only in the New look (the Current look is drawn as it always was).
+    /// The fade as a mask. Only on Home: it is the one page that scrolls under the header (the
+    /// others start below it), and a mask costs a drawing pass.
     struct Mask: ViewModifier {
         let enabled: Bool
         let headerBottom: CGFloat

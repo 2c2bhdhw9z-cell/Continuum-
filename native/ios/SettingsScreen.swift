@@ -277,7 +277,7 @@ struct SettingsScreen: View {
         return "On. The pad hides once a controller connects."
     }
 
-    /// The one plain line GAME CONTROLLERS keeps. The full read-out is in TECHNICAL DETAILS.
+    /// The one plain line CONTROLLERS AND ONLINE PLAY starts with. The full read-out is in TECHNICAL DETAILS.
     private var controllerCountLine: String {
         switch controllers.playablePads {
         case 0: return "No controller connected"
@@ -516,7 +516,7 @@ struct SettingsScreen: View {
             TechnicalReadoutGroup(title: "ONLINE PLAY") {
                 OnlinePlayReadouts(netplay: host.netplay)
             }
-            TechnicalReadoutGroup(title: "CONTROLLERS, MAPPING AND MOTION") {
+            TechnicalReadoutGroup(title: "MAPPING AND MOTION") {
                 InputExtrasReadouts(extras: host.inputExtras)
             }
         }
@@ -530,7 +530,7 @@ struct SettingsScreen: View {
             TechnicalReadoutGroup(title: "SPEED AND REWIND") {
                 SettingsReadout(label: "Rewind holds", value: emulation.rewindReadout)
             }
-            TechnicalReadoutGroup(title: "GAME CONTROLLERS") {
+            TechnicalReadoutGroup(title: "CONTROLLERS") {
                 SettingsReadout(label: "Attached", value: controllers.summary)
             }
             TechnicalReadoutGroup(title: "ON-SCREEN CONTROLS") {

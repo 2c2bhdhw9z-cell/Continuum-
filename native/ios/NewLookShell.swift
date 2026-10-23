@@ -245,6 +245,9 @@ struct NewLookHome: View {
             .padding(.top, topPadding + 4)
         }
         .ignoresSafeArea(edges: .top)
+        // What scrolls up fades out under the header, so a title never shows through CONTINUUM;
+        // nothing is painted behind the header.
+        .modifier(NewLookHeaderFade.Mask(enabled: true, headerBottom: topPadding - 6))
         .onAppear { rebuild() }
         .onChange(of: host.library) { _ in rebuild() }
         .onChange(of: host.gameArrivals) { _ in rebuild() }

@@ -175,6 +175,8 @@ private struct PreviewHome: View {
                 .padding(.top, topPadding + 4)
             }
             .ignoresSafeArea(edges: .top)
+            // NewLookHome: what scrolls up fades out under the header; nothing behind it.
+            .modifier(NewLookHeaderFade.Mask(enabled: true, headerBottom: topPadding - 6))
             .onAppear {
                 guard page == .scrolled else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -182,8 +184,6 @@ private struct PreviewHome: View {
                 }
             }
             }
-            // LibraryShell: the page fades out under the header; nothing is painted behind it.
-            .mask { NewLookHeaderFade(headerBottom: 52 + max(insets.top, 8)) }
 
             header
             VStack(spacing: 0) {

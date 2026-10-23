@@ -444,10 +444,6 @@ struct LibraryShell: View {
 
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                // The New look: a title scrolling up fades out just under the header, so it
-                // never shows through CONTINUUM, and nothing is painted behind the header.
-                .modifier(NewLookHeaderFade.Mask(enabled: isNew,
-                                                 headerBottom: topBarHeight + max(metrics.insets.top, 8)))
 
             VStack(spacing: 0) {
                 topBar
@@ -568,7 +564,9 @@ struct LibraryShell: View {
         .frame(height: topBarHeight)
         .padding(.top, max(metrics.insets.top, 8))
         // Nothing behind it: the background runs to the top of the screen, and what scrolls up
-        // fades out before it reaches the header (`NewLookHeaderFade` on `content`).
+        // on Home fades out before it reaches the header (`NewLookHeaderFade`, NewLookHome). The
+        // whole header takes taps, so a card faded out under it cannot be opened by mistake.
+        .contentShape(Rectangle())
     }
 
     private var currentTopBar: some View {
@@ -1112,12 +1110,15 @@ struct LibraryShell: View {
             }
         }
         .confirmationDialog(
-            selection.picked.count == 1 ? "Delete 1 game?" : "Delete \(selection.picked.count) games?",
+            selection.picked(in: shown).count == 1
+                ? "Delete 1 game?" : "Delete \(selection.picked(in: shown).count) games?",
             isPresented: $confirmingDelete,
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
-                let ids = selection.picked
+                // Only the ticked games on screen: a search typed after ticking hides some, and
+                // those must never go with them.
+                let ids = selection.picked(in: shown)
                 selection.active = false
                 host.deleteEntries(at: host.indices(matching: ids))
             }
@@ -1139,7 +1140,7 @@ struct LibraryShell: View {
 
     /// The bar over the tabs in select mode: all or none, favourite, delete.
     private func selectionBar(_ shown: [LibraryEntry]) -> some View {
-        let count = selection.picked.count
+        let count = selection.picked(in: shown).count
         let allPicked = count == shown.count && count > 0
         return HStack(spacing: 10) {
             Button(allPicked ? "None" : "All") {
@@ -1158,7 +1159,7 @@ struct LibraryShell: View {
                 .frame(maxWidth: .infinity)
 
             Button {
-                favouritePicked()
+                favouritePicked(shown)
             } label: {
                 Image(systemName: "star")
                     .font(.system(size: 17, weight: .semibold))
@@ -1188,9 +1189,10 @@ struct LibraryShell: View {
         .padding(.horizontal, 14)
     }
 
-    /// Stars every picked game, or, when they are all starred already, unstars them.
-    private func favouritePicked() {
-        let picked = host.library.filter { selection.picked.contains($0.id) }
+    /// Stars every picked game on screen, or, when they are all starred already, unstars them.
+    private func favouritePicked(_ shown: [LibraryEntry]) {
+        let ids = selection.picked(in: shown)
+        let picked = shown.filter { ids.contains($0.id) }
         let allStarred = picked.allSatisfy { host.favourites.contains($0.name) }
         for entry in picked where host.favourites.contains(entry.name) == allStarred {
             host.toggleFavourite(entry)

@@ -679,7 +679,7 @@ final class PhysicalControllers: ObservableObject {
         guard let first = pads.first else {
             guard attached.isEmpty else {
                 return "something is attached but it cannot be read as a game pad; "
-                    + "see Settings, game controllers"
+                    + "see Settings, controllers and online play"
             }
             return "no controller attached; the on-screen pad has port 0 to itself"
         }

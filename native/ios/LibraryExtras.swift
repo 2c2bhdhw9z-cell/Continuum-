@@ -157,6 +157,12 @@ final class LibrarySelection: ObservableObject {
         }
     }
 
+    /// The ticked games among `entries` (what the page shows): a search or another console can
+    /// hide ticked games, and nothing is done to a game the player cannot see.
+    func picked(in entries: [LibraryEntry]) -> Set<String> {
+        picked.intersection(entries.map(\.id))
+    }
+
     func pickAll(_ entries: [LibraryEntry]) {
         picked = Set(entries.map(\.id))
     }
