@@ -22,6 +22,8 @@ Paste this to start a new chat:
   - Pace 1.5x inside `pixels` (at 1x it barely moved in a 10-second film). Speed setting on top.
 - Prototype: `.scratch/rib/field4.py` (not in the repo). Simulator film:
   `docs/new-look/simulator-colour-swirl-0e329b6.jpg`. Phone checks: TESTING.md "after 208".
+- **Build 209 is the newest install** (`8cf645e`, 9:54 PM Eastern), checked: 0.8.0 (209), 37
+  emulator files. https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-209-8cf645e/Continuum-209.ipa
 
 ## Earlier (22 October 2026, about 8:15 PM Eastern): colour ribbons after 207 (rejected: "strips")
 
