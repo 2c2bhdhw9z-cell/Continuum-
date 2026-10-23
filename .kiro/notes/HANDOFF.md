@@ -21,6 +21,8 @@ Paste this to start a new chat:
 - Preview films purple, his own three, gold and Rainbow (retries an empty film). Prototype maths:
   every colour on screen in every frame, dark 28 to 51%, no grey. Picture:
   `docs/new-look/simulator-ribbons-1df1a18.jpg`.
+- **Build 208 is the newest install** (`507cd4d`, 8:24 PM Eastern), checked: 0.8.0 (208), 37
+  emulator files. https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-208-507cd4d/Continuum-208.ipa
 - Phone checks: TESTING.md "Next install (after 207)".
 
 ## Earlier (22 October 2026, about 6:45 PM Eastern): how the colours mix

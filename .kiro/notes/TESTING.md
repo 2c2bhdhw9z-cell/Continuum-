@@ -1,8 +1,8 @@
 # What to test, and what to tell me
 
-Last updated 22 October 2026, 7:10 PM Eastern. **Build 207** (`a23d4d9`) is the newest install:
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-207-a23d4d9/Continuum-207.ipa
-Its checks are "Next install (after 206)" just below, then "after 205" and "after 204". Do not ask the 192
+Last updated 22 October 2026, 8:25 PM Eastern. **Build 208** (`507cd4d`) is the newest install:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-208-507cd4d/Continuum-208.ipa
+Its checks are "Next install (after 207)" just below, then "after 206", "after 205" and "after 204". Do not ask the 192
 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.

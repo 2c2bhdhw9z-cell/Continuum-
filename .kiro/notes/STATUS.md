@@ -77,7 +77,7 @@ look unchanged, five bugs and several speed risks to fix (listed in HANDOFF.md "
 October"). GameCube (`tasks/gamecube.json`) has not been started.
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-22 October 2026. **Build 207** (`a23d4d9`) is the newest published install. Next: the New-look
+22 October 2026. **Build 208** (`507cd4d`) is the newest published install: the New-look
 background as colour ribbons (every colour on screen at once, dark between, clean crossings),
 HANDOFF.md "START HERE, 8:15 PM".
 What the phone has passed since 185 is in "Next up" at the top and in TESTING.md. The paragraphs
