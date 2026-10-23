@@ -16,6 +16,9 @@ Paste this to start a new chat:
   frame from it (or the cached cover, or the console's box shape). Shelves (`widthFollowsArt`):
   row height fixed, width = art (0.6x to 1.6x the base). Grids: art's shape fitted in the cell,
   bottom-leading (`NewLookCardFace` frameWidth / slotHeight). Square covers unchanged.
+- OWNER ON 212: the folded bar alone was fine; showing the games straight away (`showsHeaders:
+  false`) was NOT asked for. Nothing changed yet and no build for it: only if he says so, and
+  then in the next batch, never a build of its own. Owner rule 16.
 - **Build 212 is the newest install** (`fd0d355`), checked: 0.8.0 (212), 37 emulator files.
   https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-212-fd0d355/Continuum-212.ipa
   Phone checks: TESTING.md "after 211".
