@@ -457,10 +457,11 @@ struct NewLookBoxFace<Placeholder: View>: View {
         return fallbackAspect
     }
 
-    /// How far the box is turned to show its right side, as in the mockup.
-    private static let yaw = 18.0
+    /// How far the box is turned to show its right side, as in the mockup. (Computed: a generic
+    /// view cannot hold a stored static.)
+    private static var yaw: Double { 18 }
     /// How strong the perspective is: the far edge a few percent shorter, as in the mockup.
-    private static let perspective: CGFloat = 0.2
+    private static var perspective: CGFloat { 0.2 }
 
     var body: some View {
         // Fit the front and its side inside the frame, a little smaller than the frame so the
