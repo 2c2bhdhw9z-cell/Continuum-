@@ -24,6 +24,8 @@ private enum Page: String {
     case home, empty, scrolled
     /// The page background alone, full screen, to film how its colours mix.
     case bg
+    /// The standing box (NewLookBoxFace) close up, with real covers run.sh downloads.
+    case box
 }
 
 private func argument(_ name: String) -> String? {
@@ -82,12 +84,38 @@ struct PreviewRoot: View {
         GeometryReader { geo in
             if page == .bg {
                 NewLookPage().ignoresSafeArea()
+            } else if page == .box {
+                PreviewBoxes()
             } else {
                 PreviewHome(insets: geo.safeAreaInsets, empty: page == .empty)
             }
         }
         .preferredColorScheme(.dark)
         .statusBarHidden(false)
+    }
+}
+
+/// Two real covers as standing boxes at Home's hero size, then twice that, to see the side.
+private struct PreviewBoxes: View {
+    private let covers = ["box-doki.png", "box-silver.png"].compactMap { Art.file($0) }
+
+    var body: some View {
+        VStack(spacing: 30) {
+            HStack(spacing: 0) {
+                ForEach(covers.indices, id: \.self) { i in
+                    NewLookBoxFace(image: covers[i], maxWidth: NewLookMetrics.heroArt.width,
+                                   maxHeight: NewLookMetrics.heroArt.height) { Color.gray }
+                }
+            }
+            ForEach(covers.indices, id: \.self) { i in
+                NewLookBoxFace(image: covers[i], maxWidth: NewLookMetrics.heroArt.width,
+                               maxHeight: NewLookMetrics.heroArt.height) { Color.gray }
+                    .scaleEffect(1.8)
+                    .frame(height: 340)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(red: 0.94, green: 0.47, blue: 0.12))
     }
 }
 

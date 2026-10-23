@@ -457,25 +457,47 @@ struct NewLookBoxFace<Placeholder: View>: View {
         return fallbackAspect
     }
 
+    /// How far the box is turned to show its right side, as in the mockup.
+    private static let yaw = 18.0
+    /// How strong the perspective is: the far edge a few percent shorter, as in the mockup.
+    private static let perspective: CGFloat = 0.2
+
     var body: some View {
         // Fit the front and its side inside the frame, a little smaller than the frame so the
         // turn never pushes a corner out of it.
         let room = CGSize(width: maxWidth * 0.94 - depth, height: maxHeight * 0.94)
         let frontWidth = min(room.width, room.height * aspect).rounded()
         let frontHeight = (frontWidth / aspect).rounded()
-        HStack(spacing: 0) {
+        let yaw = Self.yaw * Double.pi / 180
+        // The side's real depth, so that turned it shows `depth` points.
+        let sideDepth = depth / CGFloat(sin(yaw))
+        let shape = NewLookBoxFrontShape(radius: 3)
+        // A REAL BOX, turned (owner, build 212, circled the side twice): the front turns on its
+        // right edge so its left edge goes back, and the side folds back from that same edge,
+        // square to the front, both in the same perspective. They meet in one sharp edge, the
+        // nearest and tallest part of the box, as in the mockup. Build 205 to 212 drew a flat
+        // front with a flat strip stuck on its right: a slab of another colour, not a side.
+        ZStack(alignment: .leading) {
             front
                 .frame(width: frontWidth, height: frontHeight)
-                .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                .clipShape(shape)
                 .overlay(
                     // A soft sheen from the top left, so the front reads as printed card.
                     LinearGradient(colors: [.white.opacity(0.16), .clear, .black.opacity(0.10)],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
-                        .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                        .clipShape(shape)
                 )
+                .rotation3DEffect(.radians(-yaw), axis: (x: 0, y: 1, z: 0),
+                                  anchor: .trailing, perspective: Self.perspective)
             side
-                .frame(width: depth, height: frontHeight)
+                .frame(width: sideDepth, height: frontHeight)
+                .rotation3DEffect(.radians(Double.pi / 2 - yaw), axis: (x: 0, y: 1, z: 0),
+                                  anchor: .leading, perspective: Self.perspective)
+                .offset(x: frontWidth)
         }
+        .frame(width: frontWidth, height: frontHeight, alignment: .leading)
+        // Centred on what shows: the turned front is narrower, and the side sticks out right.
+        .offset(x: -(frontWidth * CGFloat(1 - cos(yaw)) + depth) / 2)
         .rotationEffect(.degrees(turn))
         .shadow(color: .black.opacity(0.6), radius: 14, x: -4, y: 12)
         .frame(width: maxWidth, height: maxHeight)
@@ -495,16 +517,42 @@ struct NewLookBoxFace<Placeholder: View>: View {
         }
     }
 
-    /// The box's right side: one solid colour, the cover's own right edge averaged and shaded,
-    /// narrowing as it goes back. (Build 205 drew a squeezed copy of the picture there, which read
-    /// as a duplicated strip of the cover; the owner circled it.)
+    /// The box's right side, square to the front (the perspective narrows it going back): one
+    /// colour, the cover's own right edge, a little in shadow and darker towards the back, with a
+    /// faint light on the edge it shares with the front. (Build 205 drew a squeezed copy of the
+    /// picture there; build 206 to 212 a strip darkened by up to 60%, a slab of another colour.)
     private var side: some View {
-        let edge = image.map(NewLookBoxEdge.edgeColor(of:)) ?? UIColor(white: 0.3, alpha: 1)
-        return LinearGradient(colors: [Color(uiColor: edge).opacity(0.95), Color(uiColor: edge)],
-                              startPoint: .leading, endPoint: .trailing)
-            .overlay(LinearGradient(colors: [.black.opacity(0.35), .black.opacity(0.6)],
+        let edge = Color(uiColor: image.map(NewLookBoxEdge.edgeColor(of:)) ?? UIColor(white: 0.3, alpha: 1))
+        return edge
+            .overlay(LinearGradient(colors: [.black.opacity(0.16), .black.opacity(0.34)],
                                     startPoint: .leading, endPoint: .trailing))
-            .clipShape(NewLookBoxSide(inset: depth * 0.55))
+            .overlay(alignment: .leading) {
+                LinearGradient(colors: [.white.opacity(0.22), .clear],
+                               startPoint: .leading, endPoint: .trailing)
+                    .frame(width: 3)
+            }
+    }
+}
+
+/// The front of the box: its two outer corners rounded a little, its two corners on the edge it
+/// shares with the side square, so the side meets it with no notch. (iOS 16 has no shape with
+/// different corners.)
+struct NewLookBoxFrontShape: Shape {
+    var radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let r = min(radius, rect.width / 2, rect.height / 2)
+        var path = Path()
+        path.move(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+        path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY - r),
+                          control: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + r, y: rect.minY),
+                          control: CGPoint(x: rect.minX, y: rect.minY))
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -536,21 +584,6 @@ enum NewLookBoxEdge {
         }
         edgeColors.setObject(result, forKey: image)
         return result
-    }
-}
-
-/// The side of a box, narrowing as it goes back.
-struct NewLookBoxSide: Shape {
-    var inset: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + inset))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - inset))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.closeSubpath()
-        return path
     }
 }
 

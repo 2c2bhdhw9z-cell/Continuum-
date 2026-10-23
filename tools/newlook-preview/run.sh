@@ -37,6 +37,12 @@ xcrun --sdk iphonesimulator swiftc -parse-as-library -swift-version 5 -O \
   -o "$APP/NewLookPreview"
 cp "$HERE/Info.plist" "$APP/Info.plist"
 cp "$ROOT/.kiro/notes/docs/new-look/mockup-home.jpg" "$APP/"
+# Two real covers for the box close-up (-page box), fetched here, never kept in the repo.
+TN="https://thumbnails.libretro.com"
+curl -sSfL -o "$APP/box-doki.png" \
+  "$TN/Nintendo%20-%20Family%20Computer%20Disk%20System/Named_Boxarts/Yume%20Koujou%20-%20Doki%20Doki%20Panic%20(Japan)%20(DV%201).png" || true
+curl -sSfL -o "$APP/box-silver.png" \
+  "$TN/Nintendo%20-%20Game%20Boy%20Color/Named_Boxarts/Pokemon%20-%20Silver%20Version%20(USA%2C%20Europe)%20(SGB%20Enhanced)%20(GB%20Compatible).png" || true
 for c in gb gbc gba snes n64; do
   cp "$ROOT/native/ios/Assets.xcassets/console-$c.imageset/console.png" "$APP/console-$c.png"
 done
@@ -112,6 +118,7 @@ film bg-purple A66BFF-FF5FB0 accent
 film bg-rainbow A66BFF-FF5FB0 rainbow
 film bg-own3 A66BFF-FF5FB0 own A66BFF-FF5FB0-3CD278
 film bg-gold FFD66B-F2B233 accent
+shoot box box
 shoot home-purple home A66BFF-FF5FB0
 shoot home home
 
