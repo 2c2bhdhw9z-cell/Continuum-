@@ -5,7 +5,25 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (22 October 2026, about 8:15 PM Eastern): colour ribbons after 207
+## START HERE (22 October 2026, about 9:45 PM Eastern): whole screen in swirling colour after 208
+
+- Owner on 208: "all it is is strips"; on the dark between ribbons: "NO GAPS". (The dark came
+  from the spec text he pasted after 207; he does not want it.) He wants the WHOLE background in
+  colour, every colour at once, swirling round each other, never one colour everywhere, never grey.
+- `NewLookSwirl` (NewLookMotion.swift) is now a colour field worked out per point on a 41-wide
+  grid each frame (`NewLookSwirlField.pixels`, plain Foundation, 1.2 ms a frame on the Linux
+  sandbox), drawn as a small CGImage scaled up and blurred at a third resolution.
+  - Each colour = two soft clouds, all evenly round a slowly turning oval, each drifting in and
+    out; order round the oval follows the colour wheel there and back (`NewLookSwirlPalette.ring`)
+    so only neighbouring hues meet.
+  - Two wandering whirlpools (opposite turns) twist the page, plus a sine wobble: curls.
+  - Mixing in Oklab (`NewLookOklab`): lightness, chroma and hue mixed separately, hue unwrapped
+    so it never crosses the widest empty stretch of the wheel. Never grey.
+  - Pace 1.5x inside `pixels` (at 1x it barely moved in a 10-second film). Speed setting on top.
+- Prototype: `.scratch/rib/field4.py` (not in the repo). Simulator film:
+  `docs/new-look/simulator-colour-swirl-0e329b6.jpg`. Phone checks: TESTING.md "after 208".
+
+## Earlier (22 October 2026, about 8:15 PM Eastern): colour ribbons after 207 (rejected: "strips")
 
 - Owner on 207: "50%". Colours took turns over the whole screen and went grey where they met. He
   wants every colour on screen at once in tighter ribbon-like waves, dark page between, swirling

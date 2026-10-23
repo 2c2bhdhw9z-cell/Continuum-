@@ -138,8 +138,10 @@ enum NewLookSwirlField {
     /// One frame of colour: a small picture (`width` by `height`, red, green, blue and one spare
     /// byte per point) covering the screen and `over` past each edge. `tall` is the screen's
     /// height over its width; positions below are in screen widths (x 0 to 1, y 0 to `tall`).
-    static func pixels(t: Double, tall: Double, palette: NewLookSwirlPalette, k: Double,
+    static func pixels(t time: Double, tall: Double, palette: NewLookSwirlPalette, k: Double,
                        base: SIMD3<Double>) -> (pixels: [UInt8], width: Int, height: Int) {
+        // The usual pace (Speed 1): on the simulator at 1x the colours barely moved in 10 seconds.
+        let t = time * 1.5
         let n = palette.lightness.count
         guard n > 0, tall > 0 else { return ([], 0, 0) }
         let cols = 40

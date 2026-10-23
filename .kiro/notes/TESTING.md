@@ -7,7 +7,23 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
-## Next install (after 207): colour ribbons
+## Next install (after 208): the whole screen in swirling colour
+
+Owner on build 208's ribbons: "all it is is strips", and on the dark between them: "NO GAPS".
+What he wants: the whole background in colour, every colour on screen at once, swirling round
+each other, never one colour over the whole screen, never muddy or grey. Simulator film of the
+fix (rows: purple accent, his purple-pink-green, gold, Rainbow):
+`docs/new-look/simulator-colour-swirl-0e329b6.jpg`. Measured on those films: no dark anywhere,
+no grey, each colour 21 to 46% of the screen.
+
+1. Home (and every other page): the whole screen is colour, edge to edge. No dark gaps, no strips.
+2. Every colour shows at the same time, and they flow and curl round each other like stirred
+   paint. Watch 30 seconds: no colour takes over the whole screen, none disappears.
+3. Where colours meet they blend smoothly into each other. No grey, no brown, no muddy patch.
+4. Settings → LOOK → Background → Swirl colours: Accent, Rainbow, My own (your two or three).
+   Strength (fainter or richer) and Speed (slower or faster) still work.
+
+## Next install (after 207): colour ribbons (rejected: "strips")
 
 Owner on build 207: "maybe only like 50%". The colours took turns covering the whole screen (4
 seconds of solid purple, then green over everything) and went muddy grey where they overlapped.
