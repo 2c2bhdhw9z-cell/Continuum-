@@ -7,6 +7,25 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Next install (after 207): colour ribbons
+
+Owner on build 207: "maybe only like 50%". The colours took turns covering the whole screen (4
+seconds of solid purple, then green over everything) and went muddy grey where they overlapped.
+He asked for all the colours on screen at once in tighter, ribbon-like waves with the dark page
+between them, swirling round each other, never one colour over the whole screen, never muddy.
+Simulator film of the fix (rows: purple accent, his purple-pink-green, gold, Rainbow):
+`docs/new-look/simulator-ribbons-1df1a18.jpg`. Measured on those films: every colour on screen
+in every frame, dark page 28 to 51% of the screen, no grey.
+
+1. Home (and every other page): soft wavy colour ribbons over the dark page, every colour
+   showing at the same time, the dark showing between them. They drift and weave slowly.
+2. Watch for 30 seconds: no colour ever covers the whole screen, no colour disappears.
+3. Where two ribbons cross, one goes over the other with a thin dark line between: no grey,
+   no brown, no muddy patch.
+4. Settings → LOOK → Background → Swirl colours: Accent (your colour and its neighbours),
+   Rainbow (four colours), My own (your two or three). Each shows exactly those colours as ribbons.
+5. Strength (fainter or brighter ribbons) and Speed (slower or faster) still work.
+
 ## Next install (after 206): how the colours mix
 
 Owner on build 206: "No." with 8 screenshots of the swirl folding into hard-edged sheets, then a

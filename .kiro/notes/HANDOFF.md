@@ -5,7 +5,25 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (22 October 2026, about 6:45 PM Eastern): how the colours mix
+## START HERE (22 October 2026, about 8:15 PM Eastern): colour ribbons after 207
+
+- Owner on 207: "50%". Colours took turns over the whole screen and went grey where they met. He
+  wants every colour on screen at once in tighter ribbon-like waves, dark page between, swirling
+  round each other, never one colour everywhere, never muddy (TESTING.md "after 207", verbatim).
+- `NewLookSwirl` (NewLookMotion.swift) is no longer a MeshGradient. It is a Canvas of ribbons:
+  two per colour (half a page apart, so none ever leaves), evenly spaced, drifting with wrap
+  round, each leaning, waving and bowing on its own. Glows are drawn on the page; ribbons on a
+  layer above, and before each ribbon the ones under it are cut away just round it
+  (`.destinationOut`), so crossings never average two colours into grey. Width: `unit*0.12`,
+  narrower with more than six ribbons (Rainbow's eight). Drawn at a third, scaled up.
+- `swirlRGB`: one colour per ribbon pair. Accent: its two stops plus a near neighbour
+  (`shiftedHue(first, -0.08)`, so gold gets orange, not lime). Rainbow: four hues. My own: his.
+- Preview films purple, his own three, gold and Rainbow (retries an empty film). Prototype maths:
+  every colour on screen in every frame, dark 28 to 51%, no grey. Picture:
+  `docs/new-look/simulator-ribbons-1df1a18.jpg`.
+- Phone checks: TESTING.md "Next install (after 207)".
+
+## Earlier (22 October 2026, about 6:45 PM Eastern): how the colours mix
 
 - Build 206's MeshGradient folded (its inner points turned round the middle and crossed). The
   owner sent a screen recording of Gemini and Manic (release tag 🖕, harmless: the install link
