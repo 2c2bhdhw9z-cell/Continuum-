@@ -1,13 +1,35 @@
 # What to test, and what to tell me
 
-Last updated 22 October 2026, 9:55 PM Eastern. **Build 209** (`8cf645e`) is the newest install:
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-209-8cf645e/Continuum-209.ipa
-Its checks are "Next install (after 208)" just below; the older sections are history. Do not ask the 192
+Last updated 22 October 2026, 11:15 PM Eastern. **Build 211** (`dc53d06`) is the newest install:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-211-dc53d06/Continuum-211.ipa
+Its checks are "Next install (after 209)" just below, then "after 208"; the older sections are history. Do not ask the 192
 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
-## Next install (after 208): the whole screen in swirling colour
+## Next install (after 209): header, console picker, Settings
+
+Owner on 209: swirl "good enough for now"; delete his video release (done: release and tag gone);
+"get rid of that weird crap at the top" (he circled the frosted band behind CONTINUUM); every
+Settings card closed, the New ones were not; condense Settings; look for bugs, "one to do with
+the console selector and tabs" he would not name.
+
+1. Top of every page: the background runs right up behind the time and CONTINUUM. No band.
+   Scroll Home: titles fade out just under the header, never showing through CONTINUUM.
+2. Home, SYSTEMS: no console is lit until you pick one. Tap Game Boy Advance: the Library opens
+   on Game Boy Advance and Home now lights it too. In the Library, tap All (or tap Game Boy
+   Advance again): every game, and Home lights nothing.
+3. Library: tick some games (select), then pick another console: select mode ends. Tick games,
+   then search: Delete counts and deletes only the ticked games you can still see.
+4. Pick a console, then tap search from Home: it looks through every game.
+5. Settings: every card closed, the New look's included (Accent, Covers, Background, Light and
+   motion; the ring is in Light and motion, the preview in Accent). Open all / Close all work on
+   them too. The Current/New choice stays at the top.
+6. Settings is shorter: CORES has each emulator's settings (one "Pick an emulator" menu) and the
+   TV buttons; Controllers and online play; On-screen controls and haptics; Saves, cheats and
+   storage; in the Current look, Dark / Light / System is in the Look card.
+
+## Next install (after 208): the whole screen in swirling colour (owner: "good enough for now")
 
 Owner on build 208's ribbons: "all it is is strips", and on the dark between them: "NO GAPS".
 What he wants: the whole background in colour, every colour on screen at once, swirling round

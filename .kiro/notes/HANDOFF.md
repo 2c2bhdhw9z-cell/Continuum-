@@ -5,7 +5,30 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (22 October 2026, about 9:45 PM Eastern): whole screen in swirling colour after 208
+## START HERE (22 October 2026, about 11:15 PM Eastern): header, console picker, Settings after 209
+
+- Owner on 209: swirl "good enough for now". Deleted his video release (🖕) and its tag.
+- Header: `NewLookHeaderGlass` is gone. `NewLookHeaderFade` (NewLookDesign.swift) masks only
+  Home's ScrollView (the one page that scrolls under the header): clear above header bottom
+  minus 30, eased over 40 pt. `newTopBar` has `.contentShape(Rectangle())` so a faded card under
+  it cannot be tapped.
+- Console picker (`LookStore.librarySystem`): Home lights only the picked console (it lit the hero's
+  console, so Home and Library disagreed: likely the owner's unnamed bug); re-tapping the picked
+  console = All; changing console ends select mode; `LibrarySelection.picked(in:)` so Delete,
+  favourite and All/None act only on ticked games on screen; a console with no games left goes
+  back to All; search from Home or Settings clears the console; "No match" names the console.
+- Settings: `SettingsFolds` closes everything once (`continuum.settings.allClosedOnce210`). The
+  New-look cards fold through it (keys "NEW LOOK ACCENT" etc.): four cards, Ring inside Light
+  and motion, preview inside Accent, no blurbs. Merged: CORES + CORE SETTINGS
+  (`CoreSettingsSettingsSection<Leading>`, one Menu for the cores, TV buttons show their value);
+  GAME CONTROLLERS + CONTROLLERS, MAPPING AND MOTION + ONLINE PLAY (`InputSettingsSection<Leading,
+  Trailing>`, `OnlinePlayNotes`); ON-SCREEN CONTROLS + HAPTICS AND TURBO; SAVE STATES + CHEATS +
+  STORAGE; APPEARANCE moved into `LookPickerCard(appearance:)` for the Current look.
+- **Build 211 is the newest install** (`dc53d06`, 10:59 PM Eastern), checked: 0.8.0 (211), 37
+  emulator files. https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-211-dc53d06/Continuum-211.ipa
+  (210 is the same minus the review fixes.) Phone checks: TESTING.md "after 209".
+
+## Earlier (22 October 2026, about 9:45 PM Eastern): whole screen in swirling colour after 208
 
 - Owner on 208: "all it is is strips"; on the dark between ribbons: "NO GAPS". (The dark came
   from the spec text he pasted after 207; he does not want it.) He wants the WHOLE background in
